@@ -22,7 +22,7 @@ const vente = (o: Partial<Vente> & { parties: Partie[]; retro?: number }): Vente
   return { id: 260, societe: 'macj', libelle: 'FABARRO', honorairesTtc: 25000, statut: 'compromis', annee: 2026, mois: null, dateCompromis: '2026-10-20', apporteur: null, note: null,
     origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null, lignes: [],
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: nego(e), sortie: nego(s), apporteurId: null, personnes: [] },
-    ...o, repartition: { retroApporteurTtc: o.retro ?? 0, parties: o.parties } } as Vente;
+    ...o, repartition: { retroApporteurTtc: o.retro ?? 0, apporteurInterne: true, parties: o.parties } } as Vente;
 };
 const ttc = (m: MontantC): number => m.ttcC / 100;
 const ht = (m: MontantC): number => m.htC / 100;

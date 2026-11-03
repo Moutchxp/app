@@ -12,7 +12,7 @@ import type { LigneVente, Retrocession, Vente } from './modele';
 const vente = (id: number, honorairesTtc: number, o: Partial<Vente> = {}): Vente => ({ id, societe: 'criterimmo', libelle: `V${id}`, honorairesTtc, statut: 'vendue', annee: 2026, mois: 7,
   dateCompromis: null, apporteur: null, note: null, origine: 'import', sourceFichier: 'TABLEAU DE BORD 2026.xlsx', sourceOnglet: 'CATHERINE', sourceLigne: 23, lignes: [], double: null, ...o });
 const retro = (id: number, venteId: number, montantTtc: number, negociateur = 'CATHERINE'): Retrocession => ({ id, societe: 'criterimmo', annee: 2026, mois: 7,
-  negociateur, montantTtc, apporteur: null, venteId, libelle: null, origine: 'import', sourceOnglet: negociateur, sourceCellule: 'J3' });
+  negociateur, montantTtc, apporteur: null, venteId, libelle: null, origine: 'import', sourceOnglet: negociateur, sourceCellule: 'J3', interne: true });
 const paye = (negociateur: string, montantTtc: number): LigneVente => ({ id: 1, negociateur, role: 'negociateur', montantTtc, nature: 'vente', compte: true, origine: 'saisie',
   sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
 

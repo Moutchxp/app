@@ -69,12 +69,12 @@ describe('vérifier la répartition (avant tout enregistrement)', () => {
 describe('le CA de chaque société', () => {
   it('l’apporteur est déduit AVANT la répartition', () => {
     // 12 000 TTC − 2 400 TTC de rétrocession = 9 600 TTC → 8 000 HT nets ; 50/50
-    const r = partsParSociete(partiesParDefaut(JB, MY), 12000, 2400);
+    const r = partsParSociete(partiesParDefaut(JB, MY), 12000, 2400, true); // apporteur interne : le calcul d'avant (D29 : un externe, voir compromisCartes / d29)
     expect(r.netHt).toBe(ht(9600));
     expect(r.societe).toEqual({ criterimmo: ht(9600) / 2, macj: ht(9600) / 2 });
   });
   it('🔴 LOT R — deux sociétés : la porteuse (entrée) a toute la commission, l’autre sa part ; le CA global la compte UNE fois', () => {
-    const v = vente({ repartition: { parties: partiesParDefaut(JB, MY), retroApporteurTtc: 0 } });
+    const v = vente({ repartition: { parties: partiesParDefaut(JB, MY), retroApporteurTtc: 0, apporteurInterne: true } });
     expect(caHt(v, 'criterimmo')).toBe(10000);
     expect(caHt(v, 'macj')).toBe(5000);
     const c = celluleGlobal({ ventes: [v], location: {}, gestion: [] }, 2026, 11);
@@ -82,19 +82,19 @@ describe('le CA de chaque société', () => {
     expect(concerne(v, 'macj')).toBe(true);
   });
   it('même société des deux côtés : la somme va à cette société', () => {
-    const v = vente({ repartition: { parties: partiesParDefaut(JB, AR), retroApporteurTtc: 0 } });
+    const v = vente({ repartition: { parties: partiesParDefaut(JB, AR), retroApporteurTtc: 0, apporteurInterne: true } });
     expect([caHt(v, 'criterimmo'), caHt(v, 'macj')]).toEqual([10000, 0]);
     expect(concerne(v, 'macj')).toBe(false);
   });
   it('60/40 : 6 000 / 4 000', () => {
     const [e, s] = partiesParDefaut(JB, MY);
-    const v = vente({ repartition: { parties: [pct(e, 60), pct(s, 40)], retroApporteurTtc: 0 } });
+    const v = vente({ repartition: { parties: [pct(e, 60), pct(s, 40)], retroApporteurTtc: 0, apporteurInterne: true } });
     // 🔴 LOT R — CRITERIMMO porte : 10 000 ; MACJ reçoit 4 000 en inter-cabinet.
     expect([caHt(v, 'criterimmo'), caHt(v, 'macj')]).toEqual([10000, 4000]);
   });
   it('🔴 LOT R — 40/40/20 : la porteuse encaisse tout et reverse la part extérieure (inter-cabinet extérieur)', () => {
     const [e, s] = partiesParDefaut(JB, MY);
-    const v = vente({ repartition: { parties: [pct(e, 40), pct(s, 40), { ...partieExterieure(), nom: 'Agence du Parc', pourcentage: 20 }], retroApporteurTtc: 0 } });
+    const v = vente({ repartition: { parties: [pct(e, 40), pct(s, 40), { ...partieExterieure(), nom: 'Agence du Parc', pourcentage: 20 }], retroApporteurTtc: 0, apporteurInterne: true } });
     expect([caHt(v, 'criterimmo'), caHt(v, 'macj'), caHt(v), exterieurHt(v)]).toEqual([10000, 4000, 10000, 2000]);
     const c = celluleGlobal({ ventes: [v], location: {}, gestion: [] }, 2026, null);
     expect([c.totalHt, c.interCabinetHt, c.exterieurHt]).toEqual([10000, 4000, 2000]);
@@ -102,7 +102,7 @@ describe('le CA de chaque société', () => {
     expect(totaux([v], [], 'criterimmo').resteHt).toBe(4000);
   });
   it('les totaux d’une société : sa part, rétrocession déjà déduite', () => {
-    const v = vente({ repartition: { parties: partiesParDefaut(JB, MY), retroApporteurTtc: 2400 } });
+    const v = vente({ repartition: { parties: partiesParDefaut(JB, MY), retroApporteurTtc: 2400, apporteurInterne: true } });
     const t = totaux([v], [], 'macj');
     expect(t.caHt).toBe(ht(9600) / 2);
     expect(t.resteHt).toBe(ht(9600) / 2);

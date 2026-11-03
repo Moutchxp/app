@@ -14,7 +14,7 @@ const ligne = (id: number, negociateur: string, cote: 'entree' | 'sortie', ttc: 
   nature: 'compromis', compte: false, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
 const vente = (o: Partial<Vente> & { parties: Partie[]; retro?: number }): Vente => ({ id: 37, societe: 'criterimmo', libelle: 'Location ?', honorairesTtc: 7500, statut: 'compromis', annee: 2026, mois: null,
   dateCompromis: '2026-10-20', apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null, lignes: [], dossier: null,
-  ...o, repartition: { retroApporteurTtc: o.retro ?? 0, parties: o.parties } });
+  ...o, repartition: { retroApporteurTtc: o.retro ?? 0, apporteurInterne: true, parties: o.parties } });
 
 /** Une catégorie par sa clé (l'ordre, lui, est vérifié à part — lot AX). */
 const cat = (d: DetailCommissions, cle: CleCout): CategorieCout => d.versees.find((c) => c.cle === cle)!;
@@ -113,7 +113,7 @@ describe('🔴 LOT AL — le détail des « Commissions versées »', () => {
 
   it('plusieurs affaires : la somme des sous-totaux (catégories, affaires) = le total, au centime, HT et TTC', () => {
     const a = location();
-    const b = { ...location('macj'), id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { ...location('macj').repartition!, retroApporteurTtc: 0 } };
+    const b = { ...location('macj'), id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { ...location('macj').repartition!, retroApporteurTtc: 0, apporteurInterne: true } };
     const c = vente({ id: 39, honorairesTtc: 1000, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 33.3333), partie('sortie', 8, 'Pierre Thevenin', 'macj', 33.3333),
       partie('exterieure', null, null, null, 33.3334, { nom: 'Agence du Parc' })], lignes: [ligne(3, 'Arnaud Jorel', 'entree', 100)] });
     for (const s of ['criterimmo', 'macj', null] as const) {

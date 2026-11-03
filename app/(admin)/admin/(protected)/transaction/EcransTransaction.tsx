@@ -54,6 +54,7 @@ function NonDeduits({ T }: { T: NonDeduitsMontants }) {
   </>;
 }
 import { FormulaireDossier, type References } from './FormulaireDossier';
+import { MontantSansTva, MOT_TVA_APPORTEUR } from './Repartition';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, useChoixSalaires } from './ChoixSalaires';
 import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
@@ -922,7 +923,11 @@ function LignesResultat({ R: r, T, suffixe, apresCa }: { R: ResultatCartes; T: N
   return <>
     <dt>{cons(`CA ${MOT}`)}</dt><dd><Mt {...m(r.ca)} donnees={{ [`data-ca-${suffixe}`]: '' }} /></dd>
     {apresCa}
-    <dt>− Rétrocessions d’apporteurs ({MOT})</dt><dd><Mt {...m(r.retro)} cout donnees={{ [suffixe === 'mois' ? 'data-retro-resultat' : 'data-retro-periode']: '' }} /></dd>
+    {/* 🔴 D29 — le versé aux apporteurs : externes seulement, un montant « sans TVA » ; puis, en TTC, la TVA non récupérable sur leur part */}
+    <dt>− Rétrocessions d’apporteurs ({MOT})</dt><dd>{non(r.retro) && r.retro.htC === r.retro.ttcC
+      ? <span {...{ [suffixe === 'mois' ? 'data-retro-resultat' : 'data-retro-periode']: '' }}><MontantSansTva montant={r.retro.htC / 100} /></span>
+      : <Mt {...m(r.retro)} cout donnees={{ [suffixe === 'mois' ? 'data-retro-resultat' : 'data-retro-periode']: '' }} />}</dd>
+    {non(r.tvaApporteur) && <><dt>− {MOT_TVA_APPORTEUR}</dt><dd><Mt {...m(r.tvaApporteur)} cout donnees={{ [`data-tva-apporteur-${suffixe}`]: '' }} /></dd></>}
     {non(r.interCabinet) && <><dt>− Inter-cabinet vers nos autres sociétés ({MOT})</dt><dd><Mt {...m(r.interCabinet)} donnees={{ [`data-inter-cabinet-${suffixe}`]: '' }} /></dd></>}
     {non(r.exterieur) && <><dt>− Inter-cabinet extérieur ({MOT})</dt><dd><Mt {...m(r.exterieur)} donnees={{ [`data-exterieur-${suffixe}`]: '' }} /></dd></>}
     <dt>− Commissions des négociateurs indépendants ({MOT})</dt><dd><Mt {...m(r.com)} cout donnees={{ [suffixe === 'mois' ? 'data-paye-deduite' : 'data-paye-deduite-periode']: '' }} /></dd>
@@ -942,7 +947,9 @@ function RetrosHorsResultat({ retros, ventes, quand }: { retros: readonly Retroc
   const nommer = useNommer();
   if (retros.length === 0) return null;
   const ttc = retros.reduce((t, r) => t + r.montantTtc, 0);
-  const mt = (x: number): string => (u === 'ttc' ? `${eur(x)} TTC (${eur(x / TVA)} HT)` : `${eur(x / TVA)} HT (${eur(x)} TTC)`);
+  // 🔴 D29 — un apporteur externe (sans nom, ou hors des collaborateurs) : un seul montant, « sans TVA »
+  const sansTva = retros.every((r) => r.interne !== true);
+  const mt = (x: number, externe = sansTva): string => (externe ? `${eur(x)} sans TVA` : u === 'ttc' ? `${eur(x)} TTC (${eur(x / TVA)} HT)` : `${eur(x / TVA)} HT (${eur(x)} TTC)`);
   return (
     <div className="trx-hors-resultat" data-retros-hors-resultat>
       <button type="button" className="trx-hors-tete" aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)} data-ouvrir-hors-resultat>
@@ -954,7 +961,7 @@ function RetrosHorsResultat({ retros, ventes, quand }: { retros: readonly Retroc
         const v = r.venteId === null ? undefined : ventes.find((x) => x.id === r.venteId);
         return (
           <li key={r.id} data-retro-hors={r.id}>
-            <span><strong>{r.apporteur ?? APPORTEUR_NON_NOMME}</strong> · {mt(r.montantTtc)} · {r.venteId === null ? 'à répartir'
+            <span><strong>{r.apporteur ?? APPORTEUR_NON_NOMME}</strong> · {mt(r.montantTtc, r.interne !== true)} · {r.venteId === null ? 'à répartir'
               : `vente ${v === undefined ? `n° ${r.venteId}` : `${v.libelle}${v.mois === null ? ` (${v.annee})` : ` (${moisCourt(v.annee, v.mois)})`}`}`}</span>
             <span className="trx-source">{nommer(r.negociateur)} · saisie {moisCourt(r.annee, r.mois)}{r.sourceOnglet !== null ? ` · ${r.sourceOnglet} › ${r.sourceCellule ?? ''}` : ''}</span>
           </li>
@@ -1579,7 +1586,7 @@ function VueAnnee({ d, tout, annees, anneesHistoire, choix, refus, onAnnee, onAn
           <thead><tr><th scope="col">Apporteur</th><th scope="col">Rétrocessions</th><th scope="col">Montant {U.MOT}</th><th scope="col">Ventes rattachées</th><th scope="col">CA apporté {U.MOT}</th><th scope="col">À répartir</th></tr></thead>
           <tbody>{apporteurs.map((a) => (
             <tr key={a.apporteur} data-apporteur={a.apporteur}>
-              <th scope="row">{a.apporteur}</th><td data-mot="Rétrocessions">{a.nbRetrocessions}</td><td data-mot={`Montant ${U.MOT}`}><Mt ht={a.retroHt} /></td>
+              <th scope="row">{a.apporteur}</th><td data-mot="Rétrocessions">{a.nbRetrocessions}</td><td data-mot={`Montant ${U.MOT}`}>{a.sansTva === true ? <MontantSansTva montant={a.retroHt} rouge={false} donnee="apporteurs-annee" /> : <Mt ht={a.retroHt} />}</td>
               <td data-mot="Ventes rattachées"><button type="button" className="tdb-chiffre" disabled={a.ventesIds.length === 0}
                 onClick={() => onDetail({ titre: `Ventes apportées — ${a.apporteur}`, ids: a.ventesIds })}>{a.ventesIds.length}</button></td>
               <td data-mot={`CA apporté ${U.MOT}`}><Mt ht={a.caApporteHt} /></td><td data-mot="À répartir">{a.aRepartir}</td>

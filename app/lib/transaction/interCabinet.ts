@@ -27,7 +27,7 @@ export const libelleMiroir = (libelle: string, porteuse: Societe): string => `${
 export function miroirsAttendus(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'>): { societe: Societe; porteuse: Societe; partHt: number; pourcentage: number | null }[] {
   if (v.repartition == null) return [];
   const porteuse = societePorteuse(v);
-  const net = commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc);
+  const net = commissionNetteHt(v.honorairesTtc, v.repartition.retroApporteurTtc, v.repartition.apporteurInterne);
   // Le % lu sur ses parties (une part en € HT ramenée en %) : sans division de la part par le net, donc sans écart de virgule.
   const pct = (s: Societe): number | null => (v.repartition!.parties.some((p) => p.societe === s && p.pourcentage === null) && net === 0 ? null
     : v.repartition!.parties.reduce((t, p) => t + (p.societe !== s ? 0 : p.pourcentage !== null ? p.pourcentage : ((p.montantHt ?? 0) / net) * 100), 0));
@@ -42,7 +42,7 @@ export function miroirsAttendus(v: Pick<Vente, 'societe' | 'honorairesTtc' | 're
 export function ligneMiroir(v: Vente, s: Societe, partHt: number, pourcentage: number | null, etat: 'active' | 'annulee', annuleeLe: string | null = null): Vente {
   const porteuse = societePorteuse(v);
   const r = v.repartition;
-  const net = r == null ? 0 : commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc);
+  const net = r == null ? 0 : commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc, r.apporteurInterne);
   const partieDe = (cote: 'entree' | 'sortie') => r?.parties.find((p) => p.societe === s && (cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie']).includes(p.sorte)
     && p.compteId !== null && (cote === 'entree' ? v.dossier?.entree?.id : v.dossier?.sortie?.id) === p.compteId);
   // Les côtés tenus par un négociateur de cette société : leur rémunération se lit (et se modifie) d'ici.

@@ -1,4 +1,4 @@
-import { bilanVente, commissionNetteHt, LIBELLE_SOCIETE, societePorteuse, TVA, type Societe, type Vente } from './modele';
+import { bilanVente, commissionNetteHt, htApporteur, LIBELLE_SOCIETE, societePorteuse, tvaApporteur as tvaApporteurDe, TVA, type Societe, type Vente } from './modele';
 import { enHt, enTtc, montantDeLigne, remuneration, remunerationDuCote } from './commissions';
 import { commissionIgnoree, commissionneDePartie, statutDePartie } from './statutLigne';
 import { centimesRepartition } from './repartition';
@@ -57,6 +57,8 @@ export interface VentilationCote {
    * « = Honoraires nets partie … : (commission − apporteur) × part % = … » — les honoraires NETS de la partie. Vide : sans apporteur (ou ligne miroir).
    */
   apporteurs: { nom: string | null; m: MontantC }[];
+  /** 🔴 D29 — la TVA non récupérable de l'apporteur externe (TTC seulement ; 0 en HT, pour un interne, une ligne miroir), déduite dans l'en-tête. */
+  tvaApporteur?: MontantC;
   /** 🔴 LOT BA — la ligne miroir : la société porteuse (« Honoraires reçus de … ») ; null : une vente de la société vue. */
   recuDe: Societe | null;
   agence: MontantC;
@@ -110,10 +112,10 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
   if (r == null) return {};
   const porteuse = societePorteuse(v);
   if (vue !== null && vue !== porteuse) return {};
-  const netHt = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc);
+  const netHt = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc, r.apporteurInterne);
   const pctDe = (i: number): number => { const p = r.parties[i]; return p.pourcentage !== null ? p.pourcentage : netHt === 0 ? 0 : ((p.montantHt ?? 0) / netHt) * 100; };
-  const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
-  const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
+  const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ht', r.apporteurInterne);
+  const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc', r.apporteurInterne);
   const ah = cHt !== null && cTtc !== null;
   // Chaque côté : ses parties (une partie n'est comptée qu'une fois, même « entrée et sortie »), sa part (%), sa société, son négociateur.
   const prises = new Set<number>();
@@ -138,8 +140,11 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
   const poids = cotes.map((c) => c.part);
   // 🔴 LOT BB — l'apporteur est déduit dans l'en-tête de chaque carte (il n'est plus réparti entre les cartes) ; seules les agences extérieures
   // gardent leur quote-part dans la ventilation.
+  // 🔴 D29 — l'apporteur : le montant versé (externe : HT = TTC) ; sa TVA non récupérable (TTC seulement), déduite elle aussi dans l'en-tête
   const apporteurs = r.retroApporteurTtc === 0 ? [] : [{ nom: v.apporteur?.trim() || null,
-    m: ah ? { htC: Math.round(cHt!.apporteurHt * 100), ttcC: Math.round(cTtc!.apporteurHt * 100) } : depuisTtc(r.retroApporteurTtc) }];
+    m: ah ? { htC: Math.round(cHt!.apporteurHt * 100), ttcC: Math.round(cTtc!.apporteurHt * 100) }
+      : { htC: enCentimes(htApporteur(r.retroApporteurTtc, r.apporteurInterne)), ttcC: enCentimes(r.retroApporteurTtc) } }];
+  const tvaApporteur: MontantC = { htC: 0, ttcC: ah ? Math.round(cTtc!.tvaApporteur * 100) : enCentimes(tvaApporteurDe(r.retroApporteurTtc, r.apporteurInterne)) };
   const aRepartir: { cle: QuotePart['cle']; nom: string | null; total: MontantC }[] = [];
   r.parties.forEach((p, i) => {
     if (p.sorte !== 'exterieure') return;
@@ -170,7 +175,7 @@ export function ventilationVente(v: Vente, vue: Societe | null): Partial<Record<
     const commissions: CommissionCote[] = conserve === null && versee === null && c.nego !== null && commission !== null ? [{ negociateur: c.nego.nom, m: commission }] : [];
     const agence = commissions.reduce((t, x) => moins(t, x.m), versee === null ? c.base : moins(c.base, versee.m));
     out[c.cote] = { cote: c.cote, societe: garde, base: c.base, pctQuote: pctInternes === 0 ? 0 : (c.part / pctInternes) * 100, quoteParts, honoraires, commissions, versee, agence,
-      associes: conserve === null || (agence.htC === 0 && agence.ttcC === 0) ? [] : [{ nom: conserve.associe, m: agence }], conserve, commissionVente, apporteurs, recuDe: null };
+      associes: conserve === null || (agence.htC === 0 && agence.ttcC === 0) ? [] : [{ nom: conserve.associe, m: agence }], conserve, commissionVente, apporteurs, tvaApporteur, recuDe: null };
   });
   return out;
 }
@@ -212,7 +217,8 @@ export function controleVentilation(v: Vente, vue: Societe | null): ControleVent
   if (v.miroir == null && (v.repartition == null || (vue !== null && vue !== societePorteuse(v)))) return null;
   // 🔴 LOT BB — les honoraires nets des cartes (la somme de leurs cadres) + le(s) apporteur(s), comptés une fois.
   const cadres = cartes.reduce((t, c) => [...c.commissions.map((x) => x.m), ...c.quoteParts.map((x) => x.m), ...(c.versee === null ? [] : [c.versee.m]), c.agence].reduce(plus, t), RIEN);
-  const ventile = (cartes[0]?.apporteurs ?? []).reduce((t, a) => plus(t, a.m), cadres);
+  // 🔴 D29 — + la TVA non récupérable de l'apporteur (TTC), comptée une fois
+  const ventile = plus((cartes[0]?.apporteurs ?? []).reduce((t, a) => plus(t, a.m), cadres), cartes[0]?.tvaApporteur ?? RIEN);
   const attendu = v.miroir != null ? { htC: enCentimes(v.miroir.partHt), ttcC: enCentimes(v.honorairesTtc) } : cartes[0]?.commissionVente ?? commissionDeVente(v);
   return { attendu, ventile, ecart: moins(attendu, ventile) };
 }
@@ -220,8 +226,8 @@ export function controleVentilation(v: Vente, vue: Societe | null): ControleVent
 /** La commission de la vente au centime (règle du lot AH ; à défaut, l'arrondi simple). PUR. */
 function commissionDeVente(v: Vente): MontantC {
   const r = v.repartition;
-  const c = r == null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, societePorteuse(v));
-  const t = r == null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, societePorteuse(v), 'ttc');
+  const c = r == null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, societePorteuse(v), 'ht', r.apporteurInterne);
+  const t = r == null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, societePorteuse(v), 'ttc', r.apporteurInterne);
   return c !== null && t !== null ? { htC: Math.round(c.commissionHt * 100), ttcC: Math.round(t.commissionHt * 100) } : depuisTtc(v.honorairesTtc);
 }
 

@@ -1,6 +1,6 @@
 import { espaceNegociateurs, lignesCarteAffaire, resultatDesCartes } from '../transaction/carteAffaireLignes';
-import { APPORTEUR_NON_NOMME, type Retrocession, type Societe, type Vente } from '../transaction/modele';
-import { depuisTtc, type MontantC } from '../transaction/partAgence';
+import { APPORTEUR_NON_NOMME, htRetros, verseRetros, type Retrocession, type Societe, type Vente } from '../transaction/modele';
+import type { MontantC } from '../transaction/partAgence';
 import type { StatutDuLibelle } from '../transaction/statutLigne';
 import type { Moi } from './mesAffaires';
 
@@ -28,7 +28,8 @@ type Opts = { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibell
 /** Un apporteur et ce qui lui est versé sur une affaire. */
 export interface VerseApporteur { nom: string; m: MontantC }
 /** Ce qu'une affaire verse à d'autres, et son volume (affaire entière). */
-export interface VerseAffaire { ca: MontantC; collegues: MontantC; negociateurs: MontantC; apporteurs: MontantC; parApporteur: VerseApporteur[] }
+/** 🔴 D29 — `apporteurs` : le VERSÉ (externe : sans TVA, HT = TTC) ; `tva` : la TVA non récupérable sur ce versé (TTC seulement). */
+export interface VerseAffaire { ca: MontantC; collegues: MontantC; negociateurs: MontantC; apporteurs: MontantC; tva?: MontantC; parApporteur: VerseApporteur[] }
 
 /**
  * Les apporteurs d'une affaire et leur part, au centime : l'apporteur de la répartition (le montant de la carte), puis les rétrocessions rattachées,
@@ -40,11 +41,16 @@ export function apporteursDeLAffaire(v: Vente, vue: Societe | null, o: Opts = {}
   const nomVente = v.apporteur?.trim() || APPORTEUR_NON_NOMME;
   const out: VerseApporteur[] = l.apporteur === null ? [] : [{ nom: nomVente, m: l.apporteur }];
   if (l.retro === null) return out;
-  const groupes = new Map<string, number>();
-  for (const r of o.retros ?? []) if (r.venteId === v.id) { const n = r.apporteur?.trim() || nomVente; groupes.set(n, (groupes.get(n) ?? 0) + r.montantTtc); }
+  // 🔴 D29 — chaque groupe : son versé (externe : HT = TTC, `htRetros` / `verseRetros`)
+  const groupes = new Map<string, Retrocession[]>();
+  for (const r of o.retros ?? []) if (r.venteId === v.id) { const n = r.apporteur?.trim() || nomVente; groupes.set(n, [...(groupes.get(n) ?? []), r]); }
   const noms = [...groupes.keys()];
   let reste = l.retro;
-  noms.forEach((n, i) => { const m = i === noms.length - 1 ? reste : depuisTtc(groupes.get(n)!); reste = moins(reste, m); out.push({ nom: n, m }); });
+  noms.forEach((n, i) => {
+    const rs = groupes.get(n)!;
+    const m = i === noms.length - 1 ? reste : { htC: Math.round(htRetros(rs) * 100), ttcC: Math.round(verseRetros(rs) * 100) };
+    reste = moins(reste, m); out.push({ nom: n, m });
+  });
   // regroupe un nom présent deux fois (l'apporteur de la répartition ET une rétrocession à son nom)
   return [...out.reduce((g, x) => g.set(x.nom, plus(g.get(x.nom) ?? RIEN, x.m)), new Map<string, MontantC>())].map(([nom, m]) => ({ nom, m }));
 }
@@ -65,27 +71,29 @@ export function verseAffairePerso(v: Vente, moi: Moi, o: Opts = {}): VerseAffair
   const collegues = somme([...autres.map((x) => plus(moins(x.ca, x.retro), reverse(x.negociateur))), ...miennes.map((x) => reverse(x.negociateur)),
     ...l.lignes.flatMap((x) => x.exterieures.map((y) => y.m))]);
   return { ca: resultatDesCartes([v], null, o).ca, collegues, negociateurs: somme(miennes.map((x) => x.comDeduite)),
-    apporteurs: plus(l.apporteur ?? RIEN, l.retro ?? RIEN), parApporteur: apporteursDeLAffaire(v, null, o) };
+    apporteurs: plus(l.apporteur ?? RIEN, l.retro ?? RIEN), tva: l.tva ?? RIEN, parApporteur: apporteursDeLAffaire(v, null, o) };
 }
 
 /** Mode agence : ce qu'une affaire de la structure verse hors d'elle (la carte de la structure, `resultatDesCartes`). PUR. */
 export function verseAffaireAgence(v: Vente, vue: Societe | null, o: Opts = {}): VerseAffaire {
   const r = resultatDesCartes([v], vue, o);
-  return { ca: r.ca, collegues: plus(r.interCabinet, r.exterieur), negociateurs: r.com, apporteurs: r.retro, parApporteur: apporteursDeLAffaire(v, vue, o) };
+  return { ca: r.ca, collegues: plus(r.interCabinet, r.exterieur), negociateurs: r.com, apporteurs: r.retro, tva: r.tvaApporteur, parApporteur: apporteursDeLAffaire(v, vue, o) };
 }
 
 /** Les 4 cartes : sur les affaires affichées, leur « versé » et leur montant net (« Mon espace » : ma part nette ; agence : la somme des « reste »). */
-export interface CartesCompromis { volume: MontantC; nb: number; reverse: MontantC; collegues: MontantC; negociateurs: MontantC; apporteurs: MontantC; net: MontantC }
+export interface CartesCompromis { volume: MontantC; nb: number; reverse: MontantC; collegues: MontantC; negociateurs: MontantC; apporteurs: MontantC; tva: MontantC; net: MontantC }
 export function cartesCompromis(xs: readonly { verse: VerseAffaire; net: MontantC }[]): CartesCompromis {
   const collegues = somme(xs.map((x) => x.verse.collegues));
   const negociateurs = somme(xs.map((x) => x.verse.negociateurs));
   const apporteurs = somme(xs.map((x) => x.verse.apporteurs));
-  return { volume: somme(xs.map((x) => x.verse.ca)), nb: xs.length, reverse: somme([collegues, negociateurs, apporteurs]), collegues, negociateurs, apporteurs,
+  const tva = somme(xs.map((x) => x.verse.tva ?? RIEN));
+  return { volume: somme(xs.map((x) => x.verse.ca)), nb: xs.length, reverse: somme([collegues, negociateurs, apporteurs, tva]), collegues, negociateurs, apporteurs, tva,
     net: somme(xs.map((x) => x.net)) };
 }
 
 /** Une ligne du tableau « Par apporteur d'affaires » (les deux onglets) : ses affaires, leurs honoraires, ce qui lui est versé. */
-export interface LigneTableauApporteur { apporteur: string; ids: number[]; ca: { ht: number; ttc: number }; verse: { ht: number; ttc: number } }
+/** 🔴 D29 — `sansTva` : le versé d'un apporteur externe (HT = TTC) — un seul montant, « sans TVA ». */
+export interface LigneTableauApporteur { apporteur: string; ids: number[]; ca: { ht: number; ttc: number }; verse: { ht: number; ttc: number }; sansTva?: boolean }
 const enEuros = (m: MontantC): { ht: number; ttc: number } => ({ ht: m.htC / 100, ttc: m.ttcC / 100 });
 
 /**
@@ -98,7 +106,7 @@ export function tableauApporteursCompromis(xs: readonly { id: number; verse: Ver
     const e = g.get(a.nom) ?? { ids: [], ca: RIEN, verse: RIEN };
     g.set(a.nom, { ids: e.ids.includes(x.id) ? e.ids : [...e.ids, x.id], ca: e.ids.includes(x.id) ? e.ca : plus(e.ca, x.verse.ca), verse: plus(e.verse, a.m) });
   }
-  return [...g].map(([apporteur, e]) => ({ apporteur, ids: e.ids, ca: enEuros(e.ca), verse: enEuros(e.verse) }))
+  return [...g].map(([apporteur, e]) => ({ apporteur, ids: e.ids, ca: enEuros(e.ca), verse: enEuros(e.verse), sansTva: e.verse.htC === e.verse.ttcC }))
     .sort((a, b) => b.verse.ht - a.verse.ht || a.apporteur.localeCompare(b.apporteur, 'fr'));
 }
 

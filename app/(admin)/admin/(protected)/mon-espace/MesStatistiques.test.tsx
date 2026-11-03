@@ -29,7 +29,7 @@ beforeEach(() => {
     statistiques: { annees: [
       { annee: 2025, ca: mois12({ 3: 300000 }), nb: nb12({ 3: 1 }), aConfirmer: z, aConfirmerNb: 0 },
       { annee: 2026, ca: mois12({ 3: 600000, 6: 500000 }), nb: nb12({ 3: 1, 6: 1 }), aConfirmer: m(200000), aConfirmerNb: 1 }] },
-    retrocessions: [{ id: 1, societe: 'criterimmo', annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2 }] };
+    retrocessions: [{ id: 1, societe: 'criterimmo', annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2 , interne: true }] };
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string) => (String(url).startsWith(URL_MES_AFFAIRES)

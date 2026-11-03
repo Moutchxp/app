@@ -55,7 +55,8 @@ export function coutsVente(ventes: readonly Vente[], o: { retros?: readonly Retr
     const vent = ventilationVente(v, vue);
     r = { ca: plus(r.ca, (vent.entree ?? vent.sortie)?.commissionVente ?? depuisTtc(v.honorairesTtc)),
       commissions: plus(r.commissions, somme(l.lignes.map((x) => x.com))),
-      apporteurs: plus(plus(r.apporteurs, l.apporteur ?? RIEN), l.retro ?? RIEN),
+      // 🔴 D29 — le COÛT des apporteurs : le versé (externe : sans TVA) + la TVA non récupérable sur leur part (TTC seulement)
+      apporteurs: plus(plus(plus(r.apporteurs, l.apporteur ?? RIEN), l.retro ?? RIEN), l.tva ?? RIEN),
       exterieures: plus(r.exterieures, somme(l.lignes.flatMap((x) => x.exterieures.map((y) => y.m)))),
       net: plus(r.net, caNetVente(v, vue, o)), nb: r.nb + 1 };
   }

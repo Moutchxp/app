@@ -42,7 +42,7 @@ describe('HT, mois du CA, prévisionnel', () => {
 describe('le mois d’une société : rétrocessions, paye, reste à l’agence', () => {
   it('reste = honoraires − rétrocessions du mois − paye des négociateurs INDÉPENDANTS (LOT Q : MYLENE, rapprochée, indépendante)', () => {
     const v = vente(1, { societe: 'macj', honorairesTtc: 11025, lignes: [ligne('MYLENE', 'negociateur', 3215), ligne('CEDRIC', 'part', 7810, false)] });
-    const r = retro(1, { societe: 'macj', venteId: 1, montantTtc: 1200 });
+    const r = retro(1, { societe: 'macj', venteId: 1, montantTtc: 1200 , interne: true });
     const t = totauxMois({ ventes: [v], retrocessions: [r], statutsNegociateurs: { MYLENE: 'independant' } }, 2025, 3);
     expect(t.caHt).toBe(11025 / 1.2);
     expect(t.retroHt).toBe(1200 / 1.2);
@@ -137,7 +137,7 @@ describe('🔴 LOT C — la même vente notée chez CRITERIMMO et chez MACJ', ()
 describe('🔴 LOT Q — le reste à l’agence ne déduit que les INDÉPENDANTS (et les apporteurs)', () => {
   // 12 000 TTC ; apporteur 1 200 TTC (rétrocession du mois) ; paye de MYLENE 2 400 TTC (importée, sans partie).
   const v = vente(1, { societe: 'macj', honorairesTtc: 12000, lignes: [ligne('MYLENE', 'negociateur', 2400)] });
-  const r = retro(1, { societe: 'macj', venteId: 1, montantTtc: 1200 });
+  const r = retro(1, { societe: 'macj', venteId: 1, montantTtc: 1200 , interne: true });
   const avec = (statut: 'associe' | 'salarie' | 'independant' | null) => totauxMois({ ventes: [v], retrocessions: [r], statutsNegociateurs: { MYLENE: statut } }, 2025, 3);
   it('indépendant : déduit ; associé, salarié : internes, non déduits ; inconnu : non déduit et signalé ; l’apporteur est toujours déduit', () => {
     expect(avec('independant')).toMatchObject({ payeHt: 2000, internesHt: 0, aRenseignerHt: 0, resteHt: (12000 - 1200 - 2400) / 1.2 });

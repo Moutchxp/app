@@ -613,7 +613,8 @@ describe('🔴 LOT S (441) — un administrateur NON COMMISSIONNÉ sur une vente
 });
 
 describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une commission SAISIE À LA MAIN reste telle quelle', () => {
-  // « Location ? » : 7 500 TTC, apporteur 1 000 TTC (base 6 500 TTC) ; JB (5) à l'entrée, Mylène (7) à la sortie, taux 25 % à la sortie.
+  // « Location ? » : 7 500 TTC, apporteur 1 000 (🔴 D29 : sans fiche, donc EXTERNE — sans TVA : 1 000 HT déduits, base 5 250 HT = 6 300 TTC) ;
+  // JB (5) à l'entrée, Mylène (7) à la sortie, taux 25 % à la sortie.
   const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo' as const, statut: 'compromis' as const, libelle: 'Location ?', honorairesTtc: 7500, dateCompromis: '2026-10-20',
     dateActePrevue: null, dateActe: null, adresseBien: null, note: null, entreeId: 5, sortieId: 7, apporteurId: null, apporteurNom: null, retroApporteurTtc: 1000, retroUnite: 'ttc' as const,
     personnes: [], parties: [{ sorte: 'entree' as const, compteId: 5, nom: null, coordonnees: null, pourcentage: 70, montantHt: null }, { sorte: 'sortie' as const, compteId: 7, nom: null, coordonnees: null, pourcentage: 30, montantHt: null }],
@@ -630,10 +631,12 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
     const r = await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1, unite: 'ttc' }, sortie: { montant: 1, unite: 'ht' },
       taux: { entree: null, sortie: 25 }, mode: { entree: 'calculee', sortie: 'calculee' } } }), '2026-10-29', A);
     expect(r.ok).toBe(true);
-    // 6 500 × 70 % × 50 % = 2 275 TTC ; 6 500 × 30 % × 25 % = 487,50 TTC, dans l'unité choisie (HT : 406,25), sans arrondi
+    // 6 300 × 70 % × 50 % = 2 205 TTC ; 6 300 × 30 % × 25 % = 472,50 TTC, dans l'unité choisie (HT : 393,75), sans arrondi
     const [e, s] = lignesPosees();
-    expect([e.nego, e.ttc, e.ht, e.cote, e.taux, e.mode]).toEqual(['Jean-Baptiste PONS', 2275, null, 'entree', null, 'calculee']);
-    expect([s.ttc, s.ht, s.cote, s.taux, s.mode]).toEqual([null, 487.5 / 1.2, 'sortie', 25, 'calculee']);
+    expect([e.nego, e.ht, e.cote, e.taux, e.mode]).toEqual(['Jean-Baptiste PONS', null, 'entree', null, 'calculee']);
+    expect(e.ttc).toBeCloseTo(2205, 9);
+    expect([s.ttc, s.cote, s.taux, s.mode]).toEqual([null, 'sortie', 25, 'calculee']);
+    expect(s.ht).toBeCloseTo(472.5 / 1.2, 9);
   });
 
   it('saisie à la main : le montant tapé, tel quel ; le mode « manuelle » enregistré', async () => {
@@ -641,7 +644,7 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
     reponses.push(comptes, periodes, (s) => (s.includes('RETURNING id') ? { rows: [{ id: String(++id) }] } : undefined));
     await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 2275, unite: 'ttc' }, sortie: { montant: 1625, unite: 'ttc' },
       taux: { entree: null, sortie: 25 }, mode: { entree: 'calculee', sortie: 'manuelle' } } }), '2026-10-29', A);
-    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.mode])).toEqual([['entree', 2275, 'calculee'], ['sortie', 1625, 'manuelle']]);
+    expect(lignesPosees().map((l) => [l.cote, Math.round(Number(l.ttc) * 100) / 100, l.mode])).toEqual([['entree', 2205, 'calculee'], ['sortie', 1625, 'manuelle']]);
   });
 
   it('un écran d’avant ce lot (sans mode) : le montant envoyé, comme avant ; sans la 442 : le calcul se fait, aucune colonne neuve n’est nommée', async () => {
@@ -652,7 +655,7 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
     appels.length = 0; lotV.mockResolvedValue(false);
     await repo.enregistrerDossier(null, dossier({ commissions: { entree: { montant: 1, unite: 'ttc' }, sortie: null, taux: { entree: null, sortie: null }, mode: { entree: 'calculee', sortie: null } } }), '2026-10-29', A);
     expect(appels.some((x) => x.sql.includes('mode_commission'))).toBe(false);
-    expect(lignesPosees().map((l) => [l.cote, l.ttc])).toEqual([['entree', 2275]]);
+    expect(lignesPosees().map((l) => [l.cote, Math.round(Number(l.ttc) * 100) / 100])).toEqual([['entree', 2205]]);
   });
 
   it('une vente existante passée de 60/40 à 70/30 : la commission calculée est recalculée et enregistrée, « recalculée suite à : changement de la répartition »', async () => {
@@ -674,13 +677,13 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
     const r = await repo.enregistrerDossier(37, dossier({ commissions: { entree: { montant: 1950, unite: 'ttc' }, sortie: { montant: 650, unite: 'ttc' },
       taux: { entree: null, sortie: 25 }, mode: { entree: 'calculee', sortie: 'calculee' } } }), '2026-10-29', A);
     expect(r.ok).toBe(true);
-    // 6 500 × 70 % × 50 % = 2 275 ; 6 500 × 30 % × 25 % = 487,50 (le constat d'Arno : le calcul 487,50, plus jamais 650 resté dans le champ)
-    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.taux, l.mode])).toEqual([['entree', 2275, null, 'calculee'], ['sortie', 487.5, 25, 'calculee']]);
+    // 🔴 D29 — 6 300 × 70 % × 50 % = 2 205 ; 6 300 × 30 % × 25 % = 472,50 (le constat d'Arno : le calcul, plus jamais 650 resté dans le champ)
+    expect(lignesPosees().map((l) => [l.cote, Math.round(Number(l.ttc) * 100) / 100, l.taux, l.mode])).toEqual([['entree', 2205, null, 'calculee'], ['sortie', 472.5, 25, 'calculee']]);
     // rien n'est effacé : les lignes d'avant sont RETIRÉES (retire_le), journalisées avec la cause
     expect(appels.some((x) => /DELETE/i.test(x.sql))).toBe(false);
     expect(appels.some((x) => x.sql.startsWith('UPDATE transaction_vente_ligne SET retire_le = now()') && JSON.stringify(x.params[0]) === JSON.stringify([449, 450]))).toBe(true);
     const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'commissions');
-    expect(String(journal.at(-1)?.params[5])).toMatch(/^Commissions recalculées suite à : changement de la répartition — Commissions versées : entrée Jean-Baptiste PONS 2275 € TTC/);
+    expect(String(journal.at(-1)?.params[5])).toMatch(/^Commissions recalculées suite à : changement de la répartition — Commissions versées : entrée Jean-Baptiste PONS 2205 € TTC/);
   });
 
   it('le taux changé (Mylène 25 % → 40 %), la commission de la vente changée : les causes sont dites', async () => {
@@ -697,7 +700,8 @@ describe('🔴 LOT V (442) — une commission CALCULÉE suit le calcul ; une com
       (s) => (s.includes('FROM transaction_vente_ligne WHERE id = ANY') ? { rows: [{ cote: 'sortie', negociateur: 'Mylène EBERLIN', montant_ttc: '450', montant_ht: null, taux: '25', mode_commission: 'calculee' }] } : undefined),
       (s) => (s.includes('RETURNING id') ? { rows: [{ id: '95' }] } : undefined));
     await repo.enregistrerDossier(37, dossier({ commissions: { entree: null, sortie: { montant: 450, unite: 'ttc' }, taux: { entree: null, sortie: 40 }, mode: { entree: null, sortie: 'calculee' } } }), '2026-10-29', A);
-    expect(lignesPosees().map((l) => [l.cote, l.ttc, l.taux])).toEqual([['sortie', 6500 * 0.3 * 0.4, 40]]);
+    // 🔴 D29 — base TTC (les honoraires saisis, 7 500) : 7 500 − 1 000 × 1,2 (apporteur externe) = 6 300 ; × 30 % × 40 %
+    expect(lignesPosees().map((l) => [l.cote, Math.round(Number(l.ttc) * 100) / 100, l.taux])).toEqual([['sortie', 756, 40]]);
     const journal = appels.filter((x) => x.sql.startsWith('INSERT INTO transaction_journal') && x.params[2] === 'commissions');
     expect(String(journal.at(-1)?.params[5])).toMatch(/^Commission recalculée suite à : changement des honoraires de la vente, changement du taux — /);
   });

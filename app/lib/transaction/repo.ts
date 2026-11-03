@@ -111,7 +111,8 @@ const NOM_COMPTE = (col: string): string =>
  * l'inter-cabinet entre nos sociétés).
  */
 export async function lireVentes(societe: Societe | null): Promise<Vente[]> {
-  const ventes = await lireVentesBrutes(societe);
+  // 🔴 D29 — l'apporteur de chaque vente : un collaborateur (interne) ou un externe, lu dans l'annuaire, AVANT tout calcul (miroirs compris)
+  const ventes = poserApporteurs(await lireVentesBrutes(societe), await lireTypesApporteurs());
   if (societe === null || !(await repartitionDisponible())) return ventes;
   const registre = await lireRegistre(ventes.map((v) => v.id), societe);
   return ventes.flatMap((v) => { const x = venteDansSociete(v, societe, registre.get(v.id) ?? null); return x === null ? [] : [x]; });
@@ -228,13 +229,72 @@ const commissionneDuCompteLu = (x: unknown): boolean => {
   return commissionneEffectif(role, commissionneLu(valeur));
 };
 
+/**
+ * ══ 🔴 D29 (Arno, 03/11/2026) — APPORTEUR INTERNE OU EXTERNE : L'ANNUAIRE (LECTURE SEULE) ═════════════════════════════════════════════════════════
+ * Interne = la fiche de l'annuaire porte un compte de l'interface (le badge « INTERNE » de la Location, `interneADate` : depuis sa date de passage) ;
+ * tout le reste — partenaire, agence, internet, un nom hors annuaire, aucun nom — est EXTERNE : sa commission n'a pas de TVA (`htApporteur`).
+ * Sans l'annuaire (base sans la Location) : tous externes. Rien n'est écrit.
+ */
+interface TypeApporteur { compteId: number | null; interneDepuis: string | null }
+export interface TypesApporteurs { parId: Map<number, TypeApporteur>; parNom: Map<string, TypeApporteur> }
+const cleNom = (x: string): string => x.trim().toLowerCase();
+export async function lireTypesApporteurs(): Promise<TypesApporteurs> {
+  const out: TypesApporteurs = { parId: new Map(), parNom: new Map() };
+  const { rows } = await query<Record<string, unknown>>(
+    `SELECT a.id, a.nom, a.compte_id, to_jsonb(a) ->> 'interne_depuis' AS interne_depuis FROM gestion_location_apporteur a WHERE a.archive_le IS NULL OR a.compte_id IS NOT NULL`)
+    .catch(() => ({ rows: [] as Record<string, unknown>[] }));
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (r.id == null || r.nom == null) continue;
+    const a: TypeApporteur = { compteId: nOuNull(r.compte_id), interneDepuis: jour(r.interne_depuis) };
+    out.parId.set(n(r.id), a);
+    if (!out.parNom.has(cleNom(String(r.nom)))) out.parNom.set(cleNom(String(r.nom)), a);
+  }
+  return out;
+}
+/** Interne À CETTE DATE (le jour de la vente ou de la rétrocession) ? PUR. */
+export const interneA = (a: TypeApporteur | undefined, dateIso: string): boolean =>
+  a !== undefined && a.compteId !== null && (a.interneDepuis === null || dateIso >= a.interneDepuis);
+const jourVente = (v: Vente): string => v.dossier?.dateActe ?? v.dateCompromis ?? `${v.annee}-12-31`;
+/** L'apporteur d'une vente dans l'annuaire : sa fiche (dossier), sinon son nom. PUR. */
+const typeDeVente = (v: Vente, t: TypesApporteurs): TypeApporteur | undefined =>
+  (v.dossier?.apporteurId != null ? t.parId.get(v.dossier.apporteurId) : undefined) ?? (v.apporteur?.trim() ? t.parNom.get(cleNom(v.apporteur)) : undefined);
+/**
+ * Pose `apporteurInterne` (seulement quand il l'est : une vente d'externe est lue au bit près comme avant) ; un externe saisi « en HT » (437) : le
+ * montant tapé est le versé — sans TVA, il n'y a rien à convertir. PUR (mute les ventes lues).
+ */
+export function poserApporteurs(ventes: Vente[], t: TypesApporteurs): Vente[] {
+  for (const v of ventes) {
+    const interne = interneA(typeDeVente(v, t), jourVente(v));
+    if (interne) { v.apporteurInterne = true; if (v.repartition != null) v.repartition.apporteurInterne = true; }
+    else if (v.repartition != null && v.retroApporteur?.unite === 'ht') v.repartition.retroApporteurTtc = v.retroApporteur.montant;
+  }
+  return ventes;
+}
+/** Une rétrocession : son nom dans l'annuaire, sinon l'apporteur de sa vente ; aucun : externe. PUR (mute). */
+export function poserApporteursRetros(rs: Retrocession[], t: TypesApporteurs, ventes: ReadonlyMap<number, { apporteurId: number | null; apporteur: string | null }>): Retrocession[] {
+  for (const r of rs) {
+    const v = r.venteId === null ? undefined : ventes.get(r.venteId);
+    const a = (r.apporteur?.trim() ? t.parNom.get(cleNom(r.apporteur)) : undefined)
+      ?? (v?.apporteurId != null ? t.parId.get(v.apporteurId) : undefined) ?? (v?.apporteur?.trim() ? t.parNom.get(cleNom(v.apporteur)) : undefined);
+    if (interneA(a, `${r.annee}-${String(r.mois).padStart(2, '0')}-28`)) r.interne = true;
+  }
+  return rs;
+}
+
 export async function lireRetrocessions(societe: Societe | null): Promise<Retrocession[]> {
   const { rows } = await query<Record<string, unknown>>(
     `SELECT id, societe, annee, mois, negociateur, montant_ttc, apporteur, vente_id, libelle, origine, source_onglet, source_cellule
        FROM transaction_retrocession WHERE retire_le IS NULL AND ($1::text IS NULL OR societe = $1) ORDER BY annee, mois, id`, [societe]);
-  return rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, annee: n(r.annee), mois: n(r.mois), negociateur: String(r.negociateur),
+  const rs: Retrocession[] = rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, annee: n(r.annee), mois: n(r.mois), negociateur: String(r.negociateur),
     montantTtc: n(r.montant_ttc), apporteur: t(r.apporteur), venteId: nOuNull(r.vente_id), libelle: t(r.libelle), origine: r.origine as Retrocession['origine'],
     sourceOnglet: t(r.source_onglet), sourceCellule: t(r.source_cellule) }));
+  // 🔴 D29 — interne ou externe (l'annuaire) ; aucun apporteur interne dans l'annuaire : tous externes, rien de plus à lire
+  const types = rs.length === 0 ? null : await lireTypesApporteurs();
+  if (types === null || ![...types.parId.values()].some((a) => a.compteId !== null)) return rs;
+  const ids = [...new Set(rs.flatMap((r) => (r.venteId === null ? [] : [r.venteId])))];
+  const { rows: vs } = ids.length === 0 ? { rows: [] as Record<string, unknown>[] } : await query<Record<string, unknown>>(
+    `SELECT id, to_jsonb(v) ->> 'apporteur_id' AS apporteur_id, apporteur FROM transaction_vente v WHERE id = ANY($1::bigint[])`, [ids]).catch(() => ({ rows: [] as Record<string, unknown>[] }));
+  return poserApporteursRetros(rs, types, new Map(vs.map((v) => [n(v.id), { apporteurId: nOuNull(v.apporteur_id), apporteur: t(v.apporteur) }])));
 }
 
 export async function lireARattacher(societe: Societe | null): Promise<CaARattacher[]> {
@@ -618,16 +678,20 @@ export async function empreinteCouts(): Promise<string> {
 async function synchroniserInterCabinet(q: RequeteTx, venteId: number, auteur: AuteurTx): Promise<void> {
   if (!(await interCabinetDisponible())) return;
   const { rows: vs } = await q<Record<string, unknown>>(
-    'SELECT id, societe, honoraires_ttc, retro_apporteur_ttc, retro_apporteur_ht, repartition, retire_le FROM transaction_vente WHERE id = $1', [venteId]);
+    "SELECT id, societe, honoraires_ttc, retro_apporteur_ttc, retro_apporteur_ht, repartition, retire_le, apporteur, to_jsonb(v) ->> 'apporteur_id' AS apporteur_id, annee, to_char(date_compromis, 'YYYY-MM-DD') AS date_compromis FROM transaction_vente v WHERE id = $1", [venteId]);
   const v = vs[0];
   // Une vente retirée (retire_le) n'est lue nulle part, ni elle ni sa ligne miroir : le registre reste tel quel.
   if (v === undefined || v.retire_le != null) return;
   const { rows: ps } = await q<Record<string, unknown>>(
     `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht FROM transaction_partie
       WHERE vente_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [venteId]);
-  const retroTtc = v.retro_apporteur_ht != null ? n(v.retro_apporteur_ht) * TVA : v.retro_apporteur_ttc == null ? 0 : n(v.retro_apporteur_ttc);
+  // 🔴 D29 — un apporteur externe : le montant saisi est le versé (sans TVA), quelle que soit l'unité ; la part reçue suit la commission nette HT
+  const types = await lireTypesApporteurs();
+  const interne = interneA((v.apporteur_id != null ? types.parId.get(n(v.apporteur_id)) : undefined) ?? (t(v.apporteur) !== null ? types.parNom.get(cleNom(String(v.apporteur))) : undefined),
+    jour(v.date_compromis) ?? `${n(v.annee)}-12-31`);
+  const retroTtc = v.retro_apporteur_ht != null ? n(v.retro_apporteur_ht) * (interne ? TVA : 1) : v.retro_apporteur_ttc == null ? 0 : n(v.retro_apporteur_ttc);
   const attendus = miroirsAttendus({ societe: v.societe as Societe, honorairesTtc: n(v.honoraires_ttc),
-    repartition: v.repartition === true ? { parties: ps.map(partieDe), retroApporteurTtc: retroTtc } : null });
+    repartition: v.repartition === true ? { parties: ps.map(partieDe), retroApporteurTtc: retroTtc, ...(interne ? { apporteurInterne: true } : {}) } : null });
   const { rows: ex } = await q<Record<string, unknown>>(
     `SELECT vente_id, societe, porteuse, part_ht, pourcentage, etat, NULL AS le FROM transaction_inter_cabinet WHERE vente_id = $1 ORDER BY id FOR UPDATE`, [venteId]);
   const vue = (e: Pick<EntreeRegistre, 'societe' | 'porteuse' | 'partHt' | 'pourcentage' | 'etat'>) =>
@@ -1006,9 +1070,13 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   const commissions = s.commissions;
   const aDesCommissions = commissions !== undefined && (commissions.entree !== null || commissions.sortie !== null);
   if (!avecUnite && (s.retroUnite === 'ht' || aDesCommissions)) return { ok: false, motif: MOTIF_SANS_437 };
-  // La rétrocession telle que la répartition la déduit : son équivalent TTC (rien n'est converti en base : elle s'enregistre dans son unité).
-  const retroTtc = s.retroUnite === 'ht' ? s.retroApporteurTtc * TVA : s.retroApporteurTtc;
   const dateVente = s.dateActe ?? s.dateCompromis ?? aujourdhui;
+  // La rétrocession telle que la répartition la déduit (rien n'est converti en base : elle s'enregistre dans son unité). 🔴 D29 — un apporteur
+  // EXTERNE (l'annuaire) : le montant tapé est le versé, sans TVA ; un interne : son équivalent TTC, comme avant.
+  const typesSaisie = await lireTypesApporteurs();
+  const apporteurInterne = interneA((s.apporteurId !== null ? typesSaisie.parId.get(s.apporteurId) : undefined)
+    ?? (s.apporteurNom?.trim() ? typesSaisie.parNom.get(cleNom(s.apporteurNom)) : undefined), dateVente);
+  const retroTtc = apporteurInterne && s.retroUnite === 'ht' ? s.retroApporteurTtc * TVA : s.retroApporteurTtc;
   // ① les négociateurs, relus en base, avec leur société à la date de la vente
   const comptesIds = [...new Set([s.entreeId, s.sortieId, ...s.parties.map((p) => p.compteId)].filter((x): x is number => x !== null))];
   type CompteLu = { id: string; nom: string; statut?: string | null; role?: string; commissionne?: string | null };
@@ -1063,7 +1131,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   // cette vente) ; la page de saisie ne compte que sans négociateur d'entrée. Chez l'autre société, sa part reçue (ligne miroir).
   const porteuse = repartie ? parties.find((p) => (p.sorte === 'entree' || p.sorte === 'entree_sortie') && p.societe !== null)?.societe ?? null : null;
   if (repartie) {
-    const motif = verifierRepartition(parties, s.honorairesTtc, retroTtc);
+    const motif = verifierRepartition(parties, s.honorairesTtc, retroTtc, apporteurInterne);
     if (motif !== null) return { ok: false, motif };
   }
   // ③ l'apporteur (annuaire de la Location)
@@ -1242,7 +1310,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       // 🔴 LOT V (Arno) — UNE COMMISSION « CALCULÉE » SUIT LE CALCUL : le serveur la calcule lui-même sur ce qui s'enregistre (honoraires de ce
       // côté — commission nette de l'apporteur × sa part — × le taux), dans l'unité choisie, sans arrondi. « Manuelle » : le montant tapé, tel quel.
       const nego = (x: number | null) => (x === null ? null : { id: x, nom: nomDe.get(x) ?? '' });
-      const pourCalcul = { honorairesTtc: s.honorairesTtc, repartition: repartie ? { parties, retroApporteurTtc: retroTtc } : null,
+      const pourCalcul = { honorairesTtc: s.honorairesTtc, repartition: repartie ? { parties, retroApporteurTtc: retroTtc, ...(apporteurInterne ? { apporteurInterne: true } : {}) } : null,
         dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: nego(s.entreeId), sortie: nego(s.sortieId), apporteurId: null, personnes: [] } };
       const recalculees: ('entree' | 'sortie')[] = [];
       const voulues = (['entree', 'sortie'] as const).flatMap((cote): CommissionVoulue[] => {

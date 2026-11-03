@@ -13,7 +13,7 @@ const vente = (o: Partial<Vente> = {}): Vente => ({ id: 41, societe: 'criterimmo
   apporteur: 'Julien Deblois', note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null,
   lignes: [{ id: 1, negociateur: 'Jean-Baptiste PONS', role: 'negociateur', montantTtc: 2000, nature: 'vente', compte: true, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null, cote: 'entree' },
     { id: 2, negociateur: 'Cédric JULLIEN', role: 'negociateur', montantTtc: 1500, nature: 'vente', compte: true, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null, cote: 'sortie' }],
-  repartition: { retroApporteurTtc: 2400, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 50)] },
+  repartition: { retroApporteurTtc: 2400, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 50)] },
   dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Jean-Baptiste PONS' }, sortie: { id: 9, nom: 'Cédric JULLIEN' }, apporteurId: null, personnes: [] }, ...o } as Vente);
 const C = (x: number): number => Math.round(x * 100);
 const sommeLignes = (l: NonNullable<ReturnType<typeof lignesParNegociateur>>, k: 'honoraires' | 'retro' | 'reste', u: 'htC' | 'ttcC') => l[0][k][u] + l[1][k][u];
@@ -33,8 +33,8 @@ describe('🔴 LOT BW — une ligne par négociateur', () => {
   });
 
   it('au centime avec un partage qui ne tombe pas juste (honoraires 10 000,01 TTC, 33 / 67 %) ; rétrocession saisie au mois sur la ligne d’entrée', () => {
-    const v = vente({ honorairesTtc: 10000.01, repartition: { retroApporteurTtc: 333.33, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 33), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 67)] } });
-    const retros = [{ id: 7, societe: 'criterimmo' as const, annee: 2026, mois: 9, negociateur: 'Jean-Baptiste PONS', montantTtc: 120, apporteur: null, venteId: 41, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null }];
+    const v = vente({ honorairesTtc: 10000.01, repartition: { retroApporteurTtc: 333.33, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 33), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 67)] } });
+    const retros = [{ id: 7, societe: 'criterimmo' as const, annee: 2026, mois: 9, negociateur: 'Jean-Baptiste PONS', montantTtc: 120, apporteur: null, venteId: 41, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null , interne: true }];
     const l = lignesParNegociateur(v, retros, () => 'independant', 'criterimmo')!;
     expect([sommeLignes(l, 'honoraires', 'ttcC'), sommeLignes(l, 'honoraires', 'htC')]).toEqual([C(10000.01), C(10000.01 / 1.2)]);
     expect(sommeLignes(l, 'retro', 'ttcC')).toBe(C(333.33) + C(retroTtcDe(v, retros)));
@@ -44,18 +44,18 @@ describe('🔴 LOT BW — une ligne par négociateur', () => {
   });
 
   it('un seul négociateur (même compte, même nom, ou « entrée et sortie »), sortie inconnue, import sans répartition, ligne miroir : une ligne (null)', () => {
-    const meme = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 50)] } });
-    const es = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree_sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } });
-    const sansSortie = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } });
+    const meme = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 50)] } });
+    const es = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree_sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } });
+    const sansSortie = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } });
     const imp = vente({ repartition: null, origine: 'import', lignes: [] });
     expect([meme, es, sansSortie, imp].map((v) => lignesParNegociateur(v, [], undefined, 'criterimmo'))).toEqual([null, null, null, null]);
-    const ic = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 8, 'Pierre THEVENIN', 'macj', 50)] },
+    const ic = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 8, 'Pierre THEVENIN', 'macj', 50)] },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Jean-Baptiste PONS' }, sortie: { id: 8, nom: 'Pierre THEVENIN' }, apporteurId: null, personnes: [] } });
     expect(lignesParNegociateur(venteDansSociete(ic, 'macj')!, [], undefined, 'macj')).toBeNull();
   });
 
   it('inter-cabinet, page de la porteuse : la ligne de sortie porte le négociateur de l’autre société et « reversé à MACJ » (sa part) ; somme = la vente', () => {
-    const v = vente({ lignes: [vente().lignes[0]], repartition: { retroApporteurTtc: 0, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 8, 'Pierre THEVENIN', 'macj', 50)] },
+    const v = vente({ lignes: [vente().lignes[0]], repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 8, 'Pierre THEVENIN', 'macj', 50)] },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Jean-Baptiste PONS' }, sortie: { id: 8, nom: 'Pierre THEVENIN' }, apporteurId: null, personnes: [] } });
     const l = lignesParNegociateur(v, [], () => 'independant', 'criterimmo')!;
     expect(l[1].negociateur).toBe('Pierre THEVENIN');
@@ -68,7 +68,7 @@ describe('🔴 LOT BW — une ligne par négociateur', () => {
 
   it('🔴 LOT CA — « Entrée : X · Sortie : Y » : deux négociateurs différents (ligne miroir comprise, par son dossier) ; sinon null', () => {
     expect(entreeEtSortie(vente())).toEqual(['Jean-Baptiste PONS', 'Cédric JULLIEN']);
-    expect(entreeEtSortie(vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree_sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } }))).toBeNull();
+    expect(entreeEtSortie(vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree_sortie', 5, 'Jean-Baptiste PONS', 'criterimmo', 100)] } }))).toBeNull();
     expect(entreeEtSortie(vente({ repartition: null }))).toEqual(['Jean-Baptiste PONS', 'Cédric JULLIEN']);
     expect(entreeEtSortie(vente({ repartition: null, dossier: null }))).toBeNull();
   });

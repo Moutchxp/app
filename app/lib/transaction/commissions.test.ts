@@ -8,7 +8,7 @@ const ligne = (o: Partial<LigneVente>): LigneVente => ({ id: 1, negociateur: 'JB
   sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null, ...o });
 const partie = (o: Partial<Partie>): Partie => ({ sorte: 'entree', compteId: 5, negociateur: 'JB', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, ...o });
 /** LOT P — une vente répartie à 100 % sur JB, de ce statut (les commissions ne sont déduites que pour un indépendant). */
-const seul = (statut: Partie['statut'], retroApporteurTtc = 0) => ({ repartition: { retroApporteurTtc, parties: [partie({ pourcentage: 100, statut })] } });
+const seul = (statut: Partie['statut'], retroApporteurTtc = 0) => ({ repartition: { retroApporteurTtc, apporteurInterne: true, parties: [partie({ pourcentage: 100, statut })] } });
 const vente = (o: Partial<Vente>): Vente => ({ id: 1, societe: 'criterimmo', libelle: 'X', honorairesTtc: 12000, statut: 'compromis', annee: 2026, mois: null, dateCompromis: null,
   apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [], double: null, ...o });
 
@@ -43,7 +43,7 @@ describe('conversion HT ↔ TTC (taux de la tuile : TTC = HT × 1,2), sans arron
 
 describe('les 4 tuiles de l’onglet « Compromis »', () => {
   // 12 000 TTC = 10 000 HT ; apporteur 1 200 TTC (1 000 HT) ; négociateur d'entrée INDÉPENDANT 2 000 HT ; tout CRITERIMMO.
-  const simple = vente({ retroApporteur: { montant: 1200, unite: 'ttc' }, ...seul('independant', 1200), lignes: [ligne({ cote: 'entree', montantHt: 2000, montantTtc: 2400 })] });
+  const simple = vente({ retroApporteur: { montant: 1200, unite: 'ttc' }, apporteurInterne: true, ...seul('independant', 1200), lignes: [ligne({ cote: 'entree', montantHt: 2000, montantTtc: 2400 })] });
   it('nombre, CA (TTC / HT), commissions versées (indépendants + apporteurs), solde net', () => {
     const t = tuilesCompromis([simple], 'criterimmo');
     expect(t.nb).toBe(1);
@@ -69,7 +69,7 @@ describe('les 4 tuiles de l’onglet « Compromis »', () => {
   });
 
   // RÉPARTIE : 12 000 TTC, apporteur 2 400 TTC (2 000 HT), net 8 000 HT : JB (CRITERIMMO) 50 % entrée, Mylène (MACJ) 30 % sortie, Agence du Parc 20 %.
-  const repartie = vente({ repartition: { retroApporteurTtc: 2400, parties: [partie({ statut: 'independant' }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'Mylène', societe: 'macj', pourcentage: 30, statut: 'independant' }),
+  const repartie = vente({ repartition: { retroApporteurTtc: 2400, apporteurInterne: true, parties: [partie({ statut: 'independant' }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'Mylène', societe: 'macj', pourcentage: 30, statut: 'independant' }),
     partie({ sorte: 'exterieure', compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', pourcentage: 20 })] },
   retroApporteur: { montant: 2400, unite: 'ttc' },
   lignes: [ligne({ cote: 'entree', montantHt: 1000, montantTtc: 1200 }), ligne({ id: 2, negociateur: 'Mylène', cote: 'sortie', montantTtc: 600 })] });
@@ -110,7 +110,7 @@ describe('les 4 tuiles de l’onglet « Compromis »', () => {
 
 describe('🔴 LOT J — la part de la vente du négociateur d’un côté', () => {
   const pa = (sorte: Partie['sorte'], id: number | null, pct: number | null, montantHt: number | null = null) => partie({ sorte, compteId: id, pourcentage: pct, montantHt });
-  const v = (parties: Partie[], entree: number | null, sortie: number | null) => vente({ repartition: { retroApporteurTtc: 0, parties },
+  const v = (parties: Partie[], entree: number | null, sortie: number | null) => vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties },
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: entree === null ? null : { id: entree, nom: 'E' }, sortie: sortie === null ? null : { id: sortie, nom: 'S' }, apporteurId: null, personnes: [] } });
   it('50/50, 60/40, 100 %, une part en € HT ramenée en %, le même négociateur des deux côtés', () => {
     expect([partDuCote(v([pa('entree', 5, 50), pa('sortie', 7, 50)], 5, 7), 'entree'), partDuCote(v([pa('entree', 5, 50), pa('sortie', 7, 50)], 5, 7), 'sortie')]).toEqual([50, 50]);
@@ -127,7 +127,7 @@ describe('🔴 LOT J — la part de la vente du négociateur d’un côté', () 
 
 describe('🔴 LOT K — le CA va à la société choisie sur la vente', () => {
   it('la partie d’un collaborateur des deux sociétés porte la société de la vente : CA, commission et solde y vont', () => {
-    const v = vente({ repartition: { retroApporteurTtc: 0, parties: [partie({ negociateur: 'Cédric', compteId: 9, societe: 'macj', pourcentage: 100, statut: 'independant' })] },
+    const v = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie({ negociateur: 'Cédric', compteId: 9, societe: 'macj', pourcentage: 100, statut: 'independant' })] },
       lignes: [ligne({ negociateur: 'Cédric', cote: 'entree', montantHt: 1000, montantTtc: 1200 })] });
     expect(tuilesCompromis([v], 'macj')).toMatchObject({ caHt: 10000, independantsHt: 1000, soldeHt: 9000 });
     expect(tuilesCompromis([v], 'criterimmo')).toMatchObject({ caHt: 0, independantsHt: 0 });
@@ -137,7 +137,7 @@ describe('🔴 LOT K — le CA va à la société choisie sur la vente', () => {
 describe('🔴 LOT P — le cumul « Commissions versées » : indépendants + apporteurs seulement', () => {
   // 12 000 TTC = 10 000 HT, apporteur 1 200 TTC (1 000 HT) ; JB (entrée) 50 %, Mylène (sortie) 50 %, tous deux CRITERIMMO ; 1 000 HT chacun.
   const v = (sJb: Partie['statut'], sMy: Partie['statut'], o: Partial<Partie> = {}) => vente({ retroApporteur: { montant: 1200, unite: 'ttc' },
-    repartition: { retroApporteurTtc: 1200, parties: [partie({ statut: sJb }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'Mylène', statut: sMy, ...o })] },
+    repartition: { retroApporteurTtc: 1200, apporteurInterne: true, parties: [partie({ statut: sJb }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'Mylène', statut: sMy, ...o })] },
     lignes: [ligne({ cote: 'entree', montantHt: 1000, montantTtc: 1200 }), ligne({ id: 2, negociateur: 'Mylène', cote: 'sortie', montantHt: 1000, montantTtc: 1200 })] });
   it('un indépendant est déduit ; un associé ou un salarié est INTERNE (visible, non déduit) ; le solde ne déduit que le cumul', () => {
     const t = tuilesCompromis([v('independant', 'associe')], 'criterimmo');
@@ -182,7 +182,7 @@ describe('🔴 LOT Q — une seule règle : le cumul de l’onglet Compromis et 
 
 describe('🔴 LOT T — les honoraires d’un côté et le taux du négociateur (présentation : les nombres ne changent pas)', () => {
   // L'exemple d'Arno : 7 500 TTC − 1 000 TTC d'apporteur = 6 500 ; la sortie (Mylène) à 40 %, au taux de 25 %, 1 625 enregistrés.
-  const v = vente({ honorairesTtc: 7500, repartition: { retroApporteurTtc: 1000, parties: [partie({ pourcentage: 60 }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'MY', societe: 'macj', pourcentage: 40 })] },
+  const v = vente({ honorairesTtc: 7500, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [partie({ pourcentage: 60 }), partie({ sorte: 'sortie', compteId: 7, negociateur: 'MY', societe: 'macj', pourcentage: 40 })] },
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'JB' }, sortie: { id: 7, nom: 'MY' }, apporteurId: null, personnes: [] },
     lignes: [ligne({ negociateur: 'MY', cote: 'sortie', montantTtc: 1625, taux: 25 })] });
   it('« 6 500 × 40 % = 2 600 » : la base de rémunération, la même qu’avant', () => {
@@ -201,7 +201,7 @@ describe('🔴 LOT T — les honoraires d’un côté et le taux du négociateur
 });
 
 describe('🔴 LOT V — le mode d’une commission, et les tuiles qui suivent la commission recalculée', () => {
-  const v = (montantTtc: number, mode: 'calculee' | 'manuelle' | null = null) => vente({ honorairesTtc: 7500, repartition: { retroApporteurTtc: 1000, parties: [partie({ pourcentage: 70, statut: 'independant' }),
+  const v = (montantTtc: number, mode: 'calculee' | 'manuelle' | null = null) => vente({ honorairesTtc: 7500, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [partie({ pourcentage: 70, statut: 'independant' }),
     partie({ sorte: 'sortie', compteId: 7, negociateur: 'MY', pourcentage: 30, statut: 'independant' })] },
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'JB' }, sortie: { id: 7, nom: 'MY' }, apporteurId: null, personnes: [] },
     lignes: [ligne({ negociateur: 'MY', cote: 'sortie', montantTtc, taux: 25, mode })] });

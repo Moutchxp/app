@@ -1,4 +1,4 @@
-import { bilanVente, commissionNetteHt, ht, societeDeLigne, SOCIETES, sommeSocietes, TVA, type BilanVente, type LigneVente, type ModeCommission, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
+import { bilanVente, commissionNetteHt, coutTtcApporteur, ht, societeDeLigne, SOCIETES, sommeSocietes, TVA, type BilanVente, type LigneVente, type ModeCommission, type MontantSaisi, type Societe, type Unite, type Vente } from './modele';
 import type { ClasseCommission } from '../admin/statut';
 import { classeDeCommission, commissionIgnoree, commissionneDePartie, statutDeCommission, type StatutDuLibelle } from './statutLigne';
 import type { Statut } from '../admin/statut';
@@ -69,7 +69,7 @@ export function partDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dos
   const r = v.repartition;
   const nego = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
   if (r == null || nego === null) return null;
-  const net = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc);
+  const net = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc, r.apporteurInterne);
   const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
   const siennes = r.parties.filter((p) => p.compteId === nego.id && sortes.includes(p.sorte));
   if (siennes.length === 0) return r.parties.some((p) => p.compteId === nego.id && p.sorte !== 'exterieure') ? 0 : null;
@@ -104,7 +104,8 @@ export interface HonorairesCote { netTtc: number; part: number; ttc: number }
 export function honorairesDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): HonorairesCote | null {
   const part = partDuCote(v, cote);
   if (part === null || v.repartition == null) return null;
-  const netTtc = v.honorairesTtc - v.repartition.retroApporteurTtc;
+  // 🔴 D29 — les honoraires nets TTC = (HT après l'apporteur) × 1,2 : son COÛT TTC (externe : versé + TVA non récupérable) est déduit
+  const netTtc = v.honorairesTtc - coutTtcApporteur(v.repartition.retroApporteurTtc, v.repartition.apporteurInterne);
   return { netTtc, part, ttc: (netTtc * part) / 100 };
 }
 
@@ -195,17 +196,18 @@ export interface TuilesCompromis {
   soldeTtc: number;
 }
 
-export type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation' | 'miroir'>>;
+export type VenteTuile = Pick<Vente, 'statut' | 'societe' | 'honorairesTtc' | 'repartition' | 'lignes'> & Partial<Pick<Vente, 'retroApporteur' | 'annulation' | 'miroir' | 'apporteurInterne'>>;
 
 /**
  * L'APPORTEUR d'une vente dans les « Commissions versées » de la société vue (null : nos deux sociétés), HT : celui de la répartition (payé
  * par la porteuse) ; l'historique, sa rétrocession saisie (lot I), à sa société. 🔴 LOT AD — la règle des tuiles, partagée avec l'écran
  * (montant de l'apporteur en rouge quand il entre dans ce cumul). PUR.
  */
-export function apporteurVerseHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'> & Partial<Pick<Vente, 'retroApporteur'>>, societe: Societe | null,
+export function apporteurVerseHt(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'repartition'> & Partial<Pick<Vente, 'retroApporteur' | 'apporteurInterne'>>, societe: Societe | null,
   b: BilanVente = bilanVente(v, societe)): number {
   const retro = retroApporteurDe(v);
-  return v.repartition != null ? b.apporteurHt : retro === null || b.caHt === 0 ? 0 : enHt(retro);
+  // 🔴 D29 — un apporteur externe : le montant saisi est le versé, sans TVA (HT = TTC), quelle que soit l'unité choisie à la saisie
+  return v.repartition != null ? b.apporteurHt : retro === null || b.caHt === 0 ? 0 : v.apporteurInterne === true ? enHt(retro) : retro.montant;
 }
 
 /**

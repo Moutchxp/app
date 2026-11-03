@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { montantAffiche, useAffichage } from '../transaction/commun';
+import { eur } from '../../../../lib/transaction/format';
 import type { MesAffaires, VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
 import { affairesAgence, affairesPerso, apporteursPeriode, negociateursPeriode, type PeriodeListe } from '../../../../lib/mon-espace/accueil';
 import { TableNegociateurs } from '../transaction/EcransTransaction';
@@ -67,7 +68,8 @@ export function ListeAffairesPeriode({ data, periode, libelle, carte, avecCompro
 
 /** Une ligne du Suivi CA (`parApporteur`, montants HT) en ligne du tableau : le TTC comme avant (HT × 1,2). PUR. */
 export const ligneDuSuiviCa = (a: LigneApporteur): LigneTableauApporteur => ({ apporteur: a.apporteur, ids: a.ventesIds,
-  ca: { ht: a.caApporteHt, ttc: a.caApporteHt * 1.2 }, verse: { ht: a.retroHt, ttc: a.retroHt * 1.2 } });
+  // 🔴 D29 — le versé : un apporteur externe, sans TVA (HT = TTC)
+  ca: { ht: a.caApporteHt, ttc: a.caApporteHt * 1.2 }, verse: { ht: a.retroHt, ttc: a.retroTtc ?? a.retroHt * 1.2 }, ...(a.sansTva === undefined ? {} : { sansTva: a.sansTva }) });
 /** 🔴 D28 — les mots du tableau : ventes actées (« Mois », « Année(s) ») ou compromis en cours (onglet « Compromis »). */
 const MOTS_TABLEAU = {
   ventes: { titre: 'ventes actées', nb: 'Ventes', ca: 'CA des ventes apportées', verse: 'Rétrocessions versées', bloc: 'mes-apporteurs', id: 'mes-apporteurs' },
@@ -99,12 +101,12 @@ export function TableauParApporteur({ lignes, libelle, agence, sorte = 'ventes' 
             <tr key={a.apporteur} data-apporteur={a.apporteur}>
               <th scope="row">{a.apporteur}</th><td data-mot={M.nb}>{a.ids.length}</td>
               <td data-mot={M.ca}>{montantAffiche(u, a.ca.ht, a.ca.ttc)}</td>
-              <td data-mot={M.verse} className="trx-rouge" data-verse-apporteur>{montantAffiche(u, a.verse.ht, a.verse.ttc)}</td>
+              <td data-mot={M.verse} className="trx-rouge" data-verse-apporteur>{a.sansTva === true ? `${eur(a.verse.ht)} sans TVA` : montantAffiche(u, a.verse.ht, a.verse.ttc)}</td>
             </tr>))}</tbody>
           <tfoot><tr data-total-apporteurs>
             <th scope="row">Total</th><td data-mot={M.nb}>{affaires}</td>
             <td data-mot={M.ca}>{montantAffiche(u, total.ca.ht, total.ca.ttc)}</td>
-            <td data-mot={M.verse} className="trx-rouge" data-total-verse>{montantAffiche(u, total.verse.ht, total.verse.ttc)}</td>
+            <td data-mot={M.verse} className="trx-rouge" data-total-verse>{lignes.every((a) => a.sansTva === true) ? `${eur(total.verse.ht)} sans TVA` : montantAffiche(u, total.verse.ht, total.verse.ttc)}</td>
           </tr></tfoot>
         </table>
         </div>

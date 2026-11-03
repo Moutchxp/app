@@ -128,7 +128,8 @@ describe('🔴 D27 / D28 (Arno, 03/11/2026) — l’onglet « Compromis » : 4 c
   it('« Mon espace » : les cartes = ce que le serveur a calculé (volume − reversé = ma part nette) ; le tableau sous la liste, total = « dont apporteurs »', async () => {
     const v = (id: number, ca: number, coll: number, app: number, nom: string | null) => ({ ...vente(id, { statut: 'compromis', mois: null, dateCompromis: '2026-10-01', honorairesTtc: ca * 1.2 / 100 }),
       mesCotes: ['entree'], commissionsRetirees: false, maPart: { ca: C(ca - coll - app, (ca - coll - app) * 1.2), net: C(ca - coll - app, (ca - coll - app) * 1.2) },
-      verse: { ca: C(ca, ca * 1.2), collegues: C(coll, coll * 1.2), negociateurs: C(0, 0), apporteurs: C(app, app * 1.2), parApporteur: nom === null ? [] : [{ nom, m: C(app, app * 1.2) }] } });
+      // 🔴 D29 — un apporteur externe : versé sans TVA (HT = TTC) ; la TVA non récupérable, à part (TTC)
+      verse: { ca: C(ca, ca * 1.2), collegues: C(coll, coll * 1.2), negociateurs: C(0, 0), apporteurs: C(app, app), tva: C(0, app * 0.2), parApporteur: nom === null ? [] : [{ nom, m: C(app, app) }] } });
     const ventes = [v(37, 625000, 270833, 83333, 'Gardien Dacquet'), v(209, 750000, 0, 0, null)];
     persoD27 = { ...perso(true), ventes, compteurs: { ...perso(true).compteurs, compromis: { nb: 2, ids: [37, 209], ca: C(1020834, 1225001) } } };
     await ouvrir();
@@ -138,11 +139,14 @@ describe('🔴 D27 / D28 (Arno, 03/11/2026) — l’onglet « Compromis » : 4 c
     expect(texte('[data-valeur-compromis="reverse"]')).toBe('3 541,66 €');
     expect(texte('[data-dont="collegues"]')).toBe('dont collègues 2 708,33 €');
     expect(texte('[data-dont="negociateurs"]')).toBe('dont négociateurs 0 €');
-    expect(texte('[data-dont="apporteurs"]')).toBe('dont apporteurs 833,33 €');
+    expect(texte('[data-dont="apporteurs"]')).toBe('dont apporteurs 833,33 € sans TVA');
     expect(texte('[data-valeur-compromis="net"]')).toBe('10 208,34 €');
     expect(texte('[data-bloc="apporteurs-compromis"] h3')).toBe('Par apporteur d’affaires — compromis en cours');
     expect(texte('[data-bloc="apporteurs-compromis"] [data-apporteur="Gardien Dacquet"] td')).toBe('1');
-    expect(texte('[data-bloc="apporteurs-compromis"] [data-total-verse]')).toBe('833,33 € HT');
+    expect(texte('[data-bloc="apporteurs-compromis"] [data-total-verse]')).toBe('833,33 € sans TVA');
+    expect(texte('[data-bloc="apporteurs-compromis"] [data-verse-apporteur]')).toBe('833,33 € sans TVA');
+    expect(texte('[data-tuile="reverse"] .tdb-tuile-mot')).toBe('Reversé / partagé (HT)'); // 🔴 D29 (Arno)
+    expect(container.querySelector('[data-dont="tva"]')).toBeNull(); // en HT : rien de perdu
     // l'ordre : les cartes, puis la liste, puis le tableau
     const ordre = [...container.querySelectorAll('[data-cartes-compromis], [data-ma-vente], [data-bloc="apporteurs-compromis"]')].map((e) => e.getAttribute('data-bloc') ?? (e.hasAttribute('data-cartes-compromis') ? 'cartes' : 'carte'));
     expect(ordre).toEqual(['cartes', 'carte', 'carte', 'apporteurs-compromis']);

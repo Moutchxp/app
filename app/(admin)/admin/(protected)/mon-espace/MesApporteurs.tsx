@@ -1,5 +1,6 @@
 'use client';
 
+import { eur } from '../../../../lib/transaction/format';
 import { useEffect, useState } from 'react';
 import { montantAffiche, useAffichage } from '../transaction/commun';
 import { CSS_PANNEAUX_APPORTEUR } from '../location/PanneauxApporteur';
@@ -84,7 +85,7 @@ export function MesApporteurs() {
               </p>
               <p className="loc-muet" data-apporteur-collegue>{a.interne ? 'Apporteur interne (son compte de l’interface)' : `Collègue de rattachement : ${a.collegue ?? 'à rattacher'}`}</p>
               <p className="mes-apporteur-chiffres" data-apporteur-chiffres>Sur vos ventes : {a.nbVentes} vente{a.nbVentes > 1 ? 's' : ''} — CA apporté {montant(a.caApporteHt)}
-                {a.retroHt > 0 && <> — rétrocessions <span className="trx-rouge">{montant(a.retroHt)}</span></>}</p>
+                {a.retroHt > 0 && <> — rétrocessions <span className="trx-rouge" data-retro-apporteur>{a.interne ? montant(a.retroHt) : `${eur(a.retroHt)} sans TVA`}</span></>}</p>
               {a.modifiable && <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-haspopup="dialog" onClick={() => { setFiche(a.id); setMessage(null); }}
                 data-modifier-apporteur={a.id}>Modifier la fiche</button>}
             </li>

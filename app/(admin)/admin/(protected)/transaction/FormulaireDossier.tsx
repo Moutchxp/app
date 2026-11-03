@@ -61,7 +61,7 @@ export function etatRepartitionDe(v: Vente | null, negos: readonly NegociateurRe
     if (c !== null) return { texte: texteMontant(c.montant.montant), unite: c.montant.unite, ...taux, ...(calculee ? { auto: true } : {}) };
     return { texte: '', unite: 'ttc' as const, auto: v === null || v.repartition != null, ...taux };
   };
-  return { entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null, apporteurNom: v?.dossier?.apporteurId == null ? v?.apporteur ?? null : null,
+  return { ...(v?.apporteurInterne === true ? { apporteurInterne: true } : {}), entreeId, sortieId, apporteurId: v?.dossier?.apporteurId ?? null, apporteurNom: v?.dossier?.apporteurId == null ? v?.apporteur ?? null : null,
     retroTexte: retro === null ? '' : texteMontant(retro.montant), retroUnite: retro !== null ? retro.unite : avecUnite ? 'ht' : 'ttc',
     commissions: avecUnite ? { entree: commission('entree'), sortie: commission('sortie') } : null,
     parties: v?.repartition ? avecSortieDuMeme(lignesDe(v.repartition.parties, negos), negos, entreeId, sortieId) : partiesPour(negos, entreeId, sortieId) };
@@ -150,7 +150,10 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
 
   const taux = tauxDuPrix(commission, nombre(champs.prixVente));
   // LOT E — une répartition qui ne fait pas 100 % désactive « Enregistrer » (avec l'explication) ; la saisie reste.
-  const somme = etatSomme(repartition, commission);
+  // 🔴 D29 — l'apporteur choisi est-il un collaborateur (l'annuaire) ? sinon externe (sans TVA)
+  const ficheApporteur = references.apporteurs.find((a) => a.id === repartition.apporteurId);
+  const apporteurInterne = ficheApporteur !== undefined ? ficheApporteur.interne === true : repartition.apporteurInterne === true;
+  const somme = etatSomme(repartition, commission, apporteurInterne);
   // LOT K — un collaborateur des deux sociétés sans société choisie pour cette vente : « Enregistrer » désactivé, la saisie reste.
   const manqueSociete = motifSocieteVente(repartition, references.negociateurs);
   useEffect(() => {

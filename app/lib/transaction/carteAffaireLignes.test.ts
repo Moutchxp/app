@@ -11,7 +11,7 @@ const partie = (sorte: Partie['sorte'], compteId: number, negociateur: string, s
   ({ sorte, compteId, negociateur, societe, nom: null, coordonnees: null, pourcentage, montantHt: null, statut: 'independant' });
 const vente = (o: Partial<Vente> = {}): Vente => ({ id: 37, societe: 'criterimmo', libelle: 'TEST TRANSACTION', honorairesTtc: 7500, statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2026-10-28',
   apporteur: 'Gardien Dacquet', note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null, lignes: [],
-  repartition: { retroApporteurTtc: 1000, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 2, 'Arnaud Jorel', 'criterimmo', 50)] },
+  repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 2, 'Arnaud Jorel', 'criterimmo', 50)] },
   dossier: { adresseBien: '2 Rue Mars et Roty', dateActePrevue: '2027-01-30', dateActe: null, entree: { id: 9, nom: 'Cédric JULLIEN' }, sortie: { id: 2, nom: 'Arnaud Jorel' }, apporteurId: null, personnes: [] },
   ...o } as Vente);
 
@@ -24,7 +24,7 @@ describe('🔴 LOT CC — lignesCarteAffaire', () => {
   });
 
   it('même négociateur des deux côtés, ou sortie inconnue : une ligne sans « entrée / sortie » ; un import : une ligne (la vente, sa paye, son reste)', () => {
-    const meme = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 50)] },
+    const meme = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 50)] },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 9, nom: 'Cédric JULLIEN' }, sortie: { id: 9, nom: 'Cédric JULLIEN' }, apporteurId: null, personnes: [] } });
     expect(lignesCarteAffaire(meme, 'criterimmo').lignes.map((x) => [x.nom, x.cote, x.honoraires.ttcC])).toEqual([['Cédric JULLIEN', null, 750000]]);
     const imp = vente({ repartition: null, dossier: null, origine: 'import', lignes: [{ id: 1, negociateur: 'CATHERINE', role: 'negociateur', montantTtc: 4200, nature: 'vente', compte: true, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }],
@@ -34,7 +34,7 @@ describe('🔴 LOT CC — lignesCarteAffaire', () => {
   });
 
   it('inter-cabinet : chez la porteuse, la sortie « reversé à MACJ » ; la ligne miroir de MACJ : son seul côté', () => {
-    const ic = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
+    const ic = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] }, honorairesTtc: 4000 });
     const l = lignesCarteAffaire(ic, 'criterimmo');
     expect(l.lignes[1].reverse).toEqual({ vers: 'MACJ', m: { htC: 166667, ttcC: 200000 } });
@@ -43,7 +43,7 @@ describe('🔴 LOT CC — lignesCarteAffaire', () => {
 
   // 🔴 LOT CF — « honoraires nets » = honoraires MOINS toutes les rétrocessions d'apporteurs (apporteur de la répartition ET rétrocessions du mois)
   const retro = (id: number, venteId: number, montantTtc: number): Retrocession => ({ id, societe: 'criterimmo', annee: 2026, mois: 7, negociateur: 'CEDRIC', montantTtc,
-    apporteur: null, venteId, libelle: null, origine: 'import', sourceOnglet: 'CEDRIC', sourceCellule: 'J3' });
+    apporteur: null, venteId, libelle: null, origine: 'import', sourceOnglet: 'CEDRIC', sourceCellule: 'J3', interne: true }); // le calcul d'avant (D29 : interne)
   const imp = (id: number, honorairesTtc: number) => vente({ id, repartition: null, dossier: null, origine: 'import', lignes: [], honorairesTtc, statut: 'vendue', mois: 7, annee: 2026, sourceOnglet: 'CEDRIC' });
 
   it('🔴 LOT CF — rétrocession saisie au mois rattachée : ZEMMOR BERKER 36 667 € TTC (30 555,83 € HT), BASUYEAUX 10 500 € (8 750 € HT) ; contrôles nuls', () => {
@@ -72,7 +72,7 @@ describe('🔴 LOT CC — lignesCarteAffaire', () => {
     const l = lignesCarteAffaire(v, 'criterimmo', { retros: [retro(3, 37, 600.01)] });
     expect(l.lignes.map((x) => x.honoraires.ttcC)).toEqual([325000 - 30000, 325000 - 30001]); // 600,01 € : sortie 300,01 (arrondi), entrée le reste exact;
     expect(ecartsCarte(v, 'criterimmo', l)).toEqual([]);
-    const ic = vente({ repartition: { retroApporteurTtc: 0, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
+    const ic = vente({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] }, honorairesTtc: 4000 });
     const li = lignesCarteAffaire(ic, 'criterimmo', { retros: [retro(4, 37, 100)] });
     expect([ecartsCarte(ic, 'criterimmo', li), ecartsCarte(venteDansSociete(ic, 'macj')!, 'macj', lignesCarteAffaire(venteDansSociete(ic, 'macj')!, 'macj'))]).toEqual([[], []]);
@@ -83,7 +83,7 @@ describe('🔴 LOT CW — le CA net d’une vente (ce qu’elle rapporte réelle
   const lg = (negociateur: string, montantTtc: number) => ({ id: Math.random(), negociateur, role: 'negociateur' as const, montantTtc, nature: 'vente' as const, compte: true,
     origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   const retro = (montantTtc: number, venteId = 37): Retrocession => ({ id: 5, societe: 'criterimmo', annee: 2026, mois: 7, negociateur: 'CATHERINE', montantTtc, apporteur: null, venteId,
-    libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null });
+    libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null, interne: true });
   it('un import : honoraires − commissions de TOUS (l’indépendante ET le salarié commissionné, non déduit du reste) − rétrocession rattachée (HT et TTC)', () => {
     const v = vente({ repartition: null, dossier: null, origine: 'import', statut: 'vendue', annee: 2026, mois: 7, honorairesTtc: 6000, lignes: [lg('CATHERINE', 1200), lg('JULIEN', 600)] });
     const o = { retros: [retro(500)], statutDuLibelle: (l: string) => (l === 'CATHERINE' ? 'independant' as const : 'salarie' as const) };
@@ -92,7 +92,7 @@ describe('🔴 LOT CW — le CA net d’une vente (ce qu’elle rapporte réelle
     expect(caNetVente(v, 'criterimmo', o).htC).toBe(308333); // 5 000 − 416,67 − 1 500 (toutes les commissions, HT)
   });
   it('une vente répartie avec apporteur et inter-cabinet : CA − apporteur − reversé − commissions = le CA net (= la somme des « reste », toutes ses commissions étant déduites)', () => {
-    const v = vente({ statut: 'vendue', annee: 2026, mois: 7, repartition: { retroApporteurTtc: 1000, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
+    const v = vente({ statut: 'vendue', annee: 2026, mois: 7, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [partie('entree', 9, 'Cédric JULLIEN', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2026-07-10', entree: { id: 9, nom: 'Cédric JULLIEN' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] } });
     const R = resultatDesCartes([v], 'criterimmo');
     expect([R.retro.ttcC > 0, R.interCabinet.ttcC > 0]).toEqual([true, true]);

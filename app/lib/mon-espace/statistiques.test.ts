@@ -13,10 +13,10 @@ import { mesApporteurs, moisDuChoix, statistiquesMonEspace, totauxDuChoix, varia
  */
 const base = (o: Partial<Vente>): Vente => ({ id: 0, societe: 'criterimmo', libelle: 'X', honorairesTtc: 12000, statut: 'vendue', annee: 2026, mois: 3, dateCompromis: null,
   apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [], double: null, ...o });
-const seule = (o: Partial<Vente>): Vente => base({ repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree_sortie', compteId: 5, negociateur: 'Léa', societe: 'criterimmo',
+const seule = (o: Partial<Vente>): Vente => base({ repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree_sortie', compteId: 5, negociateur: 'Léa', societe: 'criterimmo',
   nom: null, coordonnees: null, pourcentage: 100, montantHt: null }] }, dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Léa' },
   sortie: { id: 5, nom: 'Léa' }, apporteurId: null, personnes: [] }, ...o });
-const partagee = base({ id: 1, repartition: { retroApporteurTtc: 0, parties: [
+const partagee = base({ id: 1, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
   { sorte: 'entree', compteId: 5, negociateur: 'Léa', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 60, montantHt: null },
   { sorte: 'sortie', compteId: 7, negociateur: 'Marc', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 40, montantHt: null }] },
   dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Léa' }, sortie: { id: 7, nom: 'Marc' }, apporteurId: null, personnes: [] } });
@@ -77,8 +77,8 @@ describe('🔴 le choix et le N−1 sur la MÊME période', () => {
 
 describe('🔴 par apporteur : parApporteur du Suivi CA, sur mes ventes de la période', () => {
   const retros: Retrocession[] = [
-    { id: 1, societe: 'criterimmo', annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2 } as Retrocession,
-    { id: 2, societe: 'criterimmo', annee: 2025, mois: 3, negociateur: 'Léa', montantTtc: 120, apporteur: 'AUTRE', venteId: 5 } as Retrocession];
+    { id: 1, societe: 'criterimmo', annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2 , interne: true } as Retrocession,
+    { id: 2, societe: 'criterimmo', annee: 2025, mois: 3, negociateur: 'Léa', montantTtc: 120, apporteur: 'AUTRE', venteId: 5 , interne: true } as Retrocession];
   it('2026 : DEBLOIS — une vente, son CA, sa rétrocession ; 2025 n’y est pas', () => {
     expect(mesApporteurs(retros, VENTES, choix(), JOUR).map((a) => [a.apporteur, a.ventesIds, a.caApporteHt, a.retroHt])).toEqual([['DEBLOIS', [2], 5000, 500]]);
     expect(mesApporteurs(retros, VENTES, choix({ mode: 'tout' }), JOUR).map((a) => a.apporteur).sort()).toEqual(['AUTRE', 'DEBLOIS']);
@@ -108,7 +108,7 @@ describe('🔴 le graphique de l’accueil : mes compromis en cours mois par moi
 
 describe('🔴 décision 13 — mon CA net = la colonne « CA net » de MA ligne de l’Espace par négociateur (au centime, mois par mois, par année)', () => {
   const statuts = { 'Léa': 'independant' as const, 'Marc': 'independant' as const };
-  const opts = { retros: [{ id: 1, societe: 'criterimmo' as const, annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2, libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null } as Retrocession],
+  const opts = { retros: [{ id: 1, societe: 'criterimmo' as const, annee: 2026, mois: 6, negociateur: 'Léa', montantTtc: 600, apporteur: 'DEBLOIS', venteId: 2, libelle: null, origine: 'saisie', sourceOnglet: null, sourceCellule: null , interne: true } as Retrocession],
     statutDuLibelle: (l: string) => statuts[l as 'Léa'] ?? null };
   const commission = (v: Vente, nego: string, ttc: number): Vente => ({ ...v, lignes: [...v.lignes, { id: 900 + v.id, negociateur: nego, role: 'negociateur', montantTtc: ttc, nature: 'vente', compte: true,
     origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null, cote: 'entree' } as Vente['lignes'][number]] });

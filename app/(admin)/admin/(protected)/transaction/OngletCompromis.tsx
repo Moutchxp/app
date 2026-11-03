@@ -12,7 +12,7 @@ import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useCons
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
-  texteTaux, versModele, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
+  texteTaux, versModele, MontantSansTva, MOT_TVA_APPORTEUR, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
 import { totalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
@@ -551,7 +551,7 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
   const unite = useAffichage();
   const MOT = MOT_UNITE[unite];
   const r = v.repartition ?? null;
-  const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc);
+  const ps = r === null ? null : partsParSociete(r.parties, v.honorairesTtc, r.retroApporteurTtc, r.apporteurInterne);
   // LOT N — le % de la commission nette de chaque société et de la part extérieure (même format que les lignes des parties).
   const pcts = r === null || ps === null ? null : pourcentagesParSociete(r.parties, ps.netHt);
   const pct = (x: number): string => pctFormat(x);
@@ -654,7 +654,9 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
             return <span className="trx-apporteur"><span data-apporteur-nom>{ouManque(v.apporteur)}</span>
               {/* 🔴 LOT AD — la rétrocession entre dans les « Commissions versées » de la société affichée (règle des tuiles) : en rouge. */}
               <span className={m === null ? 'trx-apporteur-montant trx-a-renseigner' : apporteurVerseHt(v, vue) > 0 ? 'trx-apporteur-montant trx-rouge' : 'trx-apporteur-montant'} data-apporteur-montant>{m === null ? `montant ${A_RENSEIGNER}`
-                : <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />}</span>
+                // 🔴 D29 — un apporteur externe : un seul montant, « sans TVA » (le versé) ; un collaborateur : HT et TTC, comme avant
+                : v.apporteurInterne === true ? <Montants disposition="ligne" sens={apporteurVerseHt(v, vue) > 0 ? 'verse' : 'neutre'} {...htTtcDe(m)} />
+                : <MontantSansTva montant={m.montant} rouge={apporteurVerseHt(v, vue) > 0} donnee="fiche" />}</span>
               {/* 🔴 LOT BH (Arno) — ajouter, modifier ou retirer l'apporteur de l'affaire ; chaque geste s'enregistre aussitôt (journalisé) et
                   tout se recalcule (relecture, sans recharger la page). Un observateur ne voit pas ces boutons. */}
               <ApporteurAffaire actuel={{ id: v.dossier?.apporteurId ?? null, nom: v.apporteur ?? null, montant: m }} annuaire={d.apporteurs} collegues={d.collegues}
@@ -671,8 +673,8 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
           // et reste + reversements + apporteur = commission de la vente. LOT AM : l'unité choisie en grand, l'autre dessous ; couleur selon le
           // sens (versé en rouge ; la commission de la vente et le reste, en vert ; sinon l'encre).
           const porteuse = societePorteuse(v);
-          const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse);
-          const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc');
+          const cHt = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ht', r.apporteurInterne);
+          const cTtc = centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, porteuse, 'ttc', r.apporteurInterne);
           const brutes = r.parties.map((p) => (p.pourcentage !== null ? (ps.netHt * p.pourcentage) / 100 : p.montantHt ?? 0));
           const repli = montantsAffiches(r.parties.map((p) => ({ mode: p.pourcentage !== null ? 'pct' as const : 'eur' as const, texte: '' })), brutes, ps.netHt);
           const montant = (h: number, t: number, o: { rouge?: boolean; vert?: boolean; donnee?: Record<string, string> } = {}) => (
@@ -690,8 +692,12 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
               {ligne('commission', <>Honoraires de la vente — CA de {LIBELLE_SOCIETE[porteuse]} (société porteuse du mandat)</>, LIBELLE_SOCIETE[porteuse], pct(100),
                 montant(cHt?.commissionHt ?? ht(v.honorairesTtc), v.honorairesTtc, { vert: true, donnee: { 'data-ca-vente-compromis': porteuse } }), 'tdb-fort trx-somme-ligne')}
               {apporteur
-                ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true }))
+                ? ligne('apporteur', <>− Apporteur{v.apporteur != null ? ` : ${v.apporteur}` : ''}</>, '', '', r.apporteurInterne === true
+                  ? montant(cHt?.apporteurHt ?? ht(r.retroApporteurTtc), r.retroApporteurTtc, { rouge: true })
+                  : <span className="trx-ht-ttc-pile trx-montant-repartition"><MontantSansTva montant={r.retroApporteurTtc} donnee="repartition" /></span>)
                 : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
+              {/* 🔴 D29 — la TVA due sur la part de l'apporteur externe, que l'agence ne récupère pas : TTC seulement (0 en HT) */}
+              {(cTtc?.tvaApporteur ?? 0) > 0 && ligne('tva-apporteur', <>− {MOT_TVA_APPORTEUR}</>, '', '', montant(0, cTtc!.tvaApporteur, { rouge: true, donnee: { 'data-tva-apporteur': '' } }))}
               {ligne('base', '= Base de répartition (honoraires nets)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
               {r.parties.map((p, i) => (
                 <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
@@ -829,7 +835,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   // 🔴 LOT O — la commission PROPOSÉE de ce côté : sa part dans la répartition (celle d'après le choix du négociateur) × la commission TTC.
   const hypothese = choisi === null || choisi === (actuel?.id ?? null) ? base : changerNegociateur(base, cote, choisi, references.negociateurs);
   // 🔴 LOT V — avec le taux TAPÉ dans ce panneau (il lisait celui enregistré : le montant ne suivait pas le taux) — l'un recalcule l'autre, en direct.
-  const propose = propositionCommission(hypothese.commissions != null ? { ...hypothese, commissions: { ...hypothese.commissions, [cote]: commission } } : hypothese, cote, v.honorairesTtc);
+  const propose = propositionCommission(hypothese.commissions != null ? { ...hypothese, commissions: { ...hypothese.commissions, [cote]: commission } } : hypothese, cote, v.honorairesTtc, v.apporteurInterne === true);
   const enregistrer = async (id: number | null): Promise<void> => {
     setMotif(null);
     if (id !== null && desDeux && societeChoisie === null) {
@@ -850,7 +856,7 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
     const etat = id !== null && desDeux && societeChoisie !== null ? choisirSocietePartie(avecCommission, cote === 'entree' ? 0 : 1, societeChoisie) : avecCommission;
     const manque = motifSocieteVente(etat, references.negociateurs);
     if (manque !== null) { setOuvert(false); onRevoir(etat, manque); return; }
-    const somme = etatSomme(etat, v.honorairesTtc);
+    const somme = etatSomme(etat, v.honorairesTtc, v.apporteurInterne === true);
     if (somme.motif !== null) { setOuvert(false); onRevoir(etat, `Le négociateur de ${mot} a changé : la répartition est à revoir. ${somme.motif}`); return; }
     setEnvoi(true);
     const r = await posterTransaction({ action: 'dossier-enregistrer', id: v.id, version: v.version, dossier: corpsDossier(v.societe, 'compromis', champsDe(v), personnesDe(v), etat) });
@@ -991,7 +997,9 @@ export function mentionCommission(statut: Statut | null, precision?: string): st
   return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
 }
 
-function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres, rouge = false, classe }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres, rouge = false, classe, sansTva = false }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** 🔴 D29 — la commission d'un apporteur externe : un seul montant, « sans TVA » (jamais « (… € HT) » à côté). */
+  sansTva?: boolean;
   /** 🔴 LOT BB — un montant en rouge sans cadre (« − Apporteur » de l'en-tête). */
   rouge?: boolean;
   /** 🔴 LOT BB — une classe en plus (« = Honoraires nets partie … » en gras). */
@@ -1018,8 +1026,9 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
     <p className={`${encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`}${classe === undefined ? '' : ` ${classe}`}`} {...donnees}
       data-ht-ttc data-classe-commission={encadre ?? undefined}>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
-      <strong className={`trx-calcul-resultat${couleur}`} {...{ [`data-montant-${u}`]: '' }}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</strong>{' '}
-      <span className={`trx-calcul-ttc trx-mt-petit${couleur}`} {...{ [`data-montant-${autre}`]: '' }}>({eur(valeur(autre))}{ESPACE}{MOT_UNITE[autre]})</span>
+      {sansTva ? <><strong className={`trx-calcul-resultat${couleur}`} data-sans-tva="">{eur(ttc)}</strong>{' '}<span className={`trx-calcul-ttc trx-mt-petit${couleur}`}>sans TVA</span></>
+      : <><strong className={`trx-calcul-resultat${couleur}`} {...{ [`data-montant-${u}`]: '' }}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</strong>{' '}
+      <span className={`trx-calcul-ttc trx-mt-petit${couleur}`} {...{ [`data-montant-${autre}`]: '' }}>({eur(valeur(autre))}{ESPACE}{MOT_UNITE[autre]})</span></>}
       {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{mention}</span></>}
       {apres !== undefined && <span className="trx-calcul-dont">{apres}</span>}
     </p>
@@ -1118,8 +1127,11 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
           libelle={<span className="trx-calcul-mot">Honoraires de la vente</span>} />
         {/* 🔴 LOT BC (Arno) — une seule ligne par apporteur : « − Apporteur : [nom] » (sans nom : « à renseigner »), le montant rouge à droite sur la
             même ligne ; au téléphone, le nom peut passer à la ligne sous « − Apporteur : », sans jamais quitter son montant. */}
-        {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100}
+        {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100} sansTva={a.m.htC === a.m.ttcC}
           libelle={<><span className="trx-calcul-mot">− Apporteur</span> : <span className={a.nom === null ? 'trx-a-renseigner' : undefined} data-entete-apporteur-nom>{a.nom ?? A_RENSEIGNER}</span></>} />)}
+        {/* 🔴 D29 — la TVA non récupérable sur la part de l'apporteur externe (TTC seulement) */}
+        {x.tvaApporteur !== undefined && x.tvaApporteur.ttcC !== 0 && <LigneCalcul rouge donnees={{ 'data-entete-tva-apporteur': x.cote }} ttc={x.tvaApporteur.ttcC / 100} ht={x.tvaApporteur.htC / 100}
+          libelle={<span className="trx-calcul-mot">− {MOT_TVA_APPORTEUR}</span>} />}
       </>}
       {/* 🔴 LOT BG (Arno) — la ligne résultat ressort : trame grise des sommes sur toute la largeur du cadre (coins du bas assortis), filet au-dessus
           s'il y a un apporteur, montant principal plus grand et en gras, et dessous, en petit : « base des calculs ci-dessous ». */}
@@ -1127,7 +1139,10 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
         <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
           libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
             : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires nets partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
-              ? `(${[x.commissionVente, ...x.apporteurs.map((a) => a.m)].map(t).join(' − ')})` : t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />
+              // 🔴 D29 — l'apporteur externe : son montant « sans TVA » ; en TTC, la TVA non récupérable aussi retranchée
+              ? `(${[t(x.commissionVente), ...x.apporteurs.map((a) => (a.m.htC === a.m.ttcC ? eur(a.m.ttcC / 100) : t(a.m))),
+                ...(x.tvaApporteur !== undefined && (u === 'ht' ? x.tvaApporteur.htC : x.tvaApporteur.ttcC) !== 0 ? [`${eur((u === 'ht' ? x.tvaApporteur.htC : x.tvaApporteur.ttcC) / 100)} TVA`] : [])].join(' − ')})`
+              : t(x.commissionVente)} × {pctFr(x.pctQuote)}{ESPACE}% =</span></>} />
         <span className="trx-calcul-base-note" data-base-note={x.cote}>base des calculs ci-dessous</span>
       </div>}
       {groupe === 'rouge' && x.quoteParts.map((q, i) => (
@@ -1204,9 +1219,9 @@ function BoutonSocieteCote({ titre, v, cote, references, disponible, onFait, onE
   const societe = actuel === null ? 'Société à définir'
     : surVente !== null ? LIBELLE_SOCIETE[surVente]
     : compte?.societe === LES_DEUX ? 'Société à choisir' : libelleSociete(compte?.societe ?? null);
-  const part = partDuCote(v, cote) ?? pctLigne(base.parties[i], commissionNetteHt(v.honorairesTtc, v.repartition?.retroApporteurTtc ?? 0));
+  const part = partDuCote(v, cote) ?? pctLigne(base.parties[i], commissionNetteHt(v.honorairesTtc, v.repartition?.retroApporteurTtc ?? 0, v.repartition?.apporteurInterne));
   const ouvert = etat !== null;
-  const somme = etat === null ? null : etatSomme(etat, v.honorairesTtc);
+  const somme = etat === null ? null : etatSomme(etat, v.honorairesTtc, v.apporteurInterne === true);
   const bloque = etat === null ? null : motifSocieteVente(etat, references.negociateurs) ?? somme?.motif ?? null;
   const valider = async (): Promise<void> => {
     if (etat === null) return;

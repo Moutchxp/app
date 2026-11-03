@@ -49,7 +49,9 @@ export function planReclassement(ventes: readonly Vente[], retros: readonly Retr
     const versLuiMeme = rs.some((r) => (r.apporteur ?? '').trim() !== '' && (r.apporteur ?? '').trim().toUpperCase() === r.negociateur.trim().toUpperCase());
     if (!(versLuiMeme || retroTtc > 0.5 * v.honorairesTtc)) continue;
     const autres = retros.filter((r) => !rs.includes(r));
-    const avant = centimes(resteTtcDe(v, retros, statutDuLibelle, societe) / TVA);
+    // 🔴 D29 — ces « rétrocessions » sont, par le critère même du reclassement, la commission du négociateur (un collaborateur, avec TVA), pas un
+    // apporteur externe : le reste « avant » se lit avec elles comme internes — la comparaison reste celle du lot BV, montant pour montant.
+    const avant = centimes(resteTtcDe(v, [...autres, ...rs.map((r) => ({ ...r, interne: true }))], statutDuLibelle, societe) / TVA);
     const apres = centimes(resteTtcDe(venteApres(v, negociateur, retroTtc), autres, statutDuLibelle, societe) / TVA);
     const s = statutDuLibelle?.(negociateur) ?? null;
     // 🔴 LOT BX — un DOUBLE « à attribuer » (la vente est dans les deux fichiers) ne compte dans aucune société tant qu'il n'est pas attribué,

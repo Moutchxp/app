@@ -44,7 +44,7 @@ describe('🔴 D27 — « Mon espace » : ce que chacun de mes compromis verse �
     expect(v.collegues).toEqual(lignesCarteAffaire(TEST_TRANSACTION, null, O).lignes[0].honoraires);
     expect(v.apporteurs.ttcC).toBe(100000);
     expect(v.negociateurs).toEqual(C(0, 0));
-    expect(moins(moins(moins(v.ca, v.collegues), v.negociateurs), v.apporteurs)).toEqual(monCaNet([TEST_TRANSACTION], ARNO, O));
+    expect(moins(moins(moins(moins(v.ca, v.collegues), v.negociateurs), v.apporteurs), v.tva!)).toEqual(monCaNet([TEST_TRANSACTION], ARNO, O));
     expect(v.parApporteur).toEqual([{ nom: 'Gardien Dacquet', m: v.apporteurs }]);
   });
   it('MARMONIER (co-négociateurs du même côté, ligne importée) : la part de Cédric part aux collègues ; LARSON (seul) : rien n’est reversé', () => {
@@ -59,7 +59,7 @@ describe('🔴 D27 — « Mon espace » : ce que chacun de mes compromis verse �
     const h = verseAffairePerso(HEIDIDON, ARNO, O);
     expect(h.collegues).toEqual(lignesCarteAffaire(HEIDIDON, null, O).lignes[1].honoraires);
     expect(h.apporteurs.ttcC).toBe(100000);
-    expect(moins(moins(h.ca, h.collegues), h.apporteurs)).toEqual(monCaNet([HEIDIDON], ARNO, O));
+    expect(moins(moins(moins(h.ca, h.collegues), h.apporteurs), h.tva!)).toEqual(monCaNet([HEIDIDON], ARNO, O));
   });
   it('décision A — un négociateur commissionné : SA commission dans « dont négociateurs » (vue de Pierre) ; net = sa part nette', () => {
     const f = verseAffairePerso(FABARRO, PIERRE, O);
@@ -70,7 +70,7 @@ describe('🔴 D27 — « Mon espace » : ce que chacun de mes compromis verse �
     const avec = { ...HEIDIDON, lignes: [{ ...ligne(9, 'Pierre Thevenin', 900), cote: 'sortie' as const }] };
     const v = verseAffairePerso(avec, ARNO, O);
     expect(v.negociateurs).toEqual(C(0, 0));
-    expect(Object.keys(v).sort()).toEqual(['apporteurs', 'ca', 'collegues', 'negociateurs', 'parApporteur']);
+    expect(Object.keys(v).sort()).toEqual(['apporteurs', 'ca', 'collegues', 'negociateurs', 'parApporteur', 'tva']);
     expect(JSON.stringify(v)).not.toContain('90000');
     expect(JSON.stringify(v)).not.toContain('75000');
   });
@@ -80,7 +80,7 @@ describe('🔴 D27 — « Mon espace » : ce que chacun de mes compromis verse �
     expect(c.nb).toBe(4);
     expect(moins(c.volume, c.reverse)).toEqual(c.net);
     expect(c.net).toEqual(monCaNet([TEST_TRANSACTION, MARMONIER, LARSON, HEIDIDON], ARNO, O));
-    expect(c.reverse).toEqual(C(c.collegues.htC + c.negociateurs.htC + c.apporteurs.htC, c.collegues.ttcC + c.negociateurs.ttcC + c.apporteurs.ttcC));
+    expect(c.reverse).toEqual(C(c.collegues.htC + c.negociateurs.htC + c.apporteurs.htC + c.tva.htC, c.collegues.ttcC + c.negociateurs.ttcC + c.apporteurs.ttcC + c.tva.ttcC));
   });
 });
 

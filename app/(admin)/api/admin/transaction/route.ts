@@ -12,7 +12,7 @@ import { annulationDisponible, interCabinetDisponible, mandatDisponible, prixVen
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireLocationCa } from '../../../../lib/transaction/locationLue';
-import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
+import { aujourdhuiParis, estInterne, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
 import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
 import { lireDonneesSociete } from '../../../../lib/transaction/donneesSociete';
@@ -54,7 +54,9 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
   ]);
   return { lotD, personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
     // LOT AC — la recherche (nom, prénom, société, téléphones, e-mails) et le libellé de l'annuaire (homonymes).
-    recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a) })), collegues, personnes };
+    recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a),
+    // 🔴 D29 — un collaborateur (sa commission porte la TVA) ; sinon externe, sans TVA
+    ...(estInterne(a) ? { interne: true } : {}) })), collegues, personnes };
 }
 
 export async function GET(request: Request): Promise<Response> {

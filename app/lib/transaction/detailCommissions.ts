@@ -88,15 +88,17 @@ export function detailCommissions(ventes: readonly VenteDetail[], societe: Socie
     const b = bilanVente(v, societe);
     const r = v.repartition ?? null;
     // La règle des cartes (lot AH), en HT et en TTC ; null (répartition qui ne fait pas 100 %) : chaque montant exact arrondi.
-    const cHt = r === null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, b.porteuse);
-    const cTtc = r === null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, b.porteuse, 'ttc');
+    const cHt = r === null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, b.porteuse, 'ht', r.apporteurInterne);
+    const cTtc = r === null ? null : centimesRepartition(r.parties, v.honorairesTtc, r.retroApporteurTtc, b.porteuse, 'ttc', r.apporteurInterne);
     const deux = (exact: number, h: number | undefined, t: number | undefined): [number, number] =>
       [h === undefined ? enCentimes(exact) : enCentimes(h), t === undefined ? enCentimes(exact * TVA) : enCentimes(t)];
     const app = apporteurVerseHt(v, societe, b);
-    if (app !== 0) ajouter(v.id, 'apporteurs', v.apporteur?.trim() || 'Apporteur à renseigner', ...deux(app, cHt?.apporteurHt, cTtc?.apporteurHt));
+    // 🔴 D29 — le versé à l'apporteur : un externe, sans TVA (HT = TTC)
+    const interne = r?.apporteurInterne ?? v.apporteurInterne ?? false;
+    if (app !== 0) ajouter(v.id, 'apporteurs', v.apporteur?.trim() || 'Apporteur à renseigner', ...deux(app, cHt?.apporteurHt, cTtc?.apporteurHt ?? (interne ? undefined : app)));
     for (const s of SOCIETES) if (b.verseHt[s] !== 0) ajouter(v.id, `inter-cabinet-${s}`, negociateursDe(v, s), ...deux(b.verseHt[s], cHt?.reverse[s], cTtc?.reverse[s]));
     if (b.exterieurHt !== 0 && r !== null) {
-      const parts = partsHt(r.parties, commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc));
+      const parts = partsHt(r.parties, commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc, r.apporteurInterne));
       r.parties.forEach((p, i) => {
         if (p.sorte !== 'exterieure' || parts[i] === 0) return;
         ajouter(v.id, 'exterieur', p.nom?.trim() || 'Agence extérieure', ...deux(parts[i], cHt?.parts[i], cTtc?.parts[i]));

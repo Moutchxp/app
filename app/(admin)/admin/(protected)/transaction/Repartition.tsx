@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
 import { NouvelApporteur } from './NouvelApporteur';
-import { bilanVente, commissionNetteHt, LIBELLE_PARTIE, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
+import { bilanVente, commissionNetteHt, coutTtcApporteur, htApporteur, LIBELLE_PARTIE, tvaApporteur, societePorteuse, LIBELLE_SOCIETE, partsHt, SOCIETES, TVA, type Partie, type Societe, type Unite } from '../../../../lib/transaction/modele';
 import { autreUnite, LIBELLE_UNITE, TAUX_REMUNERATION_DEFAUT, tauxDuMontant } from '../../../../lib/transaction/commissions';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, societeDOffice, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { commissionneDePartie } from '../../../../lib/transaction/statutLigne';
@@ -29,6 +29,8 @@ export interface NegociateurRef { id: number; nom: string; societe: SocieteCompt
   /** LOT S (441) — commissionné aujourd'hui (absent : oui ; un collaborateur l'est toujours). */
   commissionne?: boolean }
 export interface ApporteurRef { id: number; nom: string;
+  /** 🔴 D29 — un collaborateur (sa commission porte la TVA) ; absent ou faux : un apporteur externe (sans TVA). */
+  interne?: boolean;
   /** 🔴 LOT AC — le libellé de l'annuaire (NOM Prénom) et le texte cherchable (nom, prénom, société, téléphones, e-mails). */
   libelle?: string; recherche?: string }
 /**
@@ -55,16 +57,19 @@ export interface MontantEcran { texte: string; unite: Unite;
  * (null : la 437 n'est pas appliquée — rien ne se saisit, rien ne s'envoie, tout reste en TTC comme avant).
  */
 export interface EtatRepartition { entreeId: number | null; sortieId: number | null; apporteurId: number | null; retroTexte: string; retroUnite?: Unite;
+  /** 🔴 D29 — l'apporteur de la vente telle qu'elle est lue est un collaborateur (sinon externe, sans TVA) ; l'annuaire du formulaire prime. */
+  apporteurInterne?: boolean;
   /** 🔴 LOT BH — l'apporteur écrit hors annuaire (import) gardé tel quel ; null ou absent : aucun (ou celui de l'annuaire). */
   apporteurNom?: string | null;
   /** 🔴 LOT BH — « Supprimer » : le lien apporteur ↔ affaire est retiré (même un nom écrit hors annuaire). */
   retirerApporteur?: boolean;
   commissions?: Record<'entree' | 'sortie', MontantEcran> | null; parties: PartieEcran[] }
 
-/** LOT I — la rétrocession saisie, en TTC (ce que la répartition déduit) ; vide : 0. PUR. */
-export const retroTtcDe = (etat: Pick<EtatRepartition, 'retroTexte' | 'retroUnite'>): number => {
+/** LOT I — la rétrocession saisie : le montant VERSÉ, tel que la base le relira ; vide : 0. 🔴 D29 — un apporteur externe n'a pas de TVA : le
+ *  montant tapé est le versé, quelle que soit l'unité ; un interne (collaborateur) : son TTC, comme avant. PUR. */
+export const retroTtcDe = (etat: Pick<EtatRepartition, 'retroTexte' | 'retroUnite'>, interne = false): number => {
   const x = nombre(etat.retroTexte) ?? 0;
-  return etat.retroUnite === 'ht' ? x * TVA : x;
+  return interne && etat.retroUnite === 'ht' ? x * TVA : x;
 };
 
 export function nombre(s: string): number | null {
@@ -189,9 +194,9 @@ export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sort
 }
 
 /** LOT E — l'état de la somme pour le formulaire : les parties retenues et, si elle ne fait pas 100 %, la phrase (Enregistrer désactivé). PUR. */
-export function etatSomme(etat: EtatRepartition, honorairesTtc: number): { parties: Partie[]; netHt: number; motif: string | null } {
+export function etatSomme(etat: EtatRepartition, honorairesTtc: number, interne = etat.apporteurInterne === true): { parties: Partie[]; netHt: number; motif: string | null } {
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
-  const netHt = commissionNetteHt(commission, retroTtcDe(etat));
+  const netHt = commissionNetteHt(commission, retroTtcDe(etat, interne), interne);
   const parties = versModele(etat.parties);
   return { parties, netHt, motif: parties.length === 0 ? null : motifSomme(parties, netHt) };
 }
@@ -228,24 +233,27 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const [nouveau, setNouveau] = useState<string | null>(null);
   const annuaire = [...apporteurs, ...ajoutes.filter((a) => !apporteurs.some((x) => x.id === a.id))];
   const creation = collegues !== undefined;
-  const retro = retroTtcDe(etat);
+  // 🔴 D29 — l'apporteur choisi est-il un collaborateur (l'annuaire) ? Sinon externe : sans TVA, déduit en entier du HT
+  const fiche = annuaire.find((a) => a.id === etat.apporteurId);
+  const interne = fiche !== undefined ? fiche.interne === true : etat.apporteurInterne === true;
+  const retro = retroTtcDe(etat, interne);
   const commission = Number.isFinite(honorairesTtc) ? honorairesTtc : 0;
-  const net = commissionNetteHt(commission, retro);
+  const net = commissionNetteHt(commission, retro, interne);
   const lignesModele = etat.parties.map(versModeleUne);
   const parts = partsHt(lignesModele, net);
   // LOT U — les montants des cases « Part (€ HT) » calculées, au centime, la somme juste sur la base.
   // 🔴 LOT AH — la règle unique des centimes (celle du tableau de la carte) : la porteuse absorbe l'écart ; à défaut (somme ≠ 100 %), la règle du lot U.
   const porteuseEcran = societePorteuse({ societe: societeVente, repartition: { parties: lignesModele, retroApporteurTtc: retro } });
-  const eurAffiches = centimesRepartition(lignesModele, commission, retro, porteuseEcran)?.parts ?? montantsAffiches(etat.parties, parts, net);
-  const { parties, motif: motifTotal } = etatSomme(etat, honorairesTtc);
+  const eurAffiches = centimesRepartition(lignesModele, commission, retro, porteuseEcran, 'ht', interne)?.parts ?? montantsAffiches(etat.parties, parts, net);
+  const { parties, motif: motifTotal } = etatSomme(etat, honorairesTtc, interne);
   // Sans aucun négociateur (rien n'est encore une partie), le total se lit sur les lignes affichées.
   const total = totalRepartition(parties.length === 0 ? lignesModele : parties, net);
-  const parSociete = partsParSociete(parties, commission, retro);
+  const parSociete = partsParSociete(parties, commission, retro, interne);
   const pcts = pourcentagesParSociete(parties, net);
   const pctTexte = (x: number): string => pctFr(x);
   // 🔴 LOT AM — l'unité affichée en grand (« HT | TTC » de l'onglet) ; les champs de saisie gardent la leur.
   const u = useAffichage();
-  const autre = parties.length === 0 ? null : verifierRepartition(parties, commission, retro);
+  const autre = parties.length === 0 ? null : verifierRepartition(parties, commission, retro, interne);
   const motifAutre = autre !== null && motifTotal === null && motifSocieteVente(etat, negociateurs) === null ? autre : null;
   const optionsNego = negociateurs.map((n) => ({ id: n.id, libelle: `${n.nom} — ${n.societe === null ? 'société à renseigner dans Comptes' : LIBELLE_SOCIETE_COMPTE[n.societe]}` }));
   // LOT K — un collaborateur des deux sociétés : la société de SA partie se choisit pour cette vente (obligatoire).
@@ -261,7 +269,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
     const lignes = saisirPart(etat.parties, i, 'eur', ht, net).map((p) => (p.saisieTtc === undefined ? p : { ...p, saisieTtc: undefined }));
     onChange({ ...etat, parties: lignes.map((p, j) => (j === i && p.mode === 'eur' ? { ...p, saisieTtc: texte } : p)) });
   };
-  const eurTtc = centimesRepartition(lignesModele, commission, retro, porteuseEcran, 'ttc')?.parts;
+  const eurTtc = centimesRepartition(lignesModele, commission, retro, porteuseEcran, 'ttc', interne)?.parts;
   // 🔴 LOT AN — la case « Part (€) » en cours de frappe (tel que tapé) ; les autres, mises en forme.
   const [eurEnSaisie, setEurEnSaisie] = useState<number | null>(null);
 
@@ -293,7 +301,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
 
       {/* 🔴 LOT U (Arno) — en tête, la base de répartition : commission de la vente − apporteur(s) = base (TTC et HT), en direct. */}
       <ResumeBase commissionTtc={commission} apporteurs={etat.apporteurId === null && retro === 0 ? []
-        : [{ nom: apporteurs.find((a) => a.id === etat.apporteurId)?.nom ?? null, ttc: retro }]} />
+        : [{ nom: apporteurs.find((a) => a.id === etat.apporteurId)?.nom ?? null, ttc: retro, interne }]} />
       <ul className="trx-journal trx-parties" data-parties>
         {etat.parties.map((p, i) => {
           const interne = p.sorte !== 'exterieure';
@@ -337,7 +345,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   // 🔴 LOT S — non commissionné : ni commission, ni taux, ni calcul ; sa part reste dans la répartition.
                   : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form={i === 0 ? 'entree' : 'sortie'}>Non commissionné</span>
                   : <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
-                    propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission)}
+                    propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission, interne)}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
               ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
               {!interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse du mandat (dans ses commissions versées).</span>}
@@ -356,14 +364,14 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           {motifChoix !== null && <span className="trx-alerte" role="status" data-motif-societe-vente>{motifChoix}</span>}
           {parties.length > 0 && (() => {
             // 🔴 LOT R — la société PORTEUSE (négociateur d'entrée) encaisse le CA de la vente ; la part de l'autre société lui est reversée.
-            const b = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro } }, null);
+            const b = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro, apporteurInterne: interne } }, null);
             const porteuse = b.porteuse;
             // 🔴 LOT AJ (Arno) — les montants au centime par LA règle du lot AH (`centimesRepartition`, celle de la carte) ; à défaut (somme ≠ 100 %),
             // l'arrondi simple d'avant. « Part X » et « reversé vers X » portaient le même montant : UNE mention « Part X − Reversé en inter-cabinet
             // vers X », en rouge (fusion autorisée par Arno) ; idem pour l'extérieur. La part de la porteuse reste la sienne, en tête.
-            const c = centimesRepartition(parties, commission, retro, porteuse);
+            const c = centimesRepartition(parties, commission, retro, porteuse, 'ht', interne);
             // LOT AM — le TTC au centime par la même règle (`unite: 'ttc'`), pour l'unité affichée en grand.
-            const cT = centimesRepartition(parties, commission, retro, porteuse, 'ttc');
+            const cT = centimesRepartition(parties, commission, retro, porteuse, 'ttc', interne);
             const caHt = c?.commissionHt ?? b.caHt;
             const partDe = (s: Societe): number => c?.parSociete[s] ?? parSociete.societe[s];
             const ttcDe = (s: Societe): number => cT?.parSociete[s] ?? parSociete.societe[s] * TVA;
@@ -387,7 +395,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
       </ul>
       <p className="trx-actions">
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: [...etat.parties, versEcran(partieExterieure())] })} data-ajouter-exterieure>+ Ajouter une partie extérieure</button>
-        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: revenirAuCinquante(etat.parties, negociateurs, etat.entreeId, etat.sortieId, commissionNetteHt(commission, retro)) })} data-revenir-5050>Revenir au 50/50</button>
+        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: revenirAuCinquante(etat.parties, negociateurs, etat.entreeId, etat.sortieId, commissionNetteHt(commission, retro, interne)) })} data-revenir-5050>Revenir au 50/50</button>
       </p>
     </fieldset>
   );
@@ -497,14 +505,16 @@ export interface Proposition { pct: number; baseTtc: number; taux: number; ttc: 
  * à sa société (ex. Pierre : 50 % × 2 000 € = 1 000 € TTC). Remplace la proposition du lot O (100 % de la part, sur la commission
  * entière). null : pas de négociateur, part nulle, ou commission illisible — le champ reste vide. PUR.
  */
-export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'retroTexte' | 'retroUnite'> & Partial<Pick<EtatRepartition, 'commissions'>>, cote: 'entree' | 'sortie', honorairesTtc: number): Proposition | null {
+export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'retroTexte' | 'retroUnite'> & Partial<Pick<EtatRepartition, 'commissions' | 'apporteurInterne'>>, cote: 'entree' | 'sortie', honorairesTtc: number,
+  /** 🔴 D29 — l'apporteur est un collaborateur ; faux : externe, son coût TTC (versé + TVA non récupérable) est déduit de la base. */
+  interne = etat.apporteurInterne === true): Proposition | null {
   const p = etat.parties[cote === 'entree' ? 0 : 1];
   // LOT S — un négociateur non commissionné : aucune proposition (le champ ne s'affiche pas, rien ne s'écrit pour lui).
   if (p === undefined || p.compteId === null || nonCommissionne(p) || !Number.isFinite(honorairesTtc) || honorairesTtc <= 0) return null;
   const x = nombre(p.texte);
   if (x === null) return null;
-  const netTtc = honorairesTtc - retroTtcDe(etat);
-  const pct = p.mode === 'pct' ? x : pourcentageDe(x, commissionNetteHt(honorairesTtc, retroTtcDe(etat)));
+  const netTtc = honorairesTtc - coutTtcApporteur(retroTtcDe(etat, interne), interne);
+  const pct = p.mode === 'pct' ? x : pourcentageDe(x, commissionNetteHt(honorairesTtc, retroTtcDe(etat, interne), interne));
   const taux = tauxDe(etat.commissions?.[cote]);
   const baseTtc = (netTtc * pct) / 100;
   return pct > 0 ? { pct, baseTtc, taux, ttc: (baseTtc * taux) / 100 } : null;
@@ -557,10 +567,10 @@ export function montantEffectif(m: MontantEcran, propose: Proposition | null): M
 }
 
 /** Les commissions telles qu'elles s'enregistrent : la proposition affichée devient le montant envoyé (« Enregistrer » la valide). PUR. */
-export function commissionsResolues(etat: EtatRepartition, honorairesTtc: number): EtatRepartition {
+export function commissionsResolues(etat: EtatRepartition, honorairesTtc: number, interne = etat.apporteurInterne === true): EtatRepartition {
   if (etat.commissions == null) return etat;
   const c = etat.commissions;
-  const r = (cote: 'entree' | 'sortie'): MontantEcran => { const e = montantEffectif(c[cote], propositionCommission(etat, cote, honorairesTtc));
+  const r = (cote: 'entree' | 'sortie'): MontantEcran => { const e = montantEffectif(c[cote], propositionCommission(etat, cote, honorairesTtc, interne));
     return { texte: e.texte, unite: e.unite, ...(c[cote].taux !== undefined ? { taux: c[cote].taux } : {}) }; };
   return { ...etat, commissions: { entree: r('entree'), sortie: r('sortie') } };
 }
@@ -584,17 +594,31 @@ export function montantsAffiches(lignes: readonly Pick<PartieEcran, 'mode' | 'te
   return affiches;
 }
 
+/** 🔴 D29 (Arno, 03/11/2026) — le mot de la ligne TTC de la TVA non récupérable (fiche, formulaire, résultat). */
+export const MOT_TVA_APPORTEUR = 'TVA sur la commission de l’apporteur (non récupérable)';
+/** 🔴 D29 — la commission d'un apporteur externe : UN seul montant, « sans TVA » (jamais un « (… € TTC) » trompeur), en rouge (déduite). */
+export function MontantSansTva({ montant, donnee, rouge = true }: { montant: number; donnee?: string; rouge?: boolean }) {
+  return <span className={rouge ? 'trx-rouge trx-sans-tva' : 'trx-sans-tva'} data-sans-tva={donnee ?? ''}><strong>{eur(montant)}</strong> <span className="trx-mt-petit">sans TVA</span></span>;
+}
+export function SansTva({ montant, donnee }: { montant: number; donnee?: string }) {
+  return <td className="trx-resume-montants"><MontantSansTva montant={montant} {...(donnee === undefined ? {} : { donnee })} /></td>;
+}
+
 /**
  * 🔴 LOT U (Arno) — LA BASE DE RÉPARTITION, en tête du panneau (carte et formulaire) : « Commission de la vente », une ligne « − Apporteur :
  * Nom » par apporteur (le MONTANT en rouge, le signe et le mot avec lui ; aucun : « Aucun apporteur », sans rouge), puis « = Base de
  * répartition » en gras — HT (gras) puis TTC (vert, entre parenthèses) en colonnes alignées à droite (lot V). Elle se lit sur la saisie en cours : elle suit l'apporteur et la commission.
  */
-export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: number; apporteurs: readonly { nom: string | null; ttc: number }[] }) {
-  const baseTtc = commissionTtc - apporteurs.reduce((t, a) => t + a.ttc, 0);
+export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: number;
+  /** `ttc` : le montant VERSÉ ; 🔴 D29 — `interne` faux (défaut) : un apporteur externe, sans TVA (un seul montant) et sa TVA non récupérable à part. */
+  apporteurs: readonly { nom: string | null; ttc: number; interne?: boolean }[] }) {
+  // 🔴 D29 — la base TTC = la base HT × 1,2 : le COÛT TTC de l'apporteur est déduit (externe : versé + TVA non récupérable)
+  const baseTtc = commissionTtc - apporteurs.reduce((t, a) => t + coutTtcApporteur(a.ttc, a.interne), 0);
+  const tva = apporteurs.reduce((t, a) => t + tvaApporteur(a.ttc, a.interne), 0);
   // 🔴 LOT V (Arno) — le HT en gras d'abord, puis le TTC entre parenthèses, en vert (« TTC » écrit) ; l'apporteur : tout en rouge.
   // 🔴 LOT W — HT et TTC l'un sous l'autre, dans une colonne de largeur fixe alignée à droite : les montants ne se coupent jamais.
   // 🔴 LOT AH — la base HT = la commission au centime − l'apporteur au centime (la même que le tableau de la carte : tout tombe juste).
-  const baseHt = auCentime(auCentime(commissionTtc / TVA) - apporteurs.reduce((t, a) => t + auCentime(a.ttc / TVA), 0));
+  const baseHt = auCentime(auCentime(commissionTtc / TVA) - apporteurs.reduce((t, a) => t + auCentime(htApporteur(a.ttc, a.interne)), 0));
   // 🔴 LOT AM — l'unité choisie (« HT | TTC ») en grand (gras), l'autre dessous entre parenthèses, de la même couleur : l'apporteur (déduit)
   // en rouge, la commission de la vente (CA) en vert, la base à l'encre.
   const u = useAffichage();
@@ -614,7 +638,10 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
         <tr className="trx-somme-ligne" data-resume="commission"><th scope="row">Honoraires de la vente</th>{montants(commissionTtc, 'recu', 'commission')}</tr>
         {apporteurs.length === 0
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
-          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>{montants(a.ttc, 'verse', `apporteur-${i}`)}</tr>)}
+          : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>
+            {a.interne === true ? montants(a.ttc, 'verse', `apporteur-${i}`) : <SansTva montant={a.ttc} donnee={`apporteur-${i}`} />}</tr>)}
+        {/* 🔴 D29 — la TVA que l'agence doit sur la part de l'apporteur externe, sans pouvoir la récupérer : en TTC seulement (0 en HT) */}
+        {tva > 0 && <tr data-resume="tva-apporteur"><th scope="row">− {MOT_TVA_APPORTEUR}</th>{montants(tva, 'verse', 'tva-apporteur', 0)}</tr>}
         <tr className="trx-resume-base-total trx-somme-ligne" data-resume="base"><th scope="row">= Base de répartition{' '}
           <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, 'neutre', 'base', baseHt)}</tr>
       </tbody>

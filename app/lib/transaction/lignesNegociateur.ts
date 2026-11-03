@@ -66,7 +66,8 @@ export function lignesParNegociateur(v: Vente, retros: readonly Retrocession[], 
   // La commission de chaque côté : ses lignes « negociateur » (une ligne sans côté — d'avant — va à l'entrée).
   const cote = (c: 'entree' | 'sortie'): Vente => ({ ...v, lignes: v.lignes.filter((l) => l.role !== 'negociateur' || (l.cote ?? 'entree') === c) });
   // L'apporteur (le même total dans les deux en-têtes) : la part de la sortie au prorata de sa part ; l'entrée, le reste (somme exacte).
-  const apporteurTotal = somme(vs.apporteurs.map((a) => a.m));
+  // 🔴 D29 — son COÛT : le versé + la TVA non récupérable d'un apporteur externe (TTC)
+  const apporteurTotal = plus(somme(vs.apporteurs.map((a) => a.m)), vs.tvaApporteur ?? { htC: 0, ttcC: 0 });
   const partSortie: MontantC = { htC: Math.round((apporteurTotal.htC * vs.pctQuote) / 100), ttcC: Math.round((apporteurTotal.ttcC * vs.pctQuote) / 100) };
   const partApporteur = { entree: moins(apporteurTotal, partSortie), sortie: partSortie };
   const ligne = (c: 'entree' | 'sortie', x: NonNullable<typeof ve>, nom: string): LigneNegociateur => {

@@ -105,6 +105,8 @@ export interface Vente {
   retroApporteur?: MontantSaisi | null;
   /** LOT E (migration 435) — le prix de vente du bien (€), facultatif ; absent ou null : à renseigner. */
   prixVente?: number | null;
+  /** 🔴 D29 — l'apporteur du dossier est un collaborateur (sa commission porte la TVA) ; absent ou faux : externe (sans TVA). */
+  apporteurInterne?: boolean;
   /** 🔴 MON ESPACE, LOT 2 (migration 449) — le n° de mandat tel que saisi ; absent (sans la 449) ou null : non renseigné. */
   numeroMandat?: string | null;
   /** 🔴 MON ESPACE, LOT 6 — la version de la vente (le dernier n° de son journal) : renvoyée avec chaque geste (garde de version). */
@@ -170,8 +172,10 @@ export interface Partie {
 }
 export interface Repartition {
   parties: Partie[];
-  /** La rétrocession de l'apporteur (TTC), déduite AVANT toute répartition. */
+  /** La rétrocession de l'apporteur : le MONTANT VERSÉ (🔴 D29 : sans TVA pour un apporteur externe), déduite AVANT toute répartition. */
   retroApporteurTtc: number;
+  /** 🔴 D29 — l'apporteur est un collaborateur (sa commission porte la TVA) ; absent ou faux : un apporteur EXTERNE (sans TVA). */
+  apporteurInterne?: boolean;
 }
 /** 🔴 LOT BJ — la civilité d'un particulier ou d'un représentant (facultative). */
 export type Civilite = 'M.' | 'Mme';
@@ -202,8 +206,24 @@ export interface DossierVente {
   personnes: PersonneVente[];
 }
 
-/** La commission NETTE HT : (commission − rétrocession de l'apporteur) ÷ 1,2 — l'apporteur est déduit avant toute répartition. PUR. */
-export const commissionNetteHt = (honorairesTtc: number, retroApporteurTtc: number): number => ht(honorairesTtc - retroApporteurTtc);
+/**
+ * ══ 🔴 D29 (Arno, 03/11/2026, option A) — LA COMMISSION D'UN APPORTEUR : LA RÈGLE UNIQUE (PUR) ════════════════════════════════════════════════════
+ * Un apporteur EXTERNE ne facture pas : pas de TVA. Le montant versé (celui que la base stocke, rétrocession ou apporteur du dossier) est son HT ET
+ * son TTC ; il se déduit EN ENTIER des honoraires HT. Toute part facturée (collaborateurs, inter-cabinet, agences extérieures) garde TTC = HT × 1,2 ;
+ * l'écart — la TVA que l'agence doit sur la part de l'apporteur sans pouvoir la récupérer (0,2 × le montant) — est une ligne TTC à part :
+ * « TVA sur la commission de l'apporteur (non récupérable) ». Le COÛT TTC d'un apporteur externe = montant + cette TVA = montant × 1,2.
+ * Un apporteur INTERNE (un collaborateur : la fiche de l'annuaire porte un compte) : comme avant (TTC, HT = TTC ÷ 1,2, aucune TVA perdue).
+ * Tout l'historique, sans date de bascule ; une rétrocession sans apporteur nommé est externe.
+ */
+/** Le HT d'une commission d'apporteur (externe : le montant versé ; interne : ÷ 1,2). PUR. */
+export const htApporteur = (montant: number, interne = false): number => (interne ? ht(montant) : montant);
+/** Son COÛT TTC pour l'agence (externe : montant + TVA non récupérable ; interne : le TTC). PUR. */
+export const coutTtcApporteur = (montant: number, interne = false): number => (interne ? montant : montant * TVA);
+/** La TVA non récupérable d'une commission d'apporteur (externe : 0,2 × le montant ; interne : 0). PUR. */
+export const tvaApporteur = (montant: number, interne = false): number => coutTtcApporteur(montant, interne) - montant;
+
+/** La commission NETTE HT : honoraires HT − l'apporteur (🔴 D29 : son HT, `htApporteur`) — l'apporteur est déduit avant toute répartition. PUR. */
+export const commissionNetteHt = (honorairesTtc: number, retroApporteurTtc: number, interne = false): number => ht(honorairesTtc) - htApporteur(retroApporteurTtc, interne);
 
 /** La part HT de chaque partie (dans l'ordre), sans arrondi. PUR. */
 export const partsHt = (parties: readonly Partie[], netHt: number): number[] =>
@@ -226,7 +246,7 @@ export function societePorteuse(v: Pick<Vente, 'societe' | 'repartition'>): Soci
 
 /** Les parts HT d'une vente répartie : par société (parties internes) et extérieure — sur la commission nette (apporteur déduit). PUR. */
 function partsDeLaVente(r: Repartition, honorairesTtc: number): { parSociete: Record<Societe, number>; exterieurHt: number; netHt: number } {
-  const netHt = commissionNetteHt(honorairesTtc, r.retroApporteurTtc);
+  const netHt = commissionNetteHt(honorairesTtc, r.retroApporteurTtc, r.apporteurInterne);
   const parts = partsHt(r.parties, netHt);
   const parSociete: Record<Societe, number> = { criterimmo: 0, macj: 0 };
   let exterieur = 0;
@@ -266,8 +286,8 @@ export function bilanVente(v: Pick<Vente, 'societe' | 'honorairesTtc' | 'reparti
   const autres: Record<Societe, number> = { criterimmo: 0, macj: 0 };
   for (const s of SOCIETES) if (s !== porteuse) autres[s] = parSociete[s];
   const intra = SOCIETES.reduce((t, s) => t + autres[s], 0);
-  if (societe === null) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: ht(v.repartition.retroApporteurTtc), verseHt: { ...RIEN }, exterieurHt: ext, recuHt: 0, neutraliseHt: intra };
-  if (societe === porteuse) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: ht(v.repartition.retroApporteurTtc), verseHt: autres, exterieurHt: ext, recuHt: 0, neutraliseHt: 0 };
+  if (societe === null) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: htApporteur(v.repartition.retroApporteurTtc, v.repartition.apporteurInterne), verseHt: { ...RIEN }, exterieurHt: ext, recuHt: 0, neutraliseHt: intra };
+  if (societe === porteuse) return { porteuse, caHt: ht(v.honorairesTtc), apporteurHt: htApporteur(v.repartition.retroApporteurTtc, v.repartition.apporteurInterne), verseHt: autres, exterieurHt: ext, recuHt: 0, neutraliseHt: 0 };
   return { porteuse, caHt: autres[societe], apporteurHt: 0, verseHt: { ...RIEN }, exterieurHt: 0, recuHt: autres[societe], neutraliseHt: 0 };
 }
 /**
@@ -361,6 +381,8 @@ export interface Retrocession {
   origine: 'saisie' | 'import';
   sourceOnglet: string | null;
   sourceCellule: string | null;
+  /** 🔴 D29 — l'apporteur est un collaborateur (l'annuaire : son nom, ou l'apporteur de la vente rattachée) ; absent ou faux : externe (sans TVA). */
+  interne?: boolean;
 }
 
 export interface CaARattacher {
@@ -450,8 +472,13 @@ export function payeParClasseTtc(v: Pick<Vente, 'lignes' | 'repartition' | 'soci
 }
 
 /** Les rétrocessions rattachées à cette vente (TTC). */
+/** Le COÛT TTC des rétrocessions rattachées à la vente (🔴 D29 : `coutTtcApporteur` — externe : montant + TVA non récupérable). PUR. */
 export const retroTtcDe = (v: Pick<Vente, 'id'>, retros: readonly Retrocession[]): number =>
-  retros.reduce((s, r) => s + (r.venteId === v.id ? r.montantTtc : 0), 0);
+  retros.reduce((s, r) => s + (r.venteId === v.id ? coutTtcApporteur(r.montantTtc, r.interne) : 0), 0);
+/** 🔴 D29 — des rétrocessions : leur HT (`htApporteur`), leur montant versé, leur coût TTC. PUR. */
+export const htRetros = (rs: readonly Retrocession[]): number => rs.reduce((s, r) => s + htApporteur(r.montantTtc, r.interne), 0);
+export const verseRetros = (rs: readonly Retrocession[]): number => rs.reduce((s, r) => s + r.montantTtc, 0);
+export const coutTtcRetros = (rs: readonly Retrocession[]): number => rs.reduce((s, r) => s + coutTtcApporteur(r.montantTtc, r.interne), 0);
 
 /**
  * Le reste à l'agence d'une vente (TTC) pour la société vue (null : le groupe) : honoraires − rétrocessions rattachées − paye des
@@ -566,7 +593,8 @@ export function totaux(ventes: readonly Vente[], retros: readonly Retrocession[]
   const apporteurHt = somme((b) => b.apporteurHt);
   const interCabinetHt = somme((b) => sommeSocietes(b.verseHt));
   const exterieur = somme((b) => b.exterieurHt);
-  const retroTtc = retros.reduce((s, r) => s + r.montantTtc, 0);
+  // 🔴 D29 — le coût des rétrocessions : HT = le montant versé (externe) ; le TTC (coût) = HT × 1,2
+  const retroTtc = coutTtcRetros(retros);
   // 🔴 LOT Q — seule la paye des INDÉPENDANTS est déduite ; les internes et les « à renseigner » sont rendus à part. LOT R : chacune dans
   // la société où son négociateur travaille sur la vente.
   const paye = ventes.map((v) => payeParClasseTtc(v, statutDuLibelle, societe));
@@ -755,7 +783,7 @@ export function parNegociateur(ventes: readonly Vente[], retros: readonly Retroc
     // 🔴 LOT AA — sa paye dans la société vue seulement (un négociateur de l'autre société est payé et compté chez elle, jamais deux fois).
     const paye = siennes.reduce((s, v) => s + v.lignes.reduce((t, l) => t + (l.negociateur === n && l.role === 'negociateur' && !commissionIgnoree(v, l) && ligneDeLaSociete(v, l, societe) ? l.montantTtc ?? 0 : 0), 0), 0);
     return { negociateur: n, nbVentes: siennes.length, caHt: siennes.reduce((s, v) => s + caHtPortePar(v, n, societe), 0), payeHt: ht(paye),
-      retroHt: ht(retros.filter((r) => r.negociateur === n).reduce((s, r) => s + r.montantTtc, 0)), ids: siennes.map((v) => v.id), statut: statutDe(n) };
+      retroHt: htRetros(retros.filter((r) => r.negociateur === n)), ids: siennes.map((v) => v.id), statut: statutDe(n) };
   }).sort((a, b) => b.caHt - a.caHt || a.negociateur.localeCompare(b.negociateur, 'fr'));
 }
 
@@ -765,6 +793,9 @@ export interface LigneApporteur {
   apporteur: string;
   nbRetrocessions: number;
   retroHt: number;
+  /** 🔴 D29 — le montant versé TTC (= le HT pour un externe) ; `sansTva` : tous externes (un seul montant, « sans TVA »). */
+  retroTtc?: number;
+  sansTva?: boolean;
   /** Les ventes auxquelles ses rétrocessions sont rattachées. */
   ventesIds: number[];
   caApporteHt: number;
@@ -781,7 +812,8 @@ export function parApporteur(retros: readonly Retrocession[], ventes: readonly V
   }
   return [...groupes].map(([apporteur, rs]) => {
     const ids = [...new Set(rs.map((r) => r.venteId).filter((x): x is number => x !== null))];
-    return { apporteur, nbRetrocessions: rs.length, retroHt: ht(rs.reduce((s, r) => s + r.montantTtc, 0)), ventesIds: ids,
+    // 🔴 D29 — le versé (HT = TTC pour un externe) ; `sansTva` : aucun apporteur interne parmi ses rétrocessions
+    return { apporteur, nbRetrocessions: rs.length, retroHt: htRetros(rs), retroTtc: verseRetros(rs), sansTva: rs.every((r) => r.interne !== true), ventesIds: ids,
       caApporteHt: ids.reduce((s, id) => { const v = parId.get(id); return s + (v === undefined ? 0 : caHt(v)); }, 0), aRepartir: rs.filter((r) => r.venteId === null).length };
   }).sort((a, b) => b.retroHt - a.retroHt || a.apporteur.localeCompare(b.apporteur, 'fr'));
 }

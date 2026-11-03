@@ -389,3 +389,54 @@ sur les compromis en cours AFFICHÉS dans la liste, à la date du jour (aucune p
 - « Apporteur non nommé » : 50 affaires actées (87 505,00 € TTC de rétrocessions sans nom) et 83 rétrocessions « à répartir » ; liste remise à Arno
   (`.captures/compromis-cartes-apporteurs/apporteur-non-nomme.md`) ; aucune donnée modifiée.
 - Aucune migration, aucune écriture en base. Captures (1 440 × 900 et 390 px, clair et sombre ; perso et FUSION) : `.captures/compromis-cartes-apporteurs/`.
+
+## 🔴 D29 (Arno, 03/11/2026) — La commission d'un apporteur externe n'a pas de TVA (option A) ; carte « Reversé / partagé »
+
+**La règle (option A d'Arno), à la source, une seule comptabilité** (`modele.ts` : `htApporteur`, `coutTtcApporteur`, `tvaApporteur`) :
+- Apporteur EXTERNE (pas de facture) : le montant versé = son HT = son TTC ; il se déduit EN ENTIER des honoraires HT (TEST TRANSACTION :
+  1 000 € déduits, plus 833,33 € ; honoraires nets par côté (6 250 − 1 000) × 50 % = 2 625 € HT).
+- Toute part facturée (collaborateurs : partage entrée / sortie, co-négociateur, commission de négociateur, collègue apporteur ; inter-cabinet ;
+  agences extérieures) : TTC = HT × 1,2, comme avant (TEST TRANSACTION : 2 × 3 150 € TTC).
+- La TVA que l'agence doit sur la part de l'apporteur sans la récupérer (0,2 × le montant : 200 € sur TEST TRANSACTION) : ligne TTC dédiée
+  « TVA sur la commission de l'apporteur (non récupérable) », dans la fiche de la vente (cartes de partie, tableau de répartition, formulaire),
+  le Résultat de l'agence, la carte « Reversé / partagé » (« dont TVA non récupérable », en TTC), et comptée dans les totaux TTC (coût TTC
+  d'un apporteur externe = montant × 1,2 : les coûts globaux et « Les coûts » l'incluent dans le poste « Apporteurs »).
+- Apporteur INTERNE (la fiche de l'annuaire porte un compte : le badge « INTERNE », depuis sa date `interne_depuis`) : inchangé.
+- Interne / externe : l'annuaire (`lireTypesApporteurs`, lecture seule). Partenaire, **agence, internet** (traités comme externes — à
+  confirmer s'ils facturent un jour avec TVA), nom hors annuaire, aucun nom : EXTERNE. Les rétrocessions « à répartir » sans apporteur nommé :
+  externes par défaut, comptées à part (83 rétrocessions, 359 025,08 € versés).
+- Tout l'historique (pas de date de bascule). Aucune donnée modifiée : seule la lecture / le calcul change. Les montants stockés sont le versé
+  (ventes : `retro_apporteur_ttc` 1 000 € sur les deux ventes à apporteur ; rétrocessions : la ligne « Apporteur » des tableurs). Un externe
+  saisi « en HT » (437) : le montant tapé est le versé (aucune vente aujourd'hui).
+- Affichage : un apporteur externe = UN montant « sans TVA » (fiche, tableaux « Par apporteur d'affaires », Suivi CA, Mes apporteurs).
+- La Location applique déjà la règle à ses apporteurs (lot LO14) : inchangée. Le registre de l'inter-cabinet (HEIDIDON : 1 250 € HT) se remet
+  à jour au prochain enregistrement de la vente ; la ligne miroir active se calcule déjà sur la nouvelle règle (1 166,67 € HT, 1 400 € TTC).
+- L'outil de reclassement des rétrocessions (lot BV) lit les rétrocessions candidates comme internes (ce sont, par son critère, des commissions
+  de négociateur) : il compare toujours le reste « avant / après » montant pour montant.
+
+**Carte 3 de l'onglet « Compromis » : « Reversé / partagé »** (dont collègues · dont négociateurs · dont apporteurs « sans TVA » · en TTC, dont
+TVA non récupérable). Carte 1 − carte 3 = carte 4 au centime ; « dont apporteurs » = le total du tableau des apporteurs.
+
+**Écart provoqué (HT, ventes actées de l'année : rétrocessions rattachées + apporteurs de répartition)** :
+
+| Année | CRITERIMMO apporteurs | CRITERIMMO CA net | MACJ apporteurs | MACJ CA net | FUSION apporteurs | FUSION CA net | Écart FUSION |
+|---|---|---|---|---|---|---|---|
+| 2019 | 5 416,67 → 6 500,00 | 282 221,26 → 281 137,93 | 0 → 0 | 90 105,56 (=) | 5 416,67 → 6 500,00 | 372 326,82 → 371 243,49 | −1 083,33 |
+| 2020 | 10 833,33 → 13 000,00 | 244 065,00 → 241 898,33 | 7 658,33 → 9 190,00 | 129 341,62 → 127 809,96 | 18 491,67 → 22 190,00 | 373 406,62 → 369 708,29 | −3 698,33 |
+| 2021 | 10 471,67 → 12 566,00 | 443 686,66 → 441 592,33 | 2 604,17 → 3 125,00 | 133 306,36 → 132 785,53 | 13 075,83 → 15 691,00 | 576 993,02 → 574 377,86 | −2 615,16 |
+| 2022 | 7 166,67 → 8 600,00 | 385 758,72 → 384 325,39 | 0 → 0 | 109 761,25 (=) | 7 166,67 → 8 600,00 | 495 519,97 → 494 086,64 | −1 433,33 |
+| 2023 | 2 666,67 → 3 200,00 | 190 272,91 → 189 739,57 | 1 833,33 → 2 200,00 | 202 440,01 → 202 073,34 | 4 500,00 → 5 400,00 | 392 712,92 → 391 812,91 | −900,01 |
+| 2024 | 8 739,17 → 10 487,00 | 62 802,49 → 61 054,67 | 1 116,67 → 1 340,00 | 114 980,13 → 114 756,80 | 9 855,83 → 11 827,00 | 177 782,62 → 175 811,47 | −1 971,15 |
+| 2025 | 1 500,00 → 1 800,00 | 149 544,16 → 149 244,16 | 0 → 0 | 143 114,98 (=) | 1 500,00 → 1 800,00 | 292 659,14 → 292 359,14 | −300,00 |
+| 2026 | 4 444,17 → 5 333,00 | 176 726,67 → 175 837,84 | 0 → 0 | 0 (aucune vente actée) | 4 444,17 → 5 333,00 | 176 726,67 → 175 837,84 | −888,83 |
+
+En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'écart HT × 1,2 (ex. FUSION 2020 : −4 438,00 € TTC).
+« À répartir » (FUSION, versé, HT avant → après) : 2019 58 899,58 → 70 679,50 ; 2020 31 998,33 → 38 398,00 ; 2021 96 813,33 → 116 176,00 ;
+2022 47 487,15 → 56 984,58 ; 2023 24 957,50 → 29 949,00 ; 2024 1 250,00 → 1 500,00 ; 2025 13 860,83 → 16 633,00 ; 2026 23 920,83 → 28 705,00.
+
+**Les 4 cartes de l'onglet « Compromis », avant → après (HT)** :
+- vue perso d'Arno : Volume 28 750,00 → 28 750,00 · 4 → 4 · Reversé / partagé 11 458,32 → 11 625,00 (collègues 9 791,66 → 9 625,00, apporteurs
+  1 666,66 → 2 000,00 sans TVA) · CA net 17 291,68 → 17 125,00 ; TTC : 20 750,00 → 20 550,00 (dont 400 € de TVA non récupérable) ;
+- FUSION : Volume 99 133,33 → 99 133,33 · 10 → 10 · 12 833,33 → 13 166,67 (négociateurs 11 166,67, apporteurs 1 666,66 → 2 000,00) · CA net
+  86 300,00 → 85 966,66 ; TTC : 103 560,00 → 103 160,00.
+- Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre, HT et TTC ; fiche de TEST TRANSACTION) : `.captures/apporteurs-sans-tva/`.

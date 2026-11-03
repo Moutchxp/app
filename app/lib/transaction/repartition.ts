@@ -1,5 +1,5 @@
 import { eur, pctFr } from './format';
-import { commissionNetteHt, ht, partsHt, LIBELLE_PARTIE, LIBELLE_SOCIETE, SOCIETES, TVA, type Partie, type Societe } from './modele';
+import { commissionNetteHt, ht, htApporteur, partsHt, tvaApporteur as tvaApporteurDe, LIBELLE_PARTIE, LIBELLE_SOCIETE, SOCIETES, TVA, type Partie, type Societe } from './modele';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — LA RÉPARTITION DE LA COMMISSION : LES RÈGLES (PURES) ══════════════════
@@ -54,9 +54,10 @@ const pct = (x: number): string => pctFr(x);
  * 🔴 LA VÉRIFICATION AVANT TOUT ENREGISTREMENT : rend `null` si la répartition est juste, sinon le motif (montré tel quel). La somme
  * doit faire 100 % : exactement quand toutes les parts sont en %, au centime de la commission nette dès qu'une part est en €. PUR.
  */
-export function verifierRepartition(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number): string | null {
+export function verifierRepartition(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number, apporteurInterne = false): string | null {
   if (retroApporteurTtc < 0) return 'La rétrocession de l’apporteur ne peut pas être négative.';
-  if (retroApporteurTtc > honorairesTtc) return 'La rétrocession de l’apporteur dépasse les honoraires de la vente : les honoraires nets seraient négatifs.';
+  // 🔴 D29 — un apporteur externe se déduit des honoraires HT pour son montant entier
+  if (commissionNetteHt(honorairesTtc, retroApporteurTtc, apporteurInterne) < -1e-9) return 'La rétrocession de l’apporteur dépasse les honoraires de la vente : les honoraires nets seraient négatifs.';
   if (parties.length === 0) return 'Choisissez au moins le négociateur d’entrée ou de sortie du mandat.';
   for (const p of parties) {
     const quoi = p.sorte === 'exterieure' ? `la partie extérieure${p.nom ? ` « ${p.nom} »` : ''}` : `« ${LIBELLE_PARTIE[p.sorte]} »`;
@@ -70,7 +71,7 @@ export function verifierRepartition(parties: readonly Partie[], honorairesTtc: n
       if (p.societe === null) return `${p.negociateur ?? 'Ce négociateur'} n’a pas de société (CRITERIMMO ou MACJ) : renseignez-la dans Comptes avant d’enregistrer.`;
     }
   }
-  const m = motifSomme(parties, commissionNetteHt(honorairesTtc, retroApporteurTtc));
+  const m = motifSomme(parties, commissionNetteHt(honorairesTtc, retroApporteurTtc, apporteurInterne));
   return m === null ? null : `${m} Rien n’a été enregistré ; corrigez les parts ou « Revenir au 50/50 ».`;
 }
 
@@ -85,8 +86,8 @@ export function motifSomme(parties: readonly Partie[], netHt: number): string | 
 }
 
 /** Ce que chaque société reçoit, et la part extérieure (HT). PUR. */
-export function partsParSociete(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number): { societe: Record<Societe, number>; exterieurHt: number; netHt: number } {
-  const netHt = commissionNetteHt(honorairesTtc, retroApporteurTtc);
+export function partsParSociete(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number, apporteurInterne = false): { societe: Record<Societe, number>; exterieurHt: number; netHt: number } {
+  const netHt = commissionNetteHt(honorairesTtc, retroApporteurTtc, apporteurInterne);
   const parts = partsHt(parties, netHt);
   const societe: Record<Societe, number> = { criterimmo: 0, macj: 0 };
   let exterieurHt = 0;
@@ -119,8 +120,9 @@ export const auCentime = (x: number): number => Math.round((x + Math.sign(x) * N
 /** Les montants d'une répartition, au centime, cohérents entre eux (HT). */
 export interface CentimesRepartition {
   porteuse: Societe;
-  /** La commission de la vente et l'apporteur, chacun au centime ; la base = leur différence. */
-  commissionHt: number; apporteurHt: number; baseHt: number;
+  /** La commission de la vente et l'apporteur (🔴 D29 : le montant versé, sans TVA s'il est externe), chacun au centime ; la base = la commission
+   *  − l'apporteur − `tvaApporteur` (en TTC seulement : la TVA non récupérable d'un apporteur externe ; 0 en HT et pour un interne). */
+  commissionHt: number; apporteurHt: number; tvaApporteur: number; baseHt: number;
   /** Chaque partie (même ordre). */
   parts: number[];
   /** La part de chaque société (somme de ses parties). */
@@ -141,14 +143,16 @@ export interface CentimesRepartition {
  */
 export function centimesRepartition(parties: readonly Partie[], honorairesTtc: number, retroApporteurTtc: number, porteuse: Societe,
   /** « ttc » : la même règle sur les montants TTC exacts (sans repasser par le HT arrondi : jamais 3 250,01 pour 2 708,34 € HT). */
-  unite: 'ht' | 'ttc' = 'ht'): CentimesRepartition | null {
-  const net = commissionNetteHt(honorairesTtc, retroApporteurTtc);
+  unite: 'ht' | 'ttc' = 'ht', apporteurInterne = false): CentimesRepartition | null {
+  const net = commissionNetteHt(honorairesTtc, retroApporteurTtc, apporteurInterne);
   const brutHt = partsHt(parties, net);
   if (brutHt.some((x) => !Number.isFinite(x)) || Math.abs(brutHt.reduce((t, x) => t + x, 0) - net) > 1e-6) return null;
   const brut = unite === 'ht' ? brutHt : brutHt.map((x) => x * TVA);
   const commissionHt = auCentime(unite === 'ht' ? ht(honorairesTtc) : honorairesTtc);
-  const apporteurHt = auCentime(unite === 'ht' ? ht(retroApporteurTtc) : retroApporteurTtc);
-  const baseHt = auCentime(commissionHt - apporteurHt);
+  // 🔴 D29 — l'apporteur : son HT (`htApporteur`) ; en TTC, le montant versé, et à part la TVA non récupérable (les parts restent HT × 1,2)
+  const apporteurHt = auCentime(unite === 'ht' ? htApporteur(retroApporteurTtc, apporteurInterne) : retroApporteurTtc);
+  const tvaApporteur = unite === 'ht' ? 0 : auCentime(tvaApporteurDe(retroApporteurTtc, apporteurInterne));
+  const baseHt = auCentime(commissionHt - apporteurHt - tvaApporteur);
   const parts = brut.map(auCentime);
   const indices = (f: (p: Partie) => boolean): number[] => parties.map((p, i) => (f(p) ? i : -1)).filter((i) => i >= 0);
   const interne = (p: Partie): boolean => p.sorte !== 'exterieure';
@@ -169,5 +173,5 @@ export function centimesRepartition(parties: readonly Partie[], honorairesTtc: n
   const reverse = Object.fromEntries(SOCIETES.map((s) => [s, s === porteuse ? 0 : parSociete[s]])) as Record<Societe, number>;
   const exterieurs = indices((p) => !interne(p)).map((i) => ({ index: i, nom: parties[i].nom ?? 'partie extérieure', ht: parts[i] }));
   const resteHt = auCentime(baseHt - SOCIETES.reduce((t, s) => t + reverse[s], 0) - exterieurs.reduce((t, e) => t + e.ht, 0));
-  return { porteuse, commissionHt, apporteurHt, baseHt, parts, parSociete, reverse, exterieurs, resteHt };
+  return { porteuse, commissionHt, apporteurHt, tvaApporteur, baseHt, parts, parSociete, reverse, exterieurs, resteHt };
 }

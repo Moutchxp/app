@@ -14,9 +14,10 @@ import type { Vente } from '../../../../lib/transaction/modele';
 const JB = { id: 5, nom: 'Jean-Baptiste PONS', societe: 'criterimmo' as const };
 const MY = { id: 7, nom: 'Mylène EBERLIN', societe: 'macj' as const };
 const AU = { id: 4, nom: 'Augustin Jorel', societe: null };
-const compromis: Vente = { id: 41, societe: 'criterimmo', libelle: 'DUPONT / MARTIN', honorairesTtc: 12000, statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2026-10-20',
+const compromis: Vente = { apporteurInterne: true, // 🔴 D29 — l'apporteur des épreuves d'avant : un collaborateur (le calcul d'avant ; l'externe : les épreuves D29)
+  id: 41, societe: 'criterimmo', libelle: 'DUPONT / MARTIN', honorairesTtc: 12000, statut: 'compromis', annee: 2027, mois: null, dateCompromis: '2026-10-20',
   apporteur: 'Julien Deblois', note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [], double: null,
-  repartition: { retroApporteurTtc: 2400, parties: [
+  repartition: { retroApporteurTtc: 2400, apporteurInterne: true, parties: [
     // LOT P — JB et Mylène sont INDÉPENDANTS (leurs commissions versées entrent dans le cumul).
     { sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 40, montantHt: null, statut: 'independant' },
     { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 40, montantHt: null, statut: 'independant' },
@@ -32,7 +33,7 @@ let listeCompromis: Vente[] = [compromis];
 let listeAnnules: Vente[] = [];
 // 🔴 LOT BY — les compromis du mois déjà passés en acte (vue « Du mois »).
 let listeActes: Vente[] = [];
-const references = { lotD: true, prixVente: true, annulation: true, negociateurs: [JB, MY, AU], apporteurs: [{ id: 4, nom: 'Julien Deblois' }], personnes: [{ id: 3, nom: 'DUPONT', telephone: '06 12 34 56 78', email: 'p.dupont@exemple.fr', adresse: null }] };
+const references = { lotD: true, prixVente: true, annulation: true, negociateurs: [JB, MY, AU], apporteurs: [{ id: 4, nom: 'Julien Deblois', interne: true }], personnes: [{ id: 3, nom: 'DUPONT', telephone: '06 12 34 56 78', email: 'p.dupont@exemple.fr', adresse: null }] };
 const societe = { disponible: true, societe: 'criterimmo', aujourdhui: '2026-10-27', ventes: [], retrocessions: [], aRattacher: [], doubles: [] };
 const global = { disponible: true, aujourdhui: '2026-10-27', location: {}, gestion: [], ventes: [] };
 
@@ -412,7 +413,7 @@ describe('🔴 LOT G — le négociateur de chaque côté, depuis la carte', () 
     expect(texte('[data-champ="sortie"]')).toContain('Mylène EBERLIN');
   });
   it('changer en gardant deux parties conserve la répartition personnalisée (60/40)', async () => {
-    const deux = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]]
+    const deux = { ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]]
       .map((p, i) => ({ ...p, pourcentage: i === 0 ? 60 : 40 })) } };
     listeCompromis = [deux];
     await ouvrirCarte(41);
@@ -431,7 +432,7 @@ describe('🔴 LOT G — le négociateur de chaque côté, depuis la carte', () 
     expect((container.querySelector('[data-enregistrer-dossier]') as HTMLButtonElement).disabled).toBe(true);
   });
   it('retirer le négociateur d’un côté (deux parties) : l’autre reçoit 100 %', async () => {
-    const deux = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]] } };
+    const deux = { ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]] } };
     listeCompromis = [deux];
     await ouvrirCarte(41);
     await cliquer('[data-negociateur-carte="sortie"]');
@@ -705,12 +706,12 @@ describe('🔴 LOT J — taux de commission, montant de l’apporteur, part du n
     // LOT AM — l'affichage suit « HT | TTC » (ici HT), quelle que soit l'unité de la saisie ; la valeur enregistrée ne change pas.
     expect(texte('[data-apporteur-montant]')).toBe('800 € HT (960 € TTC)');
     act(() => { root.unmount(); }); root = createRoot(container);
-    await carte({ ...compromis, retroApporteur: null, repartition: { ...compromis.repartition!, retroApporteurTtc: 0 } });
+    await carte({ ...compromis, retroApporteur: null, repartition: { ...compromis.repartition!, retroApporteurTtc: 0, apporteurInterne: true } });
     expect(texte('[data-apporteur-montant]')).toBe('montant à renseigner');
   });
   it('LOT T — la part dans le bouton de la première ligne : 50/50, 60/40, 100 % ; le taux dans le bouton du négociateur ; sans répartition, la commission versée comme avant', async () => {
     const avec = (parts: ReturnType<typeof pa>[], sortie: { id: number; nom: string } | null = { id: 7, nom: MY.nom }) =>
-      ({ ...compromis, repartition: { retroApporteurTtc: 0, parties: parts }, dossier: { ...compromis.dossier!, sortie } });
+      ({ ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: parts }, dossier: { ...compromis.dossier!, sortie } });
     await carte(avec([pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'macj', 50)]));
     const societes = () => [texte('[data-societe-cote="entree"]'), texte('[data-societe-cote="sortie"]')];
     expect(societes()).toEqual(['CRITERIMMO · 50 %', 'MACJ · 50 %']);
@@ -767,7 +768,7 @@ describe('🔴 LOT K — collaborateur des deux sociétés ; la case « Dates »
     expect(texte('[data-societe-partie="0"]')).toBe('CRITERIMMO');
   });
   it('LOT T — bouton de la première ligne : la société de la VENTE « MACJ · 50 % » ; sans choix, refus clair ; changer de société se renvoie', async () => {
-    const v: Vente = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [
+    const v: Vente = { ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 9, negociateur: CJ.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null },
       { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null }] },
     dossier: { ...compromis.dossier!, entree: { id: 9, nom: CJ.nom } } };
@@ -793,7 +794,7 @@ describe('🔴 LOT K — collaborateur des deux sociétés ; la case « Dates »
     expect(texte('[data-choix-negociateur="entree"] [role="alert"]')).toMatch(/travaille pour CRITERIMMO et pour MACJ : choisissez/);
   });
   it('le CA va à la société CHOISIE sur la vente (tuiles)', async () => {
-    const v: Vente = { ...compromis, repartition: { retroApporteurTtc: 0, parties: [
+    const v: Vente = { ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 9, negociateur: CJ.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 100, montantHt: null }] },
     dossier: { ...compromis.dossier!, entree: { id: 9, nom: CJ.nom }, sortie: null } };
     listeCompromis = [v];
@@ -844,7 +845,7 @@ describe('🔴 LOT N — la colonne « % » des lignes « Part CRITERIMMO / MACJ
   const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) => ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null });
   const ext = { sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null };
   const pcts = async (parties: unknown[]) => {
-    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 2400, parties: parties as never } }];
+    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 2400, apporteurInterne: true, parties: parties as never } }];
     act(() => { root.unmount(); }); root = createRoot(container);
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     return [texte('[data-pct-societe-compromis="criterimmo"]'), texte('[data-pct-societe-compromis="macj"]'), texte('[data-pct-exterieur-compromis]')];
@@ -864,7 +865,7 @@ describe('🔴 LOT O / R — la rémunération PROPOSÉE (taux 50 % × la part d
   afterEach(() => { delete ref.uniteCommission; });
   const champ = (sel: string) => (container.querySelector(sel) as HTMLInputElement).value.replace(/\s/g, ' ');
   const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct: number) => ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null });
-  const v = (pE: number, pS: number, o: Partial<Vente> = {}): Vente => ({ ...compromis, honorairesTtc: 7500, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 'criterimmo', pE), pa('sortie', 7, MY.nom, 'macj', pS)] }, ...o });
+  const v = (pE: number, pS: number, o: Partial<Vente> = {}): Vente => ({ ...compromis, honorairesTtc: 7500, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 'criterimmo', pE), pa('sortie', 7, MY.nom, 'macj', pS)] }, ...o });
   const carte = async (x: Vente) => { listeCompromis = [x]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(x.id); };
 
   it('50/50 : depuis la carte, 50 % × (50 % × 7 500 €) = 1 875 TTC (TTC enfoncé), avec la mention ; bascule HT : 1 562,50', async () => {
@@ -974,7 +975,7 @@ describe('🔴 LOT R — l’inter-cabinet à l’écran : la ligne miroir, la r
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   // HEIDIDON, telle que la recette la porte : 4 000 TTC, Arnaud (CRITERIMMO, associé) 50 % à l'entrée, Pierre (MACJ, indépendant) 50 % à la sortie, 2 000 TTC saisis chacun.
   const heididon: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, origine: 'import', apporteur: null, prixVente: null,
-    repartition: { retroApporteurTtc: 0, parties: [
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 2, negociateur: AR.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 8, negociateur: PT.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: AR.nom }, sortie: { id: 8, nom: PT.nom }, apporteurId: null },
@@ -1088,7 +1089,7 @@ describe('🔴 LOT S — un administrateur NON COMMISSIONNÉ sur la vente', () =
   const lc = (id: number, nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   const vente = (commissionneCompte: boolean): Vente => ({ ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, apporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe', commissionneCompte },
       { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant', commissionneCompte: true }] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
@@ -1155,7 +1156,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
   // (LOT AA — Mylène dans la société de la carte, pour que son bloc de commission s'y affiche.)
   // L'exemple d'Arno : 7 500 TTC − 1 000 TTC d'apporteur = 6 500 TTC nets ; JB 60 % (1 950 = le calcul), Mylène 40 % au taux de 25 %, 1 625 enregistrés.
   const exemple: Vente = { ...compromis, honorairesTtc: 7500, retroApporteur: { montant: 1000, unite: 'ttc' },
-    repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'criterimmo', 40)] },
+    repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 'criterimmo', 60), pa('sortie', 7, MY.nom, 'criterimmo', 40)] },
     lignes: [lc(1, JB.nom, 'entree', 1950), lc(2, MY.nom, 'sortie', 1625, 25)] };
   const carte = async (v: Vente) => { listeCompromis = [v]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(v.id); };
   type Envoi = { action: string; dossier: { parties: { sorte: string; compteId: number | null; societe: string | null; pourcentage: number | null; nom: string | null }[];
@@ -1222,7 +1223,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
   });
 
   it('50/50, sans commission enregistrée : LOT V — le côté est CALCULÉ, il s’écrit avec la nouvelle répartition ; rien de changé : rien n’est envoyé', async () => {
-    await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'criterimmo', 50)] }, lignes: [] });
+    await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 'criterimmo', 50), pa('sortie', 7, MY.nom, 'criterimmo', 50)] }, lignes: [] });
     expect([texte('[data-societe-cote="entree"]'), texte('[data-societe-cote="sortie"]')]).toEqual(['CRITERIMMO · 50 %', 'CRITERIMMO · 50 %']);
     expect(texte('[data-commission-carte="sortie"]')).toBe('Commission enregistrée : à renseigner');
     await cliquer('[data-societe-cote="sortie"]');
@@ -1273,7 +1274,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [JB, MY, AU, CJ];
     try {
-      await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 9, CJ.nom, null, 60), pa('sortie', 7, MY.nom, 'criterimmo', 40)] },
+      await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [pa('entree', 9, CJ.nom, null, 60), pa('sortie', 7, MY.nom, 'criterimmo', 40)] },
         dossier: { ...compromis.dossier!, entree: { id: 9, nom: CJ.nom } }, lignes: [] });
       expect(texte('[data-societe-cote="entree"]')).toBe('Société à choisir · 60 %');
       await cliquer('[data-societe-cote="entree"]');
@@ -1290,7 +1291,7 @@ describe('🔴 LOT T — colonnes Vendeurs / Acquéreurs : la société et la pa
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
     try {
-      await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, parties: [{ ...pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 60), statut: 'associe', commissionneCompte: false },
+      await carte({ ...exemple, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [{ ...pa('entree', 2, 'Arnaud Jorel', 'criterimmo', 60), statut: 'associe', commissionneCompte: false },
         pa('sortie', 7, MY.nom, 'criterimmo', 40)] }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [lc(1, 'Arnaud Jorel', 'entree', 2000)] });
       expect(texte('[data-negociateur-carte="entree"]')).toBe('Négociateur : Arnaud Jorel · non commissionné');
       expect(texte('[data-societe-cote="entree"]')).toBe('CRITERIMMO · 60 %');
@@ -1309,7 +1310,7 @@ describe('🔴 LOT U — la base de répartition en tête du panneau ; les parts
     ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
   // « Location ? » : 7 500 TTC, apporteur 1 000 TTC, 60 / 40.
   const vente = (parts: [number, number], apporteur = true): Vente => ({ ...compromis, honorairesTtc: 7500, retroApporteur: apporteur ? { montant: 1000, unite: 'ttc' } : null,
-    apporteur: apporteur ? 'Julien Deblois' : null, repartition: { retroApporteurTtc: apporteur ? 1000 : 0, parties: [pa('entree', 5, JB.nom, 'criterimmo', parts[0]), pa('sortie', 7, MY.nom, 'macj', parts[1])] },
+    apporteur: apporteur ? 'Julien Deblois' : null, repartition: { retroApporteurTtc: apporteur ? 1000 : 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 'criterimmo', parts[0]), pa('sortie', 7, MY.nom, 'macj', parts[1])] },
     dossier: { ...compromis.dossier!, apporteurId: apporteur ? 4 : null }, lignes: [] });
   const ligne = (sel: string) => [...container.querySelectorAll(`${sel} th, ${sel} td`)].map((x) => x.textContent!.replace(/\s/g, ' '));
   const eurs = (r: string) => [...container.querySelectorAll(`${r} [data-partie-eur]`)].map((i) => (i as HTMLInputElement).value.replace(/\s/g, ' '));
@@ -1375,7 +1376,7 @@ describe('🔴 LOT U — la base de répartition en tête du panneau ; les parts
 
   it('deux apporteurs : une ligne chacun, retranchés tous deux de la base', async () => {
     const { ResumeBase } = await import('./Repartition');
-    await act(async () => { root.render(createElement(ResumeBase, { commissionTtc: 7500, apporteurs: [{ nom: 'Julien Deblois', ttc: 1000 }, { nom: 'Gardien Dacquet', ttc: 600 }] })); });
+    await act(async () => { root.render(createElement(ResumeBase, { commissionTtc: 7500, apporteurs: [{ nom: 'Julien Deblois', ttc: 1000, interne: true }, { nom: 'Gardien Dacquet', ttc: 600, interne: true }] })); });
     expect([...container.querySelectorAll('[data-resume="apporteur"]')].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(
       ['− Apporteur : Julien Deblois1 000 € TTC (833,33 € HT)', '− Apporteur : Gardien Dacquet600 € TTC (500 € HT)']); // LOT AM : hors onglet, le défaut TTC
     expect(ligne('[data-resume="base"]').slice(1)).toEqual(['5 900 € TTC (4 916,67 € HT)']);
@@ -1392,7 +1393,7 @@ describe('🔴 LOT V — la commission du négociateur suit le calcul ; HT en gr
     ({ sorte, compteId: id, negociateur: nom, societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'salarie' as const });
   // « Location ? » : 7 500 TTC − 1 000 d'apporteur ; 70 / 30, Mylène au taux de 25 %.
   const location = (lignes: ReturnType<typeof lc>[], parts: [number, number] = [70, 30]): Vente => ({ ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, retroApporteur: { montant: 1000, unite: 'ttc' },
-    repartition: { retroApporteurTtc: 1000, parties: [pa('entree', 5, JB.nom, parts[0]), pa('sortie', 7, MY.nom, parts[1])] }, lignes });
+    repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, parts[0]), pa('sortie', 7, MY.nom, parts[1])] }, lignes });
   const carte = async (v: Vente) => { listeCompromis = [v]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(v.id); };
   const champ = (sel: string) => (container.querySelector(sel) as HTMLInputElement).value.replace(/\s/g, ' ');
   type Envoi = { action: string; dossier: { commissions: Record<'entree' | 'sortie', { montant: string; unite: string; taux: string | null; mode: string } | null> } };
@@ -1470,7 +1471,7 @@ describe('🔴 LOT V — la commission du négociateur suit le calcul ; HT en gr
 
   it('ligne miroir : « Modifier la rémunération » envoie le mode (taux → calculée ; montant tapé → à la main)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const heididon: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, apporteur: null, prixVente: null, repartition: { retroApporteurTtc: 0, parties: [
+    const heididon: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, apporteur: null, prixVente: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null }, lignes: [lc(446, 'Pierre Thevenin', 'sortie', 1000)] };
@@ -1500,7 +1501,7 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
   const structure = (sel: string) => { const p = container.querySelector(sel)!; return [...p.children].map((x) => [x.tagName, x.className, x.textContent!.replace(/\s/g, ' ')]); };
 
   it('montants très longs (2 962 962,94 € TTC de commission) : libellé, puis HT (gras) et TTC (vert) en deux éléments distincts, l’un sous l’autre', async () => {
-    listeCompromis = [{ ...compromis, honorairesTtc: 2962962.94, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 50), pa('sortie', 7, MY.nom, 50)] }, lignes: [] }];
+    listeCompromis = [{ ...compromis, honorairesTtc: 2962962.94, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 50), pa('sortie', 7, MY.nom, 50)] }, lignes: [] }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     expect(structure('[data-honoraires-cote="sortie"]')).toEqual([
       ['SPAN', 'trx-calcul-libelle', 'Honoraires nets partie acquéreur : 2 469 135,78 € HT × 50 % ='],
@@ -1517,7 +1518,7 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
     try {
-      listeCompromis = [{ ...compromis, honorairesTtc: 120, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', 50, { commissionneCompte: false }), pa('sortie', 7, MY.nom, 50)] },
+      listeCompromis = [{ ...compromis, honorairesTtc: 120, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 2, 'Arnaud Jorel', 50, { commissionneCompte: false }), pa('sortie', 7, MY.nom, 50)] },
         dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
       await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
       expect(structure('[data-honoraires-cote="entree"]').map((x) => x[2])).toEqual(['Honoraires nets partie vendeur : 100 € HT × 50 % =', '50 € HT', '(60 € TTC)']);
@@ -1527,7 +1528,7 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
 
   it('ligne miroir : « Commission du négociateur », même disposition (LOT AK : plus de « Honoraires reçus de … »)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 50),
+    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 50),
       { ...pa('sortie', 7, MY.nom, 50), societe: 'macj' as const, statut: 'independant' as const }] }, lignes: [] };
     listeCompromis = [venteDansSociete(v, 'macj')!];
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
@@ -1538,7 +1539,7 @@ describe('🔴 LOT W — les lignes de calcul sur deux lignes : HT en gras puis 
 
   it('le résumé du panneau Répartition : HT puis TTC l’un sous l’autre, dans la même cellule ; les règles CSS (colonne fixe, aucun retour à la ligne, libellé au-dessus si étroit)', async () => {
     const { ResumeBase } = await import('./Repartition');
-    await act(async () => { root.render(createElement(ResumeBase, { commissionTtc: 2962962.94, apporteurs: [{ nom: 'Julien Deblois', ttc: 1000 }] })); });
+    await act(async () => { root.render(createElement(ResumeBase, { commissionTtc: 2962962.94, apporteurs: [{ nom: 'Julien Deblois', ttc: 1000, interne: true }] })); });
     const td = container.querySelector('[data-resume="base"] td')!;
     expect([...td.children].map((x) => x.textContent!.replace(/\s/g, ' '))).toEqual(['2 961 962,94 € TTC', '(2 468 302,45 € HT)']); // LOT AM : hors onglet, le défaut TTC
     const { CSS_TRANSACTION } = await import('./commun');
@@ -1560,7 +1561,7 @@ describe('🔴 LOT X — « Commission du négociateur » entourée d’un liser
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
     try {
-      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', { commissionneCompte: false }), pa('sortie', 7, MY.nom, 'criterimmo')] },
+      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', { commissionneCompte: false }), pa('sortie', 7, MY.nom, 'criterimmo')] },
         dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
       await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
       expect([encadre('[data-commission-negociateur="sortie"]'), encadre('[data-honoraires-cote="sortie"]'), encadre('[data-honoraires-cote="entree"]')]).toEqual([true, false, false]);
@@ -1573,7 +1574,7 @@ describe('🔴 LOT X — « Commission du négociateur » entourée d’un liser
 
   it('ligne miroir : la commission encadrée (LOT AK : plus de ligne d’honoraires reçus)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, 'criterimmo'), pa('sortie', 7, MY.nom, 'macj')] }, lignes: [] };
+    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, 'criterimmo'), pa('sortie', 7, MY.nom, 'macj')] }, lignes: [] };
     listeCompromis = [venteDansSociete(v, 'macj')!];
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'macj' })); }); await calmer();
     await cliquer('[data-vue="compromis"]'); await cliquer('[data-deplier="miroir-38"]');
@@ -1588,7 +1589,7 @@ describe('🔴 LOT Y — la couleur du liseré suit la règle du cumul « Commis
   const lc = (nego: string, cote: 'entree' | 'sortie', ttc: number) => ({ id: cote === 'entree' ? 1 : 2, negociateur: nego, role: 'negociateur' as const, montantTtc: ttc, montantHt: null, cote,
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   // 12 000 TTC, sans apporteur : JB (CRITERIMMO) 50 % à l'entrée, Mylène (CRITERIMMO) 50 % à la sortie ; 3 000 TTC chacun (= le calcul).
-  const vente = (statutJB: string | null, o: Record<string, unknown> = {}): Vente => ({ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+  const vente = (statutJB: string | null, o: Record<string, unknown> = {}): Vente => ({ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
     { sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: statutJB as 'associe', statutCompte: null, ...o },
     { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'salarie' }] },
     lignes: [lc(JB.nom, 'entree', 3000), lc(MY.nom, 'sortie', 3000)] });
@@ -1631,7 +1632,7 @@ describe('🔴 LOT Y — la couleur du liseré suit la règle du cumul « Commis
 
   it('ligne miroir : Mylène indépendante chez MACJ → rouge ; un salarié de MACJ → vert', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const origine = (statut: 'independant' | 'salarie'): Vente => ({ ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+    const origine = (statut: 'independant' | 'salarie'): Vente => ({ ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut }] }, lignes: [lc(MY.nom, 'sortie', 1000)] });
     for (const [statut, couleur] of [['independant', 'rouge'], ['salarie', 'vert']] as const) {
@@ -1660,7 +1661,7 @@ describe('🔴 LOT Z — la mention du bloc dit le statut ; la ligne « Statut �
   const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, o: Record<string, unknown>) =>
     ({ sorte, compteId: id, negociateur: nom, societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, ...o });
   const carte = async (statutJB: Record<string, unknown>) => {
-    listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, statutJB), pa('sortie', 7, MY.nom, { statut: 'salarie' })] }, lignes: [] }];
+    listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, statutJB), pa('sortie', 7, MY.nom, { statut: 'salarie' })] }, lignes: [] }];
     act(() => { root.unmount(); }); root = createRoot(container);
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
   };
@@ -1681,7 +1682,7 @@ describe('🔴 LOT Z — la mention du bloc dit le statut ; la ligne « Statut �
     const negos = references.negociateurs;
     (references as { negociateurs: unknown[] }).negociateurs = [...negos, { id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo', commissionne: false }];
     try {
-      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', { statut: 'associe', commissionneCompte: false }),
+      listeCompromis = [{ ...compromis, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 2, 'Arnaud Jorel', { statut: 'associe', commissionneCompte: false }),
         pa('sortie', 7, MY.nom, { statut: 'salarie' })] }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' } }, lignes: [] }];
       await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
       expect(container.querySelector('[data-commission-negociateur="entree"]')).toBeNull();
@@ -1692,7 +1693,7 @@ describe('🔴 LOT Z — la mention du bloc dit le statut ; la ligne « Statut �
 
   it('ligne miroir : la mention dit le statut recopié (Mylène indépendante chez MACJ)', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 5, JB.nom, { statut: 'associe' }),
+    const v: Vente = { ...compromis, id: 38, honorairesTtc: 4000, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 5, JB.nom, { statut: 'associe' }),
       { ...pa('sortie', 7, MY.nom, { statut: 'independant' }), societe: 'macj' as const }] }, lignes: [] };
     listeCompromis = [venteDansSociete(v, 'macj')!];
     act(() => { root.unmount(); }); root = createRoot(container);
@@ -1719,7 +1720,7 @@ describe('🔴 LOT AA — un négociateur de l’autre société : « Rémunér�
   // HEIDIDON : Arnaud (CRITERIMMO, associé, porteuse) / Pierre (MACJ, indépendant, 1 000 TTC). Le sens inverse : la porteuse est MACJ.
   const heididon = (porteuse: 'criterimmo' | 'macj', statutAutre: 'independant' | 'salarie' = 'independant'): Vente => {
     const autre = porteuse === 'criterimmo' ? 'macj' as const : 'criterimmo' as const;
-    return { ...compromis, id: 38, societe: porteuse, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+    return { ...compromis, id: 38, societe: porteuse, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       pa('entree', 2, 'Arnaud Jorel', porteuse, 'associe'), pa('sortie', 8, 'Pierre Thevenin', autre, statutAutre)] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
     lignes: [lc('Arnaud Jorel', 'entree', 2000), lc('Pierre Thevenin', 'sortie', 1000)] };
@@ -1797,7 +1798,7 @@ describe('🔴 LOT AB — les honoraires versés en inter-cabinet, encadrés de 
   const pa = (sorte: 'entree' | 'sortie', id: number, nom: string, societe: 'criterimmo' | 'macj', pct = 50) =>
     ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
   const heididon = (porteuse: 'criterimmo' | 'macj', autre: 'criterimmo' | 'macj', exterieure = false): Vente => ({ ...compromis, id: 38, societe: porteuse, libelle: 'HEIDIDON', honorairesTtc: 4000,
-    retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [pa('entree', 2, 'Arnaud Jorel', porteuse, exterieure ? 40 : 50), pa('sortie', 8, 'Pierre Thevenin', autre, exterieure ? 40 : 50),
+    retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', 2, 'Arnaud Jorel', porteuse, exterieure ? 40 : 50), pa('sortie', 8, 'Pierre Thevenin', autre, exterieure ? 40 : 50),
       ...(exterieure ? [{ sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null }] : [])] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
     lignes: [lc('Arnaud Jorel', 'entree', 1000), lc('Pierre Thevenin', 'sortie', 1000)] });
@@ -1972,7 +1973,7 @@ describe('🔴 LOT AD — les montants qui entrent dans « Commissions versées 
     const porteuse = o.porteuse ?? 'criterimmo';
     return { ...compromis, id: 38, societe: porteuse, libelle: 'HEIDIDON', honorairesTtc: 4000, apporteur: o.apporteur ? 'Gardien Dacquet' : null,
       retroApporteur: o.apporteur ? { montant: 1000, unite: 'ttc' } : null,
-      repartition: { retroApporteurTtc: o.apporteur ? 1000 : 0, parties: [pa('entree', 2, 'Arnaud Jorel', porteuse, o.entree ?? 'associe', o.exterieure ? 40 : 50),
+      repartition: { retroApporteurTtc: o.apporteur ? 1000 : 0, apporteurInterne: true, parties: [pa('entree', 2, 'Arnaud Jorel', porteuse, o.entree ?? 'associe', o.exterieure ? 40 : 50),
         pa('sortie', 8, 'Pierre Thevenin', o.autre ?? (porteuse === 'criterimmo' ? 'macj' : 'criterimmo'), o.sortie ?? 'independant', o.exterieure ? 40 : 50),
         ...(o.exterieure ? [{ sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null }] : [])] },
       dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: o.apporteur ? 4 : null },
@@ -2105,7 +2106,7 @@ describe('🔴 LOT AE — à l’enregistrement, la société porteuse est dite 
   });
 
   it('modification depuis la carte : l’entrée passe à Mylène (MACJ) → le message dit la bascule', async () => {
-    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 0, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]].map((p) => ({ ...p, pourcentage: 50 })) } }];
+    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [compromis.repartition!.parties[0], compromis.repartition!.parties[1]].map((p) => ({ ...p, pourcentage: 50 })) } }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     await cliquer('[data-negociateur-carte="entree"]');
     await cliquer('[data-liste-negociateur="entree"]'); await cliquer('[role="option"][data-option="7"]');
@@ -2120,7 +2121,7 @@ describe('🔴 LOT AF — la carte d’une ligne miroir : « Inter-cabinet reçu
   afterEach(() => { delete ref.uniteCommission; });
   it('MACJ › HEIDIDON : porteuse, vente d’origine (lien), part reçue, CA (HT puis TTC vert), dates ; note d’une ligne ; « Négociateur de sortie », Pierre (MACJ), statut — sans « commission déduite » répété', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const v: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+    const v: Vente = { ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 20, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj', nom: null, coordonnees: null, pourcentage: 80, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null }, lignes: [] };
@@ -2152,7 +2153,7 @@ describe('🔴 LOT AG — le taux d’un négociateur de l’autre société se 
     montantHt: null, cote, taux, nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   // HEIDIDON : 4 000 TTC, Arnaud (CRITERIMMO, associé, porteuse) 50 % / Pierre (MACJ, indépendant) 50 % ; sa commission : `ttc` au taux `taux`.
   const heididon = (ttc: number, taux: number | null, autre: 'criterimmo' | 'macj' = 'macj'): Vente => ({ ...compromis, id: 38, libelle: 'HEIDIDON', honorairesTtc: 4000, retroApporteur: null,
-    apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+    apporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: autre, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
@@ -2228,7 +2229,7 @@ describe('🔴 LOT AH — le tableau « Répartition » en logique comptable, au
     ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
   const vente = (o: { apporteur?: boolean; autre?: 'criterimmo' | 'macj'; exterieure?: boolean } = {}): Vente => ({ ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500,
     apporteur: o.apporteur ? 'Gardien Dacquet' : null, retroApporteur: o.apporteur ? { montant: 1000, unite: 'ttc' } : null,
-    repartition: { retroApporteurTtc: o.apporteur ? 1000 : 0, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', o.exterieure ? 40 : 50), pa('sortie', 8, 'Pierre Thevenin', o.autre ?? 'macj', o.exterieure ? 40 : 50),
+    repartition: { retroApporteurTtc: o.apporteur ? 1000 : 0, apporteurInterne: true, parties: [pa('entree', 2, 'Arnaud Jorel', 'criterimmo', o.exterieure ? 40 : 50), pa('sortie', 8, 'Pierre Thevenin', o.autre ?? 'macj', o.exterieure ? 40 : 50),
       ...(o.exterieure ? [{ sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null }] : [])] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' } }, lignes: [] });
   const carte = async (v: Vente) => { listeCompromis = [v]; act(() => { root.unmount(); }); root = createRoot(container); await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(37); };
@@ -2321,7 +2322,7 @@ describe('🔴 LOT AJ — « Part X − Reversé en inter-cabinet vers X » : un
     ({ sorte, compteId: id, negociateur: nom, societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const });
   const agence = (nom: string, pct: number) => ({ sorte: 'exterieure' as const, compteId: null, negociateur: null, societe: null, nom, coordonnees: null, pourcentage: pct, montantHt: null });
   const vente = (parties: unknown[]): Vente => ({ ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' },
-    repartition: { retroApporteurTtc: 1000, parties: parties as never }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' } }, lignes: [] });
+    repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: parties as never }, dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' } }, lignes: [] });
   const carte = async (v: Vente) => { listeCompromis = [v]; act(() => { root.unmount(); }); root = createRoot(container); await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(37); };
   const lignes = () => [...container.querySelectorAll('[data-repartition-compromis] [data-ligne-repartition]')].map((x) => x.getAttribute('data-ligne-repartition'));
   const th = (cle: string) => texte(`[data-ligne-repartition="${cle}"] th`);
@@ -2390,7 +2391,7 @@ describe('🔴 LOT AK — ligne miroir, « Négociateur de sortie » : sans « S
   // « Location ? » : 6 500 TTC, sans apporteur ; Arnaud (porteuse) 50 % à l'entrée, Pierre (l'autre société) 50 % à la sortie, taux 50 %, 1 625 TTC enregistrés.
   const location = (porteuse: 'criterimmo' | 'macj', statut: 'independant' | 'salarie'): Vente => {
     const autre = porteuse === 'criterimmo' ? 'macj' as const : 'criterimmo' as const;
-    return { ...compromis, id: 44, libelle: 'Location ?', societe: porteuse, honorairesTtc: 6500, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+    return { ...compromis, id: 44, libelle: 'Location ?', societe: porteuse, honorairesTtc: 6500, retroApporteur: null, apporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 2, negociateur: 'Arnaud Jorel', societe: porteuse, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: autre, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut }] },
     dossier: { ...compromis.dossier!, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null },
@@ -2456,7 +2457,7 @@ describe('🔴 LOT AL — la tuile « Commissions versées » ouvre une fenêtre
   const avec: Vente = { ...compromis, lignes: [{ id: 1, negociateur: JB.nom, role: 'negociateur', montantTtc: 1200, montantHt: 1000, cote: 'entree', nature: 'compromis', compte: false,
     origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null }] };
   const sansFrais: Vente = { ...compromis, id: 50, libelle: 'SANS FRAIS', dateCompromis: '2026-10-25', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
     dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: null }, lignes: [] };
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
   const montants = (sel: string): number[] => [...document.querySelectorAll(`[data-fenetre-commissions] ${sel}`)].map((x) => centimes(x.children[0].textContent!));
@@ -2567,7 +2568,7 @@ describe('🔴 LOT AL — la tuile « Commissions versées » ouvre une fenêtre
 
   it('MACJ : la ligne miroir — son indépendant seul ; « Inter-cabinet vers CRITERIMMO » à « Aucune » ; total = tuile', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { retroApporteurTtc: 1000, parties: [
+    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: { id: 7, nom: MY.nom } },
@@ -2694,7 +2695,7 @@ describe('🔴 LOT AM — « HT | TTC » : l’unité choisie en grand dans tout
 
   it('la ligne miroir (MACJ) : en-tête, « CA de MACJ », commission du négociateur — dans l’unité choisie', async () => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
-    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 6500, apporteur: null, retroApporteur: null, repartition: { retroApporteurTtc: 0, parties: [
+    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 6500, apporteur: null, retroApporteur: null, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: { id: 7, nom: MY.nom } },
@@ -2781,7 +2782,7 @@ describe('🔴 LOT AN — fenêtre « Chiffre d’affaires » ; « N dossiers »
   // 41 : JB indépendant (1 200 TTC versés) ; 51 « INTERNE SEUL » : Augustin associé, 600 TTC (non déduit) ; 52 « RIEN » : aucune commission.
   const avec: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const seul = (id: number, libelle: string, lignes: Vente['lignes']): Vente => ({ ...compromis, id, libelle, dateCompromis: '2026-10-25', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
     dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: null }, lignes });
   const doc = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
   const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
@@ -2852,7 +2853,7 @@ describe('🔴 LOT AN — fenêtre « Chiffre d’affaires » ; « N dossiers »
   });
 
   it('pas de « ,00 » : « 12 000 € TTC » ; de vrais centimes gardés : « 2 708,34 »', async () => {
-    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { retroApporteurTtc: 1000, parties: [
+    const v: Vente = { ...compromis, id: 37, libelle: 'Location ?', honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' },
       { sorte: 'sortie', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
     await onglet([v]); await deplier(37);
@@ -2873,7 +2874,7 @@ describe('🔴 LOT AO — tuile CA sans fenêtre ; la fenêtre « Solde net » :
   // 41 : 12 000 TTC, apporteur 2 400, JB indépendant (1 200 TTC versés), Mylène (MACJ) 40 %, Agence du Parc 20 % ; 50 « SANS FRAIS » : 6 000 TTC, aucune commission.
   const avec: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const sansFrais: Vente = { ...compromis, id: 50, libelle: 'SANS FRAIS', dateCompromis: '2026-10-25', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 4, negociateur: AU.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'associe' }] },
     dossier: { ...compromis.dossier!, entree: { id: 4, nom: AU.nom }, sortie: null }, lignes: [] };
   const doc = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
   const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
@@ -3047,10 +3048,10 @@ describe('🔴 LOT AQ — « Ce que l’on doit — compromis non encore signés
   // 60 : portée par MACJ (Mylène à l'entrée), JB à la sortie → CRITERIMMO reçoit 50 % de 5 000 HT.
   const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const v42: Vente = { ...compromis, id: 42, libelle: 'ANCIEN', dateCompromis: '2026-08-12', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
     lignes: [lc(2, JB.nom, 'entree', 600)] };
   const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
       { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
   const doc = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
   const page = async (societe: 'criterimmo' | 'macj') => {
@@ -3134,10 +3135,10 @@ describe('🔴 LOT AS — la synthèse : l’ordre des catégories, chacune une 
   // les mêmes affaires qu'au lot AQ : 41 (JB, apporteur, agence, Mylène de MACJ), 42 (JB, mois précédent), 60 (portée par MACJ, JB à la sortie)
   const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const v42: Vente = { ...compromis, id: 42, libelle: 'ANCIEN', dateCompromis: '2026-08-12', honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
     lignes: [lc(2, JB.nom, 'entree', 600)] };
   const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
       { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
   const page = async (societe: 'criterimmo' | 'macj') => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
@@ -3229,7 +3230,7 @@ describe('🔴 LOT AR — la synthèse : une section à part, les dossiers toujo
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const v42: Vente = { ...compromis, id: 42, libelle: 'ANCIEN', dateCompromis: '2026-08-12', honorairesTtc: 6000, apporteur: 'Julien Deblois', retroApporteur: { montant: 500, unite: 'ttc' },
-    repartition: { retroApporteurTtc: 500, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
+    repartition: { retroApporteurTtc: 500, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 100, montantHt: null, statut: 'independant' }] },
     lignes: [lc(2, JB.nom, 'entree', 601)] };
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,-]/g, '').replace(',', '.')) * 100);
   const onglet = async () => { listeCompromis = [v41, v42]; await ouvrir(); await cliquer('[data-vue="compromis"]'); await cliquer('[data-ouvrir-du]'); }; // LOT AV
@@ -3290,7 +3291,7 @@ describe('🔴 LOT AT — « Compromis annulés » : dernier bloc de la liste, a
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
       { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
   // l'annulé de chaque société : un apporteur et une agence à lui, pour vérifier qu'il reste hors de la synthèse
   const annule = (societe: 'criterimmo' | 'macj'): Vente => ({ ...compromis, id: 77, libelle: 'BERNARD / THOMAS', societe, apporteur: 'Apporteur Annulé', statut: 'annulee',
@@ -3391,7 +3392,7 @@ describe('🔴 LOT AV — la synthèse fermée à l’arrivée, sur une ligne ; 
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   const v41: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   const v60: Vente = { ...compromis, id: 60, libelle: 'PORTÉE PAR MACJ', societe: 'macj', dateCompromis: null, honorairesTtc: 6000, apporteur: null, retroApporteur: null,
-    repartition: { retroApporteurTtc: 0, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' },
       { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] }, lignes: [] };
   const page = async (societe: 'criterimmo' | 'macj') => {
     const { venteDansSociete } = await import('../../../../lib/transaction/interCabinet');
@@ -3509,7 +3510,7 @@ describe('🔴 LOT AX — l’ordre des catégories, de haut en bas : Indépenda
   const criterimmo: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   // MACJ : la même affaire, portée par MACJ — Mylène indépendante (MACJ) 1 200 TTC versés, JB (CRITERIMMO) 40 % en inter-cabinet.
   const macj: Vente = { ...compromis, id: 61, societe: 'macj', libelle: 'BERNARD / ROUX', lignes: [lc(2, MY.nom, 'entree', 1200)],
-    repartition: { retroApporteurTtc: 2400, parties: [
+    repartition: { retroApporteurTtc: 2400, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 7, negociateur: MY.nom, societe: 'macj', nom: null, coordonnees: null, pourcentage: 40, montantHt: null, statut: 'independant' },
       { sorte: 'sortie', compteId: 5, negociateur: JB.nom, societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 40, montantHt: null, statut: 'independant' },
       { sorte: 'exterieure', compteId: null, negociateur: null, societe: null, nom: 'Agence du Parc', coordonnees: null, pourcentage: 20, montantHt: null }] },
@@ -3615,7 +3616,7 @@ describe('🔴 LOT AY — cartes « Vendeurs » / « Acquéreurs » : 100 % des 
   const avec: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
   // MACJ, FABARRO : 25 000 TTC ; Cédric JULLIEN (MACJ, associé non commissionné) vendeurs ; Pierre Thevenin (MACJ, indépendant) 50 % acquéreurs.
   const fabarro: Vente = { ...compromis, id: 260, societe: 'macj', libelle: 'FABARRO', honorairesTtc: 25000, apporteur: null, retroApporteur: null, lignes: [],
-    repartition: { retroApporteurTtc: 0, parties: [
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [
       { sorte: 'entree', compteId: 9, negociateur: 'Cédric JULLIEN', societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe', commissionne: false },
       { sorte: 'sortie', compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj', nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' }] },
     dossier: { ...compromis.dossier!, entree: { id: 9, nom: 'Cédric JULLIEN' }, sortie: { id: 8, nom: 'Pierre Thevenin' } } };
@@ -3723,11 +3724,11 @@ describe('🔴 LOT AZ — les cadres verts au-dessus des rouges ; « Revenir au 
     negociateur: n?.nom ?? null, societe: n?.societe ?? null, nom: n === null ? 'Agence du Parc' : null, coordonnees: null, pourcentage: pct, montantHt: null, ...(n === null ? {} : { statut: 'independant' as const }), ...o });
   // MACJ : Mylène des DEUX côtés (le cas de FABARRO, Pierre Thevenin en entrée et en sortie), 25 000 TTC.
   const meme = (e: number, s: number): Vente => ({ ...compromis, id: 260, societe: 'macj', libelle: 'FABARRO', honorairesTtc: 25000, apporteur: null, retroApporteur: null, lignes: [],
-    repartition: { retroApporteurTtc: 0, parties: [p('entree', MY, e), ...(s > 0 ? [p('sortie', MY, s)] : [])] as never },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [p('entree', MY, e), ...(s > 0 ? [p('sortie', MY, s)] : [])] as never },
     dossier: { ...compromis.dossier!, entree: { id: MY.id, nom: MY.nom }, sortie: { id: MY.id, nom: MY.nom } } });
   // CRITERIMMO : JB (CRITERIMMO) en entrée, Mylène (MACJ) en sortie — inter-cabinet ; avec ou sans Agence du Parc.
   const inter = (e: number, s: number, ext = 0): Vente => ({ ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)],
-    repartition: { retroApporteurTtc: 2400, parties: [p('entree', JB, e), p('sortie', MY, s), ...(ext > 0 ? [p('exterieure', null, ext)] : [])] as never } });
+    repartition: { retroApporteurTtc: 2400, apporteurInterne: true, parties: [p('entree', JB, e), p('sortie', MY, s), ...(ext > 0 ? [p('exterieure', null, ext)] : [])] as never } });
   const ecran = async (s: 'criterimmo' | 'macj', liste: Vente[]) => {
     act(() => { root.unmount(); }); root = createRoot(container);
     listeCompromis = liste;
@@ -3838,7 +3839,7 @@ describe('🔴 LOT BA — chaque carte part de « Honoraires nets partie … » 
     negociateur: n.nom, societe: n.societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const, ...o });
   const v = (o: { id: number; libelle: string; ttc: number; retro?: number; parties: ReturnType<typeof pa>[]; lignes: ReturnType<typeof lt>[]; e: { id: number; nom: string }; s: { id: number; nom: string } }): Vente => ({
     ...compromis, id: o.id, libelle: o.libelle, honorairesTtc: o.ttc, apporteur: o.retro ? 'Gardien Dacquet' : null, retroApporteur: o.retro ? { montant: o.retro, unite: 'ttc' } : null, lignes: o.lignes,
-    repartition: { retroApporteurTtc: o.retro ?? 0, parties: o.parties as never }, dossier: { ...compromis.dossier!, entree: o.e, sortie: o.s } });
+    repartition: { retroApporteurTtc: o.retro ?? 0, apporteurInterne: true, parties: o.parties as never }, dossier: { ...compromis.dossier!, entree: o.e, sortie: o.s } });
   // FABARRO tel qu'Arno l'a laissé : CRITERIMMO porteuse ; JB PONS salarié 25 % (vendeurs), Pierre Thevenin (MACJ) indépendant 60 % (acquéreurs).
   const fabarro = v({ id: 260, libelle: 'FABARRO', ttc: 25000, parties: [pa('entree', JB, 50, { statut: 'salarie' }), pa('sortie', PT, 50)],
     lignes: [lt(1, JB.nom, 'entree', 3125, 25), lt(2, PT.nom, 'sortie', 7500, 60)], e: JB, s: PT });
@@ -3945,7 +3946,7 @@ describe('🔴 LOT BB — l’en-tête = la part NETTE de la partie (« − Appo
     negociateur: n.nom, societe: n.societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const, ...o });
   const v = (o: { id: number; libelle: string; ttc: number; retro?: number; parties: ReturnType<typeof pa>[]; lignes: ReturnType<typeof lt>[]; e: { id: number; nom: string }; s: { id: number; nom: string }; societe?: 'criterimmo' | 'macj' }): Vente => ({
     ...compromis, id: o.id, societe: o.societe ?? 'criterimmo', libelle: o.libelle, honorairesTtc: o.ttc, apporteur: o.retro ? 'Gardien Dacquet' : null, retroApporteur: o.retro ? { montant: o.retro, unite: 'ttc' } : null,
-    lignes: o.lignes, repartition: { retroApporteurTtc: o.retro ?? 0, parties: o.parties as never }, dossier: { ...compromis.dossier!, entree: o.e, sortie: o.s } });
+    lignes: o.lignes, repartition: { retroApporteurTtc: o.retro ?? 0, apporteurInterne: true, parties: o.parties as never }, dossier: { ...compromis.dossier!, entree: o.e, sortie: o.s } });
   const location = v({ id: 37, libelle: 'Location ?', ttc: 7500, retro: 1000, parties: [pa('entree', AJ, 50, { statut: 'associe', commissionne: false }), pa('sortie', PT, 50)],
     lignes: [lt(3, PT.nom, 'sortie', 1625, 50)], e: AJ, s: PT });
   const fabarro = v({ id: 260, libelle: 'FABARRO', ttc: 25000, parties: [pa('entree', JB, 50, { statut: 'salarie' }), pa('sortie', PT, 50)],
@@ -4037,7 +4038,7 @@ describe('🔴 LOT BC — « − Apporteur : [nom] » sur une seule ligne, le mo
     const { VentilationPartie } = await import('./OngletCompromis');
     const { ventilationVente } = await import('../../../../lib/transaction/partAgence');
     const v: Vente = { ...compromis, honorairesTtc: 7500, apporteur: null, retroApporteur: { montant: 1000, unite: 'ttc' }, lignes: [],
-      repartition: { retroApporteurTtc: 1000, parties: [compromis.repartition!.parties[0], { ...compromis.repartition!.parties[1], pourcentage: 60 }] } };
+      repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [compromis.repartition!.parties[0], { ...compromis.repartition!.parties[1], pourcentage: 60 }] } };
     const x = ventilationVente(v, 'criterimmo').entree!;
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
     await act(async () => { root.render(createElement(VentilationPartie, { x, groupe: 'tete' })); }); await calmer();
@@ -4097,7 +4098,7 @@ describe('🔴 LOT BE — « Statut à la vente : … — non commissionné » r
   const pa = (sorte: 'entree' | 'sortie', n: { id: number; nom: string; societe: 'criterimmo' | 'macj' }, pct: number, o: Record<string, unknown> = {}) => ({ sorte, compteId: n.id,
     negociateur: n.nom, societe: n.societe, nom: null, coordonnees: null, pourcentage: pct, montantHt: null, statut: 'independant' as const, ...o });
   const vente = (statut: 'associe' | 'salarie'): Vente => ({ ...compromis, id: 70, honorairesTtc: 6000, apporteur: null, retroApporteur: null, lignes: [],
-    repartition: { retroApporteurTtc: 0, parties: [pa('entree', JB, 50, { statut, commissionne: false }), pa('sortie', CJ, 50, { statut, commissionne: false })] as never },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [pa('entree', JB, 50, { statut, commissionne: false }), pa('sortie', CJ, 50, { statut, commissionne: false })] as never },
     dossier: { ...compromis.dossier!, entree: { id: JB.id, nom: JB.nom }, sortie: { id: CJ.id, nom: CJ.nom } } });
   const ecran = async (s: 'criterimmo' | 'macj', liste: Vente[]) => {
     act(() => { root.unmount(); }); root = createRoot(container);
@@ -4138,7 +4139,7 @@ describe('🔴 LOT BG — la ligne résultat du cadre gris ressort : trame, file
     await act(async () => { root.render(createElement(EcranSociete, { societe: s })); }); await calmer();
     await cliquer('[data-vue="compromis"]');
   };
-  const sansApporteur: Vente = { ...compromis, id: 71, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0 } };
+  const sansApporteur: Vente = { ...compromis, id: 71, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0, apporteurInterne: true } };
 
   it('avec apporteur (41) : la ligne « = Honoraires nets partie … » dans le bloc résultat, avec filet, après l’apporteur ; la note dessous ; le texte de la ligne inchangé', async () => {
     await ecran('criterimmo', [compromis]); await deplier(41);
@@ -4187,7 +4188,7 @@ describe('🔴 LOT BH — l’apporteur d’une affaire déjà créée : ajouter
     nature: 'compromis' as const, compte: false, origine: 'saisie' as const, sourceFichier: null, sourceOnglet: null, sourceLigne: null, note: null });
   // 41 : apporteur Julien Deblois (annuaire n° 4), 2 400 TTC ; JB (CRITERIMMO, indépendant) avec 1 200 TTC SAISIS À LA MAIN (le calcul en diffère).
   const avec: Vente = { ...compromis, lignes: [lc(1, JB.nom, 'entree', 1200)] };
-  const sans: Vente = { ...compromis, id: 72, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0 },
+  const sans: Vente = { ...compromis, id: 72, apporteur: null, retroApporteur: null, lignes: [], repartition: { ...compromis.repartition!, retroApporteurTtc: 0, apporteurInterne: true },
     dossier: { ...compromis.dossier!, apporteurId: null } };
   const doc = (sel: string): string => document.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
   const cliquerDoc = async (sel: string) => { await act(async () => { (document.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
@@ -4216,7 +4217,7 @@ describe('🔴 LOT BH — l’apporteur d’une affaire déjà créée : ajouter
     await choisir(16);
     await saisirDoc('[data-champ="apporteur-fenetre"]', '1000');
     // ce que le serveur relira après l'enregistrement (simulé : rien n'est écrit)
-    listeCompromis = [{ ...sans, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { ...sans.repartition!, retroApporteurTtc: 1000 },
+    listeCompromis = [{ ...sans, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, repartition: { ...sans.repartition!, retroApporteurTtc: 1000, apporteurInterne: true },
       dossier: { ...sans.dossier!, apporteurId: 16 } }];
     await cliquerDoc('[data-valider-apporteur]');
     const e = envoi()!;
@@ -4348,7 +4349,7 @@ describe('🔴 LOT BI — rattachement aux associés côté par côté : « Hono
     negociateur: n.nom, societe: n.societe, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut, ...o });
   const v = (id: number, e: ReturnType<typeof pa>, s: ReturnType<typeof pa>, lignes: ReturnType<typeof lt>[] = [], o: Partial<Vente> = {}): Vente => ({
     ...compromis, id, libelle: `V${id}`, honorairesTtc: 7500, apporteur: 'Gardien Dacquet', retroApporteur: { montant: 1000, unite: 'ttc' }, lignes,
-    repartition: { retroApporteurTtc: 1000, parties: [e, s] as never }, dossier: { ...compromis.dossier!, entree: { id: e.compteId, nom: e.negociateur }, sortie: { id: s.compteId, nom: s.negociateur } }, ...o });
+    repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [e, s] as never }, dossier: { ...compromis.dossier!, entree: { id: e.compteId, nom: e.negociateur }, sortie: { id: s.compteId, nom: s.negociateur } }, ...o });
   const ecran = async (societe: 'criterimmo' | 'macj', u: 'ht' | 'ttc', liste: Vente[], deplierSel: string) => {
     window.localStorage.setItem('trx-affichage-montants', u);
     act(() => { root.unmount(); }); root = createRoot(container);
@@ -4837,7 +4838,7 @@ describe('🔴 LOT BO — « Honoraires nets partie vendeur / acquéreur » (ave
     expect([libelle('entree'), libelle('sortie')]).toEqual(['= Honoraires nets partie vendeur', '= Honoraires nets partie acquéreur']);
     expect(container.querySelector('[data-base-note="entree"]')!.textContent).toBe('base des calculs ci-dessous');
     act(() => { root.unmount(); }); root = createRoot(container);
-    listeCompromis = [{ ...compromis, apporteur: null, repartition: { ...compromis.repartition!, retroApporteurTtc: 0 }, dossier: { ...compromis.dossier!, apporteurId: null } }];
+    listeCompromis = [{ ...compromis, apporteur: null, repartition: { ...compromis.repartition!, retroApporteurTtc: 0, apporteurInterne: true }, dossier: { ...compromis.dossier!, apporteurId: null } }];
     await ouvrir(); await cliquer('[data-vue="compromis"]'); await deplier(41);
     expect([libelle('entree'), libelle('sortie')]).toEqual(['Honoraires nets partie vendeur', 'Honoraires nets partie acquéreur']);
     expect(texte('[data-honoraires-cote="entree"]')).toMatch(/^Honoraires nets partie vendeur : 12 000 € TTC × \d+ % = /);
@@ -4965,7 +4966,7 @@ describe('🔴 LOT BY — « Du mois | En cours » : la liste, le compteur, les 
   });
   it('🔴 LOT CM — onglet Compromis : un coût nul en gris (tuile et fenêtre « Commissions versées », synthèse), la même règle partagée', async () => {
     // un compromis sans apporteur ni commission : « Commissions versées » 0 €
-    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 0, parties: [{ ...compromis.repartition!.parties[0], pourcentage: 100, statut: 'associe' }] }, apporteur: null }];
+    listeCompromis = [{ ...compromis, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ ...compromis.repartition!.parties[0], pourcentage: 100, statut: 'associe' }] }, apporteur: null }];
     listeActes = [];
     window.localStorage.setItem('trx-compromis-vue', 'encours');
     await act(async () => { root.render(createElement(EcranSociete, { societe: 'criterimmo' })); }); await calmer();

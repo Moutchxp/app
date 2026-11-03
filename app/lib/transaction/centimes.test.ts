@@ -12,8 +12,8 @@ const partie = (sorte: Partie['sorte'], societe: Societe | null, pct: number, no
   ({ sorte, compteId: sorte === 'exterieure' ? null : sorte === 'entree' ? 2 : 8, negociateur: sorte === 'exterieure' ? null : sorte === 'entree' ? 'Arnaud' : 'Pierre', societe, nom, coordonnees: null, pourcentage: pct, montantHt: null });
 const vente = (honorairesTtc: number, retro: number, parties: Partie[]): Vente => ({ id: 37, societe: 'criterimmo', libelle: 'Location ?', honorairesTtc, statut: 'compromis', annee: 2026, mois: null,
   dateCompromis: null, apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null, lignes: [], dossier: null,
-  repartition: { retroApporteurTtc: retro, parties } });
-const cents = (v: Vente, unite: 'ht' | 'ttc' = 'ht') => centimesRepartition(v.repartition!.parties, v.honorairesTtc, v.repartition!.retroApporteurTtc, societePorteuse(v), unite)!;
+  repartition: { retroApporteurTtc: retro, apporteurInterne: true, parties } });
+const cents = (v: Vente, unite: 'ht' | 'ttc' = 'ht') => centimesRepartition(v.repartition!.parties, v.honorairesTtc, v.repartition!.retroApporteurTtc, societePorteuse(v), unite, v.repartition!.apporteurInterne)!;
 const somme = (c: ReturnType<typeof cents>) => auCentime(c.resteHt + Object.values(c.reverse).reduce((t, x) => t + x, 0) + c.exterieurs.reduce((t, e) => t + e.ht, 0) + c.apporteurHt);
 
 describe('🔴 LOT AH — la règle unique des centimes', () => {

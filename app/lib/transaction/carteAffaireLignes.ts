@@ -1,5 +1,6 @@
-import { caHtPortePar, compromisDuMode, LIBELLE_SOCIETE, negociateursDe, payeParClasseTtc, payeTtcDe, retroTtcDe, TVA, ventesDuMois, type ModeMois, type Retrocession, type Societe, type Vente } from './modele';
+import { caHtPortePar, compromisDuMode, coutTtcRetros, htRetros, LIBELLE_SOCIETE, negociateursDe, payeParClasseTtc, payeTtcDe, retroTtcDe, TVA, verseRetros, ventesDuMois, type ModeMois, type Retrocession, type Societe, type Vente } from './modele';
 import { depuisTtc, ventilationVente, type MontantC, type VentilationCote } from './partAgence';
+import { enCentimes } from './detailCommissions';
 import { entreeEtSortie } from './lignesNegociateur';
 import type { StatutDuLibelle } from './statutLigne';
 
@@ -33,7 +34,9 @@ export interface LigneCarte {
   /** 🔴 LOT DP — la société du négociateur à la vente (sa partie de ce côté ; une vente sans répartition : la société de la vente) ; null : inconnue. */
   societe?: Societe | null;
 }
-export interface LignesCarte { lignes: LigneCarte[]; apporteur: MontantC | null; retro: MontantC | null }
+/** `apporteur` / `retro` : ce qui est VERSÉ (🔴 D29 : un apporteur externe, sans TVA — HT = TTC) ; `tva` : la TVA non récupérable sur ces commissions
+ *  d'apporteurs externes (TTC seulement), déduite elle aussi des honoraires des lignes (les parts gardent TTC = HT × 1,2). */
+export interface LignesCarte { lignes: LigneCarte[]; apporteur: MontantC | null; retro: MontantC | null; tva?: MontantC | null }
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
 const plus = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.htC, ttcC: a.ttcC + b.ttcC });
@@ -103,24 +106,31 @@ function lignesSansSociete(v: Vente, vue: Societe | null, o: { retros?: readonly
   const nommer = o.nommer ?? ((l: string) => l);
   const vent = ventilationVente(v, vue);
   const e = vent.entree; const s = vent.sortie;
+  // 🔴 D29 — les rétrocessions du mois : leur COÛT (`retroTtcDe` : HT = le versé, TTC = HT × 1,2) se déduit des lignes ; on montre le VERSÉ et,
+  // à part, la TVA non récupérable (coût − versé)
   const retroMois = retroTtcDe(v, retros);
   const retroC = depuisTtc(retroMois);
-  const retro = retroMois > 0 ? retroC : null;
+  const liees = retros.filter((r) => r.venteId === v.id);
+  const verse: MontantC = { htC: enCentimes(htRetros(liees)), ttcC: enCentimes(verseRetros(liees)) };
+  const retro = retroMois > 0 ? verse : null;
+  const tvaRetro = moins(retroC, verse);
   if (e === undefined && s === undefined) {
     // Historique sans répartition (ou vente lue chez l'autre société) : une ligne — la vente nette de ses rétrocessions, sa paye, son reste.
     const classes = payeParClasseTtc(v, o.statutDuLibelle, vue);
     const honoraires = moins(depuisTtc(v.honorairesTtc), retroC);
     const comDeduite = depuisTtc(classes.independant);
-    return { apporteur: null, retro, lignes: [{ nom: nomUnique(v, nommer), cote: null, honoraires, com: depuisTtc(payeTtcDe(v, vue)),
+    return { apporteur: null, retro, tva: nul(tvaRetro) ? null : tvaRetro, lignes: [{ nom: nomUnique(v, nommer), cote: null, honoraires, com: depuisTtc(payeTtcDe(v, vue)),
       comptabilisee: classes.independant > 0, comDeduite, retro: retroC, reste: moins(honoraires, comDeduite), reverse: null, exterieures: [] }] };
   }
   const apporteurs = somme((e ?? s)!.apporteurs.map((a) => a.m));
   const apporteur = nul(apporteurs) ? null : apporteurs;
+  const tvaTotale = plus((e ?? s)!.tvaApporteur ?? RIEN, tvaRetro);
+  const tva = nul(tvaTotale) ? null : tvaTotale;
   const deux = entreeEtSortie(v);
   const cotes = [e, s].filter((x): x is VentilationCote => x !== undefined);
-  if (deux === null || cotes.length < 2) { const n = nomDuCote(v, cotes[0].cote); return { apporteur, retro, lignes: [ligneDe(n !== null ? nommer(n) : nomUnique(v, nommer), null, cotes, retroC)] }; }
+  if (deux === null || cotes.length < 2) { const n = nomDuCote(v, cotes[0].cote); return { apporteur, retro, tva, lignes: [ligneDe(n !== null ? nommer(n) : nomUnique(v, nommer), null, cotes, retroC)] }; }
   const part = partager(retroC, s!.pctQuote);
-  return { apporteur, retro, lignes: [ligneDe(nommer(deux[0]), 'entree', [e!], part.entree), ligneDe(nommer(deux[1]), 'sortie', [s!], part.sortie)] };
+  return { apporteur, retro, tva, lignes: [ligneDe(nommer(deux[0]), 'entree', [e!], part.entree), ligneDe(nommer(deux[1]), 'sortie', [s!], part.sortie)] };
 }
 
 /**
@@ -136,7 +146,7 @@ export function ecartsCarte(v: Vente, vue: Societe | null, l: LignesCarte): stri
     const calcule = moins(moins(x.honoraires, x.comDeduite), x.reverse?.m ?? RIEN);
     for (const u of ['htC', 'ttcC'] as const) if (calcule[u] !== x.reste[u]) out.push(`${x.nom}${x.cote ? ` (${x.cote})` : ''} : honoraires nets − com − reversé = ${calcule[u]} ≠ reste ${x.reste[u]} (${u})`);
   }
-  const total = somme([...l.lignes.map((x) => x.honoraires), ...l.lignes.flatMap((x) => x.exterieures.map((y) => y.m)), l.apporteur ?? RIEN, l.retro ?? RIEN]);
+  const total = somme([...l.lignes.map((x) => x.honoraires), ...l.lignes.flatMap((x) => x.exterieures.map((y) => y.m)), l.apporteur ?? RIEN, l.retro ?? RIEN, l.tva ?? RIEN]);
   for (const u of ['htC', 'ttcC'] as const) if (total[u] !== commission[u]) out.push(`somme des lignes + rétrocessions = ${total[u]} ≠ commission ${commission[u]} (${u})`);
   return out;
 }
@@ -150,15 +160,17 @@ export function ecartsCarte(v: Vente, vue: Societe | null, l: LignesCarte): stri
  *   · − Commissions des négociateurs indépendants = les « com négo » déduites des cartes ;
  *   · = Reste à l'agence = la somme des « reste » des cartes, au centime, en HT et en TTC (CA − tout ce qui précède).
  */
-export interface ResultatCartes { ca: MontantC; retro: MontantC; interCabinet: MontantC; exterieur: MontantC; com: MontantC; reste: MontantC; ids: number[] }
+/** 🔴 D29 — `retro` : le versé aux apporteurs ; `tvaApporteur` : la TVA non récupérable sur les commissions d'apporteurs externes (TTC seulement). */
+export interface ResultatCartes { ca: MontantC; retro: MontantC; tvaApporteur: MontantC; interCabinet: MontantC; exterieur: MontantC; com: MontantC; reste: MontantC; ids: number[] }
 
 export function resultatDesCartes(ventes: readonly Vente[], vue: Societe | null, o: { retros?: readonly Retrocession[]; statutDuLibelle?: StatutDuLibelle } = {}): ResultatCartes {
-  const r: ResultatCartes = { ca: RIEN, retro: RIEN, interCabinet: RIEN, exterieur: RIEN, com: RIEN, reste: RIEN, ids: [] };
+  const r: ResultatCartes = { ca: RIEN, retro: RIEN, tvaApporteur: RIEN, interCabinet: RIEN, exterieur: RIEN, com: RIEN, reste: RIEN, ids: [] };
   for (const v of ventes) {
     const l = lignesCarteAffaire(v, vue, o);
     const vent = ventilationVente(v, vue);
     r.ca = plus(r.ca, (vent.entree ?? vent.sortie)?.commissionVente ?? depuisTtc(v.honorairesTtc));
     r.retro = plus(plus(r.retro, l.apporteur ?? RIEN), l.retro ?? RIEN);
+    r.tvaApporteur = plus(r.tvaApporteur, l.tva ?? RIEN);
     r.interCabinet = plus(r.interCabinet, somme(l.lignes.map((x) => x.reverse?.m ?? RIEN)));
     r.exterieur = plus(r.exterieur, somme(l.lignes.flatMap((x) => x.exterieures.map((y) => y.m))));
     r.com = plus(r.com, somme(l.lignes.map((x) => x.comDeduite)));
@@ -231,7 +243,8 @@ export function espaceNegociateurs(ventes: readonly Vente[], vue: Societe | null
       const classes = payeParClasseTtc({ ...v, lignes: v.lignes.filter((l) => l.negociateur === n) }, o.statutDuLibelle, vue);
       const com = depuisTtc(classes.independant + classes.interne + classes.a_renseigner);
       const comDeduite = dernier ? resteDed : depuisTtc(classes.independant);
-      const retroTtc = liees.filter((r) => r.negociateur === n || (i === 0 && !negos.includes(r.negociateur))).reduce((t, r) => t + r.montantTtc, 0);
+      // 🔴 D29 — le coût de ses rétrocessions (HT = le versé d'un externe, TTC = HT × 1,2)
+      const retroTtc = coutTtcRetros(liees.filter((r) => r.negociateur === n || (i === 0 && !negos.includes(r.negociateur))));
       const retro = dernier ? resteRetro : depuisTtc(retroTtc);
       resteCa = moins(resteCa, ca); resteDed = moins(resteDed, comDeduite); resteRetro = moins(resteRetro, retro);
       ajouter(n, v.id, { ca, com, comDeduite, retro, net: moins(moins(ca, comDeduite), retro) });

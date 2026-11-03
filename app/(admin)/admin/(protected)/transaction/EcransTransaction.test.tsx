@@ -33,7 +33,7 @@ const donnees: DonneesSociete = {
     vente(5, { libelle: 'AN PASSÉ', honorairesTtc: 6000, annee: 2024, mois: 1 }),
   ],
   retrocessions: [{ id: 9, societe: 'macj', annee: 2025, mois: 1, negociateur: 'MYLENE', montantTtc: 1200, apporteur: null, venteId: null, libelle: '=1200', origine: 'import',
-    sourceOnglet: 'MYLENE', sourceCellule: 'D3' }],
+    sourceOnglet: 'MYLENE', sourceCellule: 'D3', interne: true }],
   aRattacher: [],
   // LOT Q — MYLENE, rapprochée d'un compte INDÉPENDANT : sa paye est déduite du reste à l'agence.
   statutsNegociateurs: { MYLENE: 'independant' },
@@ -1429,7 +1429,7 @@ describe('🔴 LOT R — l’inter-cabinet dans « Le mois » et le CA global', 
   const parties = [
     { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const },
     { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
-  const heididon = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, repartition: { retroApporteurTtc: 0, parties },
+  const heididon = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties },
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2025-01-15', entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] },
     lignes: [{ ...ligne('Pierre Thevenin', 'negociateur', 1000), cote: 'sortie', origine: 'saisie' }] });
 
@@ -1524,7 +1524,7 @@ describe('🔴 LOT AY / CL — « Espace par négociateur » : CA généré, Com
   const parties = [
     { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const, commissionne: false },
     { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
-  const heididon = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, repartition: { retroApporteurTtc: 0, parties },
+  const heididon = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties },
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2025-01-15', entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] },
     lignes: [{ ...ligne('Pierre Thevenin', 'negociateur', 1000), cote: 'sortie', origine: 'saisie' }] });
   const ouvrirEspace = async () => { await act(async () => { (container.querySelector('[data-bloc="negociateurs-mois"] button') as HTMLElement).click(); }); };
@@ -1690,7 +1690,7 @@ describe('🔴 LOT BS — « Le mois » en trois modes : Vendu | Compromis | Ven
     const parties = [
       { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const },
       { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
-    const h = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, statut: 'compromis', mois: null, dateCompromis: '2025-01-12', repartition: { retroApporteurTtc: 0, parties },
+    const h = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, statut: 'compromis', mois: null, dateCompromis: '2025-01-12', repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties },
       dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] } });
     const M = await import('../../../../lib/transaction/modele');
     expect(M.caHtParMoisMode([h], 2025, 'criterimmo', 'compromis', JOUR_DQ)[0]).toBeCloseTo(4000 / 1.2, 9);
@@ -1773,7 +1773,7 @@ describe('🔴 LOT BU — « Le mois » : chaque vente se déplie sur LA fiche d
     { sorte: 'entree' as const, compteId: 2, negociateur: 'Arnaud Jorel', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'associe' as const },
     { sorte: 'sortie' as const, compteId: 8, negociateur: 'Pierre Thevenin', societe: 'macj' as const, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, statut: 'independant' as const }];
   const complete = vente(38, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null,
-    repartition: { retroApporteurTtc: 0, parties }, prixVente: 160000, dateCompromis: '2024-12-10',
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties }, prixVente: 160000, dateCompromis: '2024-12-10',
     dossier: { adresseBien: '1 rue A, Puteaux', dateActePrevue: null, dateActe: '2025-01-15', entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null,
       personnes: [{ id: 3, role: 'vendeur', nom: 'DUPONT', telephone: null, email: null, adresse: null }] } });
   const refs = { lotD: true, negociateurs: [{ id: 2, nom: 'Arnaud Jorel', societe: 'criterimmo' }, { id: 8, nom: 'Pierre Thevenin', societe: 'macj' }], apporteurs: [], personnes: [], uniteCommission: true, annulation: true };
@@ -1929,11 +1929,11 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
   // CRITERIMMO : Jean-Baptiste rentre le mandat, Cédric vend ; 10 000,01 TTC, apporteur 333,33, partage 33 / 67 (des centimes qui ne tombent pas juste).
   const deux = vente(50, { societe: 'criterimmo', libelle: 'DUPONT / MARTIN', honorairesTtc: 10000.01, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null,
     lignes: [lc(1, 'Jean-Baptiste PONS', 2000, 'entree'), lc(2, 'Cédric JULLIEN', 1500, 'sortie')],
-    repartition: { retroApporteurTtc: 333.33, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 33), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 67)] },
+    repartition: { retroApporteurTtc: 333.33, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 33), partie('sortie', 9, 'Cédric JULLIEN', 'criterimmo', 67)] },
     dossier: dossier([5, 'Jean-Baptiste PONS'], [9, 'Cédric JULLIEN']) });
   // Inter-cabinet : l'entrée chez CRITERIMMO (porteuse), la sortie chez MACJ.
   const ic = vente(51, { societe: 'criterimmo', libelle: 'HEIDIDON', honorairesTtc: 4000, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null,
-    repartition: { retroApporteurTtc: 0, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 8, 'Pierre THEVENIN', 'macj', 50)] },
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 5, 'Jean-Baptiste PONS', 'criterimmo', 50), partie('sortie', 8, 'Pierre THEVENIN', 'macj', 50)] },
     dossier: dossier([5, 'Jean-Baptiste PONS'], [8, 'Pierre THEVENIN']) });
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
   const montant = (sel: string): number => centimes(texte(sel));
@@ -2120,7 +2120,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     } finally { fin(); }
   });
   it('🔴 LOT CD — les lignes d’une carte en colonnes (nom · côté · honoraires nets · com négo · reste), la même structure que l’onglet Compromis ; la rétro du mois quitte la ligne, la fiche la dit', async () => {
-    const retro = { id: 77, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'Jean-Baptiste PONS', montantTtc: 600, apporteur: 'M. Durand', venteId: 50, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null };
+    const retro = { id: 77, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'Jean-Baptiste PONS', montantTtc: 600, apporteur: 'M. Durand', venteId: 50, libelle: null, origine: 'saisie' as const, sourceOnglet: null, sourceCellule: null , interne: true };
     const fin = await ouvrirSur([deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [retro]);
     try {
       const colonnes = (l: Element) => [...l.children].map((x) => x.className.split(' ')[0]);
@@ -2138,7 +2138,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     // une vente importée avec une rétrocession saisie au mois et rattachée (le cas ZEMMOR BERKER), et une vente sans déduction
     const zemmor = vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, sourceOnglet: 'CEDRIC' });
     const sci = vente(61, { societe: 'criterimmo', libelle: 'SCI LES TILLEULS/BLANCO', honorairesTtc: 7000, sourceOnglet: 'CEDRIC' });
-    const retro = { id: 78, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'CEDRIC', montantTtc: 3333, apporteur: null, venteId: 60, libelle: null, origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'J3' };
+    const retro = { id: 78, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'CEDRIC', montantTtc: 3333, apporteur: null, venteId: 60, libelle: null, origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'J3' , interne: true };
     const fin = await ouvrirSur([deux, zemmor, sci], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [retro]);
     try {
       const nets = (id: number) => container.querySelector(`[data-vente="${id}"] [data-nego-nets]`)!;
@@ -2202,7 +2202,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     const zemmor = vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, sourceOnglet: 'CEDRIC' });
     const basu = vente(61, { societe: 'criterimmo', libelle: 'BASUYEAUX', honorairesTtc: 11000, sourceOnglet: 'ARNAUD' });
     const r = (id: number, venteId: number | null, montantTtc: number, annee: number, mois: number) => ({ id, societe: 'criterimmo' as const, annee, mois, negociateur: 'CEDRIC', montantTtc,
-      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'L3' });
+      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'L3', interne: true });
     // 3 333 rattachée à ZEMMOR (saisie ce mois), 500 rattachée à BASUYEAUX mais saisie en décembre 2024, 833 « à répartir » saisie ce mois
     const fin = await ouvrirSur([zemmor, basu], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(1, 60, 3333, 2025, 1), r(2, 61, 500, 2024, 12), r(124, null, 833, 2025, 1)]);
     try {
@@ -2234,7 +2234,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
   });
   it('🔴 LOT CL — Espace par négociateur, juillet 2026 : CA net = CA généré − Com comptabilisée − Rétrocessions = la somme de ses cartes ; total = Reste à l’agence (HT et TTC)', async () => {
     const r = (id: number, venteId: number, negociateur: string, montantTtc: number) => ({ id, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur, montantTtc,
-      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: negociateur, sourceCellule: 'J3' });
+      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: negociateur, sourceCellule: 'J3', interne: true });
     const lc = (negociateur: string, montantTtc: number): LigneVente => ({ id: Math.random(), negociateur, role: 'negociateur', montantTtc, nature: 'vente', compte: true, origine: 'import',
       sourceFichier: null, sourceOnglet: negociateur, sourceLigne: 1, note: null });
     const zemmor = vente(60, { societe: 'criterimmo', libelle: 'ZEMMOR BERKER', honorairesTtc: 40000, lignes: [{ ...lc('CEDRIC', 0), role: 'part', montantTtc: 40000 }] });
@@ -2361,7 +2361,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       vente(66, { societe: 'criterimmo', libelle: 'COMPROMIS SEPTEMBRE', honorairesTtc: 3000, statut: 'compromis', annee: 2025, mois: null, dateCompromis: '2025-09-03' }),
     ];
     const r = (id: number, mois: number, venteId: number | null, montantTtc: number) => ({ id, societe: 'criterimmo' as const, annee: 2025, mois, negociateur: 'MYLENE', montantTtc,
-      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: 'MYLENE', sourceCellule: 'J3' });
+      apporteur: null, venteId, libelle: null, origine: 'import' as const, sourceOnglet: 'MYLENE', sourceCellule: 'J3', interne: true });
     const retros = () => [r(1, 7, 60, 500.01), r(2, 9, null, 250)];
     const choisis = () => [...container.querySelectorAll('.trx-onglets-periode [aria-pressed="true"]')].map((x) => Number(x.getAttribute('data-onglet-mois')));
     const adresse = () => new URLSearchParams(window.location.search).get('periode');
@@ -3467,7 +3467,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
       vente(701, { societe: 'macj', libelle: 'MAC', honorairesTtc: 3000, annee: 2025, mois: 3, lignes: [lm('PIERRE', 3000)] }),
       vente(702, { societe: 'criterimmo', libelle: 'PARTAGEE', honorairesTtc: 4000, annee: 2025, mois: 3, lignes: [],
         dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 2, nom: 'Arnaud Jorel' }, sortie: { id: 8, nom: 'Pierre Thevenin' }, apporteurId: null, personnes: [] },
-        repartition: { retroApporteurTtc: 1000, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] } } as Partial<Vente>),
+        repartition: { retroApporteurTtc: 1000, apporteurInterne: true, parties: [partie('entree', 2, 'Arnaud Jorel', 'criterimmo', 50), partie('sortie', 8, 'Pierre Thevenin', 'macj', 50)] } } as Partial<Vente>),
     ];
     const ouvrirF = async (q: string) => {
       const avant = { ventes: donnees.ventes, societe: donnees.societe, retros: donnees.retrocessions };
@@ -3817,7 +3817,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
   });
   it('🔴 LOT CN — « Apporteurs du mois » : Apporteur en premier (nommé en gras, sinon « Apporteur non nommé » gris italique), Négociateur et sa source dessous ; rattacher et Historique fonctionnent', async () => {
     const r = (id: number, venteId: number | null, apporteur: string | null) => ({ id, societe: 'criterimmo' as const, annee: 2025, mois: 1, negociateur: 'CEDRIC', montantTtc: 500,
-      apporteur, venteId, libelle: 'montant saisi', origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'J3' });
+      apporteur, venteId, libelle: 'montant saisi', origine: 'import' as const, sourceOnglet: 'CEDRIC', sourceCellule: 'J3', interne: true });
     const avant = donnees.nomsNegociateurs;
     donnees.nomsNegociateurs = { CEDRIC: 'Cédric JULLIEN' };
     const fin = await ouvrirSur([deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(71, null, 'Gardien Dacquet'), r(72, null, null)]);
@@ -3852,7 +3852,7 @@ describe('🔴 LOT DO — FUSION : le CA consolidé (10 000 / 5 000, dans les de
     annee: 2025, mois: statut === 'vendue' ? 9 : null, dateCompromis: statut === 'vendue' ? '2025-08-01' : '2025-09-20', origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null,
     lignes: [lc('Mandat', 'entree', 1000), lc('Vendeur', 'sortie', 2000)],
     dossier: { adresseBien: null, dateActePrevue: null, dateActe: statut === 'vendue' ? '2025-09-15' : null, entree: { id: 1, nom: 'Mandat' }, sortie: { id: 2, nom: 'Vendeur' }, apporteurId: null, personnes: [] },
-    repartition: { retroApporteurTtc: 0, parties: [partie('entree', 1, 'Mandat', porteuse), partie('sortie', 2, 'Vendeur', autre(porteuse))] } } as Partial<Vente>);
+    repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [partie('entree', 1, 'Mandat', porteuse), partie('sortie', 2, 'Vendeur', autre(porteuse))] } } as Partial<Vente>);
   const centimes = (t: string): number => Math.round(Number(t.replace(/[^\d,−-]/g, '').replace('−', '-').replace(',', '.')) * 100);
   const montant = (sel: string): number => centimes(texte(sel));
   /** La page d'une société (ou FUSION) telle que la route la lit : la porteuse, la ligne miroir chez l'autre, chaque vente une fois pour les deux. */
@@ -3966,7 +3966,7 @@ describe('🔴 LOT DO — FUSION : le CA consolidé (10 000 / 5 000, dans les de
       const simple = vente(95, { societe: 'macj', libelle: 'SIMPLE', honorairesTtc: 6000, annee: 2025, mois: 9, lignes: [] });
       const sansSociete = vente(96, { societe: 'criterimmo', libelle: 'INCONNUE', honorairesTtc: 6000, annee: 2025, mois: 9, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, lignes: [],
         dossier: { adresseBien: null, dateActePrevue: null, dateActe: '2025-09-02', entree: { id: 1, nom: 'Mandat' }, sortie: { id: 2, nom: 'Vendeur' }, apporteurId: null, personnes: [] },
-        repartition: { retroApporteurTtc: 0, parties: [{ ...partie('entree', 1, 'Mandat', 'criterimmo'), societe: null }, { ...partie('sortie', 2, 'Vendeur', 'criterimmo'), societe: null }] } } as unknown as Partial<Vente>);
+        repartition: { retroApporteurTtc: 0, apporteurInterne: true, parties: [{ ...partie('entree', 1, 'Mandat', 'criterimmo'), societe: null }, { ...partie('sortie', 2, 'Vendeur', 'criterimmo'), societe: null }] } } as unknown as Partial<Vente>);
       const avant = { ventes: donnees.ventes, societe: donnees.societe };
       donnees.ventes = [simple, sansSociete, cas('criterimmo', 90, 'vendue')]; (donnees as { societe: string | null }).societe = null;
       act(() => { root.unmount(); }); root = createRoot(container);

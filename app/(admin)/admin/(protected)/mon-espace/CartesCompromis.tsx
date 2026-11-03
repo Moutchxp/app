@@ -31,9 +31,11 @@ export function CartesCompromis({ c, agence }: { c: Cartes; agence: boolean }) {
           <span className="tdb-tuile-mot">Compromis en cours</span><strong className="tdb-tuile-valeur" data-valeur-compromis="nombre">{c.nb}</strong>
           <span className="tdb-tuile-n1">à la date du jour</span></div></li>
         <li><div className="tdb-tuile" data-tuile="reverse">
-          <span className="tdb-tuile-mot">Reversé ({MOT})</span>{montant('reverse', c.reverse)}
+          <span className="tdb-tuile-mot">Reversé / partagé ({MOT})</span>{montant('reverse', c.reverse)}
           <span className="tdb-tuile-n1" data-reverse-detail>
-            <span data-dont="collegues">dont collègues {grand(c.collegues)}</span> · <span data-dont="negociateurs">dont négociateurs {grand(c.negociateurs)}</span> · <span data-dont="apporteurs">dont apporteurs {grand(c.apporteurs)}</span>
+            <span data-dont="collegues">dont collègues {grand(c.collegues)}</span> · <span data-dont="negociateurs">dont négociateurs {grand(c.negociateurs)}</span> · <span data-dont="apporteurs">dont apporteurs {grand(c.apporteurs)}{c.apporteurs.htC === c.apporteurs.ttcC && c.apporteurs.htC > 0 ? ' sans TVA' : ''}</span>
+            {/* 🔴 D29 — en TTC, la TVA non récupérable sur la part des apporteurs externes (0 en HT : rien à montrer) */}
+            {(u === 'ht' ? c.tva.htC : c.tva.ttcC) !== 0 && <> · <span data-dont="tva">dont TVA non récupérable (apporteurs) {grand(c.tva)}</span></>}
           </span></div></li>
         <li><div className="tdb-tuile" data-tuile="net-compromis">
           <span className="tdb-tuile-mot">Chiffre d’affaires net ({MOT})</span>{montant('net', c.net)}
