@@ -131,3 +131,32 @@ describe('🔴 D26 — la fiche de « Mon espace » : création complète, ratta
     expect(await gesteAnnuaireMonEspace(9, 999, 'rattachement', {}, AUTEUR)).toMatchObject({ ok: false, statut: 404 });
   });
 });
+
+describe('🔴 D32 (Arno, 03/11/2026, option B) — un collaborateur peut SE rattacher un apporteur « à rattacher », rien de plus (403 sinon)', () => {
+  const aRattacher = () => fiche(2, 'MARTIN Zoé', { collegues: [] });
+  it('se rattacher un « à rattacher » : la mécanique de la Location, SANS rémunération (aucune version écrite)', async () => {
+    h.annuaire = [...h.annuaire, aRattacher()];
+    h.rattachement.mockReset().mockResolvedValue({ etat: 'ok' });
+    const rattachement = { sorte: 'rattacher', collegueId: 5, depuis: '2026-11-03', remuneration: { remunere: true } };
+    expect(await gesteAnnuaireMonEspace(5, 2, 'rattachement', { collegueAvant: null, rattachement }, AUTEUR)).toEqual({ ok: true });
+    expect(h.rattachement).toHaveBeenCalledWith(2, rattachement, AUTEUR, { sansRemuneration: true });
+  });
+  it('403 : le rattacher à un autre collègue, changer un rattachement existant, la sorte « rémunération », le taux, la rémunération — rien n’est écrit', async () => {
+    h.annuaire = [...h.annuaire, aRattacher()];
+    h.rattachement.mockReset();
+    const r = (collegueId: number, o: Record<string, unknown> = {}) => ({ sorte: 'rattacher', collegueId, depuis: '2026-11-03', remuneration: { remunere: false }, ...o });
+    expect(await gesteAnnuaireMonEspace(5, 2, 'rattachement', { collegueAvant: null, rattachement: r(9) }, AUTEUR)).toMatchObject({ ok: false, statut: 403, motif: expect.stringMatching(/à vous-même/) });
+    expect(await gesteAnnuaireMonEspace(5, 1, 'rattachement', { collegueAvant: 7, rattachement: r(5) }, AUTEUR)).toMatchObject({ ok: false, statut: 403, motif: expect.stringMatching(/déjà rattaché/) });
+    expect(await gesteAnnuaireMonEspace(5, 2, 'rattachement', { collegueAvant: null, rattachement: r(5, { sorte: 'remuneration' }) }, AUTEUR)).toMatchObject({ ok: false, statut: 403 });
+    expect(await gesteAnnuaireMonEspace(5, 2, 'bareme-apporteur', { bareme: { taux: 3 } }, AUTEUR)).toMatchObject({ ok: false, statut: 403, motif: expect.stringMatching(/administrateur/) });
+    expect(await gesteAnnuaireMonEspace(5, 2, 'remuneration-collegue', { remuneration: { remunere: true } }, AUTEUR)).toMatchObject({ ok: false, statut: 403 });
+    expect(h.rattachement).not.toHaveBeenCalled(); expect(h.bareme).not.toHaveBeenCalled(); expect(h.remuneration).not.toHaveBeenCalled();
+  });
+  it('administrateur : inchangé (n’importe quel collègue, la rémunération écrite)', async () => {
+    h.admin = true; h.annuaire = [...h.annuaire, aRattacher()];
+    h.rattachement.mockReset().mockResolvedValue({ etat: 'ok' });
+    const rattachement = { sorte: 'rattacher', collegueId: 9, depuis: '2026-11-03', remuneration: { remunere: true, mode: 'one_shot', taux: '5' } };
+    expect(await gesteAnnuaireMonEspace(1, 2, 'rattachement', { collegueAvant: null, rattachement }, AUTEUR)).toEqual({ ok: true });
+    expect(h.rattachement).toHaveBeenCalledWith(2, rattachement, AUTEUR);
+  });
+});

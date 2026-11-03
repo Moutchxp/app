@@ -6,7 +6,7 @@ import { query } from '../db/client';
 import { apporteursUtilisesDisponible } from '../admin/schemaDroits';
 import { ajouterBaremeApporteur, ajouterRemunerationCollegue, creerApporteur, enregistrerFicheApporteur, enregistrerRattachement, ficheIdentiteDisponible, interneDisponible, lireApporteurs,
   lireComptesInterface, nomPrenomDisponible, passageDisponible, toujoursDisponible } from '../location/suivi/suiviRepo';
-import { aujourdhuiParis, collegueADate } from '../location/suivi/suivi';
+import { aujourdhuiParis, collegueADate, droitRattachement, MOT_REMUNERATION_ADMIN } from '../location/suivi/suivi';
 import type { Auteur } from '../gestion/gestes';
 import { lireRetrocessions, lireVentes, transactionDisponible } from '../transaction/repo';
 import { parApporteur } from '../transaction/modele';
@@ -128,15 +128,19 @@ export type GesteAnnuaire = 'rattachement' | 'bareme-apporteur' | 'remuneration-
 export const MOT_RATTACHEMENT_ADMIN = 'Le collègue rattaché, sa rémunération et le taux d’un apporteur se modifient par un administrateur (comme dans la Location).';
 export async function gesteAnnuaireMonEspace(compteId: number, apporteurId: number, geste: GesteAnnuaire, corps: Record<string, unknown>, auteur: Auteur):
   Promise<{ ok: true } | { ok: false; statut: 403 | 404 | 409 | 422; motif: string }> {
-  if (!(await estAdministrateur(compteId))) return { ok: false, statut: 403, motif: MOT_RATTACHEMENT_ADMIN };
+  const administrateur = await estAdministrateur(compteId);
+  // 🔴 D32 (option B) — un collaborateur : seulement SE rattacher un apporteur « à rattacher » (`droitRattachement`, la règle de la Location) ; le reste : 403
+  if (!administrateur && geste !== 'rattachement') return { ok: false, statut: 403, motif: geste === 'remuneration-collegue' || geste === 'bareme-apporteur' ? MOT_REMUNERATION_ADMIN : MOT_RATTACHEMENT_ADMIN };
   const a = (await lireApporteurs()).find((x) => x.id === apporteurId && !x.archive);
   if (a === undefined) return { ok: false, statut: 404, motif: 'Apporteur inconnu.' };
+  const droit = geste === 'rattachement' ? droitRattachement({ administrateur, compteId, apporteur: a, brut: corps.rattachement }) : { ok: true as const, sansRemuneration: false };
+  if (!droit.ok) return { ok: false, statut: 403, motif: droit.motif };
   if (geste === 'rattachement' && 'collegueAvant' in corps) {
     const actuel = collegueADate(a, aujourdhuiParis())?.collegueId ?? null;
     const lu = corps.collegueAvant == null ? null : Number(corps.collegueAvant);
     if (actuel !== lu) return { ok: false, statut: 409, motif: 'Le collègue rattaché de cet apporteur a changé depuis l’ouverture de la fiche : rechargez-la, puis recommencez.' };
   }
-  const r = geste === 'rattachement' ? await enregistrerRattachement(apporteurId, corps.rattachement, auteur)
+  const r = geste === 'rattachement' ? await (droit.sansRemuneration ? enregistrerRattachement(apporteurId, corps.rattachement, auteur, { sansRemuneration: true }) : enregistrerRattachement(apporteurId, corps.rattachement, auteur))
     : geste === 'bareme-apporteur' ? await ajouterBaremeApporteur(apporteurId, corps.bareme, auteur)
       : await ajouterRemunerationCollegue(apporteurId, corps.remuneration, auteur);
   if (r.etat === 'ok') return { ok: true };

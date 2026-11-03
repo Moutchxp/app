@@ -27,6 +27,8 @@ const repo = {
   ficheIdentiteDisponible: vi.fn(async () => false), enregistrerFicheApporteur: vi.fn(),
   /* 422 — « Passer en interne ». */
   passageDisponible: vi.fn(async () => false), passerApporteurEnInterne: vi.fn(), enregistrerRattachement: vi.fn(),
+  /* 🔴 D32 — le rattachement selon le droit du compte. */
+  rattacherSelonDroit: vi.fn(),
 };
 vi.mock('../../../../../lib/location/suivi/suiviRepo', () => Object.fromEntries(Object.entries(repo).map(([k, f]) => [k, (...a: unknown[]) => f(...a)])));
 const donneesTableau = vi.fn();
@@ -143,5 +145,27 @@ describe('/api/admin/location/suivi', () => {
   it('une action inconnue ou un corps illisible : 400', async () => {
     expect((await poster({ action: 'supprimer' })).status).toBe(400);
     expect((await POST(new Request('http://x', { method: 'POST', body: '{' }))).status).toBe(400);
+  });
+});
+
+describe('🔴 D32 (Arno, 03/11/2026, option B) — « rattachement » : la règle du droit, plus la porte administrateur', () => {
+  beforeEach(() => { exigerAdministrateur.mockReset(); exigerLocation.mockReset(); repo.rattacherSelonDroit.mockReset(); });
+  it('un collaborateur (accès Location) : la demande passe par `rattacherSelonDroit` avec SON compte ; « interdit » → 403, rien de plus', async () => {
+    exigerLocation.mockResolvedValue({ auteurId: 5 });
+    repo.rattacherSelonDroit.mockResolvedValue({ etat: 'ok' });
+    const corps = { action: 'rattachement', apporteurId: 3, rattachement: { sorte: 'rattacher', collegueId: 5, depuis: '2026-11-03', remuneration: { remunere: false } } };
+    const r = await poster(corps);
+    expect(r.status).toBe(200);
+    expect(exigerAdministrateur).not.toHaveBeenCalled();
+    expect(repo.rattacherSelonDroit).toHaveBeenCalledWith(5, 3, corps.rattachement, expect.anything());
+    repo.rattacherSelonDroit.mockResolvedValue({ etat: 'interdit', motif: 'réservé aux administrateurs' });
+    const refus = await poster({ ...corps, rattachement: { ...corps.rattachement, collegueId: 9 } });
+    expect(refus.status).toBe(403);
+    expect(await refus.json()).toEqual({ etat: 'refus', motif: 'réservé aux administrateurs' });
+  });
+  it('la rémunération et le taux restent réservés aux administrateurs (porte administrateur, comme avant)', async () => {
+    exigerAdministrateur.mockResolvedValue(REFUS());
+    for (const action of ['remuneration-collegue', 'bareme-apporteur', 'rattacher-apporteur']) expect((await poster({ action, apporteurId: 3 })).status).toBe(403);
+    expect(repo.rattacherSelonDroit).not.toHaveBeenCalled();
   });
 });

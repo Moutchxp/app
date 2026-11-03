@@ -1,5 +1,5 @@
 import { homonymes, normApporteur } from '../transaction/homonymesApporteur';
-import { collegueADate, libelleApporteur, texteRechercheApporteur, type Apporteur } from '../location/suivi/suivi';
+import { aRattacher, collegueADate, libelleApporteur, texteRechercheApporteur, type Apporteur } from '../location/suivi/suivi';
 import type { LigneApporteur } from '../transaction/modele';
 
 /**
@@ -55,7 +55,9 @@ export const peutModifierApporteur = (a: Apporteur, compteId: number, administra
 
 /** Mon apporteur, tel que l'onglet le montre : sa fiche, son collègue, ses chiffres sur MES ventes (`parApporteur`), puis-je le modifier. */
 export interface MonApporteur { id: number; libelle: string; interne: boolean; societe: string | null; telephone: string | null; email: string | null; collegue: string | null;
-  recherche: string; modifiable: boolean; nbVentes: number; caApporteHt: number; retroHt: number; fiche: Apporteur }
+  recherche: string; modifiable: boolean; nbVentes: number; caApporteHt: number; retroHt: number; fiche: Apporteur;
+  /** 🔴 D32 (option B) — un collaborateur peut SE rattacher cet apporteur « à rattacher » (`droitRattachement`) ; un administrateur : par la fiche. */
+  peutSeRattacher?: boolean }
 
 /** Les apporteurs que je vois, avec leurs chiffres sur mes ventes. `surMesVentes` : ids (dossier) et noms écrits ; `lignes` : `parApporteur`. PUR. */
 export function mesApporteursAnnuaire(annuaire: readonly Apporteur[], o: { compteId: number; administrateur: boolean; jour: string; idsSurMesVentes: ReadonlySet<number>;
@@ -71,7 +73,7 @@ export function mesApporteursAnnuaire(annuaire: readonly Apporteur[], o: { compt
       const l = ligneDe(a);
       return { id: a.id, libelle: libelleApporteur(a), interne: a.compteId != null, societe: a.societe ?? null, telephone: a.telephone ?? null, email: a.email ?? null,
         collegue: a.compteId != null ? null : collegueADate(a, o.jour)?.collegueLibelle ?? null, recherche: texteRechercheApporteur(a),
-        modifiable: peutModifierApporteur(a, o.compteId, o.administrateur, o.jour), nbVentes: l?.ventesIds.length ?? 0, caApporteHt: l?.caApporteHt ?? 0, retroHt: l?.retroHt ?? 0, fiche: a };
+        modifiable: peutModifierApporteur(a, o.compteId, o.administrateur, o.jour), ...(!o.administrateur && aRattacher(a) ? { peutSeRattacher: true } : {}), nbVentes: l?.ventesIds.length ?? 0, caApporteHt: l?.caApporteHt ?? 0, retroHt: l?.retroHt ?? 0, fiche: a };
     })
     .sort((x, y) => x.libelle.localeCompare(y.libelle, 'fr'));
 }

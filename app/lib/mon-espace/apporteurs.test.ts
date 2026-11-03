@@ -79,3 +79,13 @@ describe('🔴 qui je vois, qui modifie', () => {
     expect(chercherApporteur(tous, '')).toHaveLength(4);
   });
 });
+
+describe('🔴 D32 (option B) — « Me rattacher cet apporteur » : un collaborateur, un apporteur « à rattacher » seulement', () => {
+  const vide = { idsSurMesVentes: new Set<number>(), nomsSurMesVentes: new Set<string>(), utilises: new Set<number>(), lignes: [] as LigneApporteur[] };
+  it('Léa voit « SANS Rattachement » (sur ses ventes) : elle peut se le rattacher ; pas DURAND (Marc), pas son compte interne ; un administrateur : jamais ce bouton', () => {
+    const l = mesApporteursAnnuaire(ANNUAIRE, { compteId: 5, administrateur: false, jour: JOUR, ...vide, idsSurMesVentes: new Set([1, 5]) });
+    expect(l.filter((a) => a.peutSeRattacher === true).map((a) => a.id)).toEqual([5]);
+    expect(l.find((a) => a.id === 5)?.modifiable).toBe(false);
+    expect(mesApporteursAnnuaire(ANNUAIRE, { compteId: 1, administrateur: true, jour: JOUR, ...vide }).some((a) => a.peutSeRattacher === true)).toBe(false);
+  });
+});

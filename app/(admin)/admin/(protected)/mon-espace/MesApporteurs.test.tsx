@@ -215,3 +215,35 @@ describe('🔴 D26 — la fiche d’un apporteur : une fenêtre, tout modifiable
     expect(container.querySelector('[data-panneau="taux"]')).not.toBeNull();
   });
 });
+
+describe('🔴 D32 (Arno, 03/11/2026, option B) — « Me rattacher cet apporteur » (collaborateur, apporteur « à rattacher »)', () => {
+  const LIBRE = mon({ id: 3, libelle: 'PETIT Zoé', collegue: null, modifiable: false, peutSeRattacher: true, fiche: fiche(3, 'PETIT Zoé') });
+  it('seul ce bouton pour cette fiche (pas « Modifier la fiche ») ; la fenêtre envoie un rattachement À MOI, avec la réponse, sans taux', async () => {
+    liste = { ...LISTE, toujours: true, apporteurs: [...LISTE.apporteurs, LIBRE] };
+    await ouvrir();
+    const carte = container.querySelector('[data-mon-apporteur="3"]')!;
+    expect([...carte.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Me rattacher cet apporteur']);
+    expect(container.querySelector('[data-me-rattacher="2"]')).toBeNull(); // MARTIN Lise : déjà rattachée à Marc → aucun bouton
+    await cliquer('[data-me-rattacher="3"]');
+    expect(container.querySelector('[data-fenetre-me-rattacher="3"]')).not.toBeNull();
+    expect((container.querySelector('[data-valider-me-rattacher]') as HTMLButtonElement).disabled).toBe(true); // la question d'abord
+    expect(container.querySelector('[data-fenetre-me-rattacher] [data-fiche-collegue]')).toBeNull(); // aucun choix de collègue
+    await cliquer('[data-me-rattacher-reponse="oui"]');
+    expect(container.querySelector('[data-me-rattacher-remuneration]')?.textContent).toMatch(/administrateur/);
+    expect(container.querySelector('[data-fenetre-me-rattacher] [data-fiche-remuneration-taux]')).toBeNull(); // aucun taux
+    await cliquer('[data-me-rattacher-toujours]');
+    await cliquer('[data-valider-me-rattacher]');
+    expect(posts.at(-1)).toEqual({ action: 'rattachement', apporteurId: 3, collegueAvant: null,
+      rattachement: { sorte: 'rattacher', collegueId: 5, depuisToujours: true, remuneration: { remunere: true } } });
+    expect(container.querySelector('[data-message-apporteurs]')?.textContent).toMatch(/vous est rattaché. Sa rémunération .* administrateur/);
+  });
+  it('un refus du serveur (403) est dit dans la fenêtre ; rien ne change', async () => {
+    liste = { ...LISTE, apporteurs: [...LISTE.apporteurs, LIBRE] };
+    repondre = () => ({ status: 403, corps: { etat: 'refus', motif: 'Cet apporteur est déjà rattaché : changer son rattachement est réservé aux administrateurs.' } });
+    await ouvrir();
+    await cliquer('[data-me-rattacher="3"]');
+    await cliquer('[data-me-rattacher-reponse="non"]');
+    await cliquer('[data-valider-me-rattacher]');
+    expect(container.querySelector('[data-me-rattacher-motif]')?.textContent).toMatch(/déjà rattaché/);
+  });
+});

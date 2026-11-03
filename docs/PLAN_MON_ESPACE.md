@@ -473,3 +473,18 @@ Le même composant (`FormulaireDossier`) dans le Suivi CA et dans Mon espace ; a
   change pas (en TTC, il compte toujours cette TVA : perso 13 950 €, FUSION 15 800 €) ; la mention reste dans la fiche de la vente, le Résultat
   et les coûts. Carte 1 − carte 3 = carte 4, au centime, inchangé.
 - Captures avant / après (1 440 × 900 et 390 px, clair et sombre ; Compromis perso et FUSION, Mois FUSION) : `.captures/bloc-apporteurs-titres/`.
+
+## 🔴 D32 (Arno, 03/11/2026, option B) — Droit de rattachement d'un apporteur (complète D26)
+
+- Un collaborateur (non administrateur) peut SE rattacher un apporteur « à rattacher » (aucun collègue, pas interne), depuis « Mes apporteurs » :
+  sur ces fiches, l'écran ne lui montre que « Me rattacher cet apporteur » (une fenêtre : date d'effet ou « Depuis toujours », la question
+  « Touchez-vous des honoraires ? », garde 409, journal).
+- Il ne peut pas : rattacher à un autre collègue, changer un rattachement existant, fixer la rémunération (taux, règle) — 403 côté serveur,
+  dans Mon espace ET dans la Location (même annuaire, une seule règle : `droitRattachement`, `rattacherSelonDroit` ; l'action « rattachement »
+  de la route du suivi n'est plus réservée d'office aux administrateurs, la règle décide). Administrateur : inchangé.
+- **La question des honoraires touche la rémunération** : dans la Location, y répondre écrit une version de rémunération (« Non » : aucune
+  rémunération ; « Oui » : mode et taux obligatoires) — c'est fixer la règle, réservé aux administrateurs. Règle retenue, sans élargir : le
+  collaborateur répond, sa réponse est inscrite au journal de l'apporteur (« Oui — taux et règle à fixer par un administrateur » / « Non »), et
+  AUCUNE version de rémunération n'est écrite par lui ; un administrateur la fixe ensuite (fiche ou Location). Tant qu'elle n'est pas fixée,
+  les calculs lisent « aucune rémunération » (le défaut existant). À confirmer par Arno.
+- Aucune migration (les droits viennent du rôle du compte, déjà en base). Captures : `.captures/rattachement-collaborateur/`.

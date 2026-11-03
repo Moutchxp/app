@@ -410,6 +410,27 @@ export function trierApporteurs<T extends Pick<Apporteur, 'id' | 'nom' | 'type' 
  */
 export const aRattacher = (a: Pick<Apporteur, 'collegues' | 'compteId'>): boolean => !estInterne(a) && a.collegues !== undefined && a.collegues.length === 0;
 
+/**
+ * ══ 🔴 D32 (Arno, 03/11/2026, option B) — LE DROIT DE RATTACHER UN APPORTEUR : UNE RÈGLE, PARTOUT (Location et Mon espace) (PUR) ═════════════════
+ *   · un ADMINISTRATEUR : tout, comme avant (rattacher à n'importe quel collègue, changer un rattachement, fixer la rémunération) ;
+ *   · un COLLABORATEUR : SE rattacher (lui-même) un apporteur « à rattacher » (aucun collègue, pas interne), avec la même mécanique (date d'effet ou
+ *     « depuis toujours », la question « touche-t-il des honoraires ? », le journal, la garde 409) — mais SANS rémunération : la règle (mode, taux)
+ *     reste aux administrateurs ; sa réponse est inscrite au journal (« Oui » : « à fixer par un administrateur »), aucune version n'est écrite.
+ * Tout le reste — un autre collègue, un apporteur déjà rattaché, la sorte « rémunération » — est refusé (403 côté serveur).
+ */
+export const MOT_RATTACHEMENT_AUTRE = 'Vous pouvez rattacher cet apporteur à vous-même seulement : le rattacher à un autre collègue est réservé aux administrateurs.';
+export const MOT_RATTACHEMENT_DEJA = 'Cet apporteur est déjà rattaché : changer son rattachement est réservé aux administrateurs.';
+export const MOT_REMUNERATION_ADMIN = 'Le taux et la règle de rémunération d’un collègue se fixent par un administrateur.';
+export function droitRattachement(o: { administrateur: boolean; compteId: number; apporteur: Pick<Apporteur, 'collegues' | 'compteId'> | undefined; brut: unknown }):
+  { ok: true; sansRemuneration: boolean } | { ok: false; motif: string } {
+  if (o.administrateur) return { ok: true, sansRemuneration: false };
+  const b = (o.brut ?? {}) as Record<string, unknown>;
+  if (b.sorte === 'remuneration') return { ok: false, motif: MOT_REMUNERATION_ADMIN };
+  if (b.collegueId !== o.compteId) return { ok: false, motif: MOT_RATTACHEMENT_AUTRE };
+  if (o.apporteur === undefined || !aRattacher(o.apporteur)) return { ok: false, motif: MOT_RATTACHEMENT_DEJA };
+  return { ok: true, sansRemuneration: true };
+}
+
 /** 419 — la rémunération du collègue EN VIGUEUR à une date (null : aucune version, ou un interne). PUR. */
 export function remunerationADate(a: Pick<Apporteur, 'remunerations' | 'compteId' | 'interneDepuis'>, dateIso: string): RemunerationCollegue | null {
   if (interneADate(a, dateIso)) return null;

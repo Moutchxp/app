@@ -3,9 +3,9 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import {
-  ajouterBaremeApporteur, ajouterRegle, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
+  ajouterBaremeApporteur, ajouterRegle, rattacherSelonDroit, ajouterRetrocession, annuaireDisponible, personnalisableDisponible, nomPrenomDisponible, origineDejaClientDisponible, annulerRetrocession, creerApporteur, enregistrerActiviteBail,
   lireApporteurs, lireComptesInterface, lireNegociateurs, lireRegles, lireRetrocessions, modifierActivite, validerStatutBien, modifierApporteur, estAdministrateurActif,
-  proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible, passerApporteurEnInterne, passageDisponible, enregistrerRattachement,
+  proposerActivite, rattacherApporteur, suiviDisponible, ajouterRemunerationCollegue, interneDisponible, toujoursDisponible, enregistrerFicheApporteur, ficheIdentiteDisponible, passerApporteurEnInterne, passageDisponible,
 } from '../../../../../lib/location/suivi/suiviRepo';
 import { donneesTableau, lireActivites, anneesActives } from '../../../../../lib/location/suivi/tableauBordRepo';
 import { cumulApporteur, totauxApporteurs } from '../../../../../lib/location/suivi/tableauBord';
@@ -126,7 +126,8 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
-const ACTIONS_ADMIN = new Set(['rattacher-negociateur', 'detacher-negociateur', 'bareme-apporteur', 'regle', 'marge-gli', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne', 'rattachement']);
+const ACTIONS_ADMIN = new Set(['rattacher-negociateur', 'detacher-negociateur', 'bareme-apporteur', 'regle', 'marge-gli', 'retrocession', 'annuler-retrocession', 'modifier-apporteur', 'rattacher-apporteur', 'remuneration-collegue', 'fiche-apporteur', 'passer-interne']);
+// 🔴 D32 (Arno, 03/11/2026) — « rattachement » n'est plus réservé d'office : la règle `droitRattachement` décide (un collaborateur se rattache un « à rattacher »).
 
 export async function POST(request: Request): Promise<Response> {
   let corps: Record<string, unknown>;
@@ -199,8 +200,12 @@ export async function POST(request: Request): Promise<Response> {
       case 'passer-interne': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
         () => passerApporteurEnInterne(corps.apporteurId, corps.compteId, auteur)));
       // 🔴 Arno (24/10/2026) — le rattachement ET la rémunération du collègue, un seul geste, une transaction, journalisé.
-      case 'rattachement': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
-        () => enregistrerRattachement(corps.apporteurId, corps.rattachement, auteur)));
+      // 🔴 D32 — administrateur : comme avant ; collaborateur : se rattacher un apporteur « à rattacher », sans rémunération ; le reste : 403.
+      case 'rattachement': {
+        const r = await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
+          () => rattacherSelonDroit(garde.auteurId ?? 0, corps.apporteurId, corps.rattachement, auteur));
+        return r.etat === 'interdit' ? json({ etat: 'refus', motif: r.motif }, 403) : json(r);
+      }
       case 'remuneration-collegue': return json(await avecTrace({ sessionId: (await lireSessionCuration(request)).jti, ecran: 'Annuaire des apporteurs' },
         () => ajouterRemunerationCollegue(corps.apporteurId, corps.remuneration, auteur)));
       default: return json({ etat: 'refus', motif: 'Action inconnue.' }, 400);

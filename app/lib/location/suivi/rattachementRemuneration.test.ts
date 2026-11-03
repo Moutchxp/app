@@ -82,3 +82,19 @@ describe('🔴 (3) rattachement + rémunération : la MÊME transaction', () => 
     expect((await enregistrerRattachement(4, { sorte: 'remuneration', remuneration: { remunere: false, depuis: '2026-12-01' } }, AUTEUR)).etat).toBe('refus');
   });
 });
+
+describe('🔴 D32 (option B) — un collaborateur se rattache l’apporteur : SANS rémunération', () => {
+  it('« Oui » : le rattachement et le journal (réponse notée, « à fixer par un administrateur ») ; AUCUNE version de rémunération écrite', async () => {
+    const r = await enregistrerRattachement(4, { sorte: 'rattacher', collegueId: 5, depuis: '2026-11-01', remuneration: { remunere: true } }, AUTEUR, { sansRemuneration: true });
+    expect(r).toEqual({ etat: 'ok' });
+    expect(etat.ecrits.map((e) => e.sql.split(' (')[0])).toEqual(['INSERT INTO gestion_location_apporteur_collegue', 'INSERT INTO gestion_journal', 'INSERT INTO gestion_journal']);
+    expect(etat.ecrits[2].params.slice(1, 4)).toEqual(['location_remuneration_question', 'Aucune rémunération',
+      'réponse du collègue : Oui — taux et règle à fixer par un administrateur (aucune version enregistrée)']);
+  });
+  it('« Non » : la réponse est notée, rien d’écrit dans les rémunérations ; sans réponse : refusé comme avant', async () => {
+    expect(await enregistrerRattachement(4, { sorte: 'rattacher', collegueId: 5, depuis: '2026-11-01', remuneration: { remunere: false } }, AUTEUR, { sansRemuneration: true })).toEqual({ etat: 'ok' });
+    expect(etat.ecrits.some((e) => e.sql.startsWith('INSERT INTO gestion_location_apporteur_remuneration'))).toBe(false);
+    expect(await enregistrerRattachement(4, { sorte: 'rattacher', collegueId: 5, depuis: '2026-11-01', remuneration: {} }, AUTEUR, { sansRemuneration: true }))
+      .toMatchObject({ etat: 'refus', motif: expect.stringMatching(/Oui \/ Non/) });
+  });
+});

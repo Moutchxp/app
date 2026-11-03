@@ -10,7 +10,7 @@ import {
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
   casGestionDuBien, motPrimeDejaVersee, typeDeBienDesFiches, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
   type RemunerationCollegue, verifierRemuneration, aujourdhuiParis, libelleRegleApporteur, libelleRemuneration, versionsEffectives,
-  collegueADate, depuisLibelle, remunerationADate, tauxVide, MOT_TAUX_LOCATION_VIDE, MOT_TAUX_GESTION_VIDE,
+  collegueADate, droitRattachement, depuisLibelle, remunerationADate, tauxVide, MOT_TAUX_LOCATION_VIDE, MOT_TAUX_GESTION_VIDE,
 } from './suivi';
 import { colonnesTrace } from '../../gestion/traceJournal';
 import { changementsLigne, ECRAN_SUIVI_MOIS, famillesDesLots, motStatutBien, type EtatCommercialLu } from './ligneSuivi';
@@ -633,7 +633,10 @@ export async function rattacherApporteur(apporteurId: unknown, brut: unknown, au
  * le rattachement, une pour la rémunération.
  */
 class RefusRattachement extends Error {}
-export async function enregistrerRattachement(apporteurId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse> {
+export async function enregistrerRattachement(apporteurId: unknown, brut: unknown, auteur: Auteur,
+  /** 🔴 D32 — un collaborateur qui se rattache l'apporteur : aucune version de rémunération n'est écrite (réservé aux administrateurs) ; sa réponse
+   *  à la question est inscrite au journal. Absent : comme avant. */
+  o: { sansRemuneration?: boolean } = {}): Promise<Reponse> {
   if (!(await annuaireDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 407) n’est pas encore appliquée.' };
   const id = typeof apporteurId === 'number' && Number.isInteger(apporteurId) && apporteurId > 0 ? apporteurId : null;
   if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
@@ -664,10 +667,12 @@ export async function enregistrerRattachement(apporteurId: unknown, brut: unknow
   // La rémunération : à la date du rattachement (sorte « rattacher »), ou à la sienne (sorte « remuneration »).
   const toujoursRemu = rattachement !== null ? rattachement.depuis === null : r.toujours === true;
   const depuisRemu = toujoursRemu ? jour : rattachement !== null ? rattachement.depuis as string : r.depuis;
-  const v = verifierRemuneration({ ...r, depuis: depuisRemu, ...(toujoursRemu ? { toujours: true } : {}) });
+  // 🔴 D32 — sans rémunération (un collaborateur) : seule la réponse compte (aucun taux ni mode à vérifier : rien ne s'écrit)
+  const reponseOui = r.remunere === true;
+  const v = verifierRemuneration({ ...(o.sansRemuneration === true ? { remunere: false } : r), depuis: depuisRemu, ...(toujoursRemu ? { toujours: true } : {}) });
   if (!v.ok) return { etat: 'refus', motif: v.motif };
-  const ecrireRemu = avec419;
-  if (!avec419 && (v.r.remunere || sorte === 'remuneration')) return { etat: 'indisponible', motif: MOT_SANS_419 };
+  const ecrireRemu = avec419 && o.sansRemuneration !== true;
+  if (!avec419 && o.sansRemuneration !== true && (v.r.remunere || sorte === 'remuneration')) return { etat: 'indisponible', motif: MOT_SANS_419 };
   if (ecrireRemu && toujoursRemu && !avec420) return { etat: 'indisponible', motif: MOT_SANS_420 };
   const journal = await journalApporteurDisponible();
   const collegueAvant = collegueADate(apporteur, rattachement?.depuis ?? jour);
@@ -708,6 +713,10 @@ export async function enregistrerRattachement(apporteurId: unknown, brut: unknow
         if (ecrireRemu) {
           await ligne('location_remuneration_collegue', 'Rémunération du collègue', remuAvant,
             `${libelleRemuneration(v.r)} (${toujoursRemu ? 'depuis toujours' : `à partir du ${v.r.depuis.split('-').reverse().join('/')}`})`);
+        } else if (o.sansRemuneration === true) {
+          // 🔴 D32 — la réponse du collaborateur, telle quelle ; la rémunération elle-même reste à un administrateur (rien d'écrit)
+          await ligne('location_remuneration_question', 'Rémunération du collègue', remuAvant,
+            `réponse du collègue : ${reponseOui ? 'Oui — taux et règle à fixer par un administrateur' : 'Non'} (aucune version enregistrée)`);
         }
       }
     });
@@ -716,6 +725,19 @@ export async function enregistrerRattachement(apporteurId: unknown, brut: unknow
     throw e;
   }
   return { etat: 'ok' };
+}
+
+/**
+ * 🔴 D32 (Arno, 03/11/2026, option B) — LE RATTACHEMENT SELON LE DROIT DU COMPTE (Location et Mon espace : la même règle, `droitRattachement`) :
+ * un administrateur, comme avant ; un collaborateur, se rattacher un apporteur « à rattacher », sans rémunération ; tout le reste : « interdit » (403).
+ */
+export async function rattacherSelonDroit(compteId: number, apporteurId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse | { etat: 'interdit'; motif: string }> {
+  const administrateur = await estAdministrateurActif(compteId);
+  const id = typeof apporteurId === 'number' ? apporteurId : Number.NaN;
+  const apporteur = administrateur ? undefined : (await lireApporteurs()).find((x) => x.id === id && !x.archive);
+  const d = droitRattachement({ administrateur, compteId, apporteur, brut });
+  if (!d.ok) return { etat: 'interdit', motif: d.motif };
+  return d.sansRemuneration ? enregistrerRattachement(apporteurId, brut, auteur, { sansRemuneration: true }) : enregistrerRattachement(apporteurId, brut, auteur);
 }
 
 // ── Règle de commission et rétrocessions ──────────────────────────────────────────────────────────────────────────

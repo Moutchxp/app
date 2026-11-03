@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { montantAffiche, useAffichage } from '../transaction/commun';
 import { CSS_PANNEAUX_APPORTEUR } from '../location/PanneauxApporteur';
 import { FicheApporteurFenetre } from './FicheApporteurFenetre';
+import { MeRattacher } from './MeRattacher';
 import { chercherApporteur, type Doublon, type MesApporteursLus } from '../../../../lib/mon-espace/apporteurs';
 
 /**
@@ -37,6 +38,8 @@ export function MesApporteurs() {
   const [texte, setTexte] = useState('');
   const [nouveau, setNouveau] = useState(false);
   const [fiche, setFiche] = useState<number | null>(null);
+  // 🔴 D32 — l'apporteur « à rattacher » que je me rattache (fenêtre ouverte)
+  const [meRattacher, setMeRattacher] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
     let vivant = true;
@@ -54,6 +57,7 @@ export function MesApporteurs() {
   const relire = (m?: string): void => { setMessage(m ?? null); setLecture((x) => x + 1); };
   const liste = chercherApporteur(lu.apporteurs, texte);
   const ouverte = fiche === null ? undefined : lu.apporteurs.find((a) => a.id === fiche && a.modifiable);
+  const aRattacherOuvert = meRattacher === null ? undefined : lu.apporteurs.find((a) => a.id === meRattacher && a.peutSeRattacher === true);
   const montant = (ht: number): string => montantAffiche(u, ht, ht * 1.2);
   return (
     <div className="mes-apporteurs" data-mes-apporteurs>
@@ -68,6 +72,8 @@ export function MesApporteurs() {
         onEnregistre={(m) => { setNouveau(false); relire(m); }} />}
       {ouverte !== undefined && <FicheApporteurFenetre key={ouverte.id} a={ouverte.fiche} lu={lu} envoyer={posterApporteur} onFermer={() => setFiche(null)}
         onEnregistre={(m) => { setFiche(null); relire(m); }} onRelire={() => setLecture((x) => x + 1)} />}
+      {aRattacherOuvert !== undefined && <MeRattacher key={aRattacherOuvert.id} a={aRattacherOuvert} lu={lu} envoyer={posterApporteur} onFermer={() => setMeRattacher(null)}
+        onFait={(m) => { setMeRattacher(null); relire(m); }} />}
       {message !== null && <p className="mes-mise-a-jour" role="status" data-message-apporteurs>{message}</p>}
       {!lu.utiliserDisponible && <p className="loc-muet" data-utiliser-indisponible>« L’utiliser » garde un apporteur existant dans votre liste après la mise à jour de la base (migration 450) ;
         d’ici là, il se choisit dans le compromis.</p>}
@@ -88,6 +94,9 @@ export function MesApporteurs() {
                 {a.retroHt > 0 && <> — rétrocessions <span className="trx-rouge" data-retro-apporteur>{a.interne ? montant(a.retroHt) : `${eur(a.retroHt)} sans TVA`}</span></>}</p>
               {a.modifiable && <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-haspopup="dialog" onClick={() => { setFiche(a.id); setMessage(null); }}
                 data-modifier-apporteur={a.id}>Modifier la fiche</button>}
+              {/* 🔴 D32 (option B) — un collaborateur, un apporteur « à rattacher » : seulement « Me rattacher cet apporteur » */}
+              {a.peutSeRattacher === true && <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-haspopup="dialog" onClick={() => { setMeRattacher(a.id); setMessage(null); }}
+                data-me-rattacher={a.id}>Me rattacher cet apporteur</button>}
             </li>
           ))}
         </ul>
