@@ -442,3 +442,6 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
 - Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre, HT et TTC ; fiche de TEST TRANSACTION) : `.captures/apporteurs-sans-tva/`.
 - Complément D29 (vu sur les captures de D30) : la ligne « Apporteur d'affaires » des Informations communes et du formulaire « Modifier »
   (`ApporteurAffaire`) montrait encore « 500 € TTC (416,67 € HT) » pour un externe : désormais « 500 € sans TVA » ; un collaborateur, HT et TTC.
+- Complément D29 (2) : dans le panneau de répartition, la commission PROPOSÉE d'un négociateur lisait l'apporteur comme un collaborateur (un nom
+  de variable masqué dans la boucle des parties) : sa base est désormais les honoraires nets après le coût de l'apporteur externe
+  (BASUYEAUX, 10 500 € TTC, apporteur 500 € : (10 500 − 500 − 100) × 50 % = 4 950 € TTC, et non 5 000).

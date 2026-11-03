@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ApporteurAffaire } from './ApporteurAffaire';
+import { BlocRepartition, type EtatRepartition } from './Repartition';
 
 /** 🔴 D29 (Arno, 03/11/2026) — l'apporteur d'une affaire (Informations communes, formulaire « Modifier ») : un externe, UN montant « sans TVA » ;
  *  un collaborateur (interne dans l'annuaire) : HT et TTC, comme avant. */
@@ -26,5 +27,26 @@ describe('🔴 D29 — l’apporteur de l’affaire', () => {
   it('collaborateur (interne) : HT et TTC, comme avant', async () => {
     await rendre(true);
     expect(container.querySelector('[data-apporteur-affiche]')?.textContent).toMatch(/TTC/);
+  });
+});
+
+describe('🔴 D29 — la commission PROPOSÉE d’un négociateur : sur les honoraires nets après le coût de l’apporteur', () => {
+  const etat = (): EtatRepartition => ({ entreeId: 5, sortieId: 7, apporteurId: 4, retroTexte: '500', retroUnite: 'ttc',
+    commissions: { entree: { texte: '', unite: 'ttc', auto: true }, sortie: { texte: '', unite: 'ttc', auto: true } },
+    parties: [{ sorte: 'entree', compteId: 5, negociateur: 'Jean-Baptiste PONS', societe: 'criterimmo', mode: 'pct', texte: '50' },
+      { sorte: 'sortie', compteId: 7, negociateur: 'Mylène EBERLIN', societe: 'criterimmo', mode: 'pct', texte: '50' }] } as unknown as EtatRepartition);
+  const rendreBloc = async (interne: boolean) => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    await act(async () => {
+      root.render(createElement(BlocRepartition, { etat: etat(), onChange: () => {}, honorairesTtc: 10500, societeVente: 'criterimmo',
+        negociateurs: [{ id: 5, nom: 'Jean-Baptiste PONS', societe: 'criterimmo' }, { id: 7, nom: 'Mylène EBERLIN', societe: 'criterimmo' }],
+        apporteurs: [{ id: 4, nom: 'Julien Deblois', ...(interne ? { interne: true } : {}) }] } as Parameters<typeof BlocRepartition>[0]));
+    });
+  };
+  it('externe (500 € sans TVA) : (10 500 − 500 − 100 de TVA) × 50 % = 4 950 € TTC ; un collaborateur : (10 500 − 500) × 50 % = 5 000 € TTC', async () => {
+    await rendreBloc(false);
+    expect(container.querySelector('[data-propose="commission-entree"]')?.textContent).toMatch(/de 4\u202f?\s?950/);
+    await rendreBloc(true);
+    expect(container.querySelector('[data-propose="commission-entree"]')?.textContent).toMatch(/de 5\u202f?\s?000/);
   });
 });
