@@ -114,7 +114,9 @@ export type GesteCout =
       compteId: number | null; libelle: string | null; montantHt: number } }
   | { action: 'ligne-modifier'; id: number; version: number; montantHt?: number; compteId?: number; libelle?: string }
   | { action: 'ligne-retirer'; id: number; version: number }
-  | { action: 'gestion-poste'; annee: number; mois: number; poste: 'adhoc' | 'monga'; montantHt: number | null; version: number };
+  | { action: 'gestion-poste'; annee: number; mois: number; poste: 'adhoc' | 'monga'; montantHt: number | null; version: number }
+  | { action: 'valider'; validation: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga'; annee: number; mois: number };
+      valide: boolean };
 /** Un montant saisi : un nombre ≥ 0, au plus 2 décimales, au plus 10 millions. PUR. */
 export const estMontantSaisi = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x < 1e7 && Math.abs(Math.round(x * 100) - x * 100) < 1e-6;
 const entier = (x: unknown, min: number, max: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= min && x <= max;
@@ -152,6 +154,16 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
     if (o.montantHt !== null && !estMontantSaisi(o.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
     if (!entier(o.version, 0, Number.MAX_SAFE_INTEGER)) return refus('Version manquante : rechargez.');
     return { ok: true, geste: { action: 'gestion-poste', annee: o.annee as number, mois: o.mois as number, poste: o.poste, montantHt: o.montantHt as number | null, version: o.version } };
+  }
+  if (o.action === 'valider') {
+    const v = (o.validation ?? {}) as Record<string, unknown>;
+    if (v.societe !== 'criterimmo' && v.societe !== 'macj') return refus('Structure attendue : CRITERIMMO ou MACJ (FUSION se lit, elle ne se saisit pas).');
+    if (v.famille !== 'vente' && v.famille !== 'location' && v.famille !== 'gestion') return refus('Famille inconnue.');
+    if (v.famille !== 'vente' && v.societe !== 'criterimmo') return refus('La location et la gestion sont à CRITERIMMO : saisissez-les sur CRITERIMMO.');
+    if (v.poste !== 'salaires' && v.poste !== 'autres' && !(v.famille === 'gestion' && (v.poste === 'adhoc' || v.poste === 'monga'))) return refus('Poste inconnu.');
+    if (!entier(v.annee, 2000, 2100) || !entier(v.mois, 1, 12)) return refus('Mois invalide.');
+    if (typeof o.valide !== 'boolean') return refus('Valider : oui ou non.');
+    return { ok: true, geste: { action: 'valider', validation: { societe: v.societe, famille: v.famille, poste: v.poste as 'salaires', annee: v.annee, mois: v.mois }, valide: o.valide } };
   }
   return refus('Action inconnue.');
 }

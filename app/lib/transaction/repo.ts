@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { coutsSaisisDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -345,7 +345,7 @@ export async function lireJournal(entite: string, id: number): Promise<EntreeJou
 
 // ── Le journal ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Entite = 'vente' | 'vente_ligne' | 'retrocession' | 'ca_a_rattacher' | 'gestion_mois' | 'personne' | 'location_salaires_mois' | 'cout_ligne';
+type Entite = 'vente' | 'vente_ligne' | 'retrocession' | 'ca_a_rattacher' | 'gestion_mois' | 'personne' | 'location_salaires_mois' | 'cout_ligne' | 'cout_validation';
 async function journaliser(q: RequeteTx, e: { entite: Entite; id: number; action: string; avant: unknown; apres: unknown; commentaire?: string | null;
   annule?: number | null; auteur: AuteurTx }): Promise<number> {
   const { rows } = await q<{ id: string }>(
@@ -369,6 +369,8 @@ const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> =
   location_salaires_mois: { table: 'transaction_location_salaires_mois', colonnes: ['salaires_ht', 'note', 'retire_le'] },
   // 🔴 « Les coûts », lot 2 (451) — une ligne de coût saisi (salarié ou « Autres »)
   cout_ligne: { table: 'transaction_cout_ligne', colonnes: ['montant_ht', 'compte_id', 'libelle', 'retire_le'] },
+  // 🔴 « Les coûts », lot 3 (452) — un poste du mois validé (« complet »)
+  cout_validation: { table: 'transaction_cout_validation', colonnes: ['retire_le'] },
 };
 /** LOT D — les colonnes de la vente portées par la 434 : lues et écrites SEULEMENT quand elle est appliquée. */
 const COLONNES_VENTE_434 = ['adresse_bien', 'date_acte_prevue', 'date_acte', 'negociateur_entree_id', 'negociateur_sortie_id', 'apporteur_id', 'retro_apporteur_ttc', 'repartition'];
@@ -423,7 +425,7 @@ async function ecrire(q: RequeteTx, entite: Entite, id: number, valeurs: Record<
   return { avant, apres };
 }
 const AVEC_MODIFIE: Record<Entite, boolean> = { vente: true, vente_ligne: false, retrocession: true, ca_a_rattacher: false, gestion_mois: true, personne: true, location_salaires_mois: true,
-  cout_ligne: true };
+  cout_ligne: true, cout_validation: false };
 
 // ── 🔴 MON ESPACE « LES COÛTS », LOT 2 (451) : les coûts saisis, écrits ici (même journal, même annulation que la Transaction) ─────────────────
 
@@ -497,6 +499,36 @@ export async function modifierPosteGestion(annee: number, mois: number, poste: '
     return { ok: true };
   });
 }
+/**
+ * ══ 🔴 « LES COÛTS », LOT 3 (452) — LA VALIDATION D'UN POSTE DU MOIS (« complet », 0 compris) ══════════════════════════════════════════════════════
+ * Lue pour l'indicateur « complet / à compléter » et le rappel (C17) ; posée ou retirée par « Saisir les coûts du mois » ; journalisée.
+ */
+export interface ValidationCout { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga'; annee: number; mois: number }
+export const MOTIF_SANS_452 = 'La validation des postes sera disponible après la mise à jour de la base (migration 452) : les montants sont enregistrés, pas la validation.';
+export async function lireValidationsCouts(): Promise<ValidationCout[] | null> {
+  if (!(await coutsValidationDisponible())) return null;
+  const { rows } = await query<Record<string, unknown>>('SELECT societe, famille, poste, annee, mois FROM transaction_cout_validation WHERE retire_le IS NULL');
+  return rows.map((r) => ({ societe: r.societe as Societe, famille: r.famille as ValidationCout['famille'], poste: r.poste as ValidationCout['poste'], annee: n(r.annee), mois: n(r.mois) }));
+}
+/** Valide (ou dévalide) un poste du mois ; rien n'est écrit si l'état est déjà celui demandé. Journalisé. */
+export async function validerPosteCout(v: ValidationCout, valide: boolean, auteur: AuteurTx): Promise<Issue> {
+  if (!(await coutsValidationDisponible())) return { ok: false, motif: MOTIF_SANS_452 };
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: string }>(`SELECT id FROM transaction_cout_validation WHERE retire_le IS NULL AND societe = $1 AND famille = $2 AND poste = $3 AND annee = $4 AND mois = $5 FOR UPDATE`,
+      [v.societe, v.famille, v.poste, v.annee, v.mois]);
+    if (valide && rows.length === 0) {
+      const { rows: c } = await q<{ id: string }>(`INSERT INTO transaction_cout_validation (societe, famille, poste, annee, mois, valide_par_libelle) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [v.societe, v.famille, v.poste, v.annee, v.mois, auteur.libelle]);
+      await journaliser(q, { entite: 'cout_validation', id: n(c[0].id), action: 'validation', avant: null, apres: v, auteur });
+    } else if (!valide && rows.length > 0) {
+      const id = n(rows[0].id);
+      await q('UPDATE transaction_cout_validation SET retire_le = now(), retire_par_libelle = $2 WHERE id = $1', [id, auteur.libelle]);
+      await journaliser(q, { entite: 'cout_validation', id, action: 'retrait', avant: v, apres: null, auteur });
+    }
+    return { ok: true };
+  });
+}
+
 /** La version et l'origine de la ligne de gestion de chaque mois (« AAAA-MM »), pour la garde de version de la saisie. LECTURE SEULE. */
 export async function lireVersionsGestion(): Promise<Record<string, { version: number; origine: string }>> {
   if (!(await transactionDisponible())) return {};

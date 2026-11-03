@@ -17,7 +17,7 @@ import { AccueilMonEspace } from './AccueilMonEspace';
 import { AnneesMonEspace } from './AnneesMonEspace';
 import { CSS_LISTE_PERIODE } from './ListeAffairesPeriode';
 import { CoutsMonEspace } from './CoutsMonEspace';
-import { ongletCoutsVisible } from '../../../../lib/mon-espace/couts';
+import { ongletCoutsVisible, URL_COUTS } from '../../../../lib/mon-espace/couts';
 import { OngletsVues, useLigneDesAnnees, useLigneDesMois, vueInitiale } from '../transaction/EcransTransaction';
 import { ecrireAdresse, parametre } from '../transaction/commun';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -115,6 +115,10 @@ export function MesCompteurs() {
   const [historique, setHistorique] = useState<number | null>(null);
   const [refs, setRefs] = useState<(References & { titulaireId: number; administrateur: boolean }) | null>(null);
   const [motifEdition, setMotifEdition] = useState<string | null>(null);
+  // 🔴 « Les coûts », lot 3 (C17) — le rappel « Coûts d'octobre à saisir » (lu par la route, relu après chaque saisie) ; un clic ouvre la saisie du mois
+  const [rappelCouts, setRappelCouts] = useState<string | null>(null);
+  const [rappelRelu, setRappelRelu] = useState(0);
+  const [saisieDemandee, setSaisieDemandee] = useState(0);
   const modifier = async (v: VenteMonEspace): Promise<void> => {
     setMotifEdition(null);
     if (refs !== null) { setEdition(v); return; }
@@ -190,6 +194,20 @@ export function MesCompteurs() {
     return () => { vivant = false; clearInterval(minuterie); document.removeEventListener('visibilitychange', auRetour); };
   }, []);
   const data = lu.etat === 'ok' ? lu.data : null;
+  // 🔴 « Les coûts », lot 3 (C17) — le rappel du mois précédent, pour l'espace vu (associés, mode agence)
+  const agenceRappel = data !== null && ongletCoutsVisible(data.titulaire, data.agence?.cle ?? null) ? data.agence!.cle : null;
+  useEffect(() => {
+    if (agenceRappel === null) return; // le rappel n'est montré qu'avec `agenceRappel` (voir le rendu)
+    let vivant = true;
+    void (async () => {
+      try {
+        const r = await fetch(`${URL_COUTS}?rappel=1&agence=${agenceRappel}`, { cache: 'no-store' });
+        const j = (await r.json()) as { data?: { rappel?: { mot?: unknown } | null } };
+        if (vivant) setRappelCouts(r.ok && typeof j.data?.rappel?.mot === 'string' ? j.data.rappel.mot : null);
+      } catch { if (vivant) setRappelCouts(null); }
+    })();
+    return () => { vivant = false; };
+  }, [agenceRappel, lecture, rappelRelu]);
   // 🔴 LOT 9 — « + Nouvel apporteur » (onglet et formulaire de compromis) : la façon de « Mon espace » (zéro doublon, « L'utiliser »).
   const titulaireId = data?.titulaire.id ?? null;
   const facon = useMemo((): FaconNouvelApporteur => ({
@@ -318,10 +336,11 @@ export function MesCompteurs() {
           cartes, mêmes gestes) et « Mes statistiques » (= cartes, graphique et tableaux sous le graphique) sont retirés ; « Mes apporteurs » reste. */}
       {/* Une seule ligne : les onglets à gauche, « Montants en HT | TTC » à droite (au téléphone : les onglets défilent, HT | TTC dessous). */}
       <div className="mes-ligne-onglets" data-ligne-onglets>
-        <OngletsVues vue={vue} onVue={choisirOnglet} apres={ongletsEspace.map((o) => (
+        <OngletsVues vue={vue} onVue={choisirOnglet} apres={[...ongletsEspace.map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
             onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
-        ))} />
+        )), ...(avecCouts && agenceRappel !== null && rappelCouts !== null ? [<button key="rappel" type="button" className="mes-rappel-couts" onClick={() => { setOnglet('couts'); setSaisieDemandee((x) => x + 1); }}
+          data-rappel-couts>{rappelCouts}</button>] : [])]} />
         <div className="mes-compteurs-tete">
           <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       </div>
@@ -344,7 +363,8 @@ export function MesCompteurs() {
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
         : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrirAnnee={ouvrirAnnee} onOuvrir={ouvrir} carte={carte} />
         : onglet === 'apporteurs' ? <MesApporteurs />
-        : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} /> : null) : (
+        : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} saisieDemandee={saisieDemandee}
+          onEcrit={() => setRappelRelu((x) => x + 1)} /> : null) : (
           <>
           {agence !== null && tousCompromis.length > 0 && (
             <div className="mes-ventes-tete" data-outils-agence>
@@ -394,6 +414,9 @@ const CSS_MES_COMPTEURS = `
 /* sous la barre d'onglets : le même écart que la page d'une structure du Suivi CA (.tdb : 18 px) */
 #mon-espace-listes{margin-top:18px}
 .mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
+/* 🔴 Les couts, lot 3 (C17) — le rappel, discret, a cote de l onglet */
+.mes-rappel-couts{align-self:center;margin:0 0 4px 4px;padding:2px 10px;min-height:32px;border-radius:999px;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer;
+  background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-amber);white-space:nowrap}
 .mes-espaces .trx-unites{flex-wrap:wrap}
 .mes-espaces .trx-unite{min-height:44px}
 .mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}

@@ -93,3 +93,19 @@ describe('🔴 C8 — effacer après sauvegarde, restaurer', () => {
     expect(j.rows.map((r) => r.action)).toEqual(['effacement_c8', 'restauration_c8']);
   });
 });
+
+describe('🔴 lot 3 (452) — la validation d’un poste du mois', () => {
+  it('valider, relire, dévalider (jamais effacée) ; journalisée ; l’état déjà demandé : rien n’est écrit', async () => {
+    const a = await anneeLibre(2070);
+    const V = { societe: 'criterimmo' as const, famille: 'gestion' as const, poste: 'monga' as const, annee: a, mois: 10 };
+    expect(await repo.validerPosteCout(V, true, AUTEUR)).toEqual({ ok: true });
+    expect(await repo.validerPosteCout(V, true, AUTEUR)).toEqual({ ok: true });
+    expect((await repo.lireValidationsCouts())!.filter((x) => x.annee === a)).toEqual([V]);
+    expect(await repo.validerPosteCout(V, false, AUTEUR)).toEqual({ ok: true });
+    expect((await repo.lireValidationsCouts())!.some((x) => x.annee === a)).toBe(false);
+    const { rows } = await query<{ action: string }>(`SELECT j.action FROM transaction_journal j JOIN transaction_cout_validation v ON v.id = j.entite_id
+      WHERE j.entite = 'cout_validation' AND v.annee = $1 ORDER BY j.id`, [a]);
+    expect(rows.map((r) => r.action)).toEqual(['validation', 'retrait']);
+    await expect(query('DELETE FROM transaction_cout_validation WHERE annee = $1', [a])).rejects.toThrow();
+  });
+});

@@ -312,3 +312,78 @@ describe('🔴 lot 2 — la saisie dans les tableaux (C15)', () => {
     expect(container.querySelector('[data-cout="location-variable-calcule"] button')).toBeNull();
   });
 });
+
+describe('🔴 lot 3 — « Saisir les coûts du mois » (C16, C17)', () => {
+  const PROFILS = [{ id: 3, libelle: 'Bruno GESTION', fonctions: ['gestion'] }, { id: 5, libelle: 'Chloé LOCATION', fonctions: ['location'] }];
+  let posts: unknown[]; let reponses: { status: number; corps: unknown }[]; let validations: unknown[] | null;
+  beforeEach(() => {
+    posts = []; reponses = []; validations = [];
+    const avant = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url); urls.push(u);
+      if (u.startsWith(URL_COUTS) && init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); const r = reponses.shift() ?? { status: 200, corps: { etat: 'ok', data: { id: 1 } } };
+        return { ok: r.status === 200, status: r.status, json: async () => r.corps }; }
+      if (u.startsWith(`${URL_COUTS}?rappel=1`)) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { rappel: validations === null ? null : { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' } } }) };
+      if (u.startsWith(URL_COUTS) && !u.includes('empreinte')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...GLOBAL, saisie: true, coutsLignes: [], profils: PROFILS,
+        versionsGestion: {}, monga: true, validations } }) };
+      return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
+    }) as unknown as typeof fetch;
+  });
+  const taper = async (sel: string, valeur: string) => {
+    await act(async () => { const e = container.querySelector(sel) as HTMLInputElement | HTMLSelectElement;
+      if (e instanceof HTMLSelectElement) { e.value = valeur; e.dispatchEvent(new Event('change', { bubbles: true })); return; }
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, valeur); e.dispatchEvent(new Event('input', { bubbles: true })); }); await calmer();
+  };
+  it('C17 — le rappel à côté de l’onglet ; un clic ouvre la page sur OCTOBRE 2026 (horloge du 03/11/2026), le sélecteur = 6 mois révolus', async () => {
+    await ouvrir('macj');
+    expect(texte('[data-rappel-couts]')).toBe('Coûts d’octobre à saisir');
+    await cliquer('[data-rappel-couts]');
+    expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('macj-2026-10');
+    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026']);
+    // MACJ : le bloc Vente seul ; « à compléter »
+    expect([...container.querySelectorAll('[data-bloc-saisie]')].map((b) => b.getAttribute('data-bloc-saisie'))).toEqual(['vente']);
+    expect(texte('[data-etat-saisie="global"]')).toBe('à compléter');
+  });
+  it('rien à compléter (sans la 452 ou tout validé) : pas de rappel ; le bouton en tête de l’onglet ouvre quand même la page', async () => {
+    validations = null;
+    await ouvrir('criterimmo');
+    expect(container.querySelector('[data-rappel-couts]')).toBeNull();
+    await cliquer('[data-onglet-mon-espace="couts"]');
+    await cliquer('[data-ouvrir-saisie]');
+    expect([...container.querySelectorAll('[data-bloc-saisie]')].map((b) => b.getAttribute('data-bloc-saisie'))).toEqual(['vente', 'location', 'gestion']);
+    expect(container.querySelector('[data-validation-indisponible]')).not.toBeNull();
+  });
+  it('CRITERIMMO : un salarié de la gestion + MONGA + « complet » → les MÊMES gestes que le tableau, puis les validations ; retour à l’onglet', async () => {
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-ouvrir-saisie]');
+    await cliquer('[data-ajouter-brouillon="gestion-salaires"]');
+    await taper('[data-profil-brouillon="gestion-salaires-0"]', '3');
+    await taper('[data-montant-brouillon="gestion-salaires-0"]', '2 100,50');
+    await taper('[data-montant-poste="gestion-monga"]', '412,5');
+    await cliquer('[data-complet="gestion-salaires"]'); await cliquer('[data-complet="gestion-monga"]');
+    expect(texte('[data-etat-saisie="gestion"]')).toBe('à compléter'); // ADHOC et « Autres » de la gestion restent à valider
+    await cliquer('[data-enregistrer-mois]');
+    expect(posts).toEqual([
+      { action: 'ligne-ajouter', ligne: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10, compteId: 3, libelle: null, montantHt: 2100.5 } },
+      { action: 'gestion-poste', annee: 2026, mois: 10, poste: 'monga', montantHt: 412.5, version: 0 },
+      { action: 'valider', validation: { societe: 'criterimmo', famille: 'gestion', poste: 'salaires', annee: 2026, mois: 10 }, valide: true },
+      { action: 'valider', validation: { societe: 'criterimmo', famille: 'gestion', poste: 'monga', annee: 2026, mois: 10 }, valide: true },
+    ]);
+    expect(container.querySelector('[data-saisie-mois]')).toBeNull(); // retour à l'onglet « Les coûts »
+    expect(container.querySelector('[data-tuiles-couts]')).not.toBeNull();
+  });
+  it('un montant illisible : rien n’est envoyé ; un conflit (409) arrête tout et le dit', async () => {
+    await ouvrir('macj'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-ouvrir-saisie]');
+    await cliquer('[data-ajouter-brouillon="vente-autres"]');
+    await taper('[data-libelle-brouillon="vente-autres-0"]', 'Logiciel');
+    await taper('[data-montant-brouillon="vente-autres-0"]', 'douze');
+    await cliquer('[data-enregistrer-mois]');
+    expect(posts).toEqual([]);
+    expect(container.querySelector('[data-message-saisie="refus"]')).not.toBeNull();
+    await taper('[data-montant-brouillon="vente-autres-0"]', '12');
+    reponses = [{ status: 409, corps: { etat: 'refus', motif: 'Ce coût a été modifié entre-temps' } }];
+    await cliquer('[data-enregistrer-mois]');
+    expect(posts).toHaveLength(1);
+    expect(texte('[data-message-saisie="conflit"]')).toContain('modifié entre-temps');
+    expect(container.querySelector('[data-saisie-mois]')).not.toBeNull();
+  });
+});

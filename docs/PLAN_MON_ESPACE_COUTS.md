@@ -506,3 +506,24 @@ la 451 et C8 y attendent la décision d'Arno (lecture C8 : 8 montants mensuels d
    (comme ADHOC et MONGA) ?
 2. La saisie mensuelle des salaires dans Suivi CA › Gestion / › Location reste en place (aucun retrait) ; après C8, un mois qui a des salariés
    saisis dans « Les coûts » ignore ce montant mensuel. Faut-il, à terme, la remplacer par un lien vers « Les coûts » ?
+
+## LOT 3 — PAGE « SAISIR LES COÛTS DU MOIS » (03/11/2026)
+
+**Migration `452_couts_validation.sql`** (ajout seul, rejouable ; code compatible sans elle) : `transaction_cout_validation` — un poste d'un mois validé
+(structure, famille, poste, mois, qui, quand ; retrait par `retire_le`, anti-DELETE) ; le journal accepte `cout_validation`.
+
+**La page** (dans l'onglet « Les coûts », associés seulement) : ouverte par le bouton « Saisir les coûts du mois » en tête de l'onglet, ou par le rappel
+« Coûts d'octobre à saisir » posé à côté de l'onglet (C17, tant que le mois précédent a un poste à compléter dans les structures vues).
+- En tête : le mois (C16 : le mois précédent par défaut, les 6 derniers mois révolus) et la structure (CRITERIMMO / MACJ ; FUSION ouvre CRITERIMMO,
+  FUSION ne se saisit pas).
+- Trois blocs Vente / Location / Gestion (MACJ : Vente seul, C7) : les postes saisis (salariés et leurs profils — fonction de la famille d'abord —,
+  lignes « Autres », ADHOC sauf s'il vient d'un import, MONGA) avec la case « complet pour ce mois (0 compris) » ; les postes calculés en lecture,
+  avec « Corriger à la source ».
+- Indicateur « complet / à compléter » par bloc et en tout : un poste est complet quand il est validé.
+- « Enregistrer » : vérifie tout, puis écrit LES MÊMES gestes que la saisie dans les tableaux (`ligne-ajouter` / `-modifier` / `-retirer`,
+  `gestion-poste` — journal, garde de version), puis les validations (`valider`) ; le premier refus (409 compris) arrête et le dit ; sinon retour à
+  l'onglet, sur l'année du mois saisi. Mobile d'abord (390 px).
+- Rappel : `GET /api/admin/mon-espace/couts?rappel=1&agence=…` (la même règle, `rappelMois`) ; relu après chaque saisie.
+
+**Base de recette du lot** : la 452 a été appliquée sur la même base d'essai que la 451 (`svav_test_couts`), effacée en fin de lot. La base de dev
+n'a pas été touchée.

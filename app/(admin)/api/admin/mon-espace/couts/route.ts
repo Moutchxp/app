@@ -3,8 +3,10 @@ import { peutVoirCouts } from '../../../../../lib/mon-espace/compteRepo';
 import { lireDonneesGlobal } from '../../../../../lib/transaction/donneesGlobal';
 import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 import { lireGesteCout, MOTIF_COUTS } from '../../../../../lib/mon-espace/couts';
-import { ajouterCoutLigne, empreinteCouts, lireVersionsGestion, modifierCoutLigne, modifierPosteGestion, type Issue } from '../../../../../lib/transaction/repo';
-import { coutsSaisisDisponible } from '../../../../../lib/admin/schemaDroits';
+import { ajouterCoutLigne, empreinteCouts, lireValidationsCouts, lireVersionsGestion, modifierCoutLigne, modifierPosteGestion, validerPosteCout, type Issue } from '../../../../../lib/transaction/repo';
+import { coutsSaisisDisponible, mongaDisponible } from '../../../../../lib/admin/schemaDroits';
+import { rappelMois } from '../../../../../lib/mon-espace/saisieMois';
+import { estAgence } from '../../../../../lib/mon-espace/agence';
 import { lireProfilsCouts } from '../../../../../lib/admin/fonctionsCompte';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 
@@ -15,6 +17,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
  *   GET            les données de « Coûts globaux » (`lireDonneesGlobal`, la même lecture que le Suivi CA), plus, pour la saisie (lot 2) : les profils
  *                  et leurs fonctions, la version de chaque mois de la Gestion, la migration 451 appliquée ou non ;
  *   GET ?empreinte=1  l'empreinte des coûts (rafraîchissement des écrans ouverts, toutes les 15 s) ;
+ *   GET ?rappel=1&agence=…  lot 3 (C17) : le mois précédent est-il à compléter dans les structures vues (« Coûts d'octobre à saisir ») ;
  *   POST           une saisie (lot 2, C15) : `ligne-ajouter` | `ligne-modifier` | `ligne-retirer` (salaires par salarié, « Autres »), `gestion-poste`
  *                  (ADHOC, facture MONGA) — LES MÊMES enregistrements que le Suivi CA, journalisés ; 409 si la ligne a changé depuis sa lecture.
  */
@@ -34,10 +37,21 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const g = await garder(request);
     if ('refus' in g) return g.refus;
-    if (new URL(request.url).searchParams.get('empreinte') === '1') return json({ etat: 'ok', data: { empreinte: await empreinteCouts() } });
-    const [donnees, profils, versionsGestion, saisie] = await Promise.all([lireDonneesGlobal(aujourdhuiParis(), { compromis: false }), lireProfilsCouts(),
-      lireVersionsGestion(), coutsSaisisDisponible()]);
-    return json({ etat: 'ok', data: { ...donnees, profils, versionsGestion, saisie } });
+    const url = new URL(request.url);
+    if (url.searchParams.get('empreinte') === '1') return json({ etat: 'ok', data: { empreinte: await empreinteCouts() } });
+    if (url.searchParams.get('rappel') === '1') {
+      const agence = url.searchParams.get('agence');
+      if (!estAgence(agence)) return json({ etat: 'refus', motif: 'Structure inconnue.' }, 400);
+      const [validations, versions, monga, saisie] = await Promise.all([lireValidationsCouts(), lireVersionsGestion(), mongaDisponible(), coutsSaisisDisponible()]);
+      if (validations === null || !saisie) return json({ etat: 'ok', data: { rappel: null } });
+      const jour = aujourdhuiParis(); const m = `${jour.slice(0, 4)}-${jour.slice(5, 7)}`;
+      const precedent = (() => { const a = Number(m.slice(0, 4)); const x = Number(m.slice(5, 7)); return x === 1 ? `${a - 1}-12` : `${a}-${String(x - 1).padStart(2, '0')}`; })();
+      const rappel = rappelMois(agence === 'tous' ? ['criterimmo', 'macj'] : [agence], validations, jour, { adhocImporte: versions[precedent]?.origine === 'import', monga });
+      return json({ etat: 'ok', data: { rappel } });
+    }
+    const [donnees, profils, versionsGestion, saisie, validations] = await Promise.all([lireDonneesGlobal(aujourdhuiParis(), { compromis: false }), lireProfilsCouts(),
+      lireVersionsGestion(), coutsSaisisDisponible(), lireValidationsCouts()]);
+    return json({ etat: 'ok', data: { ...donnees, profils, versionsGestion, saisie, validations } });
   } catch (e) {
     console.error('[mon-espace] coûts', e);
     return json({ etat: 'erreur', message: 'Lecture impossible.' }, 500);
@@ -57,6 +71,7 @@ export async function POST(request: Request): Promise<Response> {
     const r: Issue<number> = x.action === 'ligne-ajouter' ? await ajouterCoutLigne(x.ligne, auteur)
       : x.action === 'ligne-retirer' ? await modifierCoutLigne(x.id, x.version, { retirer: true }, auteur)
       : x.action === 'ligne-modifier' ? await modifierCoutLigne(x.id, x.version, { montantHt: x.montantHt, compteId: x.compteId, libelle: x.libelle }, auteur)
+      : x.action === 'valider' ? await validerPosteCout(x.validation, x.valide, auteur)
       : await modifierPosteGestion(x.annee, x.mois, x.poste, x.montantHt, x.version, auteur);
     if (r.ok) return json({ etat: 'ok', data: { id: r.valeur ?? null } });
     return json({ etat: 'refus', motif: r.motif }, r.conflit === true ? 409 : 422);

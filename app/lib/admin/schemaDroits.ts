@@ -227,3 +227,7 @@ export function coutsSaisisDisponible(): Promise<boolean> {
 export function fonctionsComptesDisponible(): Promise<boolean> {
   return memoiser('admin_compte_fonction.fonction', () => colonneExiste('admin_compte_fonction', 'fonction'));
 }
+/** 🔴 Mon espace « Les coûts », lot 3 (452) — la validation d'un poste du mois (« complet »). Sans elle : pas d'indicateur, pas de rappel. */
+export function coutsValidationDisponible(): Promise<boolean> {
+  return memoiser('transaction_cout_validation.poste', () => colonneExiste('transaction_cout_validation', 'poste'));
+}

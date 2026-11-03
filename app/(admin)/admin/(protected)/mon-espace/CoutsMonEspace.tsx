@@ -7,6 +7,8 @@ import type { FamilleCout, PosteSaisi } from '../../../../lib/transaction/coutsS
 import { ventesDuMois } from '../../../../lib/transaction/modele';
 import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
 import { PERIODE_MON_ESPACE_MS } from '../../../../lib/mon-espace/rafraichir';
+import { SaisieMoisCouts } from './SaisieMoisCouts';
+import { moisProposes, rappelMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
 import { classeSens, ecrireAdresse, EnteteAide, ESPACE, eur, MOT_UNITE, parametre, signePct, useAffichage } from '../transaction/commun';
 import { anneeAvecDonnees, anneesDuGlobal, LigneDesAnnees, moisRougesDeLAnnee, type DonneesGlobal } from '../transaction/EcransTransaction';
 import { GrapheGlobal } from '../transaction/GrapheGlobal';
@@ -30,7 +32,9 @@ import { avecLocationGestion, coutsDeLAnnee, URL_COUTS, type CoutsDuPoint } from
  * du graphique du CA global, rangées — aucun calcul propre). Les postes des lots suivants : colonne présente, cases vides.
  */
 /** 🔴 Lot 2 — ce que la route ajoute pour la saisie : les profils (et leurs fonctions), la version de chaque mois de la Gestion, la 451 appliquée. */
-type DonneesCouts = DonneesGlobal & { profils?: ProfilCout[]; versionsGestion?: Record<string, { version: number; origine: string }>; saisie?: boolean };
+type DonneesCouts = DonneesGlobal & { profils?: ProfilCout[]; versionsGestion?: Record<string, { version: number; origine: string }>; saisie?: boolean;
+  /** 🔴 Lot 3 (452) — les postes validés (« complet ») ; null : la migration 452 n'est pas appliquée. */
+  validations?: Validation[] | null };
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: DonneesCouts } | { etat: 'erreur' };
 /** 🔴 C12 (Arno, 03/11/2026) — quatre onglets ; « Vente » par défaut ; le choix est dans l'adresse (`?couts-tableau=`). */
 export type OngletTableau = 'vente' | 'location' | 'gestion' | 'synthese';
@@ -45,13 +49,22 @@ export const AIDE_POSTES_FUTURS: Record<string, string> = {
   salaires: 'Les salaires chargés des collaborateurs de la vente, saisis par salarié et par mois.',
 };
 
-export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour: string;
+export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, onEcrit }: { agence: Agence; jour: string;
   /** Le compteur de relecture de « Mon espace » (rafraîchissement, gestes) : « Les coûts » se relit avec lui. */
-  lecture: number }) {
+  lecture: number;
+  /** 🔴 Lot 3 (C17) — un clic sur le rappel de l'onglet ouvre directement « Saisir les coûts du mois » (un compteur : chaque clic compte). */
+  saisieDemandee?: number;
+  /** Une saisie a été enregistrée (le rappel de l'onglet se relit). */
+  onEcrit?: () => void }) {
   const [lu, setLu] = useState<Lu>({ etat: 'chargement' });
   // 🔴 Lot 2 — relire après une saisie (ici ou, par l'empreinte, dans un autre écran) ; le panneau d'édition ouvert
   const [relu, setRelu] = useState(0);
   const [cible, setCible] = useState<CibleCout | null>(null);
+  // 🔴 Lot 3 — la page « Saisir les coûts du mois » (ouverte par le bouton en tête, ou par le rappel de l'onglet)
+  const [saisie, setSaisie] = useState(saisieDemandee > 0);
+  // un nouveau clic sur le rappel (le compteur change) rouvre la saisie — l'état dérivé d'une prop, ajusté pendant le rendu (pas d'effet)
+  const [demandeVue, setDemandeVue] = useState(saisieDemandee);
+  if (saisieDemandee !== demandeVue) { setDemandeVue(saisieDemandee); setSaisie(true); }
   const cibleOuverte = useRef(false);
   useEffect(() => { cibleOuverte.current = cible !== null; }, [cible]);
   useEffect(() => {
@@ -215,6 +228,23 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
     </table>
   );
   const tables: Record<OngletTableau, ReactNode> = { vente: tableVente, location: tableLocation, gestion: tableGestion, synthese: tableSynthese };
+  // 🔴 Lot 3 (C17) — le rappel : le mois précédent a-t-il un poste à compléter (dans les structures vues) ?
+  const rappel = d.saisie !== true || d.validations == null ? null
+    : rappelMois(agence === 'tous' ? ['criterimmo', 'macj'] : [agence], d.validations, jour,
+      { adhocImporte: d.versionsGestion?.[`${moisProposes(jour)[0].annee}-${String(moisProposes(jour)[0].mois).padStart(2, '0')}`]?.origine === 'import', monga: d.monga === true });
+  const ecrit = (): void => { setRelu((x) => x + 1); onEcrit?.(); };
+  if (saisie && d.saisie === true) {
+    const gestionDuMoisPage = (m: { annee: number; mois: number }) => { const g = d.gestion.find((x) => x.annee === m.annee && x.mois === m.mois && x.id > 0);
+      return { adhoc: g?.adhocHt ?? null, monga: g?.mongaHt ?? null }; };
+    return (
+      <div className="mes-couts tdb loc-page" data-couts-mon-espace={agence}>
+        <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX + CSS_COUTS_MON_ESPACE + CSS_EDITION_COUTS}</style>
+        <SaisieMoisCouts d={{ lignes: d.coutsLignes ?? [], profils: d.profils ?? [], validations: d.validations ?? null, versionsGestion: d.versionsGestion ?? {}, monga: d.monga === true,
+          gestionDuMois: gestionDuMoisPage }} eC={eC} jour={jour} societeInitiale={agence === 'tous' ? 'criterimmo' : agence} onEcrit={ecrit}
+          onRetour={(m) => { setSaisie(false); if (m !== null) setAnnee(m.annee); }} />
+      </div>
+    );
+  }
   // 🔴 Lot 2 — ce que le panneau lit : les lignes saisies, les profils, la version de la Gestion de chaque mois, les montants actuels
   const gestionDuMois = (m: number) => { const g = d.gestion.find((x) => x.annee === annee && x.mois === m && x.id > 0);
     return { adhoc: g?.adhocHt ?? null, monga: g?.mongaHt ?? null, salaireMensuel: g?.salarieHt ?? null }; };
@@ -225,6 +255,11 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
   return (
     <div className="mes-couts tdb loc-page" data-transaction={agence} data-couts-mon-espace={agence}>
       <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX + CSS_COUTS_MON_ESPACE + CSS_EDITION_COUTS}</style>
+      {/* 🔴 Lot 3 (C17) — le bouton « Saisir les coûts du mois » ; tant que le mois précédent est à compléter, il le dit */}
+      {d.saisie === true && <div className="mes-couts-saisir" data-bouton-saisie>
+        <button type="button" className={`svv-btn ${rappel !== null ? 'svv-btn-primary' : 'svv-btn-outline'} gst-btn`} onClick={() => setSaisie(true)} data-ouvrir-saisie>Saisir les coûts du mois</button>
+        {rappel !== null && <span className="mes-couts-rappel" data-rappel-tete>{rappel.mot}</span>}
+      </div>}
       <LigneDesAnnees annees={annees} decoupage="annee" annee={annee} choisies={[annee]} onAnnee={setAnnee} onDecoupage={() => {}} uneSeule />
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`Les coûts ${annee} — ${nom}`} data-tuiles-couts>
         {tuile('total', <>Coûts {MOT} — {annee}</>, A.total, A1.total)}
@@ -247,7 +282,7 @@ export function CoutsMonEspace({ agence, jour, lecture }: { agence: Agence; jour
           : <p className="loc-muet" data-saisie-aide>Cliquez sur une case pour la modifier (✎ : coût saisi) ou pour voir d’où vient un coût calculé.{agence === 'macj' ? ' La location et la gestion se saisissent sur CRITERIMMO.' : ''}</p>}
         <div className="trx-couts-defile trx-table-defile" data-defile-couts>{tables[tableau]}</div>
         {cible !== null && agence !== 'tous' && <PanneauCouts key={JSON.stringify(cible)} cible={cible} annee={annee} societe={agence} d={donneesSaisie}
-          onFermer={() => setCible(null)} onEcrit={() => setRelu((x) => x + 1)} />}
+          onFermer={() => setCible(null)} onEcrit={ecrit} />}
         <p className="loc-muet trx-couts-note" data-couts-note>Chaque montant est celui du Suivi CA (« Coûts globaux » ; en CRITERIMMO ou MACJ, les lignes de carte de la structure) ;
           l’inter-cabinet entre nos sociétés n’est jamais un coût. Salaires chargés comptés ; primes et variable : « inclus dans les salaires » les mois où les
           salaires de la Location sont saisis (le « Variable négo (calculé) » le montre, hors totaux).</p>
@@ -264,6 +299,9 @@ const CSS_COUTS_MON_ESPACE = `
 @container mes-couts (max-width:300px){ .mes-couts .tdb-tuiles{grid-template-columns:minmax(0,1fr)} }
 .mes-couts .tdb-tuile>*{overflow-wrap:anywhere;white-space:normal}
 .mes-couts-onglets{margin:0 0 10px;border-bottom:1px solid var(--color-svv-line)}
+.mes-couts-saisir{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
+.mes-couts-saisir .gst-btn{width:auto;min-height:44px;padding:0 1.1rem}
+.mes-couts-rappel{display:inline-block;padding:2px 10px;border-radius:999px;font-size:.82rem;font-weight:700;background:var(--color-svv-amber-soft);border:1px solid var(--color-svv-amber);color:var(--color-svv-ink)}
 .mes-table-couts td.mes-couts-futur{background:color-mix(in srgb, var(--color-svv-ink) 3%, transparent)}
 .mes-table-couts th[data-entete-futur],.mes-table-couts th[data-entete-info]{color:var(--color-svv-muted)}
 .mes-table-couts [data-info-couts]{font-size:inherit}
