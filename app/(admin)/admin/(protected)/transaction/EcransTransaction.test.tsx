@@ -4497,3 +4497,60 @@ describe('🔴 D25 — filtres du graphique classés par famille', () => {
     expect([...graphe().querySelectorAll('[data-filtre-graphe="Activité"] [data-case-graphe]')].map((x) => x.getAttribute('data-case-graphe'))).toEqual(['vente', 'location', 'gestion']);
   });
 });
+
+describe('🔴 D33 (Arno, 03/11/2026) — graphique « Mois par mois » : « Activité », « CA net (CA − coûts) », les collaborateurs dans les boutons d’activité', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  const ouvrirG = async (q: string) => { await act(async () => { root.render(createElement('div')); }); window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); };
+  const COLLABS = { comptes: [{ id: 2, libelle: 'Arnaud Jorel', fonctions: ['vente'], societes: ['criterimmo'] }, { id: 8, libelle: 'Pierre Thevenin', fonctions: ['vente'], societes: ['macj'] },
+    { id: 9, libelle: 'Cédric JULLIEN', fonctions: ['vente'], societes: ['criterimmo', 'macj'] }, { id: 5, libelle: 'Jean-Baptiste PONS', fonctions: ['location', 'vente'], societes: ['criterimmo'] }],
+    libelles: { CEDRIC: 9 } };
+  beforeEach(() => { (donneesGlobal as Record<string, unknown>).collaborateursGraphe = COLLABS; });
+  afterEach(() => { delete (donneesGlobal as Record<string, unknown>).collaborateursGraphe; });
+  it('les libellés : la ligne « Activité » ; la mesure « CA net (CA − coûts) »', async () => {
+    await ouvrirG('/?annee=2025');
+    expect(texte('[data-famille-filtre="famille"] .trx-gf-titre')).toBe('Activité');
+    expect([...graphe().querySelectorAll('[data-filtre-graphe="Mesure"] button')].map((b) => b.textContent)).toEqual(['CA brut', 'Coûts', 'CA net (CA − coûts)']);
+    await cliquer('[data-choix-graphe="net"]');
+    expect(texte('#trx-g-graphe')).toMatch(/\(CA net HT/);
+  });
+  it('« CA brut » : le nom d’une activité ouvre SES collaborateurs (+ « Non attribué »), une seule à la fois ; compteur ; l’adresse ; la liste suit les structures', async () => {
+    await ouvrirG('/?annee=2025');
+    expect(['vente', 'location', 'gestion'].map((a) => texte(`[data-compteur-famille="${a}"]`))).toEqual(['5/5', '2/2', '1/1']);
+    await cliquer('[data-ouvrir-famille="vente"]');
+    const noms = () => [...graphe().querySelectorAll('[data-liste-collaborateurs] label')].map((l) => l.textContent);
+    expect(noms()).toEqual(['Arnaud Jorel', 'Cédric JULLIEN', 'Jean-Baptiste PONS', 'Pierre Thevenin', 'Non attribué']);
+    await cliquer('[data-case-collaborateur="8"]');
+    expect(texte('[data-compteur-famille="vente"]')).toBe('4/5');
+    expect(new URLSearchParams(window.location.search).get('g-exclus')).toBe('vente:8');
+    // MACJ décochée : Pierre (MACJ seule) n'est plus proposé
+    await cliquer('[data-filtre-graphe="Structure"] [data-case-graphe="macj"]');
+    expect(noms()).toEqual(['Arnaud Jorel', 'Cédric JULLIEN', 'Jean-Baptiste PONS', 'Non attribué']);
+    // une seule activité ouverte ; la gestion : « Non attribué » seul, et la mention
+    await cliquer('[data-ouvrir-famille="gestion"]');
+    expect(graphe().querySelector('[data-liste-collaborateurs="vente"]')).toBeNull();
+    expect(noms()).toEqual(['Non attribué']);
+    expect(graphe().querySelector('[data-gestion-non-attribuee]')).not.toBeNull();
+  });
+  it('« Aucun » / « Tout » d’une activité ; « CA net » filtré : la mention des coûts généraux ; « Réinitialiser » recoche tout', async () => {
+    await ouvrirG('/?annee=2025&g-mesure=net');
+    expect(graphe().querySelector('[data-note-couts-generaux]')).toBeNull();
+    await cliquer('[data-ouvrir-famille="location"]');
+    await cliquer('[data-collaborateurs-aucun="location"]');
+    expect(texte('[data-compteur-famille="location"]')).toBe('0/2');
+    expect(texte('[data-note-couts-generaux]')).toMatch(/non déduits pour Location/);
+    await cliquer('[data-collaborateurs-tout="location"]');
+    expect(texte('[data-compteur-famille="location"]')).toBe('2/2');
+    await cliquer('[data-collaborateurs-aucun="location"]');
+    await cliquer('[data-reinitialiser-filtres]');
+    expect(['vente', 'location', 'gestion'].map((a) => texte(`[data-compteur-famille="${a}"]`))).toEqual(['5/5', '2/2', '1/1']);
+    expect(new URLSearchParams(window.location.search).get('g-exclus')).toBeNull();
+  });
+  it('« Coûts » : la liste des coûts (D25) reste dans les boutons d’activité', async () => {
+    await ouvrirG('/?annee=2025&g-mesure=couts');
+    expect(['vente', 'location', 'gestion'].map((a) => texte(`[data-compteur-famille="${a}"]`))).toEqual(['5/5', '7/7', '4/4']);
+    await cliquer('[data-ouvrir-famille="vente"]');
+    expect(graphe().querySelector('[data-liste-couts="vente"]')).not.toBeNull();
+    expect(graphe().querySelector('[data-liste-collaborateurs]')).toBeNull();
+  });
+});

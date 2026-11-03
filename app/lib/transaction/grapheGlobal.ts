@@ -4,6 +4,8 @@ import { ventesDeLAnnee, ventesDuMois } from './modele';
 import { venteDansSociete } from './interCabinet';
 import { celluleGlobalEn, type EntreesGlobalUnite } from './globalUnite';
 import { coutsGlobaux, coutsVente, type CoutsVente, type EntreesCoutsGlobaux } from './coutsGlobal';
+import { espaceNegociateurs } from './carteAffaireLignes';
+import { coutsLocation } from './locationCa';
 import { montantSaisi } from './coutsSaisis';
 
 /**
@@ -23,7 +25,8 @@ export type FamilleGraphe = 'commissions' | 'apporteursVente' | 'exterieures' | 
   | 'salairesVente' | 'autresVente' | 'partGestion' | 'collegues' | 'autresLocation' | 'autresGestion';
 export type ComparerGraphe = 'n1' | 'structures' | 'activites' | 'familles' | 'rien';
 
-export const MESURES_GRAPHE: readonly { cle: MesureGraphe; mot: string }[] = [{ cle: 'ca', mot: 'CA brut' }, { cle: 'couts', mot: 'Coûts' }, { cle: 'net', mot: 'Résultat net (CA − coûts)' }];
+// 🔴 D33 (Arno, 03/11/2026) — « Résultat net (CA − coûts) » s'appelle « CA net (CA − coûts) » (le même calcul)
+export const MESURES_GRAPHE: readonly { cle: MesureGraphe; mot: string }[] = [{ cle: 'ca', mot: 'CA brut' }, { cle: 'couts', mot: 'Coûts' }, { cle: 'net', mot: 'CA net (CA − coûts)' }];
 export const STRUCTURES_GRAPHE: readonly { cle: StructureGraphe; mot: string }[] = [{ cle: 'criterimmo', mot: 'CRITERIMMO' }, { cle: 'macj', mot: 'MACJ' }];
 export const ACTIVITES_GRAPHE: readonly { cle: ActiviteGraphe; mot: string }[] = [{ cle: 'vente', mot: 'Vente' }, { cle: 'location', mot: 'Location' }, { cle: 'gestion', mot: 'Gestion' }];
 export const FAMILLES_GRAPHE: readonly { cle: FamilleGraphe; mot: string; activite: ActiviteGraphe }[] = [
@@ -41,12 +44,42 @@ export const COMPARER_GRAPHE: readonly { cle: ComparerGraphe; mot: string }[] = 
 
 export interface FiltresGraphe { mesure: MesureGraphe; familles: FamilleGraphe[]; structures: StructureGraphe[]; activites: ActiviteGraphe[]; comparer: ComparerGraphe; cumul: boolean; empile: boolean;
   /** 🔴 LOT CG10 — « Location et Gestion : Séparées | Réunies » : réunies, une seule case et une seule série « Location & Gestion » (leur somme exacte). */
-  reunies: boolean }
+  reunies: boolean;
+  /** 🔴 D33 — les collaborateurs DÉCOCHÉS (« activité:compte », « activité:non_attribue ») en « CA brut » / « CA net » ; vide : tous cochés. */
+  exclus: string[] }
 export const FILTRES_GRAPHE_DEFAUT: FiltresGraphe = { mesure: 'ca', familles: FAMILLES_GRAPHE.map((f) => f.cle), structures: STRUCTURES_GRAPHE.map((s) => s.cle),
-  activites: ACTIVITES_GRAPHE.map((a) => a.cle), comparer: 'n1', cumul: false, empile: true, reunies: false };
+  activites: ACTIVITES_GRAPHE.map((a) => a.cle), comparer: 'n1', cumul: false, empile: true, reunies: false, exclus: [] };
 
-/** Un atome d'un point : sa structure (ou « inter » : l'inter-cabinet entre nos sociétés, neutralisé), son activité, sa famille (null : le CA). */
-export interface AtomeGraphe { structure: StructureGraphe | 'inter' | 'a_attribuer'; activite: ActiviteGraphe; famille: FamilleGraphe | null; m: MontantC }
+/** Un atome d'un point : sa structure (ou « inter » : l'inter-cabinet entre nos sociétés, neutralisé), son activité, sa famille (null : le CA).
+ *  🔴 D33 — `collab` : le collaborateur (son compte) ou « non_attribue » ; absent : un montant non réparti par collaborateur (coûts généraux). */
+export interface AtomeGraphe { structure: StructureGraphe | 'inter' | 'a_attribuer'; activite: ActiviteGraphe; famille: FamilleGraphe | null; m: MontantC; collab?: string }
+
+/**
+ * ══ 🔴 D33 (Arno, 03/11/2026) — LES COLLABORATEURS DANS LES BOUTONS D'ACTIVITÉ (« CA brut », « CA net ») ═══════════════════════════════════════════
+ * Les collaborateurs proposés pour une activité : les comptes de cette FONCTION (page Comptes, C9) rattachés à au moins une structure cochée ; puis
+ * « Non attribué ». L'attribution : celle des écrans existants — la Vente, les lignes de l'« Espace par négociateur » (`espaceNegociateurs`, par
+ * structure : part de chaque côté, co-négociateurs ; « CA généré » et leurs coûts : commission, rétrocessions de leur côté avec la TVA non
+ * récupérable) ; la Location, le négociateur de chaque ligne (`LigneLocationCa`) ; la Gestion n'a pas d'attribution par collaborateur : tout est
+ * « Non attribué ». « Non attribué » = le total de l'atome − la somme des collaborateurs (la part conservée par la structure — apporteur de la
+ * répartition, agences extérieures, inter-cabinet versé —, les affaires sans négociateur reconnu, les anciens négociateurs) : tout coché, la
+ * somme est l'atome d'avant, au centime. Les coûts non rattachés à une affaire (salaires, autres, ADHOC, MONGA, part de gestion récurrente,
+ * collègues apporteurs) ne se déduisent en « CA net » que si TOUTE l'activité est cochée (collaborateurs et « Non attribué »).
+ */
+export interface CollaborateurGraphe { id: number; libelle: string; fonctions: ActiviteGraphe[]; societes: StructureGraphe[] }
+export interface CollaborateursGraphe { comptes: CollaborateurGraphe[];
+  /** Le libellé de négociateur d'une vente (tel qu'en base) → le compte (la règle de rapprochement existante). */
+  libelles: Record<string, number> }
+export const NON_ATTRIBUE = 'non_attribue';
+/** La clé d'un collaborateur dans `exclus`. PUR. */
+export const cleCollab = (a: ActiviteGraphe, c: string): string => `${a}:${c}`;
+/** Les collaborateurs proposés pour une activité, selon les structures cochées (la Gestion : aucun). PUR. */
+export const collaborateursProposes = (cs: CollaborateursGraphe | null | undefined, a: ActiviteGraphe, structures: readonly StructureGraphe[]): CollaborateurGraphe[] =>
+  a === 'gestion' || cs == null ? [] : cs.comptes.filter((c) => c.fonctions.includes(a) && c.societes.some((s) => structures.includes(s)))
+    .sort((x, y) => x.libelle.localeCompare(y.libelle, 'fr'));
+/** Les familles de coûts NON rattachées à une affaire (« coûts généraux ») : jamais réparties par collaborateur. */
+export const FAMILLES_GENERALES: readonly FamilleGraphe[] = ['salairesVente', 'autresVente', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation', 'adhoc', 'monga', 'salairesGestion', 'autresGestion'];
+/** Une activité est-elle filtrée par collaborateur (une case décochée, collaborateur proposé ou « Non attribué ») ? PUR. */
+export const activiteFiltree = (f: Pick<FiltresGraphe, 'exclus'>, a: ActiviteGraphe): boolean => f.exclus.some((e) => e.startsWith(`${a}:`));
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
 const plus = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.htC, ttcC: a.ttcC + b.ttcC });
@@ -59,16 +92,77 @@ const cent = (x: number): number => Math.round((x + Math.sign(x) * Number.EPSILO
  * d'`atomesDuPoint`, pour la lire sans la recopier. PUR.
  */
 export function coutsVenteDeLaSociete(eC: EntreesCoutsGlobaux, s: StructureGraphe, annee: number, mois: number | null): CoutsVente {
+  const p = ventesDeLaSociete(eC, s, annee, mois);
+  return coutsVente(p.ventes, p.o, s);
+}
+/** Les ventes d'une société sur un point et les options de sa page (les mêmes pour ses coûts et, D33, pour ses collaborateurs). PUR. */
+function ventesDeLaSociete(eC: EntreesCoutsGlobaux, s: StructureGraphe, annee: number, mois: number | null) {
   const ventes = eC.ventes.map((v) => (v.double === undefined || v.lignes === undefined ? { ...v, double: v.double ?? null, lignes: v.lignes ?? [] } : v)) as Vente[];
   const duPoint = mois === null ? ventesDeLAnnee(ventes, annee) : ventesDuMois(ventes, annee, mois);
   // 🔴 (03/11/2026) — les rétrocessions de LA société, comme sa page (`lireRetrocessions(s)`) : une rétrocession CRITERIMMO rattachée à une vente
   // partagée ne se compte plus aussi sur la ligne miroir de MACJ (CRITERIMMO + MACJ dépassait la FUSION de son montant ; aucun cas en base ce jour)
-  return coutsVente(duPoint.map((v) => venteDansSociete(v, s)).filter((v): v is Vente => v !== null),
-    { retros: eC.retrocessions.filter((r) => r.societe === s), statutDuLibelle: eC.statutDuLibelle }, s);
+  return { ventes: duPoint.map((v) => venteDansSociete(v, s)).filter((v): v is Vente => v !== null),
+    o: { retros: eC.retrocessions.filter((r) => r.societe === s), statutDuLibelle: eC.statutDuLibelle } };
+}
+
+/**
+ * 🔴 D33 — un atome éclaté par collaborateur : un atome par candidat (0 s'il n'a rien sur ce point : les mêmes atomes à chaque point, dans le même
+ * ordre), puis « Non attribué » = l'atome − la somme des candidats (au centime). PUR.
+ */
+function eclater(a: AtomeGraphe, parts: ReadonlyMap<string, MontantC>, candidats: readonly string[]): AtomeGraphe[] {
+  const xs = candidats.map((c) => ({ ...a, collab: c, m: parts.get(c) ?? RIEN }));
+  return [...xs, { ...a, collab: NON_ATTRIBUE, m: xs.reduce((t, x) => moins(t, x.m), a.m) }];
+}
+const ajouterPart = (m: Map<string, MontantC>, c: string, x: MontantC): void => { m.set(c, plus(m.get(c) ?? RIEN, x)); };
+/** Les candidats d'une activité : les comptes de cette fonction (toutes structures : le filtre des structures se fait à l'écran), par id. PUR. */
+const candidatsDe = (cs: CollaborateursGraphe, a: ActiviteGraphe): string[] =>
+  cs.comptes.filter((c) => c.fonctions.includes(a)).map((c) => c.id).sort((x, y) => x - y).map(String);
+
+/**
+ * 🔴 D33 — les atomes du point, éclatés par collaborateur (CA et coûts rattachés aux affaires) ; les coûts généraux restent entiers (sans `collab`).
+ * Vente : les lignes de l'Espace par négociateur de chaque structure (CA généré, commissions, rétrocessions de son côté) ; Location : les lignes de
+ * chaque négociateur (`coutsLocation` sur ses seules lignes : apporteurs, primes et variable déduits, la règle du mois) ; Gestion : « Non attribué ».
+ * L'inter-cabinet neutralisé : la part versée, comptée dans le « Non attribué » de la porteuse. PUR.
+ */
+function eclaterParCollaborateur(atomes: readonly AtomeGraphe[], eC: EntreesCoutsGlobaux, cs: CollaborateursGraphe, annee: number, mois: number | null, avecSalaires: boolean): AtomeGraphe[] {
+  const candV = candidatsDe(cs, 'vente'); const candL = candidatsDe(cs, 'location');
+  const parts = new Map<string, Map<string, MontantC>>(); // « structure|activité|famille » → collaborateur → montant
+  const part = (st: string, act: ActiviteGraphe, fam: FamilleGraphe | null, c: string, x: MontantC): void => {
+    const k = `${st}|${act}|${fam ?? ''}`; if (!parts.has(k)) parts.set(k, new Map()); ajouterPart(parts.get(k)!, c, x);
+  };
+  for (const st of ['criterimmo', 'macj'] as const) {
+    const p = ventesDeLaSociete(eC, st, annee, mois);
+    for (const l of espaceNegociateurs(p.ventes, st, p.o)) {
+      const id = cs.libelles[l.negociateur]; const c = id === undefined ? null : String(id);
+      if (c === null || !candV.includes(c)) continue;
+      part(st, 'vente', null, c, l.ca); part(st, 'vente', 'commissions', c, l.com); part(st, 'vente', 'apporteursVente', c, l.retro);
+    }
+  }
+  if (eC.location !== null && candL.length > 0) {
+    const ms = mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 })) : mois >= 1 && mois <= 12 ? [{ annee, mois }] : [];
+    for (const c of candL) {
+      const lignes = eC.location.lignes.filter((l) => l.negociateur.cle === `id:${c}`);
+      if (lignes.length === 0 || ms.length === 0) continue;
+      const x = coutsLocation(lignes, ms, [], eC.location.salaires, avecSalaires, null);
+      part('criterimmo', 'location', null, c, x.ca); part('criterimmo', 'location', 'apporteursLocation', c, x.apporteurs);
+      part('criterimmo', 'location', 'primes', c, x.primesDeduites); part('criterimmo', 'location', 'variable', c, x.variableDeduit);
+    }
+  }
+  const AFFAIRES: Partial<Record<ActiviteGraphe, readonly (FamilleGraphe | null)[]>> = { vente: [null, 'commissions', 'apporteursVente', 'exterieures'],
+    location: [null, 'apporteursLocation', 'primes', 'variable'], gestion: [null] };
+  return atomes.flatMap((a) => {
+    if (a.structure === 'a_attribuer') return [a];
+    if (a.structure === 'inter') return [{ ...a, collab: NON_ATTRIBUE }];
+    if (!(AFFAIRES[a.activite] ?? []).includes(a.famille)) return [a];
+    const cand = a.activite === 'vente' ? candV : a.activite === 'location' ? candL : [];
+    return eclater(a, parts.get(`${a.structure}|${a.activite}|${a.famille ?? ''}`) ?? new Map(), cand);
+  });
 }
 
 /** Les atomes d'un point (mois 1 → 12, ou l'année : mois null) : les cellules du Bilan, en HT et en TTC. PUR. */
-export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, annee: number, mois: number | null, avecSalaires: boolean): AtomeGraphe[] {
+export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, annee: number, mois: number | null, avecSalaires: boolean,
+  /** 🔴 D33 — les collaborateurs (le Suivi CA) : les atomes éclatés par collaborateur ; absents : comme avant. */
+  cs: CollaborateursGraphe | null = null): AtomeGraphe[] {
   const ht = celluleGlobalEn(eG, annee, mois, 'ht'); const ttc = celluleGlobalEn(eG, annee, mois, 'ttc');
   const ca = (k: 'venteCriterimmoHt' | 'venteMacjHt' | 'aAttribuerHt' | 'interCabinetHt' | 'locationHt' | 'gestionHt'): MontantC => ({ htC: cent(ht[k] ?? 0), ttcC: cent(ttc[k] ?? 0) });
   const c = coutsGlobaux(eC, annee, mois, avecSalaires);
@@ -96,15 +190,26 @@ export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, a
     { structure: 'criterimmo', activite: 'location', famille: 'autresLocation', m: c.saisis.locationAutres });
   a.push({ structure: 'criterimmo', activite: 'gestion', famille: 'adhoc', m: c.gestion.adhoc }, { structure: 'criterimmo', activite: 'gestion', famille: 'monga', m: c.gestion.monga },
     { structure: 'criterimmo', activite: 'gestion', famille: 'salairesGestion', m: c.gestion.salaires }, { structure: 'criterimmo', activite: 'gestion', famille: 'autresGestion', m: c.saisis.gestionAutres });
-  return a;
+  return cs === null ? a : eclaterParCollaborateur(a, eC, cs, annee, mois, avecSalaires);
 }
 
 /** L'atome est-il retenu par les filtres ? L'inter-cabinet : seulement si CRITERIMMO ET MACJ (sinon il n'y a rien à neutraliser). PUR. */
-export function retenu(x: AtomeGraphe, f: Pick<FiltresGraphe, 'structures' | 'activites' | 'familles' | 'mesure'>): boolean {
+export function retenu(x: AtomeGraphe, f: Pick<FiltresGraphe, 'structures' | 'activites' | 'familles' | 'mesure'> & Partial<Pick<FiltresGraphe, 'exclus'>>,
+  /** 🔴 D33 — les collaborateurs proposés (par activité, selon les structures cochées) : un collaborateur non proposé compte dans « Non attribué ». */
+  proposes?: Partial<Record<ActiviteGraphe, ReadonlySet<string>>>): boolean {
   // 🔴 LOT CG10 — les ventes à attribuer : jamais retenues (le graphique ne les compte plus ; la mention dit leur montant)
   if (x.structure === 'a_attribuer') return false;
   const struct = x.structure === 'inter' ? f.structures.includes('criterimmo') && f.structures.includes('macj') : f.structures.includes(x.structure);
   if (!struct || !f.activites.includes(x.activite)) return false;
+  // 🔴 D33 — « CA brut » / « CA net » : un collaborateur décoché (ou « Non attribué ») n'est pas compté ; en « CA net », une activité filtrée ne
+  // déduit pas ses coûts généraux (non répartis par collaborateur). « Coûts » : inchangé (la liste des coûts, D25).
+  const exclus = f.exclus ?? [];
+  if (f.mesure !== 'couts' && exclus.length > 0) {
+    if (x.collab !== undefined) {
+      const c = x.collab === NON_ATTRIBUE || proposes?.[x.activite]?.has(x.collab) === true ? x.collab : NON_ATTRIBUE;
+      if (exclus.includes(cleCollab(x.activite, c))) return false;
+    } else if (x.famille !== null && f.mesure === 'net' && activiteFiltree({ exclus }, x.activite)) return false;
+  }
   if (x.famille === null) return f.mesure !== 'couts';
   if (f.mesure === 'ca') return false;
   return f.mesure === 'net' || f.familles.includes(x.famille);
@@ -120,8 +225,8 @@ const NOMS: Record<string, string> = { ...Object.fromEntries([...STRUCTURES_GRAP
   location_gestion: 'Location & Gestion' };
 
 /** Les séries comparées : une par élément retenu (structures, activités ou familles), sinon le total seul. PUR. */
-export function seriesDuPoint(atomes: readonly AtomeGraphe[], f: FiltresGraphe): { total: MontantC; series: SerieValeur[] } {
-  const garde = atomes.filter((x) => retenu(x, f));
+export function seriesDuPoint(atomes: readonly AtomeGraphe[], f: FiltresGraphe, proposes?: Partial<Record<ActiviteGraphe, ReadonlySet<string>>>): { total: MontantC; series: SerieValeur[] } {
+  const garde = atomes.filter((x) => retenu(x, f, proposes));
   const total = garde.reduce((t, x) => plus(t, signe(x, f.mesure)), RIEN);
   // 🔴 LOT CG10 — « Réunies » : la location et la gestion, une seule série « Location & Gestion » (leur somme exacte)
   const activiteDe = (a: ActiviteGraphe): string => (f.reunies && a !== 'vente' ? 'location_gestion' : a);
@@ -161,7 +266,7 @@ export function nbFiltresActifs(f: FiltresGraphe,
   d: FiltresGraphe = FILTRES_GRAPHE_DEFAUT): number {
   const egal = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
   return [f.mesure !== d.mesure, f.mesure === 'couts' && !egal(f.familles, d.familles), !egal(f.structures, d.structures), !egal(f.activites, d.activites), f.comparer !== d.comparer,
-    f.cumul !== d.cumul, f.empile !== d.empile, f.reunies !== d.reunies].filter(Boolean).length;
+    f.cumul !== d.cumul, f.empile !== d.empile, f.reunies !== d.reunies, f.mesure !== 'couts' && (f.exclus ?? []).length > 0].filter(Boolean).length;
 }
 
 /** Les filtres dans l'adresse (le partage) et leur relecture ; une valeur inconnue : le défaut. PUR. */
@@ -169,7 +274,7 @@ export function filtresVersAdresse(f: FiltresGraphe): Record<string, string | nu
   const d = FILTRES_GRAPHE_DEFAUT; const liste = <T extends string>(xs: readonly T[], tout: readonly T[]): string | null => (xs.length === tout.length && tout.every((x) => xs.includes(x)) ? null : xs.join(',') || 'aucun');
   return { 'g-mesure': f.mesure === d.mesure ? null : f.mesure, 'g-familles': liste(f.familles, d.familles), 'g-structures': liste(f.structures, d.structures),
     'g-activites': liste(f.activites, d.activites), 'g-comparer': f.comparer === d.comparer ? null : f.comparer, 'g-cumul': f.cumul ? '1' : null, 'g-empile': f.empile ? null : 'non',
-    'g-lg': f.reunies ? 'reunies' : null };
+    'g-lg': f.reunies ? 'reunies' : null, 'g-exclus': (f.exclus ?? []).length === 0 ? null : (f.exclus ?? []).join(',') };
 }
 export function filtresDepuisAdresse(lire: (k: string) => string | null): FiltresGraphe {
   const d = FILTRES_GRAPHE_DEFAUT;
@@ -177,7 +282,9 @@ export function filtresDepuisAdresse(lire: (k: string) => string | null): Filtre
   const un = <T extends string>(x: string | null, tout: readonly T[], defaut: T): T => ((tout as readonly string[]).includes(x ?? '') ? (x as T) : defaut);
   return { mesure: un(lire('g-mesure'), MESURES_GRAPHE.map((x) => x.cle), d.mesure), familles: liste(lire('g-familles'), d.familles), structures: liste(lire('g-structures'), d.structures),
     activites: liste(lire('g-activites'), d.activites), comparer: un(lire('g-comparer'), COMPARER_GRAPHE.map((x) => x.cle), d.comparer), cumul: lire('g-cumul') === '1', empile: lire('g-empile') !== 'non',
-    reunies: lire('g-lg') === 'reunies' };
+    reunies: lire('g-lg') === 'reunies',
+    // 🔴 D33 — « activité:compte » (un compte en chiffres) ou « activité:non_attribue »
+    exclus: (lire('g-exclus') ?? '').split(',').filter((x) => /^(vente|location|gestion):(\d+|non_attribue)$/.test(x)) };
 }
 /**
  * 🔴 LOT CG10 — « Réunies » : une seule case « Location & Gestion » ; la passer coche ou décoche les deux ensemble. En passant à « Réunies », une
@@ -198,7 +305,7 @@ export function avecReunies(f: FiltresGraphe, reunies: boolean): FiltresGraphe {
  * de l'année, au centime, pour tous les filtres. PUR.
  */
 export function atomesHorsMois(annee: readonly AtomeGraphe[], mois: readonly (readonly AtomeGraphe[])[]): AtomeGraphe[] {
-  const cle = (x: AtomeGraphe): string => `${x.structure}|${x.activite}|${x.famille ?? ''}`;
+  const cle = (x: AtomeGraphe): string => `${x.structure}|${x.activite}|${x.famille ?? ''}|${x.collab ?? ''}`;
   const somme = new Map<string, MontantC>();
   for (const xs of mois) for (const x of xs) somme.set(cle(x), plus(somme.get(cle(x)) ?? RIEN, x.m));
   return annee.map((x) => ({ ...x, m: moins(x.m, somme.get(cle(x)) ?? RIEN) }));
@@ -208,11 +315,12 @@ export function atomesHorsMois(annee: readonly AtomeGraphe[], mois: readonly (re
  * ventes signées sans mois (les mêmes règles et le même arrondi au centime qu'un mois) ; l'écart d'arrondi qui reste (l'année − la somme de ces
  * 13 points) est REPORTÉ, poste par poste, sur le dernier mois affiché (`dernier`, 1 → 12) qui a une valeur pour ce poste, sans point à part : la fin d'année = le total de l'année, au centime. PUR.
  */
-export function atomesDesMois(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, annee: number, avecSalaires: boolean, dernier: number): { mois: AtomeGraphe[][]; aConfirmer: AtomeGraphe[] } {
-  const mois = Array.from({ length: 12 }, (_, i) => atomesDuPoint(eG, eC, annee, i + 1, avecSalaires));
+export function atomesDesMois(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, annee: number, avecSalaires: boolean, dernier: number,
+  cs: CollaborateursGraphe | null = null): { mois: AtomeGraphe[][]; aConfirmer: AtomeGraphe[] } {
+  const mois = Array.from({ length: 12 }, (_, i) => atomesDuPoint(eG, eC, annee, i + 1, avecSalaires, cs));
   const treize = <V extends { annee: number; mois: number | null }>(vs: readonly V[]): V[] => vs.map((v) => (v.annee === annee && v.mois === null ? { ...v, mois: MOIS_A_CONFIRMER } : v));
-  const aConfirmer = atomesDuPoint({ ...eG, ventes: treize(eG.ventes) }, { ...eC, ventes: treize(eC.ventes) }, annee, MOIS_A_CONFIRMER, avecSalaires);
-  const reste = atomesHorsMois(atomesDuPoint(eG, eC, annee, null, avecSalaires), [...mois, aConfirmer]);
+  const aConfirmer = atomesDuPoint({ ...eG, ventes: treize(eG.ventes) }, { ...eC, ventes: treize(eC.ventes) }, annee, MOIS_A_CONFIRMER, avecSalaires, cs);
+  const reste = atomesHorsMois(atomesDuPoint(eG, eC, annee, null, avecSalaires, cs), [...mois, aConfirmer]);
   // chaque poste (structure, activité, famille) : sur le dernier mois affiché où il a une valeur (un mois vide reste à 0) ; à défaut, le dernier mois affiché
   const fin = Math.min(12, Math.max(1, dernier)) - 1;
   reste.forEach((r, j) => {

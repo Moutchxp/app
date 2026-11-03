@@ -1703,7 +1703,9 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
 
 // ── Le CA global ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null;
+export interface DonneesGlobal { disponible: boolean; aujourdhui: string;
+  /** 🔴 D33 — les collaborateurs du graphique « Mois par mois » (comptes, fonctions, structures, libellés rapprochés) ; absent : aucune liste. */
+  collaborateursGraphe?: import('../../../../lib/transaction/grapheGlobal').CollaborateursGraphe | null; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null;
   /** 🔴 LOT CG1 — le CA TTC de la location par mois (centimes, la règle de la page « Suivi CA › Location ») ; absent : une route d'avant. */
   locationTtcC?: Record<string, number> | null;
   /** 🔴 LOT CY — les compromis en cours (la règle unique, calculée par la route avec `totalCompromisEnCours`) : nos deux sociétés et chacune. */
@@ -1830,7 +1832,7 @@ export function EcranGlobal() {
       </ul>
 
       {/* 🔴 LOT CG9 — le graphique, sous les tuiles et avant la Synthèse : les données des tableaux du Bilan, filtrées par famille */}
-      <GrapheGlobal eG={e} eC={eCouts} jour={jour} annee={annee} annees={enAnnee ? null : sel} salaires={avecSalaires}
+      <GrapheGlobal eG={e} eC={eCouts} jour={jour} annee={annee} annees={enAnnee ? null : sel} salaires={avecSalaires} collaborateurs={d.collaborateursGraphe ?? null}
         rouges={enAnnee ? moisRougesDeLAnnee(annee, [annee], jour) : anneesSoulignees(choixA!.decoupage, annee, sel, anneesVisibles ?? annees)} />
 
       <section className="tdb-section" aria-labelledby="trx-g-synthese" data-bloc="global-synthese">

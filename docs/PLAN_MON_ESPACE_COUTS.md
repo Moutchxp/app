@@ -647,3 +647,27 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
 - Complément D29 (2) : dans le panneau de répartition, la commission PROPOSÉE d'un négociateur lisait l'apporteur comme un collaborateur (un nom
   de variable masqué dans la boucle des parties) : sa base est désormais les honoraires nets après le coût de l'apporteur externe
   (BASUYEAUX, 10 500 € TTC, apporteur 500 € : (10 500 − 500 − 100) × 50 % = 4 950 € TTC, et non 5 000).
+
+## 🔴 D33 (Arno, 03/11/2026) — Graphique « Mois par mois » du CA global : « Activité », « CA net (CA − coûts) », les collaborateurs par activité
+
+- Libellés : la ligne « Famille » s'appelle « Activité » ; la mesure « Résultat net (CA − coûts) » s'appelle « CA net (CA − coûts) » (le titre du
+  graphique dit « CA net HT » ; le calcul ne change pas). Le même composant dans Mon espace › Les coûts (mesure « Coûts » : inchangée).
+- En « CA brut » et « CA net », le nom d'une activité ouvre sous la ligne SES collaborateurs (cases, « Tout / Aucun ») et « Non attribué » ; une
+  seule activité ouverte ; compteur « 4/5 » ; case d'inclusion et « Séparées / Réunies » inchangées ; état dans l'adresse (`g-exclus`,
+  `g-ouverte`) ; « Réinitialiser les filtres » recoche tout. « Coûts » : la liste des coûts (D25), inchangée.
+- Collaborateurs proposés : les comptes de la FONCTION (page Comptes, C9) rattachés à au moins une structure cochée (« les deux » : CRITERIMMO
+  et MACJ). Au 03/11/2026 : Vente CRITERIMMO — Arnaud Jorel, Cédric JULLIEN, Jean-Baptiste PONS ; Vente MACJ — Cédric JULLIEN, Pierre Thevenin ;
+  Location (CRITERIMMO) — Jean-Baptiste PONS ; Gestion — aucun (aucune fonction « Gestion », et la gestion n'a pas d'attribution par
+  collaborateur : tout son CA est « Non attribué », dit dans la liste).
+- Attribution (aucun calcul nouveau) : Vente — les lignes de l'« Espace par négociateur » de chaque structure (CA généré : part de chaque côté,
+  co-négociateurs ; leurs coûts : commission, rétrocessions de leur côté avec la TVA non récupérable) ; Location — le négociateur de chaque
+  ligne (CA, apporteurs, primes et variable déduits). Le libellé d'une vente → le compte : la règle de rapprochement existante.
+- « Non attribué » = l'atome du Bilan − la somme des collaborateurs : la part conservée par la structure (apporteur de la répartition et sa TVA,
+  agences extérieures, inter-cabinet versé), les affaires sans négociateur reconnu et les anciens négociateurs (CATHERINE, MYLENE…). Tout coché :
+  chaque point = celui d'avant, au centime (756 contrôles sur la base, 2025 et 2026, chaque mois, chaque mesure, structures seules et ensemble :
+  0 écart). En 2025, CA brut vente HT 461 215,00 : Arnaud 80 808,33 · Cédric 48 916,66 · Jean-Baptiste 8 333,33 · Pierre 177 333,33 · Non attribué
+  145 823,35 ; location 126 660,04 : Jean-Baptiste 126 660,04.
+- « CA net » filtré : CA des collaborateurs cochés − les coûts de LEURS affaires ; les coûts généraux (salaires, autres, ADHOC, MONGA, part de
+  gestion récurrente, collègues apporteurs) ne sont déduits que si toute l'activité est cochée (collaborateurs et « Non attribué ») ; sinon une
+  mention sous le graphique. Aucun montant nouveau n'est envoyé au navigateur (les comptes, leurs fonctions et structures seulement).
+- Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre ; « CA net » filtré) : `.captures/graphe-collaborateurs/`.

@@ -9,6 +9,7 @@ import { libellesDePaye, lireCoutsLignes, lireGestion, lireNotesDoubles, lireRet
 import { lireCaLocationHtTtc, lireLocationCa } from './locationLue';
 import { mongaDisponible } from '../admin/schemaDroits';
 import { lignesPourCoutsGlobaux } from './coutsSaisis';
+import { lireCollaborateursGraphe } from './collaborateursGrapheRepo';
 
 /**
  * Le CA global : ventes COMPLÈTES des deux sociétés, gestion, location (CA HT et TTC), rétrocessions, statut des négociateurs payés, données de
@@ -40,7 +41,9 @@ export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boo
     compromis = { compromisEnCours: { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') } };
   }
   // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
-  return { disponible, aujourdhui, gestion, location, locationTtcC, ...compromis, monga: await mongaDisponible().catch(() => false),
+  // 🔴 D33 — les collaborateurs du graphique (comptes, fonctions, structures, libellés rapprochés) ; une panne : aucune liste (le graphique d'avant)
+  const collaborateursGraphe = await lireCollaborateursGraphe(ventes).catch(() => null);
+  return { disponible, aujourdhui, gestion, location, locationTtcC, ...compromis, monga: await mongaDisponible().catch(() => false), collaborateursGraphe,
     retrocessions, statutsNegociateurs, locationCa: locationCa?.disponible === true ? { lignes: locationCa.lignes, retrocessions: locationCa.retrocessions, salaires: locationCa.salaires,
       dus: locationCa.dus ?? [] } : null,
     coutsSaisis: lignesPourCoutsGlobaux(coutsLignes ?? []), coutsLignes,

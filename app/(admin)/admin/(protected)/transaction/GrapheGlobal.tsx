@@ -8,8 +8,9 @@ import { aSaisirFusion } from '../../../../lib/transaction/fusionLocationGestion
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
-  ACTIVITES_GRAPHE, atomesDesMois, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
-  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type ActiviteGraphe, type FamilleGraphe, type FiltresGraphe, type SerieValeur, type StructureGraphe,
+  ACTIVITES_GRAPHE, activiteFiltree, atomesDesMois, atomesDuPoint, avecReunies, cleCollab, collaborateursProposes, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse,
+  filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs, NON_ATTRIBUE, raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type ActiviteGraphe, type CollaborateursGraphe, type FamilleGraphe,
+  type FiltresGraphe, type SerieValeur, type StructureGraphe,
 } from '../../../../lib/transaction/grapheGlobal';
 import { attributBarresRouges, COURT, ecrireAdresse, eur, MOT_UNITE, parametre, StyleBarresRouges, useAffichage } from './commun';
 import { ordreEncadre } from './GrapheNegociateurs';
@@ -30,7 +31,7 @@ const ORDRE_FAMILLES_COUTS: readonly FamilleGraphe[] = ['commissions', 'apporteu
  * N−1 hachuré, point choisi en rouge, encadré à droite) ; plusieurs séries : barres empilées ou côte à côte (Cumul : une courbe par série), couleurs
  * fixes et légende. « Année » : les 12 mois ; « Période » / « Tout » : une barre par année.
  */
-export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = null, initiaux, verrous }: {
+export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = null, initiaux, verrous, collaborateurs = null }: {
   eG: EntreesGlobalUnite; eC: EntreesCoutsGlobaux; jour: string;
   /** L'année montrée (« Année ») ; `annees` : null en « Année », sinon les années choisies (« Période », « Tout ») — l'axe année par année. */
   annee: number; annees: readonly number[] | null; salaires: boolean;
@@ -42,6 +43,8 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
   initiaux?: Partial<FiltresGraphe>;
   /** 🔴 Mon espace « Les coûts » — la mesure et les structures imposées par la page (« Voir ») : leurs familles de filtres ne sont pas montrées. */
   verrous?: { structures: readonly StructureGraphe[] };
+  /** 🔴 D33 — les collaborateurs (le Suivi CA) : leur liste dans chaque bouton d'activité, en « CA brut » et « CA net » ; absents : comme avant. */
+  collaborateurs?: CollaborateursGraphe | null;
 }) {
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC'; const ka = u === 'ht' ? 'ttcC' : 'htC';
@@ -62,16 +65,18 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
     : Array.from({ length: 12 }, (_, i) => ({ cle: i + 1, libelle: COURT[i], annee, mois: i + 1 as number | null, horsMois: false }));
   const clePoints = parAnnees ? annees.join(',') : String(annee);
   const atomes = useMemo(() => {
-    if (parAnnees) return { xs: base.map((p) => ({ courant: atomesDuPoint(eG, eC, p.annee, p.mois, salaires), n1: atomesDuPoint(eG, eC, p.annee - 1, p.mois, salaires) })), hors: null };
+    if (parAnnees) return { xs: base.map((p) => ({ courant: atomesDuPoint(eG, eC, p.annee, p.mois, salaires, collaborateurs), n1: atomesDuPoint(eG, eC, p.annee - 1, p.mois, salaires, collaborateurs) })), hors: null };
     // 🔴 LOT CG11 / CG12 — mois par mois : les 12 mois, puis « Mois à confirmer » (les ventes signées sans mois) ; l'écart d'arrondi au centime,
     // reporté sur le dernier mois affiché (plus de point « arrondi ») : la fin d'année = le total de l'année
-    const c = atomesDesMois(eG, eC, annee, salaires, moisADate(annee, jour)); const p = atomesDesMois(eG, eC, annee - 1, salaires, 12);
+    const c = atomesDesMois(eG, eC, annee, salaires, moisADate(annee, jour), collaborateurs); const p = atomesDesMois(eG, eC, annee - 1, salaires, 12, collaborateurs);
     return { xs: c.mois.map((x, i) => ({ courant: x, n1: p.mois[i] })), hors: { courant: c.aConfirmer, n1: p.aConfirmer } };
   },
     // les données de la page (stables d'un rendu à l'autre), pas les objets d'entrée recréés à chaque rendu
-    [eG.ventes, eG.gestion, eG.location, eC.retrocessions, eC.location, salaires, clePoints, jour]); // eslint-disable-line react-hooks/exhaustive-deps
-  const valsBase = atomes.xs.map((x) => ({ c: seriesDuPoint(x.courant, f), n1: seriesDuPoint(x.n1, f) }));
-  const valHors = atomes.hors === null ? null : { c: seriesDuPoint(atomes.hors.courant, f), n1: seriesDuPoint(atomes.hors.n1, f) };
+    [eG.ventes, eG.gestion, eG.location, eC.retrocessions, eC.location, salaires, clePoints, jour, collaborateurs]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 🔴 D33 — les collaborateurs proposés de chaque activité, selon les structures cochées (un non proposé compte dans « Non attribué »)
+  const proposes = Object.fromEntries(ACTIVITES_GRAPHE.map((a) => [a.cle, new Set(collaborateursProposes(collaborateurs, a.cle, f.structures).map((c) => String(c.id)))])) as Record<ActiviteGraphe, Set<string>>;
+  const valsBase = atomes.xs.map((x) => ({ c: seriesDuPoint(x.courant, f, proposes), n1: seriesDuPoint(x.n1, f, proposes) }));
+  const valHors = atomes.hors === null ? null : { c: seriesDuPoint(atomes.hors.courant, f, proposes), n1: seriesDuPoint(atomes.hors.n1, f, proposes) };
   const nonNul = (s: { total: MontantC; series: readonly SerieValeur[] }): boolean => s.total[k] !== 0 || s.series.some((x) => x.m[k] !== 0);
   // présent seulement quand il est non nul (l'année montrée ; ou N−1 quand on la compare)
   const avecHors = valHors !== null && (nonNul(valHors.c) || (f.comparer === 'n1' && nonNul(valHors.n1)));
@@ -236,6 +241,24 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
           <input type="checkbox" checked={valeurs.includes(o.cle)} disabled={r !== null} onChange={() => onChange(basculer(valeurs, o.cle))} data-case-graphe={o.cle} />{o.mot}</label>); })}
     </div>
   );
+  /** 🔴 D33 — les cases de collaborateurs d'une activité (ou de « Location & Gestion ») : les proposés, puis « Non attribué » (une case pour
+   *  chacune des activités du bouton). PUR pour l'écran. */
+  type CaseCollab = { cle: string; mot: string; cles: string[] };
+  function listeCollabs(acts: readonly ActiviteGraphe[]): CaseCollab[] {
+    const vus = new Map<string, CaseCollab>();
+    for (const a of acts) for (const c of collaborateursProposes(collaborateurs, a, f.structures)) {
+      const k = String(c.id); const x = vus.get(k) ?? { cle: k, mot: c.libelle, cles: [] }; x.cles.push(cleCollab(a, k)); vus.set(k, x);
+    }
+    return [...vus.values(), { cle: NON_ATTRIBUE, mot: 'Non attribué', cles: acts.map((a) => cleCollab(a, NON_ATTRIBUE)) }];
+  }
+  const estCoche = (x: CaseCollab): boolean => x.cles.every((k) => !f.exclus.includes(k));
+  const basculerCollab = (x: CaseCollab): void => changer({ exclus: estCoche(x) ? [...f.exclus, ...x.cles] : f.exclus.filter((k) => !x.cles.includes(k)) });
+  const poserCollabs = (xs: readonly CaseCollab[], tout: boolean): void => {
+    const cles = xs.flatMap((x) => x.cles);
+    changer({ exclus: tout ? f.exclus.filter((k) => !cles.includes(k)) : [...new Set([...f.exclus, ...cles])] });
+  };
+  // 🔴 D33 — « CA net » d'une activité filtrée par collaborateur : ses coûts généraux ne sont pas déduits (la mention le dit)
+  const nonReparties = f.mesure === 'net' && collaborateurs !== null ? ACTIVITES_GRAPHE.filter((a) => f.activites.includes(a.cle) && activiteFiltree(f, a.cle)).map((a) => a.mot) : [];
   const famille = (titre: string, contenu: ReactNode, cle: string) => <div className="trx-gf-famille" data-famille-filtre={cle}><span className="trx-gf-titre">{titre}</span>{contenu}</div>;
   const nb = nbFiltresActifs(f, depart);
   return (
@@ -254,21 +277,26 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
         {/* 🔴 D25 (Arno, 03/11/2026) — FIN DU « MUR DE CASES » : la ligne « Famille » (l'ancienne ligne « Activité », fusionnée) — un bouton par famille aux
             couleurs du graphique : sa case d'inclusion, son nom (en « Coûts » : ouvre SES seuls coûts, une famille à la fois, avec « Tout / Aucun »), le
             compteur des coûts cochés ; « Séparées | Réunies » à droite. Même état qu'avant (`activites`, `familles`) : le calcul ne change pas. */}
-        {famille('Famille', <>
-          <div className="trx-gf-familles" role="group" aria-label="Familles" data-filtre-graphe="Activité">
+        {/* 🔴 D33 (Arno, 03/11/2026) — la ligne s'appelle « Activité » ; en « CA brut » / « CA net », le nom d'une activité ouvre SES collaborateurs */}
+        {famille('Activité', <>
+          <div className="trx-gf-familles" role="group" aria-label="Activités" data-filtre-graphe="Activité">
             {(f.reunies ? [{ cle: 'vente', mot: 'Vente', acts: ['vente'] as ActiviteGraphe[] }, { cle: 'location_gestion', mot: 'Location & Gestion', acts: ['location', 'gestion'] as ActiviteGraphe[] }]
               : ACTIVITES_GRAPHE.map((a) => ({ cle: a.cle as string, mot: a.mot, acts: [a.cle] }))).map((g) => {
               const inclus = g.acts.every((a) => f.activites.includes(a));
               const r = raisonGrise(f, { sorte: 'activite', cle: g.acts[0] === 'vente' ? 'vente' : 'location' });
               const siennes = ORDRE_FAMILLES_COUTS.filter((c) => g.acts.includes(FAMILLES_GRAPHE.find((x) => x.cle === c)!.activite));
-              const cochees = siennes.filter((c) => f.familles.includes(c)).length;
               const couts = f.mesure === 'couts';
+              // 🔴 D33 — hors « Coûts » : le compteur des collaborateurs cochés de l'activité (« Non attribué » compris)
+              const collabs = !couts && collaborateurs !== null ? listeCollabs(g.acts) : null;
+              const cochees = collabs !== null ? collabs.filter((x) => estCoche(x)).length : siennes.filter((c) => f.familles.includes(c)).length;
+              const total = collabs !== null ? collabs.length : siennes.length;
+              const ouvrable = couts || collabs !== null;
               const basculerInclusion = (): void => changer({ activites: inclus ? f.activites.filter((a) => !g.acts.includes(a)) : [...f.activites.filter((a) => !g.acts.includes(a)), ...g.acts] });
               return (
-                <span key={g.cle} className={`trx-gf-famille-btn trx-serie--${COULEURS[g.cle] ?? 1}${famOuverte === g.cle && couts ? ' trx-gf-famille-btn--ouverte' : ''}${r !== null ? ' trx-gf-case--grise' : ''}`} title={r ?? undefined}>
+                <span key={g.cle} className={`trx-gf-famille-btn trx-serie--${COULEURS[g.cle] ?? 1}${famOuverte === g.cle && ouvrable ? ' trx-gf-famille-btn--ouverte' : ''}${r !== null ? ' trx-gf-case--grise' : ''}`} title={r ?? undefined}>
                   <input type="checkbox" checked={inclus} disabled={r !== null} onChange={basculerInclusion} aria-label={`Compter ${g.mot}`} data-case-graphe={g.cle} />
-                  {couts ? <button type="button" className="trx-gf-famille-nom" aria-expanded={famOuverte === g.cle} aria-controls="trx-gf-couts-famille"
-                    onClick={() => setFamOuverte((x) => (x === g.cle ? null : g.cle))} data-ouvrir-famille={g.cle}>{g.mot} <small data-compteur-famille={g.cle}>{cochees}/{siennes.length}</small> <span aria-hidden="true">{famOuverte === g.cle ? '▴' : '▾'}</span></button>
+                  {ouvrable ? <button type="button" className="trx-gf-famille-nom" aria-expanded={famOuverte === g.cle} aria-controls={couts ? 'trx-gf-couts-famille' : 'trx-gf-collabs-famille'}
+                    onClick={() => setFamOuverte((x) => (x === g.cle ? null : g.cle))} data-ouvrir-famille={g.cle}>{g.mot} <small data-compteur-famille={g.cle}>{cochees}/{total}</small> <span aria-hidden="true">{famOuverte === g.cle ? '▴' : '▾'}</span></button>
                     : <span className="trx-gf-famille-nom">{g.mot}</span>}
                 </span>
               );
@@ -276,6 +304,22 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
           </div>
           {choix('Location et Gestion', [{ cle: 'separees', mot: 'Séparées' }, { cle: 'reunies', mot: 'Réunies' }] as const, f.reunies ? 'reunies' : 'separees',
             (c) => { setF((v) => avecReunies(v, c === 'reunies')); setFamOuverte(null); })}</>, 'famille')}
+        {/* 🔴 D33 — « CA brut » / « CA net » : les collaborateurs de l'activité ouverte (cases), « Non attribué », « Tout / Aucun » */}
+        {f.mesure !== 'couts' && collaborateurs !== null && famOuverte !== null && (() => {
+          const acts: ActiviteGraphe[] = famOuverte === 'location_gestion' ? ['location', 'gestion'] : ACTIVITES_GRAPHE.some((a) => a.cle === famOuverte) ? [famOuverte as ActiviteGraphe] : [];
+          if (acts.length === 0) return null;
+          const xs = listeCollabs(acts);
+          return (
+            <div id="trx-gf-collabs-famille" className={`trx-gf-couts-famille trx-serie--${COULEURS[famOuverte] ?? 1}`} data-liste-collaborateurs={famOuverte}>
+              <div className="trx-gf-cases" role="group" aria-label="Collaborateurs" data-filtre-graphe="Collaborateurs">
+                {xs.map((x) => <label key={x.cle} className="trx-gf-case"><input type="checkbox" checked={estCoche(x)} onChange={() => basculerCollab(x)} data-case-collaborateur={x.cle} />{x.mot}</label>)}
+              </div>
+              <span className="trx-gf-tout"><button type="button" className="trx-bouton-lien" onClick={() => poserCollabs(xs, true)} data-collaborateurs-tout={famOuverte}>Tout</button>
+                {' / '}<button type="button" className="trx-bouton-lien" onClick={() => poserCollabs(xs, false)} data-collaborateurs-aucun={famOuverte}>Aucun</button></span>
+              {acts.includes('gestion') && <span className="loc-muet trx-gf-note-collab" data-gestion-non-attribuee>La gestion n’a pas d’attribution par collaborateur : tout son CA est « Non attribué ».</span>}
+            </div>
+          );
+        })()}
         {f.mesure === 'couts' && famOuverte !== null && (() => {
           const acts: ActiviteGraphe[] = famOuverte === 'location_gestion' ? ['location', 'gestion'] : ACTIVITES_GRAPHE.some((a) => a.cle === famOuverte) ? [famOuverte as ActiviteGraphe] : [];
           if (acts.length === 0) return null;
@@ -299,6 +343,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
       {/* 🔴 LOT CG10 — les ventes à attribuer ne sont plus dans le graphique : leur montant sur la période, discrètement (le Bilan les compte) */}
       {horsAttribuer !== 0 && verrous === undefined && <p className="loc-muet trx-gf-note" data-hors-ventes-a-attribuer>Hors ventes à attribuer : {eur(horsAttribuer)} {MOT_UNITE[u]} (comptées dans le Bilan)</p>}
       {!seule && <p className="loc-muet trx-gf-note" data-note-graphe>{f.comparer === 'structures' && (vals[0]?.c.series ?? []).some((x) => x.cle === 'inter') ? 'L’inter-cabinet entre nos sociétés, compté dans les deux ventes, est retiré une fois (série « Inter-cabinet ») : le total = le Bilan. ' : ''}{verrous === undefined ? 'Valeurs : les tableaux du Bilan ci-dessous.' : 'Valeurs : le tableau ci-dessous.'}</p>}
+      {nonReparties.length > 0 && <p className="loc-muet trx-gf-note" data-note-couts-generaux>Coûts généraux non répartis par collaborateur (salaires, autres, ADHOC, MONGA, part de gestion récurrente, collègues apporteurs) : non déduits pour {nonReparties.join(', ')}.</p>}
       {seule && f.comparer === 'n1' && <p className="loc-muet trx-gf-note" data-note-graphe>Comparaison : les mêmes filtres, {parAnnees ? 'un an plus tôt' : `en ${annee - 1}`} ({f.cumul ? 'pointillé' : 'hachuré'}).</p>}
     </section>
   );
@@ -321,6 +366,7 @@ export const CSS_GRAPHE_GLOBAL = `
 .trx-gf-case input{width:18px;height:18px;accent-color:var(--color-svv-red)}
 .trx-gf-case--grise{opacity:.45;cursor:not-allowed}
 .trx-gf-tout{font-size:.8rem}
+.trx-gf-note-collab{flex-basis:100%;font-size:.8rem}
 .trx-gf-familles{display:flex;flex-wrap:wrap;gap:6px}
 .trx-gf-famille-btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 4px 0 8px;border:1px solid var(--color-svv-line-strong);border-left:4px solid var(--trx-serie);border-radius:8px;background:color-mix(in srgb, var(--trx-serie) 10%, transparent)}
 .trx-gf-famille-btn input{width:18px;height:18px;accent-color:var(--trx-serie)}
