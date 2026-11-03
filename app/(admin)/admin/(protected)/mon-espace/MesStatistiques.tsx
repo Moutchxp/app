@@ -9,7 +9,7 @@ import { NOMS_MOIS, type Vente } from '../../../../lib/transaction/modele';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import type { MesAffaires } from '../../../../lib/mon-espace/mesAffaires';
 import { apporteursAgence, LIBELLE_AGENCE, negociateursAgence } from '../../../../lib/mon-espace/agence';
-import { TableauParApporteur } from './ListeAffairesPeriode';
+import { ligneDuSuiviCa, TableauParApporteur } from './ListeAffairesPeriode';
 import { mesApporteurs, moisDuChoix, totauxDuChoix, variation, type ChoixStats, type ModeStats, type StatsMonEspace } from '../../../../lib/mon-espace/statistiques';
 
 /**
@@ -127,7 +127,7 @@ export function MesStatistiques({ data }: { data: MesAffaires }) {
       )}
 
       {/* Le tableau « Par apporteur d'affaires » : le composant déplacé sous le graphique (décision 14), le même ici. */}
-      <TableauParApporteur lignes={apporteurs} libelle={libelleChoix} agence={nomAgence !== null} />
+      <TableauParApporteur lignes={apporteurs.map(ligneDuSuiviCa)} libelle={libelleChoix} agence={nomAgence !== null} />
     </div>
   );
 }

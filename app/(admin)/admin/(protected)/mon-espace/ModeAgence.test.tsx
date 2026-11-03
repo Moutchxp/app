@@ -30,12 +30,13 @@ const agenceMacj = () => ({ disponible: true, aujourdhui: JOUR, titulaire: { id:
 const perso = (administrateur: boolean) => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 1, prenom: 'Arno', administrateur }, ventes: [],
   compteurs: { compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } }, actees: { nb: 0, ids: [], annee: 2026, ca: { htC: 0, ttcC: 0 } }, parAnnee: [] }, retrocessions: [] });
 let urls: string[];
+let persoD27: unknown = null;
 let admin: boolean;
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   window.history.replaceState(null, '', '/'); // l'adresse (?vue=…) que l'écran écrit, comme la Transaction : chaque épreuve repart de zéro
-  urls = []; admin = true;
+  urls = []; admin = true; persoD27 = null;
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string) => {
@@ -44,7 +45,7 @@ beforeEach(() => {
     if (u.startsWith(URL_EMPREINTE)) return ok({ empreinte: u.includes('agence=') ? '1,2,3#3' : '#0' });
     if (u === `${URL_MES_AFFAIRES}?agence=macj`) return ok(agenceMacj());
     if (u.startsWith(`${URL_MES_AFFAIRES}?agence=`)) return ok({ ...agenceMacj(), agence: { cle: u.split('=')[1], societe: null } });
-    if (u.startsWith(URL_MES_AFFAIRES)) return ok(perso(admin));
+    if (u.startsWith(URL_MES_AFFAIRES)) return ok(persoD27 ?? perso(admin));
     return { ok: false, status: 500, json: async () => ({}) };
   }) as unknown as typeof fetch;
 });
@@ -119,5 +120,51 @@ describe('🔴 le mode agence', () => {
     await cliquer('[data-espace="moi"]');
     expect(texte('[data-onglet-mon-espace="apporteurs"]')).toBe('Mes apporteurs');
     expect(container.querySelector('[data-note-ca]')).toBeNull(); // décision 10
+  });
+});
+
+describe('🔴 D27 / D28 (Arno, 03/11/2026) — l’onglet « Compromis » : 4 cartes, « Par apporteur — compromis en cours » ; « Mois » : ventes actées', () => {
+  const C = (htC: number, ttcC: number) => ({ htC, ttcC });
+  it('« Mon espace » : les cartes = ce que le serveur a calculé (volume − reversé = ma part nette) ; le tableau sous la liste, total = « dont apporteurs »', async () => {
+    const v = (id: number, ca: number, coll: number, app: number, nom: string | null) => ({ ...vente(id, { statut: 'compromis', mois: null, dateCompromis: '2026-10-01', honorairesTtc: ca * 1.2 / 100 }),
+      mesCotes: ['entree'], commissionsRetirees: false, maPart: { ca: C(ca - coll - app, (ca - coll - app) * 1.2), net: C(ca - coll - app, (ca - coll - app) * 1.2) },
+      verse: { ca: C(ca, ca * 1.2), collegues: C(coll, coll * 1.2), negociateurs: C(0, 0), apporteurs: C(app, app * 1.2), parApporteur: nom === null ? [] : [{ nom, m: C(app, app * 1.2) }] } });
+    const ventes = [v(37, 625000, 270833, 83333, 'Gardien Dacquet'), v(209, 750000, 0, 0, null)];
+    persoD27 = { ...perso(true), ventes, compteurs: { ...perso(true).compteurs, compromis: { nb: 2, ids: [37, 209], ca: C(1020834, 1225001) } } };
+    await ouvrir();
+    await cliquer('[data-vue="compromis"]');
+    expect(texte('[data-valeur-compromis="volume"]')).toBe('13 750 €');
+    expect(texte('[data-valeur-compromis="nombre"]')).toBe('2');
+    expect(texte('[data-valeur-compromis="reverse"]')).toBe('3 541,66 €');
+    expect(texte('[data-dont="collegues"]')).toBe('dont collègues 2 708,33 €');
+    expect(texte('[data-dont="negociateurs"]')).toBe('dont négociateurs 0 €');
+    expect(texte('[data-dont="apporteurs"]')).toBe('dont apporteurs 833,33 €');
+    expect(texte('[data-valeur-compromis="net"]')).toBe('10 208,34 €');
+    expect(texte('[data-bloc="apporteurs-compromis"] h3')).toBe('Par apporteur d’affaires — compromis en cours');
+    expect(texte('[data-bloc="apporteurs-compromis"] [data-apporteur="Gardien Dacquet"] td')).toBe('1');
+    expect(texte('[data-bloc="apporteurs-compromis"] [data-total-verse]')).toBe('833,33 € HT');
+    // l'ordre : les cartes, puis la liste, puis le tableau
+    const ordre = [...container.querySelectorAll('[data-cartes-compromis], [data-ma-vente], [data-bloc="apporteurs-compromis"]')].map((e) => e.getAttribute('data-bloc') ?? (e.hasAttribute('data-cartes-compromis') ? 'cartes' : 'carte'));
+    expect(ordre).toEqual(['cartes', 'carte', 'carte', 'apporteurs-compromis']);
+  });
+  it('mode agence (MACJ) : volume et nombre = Suivi CA ; volume − reversé = la somme des « reste » ; le filtre « Négociateur » suit la liste', async () => {
+    await ouvrir();
+    await cliquer('[data-espace="macj"]');
+    expect(container.querySelector('[data-cartes-compromis="agence"]')).not.toBeNull();
+    expect(texte('[data-valeur-compromis="volume"]')).toBe('12 500 €');
+    expect(texte('[data-valeur-compromis="nombre"]')).toBe('2');
+    const reste = [...container.querySelectorAll('[data-nego-reste]')].reduce((t, e) => t + Number((e.textContent ?? '').replace(/[^0-9,]/g, '').replace(',', '.')), 0);
+    expect(texte('[data-valeur-compromis="net"]')).toBe(`${reste.toLocaleString('fr-FR').replace(/\u202f/g, ' ')} €`.replace(/\s/g, ' '));
+    await choisir('[data-filtre-negociateur]', 'Cédric MARTIN');
+    expect(texte('[data-valeur-compromis="nombre"]')).toBe('1');
+    expect(texte('[data-valeur-compromis="volume"]')).toBe('7 500 €');
+    expect(texte('[data-bloc="apporteurs-compromis"] [data-apporteurs-vide]')).toBe('Aucune commission d’apporteur sur les compromis en cours.');
+  });
+  it('« Mois » : « Par apporteur d’affaires — … — ventes actées »', async () => {
+    await ouvrir();
+    await cliquer('[data-espace="macj"]');
+    await cliquer('[data-vue="mois"]');
+    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — année 2026 — ventes actées');
+    expect(container.querySelector('[data-bloc="apporteurs-compromis"]')).toBeNull();
   });
 });

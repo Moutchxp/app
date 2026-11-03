@@ -15,7 +15,9 @@ import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
 import { AccueilMonEspace } from './AccueilMonEspace';
 import { AnneesMonEspace } from './AnneesMonEspace';
-import { CSS_LISTE_PERIODE } from './ListeAffairesPeriode';
+import { CSS_LISTE_PERIODE, TableauParApporteur } from './ListeAffairesPeriode';
+import { CartesCompromis, CSS_CARTES_COMPROMIS } from './CartesCompromis';
+import { affairesCompromisAgence, affairesCompromisPerso, cartesCompromis, tableauApporteursCompromis } from '../../../../lib/mon-espace/compromisCartes';
 import { CoutsMonEspace } from './CoutsMonEspace';
 import { ongletCoutsVisible, URL_COUTS } from '../../../../lib/mon-espace/couts';
 import { OngletsVues, useLigneDesAnnees, useLigneDesMois, vueInitiale } from '../transaction/EcransTransaction';
@@ -300,6 +302,10 @@ export function MesCompteurs() {
     const l = document.querySelector('[data-liste-periode]');
     if (l !== null && typeof (l as HTMLElement).scrollIntoView === 'function') (l as HTMLElement).scrollIntoView({ block: 'start' });
   };
+  // 🔴 D27 / D28 — les compromis affichés (filtre « Négociateur » compris) : « Mon espace », ce que le serveur a calculé sur chaque vente entière ;
+  // mode agence, la carte de la structure (les rétrocessions et le statut des négociateurs de sa page du Suivi CA).
+  const affairesEnTete = agence === null ? affairesCompromisPerso(compromis)
+    : affairesCompromisAgence(compromis, agence.societe, { retros: data.retrocessions ?? [], statutDuLibelle: resolveurDe(data.statutsNegociateurs) });
   const personnel = (v: VenteMonEspace): VuePersonnelle => (agence !== null ? TOUT_VOIR : { mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
   const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
   // 🔴 « Les coûts » (Arno, 03/11/2026) — décision C1 : les associés ; décision C2 : en mode agence (« Voir »), jamais dans la vue perso
@@ -329,7 +335,7 @@ export function MesCompteurs() {
     <ContexteNouvelApporteur.Provider value={facon}>
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value={agence === null || agence.cle === 'tous'}>
     <div className="mes-compteurs-bloc" data-espace-vu={espace}>
-      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_LISTE_PERIODE}</style>
+      <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_LISTE_PERIODE}{CSS_CARTES_COMPROMIS}</style>
       {/* L'accueil : « Voir … » à gauche (administrateurs), « + Nouveau compromis » à droite, sur la même ligne (au téléphone : dessous, à droite). */}
       <div className="mes-ligne-espace" data-ligne-espace>
         {selecteur}
@@ -383,9 +389,12 @@ export function MesCompteurs() {
                   {TRIS_LISTE.map((t) => <option key={t} value={t}>{LIBELLE_TRI_LISTE[t]}</option>)}</select></label>
             </div>
           )}
+          {/* 🔴 D27 (Arno, 03/11/2026) — 4 cartes en tête, sur les compromis affichés dans la liste ; 🔴 D28 — sous la liste, leurs apporteurs. */}
+          <CartesCompromis c={cartesCompromis(affairesEnTete)} agence={agence !== null} />
           {compromis.length === 0
             ? <p className="loc-muet mes-vide" data-liste-vide="compromis">{nomAgence === null ? 'Aucun compromis en cours à votre nom.' : libellesFiltre === null ? `Aucun compromis en cours pour ${nomAgence}.` : 'Aucun compromis en cours pour ce négociateur.'}</p>
             : <div className="trx-cartes mes-cartes">{compromis.map((v) => carte(v, 'compromis'))}</div>}
+          <TableauParApporteur lignes={tableauApporteursCompromis(affairesEnTete)} libelle={null} agence={agence !== null} sorte="compromis" />
           </>
         )}
       </div>

@@ -241,9 +241,19 @@ const uniques = <V extends { id: number }>(vs: V[]): V[] => vs.filter((v, i) => 
 /** La rétrocession ou la vente (année, mois ; null : « mois à confirmer ») est-elle dans la sélection ? PUR. */
 export const dansPeriode = (p: PeriodeListe, annee: number, mois: number | null): boolean =>
   p.annees.some((x) => x.annee === annee && (mois === null ? x.aConfirmer : x.moisVendus.includes(mois)));
+/**
+ * 🔴 D28 (Arno, 03/11/2026) — les tableaux « Par apporteur » de « Mois » et « Année(s) » ne résument QUE des ventes actées : une rétrocession
+ * rattachée à une affaire qui n'est pas signée (un compromis en cours, une affaire annulée) en sort — les compromis ont leur tableau dans l'onglet
+ * « Compromis ». Les rétrocessions « à répartir » (sans affaire) restent, comme avant. PUR.
+ */
+export function surVenteActee(r: Pick<Retrocession, 'venteId'>, toutes: readonly Pick<Vente, 'id' | 'statut'>[]): boolean {
+  if (r.venteId === null) return true;
+  const statut = toutes.find((v) => v.id === r.venteId)?.statut;
+  return statut !== 'compromis' && statut !== 'annulee';
+}
 export function apporteursPeriode(retros: readonly Retrocession[], vendus: readonly Vente[], toutes: readonly Vente[], p: PeriodeListe): LigneApporteur[] {
   const ids = new Set(vendus.map((v) => v.id));
-  const saisies = retros.filter((r) => dansPeriode(p, r.annee, r.mois));
+  const saisies = retros.filter((r) => dansPeriode(p, r.annee, r.mois) && surVenteActee(r, toutes));
   const liees = retros.filter((r) => r.venteId !== null && ids.has(r.venteId) && !saisies.some((x) => x.id === r.id));
   return parApporteur([...saisies, ...liees], toutes);
 }

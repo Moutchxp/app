@@ -100,7 +100,10 @@ export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique'
   derniereModification?: { auteurId: number | null; prenom: string | null; libelle: string } | null;
   /** 🔴 La liste sous le graphique (Arno, 02/11/2026) — MA PART de cette affaire, calculée par le serveur sur la vente ENTIÈRE (`monCa`, `monCaNet` :
    *  les fonctions de « Mon CA ») : la somme de la liste = les cartes, au centime. Absente : le mode agence (la carte de la structure). */
-  maPart?: { ca: MontantC; net: MontantC } };
+  maPart?: { ca: MontantC; net: MontantC };
+  /** 🔴 D27 (Arno, 03/11/2026) — un de MES compromis en cours : ce qu'il verse à d'autres (collègues, négociateurs, apporteurs) et son volume, calculés
+   *  par le serveur sur la vente ENTIÈRE (`verseAffairePerso`) : seuls ces totaux partent, jamais la commission d'un autre. Absent : le mode agence. */
+  verse?: import('./compromisCartes').VerseAffaire };
 
 /** La réponse de /api/admin/mon-espace/affaires. */
 export interface MesAffaires {

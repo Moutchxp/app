@@ -350,3 +350,42 @@ part) et 7 (un négociateur par côté). Aucune question ouverte.
 - Aucune migration : tous les champs existent (406, 407, 414, 419-422).
 - Le formulaire « Nouvel apporteur » de la Transaction (choix de l'apporteur d'un compromis) et la fiche de la Location : inchangés.
 - Captures avant / après (1 440 × 900 et 390 px, clair et sombre ; modifier, « à rattacher », création) : `.captures/fiche-apporteur-fenetre/`.
+
+## 🔴 D27 / D28 (Arno, 03/11/2026) — Onglet « Compromis » : 4 cartes en tête, apporteurs des compromis en cours ; « Mois » / « Année(s) » : ventes actées
+
+**D27 — 4 cartes en tête de l'onglet « Compromis »** (les tuiles grises de « Mois » / « Année(s) », mêmes classes ; deux colonnes au téléphone),
+sur les compromis en cours AFFICHÉS dans la liste, à la date du jour (aucune période), HT / TTC selon le sélecteur, relues avec la liste (empreinte, 15 s) :
+1. « Volume d'affaires » : la commission des affaires, ENTIÈRES (la somme des cartes, `resultatDesCartes`) ;
+2. « Compromis en cours » : leur nombre (= les lignes de la liste) ;
+3. « Reversé » : ce qui part à d'autres, avec « dont collègues · dont négociateurs · dont apporteurs » :
+   - collègues : le côté tenu par un autre collaborateur, la part d'un co-négociateur (MARMONIER), le côté de l'autre structure en inter-cabinet
+     (HEIDIDON, sortie MACJ), les agences extérieures ;
+   - négociateurs : les commissions déduites des lignes (🔴 **réponse A d'Arno** à l'écart constaté : sans elles, la carte 4 ne tombait pas sur la
+     somme des « reste » en FUSION et MACJ — 11 166,67 € HT, les commissions de Pierre Thevenin sur FABARRO et HEIDIDON) ;
+   - apporteurs : l'apporteur de la répartition et les rétrocessions rattachées ;
+4. « Chiffre d'affaires net » = 1 − 3 = la somme des « reste » (mode agence), au centime ; « Mon espace » : MA PART NETTE (`maPart.net`, sans ma propre
+   commission — inchangé : 17 291,68 € HT pour Arno au 03/11/2026).
+- Une seule comptabilité (`compromisCartes.ts`) : chaque terme de la carte 3 est calculé pour lui-même par les fonctions des cartes d'affaire
+  (`lignesCarteAffaire`, `espaceNegociateurs`, `resultatDesCartes`) ; l'égalité 1 − 3 = 4 est un CONTRÔLE des épreuves, jamais forcée.
+- Mode agence (CRITERIMMO / MACJ / FUSION) : la structure ; 1 = ses compromis en cours (= Suivi CA au centime) ; 3 = ce qui sort de la structure
+  (apporteurs, agences extérieures, côté de l'autre structure en inter-cabinet, commissions des négociateurs) ; en FUSION l'inter-cabinet entre nos
+  deux sociétés n'est pas reversé. Le filtre « Négociateur » s'applique aux cartes comme à la liste.
+- Confidentialité (décision 2) : en « Mon espace », le serveur calcule sur la vente ENTIÈRE et n'envoie, par affaire, que ses totaux (`verse` : volume,
+  collègues, négociateurs, apporteurs et le détail par apporteur) — « dont collègues » est la part d'honoraires du côté de l'autre (déjà sur la ligne),
+  jamais sa commission ; « dont négociateurs » est ma propre commission.
+- Mesuré au 03/11/2026 (HT) : Arno 28 750,00 · 4 · 11 458,32 (9 791,66 · 0 · 1 666,66) · 17 291,68 ; FUSION 99 133,33 · 10 · 12 833,33
+  (0 · 11 166,67 · 1 666,66) · 86 300,00 ; CRITERIMMO 73 300,00 · 8 · 2 916,66 · 70 383,34 ; MACJ 27 083,33 · 3 · 11 166,67 · 15 916,66.
+- À savoir : sur MARMONIER (ligne importée commune « CEDRIC, ARNAUD »), le « reste » affiché est celui de l'affaire entière ; en « Mon espace », la
+  carte 4 se compare donc à « ma part nette », pas à ce « reste ».
+
+**D28 — « Par apporteur d'affaires »** (le même composant, `TableauParApporteur`, avec un total en bas) :
+- onglet « Compromis » : sous la liste, « Par apporteur d'affaires — compromis en cours » : Apporteur | Compromis | Honoraires des compromis apportés |
+  Commissions à verser ; seulement les compromis affichés ; total « Commissions à verser » = « dont apporteurs » de la carte 3, au centime ;
+- « Mois » et « Année(s) » : « … — ventes actées » : une rétrocession rattachée à une affaire non signée (compromis en cours, affaire annulée) n'y
+  figure plus (`surVenteActee`) ; les rétrocessions « à répartir » (sans affaire) restent, comme avant. Les compromis restent visibles dans
+  l'onglet « Compromis ». (Au 03/11/2026, aucune rétrocession n'est rattachée à un compromis : rien ne change à l'écran.)
+- Suivi CA : son bloc « Apporteurs de l'année » est un AUTRE composant ; il suit le mode choisi (« Vendu », « Compromis », « Vendu + compromis ») :
+  il mêle compromis et ventes actées seulement quand on le demande (« Vendu + compromis »). Non modifié — signalé à Arno.
+- « Apporteur non nommé » : 50 affaires actées (87 505,00 € TTC de rétrocessions sans nom) et 83 rétrocessions « à répartir » ; liste remise à Arno
+  (`.captures/compromis-cartes-apporteurs/apporteur-non-nomme.md`) ; aucune donnée modifiée.
+- Aucune migration, aucune écriture en base. Captures (1 440 × 900 et 390 px, clair et sombre ; perso et FUSION) : `.captures/compromis-cartes-apporteurs/`.

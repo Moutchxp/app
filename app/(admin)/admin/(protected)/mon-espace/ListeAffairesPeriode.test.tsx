@@ -99,7 +99,7 @@ describe('🔴 la liste sous le graphique', () => {
     const apporteurs = container.querySelector('[data-bloc="mes-apporteurs"]')!;
     expect(apporteurs).not.toBeNull();
     expect(liste.compareDocumentPosition(apporteurs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — année 2026');
+    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — année 2026 — ventes actées'); // 🔴 D28 — le titre le dit
     expect(container.querySelector('[data-bloc="negociateurs-periode-mon-espace"]')).toBeNull();
   });
 });
@@ -109,7 +109,7 @@ describe('🔴 D21 — « Apporteurs d’affaires » suit exactement la période
   it('« Année(s) » : une année (2026), une période (2025 + 2026), Tout', async () => {
     await ouvrir('annee');
     expect(apporteurs()).toEqual(['DEBLOIS']);
-    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — 2026');
+    expect(texte('[data-bloc="mes-apporteurs"] h3')).toBe('Par apporteur d’affaires — 2026 — ventes actées');
     await cliquer('[data-onglet-annee="2025"]');
     expect(apporteurs()).toEqual(['ANCIEN', 'AVRIL']);
     await cliquer('[data-decouper-annees="periode"]');

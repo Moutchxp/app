@@ -7,6 +7,7 @@ import { resolveurDe } from '../transaction/statutLigne';
 import type { MontantC } from '../transaction/partAgence';
 import type { CompteursMonEspace } from './mesAffaires';
 import { moisDuChoix, type ChoixStats, type StatsMonEspace } from './statistiques';
+import { surVenteActee } from './accueil';
 
 /**
  * ══ 🔴 MON ESPACE, LOT 10 (Arno, 02/11/2026) — LE MODE AGENCE (ADMINISTRATEURS) : UNE STRUCTURE ENTIÈRE, LES CHIFFRES DU SUIVI CA (PUR) ═══════════
@@ -73,7 +74,8 @@ export const negociateursAgence = (d: DonneesAgence, c: ChoixStats, aujourdhui: 
 /** Par apporteur, sur le choix : `parApporteur` sur les rétrocessions saisies sur la période et celles liées aux ventes du choix (le bloc de « L'année »). PUR. */
 export function apporteursAgence(d: DonneesAgence, c: ChoixStats, aujourdhui: string): LigneApporteur[] {
   const ids = new Set(ventesDuChoix(d, c, aujourdhui).map((v) => v.id));
-  const saisies = retrosDuChoix(d, c, aujourdhui);
+  // 🔴 D28 — les ventes actées seulement (`surVenteActee`)
+  const saisies = retrosDuChoix(d, c, aujourdhui).filter((r) => surVenteActee(r, d.ventes));
   const liees = d.retrocessions.filter((r) => r.venteId !== null && ids.has(r.venteId) && !saisies.some((x) => x.id === r.id));
   return parApporteur([...saisies, ...liees], d.ventes);
 }

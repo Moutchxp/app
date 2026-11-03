@@ -8,6 +8,7 @@ import { mesVentesActees, statistiquesMonEspace } from './statistiques';
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import type { Vente } from '../transaction/modele';
 import { resolveurDe } from '../transaction/statutLigne';
+import { verseAffairePerso } from './compromisCartes';
 import { compteursMonEspace, empreinteDe, estAMoi, libellesDeVente, mesCotes, monCa, monCaNet, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
 
 const VIDE = (aujourdhui: string): CompteursMonEspace => ({ compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } },
@@ -77,6 +78,8 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
   const optsNet = { retros: toutesRetros, statutDuLibelle: resolveurDe(statutsTous) };
   const entieres = new Map(toutes.map((v) => [v.id, v]));
   for (const v of ventes) if (v.mesCotes.length > 0) { const e = entieres.get(v.id) ?? v; v.maPart = { ca: monCa([e], moi), net: monCaNet([e], moi, optsNet) }; }
+  // 🔴 D27 — les 4 cartes de l'onglet « Compromis » : ce que chacun de MES compromis en cours verse à d'autres, sur la vente ENTIÈRE (mêmes options).
+  for (const v of ventes) if (v.mesCotes.length > 0 && v.statut === 'compromis') v.verse = verseAffairePerso(entieres.get(v.id) ?? v, moi, optsNet);
   const mesIds = new Set(mesVentesActees(toutes, moi).map((v) => v.id));
   const retrocessions = toutesRetros.filter((r) => (r.venteId !== null && mesIds.has(r.venteId)) || (r.venteId === null && moi.libelles.has(r.negociateur)));
   return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs, statistiques, retrocessions };
