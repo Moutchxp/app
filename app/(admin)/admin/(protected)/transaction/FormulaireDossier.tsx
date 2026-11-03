@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
 import { BlocRepartition, commissionsResolues, texteDansUnite, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { ESPACE, eur, grouperSaisie, MOT_UNITE, posterTransactionDonnee, SelecteurAffichage, useAffichage } from './commun';
@@ -185,47 +185,59 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   const avecMandat = references.mandat === true;
   const mandatObligatoire = avecMandat && vente === null && statut === 'compromis';
   const titre = vente === null ? `Nouveau compromis — ${LIBELLE_SOCIETE[societe]}` : `${statut === 'compromis' ? 'Compromis' : 'Vente'} — ${vente.libelle}`;
+  // 🔴 D30 (Arno, 03/11/2026) — chaque personne dans sa carte numérotée (« Vendeur 1 »), le bloc lui-même titré et encadré
   const blocPersonnes = (role: PersonneEcran['role'], mot: string) => (
-    <BlocPersonnes role={role} mot={mot} personnes={personnes} onChange={setPersonnes} annuaire={references.personnes} avecType={references.personneType === true} focus={focus} />
+    <BlocPersonnes role={role} mot={mot} personnes={personnes} onChange={setPersonnes} annuaire={references.personnes} avecType={references.personneType === true} focus={focus}
+      cartes bloc={role === 'vendeur' ? 'vendeurs' : 'acquereurs'} />
+  );
+  /** 🔴 D30 — un bloc du formulaire : encadré, titré, sa grille (libellé au-dessus du champ ; 4 colonnes → 2 → 1 selon la largeur). */
+  const bloc = (cle: string, titreBloc: string, contenu: ReactNode) => (
+    <section className="trx-form-bloc" data-bloc-dossier={cle} aria-label={titreBloc}><h4 className="trx-form-bloc-titre">{titreBloc}</h4>{contenu}</section>
   );
   return (
     <div className="tdb-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
-      <div className="tdb-fenetre" role="dialog" aria-modal="true" aria-label={titre} data-formulaire-dossier={vente?.id ?? 'nouveau'}>
-        <header className="tdb-fenetre-tete"><h3>{titre}</h3><button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
-        <div className="tdb-fenetre-corps">
-          <style>{CSS_CHAMP_ADRESSE}</style>
-          {!references.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Disponible après la mise à jour de la base (migration 434) : rien ne s’enregistre encore.</p>}
-          {message !== undefined && <p className="loc-alerte loc-alerte--orange" role="status" data-message-revoir>{message}</p>}
+      <div className="tdb-fenetre trx-fenetre-dossier" role="dialog" aria-modal="true" aria-label={titre} data-formulaire-dossier={vente?.id ?? 'nouveau'}>
+        {/* 🔴 D30 — l'en-tête reste en haut (hors de la zone qui défile) : le titre, « Montants en HT | TTC » (déplacé ici, demande d'Arno), fermer */}
+        <header className="tdb-fenetre-tete trx-dossier-tete"><h3>{titre}</h3>
           {/* 🔴 LOT AN — le sélecteur « HT | TTC » du bloc, synchronisé : il décide des montants affichés ET des champs de montant. */}
           <div className="trx-form-affichage" data-affichage-formulaire><span className="loc-muet">Montants en</span><SelecteurAffichage /></div>
-          <form className="trx-form" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
+          <button type="button" className="tdb-x" aria-label="Fermer" onClick={onFermer}>×</button></header>
+        <div className="tdb-fenetre-corps">
+          <style>{CSS_CHAMP_ADRESSE}{CSS_FORMULAIRE_DOSSIER}</style>
+          {!references.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Disponible après la mise à jour de la base (migration 434) : rien ne s’enregistre encore.</p>}
+          {message !== undefined && <p className="loc-alerte loc-alerte--orange" role="status" data-message-revoir>{message}</p>}
+          <form className="trx-form trx-form-dossier" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
-            <label className="trx-plein" data-champ-mandat>N° de mandat{mandatObligatoire ? ' (obligatoire)' : avecMandat ? ' (facultatif pour une fiche existante)' : ''}
+            {bloc('mandat', 'Mandat', <label className="trx-champ-large" data-champ-mandat>N° de mandat{mandatObligatoire ? ' (obligatoire)' : avecMandat ? ' (facultatif pour une fiche existante)' : ''}
               {avecMandat
                 ? <><input value={champs.numeroMandat} onChange={champ('numeroMandat')} required={mandatObligatoire} maxLength={LONGUEUR_MAX_MANDAT} autoComplete="off" data-champ="numero-mandat"
                   readOnly={mandatFixe !== undefined} aria-readonly={mandatFixe !== undefined} />
                   {mandatFixe !== undefined && <span className="loc-muet" data-mandat-fixe>Vérifié : libre dans cette structure (non modifiable à cette étape).</span>}</>
-                : <span className="loc-muet" data-mandat-indisponible>Disponible après la mise à jour de la base (migration 449).</span>}</label>
+                : <span className="loc-muet" data-mandat-indisponible>Disponible après la mise à jour de la base (migration 449).</span>}</label>)}
             {blocPersonnes('vendeur', 'Vendeur(s)')}
             {blocPersonnes('acquereur', 'Acquéreur(s)')}
-            <label className="trx-plein" data-champ-adresse-bien>Adresse du bien
+            {bloc('bien', 'Bien', <label className="trx-plein" data-champ-adresse-bien>Adresse du bien
               <ChampAdresseBan id="trx-adresse-bien" valeur={champs.adresseBien} verifiee={adresseVerifiee} exemple="ex. 12 rue de la République, 92800 Puteaux"
                 onChange={(x) => { setAdresseVerifiee(false); setChamps((c) => ({ ...c, adresseBien: x })); }}
-                onChoisir={(a) => { setAdresseVerifiee(true); setChamps((c) => ({ ...c, adresseBien: [a.voie, [a.codePostal, a.commune].filter((y) => y !== '').join(' ')].filter((y) => y !== '').join(', ') })); }} /></label>
+                onChoisir={(a) => { setAdresseVerifiee(true); setChamps((c) => ({ ...c, adresseBien: [a.voie, [a.codePostal, a.commune].filter((y) => y !== '').join(' ')].filter((y) => y !== '').join(', ') })); }} /></label>)}
+            {bloc('dates', 'Dates', <>
             <label>Date du compromis<input type="date" value={champs.dateCompromis} onChange={champ('dateCompromis')} data-champ="date-compromis" /></label>
             <label>Date prévue de l’acte<input type="date" value={champs.dateActePrevue} onChange={champ('dateActePrevue')} data-champ="date-acte-prevue" /></label>
             {statut === 'vendue' && <label>Date de l’acte (le mois du CA)<input type="date" value={champs.dateActe} onChange={champ('dateActe')} required data-champ="date-acte" /></label>}
-            <label>Prix de vente (€)
+            </>)}
+            {bloc('honoraires', 'Prix et honoraires', <>
+            <label className="trx-champ-large">Prix de vente (€)
               <input value={forme('prixVente', champs.prixVente)} onChange={champ('prixVente')} onFocus={() => setEnSaisie('prixVente')} onBlur={() => setEnSaisie(null)} inputMode="decimal" disabled={references.prixVente !== true} data-champ="prix-vente" />
               {references.prixVente !== true && <span className="loc-muet">Disponible après la mise à jour de la base (migration 435).</span>}
               {/* LOT J — le taux de commission, recalculé à chaque frappe du prix ou de la commission. */}
               {references.prixVente === true && <span className="loc-muet" data-taux-direct>{taux === null ? `Taux d’honoraires : ${TAUX_SANS_PRIX}` : `soit ${libelleTaux(taux).replace(' de vente', '')}`}</span>}</label>
-            <label>Commission {MOT_UNITE[unite]}
+            <label className="trx-champ-large">Commission {MOT_UNITE[unite]}
               <input value={forme('commission', commissionAffichee)} onChange={(e) => saisirCommission(e.target.value)} onFocus={() => setEnSaisie('commission')} onBlur={() => setEnSaisie(null)} inputMode="decimal" required data-champ="commission" />
               <span className="loc-muet" data-equivalent-commission>{!Number.isFinite(commission) ? (unite === 'ttc' ? 'HT = TTC ÷ 1,2' : 'TTC = HT × 1,2')
                 : unite === 'ttc' ? `soit ${eur(ht(commission))}${ESPACE}HT` : `soit ${eur(commission)}${ESPACE}TTC`}</span></label>
-            <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>
-            <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
+            </>)}
+            {bloc('libelle', 'Libellé', <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>)}
+            {bloc('repartition', 'Négociateurs, structures et apporteur', <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
               commissionsMasquees={commissionsMasquees}
               societeVente={vente?.societe ?? societe}
               // 🔴 LOT BH (Arno) — une affaire déjà créée : le même composant que les Informations communes ; ici le geste change le formulaire,
@@ -235,12 +247,13 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
                 actuel={{ id: repartition.apporteurId, nom: repartition.apporteurId === null ? repartition.apporteurNom ?? null : references.apporteurs.find((a) => a.id === repartition.apporteurId)?.nom ?? null,
                   montant: (() => { const x = nombre(repartition.retroTexte); return x === null || x === 0 ? null : { montant: x, unite: repartition.retroUnite ?? 'ttc' }; })() }}
                 onValider={(c) => { setRepartition({ ...repartition, apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false }); return null; }}
-                onRetirer={() => { setRepartition({ ...repartition, apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true }); return null; }} />} />
-            <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>
+                onRetirer={() => { setRepartition({ ...repartition, apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true }); return null; }} />} />)}
+            {bloc('notes', 'Notes', <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>)}
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}
-            <div className="trx-plein trx-actions">
+            {/* 🔴 D30 — le pied reste en bas de la fenêtre pendant le défilement : « Enregistrer », « Annuler » (le même geste que l'ancien « Fermer ») */}
+            <div className="trx-plein trx-actions trx-dossier-pied" data-pied-dossier>
               <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD || somme.motif !== null || manqueSociete !== null} data-enregistrer-dossier>Enregistrer</button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-annuler-dossier>Annuler</button>
               {somme.motif !== null && <span className="trx-explication" data-enregistrer-bloque>Enregistrer est désactivé : la répartition doit faire exactement 100 %.</span>}
               {somme.motif === null && manqueSociete !== null && <span className="trx-explication" data-enregistrer-bloque-societe>Enregistrer est désactivé : {manqueSociete}</span>}
             </div>
@@ -252,3 +265,41 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
     </div>
   );
 }
+
+/**
+ * 🔴 D30 (Arno, 03/11/2026) — LA MISE EN PAGE DU FORMULAIRE DE LA VENTE (le même dans le Suivi CA et dans Mon espace) : des blocs encadrés et titrés,
+ * séparés nettement ; dans chacun, une grille régulière (libellé au-dessus du champ) — 4 colonnes sur ordinateur, 2 au milieu, 1 au téléphone ;
+ * l'adresse et le libellé sur toute la largeur ; chaque personne dans sa carte ; le pied (« Enregistrer », « Annuler ») collé au bas de la fenêtre.
+ * Jetons de couleur de la charte seulement (Clair et Sombre).
+ */
+export const CSS_FORMULAIRE_DOSSIER = `
+.trx-fenetre-dossier{width:min(1080px,100%)}
+.trx-dossier-tete{flex-wrap:wrap}
+.trx-dossier-tete h3{flex:1 1 auto;margin:0}
+.trx-dossier-tete .trx-form-affichage{flex:0 0 auto;margin:0}
+.trx-form-dossier{display:flex;flex-direction:column;gap:16px;container-type:inline-size;container-name:trx-dossier}
+.trx-form-dossier > *{min-width:0}
+.trx-form-bloc{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 14px;align-items:start;margin:0;padding:12px 14px 14px;border:1px solid var(--color-svv-line-strong);border-radius:14px;background:var(--color-svv-surface)}
+.trx-form-bloc > .trx-form-bloc-titre,.trx-form-bloc > legend{grid-column:1/-1;margin:0;padding:0;font-size:.95rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-form-dossier .trx-form-bloc > *{grid-column:span 1}
+.trx-form-dossier .trx-form-bloc > .trx-champ-large{grid-column:span 2}
+.trx-form-dossier .trx-form-bloc > .trx-plein,.trx-form-dossier .trx-form-bloc > .trx-form-bloc-titre,.trx-form-dossier .trx-form-bloc > fieldset{grid-column:1/-1}
+/* les blocs des personnes : le fieldset lui-même est le bloc ; sa légende, le titre */
+.trx-form-dossier fieldset.trx-form-bloc{display:flex;flex-direction:column;gap:10px;min-inline-size:0}
+.trx-form-dossier fieldset.trx-form-bloc > legend{float:left;width:100%;margin-bottom:2px}
+.trx-form-dossier fieldset.trx-form-bloc > legend + *{clear:both}
+.trx-form-dossier .trx-carte-personne{border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px;background:var(--color-svv-field)}
+.trx-fiche-tete{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.trx-fiche-titre{font-size:.9rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-fiche-tete .trx-unites{flex:0 0 auto}
+.trx-fiche-tete-actions{margin-left:auto}
+.trx-form-dossier .trx-ajouter-personne{margin:0}
+/* le bloc des négociateurs : sa répartition garde sa propre mise en page (le même composant ailleurs), sans second cadre */
+.trx-form-dossier [data-bloc-dossier="repartition"] > fieldset{border:0;padding:0;margin:0;min-inline-size:0}
+.trx-dossier-pied{position:sticky;bottom:-18px;z-index:2;margin:0 -18px -18px;padding:12px 18px;background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line);align-items:center}
+@container trx-dossier (max-width:760px){ .trx-form-bloc{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@container trx-dossier (max-width:480px){
+  .trx-form-bloc{grid-template-columns:minmax(0,1fr);padding:10px}
+  .trx-form-dossier .trx-form-bloc > .trx-champ-large{grid-column:1/-1}
+}
+`;

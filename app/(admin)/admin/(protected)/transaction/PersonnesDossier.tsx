@@ -83,22 +83,31 @@ function ChampsParticulier({ cle, v, onChange, onNom, avecType, autoFocus }: {
 /**
  * 🔴 LOT BJ — LE BLOC « Vendeur(s) » / « Acquéreur(s) » du formulaire. `avecType` faux (sans la 443) : l'ancien bloc (nom et coordonnées).
  */
-export function BlocPersonnes({ role, mot, personnes, onChange, annuaire, avecType, focus }: {
+export function BlocPersonnes({ role, mot, personnes, onChange, annuaire, avecType, focus, cartes = false, bloc }: {
   role: PersonneEcran['role']; mot: string; personnes: readonly PersonneEcran[]; onChange: (x: PersonneEcran[]) => void; annuaire: readonly PersonneRef[];
   avecType: boolean;
   /** L'indice de la ligne qui prend le focus (une ligne ajoutée depuis la carte, ou la personne visée par « Modifier ») ; null : aucune. */
   focus: number | null;
+  /** 🔴 D30 — chaque personne dans sa carte numérotée (« Vendeur 1 »), Particulier / Société et « Enlever » dans son en-tête ; le bloc titré
+   *  (`bloc` : son repère). Absent : la présentation d'avant. */
+  cartes?: boolean; bloc?: string;
 }) {
+  const mien = (i: number): number => personnes.slice(0, i + 1).filter((x) => x.role === role).length;
+  const enlever = (i: number) => <button type="button" className="trx-bouton-lien" onClick={() => onChange(personnes.filter((_, j) => j !== i))}
+    {...(cartes ? { 'data-enlever-personne': String(i) } : {})}>Enlever</button>;
   return (
-    <fieldset className="trx-plein trx-parts" data-personnes={role}>
-      <legend className="loc-muet">{mot}</legend>
-      {personnes.map((p, i) => p.role !== role ? null : (
+    <fieldset className={cartes ? 'trx-plein trx-parts trx-form-bloc' : 'trx-plein trx-parts'} data-personnes={role} {...(bloc === undefined ? {} : { 'data-bloc-dossier': bloc })}>
+      <legend className={cartes ? 'trx-form-bloc-titre' : 'loc-muet'}>{mot}</legend>
+      {personnes.map((p, i) => p.role !== role ? null : cartes
+        ? <FichePersonne key={i} cle={i} p={p} annuaire={annuaire} avecType={avecType} autoFocus={focus === i} onChange={(x) => onChange(personnes.map((y, j) => (j === i ? x : y)))}
+          titre={`${role === 'vendeur' ? 'Vendeur' : 'Acquéreur'} ${mien(i)}`} actionsTete={enlever(i)} />
+        : (
         <FichePersonne key={i} cle={i} p={p} annuaire={annuaire} avecType={avecType} autoFocus={focus === i}
           onChange={(x) => onChange(personnes.map((y, j) => (j === i ? x : y)))}>
-          <button type="button" className="trx-bouton-lien" onClick={() => onChange(personnes.filter((_, j) => j !== i))}>Enlever</button>
+          {enlever(i)}
         </FichePersonne>
       ))}
-      <p><button type="button" className="trx-bouton-lien" onClick={() => onChange([...personnes, personneVide(role)])} data-ajouter-personne={role}>+ {role === 'vendeur' ? 'Un vendeur' : 'Un acquéreur'}</button></p>
+      <p className={cartes ? 'trx-ajouter-personne' : undefined}><button type="button" className="trx-bouton-lien" onClick={() => onChange([...personnes, personneVide(role)])} data-ajouter-personne={role}>+ {role === 'vendeur' ? 'Un vendeur' : 'Un acquéreur'}</button></p>
     </fieldset>
   );
 }
@@ -116,9 +125,12 @@ function choisirDans(annuaire: readonly PersonneRef[], avecType: boolean, texte:
  * lien avec l'annuaire, la mise en forme du lot BL. La même dans le formulaire complet (`BlocPersonnes`) et dans la fenêtre « Vendeurs — … » /
  * « Acquéreurs — … » (`FenetrePersonnes`) ; `children` : les boutons de la fiche (« Enlever », « Valider »…), à sa fin.
  */
-export function FichePersonne({ cle: i, p, onChange, annuaire, avecType, autoFocus, children }: {
+export function FichePersonne({ cle: i, p, onChange, annuaire, avecType, autoFocus, children, titre, actionsTete }: {
   /** Le repère de la fiche dans les attributs `data-*` (son rang dans la liste). */
   cle: number; p: PersonneEcran; onChange: (x: PersonneEcran) => void; annuaire: readonly PersonneRef[]; avecType: boolean; autoFocus?: boolean; children?: ReactNode;
+  /** 🔴 D30 — la carte numérotée du formulaire de la vente : son titre (« Vendeur 1 ») et, dans l'en-tête, Particulier / Société et ses boutons
+   *  (« Enlever » en haut à droite). Absent (la fenêtre « Vendeurs — … ») : la présentation d'avant, inchangée. */
+  titre?: string; actionsTete?: ReactNode;
 }) {
   const [bascule, setBascule] = useState<{ vers: PersonneEcran['type']; pertes: string[] } | null>(null);
   const changer = (x: Partial<PersonneEcran>): void => onChange({ ...p, ...x });
@@ -130,8 +142,20 @@ export function FichePersonne({ cle: i, p, onChange, annuaire, avecType, autoFoc
     else setBascule({ vers, pertes });
   };
   return (
-    <div className="trx-part trx-fiche" data-personne={i} data-type-personne={p.type}>
-      {avecType && (
+    <div className={titre === undefined ? 'trx-part trx-fiche' : 'trx-part trx-fiche trx-carte-personne'} data-personne={i} data-type-personne={p.type}>
+      {titre !== undefined && (
+        <div className="trx-fiche-tete trx-plein" data-fiche-tete={i}>
+          <strong className="trx-fiche-titre">{titre}</strong>
+          {avecType && <div className="trx-unites" role="group" aria-label="Particulier ou société">
+            {(['particulier', 'societe'] as const).map((t) => (
+              <button key={t} type="button" className="trx-unite" aria-pressed={p.type === t} onClick={() => demanderBascule(t)} data-choix-type={`${i}-${t}`}>
+                {t === 'particulier' ? 'Particulier' : 'Société'}</button>
+            ))}
+          </div>}
+          <span className="trx-fiche-tete-actions">{actionsTete}</span>
+        </div>
+      )}
+      {titre === undefined && avecType && (
         <div className="trx-unites trx-plein" role="group" aria-label="Particulier ou société">
           {(['particulier', 'societe'] as const).map((t) => (
             <button key={t} type="button" className="trx-unite" aria-pressed={p.type === t} onClick={() => demanderBascule(t)} data-choix-type={`${i}-${t}`}>

@@ -445,3 +445,19 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
 - Complément D29 (2) : dans le panneau de répartition, la commission PROPOSÉE d'un négociateur lisait l'apporteur comme un collaborateur (un nom
   de variable masqué dans la boucle des parties) : sa base est désormais les honoraires nets après le coût de l'apporteur externe
   (BASUYEAUX, 10 500 € TTC, apporteur 500 € : (10 500 − 500 − 100) × 50 % = 4 950 € TTC, et non 5 000).
+
+## 🔴 D30 (Arno, 03/11/2026) — Le formulaire de la vente / du compromis (« Vente — <nom> ») : les parties nettement séparées
+
+Le même composant (`FormulaireDossier`) dans le Suivi CA et dans Mon espace ; aucun champ retiré, aucun champ déplacé hors de son ordre réel :
+- des blocs encadrés et titrés, espacés, dans l'ordre réel des champs : Mandat · Vendeur(s) · Acquéreur(s) · Bien · Dates · Prix et honoraires ·
+  Libellé · Négociateurs, structures et apporteur · Notes (l'ordre demandé par Arno différait — « Négociateurs » avant « Dates » — : l'ordre réel
+  est gardé, comme il l'a prévu) ;
+- chaque vendeur / acquéreur dans sa carte numérotée (« Vendeur 1 », « Acquéreur 1 ») : Particulier / Société et « Enlever » dans l'en-tête
+  (« Enlever » en haut à droite) ; « + Un vendeur » / « + Un acquéreur » sous les cartes, sur sa ligne. La fenêtre « Vendeurs — … » de la carte
+  (le même `FichePersonne`) est inchangée ;
+- une grille régulière (libellé au-dessus du champ) : 4 colonnes sur ordinateur, 2 au milieu, 1 au téléphone ; l'adresse et le libellé sur toute
+  la largeur ; la fenêtre élargie à 1 080 px ;
+- l'en-tête reste en haut (titre, « Montants en HT | TTC » — déplacé là —, fermer) ; le pied « Enregistrer » / « Annuler » reste en bas pendant
+  le défilement (« Annuler » : l'ancien « Fermer », même geste).
+- Épreuves : la liste des 52 contrôles du formulaire = celle d'avant (relevée sur la version précédente) ; le corps enregistré est identique, octet
+  pour octet ; 390 px sans débordement, chaque libellé au-dessus de son champ. Captures : `.captures/formulaire-vente-blocs/`.
