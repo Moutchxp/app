@@ -4179,7 +4179,7 @@ describe('🔴 LOT BH — l’apporteur d’une affaire déjà créée : ajouter
   const apporteurs = ref.apporteurs;
   beforeEach(() => {
     ref.uniteCommission = true;
-    ref.apporteurs = [{ id: 4, nom: 'Julien Deblois' }, { id: 16, nom: 'Gardien Dacquet' }];
+    ref.apporteurs = [{ id: 4, nom: 'Julien Deblois', interne: true }, { id: 16, nom: 'Gardien Dacquet' }]; // 🔴 D29 — Julien Deblois : un collaborateur (le calcul d'avant)
     ref.collegues = [{ id: 2, libelle: 'Arnaud Jorel', actif: true }, { id: 5, libelle: 'Jean-Baptiste PONS', actif: true }];
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
   });

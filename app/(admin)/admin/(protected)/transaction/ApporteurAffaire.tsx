@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ListeChoix, type OptionChoix } from '../location/ListeChoix';
 import { NouvelApporteur } from './NouvelApporteur';
-import { ChampMontantUnite, nombre, type ApporteurRef, type MontantEcran } from './Repartition';
-import { montantAffiche, Montants, useAffichage } from './commun';
+import { ChampMontantUnite, MontantSansTva, nombre, type ApporteurRef, type MontantEcran } from './Repartition';
+import { eur, montantAffiche, Montants, useAffichage } from './commun';
 import { enHt, enTtc, type MontantSaisi } from '../../../../lib/transaction/commissions';
 
 /**
@@ -92,12 +92,15 @@ export function ApporteurAffaire({ actuel, annuaire: annuaireBase, collegues, mo
     if (r === null) fermer(); else setMotif(r);
   };
   const nomActuel = actuel.nom ?? (actuel.id === null ? null : annuaire.find((a) => a.id === actuel.id)?.nom ?? null);
-  const montantTexte = actuel.montant === null ? null : montantAffiche(u, enHt(actuel.montant), enTtc(actuel.montant));
+  // 🔴 D29 — un apporteur externe (pas un collaborateur de l'annuaire) : sa commission n'a pas de TVA — un seul montant, « sans TVA »
+  const interne = actuel.id !== null && annuaire.find((a) => a.id === actuel.id)?.interne === true;
+  const montantTexte = actuel.montant === null ? null : interne ? montantAffiche(u, enHt(actuel.montant), enTtc(actuel.montant)) : `${eur(actuel.montant.montant)} sans TVA`;
   return (
     <span className="trx-apporteur-affaire" data-apporteur-affaire>
       {affichage && (present
         ? <span className="trx-apporteur" data-apporteur-affiche><span>{nomActuel ?? 'Apporteur sans nom'}</span>
-          {actuel.montant !== null && <Montants disposition="ligne" sens="verse" ht={enHt(actuel.montant)} ttc={enTtc(actuel.montant)} />}</span>
+          {actuel.montant !== null && (interne ? <Montants disposition="ligne" sens="verse" ht={enHt(actuel.montant)} ttc={enTtc(actuel.montant)} />
+            : <MontantSansTva montant={actuel.montant.montant} donnee="apporteur-affaire" />)}</span>
         : <span className="loc-muet" data-apporteur-affiche>Aucun apporteur</span>)}
       {modifiable && (present ? <>
         <button type="button" className="trx-bouton-lien" onClick={ouvrir} data-modifier-apporteur>Modifier</button>

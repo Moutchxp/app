@@ -642,3 +642,5 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
 - FUSION : Volume 99 133,33 → 99 133,33 · 10 → 10 · 12 833,33 → 13 166,67 (négociateurs 11 166,67, apporteurs 1 666,66 → 2 000,00) · CA net
   86 300,00 → 85 966,66 ; TTC : 103 560,00 → 103 160,00.
 - Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre, HT et TTC ; fiche de TEST TRANSACTION) : `.captures/apporteurs-sans-tva/`.
+- Complément D29 (vu sur les captures de D30) : la ligne « Apporteur d'affaires » des Informations communes et du formulaire « Modifier »
+  (`ApporteurAffaire`) montrait encore « 500 € TTC (416,67 € HT) » pour un externe : désormais « 500 € sans TVA » ; un collaborateur, HT et TTC.
