@@ -611,8 +611,10 @@ export function LigneDesMois({ annee, mois, jour, decoupage, moisChoisis, onMois
 }
 
 /** 🔴 LOT GE1 — LA LIGNE DES ANNÉES et « Année | Période | Tout » (déplacée de `VueAnnee`, à l'identique) : Transaction et Gestion. */
-export function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, onDecoupage }: { annees: readonly number[]; decoupage: DecoupageAnnees; annee: number;
-  choisies: readonly number[]; onAnnee: (a: number) => void; onDecoupage: (x: DecoupageAnnees) => void }) {
+export function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, onDecoupage, uneSeule = false }: { annees: readonly number[]; decoupage: DecoupageAnnees; annee: number;
+  choisies: readonly number[]; onAnnee: (a: number) => void; onDecoupage: (x: DecoupageAnnees) => void;
+  /** 🔴 Mon espace « Les coûts » (Arno, 03/11/2026) — UNE seule année, jamais un mélange : sans « Année | Période | Tout ». Absent : comme avant. */
+  uneSeule?: boolean }) {
   // Arno (01/11/2026) — les années soulignées : `anneesSoulignees`, la réponse unique partagée avec les graphiques « année par année ».
   const soulignees = anneesSoulignees(decoupage, annee, choisies, annees);
   return (
@@ -626,9 +628,9 @@ export function LigneDesAnnees({ annees, decoupage, annee, choisies, onAnnee, on
         {annees.map((a) => <button key={a} type="button" aria-pressed={soulignees.includes(a)} className="tdb-onglet" onClick={() => onAnnee(a)} data-onglet-annee={a}>{a}</button>)}
       </div>
     )}
-    <div className="trx-unites trx-choix-periode" role="group" aria-label="Une année, plusieurs années ou toutes" data-choix-annees={decoupage}>
+    {!uneSeule && <div className="trx-unites trx-choix-periode" role="group" aria-label="Une année, plusieurs années ou toutes" data-choix-annees={decoupage}>
       {DECOUPAGES_ANNEES.map((x) => <button key={x} type="button" className="trx-unite" aria-pressed={decoupage === x} onClick={() => onDecoupage(x)} data-decouper-annees={x}>{LIBELLE_DECOUPAGE_ANNEES[x]}</button>)}
-    </div>
+    </div>}
   </div>
   );
 }
@@ -1692,7 +1694,7 @@ export function BlocAAttribuer({ notes, disponible, onRelire }: { notes: readonl
 
 // ── Le CA global ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null;
+export interface DonneesGlobal { disponible: boolean; aujourdhui: string; ventes: (EntreesGlobal['ventes'][number] & NoteAffichee)[]; gestion: GestionMois[]; location: Record<string, number> | null;
   /** 🔴 LOT CG1 — le CA TTC de la location par mois (centimes, la règle de la page « Suivi CA › Location ») ; absent : une route d'avant. */
   locationTtcC?: Record<string, number> | null;
   /** 🔴 LOT CY — les compromis en cours (la règle unique, calculée par la route avec `totalCompromisEnCours`) : nos deux sociétés et chacune. */
@@ -1998,14 +2000,14 @@ const CSS_BARRE_GLOBAL = `
 @media (max-width:640px){ .trx-bilan{padding:10px 8px 10px} }
 `;
 /** 🔴 LOT CG3 — les années du CA global (vente, gestion, location, et l'année en cours) ; une année « a des données » si l'une des trois en a. PUR. */
-const anneesDuGlobal = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, jour: string): number[] => [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee),
+export const anneesDuGlobal = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location'>, jour: string): number[] => [...new Set([Number(jour.slice(0, 4)), ...d.ventes.map((v) => v.annee),
   ...d.gestion.map((g) => g.annee), ...Object.keys(d.location ?? {}).map((k) => Number(k.slice(0, 4)))])].sort((a, b) => a - b);
 /**
  * 🔴 LOT CG4 — la règle du lot DH : une année n'apparaît sur la ligne des années que si elle a une donnée COMPTÉE — une vente signée (la règle de la vente,
  * `listeDesAnnees` en « Vendu », mois à confirmer compris ; une vente à attribuer), un mois de gestion saisi, un CA de location, une rétrocession. Un
  * compromis n'y suffit pas (ex. 2027, présente par la seule date butoir d'un compromis). L'année montrée et les années cochées restent toujours. PUR.
  */
-const anneeAvecDonnees = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location' | 'retrocessions'>, a: number, jour: string): boolean =>
+export const anneeAvecDonnees = (d: Pick<DonneesGlobal, 'ventes' | 'gestion' | 'location' | 'retrocessions'>, a: number, jour: string): boolean =>
   listeDesAnnees(d.ventes.map((v) => ({ ...v, double: v.double ?? null })) as Vente[], [a], 'vendu', jour).length > 0
   || d.ventes.some((v) => v.statut === 'vendue' && v.annee === a && v.double != null)
   || d.gestion.some((g) => g.annee === a) || Object.entries(d.location ?? {}).some(([k, x]) => k.startsWith(`${a}-`) && x !== 0)

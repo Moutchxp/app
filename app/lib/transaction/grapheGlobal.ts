@@ -3,7 +3,7 @@ import type { Vente } from './modele';
 import { ventesDeLAnnee, ventesDuMois } from './modele';
 import { venteDansSociete } from './interCabinet';
 import { celluleGlobalEn, type EntreesGlobalUnite } from './globalUnite';
-import { coutsGlobaux, coutsVente, type EntreesCoutsGlobaux } from './coutsGlobal';
+import { coutsGlobaux, coutsVente, type CoutsVente, type EntreesCoutsGlobaux } from './coutsGlobal';
 
 /**
  * ══ 🔴 LOT CG9 (Arno) — LE GRAPHIQUE DU CA GLOBAL : LES FILTRES PAR FAMILLE, SUR LES DONNÉES MÊMES DU BILAN (PUR) ════════════════════════════════════
@@ -47,17 +47,26 @@ const plus = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.htC, ttcC
 const moins = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC - b.htC, ttcC: a.ttcC - b.ttcC });
 const cent = (x: number): number => Math.round((x + Math.sign(x) * Number.EPSILON) * 100) || 0;
 
+/**
+ * Les coûts de vente d'UNE société sur un point (mois 1 → 12, ou l'année : mois null) : ses propres ventes (`venteDansSociete` : celles qu'elle porte,
+ * ses lignes miroir), la règle de sa page. CRITERIMMO + MACJ = la page FUSION. 🔴 Mon espace « Les coûts » (03/11/2026) : extraite telle quelle
+ * d'`atomesDuPoint`, pour la lire sans la recopier. PUR.
+ */
+export function coutsVenteDeLaSociete(eC: EntreesCoutsGlobaux, s: StructureGraphe, annee: number, mois: number | null): CoutsVente {
+  const ventes = eC.ventes.map((v) => (v.double === undefined || v.lignes === undefined ? { ...v, double: v.double ?? null, lignes: v.lignes ?? [] } : v)) as Vente[];
+  const duPoint = mois === null ? ventesDeLAnnee(ventes, annee) : ventesDuMois(ventes, annee, mois);
+  // 🔴 (03/11/2026) — les rétrocessions de LA société, comme sa page (`lireRetrocessions(s)`) : une rétrocession CRITERIMMO rattachée à une vente
+  // partagée ne se compte plus aussi sur la ligne miroir de MACJ (CRITERIMMO + MACJ dépassait la FUSION de son montant ; aucun cas en base ce jour)
+  return coutsVente(duPoint.map((v) => venteDansSociete(v, s)).filter((v): v is Vente => v !== null),
+    { retros: eC.retrocessions.filter((r) => r.societe === s), statutDuLibelle: eC.statutDuLibelle }, s);
+}
+
 /** Les atomes d'un point (mois 1 → 12, ou l'année : mois null) : les cellules du Bilan, en HT et en TTC. PUR. */
 export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, annee: number, mois: number | null, avecSalaires: boolean): AtomeGraphe[] {
   const ht = celluleGlobalEn(eG, annee, mois, 'ht'); const ttc = celluleGlobalEn(eG, annee, mois, 'ttc');
   const ca = (k: 'venteCriterimmoHt' | 'venteMacjHt' | 'aAttribuerHt' | 'interCabinetHt' | 'locationHt' | 'gestionHt'): MontantC => ({ htC: cent(ht[k] ?? 0), ttcC: cent(ttc[k] ?? 0) });
   const c = coutsGlobaux(eC, annee, mois, avecSalaires);
-  // la vente de chaque société, sur ses propres ventes (la règle de sa page) : CRITERIMMO + MACJ = la page FUSION
-  const ventes = eC.ventes.map((v) => (v.double === undefined || v.lignes === undefined ? { ...v, double: v.double ?? null, lignes: v.lignes ?? [] } : v)) as Vente[];
-  const duPoint = mois === null ? ventesDeLAnnee(ventes, annee) : ventesDuMois(ventes, annee, mois);
-  const o = { retros: eC.retrocessions, statutDuLibelle: eC.statutDuLibelle };
-  const vente = (s: 'criterimmo' | 'macj') => coutsVente(duPoint.map((v) => venteDansSociete(v, s)).filter((v): v is Vente => v !== null), o, s);
-  const vc = vente('criterimmo'); const vm = vente('macj');
+  const vc = coutsVenteDeLaSociete(eC, 'criterimmo', annee, mois); const vm = coutsVenteDeLaSociete(eC, 'macj', annee, mois);
   const a: AtomeGraphe[] = [
     { structure: 'criterimmo', activite: 'vente', famille: null, m: ca('venteCriterimmoHt') },
     { structure: 'macj', activite: 'vente', famille: null, m: ca('venteMacjHt') },
@@ -135,8 +144,10 @@ export function raisonGrise(f: FiltresGraphe, quoi: { sorte: 'structure'; cle: S
 }
 
 /** Le nombre de filtres actifs (différents du réglage par défaut), pour « Filtres (n actifs) ». PUR. */
-export function nbFiltresActifs(f: FiltresGraphe): number {
-  const d = FILTRES_GRAPHE_DEFAUT; const egal = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
+export function nbFiltresActifs(f: FiltresGraphe,
+  /** 🔴 Mon espace « Les coûts » — le réglage de départ de la page (absent : celui du Suivi CA). */
+  d: FiltresGraphe = FILTRES_GRAPHE_DEFAUT): number {
+  const egal = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
   return [f.mesure !== d.mesure, f.mesure === 'couts' && !egal(f.familles, d.familles), !egal(f.structures, d.structures), !egal(f.activites, d.activites), f.comparer !== d.comparer,
     f.cumul !== d.cumul, f.empile !== d.empile, f.reunies !== d.reunies].filter(Boolean).length;
 }

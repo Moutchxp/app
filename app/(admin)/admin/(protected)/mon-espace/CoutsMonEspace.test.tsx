@@ -1,0 +1,158 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { MesCompteurs, URL_EMPREINTE, URL_MES_AFFAIRES } from './MesCompteurs';
+import { eur } from '../../../../lib/transaction/format';
+import { coutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
+import { coutsDeLAnnee, coutsDuPoint, URL_COUTS } from '../../../../lib/mon-espace/couts';
+import type { Agence } from '../../../../lib/mon-espace/agence';
+import { E_COUTS, GESTION_COUTS, LIGNES_LOCATION_COUTS, RETROS_COUTS, SALAIRES_LOCATION_COUTS, VENTES_COUTS } from '../../../../lib/mon-espace/__fixtures__/couts';
+
+/**
+ * 🔴 « LES COÛTS » (Arno, 03/11/2026, lot C1) — dans le VRAI écran « Mon espace », routes simulées (rien n'est écrit) : l'onglet n'existe qu'en mode
+ * agence et pour un associé ; ses tuiles et son tableau = « Coûts globaux » au centime (HT et TTC) ; l'année choisie pilote toute la page ; MACJ :
+ * vente seulement ; la colonne « Variable négo (calculé) » n'entre dans aucun total ; retour à la vue perso : l'onglet disparaît.
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const JOUR = '2026-11-03';
+const VIDE = { compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } }, actees: { nb: 0, ids: [], annee: 2026, ca: { htC: 0, ttcC: 0 } }, parAnnee: [] };
+const agence = (cle: Agence, associe: boolean) => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 1, prenom: 'Arno', administrateur: true, associe }, ventes: [],
+  compteurs: VIDE, retrocessions: [], statutsNegociateurs: {}, nomsNegociateurs: {}, agence: { cle, societe: cle === 'tous' ? null : cle } });
+const perso = (associe: boolean) => ({ disponible: true, aujourdhui: JOUR, titulaire: { id: 1, prenom: 'Arno', administrateur: true, associe }, ventes: [], compteurs: VIDE, retrocessions: [] });
+const GLOBAL = { disponible: true, aujourdhui: JOUR, ventes: VENTES_COUTS, gestion: GESTION_COUTS, location: {}, locationTtcC: {}, retrocessions: RETROS_COUTS, statutsNegociateurs: {},
+  locationCa: { lignes: LIGNES_LOCATION_COUTS, retrocessions: [], salaires: SALAIRES_LOCATION_COUTS } };
+let associe: boolean;
+let urls: string[];
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  window.history.replaceState(null, '', '/');
+  associe = true; urls = [];
+  try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  globalThis.fetch = vi.fn(async (url: string) => {
+    const u = String(url); urls.push(u);
+    const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) });
+    if (u.startsWith(URL_EMPREINTE)) return ok({ empreinte: '#0' });
+    if (u.startsWith(URL_COUTS)) return ok(GLOBAL);
+    if (u.startsWith(`${URL_MES_AFFAIRES}?agence=`)) return ok(agence(u.split('=')[1] as Agence, associe));
+    if (u.startsWith(URL_MES_AFFAIRES)) return ok(perso(associe));
+    return { ok: false, status: 500, json: async () => ({}) };
+  }) as unknown as typeof fetch;
+  vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T10:00:00Z'));
+});
+afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
+const calmer = async () => { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); };
+const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer(); };
+const texte = (sel: string): string => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ') ?? '';
+const egal = (sel: string, centimes: number) => expect(texte(sel)).toBe(eur(centimes / 100).replace(/\s/g, ' '));
+const ouvrir = async (espace: Agence | null) => {
+  await act(async () => { root.render(createElement(MesCompteurs)); }); await calmer();
+  if (espace !== null) await cliquer(`[data-espace="${espace}"]`);
+};
+const onglet = () => container.querySelector('[data-onglet-mon-espace="couts"]');
+
+describe('🔴 l’onglet « Les coûts » : associés, mode agence', () => {
+  it('vue perso : absent, même pour un associé', async () => {
+    await ouvrir(null);
+    expect(container.querySelector('[data-onglet-mon-espace="apporteurs"]')).not.toBeNull();
+    expect(onglet()).toBeNull();
+  });
+  it('mode agence, un administrateur NON associé : absent', async () => {
+    associe = false;
+    await ouvrir('tous');
+    expect(container.querySelector('[data-onglet-mon-espace="apporteurs"]')).not.toBeNull();
+    expect(onglet()).toBeNull();
+  });
+  it.each(['criterimmo', 'macj', 'tous'] as const)('mode agence %s, un associé : présent, après « Apporteurs »', async (a) => {
+    await ouvrir(a);
+    expect(onglet()?.textContent).toBe('Les coûts');
+    const ids = [...container.querySelectorAll('[data-onglet-mon-espace]')].map((e) => e.getAttribute('data-onglet-mon-espace'));
+    expect(ids).toEqual(['apporteurs', 'couts']);
+  });
+  it('retour à « Mon espace » depuis « Les coûts » : l’onglet disparaît, « Mois » s’ouvre', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(container.querySelector('[data-couts-mon-espace]')).not.toBeNull();
+    await cliquer('[data-espace="moi"]');
+    expect(onglet()).toBeNull();
+    expect(container.querySelector('[data-couts-mon-espace]')).toBeNull();
+    expect(container.querySelector('[data-liste-mon-espace="vue-mois"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 les montants = « Coûts globaux », au centime ; l’année choisie pilote toute la page', () => {
+  it('FUSION 2026 (année en cours par défaut) : tuiles et ligne de l’année = coutsGlobaux, HT puis TTC', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(urls.some((u) => u.startsWith(URL_COUTS))).toBe(true);
+    expect(container.querySelector('[data-couts-mon-espace] [data-onglet-annee="2026"]')?.getAttribute('aria-selected')).toBe('true');
+    // une seule année : pas de « Année | Période | Tout »
+    expect(container.querySelector('[data-couts-mon-espace] [data-decouper-annees]')).toBeNull();
+    const c = coutsGlobaux(E_COUTS, 2026, null);
+    egal('[data-valeur-couts="total"]', c.total.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="vente-commissions"]', c.vente.commissions.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="vente-total"]', c.vente.commissions.htC + c.vente.apporteurs.htC + c.vente.exterieures.htC);
+    await cliquer('[data-afficher="ttc"]');
+    egal('[data-valeur-couts="total"]', c.total.ttcC);
+    egal('[data-ligne-couts="annee"] [data-cout="vente-commissions"]', c.vente.commissions.ttcC);
+  });
+  it('Location et gestion : chaque poste de l’année, mois par mois ; « Variable négo (calculé) » hors totaux ; postes futurs vides', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]'); await cliquer('[data-tableau-couts="location-gestion"]');
+    const t = coutsDeLAnnee(E_COUTS, 'tous', 2026);
+    const L = t.annee.location!; const G = t.annee.gestion!;
+    egal('[data-ligne-couts="annee"] [data-cout="location-total"]', L.total.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="gestion-total"]', G.total.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="location-gestion-total"]', L.total.htC + G.total.htC);
+    egal('[data-ligne-couts="annee"] [data-cout="location-variable-calcule"]', L.variableCalcule.htC);
+    // août : salaires saisis → variable compté 0, calculé > 0 ; le total d'août n'en contient rien
+    const aout = t.mois[7].location!;
+    egal('[data-ligne-couts="8"] [data-cout="location-variable-calcule"]', aout.variableCalcule.htC);
+    egal('[data-ligne-couts="8"] [data-cout="location-total"]', aout.apporteurs.htC + aout.variable.htC + aout.salaires.htC);
+    expect(aout.variableCalcule.htC).toBeGreaterThan(0);
+    egal('[data-ligne-couts="9"] [data-cout="gestion-adhoc"]', t.mois[8].gestion!.adhoc.htC);
+    expect(container.querySelectorAll('[data-ligne-couts="annee"] [data-poste-futur]').length).toBe(4);
+    expect([...container.querySelectorAll('[data-entete-futur]')].every((e) => e.textContent?.includes('saisie au lot suivant'))).toBe(true);
+  });
+  it('2025 choisie : tuiles, tableau ET graphique passent à 2025 ; rien de 2026', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    await cliquer('[data-couts-mon-espace] [data-onglet-annee="2025"]');
+    const c = coutsGlobaux(E_COUTS, 2025, null);
+    egal('[data-valeur-couts="total"]', c.total.htC);
+    expect(texte('[data-tuile-n1-couts="total"]')).toContain('en 2024');
+    expect(texte('[data-ligne-couts="annee"] th')).toBe('Année 2025');
+    egal('[data-ligne-couts="9"] [data-cout="vente-commissions"]', coutsDuPoint(E_COUTS, 'tous', 2025, 9).vente.commissions.htC);
+    expect(container.querySelector('[data-ligne-couts="a-confirmer"]')).toBeNull(); // la vente « mois à confirmer » est de 2026
+    expect(texte('#trx-g-graphe')).toContain('2025');
+  });
+  it('2026 : la ligne « Mois à confirmer » (vente signée sans mois) ; 12 mois + elle = l’année', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    const t = coutsDeLAnnee(E_COUTS, 'tous', 2026);
+    egal('[data-ligne-couts="a-confirmer"] [data-cout="vente-commissions"]', t.aConfirmer!.vente.commissions.htC);
+  });
+  it('MACJ : la vente de MACJ (sa structure), « Location et gestion » : vente seulement', async () => {
+    await ouvrir('macj'); await cliquer('[data-onglet-mon-espace="couts"]');
+    const p = coutsDuPoint(E_COUTS, 'macj', 2026, null);
+    egal('[data-valeur-couts="total"]', p.total.htC);
+    egal('[data-valeur-couts="vente"]', p.vente.total.htC);
+    expect(texte('[data-valeur-couts="location"]')).toBe('—');
+    await cliquer('[data-tableau-couts="location-gestion"]');
+    expect(container.querySelector('[data-couts-macj]')).not.toBeNull();
+  });
+  it('CRITERIMMO : sa vente + location + gestion = son total', async () => {
+    await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]');
+    const p = coutsDuPoint(E_COUTS, 'criterimmo', 2026, null);
+    egal('[data-valeur-couts="total"]', p.total.htC);
+    egal('[data-valeur-couts="location"]', p.location!.total.htC);
+    egal('[data-valeur-couts="gestion"]', p.gestion!.total.htC);
+  });
+  it('le graphique : celui du CA global, en « Coûts », structure imposée (pas de filtre Mesure ni Structure)', async () => {
+    await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
+    const g = container.querySelector('[data-couts-mon-espace] [data-bloc="global-graphe"]');
+    expect(g).not.toBeNull();
+    expect(g!.querySelector('[data-famille-filtre="mesure"]')).toBeNull();
+    expect(g!.querySelector('[data-famille-filtre="structure"]')).toBeNull();
+    expect(g!.querySelector('[data-filtre-graphe="Période"]')).not.toBeNull(); // Mensuel | Cumul
+    // l'adresse de « Mon espace » n'est pas touchée par les filtres du graphique
+    expect(window.location.search).not.toContain('g-');
+  });
+});

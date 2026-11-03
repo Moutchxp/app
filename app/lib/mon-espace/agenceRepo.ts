@@ -1,7 +1,7 @@
 // 🔴 MON ESPACE, LOT 10 (Arno, 02/11/2026) — LE MODE AGENCE, LU EN BASE, EN LECTURE SEULE. Les données de la structure sont celles du Suivi CA
 // (`lireDonneesSociete`, la même lecture que sa page) ; les chiffres, ceux de ses écrans (`agence.ts`). Réservé aux ADMINISTRATEURS : la route le
 // vérifie (403), et cette fonction le revérifie (jamais une structure entière pour un collaborateur). Pas de `import 'server-only'` (convention des dépôts).
-import { query } from '../db/client';
+import { titulaireDuCompte } from './compteRepo';
 import { lireDonneesSociete } from '../transaction/donneesSociete';
 import { lireVentes, transactionDisponible } from '../transaction/repo';
 import { compteursAgence, societeDeLAgence, statistiquesAgence, type Agence } from './agence';
@@ -10,11 +10,8 @@ import { moiDansLesVentes, poserAuteurs, schemaMonEspace } from './mesAffairesRe
 
 export const MOTIF_AGENCE_ADMIN = 'Le mode agence est réservé aux administrateurs.';
 
-/** Le compte est-il administrateur (relu en base) ? */
-async function titulaireDe(compteId: number): Promise<{ id: number; prenom: string | null; administrateur: boolean }> {
-  const { rows } = await query<{ role: string; prenom: string | null }>('SELECT role, prenom FROM admin_utilisateur WHERE id = $1', [compteId]);
-  return { id: compteId, prenom: rows[0]?.prenom ?? null, administrateur: rows[0]?.role === 'administrateur' };
-}
+/** Le compte est-il administrateur (relu en base) ? 🔴 « Les coûts » : et associé (`titulaireDuCompte`, la lecture partagée). */
+const titulaireDe = titulaireDuCompte;
 
 /** Le mode agence : toute la structure, comme le Suivi CA ; null : le compte n'est pas administrateur (la route répond 403). LECTURE SEULE. */
 export async function lireAgence(compteId: number, agence: Agence, aujourdhui: string): Promise<MesAffaires | null> {

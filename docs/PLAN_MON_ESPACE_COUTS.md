@@ -6,6 +6,42 @@
 
 ---
 
+## 🔴 Décisions d'Arno (03/11/2026) — elles PRIMENT sur toutes les propositions de ce plan
+
+**RÈGLE ABSOLUE — UNE SEULE COMPTABILITÉ** : une valeur (nature × poste × mois × structure) n'existe qu'à UN endroit. Modifiée d'un côté (Les coûts,
+Suivi CA, Mon espace, Gestion, Location, affaire), elle est mise à jour partout où elle apparaît et se répercute dans tous les calculs (CA net, CA net
+consolidé, Espace par négociateur, variable, résultat net, cartes, graphiques). Aucune copie, aucune valeur parallèle, aucune ligne « Ajustement » à
+côté de la vraie valeur.
+
+- **C1.** Onglet « Les coûts » visible UNIQUEMENT pour les profils au statut « Associé » (statut existant). Pas de nouveau droit.
+- **C2.** L'onglet suit le sélecteur « Voir » (CRITERIMMO / MACJ / FUSION) ; absent de la vue perso.
+- **C3.** Salaires chargés : saisis directement (montant chargé tel quel, par salarié et par mois). En plus, une colonne « Variable négo (calculé) »
+  affichée POUR INFORMATION à côté des salaires : valeur lue dans le calcul existant, non saisissable, NON ajoutée aux totaux du tableau des salaires
+  (elle est déjà comptée dans son propre poste ; pas de double compte).
+- **C4.** Correction d'un coût automatique = correction de l'enregistrement source lui-même (l'affaire, le bail…), accessible depuis la case du tableau
+  (clic → détail du mois → affaires) comme depuis le Suivi CA : même enregistrement, mêmes gestes, même journal.
+- **C5.** Postes ajoutés : part de gestion versée aux apporteurs, rémunération des collègues apporteurs, colonne « Autres » par famille (loyer,
+  logiciels, portails, assurances, comptable, banque, publicité, GLI…).
+- **C6.** MONGA : on saisit uniquement la FACTURE MENSUELLE MONGA (leur prestation). Aucune notion de devis ni d'intervention dans ce module.
+- **C7.** Coûts de location et de gestion = CRITERIMMO uniquement (MACJ = vente seulement).
+- **C8.** Les salaires déjà saisis en montant mensuel sont EFFACÉS : tout sera ressaisi par salarié à partir de 2026. Exécution au lot des salaires
+  (pas avant) : migration dédiée, précédée d'une sauvegarde complète des montants effacés (fichier dans `.captures/sauvegardes/`, + trace au journal),
+  réversible. ⚠️ **Conséquence : les années avant 2026 n'auront plus de salaires chargés dans « Coûts globaux » ni dans le résultat net** (gestion
+  2025 : 18 577,46 € HT aujourd'hui ; gestion 2026 : 2 688,91 € ; location 09/2026 : 2 000 €).
+- **C9.** Fonction des profils : une case par fonction (vente / location / gestion) dans la page Comptes, pré-cochée d'après les données
+  existantes, plusieurs fonctions possibles.
+
+Ce que ces décisions changent dans le plan ci-dessous (les passages concernés sont réécrits) : plus de droit « Coûts » (C1 : le statut « Associé ») ;
+plus de ligne « Ajustement » ni de table de corrections (C4 + règle absolue) ; les salaires mensuels ne sont plus gardés à côté du détail, ils sont
+effacés au lot des salaires (C8) ; plus de devis MONGA (C6) ; la part de gestion récurrente des apporteurs et les collègues apporteurs deviennent
+des postes (C5) ; location et gestion restent CRITERIMMO, sans colonne de structure (C7).
+
+**Conséquence de C1 + C2, constatée** : « Voir » (le mode agence) n'existe aujourd'hui que pour les administrateurs, et les deux seuls associés sont
+les deux administrateurs. Un associé qui ne serait pas administrateur n'aurait donc pas l'onglet (pas de « Voir », et l'onglet est absent de la vue
+perso). Le serveur exige les deux (associé ET administrateur, comme le mode agence). À rouvrir si Arno nomme un associé non administrateur.
+
+---
+
 ## Spec d'Arno (03/11/2026) — recopiée telle quelle
 
 - Nouvel onglet « Les coûts » sur la ligne « Compromis | Mois | Année(s) | Mes apporteurs », visible UNIQUEMENT pour les profils associés.
@@ -84,8 +120,8 @@ Le module Location calcule aussi son propre net : `resumeDuMois` (`tableauBord.t
 
 Autres montants présents mais **hors de tout calcul de coût** :
 - `gestion_monga_etape.montant_cents` : devis / factures MONGA PAR intervention (191 étapes, montant rarement renseigné), affiché sur la frise
-  (`FriseAvancement.tsx:772,872`), sommé « devis en attente / acceptés » (`tableauBordRepo.ts:64-75`). Très probablement à la charge des
-  propriétaires (lecture, pas certitude) → question 12.6.
+  (`FriseAvancement.tsx:772,872`), sommé « devis en attente / acceptés » (`tableauBordRepo.ts:64-75`). **Hors du module (décision C6)** : seule la
+  facture mensuelle MONGA (`monga_ht`) est un coût.
 - `gestion_partenaire_interne` (ADHOC) : des adresses, aucun montant.
 - `gestion_location_gestion_perdue` (manque à gagner), `gestion_location_marge_gli` (recette), honoraires théoriques de gestion (recette) : pas des coûts.
 - Introuvables : abonnements, factures fournisseurs, loyers, logiciels, publicité, assurances, frais bancaires.
@@ -96,44 +132,45 @@ Autres montants présents mais **hors de tout calcul de coût** :
 
 Légende : ① **automatique** (source) ; ② **saisi à la main** ; ③ **automatique mais corrigeable** — la correction se fait À LA SOURCE (voir § 5.3).
 
-### Onglet « Vente » (par structure)
+### Onglet « Vente » (suit « Voir » : CRITERIMMO, MACJ ou FUSION)
 
 | Colonne | Nature | Source / remarque |
 |---|---|---|
-| Commissions négociateurs indépendants | ③ | lignes de commission des ventes du mois (`coutsVente`) ; corrigées sur la carte de la vente |
-| Commissions négociateurs salariés / associés (variable) | ③ | idem ; séparées des indépendants (`payeParClasseTtc`) pour ne pas les confondre avec les salaires |
-| Rétrocessions apporteurs | ③ | vente + `transaction_retrocession` |
-| Reversé agences extérieures | ③ | `transaction_partie` extérieures |
-| Reversé inter-cabinet | ③ | **montré en structure seule** (CRITERIMMO ou MACJ), neutralisé en FUSION (comme `coutsVente` vue nulle) |
+| Commissions des négociateurs | ③ | lignes de commission des ventes du mois (`coutsVente`, la colonne de « Coûts globaux ») ; corrigées sur la carte de la vente (C4). Une seule colonne : la séparer indépendants / salariés serait un calcul nouveau (à proposer plus tard si Arno le veut) |
+| Apporteurs | ③ | répartition de la vente + `transaction_retrocession` rattachées |
+| Agences extérieures | ③ | `transaction_partie` extérieures |
 | Salaires chargés vente | ② | NOUVEAU (par salarié, § 5.1) — n'existe pas aujourd'hui |
-| Autres coûts vente (« ce que j'aurais oublié ») | ② | NOUVEAU (§ 5.2), lignes libres nommées |
+| Autres (vente) | ② | NOUVEAU (§ 5.2) : loyer, logiciels, portails, assurances, comptable, banque, publicité… (C5) |
 
-### Onglet « Location et gestion » (CRITERIMMO)
+L'inter-cabinet entre nos deux structures **n'est jamais un coût** (règle existante de `coutsGlobal.ts`, conservée) : en CRITERIMMO ou MACJ, chaque
+structure compte les coûts de SES lignes de carte (`coutsVente(venteDansSociete(v, s), …, s)`, celle du graphique du CA global) ; en FUSION, la
+page FUSION (`coutsGlobaux`). CRITERIMMO + MACJ = FUSION, au centime (testé).
+
+### Onglet « Location et gestion » (CRITERIMMO et FUSION ; MACJ : aucune, C7)
 
 | Colonne | Famille | Nature | Source |
 |---|---|---|---|
-| Salaires chargés location | Location | ② | AUJOURD'HUI un total mensuel (447) → par salarié (§ 5.1) ; l'ancien total reste lu tant qu'aucun détail n'existe pour le mois |
-| Primes de gestion | Location | ③ | `primeDe` ; corrigées sur le bail (`prime_gestion_saisie`, existe déjà) |
-| Variable négociateur (net des rétrocessions) | Location | ③ | `coutsLocationMois` ; « inclus dans les salaires » les mois où des salaires location existent (règle actuelle conservée) |
-| Commissions apporteurs location | Location | ③ | `partLocationDe` + `partGestionSignatureDe` ; corrigées sur le bail (`apporteur_commission_saisie`) |
-| Autres coûts location | Location | ② | NOUVEAU |
-| Salaires chargés gestion | Gestion | ② | AUJOURD'HUI `salarie_ht` mensuel → par salarié |
+| Apporteurs | Location | ③ | `partLocationDe` + `partGestionSignatureDe` ; corrigées sur le bail (`apporteur_commission_saisie`) |
+| dont primes de gestion (dans le variable) | Location | ③, information | `primeDe` ; comptées DANS le variable (règle du 02/11/2026) ; corrigées sur le bail (`prime_gestion_saisie`) |
+| Variable négociateur (primes incluses) | Location | ③ | `coutsLocationMois` ; « inclus dans les salaires » les mois où des salaires location existent (règle actuelle conservée) |
+| Salaires chargés location | Location | ② | aujourd'hui un total mensuel (447) → par salarié (§ 5.1, C8) |
+| Variable négo (calculé) | Location | information (C3) | `variableNegociateur(variable, primes)` : le calcul existant, même les mois où il est « inclus dans les salaires » ; NON ajouté aux totaux |
+| Part de gestion versée aux apporteurs | Location | ③ (C5) | `partGestionMensuelleDe` / `duRecurrent` (`tableauBord.ts:208-266`) — à entrer dans `coutsLocation` au lot C7 |
+| Rémunération des collègues apporteurs | Location | ③ (C5) | `commissionCollegueSignatureDe` / `duCollegueRecurrent` (`tableauBord.ts:296,372`) — idem |
+| Autres (location) | Location | ② | NOUVEAU (C5) |
+| Salaires chargés gestion | Gestion | ② | aujourd'hui `salarie_ht` mensuel → par salarié (C8) |
 | ADHOC | Gestion | ② (③ si import) | `adhoc_ht`, déjà saisissable |
-| MONGA | Gestion | ② | `monga_ht`, déjà saisissable |
-| Autres coûts gestion | Gestion | ② | NOUVEAU |
+| MONGA (facture mensuelle) | Gestion | ② | `monga_ht`, déjà saisissable (C6 : ni devis ni intervention) |
+| Autres (gestion) | Gestion | ② | NOUVEAU (C5) : GLI, logiciels… |
 
-Chaque colonne a son total en pied ; une colonne « Total » par famille ; une dernière ligne « Total de l'année ».
+Chaque colonne a son total en pied ; une colonne « Total » par famille ; une ligne « Mois à confirmer » quand des ventes signées sans mois portent
+des coûts (elles comptent dans l'année, dans aucun mois — la règle de « Coûts globaux ») ; la dernière ligne = l'année, celle de « Coûts globaux ».
 
-### Postes qu'Arno a peut-être oubliés (à confirmer, question 12.5)
+### Postes ajoutés par la décision C5 (anciens « oublis »)
 1. **Part gestion récurrente due aux apporteurs** et **rémunération des collègues apporteurs** : calculées par le module Location mais
-   ABSENTES des coûts du Suivi CA (`locationCa.ts:8-9,74`). Proposition : les ajouter en ③ colonnes Location / Gestion.
-2. **Charges de structure** non rattachées à une activité : loyer des bureaux, logiciels (dont WIPPIMMO), portails d'annonces, téléphonie,
-   véhicules, assurance RCP / garantie financière (carte T), expert-comptable côté transaction, frais bancaires. La spec ne garde que les
-   coûts « rattachés directement à l'activité » → proposition : une famille « Frais communs » à part, hors des trois familles, ou une
-   ligne « Autres » par famille.
-3. **Publicité et diffusion des annonces** (vente et location) : coût direct de chaque activité → colonne « Autres » de la famille.
-4. **Assurance GLI** : seule la marge (recette) existe ; s'il y a une prime payée par l'agence, c'est un coût gestion.
-5. **Interventions MONGA par devis** (`gestion_monga_etape.montant_cents`) : à ne PAS compter si elles sont refacturées au propriétaire.
+   ABSENTES des coûts du Suivi CA (`locationCa.ts:8-9,74`) → elles entrent dans `coutsLocation` (lot C7), donc dans tous les écrans à la fois.
+2. **Colonne « Autres » par famille** (loyer, logiciels, portails, assurances, comptable, banque, publicité, GLI…) : table `transaction_cout_divers` (§ 5.2).
+3. Interventions MONGA par devis : **hors module** (C6).
 
 ---
 
@@ -147,9 +184,10 @@ Chaque colonne a son total en pied ; une colonne « Total » par famille ; une d
 - **Associé : existe comme STATUT**, pas comme droit : `admin_utilisateur.statut ∈ {associe, salarie, independant, observateur}` (439,
   `app/lib/admin/statut.ts`). Aujourd'hui : 2 associés (les 2 administrateurs), 1 salarié, 1 indépendant, 2 « à renseigner ». Lecture serveur :
   `statutDuCompte` (`app/lib/admin/statutCompte.ts:20`).
-- **Ordre « fonction en cours d'abord »** — proposition :
+- **Visibilité de l'onglet (décision C1)** : le statut « Associé » existant, lu au serveur (`statutDuCompte`) — aucun nouveau droit.
+- **Ordre « fonction en cours d'abord »** (décision C9) :
   1. nouvelle table `admin_compte_fonction (compte_id, fonction ∈ {vente, location, gestion}, depuis, retire_le, pose_par_libelle)` (plusieurs
-     fonctions possibles, datées, journalisées dans `admin_utilisateur_log`), cochée dans la page Comptes ;
+     fonctions possibles, datées, journalisées dans `admin_utilisateur_log`), une case par fonction dans la page Comptes ;
   2. pré-remplie à la migration par déduction (affichée « déduite », corrigeable) : `service_gestion` → gestion ; négociateur location connu →
      location ; négociateur vente / `transaction_societe_compte` → vente ;
   3. liste du sélecteur = profils actifs non observateurs ayant la fonction location OU gestion ; tri : d'abord ceux qui ont la fonction en
@@ -161,12 +199,13 @@ Chaque colonne a son total en pied ; une colonne « Total » par famille ; une d
 - Vente : chaque coût porte sa structure (vente porteuse, partie du côté, `societe` des rétrocessions et de l'inter-cabinet).
 - Location et gestion : **aucune structure en base**, CRITERIMMO implicite partout (`celluleGlobal`, `modele.ts:818-819,849` : CRITERIMMO =
   ventes CRITERIMMO + location + gestion ; MACJ = ventes MACJ seules).
-- L'onglet suit « Voir » avec cette même règle (une seule fonction : `celluleGlobal` / `coutsGlobaux({ vue })`) :
-  - **CRITERIMMO** : Vente CRITERIMMO (inter-cabinet reversé à MACJ compté) + Location + Gestion ;
-  - **MACJ** : Vente MACJ ; l'onglet « Location et gestion » affiche « Aucune activité location / gestion pour MACJ » ;
-  - **FUSION** : tout, l'inter-cabinet entre nos deux structures neutralisé.
-- Les nouveaux coûts saisis (salaires, autres) portent une colonne `societe` (défaut : criterimmo pour location/gestion ; choix obligatoire
-  pour la vente si le salarié est rattaché aux deux structures, imposé sinon — même règle que `structureImposee`, `creationRepo.ts:21`).
+- L'onglet suit « Voir » (décision C2) avec cette même règle :
+  - **CRITERIMMO** : Vente CRITERIMMO (ses lignes de carte, `coutsVente(venteDansSociete(v, 'criterimmo'), …)`) + Location + Gestion ;
+  - **MACJ** : Vente MACJ ; l'onglet « Location et gestion » affiche « MACJ : vente seulement » (C7) ;
+  - **FUSION** : tout (`coutsGlobaux`, la page FUSION), l'inter-cabinet entre nos deux structures jamais compté comme un coût.
+- Les nouveaux coûts VENTE saisis (salaires, autres) portent une colonne `societe` (choix obligatoire si le salarié est rattaché aux deux
+  structures, imposé sinon — même règle que `structureImposee`, `creationRepo.ts:21`). Location et gestion : **pas de colonne de structure**,
+  CRITERIMMO par construction (C7).
 
 ## 5. Modèle de données proposé (non écrit)
 
@@ -178,11 +217,16 @@ transaction_salaire_charge (
   note text, origine text CHECK IN ('saisie','reprise_total'), cree_le, cree_par_libelle, modifie_le, retire_le, retire_par_libelle
 )  -- index unique partiel (fonction, societe, annee, mois, compte_id) WHERE retire_le IS NULL ; trigger anti-DELETE
 ```
-- Fonction unique `salairesDuMois(fonction, annee, mois, { detail, totalHerite })` : **si au moins une ligne détaillée existe pour ce
-  (fonction, mois), le total = leur somme ; sinon, l'ancien total** (`transaction_location_salaires_mois.salaires_ht` ou
-  `transaction_gestion_mois.salarie_ht`). Jamais les deux → pas de double compte, et l'historique 2025 reste juste sans reprise.
-- `lireLocationCa` et `lireGestion` passent par elle : `coutsLocationMois`, `moisGestion`, `coutsGlobaux`, le module Location reçoivent le
+- `societe` : vente seulement ; location et gestion = CRITERIMMO (C7, la colonne y est nulle par contrainte).
+- **Décision C8 — les anciens totaux mensuels sont effacés** au même lot, par une migration dédiée : AVANT, sauvegarde complète des montants
+  (`transaction_location_salaires_mois.salaires_ht`, `transaction_gestion_mois.salarie_ht` : id, année, mois, montant, note) dans
+  `.captures/sauvegardes/salaires-mensuels-<date>.csv` + une ligne de journal par montant effacé (`transaction_journal`, action
+  `effacement_c8`, `avant` = la valeur) ; réversible par le journal (`annulerGeste`) ou le fichier. Les lignes ne sont pas supprimées (triggers
+  anti-DELETE) : la colonne passe à NULL. Après : **une seule source**, le détail par salarié.
+- Fonction unique `salairesDuMois(fonction, annee, mois)` = la somme des lignes détaillées du mois (rien d'autre : plus de total hérité).
+  `lireLocationCa` et `lireGestion` passent par elle : `coutsLocationMois`, `moisGestion`, `coutsGlobaux`, le module Location reçoivent le
   même chiffre sans être touchés.
+- ⚠️ Conséquence affichée à Arno : avant 2026, plus aucun salaire dans « Coûts globaux » ni dans le résultat net.
 
 ### 5.2 Autres coûts (« ce que j'aurais oublié ») — migration B
 ```
@@ -192,152 +236,199 @@ transaction_cout_divers (id, famille CHECK IN ('vente','location','gestion'), so
 Une colonne par `poste` distinct de l'année (proposés depuis les postes déjà saisis, pour éviter « Loyer » / « loyer bureaux »).
 
 ### 5.3 Corriger un coût automatique sans écraser la source
-- **Règle proposée : on corrige À LA SOURCE, jamais une copie.** Un clic sur une cellule ③ ouvre la liste des affaires du mois qui la
+- **Règle (décision C4 + règle absolue) : on corrige À LA SOURCE, jamais une copie.** Un clic sur une cellule ③ ouvre la liste des affaires du mois qui la
   composent (mêmes cartes que la liste sous le graphique de « Mois ») ; la correction se fait sur la ligne de commission, la rétrocession, le
   bail (prime, commission apporteur saisie) avec les gestes et le journal existants. Ainsi la carte, le CA net, l'Espace par négociateur, le
   variable et le module Location changent ensemble, par construction.
 - La valeur d'origine est conservée par le journal (`transaction_journal.avant` / `apres`, annulable par `annulerGeste`, `repo.ts:637`) et,
   pour la location, par le couple « calculé / saisi » déjà en place (`prime_gestion_saisie`, `apporteur_commission_saisie` à côté du barème).
-- Si Arno veut malgré tout un montant mensuel forcé (question 12.4) : table `transaction_cout_correction (poste, famille, societe, annee, mois,
-  valeur_ht, source_ht_au_moment, motif, …)` appliquée DANS `coutsDe` comme une ligne « Ajustement » visible et séparée — jamais en remplaçant
-  les chiffres des cartes (sinon le total des coûts ne serait plus la somme des cartes).
-- Journal : étendre la liste fermée `transaction_journal.entite` (447:31) avec `salaire_charge`, `cout_divers` (et `cout_correction`), et
-  `COLONNES` / `AVEC_MODIFIE` (`repo.ts:320-381`) pour l'annulation.
+- **Aucun montant mensuel forcé, aucune ligne « Ajustement », aucune table de corrections** (règle absolue).
+- Journal : étendre la liste fermée `transaction_journal.entite` (447:31) avec `salaire_charge`, `cout_divers`, et `COLONNES` / `AVEC_MODIFIE`
+  (`repo.ts:320-381`) pour l'annulation.
 
-## 6. Maquette textuelle
+
+## 6. Maquette textuelle (celle du lot C1, livré)
 
 ```
-[ Voir : Agence CRITERIMMO ▾ ]
-Compromis | Mois | Année(s) | Mes apporteurs | Les coûts                         [ HT | TTC ]
-─────────────────────────────────────────────────────────────────────────────────────────
-  2019  2020  2021  2022  2023  2024  2025 [2026]        ← LigneDesAnnees, UNE seule année
-─────────────────────────────────────────────────────────────────────────────────────────
- ┌ Coûts 2026 ┐ ┌ Vente ┐ ┌ Location ┐ ┌ Gestion ┐ ┌ Résultat net ┐   ← cartes (tuiles Mon espace), N-1 et écart
-─────────────────────────────────────────────────────────────────────────────────────────
-  Graphique mois par mois : 3 courbes Vente / Location / Gestion (+ total)
-  pointillés = mêmes familles en 2025 (N-1)                  ← GrapheMois, source « couts » (grapheGlobal)
-  bascule « Mois par mois | Année par année » : GrapheAnnees, mêmes familles, 2019 → 2026
-─────────────────────────────────────────────────────────────────────────────────────────
+[ Voir : Mon espace | Agence : CRITERIMMO | MACJ | FUSION ]                        (administrateurs)
+Compromis | Mois | Année(s) | Apporteurs | Les coûts                    Montants en [ HT | TTC ]
+─────────────────────────────────────────────────────────────────────────────────────────────
+  2019  2020  2021  2022  2023  2024  2025 [2026]        ← LigneDesAnnees (format restauré), UNE seule année
+─────────────────────────────────────────────────────────────────────────────────────────────
+ ┌ Coûts 2026 ┐ ┌ Vente ┐ ┌ Location ┐ ┌ Gestion ┐       ← tuiles de la page, chacune avec N−1 et l'écart
+─────────────────────────────────────────────────────────────────────────────────────────────
+  Mois par mois — 2026 (Coûts)                [Filtres]   ← GrapheGlobal du Suivi CA › CA global, mesure « Coûts »
+  par défaut : Vente / Location / Gestion côte à côte ;    Comparer : « Année précédente » (N−1 hachuré),
+  Affichage : Mensuel | Cumul ; Structure imposée par « Voir »
+─────────────────────────────────────────────────────────────────────────────────────────────
   [ Vente ] [ Location et gestion ]
-  Mois       | Com. indép. | Com. salariés | Apporteurs | Ext. | Inter-cab. | Salaires | Autres | Total
-  Janvier    |   …         |               |            |      |            |  ✎       |  ✎     |
-  …          |
-  Décembre   |
-  ─────────── Total ─────────────────────────────────────────────────────────────────
-  ✎ = saisi (clic → saisie) ; ③ = automatique (clic → affaires du mois, correction à la source)
+  Mois        | Commissions | Apporteurs | Ext. | Salaires (lot suivant) | Autres (lot suivant) | Total vente
+  Janvier     |   …         |            |      |                        |                      |
+  …
+  Mois à confirmer (seulement s'il y en a)
+  ─── 2026 (total, = « Coûts globaux ») ─────────────────────────────────────────────
 ```
-Réutilisation, sans recopie : `OngletsVues` (`apres` = boutons d'onglets, `EcransTransaction.tsx:345`), `LigneDesAnnees` /
-`useLigneDesAnnees` (avec une option « une seule année » à ajouter — le Suivi CA permet plusieurs), `GrapheMois` / `GrapheAnnees` avec une
-`source` (`sourceGraphe.ts`) construite depuis `atomesDuPoint(mesure: 'couts')` (`grapheGlobal.ts`), les cartes de `AccueilMonEspace`, le
-tableau `CoutsGlobaux` (déjà mois par mois, à décliner par onglet Vente / Location et gestion), la bascule HT/TTC (`useAffichage`).
+Réutilisation, sans recopie :
+- `OngletsVues` (`apres` = les boutons « Apporteurs » et « Les coûts ») ;
+- `LigneDesAnnees` avec une option nouvelle `uneSeule` (le choix « Année | Période | Tout » masqué ; le Suivi CA n'est pas touché) ;
+- **le graphique : `GrapheGlobal`** (le graphique du CA global) plutôt que `GrapheMois` / `GrapheAnnees`. Raison : ces deux-là ne savent montrer
+  que du CA de ventes (vendu + compromis, nombre d'affaires) ; `GrapheGlobal` montre DÉJÀ les coûts par famille (`atomesDuPoint`, mesure
+  « Coûts »), avec N−1, Mensuel / Cumul, et il est bâti sur les mêmes `Histogramme` / `CourbeCumul` que les autres pages. Deux props facultatives
+  lui sont ajoutées (`initiaux` : les filtres d'arrivée sans lire ni écrire l'adresse ; `verrous` : mesure et structures imposées) — le Suivi CA
+  ne les passe pas et rend à l'identique ;
+- les valeurs : `coutsGlobaux` (FUSION, la fonction de « Coûts globaux ») et `coutsVenteDeLaSociete` (CRITERIMMO / MACJ, la fonction du graphique
+  du CA global, extraite telle quelle de `atomesDuPoint`) — `app/lib/mon-espace/couts.ts` ne fait que les ranger par poste et par mois ;
+- les données : `lireDonneesGlobal` (la lecture de `?vue=global` du Suivi CA, déplacée telle quelle dans `app/lib/transaction/donneesGlobal.ts`)
+  servie par `GET /api/admin/mon-espace/couts` (droit « Mon espace » + associé + administrateur, 403 sinon).
 
 ## 7. Carte de propagation
 
-Règle : une source par coût, une fonction par calcul ; aucun chiffre recopié.
+Règle absolue : une source par coût, une fonction par calcul ; aucun chiffre recopié, aucune valeur parallèle.
 
 | Poste | Source unique | Fonction | Doit apparaître dans |
 |---|---|---|---|
-| Commissions vente (③) | `transaction_vente_ligne` | `lignesCarteAffaire` → `caNetVente`, `resultatDesCartes`, `espaceNegociateurs`, `coutsVente` | cartes d'affaire, CA net / CA net consolidé (Suivi CA), Espace par négociateur, graphiques Mois / Année, « Commissions versées » (`detailCommissions.ts`), Mon espace perso (`monCa` / `monCaNet`) et agence (`accueil.ts`, `agence.ts`), Coûts globaux, Résultat net, **Les coûts** |
+| Commissions vente (③) | `transaction_vente_ligne` | `lignesCarteAffaire` → `caNetVente`, `resultatDesCartes`, `espaceNegociateurs`, `coutsVente` | cartes d'affaire, CA net / CA net consolidé (Suivi CA), Espace par négociateur, graphiques Mois / Année, « Commissions versées » (`detailCommissions.ts`), Mon espace perso (`monCa` / `monCaNet`) et agence (`accueil.ts`, `agence.ts`), Coûts globaux, Résultat net, graphique du CA global, **Les coûts** |
 | Rétrocessions vente (③) | `transaction_vente.retro_*`, `transaction_retrocession` | `apporteurVerseHt`, `retroTtcDe` → idem | idem + « Par apporteur » (`parApporteur`) |
-| Inter-cabinet / extérieures (③) | `transaction_inter_cabinet`, `transaction_partie` | `bilanVente`, `ligneMiroir` | cartes (miroir), CA net par structure, FUSION neutralisée, Coûts globaux, Les coûts |
+| Agences extérieures (③) | `transaction_partie` | `bilanVente`, `LigneCarte.exterieures` | cartes, CA net, Coûts globaux, Les coûts |
+| Inter-cabinet (jamais un coût) | `transaction_inter_cabinet`, `transaction_partie` | `ligneMiroir`, `venteDansSociete` | cartes (miroir), CA net par structure ; neutralisé en FUSION |
 | Primes de gestion (③) | `gestion_location_activite` + règle | `primeDe` → `montantsLigne` → `coutsLocationMois` | Suivi CA › Location (`EcranLocationCA`), Location & Gestion (`totauxFusion`), Coûts globaux, Résultat net, Outils de suivi Location, variable négociateur, Les coûts |
-| Variable négociateur location (③) | idem + `gestion_location_retrocession` | `variableC`, `coutsLocationMois`, `variableNegociateur` | idem |
-| Salaires location / gestion (②, nouveau détail) | `transaction_salaire_charge` (+ ancien total) | **`salairesDuMois`** → `lireLocationCa` / `lireGestion` | Suivi CA › Location, › Gestion (tuiles, tableaux, net), Location & Gestion, Coûts globaux, Résultat net, graphique global (mesure coûts), Outils de suivi Location (`resultatNetAgence`), Les coûts |
-| Salaires vente (②, nouveau) | `transaction_salaire_charge` fonction vente | `salairesDuMois` → `coutsDe` | Coûts globaux, Résultat net, Les coûts ; **PAS** le CA net d'une vente (question 12.3) |
+| Variable négociateur location (③) | idem + `gestion_location_retrocession` | `variableC`, `coutsLocationMois`, `variableNegociateur` | idem ; dans Les coûts : la colonne comptée ET la colonne d'information C3 (même fonction) |
+| Part de gestion des apporteurs, collègues (③, C5) | `gestion_location_apporteur*` | `partGestionMensuelleDe`, `duCollegueRecurrent` → `coutsLocation` (lot C7) | Suivi CA › Location, Location & Gestion, Coûts globaux, Résultat net, Les coûts |
+| Salaires location / gestion (②) | `transaction_salaire_charge` (seule source après C8) | **`salairesDuMois`** → `lireLocationCa` / `lireGestion` | Suivi CA › Location, › Gestion (tuiles, tableaux, net), Location & Gestion, Coûts globaux, Résultat net, graphique global, Outils de suivi Location (`resultatNetAgence`), Les coûts |
+| Salaires vente (②, nouveau) | `transaction_salaire_charge` fonction vente | `salairesDuMois` → `coutsDe` | Coûts globaux, Résultat net, graphique global, Les coûts ; pas le CA net d'une vente (le salaire n'est pas une ligne de vente) |
 | ADHOC / MONGA (②) | `transaction_gestion_mois` | `moisGestion` / `totauxGestion` | Suivi CA › Gestion, Location & Gestion, Coûts globaux, Résultat net, Les coûts |
 | Autres coûts (②, nouveau) | `transaction_cout_divers` | `coutsDe` (nouvelle rubrique) | Coûts globaux, Résultat net, graphique global, Les coûts |
 
-À faire une fois : `coutsDe` reçoit les nouvelles rubriques ; `CoutsGlobaux.tsx`, `ResultatNetGlobal.tsx`, `grapheGlobal.ts` les affichent
-automatiquement puisqu'ils lisent `coutsDe`. La route de lecture `?vue=global` (`api/admin/transaction/route.ts:75-97`) devient la source
-de « Les coûts » (ou une route Mon espace qui appelle les mêmes repos).
+À faire une fois par rubrique : `coutsDe` la reçoit ; `CoutsGlobaux.tsx`, `ResultatNetGlobal.tsx`, `grapheGlobal.ts` et « Les coûts » l'affichent
+puisqu'ils lisent `coutsDe`.
 
 ## 8. Risques de double compte
 
 1. **Commissions déjà dans le CA net** : « Les coûts » ne STOCKE aucune commission ; il lit `coutsVente`, qui part des mêmes lignes que
    `caNetVente`. Le CA net d'une vente ne bouge que si la ligne bouge.
 2. **Salaires location vs primes + variable** : règle actuelle conservée (`locationCa.ts:115-150`) : un mois avec salaires location, primes et
-   variable sont « inclus ». Le détail par salarié passe par la même règle (le test : présence d'au moins un salaire location du mois).
-3. **Salaires de négociateurs vente salariés/associés vs leurs commissions** : un salarié vente touche peut-être fixe + variable ; si le salaire
-   chargé saisi inclut déjà le variable, la commission « interne » serait comptée deux fois → question 12.3 (proposition : le salaire chargé
-   saisi = le FIXE chargé ; les commissions restent celles des cartes).
-4. **Ancien total mensuel vs détail** : `salairesDuMois` prend l'un OU l'autre, jamais la somme (§ 5.1).
+   variable sont « inclus ». La colonne C3 « Variable négo (calculé) » le montre pour information, hors totaux.
+3. **Salaires de négociateurs vente salariés/associés vs leurs commissions** : le salaire chargé saisi est le montant chargé tel quel (C3) ; les
+   commissions restent celles des cartes. Point de vigilance pour Arno à la saisie : ne pas y inclure un variable déjà payé par les cartes.
+4. **Ancien total mensuel vs détail** : supprimé par C8 (les totaux sont effacés, sauvegardés, journalisés) — une seule source ensuite.
 5. **Deux définitions du « net »** : `espaceNegociateurs.net` (et donc `monCaNet`) ne déduit, sur les ventes historiques sans répartition,
    que les commissions des indépendants (`carteAffaireLignes.ts:225,233`) ; `caNetVente` et `coutsVente` déduisent toutes les commissions.
-   « Les coûts » suit `coutsVente` (comme « Coûts globaux ») et l'écrit en note sous le tableau ; les tests comparent chaque écran à SA
-   fonction, pas à l'autre.
-6. **Net location du module Location ≠ net du Suivi CA** (collègues et part récurrente). Si Arno ajoute ces postes (§ 2, oublis 1), ils
-   entrent dans `coutsLocation` et la différence disparaît ; sinon elle est documentée.
-7. **Inter-cabinet** : coût pour la porteuse, recette pour la receveuse, neutralisé en FUSION (déjà fait par `coutsVente` vue nulle). Jamais
-   saisi à la main dans « Les coûts ».
-8. **Correction manuelle** : à la source (§ 5.3) → une seule valeur partout ; l'ancienne reste dans le journal, annulable.
+   « Les coûts » suit `coutsVente` (comme « Coûts globaux »).
+6. **Net location du module Location ≠ net du Suivi CA** (collègues et part récurrente) : réglé par C5 au lot C7 (les deux postes entrent dans
+   `coutsLocation`, donc partout).
+7. **Inter-cabinet** : jamais un coût, jamais saisi dans « Les coûts ».
+8. **Correction manuelle** : à la source (C4) → une seule valeur partout ; l'ancienne reste dans le journal, annulable. Aucune ligne « Ajustement ».
 
 ## 9. Rafraîchissement
 
 - Mon espace bat toutes les 15 s (`PERIODE_MON_ESPACE_MS`, `rafraichir.ts:11`) sur `GET /api/admin/mon-espace/empreinte` ; l'empreinte
   = ids des ventes + max(version) (`empreinteDe`, `mesAffaires.ts:127` ; `sqlVersionVente`, `transaction/repo.ts:45`). **Elle ignore**
   rétrocessions, `gestion_mois`, salaires, inter-cabinet et module Location.
-- Proposition : une empreinte « coûts » = max(`transaction_journal.id`) toutes entités + max(`modifie_le`, `annule_le`, `cree_le`) de
-  `gestion_location_activite` / `gestion_location_retrocession` / `gestion_location_commission_regle`, servie par la même route
-  (`?onglet=couts`) et ajoutée à l'empreinte agence. Une saisie dans « Les coûts » apparaît ainsi en ≤ 15 s dans un autre « Mon espace »
-  ouvert.
-- Le Suivi CA n'a AUCUN battement aujourd'hui (rechargement par `relire`). L'y brancher (même hook, même empreinte) est un ajout, proposé
-  en lot séparé (lot 7).
+- Lot C1 (lecture) : « Les coûts » se relit à chaque relecture de Mon espace (même compteur) ; une saisie de vente y apparaît donc en ≤ 15 s.
+- Lot C3 : une empreinte « coûts » = max(`transaction_journal.id`) toutes entités + max(`modifie_le`, `annule_le`, `cree_le`) de
+  `gestion_location_activite` / `gestion_location_retrocession` / `gestion_location_commission_regle`, ajoutée à l'empreinte agence.
+- Le Suivi CA n'a AUCUN battement aujourd'hui (rechargement par `relire`). L'y brancher (même hook, même empreinte) : lot C8.
 
-## 10. Tests de cohérence à prévoir
+## 10. Tests de cohérence
 
-1. **Saisie d'un salaire gestion de 1 234,57 € pour 03/2026** : `totauxGestion` net de mars baisse de 123 457 centimes ; Coûts globaux et
-   Résultat net de mars 2026 aussi ; avril, 03/2025 et MACJ inchangés ; FUSION = CRITERIMMO + MACJ.
+Lot C1 (livrés) : chaque poste, chaque famille, chaque mois et l'année = « Coûts globaux » (FUSION) ou la fonction du graphique du CA global
+(CRITERIMMO / MACJ), au centime, HT et TTC, sur 2025 et 2026 ; CRITERIMMO + MACJ = FUSION ; colonne C3 = `variableNegociateur(variable, primes)`
+et absente des totaux ; une autre année ne change rien ; onglet absent en vue perso, pour un non-associé ; route 403.
+
+Lots suivants :
+1. **Saisie d'un salaire gestion de 1 234,57 € pour 03/2026** : `totauxGestion` net de mars baisse de 123 457 centimes ; Coûts globaux, Résultat net
+   et Les coûts de mars 2026 aussi ; avril, 03/2025 et MACJ inchangés ; FUSION = CRITERIMMO + MACJ.
 2. **Salaire location** : le mois passe en « inclus dans les salaires » (primes / variable non déduits), même chiffre dans `EcranLocationCA`,
-   `totauxFusion`, `coutsGlobaux`, `resultatNetAgence` (s'il lit la même fonction).
-3. **Détail vs ancien total** : un mois avec ancien total 2 000 € et sans détail → 2 000 ; on ajoute deux salariés 900 + 600 → 1 500 (pas 3 500).
+   `totauxFusion`, `coutsGlobaux`, `resultatNetAgence`.
+3. **C8** : après la migration, plus aucun salaire mensuel ; la sauvegarde contient chaque montant effacé ; l'annulation le rend.
 4. **Correction d'une commission depuis « Les coûts »** : la cellule, la carte de la vente, `caNetVente`, l'Espace par négociateur, Mon espace
    agence et perso (part du titulaire) changent du même montant au centime, pour le bon mois et la bonne structure ; journal + annulation
    rendent la valeur d'avant partout.
-5. **Totaux** : pied de chaque colonne = Σ des 12 lignes = la colonne correspondante de `CoutsGlobaux` pour l'année ; HT et TTC.
-6. **Une seule année** : changer l'année change graphique, cartes et tableau ensemble ; aucune valeur d'une autre année (fixtures sur deux années).
-7. **Visibilité** : onglet absent en vue perso et pour un non-associé ; route 403 serveur ; présent en CRITERIMMO / MACJ / FUSION.
-8. **Sélecteur de profil** : ordre fonction en cours → autres location/gestion → autres ; observateurs exclus.
-9. **Empreinte** : une saisie change l'empreinte « coûts » ; une saisie sans rapport (permis…) ne la change pas.
-10. Garde : `clientBoundary.guard.test.ts` (aucun `pg` côté client), preuve curl.
+5. **Sélecteur de profil** : ordre fonction en cours → autres location/gestion → autres ; observateurs exclus.
+6. **Empreinte** : une saisie change l'empreinte « coûts » ; une saisie sans rapport (permis…) ne la change pas.
+7. Garde : `clientBoundary.guard.test.ts` (aucun `pg` côté client), preuve curl.
 
-## 11. Découpage en lots
+## 11. Découpage en lots (réécrit après les décisions)
 
 | Lot | Contenu | Migration | Tests |
 |---|---|---|---|
-| **C1** | Onglet « Les coûts » en LECTURE : visibilité (associé, § 12.1), suit « Voir », rangée des années à une seule année, cartes, graphique 3 familles + N-1 (source `couts`), tableau 2 onglets × 12 mois + totaux, tous calculés par `coutsGlobaux`. Aucune saisie. | aucune (droit : statut `associe` existant) | égalité au centime avec `CoutsGlobaux` ; une seule année ; visibilité ; 403 |
-| **C2** | Droit « Coûts » par profil (si Arno le choisit) dans Comptes, journalisé (modèle `resultatNet.ts`) | `451_perm_couts` | droit, garde serveur, admin implicite |
-| **C3** | Saisie en place des postes mensuels EXISTANTS (ADHOC, MONGA, salaires location/gestion en total) via `enregistrerGestion` / `enregistrerSalairesLocation` ; empreinte « coûts » | aucune | propagation tests 1-2, empreinte |
-| **C4** | Fonctions des profils (page Comptes, déduction initiale) + `profilsPourSalaire` | `452_compte_fonction` | ordre du sélecteur |
-| **C5** | Salaires chargés par salarié + `salairesDuMois` branché dans `lireLocationCa` / `lireGestion` / `coutsDe` ; journal étendu | `453_salaire_charge` (+ CHECK journal) | tests 1-3 |
-| **C6** | Autres coûts (« oubliés ») par famille, colonnes libres ; rubrique dans `coutsDe` | `454_cout_divers` | totaux, Résultat net |
-| **C7** | Cellules ③ : clic → affaires du mois → correction à la source (gestes existants) ; (option ajustement mensuel si 12.4 = oui : `455_cout_correction`) | selon 12.4 | test 4 |
-| **C8** | Postes oubliés validés (part récurrente apporteurs, collègues) dans `coutsLocation` ; battement 15 s dans le Suivi CA | aucune | égalité module Location / Suivi CA |
+| **C1** ✅ | Onglet « Les coûts » en LECTURE : statut « Associé » (C1), suit « Voir » (C2), rangée des années à une seule année, tuiles avec N−1, graphique du CA global en mesure « Coûts » (3 familles, N−1, Mensuel / Cumul), tableau « Vente » / « Location et gestion » × 12 mois + totaux, colonne C3, postes futurs présents et vides | aucune | ci-dessus |
+| **C2** | Saisie en place des postes mensuels EXISTANTS (ADHOC, facture MONGA) via `enregistrerGestion` ; empreinte « coûts » | aucune | propagation, empreinte |
+| **C3** | Fonctions des profils (page Comptes, une case par fonction, pré-cochées, C9) + `profilsPourSalaire` | `451_compte_fonction` | ordre du sélecteur |
+| **C4** | Salaires chargés par salarié + `salairesDuMois` dans `lireLocationCa` / `lireGestion` / `coutsDe` ; journal étendu ; **C8 : effacement des totaux mensuels**, sauvegarde `.captures/sauvegardes/` + journal, réversible | `452_salaire_charge`, `453_effacement_salaires_mensuels` | tests 1-3 |
+| **C5** | Colonnes « Autres » par famille (C5) ; rubrique dans `coutsDe` | `454_cout_divers` | totaux, Résultat net |
+| **C6** | Cellules ③ : clic → détail du mois → affaires / baux → correction à la source (C4 : mêmes gestes, même journal) | aucune | test 4 |
+| **C7** | Part de gestion versée aux apporteurs et rémunération des collègues apporteurs dans `coutsLocation` (C5) | aucune | égalité module Location / Suivi CA |
+| **C8** | Battement 15 s dans le Suivi CA | aucune | empreinte |
 
-Chaque migration : ajout seul (aucune colonne retirée), triggers anti-DELETE, livrée non appliquée ; code compatible sans elle
-(`schemaDroits.ts` : `…Disponible()`).
+Chaque migration : ajout seul (sauf l'effacement C8, décidé par Arno, sauvegardé et réversible), triggers anti-DELETE, livrée non appliquée ;
+code compatible sans elle (`schemaDroits.ts` : `…Disponible()`).
 
-## 12. Questions produit pour Arno
+## 12. Questions produit — tranchées par Arno le 03/11/2026
 
-1. **Qui sont les « profils associés » ?** Aujourd'hui le statut « Associé » existe déjà (vos deux comptes administrateurs).
-   *Proposition* : un nouveau droit « Coûts » à cocher par profil dans Comptes (administrateurs : implicite), plutôt que le statut — on peut
-   ainsi ouvrir l'onglet à quelqu'un qui n'est pas associé, ou le fermer à un associé.
-2. **L'onglet suit-il le sélecteur « Voir » ?** *Proposition* : oui (CRITERIMMO, MACJ, FUSION), et il est absent en vue perso « Mon espace ».
-   Corollaire : aujourd'hui seuls les administrateurs ont « Voir ». *Proposition* : un profil qui a le droit « Coûts » sans être
-   administrateur voit « Voir » dans cet onglet seulement.
-3. **Salaires des négociateurs vente salariés / associés** : le salaire chargé saisi comprend-il leur variable ? *Proposition* : non, on saisit le
-   fixe chargé ; les commissions restent celles des cartes (sinon double compte).
-4. **Corriger un coût automatique** : à la source (la commission sur la vente, la prime sur le bail) ou par un montant mensuel forcé ?
-   *Proposition* : à la source — un seul chiffre partout ; le montant forcé ne serait qu'une ligne « Ajustement » visible, jamais en
-   remplacement.
-5. **Postes oubliés** : faut-il ajouter (a) la part gestion récurrente due aux apporteurs et la rémunération des collègues apporteurs (calculées
-   par Location, absentes du Suivi CA), (b) des frais communs (loyer, logiciels, portails, assurances, comptable, banque) ? *Proposition* :
-   (a) oui, en coûts Location ; (b) une colonne « Autres » libre par famille d'abord, une famille « Frais communs » plus tard si besoin.
-6. **Interventions MONGA par devis** : à la charge des propriétaires (pas un coût de l'agence) ? *Proposition* : oui → non comptées ; seul le
-   forfait mensuel MONGA est un coût.
-7. **Location / gestion de MACJ** : y a-t-il des coûts location ou gestion pour MACJ ? *Proposition* : non, tout est CRITERIMMO (comme
-   aujourd'hui) ; la colonne structure existe quand même sur les nouvelles saisies.
-8. **Historique des salaires** : les totaux mensuels déjà saisis (gestion 2025-2026, location 09/2026) restent tels quels, ou faut-il les
-   répartir par salarié ? *Proposition* : ils restent ; le détail par salarié s'applique aux mois saisis ensuite (et remplace le total d'un mois
-   dès qu'on détaille ce mois).
-9. **Fonction d'un profil** : une case par fonction (vente / location / gestion) dans Comptes, pré-cochée par déduction ? *Proposition* : oui,
-   plusieurs fonctions possibles par profil.
+1. Profils associés → **C1** (statut « Associé », pas de nouveau droit).
+2. « Voir » → **C2** (oui ; absent de la vue perso).
+3. Salaires vente et variable → **C3** (montant chargé tel quel ; variable calculé affiché pour information, hors totaux).
+4. Corriger un coût automatique → **C4** (à la source) + règle absolue (aucun « Ajustement »).
+5. Postes oubliés → **C5**.
+6. MONGA → **C6** (facture mensuelle seulement).
+7. MACJ → **C7** (vente seulement).
+8. Historique des salaires → **C8** (effacés au lot des salaires, sauvegardés, réversibles).
+9. Fonction d'un profil → **C9**.
+
+Reste ouvert (à poser plus tard, sans urgence) : un associé non administrateur aurait-il « Voir » pour cet onglet ? (aujourd'hui aucun cas.)
+
+## ÉTAT AU 03/11/2026 08:50 — lot 1 interrompu, puis terminé à la reprise
+
+Arrêt demandé par Arno (extinction de l'ordinateur). **Rien n'est committé** (ni le code, ni ce plan). Les fichiers restent tels quels sur le disque.
+Aucune écriture en base, aucune migration. Le banc de captures est arrêté : plus de Chrome de banc, plus de serveur de banc, et les dossiers
+temporaires du scratchpad sont effacés. Le serveur de recette d'Arno n'a pas été touché.
+
+**Fichiers créés**
+- `app/lib/mon-espace/couts.ts` : range par poste, par mois et par structure ; `coutsDuPoint`, `coutsDeLAnnee`, `ongletCoutsVisible`, `URL_COUTS`, `MOTIF_COUTS`.
+- `app/lib/mon-espace/couts.test.ts` : 22 tests, verts.
+- `app/lib/mon-espace/__fixtures__/couts.ts` : données fictives 2025-2026.
+- `app/lib/transaction/donneesGlobal.ts` : `lireDonneesGlobal`, le corps de `?vue=global` déplacé tel quel ; option `compromis: false`.
+- `app/(admin)/api/admin/mon-espace/couts/route.ts` et `route.test.ts` (3 tests, verts) : garde Mon espace, puis associé ET administrateur, sinon 403.
+- `app/(admin)/admin/(protected)/mon-espace/CoutsMonEspace.tsx` : l'écran (rangée des années, une seule année ; 4 tuiles avec N−1 ;
+  `GrapheGlobal` en mesure « Coûts » ; tableau « Vente » | « Location et gestion » ; colonne C3 ; postes futurs vides).
+- `app/(admin)/admin/(protected)/mon-espace/CoutsMonEspace.test.tsx` : 13 tests, verts.
+
+**Fichiers modifiés**
+- `MesCompteurs.tsx` : onglet « couts » après « Apporteurs », seulement si `ongletCoutsVisible`. Retour à « Mon espace » depuis « Les coûts » : on revient sur « Mois ».
+- `compteRepo.ts` : `titulaireDuCompte` (associé lu par `statutDuCompte`) et `peutVoirCouts`.
+- `agenceRepo.ts`, `mesAffairesRepo.ts` : le titulaire passe par `titulaireDuCompte`.
+- `mesAffaires.ts` : `titulaire.associe?`.
+- `transaction/route.ts` : `?vue=global` appelle `lireDonneesGlobal` ; les imports devenus inutiles sont retirés.
+- `grapheGlobal.ts` : `coutsVenteDeLaSociete` est extraite de `atomesDuPoint` ; `nbFiltresActifs(f, d?)`.
+- `GrapheGlobal.tsx` : props facultatives `initiaux` et `verrous`. Absentes, le Suivi CA est inchangé.
+- `EcransTransaction.tsx` : `LigneDesAnnees` reçoit l'option `uneSeule` ; `anneesDuGlobal`, `anneeAvecDonnees` et `DonneesGlobal` sont exportés.
+- `CoutsMonEspace.tsx` : correctif CSS fait après la 1re série de captures. À 390 px, les tuiles restaient sur 4 colonnes (spécificité de la règle `@container`) ;
+  les sous-titres des en-têtes du tableau sont allégés.
+
+**Décisions prises en route**
+- **Graphique.** On réutilise `GrapheGlobal` (le graphique du CA global), pas `GrapheMois` / `GrapheAnnees` : ces deux-là ne montrent que du CA de
+  ventes. Par défaut : « Activités entre elles », côte à côte. N−1 : Comparer › « Année précédente ». Mensuel / Cumul : dans le panneau.
+- **Correctif dans une fonction partagée** (`coutsVenteDeLaSociete`). En CRITERIMMO ou MACJ, seules les rétrocessions de LA société sont lues, comme
+  sur sa page. Avant, une rétrocession CRITERIMMO rattachée à une vente partagée était aussi comptée sur la ligne miroir de MACJ, et le total
+  CRITERIMMO + MACJ du graphique du CA global dépassait la FUSION. Aucun cas en base ce jour (requête en lecture seule).
+- **Une seule colonne « Commissions des négociateurs »** (celle de « Coûts globaux ») : les séparer indépendants / salariés serait un calcul nouveau.
+- **Colonne C3** (« Variable négo (calculé) ») : seulement en Location ; pas de variable en Gestion.
+- **Totaux.** La ligne « Mois à confirmer » n'apparaît que s'il y a des ventes signées sans mois. La ligne de l'année = « Coûts globaux ».
+- **La phrase existante du mode agence** (« Le montant est le CA de … ») s'affiche aussi sur « Les coûts ». Laissée telle quelle (pas de masquage sans accord).
+
+**Vérifié**
+- `tsc` sans erreur.
+- eslint propre sur les fichiers du lot (seul reste un avertissement `enPeriode` déjà présent avant le lot).
+- Suites ciblées vertes : `app/lib/transaction`, `app/lib/mon-espace`, écrans Mon espace et Transaction, routes Mon espace (67 fichiers, 1281 tests),
+  puis les 3 nouveaux fichiers de test (38 tests).
+- 1re série de captures, dans `.captures/mon-espace-les-couts/` (encore valable pour 1440 px) :
+  - à 1440 et 390 px, aucun débordement horizontal ;
+  - montants des tuiles conformes aux tests ;
+  - défaut constaté à 390 px : tuiles sur 4 colonnes, corrigé depuis mais pas encore recapturé.
+
+**Reprise du 03/11/2026 (lot 1 terminé)**
+- Captures refaites (HT), Clair et Sombre, à 1440×900 et 390 px, dans `.captures/mon-espace-les-couts/` :
+  - aucun débordement horizontal ;
+  - tuiles sur 2 colonnes à 390 px (4 colonnes à 1440 px).
+- `tsc` sans erreur ; `npm test` complet vert : 1587 fichiers, 24 904 tests (21 ignorés).

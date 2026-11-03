@@ -106,7 +106,9 @@ export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique'
 export interface MesAffaires {
   disponible: boolean;
   aujourdhui: string;
-  titulaire: { id: number; prenom: string | null; administrateur: boolean };
+  titulaire: { id: number; prenom: string | null; administrateur: boolean;
+    /** 🔴 « Les coûts » (décision C1) — le statut « Associé » (absent : une réponse d'avant, non associé). */
+    associe?: boolean };
   /** Collaborateur : SES ventes, sans la commission des autres. Administrateur : toutes les ventes, telles quelles (« mesCotes » vide : pas à lui). */
   ventes: VenteMonEspace[];
   compteurs: CompteursMonEspace;

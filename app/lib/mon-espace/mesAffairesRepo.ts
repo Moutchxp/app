@@ -2,6 +2,7 @@
 // (`lireVentes(null)`), filtrées et réduites ICI, côté serveur, pour le compte qui demande (mesAffaires.ts). Pas de `import 'server-only'` (même
 // convention que les dépôts de la Transaction, lus par les épreuves).
 import { query } from '../db/client';
+import { titulaireDuCompte } from './compteRepo';
 import { comptesRapprochesDesLibelles, libellesDePaye, lireRetrocessions, lireStatutsNegociateurs, lireVentes, nomsAffichesNegociateurs, transactionDisponible } from '../transaction/repo';
 import { mesVentesActees, statistiquesMonEspace } from './statistiques';
 import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
@@ -48,9 +49,8 @@ export async function poserAuteurs(ventes: VenteMonEspace[]): Promise<void> {
 
 /** « Mes affaires » du compte `compteId` (le droit est déjà vérifié par la route). LECTURE SEULE. */
 export async function lireMesAffaires(compteId: number, aujourdhui: string): Promise<MesAffaires> {
-  const { rows } = await query<{ role: string; prenom: string | null }>('SELECT role, prenom FROM admin_utilisateur WHERE id = $1', [compteId]);
-  const administrateur = rows[0]?.role === 'administrateur';
-  const titulaire = { id: compteId, prenom: rows[0]?.prenom ?? null, administrateur };
+  const titulaire = await titulaireDuCompte(compteId);
+  const { administrateur } = titulaire;
   if (!(await transactionDisponible())) return { disponible: false, aujourdhui, titulaire, ventes: [], compteurs: VIDE(aujourdhui) };
   const toutes = await lireVentes(null);
   const moi = await moiDansLesVentes(compteId, toutes);

@@ -2,21 +2,21 @@ import 'server-only';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import { exigerTransaction } from '../../../../lib/transaction/garde';
 import { concerne, estSociete, type Vente } from '../../../../lib/transaction/modele';
-import { compromisEnCours, pourLaVue, totalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
-import { resolveurDe } from '../../../../lib/transaction/statutLigne';
+import { compromisEnCours, pourLaVue } from '../../../../lib/transaction/compromisEnCours';
 import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur';
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireSalairesLocationSaisie, lireVente } from '../../../../lib/transaction/saisie';
 import {
-  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireGestion, lireJournal, lireNegociateurs, lireNotesDoubles,
-  lirePersonnes, lireRetrocessions, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
-import { annulationDisponible, interCabinetDisponible, mandatDisponible, mongaDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
+  acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, enregistrerSalairesLocation, lireJournal, lireNegociateurs,
+  lirePersonnes, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
+import { annulationDisponible, interCabinetDisponible, mandatDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
-import { lireCaLocationHtTtc, lireLocationCa } from '../../../../lib/transaction/locationLue';
+import { lireLocationCa } from '../../../../lib/transaction/locationLue';
 import { aujourdhuiParis, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
 import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
 import { lireDonneesSociete } from '../../../../lib/transaction/donneesSociete';
+import { lireDonneesGlobal } from '../../../../lib/transaction/donneesGlobal';
 
 /**
  * TUILE « TRANSACTION » (Arno, 27/10/2026, migration 433) — la porte de la tuile :
@@ -72,29 +72,8 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 MON ESPACE, LOT 10 — la lecture est `lireDonneesSociete` (la même pour le mode agence de « Mon espace »), déplacée telle quelle.
       return json({ etat: 'ok', data: await lireDonneesSociete(brut === 'tous' ? null : brut, aujourdhui) });
     }
-    if (vue === 'global') {
-      // 🔴 LOT CG1 — la location en HT et en TTC (centimes, la règle de la page « Suivi CA › Location »)
-      const loc = await lireCaLocationHtTtc().catch(() => null);
-      const location = loc?.ht ?? null; const locationTtcC = loc?.ttcC ?? null;
-      if (!disponible) return json({ etat: 'ok', data: { disponible, aujourdhui, ventes: [], gestion: [], location, locationTtcC } });
-      const [ventes, gestion, ventesC, ventesM, retrocessions, doubles] = await Promise.all([lireVentes(null), lireGestion(), lireVentes('criterimmo'), lireVentes('macj'),
-        lireRetrocessions(null), lireNotesDoubles(null)]);
-      // 🔴 LOT CG2 — les coûts globaux : les données de la page FUSION (ventes complètes, rétrocessions, statut des négociateurs payés) et de la page
-      // « Suivi CA › Location » (lignes, rétrocessions, salaires chargés), en lecture seule
-      const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
-      const locationCa = await lireLocationCa().catch(() => null);
-      // 🔴 LOT CY — les compromis en cours (la règle unique, `totalCompromisEnCours`) : nos deux sociétés, et chacune (ses lignes miroir comprises).
-      const total = async (vs: readonly Vente[], vueC: 'criterimmo' | 'macj' | null) => {
-        const statuts = await lireStatutsNegociateurs(libellesDePaye(compromisEnCours(vs, vueC))).catch(() => ({}));
-        return totalCompromisEnCours(vs, vueC, resolveurDe(statuts));
-      };
-      const compromisEnCoursTotaux = { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') };
-      // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
-      return json({ etat: 'ok', data: { disponible, aujourdhui, gestion, location, locationTtcC, compromisEnCours: compromisEnCoursTotaux, monga: await mongaDisponible().catch(() => false),
-        retrocessions, statutsNegociateurs, locationCa: locationCa?.disponible === true ? { lignes: locationCa.lignes, retrocessions: locationCa.retrocessions, salaires: locationCa.salaires } : null,
-        // 🔴 LOT CG2 — les ventes COMPLÈTES (les cartes de la page FUSION : répartition, lignes, dossier), plus seulement leurs champs du CA
-        ventes } });
-    }
+    // 🔴 MON ESPACE « Les coûts » (03/11/2026) — la lecture est `lireDonneesGlobal` (la même pour l'onglet « Les coûts »), déplacée telle quelle.
+    if (vue === 'global') return json({ etat: 'ok', data: await lireDonneesGlobal(aujourdhui) });
     if (vue === 'compromis') {
       // LOT D — les compromis en cours (acte non signé) qui comptent pour la société (une part, ou la société de l'historique), ou pour les deux.
       const societe = url.searchParams.get('societe');

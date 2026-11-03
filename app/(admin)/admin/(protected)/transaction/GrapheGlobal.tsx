@@ -9,7 +9,7 @@ import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
   ACTIVITES_GRAPHE, atomesDesMois, atomesDuPoint, avecReunies, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs,
-  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur,
+  raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type FiltresGraphe, type SerieValeur, type StructureGraphe,
 } from '../../../../lib/transaction/grapheGlobal';
 import { attributBarresRouges, COURT, ecrireAdresse, eur, MOT_UNITE, parametre, StyleBarresRouges, useAffichage } from './commun';
 import { ordreEncadre } from './GrapheNegociateurs';
@@ -24,18 +24,26 @@ import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — l
  * N−1 hachuré, point choisi en rouge, encadré à droite) ; plusieurs séries : barres empilées ou côte à côte (Cumul : une courbe par série), couleurs
  * fixes et légende. « Année » : les 12 mois ; « Période » / « Tout » : une barre par année.
  */
-export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = null }: {
+export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = null, initiaux, verrous }: {
   eG: EntreesGlobalUnite; eC: EntreesCoutsGlobaux; jour: string;
   /** L'année montrée (« Année ») ; `annees` : null en « Année », sinon les années choisies (« Période », « Tout ») — l'axe année par année. */
   annee: number; annees: readonly number[] | null; salaires: boolean;
   /** Arno (01/11/2026) — les barres en rouge : les années soulignées (« Période », « Tout ») ou les mois écoulés de l'année montrée (« Année ») ;
    *  null : la barre courante seule. Une seule série seulement (plusieurs séries : leurs couleurs fixes). */
   rouges?: readonly number[] | null;
+  /** 🔴 Mon espace « Les coûts » (03/11/2026) — les filtres d'arrivée ; donnés, l'adresse n'est ni lue ni écrite (la page qui l'accueille a la
+   *  sienne). Absent (le Suivi CA) : les filtres de l'adresse, comme avant. */
+  initiaux?: Partial<FiltresGraphe>;
+  /** 🔴 Mon espace « Les coûts » — la mesure et les structures imposées par la page (« Voir ») : leurs familles de filtres ne sont pas montrées. */
+  verrous?: { structures: readonly StructureGraphe[] };
 }) {
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC'; const ka = u === 'ht' ? 'ttcC' : 'htC';
-  const [f, setF] = useState<FiltresGraphe>(() => filtresDepuisAdresse(parametre));
-  useEffect(() => { ecrireAdresse(filtresVersAdresse(f)); }, [f]);
+  // le réglage de départ (« Réinitialiser les filtres » y revient) : celui du Suivi CA, ou celui de la page qui accueille le graphique
+  const depart: FiltresGraphe = initiaux === undefined ? FILTRES_GRAPHE_DEFAUT
+    : { ...FILTRES_GRAPHE_DEFAUT, ...initiaux, ...(verrous === undefined ? {} : { structures: [...verrous.structures] }) };
+  const [f, setF] = useState<FiltresGraphe>(() => (initiaux === undefined ? filtresDepuisAdresse(parametre) : depart));
+  useEffect(() => { if (initiaux === undefined) ecrireAdresse(filtresVersAdresse(f)); }, [f]); // eslint-disable-line react-hooks/exhaustive-deps
   const [ouvert, setOuvert] = useState(false);
   const changer = (x: Partial<FiltresGraphe>): void => setF((v) => ({ ...v, ...x }));
   const basculer = <T extends string>(liste: readonly T[], c: T): T[] => (liste.includes(c) ? liste.filter((x) => x !== c) : [...liste, c]);
@@ -220,7 +228,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
     </div>
   );
   const famille = (titre: string, contenu: ReactNode, cle: string) => <div className="trx-gf-famille" data-famille-filtre={cle}><span className="trx-gf-titre">{titre}</span>{contenu}</div>;
-  const nb = nbFiltresActifs(f);
+  const nb = nbFiltresActifs(f, depart);
   return (
     <section className="tdb-section trx-graphe-global" aria-labelledby="trx-g-graphe" data-bloc="global-graphe" {...(avecHors ? { 'data-mois-hors': 'a-confirmer' } : {})}
       {...attributBarresRouges('data-rouges-global', rougesVus)}>
@@ -232,11 +240,11 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
           Filtres ({nb} actif{nb > 1 ? 's' : ''})</button>
       </div>
       <div id="trx-gf-panneau" className={`trx-gf-panneau${ouvert ? ' trx-gf-panneau--ouvert' : ''}`} data-filtres-graphe>
-        {famille('Mesure', choix('Mesure', MESURES_GRAPHE, f.mesure, (c) => changer({ mesure: c, comparer: c !== 'couts' && f.comparer === 'familles' ? 'n1' : f.comparer })), 'mesure')}
+        {verrous === undefined && famille('Mesure', choix('Mesure', MESURES_GRAPHE, f.mesure, (c) => changer({ mesure: c, comparer: c !== 'couts' && f.comparer === 'familles' ? 'n1' : f.comparer })), 'mesure')}
         {f.mesure === 'couts' && famille('Coûts', <>{cases('Coûts', FAMILLES_GRAPHE, f.familles, (xs) => changer({ familles: xs }), (c) => raisonGrise(f, { sorte: 'famille', cle: c }))}
           <span className="trx-gf-tout"><button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: FAMILLES_GRAPHE.map((x) => x.cle) })} data-familles-tout>Tout</button>
             {' / '}<button type="button" className="trx-bouton-lien" onClick={() => changer({ familles: [] })} data-familles-aucun>Aucun</button></span></>, 'couts')}
-        {famille('Structure', cases('Structure', STRUCTURES_GRAPHE, f.structures, (xs) => changer({ structures: xs }), (c) => raisonGrise(f, { sorte: 'structure', cle: c })), 'structure')}
+        {verrous === undefined && famille('Structure', cases('Structure', STRUCTURES_GRAPHE, f.structures, (xs) => changer({ structures: xs }), (c) => raisonGrise(f, { sorte: 'structure', cle: c })), 'structure')}
         {famille('Activité', <>
           {/* 🔴 LOT CG10 — « Réunies » : une seule case « Location & Gestion » (cochée : les deux), une seule série en « Activités entre elles » */}
           {f.reunies
@@ -251,12 +259,12 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
         {famille('Affichage', <>{choix('Période', [{ cle: 'mensuel', mot: parAnnees ? 'Annuel' : 'Mensuel' }, { cle: 'cumul', mot: 'Cumul' }] as const, f.cumul ? 'cumul' : 'mensuel', (c) => changer({ cumul: c === 'cumul' }))}
           {choix('Barres', [{ cle: 'empile', mot: 'Barres empilées' }, { cle: 'cote', mot: 'Côte à côte' }] as const, f.empile ? 'empile' : 'cote', (c) => changer({ empile: c === 'empile' }), () => raisonGrise(f, { sorte: 'affichage' }))}
           {/* 🔴 LOT CG12 (Arno) — « Réinitialiser les filtres » sur la ligne « Affichage », à droite (une ligne de moins dans le panneau) */}
-          <button type="button" className="trx-bouton-lien trx-gf-reinit" onClick={() => setF(FILTRES_GRAPHE_DEFAUT)} disabled={nb === 0} data-reinitialiser-filtres>Réinitialiser les filtres</button></>, 'affichage')}
+          <button type="button" className="trx-bouton-lien trx-gf-reinit" onClick={() => setF(depart)} disabled={nb === 0} data-reinitialiser-filtres>Réinitialiser les filtres</button></>, 'affichage')}
       </div>
       {graphe}
       {/* 🔴 LOT CG10 — les ventes à attribuer ne sont plus dans le graphique : leur montant sur la période, discrètement (le Bilan les compte) */}
-      {horsAttribuer !== 0 && <p className="loc-muet trx-gf-note" data-hors-ventes-a-attribuer>Hors ventes à attribuer : {eur(horsAttribuer)} {MOT_UNITE[u]} (comptées dans le Bilan)</p>}
-      {!seule && <p className="loc-muet trx-gf-note" data-note-graphe>{f.comparer === 'structures' && (vals[0]?.c.series ?? []).some((x) => x.cle === 'inter') ? 'L’inter-cabinet entre nos sociétés, compté dans les deux ventes, est retiré une fois (série « Inter-cabinet ») : le total = le Bilan. ' : ''}Valeurs : les tableaux du Bilan ci-dessous.</p>}
+      {horsAttribuer !== 0 && verrous === undefined && <p className="loc-muet trx-gf-note" data-hors-ventes-a-attribuer>Hors ventes à attribuer : {eur(horsAttribuer)} {MOT_UNITE[u]} (comptées dans le Bilan)</p>}
+      {!seule && <p className="loc-muet trx-gf-note" data-note-graphe>{f.comparer === 'structures' && (vals[0]?.c.series ?? []).some((x) => x.cle === 'inter') ? 'L’inter-cabinet entre nos sociétés, compté dans les deux ventes, est retiré une fois (série « Inter-cabinet ») : le total = le Bilan. ' : ''}{verrous === undefined ? 'Valeurs : les tableaux du Bilan ci-dessous.' : 'Valeurs : le tableau ci-dessous.'}</p>}
       {seule && f.comparer === 'n1' && <p className="loc-muet trx-gf-note" data-note-graphe>Comparaison : les mêmes filtres, {parAnnees ? 'un an plus tôt' : `en ${annee - 1}`} ({f.cumul ? 'pointillé' : 'hachuré'}).</p>}
     </section>
   );

@@ -16,6 +16,8 @@ import { GestesAffaire } from './GestesAffaire';
 import { AccueilMonEspace } from './AccueilMonEspace';
 import { AnneesMonEspace } from './AnneesMonEspace';
 import { CSS_LISTE_PERIODE } from './ListeAffairesPeriode';
+import { CoutsMonEspace } from './CoutsMonEspace';
+import { ongletCoutsVisible } from '../../../../lib/mon-espace/couts';
 import { OngletsVues, useLigneDesAnnees, useLigneDesMois, vueInitiale } from '../transaction/EcransTransaction';
 import { ecrireAdresse, parametre } from '../transaction/commun';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -65,12 +67,12 @@ export const avecEspace = (url: string, e: Espace): string => (e === 'moi' ? url
 const TOUT_VOIR: VuePersonnelle = { mesCotes: ['entree', 'sortie', 'unique'], commissionsRetirees: false };
 export const URL_EMPREINTE = '/api/admin/mon-espace/empreinte';
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: 'erreur' };
-// Décisions 11 et 14 (Arno, 02/11/2026) : des onglets « Mes … », seul « Mes apporteurs » reste.
-type Onglet = 'apporteurs';
+// Décisions 11 et 14 (Arno, 02/11/2026) : des onglets « Mes … », seul « Mes apporteurs » reste. 🔴 « Les coûts » (03/11/2026) : associés, mode agence.
+type Onglet = 'apporteurs' | 'couts';
 
 export const URL_MES_AFFAIRES = '/api/admin/mon-espace/affaires';
-const MOTS_ONGLETS: Record<Onglet, string> = { apporteurs: 'Mes apporteurs' };
-const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { apporteurs: 'Apporteurs' };
+const MOTS_ONGLETS: Record<Onglet, string> = { apporteurs: 'Mes apporteurs', couts: 'Les coûts' };
+const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { apporteurs: 'Apporteurs', couts: 'Les coûts' };
 /** L'onglet d'arrivée : la règle de la Transaction (`vueInitiale`) ; une adresse d'un onglet retiré (« Mes ventes », « Mes statistiques ») → « Mois ». PUR. */
 export const vueDArrivee = (vue: string | null, avecMois: boolean): 'compromis' | 'mois' | 'annee' =>
   (vue === 'ventes' || vue === 'statistiques' || vue === 'mes-ventes' || vue === 'mes-statistiques' ? 'mois' : vueInitiale(vue, avecMois));
@@ -227,6 +229,8 @@ export function MesCompteurs() {
   const choisirOnglet = (v: 'compromis' | 'mois' | 'annee'): void => { if (v === 'mois') ouvrirAnnee(Number(jourEcran.slice(0, 4))); else choisirVue(v); };
   const changerEspace = (e: Espace): void => {
     if (e === espace) return;
+    // 🔴 « Les coûts » n'existe pas dans la vue perso (décision C2) : on revient sur « Mois »
+    if (e === 'moi' && onglet === 'couts') choisirOnglet('mois');
     // une autre liste : rien à comparer (aucun « X a mis à jour »), l'empreinte de référence sera celle du nouveau chargement
     espaceVu.current = e; precedentes.current = null; empreinteVue.current = null; relectureAuto.current = false;
     setEspace(e); setLu({ etat: 'chargement' }); setFiltreNego(''); setMiseAJour(null); setHistorique(null); setEdition(null);
@@ -275,6 +279,9 @@ export function MesCompteurs() {
   };
   const personnel = (v: VenteMonEspace): VuePersonnelle => (agence !== null ? TOUT_VOIR : { mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
   const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
+  // 🔴 « Les coûts » (Arno, 03/11/2026) — décision C1 : les associés ; décision C2 : en mode agence (« Voir »), jamais dans la vue perso
+  const avecCouts = ongletCoutsVisible(data.titulaire, agence?.cle ?? null);
+  const ongletsEspace: Onglet[] = avecCouts ? ['apporteurs', 'couts'] : ['apporteurs'];
   const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
   const relire = (): void => setLecture((x) => x + 1);
   const carte = (v: VenteMonEspace, section: 'compromis' | 'vente', montant?: { m: { htC: number; ttcC: number }; mot?: string }) => (
@@ -311,7 +318,7 @@ export function MesCompteurs() {
           cartes, mêmes gestes) et « Mes statistiques » (= cartes, graphique et tableaux sous le graphique) sont retirés ; « Mes apporteurs » reste. */}
       {/* Une seule ligne : les onglets à gauche, « Montants en HT | TTC » à droite (au téléphone : les onglets défilent, HT | TTC dessous). */}
       <div className="mes-ligne-onglets" data-ligne-onglets>
-        <OngletsVues vue={vue} onVue={choisirOnglet} apres={(['apporteurs'] as const).map((o) => (
+        <OngletsVues vue={vue} onVue={choisirOnglet} apres={ongletsEspace.map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
             onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
         ))} />
@@ -336,7 +343,8 @@ export function MesCompteurs() {
         {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
         : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrirAnnee={ouvrirAnnee} onOuvrir={ouvrir} carte={carte} />
-        : onglet === 'apporteurs' ? <MesApporteurs /> : (
+        : onglet === 'apporteurs' ? <MesApporteurs />
+        : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} /> : null) : (
           <>
           {agence !== null && tousCompromis.length > 0 && (
             <div className="mes-ventes-tete" data-outils-agence>

@@ -1,0 +1,43 @@
+// 🔴 MON ESPACE « LES COÛTS » (Arno, 03/11/2026) — LES DONNÉES DU CA GLOBAL, UNE SEULE LECTURE. C'est le corps de
+// `GET /api/admin/transaction?vue=global` (le Suivi CA › CA global), déplacé ici TEL QUEL pour que l'onglet « Les coûts » de « Mon espace » lise
+// exactement les mêmes ventes, rétrocessions, statuts, gestion et location que « Coûts globaux » (même patron que `donneesSociete.ts`).
+// LECTURE SEULE. Pas de `import 'server-only'` (même convention que les dépôts de la Transaction, lus par les épreuves).
+import type { Vente } from './modele';
+import { compromisEnCours, totalCompromisEnCours } from './compromisEnCours';
+import { resolveurDe } from './statutLigne';
+import { libellesDePaye, lireGestion, lireNotesDoubles, lireRetrocessions, lireStatutsNegociateurs, lireVentes, transactionDisponible } from './repo';
+import { lireCaLocationHtTtc, lireLocationCa } from './locationLue';
+import { mongaDisponible } from '../admin/schemaDroits';
+
+/**
+ * Le CA global : ventes COMPLÈTES des deux sociétés, gestion, location (CA HT et TTC), rétrocessions, statut des négociateurs payés, données de
+ * « Suivi CA › Location » ; `compromis` (défaut : oui) : les compromis en cours de nos deux sociétés et de chacune (le prévisionnel du CA global ;
+ * « Les coûts » n'en a pas besoin).
+ */
+export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boolean } = {}): Promise<Record<string, unknown>> {
+  const disponible = await transactionDisponible();
+  // 🔴 LOT CG1 — la location en HT et en TTC (centimes, la règle de la page « Suivi CA › Location »)
+  const loc = await lireCaLocationHtTtc().catch(() => null);
+  const location = loc?.ht ?? null; const locationTtcC = loc?.ttcC ?? null;
+  if (!disponible) return { disponible, aujourdhui, ventes: [], gestion: [], location, locationTtcC };
+  const [ventes, gestion, retrocessions, doubles] = await Promise.all([lireVentes(null), lireGestion(), lireRetrocessions(null), lireNotesDoubles(null)]);
+  // 🔴 LOT CG2 — les coûts globaux : les données de la page FUSION (ventes complètes, rétrocessions, statut des négociateurs payés) et de la page
+  // « Suivi CA › Location » (lignes, rétrocessions, salaires chargés), en lecture seule
+  const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye([...ventes, ...doubles])).catch(() => ({}));
+  const locationCa = await lireLocationCa().catch(() => null);
+  let compromis: Record<string, unknown> = {};
+  if (o.compromis !== false) {
+    const [ventesC, ventesM] = await Promise.all([lireVentes('criterimmo'), lireVentes('macj')]);
+    // 🔴 LOT CY — les compromis en cours (la règle unique, `totalCompromisEnCours`) : nos deux sociétés, et chacune (ses lignes miroir comprises).
+    const total = async (vs: readonly Vente[], vueC: 'criterimmo' | 'macj' | null) => {
+      const statuts = await lireStatutsNegociateurs(libellesDePaye(compromisEnCours(vs, vueC))).catch(() => ({}));
+      return totalCompromisEnCours(vs, vueC, resolveurDe(statuts));
+    };
+    compromis = { compromisEnCours: { tous: await total(ventes, null), criterimmo: await total(ventesC, 'criterimmo'), macj: await total(ventesM, 'macj') } };
+  }
+  // 🔴 LOT GE3 — `monga` : la migration 446 est-elle appliquée (la saisie du coût MONGA) ?
+  return { disponible, aujourdhui, gestion, location, locationTtcC, ...compromis, monga: await mongaDisponible().catch(() => false),
+    retrocessions, statutsNegociateurs, locationCa: locationCa?.disponible === true ? { lignes: locationCa.lignes, retrocessions: locationCa.retrocessions, salaires: locationCa.salaires } : null,
+    // 🔴 LOT CG2 — les ventes COMPLÈTES (les cartes de la page FUSION : répartition, lignes, dossier), plus seulement leurs champs du CA
+    ventes };
+}
