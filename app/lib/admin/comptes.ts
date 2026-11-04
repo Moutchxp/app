@@ -46,6 +46,9 @@ export interface CompteDB {
    * attente ⇒ toujours `false` (cf. `selectCompte`) : la tuile n'apparaît alors qu'aux administrateurs.
    */
   perm_mon_espace: boolean;
+  /** 🔴 D37 (Arno, 04/11/2026) — accès aux tuiles « Audit » et « Sources de données » (migration 454). Migration en attente ⇒ `false`. */
+  perm_audit: boolean;
+  perm_sources: boolean;
   // Drapeau de première connexion (M3-4). Lu ici pour être DISPONIBLE ; il n'entre PAS encore dans le JWS
   // (ce sera le Lot B — enforcement). Les comptes CLI le portent false ; la future UI (Lot C) le posera true.
   doit_changer_mot_de_passe: boolean;
@@ -68,7 +71,7 @@ export class ErreurCompte extends Error {}
  *  (Objet all-true inline, cohérent avec `permsToutes()` de session.ts — évité ici en import runtime, cf. en-tête.) */
 export function permsDuCompte(c: CompteDB): Perms {
   if (c.role === 'administrateur') {
-    return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true, mon_espace: true };
+    return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true, mon_espace: true, audit: true, sources: true };
   }
   return {
     pilotage: c.perm_pilotage,
@@ -82,6 +85,8 @@ export function permsDuCompte(c: CompteDB): Perms {
     location: c.perm_location === true,
     transaction: c.perm_transaction === true,
     mon_espace: c.perm_mon_espace === true,
+    audit: c.perm_audit === true,
+    sources: c.perm_sources === true,
   };
 }
 
@@ -139,7 +144,7 @@ const COLONNES_COMPTE = `id, identifiant, prenom, nom, mot_de_passe, role, actif
  * peut envoyer sauf les administrateurs. C'est exactement le repli voulu, et il n'exige aucune branche ailleurs.
  */
 async function selectCompte(): Promise<string> {
-  const { droitEnvoiGestionDisponible, droitLocationDisponible, droitTransactionDisponible, droitMonEspaceDisponible } = await import('./schemaDroits');
+  const { droitEnvoiGestionDisponible, droitLocationDisponible, droitTransactionDisponible, droitMonEspaceDisponible, droitsD37Disponibles } = await import('./schemaDroits');
   const avecEnvoi = await droitEnvoiGestionDisponible();
   // LOCATION — même précaution, sur le même chemin d'authentification : migration 371 en attente ⇒ `false`.
   const avecLocation = await droitLocationDisponible();
@@ -147,10 +152,13 @@ async function selectCompte(): Promise<string> {
   const avecTransaction = await droitTransactionDisponible();
   // MON ESPACE — même précaution : migration 448 en attente ⇒ `false`.
   const avecMonEspace = await droitMonEspaceDisponible();
+  // 🔴 D37 — Audit et Sources de données : migration 454 en attente ⇒ `false`.
+  const avecD37 = await droitsD37Disponibles();
   return `SELECT ${COLONNES_COMPTE}, ${avecEnvoi ? 'perm_gestion_envoi' : 'NULL::boolean AS perm_gestion_envoi'},
     ${avecLocation ? 'perm_location' : 'false AS perm_location'},
     ${avecTransaction ? 'perm_transaction' : 'false AS perm_transaction'},
-    ${avecMonEspace ? 'perm_mon_espace' : 'false AS perm_mon_espace'}
+    ${avecMonEspace ? 'perm_mon_espace' : 'false AS perm_mon_espace'},
+    ${avecD37 ? 'perm_audit, perm_sources' : 'false AS perm_audit, false AS perm_sources'}
   FROM admin_utilisateur`;
 }
 
@@ -293,11 +301,14 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
   // MON ESPACE — même règle (migration 448), son paramètre vient APRÈS celui de la Transaction.
   const avecMonEspace = await (await import('./schemaDroits')).droitMonEspaceDisponible();
   const nMonEspace = nTransaction + (avecTransaction ? 1 : 0);
+  // 🔴 D37 — Audit et Sources de données (migration 454), leurs paramètres APRÈS celui de Mon espace.
+  const avecD37 = await (await import('./schemaDroits')).droitsD37Disponibles();
+  const nAudit = nMonEspace + (avecMonEspace ? 1 : 0);
   const { rows } = await query<ResultatCompte>(
     `WITH nouv AS (
        INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif, doit_changer_mot_de_passe,
-         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion${avecEnvoi ? ', perm_gestion_envoi' : ''}${avecLocation ? ', perm_location' : ''}${avecTransaction ? ', perm_transaction' : ''}${avecMonEspace ? ', perm_mon_espace' : ''})
-       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14${avecEnvoi ? ', $16::boolean' : ''}${avecLocation ? `, $${nLocation}::boolean` : ''}${avecTransaction ? `, $${nTransaction}::boolean` : ''}${avecMonEspace ? `, $${nMonEspace}::boolean` : ''})
+         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion${avecEnvoi ? ', perm_gestion_envoi' : ''}${avecLocation ? ', perm_location' : ''}${avecTransaction ? ', perm_transaction' : ''}${avecMonEspace ? ', perm_mon_espace' : ''}${avecD37 ? ', perm_audit, perm_sources' : ''})
+       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14${avecEnvoi ? ', $16::boolean' : ''}${avecLocation ? `, $${nLocation}::boolean` : ''}${avecTransaction ? `, $${nTransaction}::boolean` : ''}${avecMonEspace ? `, $${nMonEspace}::boolean` : ''}${avecD37 ? `, $${nAudit}::boolean, $${nAudit + 1}::boolean` : ''})
        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
@@ -317,6 +328,7 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
       ...(avecLocation ? [admin || p.perms.location] : []), // LOCATION — perm_location (administrateur → true forcé)
       ...(avecTransaction ? [admin || p.perms.transaction] : []), // TRANSACTION — perm_transaction (administrateur → true forcé)
       ...(avecMonEspace ? [admin || p.perms.mon_espace] : []), // MON ESPACE — perm_mon_espace (administrateur → true forcé)
+      ...(avecD37 ? [admin || p.perms.audit === true, admin || p.perms.sources === true] : []), // 🔴 D37 — perm_audit, perm_sources
     ],
   );
   return rows[0];
@@ -435,13 +447,16 @@ export async function modifierPermissions(
   // MON ESPACE — la case n'est écrite que si la migration 448 est là ; son paramètre vient APRÈS celui de la Transaction.
   const avecMonEspace = await (await import('./schemaDroits')).droitMonEspaceDisponible();
   const nMonEspace = nTransaction + (avecTransaction ? 1 : 0);
+  // 🔴 D37 — Audit et Sources de données : écrites seulement si la migration 454 est là ; leurs paramètres APRÈS celui de Mon espace.
+  const avecD37 = await (await import('./schemaDroits')).droitsD37Disponibles();
+  const nAudit = nMonEspace + (avecMonEspace ? 1 : 0);
 
   const { rows } = await query<{ id: number }>(
     `WITH maj AS (
        UPDATE admin_utilisateur
           SET perm_pilotage = $2, perm_cartes_annee = $3, perm_statistiques = $4,
               perm_internautes = $5, perm_curation = $6, perm_banc_test = $7, perm_permis = $8, perm_permis_modif = $9,
-              perm_gestion = $10${avecEnvoi ? ', perm_gestion_envoi = $13::boolean' : ''}${avecLocation ? `, perm_location = $${nLocation}::boolean` : ''}${avecTransaction ? `, perm_transaction = $${nTransaction}::boolean` : ''}${avecMonEspace ? `, perm_mon_espace = $${nMonEspace}::boolean` : ''}
+              perm_gestion = $10${avecEnvoi ? ', perm_gestion_envoi = $13::boolean' : ''}${avecLocation ? `, perm_location = $${nLocation}::boolean` : ''}${avecTransaction ? `, perm_transaction = $${nTransaction}::boolean` : ''}${avecMonEspace ? `, perm_mon_espace = $${nMonEspace}::boolean` : ''}${avecD37 ? `, perm_audit = $${nAudit}::boolean, perm_sources = $${nAudit + 1}::boolean` : ''}
         WHERE id = $1 AND role = 'collaborateur'
         RETURNING id
      ), jrnl AS (
@@ -458,7 +473,8 @@ export async function modifierPermissions(
      ...(avecEnvoi ? [envoi] : []),
      ...(avecLocation ? [perms.location] : []),
      ...(avecTransaction ? [perms.transaction] : []),
-     ...(avecMonEspace ? [perms.mon_espace] : [])],
+     ...(avecMonEspace ? [perms.mon_espace] : []),
+     ...(avecD37 ? [perms.audit === true, perms.sources === true] : [])],
   );
   return rows.length > 0;
 }

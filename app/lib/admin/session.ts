@@ -9,8 +9,10 @@ import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
  *  existant n'est retiré, renommé ni réordonné.
  *  LOCATION (17/10/2026) : 'location' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_location, migration 371).
  *  TRANSACTION (27/10/2026) : 'transaction' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_transaction, migration 433).
- *  MON ESPACE (02/11/2026) : 'mon_espace' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_mon_espace, migration 448). */
-export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis', 'gestion', 'location', 'transaction', 'mon_espace'] as const;
+ *  MON ESPACE (02/11/2026) : 'mon_espace' rejoint la liste, AJOUTÉ EN FIN, même patron (colonne perm_mon_espace, migration 448).
+ *  🔴 D37 (Arno, 04/11/2026) : 'audit' et 'sources' — les tuiles « Audit » et « Sources de données », réservées jusqu'ici au RÔLE administrateur,
+ *  ont leur case (colonnes perm_audit, perm_sources, migration 454), « non » pour tous les collaborateurs. « Administratif » reste au rôle. */
+export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis', 'gestion', 'location', 'transaction', 'mon_espace', 'audit', 'sources'] as const;
 export type Module = (typeof MODULES)[number];
 export type Perms = Record<Module, boolean>;
 export type RoleAdmin = 'administrateur' | 'collaborateur';
@@ -36,12 +38,12 @@ export interface SessionAdmin {
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
 export function permsToutes(): Perms {
-  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true, mon_espace: true };
+  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true, location: true, transaction: true, mon_espace: true, audit: true, sources: true };
 }
 
 /** Toutes permissions à false (collaborateur par défaut ; complétées au Lot 4). */
 export function permsAucune(): Perms {
-  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false };
+  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false, audit: false, sources: false };
 }
 
 /** Nom du cookie de session admin. */

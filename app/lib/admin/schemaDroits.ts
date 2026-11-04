@@ -72,6 +72,15 @@ export function droitMonEspaceDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 D37 (Arno, 04/11/2026) — la migration 454 est-elle appliquée ? Elle porte les cases des tuiles « Audit » et « Sources de données »
+ * (`perm_audit`, `perm_sources`) et de l'onglet « Les coûts » (`perm_couts`). Tant qu'elle ne l'est pas : Audit et Sources restent aux
+ * administrateurs, « Les coûts » suit la règle d'avant (associé ET administrateur), et les cases n'écrivent rien.
+ */
+export function droitsD37Disponibles(): Promise<boolean> {
+  return memoiser('admin_utilisateur.perm_couts', () => colonneExiste('admin_utilisateur', 'perm_couts'));
+}
+
+/**
  * TRANSACTION, LOT D (Arno, 27/10/2026) — la migration 434 est-elle appliquée ? Elle porte l'onglet « Compromis » (personnes, dates,
  * négociateurs d'entrée et de sortie), la société datée de chaque collaborateur et la répartition de la commission. Tant qu'elle ne
  * l'est pas : la tuile lit comme avant, la page Comptes montre la société sans l'exiger ni l'écrire. Aucune connexion n'en dépend.

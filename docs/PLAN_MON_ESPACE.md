@@ -522,3 +522,29 @@ Le même composant (`FormulaireDossier`) dans le Suivi CA et dans Mon espace ; a
   (« … (cumul) » aussi). Règle unique : `motNombreDeLAnnee` (année du bloc ≠ année en cours → « Ventes »). Aucun nombre, aucun calcul changé.
 - Exemple (FUSION, base du 03/11/2026) : panneau « 2023 » → 2023 « Ventes 38 », 2022 « Ventes 47 » ; panneau « 2026 » → 2026 « Ventes + compromis
   27 », 2025 « Ventes 40 ». Captures avant / après (1 440 × 900) : `.captures/libelle-ventes-compromis/`.
+
+## 🔴 D37 (Arno, 04/11/2026) — Administratif › Comptes : une case de permission pour chaque tuile du menu
+
+**Décisions d'Arno (04/11/2026)** :
+- **Administratif** : NON — reste réservé aux administrateurs, aucune case (un collaborateur qui l'aurait pourrait se donner tous les droits).
+- **Les coûts** : option **A** — la case « Les coûts » remplace la condition « associé » (décision C1), pré-cochée pour Arnaud et Cédric (les
+  associés), et reste réservée aux administrateurs par le mode « Voir ». Seule case modifiable pour un administrateur ; sans effet pour un
+  collaborateur (la note le dit).
+- **Audit** et **Sources de données** : cases ajoutées, « non » pour tous les collaborateurs (administrateurs : d'office). À savoir : Sources
+  permet aussi de modifier les réglages d'ingestion nocturne ; Audit montre le journal des connexions (identifiants, adresses brouillées).
+- **Libellés** alignés sur le menu : Pilotage Moteur, Années de construction, Internautes (BD), Suivi Chiffre d'affaires ; cases dans l'ordre du
+  menu ; sous-options (Modifier un permis après validation, mails gestion@, Résultat net) inchangées sous leur tuile.
+
+**Livré** :
+- Migration **454** (`454_permissions_tuiles.sql`) : `perm_audit`, `perm_sources` (faux par défaut), `perm_couts` (pré-cochée pour le statut
+  « Associé », à la création de la colonne seulement, chaque pré-cochage journalisé). Appliquée sur la base de RECETTE seulement, après la
+  sauvegarde `.captures/sauvegardes/sansvisavis-avant-454-2026-11-04-082615.dump` (5 278 160 267 octets, 3 575 entrées relues) ; rejouée : rien
+  ne change (idempotente). Rien en production.
+- Contrôle côté serveur : `proxy.ts` (table chemin→permission : `/admin/audit`, `/api/admin/audit`, `/admin/sources`, `/api/admin/sources`) et
+  la garde de chaque route (`exigerModuleD37`, droit relu en base ; sans la 454 : administrateurs seulement). Menu : Audit et Sources selon leur
+  case, à leur place (après Administratif). « Les coûts » : `peutVoirCouts` = administrateur ET la case (sans la 454 : associé ET administrateur).
+  Case « Les coûts » : `POST /api/admin/comptes/[id]/couts` (administrateur, journalisée). Prise d'effet immédiate (droits relus à chaque requête).
+- **Accès effectifs avant / après la migration, par profil (le vrai code, lecture seule) : identiques** — Arnaud Jorel et Cédric JULLIEN
+  (administrateurs, associés) : toutes les tuiles + Les coûts ; Augustin Jorel : Pilotage Moteur, Années de construction ; Jean-Baptiste PONS :
+  Gestion ; Pierre Thevenin : aucune ; Test (inactif) : aucune.
+- Captures (avant / après, fiche administrateur et collaborateur, 1 440 et 390 px, clair et sombre) : `.captures/permissions-tuiles-d37/`.

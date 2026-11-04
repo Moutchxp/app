@@ -32,14 +32,18 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(liens).toHaveLength(0);
   });
 
-  it('collaborateur avec TOUTES les perms → 7 modules dont « Permis de construire » (RATT-EDIT lot A2), mais JAMAIS Administratif/Audit/Sources (rôle, pas permission)', () => {
+  it('collaborateur avec TOUTES les perms → les modules dont « Permis de construire » (RATT-EDIT lot A2), Audit et Sources (D37), mais JAMAIS Administratif (rôle)', () => {
     const slugs = liensVisibles('collaborateur', permsToutes()).map((l) => l.slug);
-    expect(slugs).toHaveLength(11); // 6 modules historiques + Permis + Gestion (lot 2) + Location (17/10/2026) + Transaction (27/10/2026) + Mon espace (02/11/2026)
-    expect(slugs.slice(-3)).toEqual(['/admin/location', '/admin/transaction', '/admin/mon-espace']); // AJOUTÉES EN FIN : aucune tuile existante n'a bougé
+    expect(slugs).toHaveLength(13); // 6 modules historiques + Permis + Gestion + Location + Transaction + Mon espace + (D37) Audit + Sources de données
+    expect(slugs.slice(-5)).toEqual(['/admin/location', '/admin/transaction', '/admin/mon-espace', '/admin/audit', '/admin/sources']); // aucune tuile existante n'a bougé
     expect(slugs).toContain('/admin/permis'); // RATT-EDIT — désormais un module GARDÉ, visible avec le droit
-    expect(slugs).not.toContain('/admin/comptes');
-    expect(slugs).not.toContain('/admin/audit');
-    expect(slugs).not.toContain('/admin/sources'); // Sources reste réservé au RÔLE administrateur
+    expect(slugs).not.toContain('/admin/comptes'); // 🔴 D37 (Arno) — Administratif reste réservé au RÔLE administrateur, sans case
+  });
+  it('🔴 D37 — Audit et Sources de données suivent LEUR case ; un administrateur : l’ordre d’avant (Administratif, Audit, Sources)', () => {
+    expect(liensVisibles('collaborateur', permsAucune()).map((l) => l.slug)).toEqual([]);
+    expect(liensVisibles('collaborateur', { ...permsAucune(), audit: true }).map((l) => l.slug)).toEqual(['/admin/audit']);
+    expect(liensVisibles('collaborateur', { ...permsAucune(), sources: true }).map((l) => l.slug)).toEqual(['/admin/sources']);
+    expect(liensVisibles('administrateur', permsAucune()).map((l) => l.slug).slice(-3)).toEqual(['/admin/comptes', '/admin/audit', '/admin/sources']);
   });
 
   it('collaborateur SANS perm_permis → « Permis de construire » ABSENT du menu (RATT-EDIT lot A2 : gardé par le droit)', () => {

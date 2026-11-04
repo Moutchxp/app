@@ -111,7 +111,9 @@ export interface MesAffaires {
   aujourdhui: string;
   titulaire: { id: number; prenom: string | null; administrateur: boolean;
     /** 🔴 « Les coûts » (décision C1) — le statut « Associé » (absent : une réponse d'avant, non associé). */
-    associe?: boolean };
+    associe?: boolean;
+    /** 🔴 D37 — la case « Les coûts » (absente : une réponse d'avant, le statut « Associé » fait foi). */
+    couts?: boolean };
   /** Collaborateur : SES ventes, sans la commission des autres. Administrateur : toutes les ventes, telles quelles (« mesCotes » vide : pas à lui). */
   ventes: VenteMonEspace[];
   compteurs: CompteursMonEspace;

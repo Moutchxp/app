@@ -252,18 +252,30 @@ describe('proxy — routes de module nouvellement déclarées (statistiques, geo
     expect(res.status).not.toBe(403);
   });
 
-  it('/admin/audit (page) : collaborateur même toutes perms → redirection /admin (RÔLE admin requis)', async () => {
-    const res = await proxy(await requete('/admin/audit', collab(permsToutes())));
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toMatch(/\/admin$/);
+  // 🔴 D37 (Arno, 04/11/2026) — « Audit » et « Sources de données » ont leur case (perm_audit, perm_sources) ; « Administratif » reste au RÔLE
+  for (const [module, page, api] of [['audit', '/admin/audit', '/api/admin/audit'], ['sources', '/admin/sources', '/api/admin/sources']] as const) {
+    it(`${page} et ${api} : collaborateur SANS la case → redirection /admin (page) et 403 (API), même avec toutes les autres`, async () => {
+      const autres = { ...permsToutes(), [module]: false };
+      const p = await proxy(await requete(page, collab(autres)));
+      expect(p.status).toBe(307);
+      expect(p.headers.get('location')).toMatch(/\/admin$/);
+      expect((await proxy(await requete(api, collab(autres)))).status).toBe(403);
+      expect((await proxy(await requete(`${api}/sous-chemin`, collab(autres)))).status).toBe(403);
+    });
+    it(`${page} et ${api} : collaborateur AVEC la case → passe ; elle n'ouvre rien d'autre`, async () => {
+      const seule = collab({ ...permsAucune(), [module]: true });
+      expect([307, 403]).not.toContain((await proxy(await requete(page, seule))).status);
+      expect((await proxy(await requete(api, seule))).status).not.toBe(403);
+      expect((await proxy(await requete('/api/admin/statistiques', seule))).status).toBe(403);
+      expect((await proxy(await requete('/api/admin/comptes', seule))).status).toBe(403);
+    });
+  }
+  it('🔴 D37 — Administratif : collaborateur même avec TOUTES les cases → refusé (rôle administrateur, aucune case)', async () => {
+    expect((await proxy(await requete('/api/admin/comptes', collab(permsToutes())))).status).toBe(403);
+    expect((await proxy(await requete('/admin/comptes', collab(permsToutes())))).status).toBe(307);
   });
 
-  it('/api/admin/audit (API) : collaborateur même toutes perms → 403 (RÔLE admin requis)', async () => {
-    const res = await proxy(await requete('/api/admin/audit', collab(permsToutes())));
-    expect(res.status).toBe(403);
-  });
-
-  it('/api/admin/audit + administrateur → passe (double barrière : proxy rôle + exigerAdministrateur en aval)', async () => {
+  it('/api/admin/audit + administrateur → passe (double barrière : proxy + exigerModuleD37 en aval)', async () => {
     const res = await proxy(await requete('/api/admin/audit', admin()));
     expect(res.status).not.toBe(403);
     expect(res.status).not.toBe(307);

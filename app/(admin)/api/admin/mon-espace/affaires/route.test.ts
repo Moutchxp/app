@@ -18,7 +18,7 @@ vi.mock('../../../../../lib/transaction/repo', () => ({
   comptesRapprochesDesLibelles: async (ls: string[]) => Object.fromEntries(ls.map((l) => [l, l === 'LEA' || l === 'Léa MARTIN' ? { id: 5 } : l === 'MARC' || l === 'Marc DURAND' ? { id: 7 } : null])),
 }));
 vi.mock('../../../../../lib/admin/schemaDroits', () => ({ repartitionDisponible: async () => true, personneTypeDisponible: async () => true,
-  uniteCommissionDisponible: async () => true, prixVenteDisponible: async () => true, mandatDisponible: async () => true }));
+  uniteCommissionDisponible: async () => true, prixVenteDisponible: async () => true, mandatDisponible: async () => true, droitsD37Disponibles: async () => false }));
 vi.mock('../../../../../lib/db/client', () => ({ query: async (_sql: string, p: unknown[]) => ({ rows: [{ role: h.roles[Number(p[0])] ?? 'collaborateur', prenom: 'Prénom' }] }) }));
 
 import { GET } from './route';

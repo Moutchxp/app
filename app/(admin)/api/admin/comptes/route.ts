@@ -95,6 +95,7 @@ export async function POST(request: Request) {
     location: pb.location === true, // LOCATION (17/10/2026) — module « Location » (migration 371)
     transaction: pb.transaction === true, // TRANSACTION (27/10/2026) — module « Transaction » (migration 433)
     mon_espace: pb.mon_espace === true, // MON ESPACE (02/11/2026) — tuile « Mon espace » (migration 448)
+    audit: pb.audit === true, sources: pb.sources === true, // 🔴 D37 (04/11/2026) — tuiles « Audit », « Sources de données » (migration 454)
   };
 
   // 🔴 LOT 5-DROITS — MÊME EXIGENCE QU'À LA MODIFICATION : cocher la tuile Gestion oblige à répondre sur l'envoi. Créer

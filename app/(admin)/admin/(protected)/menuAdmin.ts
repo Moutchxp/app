@@ -70,9 +70,9 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */
 const ADMINISTRATIF: LienMenu = { slug: '/admin/comptes', libelle: 'Administratif', desc: 'Gestion des comptes admin.' };
 
-/** Tuile « Audit » (M2 Lot 7) — réservée au rôle administrateur, comme « Administratif » (fonction de sécurité,
- *  pas une permission déléguable). Vue AGRÉGÉE : connexions et détection de force brute, sans identité ni IP. */
-const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécurité : connexions et force brute (agrégé).' };
+/** Tuile « Audit » (M2 Lot 7) — vue AGRÉGÉE : connexions et détection de force brute. 🔴 D37 (Arno, 04/11/2026) : elle a sa case
+ *  (`perm_audit`, migration 454) ; administrateur d'office. Sa place ne change pas (après « Administratif »). */
+const AUDIT: LienMenu & { perm: keyof Perms } = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécurité : connexions et force brute (agrégé).', perm: 'audit' };
 
 /** RATT-EDIT (lot A2) — « Permis de construire » N'EST PLUS réservé au rôle administrateur : c'est désormais un MODULE GARDÉ
  *  (perm 'permis', déclaré dans MODULES ci-dessus + dans proxy.ts). Un collaborateur le voit s'il a le droit `perm_permis`. */
@@ -81,7 +81,9 @@ const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécuri
  *  État de fraîcheur des données qui font fonctionner l'outil (millésime, âge, surveillance, couverture), en LECTURE
  *  SEULE. AUCUNE pastille d'actions : une source périmée ne se répare pas d'un clic. Le proxy fail-closed réserve déjà
  *  /admin/sources et /api/admin/sources à l'administrateur. */
-const SOURCES: LienMenu = { slug: '/admin/sources', libelle: 'Sources de données', desc: 'Fraîcheur des données qui font fonctionner l’outil.' };
+const SOURCES: LienMenu & { perm: keyof Perms } = { slug: '/admin/sources', libelle: 'Sources de données', desc: 'Fraîcheur des données qui font fonctionner l’outil.', perm: 'sources' };
+/** 🔴 D37 — les tuiles gardées par leur case, après les modules : « Audit » puis « Sources de données » (leur ordre d'avant). */
+const APRES_ADMINISTRATIF = [AUDIT, SOURCES] as const;
 
 /**
  * Liens visibles (M3-4 Lot C/D) — SOURCE UNIQUE du menu latéral (`Sidebar`) ET de la grille du tableau de bord.
@@ -102,7 +104,10 @@ export function liensVisibles(role: RoleAdmin, perms: Perms): LienMenu[] {
       ? { slug, libelle, desc } : { slug, libelle, desc, accueil }));
   // RATT-EDIT (lot A2) — PERMIS a quitté cette liste réservée-admin : il est désormais dans MODULES (gardé par perm 'permis'), visible
   //   selon le droit comme les 6 autres. ADMINISTRATIF/AUDIT/SOURCES restent réservés au RÔLE administrateur (non délégables).
-  if (admin) liens.push(ADMINISTRATIF, AUDIT, SOURCES);
+  // 🔴 D37 (Arno, 04/11/2026) — AUDIT et SOURCES suivent leur case (perm_audit, perm_sources) ; ADMINISTRATIF reste au rôle. L'ordre
+  //   d'un administrateur est inchangé : Administratif, Audit, Sources de données.
+  if (admin) liens.push(ADMINISTRATIF);
+  for (const t of APRES_ADMINISTRATIF) if (admin || perms[t.perm]) liens.push({ slug: t.slug, libelle: t.libelle, desc: t.desc });
   return liens;
 }
 

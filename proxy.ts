@@ -38,6 +38,9 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/admin/location', 'location'], // LOCATION (17/10/2026) — module gardé (perm_location, migration 371)
   ['/admin/transaction', 'transaction'], // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433)
   ['/admin/mon-espace', 'mon_espace'], // MON ESPACE (02/11/2026) — tuile gardée (perm_mon_espace, migration 448)
+  // 🔴 D37 (Arno, 04/11/2026) — « Audit » et « Sources de données » : leur case (perm_audit, perm_sources, migration 454), au lieu du rôle
+  ['/admin/audit', 'audit'],
+  ['/admin/sources', 'sources'],
   // Routes d'API correspondantes (defense in depth : vérifiées au proxy ET dans chaque handler via garde.ts).
   ['/api/admin/config', 'pilotage'],
   ['/api/admin/cartes-annee', 'cartes_annee'],
@@ -59,6 +62,9 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/api/admin/transaction', 'transaction'],
   // MON ESPACE (02/11/2026) — même patron : tout /api/admin/mon-espace/* exige le droit, refus ici même sinon.
   ['/api/admin/mon-espace', 'mon_espace'],
+  // 🔴 D37 — tout /api/admin/audit/* et /api/admin/sources/* exige la case ; les routes la relisent en base (`exigerModuleD37`)
+  ['/api/admin/audit', 'audit'],
+  ['/api/admin/sources', 'sources'],
 ];
 
 /** Permission requise pour un chemin, ou `null` si aucune (chemin authentifié suffit). */
@@ -101,18 +107,10 @@ function estAdministratif(pathname: string): boolean {
 }
 
 /**
- * Surface AUDIT (journal de sécurité : `/admin/audit` + `/api/admin/audit`) — réservée au RÔLE administrateur EN
- * DUR, comme la tuile « Administratif » (pas une permission de module : le journal de sécurité n'est pas un droit
- * distribuable). La route API se re-garde en aval via `exigerAdministrateur` (garde.ts) → double barrière. Match
- * par frontière de segment (aucune collision de préfixe). Séparé d'`estAdministratif` pour ne pas brouiller le
- * sens de cette dernière (toujours = tuile /comptes uniquement, référencée telle quelle par les handlers comptes).
+ * 🔴 D37 (Arno, 04/11/2026) — la surface AUDIT (`/admin/audit` + `/api/admin/audit`) n'est plus réservée au RÔLE : elle a sa case
+ * (« Audit », `perm_audit`, migration 454), dans la table chemin→permission ci-dessus, comme « Sources de données ». Seule la tuile
+ * « Administratif » reste au rôle administrateur EN DUR (décision d'Arno : elle distribue les droits).
  */
-function estAudit(pathname: string): boolean {
-  for (const p of ['/admin/audit', '/api/admin/audit']) {
-    if (pathname === p || pathname.startsWith(`${p}/`)) return true;
-  }
-  return false;
-}
 
 /**
  * Chemins AUTHENTIFIÉ-SEUL : accessibles à TOUT compte connecté (collaborateur inclus) SANS permission de module,
@@ -296,11 +294,10 @@ async function decider(request: NextRequest) {
     return avecJeton(NextResponse.json({ erreur: 'LECTURE_SEULE', etat: 'refus', motif: MOTIF_LECTURE_SEULE }, { status: 403 }));
   }
 
-  // ═══ SURFACES RÉSERVÉES AU RÔLE administrateur EN DUR ═══
-  // Tuile « Administratif » (/comptes, M3-4 Lot C) ET audit (/audit, journal de sécurité) : réservées au RÔLE,
-  // pas à une permission de module. En amont de la table chemin→permission. Voie de secours (sub=null) :
-  // `session.role === 'administrateur'` → autorisée. Collaborateur → 403 (API) / redirection accueil (page).
-  if ((estAdministratif(pathname) || estAudit(pathname)) && session.role !== 'administrateur') {
+  // ═══ SURFACE RÉSERVÉE AU RÔLE administrateur EN DUR ═══
+  // Tuile « Administratif » (/comptes, M3-4 Lot C) : réservée au RÔLE, pas à une permission de module (🔴 D37 : l'audit a désormais
+  // sa case, dans la table chemin→permission). En amont de cette table. Collaborateur → 403 (API) / redirection accueil (page).
+  if (estAdministratif(pathname) && session.role !== 'administrateur') {
     if (estApi) {
       return avecJeton(new NextResponse(null, { status: 403 }));
     }

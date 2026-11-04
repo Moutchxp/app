@@ -1,20 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
+vi.mock('../../../../lib/admin/garde', () => ({ exigerModuleD37: vi.fn() }));
 vi.mock('../../../../lib/audit/lecture', () => ({ audit: vi.fn() }));
 
 import * as route from './route';
-import { exigerAdministrateur } from '../../../../lib/admin/garde';
+import { exigerModuleD37 } from '../../../../lib/admin/garde';
 import { audit } from '../../../../lib/audit/lecture';
 
-const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
+const garde = exigerModuleD37 as unknown as ReturnType<typeof vi.fn>;
 const auditFn = audit as unknown as ReturnType<typeof vi.fn>;
 const req = (qs: string) => new Request(`http://test/api/admin/audit${qs}`);
 const OK = '?debut=2026-01-01&fin=2026-01-31&grain=jour';
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('GET /api/admin/audit — réservé au RÔLE administrateur', () => {
+describe('GET /api/admin/audit — la case « Audit » (D37, relue en base par exigerModuleD37)', () => {
   it('non-administrateur (refus du garde) → 403 renvoyé tel quel, AUCUNE lecture', async () => {
     garde.mockResolvedValueOnce({ refus: Response.json({ erreur: 'INTERDIT' }, { status: 403 }) });
     const res = await route.GET(req(OK));
@@ -28,6 +28,7 @@ describe('GET /api/admin/audit — réservé au RÔLE administrateur', () => {
     const res = await route.GET(req(OK));
     expect(res.status).toBe(200);
     expect(auditFn).toHaveBeenCalledWith({ debut: '2026-01-01', fin: '2026-01-31', grain: 'jour' });
+    expect(garde.mock.calls.at(-1)?.[1]).toBe('audit'); // 🔴 D37 — la case « Audit »
   });
 
   it('fenêtre invalide → 400, sans lecture', async () => {

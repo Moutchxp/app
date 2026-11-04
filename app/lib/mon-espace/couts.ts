@@ -100,13 +100,14 @@ export function coutsDeLAnnee(e: EntreesCoutsGlobaux, agence: Agence, annee: num
   return { mois, aConfirmer: nul(reste) ? null : reste, annee: tout };
 }
 
-/** Le refus de la route (403) : un compte qui n'est pas associé (ou pas administrateur : « Voir » n'existe que pour eux). */
-export const MOTIF_COUTS = 'L’onglet « Les coûts » est réservé aux associés.';
+/** Le refus de la route (403) : un compte sans la case « Les coûts » (D37, qui remplace « associé »), ou pas administrateur (« Voir »). */
+export const MOTIF_COUTS = 'L’onglet « Les coûts » est réservé aux comptes qui ont la case « Les coûts » (Administratif › Comptes).';
 /** L'adresse de lecture de l'onglet. */
 export const URL_COUTS = '/api/admin/mon-espace/couts';
-/** L'onglet est-il proposé ? Décision C1 : un associé ; décision C2 : en mode agence (« Voir »), jamais dans la vue perso. PUR. */
-export const ongletCoutsVisible = (titulaire: { associe?: boolean; administrateur: boolean }, agence: Agence | null): boolean =>
-  agence !== null && titulaire.associe === true && titulaire.administrateur;
+/** L'onglet est-il proposé ? 🔴 D37 : la case « Les coûts » (absente d'une réponse d'avant : le statut « Associé », décision C1) ; décision
+ *  C2 : en mode agence (« Voir »), jamais dans la vue perso. PUR. */
+export const ongletCoutsVisible = (titulaire: { associe?: boolean; couts?: boolean; administrateur: boolean }, agence: Agence | null): boolean =>
+  agence !== null && (titulaire.couts ?? titulaire.associe === true) && titulaire.administrateur;
 
 // ══ 🔴 LOT 2 (451) — LA SAISIE : ce que la route accepte (lu et vérifié ici, PUR) ══════════════════════════════════════════════════════════════
 export type GesteCout =

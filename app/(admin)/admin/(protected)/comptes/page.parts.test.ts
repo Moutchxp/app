@@ -39,7 +39,7 @@ describe('Chip — pastille accessible (ARIA, état par forme)', () => {
 
 const compteCollab = {
   id: 5, identifiant: 'lea@unique.test', prenom: 'Léa', nom: 'M', role: 'collaborateur' as const, actif: true,
-  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false }, peutModifierPermis: false,
+  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false, audit: false, sources: false }, peutModifierPermis: false,
   derniere_connexion_a: '2026-07-09T22:31:35.591Z', cree_a: '2026-06-01T09:00:00.000Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
@@ -58,7 +58,7 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
     expect(html).toContain('Fermer');
   });
 
-  it('cas administrateur → 8 pastilles forcées cochées et désactivées (7 modules + le sous-droit « modifier après validation », RATT-EDIT lots A2/A3)', () => {
+  it('cas administrateur → les pastilles forcées cochées et désactivées (les tuiles + le sous-droit « modifier après validation », RATT-EDIT lots A2/A3)', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
       msg: null, enCours: false, ...idProps, peutModifierPermis: true, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
@@ -68,7 +68,8 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
     // LOCATION (17/10/2026) — 11 : la tuile Location s'ajoute, forcée cochée pour un administrateur.
     // TRANSACTION (27/10/2026) — 12 : la tuile Transaction s'ajoute, forcée cochée pour un administrateur.
     // MON ESPACE (02/11/2026) — 13 : la tuile Mon espace s'ajoute, forcée cochée pour un administrateur (droit d'office).
-    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(13);
+    // 🔴 D37 (04/11/2026) — 15 : les tuiles « Audit » et « Sources de données » s'ajoutent, forcées cochées pour un administrateur.
+    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(15);
     expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 });
@@ -288,5 +289,40 @@ describe('🔴 Arno (25/10/2026) — « Voir les commissions » : la case RESTE,
     expect(html).toContain(LIBELLE_VOIR_COMMISSIONS);
     expect(html).toContain(`data-voir-commissions-sans-effet="true">${MENTION_VOIR_COMMISSIONS_SANS_EFFET}</span>`);
     expect(MENTION_VOIR_COMMISSIONS_SANS_EFFET).toBe('Sans effet actuellement : le variable est visible par le négociateur concerné et les administrateurs.');
+  });
+});
+
+/**
+ * 🔴 D37 (Arno, 04/11/2026) — une case par tuile, dans l'ordre du menu, aux noms du menu ; « Les coûts » sous « Mon espace » (option A :
+ * modifiable pour un administrateur, sans effet pour un collaborateur) ; Administratif : aucune case.
+ */
+describe('🔴 D37 — les cases de la fiche, dans l’ordre et aux noms du menu', () => {
+  const libelles = (html: string) => [...html.matchAll(/<button type="button" class="cpt-chip"[^>]*>(?:<span[^>]*>[^<]*<\/span>)?([^<]+)<\/button>/g)].map((m) => m[1]);
+  const rendre = (o: Record<string, unknown>) => renderToStaticMarkup(createElement(DetailContenu, {
+    compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
+    peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop, ...o,
+  } as Parameters<typeof DetailContenu>[0]));
+  it('les tuiles : Pilotage Moteur, Années de construction, Statistiques, Internautes (BD), …, Suivi Chiffre d’affaires, Mon espace, Audit, Sources de données', () => {
+    const l = libelles(rendre({}));
+    expect(l.slice(0, 13)).toEqual(['Pilotage Moteur', 'Années de construction', 'Statistiques', 'Internautes (BD)', 'Curation', 'Banc de test', 'Permis de construire',
+      'Gestion', 'Location', 'Suivi Chiffre d’affaires', 'Mon espace', 'Audit', 'Sources de données']);
+    expect(l).not.toContain('Administratif');
+    expect(l).not.toContain('Cartes d’année');
+    expect(l).not.toContain('Transaction');
+  });
+  it('« Les coûts » sous « Mon espace » : administrateur → cochée et MODIFIABLE ; collaborateur → sans effet (désactivée), la note le dit', () => {
+    const admin = rendre({ compte: { ...compteCollab, role: 'administrateur', couts: { valeur: true, disponible: true } }, collaborateur: false });
+    const caseAdmin = /<div data-case-couts="true">(.*?)<\/div>/.exec(admin)![1];
+    expect(caseAdmin).toContain('aria-pressed="true"');
+    expect(caseAdmin).not.toContain('disabled');
+    expect(caseAdmin).toContain('Les coûts');
+    const collab = rendre({ compte: { ...compteCollab, couts: { valeur: false, disponible: true } }, perms: { ...compteCollab.perms, mon_espace: true } });
+    const caseCollab = /<div data-case-couts="true">(.*?)<\/div>/.exec(collab)![1];
+    expect(caseCollab).toContain('disabled');
+    expect(caseCollab).toContain('Sans effet pour un collaborateur');
+  });
+  it('« Les coûts » sans la migration 454 : désactivée, avec la mention', () => {
+    const html = rendre({ compte: { ...compteCollab, role: 'administrateur', couts: { valeur: false, disponible: false } }, collaborateur: false });
+    expect(html).toContain('migration 454');
   });
 });

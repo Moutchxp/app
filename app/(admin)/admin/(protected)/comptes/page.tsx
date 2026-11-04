@@ -70,6 +70,8 @@ interface DetailCompte extends CompteVue {
   serviceGestion?: ServiceGestionVue;
   /** LOCATION « Outils de suivi » (406) — « Voir les commissions ». Absent d'une réponse d'avant ce lot. */
   voirCommissions?: { valeur: boolean; disponible: boolean };
+  /** 🔴 D37 (454) — la case « Les coûts » (onglet de Mon espace) ; absente d'une réponse d'avant ce lot. */
+  couts?: { valeur: boolean; disponible: boolean };
   /** 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » (question de la tuile Location). Absent d'une réponse d'avant ce lot. */
   resultatNet?: { valeur: boolean; disponible: boolean };
   /** TRANSACTION, LOT D (434) — la société et ses périodes datées. Absent d'une réponse d'avant ce lot. */
@@ -93,19 +95,29 @@ export const AIDE_RESULTAT_NET = 'Le bloc « Résultat net de l’agence » du S
 export const AIDE_SERVICE_GESTION = 'Les mails écrits depuis la gestion n’affichent pas de cartouche d’alerte sur le nom.';
 
 const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
-  { cle: 'pilotage', libelle: 'Pilotage' },
-  { cle: 'cartes_annee', libelle: 'Cartes d’année' },
+  // 🔴 D37 (Arno, 04/11/2026) — les libellés des cases = les noms des tuiles du menu (`menuAdmin.ts`), dans l'ordre du menu
+  { cle: 'pilotage', libelle: 'Pilotage Moteur' },
+  { cle: 'cartes_annee', libelle: 'Années de construction' },
   { cle: 'statistiques', libelle: 'Statistiques' },
-  { cle: 'internautes', libelle: 'Internautes' },
+  { cle: 'internautes', libelle: 'Internautes (BD)' },
   { cle: 'curation', libelle: 'Curation' },
   { cle: 'banc_test', libelle: 'Banc de test' },
   { cle: 'permis', libelle: 'Permis de construire' }, // RATT-EDIT (lot A2) — module gardé (perm_permis) au même rang que les 6
   { cle: 'gestion', libelle: 'Gestion' }, // GESTION (lot 2) — module gardé (perm_gestion), AJOUTÉ en fin de liste : les cases existantes ne bougent pas
   { cle: 'location', libelle: 'Location' }, // LOCATION (17/10/2026) — module gardé (perm_location, migration 371), AJOUTÉ en fin de liste
-  { cle: 'transaction', libelle: 'Transaction' }, // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433), AJOUTÉ en fin de liste
+  { cle: 'transaction', libelle: 'Suivi Chiffre d’affaires' }, // TRANSACTION (27/10/2026) — module gardé (perm_transaction, migration 433) ; 🔴 D37 : le nom de la tuile
   { cle: 'mon_espace', libelle: 'Mon espace' }, // MON ESPACE (02/11/2026) — tuile gardée (perm_mon_espace, migration 448), AJOUTÉE en fin de liste
+  // 🔴 D37 (Arno, 04/11/2026, migration 454) — « Audit » et « Sources de données », réservées jusqu'ici au rôle : leur case (après « Administratif »
+  //   dans le menu, qui reste réservé aux administrateurs, sans case)
+  { cle: 'audit', libelle: 'Audit' },
+  { cle: 'sources', libelle: 'Sources de données' },
 ];
-const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false });
+const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false, transaction: false, mon_espace: false,
+  audit: false, sources: false });
+/** 🔴 D37 (option A) — la case « Les coûts », sous « Mon espace » : écrite une fois, relue par les tests. */
+export const LIBELLE_COUTS = 'Les coûts';
+export const AIDE_COUTS = 'L’onglet « Les coûts » de Mon espace, dans « Voir » (CRITERIMMO, MACJ, FUSION) : réservé aux administrateurs. C’est la seule case qu’on peut retirer à un administrateur ; enregistrée aussitôt.';
+export const AIDE_COUTS_COLLABORATEUR = 'Sans effet pour un collaborateur : l’onglet est dans « Voir », réservé aux administrateurs.';
 
 /** LOT 5-DROITS — réponse à la question d'envoi : `null` = pas encore répondu (« à décider »). */
 export type ReponseEnvoi = boolean | null;
@@ -213,7 +225,7 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
  */
 export function DetailContenu({
   compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
-  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion, onBasculerVoirCommissions,
+  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion, onBasculerVoirCommissions, onBasculerCouts,
   resultatNet = false, onChoisirResultatNet, societeChoisie = null, societeDepuis = '', onChoisirSociete, onSocieteDepuis, onEnregistrerSociete, onStatutEnregistre,
 }: {
   /** 🔴 LOT P — après un changement de statut (enregistré par le bloc lui-même) : relire le compte et la liste. */
@@ -230,6 +242,8 @@ export function DetailContenu({
   /** LOT PROFIL-GESTION — coche / décoche « Appartient au service gestion » (enregistré aussitôt, historisé). */
   onBasculerServiceGestion?: () => void;
   onBasculerVoirCommissions?: () => void;
+  /** 🔴 D37 — coche / décoche « Les coûts » (enregistré aussitôt, journalisé ; administrateur compris). */
+  onBasculerCouts?: () => void;
   compte: DetailCompte;
   perms: Perms;
   peutModifierPermis: boolean; // RATT-EDIT (lot A3) — état de la sous-case
@@ -408,6 +422,16 @@ export function DetailContenu({
                   <span className="cpt-note" style={{ display: 'block' }}>Mise à jour de la base à appliquer (migration 428) avant de pouvoir répondre Oui.</span>
                 )}
               </div>
+            ) : m.cle === 'mon_espace' && compte.couts !== undefined ? (
+              /* 🔴 D37 (Arno, 04/11/2026, option A) — « Les coûts » : la case remplace la condition « associé ». L'onglet est dans « Voir »,
+                 réservé aux administrateurs : c'est la seule case modifiable pour un administrateur ; pour un collaborateur, elle reste sans effet. */
+              <div data-case-couts>
+                <Chip libelle={LIBELLE_COUTS} coche={compte.couts.valeur} disabled={enCours || !compte.couts.disponible || collaborateur} onToggle={onBasculerCouts} />
+                <span className="cpt-note" style={{ display: 'block' }}>{collaborateur ? AIDE_COUTS_COLLABORATEUR : AIDE_COUTS}</span>
+                {!compte.couts.disponible && (
+                  <span className="cpt-note" style={{ display: 'block' }}>Mise à jour de la base à appliquer (migration 454) avant de pouvoir la cocher.</span>
+                )}
+              </div>
             ) : undefined} />
         ))}
       </div>
@@ -532,6 +556,18 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       }
     } finally { setEnCours(false); }
   }
+  async function basculerCouts() {
+    if (!d?.couts) return;
+    setEnCours(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/comptes/${id}/couts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ valeur: !d.couts.valeur }) });
+      if (res.ok) { setMsg('Droit « Les coûts » enregistré.'); await recharger(); }
+      else {
+        const body = await res.json().catch(() => null);
+        setMsg(typeof body?.erreur === 'string' ? body.erreur : 'Enregistrement refusé.');
+      }
+    } finally { setEnCours(false); }
+  }
   async function promouvoir() {
     if (!window.confirm('Promouvoir ce compte en administrateur ? Un administrateur a toutes les permissions et ne peut plus être rétrogradé.')) return;
     setEnCours(true); setMsg(null);
@@ -559,7 +595,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
             }}
             resultatNet={resultatNet} onChoisirResultatNet={setResultatNet}
             onToggleModif={() => setPeutModifierPermis((v) => !v)} onChoisirEnvoi={setEnvoi}
-            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} onBasculerServiceGestion={basculerServiceGestion} onBasculerVoirCommissions={basculerVoirCommissions} />
+            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} onBasculerServiceGestion={basculerServiceGestion} onBasculerVoirCommissions={basculerVoirCommissions} onBasculerCouts={basculerCouts} />
         : (msg ?? 'Chargement…')}
     </div>
   );

@@ -28,6 +28,9 @@ beforeAll(async () => {
   // MON ESPACE — même préchauffage pour la sonde de la migration 448, répondue « absente » : le SQL reste celui d'avant.
   queryMock.mockResolvedValueOnce({ rows: [{ n: 0 }] });
   await (await import('../../../../../lib/admin/schemaDroits')).droitMonEspaceDisponible();
+  // 🔴 D37 — même préchauffage pour la sonde de la migration 454, répondue « absente » : le SQL reste celui d'avant.
+  queryMock.mockResolvedValueOnce({ rows: [{ n: 0 }] });
+  await (await import('../../../../../lib/admin/schemaDroits')).droitsD37Disponibles();
 });
 
 beforeEach(() => {

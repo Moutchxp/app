@@ -374,7 +374,7 @@ export function MesCompteurs() {
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
         : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrirAnnee={ouvrirAnnee} onOuvrir={ouvrir} carte={carte} />
         : onglet === 'apporteurs' ? <MesApporteurs />
-        : onglet === 'couts' && !avecCouts ? <p className="loc-muet mes-vide" data-couts-reserve>« Les coûts » est réservé aux associés, dans « Voir » : CRITERIMMO, MACJ ou FUSION.</p>
+        : onglet === 'couts' && !avecCouts ? <p className="loc-muet mes-vide" data-couts-reserve>« Les coûts » est réservé aux comptes qui ont la case « Les coûts », dans « Voir » : CRITERIMMO, MACJ ou FUSION.</p>
         : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} saisieDemandee={saisieDemandee}
           onEcrit={() => setRappelRelu((x) => x + 1)} /> : null) : (
           <>

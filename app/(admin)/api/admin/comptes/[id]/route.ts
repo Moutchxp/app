@@ -4,6 +4,7 @@ import { trouverCompteParId, permsDuCompte, capaciteModifPermis, etatEnvoiGestio
 import { lireServiceGestion } from '../../../../../lib/admin/serviceGestion';
 import { lireVoirCommissions } from '../../../../../lib/admin/voirCommissions';
 import { lireResultatNet } from '../../../../../lib/admin/resultatNet';
+import { lireDroitCouts } from '../../../../../lib/admin/droitCouts';
 import { lireSocieteCompte } from '../../../../../lib/admin/societeCompte';
 import { lireStatutCompte } from '../../../../../lib/admin/statutCompte';
 import { lireCommissionneCompte } from '../../../../../lib/admin/commissionneCompte';
@@ -45,6 +46,8 @@ export async function GET(request: Request, ctx: Ctx) {
       voirCommissions: await lireVoirCommissions(c.id),
       // 🔴 Arno (26/10/2026, 428) — « Accès au Résultat net de l'agence ? » (question de la tuile Location).
       resultatNet: await lireResultatNet(c.id),
+      // 🔴 D37 (454) — « Les coûts » (onglet de Mon espace, dans « Voir ») : la case, administrateur compris (option A d'Arno).
+      couts: await lireDroitCouts(c.id).catch(() => ({ valeur: false, disponible: false })),
       // TRANSACTION, LOT D (434) — la société du collaborateur (CRITERIMMO / MACJ) et ses périodes datées ; sans la 434 : non disponible.
       societeDetail: await lireSocieteCompte(c.id).catch(() => ({ valeur: null, disponible: false, periodes: [] })),
       // 🔴 LOT P (439) — le statut de la personne et l'historique de ses changements (date, avant, après, auteur).

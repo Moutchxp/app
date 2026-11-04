@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../lib/admin/garde';
+import { exigerModuleD37 } from '../../../../lib/admin/garde';
 import { lireSourcesFraicheur } from '../../../../lib/admin/sourcesFraicheurRepo';
 import { construireEtatSources, DEPARTEMENTS } from '../../../../lib/admin/sourcesFraicheur';
 import { lireDetections, basculerDetectionSource } from '../../../../lib/veille/detectionRepo';
@@ -19,13 +19,14 @@ import { lireConfigIngestionAuto, dernierJournalParSource, basculerIngestionAuto
  *   'reglage_ingestion_auto' {source, actif}   → interrupteur d'ingestion AUTO d'une source (a) — F6 (le geste explicite d'Arno) ;
  *   'reglage_fenetre_nocturne' {debut, fin}    → fenêtre nocturne (heures 0..23) — F6.
  * La route NE LANCE JAMAIS d'ingestion : elle ne fait que POSER des réglages (l'exécution vit dans la veille, la nuit).
- * RÉSERVÉ ADMINISTRATEUR. Runtime Node.
+ * 🔴 D37 (Arno, 04/11/2026) — la case « Sources de données » (perm_sources, migration 454 ; administrateur d'office), relue en base ;
+ * sans la 454 : administrateurs seulement. Runtime Node.
  */
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const garde = await exigerAdministrateur(request);
+    const garde = await exigerModuleD37(request, 'sources');
     if ('refus' in garde) return garde.refus; // 403 générique
 
     const [lectures, detections, mesure, texteProtocoles, configAuto, dernierJournal] = await Promise.all([
@@ -57,7 +58,7 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const garde = await exigerAdministrateur(request);
+    const garde = await exigerModuleD37(request, 'sources');
     if ('refus' in garde) return garde.refus;
 
     const body = (await request.json().catch(() => ({}))) as {

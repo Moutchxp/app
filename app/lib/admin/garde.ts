@@ -219,3 +219,12 @@ export async function exigerCompteActif(request: Request, module: Module): Promi
 // décrites dans ce fichier sont ABOLIES : une session anonyme (sub=null) ne peut plus être émise par la route de connexion,
 // et chaque garde la REFUSE désormais, sans requête. Le secours passe par `npm run admin:secours` (compte nommé réactivé).
 // (Note placée en fin de fichier pour ne décaler aucune ligne citée par docs/INVARIANTS_SVAV.md.)
+
+/**
+ * 🔴 D37 (Arno, 04/11/2026) — DEUXIÈME BARRIÈRE des tuiles « Audit » et « Sources de données » : le droit relu EN BASE (`exigerModule`) ;
+ * sans la migration 454, les colonnes n'existent pas : administrateurs seulement, comme avant (la direction sûre).
+ */
+export async function exigerModuleD37(request: Request, module: 'audit' | 'sources'): Promise<GardeAdmin> {
+  const { droitsD37Disponibles } = await import('./schemaDroits');
+  return (await droitsD37Disponibles()) ? exigerModule(request, module) : exigerAdministrateur(request);
+}

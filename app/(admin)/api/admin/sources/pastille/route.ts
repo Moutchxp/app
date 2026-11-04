@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModuleD37 } from '../../../../../lib/admin/garde';
 import { lireSourcesFraicheur } from '../../../../../lib/admin/sourcesFraicheurRepo';
 import { lireDetections } from '../../../../../lib/veille/detectionRepo';
 import { construireEtatSources } from '../../../../../lib/admin/sourcesFraicheur';
@@ -10,7 +10,7 @@ import { compterMisesAJourActionnables } from '../../../../../lib/admin/pastille
 /**
  * /api/admin/sources/pastille (F7) — compte LÉGER des sources ACTIONNABLES (mise à jour détectée ET procédure réelle a/b) pour
  * la pastille de la tuile home. Ne mesure PAS le disque (F4) : plus léger que le GET principal. Le classement (a)/(b)/(c) vient
- * du parseur de protocoles F5 (source de vérité unique). RÉSERVÉ ADMINISTRATEUR. Runtime Node.
+ * du parseur de protocoles F5 (source de vérité unique). 🔴 D37 — la case « Sources de données » (perm_sources, 454 ; administrateur d'office). Runtime Node.
  *
  * Compte indéterminable (protocoles illisibles, lecture en échec) → `{ indisponible: true }`, JAMAIS `total: 0` : absence de
  * mesure et absence de mise à jour ne doivent pas se ressembler. Erreur complète journalisée (pas de catch muet).
@@ -18,7 +18,7 @@ import { compterMisesAJourActionnables } from '../../../../../lib/admin/pastille
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModuleD37(request, 'sources');
   if ('refus' in garde) return garde.refus;
   try {
     const [lectures, detections, texteProtocoles] = await Promise.all([
