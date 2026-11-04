@@ -11,7 +11,8 @@
  * resté non lu dans une autre remettait l'échange en gras, et l'événement restait « New » quoi qu'on fasse.
  *
  * LA RÈGLE D'ARNO, TENUE ICI :
- *   1. le « New » s'allume quand un mail REÇU rattaché à l'événement arrive (nos envois n'allument rien) ;
+ *   1. le « New » s'allume quand un mail REÇU rattaché à l'événement arrive — ou un mail MONGA relié par sa
+ *      référence MNG- (décision d'Arno du 04/11/2026) ; nos envois n'allument rien ;
  *   2. il s'éteint quand on DÉPLIE la carte (`vuParLaCarte`), ou quand on OUVRE le mail qui l'a allumé — dans
  *      l'application (`vuParLeMail`) ou dans Gmail (`constaterLecturesGmail`, à la lecture de l'écran) ;
  *   3. il ne revient qu'avec un NOUVEAU mail reçu — jamais parce qu'on a rouvert un mail, ni au passage d'une relève.
@@ -29,36 +30,56 @@
  * Ce fichier touche `pg` : jamais importé d'un composant `'use client'` (garde `clientBoundary.guard.test.ts`).
  */
 import { query } from '../db/client';
-import { deplacementsDeMailsDisponibles, evenementNouveauteDisponible } from './schema';
+import { deplacementsDeMailsDisponibles, evenementNouveauteDisponible, mongaDisponible } from './schema';
 
 export type MotifNouveauteVue = 'carte' | 'mail' | 'gmail';
 
 /**
- * LES MAILS REÇUS RATTACHÉS AUX ÉVÉNEMENTS, en relation `(evenement_id, id, fil_id)`.
+ * LES MAILS REÇUS RATTACHÉS AUX ÉVÉNEMENTS, en relation `(evenement_id, id, fil_id, recu_le)`.
  *
  * 🔴 LES MÊMES MAILS QUE LE « NEW » D'AVANT ET QUE LA CARTE (`sqlNouveauteDeLEvenement` de `fileRepo`) : ceux que
  * l'affectation active rattache à l'événement, par leur ÉCHANGE ou un par un ; un mail déplacé seul vers un autre
  * événement quitte celui de son échange. `sens = 'recu'` : nos envois n'allument rien ; `exclu_le IS NULL` : un
  * mail tenu hors de la file n'existe pas pour l'écran.
  *
- * ⚠️ DEUX BRANCHES `UNION ALL` plutôt qu'un `OR` dans la jointure : sur toute la table, un `OR` interdirait au
- * planificateur les deux index (identifiant et échange) qu'il prend branche par branche.
+ * 🔴 ARNO (04/11/2026) : « un mail MONGA entrant, relié à un événement par sa référence MNG- (même sans
+ * rattachement manuel), allume le “New” de cet événement, exactement comme un mail rattaché ». D'où la branche
+ * `avecMonga` : le mail lu par Monga (`gestion_monga_mail`) dont la référence est reliée à l'événement
+ * (`gestion_monga_lien`, lien non retiré). Sans la migration 311, la branche n'est pas émise.
+ *
+ * ⚠️ DES BRANCHES `UNION ALL` plutôt qu'un `OR` dans la jointure : sur toute la table, un `OR` interdirait au
+ * planificateur les index (identifiant, échange, référence) qu'il prend branche par branche. Un mail présent dans
+ * deux branches n'est compté qu'une fois par ses lecteurs (`max`, `count(DISTINCT …)`).
  */
-export function sqlMailsRecusDesEvenements(avecMessageId: boolean): string {
-  const filtres = `an.actif AND an.evenement_id IS NOT NULL AND mn.exclu_le IS NULL AND mn.sens = 'recu'`;
-  if (!avecMessageId) {
-    return `SELECT an.evenement_id, mn.id, mn.fil_id
-              FROM gestion_affectation an JOIN gestion_message mn ON mn.fil_id = an.fil_id
-             WHERE ${filtres}`;
-  }
-  return `SELECT an.evenement_id, mn.id, mn.fil_id
+export function sqlMailsRecusDesEvenements(avecMessageId: boolean, avecMonga = false): string {
+  const recu = `mn.exclu_le IS NULL AND mn.sens = 'recu'`;
+  const filtres = `an.actif AND an.evenement_id IS NOT NULL AND ${recu}`;
+  const colonnes = 'mn.id, mn.fil_id, mn.recu_le';
+  const branches = avecMessageId
+    ? [`SELECT an.evenement_id, ${colonnes}
             FROM gestion_affectation an JOIN gestion_message mn ON mn.id = an.message_id
-           WHERE an.message_id IS NOT NULL AND ${filtres}
-          UNION ALL
-          SELECT an.evenement_id, mn.id, mn.fil_id
+           WHERE an.message_id IS NOT NULL AND ${filtres}`,
+       `SELECT an.evenement_id, ${colonnes}
             FROM gestion_affectation an JOIN gestion_message mn ON mn.fil_id = an.fil_id
            WHERE an.message_id IS NULL AND ${filtres}
-             AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2 WHERE a2.message_id = mn.id AND a2.actif)`;
+             AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2 WHERE a2.message_id = mn.id AND a2.actif)`]
+    : [`SELECT an.evenement_id, ${colonnes}
+            FROM gestion_affectation an JOIN gestion_message mn ON mn.fil_id = an.fil_id
+           WHERE ${filtres}`];
+  if (avecMonga) {
+    branches.push(`SELECT ml.evenement_id, ${colonnes}
+            FROM gestion_monga_lien ml
+            JOIN gestion_monga_mail mm ON mm.reference = ml.reference
+            JOIN gestion_message mn ON mn.id = mm.message_id
+           WHERE ml.retire_le IS NULL AND ${recu}`);
+  }
+  return branches.join('\n          UNION ALL\n          ');
+}
+
+/** Les témoins des deux migrations que la relation nomme : déplacements de mails (message_id), Monga (311). */
+async function mailsDesEvenements(): Promise<string> {
+  const [deplacements, monga] = await Promise.all([deplacementsDeMailsDisponibles(), mongaDisponible()]);
+  return sqlMailsRecusDesEvenements(deplacements, monga);
 }
 
 /**
@@ -85,7 +106,7 @@ async function poserSeuils(source: string, params: unknown[], libelle: string, m
 export async function vuParLaCarte(evenementId: number, libelle: string): Promise<number> {
   if (!Number.isSafeInteger(evenementId) || evenementId <= 0) return 0;
   if (!(await evenementNouveauteDisponible())) return 0;
-  const mails = sqlMailsRecusDesEvenements(await deplacementsDeMailsDisponibles());
+  const mails = await mailsDesEvenements();
   return poserSeuils(
     `SELECT m.evenement_id, max(m.id) AS mx FROM (${mails}) m WHERE m.evenement_id = $1 GROUP BY m.evenement_id`,
     [evenementId], libelle, 'carte');
@@ -99,7 +120,7 @@ export async function vuParLaCarte(evenementId: number, libelle: string): Promis
 export async function vuParLeMail(filId: number, libelle: string): Promise<number> {
   if (!Number.isSafeInteger(filId) || filId <= 0) return 0;
   if (!(await evenementNouveauteDisponible())) return 0;
-  const mails = sqlMailsRecusDesEvenements(await deplacementsDeMailsDisponibles());
+  const mails = await mailsDesEvenements();
   return poserSeuils(
     `SELECT m.evenement_id, max(m.id) AS mx FROM (${mails}) m WHERE m.fil_id = $1 GROUP BY m.evenement_id`,
     [filId], libelle, 'mail');
@@ -123,7 +144,7 @@ export async function constaterLecturesGmail(nonLus: readonly number[], plafond:
   if (!Number.isSafeInteger(plafond) || plafond <= 0) return 0;
   if (!(await evenementNouveauteDisponible())) return 0;
   const ids = [...new Set(nonLus.filter((n) => Number.isSafeInteger(n) && n > 0))];
-  const mails = sqlMailsRecusDesEvenements(await deplacementsDeMailsDisponibles());
+  const mails = await mailsDesEvenements();
   return poserSeuils(
     `SELECT m.evenement_id, max(m.id) AS mx
        FROM (${mails}) m

@@ -20,8 +20,10 @@ import path from 'node:path';
 
 interface Msg { id: number; fil: number; sens: 'recu' | 'envoye'; exclu?: boolean; mng?: string }
 interface Aff { evt: number; fil: number; message: number | null; actif: boolean }
+/** 🔴 Un lien référence MNG- ↔ événement (`gestion_monga_lien`) ; `retire` = lien retiré. */
+interface LienMonga { evt: number; ref: string; retire?: boolean }
 const base = {
-  messages: [] as Msg[], affectations: [] as Aff[],
+  messages: [] as Msg[], affectations: [] as Aff[], liensMonga: [] as LienMonga[],
   seuils: new Map<number, { vu: number; motif: string; par: string }>(),
   ecrituresGmail: [] as string[],
 };
@@ -40,6 +42,10 @@ function mailsRecus(): { evt: number; id: number; fil: number }[] {
         if (ok(m) && !deplace) out.push({ evt: a.evt, id: m.id, fil: m.fil });
       }
     }
+  }
+  // 🔴 la branche MONGA : un mail lu par Monga, dont la référence est reliée à l'événement (lien non retiré)
+  for (const l of base.liensMonga.filter((x) => x.retire !== true)) {
+    for (const m of base.messages.filter((x) => x.mng === l.ref)) if (ok(m)) out.push({ evt: l.evt, id: m.id, fil: m.fil });
   }
   return out;
 }
@@ -81,6 +87,7 @@ let avec456 = true;
 vi.mock('./schema', () => ({
   evenementNouveauteDisponible: async () => avec456,
   deplacementsDeMailsDisponibles: async () => true,
+  mongaDisponible: async () => true,
 }));
 
 const { vuParLaCarte, vuParLeMail, constaterLecturesGmail, plafondDesMails, sqlMailsRecusDesEvenements } =
@@ -113,7 +120,7 @@ function arrive(m: Msg): void {
 }
 
 beforeEach(() => {
-  base.messages = []; base.affectations = []; base.seuils = new Map(); base.ecrituresGmail = [];
+  base.messages = []; base.affectations = []; base.liensMonga = []; base.seuils = new Map(); base.ecrituresGmail = [];
   nonLus = new Set(); avec456 = true; query.mockClear();
 });
 
@@ -237,6 +244,49 @@ describe('🔴 les cas qui touchaient « certains » mails', () => {
   });
 });
 
+describe('🔴 un mail MONGA relié par sa référence MNG- seulement (décision d’Arno, 04/11/2026)', () => {
+  beforeEach(() => {
+    base.liensMonga.push({ evt: 3, ref: 'MNG-23387' }); // aucun rattachement manuel : le seul lien est la référence
+  });
+
+  it('il allume le « New » ; déplier l’éteint ; une nouvelle relève le laisse éteint', async () => {
+    arrive({ id: 600, fil: 747, sens: 'recu', mng: 'MNG-23387' }); // « Le ticket MONGA 23387 requiert votre attention »
+    expect(await lireLEcran(3)).toBe(true);
+    await vuParLaCarte(3, 'collegue');
+    expect(await lireLEcran(3)).toBe(false);
+    expect(nonLus.has(600)).toBe(true); // déplier n'écrit rien dans Gmail
+    expect(await lireLEcran(3)).toBe(false); // relève sans rien de neuf
+    arrive({ id: 601, fil: 999, sens: 'envoye', mng: 'MNG-23387' }); // un envoi n'allume rien
+    expect(await lireLEcran(3)).toBe(false);
+  });
+
+  it('le mail suivant de la même intervention le rallume ; l’ouvrir l’éteint', async () => {
+    arrive({ id: 610, fil: 748, sens: 'recu', mng: 'MNG-23387' });
+    await vuParLaCarte(3, 'collegue');
+    arrive({ id: 611, fil: 749, sens: 'recu', mng: 'MNG-23387' }); // « MNG-23387 - Nouveau commentaire »
+    expect(await lireLEcran(3)).toBe(true);
+    await ouvrirLeMail(749);
+    expect(await lireLEcran(3)).toBe(false);
+    expect(base.seuils.get(3)?.motif).toBe('mail');
+  });
+
+  it('lu directement dans Gmail : la lecture de l’écran l’éteint', async () => {
+    arrive({ id: 620, fil: 750, sens: 'recu', mng: 'MNG-23387' });
+    expect(await lireLEcran(3)).toBe(true);
+    nonLus.delete(620);
+    expect(await lireLEcran(3)).toBe(false);
+    expect(base.seuils.get(3)?.motif).toBe('gmail');
+  });
+
+  it('une autre référence, ou un lien RETIRÉ, n’allume rien', async () => {
+    arrive({ id: 630, fil: 751, sens: 'recu', mng: 'MNG-99999' });
+    expect(await lireLEcran(3)).toBe(false);
+    base.liensMonga = [{ evt: 3, ref: 'MNG-23387', retire: true }];
+    arrive({ id: 631, fil: 752, sens: 'recu', mng: 'MNG-23387' });
+    expect(await lireLEcran(3)).toBe(false);
+  });
+});
+
 describe('🔴 l’état d’avant, et sans la migration 456', () => {
   it('un événement SANS ligne suit le non-lu Gmail (état initial), et la première lecture pose sa ligne s’il est lu', async () => {
     base.affectations.push({ evt: 1, fil: 10, message: null, actif: true });
@@ -278,6 +328,19 @@ describe('🔴 le SQL, par fragments', () => {
     expect(plat(sqlMailsRecusDesEvenements(false))).not.toContain('message_id');
   });
 
+  it('la branche MONGA : référence reliée, lien non retiré, mail reçu — et seulement avec la 311', () => {
+    const s = plat(sqlMailsRecusDesEvenements(true, true));
+    expect(s).toContain('FROM gestion_monga_lien ml JOIN gestion_monga_mail mm ON mm.reference = ml.reference JOIN gestion_message mn ON mn.id = mm.message_id');
+    expect(s).toContain("WHERE ml.retire_le IS NULL AND mn.exclu_le IS NULL AND mn.sens = 'recu'");
+    expect(plat(sqlMailsRecusDesEvenements(true))).not.toContain('gestion_monga');
+  });
+
+  it('la lecture des cartes lit la MÊME liste que les gestes qui éteignent le « New »', () => {
+    const src = plat(readFileSync('app/lib/gestion/fileRepo.ts', 'utf8'));
+    expect(src).toContain('FROM (${sqlMailsRecusDesEvenements(avecMessageId, avecMonga)}) mn');
+    expect(src).toContain('evenementNouveauteDisponible(), mongaDisponible()');
+  });
+
   it('le seuil ne recule jamais', () => {
     const src = plat(readFileSync('app/lib/gestion/nouveauteEvenement.ts', 'utf8'));
     expect(src).toContain('WHERE EXCLUDED.vu_jusqu_au > gestion_evenement_nouveaute.vu_jusqu_au');
@@ -286,7 +349,7 @@ describe('🔴 le SQL, par fragments', () => {
   it('la lecture des cartes : seuil, puis non-lu Gmail pour un événement sans ligne', () => {
     const src = plat(readFileSync('app/lib/gestion/fileRepo.ts', 'utf8'));
     expect(src).toContain('LEFT JOIN gestion_evenement_nouveaute nv ON nv.evenement_id = e.id');
-    expect(src).toContain('AND mn.id > coalesce(nv.vu_jusqu_au, 0)');
+    expect(src).toContain('WHERE mn.evenement_id = e.id AND mn.id > coalesce(nv.vu_jusqu_au, 0)');
     expect(src).toContain('AND (nv.evenement_id IS NOT NULL${aucunNonLu ? \'\' : ` OR mn.id = ANY(${param}::bigint[])`})');
     // le plafond est lu AVANT la liste Gmail, et le constat seulement sur une liste complète
     const i = src.indexOf('const plafond = await plafondDesMails()');

@@ -19,8 +19,8 @@ import { sqlEstVraiePiece } from './lisibilite';
 import { etatAffiche, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { sqlNomAffiche } from './nomUsageSql';
 import { sqlCleIdentitePiece } from './piecesConversation';
-import { evenementNouveauteDisponible, evenementQualifieDisponible, evenementVuDisponible, pieceIntegreeDisponible } from './schema';
-import { constaterLecturesGmail, plafondDesMails } from './nouveauteEvenement';
+import { evenementNouveauteDisponible, evenementQualifieDisponible, evenementVuDisponible, mongaDisponible, pieceIntegreeDisponible } from './schema';
+import { constaterLecturesGmail, plafondDesMails, sqlMailsRecusDesEvenements } from './nouveauteEvenement';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
@@ -516,7 +516,9 @@ function sqlBienDeLEvenement(avecMessageId: boolean): string {
    déclarer « New » tous les événements qui ont un jour reçu un mail serait faux. Sans connexion Google, ces
    événements-là ne sont donc pas « New » — comme avant ; ceux qui ont une ligne le restent ou non par leur seuil.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
-function sqlNouveauteDeLEvenement(avecMessageId: boolean, aucunNonLu: boolean, param: string, avecSeuil = false): string {
+function sqlNouveauteDeLEvenement(
+  avecMessageId: boolean, aucunNonLu: boolean, param: string, avecSeuil = false, avecMonga = false,
+): string {
   if (aucunNonLu && !avecSeuil) {
     return `LEFT JOIN LATERAL (SELECT 0::int AS nb, NULL::timestamptz AS le) nl ON true`;
   }
@@ -527,15 +529,15 @@ function sqlNouveauteDeLEvenement(avecMessageId: boolean, aucunNonLu: boolean, p
                                WHERE a2.message_id = mn.id AND a2.actif))`
     : 'ON mn.fil_id = an.fil_id';
   if (avecSeuil) {
+    /* 🔴 LES MÊMES MAILS QUE LES TROIS GESTES QUI ÉTEIGNENT LE « NEW » (`sqlMailsRecusDesEvenements`) — y compris,
+       décision d'Arno du 04/11/2026, les mails MONGA reliés par leur reference MNG- sans rattachement. Une seconde
+       liste ici aurait allumé ce que les gestes ne savent pas éteindre. */
     return `
   LEFT JOIN LATERAL (
     SELECT count(DISTINCT mn.id)::int AS nb, max(mn.recu_le) AS le
-      FROM gestion_affectation an
-      JOIN gestion_message mn ${jointure}
+      FROM (${sqlMailsRecusDesEvenements(avecMessageId, avecMonga)}) mn
       LEFT JOIN gestion_evenement_nouveaute nv ON nv.evenement_id = e.id
-     WHERE an.evenement_id = e.id AND an.actif
-       AND mn.exclu_le IS NULL
-       AND mn.sens = 'recu'
+     WHERE mn.evenement_id = e.id
        AND mn.id > coalesce(nv.vu_jusqu_au, 0)
        AND (nv.evenement_id IS NOT NULL${aucunNonLu ? '' : ` OR mn.id = ANY(${param}::bigint[])`})
   ) nl ON true`;
@@ -665,7 +667,7 @@ export async function lireEvenements(
    */
   const avecCategorie = await evenementQualifieDisponible();
   /* 🔴 LOT NEW-EVENEMENT-PROPRE — le « New » propre à l'événement (456) ; sans elle, celui d'avant. */
-  const avecSeuil = await evenementNouveauteDisponible();
+  const [avecSeuil, avecMonga] = await Promise.all([evenementNouveauteDisponible(), mongaDisponible()]);
   /* ⚠️ DÉDOUBLONNÉE ET BORNÉE AUX ENTIERS : la liste vient d'un rapprochement Gmail, et `= ANY(...)` sur des
      valeurs répétées ferait travailler la base pour rien. */
   const nonLus = [...new Set(messagesNonLus.filter((n) => Number.isSafeInteger(n) && n > 0))];
@@ -725,7 +727,7 @@ export async function lireEvenements(
        ${SQL_DERNIERE_ETAPE_MONGA}
        ${SQL_DERNIERE_MAJ_MONGA}
        ${sqlBienDeLEvenement(ctx.deplacements)}
-       ${sqlNouveauteDeLEvenement(ctx.deplacements, nonLus.length === 0, `$${avecVues ? 5 : 4}`, avecSeuil)}
+       ${sqlNouveauteDeLEvenement(ctx.deplacements, nonLus.length === 0, `$${avecVues ? 5 : 4}`, avecSeuil, avecMonga)}
       GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.jour_connu, et.source, et.certitude, mg.le,
                etm.type, etm.titre, etm.survenu_le, etm.heure_connue, etm.certitude,
                bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb,
