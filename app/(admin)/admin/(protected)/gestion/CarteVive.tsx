@@ -173,6 +173,22 @@ export function CarteVive({
    * l'écran — on cliquerait, et rien ne se passerait.
    */
   const [eteint, setEteint] = useState(false);
+  /**
+   * ══ 🔴🔴 LOT NEW-EVENEMENT-PROPRE (04/11/2026) — DÉPLIER LA CARTE ÉTEINT SON « NEW » ══════════════════════════
+   * Règle d'Arno : le « New » disparaît dès qu'on ouvre (déplie) la carte. L'écriture part vers sa porte
+   * (`POST /evenements/[id]/nouveaute-vue`, état de l'événement, commun à l'équipe) ; les mails ne changent PAS
+   * dans Gmail. `nouveauteVue` éteint la pastille TOUT DE SUITE, à l'œil — et seulement pour la nouveauté qu'on a
+   * vue : un nouveau mail reçu change `nouveauteLe`, et la pastille revient à la relecture suivante.
+   */
+  const [nouveauteVue, setNouveauteVue] = useState<string | null>(null);
+  const nouveau = estNouveau(carte) && carte.nouveauteLe !== nouveauteVue;
+  const auDepliage = (ouvert: boolean): void => {
+    if (!ouvert || !nouveau) return;
+    setNouveauteVue(carte.nouveauteLe);
+    void fetch(`/api/admin/gestion/evenements/${carte.evenementId}/nouveaute-vue`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    }).catch(() => undefined);
+  };
   const majMonga = carte.mongaMajLe ?? null;
   const misAJour = !eteint && majMonga !== null && (carte.vuLe === null || carte.vuLe === undefined
     || majMonga > carte.vuLe);
@@ -344,6 +360,7 @@ export function CarteVive({
       onClickCapture={auClic}>
       <BlocRepliable
         titreClasseExtra="gst-repli"
+        onOuvertChange={auDepliage}
         /* 🔴 LOT URGENCE-EVENEMENT, POINT 4 — « cet événement […] déplié ». `ouvrirQuand` est la LATCH que
            `BlocRepliable` offre déjà : elle s'ouvre UNE fois et ne referme jamais d'elle-même, donc on peut
            replier la carte juste après sans qu'elle se rouvre. */
@@ -398,16 +415,16 @@ export function CarteVive({
                 * ⚠️ LE MOT PORTE L'INFORMATION, LA COULEUR NE FAIT QUE L'APPUYER — règle de tout le module. Le
                 * nombre de mails, lui, est dans la bulle et au lecteur d'écran : la pastille reste « discrète ».
                 */}
-              {estNouveau(carte) && (
+              {nouveau && (
                 <span className="gst-neuf"
                   title={carte.nbRecusNonLus > 1
-                    ? `${carte.nbRecusNonLus} mails reçus non lus sur cet événement`
-                    : 'Un mail reçu non lu sur cet événement'}>
+                    ? `${carte.nbRecusNonLus} nouveaux mails reçus sur cet événement`
+                    : 'Un nouveau mail reçu sur cet événement'}>
                   New
                   <span className="gst-sr-only">
                     {carte.nbRecusNonLus > 1
-                      ? ` — ${carte.nbRecusNonLus} mails reçus non lus`
-                      : ' — un mail reçu non lu'}
+                      ? ` — ${carte.nbRecusNonLus} nouveaux mails reçus`
+                      : ' — un nouveau mail reçu'}
                   </span>
                 </span>
               )}

@@ -167,6 +167,58 @@ export interface DepsMarquageGmail {
   chercher(jeton: string, messageIdRfc: string): Promise<Resultat<{ id: string; threadId: string } | null>>;
   /** Pose ou retire `UNREAD` sur tout le fil, en un appel. */
   modifierFil(jeton: string, threadId: string, o: { ajouter?: string[]; retirer?: string[] }): Promise<Resultat<{ id: string }>>;
+  /**
+   * ══ 🔴🔴 LOT NEW-EVENEMENT-PROPRE (04/11/2026) — TOUS LES FILS GMAIL D'UN ÉCHANGE, POUR LE MARQUER LU ══════════
+   *
+   * LE DÉFAUT SIGNALÉ (production) : « les mails contenant un événement, lorsque tu les ouvres, repassent en non
+   * lu ». CAUSE PROUVÉE le 04/11/2026 sur la vraie boîte (lecture seule) : NOTRE échange se forme par les en-têtes
+   * `References` (`fil.ts`), celui de Gmail aussi par l'OBJET — un « TR: », un « Réponse automatique », un objet
+   * réécrit ouvrent chez Gmail une AUTRE conversation que nous rangeons dans le même échange. L'échange 5881
+   * (« DOSSIER GODEAU », 15 messages) couvre ainsi TROIS fils Gmail ; l'ouvrir retirait `UNREAD` du fil
+   * `1a0ebba7b88a9dfc` (la première ancre trouvée) et laissait non lu le message `19d2a85535841a9f`, dans un autre
+   * fil. La liste relue le remettait en gras — « il repasse en non lu » — et l'événement restait « New ».
+   *
+   * 🔴 D'OÙ CE SECOND CHEMIN, POUR LE SEUL MARQUAGE « LU » : les fils Gmail DÉJÀ CONNUS de l'échange
+   * (`gmail_thread_id`, aucun appel pour les retrouver), puis les messages dont le fil n'est pas connu, à chercher.
+   * Absent (jeu d'essai d'avant ce lot) : l'ancien chemin, à l'identique.
+   *
+   * ⚠️ « NON LU » GARDE L'ANCIEN CHEMIN (le premier fil trouvé) : c'est un geste humain, et ce lot ne le change pas.
+   */
+  ancresLecture?(filId: number): Promise<{ filsConnus: string[]; aChercher: string[] }>;
+}
+
+/** Combien de recherches Gmail en parallèle pour retrouver les fils d'un échange. Même compromis que la liste. */
+const PARALLELE_MARQUAGE = 6;
+
+/**
+ * 🔴 LOT NEW-EVENEMENT-PROPRE — MARQUE LU **TOUS** LES FILS GMAIL D'UN ÉCHANGE (voir `ancresLecture`).
+ *
+ * ⚠️ UN FIL DISPARU DE GMAIL N'ARRÊTE RIEN (« n'existe plus » : on passe au suivant) ; un REFUS est rendu tel quel
+ * si AUCUN fil n'a pu être marqué — sinon l'échange EST lu là où il pouvait l'être, et c'est ce qu'on dit.
+ */
+async function marquerTousLesFilsLus(
+  deps: DepsMarquageGmail & Required<Pick<DepsMarquageGmail, 'ancresLecture'>>, jeton: string, filId: number,
+): Promise<IssueMarquage> {
+  const { filsConnus, aChercher } = await deps.ancresLecture(filId);
+  const fils = new Set(filsConnus.filter((f) => f !== ''));
+  const ancres = aChercher.map((b) => normaliserMessageId(b)).filter((a): a is string => a !== null);
+  let refus: string | null = null;
+  for (let i = 0; i < ancres.length && refus === null; i += PARALLELE_MARQUAGE) {
+    const trouves = await Promise.all(ancres.slice(i, i + PARALLELE_MARQUAGE).map((a) => deps.chercher(jeton, a)));
+    for (const t of trouves) {
+      if (!t.ok) { refus = t.motif; break; }
+      if (t.valeur !== null) fils.add(t.valeur.threadId);
+    }
+  }
+  if (fils.size === 0) return refus === null ? { etat: 'introuvable' } : { etat: 'refus', motif: refus };
+  let marques = 0;
+  for (const fil of fils) {
+    const r = await deps.modifierFil(jeton, fil, { retirer: ['UNREAD'] });
+    if (r.ok) marques += 1;
+    else if (r.motif !== 'Ce fil n’existe plus dans Gmail.') refus = refus ?? r.motif;
+  }
+  if (marques > 0) return { etat: 'ok', lu: true };
+  return refus === null ? { etat: 'introuvable' } : { etat: 'refus', motif: refus };
 }
 
 /**
@@ -184,6 +236,8 @@ export async function marquerFilGmail(
 ): Promise<IssueMarquage> {
   const jeton = await deps.jeton();
   if (jeton === null) return { etat: 'sans_connexion' };
+  /* 🔴 LOT NEW-EVENEMENT-PROPRE — « lu » atteint TOUS les fils Gmail de l'échange ; « non lu » reste ci-dessous. */
+  if (lu && deps.ancresLecture) return marquerTousLesFilsLus({ ...deps, ancresLecture: deps.ancresLecture }, jeton, filId);
 
   /**
    * 🔴 ON ESSAIE LES ANCRES DANS L'ORDRE, ET ON S'ARRÊTE À LA PREMIÈRE QUI MÈNE AU FIL. Un seul message retrouvé
@@ -220,6 +274,29 @@ export async function marquerFilGmail(
  * pour un échange que Gmail ne connaît visiblement pas. Cinq couvre tous les cas observés.
  */
 export const ANCRES_MAX = 5;
+
+/**
+ * 🔴 LOT NEW-EVENEMENT-PROPRE — LES FILS GMAIL D'UN ÉCHANGE, pour le marquer LU partout (voir `ancresLecture`).
+ * Les fils déjà CONNUS d'abord (aucune recherche), puis les messages au fil inconnu : les REÇUS récents en tête,
+ * puisque c'est un reçu qui reste non lu. BORNÉ (`ANCRES_MAX_LECTURE`) : chaque message à chercher coûte un appel.
+ */
+export const ANCRES_MAX_LECTURE = 20;
+
+export async function ancresLectureDuFil(filId: number): Promise<{ filsConnus: string[]; aChercher: string[] }> {
+  const { rows } = await query<{ connu: string | null; message_id: string | null }>(
+    `(SELECT DISTINCT gmail_thread_id AS connu, NULL::text AS message_id FROM gestion_message
+       WHERE fil_id = $1 AND gmail_thread_id IS NOT NULL)
+     UNION ALL
+     (SELECT NULL::text, message_id FROM gestion_message
+       WHERE fil_id = $1 AND gmail_thread_id IS NULL AND message_id IS NOT NULL
+       ORDER BY (sens = 'recu') DESC, recu_le DESC, id DESC
+       LIMIT ${ANCRES_MAX_LECTURE})`,
+    [filId]);
+  return {
+    filsConnus: rows.flatMap((r) => (r.connu === null ? [] : [r.connu])),
+    aChercher: rows.flatMap((r) => (r.message_id === null ? [] : [r.message_id])),
+  };
+}
 
 export async function ancresDuFil(filId: number): Promise<string[]> {
   const { rows } = await query<{ message_id: string }>(

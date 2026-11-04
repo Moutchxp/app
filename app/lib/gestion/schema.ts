@@ -1023,6 +1023,15 @@ export function evenementVuDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 LOT NEW-EVENEMENT-PROPRE — la migration 456 est-elle appliquée ? Elle tient `gestion_evenement_nouveaute` :
+ * jusqu'à quel mail reçu chaque événement a été VU (le « New » propre à l'événement). Tant qu'elle manque, le
+ * « New » est celui d'avant (le non-lu Gmail), et aucune requête ne nomme la table absente.
+ */
+export function evenementNouveauteDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_evenement_nouveaute', () => tableExiste('gestion_evenement_nouveaute'));
+}
+
+/**
  * 🔴 LOT ENVOI-ARRIERE-PLAN — la migration 271 est-elle appliquée ? Elle porte la FILE D'ENVOI persistante
  * (`gestion_envoi_file`) et l'ÉTAT des pièces d'un brouillon (`gestion_brouillon_piece.etat`).
  *

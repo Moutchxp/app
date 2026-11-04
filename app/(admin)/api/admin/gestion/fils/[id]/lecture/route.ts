@@ -1,6 +1,8 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { depsMarquageGmail, marquerFilGmail } from '../../../../../../../lib/gestion/lectureGmailReel';
+import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
+import { vuParLeMail } from '../../../../../../../lib/gestion/nouveauteEvenement';
 
 /**
  * POST /api/admin/gestion/fils/[id]/lecture (lot 5-BOITE-2) — MARQUER UN ÉCHANGE LU, OU NON LU, DANS GMAIL.
@@ -43,6 +45,21 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   const corps = (await request.json().catch(() => ({}))) as { lu?: unknown };
   // `lu` doit être dit EXPLICITEMENT : deviner « lu » par défaut ferait d'un appel malformé un geste silencieux.
   if (typeof corps.lu !== 'boolean') return json({ erreur: 'Préciser « lu » : true ou false.' }, 400);
+
+  /**
+   * ══ 🔴🔴 LOT NEW-EVENEMENT-PROPRE (04/11/2026) — OUVRIR LE MAIL ÉTEINT LE « NEW » DE SON OU SES ÉVÉNEMENTS ══════
+   * Règle d'Arno : le « New » disparaît quand on ouvre le mail qui l'a allumé. C'est un état de l'ÉVÉNEMENT, en
+   * base : il s'éteint même si Gmail ne répond pas (pas de connexion, échange introuvable), puisque le mail a bien
+   * été ouvert ICI. « Non lu » (geste humain) ne le rallume pas : seul un nouveau mail reçu le fait.
+   * ⚠️ UN ÉCHEC SE TAIT : marquer l'événement vu ne doit jamais faire échouer la lecture d'un mail.
+   */
+  if (corps.lu) {
+    try {
+      await vuParLeMail(filId, (await auteurDeLaRequete(request)).libelle);
+    } catch (e) {
+      console.error('[gestion/fil/lecture] « New » de l’événement non éteint', e);
+    }
+  }
 
   try {
     const issue = await marquerFilGmail(depsMarquageGmail(), filId, corps.lu);

@@ -19,7 +19,8 @@ import { sqlEstVraiePiece } from './lisibilite';
 import { etatAffiche, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { sqlNomAffiche } from './nomUsageSql';
 import { sqlCleIdentitePiece } from './piecesConversation';
-import { evenementQualifieDisponible, evenementVuDisponible, pieceIntegreeDisponible } from './schema';
+import { evenementNouveauteDisponible, evenementQualifieDisponible, evenementVuDisponible, pieceIntegreeDisponible } from './schema';
+import { constaterLecturesGmail, plafondDesMails } from './nouveauteEvenement';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
@@ -503,8 +504,20 @@ function sqlBienDeLEvenement(avecMessageId: boolean): string {
    lue), on rend `0` et `NULL` par une constante : payer un LATERAL pour une liste vide serait payer pour rien.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-function sqlNouveauteDeLEvenement(avecMessageId: boolean, aucunNonLu: boolean, param: string): string {
-  if (aucunNonLu) {
+/* ══ 🔴🔴 LOT NEW-EVENEMENT-PROPRE (04/11/2026, migration 456) — LE « NEW » DEVIENT UN ÉTAT DE L'ÉVÉNEMENT ═══════
+
+   Le « New » ne se DÉDUIT plus du non-lu Gmail : un échange de chez nous peut couvrir plusieurs fils
+   Gmail, et un mail resté non lu dans l'un d'eux gardait l'événement « New » quoi qu'on ouvre (cause prouvée,
+   `nouveauteEvenement.ts`). Avec la 456 (`avecSeuil`), l'événement est « New » s'il porte un mail reçu
+   d'identifiant PLUS GRAND que son seuil `vu_jusqu_au` — posé quand on déplie la carte, quand on ouvre le mail,
+   ou quand la lecture de l'écran le constate lu dans Gmail.
+
+   ⚠️ UN ÉVÉNEMENT SANS LIGNE GARDE LA RÈGLE D'AVANT (un mail reçu non lu dans Gmail) : la table naît vide, et
+   déclarer « New » tous les événements qui ont un jour reçu un mail serait faux. Sans connexion Google, ces
+   événements-là ne sont donc pas « New » — comme avant ; ceux qui ont une ligne le restent ou non par leur seuil.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+function sqlNouveauteDeLEvenement(avecMessageId: boolean, aucunNonLu: boolean, param: string, avecSeuil = false): string {
+  if (aucunNonLu && !avecSeuil) {
     return `LEFT JOIN LATERAL (SELECT 0::int AS nb, NULL::timestamptz AS le) nl ON true`;
   }
   const jointure = avecMessageId
@@ -513,6 +526,20 @@ function sqlNouveauteDeLEvenement(avecMessageId: boolean, aucunNonLu: boolean, p
               AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2
                                WHERE a2.message_id = mn.id AND a2.actif))`
     : 'ON mn.fil_id = an.fil_id';
+  if (avecSeuil) {
+    return `
+  LEFT JOIN LATERAL (
+    SELECT count(DISTINCT mn.id)::int AS nb, max(mn.recu_le) AS le
+      FROM gestion_affectation an
+      JOIN gestion_message mn ${jointure}
+      LEFT JOIN gestion_evenement_nouveaute nv ON nv.evenement_id = e.id
+     WHERE an.evenement_id = e.id AND an.actif
+       AND mn.exclu_le IS NULL
+       AND mn.sens = 'recu'
+       AND mn.id > coalesce(nv.vu_jusqu_au, 0)
+       AND (nv.evenement_id IS NOT NULL${aucunNonLu ? '' : ` OR mn.id = ANY(${param}::bigint[])`})
+  ) nl ON true`;
+  }
   return `
   LEFT JOIN LATERAL (
     SELECT count(DISTINCT mn.id)::int AS nb, max(mn.recu_le) AS le
@@ -637,6 +664,8 @@ export async function lireEvenements(
    * témoins pour un seul fait finiraient par se contredire le jour où l'un serait oublié.
    */
   const avecCategorie = await evenementQualifieDisponible();
+  /* 🔴 LOT NEW-EVENEMENT-PROPRE — le « New » propre à l'événement (456) ; sans elle, celui d'avant. */
+  const avecSeuil = await evenementNouveauteDisponible();
   /* ⚠️ DÉDOUBLONNÉE ET BORNÉE AUX ENTIERS : la liste vient d'un rapprochement Gmail, et `= ANY(...)` sur des
      valeurs répétées ferait travailler la base pour rien. */
   const nonLus = [...new Set(messagesNonLus.filter((n) => Number.isSafeInteger(n) && n > 0))];
@@ -696,7 +725,7 @@ export async function lireEvenements(
        ${SQL_DERNIERE_ETAPE_MONGA}
        ${SQL_DERNIERE_MAJ_MONGA}
        ${sqlBienDeLEvenement(ctx.deplacements)}
-       ${sqlNouveauteDeLEvenement(ctx.deplacements, nonLus.length === 0, `$${avecVues ? 5 : 4}`)}
+       ${sqlNouveauteDeLEvenement(ctx.deplacements, nonLus.length === 0, `$${avecVues ? 5 : 4}`, avecSeuil)}
       GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.jour_connu, et.source, et.certitude, mg.le,
                etm.type, etm.titre, etm.survenu_le, etm.heure_connue, etm.certitude,
                bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb,
@@ -883,18 +912,37 @@ export async function lireToleranceVeille(): Promise<number> {
  * 🔴 C'EST LA MÊME FONCTION QUE LA BOÎTE APPELLE (`nonLusGmail`), avec les mêmes dépendances réelles : le gras de
  * la liste des échanges et la pastille « New » d'un événement ne peuvent donc pas se contredire.
  */
-async function lireMessagesNonLus(): Promise<number[]> {
+async function lireMessagesNonLus(): Promise<{ messages: number[]; constatable: boolean }> {
   try {
     const { depsNonLusGmail, nonLusGmail } = await import('./lectureGmailReel');
     const nl = await nonLusGmail(depsNonLusGmail());
-    return nl.disponible ? [...nl.messages] : [];
+    /* 🔴 LOT NEW-EVENEMENT-PROPRE — `constatable` : la liste est DISPONIBLE et COMPLÈTE, donc un mail qui n'y est
+       pas est bien lu dans Gmail. Une liste tronquée ne le prouve pas. */
+    return { messages: nl.disponible ? [...nl.messages] : [], constatable: nl.disponible && nl.complet };
   } catch (e) {
     console.error('[gestion/ecran] non-lus Gmail illisibles — aucune carte « New »', e);
-    return [];
+    return { messages: [], constatable: false };
   }
 }
 
-/** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
+/**
+ * ══ 🔴🔴 LOT NEW-EVENEMENT-PROPRE — LES MAILS OUVERTS DANS GMAIL ÉTEIGNENT LE « NEW » ══════════════════════════
+ *
+ * La règle d'Arno : un mail ouvert directement dans Gmail éteint aussi le « New ». La liste des non-lus que l'écran
+ * vient de demander le PROUVE (quand elle est complète) : on monte le seuil des événements dont aucun mail reçu
+ * n'y figure plus. C'est la SEULE écriture de la lecture de l'écran, en base seulement — jamais dans Gmail.
+ *
+ * ⚠️ UN ÉCHEC SE TAIT : le « New » resterait allumé une lecture de plus, l'écran ne tombe pas pour autant.
+ */
+async function constaterLesLecturesGmail(nonLus: readonly number[], plafond: number): Promise<void> {
+  try {
+    await constaterLecturesGmail(nonLus, plafond);
+  } catch (e) {
+    console.error('[gestion/ecran] constat des lectures Gmail impossible — « New » inchangés', e);
+  }
+}
+
+/** L'état complet de l'écran, en une fois. LECTURE SEULE, hormis le constat des lectures Gmail (LOT NEW-EVENEMENT-PROPRE). */
 export async function lireEcran(limite = PAGE, pageFile = 0, compteCle: string | null = null): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
   //   d'abord : l'attente ne se calcule pas sans savoir qui est qui (lot 4d).
@@ -920,7 +968,11 @@ export async function lireEcran(limite = PAGE, pageFile = 0, compteCle: string |
    * (règle du lot 5-BOITE-2) : aucune carte n'est alors « New ». Faire tomber TOUT l'écran parce que Gmail n'a
    * pas répondu serait payer une pastille au prix de la page.
    */
-  const messagesNonLus = await lireMessagesNonLus();
+  /* 🔴 LOT NEW-EVENEMENT-PROPRE — le plafond est lu AVANT la liste Gmail (voir `constaterLecturesGmail`). */
+  const plafond = await plafondDesMails().catch(() => 0);
+  const etatGmail = await lireMessagesNonLus();
+  if (etatGmail.constatable) await constaterLesLecturesGmail(etatGmail.messages, plafond);
+  const messagesNonLus = etatGmail.messages;
   const [file, evenements, reperes, sansSuite, auto, tolerance, suite, copie] = await Promise.all([
     // 🔴 LOT LISTE-PAGINATION — le rang de page ne concerne QUE la file : les cartes, les repères et les échanges
     //   sans suite ne sont pas paginés, et leur passer un rang les ferait mentir.

@@ -94,10 +94,10 @@ describe('🔴🔴 ① la pastille « New », près du titre', () => {
    */
   it('⚠️ le nombre de mails est dit, sans alourdir la pastille', async () => {
     await monter(CARTE({ nbRecusNonLus: 3, nouveauteLe: '2026-10-08T09:00:00Z' }));
-    expect(pastille()?.getAttribute('title')).toBe('3 mails reçus non lus sur cet événement');
-    expect(pastille()?.textContent).toContain('3 mails reçus non lus');
+    expect(pastille()?.getAttribute('title')).toBe('3 nouveaux mails reçus sur cet événement');
+    expect(pastille()?.textContent).toContain('3 nouveaux mails reçus');
     await monter(CARTE({ nbRecusNonLus: 1, nouveauteLe: '2026-10-08T09:00:00Z' }));
-    expect(pastille()?.getAttribute('title')).toBe('Un mail reçu non lu sur cet événement');
+    expect(pastille()?.getAttribute('title')).toBe('Un nouveau mail reçu sur cet événement');
   });
 
   /** 🔴 UNE PAIRE DE JETONS DU THÈME, définis en Clair ET en Sombre : la pastille suit les trois thèmes. */
@@ -334,7 +334,9 @@ describe('🔴🔴 ④ le statut « New » vient du non-lu de la boîte, et de n
    */
   it('⚠️ aucun non-lu à rapprocher : une constante, et aucune jointure', () => {
     expect(REPO).toContain("return `LEFT JOIN LATERAL (SELECT 0::int AS nb, NULL::timestamptz AS le) nl ON true`;");
-    expect(REPO).toContain('return nl.disponible ? [...nl.messages] : [];');
+    /* 🔴 LOT NEW-EVENEMENT-PROPRE — la liste dit aussi si elle est constatable (disponible ET complète). */
+    expect(REPO).toContain('return { messages: nl.disponible ? [...nl.messages] : [], constatable: nl.disponible && nl.complet };');
+    expect(REPO).toContain('if (aucunNonLu && !avecSeuil) {');
   });
 
   /**

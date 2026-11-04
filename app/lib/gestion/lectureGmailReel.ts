@@ -1,7 +1,7 @@
 import 'server-only';
 import { lireJeton } from './googleJeton';
 import { lireIdentifiants, rafraichirJeton, chercherParMessageId, listerNonLus, lireEnteteGmail, modifierLibellesFil } from './google';
-import { ancresDuFil, type DepsLectureGmail, type DepsMarquageGmail } from './lectureGmail';
+import { ancresDuFil, ancresLectureDuFil, type DepsLectureGmail, type DepsMarquageGmail } from './lectureGmail';
 
 /**
  * MODULE « GESTION » — LOT 5-BOITE-2 : CÂBLAGE RÉEL du lu/non lu Gmail. Même rôle que `depsReellesDepot` pour le
@@ -36,6 +36,8 @@ export function depsMarquageGmail(): DepsMarquageGmail {
   return {
     jeton: jetonGestion,
     ancres: ancresDuFil,
+    // 🔴 LOT NEW-EVENEMENT-PROPRE — « lu » atteint tous les fils Gmail de l'échange (voir `ancresLecture`).
+    ancresLecture: ancresLectureDuFil,
     chercher: (jeton, messageIdRfc) => chercherParMessageId(jeton, messageIdRfc, { fetch }),
     modifierFil: (jeton, threadId, o) => modifierLibellesFil(jeton, threadId, o, { fetch }),
   };

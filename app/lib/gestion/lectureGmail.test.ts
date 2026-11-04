@@ -246,6 +246,77 @@ describe('🔴 ⑤ marquer un échange, dans Gmail', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT NEW-EVENEMENT-PROPRE (04/11/2026) — « LU » ATTEINT TOUTES LES CONVERSATIONS GMAIL DE L'ÉCHANGE
+
+   LE CAS RÉEL, LU SUR LA VRAIE BOÎTE (lecture seule) : l'échange 5881 (« DOSSIER GODEAU », 15 messages) couvre
+   TROIS conversations Gmail — 19d2a85535841a9f, 1a0d92085da7290f, 1a0ebba7b88a9dfc. L'ouvrir retirait UNREAD de
+   la première trouvée (1a0ebba7…) ; le message non lu de 19d2a855… le restait, et l'échange repassait en gras.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 marquer LU un échange qui couvre plusieurs conversations Gmail', () => {
+  function gmail(o: { connus?: string[]; aChercher?: string[]; trouve?: Record<string, string | null>; modif?: Record<string, 'ok' | 'absent' | 'refus'> } = {}) {
+    const nonLus = new Set(['19d2a85535841a9f', '1a0ebba7b88a9dfc']);
+    const faits: string[] = [];
+    const d: DepsMarquageGmail = {
+      jeton: async () => 'JETON',
+      ancres: async () => ['<0492CA3C@l-d.fr>'],
+      ancresLecture: async () => ({ filsConnus: o.connus ?? ['19d2a85535841a9f', '1a0d92085da7290f', '1a0ebba7b88a9dfc'], aChercher: o.aChercher ?? [] }),
+      chercher: async (_j, mid) => {
+        faits.push(`chercher(${mid})`);
+        const t = o.trouve?.[mid];
+        return OK(t === undefined || t === null ? null : { id: `g-${mid}`, threadId: t });
+      },
+      modifierFil: async (_j, fil, opt) => {
+        faits.push(`modifier(${fil}, +${(opt.ajouter ?? []).join('')} -${(opt.retirer ?? []).join('')})`);
+        const m = o.modif?.[fil] ?? 'ok';
+        if (m === 'absent') return KO('Ce fil n’existe plus dans Gmail.');
+        if (m === 'refus') return KO('Gmail a refusé la modification : quota');
+        for (const r of opt.retirer ?? []) if (r === 'UNREAD') nonLus.delete(fil);
+        return OK({ id: fil });
+      },
+    };
+    return { d, faits, nonLus };
+  }
+
+  it('les TROIS conversations perdent UNREAD — plus aucun message non lu ne reste dans l’échange', async () => {
+    const { d, faits, nonLus } = gmail();
+    expect(await marquerFilGmail(d, 5881, true)).toEqual({ etat: 'ok', lu: true });
+    expect(faits).toEqual(['modifier(19d2a85535841a9f, + -UNREAD)', 'modifier(1a0d92085da7290f, + -UNREAD)', 'modifier(1a0ebba7b88a9dfc, + -UNREAD)']);
+    expect(nonLus.size).toBe(0);
+  });
+
+  it('les messages au fil inconnu sont cherchés, et chaque conversation n’est marquée qu’une fois', async () => {
+    const { d, faits } = gmail({ connus: ['T1'], aChercher: ['<a@x>', '<b@x>', '<c@x>'], trouve: { 'a@x': 'T2', 'b@x': 'T1', 'c@x': null } });
+    expect(await marquerFilGmail(d, 9, true)).toEqual({ etat: 'ok', lu: true });
+    expect(faits.filter((f) => f.startsWith('modifier'))).toEqual(['modifier(T1, + -UNREAD)', 'modifier(T2, + -UNREAD)']);
+    expect(faits.filter((f) => f.startsWith('chercher'))).toHaveLength(3);
+  });
+
+  it('une conversation effacée de Gmail n’arrête pas les autres ; un refus est dit si RIEN n’a pu être marqué', async () => {
+    expect(await marquerFilGmail(gmail({ connus: ['A', 'B'], modif: { A: 'absent' } }).d, 1, true)).toEqual({ etat: 'ok', lu: true });
+    expect(await marquerFilGmail(gmail({ connus: ['A'], modif: { A: 'absent' } }).d, 1, true)).toEqual({ etat: 'introuvable' });
+    expect(await marquerFilGmail(gmail({ connus: ['A'], modif: { A: 'refus' } }).d, 1, true))
+      .toEqual({ etat: 'refus', motif: 'Gmail a refusé la modification : quota' });
+    expect(await marquerFilGmail(gmail({ connus: [], aChercher: [] }).d, 1, true)).toEqual({ etat: 'introuvable' });
+  });
+
+  it('« NON LU » (geste humain) garde l’ancien chemin : la première conversation trouvée, et elle seule', async () => {
+    const { d, faits } = gmail({ trouve: { '0492CA3C@l-d.fr': '1a0ebba7b88a9dfc' } });
+    expect(await marquerFilGmail(d, 5881, false)).toEqual({ etat: 'ok', lu: false });
+    expect(faits).toEqual(['chercher(0492CA3C@l-d.fr)', 'modifier(1a0ebba7b88a9dfc, +UNREAD -)']);
+  });
+
+  it('le câblage réel fournit bien les conversations de l’échange au marquage « lu »', () => {
+    const src = readFileSync('app/lib/gestion/lectureGmailReel.ts', 'utf8');
+    expect(src).toContain('ancresLecture: ancresLectureDuFil,');
+    const plat = readFileSync('app/lib/gestion/lectureGmail.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(plat).toContain('SELECT DISTINCT gmail_thread_id AS connu');
+    expect(plat).toContain('WHERE fil_id = $1 AND gmail_thread_id IS NULL AND message_id IS NOT NULL');
+    expect(plat).toContain('LIMIT ${ANCRES_MAX_LECTURE}');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LOT LISTE-GMAIL-FIX — LA RECHERCHE COUVRE TOUTE LA BOÎTE, ET LES ANCRES SONT ORDONNÉES
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
