@@ -774,7 +774,7 @@ describe('🔴 LOT CG1 — le CA global en « HT | TTC »', () => {
     const ttc = lireTout();
     expect(window.localStorage.getItem('trx-affichage-montants')).toBe('ttc');
     expect(ttc.titre).toBe('CA global TTC (2025)');
-    expect(ttc.h3).toEqual(['Synthèse 2025 par société, puis le global (TTC)', 'Chiffre d’affaires global 2025 mois par mois (TTC)', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA)', 'Résultat net 2025 (TTC ; avec salaires)']); // 🔴 LOT CG2 / CG5 / CG7
+    expect(ttc.h3).toEqual(['Synthèse 2025 par société, puis le global (TTC)', 'Chiffre d’affaires global 2025 mois par mois (TTC)', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs particuliers et primes de location, variable et salaires sans TVA)', 'Résultat net 2025 (TTC ; avec salaires)']); // 🔴 LOT CG2 / CG5 / CG7
     // le grand montant TTC, le petit HT (et inversement) : les deux unités de la même cellule
     expect([ht.petit.endsWith('TTC)'), ttc.petit.endsWith('HT)')]).toEqual([true, true]);
     expect(centimesDe(ht.petit)).toBe(ttc.grand);
@@ -831,7 +831,7 @@ describe('🔴 LOT CG2 — les coûts globaux du CA global', () => {
     if (r !== undefined) expect(r.querySelector('[data-cout="ecart"]')!.className).toContain('tdb-signe--negatif');
     // « Avec | Sans salaires » : la mémoire partagée de Location / Gestion / FUSION
     await cliquer('[data-bloc="global-couts"] [data-salaires="sans"]');
-    expect([window.localStorage.getItem('trx-fusion-salaires'), texte('#trx-g-couts-titre')]).toEqual(['sans', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs et primes de location, variable et salaires sans TVA ; hors salaires)']);
+    expect([window.localStorage.getItem('trx-fusion-salaires'), texte('#trx-g-couts-titre')]).toEqual(['sans', 'Coûts globaux 2025 mois par mois (TTC ; apporteurs particuliers et primes de location, variable et salaires sans TVA ; hors salaires)']);
     // année par année : une ligne par année
     expect([...container.querySelectorAll('[data-table-couts="global-couts-annees"] tbody tr')].map((x) => x.getAttribute('data-rangee-couts'))).toEqual(['2024', '2025']);
     window.localStorage.removeItem('trx-fusion-salaires');
@@ -3825,7 +3825,7 @@ describe('🔴 LOT BW — « Le mois » : une ligne par négociateur ; « HT | T
     const fin = await ouvrirSur([deux], 'criterimmo', '/?vue=mois&annee=2025&mois=1', [r(71, null, 'Gardien Dacquet'), r(72, null, null)]);
     try {
       const table = container.querySelector('[data-table-retrocessions]')!;
-      expect([...table.querySelectorAll('thead th')].map((x) => x.textContent)).toEqual(['Apporteur', 'Négociateur', 'Montant TTC', 'Vente', 'Historique']);
+      expect([...table.querySelectorAll('thead th')].map((x) => x.textContent)).toEqual(['Apporteur', 'Négociateur', 'Montant TTC', 'Vente', 'Statut TVA', 'Historique']); // 🔴 D38 — le statut de chaque rétrocession
       expect(texte('[data-apporteur-retro="71"]')).toBe('Gardien Dacquet');
       expect(container.querySelector('[data-apporteur-retro="71"]')!.tagName).toBe('TH');
       expect(container.querySelector('[data-apporteur-retro="72"] .trx-apporteur-non-nomme')!.textContent).toBe('Apporteur non nommé');

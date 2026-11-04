@@ -104,7 +104,7 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
   return <>
     <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX}</style>
     <ListeRepliable colonneTotal id={idTitre} section={donnee} ouvert={ouvert} onOuvert={setOuvert} donnees={{ 'data-bloc': donnee }} compteur={null}
-      titre={<>{titre} <small className="loc-muet">({MOT_UNITE[u]}{u === 'ttc' ? ' ; apporteurs et primes de location, variable et salaires sans TVA' : ''}{salaires ? '' : ' ; hors salaires'})</small></>}
+      titre={<>{titre} <small className="loc-muet">({MOT_UNITE[u]}{u === 'ttc' ? ' ; apporteurs particuliers et primes de location, variable et salaires sans TVA' : ''}{salaires ? '' : ' ; hors salaires'})</small></>}
       total={<Montants ht={totalCouts.htC / 100} ttc={totalCouts.ttcC / 100} sens="verse" classe="lr-montants" donnees={{ 'data-total-couts-replie': '' }} />}
       // 🔴 LOT CG3 — « Avec | Sans salaires » à droite du titre, sur la même ligne (téléphone : dessous)
       aDroite={<div className="trx-couts-choix" data-couts-tete><SelecteurSalaires salaires={salaires} onChange={onSalaires} /></div>}>

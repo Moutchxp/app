@@ -18,7 +18,7 @@ const query = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (s.startsWith('SELECT id, nom, type')) {
     return { rows: [{ id: '4', nom: 'Léa Fictive', type: 'partenaire', archive_le: null, societe: 'Fictive Conseil', telephone: '06 00 00 00 04', email: 'lea@exemple.fr',
       nom_famille: 'Fictive', prenom: 'Léa', compte_id: etat.interne ? '2' : null, civilite: null, adresse: null, notes: null, telephones_autres: [], emails_autres: [],
-      version: etat.version, compte_libelle: null, compte_identifiant: null }], rowCount: 1 };
+      version: etat.version, compte_libelle: null, compte_identifiant: null, statut_tva: 'particulier' }], rowCount: 1 };
   }
   if (s.startsWith('SELECT modifie_par_libelle AS par')) return { rows: [{ par: 'Paul Collègue', quand: '2026-10-24 12:05:00+00' }], rowCount: 1 };
   if (s.startsWith('UPDATE')) return { rows: [], rowCount: etat.rowCount };
@@ -82,6 +82,23 @@ describe('🔴 la fiche au serveur : conflit, journal, interne', () => {
     expect(await enregistrerFicheApporteur(4, { fiche: { ...LEA, civilite: 'Mme' }, version: etat.version }, AUTEUR))
       .toEqual({ etat: 'refus', motif: 'Un apporteur interne : son identité est celle de son compte, modifiable dans la gestion des comptes.' });
     expect(ecrit()).toEqual([]);
+  });
+  it('🔴 D38 — le statut TVA : un non-administrateur est refusé (rien n’est écrit) ; un administrateur l’écrit (version lue toujours en dernier), une ligne de journal', async () => {
+    const fiche = { ...LEA, statutTva: 'professionnel' };
+    expect(await enregistrerFicheApporteur(4, { fiche, version: etat.version }, AUTEUR, { administrateur: false }))
+      .toEqual({ etat: 'refus', motif: 'Le statut TVA d’un apporteur (Particulier / Professionnel) se modifie par un administrateur.' });
+    expect(ecrit()).toEqual([]);
+    const r = await enregistrerFicheApporteur(4, { fiche, version: etat.version }, AUTEUR, { administrateur: true });
+    expect(r).toEqual({ etat: 'ok', data: { changements: [{ champ: 'Statut TVA', avant: 'Particulier (sans TVA)', apres: 'Professionnel (avec TVA)' }] } });
+    const [u] = ecrit().filter((a) => a.sql.startsWith('UPDATE gestion_location_apporteur'));
+    expect(u.sql).toContain('statut_tva = $');
+    expect(u.params.slice(-2)).toEqual(['professionnel', etat.version]);
+    expect(ecrit().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal')).map((x) => x.params[3])).toEqual(['Fiche de l’apporteur — Statut TVA : Particulier (sans TVA) → Professionnel (avec TVA)']);
+  });
+  it('🔴 D38 — un collègue de rattachement modifie le reste de la fiche sans toucher au statut (absent de l’envoi : gardé tel qu’en base)', async () => {
+    expect((await enregistrerFicheApporteur(4, { fiche: { ...LEA, civilite: 'Mme' }, version: etat.version }, AUTEUR, { administrateur: false })).etat).toBe('ok');
+    const [u] = ecrit().filter((a) => a.sql.startsWith('UPDATE gestion_location_apporteur'));
+    expect(u.params.slice(-2)).toEqual(['particulier', etat.version]);
   });
 });
 

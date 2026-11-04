@@ -355,7 +355,7 @@ function ResultatFusion({ T }: { T: TotauxFusion }) {
       {avecL && <>
         <dt className="trx-fusion-groupe">Location</dt><dd className="trx-fusion-groupe" />
         <dt>CA brut location ({MOT})</dt><dd><Mt {...m(T.location.ca)} donnees={{ 'data-resultat-fusion': 'location-ca' }} /></dd>
-        <dt>− Commissions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.location.deduits.apporteurs)} cout donnees={{ 'data-resultat-fusion': 'apporteurs' }} /></dd>
+        <dt>− Commissions d’apporteurs (sans TVA pour les particuliers)</dt><dd><Mt {...m(T.location.deduits.apporteurs)} cout donnees={{ 'data-resultat-fusion': 'apporteurs' }} /></dd>
         {/* 🔴 Arno (02/11/2026) — chaque ligne « − » se soustrait : le variable, primes incluses ; les primes en sous-ligne « dont », non soustraite */}
         <dt>− Variable du négociateur (sans TVA, primes incluses){inclus(affiche('variable', T.location.couts), affiche('variable', T.location.deduits))}</dt><dd><Mt {...m(affiche('variable', T.location.deduits))} cout donnees={{ 'data-resultat-fusion': 'variable' }} /></dd>
         <dt className="trx-resultat-dont" data-resultat-fusion-dont-primes>{MOT_DONT_PRIMES} (sans TVA){inclus(T.location.couts.primes, T.location.deduits.primes)}</dt><dd className="trx-resultat-dont"><Mt {...m(T.location.deduits.primes)} donnees={{ 'data-resultat-fusion': 'primes' }} /></dd>
@@ -624,7 +624,7 @@ function FenetreCoutsFusion({ lignes, gestion, ms, activite, salaires, lib, lien
                 <Montant htC={t.couts.primes.htC} ttcC={t.couts.primes.ttcC} versee={false} /></li>;
               const compte = !nonCompte(f.cle) && affiche(f.cle, t.deduits).htC === affiche(f.cle, t.couts).htC;
               return <li key={f.cle} className={compte ? 'trx-fc-ligne' : 'trx-fc-ligne trx-fc-info'} data-cout-mois={f.cle}>
-                <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{f.activite === 'location' ? 'Location' : 'Gestion'}</span>{f.libelle}{f.cle === 'variable' ? ' (sans TVA, primes incluses)' : SANS_TVA_FUSION.includes(f.cle) ? ' (sans TVA)' : ''}{mention(f.cle, t)}</span>
+                <span className="trx-fc-quoi"><span className={compte ? 'trx-fc-etiquette trx-rouge' : 'trx-fc-etiquette'} data-etiquette>{f.activite === 'location' ? 'Location' : 'Gestion'}</span>{f.libelle}{f.cle === 'variable' ? ' (sans TVA, primes incluses)' : f.cle === 'apporteurs' ? ' (sans TVA pour les particuliers)' : SANS_TVA_FUSION.includes(f.cle) ? ' (sans TVA)' : ''}{mention(f.cle, t)}</span>
                 <Montant htC={affiche(f.cle, t.couts).htC} ttcC={affiche(f.cle, t.couts).ttcC} versee={compte} /></li>;
             })}</ul>
             <div className="trx-fc-sous-total trx-somme"><span>Coûts du mois</span><Montant htC={t.coutsTotal.htC} ttcC={t.coutsTotal.ttcC} versee donnees={{ 'data-couts-mois': `${m.annee}-${m.mois}` }} /></div>
@@ -651,7 +651,7 @@ function FenetreNetFusion({ lignes, gestion, ms, activite, salaires, lib, onFerm
   );
   const ligneFamille = (f: (typeof FAMILLES_COUTS)[number]) => {
     const salaire = f.cle === 'salaries' || f.cle === 'salairesLocation';
-    const sansTva = f.cle === 'variable' ? ' (sans TVA, primes incluses)' : salaire || f.cle === 'primes' || f.cle === 'apporteurs' ? ' (sans TVA)' : ''; // 🔴 LOT LO14 — primes et apporteurs aussi
+    const sansTva = f.cle === 'variable' ? ' (sans TVA, primes incluses)' : salaire || f.cle === 'primes' ? ' (sans TVA)' : f.cle === 'apporteurs' ? ' (sans TVA pour les particuliers)' : ''; // 🔴 LOT LO14 — primes et apporteurs aussi ; 🔴 D38 : apporteurs particuliers seulement
     const ou = <small className="trx-fc-sous">{f.activite === 'location' ? 'location' : 'gestion'}</small>;
     // 🔴 Arno (02/11/2026) — le variable : montré avec les primes de gestion (`affiche`) ; les primes suivent en « dont », sans « − », non soustraites
     const tout = affiche(f.cle, T.couts); const deduit = affiche(f.cle, T.deduits);

@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ApporteurAffaire } from './ApporteurAffaire';
-import { BlocRepartition, type EtatRepartition } from './Repartition';
+import { BlocRepartition, ResumeBase, type EtatRepartition } from './Repartition';
+import { FournisseurAffichage } from './commun';
 
 /** 🔴 D29 (Arno, 03/11/2026) — l'apporteur d'une affaire (Informations communes, formulaire « Modifier ») : un externe, UN montant « sans TVA » ;
  *  un collaborateur (interne dans l'annuaire) : HT et TTC, comme avant. */
@@ -48,5 +49,26 @@ describe('🔴 D29 — la commission PROPOSÉE d’un négociateur : sur les hon
     expect(container.querySelector('[data-propose="commission-entree"]')?.textContent).toMatch(/de 4\u202f?\s?950/);
     await rendreBloc(true);
     expect(container.querySelector('[data-propose="commission-entree"]')?.textContent).toMatch(/de 5\u202f?\s?000/);
+  });
+});
+
+describe('🔴 D38 (Arno, 04/11/2026) — la ligne « TVA sur la commission de l’apporteur (non récupérable) » : TTC seulement', () => {
+  const rendreBase = async (unite: 'ht' | 'ttc', interne: boolean) => {
+    await act(async () => { root.render(createElement(FournisseurAffichage, { value: unite },
+      createElement(ResumeBase, { commissionTtc: 7500, apporteurs: [{ nom: 'Gardien Dacquet', ttc: 1000, ...(interne ? { interne: true } : {}) }] }))); });
+  };
+  const ligne = () => container.querySelector('[data-resume="tva-apporteur"] [data-tva-ttc-seulement]')?.textContent?.replace(/\s+/g, ' ');
+  it('Particulier, vue HT : « — (200 € TTC) » au lieu de « 0 € HT » ; la ligne reste', async () => {
+    await rendreBase('ht', false);
+    expect(ligne()).toBe('— (200 € TTC)');
+  });
+  it('Particulier, vue TTC : « 200 € TTC (— HT) »', async () => {
+    await rendreBase('ttc', false);
+    expect(ligne()).toBe('200 € TTC (— HT)');
+  });
+  it('Professionnel (avec TVA, `interne` = la commission porte la TVA) : aucune ligne de TVA non récupérable, l’apporteur en HT / TTC', async () => {
+    await rendreBase('ht', true);
+    expect(container.querySelector('[data-resume="tva-apporteur"]')).toBeNull();
+    expect(container.querySelector('[data-resume="apporteur"]')?.textContent).toMatch(/HT/);
   });
 });

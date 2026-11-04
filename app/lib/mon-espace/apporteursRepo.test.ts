@@ -98,7 +98,8 @@ describe('🔴 D26 — la fiche de « Mon espace » : création complète, ratta
     const fiche = { nomFamille: 'NOUVELLE', prenom: 'Zoé', adresse: '3 rue des Lilas', type: 'partenaire' };
     const r = await creerApporteurMonEspace(5, { nom: 'Zoé NOUVELLE', telephone: '0699999999', fiche }, AUTEUR);
     expect(r).toEqual({ ok: true, id: 101 });
-    expect(h.fiche).toHaveBeenCalledWith(101, { fiche, version: null }, AUTEUR);
+    // 🔴 D38 — avec le droit de l'auteur : seul un administrateur change le statut TVA
+    expect(h.fiche).toHaveBeenCalledWith(101, { fiche, version: null }, AUTEUR, { administrateur: h.admin });
   });
   it('création : la fiche refusée n’empêche pas l’apporteur d’exister — un avertissement le dit', async () => {
     h.fiche.mockResolvedValue({ etat: 'refus', motif: 'L’e-mail « x » est mal écrit.' });

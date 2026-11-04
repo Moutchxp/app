@@ -54,7 +54,7 @@ function NonDeduits({ T }: { T: NonDeduitsMontants }) {
   </>;
 }
 import { FormulaireDossier, type References } from './FormulaireDossier';
-import { MontantSansTva, MOT_TVA_APPORTEUR } from './Repartition';
+import { MontantSansTva, MontantTvaApporteur, MOT_TVA_APPORTEUR } from './Repartition';
 import { ChoixSalairesTuile, CLASSE_TUILES_CHOIX, useChoixSalaires } from './ChoixSalaires';
 import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — le cumul, une seule fois (il était recopié ici)
 
@@ -927,7 +927,8 @@ function LignesResultat({ R: r, T, suffixe, apresCa }: { R: ResultatCartes; T: N
     <dt>− Rétrocessions d’apporteurs ({MOT})</dt><dd>{non(r.retro) && r.retro.htC === r.retro.ttcC
       ? <span {...{ [suffixe === 'mois' ? 'data-retro-resultat' : 'data-retro-periode']: '' }}><MontantSansTva montant={r.retro.htC / 100} /></span>
       : <Mt {...m(r.retro)} cout donnees={{ [suffixe === 'mois' ? 'data-retro-resultat' : 'data-retro-periode']: '' }} />}</dd>
-    {non(r.tvaApporteur) && <><dt>− {MOT_TVA_APPORTEUR}</dt><dd><Mt {...m(r.tvaApporteur)} cout donnees={{ [`data-tva-apporteur-${suffixe}`]: '' }} /></dd></>}
+    {/* 🔴 D38 — la TVA non récupérable (apporteurs Particuliers) : TTC seulement, « — (… € TTC) » en vue HT */}
+    {non(r.tvaApporteur) && <><dt>− {MOT_TVA_APPORTEUR}</dt><dd><MontantTvaApporteur ttc={r.tvaApporteur.ttcC / 100} donnees={{ [`data-tva-apporteur-${suffixe}`]: '' }} /></dd></>}
     {non(r.interCabinet) && <><dt>− Inter-cabinet vers nos autres sociétés ({MOT})</dt><dd><Mt {...m(r.interCabinet)} donnees={{ [`data-inter-cabinet-${suffixe}`]: '' }} /></dd></>}
     {non(r.exterieur) && <><dt>− Inter-cabinet extérieur ({MOT})</dt><dd><Mt {...m(r.exterieur)} donnees={{ [`data-exterieur-${suffixe}`]: '' }} /></dd></>}
     <dt>− Commissions des négociateurs indépendants ({MOT})</dt><dd><Mt {...m(r.com)} cout donnees={{ [suffixe === 'mois' ? 'data-paye-deduite' : 'data-paye-deduite-periode']: '' }} /></dd>
@@ -1222,6 +1223,13 @@ function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, 
     setMotif(r);
     if (r === null) onRelire();
   };
+  // 🔴 D38 (Arno, 04/11/2026) — le statut de l'apporteur d'UNE rétrocession : la règle (vide), Particulier ou Professionnel ; administrateurs (le
+  // serveur le vérifie), journalisé et réversible (« Historique »).
+  const statuer = async (id: number, statut: string): Promise<void> => {
+    const r = await posterTransaction({ action: 'retro-statut', id, statut: statut === '' ? null : statut });
+    setMotif(r);
+    if (r === null) onRelire();
+  };
   const aRepartir = retros.filter((r) => r.venteId === null).length;
   return <>
     {aRepartir > 0 && <p className="loc-alerte loc-alerte--orange" role="status" data-a-repartir>{aRepartir} rétrocession(s) « à répartir » : rattachez-les à la vente qu’elles paient.</p>}
@@ -1229,7 +1237,7 @@ function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, 
     {retros.length === 0 ? <p className="loc-muet">{vide}</p> : (
       <table className="tdb-table tdb-table--large" data-table-retrocessions>
         {/* 🔴 LOT CN (Arno) — le tableau parle des apporteurs : Apporteur · Négociateur · Montant TTC · Vente · Historique. */}
-        <thead><tr><th scope="col">Apporteur</th><th scope="col">Négociateur</th><th scope="col">Montant TTC</th><th scope="col">Vente</th><th scope="col">Historique</th></tr></thead>
+        <thead><tr><th scope="col">Apporteur</th><th scope="col">Négociateur</th><th scope="col">Montant TTC</th><th scope="col">Vente</th><th scope="col">Statut TVA</th><th scope="col">Historique</th></tr></thead>
         <tbody>{retros.map((r) => {
           const p = ventesProposees(r, ventes);
           const options = [...p.duMois, ...p.autres].map((v) => ({ id: v.id, libelle: `${v.libelle} — ${eur(v.honorairesTtc)} TTC${v.mois === null ? ` (${v.annee})` : ` (${moisCourt(v.annee, v.mois)})`}` }));
@@ -1243,6 +1251,11 @@ function OutilRetrocessions({ retros, ventes, societe, annee, mois, disponible, 
               <td data-mot="Vente">
                 <ListeChoix options={options} valeur={r.venteId === null ? '' : String(r.venteId)} vide="À répartir" libelle={`Vente de la rétrocession de ${eur(r.montantTtc)}`}
                   desactive={!disponible} onChange={(v) => void rattacher(r.id, v === '' ? null : Number(v))} donnees={{ 'data-rattacher': String(r.id) }} />
+              </td>
+              <td data-mot="Statut TVA">
+                <ListeChoix options={[{ id: 'particulier', libelle: 'Particulier (sans TVA)' }, { id: 'professionnel', libelle: 'Professionnel (avec TVA)' }]}
+                  valeur={r.statutApporteur ?? ''} vide={`Règle : ${r.interne === true ? 'avec TVA' : 'sans TVA'}`} libelle={`Statut TVA de la rétrocession de ${eur(r.montantTtc)}`}
+                  desactive={!disponible} onChange={(v) => void statuer(r.id, v)} donnees={{ 'data-statut-retro': String(r.id) }} />
               </td>
               <td data-mot="Historique"><button type="button" className="trx-bouton-lien" onClick={() => setHistorique(historique === r.id ? null : r.id)}>{historique === r.id ? 'Masquer' : 'Voir'}</button></td>
             </tr>

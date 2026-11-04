@@ -18,6 +18,7 @@
 import { classeDeCommission, commissionIgnoree, resolveurDe, statutDePartie, type StatutDuLibelle } from './statutLigne';
 import type { ClasseCommission, Statut } from '../admin/statut';
 import { formeNom, formePrenom } from './personnes';
+import type { StatutTva } from '../location/suivi/suivi';
 
 export type Societe = 'criterimmo' | 'macj';
 export const SOCIETES: readonly Societe[] = ['criterimmo', 'macj'];
@@ -213,7 +214,11 @@ export interface DossierVente {
  * l'écart — la TVA que l'agence doit sur la part de l'apporteur sans pouvoir la récupérer (0,2 × le montant) — est une ligne TTC à part :
  * « TVA sur la commission de l'apporteur (non récupérable) ». Le COÛT TTC d'un apporteur externe = montant + cette TVA = montant × 1,2.
  * Un apporteur INTERNE (un collaborateur : la fiche de l'annuaire porte un compte) : comme avant (TTC, HT = TTC ÷ 1,2, aucune TVA perdue).
- * Tout l'historique, sans date de bascule ; une rétrocession sans apporteur nommé est externe.
+ * Tout l'historique, sans date de bascule.
+ * 🔴 D38 (Arno, 04/11/2026, 455) — REMPLACE « externe = sans TVA » : seul un apporteur « PARTICULIER » est sans TVA (et porte la ligne de TVA non
+ * récupérable) ; un apporteur « PROFESSIONNEL » facture : sa commission porte la TVA, comme un collaborateur (le drapeau `interne` de ces fonctions
+ * dit « avec TVA » : collaborateur OU Professionnel — posé par `poserApporteurs` / `poserApporteursRetros`). Une rétrocession sans apporteur nommé :
+ * « Professionnel » par défaut. Tout le reste (collaborateurs, co-négociateurs, commissions, inter-cabinet, agences extérieures) : TVA, inchangé.
  */
 /** Le HT d'une commission d'apporteur (externe : le montant versé ; interne : ÷ 1,2). PUR. */
 export const htApporteur = (montant: number, interne = false): number => (interne ? ht(montant) : montant);
@@ -381,8 +386,11 @@ export interface Retrocession {
   origine: 'saisie' | 'import';
   sourceOnglet: string | null;
   sourceCellule: string | null;
-  /** 🔴 D29 — l'apporteur est un collaborateur (l'annuaire : son nom, ou l'apporteur de la vente rattachée) ; absent ou faux : externe (sans TVA). */
+  /** 🔴 D29 → D38 — la commission porte la TVA (un collaborateur, ou un apporteur « Professionnel » : la règle de `poserApporteursRetros`) ;
+   *  absent ou faux : un Particulier (sans TVA). Le nom d'origine est gardé : il dit « avec TVA ». */
   interne?: boolean;
+  /** 🔴 D38 (455) — le statut choisi À LA MAIN pour cette rétrocession (administrateurs) ; absent : la règle. */
+  statutApporteur?: StatutTva;
 }
 
 export interface CaARattacher {

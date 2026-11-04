@@ -200,7 +200,7 @@ describe('🔴 LOT LO6 — les fenêtres « Primes et rétrocessions » et « CA
       expect(doc('[data-fenetre-net-location] h2')).toBe('CA net — septembre 2025');
       const corps = document.querySelector('[data-fenetre-net-location] .trx-fc-corps')!;
       expect([...corps.querySelectorAll('[data-net-ca], [data-categorie-location], [data-net-apporteurs], [data-total-net]')].map((x) => x.querySelector('[data-titre-categorie], span')!.textContent))
-        .toEqual(['CA brut', '− Commissions d’apporteurs (sans TVA)', '= CA net d’apporteurs', '− Variable du négociateur (sans TVA, primes incluses)', 'dont primes de nouvelle gestion (sans TVA)', '− Salaires chargés (sans TVA)', '= CA net']); // 🔴 Arno (02/11/2026)
+        .toEqual(['CA brut', '− Commissions d’apporteurs (sans TVA pour les particuliers)', '= CA net d’apporteurs', '− Variable du négociateur (sans TVA, primes incluses)', 'dont primes de nouvelle gestion (sans TVA)', '− Salaires chargés (sans TVA)', '= CA net']); // 🔴 Arno (02/11/2026)
       const ca = grand('[data-net-ca-montant]'); const app = grand('[data-fenetre-net-location] [data-sous-total-location="apporteurs"]');
       const nap = grand('[data-net-apporteurs-montant]'); const pr = grand('[data-fenetre-net-location] [data-sous-total-location="primes"]');
       const net = grand('[data-fenetre-net-location] [data-fenetre-total]');

@@ -595,7 +595,7 @@ export function CarteBail({ l, ouvertInitial = false }: { l: LigneLocationCa; ou
         <dt>Honoraires propriétaire</dt><dd><Mt ht={l.proprietaireC.htC / 100} ttc={l.proprietaireC.ttcC / 100} /></dd>
         <dt>Honoraires locataire</dt><dd><Mt ht={l.locataireC.htC / 100} ttc={l.locataireC.ttcC / 100} /></dd>
         <dt>− Prime de nouvelle gestion (sans TVA)</dt><dd><Mt ht={l.primeC.htC / 100} ttc={l.primeC.ttcC / 100} cout /></dd>
-        <dt>− Commission d’apporteur (sans TVA)</dt><dd><Mt ht={l.apporteurC.htC / 100} ttc={l.apporteurC.ttcC / 100} cout /></dd>
+        <dt>− Commission d’apporteur (sans TVA pour un particulier)</dt><dd><Mt ht={l.apporteurC.htC / 100} ttc={l.apporteurC.ttcC / 100} cout /></dd>
         <dt className="trx-total">= Reste</dt><dd className="trx-total trx-vert"><Mt ht={l.netC.htC / 100} ttc={l.netC.ttcC / 100} /></dd>
       </dl>
       <p><a className="trx-bouton-lien" href={lienSuiviDuMois(l)} data-ouvrir-location={l.id}>Ouvrir dans Location</a>
@@ -616,7 +616,7 @@ function ResultatLocation({ T, aSaisir }: { T: TotauxRegle; aSaisir: number }) {
   return (
     <dl className="trx-resultat" data-resultat-location>
       <dt>CA brut ({MOT})</dt><dd><Mt {...m(T.ca)} donnees={{ 'data-resultat-ca': '' }} /></dd>
-      <dt>− Rétrocessions d’apporteurs (sans TVA)</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
+      <dt>− Rétrocessions d’apporteurs (sans TVA pour les particuliers)</dt><dd><Mt {...m(T.apporteurs)} cout donnees={{ 'data-resultat-apporteurs': '' }} /></dd>
       {/* 🔴 Arno (02/11/2026) — chaque ligne « − » se soustrait vraiment : le variable, primes de gestion incluses (`variableNegociateur`) ; les primes
           suivent en sous-ligne « dont », sans signe, non soustraites */}
       <dt>− Variable du négociateur (sans TVA, primes incluses){inclus(variableNegociateur(c.variable, c.primes), variableNegociateur(c.variableDeduit, c.primesDeduites))}</dt>

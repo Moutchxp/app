@@ -340,7 +340,20 @@ export interface Apporteur {
   compteLibelle?: string | null; compteIdentifiant?: string | null;
   /** 422 — le jour où cet apporteur, EXTERNE jusque-là, est passé INTERNE (null : interne dès sa création, ou externe). */
   interneDepuis?: string | null;
+  /** 🔴 D38 (455) — « Particulier » (commission sans TVA) ou « Professionnel » (avec TVA) ; absent : base sans la 455 (la règle D29 : sans TVA). */
+  statutTva?: StatutTva;
 }
+
+/**
+ * ══ 🔴 D38 (Arno, 04/11/2026, migration 455) — LE STATUT TVA D'UN APPORTEUR ══════════════════════════════════════════════════════════════════
+ * « Particulier » : sa commission n'a pas de TVA (le versé = HT = TTC). « Professionnel » : elle porte la TVA (TTC = HT × 1,2). Obligatoire,
+ * « Particulier » par défaut, modifiable dans la fiche par les administrateurs (journal). Un collaborateur (compte) : avec TVA en Transaction.
+ */
+export const STATUTS_TVA = ['particulier', 'professionnel'] as const;
+export type StatutTva = (typeof STATUTS_TVA)[number];
+export const LIBELLE_STATUT_TVA: Record<StatutTva, string> = { particulier: 'Particulier (sans TVA)', professionnel: 'Professionnel (avec TVA)' };
+/** La commission de cet apporteur porte-t-elle la TVA (Location : « Professionnel » seulement) ? PUR. */
+export const apporteurProfessionnel = (a: Pick<Apporteur, 'statutTva'> | undefined): boolean => a?.statutTva === 'professionnel';
 
 /** 419 — l'apporteur est-il INTERNE (lié à un compte de l'interface) ? PUR. */
 export const estInterne = (a: Pick<Apporteur, 'compteId'>): boolean => a.compteId !== null && a.compteId !== undefined;

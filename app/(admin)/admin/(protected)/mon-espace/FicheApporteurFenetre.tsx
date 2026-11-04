@@ -6,7 +6,7 @@ import { CSS_PARAMETRES } from '../location/ParametresLocation';
 import { CSS_ONGLETS_SUIVI } from '../location/OngletsSuivi';
 import { ChampDuree, ChoixMode, dureeEnvoyee } from '../location/ReglageApporteur';
 import { ChampNombre } from '../location/ChampNombre';
-import { ListeAutres, PanneauRattachement, PanneauTaux, PasserEnInterne } from '../location/PanneauxApporteur';
+import { ChampStatutTva, ListeAutres, PanneauRattachement, PanneauTaux, PasserEnInterne } from '../location/PanneauxApporteur';
 import { ContexteNouvelApporteur } from '../transaction/NouvelApporteur';
 import { EnteteAide } from '../transaction/commun';
 import { homonymes } from '../../../../lib/transaction/homonymesApporteur';
@@ -216,6 +216,8 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
                     <label className="plo-champ"><span>Catégorie</span>
                       <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={f.type} vide={null} libelle="Catégorie"
                         onChange={(x) => poser({ type: x as FicheApporteur['type'] })} donnees={{ 'data-fiche-champ': 'type' }} /></label>
+                    {/* 🔴 D38 — le statut TVA (Particulier par défaut à la création) : un administrateur le modifie, les autres le lisent */}
+                    <ChampStatutTva valeur={f.statutTva} modifiable={admin} onChange={(x) => poser({ statutTva: x })} />
                     {champTexte('Nom', 'nomFamille')}
                     {champTexte('Prénom', 'prenom')}
                     <p className="plo-muet mfa-aide plo-champ--large" data-aide-nom-prenom>

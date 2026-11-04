@@ -5,7 +5,7 @@ import { ListeChoix } from './ListeChoix';
 import {
   type Apporteur, aRattacher, collegueADate, LIBELLE_TYPE_APPORTEUR, pourcent, type RegleCommission, TYPES_APPORTEUR, type TypeApporteur, versionADate,
   type ModeApporteur, libelleApporteur, trierApporteurs,
-  badgeApporteur, estInterne, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE,
+  badgeApporteur, estInterne, lireDuree, MOT_DUREE, MOT_COLLEGUE_OBLIGATOIRE, LIBELLE_STATUT_TVA,
 } from '../../../../lib/location/suivi/suivi';
 import { API_SUIVI, aujourdhuiParis, posterSuivi } from './suiviApi';
 import { ChampDuree, ChoixMode, CSS_REGLAGE_APPORTEUR, dureeEnvoyee } from './ReglageApporteur';
@@ -290,6 +290,8 @@ export function OngletApporteurs({ onChoisir, url = false }: { onChoisir?: (a: A
                   <p className="plo-version-titre"><strong data-nom-apporteur-liste>{libelleApporteur(a)}</strong><BadgeApporteur a={a} />
                     {/* 🔴 Arno (24/10/2026) — UN seul badge quand la pastille de type le répète (« Partenaire externe ») ; sinon les deux. */}
                     {LIBELLE_TYPE_APPORTEUR[a.type].toLocaleUpperCase('fr-FR') !== badgeApporteur(a) && <span className="plo-pastille" data-type-apporteur>{LIBELLE_TYPE_APPORTEUR[a.type]}</span>}
+                    {/* 🔴 D38 (Arno, 04/11/2026) — le statut TVA d'un externe, sur chaque carte : la liste qu'Arno relit et corrige (panneau « Fiche ») */}
+                    {!interne && a.statutTva !== undefined && <span className={`plo-pastille${a.statutTva === 'professionnel' ? ' plo-pastille--vigueur' : ''}`} data-statut-tva={a.statutTva}>{LIBELLE_STATUT_TVA[a.statutTva]}</span>}
                     {annuaire && !interne && (orphelin
                       ? <span className="plo-pastille plo-pastille--orange" data-a-rattacher>à rattacher</span>
                       : <span className="plo-pastille plo-pastille--vigueur" data-collegue-apporteur>{collegue?.collegueLibelle}</span>)}</p>

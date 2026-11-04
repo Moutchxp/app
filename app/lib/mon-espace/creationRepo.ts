@@ -38,7 +38,7 @@ export async function referencesMonEspace(compteId: number, _administrateur: boo
   const [negociateurs, mes] = await Promise.all([lireNegociateurs(aujourdhui), lireMesApporteurs(compteId)]);
   return { lotD: await repartitionDisponible(), personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(),
     uniteCommission: await uniteCommissionDisponible(), negociateurs: negociateurs.filter((x) => x.actif),
-    apporteurs: mes.apporteurs.map((a) => ({ id: a.id, nom: a.fiche.nom, recherche: a.recherche, libelle: a.libelle, ...(a.interne ? { interne: true } : {}) })), // 🔴 D29 collegues: mes.collegues, personnes: [],
+    apporteurs: mes.apporteurs.map((a) => ({ id: a.id, nom: a.fiche.nom, recherche: a.recherche, libelle: a.libelle, ...(a.interne || a.fiche.statutTva === 'professionnel' ? { interne: true } : {}) })), // 🔴 D29 / D38 : `interne` = avec TVA (collaborateur ou Professionnel) collegues: mes.collegues, personnes: [],
     // 🔴 Décision 12 — la structure de mon profil (null : les deux, ou aucun rattachement enregistré : la question reste)
     structureImposee: await structureImposee(compteId, aujourdhui) };
 }

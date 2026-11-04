@@ -14,7 +14,8 @@ import { CascadeNegociateurMois, CascadeResultatNet, CSS_CASCADE_NEGOCIATEUR, MO
 import { BlocReplie } from './BlocReplie';
 import { ListeRepliable, useListeRepliee } from './ListeRepliable';
 import { dossiersCascade, resumeDuMoisComplet, type ResumeCalcule } from '../../../../lib/location/suivi/resumePeriode';
-import { estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
+import { apporteurProfessionnel, estInterne, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
+import { TVA as TVA_SUIVI } from '../../../../lib/transaction/modele';
 import { gliDepuisJanvier, margeFr, type GliPeriode } from '../../../../lib/location/suivi/margeGli';
 import {
   type ActiviteCalcul, type ActiviteLue, type GestionDepuisJanvier, totalDesIntermediaires, apporteurAffiche, apporteursEtColleguesDesMois, detailCollegue, type CascadeNegociateur, type LigneDetailCollegue,  LIBELLE_NATURE_BIEN, NATURES_BIEN, gestionDepuisJanvier, natureBienLoue, caLigne, collegueDeLigne, commissionApporteurDe, type ContexteCalcul, type DonneesTableau,
@@ -343,6 +344,12 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
   const ac = apporteursEtColleguesDesMois(lignes, ctx.apporteurs, { lignes: ctx.recurrents ?? [], mois, aujourdhui });
   /* 🔴 Arno (26/10/2026) — le Total du tableau « Apporteurs du mois » : les seules affaires passées par un intermédiaire. */
   const interm = totalDesIntermediaires(ac);
+  // 🔴 D38 (Arno, 04/11/2026) — l'honoraire d'un apporteur « Professionnel » porte la TVA (TTC = HT × 1,2) ; un Particulier : sans TVA (LO14).
+  // Le total : la somme des lignes au centime (sans Professionnel : le total d'avant).
+  const cent = (x: number): number => Math.round((x + Number.EPSILON) * 100);
+  const hono = (x: { apporteurId: number | null; commission: number }): { ht: number; ttcC: number } => ({ ht: x.commission,
+    ttcC: x.apporteurId !== null && apporteurProfessionnel(ctx.apporteurs.find((a) => a.id === x.apporteurId)) ? cent(x.commission * TVA_SUIVI) : cent(x.commission) });
+  const tvaProC = ac.apporteurs.reduce((t, x) => t + hono(x).ttcC - cent(x.commission), 0);
   const collegues = ac.collegues.map((x) => ({ x, det: detailCollegue(x) }));
   // 🔴 Arno (25/10/2026) — les collègues dépliés (repliés au chargement ; plusieurs à la fois).
   const [colOuverts, setColOuverts] = useState<ReadonlySet<string>>(() => new Set());
@@ -356,7 +363,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
       {lignes.length === 0 ? <p className="loc-muet">Aucune affaire {motVide}.</p> : (
         <div className="fdm-deux">
           <table className="fdm-table fdm-apporteurs">
-            <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur <small className="loc-muet">(sans TVA)</small></th></tr></thead>
+            <thead><tr><th scope="col">Apporteur</th><th scope="col">Affaires</th><th scope="col">CA apporté</th><th scope="col">Hono. d’apporteur <small className="loc-muet">(sans TVA pour un particulier)</small></th></tr></thead>
             <tbody>{[...ac.apporteurs.filter((x) => x.sorte !== 'non_nomme'), ...ac.apporteurs.filter((x) => x.sorte === 'non_nomme')].map((x) => (
               <tr key={`${x.apporteurId ?? x.nom}`} data-apporteur-mois={x.nom} className={x.meilleur ? 'fdm-meilleur' : undefined}>
                 <th scope="row">{x.nom}{x.aRattacher && <span className="fdm-orange"> · à rattacher</span>}
@@ -364,7 +371,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
                   {x.meilleur && <span className="fdm-badge-meilleur" data-meilleur-apporteur>Meilleur apporteur</span>}</th>
                 <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{x.nb}</button></td>
                 <td data-mot="CA apporté"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires de ${x.nom} — ${libelle}`, x.ids)}>{U.m(caIds(x.ca, x.ids))}</button></td>
-                <td data-mot="Hono. d’apporteur">{U.m(sansTvaSuivi(x.commission))}</td>
+                <td data-mot="Hono. d’apporteur">{U.m(hono(x))}</td>
               </tr>))}
               {/* 🔴 Arno (26/10/2026, accord explicite) — la ligne « Sans apporteur » est RETIRÉE : ce tableau ne montre que les affaires passées
                   par un intermédiaire ; elles restent comptées partout ailleurs (CA, baux, résultat, négociateurs). */}
@@ -372,7 +379,7 @@ export function ModuleApporteurs({ lignes, ctx, mois, aujourdhui, titre, idp, bl
             <tfoot><tr data-apporteur-mois="total">
               <th scope="row">Total</th>
               <td data-mot="Affaires"><button type="button" className="tdb-chiffre" onClick={() => onDetail(`Affaires d’apporteurs — ${libelle}`, interm.ids)}>{interm.nb}</button></td>
-              <td data-mot="CA apporté" data-total-apporteurs-ca>{U.m(caIds(interm.ca, interm.ids))}</td><td data-mot="Hono. d’apporteur">{U.m(sansTvaSuivi(interm.commission))}</td>
+              <td data-mot="CA apporté" data-total-apporteurs-ca>{U.m(caIds(interm.ca, interm.ids))}</td><td data-mot="Hono. d’apporteur">{U.m({ ht: interm.commission, ttcC: cent(interm.commission) + tvaProC })}</td>
             </tr></tfoot>
           </table>
           {/* 🔴 Arno (25/10/2026) — les COLLÈGUES : via leurs apporteurs ET en direct, cumulés ; deux sous-lignes et un total quand les

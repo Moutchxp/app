@@ -7,16 +7,17 @@ import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
   acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireJournal, lireNegociateurs,
-  lirePersonnes, lireVentes, modifierVente, rattacherRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
+  lirePersonnes, lireVentes, modifierVente, rattacherRetro, statutRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, mandatDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireLocationCa } from '../../../../lib/transaction/locationLue';
-import { aujourdhuiParis, estInterne, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
+import { apporteurProfessionnel, aujourdhuiParis, estInterne, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
 import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
 import { lireDonneesSociete } from '../../../../lib/transaction/donneesSociete';
 import { lireDonneesGlobal } from '../../../../lib/transaction/donneesGlobal';
+import { estAdministrateur } from '../../../../lib/mon-espace/compteRepo';
 
 /**
  * TUILE « TRANSACTION » (Arno, 27/10/2026, migration 433) — la porte de la tuile :
@@ -26,6 +27,7 @@ import { lireDonneesGlobal } from '../../../../lib/transaction/donneesGlobal';
  *   GET  ?vue=location                          LOT LO1 : les lignes du Suivi de la Location (CA, primes, apporteurs, net au centime), lecture seule ;
  *   POST action=vente-saisir {vente} | vente-modifier {id, champs} | vente-retirer {id, retirer}
  *        action=retro-rattacher {id, venteId|null} | retro-saisir {retro}
+ *        🔴 D38 (455) : action=retro-statut {id, statut: 'particulier'|'professionnel'|null} — ADMINISTRATEURS ; journalisé, réversible
  *        action=gestion-enregistrer {annee, mois, gestion}
  *        action=annuler {journalId}
  *        action=attribuer {cle, societe|null}   LOT C : la même vente notée chez les deux sociétés, attribuée (ou remise à attribuer)
@@ -55,8 +57,9 @@ async function references(aujourdhui: string): Promise<Record<string, unknown>> 
   return { lotD, personneType: await personneTypeDisponible(), prixVente: await prixVenteDisponible(), mandat: await mandatDisponible(), annulation: await annulationDisponible(), uniteCommission: await uniteCommissionDisponible(), interCabinet: await interCabinetDisponible(), negociateurs: negociateurs.filter((x) => x.actif), apporteurs: apporteurs.filter((a) => !a.archive).map((a) => ({ id: a.id, nom: a.nom,
     // LOT AC — la recherche (nom, prénom, société, téléphones, e-mails) et le libellé de l'annuaire (homonymes).
     recherche: texteRechercheApporteur(a), libelle: libelleApporteur(a),
-    // 🔴 D29 — un collaborateur (sa commission porte la TVA) ; sinon externe, sans TVA
-    ...(estInterne(a) ? { interne: true } : {}) })), collegues, personnes };
+    // 🔴 D29 / D38 — `interne` : la commission porte la TVA (un collaborateur, ou un apporteur « Professionnel ») ; sinon un Particulier, sans TVA.
+    // `statutTva` : le statut de la fiche (Particulier / Professionnel), montré tel quel.
+    ...(estInterne(a) || apporteurProfessionnel(a) ? { interne: true } : {}), ...(a.statutTva !== undefined ? { statutTva: a.statutTva } : {}) })), collegues, personnes };
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -144,6 +147,14 @@ export async function POST(request: Request): Promise<Response> {
         const venteId = corps.venteId === null ? null : Number(corps.venteId);
         if (venteId !== null && (!Number.isInteger(venteId) || venteId <= 0)) return json({ etat: 'refus', motif: 'Vente inconnue.' }, 400);
         return rendre(await rattacherRetro(id, venteId, auteur));
+      }
+      // 🔴 D38 (Arno, 04/11/2026) — le statut Particulier / Professionnel d'UNE rétrocession (null : la règle) : administrateurs seulement.
+      case 'retro-statut': {
+        if (!idValide) return json({ etat: 'refus', motif: 'Rétrocession inconnue.' }, 400);
+        if (garde.auteurId === null || !(await estAdministrateur(garde.auteurId))) return json({ etat: 'refus', motif: 'Le statut d’une rétrocession se modifie par un administrateur.' }, 403);
+        const statut = corps.statut === null ? null : corps.statut === 'particulier' || corps.statut === 'professionnel' ? corps.statut : undefined;
+        if (statut === undefined) return json({ etat: 'refus', motif: 'Statut : Particulier, Professionnel, ou la règle.' }, 400);
+        return rendre(await statutRetro(id, statut, auteur));
       }
       case 'retro-saisir': {
         const r = lireRetro(corps.retro);

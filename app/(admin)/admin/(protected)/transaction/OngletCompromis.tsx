@@ -12,7 +12,7 @@ import { BoutonAffichage, classeSens, ESPACE, eur, FournisseurAffichage, useCons
 import { pctFr as pctFormat } from '../../../../lib/transaction/format';
 import { corpsDossier, etatRepartitionDe, FormulaireDossier, type References } from './FormulaireDossier';
 import { BlocRepartition, changerNegociateur, montantsAffiches, retroTtcDe, ChampMontantUnite, ChoixSocieteVente, choisirSocietePartie, etatSomme, montantEffectif, motifSocieteVente, nombre, propositionCommission, tauxDe,
-  texteTaux, versModele, MontantSansTva, MOT_TVA_APPORTEUR, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
+  texteTaux, versModele, MontantSansTva, MontantTvaApporteur, MOT_TVA_APPORTEUR, type EtatRepartition, type MontantEcran, type PartieEcran } from './Repartition';
 import { LES_DEUX, LIBELLE_SOCIETE_COMPTE, type SocieteCompte } from '../../../../lib/transaction/societeNegociateur';
 import { ListeChoix } from '../location/ListeChoix';
 import { totalCompromisEnCours } from '../../../../lib/transaction/compromisEnCours';
@@ -697,7 +697,8 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
                   : <span className="trx-ht-ttc-pile trx-montant-repartition"><MontantSansTva montant={r.retroApporteurTtc} donnee="repartition" /></span>)
                 : ligne('apporteur', 'Aucun apporteur', '', '', montant(0, 0))}
               {/* 🔴 D29 — la TVA due sur la part de l'apporteur externe, que l'agence ne récupère pas : TTC seulement (0 en HT) */}
-              {(cTtc?.tvaApporteur ?? 0) > 0 && ligne('tva-apporteur', <>− {MOT_TVA_APPORTEUR}</>, '', '', montant(0, cTtc!.tvaApporteur, { rouge: true, donnee: { 'data-tva-apporteur': '' } }))}
+              {(cTtc?.tvaApporteur ?? 0) > 0 && ligne('tva-apporteur', <>− {MOT_TVA_APPORTEUR}</>, '', '', <span className="trx-ht-ttc-pile trx-montant-repartition">
+                <MontantTvaApporteur ttc={cTtc!.tvaApporteur} donnees={{ 'data-tva-apporteur': '' }} /></span>)}
               {ligne('base', '= Base de répartition (honoraires nets)', '', pct(100), montant(cHt?.baseHt ?? ps.netHt, cTtc?.baseHt ?? ps.netHt * TVA), 'tdb-fort trx-ligne-base trx-somme-ligne')}
               {r.parties.map((p, i) => (
                 <tr key={i} data-ligne-repartition={`partie-${i}`}><th scope="row">{libellePartie(p)}</th><td data-mot="Société">{p.societe === null ? 'extérieur' : LIBELLE_SOCIETE[p.societe]}</td>
@@ -997,7 +998,9 @@ export function mentionCommission(statut: Statut | null, precision?: string): st
   return `${qui}${precision === undefined ? '' : ` ${precision}`} — ${classeCommission(statut) === 'independant' ? 'comptabilisé' : 'non comptabilisé'} dans « Commissions versées »`;
 }
 
-function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres, rouge = false, classe, sansTva = false }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, mention, apres, rouge = false, classe, sansTva = false, ttcSeulement = false }: { donnees: Record<string, string>; libelle: ReactNode; ttc: number;
+  /** 🔴 D38 — la TVA non récupérable : un montant TTC seulement (« — (… € TTC) » en vue HT). */
+  ttcSeulement?: boolean;
   /** 🔴 D29 — la commission d'un apporteur externe : un seul montant, « sans TVA » (jamais « (… € HT) » à côté). */
   sansTva?: boolean;
   /** 🔴 LOT BB — un montant en rouge sans cadre (« − Apporteur » de l'en-tête). */
@@ -1026,7 +1029,8 @@ function LigneCalcul({ donnees, libelle, ttc, ht: htExact, encadre = null, menti
     <p className={`${encadre === null ? 'trx-calcul-cote trx-calcul-grille' : `trx-calcul-cote trx-calcul-grille trx-calcul-encadre trx-calcul-encadre--${encadre}`}${classe === undefined ? '' : ` ${classe}`}`} {...donnees}
       data-ht-ttc data-classe-commission={encadre ?? undefined}>
       <span className="trx-calcul-libelle">{libelle}</span>{' '}
-      {sansTva ? <><strong className={`trx-calcul-resultat${couleur}`} data-sans-tva="">{eur(ttc)}</strong>{' '}<span className={`trx-calcul-ttc trx-mt-petit${couleur}`}>sans TVA</span></>
+      {ttcSeulement ? <span className="trx-calcul-resultat"><MontantTvaApporteur ttc={ttc} /></span>
+      : sansTva ? <><strong className={`trx-calcul-resultat${couleur}`} data-sans-tva="">{eur(ttc)}</strong>{' '}<span className={`trx-calcul-ttc trx-mt-petit${couleur}`}>sans TVA</span></>
       : <><strong className={`trx-calcul-resultat${couleur}`} {...{ [`data-montant-${u}`]: '' }}>{eur(valeur(u))}{ESPACE}{MOT_UNITE[u]}</strong>{' '}
       <span className={`trx-calcul-ttc trx-mt-petit${couleur}`} {...{ [`data-montant-${autre}`]: '' }}>({eur(valeur(autre))}{ESPACE}{MOT_UNITE[autre]})</span></>}
       {encadre !== null && <>{' '}<span className="trx-calcul-mention" data-mention-commission>{mention}</span></>}
@@ -1130,7 +1134,7 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
         {x.apporteurs.map((a, i) => <LigneCalcul key={i} rouge donnees={{ 'data-entete-apporteur': x.cote }} ttc={a.m.ttcC / 100} ht={a.m.htC / 100} sansTva={a.m.htC === a.m.ttcC}
           libelle={<><span className="trx-calcul-mot">− Apporteur</span> : <span className={a.nom === null ? 'trx-a-renseigner' : undefined} data-entete-apporteur-nom>{a.nom ?? A_RENSEIGNER}</span></>} />)}
         {/* 🔴 D29 — la TVA non récupérable sur la part de l'apporteur externe (TTC seulement) */}
-        {x.tvaApporteur !== undefined && x.tvaApporteur.ttcC !== 0 && <LigneCalcul rouge donnees={{ 'data-entete-tva-apporteur': x.cote }} ttc={x.tvaApporteur.ttcC / 100} ht={x.tvaApporteur.htC / 100}
+        {x.tvaApporteur !== undefined && x.tvaApporteur.ttcC !== 0 && <LigneCalcul rouge ttcSeulement donnees={{ 'data-entete-tva-apporteur': x.cote }} ttc={x.tvaApporteur.ttcC / 100} ht={x.tvaApporteur.htC / 100}
           libelle={<span className="trx-calcul-mot">− {MOT_TVA_APPORTEUR}</span>} />}
       </>}
       {/* 🔴 LOT BG (Arno) — la ligne résultat ressort : trame grise des sommes sur toute la largeur du cadre (coins du bas assortis), filet au-dessus

@@ -9,7 +9,7 @@ import type { AutresConditions } from '../../../../lib/location/suivi/detailDoss
 import { AutresConditionsTaux } from './CumulEtConditions';
 import {
   type Apporteur, baremeADate, collegueADate, depuisLibelle, estInterne, LIBELLE_TYPE_APPORTEUR, libelleApporteur, libelleRegleApporteur, libelleRemuneration,
-  remunerationADate, TYPES_APPORTEUR, aujourdhuiParis, libelleHistorique, type ModeApporteur, trierHistorique, tauxVide,
+  remunerationADate, TYPES_APPORTEUR, STATUTS_TVA, LIBELLE_STATUT_TVA, type StatutTva, aujourdhuiParis, libelleHistorique, type ModeApporteur, trierHistorique, tauxVide,
 } from '../../../../lib/location/suivi/suivi';
 import { nomCorrespond } from '../../../../lib/location/suivi/apporteursInternes';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
@@ -117,14 +117,32 @@ export function PasserEnInterne({ a, comptes, apporteurs, possible, onFait }: { 
   );
 }
 
-export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false, message, envoyer, sansPassage = false }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
+/**
+ * 🔴 D38 (Arno, 04/11/2026, 455) — LE STATUT TVA DE L'APPORTEUR, dans sa fiche : « Particulier (sans TVA) » / « Professionnel (avec TVA) ». Modifiable par
+ * un administrateur (le serveur le vérifie) ; sinon montré en lecture. Absent (base sans la 455) : rien n'est montré.
+ */
+export function ChampStatutTva({ valeur, modifiable, onChange }: { valeur: StatutTva | undefined; modifiable: boolean; onChange: (v: StatutTva) => void }) {
+  if (valeur === undefined) return null;
+  return modifiable ? (
+    <label className="plo-champ"><span>Statut TVA</span>
+      <ListeChoix options={STATUTS_TVA.map((x) => ({ id: x, libelle: LIBELLE_STATUT_TVA[x] }))} valeur={valeur} vide={null} libelle="Statut TVA"
+        onChange={(v) => onChange(v as StatutTva)} donnees={{ 'data-fiche-statut-tva': '' }} /></label>
+  ) : (
+    <div className="plo-champ" data-fiche-statut-tva-lecture={valeur}><span>Statut TVA</span><strong>{LIBELLE_STATUT_TVA[valeur]}</strong>
+      <small className="plo-muet">Modifiable par un administrateur.</small></div>
+  );
+}
+
+export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, comptes = [], apporteurs = [], passage = false, message, envoyer, sansPassage = false, statutModifiable = true }: { a: Apporteur; nomPrenom: boolean; identite: boolean;
   orphelin: boolean; onEnregistre: (message?: string) => void; comptes?: readonly { id: number; libelle: string; actif?: boolean }[]; apporteurs?: readonly Apporteur[]; passage?: boolean;
   /** 🔴 MON ESPACE, LOT 9 — l'envoi de la fiche : par défaut la Location (`fiche-apporteur`, inchangé) ; « Mon espace » passe le sien (même fonction serveur). */
   envoyer?: (corps: Record<string, unknown>) => Promise<{ motif: string | null; etat?: string }>;
   /** 🔴 MON ESPACE, LOT 9 — sans « Passer en interne » (un geste d'administrateur de la Location) ; absent : rien ne change. */
   sansPassage?: boolean;
   /** 🔴 Arno (24/10/2026) — le message de confirmation de la carte (« Fiche enregistrée »), près du bouton. */
-  message?: React.ReactNode }) {
+  message?: React.ReactNode;
+  /** 🔴 D38 — le statut TVA se modifie (la Location : panneau d'administrateur, vrai) ; faux : montré en lecture. */
+  statutModifiable?: boolean }) {
   const [f, setF] = useState<FicheApporteur>(() => ficheDe(a));
   const [recap, setRecap] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -177,6 +195,7 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
         <label className="plo-champ"><span>Type</span>
           <ListeChoix options={TYPES_APPORTEUR.map((t) => ({ id: t, libelle: LIBELLE_TYPE_APPORTEUR[t] }))} valeur={f.type} vide={null} libelle="Type"
             onChange={(v) => poser({ type: v as FicheApporteur['type'] })} donnees={{ 'data-fiche-type': '' }} /></label>
+        <ChampStatutTva valeur={f.statutTva} modifiable={statutModifiable} onChange={(v) => poser({ statutTva: v })} />
         {nomPrenom ? (
           <>
             <label className="plo-champ"><span>Nom de famille</span><input value={f.nomFamille} onChange={(e) => poser({ nomFamille: e.target.value })} data-fiche-nom-famille /></label>

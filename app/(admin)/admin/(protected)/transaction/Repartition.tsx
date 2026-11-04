@@ -600,6 +600,16 @@ export const MOT_TVA_APPORTEUR = 'TVA sur la commission de l’apporteur (non r�
 export function MontantSansTva({ montant, donnee, rouge = true }: { montant: number; donnee?: string; rouge?: boolean }) {
   return <span className={rouge ? 'trx-rouge trx-sans-tva' : 'trx-sans-tva'} data-sans-tva={donnee ?? ''}><strong>{eur(montant)}</strong> <span className="trx-mt-petit">sans TVA</span></span>;
 }
+/**
+ * 🔴 D38 (Arno, 04/11/2026) — LA TVA NON RÉCUPÉRABLE (apporteurs Particuliers) n'existe qu'en TTC : en vue HT, « — (… € TTC) » au lieu de
+ * « 0 € HT » ; en vue TTC, « … € TTC (— HT) ». La ligne reste à sa place, en rouge (déduite).
+ */
+export function MontantTvaApporteur({ ttc, donnees }: { ttc: number; donnees?: Record<string, string> }) {
+  const u = useAffichage();
+  return <span className="trx-rouge trx-tva-apporteur" data-tva-ttc-seulement="" {...donnees}>{u === 'ht'
+    ? <><strong>—</strong> <span className="trx-mt-petit">({eur(ttc)}{ESPACE}{MOT_UNITE.ttc})</span></>
+    : <><strong>{eur(ttc)}{ESPACE}{MOT_UNITE.ttc}</strong> <span className="trx-mt-petit">(—{ESPACE}{MOT_UNITE.ht})</span></>}</span>;
+}
 export function SansTva({ montant, donnee }: { montant: number; donnee?: string }) {
   return <td className="trx-resume-montants"><MontantSansTva montant={montant} {...(donnee === undefined ? {} : { donnee })} /></td>;
 }
@@ -640,8 +650,9 @@ export function ResumeBase({ commissionTtc, apporteurs }: { commissionTtc: numbe
           ? <tr data-resume="aucun-apporteur"><th scope="row" className="loc-muet">Aucun apporteur</th><td /></tr>
           : apporteurs.map((a, i) => <tr key={i} data-resume="apporteur"><th scope="row">− Apporteur{a.nom === null ? '' : ` : ${a.nom}`}</th>
             {a.interne === true ? montants(a.ttc, 'verse', `apporteur-${i}`) : <SansTva montant={a.ttc} donnee={`apporteur-${i}`} />}</tr>)}
-        {/* 🔴 D29 — la TVA que l'agence doit sur la part de l'apporteur externe, sans pouvoir la récupérer : en TTC seulement (0 en HT) */}
-        {tva > 0 && <tr data-resume="tva-apporteur"><th scope="row">− {MOT_TVA_APPORTEUR}</th>{montants(tva, 'verse', 'tva-apporteur', 0)}</tr>}
+        {/* 🔴 D29 — la TVA que l'agence doit sur la part d'un apporteur Particulier, sans pouvoir la récupérer : en TTC seulement (🔴 D38 : « — » en HT) */}
+        {tva > 0 && <tr data-resume="tva-apporteur"><th scope="row">− {MOT_TVA_APPORTEUR}</th>
+          <td className="trx-resume-montants"><MontantTvaApporteur ttc={tva} donnees={{ 'data-resume-ttc': 'tva-apporteur' }} /></td></tr>}
         <tr className="trx-resume-base-total trx-somme-ligne" data-resume="base"><th scope="row">= Base de répartition{' '}
           <span className="trx-resume-base-note">tous les calculs ci-dessous partent de cette base</span></th>{montants(baseTtc, 'neutre', 'base', baseHt)}</tr>
       </tbody>

@@ -6,7 +6,7 @@ import { bailEnPlace } from '../rentreOccupeRepo';
 import { familleDuLot, sqlLotParking } from '../bienComplet';
 import {
   type ActiviteVerifiee, type Apporteur, type BaremeApporteur, type CategoriePrime, type ChampsCommerciaux, type CollegueDate, type Origine,
-  type RegleCommission, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
+  type RegleCommission, type StatutTva, type TypeApporteur, dateIsoValide, lireMontant, lireTauxPourcent, verifierActivite, verifierApporteur, verifierCommercial,
   verifierCoordonnees, verifierRegle, verifierRetrocession, DEPUIS_TOUJOURS,
   casGestionDuBien, motPrimeDejaVersee, typeDeBienDesFiches, sqlPorteUnePrime, type CasGestion, categoriePrimeDeFamille, type ModeApporteur,
   type RemunerationCollegue, verifierRemuneration, aujourdhuiParis, libelleRegleApporteur, libelleRemuneration, versionsEffectives,
@@ -18,7 +18,7 @@ import { modifierEncartBien } from '../encartBienRepo';
 import { NATURES_BIEN, type NatureBien } from './tableauBord';
 import { jourParis } from '../../temps/paris';
 import { motifConflitFiche } from '../../gestion/traceFiche';
-import { changementsFiche, ficheDe, verifierFiche } from './ficheApporteur';
+import { changementsFiche, ficheDe, verifierFiche, type FicheApporteur } from './ficheApporteur';
 import { passageInterneDisponible, passerEnInterne, type IssuePassage } from './passageInterne';
 
 /** 422 — « Passer en interne » peut-il s'enregistrer (date du passage, entité de journal) ? */
@@ -217,16 +217,19 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const avec420 = await toujoursDisponible();
   const avec421 = await ficheIdentiteDisponible();
   const avec422 = await colonneExisteMemo('gestion_location_apporteur', 'interne_depuis');
+  const avec455 = await statutTvaDisponible();
   const [a, b, c, rem] = await Promise.all([
     query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null;
       nom_famille: string | null; prenom: string | null; compte_id: string | null; civilite: string | null; adresse: string | null; notes: string | null;
-      telephones_autres: string[] | null; emails_autres: string[] | null; version: string | null; compte_libelle: string | null; compte_identifiant: string | null; interne_depuis: string | null }>(
+      telephones_autres: string[] | null; emails_autres: string[] | null; version: string | null; compte_libelle: string | null; compte_identifiant: string | null; interne_depuis: string | null;
+      statut_tva: string | null }>(
       `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'},
               ${avecNomPrenom ? 'nom_famille, prenom' : 'NULL::text AS nom_famille, NULL::text AS prenom'},
               ${avec419 ? 'compte_id' : 'NULL::bigint AS compte_id'},
               ${avec421 ? 'civilite, adresse, notes, telephones_autres, emails_autres' : 'NULL::text AS civilite, NULL::text AS adresse, NULL::text AS notes, NULL::text[] AS telephones_autres, NULL::text[] AS emails_autres'},
               ${avecAnnuaire ? 'modifie_le::text' : 'NULL::text'} AS version,
               ${avec422 ? 'interne_depuis::text' : 'NULL::text'} AS interne_depuis,
+              ${avec455 ? 'statut_tva' : 'NULL::text'} AS statut_tva,
               ${avec419 ? `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_libelle,
               (SELECT u.identifiant FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_identifiant`
     : 'NULL::text AS compte_libelle, NULL::text AS compte_identifiant'}
@@ -285,8 +288,16 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
     version: r.version ?? null, compteLibelle: r.compte_libelle ?? null, compteIdentifiant: r.compte_identifiant ?? null,
     // 422 — le jour du passage en interne (les dossiers d'avant gardent collègue et rémunération du collègue).
     interneDepuis: r.interne_depuis ? r.interne_depuis.slice(0, 10) : null,
+    // 🔴 D38 (455) — Particulier / Professionnel ; sans la 455 : absent (la règle D29)
+    ...(r.statut_tva === 'professionnel' || r.statut_tva === 'particulier' ? { statutTva: r.statut_tva as StatutTva } : {}),
   }));
 }
+
+/** 🔴 D38 — la migration 455 (statut TVA des apporteurs, statut d'une rétrocession) est-elle appliquée ? */
+export function statutTvaDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_apporteur', 'statut_tva');
+}
+export const MOT_STATUT_TVA_ADMIN = 'Le statut TVA d’un apporteur (Particulier / Professionnel) se modifie par un administrateur.';
 
 /** Le libellé d'un compte (« Prénom Nom »), ou null s'il n'existe pas. */
 async function libelleCompte(q: typeof query, id: number): Promise<string | null> {
@@ -526,14 +537,17 @@ export type ReponseFiche = { etat: 'ok'; data: { changements: { champ: string; a
  * champ modifié (compte, session et écran par la trace ; entité « location_apporteur », 419). Un interne : refus (son identité est
  * celle de son compte). Un externe « à rattacher » : refus (rattacher d'abord). Rien n'est écrit si rien n'a changé.
  */
-export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unknown, auteur: Auteur): Promise<ReponseFiche> {
+export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unknown, auteur: Auteur,
+  /** 🔴 D38 — l'auteur est-il administrateur ? Le statut TVA ne change que par lui (la Location : route réservée, vrai ; Mon espace : son droit). */
+  o: { administrateur?: boolean } = {}): Promise<ReponseFiche> {
   if (!(await annuaireDisponible())) return { etat: 'indisponible', motif: 'La mise à jour de la base (migration 407) n’est pas encore appliquée.' };
   const id = typeof apporteurId === 'number' && Number.isInteger(apporteurId) && apporteurId > 0 ? apporteurId : null;
   if (id === null) return { etat: 'refus', motif: 'Apporteur inconnu.' };
   const b = (brut ?? {}) as Record<string, unknown>;
   const v = verifierFiche(b.fiche);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
-  const [avecNomPrenom, avec419, avec421, journal] = await Promise.all([nomPrenomDisponible(), interneDisponible(), ficheIdentiteDisponible(), journalApporteurDisponible()]);
+  const [avecNomPrenom, avec419, avec421, journal, avec455] = await Promise.all([nomPrenomDisponible(), interneDisponible(), ficheIdentiteDisponible(), journalApporteurDisponible(),
+    statutTvaDisponible()]);
   const sans = await refusExterneSansCollegue(query, id);
   if (sans !== null) return { etat: 'refus', motif: sans };
   const actuel = (await lireApporteurs()).find((x) => x.id === id && !x.archive);
@@ -545,9 +559,16 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
     return { etat: 'conflit', motif: motifConflitFiche(rows[0]?.quand ? { par: rows[0].par ?? '—', quand: rows[0].quand } : null) };
   }
   // Sans la 421, les champs nouveaux ne s'enregistrent pas : ils gardent la valeur lue (vide) — aucun changement n'est inventé.
-  const f = avec421 ? v.fiche : { ...v.fiche, civilite: '', adresse: '', notes: '', telephonesAutres: [], emailsAutres: [] };
+  const f0 = avec421 ? v.fiche : { ...v.fiche, civilite: '', adresse: '', notes: '', telephonesAutres: [], emailsAutres: [] };
+  // 🔴 D38 — sans la 455, le statut ne s'enregistre pas (il n'existe pas encore) ; avec elle, seul un administrateur le change
+  const { statutTva: _ignore, ...sansStatut } = f0;
+  const f: FicheApporteur = avec455 ? f0 : sansStatut;
   const changements = changementsFiche(ficheDe(actuel), f);
   if (changements.length === 0) return { etat: 'ok', data: { changements: [] } };
+  if (changements.some((c) => c.cle === 'statutTva') && o.administrateur === false) return { etat: 'refus', motif: MOT_STATUT_TVA_ADMIN };
+  const statut: StatutTva | null = avec455 ? f.statutTva ?? actuel.statutTva ?? 'particulier' : null;
+  // le rang du paramètre qui suit les champs (🔴 D38 : le statut TVA, puis la version lue — toujours en dernier)
+  const rangVersion = avecNomPrenom ? (avec421 ? 14 : 9) : (avec421 ? 12 : 7);
   return withTransaction(async (q) => {
     const nul = (x: string): string | null => (x === '' ? null : x);
     const r = await q(
@@ -555,10 +576,11 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
          ${avecNomPrenom ? ', nom_famille = $7, prenom = $8' : ''}
          ${avec421 ? `, civilite = $${avecNomPrenom ? 9 : 7}, adresse = $${avecNomPrenom ? 10 : 8}, notes = $${avecNomPrenom ? 11 : 9},
                       telephones_autres = $${avecNomPrenom ? 12 : 10}, emails_autres = $${avecNomPrenom ? 13 : 11}` : ''}
-        WHERE id = $1 AND archive_le IS NULL AND modifie_le::text IS NOT DISTINCT FROM $${avecNomPrenom ? (avec421 ? 14 : 9) : (avec421 ? 12 : 7)}`,
+         ${statut !== null ? `, statut_tva = $${rangVersion}` : ''}
+        WHERE id = $1 AND archive_le IS NULL AND modifie_le::text IS NOT DISTINCT FROM $${rangVersion + (statut !== null ? 1 : 0)}`,
       [id, nul(f.societe), nul(f.telephone), nul(f.email), f.type, auteur.libelle,
         ...(avecNomPrenom ? [f.nomFamille, nul(f.prenom)] : []),
-        ...(avec421 ? [nul(f.civilite), nul(f.adresse), nul(f.notes), f.telephonesAutres, f.emailsAutres] : []), version]);
+        ...(avec421 ? [nul(f.civilite), nul(f.adresse), nul(f.notes), f.telephonesAutres, f.emailsAutres] : []), ...(statut !== null ? [statut] : []), version]);
     // Relu sous verrou : une modification arrivée entre la lecture et l'écriture est un conflit, rien n'est écrit.
     if ((r.rowCount ?? 0) !== 1) return { etat: 'conflit', motif: motifConflitFiche(null) } as const;
     if (journal) {

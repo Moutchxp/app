@@ -69,7 +69,7 @@ export function SectionPrimes({ lignes, total, lien, moins, ouverte = false, inc
 export function SectionApporteurs({ lignes, total, lien, moins, ouverte = false }: { lignes: readonly LigneLocationCa[]; total: MontantC; lien: (l: LigneLocationCa) => ReactNode; moins: boolean; ouverte?: boolean }) {
   const groupes = detailCoutsLocation(lignes).groupesApporteurs;
   return (
-    <CategorieRepliable cle="apporteurs" donnees={{ 'data-categorie-location': 'apporteurs', 'aria-label': 'Commissions d’apporteurs' }} titre={<>{moins ? '− ' : ''}Commissions d’apporteurs (sans TVA)</>}
+    <CategorieRepliable cle="apporteurs" donnees={{ 'data-categorie-location': 'apporteurs', 'aria-label': 'Commissions d’apporteurs' }} titre={<>{moins ? '− ' : ''}Commissions d’apporteurs (sans TVA pour les particuliers)</>}
       montant={<Montant htC={total.htC} ttcC={total.ttcC} versee donnees={{ 'data-sous-total-location': 'apporteurs' }} />} ouverteInitiale={ouverte}>
       {groupes.length === 0 ? aucune('apporteurs') : <ul className="trx-fc-lignes">{groupes.map((g) => (
         <li key={g.nom} className="trx-fc-ligne" data-groupe-apporteur={g.nom}>

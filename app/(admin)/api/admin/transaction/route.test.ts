@@ -7,9 +7,11 @@ vi.mock('../../../../lib/transaction/garde', () => ({ exigerTransaction: () => g
 vi.mock('../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 3, libelle: 'arno' }) }));
 const repo = {
   transactionDisponible: vi.fn(), lireVentes: vi.fn(), lireRetrocessions: vi.fn(), lireARattacher: vi.fn(), lireGestion: vi.fn(), lireJournal: vi.fn(),
-  creerVente: vi.fn(), modifierVente: vi.fn(), retirerVente: vi.fn(), rattacherRetro: vi.fn(), saisirRetro: vi.fn(), enregistrerGestion: vi.fn(), annulerGeste: vi.fn(),
+  creerVente: vi.fn(), modifierVente: vi.fn(), retirerVente: vi.fn(), rattacherRetro: vi.fn(), statutRetro: vi.fn(), saisirRetro: vi.fn(), enregistrerGestion: vi.fn(), annulerGeste: vi.fn(),
 };
 vi.mock('../../../../lib/transaction/repo', () => repo);
+const admin = vi.fn(async (_id: number) => true);
+vi.mock('../../../../lib/mon-espace/compteRepo', () => ({ estAdministrateur: (id: number) => admin(id) })); // 🔴 D38
 vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocationHtTtc: async () => ({ ht: { '2025-03': 100 }, ttcC: { '2025-03': 12000 } }) })); // 🔴 LOT CG1
 
 const { GET, POST } = await import('./route');
@@ -61,6 +63,18 @@ describe('les gestes', () => {
     expect(repo.rattacherRetro).toHaveBeenCalledWith(4, null, { id: 3, libelle: 'arno' });
     await post({ action: 'retro-rattacher', id: 4, venteId: 12 });
     expect(repo.rattacherRetro).toHaveBeenLastCalledWith(4, 12, { id: 3, libelle: 'arno' });
+  });
+  it('🔴 D38 — le statut d’une rétrocession : administrateurs seulement (403 sinon, rien n’est écrit) ; Particulier, Professionnel ou null (la règle)', async () => {
+    repo.statutRetro.mockResolvedValue({ ok: true });
+    admin.mockResolvedValueOnce(false);
+    expect((await post({ action: 'retro-statut', id: 4, statut: 'professionnel' })).status).toBe(403);
+    expect(repo.statutRetro).not.toHaveBeenCalled();
+    expect((await post({ action: 'retro-statut', id: 4, statut: 'autre' })).status).toBe(400);
+    expect((await post({ action: 'retro-statut', id: 4, statut: 'professionnel' })).status).toBe(200);
+    expect(repo.statutRetro).toHaveBeenLastCalledWith(4, 'professionnel', { id: 3, libelle: 'arno' });
+    await post({ action: 'retro-statut', id: 4, statut: null });
+    expect(repo.statutRetro).toHaveBeenLastCalledWith(4, null, { id: 3, libelle: 'arno' });
+    expect(admin).toHaveBeenCalledWith(3);
   });
   it('la gestion du mois : mois invalide refusé ; sinon transmise lue', async () => {
     expect((await post({ action: 'gestion-enregistrer', annee: 2025, mois: 13, gestion: {} })).status).toBe(400);

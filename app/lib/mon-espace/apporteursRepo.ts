@@ -81,7 +81,8 @@ export async function creerApporteurMonEspace(compteId: number, brut: Record<str
       // notes s'enregistrent aussitôt, par la fonction de la Location (journal, garde de version) — l'apporteur, lui, est créé quoi qu'il arrive.
       if (!interne && brut.fiche != null && typeof brut.fiche === 'object') {
         const cree = (await lireApporteurs()).find((x) => x.id === r.data!.id);
-        const f = await enregistrerFicheApporteur(r.data.id, { fiche: brut.fiche, version: cree?.version ?? null }, auteur);
+        // 🔴 D38 — le statut TVA (Particulier par défaut) : seul un administrateur le change, à la création comme ensuite
+        const f = await enregistrerFicheApporteur(r.data.id, { fiche: brut.fiche, version: cree?.version ?? null }, auteur, { administrateur: await estAdministrateur(compteId) });
         if (f.etat !== 'ok') return { ok: true, id: r.data.id, avertissement: `Apporteur créé ; le reste de sa fiche n’a pas été enregistré : ${'motif' in f ? f.motif : 'refus'}` } as const;
       }
       return { ok: true, id: r.data.id } as const;
@@ -110,10 +111,12 @@ export async function modifierFicheMonEspace(compteId: number, apporteurId: numb
   Promise<{ ok: true; data: unknown } | { ok: false; statut: 403 | 404 | 409 | 422; motif: string }> {
   const a = (await lireApporteurs()).find((x) => x.id === apporteurId && !x.archive);
   if (a === undefined) return { ok: false, statut: 404, motif: 'Apporteur inconnu.' };
-  if (!peutModifierApporteur(a, compteId, await estAdministrateur(compteId), aujourdhuiParis())) {
+  const administrateur = await estAdministrateur(compteId);
+  if (!peutModifierApporteur(a, compteId, administrateur, aujourdhuiParis())) {
     return { ok: false, statut: 403, motif: 'Seuls son collègue de rattachement et les administrateurs modifient la fiche de cet apporteur.' };
   }
-  const r = await enregistrerFicheApporteur(apporteurId, { fiche, version }, auteur);
+  // 🔴 D38 — le statut TVA : administrateurs seulement (un collègue de rattachement modifie le reste de la fiche)
+  const r = await enregistrerFicheApporteur(apporteurId, { fiche, version }, auteur, { administrateur });
   if (r.etat === 'ok') return { ok: true, data: r.data };
   return { ok: false, statut: r.etat === 'conflit' ? 409 : 422, motif: 'motif' in r && typeof r.motif === 'string' ? r.motif : 'Enregistrement refusé.' };
 }

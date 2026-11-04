@@ -763,3 +763,53 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
 - Gestion : une seule courbe « Non attribué » (aucune attribution par collaborateur), la mention de la liste le dit.
 - Mon espace › Les coûts (même composant, sans collaborateurs) : inchangé.
 - Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre ; cas d'Arno Vente 0/4) : `.captures/graphe-collaborateurs-separes-d36/`.
+
+## 🔴 D38 (Arno, 04/11/2026) — Apporteur Particulier / Professionnel : remplace la règle D29 « externe = sans TVA »
+
+**Le constat d'Arno** (Suivi CA › CRITERIMMO, 2026, production) : « Rétrocessions d'apporteurs 117 471 € sans TVA » et « TVA sur la commission
+de l'apporteur (non récupérable) 0 € HT (23 494,20 € TTC) ». D29 appliquait « sans TVA » à TOUS les apporteurs externes : trop large.
+Le « 0 € HT (23 494,20 € TTC) » n'était pas une erreur de calcul : 23 494,20 = 0,2 × 117 471, la TVA due sur la part d'un apporteur sans facture
+n'existe qu'en TTC. L'erreur était l'assiette (les 117 471 € comptés comme versés à des particuliers).
+
+**La règle (décisions d'Arno du 04/11/2026)** :
+1. Chaque apporteur a un **statut TVA** dans sa fiche (le même annuaire pour Mon espace et la Location) : **Particulier** (commission SANS TVA :
+   versé = HT = TTC, et la ligne « TVA non récupérable ») ou **Professionnel** (AVEC TVA : TTC = HT × 1,2, comme avant D29 ; aucune TVA non
+   récupérable). Obligatoire, **Particulier par défaut**, modifiable dans la fiche **par les administrateurs** (journalisé champ par champ).
+   Un collaborateur (compte) : toujours avec TVA en Transaction (inchangé).
+2. **Rétrocession sans apporteur nommé** : **Professionnel par défaut** ; rattachée à une vente dont l'apporteur est nommé : le statut de celui-ci ;
+   chaque rétrocession peut recevoir son propre statut (« Statut TVA » de l'outil des rétrocessions ; administrateurs, journal, « Annuler »).
+3. **Primes de gestion** (variable du commercial en location) : SANS TVA (déjà la règle LO14, vérifiée : `montantsLigne`, coûts, variable).
+4. **Tout le reste garde la TVA**, inchangé : partages entre collaborateurs, co-négociateurs, commissions de négociateurs, inter-cabinet, agences
+   extérieures (D29 n'y avait pas touché ; éprouvé par `apporteurParticulierProfessionnel.test.ts`). La **rémunération des collègues** en
+   Location (LO15) : sans TVA, inchangée (décision d'Arno).
+5. La ligne « TVA non récupérable » ne concerne que les Particuliers. **Vue HT : « — (… € TTC) »** au lieu de « 0 € HT » ; vue TTC :
+   « … € TTC (— HT) ». La ligne reste.
+6. Affichage « sans TVA » : uniquement pour les Particuliers (Location : « sans TVA pour les particuliers »).
+
+**Une seule comptabilité** : la règle est à un seul endroit (`repo.ts` : `avecTvaA`, `poserApporteurs`, `poserApporteursRetros`), qui pose le
+drapeau « la commission porte la TVA » lu par les fonctions uniques de `modele.ts` (`htApporteur`, `coutTtcApporteur`, `tvaApporteur`) : fiche de
+vente, listes, cartes Compromis / Mois / Année(s), tableaux des apporteurs, Suivi CA (Résultat de l'agence, CA net, Espace par négociateur, Coûts
+globaux), Les coûts, Mon espace. Le drapeau garde son nom d'origine (`apporteurInterne` / `interne`) : il dit désormais « avec TVA »
+(collaborateur OU Professionnel). Location : `commissionApporteurC` (commission à la signature, part de gestion récurrente, Résumé de la période,
+Suivi du mois) — le HT ne change jamais, seul le TTC d'un Professionnel monte. Sans la 455 : la règle D29, au centime.
+
+**Migration 455** (`455_apporteur_particulier_professionnel.sql`) : `gestion_location_apporteur.statut_tva` (obligatoire, « particulier » par
+défaut), pré-remplie à sa création seulement par la règle d'Arno (type « agence » / « internet » ou société renseignée → Professionnel ;
+personne physique et cas douteux → Particulier ; Léonardo, « Michael Salle de sport Cédric », « Marjorie Arthur Immo », Pierre Thevenin →
+Particulier : leurs réponses étaient restées en blanc, la règle « douteux » s'applique — à confirmer dans la fiche), chaque statut posé
+journalisé ; `transaction_retrocession.statut_apporteur` (facultatif, aucune ligne pré-remplie). Aucun montant réécrit. Appliquée sur la
+RECETTE seulement, après la sauvegarde `.captures/sauvegardes/sansvisavis-avant-455-2026-11-04-141452.dump` (5 278 161 625 octets, 3 578
+entrées relues) ; essai à blanc et rejeu : identiques. Production : la même migration pré-remplira par la même règle ; l'annuaire des
+apporteurs (Location › Apporteurs, Mon espace › Mes apporteurs) montre le statut de chaque fiche pour qu'Arno corrige.
+
+**Pré-remplissage en recette** : les 24 fiches → Particulier (toutes « partenaire », aucune société, aucune agence) ; 156 rétrocessions, aucune
+nommée → la règle (Professionnel, sauf rattachée à une vente d'un Particulier : aucune aujourd'hui).
+
+**Écart avant (D29) / après (D38), recette, ventes actées de l'année (Résultat = somme des cartes)** : les rétrocessions sans nom reprennent leur
+TVA — HT = versé ÷ 1,2, TTC inchangé, plus de TVA non récupérable, CA net en hausse (ex. CRITERIMMO 2026 : rétrocessions 5 333,00 → 4 444,17 € HT ;
+TVA non récupérable 1 066,60 → 0 € ; CA net 175 837,84 → 176 726,67 € HT). Tableau complet par année et par structure :
+`.captures/apporteur-particulier-professionnel-d38/rapport-ecart.md`. Location : identique au centime (aucun apporteur Professionnel en recette).
+
+**Reste connu** : le tableau de bord interne de la Location (colonnes agrégées « Apporteurs » par négociateur et par année, `TableauBordSuivi`)
+montre encore les commissions sans TVA en vue TTC, même pour un Professionnel (le HT est juste ; aucun apporteur Professionnel en Location
+aujourd'hui en recette). Le Suivi du mois, le Résumé de la période et Suivi CA › Location appliquent la règle.

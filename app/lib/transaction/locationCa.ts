@@ -8,7 +8,7 @@
 // N'entrent PAS dans les coûts (et le disent) : la part gestion « Récurrent » des apporteurs (due mois après mois, sans bail de la période), le dû
 // aux collègues, la commission du négociateur et ses rétrocessions (`gestion_location_retrocession` : elles diminuent SA commission, pas le CA).
 import { aUnDuMensuel, apporteurAffiche, caLigne, cleNegociateur, commissionCollegueSignatureDe, duCollegueRecurrent, duRecurrent, moisDeLigne, partGestionSignatureDe, partLocationDe, primeDe, tauxNegociateurDe, type ActiviteCalcul, type ActiviteLue } from '../location/suivi/tableauBord';
-import type { Apporteur, RegleCommission } from '../location/suivi/suivi';
+import { apporteurProfessionnel, type Apporteur, type RegleCommission } from '../location/suivi/suivi';
 import { TVA } from './modele';
 import type { MontantC } from './partAgence';
 import { normaliser, type FicheRecherche, type TriListe } from './listeCartes';
@@ -63,6 +63,13 @@ export const depuisHt = (ht: number): MontantC => ({ htC: Math.round((ht + Numbe
  * chargés. PUR.
  */
 export const sansTva = (ht: number): MontantC => { const c = Math.round((ht + Number.EPSILON) * 100); return { htC: c, ttcC: c }; };
+/**
+ * 🔴 D38 (Arno, 04/11/2026, 455) — LA COMMISSION D'UN APPORTEUR DE LA LOCATION : un « Particulier », sans TVA (LO14, inchangé) ; un « Professionnel »,
+ * avec TVA (TTC = HT × 1,20, `depuisHt`). Le HT ne change jamais (le barème calcule un HT) : seul le TTC d'un Professionnel monte. PUR.
+ */
+export const commissionApporteurC = (ht: number, professionnel: boolean): MontantC => (professionnel ? depuisHt(ht) : sansTva(ht));
+const professionnelDe = (a: Pick<ActiviteCalcul, 'apporteurId'>, apporteurs: readonly Apporteur[]): boolean =>
+  a.apporteurId !== null && apporteurProfessionnel(apporteurs.find((x) => x.id === a.apporteurId));
 
 /** La catégorie « Compter » d'une ligne : le mandat de gestion seul d'abord (son type), puis la case « avec gestion ». PUR. */
 export const categorieDe = (a: Pick<ActiviteLue, 'type' | 'avecGestion'>): LigneLocationCa['categorie'] => (a.type === 'gestion_seule' ? 'gestion_seule' : a.avecGestion ? 'avec' : 'sans');
@@ -76,8 +83,10 @@ export const categorieDe = (a: Pick<ActiviteLue, 'type' | 'avecGestion'>): Ligne
  */
 export interface MontantsLigne { caC: MontantC; primeC: MontantC; apporteurC: MontantC }
 export function montantsLigne(a: ActiviteCalcul, ctx: { regles: readonly RegleCommission[]; apporteurs: readonly Apporteur[] }): MontantsLigne {
-  // 🔴 LOT LO14 — la prime et la commission d'apporteur : sans TVA (TTC = HT) ; le CA garde sa TVA
-  return { caC: depuisHt(caLigne(a)), primeC: sansTva(primeDe(a, ctx.regles)), apporteurC: sansTva(partLocationDe(a, ctx.apporteurs) + partGestionSignatureDe(a, ctx.apporteurs)) };
+  // 🔴 LOT LO14 — la prime (élément du salaire) : sans TVA ; 🔴 D38 — la commission d'apporteur : sans TVA pour un Particulier, avec pour un
+  // Professionnel (`commissionApporteurC`) ; le CA garde sa TVA
+  return { caC: depuisHt(caLigne(a)), primeC: sansTva(primeDe(a, ctx.regles)),
+    apporteurC: commissionApporteurC(partLocationDe(a, ctx.apporteurs) + partGestionSignatureDe(a, ctx.apporteurs), professionnelDe(a, ctx.apporteurs)) };
 }
 /** Les sommes de lignes : CA, commissions d'apporteurs, primes ; « CA net d'apporteurs » = CA − commissions ; « CA net » = CA net d'apporteurs − primes. */
 export interface SommesLocation { ca: MontantC; apporteurs: MontantC; primes: MontantC; netApporteurs: MontantC; net: MontantC }
@@ -140,7 +149,9 @@ export interface CoutsLocation {
  * `duCollegueRecurrent`) — les fonctions de son Résumé de la période (`totauxPeriode`), sans copie. La part versée en une fois reste dans les
  * « Apporteurs » (`partGestionSignatureDe`). En HT (euros), sans TVA.
  */
-export interface DuLocationMois { annee: number; mois: number; partGestionHt: number; colleguesHt: number }
+export interface DuLocationMois { annee: number; mois: number; partGestionHt: number; colleguesHt: number;
+  /** 🔴 D38 — la part de `partGestionHt` due à des apporteurs « Professionnel » (avec TVA) ; absente : 0 (tous Particuliers, sans TVA). */
+  partGestionProHt?: number }
 export function dusLocationParMois(activites: readonly ActiviteCalcul[], apporteurs: readonly Apporteur[], aujourdhui: string): DuLocationMois[] {
   const recurrents = activites.filter((a) => aUnDuMensuel(a, apporteurs));
   const mois = new Set<string>(activites.map(moisDeLigne));
@@ -150,7 +161,9 @@ export function dusLocationParMois(activites: readonly ActiviteCalcul[], apporte
   return [...mois].sort().map((m) => {
     const signes = activites.filter((a) => moisDeLigne(a) === m);
     const colleguesHt = signes.reduce((t, a) => t + commissionCollegueSignatureDe(a, apporteurs), 0) + duCollegueRecurrent(recurrents, apporteurs, [m], aujourdhui);
-    return { annee: Number(m.slice(0, 4)), mois: Number(m.slice(5, 7)), partGestionHt: duRecurrent(recurrents, apporteurs, [m], aujourdhui), colleguesHt };
+    const partGestionProHt = duRecurrent(recurrents.filter((a) => professionnelDe(a, apporteurs)), apporteurs, [m], aujourdhui);
+    return { annee: Number(m.slice(0, 4)), mois: Number(m.slice(5, 7)), partGestionHt: duRecurrent(recurrents, apporteurs, [m], aujourdhui), colleguesHt,
+      ...(partGestionProHt !== 0 ? { partGestionProHt } : {}) };
   }).filter((d) => d.partGestionHt !== 0 || d.colleguesHt !== 0);
 }
 const moisSuivant = (m: string): string => { const a = Number(m.slice(0, 4)); const x = Number(m.slice(5, 7)); return x === 12 ? `${a + 1}-01` : `${a}-${String(x + 1).padStart(2, '0')}`; };
@@ -162,7 +175,7 @@ const salaireDuMois = (salaires: readonly SalairesLocation[] | null, a: number, 
  */
 export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: readonly RetroLocation[], salairesHt: number | null, avecSalaires = true,
   /** 🔴 C19 option A — les dus du mois (part de gestion récurrente, collègues) ; absent : 0 (les écrans d'avant). */
-  du: Pick<DuLocationMois, 'partGestionHt' | 'colleguesHt'> | null = null): CoutsLocation {
+  du: Pick<DuLocationMois, 'partGestionHt' | 'colleguesHt' | 'partGestionProHt'> | null = null): CoutsLocation {
   const t = totauxLocation(lignes);
   const v = moinsC(lignes.reduce((x, l) => plusC(x, l.variableC), RIEN), retros.reduce((x, r) => ({ htC: x.htC + r.montantC.htC, ttcC: x.ttcC + r.montantC.htC }), RIEN));
   const saisi = salairesHt !== null;
@@ -171,7 +184,9 @@ export function coutsLocationMois(lignes: readonly LigneLocationCa[], retros: re
   const salairesSaisis = { htC: sal, ttcC: sal };
   const salaires = avec ? salairesSaisis : RIEN;
   const primesDeduites = avec ? RIEN : t.primes; const variableDeduit = avec ? RIEN : v;
-  const partGestion = sansTva(du?.partGestionHt ?? 0); const collegues = sansTva(du?.colleguesHt ?? 0);
+  // 🔴 D38 — la part de gestion récurrente : sans TVA pour les Particuliers, avec pour les Professionnels ; les collègues : sans TVA (LO15, inchangé)
+  const partGestion = plusC(sansTva((du?.partGestionHt ?? 0) - (du?.partGestionProHt ?? 0)), commissionApporteurC(du?.partGestionProHt ?? 0, true));
+  const collegues = sansTva(du?.colleguesHt ?? 0);
   const couts = plusC(plusC(plusC(plusC(plusC(t.apporteurs, primesDeduites), variableDeduit), salaires), partGestion), collegues);
   return { ca: t.ca, apporteurs: t.apporteurs, primes: t.primes, variable: v, salaires, salairesSaisis, primesDeduites, variableDeduit, couts, net: moinsC(t.ca, couts), nbMois: 1,
     moisAvecSalaires: avec ? 1 : 0, moisSaisis: saisi ? 1 : 0, partGestion, collegues };

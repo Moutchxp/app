@@ -7,6 +7,7 @@ import { CSS_PANNEAUX_APPORTEUR } from '../location/PanneauxApporteur';
 import { FicheApporteurFenetre } from './FicheApporteurFenetre';
 import { MeRattacher } from './MeRattacher';
 import { chercherApporteur, type Doublon, type MesApporteursLus } from '../../../../lib/mon-espace/apporteurs';
+import { LIBELLE_STATUT_TVA } from '../../../../lib/location/suivi/suivi';
 
 /**
  * ══ 🔴 MON ESPACE, LOT 9 (Arno, 02/11/2026) — L'ONGLET « MES APPORTEURS » ═════════════════════════════════════════════════════════════════════════
@@ -83,6 +84,8 @@ export function MesApporteurs() {
             <li key={a.id} className="svv-card mes-apporteur" data-mon-apporteur={a.id}>
               <div className="mes-apporteur-tete">
                 <strong>{a.libelle}</strong>{a.interne && <span className="loc-pastille"> interne</span>}
+                {/* 🔴 D38 — le statut TVA d'un externe (Particulier : sans TVA ; Professionnel : avec TVA) */}
+                {!a.interne && a.fiche.statutTva !== undefined && <span className="loc-pastille" data-statut-tva-apporteur={a.fiche.statutTva}> {LIBELLE_STATUT_TVA[a.fiche.statutTva]}</span>}
                 {a.societe && <span className="loc-muet"> · {a.societe}</span>}
               </div>
               <p className="mes-apporteur-coord">
@@ -91,7 +94,7 @@ export function MesApporteurs() {
               </p>
               <p className="loc-muet" data-apporteur-collegue>{a.interne ? 'Apporteur interne (son compte de l’interface)' : `Collègue de rattachement : ${a.collegue ?? 'à rattacher'}`}</p>
               <p className="mes-apporteur-chiffres" data-apporteur-chiffres>Sur vos ventes : {a.nbVentes} vente{a.nbVentes > 1 ? 's' : ''} — CA apporté {montant(a.caApporteHt)}
-                {a.retroHt > 0 && <> — rétrocessions <span className="trx-rouge" data-retro-apporteur>{a.interne ? montant(a.retroHt) : `${eur(a.retroHt)} sans TVA`}</span></>}</p>
+                {a.retroHt > 0 && <> — rétrocessions <span className="trx-rouge" data-retro-apporteur>{a.interne || a.fiche.statutTva === 'professionnel' ? montant(a.retroHt) : `${eur(a.retroHt)} sans TVA`}</span></>}</p>
               {a.modifiable && <button type="button" className="svv-btn svv-btn-outline gst-btn" aria-haspopup="dialog" onClick={() => { setFiche(a.id); setMessage(null); }}
                 data-modifier-apporteur={a.id}>Modifier la fiche</button>}
               {/* 🔴 D32 (option B) — un collaborateur, un apporteur « à rattacher » : seulement « Me rattacher cet apporteur » */}

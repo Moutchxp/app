@@ -26,6 +26,7 @@ import { normaliserLibelle } from '../location/suivi/negociateurIdentite';
 import { LES_DEUX, societeALaDate, societeDOffice, type PeriodeSociete, type SocieteCompte } from './societeNegociateur';
 import { MOTIF_MANDAT_INEFFACABLE, MOTIF_MANDAT_OBLIGATOIRE, MOTIF_SANS_449, motifMandatPris, type NumeroMandat } from './mandat';
 import { venteDuMandat } from './mandatRepo';
+import type { StatutTva } from '../location/suivi/suivi';
 
 export interface AuteurTx { id: number | null; libelle: string }
 export type Issue<T = undefined> = { ok: true; valeur?: T } | { ok: false; motif: string;
@@ -232,72 +233,109 @@ const commissionneDuCompteLu = (x: unknown): boolean => {
 };
 
 /**
- * ══ 🔴 D29 (Arno, 03/11/2026) — APPORTEUR INTERNE OU EXTERNE : L'ANNUAIRE (LECTURE SEULE) ═════════════════════════════════════════════════════════
- * Interne = la fiche de l'annuaire porte un compte de l'interface (le badge « INTERNE » de la Location, `interneADate` : depuis sa date de passage) ;
- * tout le reste — partenaire, agence, internet, un nom hors annuaire, aucun nom — est EXTERNE : sa commission n'a pas de TVA (`htApporteur`).
- * Sans l'annuaire (base sans la Location) : tous externes. Rien n'est écrit.
+ * ══ 🔴 D29 → 🔴 D38 (Arno, 04/11/2026) — LA COMMISSION D'UN APPORTEUR PORTE-T-ELLE LA TVA ? L'ANNUAIRE (LECTURE SEULE) ════════════════════════════════
+ * AVEC TVA (TTC = HT × 1,2, comme avant D29) : un COLLABORATEUR (la fiche porte un compte : `interneADate`, depuis sa date de passage) ou un apporteur
+ * « Professionnel » (455). SANS TVA (versé = HT = TTC, D29) : un apporteur « Particulier ». Une rétrocession : son statut choisi à la main (455), sinon
+ * l'apporteur nommé, sinon celui de la vente rattachée ; AUCUNE fiche (aucun nom, ou un nom hors annuaire) : « Professionnel » par défaut (D38).
+ * Sans la 455 : la règle D29 (seul un collaborateur porte la TVA). Le drapeau calculé garde son nom d'origine (`apporteurInterne` sur la vente,
+ * `interne` sur la rétrocession et la fiche de l'écran) : il dit « la commission porte la TVA ». Rien n'est écrit.
  */
-interface TypeApporteur { compteId: number | null; interneDepuis: string | null }
-export interface TypesApporteurs { parId: Map<number, TypeApporteur>; parNom: Map<string, TypeApporteur> }
+interface TypeApporteur { compteId: number | null; interneDepuis: string | null; professionnel?: boolean }
+/** `d38` : la 455 est appliquée (le statut TVA est lu) — sans fiche, un apporteur est alors « Professionnel ». */
+export interface TypesApporteurs { parId: Map<number, TypeApporteur>; parNom: Map<string, TypeApporteur>; d38?: boolean }
 const cleNom = (x: string): string => x.trim().toLowerCase();
 export async function lireTypesApporteurs(): Promise<TypesApporteurs> {
   const out: TypesApporteurs = { parId: new Map(), parNom: new Map() };
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT a.id, a.nom, a.compte_id, to_jsonb(a) ->> 'interne_depuis' AS interne_depuis FROM gestion_location_apporteur a WHERE a.archive_le IS NULL OR a.compte_id IS NOT NULL`)
+    `SELECT a.id, a.nom, a.compte_id, to_jsonb(a) ->> 'interne_depuis' AS interne_depuis, to_jsonb(a) ->> 'statut_tva' AS statut_tva
+       FROM gestion_location_apporteur a WHERE a.archive_le IS NULL OR a.compte_id IS NOT NULL`)
     .catch(() => ({ rows: [] as Record<string, unknown>[] }));
   for (const r of Array.isArray(rows) ? rows : []) {
     if (r.id == null || r.nom == null) continue;
-    const a: TypeApporteur = { compteId: nOuNull(r.compte_id), interneDepuis: jour(r.interne_depuis) };
+    if (r.statut_tva != null) out.d38 = true;
+    const a: TypeApporteur = { compteId: nOuNull(r.compte_id), interneDepuis: jour(r.interne_depuis), ...(r.statut_tva === 'professionnel' ? { professionnel: true } : {}) };
     out.parId.set(n(r.id), a);
     if (!out.parNom.has(cleNom(String(r.nom)))) out.parNom.set(cleNom(String(r.nom)), a);
   }
   return out;
 }
-/** Interne À CETTE DATE (le jour de la vente ou de la rétrocession) ? PUR. */
+/** Interne (collaborateur) À CETTE DATE (le jour de la vente ou de la rétrocession) ? PUR. */
 export const interneA = (a: TypeApporteur | undefined, dateIso: string): boolean =>
   a !== undefined && a.compteId !== null && (a.interneDepuis === null || dateIso >= a.interneDepuis);
+/** 🔴 D38 — LA règle : la commission de cet apporteur porte-t-elle la TVA à cette date ? Aucune fiche : « Professionnel » avec la 455. PUR. */
+export const avecTvaA = (a: TypeApporteur | undefined, dateIso: string, t: Pick<TypesApporteurs, 'd38'>): boolean =>
+  a === undefined ? t.d38 === true : interneA(a, dateIso) || a.professionnel === true;
 const jourVente = (v: Vente): string => v.dossier?.dateActe ?? v.dateCompromis ?? `${v.annee}-12-31`;
 /** L'apporteur d'une vente dans l'annuaire : sa fiche (dossier), sinon son nom. PUR. */
 const typeDeVente = (v: Vente, t: TypesApporteurs): TypeApporteur | undefined =>
   (v.dossier?.apporteurId != null ? t.parId.get(v.dossier.apporteurId) : undefined) ?? (v.apporteur?.trim() ? t.parNom.get(cleNom(v.apporteur)) : undefined);
+/** Une vente qui a un apporteur (nommé, ou un montant d'apporteur) : sans cela, il n'y a aucune TVA à décider (rien n'est posé). PUR. */
+const aUnApporteur = (v: Vente): boolean => v.dossier?.apporteurId != null || Boolean(v.apporteur?.trim()) || (v.repartition?.retroApporteurTtc ?? 0) !== 0
+  || (v.retroApporteur?.montant ?? 0) !== 0;
 /**
- * Pose `apporteurInterne` (seulement quand il l'est : une vente d'externe est lue au bit près comme avant) ; un externe saisi « en HT » (437) : le
- * montant tapé est le versé — sans TVA, il n'y a rien à convertir. PUR (mute les ventes lues).
+ * Pose `apporteurInterne` (= avec TVA ; seulement quand c'est le cas : une vente d'un Particulier est lue au bit près comme D29) ; un Particulier saisi
+ * « en HT » (437) : le montant tapé est le versé — sans TVA, il n'y a rien à convertir. PUR (mute les ventes lues).
  */
 export function poserApporteurs(ventes: Vente[], t: TypesApporteurs): Vente[] {
   for (const v of ventes) {
-    const interne = interneA(typeDeVente(v, t), jourVente(v));
-    if (interne) { v.apporteurInterne = true; if (v.repartition != null) v.repartition.apporteurInterne = true; }
+    const a = typeDeVente(v, t);
+    const avecTva = a !== undefined ? avecTvaA(a, jourVente(v), t) : aUnApporteur(v) && t.d38 === true;
+    if (avecTva) { v.apporteurInterne = true; if (v.repartition != null) v.repartition.apporteurInterne = true; }
     else if (v.repartition != null && v.retroApporteur?.unite === 'ht') v.repartition.retroApporteurTtc = v.retroApporteur.montant;
   }
   return ventes;
 }
-/** Une rétrocession : son nom dans l'annuaire, sinon l'apporteur de sa vente ; aucun : externe. PUR (mute). */
+/**
+ * Une rétrocession : 🔴 D38 son statut choisi à la main, sinon son nom dans l'annuaire, sinon l'apporteur de sa vente ; aucune fiche : « Professionnel »
+ * (avec la 455 ; sans elle, D29 : sans TVA). PUR (mute).
+ */
 export function poserApporteursRetros(rs: Retrocession[], t: TypesApporteurs, ventes: ReadonlyMap<number, { apporteurId: number | null; apporteur: string | null }>): Retrocession[] {
   for (const r of rs) {
+    if (r.statutApporteur != null) { if (r.statutApporteur === 'professionnel') r.interne = true; continue; }
     const v = r.venteId === null ? undefined : ventes.get(r.venteId);
     const a = (r.apporteur?.trim() ? t.parNom.get(cleNom(r.apporteur)) : undefined)
       ?? (v?.apporteurId != null ? t.parId.get(v.apporteurId) : undefined) ?? (v?.apporteur?.trim() ? t.parNom.get(cleNom(v.apporteur)) : undefined);
-    if (interneA(a, `${r.annee}-${String(r.mois).padStart(2, '0')}-28`)) r.interne = true;
+    if (avecTvaA(a, `${r.annee}-${String(r.mois).padStart(2, '0')}-28`, t)) r.interne = true;
   }
   return rs;
 }
 
 export async function lireRetrocessions(societe: Societe | null): Promise<Retrocession[]> {
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT id, societe, annee, mois, negociateur, montant_ttc, apporteur, vente_id, libelle, origine, source_onglet, source_cellule
-       FROM transaction_retrocession WHERE retire_le IS NULL AND ($1::text IS NULL OR societe = $1) ORDER BY annee, mois, id`, [societe]);
+    `SELECT id, societe, annee, mois, negociateur, montant_ttc, apporteur, vente_id, libelle, origine, source_onglet, source_cellule,
+            to_jsonb(r) ->> 'statut_apporteur' AS statut_apporteur
+       FROM transaction_retrocession r WHERE retire_le IS NULL AND ($1::text IS NULL OR societe = $1) ORDER BY annee, mois, id`, [societe]);
   const rs: Retrocession[] = rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, annee: n(r.annee), mois: n(r.mois), negociateur: String(r.negociateur),
     montantTtc: n(r.montant_ttc), apporteur: t(r.apporteur), venteId: nOuNull(r.vente_id), libelle: t(r.libelle), origine: r.origine as Retrocession['origine'],
-    sourceOnglet: t(r.source_onglet), sourceCellule: t(r.source_cellule) }));
-  // 🔴 D29 — interne ou externe (l'annuaire) ; aucun apporteur interne dans l'annuaire : tous externes, rien de plus à lire
+    sourceOnglet: t(r.source_onglet), sourceCellule: t(r.source_cellule),
+    ...(r.statut_apporteur === 'particulier' || r.statut_apporteur === 'professionnel' ? { statutApporteur: r.statut_apporteur as StatutTva } : {}) }));
+  // 🔴 D29 / D38 — avec ou sans TVA (l'annuaire) ; sans la 455 et sans collaborateur dans l'annuaire : toutes sans TVA, rien de plus à lire
   const types = rs.length === 0 ? null : await lireTypesApporteurs();
-  if (types === null || ![...types.parId.values()].some((a) => a.compteId !== null)) return rs;
+  if (types === null || (types.d38 !== true && ![...types.parId.values()].some((a) => a.compteId !== null))) return rs;
   const ids = [...new Set(rs.flatMap((r) => (r.venteId === null ? [] : [r.venteId])))];
   const { rows: vs } = ids.length === 0 ? { rows: [] as Record<string, unknown>[] } : await query<Record<string, unknown>>(
     `SELECT id, to_jsonb(v) ->> 'apporteur_id' AS apporteur_id, apporteur FROM transaction_vente v WHERE id = ANY($1::bigint[])`, [ids]).catch(() => ({ rows: [] as Record<string, unknown>[] }));
   return poserApporteursRetros(rs, types, new Map(vs.map((v) => [n(v.id), { apporteurId: nOuNull(v.apporteur_id), apporteur: t(v.apporteur) }])));
 }
+
+/**
+ * 🔴 D38 (Arno, 04/11/2026) — LE STATUT D'UNE RÉTROCESSION, CHOISI À LA MAIN : « particulier », « professionnel », ou null (la règle : l'apporteur nommé
+ * ou celui de la vente, sinon Professionnel). ADMINISTRATEURS seulement (vérifié par la route) ; réversible et journalisé (« Annuler » du journal).
+ */
+export async function statutRetro(id: number, statut: StatutTva | null, auteur: AuteurTx): Promise<Issue> {
+  if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  if (!(await colonnesDe('retrocession')).includes('statut_apporteur')) return { ok: false, motif: MOTIF_SANS_455 };
+  return withTransaction(async (q) => {
+    const r = await ecrire(q, 'retrocession', id, { statut_apporteur: statut }, true);
+    if (r === null) return { ok: false, motif: 'Rétrocession introuvable.' };
+    if (Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
+    const mot = (x: unknown): string => (x === 'professionnel' ? 'Professionnel (avec TVA)' : x === 'particulier' ? 'Particulier (sans TVA)' : 'la règle (apporteur nommé, sinon Professionnel)');
+    await journaliser(q, { entite: 'retrocession', id, action: 'statut_apporteur', avant: r.avant, apres: r.apres, auteur,
+      commentaire: `Statut de l’apporteur : ${mot(r.avant.statut_apporteur)} → ${mot(r.apres.statut_apporteur)}.` });
+    return { ok: true };
+  });
+}
+export const MOTIF_SANS_455 = 'Le statut Particulier / Professionnel sera disponible après la mise à jour de la base (migration 455) : rien n’a été écrit.';
 
 export async function lireARattacher(societe: Societe | null): Promise<CaARattacher[]> {
   // 🔴 LOT DM — null : les deux sociétés (la FUSION)
@@ -434,7 +472,7 @@ const COLONNES: Record<Entite, { table: string; colonnes: readonly string[] }> =
   // LOT AE — `societe` : la société PORTEUSE d'une vente répartie (son négociateur d'entrée) se range à l'enregistrement ; journalisée, réversible.
   vente: { table: 'transaction_vente', colonnes: ['libelle', 'honoraires_ttc', 'statut', 'annee', 'mois_acte', 'date_compromis', 'apporteur', 'note', 'retire_le', 'attribution', 'societe'] },
   vente_ligne: { table: 'transaction_vente_ligne', colonnes: ['negociateur', 'role', 'montant_ttc', 'retire_le'] },
-  retrocession: { table: 'transaction_retrocession', colonnes: ['vente_id', 'apporteur', 'montant_ttc', 'retire_le'] },
+  retrocession: { table: 'transaction_retrocession', colonnes: ['vente_id', 'apporteur', 'montant_ttc', 'retire_le', 'statut_apporteur'] },
   ca_a_rattacher: { table: 'transaction_ca_a_rattacher', colonnes: ['retire_le'] },
   gestion_mois: { table: 'transaction_gestion_mois', colonnes: ['nb_lots', 'honoraires_ht', 'adhoc_ht', 'salarie_ht', 'reste_ht', 'note', 'retire_le'] },
   personne: { table: 'transaction_personne', colonnes: ['nom', 'telephone', 'email', 'adresse', 'note', 'retire_le'] },
@@ -730,10 +768,12 @@ async function synchroniserInterCabinet(q: RequeteTx, venteId: number, auteur: A
   const { rows: ps } = await q<Record<string, unknown>>(
     `SELECT sorte, compte_id, negociateur_libelle, societe, nom, coordonnees, pourcentage, montant_ht FROM transaction_partie
       WHERE vente_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [venteId]);
-  // 🔴 D29 — un apporteur externe : le montant saisi est le versé (sans TVA), quelle que soit l'unité ; la part reçue suit la commission nette HT
+  // 🔴 D29 / D38 — un Particulier : le montant saisi est le versé (sans TVA), quelle que soit l'unité ; avec TVA (collaborateur, Professionnel, aucune
+  // fiche avec la 455) : comme avant D29. La part reçue suit la commission nette HT.
   const types = await lireTypesApporteurs();
-  const interne = interneA((v.apporteur_id != null ? types.parId.get(n(v.apporteur_id)) : undefined) ?? (t(v.apporteur) !== null ? types.parNom.get(cleNom(String(v.apporteur))) : undefined),
-    jour(v.date_compromis) ?? `${n(v.annee)}-12-31`);
+  const fiche = (v.apporteur_id != null ? types.parId.get(n(v.apporteur_id)) : undefined) ?? (t(v.apporteur) !== null ? types.parNom.get(cleNom(String(v.apporteur))) : undefined);
+  const interne = fiche !== undefined ? avecTvaA(fiche, jour(v.date_compromis) ?? `${n(v.annee)}-12-31`, types)
+    : types.d38 === true && (t(v.apporteur) !== null || n(v.retro_apporteur_ht ?? 0) !== 0 || n(v.retro_apporteur_ttc ?? 0) !== 0);
   const retroTtc = v.retro_apporteur_ht != null ? n(v.retro_apporteur_ht) * (interne ? TVA : 1) : v.retro_apporteur_ttc == null ? 0 : n(v.retro_apporteur_ttc);
   const attendus = miroirsAttendus({ societe: v.societe as Societe, honorairesTtc: n(v.honoraires_ttc),
     repartition: v.repartition === true ? { parties: ps.map(partieDe), retroApporteurTtc: retroTtc, ...(interne ? { apporteurInterne: true } : {}) } : null });
@@ -1116,11 +1156,13 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
   const aDesCommissions = commissions !== undefined && (commissions.entree !== null || commissions.sortie !== null);
   if (!avecUnite && (s.retroUnite === 'ht' || aDesCommissions)) return { ok: false, motif: MOTIF_SANS_437 };
   const dateVente = s.dateActe ?? s.dateCompromis ?? aujourdhui;
-  // La rétrocession telle que la répartition la déduit (rien n'est converti en base : elle s'enregistre dans son unité). 🔴 D29 — un apporteur
-  // EXTERNE (l'annuaire) : le montant tapé est le versé, sans TVA ; un interne : son équivalent TTC, comme avant.
+  // La rétrocession telle que la répartition la déduit (rien n'est converti en base : elle s'enregistre dans son unité). 🔴 D29 / D38 — un
+  // PARTICULIER (l'annuaire) : le montant tapé est le versé, sans TVA ; avec TVA (collaborateur, Professionnel, aucune fiche avec la 455) : son TTC.
   const typesSaisie = await lireTypesApporteurs();
-  const apporteurInterne = interneA((s.apporteurId !== null ? typesSaisie.parId.get(s.apporteurId) : undefined)
-    ?? (s.apporteurNom?.trim() ? typesSaisie.parNom.get(cleNom(s.apporteurNom)) : undefined), dateVente);
+  const ficheSaisie = (s.apporteurId !== null ? typesSaisie.parId.get(s.apporteurId) : undefined)
+    ?? (s.apporteurNom?.trim() ? typesSaisie.parNom.get(cleNom(s.apporteurNom)) : undefined);
+  const apporteurInterne = ficheSaisie !== undefined ? avecTvaA(ficheSaisie, dateVente, typesSaisie)
+    : typesSaisie.d38 === true && (Boolean(s.apporteurNom?.trim()) || s.retroApporteurTtc !== 0);
   const retroTtc = apporteurInterne && s.retroUnite === 'ht' ? s.retroApporteurTtc * TVA : s.retroApporteurTtc;
   // ① les négociateurs, relus en base, avec leur société à la date de la vente
   const comptesIds = [...new Set([s.entreeId, s.sortieId, ...s.parties.map((p) => p.compteId)].filter((x): x is number => x !== null))];
