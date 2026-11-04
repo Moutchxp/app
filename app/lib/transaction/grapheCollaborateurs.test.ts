@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { atomesDuPoint, cleCollab, collaborateursProposes, FILTRES_GRAPHE_DEFAUT as D, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs, NON_ATTRIBUE,
-  seriesDuPoint, type ActiviteGraphe, type CollaborateursGraphe, type FiltresGraphe, type StructureGraphe } from './grapheGlobal';
+import { activiteVide, atomesDesMois, atomesDuPoint, avecReunies, cleCollab, collaborateursProposes, FILTRES_GRAPHE_DEFAUT as D, filtresDepuisAdresse, filtresVersAdresse, MESURES_GRAPHE,
+  nbFiltresActifs, NON_ATTRIBUE, separesEffectifs, seriesDuPoint, seriesParActivite, type ActiviteGraphe, type AtomeGraphe, type CollaborateursGraphe, type FiltresGraphe,
+  type StructureGraphe } from './grapheGlobal';
 import { espaceNegociateurs } from './carteAffaireLignes';
 import { venteDansSociete } from './interCabinet';
 import type { EntreesCoutsGlobaux } from './coutsGlobal';
@@ -119,5 +120,120 @@ describe('🔴 D33 — l’adresse et « Réinitialiser »', () => {
     expect(filtresVersAdresse(D)['g-exclus']).toBeNull();
     expect(nbFiltresActifs(x)).toBe(1);
     expect(nbFiltresActifs(D)).toBe(0);
+  });
+});
+
+/**
+ * 🔴 D36 (Arno, 04/11/2026) — LE CONTRÔLE DU FILTRE DES COLLABORATEURS ET UNE COURBE PAR COLLABORATEUR. Tout décoché = 0 € partout ; une activité
+ * décochée en entier (« Non attribué » compris) compte comme exclue, coûts généraux compris ; « Séparés » : une série par case cochée, leur somme =
+ * la série « Réunis » de l'activité, au centime ; N−1 : les mêmes séries, dans le même ordre ; l'adresse ; « Réinitialiser ».
+ */
+describe('🔴 D36 — tout décoché = 0 € ; une activité à 0/N = exclue', () => {
+  const tout = ['criterimmo', 'macj'] as StructureGraphe[];
+  const P = proposesDe(tout);
+  const VENTE_0 = [...[...P.vente].map((c) => cleCollab('vente', c)), cleCollab('vente', NON_ATTRIBUE)];
+  const TOUT_0 = [...VENTE_0, ...[...P.location].map((c) => cleCollab('location', c)), cleCollab('location', NON_ATTRIBUE), cleCollab('gestion', NON_ATTRIBUE)];
+  const mois = atomesDesMois(eG, eC, 2026, true, 12, CS).mois;
+  const somme = (xs: readonly AtomeGraphe[][], ff: FiltresGraphe) => xs.reduce((t, a) => { const m = seriesDuPoint(a, ff, P, CS).total; return { htC: t.htC + m.htC, ttcC: t.ttcC + m.ttcC }; }, { htC: 0, ttcC: 0 });
+  it('toutes les cases de toutes les activités décochées : 0 € chaque mois et au cumul, CA brut et CA net, chaque comparaison, séries comprises', () => {
+    for (const mesure of ['ca', 'net'] as const) for (const comparer of ['n1', 'activites', 'structures', 'rien'] as const) for (const separes of [[], ['vente', 'location', 'gestion']] as ActiviteGraphe[][]) {
+      const ff = f({ mesure, comparer, structures: tout, exclus: TOUT_0, separes });
+      for (const a of mois) {
+        const r = seriesDuPoint(a, ff, P, CS);
+        expect(r.total).toEqual({ htC: 0, ttcC: 0 });
+        expect(r.series.every((x) => x.m.htC === 0 && x.m.ttcC === 0)).toBe(true);
+      }
+      expect(somme(mois, ff)).toEqual({ htC: 0, ttcC: 0 });
+    }
+    // et toutes les activités exclues
+    expect(somme(mois, f({ structures: tout, activites: [] }))).toEqual({ htC: 0, ttcC: 0 });
+    expect(somme(mois, f({ mesure: 'net', structures: tout, activites: [] }))).toEqual({ htC: 0, ttcC: 0 });
+  });
+  it('Vente 0/N seule décochée = Location + Gestion, au centime, chaque mois, CA brut et CA net (les coûts généraux de la vente non plus)', () => {
+    for (const mesure of ['ca', 'net'] as const) {
+      for (const a of mois) expect(seriesDuPoint(a, f({ mesure, structures: tout, exclus: VENTE_0 }), P, CS).total)
+        .toEqual(seriesDuPoint(a, f({ mesure, structures: tout, activites: ['location', 'gestion'] }), P, CS).total);
+      const loc = somme(mois, f({ mesure, structures: tout, activites: ['location'] })); const ges = somme(mois, f({ mesure, structures: tout, activites: ['gestion'] }));
+      expect(somme(mois, f({ mesure, structures: tout, exclus: VENTE_0 }))).toEqual({ htC: loc.htC + ges.htC, ttcC: loc.ttcC + ges.ttcC });
+    }
+    expect(somme(mois, f({ structures: tout, exclus: VENTE_0 })).htC).toBeGreaterThan(0);
+  });
+  it('activiteVide : seulement quand toutes les cases ET « Non attribué » sont décochées', () => {
+    expect(activiteVide({ exclus: VENTE_0 }, 'vente', P.vente)).toBe(true);
+    expect(activiteVide({ exclus: VENTE_0.slice(1) }, 'vente', P.vente)).toBe(false);
+    expect(activiteVide({ exclus: VENTE_0.slice(0, -1) }, 'vente', P.vente)).toBe(false);
+    expect(activiteVide({ exclus: [cleCollab('gestion', NON_ATTRIBUE)] }, 'gestion', P.gestion)).toBe(true);
+  });
+});
+
+describe('🔴 D36 — « Séparées » : une série par activité ; collaborateurs « Séparés » : une série par case cochée', () => {
+  const tout = ['criterimmo', 'macj'] as StructureGraphe[];
+  const P = proposesDe(tout);
+  const at = atomesDuPoint(eG, eC, 2026, 7, true, CS);
+  const cles = (ff: FiltresGraphe, a: readonly AtomeGraphe[] = at) => seriesDuPoint(a, ff, P, CS).series.map((x) => x.cle);
+  it('« Activités entre elles » : une série par activité incluse ; « Réunies » : Vente et Location & Gestion', () => {
+    expect(cles(f({ structures: tout, comparer: 'activites' }))).toEqual(['vente', 'location', 'gestion']);
+    expect(cles(f({ structures: tout, comparer: 'activites', reunies: true }))).toEqual(['vente', 'location_gestion']);
+    expect(cles(f({ structures: tout, comparer: 'activites', activites: ['vente', 'gestion'] }))).toEqual(['vente', 'gestion']);
+  });
+  it('Vente « Séparés » : ses collaborateurs (par nom), « Non attribué », puis les autres activités ; nuances de la couleur de la vente ; noms', () => {
+    const r = seriesDuPoint(at, f({ structures: tout, comparer: 'activites', separes: ['vente'] }), P, CS).series;
+    expect(r.map((x) => x.cle)).toEqual(['vente:2', 'vente:9', 'vente:5', 'vente:8', 'vente:non_attribue', 'location', 'gestion']);
+    expect(r.map((x) => x.nom).slice(0, 5)).toEqual(['Arnaud Jorel', 'Cédric JULLIEN', 'Jean-Baptiste PONS', 'Pierre Thevenin', 'Non attribué (Vente)']);
+    expect(r.slice(0, 5).map((x) => [x.couleur, x.nuance])).toEqual([[1, 0], [1, 1], [1, 2], [1, 3], [1, 4]]);
+    expect(r[5]).not.toHaveProperty('nuance');
+  });
+  it('la somme des séries « Séparés » = la série « Réunis » de l’activité, au centime (chaque mois, l’année, CA brut et CA net) ; le total ne change pas', () => {
+    for (const mois of [7, 8, null]) for (const mesure of ['ca', 'net'] as const) {
+      const a = atomesDuPoint(eG, eC, 2026, mois, true, CS);
+      const reunis = seriesDuPoint(a, f({ mesure, structures: tout, comparer: 'activites' }), P, CS);
+      const separes = seriesDuPoint(a, f({ mesure, structures: tout, comparer: 'activites', separes: ['vente', 'gestion'] }), P, CS);
+      for (const act of ['vente', 'gestion']) {
+        const parts = separes.series.filter((x) => x.cle.startsWith(`${act}:`));
+        expect(parts.reduce((t, x) => ({ htC: t.htC + x.m.htC, ttcC: t.ttcC + x.m.ttcC }), { htC: 0, ttcC: 0 })).toEqual(reunis.series.find((x) => x.cle === act)!.m);
+      }
+      expect(separes.total).toEqual(reunis.total);
+      // en « CA net », les coûts généraux de l'activité : leur propre série
+      expect(separes.series.some((x) => x.cle === 'vente:generaux')).toBe(mesure === 'net');
+    }
+  });
+  it('décocher une case retire sa série ; la somme reste celle des cases cochées ; la gestion : une seule série « Non attribué »', () => {
+    const ff = f({ structures: tout, comparer: 'activites', separes: ['vente', 'gestion'], exclus: [cleCollab('vente', '2')] });
+    expect(cles(ff)).not.toContain('vente:2');
+    expect(cles(ff).filter((c) => c.startsWith('gestion'))).toEqual(['gestion:non_attribue']);
+    expect(seriesDuPoint(at, ff, P, CS).total).toEqual(seriesDuPoint(at, f({ structures: tout, exclus: [cleCollab('vente', '2')] }), P, CS).total);
+  });
+  it('« Année précédente » + « Séparés » : plusieurs séries (par activité), les mêmes clés dans le même ordre l’année d’avant (le pointillé N−1)', () => {
+    const ff = f({ structures: tout, comparer: 'n1', separes: ['vente'] });
+    expect(seriesParActivite(ff)).toBe(true);
+    expect(seriesParActivite(f({ structures: tout }))).toBe(false);
+    expect(cles(ff, atomesDuPoint(eG, eC, 2025, 7, true, CS))).toEqual(cles(ff));
+  });
+  it('« Structures » / « Familles » entre elles, « Coûts », une activité exclue : « Séparés » sans effet', () => {
+    expect(separesEffectifs(f({ comparer: 'structures', separes: ['vente'] }))).toEqual([]);
+    expect(separesEffectifs(f({ comparer: 'familles', mesure: 'couts', separes: ['vente'] }))).toEqual([]);
+    expect(separesEffectifs(f({ mesure: 'couts', separes: ['vente'] }))).toEqual([]);
+    expect(separesEffectifs(f({ activites: ['location'], separes: ['vente'] }))).toEqual([]);
+    expect(seriesDuPoint(at, f({ structures: tout, comparer: 'structures', separes: ['vente'] }), P, CS)).toEqual(seriesDuPoint(at, f({ structures: tout, comparer: 'structures' }), P, CS));
+  });
+  it('« Réunis » (par défaut) : exactement le graphique d’avant', () => {
+    for (const comparer of ['n1', 'activites', 'structures', 'rien'] as const)
+      expect(seriesDuPoint(at, f({ structures: tout, comparer }), P, CS)).toEqual(seriesDuPoint(at, f({ structures: tout, comparer }), P));
+  });
+});
+
+describe('🔴 D36 — l’adresse, « Réinitialiser », « Réunies »', () => {
+  it('g-separes va dans l’adresse et revient ; une valeur inconnue est ignorée ; par défaut : rien ; un filtre actif', () => {
+    const x = f({ separes: ['vente', 'location'] });
+    expect(filtresVersAdresse(x)['g-separes']).toBe('vente,location');
+    expect(filtresDepuisAdresse((k) => (k === 'g-separes' ? 'vente,pirate,location' : null)).separes).toEqual(['vente', 'location']);
+    expect(filtresVersAdresse(D)['g-separes']).toBeNull();
+    expect(filtresDepuisAdresse(() => null).separes).toEqual([]);
+    expect(nbFiltresActifs(x)).toBe(1);
+    expect(D.separes).toEqual([]);
+  });
+  it('« Réunies » : la location et la gestion « Séparés » ensemble (le bouton « Location & Gestion » n’a qu’une liste)', () => {
+    expect(avecReunies(f({ separes: ['location'] }), true).separes).toEqual(['location', 'gestion']);
+    expect(avecReunies(f({ separes: ['vente'] }), true).separes).toEqual(['vente']);
   });
 });

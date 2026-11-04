@@ -46,9 +46,11 @@ export interface FiltresGraphe { mesure: MesureGraphe; familles: FamilleGraphe[]
   /** 🔴 LOT CG10 — « Location et Gestion : Séparées | Réunies » : réunies, une seule case et une seule série « Location & Gestion » (leur somme exacte). */
   reunies: boolean;
   /** 🔴 D33 — les collaborateurs DÉCOCHÉS (« activité:compte », « activité:non_attribue ») en « CA brut » / « CA net » ; vide : tous cochés. */
-  exclus: string[] }
+  exclus: string[];
+  /** 🔴 D36 — « Collaborateurs : Réunis | Séparés » : les activités dont chaque case cochée a SA courbe ; vide : toutes « Réunis » (comme avant). */
+  separes: ActiviteGraphe[] }
 export const FILTRES_GRAPHE_DEFAUT: FiltresGraphe = { mesure: 'ca', familles: FAMILLES_GRAPHE.map((f) => f.cle), structures: STRUCTURES_GRAPHE.map((s) => s.cle),
-  activites: ACTIVITES_GRAPHE.map((a) => a.cle), comparer: 'n1', cumul: false, empile: true, reunies: false, exclus: [] };
+  activites: ACTIVITES_GRAPHE.map((a) => a.cle), comparer: 'n1', cumul: false, empile: true, reunies: false, exclus: [], separes: [] };
 
 /** Un atome d'un point : sa structure (ou « inter » : l'inter-cabinet entre nos sociétés, neutralisé), son activité, sa famille (null : le CA).
  *  🔴 D33 — `collab` : le collaborateur (son compte) ou « non_attribue » ; absent : un montant non réparti par collaborateur (coûts généraux). */
@@ -80,6 +82,23 @@ export const collaborateursProposes = (cs: CollaborateursGraphe | null | undefin
 export const FAMILLES_GENERALES: readonly FamilleGraphe[] = ['salairesVente', 'autresVente', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation', 'adhoc', 'monga', 'salairesGestion', 'autresGestion'];
 /** Une activité est-elle filtrée par collaborateur (une case décochée, collaborateur proposé ou « Non attribué ») ? PUR. */
 export const activiteFiltree = (f: Pick<FiltresGraphe, 'exclus'>, a: ActiviteGraphe): boolean => f.exclus.some((e) => e.startsWith(`${a}:`));
+
+/**
+ * ══ 🔴 D36 (Arno, 04/11/2026) — UNE COURBE PAR COLLABORATEUR (« Collaborateurs : Réunis | Séparés ») ═══════════════════════════════════════════════
+ * Les activités dont les collaborateurs sont « Séparés » : en « CA brut » / « CA net », incluses, et quand les séries sont par activité (« Activités
+ * entre elles ») ou qu'il n'y en a qu'une (« Année précédente », « Rien » : elles deviennent une série par activité, chacune avec son N−1).
+ * « Structures » / « Familles » entre elles : sans effet (leurs séries ne sont pas des activités). PUR.
+ */
+export const separesEffectifs = (f: Pick<FiltresGraphe, 'mesure' | 'comparer' | 'activites'> & Partial<Pick<FiltresGraphe, 'separes'>>): ActiviteGraphe[] =>
+  f.mesure === 'couts' || f.comparer === 'structures' || f.comparer === 'familles' ? [] : (f.separes ?? []).filter((a) => f.activites.includes(a));
+/** 🔴 D36 — les séries sont-elles une par activité (« Activités entre elles », ou des collaborateurs « Séparés ») ? PUR. */
+export const seriesParActivite = (f: FiltresGraphe): boolean => f.comparer === 'activites' || separesEffectifs(f).length > 0;
+/** 🔴 D36 — une activité « vide » : tous ses collaborateurs ET « Non attribué » décochés (elle compte pour 0, comme exclue). PUR. */
+export function activiteVide(f: Pick<FiltresGraphe, 'exclus'>, a: ActiviteGraphe, proposes: ReadonlySet<string> | undefined): boolean {
+  return f.exclus.includes(cleCollab(a, NON_ATTRIBUE)) && [...(proposes ?? [])].every((c) => f.exclus.includes(cleCollab(a, c)));
+}
+/** 🔴 D36 — les coûts généraux d'une activité « Séparés » en « CA net » (non répartis par collaborateur) : leur propre série. */
+export const GENERAUX = 'generaux';
 
 const RIEN: MontantC = { htC: 0, ttcC: 0 };
 const plus = (a: MontantC, b: MontantC): MontantC => ({ htC: a.htC + b.htC, ttcC: a.ttcC + b.ttcC });
@@ -217,26 +236,45 @@ export function retenu(x: AtomeGraphe, f: Pick<FiltresGraphe, 'structures' | 'ac
 /** La valeur d'un atome dans la mesure : le CA (+), un coût (+ en « Coûts », − en « Résultat net »). PUR. */
 const signe = (x: AtomeGraphe, mesure: MesureGraphe): MontantC => (x.famille !== null && mesure === 'net' ? moins(RIEN, x.m) : x.m);
 
-/** Une série : sa clé, son nom, sa couleur (1 → 10, fixe pour un élément), ses montants. */
-export interface SerieValeur { cle: string; nom: string; couleur: number; m: MontantC }
+/** Une série : sa clé, son nom, sa couleur (1 → 10, fixe pour un élément), ses montants.
+ *  🔴 D36 — `nuance` : une série d'un collaborateur « Séparés », son rang dans la couleur de son activité (0 : la couleur de l'activité). */
+export interface SerieValeur { cle: string; nom: string; couleur: number; m: MontantC; nuance?: number }
 const COULEURS: Record<string, number> = { criterimmo: 1, macj: 2, inter: 4, vente: 1, location: 3, gestion: 5, location_gestion: 6,
   ...Object.fromEntries(FAMILLES_GRAPHE.map((f, i) => [f.cle, (i % 10) + 1])) };
 const NOMS: Record<string, string> = { ...Object.fromEntries([...STRUCTURES_GRAPHE, ...ACTIVITES_GRAPHE, ...FAMILLES_GRAPHE].map((x) => [x.cle, x.mot])), inter: 'Inter-cabinet (neutralisé)', total: 'Total',
   location_gestion: 'Location & Gestion' };
 
 /** Les séries comparées : une par élément retenu (structures, activités ou familles), sinon le total seul. PUR. */
-export function seriesDuPoint(atomes: readonly AtomeGraphe[], f: FiltresGraphe, proposes?: Partial<Record<ActiviteGraphe, ReadonlySet<string>>>): { total: MontantC; series: SerieValeur[] } {
+export function seriesDuPoint(atomes: readonly AtomeGraphe[], f: FiltresGraphe, proposes?: Partial<Record<ActiviteGraphe, ReadonlySet<string>>>,
+  /** 🔴 D36 — les collaborateurs (leurs noms et leur ordre, pour les séries « Séparés ») ; absents : les comptes de `proposes`, par numéro. */
+  cs?: CollaborateursGraphe | null): { total: MontantC; series: SerieValeur[] } {
   const garde = atomes.filter((x) => retenu(x, f, proposes));
   const total = garde.reduce((t, x) => plus(t, signe(x, f.mesure)), RIEN);
   // 🔴 LOT CG10 — « Réunies » : la location et la gestion, une seule série « Location & Gestion » (leur somme exacte)
   const activiteDe = (a: ActiviteGraphe): string => (f.reunies && a !== 'vente' ? 'location_gestion' : a);
-  const cleDe = (x: AtomeGraphe): string => (f.comparer === 'structures' ? x.structure : f.comparer === 'activites' ? activiteDe(x.activite) : f.comparer === 'familles' ? x.famille ?? 'ca' : 'total');
-  const ordre = f.comparer === 'structures' ? [...f.structures, 'inter'] : f.comparer === 'activites' ? [...new Set(ACTIVITES_GRAPHE.map((a) => a.cle).filter((a) => f.activites.includes(a)).map(activiteDe))]
+  // 🔴 D36 — les activités « Séparés » : une série par case cochée (« Non attribué » compris ; en « CA net », leurs coûts généraux à part) ; la même
+  // règle que le filtre : un collaborateur non proposé compte dans « Non attribué »
+  const sep = separesEffectifs(f); const parActivite = seriesParActivite(f);
+  const collabDe = (x: AtomeGraphe): string => (x.collab === undefined ? GENERAUX : x.collab === NON_ATTRIBUE || proposes?.[x.activite]?.has(x.collab) === true ? x.collab : NON_ATTRIBUE);
+  const cleDe = (x: AtomeGraphe): string => (f.comparer === 'structures' ? x.structure
+    : parActivite ? (sep.includes(x.activite) ? cleCollab(x.activite, collabDe(x)) : activiteDe(x.activite))
+      : f.comparer === 'familles' ? x.famille ?? 'ca' : 'total');
+  const nomsCollabs = new Map<string, { nom: string; couleur: number; nuance: number }>();
+  const parActivites = (): string[] => [...new Set(ACTIVITES_GRAPHE.filter((a) => f.activites.includes(a.cle)).flatMap((a) => {
+    if (!sep.includes(a.cle)) return [activiteDe(a.cle)];
+    const comptes = cs != null ? collaborateursProposes(cs, a.cle, f.structures).filter((c) => proposes?.[a.cle]?.has(String(c.id)) ?? true).map((c) => ({ id: String(c.id), nom: c.libelle }))
+      : [...(proposes?.[a.cle] ?? [])].sort((x, y) => Number(x) - Number(y)).map((id) => ({ id, nom: id }));
+    const xs = [...comptes, { id: NON_ATTRIBUE, nom: `Non attribué (${a.mot})` }, ...(f.mesure === 'net' ? [{ id: GENERAUX, nom: `Coûts généraux (${a.mot})` }] : [])]
+      .filter((c) => c.id === GENERAUX || !f.exclus.includes(cleCollab(a.cle, c.id)));
+    xs.forEach((c, i) => nomsCollabs.set(cleCollab(a.cle, c.id), { nom: c.nom, couleur: COULEURS[a.cle] ?? 1, nuance: i }));
+    return xs.map((c) => cleCollab(a.cle, c.id));
+  }))];
+  const ordre = f.comparer === 'structures' ? [...f.structures, 'inter'] : parActivite ? parActivites()
     : f.comparer === 'familles' ? FAMILLES_GRAPHE.map((x) => x.cle).filter((c) => f.familles.includes(c)) : ['total'];
   const parCle = new Map<string, MontantC>(ordre.map((c) => [c, RIEN]));
   for (const x of garde) { const c = cleDe(x); if (parCle.has(c)) parCle.set(c, plus(parCle.get(c)!, signe(x, f.mesure))); }
   const series = [...parCle].filter(([c, m]) => c !== 'inter' || m.htC !== 0 || m.ttcC !== 0)
-    .map(([c, m]) => ({ cle: c, nom: NOMS[c] ?? c, couleur: COULEURS[c] ?? 1, m }));
+    .map(([c, m]) => { const n = nomsCollabs.get(c); return n === undefined ? { cle: c, nom: NOMS[c] ?? c, couleur: COULEURS[c] ?? 1, m } : { cle: c, nom: n.nom, couleur: n.couleur, nuance: n.nuance, m }; });
   return { total, series };
 }
 
@@ -257,7 +295,8 @@ export function raisonGrise(f: FiltresGraphe, quoi: { sorte: 'structure'; cle: S
     return f.activites.includes(a) ? null : `Cette famille est de l’activité « ${ACTIVITES_GRAPHE.find((x) => x.cle === a)!.mot} » : cochez-la.`;
   }
   if (quoi.sorte === 'comparer') return quoi.cle === 'familles' && f.mesure !== 'couts' ? 'Seulement avec la mesure « Coûts ».' : null;
-  return f.comparer === 'n1' || f.comparer === 'rien' ? 'Une seule série : choisissez une comparaison entre structures, activités ou familles.' : null;
+  // 🔴 D36 — des collaborateurs « Séparés » : plusieurs séries, même en « Année précédente » / « Rien »
+  return (f.comparer === 'n1' || f.comparer === 'rien') && !seriesParActivite(f) ? 'Une seule série : choisissez une comparaison entre structures, activités ou familles.' : null;
 }
 
 /** Le nombre de filtres actifs (différents du réglage par défaut), pour « Filtres (n actifs) ». PUR. */
@@ -266,7 +305,9 @@ export function nbFiltresActifs(f: FiltresGraphe,
   d: FiltresGraphe = FILTRES_GRAPHE_DEFAUT): number {
   const egal = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
   return [f.mesure !== d.mesure, f.mesure === 'couts' && !egal(f.familles, d.familles), !egal(f.structures, d.structures), !egal(f.activites, d.activites), f.comparer !== d.comparer,
-    f.cumul !== d.cumul, f.empile !== d.empile, f.reunies !== d.reunies, f.mesure !== 'couts' && (f.exclus ?? []).length > 0].filter(Boolean).length;
+    f.cumul !== d.cumul, f.empile !== d.empile, f.reunies !== d.reunies, f.mesure !== 'couts' && (f.exclus ?? []).length > 0,
+    // 🔴 D36 — des collaborateurs « Séparés »
+    f.mesure !== 'couts' && (f.separes ?? []).length > 0].filter(Boolean).length;
 }
 
 /** Les filtres dans l'adresse (le partage) et leur relecture ; une valeur inconnue : le défaut. PUR. */
@@ -274,7 +315,8 @@ export function filtresVersAdresse(f: FiltresGraphe): Record<string, string | nu
   const d = FILTRES_GRAPHE_DEFAUT; const liste = <T extends string>(xs: readonly T[], tout: readonly T[]): string | null => (xs.length === tout.length && tout.every((x) => xs.includes(x)) ? null : xs.join(',') || 'aucun');
   return { 'g-mesure': f.mesure === d.mesure ? null : f.mesure, 'g-familles': liste(f.familles, d.familles), 'g-structures': liste(f.structures, d.structures),
     'g-activites': liste(f.activites, d.activites), 'g-comparer': f.comparer === d.comparer ? null : f.comparer, 'g-cumul': f.cumul ? '1' : null, 'g-empile': f.empile ? null : 'non',
-    'g-lg': f.reunies ? 'reunies' : null, 'g-exclus': (f.exclus ?? []).length === 0 ? null : (f.exclus ?? []).join(',') };
+    'g-lg': f.reunies ? 'reunies' : null, 'g-exclus': (f.exclus ?? []).length === 0 ? null : (f.exclus ?? []).join(','),
+    'g-separes': (f.separes ?? []).length === 0 ? null : (f.separes ?? []).join(',') };
 }
 export function filtresDepuisAdresse(lire: (k: string) => string | null): FiltresGraphe {
   const d = FILTRES_GRAPHE_DEFAUT;
@@ -284,7 +326,9 @@ export function filtresDepuisAdresse(lire: (k: string) => string | null): Filtre
     activites: liste(lire('g-activites'), d.activites), comparer: un(lire('g-comparer'), COMPARER_GRAPHE.map((x) => x.cle), d.comparer), cumul: lire('g-cumul') === '1', empile: lire('g-empile') !== 'non',
     reunies: lire('g-lg') === 'reunies',
     // 🔴 D33 — « activité:compte » (un compte en chiffres) ou « activité:non_attribue »
-    exclus: (lire('g-exclus') ?? '').split(',').filter((x) => /^(vente|location|gestion):(\d+|non_attribue)$/.test(x)) };
+    exclus: (lire('g-exclus') ?? '').split(',').filter((x) => /^(vente|location|gestion):(\d+|non_attribue)$/.test(x)),
+    // 🔴 D36 — les activités aux collaborateurs « Séparés »
+    separes: [...new Set((lire('g-separes') ?? '').split(',').filter((x): x is ActiviteGraphe => ACTIVITES_GRAPHE.some((a) => a.cle === x)))] };
 }
 /**
  * 🔴 LOT CG10 — « Réunies » : une seule case « Location & Gestion » ; la passer coche ou décoche les deux ensemble. En passant à « Réunies », une
@@ -294,7 +338,10 @@ export function avecReunies(f: FiltresGraphe, reunies: boolean): FiltresGraphe {
   if (!reunies) return { ...f, reunies };
   const une = f.activites.includes('location') || f.activites.includes('gestion');
   const autres = f.activites.filter((a) => a === 'vente');
-  return { ...f, reunies, activites: une ? [...autres, 'location', 'gestion'] : autres };
+  // 🔴 D36 — de même, « Séparés » vaut pour les deux ensemble (le bouton « Location & Gestion » n'a qu'une liste)
+  const sep = f.separes ?? []; const sepUne = sep.includes('location') || sep.includes('gestion');
+  return { ...f, reunies, activites: une ? [...autres, 'location', 'gestion'] : autres,
+    separes: sepUne ? [...sep.filter((a) => a === 'vente'), 'location', 'gestion'] : sep.filter((a) => a === 'vente') };
 }
 
 /**

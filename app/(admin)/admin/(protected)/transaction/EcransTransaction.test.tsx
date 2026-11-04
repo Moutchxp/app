@@ -4557,3 +4557,78 @@ describe('🔴 D33 (Arno, 03/11/2026) — graphique « Mois par mois » : « Act
   });
 });
 
+/**
+ * 🔴 D36 (Arno, 04/11/2026) — le contrôle du filtre des collaborateurs (bouton grisé à 0/N, tout décoché = 0 €) ; « Séparées » montre une courbe par
+ * activité ; « Collaborateurs : Réunis | Séparés » : une courbe par case cochée, N−1 dans le panneau, l'adresse, « Réinitialiser ».
+ */
+describe('🔴 D36 — graphique « Mois par mois » : contrôle du filtre des collaborateurs, une courbe par collaborateur', () => {
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+  const graphe = () => container.querySelector('[data-bloc="global-graphe"]')!;
+  const ouvrirG = async (q: string) => { await act(async () => { root.render(createElement('div')); }); window.history.replaceState(null, '', q); await act(async () => { root.render(createElement(EcranGlobal)); }); await calmer(); };
+  const adresse = (k: string) => new URLSearchParams(window.location.search).get(k);
+  const legende = () => [...graphe().querySelectorAll('[data-legende-serie]')].map((x) => x.getAttribute('data-legende-serie'));
+  const COLLABS = { comptes: [{ id: 2, libelle: 'Arnaud Jorel', fonctions: ['vente'], societes: ['criterimmo'] }, { id: 8, libelle: 'Pierre Thevenin', fonctions: ['vente'], societes: ['macj'] },
+    { id: 9, libelle: 'Cédric JULLIEN', fonctions: ['vente'], societes: ['criterimmo', 'macj'] }, { id: 5, libelle: 'Jean-Baptiste PONS', fonctions: ['location', 'vente'], societes: ['criterimmo'] }],
+    libelles: { CEDRIC: 9 } };
+  beforeEach(() => { (donneesGlobal as Record<string, unknown>).collaborateursGraphe = COLLABS; window.localStorage.setItem('trx-affichage-montants', 'ht'); });
+  afterEach(() => { delete (donneesGlobal as Record<string, unknown>).collaborateursGraphe; });
+  it('Vente 0/5 : son bouton est grisé (titre : compte pour 0 €) ; les autres non ; « Tout » le rend', async () => {
+    await ouvrirG('/?annee=2025');
+    expect(graphe().querySelector('[data-activite-vide]')).toBeNull();
+    await cliquer('[data-ouvrir-famille="vente"]'); await cliquer('[data-collaborateurs-aucun="vente"]');
+    expect(texte('[data-compteur-famille="vente"]')).toBe('0/5');
+    expect([...graphe().querySelectorAll('[data-activite-vide]')].map((x) => x.getAttribute('data-activite-vide'))).toEqual(['vente']);
+    expect(graphe().querySelector('[data-activite-vide="vente"]')!.getAttribute('title')).toMatch(/compte pour 0/);
+    await cliquer('[data-collaborateurs-tout="vente"]');
+    expect(graphe().querySelector('[data-activite-vide]')).toBeNull();
+  });
+  it('tout décoché partout : le graphique ne compte plus rien (aucune barre non nulle), en CA brut et en CA net', async () => {
+    for (const m of ['ca', 'net']) {
+      await ouvrirG(`/?annee=2025&g-mesure=${m}&g-exclus=vente:2,vente:5,vente:8,vente:9,vente:non_attribue,location:5,location:non_attribue,gestion:non_attribue`);
+      expect([m, [...graphe().querySelectorAll('[data-barre-mois-global] [data-valeur]')].map((x) => Number(x.getAttribute('data-valeur'))).filter((v) => v !== 0)]).toEqual([m, []]);
+      expect(graphe().querySelectorAll('[data-activite-vide]').length).toBe(3);
+    }
+  });
+  it('« Séparées » (depuis « Année précédente ») : « Comparer » passe à « Activités entre elles », une courbe par activité incluse', async () => {
+    await ouvrirG('/?annee=2025');
+    expect(graphe().querySelector('[data-graphe-global-series]')).toBeNull();
+    await cliquer('[data-filtre-graphe="Location et Gestion"] [data-choix-graphe="separees"]');
+    expect(adresse('g-comparer')).toBe('activites');
+    expect(legende()).toEqual(['vente', 'location', 'gestion']);
+    await cliquer('[data-filtre-graphe="Location et Gestion"] [data-choix-graphe="reunies"]');
+    expect(legende()).toEqual(['vente', 'location_gestion']);
+  });
+  it('Vente « Séparés » : une courbe par case cochée (« Non attribué » compris), N−1 dans le panneau ; décocher retire sa courbe ; l’adresse ; « Réinitialiser »', async () => {
+    await ouvrirG('/?annee=2025');
+    await cliquer('[data-ouvrir-famille="vente"]');
+    const sep = '[data-collaborateurs-courbes="vente"] [data-choix-graphe="separes"]';
+    expect(graphe().querySelector('[data-collaborateurs-courbes="vente"] [data-choix-graphe="reunis"]')!.getAttribute('aria-pressed')).toBe('true');
+    await cliquer(sep);
+    expect(adresse('g-separes')).toBe('vente');
+    expect(adresse('g-comparer')).toBeNull(); // « Année précédente » reste : chaque série a son N−1
+    const avant = legende();
+    expect(avant).toContain('vente:non_attribue');
+    expect(avant.filter((c) => !c!.startsWith('vente:'))).toEqual(['location', 'gestion']);
+    expect(graphe().querySelector('[data-legende-n1]')).not.toBeNull();
+    await act(async () => { graphe().querySelector('[data-point-global="1"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await calmer(); // janvier : location et gestion
+    expect(graphe().querySelectorAll('[data-detail-n1]').length).toBeGreaterThan(0);
+    expect(graphe().querySelector('[data-detail-total-n1]')).not.toBeNull();
+    await cliquer('[data-case-collaborateur="non_attribue"]');
+    expect(legende()).not.toContain('vente:non_attribue');
+    await cliquer('[data-reinitialiser-filtres]');
+    expect([adresse('g-separes'), adresse('g-exclus')]).toEqual([null, null]);
+    expect(graphe().querySelector('[data-graphe-global-series]')).toBeNull();
+  });
+  it('Cumul + « Séparés » : une courbe par série, et son N−1 en pointillé', async () => {
+    await ouvrirG('/?annee=2025&g-cumul=1&g-separes=vente');
+    const traits = [...graphe().querySelectorAll('[data-trait-serie]')].map((x) => x.getAttribute('data-trait-serie'));
+    expect(traits.length).toBeGreaterThan(1);
+    expect([...graphe().querySelectorAll('[data-trait-serie-n1]')].map((x) => x.getAttribute('data-trait-serie-n1'))).toEqual(traits);
+  });
+  it('la gestion « Séparés » : une seule courbe « Non attribué », et la mention le dit', async () => {
+    await ouvrirG('/?annee=2025&g-separes=gestion&g-ouverte=gestion');
+    expect(legende().filter((c) => c!.startsWith('gestion'))).toEqual(['gestion:non_attribue']);
+    expect(texte('[data-gestion-non-attribuee]')).toMatch(/une seule courbe/);
+  });
+});
+

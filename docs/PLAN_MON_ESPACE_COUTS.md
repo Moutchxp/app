@@ -727,3 +727,39 @@ En TTC, le CA net baisse de la TVA non récupérable (0,2 × le versé) : l'éca
 | `transaction_gestion_mois.salarie_ht` (non nuls) | aucun | aucun |
 | Fonctions (compte : fonction) | 2 vente · 5 location · 8 vente · 9 vente | identiques (+ `depuis` / `jusqua` NULL) |
 | Activités principales | — | 2 vente · 5 location · 8 vente · 9 vente (depuis toujours, déduites) |
+
+## 🔴 MISE EN PRODUCTION — TERMINÉE le 03/11/2026 à 21:14 (information d'Arno)
+
+- `npm run prod:mettre-a-jour -- --appliquer` : « ═══ MISE À JOUR RÉUSSIE — 59ed849c2d5f en service ═══ ».
+- Départ de la prod : 7e71c3b9 (dernière migration inscrite : 447). Les 6 migrations **448 → 453** sont appliquées et inscrites ; golden 11/11.
+- La sauvegarde complète manuelle d'avant la mise à jour a été **arrêtée**, et son fichier partiel supprimé (décision d'Arno). La sauvegarde
+  automatique du script (étape 2, sans LiDAR) reste dans `/home/ubuntu/sauvegardes-maj/` sur le serveur.
+- Les 8 salaires mensuels de gestion de la prod (21 266,37 €) restent comptés : C8 n'est pas lancé et reste une décision d'Arno.
+- **Plus aucune étape de mise en production à proposer pour ce lot.**
+
+## 🔴 D36 (Arno, 04/11/2026) — Graphique « Mois par mois » : contrôle du filtre des collaborateurs, une courbe par collaborateur
+
+**Diagnostic (base de recette, CA brut HT, Cumul 2026 à fin novembre, CRITERIMMO + MACJ ; lecture seule)** : aucune fuite.
+- Tout coché 547 942,33 € ; Vente 0/4 (Non attribué compris) **273 323,16 €** = Location 94 612,61 € + Gestion 178 710,55 € **au centime** ;
+  identique à « Vente » exclue. CA net : Vente 0/4 224 668,35 € = Location 72 967,40 € + Gestion 151 700,95 €, au centime (les coûts
+  généraux de la vente ne sont pas déduits non plus). Toutes les cases de toutes les activités décochées, ou aucune activité : 0,00 € (CA brut
+  et CA net, chaque mois, « mois à confirmer » compris).
+- Le montant de la production (286 467,83 €) est donc Location + Gestion de la production (la base n'a pas été lue : aucune commande sur le serveur).
+- « Une seule courbe » : « Séparées / Réunies » ne réglait que le regroupement Location & Gestion ; le nombre de courbes dépend de « Comparer »,
+  qui vaut « Année précédente » par défaut (une série Total + N−1).
+
+**Correction (choix de l'agent, en mode sans question ; aucun élément retiré, réglage par défaut inchangé)** :
+- Cliquer « Séparées » ou « Réunies » depuis une seule série (« Année précédente », « Rien ») passe « Comparer » à « Activités entre elles » : une
+  courbe par activité incluse (Réunies : Vente, Location & Gestion).
+- Une activité à 0/N (toutes ses cases ET « Non attribué » décochées) : bouton grisé, en pointillé et barré, titre « Aucun collaborateur coché : … compte
+  pour 0 € » ; elle compte pour 0 (déjà le cas, maintenant visible).
+- **« Collaborateurs : Réunis | Séparés »** dans la liste dépliée de chaque activité, après « Tout / Aucun » (`g-separes` dans l'adresse ;
+  « Réinitialiser les filtres » remet « Réunis ») : « Séparés » = une série par case COCHÉE (« Non attribué (Vente) » compris ; en CA net, les coûts
+  généraux de l'activité ont leur série « Coûts généraux (Vente) »), aux nuances de la couleur de l'activité, légende au nom du collaborateur. Somme
+  des séries = la série « Réunis » de l'activité, au centime (`seriesDuPoint`, la même fonction, aucune recopie).
+- Avec « Année précédente », les séries gardent leur N−1 : **règle** — Cumul : pointillé de la même nuance ; Mensuel côte à côte : un repère pointillé
+  sur la barre ; Mensuel empilé : N−1 dans le panneau seulement (trop chargé sinon, la légende le dit). Panneau : chaque ligne N, puis N−1 et l'écart.
+- « Structures / Familles entre elles » : « Séparés » y passe « Comparer » à « Activités entre elles » (leurs séries ne sont pas des activités).
+- Gestion : une seule courbe « Non attribué » (aucune attribution par collaborateur), la mention de la liste le dit.
+- Mon espace › Les coûts (même composant, sans collaborateurs) : inchangé.
+- Captures (avant / après, 1 440 × 900 et 390 px, clair et sombre ; cas d'Arno Vente 0/4) : `.captures/graphe-collaborateurs-separes-d36/`.

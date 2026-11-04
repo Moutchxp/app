@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { MontantC } from '../../../../lib/transaction/partAgence';
 import { celluleGlobalAnnees, type EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGlobal';
@@ -8,8 +8,8 @@ import { aSaisirFusion } from '../../../../lib/transaction/fusionLocationGestion
 import { NOMS_MOIS } from '../../../../lib/transaction/modele';
 import { moisADate } from '../../../../lib/transaction/periodeAnnees';
 import {
-  ACTIVITES_GRAPHE, activiteFiltree, atomesDesMois, atomesDuPoint, avecReunies, cleCollab, collaborateursProposes, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse,
-  filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs, NON_ATTRIBUE, raisonGrise, seriesDuPoint, STRUCTURES_GRAPHE, type ActiviteGraphe, type CollaborateursGraphe, type FamilleGraphe,
+  ACTIVITES_GRAPHE, activiteFiltree, activiteVide, atomesDesMois, atomesDuPoint, avecReunies, cleCollab, collaborateursProposes, COMPARER_GRAPHE, FAMILLES_GRAPHE, FILTRES_GRAPHE_DEFAUT, filtresDepuisAdresse,
+  filtresVersAdresse, MESURES_GRAPHE, nbFiltresActifs, NON_ATTRIBUE, raisonGrise, separesEffectifs, seriesDuPoint, seriesParActivite, STRUCTURES_GRAPHE, type ActiviteGraphe, type CollaborateursGraphe, type FamilleGraphe,
   type FiltresGraphe, type SerieValeur, type StructureGraphe,
 } from '../../../../lib/transaction/grapheGlobal';
 import { attributBarresRouges, COURT, ecrireAdresse, eur, MOT_UNITE, parametre, StyleBarresRouges, useAffichage } from './commun';
@@ -75,8 +75,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
     [eG.ventes, eG.gestion, eG.location, eC.retrocessions, eC.location, salaires, clePoints, jour, collaborateurs]); // eslint-disable-line react-hooks/exhaustive-deps
   // 🔴 D33 — les collaborateurs proposés de chaque activité, selon les structures cochées (un non proposé compte dans « Non attribué »)
   const proposes = Object.fromEntries(ACTIVITES_GRAPHE.map((a) => [a.cle, new Set(collaborateursProposes(collaborateurs, a.cle, f.structures).map((c) => String(c.id)))])) as Record<ActiviteGraphe, Set<string>>;
-  const valsBase = atomes.xs.map((x) => ({ c: seriesDuPoint(x.courant, f, proposes), n1: seriesDuPoint(x.n1, f, proposes) }));
-  const valHors = atomes.hors === null ? null : { c: seriesDuPoint(atomes.hors.courant, f, proposes), n1: seriesDuPoint(atomes.hors.n1, f, proposes) };
+  // 🔴 D36 — les collaborateurs (noms et ordre des séries « Séparés »)
+  const valsBase = atomes.xs.map((x) => ({ c: seriesDuPoint(x.courant, f, proposes, collaborateurs), n1: seriesDuPoint(x.n1, f, proposes, collaborateurs) }));
+  const valHors = atomes.hors === null ? null : { c: seriesDuPoint(atomes.hors.courant, f, proposes, collaborateurs), n1: seriesDuPoint(atomes.hors.n1, f, proposes, collaborateurs) };
   const nonNul = (s: { total: MontantC; series: readonly SerieValeur[] }): boolean => s.total[k] !== 0 || s.series.some((x) => x.m[k] !== 0);
   // présent seulement quand il est non nul (l'année montrée ; ou N−1 quand on la compare)
   const avecHors = valHors !== null && (nonNul(valHors.c) || (f.comparer === 'n1' && nonNul(valHors.n1)));
@@ -90,8 +91,14 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
   const repos = parAnnees ? annee : avecHors && f.cumul ? 13 : Math.max(1, dernier === 0 ? 1 : dernier);
   const courante = choisi !== null && points.some((p) => p.cle === choisi) ? choisi : repos;
   const motMesure = `${MESURES_GRAPHE.find((m) => m.cle === f.mesure)!.mot.replace(' (CA − coûts)', '')} ${MOT_UNITE[u]}`;
-  const seule = f.comparer === 'n1' || f.comparer === 'rien';
+  // 🔴 D36 — des collaborateurs « Séparés » : plusieurs séries (une par activité, chaque collaborateur coché à part), même en « Année précédente »
+  const seule = (f.comparer === 'n1' || f.comparer === 'rien') && !seriesParActivite(f);
+  /** 🔴 D36 — plusieurs séries ET « Année précédente » : le N−1 de chaque série (pointillé de sa nuance ; panneau : N, N−1, écart). */
+  const seriesN1 = !seule && f.comparer === 'n1';
   const en = (m: MontantC): number => m[k] / 100;
+  /** 🔴 D36 — la classe de couleur d'une série : celle de son activité, et pour un collaborateur « Séparés » sa nuance (5 nuances, puis elles reviennent). */
+  const classeSerie = (s: Pick<SerieValeur, 'couleur' | 'nuance'>): string => `trx-serie--${s.couleur}${s.nuance ? ` trx-nuance--${((s.nuance - 1) % 5) + 1}` : ''}`;
+  const ecart = (x: number): string => `${x > 0 ? '+' : x < 0 ? '−' : ''}${eur(Math.abs(x))}`;
   /** Les mentions d'un point : les mois de salaires à saisir (la règle des pages Location et Gestion). 🔴 LOT CG10 — les ventes à attribuer ne sont
    *  plus comptées : la mention sous le graphique dit leur montant. */
   const mentions = (i: number, jusqua: boolean): string | undefined => {
@@ -149,10 +156,17 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
     const totaux = f.cumul ? cumuler(vals.map((x) => en(x.c.total))) : vals.map((x) => en(x.c.total));
     const totauxAutre = f.cumul ? cumuler(vals.map((x) => x.c.total[ka] / 100)) : vals.map((x) => x.c.total[ka] / 100);
     const n = points.length; const trace = (x: number): boolean => !aVenir(x);
+    // 🔴 D36 — le N−1 de chaque série : les mêmes séries, dans le même ordre (il vient des filtres, pas des données) ; l'année d'avant est entière
+    const valeursN1Tout = series0.map((_, j) => { const xs = vals.map((x) => en(x.n1.series[j]?.m ?? { htC: 0, ttcC: 0 })); return f.cumul ? cumuler(xs) : xs; });
+    const totauxN1 = f.cumul ? cumuler(vals.map((x) => en(x.n1.total))) : vals.map((x) => en(x.n1.total));
     // 🔴 LOT CG12 (Arno) — une série dont toutes les valeurs de la période valent 0 : ni tracée ni dans la légende ; aucune : le message
-    const garde = valeursTout.map((xs) => xs.some((v, x) => trace(x) && v !== 0));
+    // (🔴 D36 — en « Année précédente », une série nulle cette année mais pas l'an passé reste, pour son pointillé)
+    const garde = valeursTout.map((xs, j) => xs.some((v, x) => trace(x) && v !== 0) || (seriesN1 && valeursN1Tout[j].some((v) => v !== 0)));
     const lignes: SerieValeur[] = series0.filter((_, j) => garde[j]);
     const valeurs = valeursTout.filter((_, j) => garde[j]);
+    const valeursN1 = valeursN1Tout.filter((_, j) => garde[j]);
+    // 🔴 D36 — le N−1 se trace en Cumul (pointillé) et en « Côte à côte » (un repère pointillé sur la barre) ; empilé : dans le panneau seulement
+    const n1Trace = seriesN1 && (f.cumul || !f.empile);
     if (lignes.length === 0) return <AucuneDonnee courbe="global-series" />;
     // 🔴 LOT CG12 — la zone de tracé : +15 % de hauteur (186 → 213,9 unités)
     const L = 640; const m = { g: 56, d: 12, h: 16, b: 28 }; const H = m.h + m.b + 186 * HAUSSE_TRACE;
@@ -163,6 +177,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
       if (f.empile && !f.cumul) { hauts.push(xs.filter((x) => x > 0).reduce((t, x) => t + x, 0)); bas.push(xs.filter((x) => x < 0).reduce((t, x) => t + x, 0)); }
       else { hauts.push(Math.max(0, ...xs)); bas.push(Math.min(0, ...xs)); }
     }
+    if (n1Trace) for (let x = 0; x < n; x++) { const xs = valeursN1.map((s) => s[x]); hauts.push(Math.max(0, ...xs)); bas.push(Math.min(0, ...xs)); }
     const max0 = Math.max(0, ...hauts); const min = Math.min(0, ...bas); const max = max0 === 0 && min === 0 ? 1000 : max0;
     const graduations = [0, 0.25, 0.5, 0.75, 1].map((q) => min + q * (max - min));
     m.g = margeAxe(graduations.map(eurAxe));
@@ -179,7 +194,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
               <svg viewBox={`0 0 ${L} ${H}`} role="img" aria-label={`${motMesure} — ${COMPARER_GRAPHE.find((c) => c.cle === f.comparer)!.mot}`}>
                 {graduations.map((g) => <g key={g}><line x1={m.g} x2={L - m.d} y1={y(g)} y2={y(g)} className="tdb-grille" />
                   <text x={m.g - 6} y={y(g) + 4} textAnchor="end" className="tdb-axe">{eurAxe(g)}</text></g>)}
-                {f.cumul && lignes.map((s, j) => <path key={s.cle} className={`trx-serie-trait trx-serie--${s.couleur}`} data-trait-serie={s.cle}
+                {f.cumul && n1Trace && lignes.map((s, j) => <path key={`n1-${s.cle}`} className={`trx-serie-trait trx-serie-trait--n1 ${classeSerie(s)}`} data-trait-serie-n1={s.cle}
+                  d={valeursN1[j].map((w, x) => `${x === 0 ? 'M' : 'L'}${(m.g + x * pas + pas / 2).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />)}
+                {f.cumul && lignes.map((s, j) => <path key={s.cle} className={`trx-serie-trait ${classeSerie(s)}`} data-trait-serie={s.cle}
                   d={valeurs[j].flatMap((w, x) => (trace(x) ? [{ w, x }] : [])).map(({ w, x }, q) => `${q === 0 ? 'M' : 'L'}${(m.g + x * pas + pas / 2).toFixed(1)},${y(w).toFixed(1)}`).join(' ')} />)}
                 {points.map((p, x) => {
                   let haut = 0; let creux = 0;
@@ -188,15 +205,18 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
                       <rect x={m.g + x * pas} y={m.h} width={pas} height={H - m.h - m.b} className="tdb-barre-zone" />
                       {trace(x) && lignes.map((s, j) => {
                         const v = valeurs[j][x];
-                        if (f.cumul) return <circle key={s.cle} cx={m.g + x * pas + pas / 2} cy={y(v)} r={p.cle === courante ? 4.5 : 3} className={`trx-serie-point trx-serie--${s.couleur}`} data-point-serie={s.cle} data-valeur={v} />;
+                        if (f.cumul) return <circle key={s.cle} cx={m.g + x * pas + pas / 2} cy={y(v)} r={p.cle === courante ? 4.5 : 3} className={`trx-serie-point ${classeSerie(s)}`} data-point-serie={s.cle} data-valeur={v} />;
                         if (f.empile) {
                           const de = v >= 0 ? haut : creux; const a = de + v; if (v >= 0) haut = a; else creux = a;
                           return <rect key={s.cle} x={m.g + x * pas + pas * 0.18} y={y(Math.max(de, a))} width={pas * 0.64} height={Math.abs(y(de) - y(a))}
-                            className={`trx-serie-barre trx-serie--${s.couleur}`} data-barre-serie={s.cle} data-valeur={v} />;
+                            className={`trx-serie-barre ${classeSerie(s)}`} data-barre-serie={s.cle} data-valeur={v} />;
                         }
                         return <rect key={s.cle} x={m.g + x * pas + pas * 0.1 + j * largeurCote} y={y(Math.max(v, 0))} width={largeurCote} height={Math.abs(y(0) - y(v))}
-                          className={`trx-serie-barre trx-serie--${s.couleur}`} data-barre-serie={s.cle} data-valeur={v} />;
+                          className={`trx-serie-barre ${classeSerie(s)}`} data-barre-serie={s.cle} data-valeur={v} />;
                       })}
+                      {/* 🔴 D36 — « Côte à côte » en « Année précédente » : le N−1 de chaque série, un repère pointillé de sa nuance sur sa barre */}
+                      {n1Trace && !f.cumul && lignes.map((s, j) => <line key={`n1-${s.cle}`} x1={m.g + x * pas + pas * 0.1 + j * largeurCote} x2={m.g + x * pas + pas * 0.1 + (j + 1) * largeurCote}
+                        y1={y(valeursN1[j][x])} y2={y(valeursN1[j][x])} className={`trx-serie-repere-n1 ${classeSerie(s)}`} data-repere-n1={s.cle} data-valeur={valeursN1[j][x]} />)}
                       <text x={m.g + x * pas + pas / 2} y={H - 8} textAnchor="middle" className={`${p.cle === courante ? 'tdb-axe tdb-axe--fort trx-axe-choisi' : 'tdb-axe'}${p.horsMois ? ' trx-axe-hors-mois' : ''}`}>{p.libelle}</text>
                     </g>
                   );
@@ -210,16 +230,22 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
               {i >= 0 && mentions(i, f.cumul) !== undefined && <p className="tdb-bulle-note" data-bulle-note>{mentions(i, f.cumul)}</p>}
               {/* 🔴 LOT CG11 — les lignes par valeur DÉCROISSANTE au point montré (repos, survol, clic), égalité : alphabétique ; Total en bas */}
               {/* 🔴 LOT CG12 — seulement les lignes non nulles au point montré (les négatives restent) */}
-              {ordreEncadre(lignes.map((s, j) => ({ ...s, ca: i >= 0 && !aVenir(i) ? valeurs[j][i] : 0, nb: 0 })), false).filter((s) => s.ca !== 0).map((s) => <p key={s.cle} className="tdb-bulle-ligne trx-serie-ligne" data-detail-serie={s.cle}>
-                <span><span className={`trx-pastille-serie trx-serie--${s.couleur}`} aria-hidden="true" />{s.nom}</span>
-                <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? eur(s.ca) : '—'}</span></p>)}
+              {/* 🔴 D36 — en « Année précédente » : chaque ligne dit aussi N−1 et l'écart (une ligne nulle cette année mais pas l'an passé reste) */}
+              {ordreEncadre(lignes.map((s, j) => ({ ...s, ca: i >= 0 && !aVenir(i) ? valeurs[j][i] : 0, n1: i >= 0 ? valeursN1[j][i] : 0, nb: 0 })), false)
+                .filter((s) => s.ca !== 0 || (seriesN1 && s.n1 !== 0)).map((s) => <Fragment key={s.cle}><p className="tdb-bulle-ligne trx-serie-ligne" data-detail-serie={s.cle}>
+                <span><span className={`trx-pastille-serie ${classeSerie(s)}`} aria-hidden="true" />{s.nom}</span>
+                <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? eur(s.ca) : '—'}</span></p>
+                {seriesN1 && <p className="tdb-bulle-ligne trx-detail-n1" data-detail-n1={s.cle}><span>{libN1}</span><span className="tdb-bulle-montant">{eur(s.n1)}{!aVenir(i) ? ` · écart ${ecart(s.ca - s.n1)}` : ''}</span></p>}</Fragment>)}
               <p className="tdb-bulle-pied" data-detail-total-global><span>Total</span>
                 <span className="tdb-bulle-montant">{i >= 0 && !aVenir(i) ? <>{eur(totaux[i])} <small className="tdb-bulle-autre">({eur(totauxAutre[i])} {MOT_UNITE[u === 'ht' ? 'ttc' : 'ht']})</small></> : '—'}</span></p>
+              {seriesN1 && i >= 0 && <p className="tdb-bulle-ligne trx-detail-n1" data-detail-total-n1><span>{libN1}</span>
+                <span className="tdb-bulle-montant">{eur(totauxN1[i])}{!aVenir(i) ? ` · écart ${ecart(totaux[i] - totauxN1[i])}` : ''}</span></p>}
             </div>
           </div>
           <figcaption className="tdb-histo-legende trx-legende-series" data-legende-series>
             {lignes.map((s) => <span key={s.cle} className="trx-legende-serie" data-legende-serie={s.cle}>
-              <span className={`trx-pastille-serie trx-serie--${s.couleur}`} aria-hidden="true" />{s.nom}</span>)}
+              <span className={`trx-pastille-serie ${classeSerie(s)}`} aria-hidden="true" />{s.nom}</span>)}
+            {seriesN1 && <span className="trx-legende-serie trx-legende-n1" data-legende-n1>{f.cumul || !f.empile ? `${libN1} : pointillé de la même couleur` : `${libN1} : dans le détail (barres empilées)`}</span>}
           </figcaption>
         </div>
       </figure>
@@ -291,9 +317,12 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
               const cochees = collabs !== null ? collabs.filter((x) => estCoche(x)).length : siennes.filter((c) => f.familles.includes(c)).length;
               const total = collabs !== null ? collabs.length : siennes.length;
               const ouvrable = couts || collabs !== null;
+              // 🔴 D36 — tout décoché (« Non attribué » compris) : l'activité compte pour 0 ; son bouton le montre (grisé, barré)
+              const vide = collabs !== null && inclus && g.acts.every((a) => activiteVide(f, a, proposes[a]));
               const basculerInclusion = (): void => changer({ activites: inclus ? f.activites.filter((a) => !g.acts.includes(a)) : [...f.activites.filter((a) => !g.acts.includes(a)), ...g.acts] });
               return (
-                <span key={g.cle} className={`trx-gf-famille-btn trx-serie--${COULEURS[g.cle] ?? 1}${famOuverte === g.cle && ouvrable ? ' trx-gf-famille-btn--ouverte' : ''}${r !== null ? ' trx-gf-case--grise' : ''}`} title={r ?? undefined}>
+                <span key={g.cle} className={`trx-gf-famille-btn trx-serie--${COULEURS[g.cle] ?? 1}${famOuverte === g.cle && ouvrable ? ' trx-gf-famille-btn--ouverte' : ''}${r !== null ? ' trx-gf-case--grise' : ''}${vide ? ' trx-gf-famille-btn--vide' : ''}`}
+                  title={r ?? (vide ? `Aucun collaborateur coché : ${g.mot} compte pour 0 €.` : undefined)} {...(vide ? { 'data-activite-vide': g.cle } : {})}>
                   <input type="checkbox" checked={inclus} disabled={r !== null} onChange={basculerInclusion} aria-label={`Compter ${g.mot}`} data-case-graphe={g.cle} />
                   {ouvrable ? <button type="button" className="trx-gf-famille-nom" aria-expanded={famOuverte === g.cle} aria-controls={couts ? 'trx-gf-couts-famille' : 'trx-gf-collabs-famille'}
                     onClick={() => setFamOuverte((x) => (x === g.cle ? null : g.cle))} data-ouvrir-famille={g.cle}>{g.mot} <small data-compteur-famille={g.cle}>{cochees}/{total}</small> <span aria-hidden="true">{famOuverte === g.cle ? '▴' : '▾'}</span></button>
@@ -302,8 +331,10 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
               );
             })}
           </div>
+          {/* 🔴 D36 (Arno, 04/11/2026) — « Séparées » / « Réunies » montre les courbes : depuis une seule série (« Année précédente », « Rien »),
+              « Comparer » passe à « Activités entre elles » (une courbe par activité incluse) ; le réglage par défaut ne change pas */}
           {choix('Location et Gestion', [{ cle: 'separees', mot: 'Séparées' }, { cle: 'reunies', mot: 'Réunies' }] as const, f.reunies ? 'reunies' : 'separees',
-            (c) => { setF((v) => avecReunies(v, c === 'reunies')); setFamOuverte(null); })}</>, 'famille')}
+            (c) => { setF((v) => { const w = avecReunies(v, c === 'reunies'); return (w.comparer === 'n1' || w.comparer === 'rien') && !seriesParActivite(w) ? { ...w, comparer: 'activites' } : w; }); setFamOuverte(null); })}</>, 'famille')}
         {/* 🔴 D33 — « CA brut » / « CA net » : les collaborateurs de l'activité ouverte (cases), « Non attribué », « Tout / Aucun » */}
         {f.mesure !== 'couts' && collaborateurs !== null && famOuverte !== null && (() => {
           const acts: ActiviteGraphe[] = famOuverte === 'location_gestion' ? ['location', 'gestion'] : ACTIVITES_GRAPHE.some((a) => a.cle === famOuverte) ? [famOuverte as ActiviteGraphe] : [];
@@ -316,7 +347,14 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
               </div>
               <span className="trx-gf-tout"><button type="button" className="trx-bouton-lien" onClick={() => poserCollabs(xs, true)} data-collaborateurs-tout={famOuverte}>Tout</button>
                 {' / '}<button type="button" className="trx-bouton-lien" onClick={() => poserCollabs(xs, false)} data-collaborateurs-aucun={famOuverte}>Aucun</button></span>
-              {acts.includes('gestion') && <span className="loc-muet trx-gf-note-collab" data-gestion-non-attribuee>La gestion n’a pas d’attribution par collaborateur : tout son CA est « Non attribué ».</span>}
+              {/* 🔴 D36 — « Collaborateurs : Réunis | Séparés » : Séparés, une courbe par case cochée (« Structures » / « Familles » entre elles : « Comparer »
+                  passe à « Activités entre elles », la seule où les séries sont des activités) */}
+              <span className="trx-gf-separes" data-collaborateurs-courbes={famOuverte}><span className="trx-gf-tout">Collaborateurs :</span>
+                {choix(`Courbes des collaborateurs ${famOuverte}`, [{ cle: 'reunis', mot: 'Réunis' }, { cle: 'separes', mot: 'Séparés' }] as const,
+                  acts.every((a) => separesEffectifs(f).includes(a)) ? 'separes' : 'reunis',
+                  (c) => setF((v) => ({ ...v, separes: c === 'separes' ? [...new Set([...v.separes, ...acts])] : v.separes.filter((a) => !acts.includes(a)),
+                    comparer: c === 'separes' && (v.comparer === 'structures' || v.comparer === 'familles') ? 'activites' : v.comparer })))}</span>
+              {acts.includes('gestion') && <span className="loc-muet trx-gf-note-collab" data-gestion-non-attribuee>La gestion n’a pas d’attribution par collaborateur : tout son CA est « Non attribué »{acts.every((a) => separesEffectifs(f).includes(a)) ? ' (une seule courbe, c’est attendu)' : ''}.</span>}
             </div>
           );
         })()}
@@ -349,6 +387,11 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
   );
 }
 
+/** 🔴 D36 — les nuances de la couleur d'une activité (Vente bleu, Location vert, Gestion rose ; « Location & Gestion ») pour les collaborateurs
+ *  « Séparés » : le 1er garde la couleur de l'activité, les suivants alternent plus foncé / plus clair (clair et sombre : les mêmes variables). */
+const CSS_NUANCES = [1, 3, 5, 6].flatMap((c) => [[1, 55, '#fff'], [2, 60, '#000'], [3, 40, '#fff'], [4, 35, '#000'], [5, 75, '#888']]
+  .map(([n, p, m]) => `.trx-serie--${c}.trx-nuance--${n}{--trx-serie:color-mix(in srgb, var(--trx-serie-${c}) ${p}%, ${m})}`)).join('\n');
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Le panneau des filtres : compact, une famille par ligne (petit titre gris + choix) ; au telephone, repliable. */
 export const CSS_GRAPHE_GLOBAL = `
 .trx-gf-tete{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;margin-bottom:8px}
@@ -366,6 +409,14 @@ export const CSS_GRAPHE_GLOBAL = `
 .trx-gf-case input{width:18px;height:18px;accent-color:var(--color-svv-red)}
 .trx-gf-case--grise{opacity:.45;cursor:not-allowed}
 .trx-gf-tout{font-size:.8rem}
+.trx-gf-separes{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
+.trx-gf-famille-btn--vide{opacity:.55;border-style:dashed;background:transparent}
+.trx-gf-famille-btn--vide .trx-gf-famille-nom{text-decoration:line-through;text-decoration-thickness:1px}
+.trx-serie-trait--n1{stroke-dasharray:5 4;stroke-width:2;opacity:.85}
+.trx-serie-repere-n1{stroke:var(--trx-serie);stroke-width:2;stroke-dasharray:3 2}
+.trx-detail-n1{font-size:.75rem;color:var(--color-svv-muted);margin-top:-2px !important;padding-left:18px}
+.trx-detail-n1 .tdb-bulle-montant{flex:1 1 auto;min-width:0;white-space:normal;text-align:right;font-weight:500}
+.trx-legende-n1{font-weight:500;color:var(--color-svv-muted)}
 .trx-gf-note-collab{flex-basis:100%;font-size:.8rem}
 .trx-gf-familles{display:flex;flex-wrap:wrap;gap:6px}
 .trx-gf-famille-btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 4px 0 8px;border:1px solid var(--color-svv-line-strong);border-left:4px solid var(--trx-serie);border-radius:8px;background:color-mix(in srgb, var(--trx-serie) 10%, transparent)}
@@ -382,6 +433,7 @@ span.trx-gf-famille-nom{cursor:default}
 .trx-axe-hors-mois,.trx-graphe-global [data-barre-mois-global="13"] .tdb-axe,.trx-graphe-global[data-mois-hors] [data-courbe="global-mois-cumul"] svg>text.tdb-axe:last-of-type{font-style:italic;fill:var(--color-svv-muted)}
 .trx-axe-hors-mois.trx-axe-choisi{fill:var(--color-svv-red)}
 .trx-graphe-global-series .trx-legende-series{font-size:.85rem;font-weight:600;gap:4px 14px}
+${CSS_NUANCES}
 @media (max-width:640px){
   .trx-gf-bascule{display:inline-flex;align-items:center}
   .trx-gf-panneau{display:none}
