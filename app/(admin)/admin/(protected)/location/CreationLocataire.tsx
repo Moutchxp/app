@@ -20,6 +20,8 @@ import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocati
 import { MOTIF_MONTANT_SAISI, montantHonorairesSaisi, type CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { EnvoiAdhocMonga } from './EnvoiAdhocMonga';
 import { ModaleIssue } from './ModaleIssue';
+import { BlocsEnvois, InfoDestinataires } from './ConfirmationEnvois';
+import { mailInterneSortie, TITRE_ENREGISTRE, type MailParti } from '../../../../lib/location/confirmationEnvois';
 import { ModaleCaracteristiquesBien } from './ModaleCaracteristiquesBien';
 import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 // 🔴 Arno (26/10/2026, 430) — le locataire EN PLACE à la prise en gestion (bien « rentré occupé »).
@@ -137,7 +139,7 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
   const [intentionEnvoi, setIntentionEnvoi] = useState(false);
   /* Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : l'issue s'ouvre en MODALE (succès : résumé et gestes suivants ; échec :
      quoi, pourquoi, quoi faire) ; `enCours` interdit le double clic ; quitter le récapitulatif sans confirmer est averti. */
-  const [issue, setIssue] = useState<{ sorte: 'succes'; titre: string; lignes: [string, string][]; notes: string[]; lien: string; bailId: number | null }
+  const [issue, setIssue] = useState<{ sorte: 'succes'; titre: string; lignes: [string, string][]; notes: string[]; lien: string; bailId: number | null; mails: MailParti[] }
     | { sorte: 'erreur'; cause: CauseEchec; motif: string | null } | { sorte: 'quitter' } | null>(null);
   const enCours = useRef(false);
   /** Relance la fenêtre « Envoi ADHOC & MONGA » du bail créé (depuis la modale de succès). */
@@ -421,9 +423,12 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
     setFait({ messages: annonces, lien, bailId, ouvrirEnvoi: envoiDirect });
     if (!envoiDirect) {
       const noms = [...etat.clients.map((c) => nomDeCarte(c)), ...etat.existants.map((x) => x.nom)].filter((x) => x);
-      setIssue({ sorte: 'succes', titre: `${noms.length > 1 ? 'Locataires enregistrés et rattachés' : 'Locataire enregistré et rattaché'} à ${bien.titre}`,
-        lignes: [[noms.length > 1 ? 'Locataires' : 'Locataire', noms.join(', ') || '—'], ['Bien', bien.titre], ['Date d’entrée', entree.split('-').reverse().join('/')]],
-        notes: annonces, lien, bailId });
+      // 🔴 Arno (05/11/2026) — « Enregistrer » seul : titre « Enregistré », le message, et les mails RÉELLEMENT partis selon le serveur
+      // (aucun aujourd'hui : l'enregistrement d'un locataire n'envoie rien) ; les quatre boutons restent.
+      const interne = mailInterneSortie(r.mail);
+      setIssue({ sorte: 'succes', titre: TITRE_ENREGISTRE,
+        lignes: [['Action', 'Nouvelle location'], [noms.length > 1 ? 'Locataires' : 'Locataire', noms.join(', ') || '—'], ['Bien', bien.titre], ['Date d’entrée', entree.split('-').reverse().join('/')]],
+        notes: annonces, lien, bailId, mails: interne === null ? [] : [{ ...interne, sorte: 'interne' }] });
     }
   };
   // Le récapitulatif affiché, rien d'enregistré : quitter la page (onglet, rechargement) est averti par le navigateur.
@@ -562,7 +567,7 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
           {fait.bailId !== undefined && fait.bailId !== null && envoiPermis && (
             <div className="loc-apres-enregistrer" data-apres-enregistrer>
               <p style={{ margin: 0 }}><strong>Le locataire et son bail sont enregistrés.</strong> Envoyez le dossier à ADHOC &amp; MONGA :</p>
-              <EnvoiAdhocMonga key={envoiCle} bailId={fait.bailId} ouvrirAuMontage={fait.ouvrirEnvoi === true || envoiCle > 0} />
+              <EnvoiAdhocMonga key={envoiCle} bailId={fait.bailId} ouvrirAuMontage={fait.ouvrirEnvoi === true || envoiCle > 0} confirmationApresEnvoi />
             </div>
           )}
           <p style={{ margin: 0 }}><a href={fait.lien}>Ouvrir la fiche du locataire</a></p>
@@ -571,6 +576,8 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
       {issue !== null && (issue.sorte === 'succes' ? (
         <ModaleIssue sorte="succes" titre={issue.titre} lignes={issue.lignes} notes={issue.notes} onFermer={() => setIssue(null)}
+          // 🔴 Arno (05/11/2026) — sans envoi aux partenaires : le message et les mails réellement partis.
+          children={<BlocsEnvois issue={{ informer: false, mails: issue.mails, motifGlobal: null }} />}
           actions={[
             { libelle: 'Voir la fiche du locataire', href: issue.lien, principal: true, repere: 'voir-fiche-locataire' },
             ...(issue.bailId !== null ? [{ libelle: 'Envoi ADHOC & MONGA', onClick: () => { setIssue(null); setEnvoiCle((k) => k + 1); }, repere: 'envoi-depuis-issue' }] : []),
@@ -607,6 +614,8 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
           onClick={() => { envoyerApres.current = true; setIntentionEnvoi(true); void enregistrer(); }} data-enregistrer-envoyer>
           {envoi && intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer et envoyer à ADHOC & MONGA' : 'Confirmer et envoyer à ADHOC & MONGA'}</button>
         )}
+        {/* 🔴 Arno (05/11/2026) — le picto « i » : les destinataires de la liste « Nouvelles locations », lus à l'ouverture. */}
+        {envoiPermis && <InfoDestinataires action="nouvelle_location" />}
         {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille NI sans date d'entrée — « Enregistrer »
             reste inactif sans eux. */}
         <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie}

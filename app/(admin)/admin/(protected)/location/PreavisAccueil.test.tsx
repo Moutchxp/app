@@ -247,6 +247,14 @@ describe('la ligne dépliée', () => {
     expect(posts.at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, informerPartenaires: false });
     expect(ordre()).toEqual(['B', 'A']);
     expect(container.querySelector('[data-preavis-bilan]')?.textContent).toContain('Sortie enregistrée — BERNARD Alice, BERNARD Paul.');
+    // 🔴 Arno (05/11/2026) — la modale de confirmation (sans envoi aux partenaires) ; « Fermer » seul, ne déclenche rien.
+    const m = document.querySelector('[data-modale-issue]')!;
+    expect(m.querySelector('h2')?.textContent).toBe('✓ Enregistré');
+    expect(m.querySelector('[data-resume] dd')?.textContent).toBe('Sortie de locataire');
+    const n = posts.length;
+    await act(async () => { (m.querySelector('[data-fermer-confirmation]') as HTMLButtonElement).click(); });
+    expect(document.querySelector('[data-modale-issue]')).toBeNull();
+    expect(posts).toHaveLength(n);
   });
 
   it('sans le droit Gestion : « La sortie est validée par un utilisateur de la Gestion », aucun bouton de sortie', async () => {

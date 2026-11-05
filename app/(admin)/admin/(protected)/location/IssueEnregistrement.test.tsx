@@ -195,13 +195,19 @@ describe('🔴 « Nouveau locataire » — succès, échec, récapitulatif', () 
   };
   const enregistrer = () => container.querySelector('[data-enregistrer-locataire]') as HTMLButtonElement;
 
-  it('SUCCÈS : « ✓ Locataire enregistré et rattaché à … », résumé (locataire, bien, date d’entrée), fiche / ADHOC & MONGA / un autre / fermer', async () => {
+  it('SUCCÈS : « ✓ Enregistré » (Arno, 05/11/2026), résumé (action, locataire, bien, date d’entrée), aucun mail parti, fiche / ADHOC & MONGA / un autre / fermer', async () => {
     await preparer();
     await act(async () => { enregistrer().click(); }); await calmer();
     await act(async () => { enregistrer().click(); }); await calmer();
     expect(posts.map((p) => p.action)).toEqual(['apercu-lots', 'creer-locataires']);
-    expect(texte('h2')).toBe('✓ Locataire enregistré et rattaché à 27 rue Royer Bendélé, Gennevilliers');
-    expect([...modale()!.querySelectorAll('[data-resume] dd')].map((d) => d.textContent)).toEqual(['FICTIF', '27 rue Royer Bendélé, Gennevilliers', '01/11/2026']);
+    expect(texte('h2')).toBe('✓ Enregistré');
+    expect([...modale()!.querySelectorAll('[data-resume] dd')].map((d) => d.textContent)).toEqual(['Nouvelle location', 'FICTIF', '27 rue Royer Bendélé, Gennevilliers', '01/11/2026']);
+    // 🔴 Arno (05/11/2026) — sans envoi : le serveur n'a envoyé AUCUN mail ; la modale le dit, sans prétendre une transmission interne.
+    expect([...modale()!.querySelectorAll('[data-message-confirmation]')].map((p) => p.textContent)).toEqual([
+      'Aucun mail n’a été envoyé à nos partenaires.', 'Aucun mail n’est parti pour cette opération.']);
+    expect(modale()!.querySelectorAll('[data-mail-parti]')).toHaveLength(0);
+    // Les QUATRE boutons restent.
+    expect([...modale()!.querySelectorAll('.mis-actions > *')].map((b) => b.textContent)).toEqual(['Voir la fiche du locataire', 'Envoi ADHOC & MONGA', 'Créer un autre locataire', 'Fermer']);
     expect(modale()!.querySelector('[data-voir-fiche-locataire]')?.getAttribute('href')).toBe('/admin/location/locataire/50');
     expect(modale()!.querySelector('[data-creer-autre]')?.getAttribute('href')).toBe('/admin/location/nouveau-locataire');
     expect(modale()!.querySelector('[data-envoi-depuis-issue]')).not.toBeNull();

@@ -236,6 +236,20 @@ export async function enregistrerPreavisAvecMails(
 }
 
 /**
+ * 🔴 Arno (05/11/2026) — LE PICTO « i » à côté du choix « informer nos partenaires » : les adresses configurées dans « Paramètres
+ * Location > Destinataires mails » pour CE type d'action, lues au moment de l'affichage — « Destinataires » (la liste, dans l'ordre)
+ * et « En copie » (préavis, sortie : gestion@ + la personne connectée ; nouvelle location : sa copie personnelle). Lecture seule.
+ */
+export async function destinatairesPourInfo(sorte: 'nouvelle_location' | 'preavis' | 'sortie', auteur: Auteur): Promise<{ destinataires: Destinataire[]; copies: Destinataire[] }> {
+  const destinataires = await lireDestinatairesDefaut(sorte);
+  const qui = await emailDeLAuteur(auteur);
+  const vous = qui.email === null ? [] : [{ adresse: qui.email, libelle: sorte === 'nouvelle_location' ? `Vous (${qui.nom}) · copie personnelle` : `Vous (${qui.nom})` }];
+  const copies = sorte === 'nouvelle_location' ? vous : [{ adresse: (await chargerConfigGestion()).adresseGestion, libelle: 'Service gestion' }, ...vous];
+  const vues = new Set<string>();
+  return { destinataires, copies: copies.filter((c) => { const k = c.adresse.toLowerCase(); if (vues.has(k)) return false; vues.add(k); return true; }) };
+}
+
+/**
  * 🔴 Arno (05/11/2026, 460) — LES PARTENAIRES À INFORMER pour la sortie d'un logement (la case « Informer nos partenaires » de l'écran de sortie) :
  * la liste « Sorties » de « Paramètres Location » si le bien est EN GESTION ; hors gestion : aucun (la case n'apparaît pas). Lecture seule.
  */

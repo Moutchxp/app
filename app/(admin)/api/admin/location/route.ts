@@ -33,7 +33,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuMailsPreavis, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
+import { apercuMailsPreavis, destinatairesPourInfo, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -167,6 +167,11 @@ export async function GET(request: Request): Promise<Response> {
     if (idPartenaires !== null) {
       const x = await partenairesDeSortie(idPartenaires);
       return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: x }, { headers: ENTETES });
+    }
+    // 🔴 Arno (05/11/2026) — le picto « i » : les destinataires et copies configurés pour ce type d'action — LECTURE SEULE.
+    const sorteInfo = p('destinatairesMails');
+    if (sorteInfo === 'nouvelle_location' || sorteInfo === 'preavis' || sorteInfo === 'sortie') {
+      return Response.json({ etat: 'ok', data: await destinatairesPourInfo(sorteInfo, await auteurDeLaRequete(request)) }, { headers: ENTETES });
     }
     const idEncart = identifiant(p('encartBail'));
     if (idEncart !== null) {
@@ -505,7 +510,7 @@ export async function POST(request: Request): Promise<Response> {
         // 🔴 Arno (05/11/2026, 460) — la liste « Sorties » ; la case « Informer nos partenaires » décochée : aucun mail partenaire.
         const adhoc = await envoyerMailSortieAdhoc(r.data, auteur, {}, corps.informerPartenaires !== false);
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
-          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif },
+          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif, destinataires: m.destinataires, objet: m.objet },
           adhoc: adhoc.etat === 'ok' ? { etat: 'ok', envois: adhoc.envois } : { etat: adhoc.etat, motif: adhoc.motif } });
       }
       case 'corriger-sortie-locataires':

@@ -47,7 +47,7 @@ vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
 const enregistrerPreavis = vi.fn();
 vi.mock('./preavisRepo', () => ({ enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a) }));
 
-const { apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
+const { destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const envoyes: MessageAEnvoyer[] = [];
@@ -264,5 +264,21 @@ describe('🔴 Arno (05/11/2026, 460) — « Informer nos partenaires » : la li
     expect(await partenairesDeSortie(11)).toEqual({ enGestion: true, liste: [ADHOC] });
     enGestion = false;
     expect(await partenairesDeSortie(11)).toEqual({ enGestion: false, liste: [] });
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — le picto « i » : destinataires et copies configurés, par type d’action (lecture seule)', () => {
+  it('préavis / sortie : la liste ; en copie gestion@ puis la personne connectée', async () => {
+    listes = { preavis: [ADHOC], sortie: [] };
+    expect(await destinatairesPourInfo('preavis', AUTEUR)).toEqual({ destinataires: [ADHOC],
+      copies: [{ adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion' }, { adresse: 'a.jorel@sansvisavis.com', libelle: 'Vous (Arno Jorel)' }] });
+    expect((await destinatairesPourInfo('sortie', AUTEUR)).destinataires).toEqual([]);
+    expect(ecritures).toEqual([]);
+    expect(envoyes).toEqual([]);
+  });
+  it('nouvelle location : la liste ; en copie la copie personnelle seule', async () => {
+    listes = { nouvelle_location: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }] };
+    expect(await destinatairesPourInfo('nouvelle_location', AUTEUR)).toEqual({ destinataires: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }],
+      copies: [{ adresse: 'a.jorel@sansvisavis.com', libelle: 'Vous (Arno Jorel) · copie personnelle' }] });
   });
 });

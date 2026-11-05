@@ -25,13 +25,15 @@ vi.mock('../../../../lib/location/sortieLocatairesRepo', () => ({
 const envoyerMailSortieAdhoc = vi.fn();
 const enregistrerPreavisAvecMails = vi.fn();
 const apercuMailsPreavis = vi.fn();
+const destinatairesPourInfo = vi.fn();
 vi.mock('../../../../lib/location/mailsPreavisSortieRepo', () => ({
+  destinatairesPourInfo: (...a: unknown[]) => destinatairesPourInfo(...a),
   envoyerMailSortieAdhoc: (...a: unknown[]) => envoyerMailSortieAdhoc(...a),
   enregistrerPreavisAvecMails: (...a: unknown[]) => enregistrerPreavisAvecMails(...a),
   apercuMailsPreavis: (...a: unknown[]) => apercuMailsPreavis(...a),
 }));
 
-import { POST } from './route';
+import { GET, POST } from './route';
 
 const demande = (corps: unknown): Request => new Request('http://localhost/api/admin/location', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
@@ -50,7 +52,7 @@ describe('POST sortie-locataires', () => {
     enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
     notifierSortie.mockResolvedValue({ envoye: false, motif: 'Gmail injoignable', destinataires: ['a@b.fr'], objet: 'x' });
     const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11, '12', 'x'], date: '2026-10-31' }))).json();
-    expect(r).toEqual({ etat: 'ok', data: { date: '2026-10-31', vacant: true, restants: [] }, mail: { envoye: false, ignore: false, motif: 'Gmail injoignable' },
+    expect(r).toEqual({ etat: 'ok', data: { date: '2026-10-31', vacant: true, restants: [] }, mail: { envoye: false, ignore: false, motif: 'Gmail injoignable', destinataires: ['a@b.fr'], objet: 'x' },
       adhoc: { etat: 'ok', envois: [] } });
     expect(enregistrerSortie).toHaveBeenCalledWith({ occupationId: 11, sortants: [11, 12], date: '2026-10-31' }, { id: 3, libelle: 'arno@exemple.fr' });
   });
@@ -81,7 +83,8 @@ describe('POST sortie-locataires', () => {
     const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' }))).json();
     expect(ORDRE).toEqual(['compte-rendu', 'adhoc']);
     expect(envoyerMailSortieAdhoc).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' }, {}, true); // case absente : cochée
-    expect(r.mail).toEqual({ envoye: true, ignore: false, motif: null });
+    // 🔴 Arno (05/11/2026) — les adresses RÉELLEMENT utilisées et l'objet : la modale de confirmation les montre.
+    expect(r.mail).toEqual({ envoye: true, ignore: false, motif: null, destinataires: ['a@b.fr'], objet: 'x' });
     expect(r.adhoc).toEqual({ etat: 'ok', envois: [envoi] });
   });
 
@@ -126,5 +129,20 @@ describe('🔴 Arno (05/11/2026, 460) — la case « Informer nos partenaires »
     enregistrerPreavisAvecMails.mockResolvedValue({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 1 } });
     await POST(demande({ action: 'enregistrer-preavis', occupationIds: [11], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, envoyerMails: true, informerPartenaires: false }));
     expect(enregistrerPreavisAvecMails.mock.calls.at(-1)?.[4]).toBe(false);
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — GET ?destinatairesMails= (le picto « i ») : lecture seule, par type d’action', () => {
+  it('nouvelle_location / preavis / sortie : la liste du type, avec la personne connectée ; autre valeur : pas cette lecture', async () => {
+    destinatairesPourInfo.mockResolvedValue({ destinataires: [{ adresse: 'p@x.fr', libelle: 'P' }], copies: [] });
+    for (const sorte of ['nouvelle_location', 'preavis', 'sortie']) {
+      const r = await (await GET(new Request(`http://localhost/api/admin/location?destinatairesMails=${sorte}`))).json();
+      expect(r).toEqual({ etat: 'ok', data: { destinataires: [{ adresse: 'p@x.fr', libelle: 'P' }], copies: [] } });
+      expect(destinatairesPourInfo).toHaveBeenLastCalledWith(sorte, { id: 3, libelle: 'arno@exemple.fr' });
+    }
+    destinatairesPourInfo.mockClear();
+    await GET(new Request('http://localhost/api/admin/location?destinatairesMails=autre')).catch(() => null);
+    expect(destinatairesPourInfo).not.toHaveBeenCalled();
+    expect(enregistrerSortie).not.toHaveBeenCalled();
   });
 });

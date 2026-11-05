@@ -450,7 +450,9 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
     expect(apercu.querySelector('[data-mail="preavis_locataires"] [data-objet]')?.textContent).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
     expect(apercu.querySelector('[data-sans-email]')?.textContent).toBe('⚠ Paul BERNARD : pas d’e-mail, il ne recevra pas l’accusé de réception');
     // UN seul bouton d'action : « Valider et envoyer » (et « Revenir »).
-    expect([...apercu.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Revenir', 'Valider et envoyer']);
+    // (plus le picto « i » des destinataires, à côté de la case — Arno, 05/11/2026 ; il n'envoie rien).
+    expect([...apercu.querySelectorAll('button:not([data-picto-i])')].map((b) => b.textContent)).toEqual(['Revenir', 'Valider et envoyer']);
+    expect(apercu.querySelectorAll('[data-picto-i]')).toHaveLength(1);
     await act(async () => { (apercu.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); });
     expect(posts(f)[1]).toEqual({
       action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null, envoyerMails: true, informerPartenaires: true });
@@ -801,5 +803,149 @@ describe('🔴 Arno (05/11/2026, 460) — « Informer nos partenaires » à l’
     act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(container.querySelector('[data-informer-partenaires]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — picto « i » et modale de confirmation (préavis et sortie)', () => {
+  const PARTENAIRES = [{ adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' }];
+  const APERCU_P = { ...APERCU, partenaires: PARTENAIRES, mails: [...APERCU.mails,
+    { sorte: 'preavis_adhoc', de: 'gestion@criterimmo.fr', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr'], objet: '[Information] Préavis reçu', texte: 'Bonjour,', html: '' }] };
+  const ACCUSE = { sorte: 'preavis_locataires', objet: 'Accusé de réception de votre congé', a: ['alice@exemple.test'], cc: ['gestion@criterimmo.fr', 'moi@exemple.test'], envoye: true, motif: null };
+  const PART_OK = { sorte: 'preavis_adhoc', objet: '[Information] Préavis reçu', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr', 'moi@exemple.test'], envoye: true, motif: null };
+  const modale = () => document.querySelector('[data-modale-issue]');
+  const rendre = async (o: { liste?: typeof PARTENAIRES; reponse?: (corps: Record<string, unknown>) => Response; info?: { destinataires: typeof PARTENAIRES; copies: typeof PARTENAIRES } } = {}) => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (corps.action === 'apercu-preavis') return ok(APERCU_P);
+        return o.reponse !== undefined ? o.reponse(corps) : ok({});
+      }
+      const url = String(u);
+      return url.includes('destinatairesMails=') ? ok(o.info ?? { destinataires: PARTENAIRES, copies: [{ adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion' }] })
+        : url.includes('partenairesSortie=') ? ok({ enGestion: true, liste: o.liste ?? PARTENAIRES })
+        : url.includes('encartBail=') ? ok(ENCART) : url.includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL);
+    });
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+  const preavisJusquAuxMails = async () => {
+    act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
+    act(() => saisir(container.querySelector('input[data-recu-le]') as HTMLInputElement, HIER));
+    await act(async () => { (container.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement).click(); });
+  };
+  const valider = async () => { await act(async () => { (container.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); }); await act(async () => { await Promise.resolve(); }); };
+  const blocs = () => [...document.querySelectorAll('[data-mail-parti]')].map((b) => [b.getAttribute('data-mail-parti'), b.getAttribute('data-envoye'), b.querySelector('[data-a]')?.textContent, b.querySelector('[data-cc]')?.textContent]);
+
+  it('préavis AVEC envoi : « Enregistré et transmis à nos partenaires », rappel, un bloc par mail RENDU par le serveur, « Fermer » seul', async () => {
+    const f = await rendre({ reponse: () => ok({ dateMax: '2099-01-01' }, { mails: { etat: 'ok', envois: [ACCUSE, PART_OK] } }) });
+    await preavisJusquAuxMails();
+    await valider();
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré et transmis à nos partenaires');
+    expect([...modale()!.querySelectorAll('[data-resume] dt')].map((d) => d.textContent)).toEqual(['Action', 'Logement', 'Locataires', 'Date']);
+    expect(modale()!.querySelector('[data-resume] dd')?.textContent).toBe('Préavis');
+    expect(blocs()).toEqual([
+      ['preavis_locataires', 'oui', 'alice@exemple.test', 'gestion@criterimmo.fr, moi@exemple.test'],
+      ['preavis_adhoc', 'oui', 'gestion.criterimmo@gmail.com', 'gestion@criterimmo.fr, moi@exemple.test'],
+    ]);
+    expect([...modale()!.querySelectorAll('.mis-actions > *')].map((b) => b.textContent)).toEqual(['Fermer']);
+    const n = posts(f).length;
+    await act(async () => { (modale()!.querySelector('[data-fermer-confirmation]') as HTMLButtonElement).click(); });
+    expect(modale()).toBeNull();
+    expect(posts(f)).toHaveLength(n); // « Fermer » ne déclenche rien
+  });
+
+  it('préavis SANS envoi (case décochée) : « Enregistré », le message, les mails réellement partis (l’accusé)', async () => {
+    await rendre({ reponse: () => ok({ dateMax: '2099-01-01' }, { mails: { etat: 'ok', envois: [ACCUSE] } }) });
+    await preavisJusquAuxMails();
+    act(() => (container.querySelector('[data-case-partenaires]') as HTMLInputElement).click());
+    await valider();
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré');
+    expect(modale()!.querySelector('[data-message-confirmation]')?.textContent)
+      .toBe('Aucun mail n’a été envoyé à nos partenaires. L’information a été transmise uniquement en interne, à notre service gestion.');
+    expect(blocs()).toEqual([['preavis_locataires', 'oui', 'alice@exemple.test', 'gestion@criterimmo.fr, moi@exemple.test']]);
+  });
+
+  it('préavis, envoi PARTIELLEMENT en échec : en rouge avec l’adresse, jamais « transmis »', async () => {
+    await rendre({ reponse: () => ok({ dateMax: '2099-01-01' }, { mails: { etat: 'ok', envois: [ACCUSE, { ...PART_OK, envoye: false, motif: 'Gmail injoignable' }] } }) });
+    await preavisJusquAuxMails();
+    await valider();
+    expect(modale()?.querySelector('h2')?.textContent).toBe('⚠ Enregistré');
+    expect(modale()!.textContent).not.toContain('transmis à nos partenaires');
+    expect(modale()!.querySelector('[data-message-echec]')?.textContent).toBe('L’envoi à nos partenaires a échoué (gestion.criterimmo@gmail.com) : rien ne leur a été transmis.');
+    expect(modale()!.querySelector('[data-mail-parti="preavis_adhoc"] [data-echec-envoi]')?.textContent).toBe('Échec de l’envoi à gestion.criterimmo@gmail.com : Gmail injoignable.');
+  });
+
+  it('préavis REFUSÉ : pas de modale de succès, le message d’erreur existant reste', async () => {
+    await rendre({ reponse: () => ({ ok: false, status: 400, json: async () => ({ etat: 'refus', motif: 'Date de réception invalide.' }) }) as unknown as Response });
+    await preavisJusquAuxMails();
+    await valider();
+    expect(modale()).toBeNull();
+    expect(container.textContent).toContain('Date de réception invalide.');
+  });
+
+  const sortie = async (decocher = false) => {
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
+    if (decocher) act(() => (container.querySelector('[data-case-partenaires]') as HTMLInputElement).click());
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+  const RECAP = { envoye: true, ignore: false, motif: null, destinataires: ['moi@exemple.test', 'collegue@exemple.test'], objet: 'Sortie de locataire — 4 rue Fictive' };
+  const SORTIE_ADHOC = { sorte: 'sortie_adhoc', objet: '[Information] Sortie de locataire(s)', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr', 'moi@exemple.test'], envoye: true, motif: null };
+
+  it('sortie AVEC envoi : « transmis », récapitulatif interne + mail partenaires, adresses rendues par le serveur', async () => {
+    await rendre({ reponse: () => ok({ date: HIER, vacant: false, restants: ['BERNARD Paul'] }, { mail: RECAP, adhoc: { etat: 'ok', envois: [SORTIE_ADHOC] } }) });
+    await sortie();
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré et transmis à nos partenaires');
+    expect(modale()!.querySelector('[data-resume] dd')?.textContent).toBe('Sortie de locataire');
+    expect(blocs()).toEqual([
+      ['sortie_interne', 'oui', 'moi@exemple.test, collegue@exemple.test', 'aucune'],
+      ['sortie_adhoc', 'oui', 'gestion.criterimmo@gmail.com', 'gestion@criterimmo.fr, moi@exemple.test'],
+    ]);
+  });
+
+  it('sortie SANS envoi : « Enregistré » + le message ; le récapitulatif interne listé', async () => {
+    const f = await rendre({ reponse: () => ok({ date: HIER, vacant: false, restants: [] }, { mail: RECAP, adhoc: { etat: 'ok', envois: [] } }) });
+    await sortie(true);
+    expect(posts(f).at(-1)).toMatchObject({ action: 'sortie-locataires', informerPartenaires: false });
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré');
+    expect(modale()!.querySelector('[data-message-confirmation]')?.textContent).toContain('Aucun mail n’a été envoyé à nos partenaires.');
+    expect(blocs().map((b) => b[0])).toEqual(['sortie_interne']);
+  });
+
+  it('sortie : le récapitulatif interne en ÉCHEC est en rouge, avec l’adresse', async () => {
+    await rendre({ reponse: () => ok({ date: HIER, vacant: false, restants: [] }, { mail: { ...RECAP, envoye: false, motif: 'Gmail injoignable' }, adhoc: { etat: 'ok', envois: [SORTIE_ADHOC] } }) });
+    await sortie();
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré et transmis à nos partenaires'.replace('✓', '⚠'));
+    expect(modale()!.querySelector('[data-mail-parti="sortie_interne"] [data-echec-envoi]')?.textContent)
+      .toBe('Échec de l’envoi à moi@exemple.test, collegue@exemple.test : Gmail injoignable.');
+  });
+
+  it('picto « i » (liste remplie) : au clic, « Destinataires » et « En copie », lus au moment de l’affichage', async () => {
+    const f = await rendre();
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const picto = container.querySelector('[data-info-destinataires="sortie"] [data-picto-i]') as HTMLButtonElement;
+    await act(async () => { picto.click(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(f.mock.calls.some((c) => String(c[0]).includes('destinatairesMails=sortie'))).toBe(true);
+    const bulle = container.querySelector('[data-bulle-destinataires]')!;
+    expect([...bulle.querySelectorAll('[data-destinataire]')].map((x) => x.textContent)).toEqual(['ADHOC — gestion.criterimmo@gmail.com']);
+    expect([...bulle.querySelectorAll('[data-copie]')].map((x) => x.textContent)).toEqual(['Service gestion — gestion@criterimmo.fr']);
+    expect((container.querySelector('[data-case-partenaires]') as HTMLInputElement).checked).toBe(true); // le picto ne coche rien
+  });
+
+  it('picto « i » (liste vide) : « Aucun destinataire configuré » + le lien vers Destinataires mails > Sorties', async () => {
+    await rendre({ liste: [], info: { destinataires: [], copies: [] } });
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-partenaires-vide]')?.textContent).toContain('aucun destinataire configuré');
+    await act(async () => { (container.querySelector('[data-info-destinataires="sortie"] [data-picto-i]') as HTMLButtonElement).click(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-aucun-destinataire]')?.textContent).toContain('Aucun destinataire configuré');
+    expect(container.querySelector('[data-lien-destinataires]')?.getAttribute('href')).toBe('/admin/location/outils/parametres?onglet=destinataires&liste=sorties');
   });
 });

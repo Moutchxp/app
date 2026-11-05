@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
+import { ModaleEnvois } from './ConfirmationEnvois';
+import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
+import { dateCourte, FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
 
 /**
  * ══ 🔴🔴 LOCATION — LE BOUTON « ENVOI ADHOC & MONGA » ET SA FENÊTRE DE CONFIRMATION (Arno, 21/10/2026) ══════════════════════
@@ -46,8 +48,13 @@ export function infoBulleEnvoi(e: EnvoiLu | null): string | undefined {
   return e === null ? undefined : e.mention;
 }
 
-export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage = false, variante = 'gros' }: {
+export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage = false, variante = 'gros', confirmationApresEnvoi = false }: {
   bailId: number; dernierEnvoi?: EnvoiLu | null;
+  /**
+   * 🔴 Arno (05/11/2026) — après « Envoyer », la modale « Enregistré et transmis à nos partenaires » (écran « Nouveau locataire »
+   * seulement) : les adresses RÉELLEMENT utilisées selon le serveur, y compris celles modifiées dans la fenêtre.
+   */
+  confirmationApresEnvoi?: boolean;
   /** Arno (21/10/2026) — « Enregistrer et envoyer à ADHOC & MONGA » : la fenêtre s'ouvre d'elle-même, une fois, au montage. */
   ouvrirAuMontage?: boolean;
   /**
@@ -64,6 +71,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
   const [motif, setMotif] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [dernier, setDernier] = useState<EnvoiLu | null>(dernierEnvoi);
+  const [confirmation, setConfirmation] = useState<ConfirmationAction | null>(null);
   /** Arno (21/10/2026) — le message d'accompagnement (facultatif, sans limite) : repris dans le mail et dans le journal. */
   const [message, setMessage] = useState('');
   const zoneMessage = useRef<HTMLTextAreaElement | null>(null);
@@ -126,6 +134,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
         setDernier(d.data.envoi);
         if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENEMENT_ENVOI_LOCATION, { detail: bailId }));
         setSucces(`Mail envoyé à ${d.data.n} destinataire${d.data.n > 1 ? 's' : ''}.`);
+        if (confirmationApresEnvoi) setConfirmation(confirmationEnvoi(d.data.envoi, apercu?.donnees));
         setEnvoi('repos'); setOuvert(false);
         return;
       }
@@ -158,6 +167,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
         </>
       )}
 
+      {confirmation !== null && <ModaleEnvois issue={confirmation.issue} rappel={confirmation.rappel} onFermer={() => setConfirmation(null)} />}
       {ouvert && (() => { const fenetre = (
         <div className="eam-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) fermer(); }}>
           <div className="eam-fenetre" role="dialog" aria-modal="true" aria-labelledby={titre} data-fenetre-envoi>
@@ -228,6 +238,18 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
       return variante === 'discret' && typeof document !== 'undefined' ? createPortal(fenetre, document.querySelector('.svv-adm-root') ?? document.body) : fenetre; })()}
     </div>
   );
+}
+
+/** 🔴 Arno (05/11/2026) — la confirmation d'un envoi « Nouvelle location » : ce que le serveur a rendu (adresses, objet). PUR. */
+export function confirmationEnvoi(envoi: EnvoiLu, d: DonneesNouvelleLocation | undefined): ConfirmationAction {
+  const noms = (d?.locataires ?? []).map((l) => [l.prenom, l.nom].filter((x) => x !== null && x !== '').join(' '));
+  const logement = d === undefined ? '' : [d.bien.voie, [d.bien.codePostal, d.bien.commune].filter((x) => x).join(' ')].filter((x) => x).join(', ');
+  return {
+    issue: { informer: true, mails: [{ sorte: 'nouvelle_location', objet: envoi.objet, a: [...envoi.destinataires], cc: [], envoye: true, motif: null }], motifGlobal: null },
+    rappel: [['Action', 'Nouvelle location'], ...(logement !== '' ? [['Logement', logement] as [string, string]] : []),
+      ...(noms.length > 0 ? [[noms.length > 1 ? 'Locataires' : 'Locataire', noms.join(', ')] as [string, string]] : []),
+      ...(d !== undefined ? [['Date d’entrée', dateCourte(d.entree)] as [string, string]] : [])],
+  };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   type DureeMois, type ModePreavis, type PreavisAffiche,
 } from '../../../../lib/location/preavis';
 import { MENTION_SANS_EMAIL, type MailAvis } from '../../../../lib/location/mailsPreavisSortie';
+import { InfoDestinataires } from './ConfirmationEnvois';
 
 /**
  * ══ 🔴🔴 LE PRÉAVIS DU LOCATAIRE — LES BRIQUES D'ÉCRAN (Arno, 18/10/2026) ════════════════════════════════════════════════
@@ -249,12 +250,28 @@ export interface ApercuMailsPreavis { mails: MailAvis[]; sansEmail: string[]; en
  * 🔴 Arno (05/11/2026, 460) — LA CASE « INFORMER NOS PARTENAIRES » (préavis et sortie) : les destinataires lus dans « Paramètres Location »
  * (libellé et adresse, dans l'ordre), cochée par défaut ; décochée : aucun mail partenaire. Rien si la liste est vide (ou bien hors gestion).
  */
-export function CaseInformerPartenaires({ liste, coche, onChange }: { liste: readonly { adresse: string; libelle: string }[]; coche: boolean; onChange: (v: boolean) => void }) {
-  if (liste.length === 0) return null;
+export function CaseInformerPartenaires({ liste, coche, onChange, action = 'preavis', afficherVide = false }: {
+  liste: readonly { adresse: string; libelle: string }[]; coche: boolean; onChange: (v: boolean) => void;
+  /** 🔴 Arno (05/11/2026) — le type d'action du picto « i » (sa liste dans « Destinataires mails »). */
+  action?: 'preavis' | 'sortie';
+  /** Liste vide d'un bien EN GESTION : une ligne discrète (« aucun destinataire configuré ») et le picto ; sinon rien, comme avant. */
+  afficherVide?: boolean;
+}) {
+  if (liste.length === 0) {
+    return afficherVide ? (
+      <div className="pvs-partenaires pvs-partenaires--vide" data-partenaires-vide>
+        <span className="pvs-case-ligne"><span className="loc-muet">Informer nos partenaires : aucun destinataire configuré.</span><InfoDestinataires action={action} /></span>
+      </div>
+    ) : null;
+  }
   return (
     <div className="pvs-partenaires" data-informer-partenaires>
-      <label className="pvs-case"><input type="checkbox" checked={coche} onChange={(e) => onChange(e.target.checked)} data-case-partenaires />
-        <span><strong>Informer nos partenaires</strong> <span className="loc-muet">(copie à gestion@criterimmo.fr et à vous)</span></span></label>
+      <span className="pvs-case-ligne">
+        <label className="pvs-case"><input type="checkbox" checked={coche} onChange={(e) => onChange(e.target.checked)} data-case-partenaires />
+          <span><strong>Informer nos partenaires</strong> <span className="loc-muet">(copie à gestion@criterimmo.fr et à vous)</span></span></label>
+        {/* 🔴 Arno (05/11/2026) — le picto « i » : les adresses configurées, lues à l'ouverture (hors du <label> : il ne coche rien). */}
+        <InfoDestinataires action={action} />
+      </span>
       <ul className="pvs-partenaires-liste">
         {liste.map((d) => <li key={d.adresse} data-partenaire={d.adresse}>{d.libelle !== '' ? `${d.libelle} — ` : ''}{d.adresse}</li>)}
       </ul>
@@ -277,7 +294,7 @@ export function ApercuMails({ a, informer = true, onInformer }: { a: ApercuMails
   const mails = a.mails.filter((m) => informer || m.sorte !== 'preavis_adhoc');
   return (
     <div className="pvs-apercu" data-apercu-mails>
-      {a.enGestion && onInformer !== undefined && <CaseInformerPartenaires liste={a.partenaires ?? []} coche={informer} onChange={onInformer} />}
+      {a.enGestion && onInformer !== undefined && <CaseInformerPartenaires liste={a.partenaires ?? []} coche={informer} onChange={onInformer} afficherVide />}
       {a.sansEmail.map((nom) => (
         <p key={nom} className="pvs-sans-email" role="note" data-sans-email>⚠ {nom} : {MENTION_SANS_EMAIL}</p>
       ))}
@@ -382,6 +399,8 @@ export const CSS_PREAVIS = `
 .pvs-gestes{display:flex;flex-direction:column;gap:6px}
 /* Arno (05/11/2026) — l'aperçu des mails du préavis (lecture seule) ; « pas d'e-mail » en ORANGE, avec les mots. */
 .pvs-apercu{display:flex;flex-direction:column;gap:10px;min-width:0}
+.pvs-case-ligne{display:flex;align-items:center;gap:4px;flex-wrap:nowrap}
+.pvs-case-ligne .pvs-case{flex:1 1 auto;min-width:0}
 .pvs-partenaires{border:1px solid var(--color-svv-line);border-radius:12px;padding:6px 12px;background:var(--color-svv-surface)}
 .pvs-partenaires-liste{margin:0 0 6px;padding-left:2.4rem;font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .pvs-sans-email{margin:0;padding:8px 12px;border-radius:10px;font-weight:700;background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-urgence-orange)}

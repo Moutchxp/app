@@ -3,6 +3,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, phrasesMailsAvis, useLecture, type EtatMail } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
+import { ModaleEnvois } from './ConfirmationEnvois';
+import { mailInterneSortie, mailsDepuisAvis, type ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
 import { CSS_PREAVIS, CaseInformerPartenaires, FormulairePreavisCompact, GestesPreavis, MentionPreavis, aujourdhuiParisEcran, type ApercuMailsPreavis } from './Preavis';
@@ -273,7 +275,7 @@ function RecapSortie({ bail, sortants, date, phrase, vacant }: {
 export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFait, compact = false }: {
   bail: BailLogement; choix: readonly number[]; occupationId: number; onAnnuler: () => void;
   /** Arno (05/11/2026) — `adhoc` : l'issue du mail d'information à ADHOC (une phrase par mail ; vide : aucun mail). */
-  onFait: (phrase: string, mail: string | null, adhoc?: { ok: boolean; texte: string }[]) => void;
+  onFait: (phrase: string, mail: string | null, adhoc?: { ok: boolean; texte: string }[], confirmation?: ConfirmationAction) => void;
   /** Arno (19/10/2026) — la forme COMPACTE, sur deux lignes, de l'ÉCRAN DE SORTIE seulement (l'accueil garde celle-ci). */
   compact?: boolean;
 }) {
@@ -284,7 +286,8 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
   const partenaires = useLecture<{ enGestion: boolean; liste: { adresse: string; libelle: string }[] }>(`partenairesSortie=${occupationId}`);
   const [informer, setInformer] = useState(true);
   const listePartenaires = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion ? partenaires.etat.data.liste : [];
-  const casePartenaires = <CaseInformerPartenaires liste={listePartenaires} coche={informer} onChange={setInformer} />;
+  const casePartenaires = <CaseInformerPartenaires liste={listePartenaires} coche={informer} onChange={setInformer} action="sortie"
+    afficherVide={partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion} />;
   const id = useId();
   const jour = aujourdhuiParis();
   const n = choix.length;
@@ -301,14 +304,23 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
     const v = verifierSortie(bail, [...choix], date, jour);
     if (!v.ok) { setMotif(v.motif); return; }
     setEnvoi(true); setMotif(null);
-    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: [...choix], date, informerPartenaires: listePartenaires.length > 0 && informer });
+    const informerPartenaires = listePartenaires.length > 0 && informer;
+    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: [...choix], date, informerPartenaires });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
+    // 🔴 Arno (05/11/2026) — la modale de confirmation : les mails que le SERVEUR dit avoir envoyés (récapitulatif interne, partenaires).
+    const interne = mailInterneSortie(r.mail);
+    const adhoc = mailsDepuisAvis(r.adhoc);
+    const confirmation: ConfirmationAction = {
+      issue: { informer: informerPartenaires, mails: [...(interne === null ? [] : [interne]), ...adhoc.mails], motifGlobal: adhoc.motifGlobal },
+      rappel: [['Action', 'Sortie de locataire'], ['Logement', bail.adresse ?? descriptionLogement(bail)],
+        [sortants.length > 1 ? 'Locataires' : 'Locataire', sortants.map((l) => l.nom).join(', ')], ['Date de sortie', dateFr(date)]],
+    };
     const mail = r.mail as EtatMail | undefined;
     // Arno (19/10/2026) — une réintégration faite par cette sortie s'annonce avec le bilan.
     const reintegrations = (r.data as { reintegrations?: string[] } | undefined)?.reintegrations ?? [];
     onFait(`${phrase.replace('deviendra', 'devient')}${reintegrations.length > 0 ? ` — ${reintegrations.join(' ')}` : ''}`, mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail),
-      phrasesMailsAvis(r.adhoc));
+      phrasesMailsAvis(r.adhoc), confirmation);
   };
   if (compact) {
     /* 🔴 Arno (19/10/2026) — DEUX LIGNES : « Qui sort : » + une étiquette par locataire ; puis la date (focus), la
@@ -405,6 +417,8 @@ export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { 
   const etat: EtatRecherche = texte.trim().length < 2 ? { etat: 'vide' } : etatLu;
   const [version, setVersion] = useState(0);
   const [bilan, setBilan] = useState<{ phrase: string; mail: string | null; adhoc?: { ok: boolean; texte: string }[] } | null>(null);
+  /** 🔴 Arno (05/11/2026) — la modale de confirmation de la sortie (hors du bail, qui se recharge après la sortie). */
+  const [confirmation, setConfirmation] = useState<ConfirmationAction | null>(null);
   const controleur = useRef<AbortController | null>(null);
   useEffect(() => {
     const terme = texte.trim();
@@ -449,8 +463,9 @@ export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { 
       ) : (
         <SortieDuBail key={`${occupation}-${version}`} bail={lu.etat.data} occupationId={occupation} bilan={bilan} gestion={gestion}
           barre={<BarreOccupants texte={texte} setTexte={setTexte} etat={etat} choisir={choisir} />}
-          apres={(phrase, mail, adhoc) => { setBilan({ phrase, mail, adhoc }); setVersion((v) => v + 1); }} />
+          apres={(phrase, mail, adhoc, c) => { setBilan({ phrase, mail, adhoc }); setVersion((v) => v + 1); if (c !== undefined) setConfirmation(c); }} />
       )}
+      {confirmation !== null && <ModaleEnvois issue={confirmation.issue} rappel={confirmation.rappel} onFermer={() => setConfirmation(null)} />}
     </div>
   );
 }
@@ -501,7 +516,7 @@ function BarreOccupants({ texte, setTexte, etat, choisir }: {
 
 function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
   bail: BailLogement; occupationId: number; barre: React.ReactNode; bilan: { phrase: string; mail: string | null; adhoc?: { ok: boolean; texte: string }[] } | null; gestion: boolean;
-  apres: (phrase: string, mail: string | null, adhoc?: { ok: boolean; texte: string }[]) => void;
+  apres: (phrase: string, mail: string | null, adhoc?: { ok: boolean; texte: string }[], confirmation?: ConfirmationAction) => void;
 }) {
   const [choix, setChoix] = useState<number[]>(() => casesParDefaut(bail));
   const [ouvert, setOuvert] = useState(false);
@@ -513,6 +528,8 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
   const [preavisOuvert, setPreavisOuvert] = useState(false);
   const [preavisFait, setPreavisFait] = useState<string | null>(null);
   const [mailsPreavis, setMailsPreavis] = useState<{ ok: boolean; texte: string }[]>([]);
+  /** 🔴 Arno (05/11/2026) — la modale de confirmation du préavis. */
+  const [confirmationPreavis, setConfirmationPreavis] = useState<ConfirmationAction | null>(null);
   const pv = preavis.etat.etat === 'ok' ? preavis.etat.data : null;
   const preavisDe = (occupation: number) => pv?.locataires.find((l) => l.occupationId === occupation)?.preavis ?? null;
   const envoyerGeste = async (corps: Record<string, unknown>): Promise<string | null> => (await envoyer(corps)).motif;
@@ -593,6 +610,14 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                   informerPartenaires: saisie.informerPartenaires !== false });
                 if (r.motif !== null) return r.motif;
                 const d = r.data as { dateMax?: string } | undefined;
+                // 🔴 Arno (05/11/2026) — la modale : les mails que le SERVEUR dit avoir envoyés (accusé, partenaires).
+                const envoyes = mailsDepuisAvis(r.mails);
+                const noms = (pv?.locataires ?? []).filter((l) => (saisie.occupationIds ?? []).includes(l.occupationId)).map((l) => l.nom);
+                setConfirmationPreavis({
+                  issue: { informer: saisie.informerPartenaires !== false, mails: envoyes.mails, motifGlobal: envoyes.motifGlobal },
+                  rappel: [['Action', 'Préavis'], ['Logement', bail.adresse ?? descriptionLogement(bail)], [noms.length > 1 ? 'Locataires' : 'Locataire', noms.join(', ')],
+                    ['Date', `Reçu le ${dateFr(typeof saisie.recuLe === 'string' ? saisie.recuLe : null)} — sortie au plus tard le ${dateFr(d?.dateMax ?? null)}`]],
+                });
                 setPreavisOuvert(false);
                 setPreavisFait(`Préavis enregistré — sortie au plus tard le ${dateFr(d?.dateMax ?? null)}. Le logement reste occupé jusqu’à la sortie validée.`);
                 setMailsPreavis(phrasesMailsAvis(r.mails));
@@ -600,6 +625,7 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                 return null;
               }} />
           )}
+          {confirmationPreavis !== null && <ModaleEnvois issue={confirmationPreavis.issue} rappel={confirmationPreavis.rappel} onFermer={() => setConfirmationPreavis(null)} />}
           {preavisFait !== null && (
             <div className="gst-info arc-bilan" role="status" data-preavis-fait>
               <p style={{ margin: 0 }}>{preavisFait}</p>

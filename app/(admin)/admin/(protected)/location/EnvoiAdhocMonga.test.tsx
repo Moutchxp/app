@@ -201,3 +201,42 @@ describe('la fiche locataire : un bouton par bail EN COURS, « Renvoyer » et la
     expect(posts()).toEqual([]);
   });
 });
+
+describe('🔴 Arno (05/11/2026) — après « Envoyer » (écran « Nouveau locataire ») : la modale de confirmation', () => {
+  const ENVOI = (destinataires: string[]) => ({ etat: 'ok', data: { n: destinataires.length, envoi: { quand: '2026-11-05T10:00:00Z', par: 'Arnaud Jorel', destinataires,
+    objet: 'Nouvelle location · 4 rue Fictive', mention: 'Envoyé le 05/11/2026' } } });
+  const modale = () => document.querySelector('[data-modale-issue]');
+  it('« Enregistré et transmis à nos partenaires » ; les adresses RENDUES par le serveur (y compris une adresse modifiée) ; « Fermer » seul', async () => {
+    // Le serveur rend une liste DIFFÉRENTE de celle saisie : la modale suit le serveur, jamais l'écran.
+    reponsesEnvoi = [ENVOI(['a.jorel@sansvisavis.com', 'nouvelle@exemple.test', 'laura@monga.io'])];
+    await act(async () => { root.render(createElement(EnvoiAdhocMonga, { bailId: 536, confirmationApresEnvoi: true })); });
+    await clic(container.querySelector('[data-ouvrir-envoi]'));
+    await saisir(container.querySelector('[data-ligne-destinataire="2"] [data-adresse]') as HTMLInputElement, 'nouvelle@exemple.test');
+    await clic(container.querySelector('[data-envoyer]'));
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré et transmis à nos partenaires');
+    expect(modale()!.querySelector('[data-resume] dd')?.textContent).toBe('Nouvelle location');
+    const bloc = modale()!.querySelector('[data-mail-parti="nouvelle_location"]')!;
+    expect(bloc.querySelector('[data-objet]')?.textContent).toBe('Nouvelle location · 4 rue Fictive');
+    expect(bloc.querySelector('[data-a]')?.textContent).toBe('a.jorel@sansvisavis.com, nouvelle@exemple.test, laura@monga.io');
+    expect([...modale()!.querySelectorAll('.mis-actions > *')].map((b) => b.textContent)).toEqual(['Fermer']);
+    const n = posts().length;
+    await clic(modale()!.querySelector('[data-fermer-confirmation]'));
+    expect(modale()).toBeNull();
+    expect(posts()).toHaveLength(n);
+  });
+  it('un envoi en ÉCHEC : pas de modale de succès, l’« Envoi impossible » existant reste', async () => {
+    reponsesEnvoi = [{ etat: 'echec', motif: 'Gmail injoignable' }];
+    await act(async () => { root.render(createElement(EnvoiAdhocMonga, { bailId: 536, confirmationApresEnvoi: true })); });
+    await clic(container.querySelector('[data-ouvrir-envoi]'));
+    await clic(container.querySelector('[data-envoyer]'));
+    expect(modale()).toBeNull();
+    expect(container.querySelector('[data-envoi-echec]')?.textContent).toContain('Gmail injoignable');
+  });
+  it('les AUTRES écrans (fiche locataire, cartes) : aucune modale ajoutée', async () => {
+    reponsesEnvoi = [ENVOI(['laura@monga.io'])];
+    await ouvrir();
+    await clic(container.querySelector('[data-envoyer]'));
+    expect(modale()).toBeNull();
+    expect(container.querySelector('[data-envoi-ok]')?.textContent).toBe('Mail envoyé à 1 destinataire.');
+  });
+});

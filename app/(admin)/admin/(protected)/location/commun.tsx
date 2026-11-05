@@ -56,7 +56,9 @@ export const liste = <T,>(x: readonly T[] | null | undefined): readonly T[] => (
 
 /** Envoie un geste. Rend `null` si c'est enregistré, sinon le motif (jamais une exception). */
 /** L'état du mail de confirmation d'un mouvement du portefeuille (Arno, 18/10/2026) — `undefined` quand rien n'est envoyé. */
-export interface EtatMail { envoye: boolean; ignore: boolean; motif: string | null }
+export interface EtatMail { envoye: boolean; ignore: boolean; motif: string | null;
+  /** 🔴 Arno (05/11/2026) — les adresses RÉELLEMENT utilisées et l'objet (récapitulatif de sortie) : la modale de confirmation les montre. */
+  destinataires?: string[]; objet?: string | null }
 
 /** « Enregistré, mais mail non envoyé : … » — `null` quand il n'y a rien à dire (envoyé, ou rien à envoyer). */
 /** Arno (05/11/2026) — l'issue des mails automatiques du préavis et de la sortie, telle que la route la rend. */

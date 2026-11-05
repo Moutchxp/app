@@ -113,7 +113,9 @@ describe('A1 — « Nouveau locataire » : « Enregistrer et envoyer à ADHOC & 
     await preparer();
     const barre = container.querySelector('[data-collant]')!;
     const boutons = [...barre.querySelectorAll('a, button')];
-    expect(boutons.map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer et envoyer à ADHOC & MONGA', 'Enregistrer']);
+    // 🔴 Arno (05/11/2026) — le picto « i » (destinataires configurés) juste après « Enregistrer et envoyer ».
+    expect(boutons.map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer et envoyer à ADHOC & MONGA', 'i', 'Enregistrer']);
+    expect(barre.querySelector('[data-info-destinataires="nouvelle_location"]')).not.toBeNull();
     expect(envoyerEtEnregistrer().disabled).toBe(true);
     expect(enregistrer().disabled).toBe(true);
     await choisirBienEtDate();
