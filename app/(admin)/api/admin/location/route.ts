@@ -3,7 +3,7 @@ import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arb
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
-import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, enregistrerPreavis, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
+import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdition';
 import { archiverPersonne, modifierPersonne, separerPersonne } from '../../../../lib/gestion/annuaireEditionRepo';
@@ -33,7 +33,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuMailsPreavis, envoyerMailSortieAdhoc, envoyerMailsPreavis } from '../../../../lib/location/mailsPreavisSortieRepo';
+import { apercuMailsPreavis, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -511,11 +511,9 @@ export async function POST(request: Request): Promise<Response> {
       // LE PRÉAVIS (Arno, 18/10/2026) : ouvert aux comptes Location — enregistrer, corriger, annuler (journalisés, rien d'effacé).
       case 'enregistrer-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        const r = await enregistrerPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur);
-        // Arno (05/11/2026) — « Valider et envoyer » (après l'aperçu) : le préavis d'abord, les mails ENSUITE, jamais bloquants.
-        if (r.etat !== 'ok' || corps.envoyerMails !== true) return repondre(r);
-        const mails = await envoyerMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix) }, auteur);
-        return repondre({ ...r, mails: mails.etat === 'ok' ? { etat: 'ok', envois: mails.envois } : { etat: mails.etat, motif: mails.motif } });
+        // Arno (05/11/2026) — « Valider et envoyer » (après l'aperçu) : le préavis d'abord, les mails ENSUITE, jamais bloquants —
+        // LA porte commune à toutes les entrées (fiche de la Gestion comprise).
+        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];

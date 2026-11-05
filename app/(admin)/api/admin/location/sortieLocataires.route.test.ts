@@ -23,17 +23,12 @@ vi.mock('../../../../lib/location/sortieLocatairesRepo', () => ({
 
 /** Arno (05/11/2026) — les mails automatiques du préavis et de la sortie (doublés : rien ne part, aucune base). */
 const envoyerMailSortieAdhoc = vi.fn();
-const envoyerMailsPreavis = vi.fn();
+const enregistrerPreavisAvecMails = vi.fn();
 const apercuMailsPreavis = vi.fn();
 vi.mock('../../../../lib/location/mailsPreavisSortieRepo', () => ({
   envoyerMailSortieAdhoc: (...a: unknown[]) => envoyerMailSortieAdhoc(...a),
-  envoyerMailsPreavis: (...a: unknown[]) => envoyerMailsPreavis(...a),
+  enregistrerPreavisAvecMails: (...a: unknown[]) => enregistrerPreavisAvecMails(...a),
   apercuMailsPreavis: (...a: unknown[]) => apercuMailsPreavis(...a),
-}));
-const enregistrerPreavis = vi.fn();
-vi.mock('../../../../lib/location/preavisRepo', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../lib/location/preavisRepo')>()),
-  enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a),
 }));
 
 import { POST } from './route';
@@ -47,7 +42,7 @@ const ORDRE: string[] = [];
 beforeEach(() => {
   enregistrerSortie.mockReset(); notifierSortie.mockReset(); droitGestion = true; ORDRE.length = 0;
   envoyerMailSortieAdhoc.mockReset().mockImplementation(async () => { ORDRE.push('adhoc'); return { etat: 'ok', envois: [] }; });
-  envoyerMailsPreavis.mockReset(); apercuMailsPreavis.mockReset(); enregistrerPreavis.mockReset();
+  enregistrerPreavisAvecMails.mockReset(); apercuMailsPreavis.mockReset();
 });
 
 describe('POST sortie-locataires', () => {
@@ -108,25 +103,16 @@ describe('Arno (05/11/2026) — POST apercu-preavis / enregistrer-preavis + envo
     const r = await (await POST(demande({ action: 'apercu-preavis', ...corps }))).json();
     expect(r.etat).toBe('ok');
     expect(apercuMailsPreavis).toHaveBeenCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 } }, { id: 3, libelle: 'arno@exemple.fr' });
-    expect(enregistrerPreavis).not.toHaveBeenCalled();
-    expect(envoyerMailsPreavis).not.toHaveBeenCalled();
+    expect(enregistrerPreavisAvecMails).not.toHaveBeenCalled();
   });
 
-  it('« Valider et envoyer » : le préavis D’ABORD, les mails ENSUITE ; leur issue est rendue', async () => {
-    enregistrerPreavis.mockImplementation(async () => { ORDRE.push('preavis'); return { etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } }; });
-    envoyerMailsPreavis.mockImplementation(async () => { ORDRE.push('mails'); return { etat: 'ok', envois: [] }; });
+  it('« Valider et envoyer » : LA porte commune, mails demandés ; sans le drapeau (autres écrans) : préavis seul', async () => {
+    enregistrerPreavisAvecMails.mockResolvedValue({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 }, mails: { etat: 'ok', envois: [] } });
     const r = await (await POST(demande({ action: 'enregistrer-preavis', ...corps, motif: null, envoyerMails: true }))).json();
-    expect(ORDRE).toEqual(['preavis', 'mails']);
-    expect(envoyerMailsPreavis).toHaveBeenCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 } }, { id: 3, libelle: 'arno@exemple.fr' });
     expect(r).toEqual({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 }, mails: { etat: 'ok', envois: [] } });
-  });
-
-  it('un préavis REFUSÉ : aucun mail ; sans `envoyerMails` (autres écrans) : aucun mail non plus, comme avant', async () => {
-    enregistrerPreavis.mockResolvedValue({ etat: 'refus', motif: 'Saisissez la date de réception du recommandé' });
-    await POST(demande({ action: 'enregistrer-preavis', ...corps, envoyerMails: true }));
-    enregistrerPreavis.mockResolvedValue({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } });
-    const r = await (await POST(demande({ action: 'enregistrer-preavis', ...corps }))).json();
-    expect(r).toEqual({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } });
-    expect(envoyerMailsPreavis).not.toHaveBeenCalled();
+    expect(enregistrerPreavisAvecMails).toHaveBeenLastCalledWith(
+      { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, motif: null }, { id: 3, libelle: 'arno@exemple.fr' }, true);
+    await POST(demande({ action: 'enregistrer-preavis', ...corps }));
+    expect(enregistrerPreavisAvecMails.mock.calls[1][2]).toBe(false);
   });
 });

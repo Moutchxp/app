@@ -39,7 +39,10 @@ vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
     entree: '2022-09-01', locataires: [], annexes: [], autresOccupants: [] }),
 }));
 
-const { apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc } = await import('./mailsPreavisSortieRepo');
+const enregistrerPreavis = vi.fn();
+vi.mock('./preavisRepo', () => ({ enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a) }));
+
+const { apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien } = await import('./mailsPreavisSortieRepo');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const envoyes: MessageAEnvoyer[] = [];
@@ -148,5 +151,58 @@ describe('l’information ADHOC de la sortie', () => {
     enGestion = false;
     expect(await envoyerMailSortieAdhoc(FAITE, AUTEUR, deps)).toEqual({ etat: 'ok', envois: [] });
     expect(envoyes).toEqual([]);
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — LA porte commune à toutes les entrées : `enregistrerPreavisAvecMails`', () => {
+  beforeEach(() => { enregistrerPreavis.mockReset(); });
+
+  it('le préavis D’ABORD, les mails ENSUITE (accusé puis ADHOC), leur issue est rendue', async () => {
+    enregistrerPreavis.mockImplementation(async () => { expect(envoyes).toEqual([]); return { etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } }; });
+    const r = await enregistrerPreavisAvecMails({ ...DEMANDE, motif: null }, AUTEUR, true, deps);
+    expect(enregistrerPreavis).toHaveBeenCalledWith({ ...DEMANDE, motif: null }, AUTEUR);
+    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test', 'paul@exemple.test'], ['gestion.criterimmo@gmail.com']]);
+    expect(r.etat).toBe('ok');
+    expect(r.mails?.etat === 'ok' && r.mails.envois.map((e) => e.envoye)).toEqual([true, true]);
+  });
+
+  it('un préavis refusé : aucun mail ; sans « Valider et envoyer » : le préavis seul, aucun mail', async () => {
+    enregistrerPreavis.mockResolvedValue({ etat: 'refus', motif: 'Déjà en préavis' });
+    expect(await enregistrerPreavisAvecMails(DEMANDE, AUTEUR, true, deps)).toEqual({ etat: 'refus', motif: 'Déjà en préavis' });
+    enregistrerPreavis.mockResolvedValue({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } });
+    expect(await enregistrerPreavisAvecMails(DEMANDE, AUTEUR, false, deps)).toEqual({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } });
+    expect(envoyes).toEqual([]);
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — le mail ADHOC entre dans l’historique du BIEN ; l’adresse d’ADHOC n’est rattachée à AUCUN bien', () => {
+  it('l’envoi n’écrit QUE son journal et la ligne du journal du bien : ni contact, ni rattachement, ni occupation pour ADHOC', async () => {
+    await envoyerMailsPreavis(DEMANDE, AUTEUR, deps);
+    const tables = ecritures.map((e) => /INSERT INTO (\w+)/.exec(e.sql)?.[1]);
+    expect(new Set(tables)).toEqual(new Set(['gestion_location_mail_avis', 'gestion_journal']));
+    expect(ecritures.some((e) => /(INSERT INTO|UPDATE)\s+(gestion_annuaire_contact|gestion_annuaire_occupation|gestion_rattachement\w*|gestion_partenaire_interne|gestion_lien\w*)\b/.test(e.sql))).toBe(false);
+    // Le mail ADHOC est rangé sous le BIEN (lot 7), pas sous une adresse.
+    const adhoc = journalAvis().find((e) => e.params[0] === 'preavis_adhoc')!;
+    expect(adhoc.params[1]).toBe(7);
+    expect(adhoc.params[4]).toEqual(['gestion.criterimmo@gmail.com']);
+  });
+
+  it('l’historique du bien lit ces mails PAR LE BIEN (`lot_id`), jamais par une adresse', async () => {
+    const { query } = await import('../db/client');
+    const q = query as unknown as ReturnType<typeof vi.fn>;
+    q.mockImplementationOnce(async (sql: string, params: unknown[]) => {
+      const s = sql.replace(/\s+/g, ' ');
+      expect(s).toContain('FROM gestion_location_mail_avis WHERE lot_id = $1');
+      expect(s).not.toMatch(/destinataires\s*@>|ANY\(destinataires|gestion_annuaire_contact/);
+      expect(params).toEqual([7]);
+      return { rows: [{ id: '3', sorte: 'preavis_adhoc', quand: '2026-11-05', par: 'x', a: ['gestion.criterimmo@gmail.com'], cc: [], objet: 'o', texte: 't', statut: 'envoye' }] };
+    });
+    expect((await mailsAvisDuBien(7)).map((m) => [m.id, m.sorte])).toEqual([[3, 'preavis_adhoc']]);
+  });
+
+  it('l’adresse d’ADHOC est celle du PARTENAIRE de la Gestion, jamais « nous » ni un client', async () => {
+    const { ADRESSES_INTERNES } = await import('../gestion/adresseInterne');
+    const { ADRESSE_ADHOC } = await import('./mailsPreavisSortie');
+    expect(ADRESSES_INTERNES).toContain(ADRESSE_ADHOC);
   });
 });

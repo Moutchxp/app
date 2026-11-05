@@ -13,6 +13,7 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { mailAdhocSortie, mailsDuPreavis, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { verifierPreavis, type ModePreavis } from './preavis';
+import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { donneesMailSortie, lireBail, type SortieFaite } from './sortieLocatairesRepo';
 
@@ -206,4 +207,39 @@ export async function envoyerMailSortieAdhoc(f: SortieFaite, auteur: Auteur, dep
   } catch (e) {
     return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };
   }
+}
+
+/**
+ * ══ 🔴 Arno (05/11/2026) — UNE SEULE PORTE POUR TOUTES LES ENTRÉES QUI ENREGISTRENT UN PRÉAVIS ═══════════════════════════════
+ * La tuile Location (écran de sortie) et la fiche commune de la Gestion appellent CETTE fonction, et elle seule : le préavis
+ * d'abord (`enregistrerPreavis`, inchangé), PUIS — si l'écran a montré l'aperçu et que l'on a cliqué « Valider et envoyer »
+ * (`envoyerMails`) — les mails, par `envoyerMailsPreavis`. Un préavis refusé n'envoie rien ; un mail en échec ne défait rien.
+ */
+export async function enregistrerPreavisAvecMails(
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; motif?: unknown }, auteur: Auteur,
+  envoyerMails: boolean, deps: DepsAvis = {},
+): Promise<IssuePreavis<{ dateMax: string; preavis: number }> & { mails?: { etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'sans_schema' | 'echec'; motif: string } }> {
+  const r = await enregistrerPreavis(d, auteur);
+  if (r.etat !== 'ok' || !envoyerMails) return r;
+  const m = await envoyerMailsPreavis({ occupationIds: d.occupationIds, recuLe: d.recuLe, choix: d.choix }, auteur, deps);
+  return { ...r, mails: m.etat === 'ok' ? { etat: 'ok', envois: m.envois } : { etat: m.etat, motif: m.motif } };
+}
+
+/** Un mail de préavis ou de sortie, tel que l'Historique du bien le montre. */
+export interface MailAvisDuBien {
+  id: number; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec';
+}
+
+/**
+ * ══ 🔴 Arno (05/11/2026) — LES MAILS DE PRÉAVIS ET DE SORTIE D'UN BIEN, POUR SON HISTORIQUE ═════════════════════════════════
+ * Lus dans LEUR journal (migration 457), PAR LE BIEN (`lot_id`, posé à l'envoi) — JAMAIS par une adresse : l'adresse d'ADHOC
+ * (gestion.criterimmo@gmail.com) reste un contact tiers, rattaché à AUCUN bien (règle d'Arno du 26/10/2026) ; aucun contact,
+ * aucun rattachement n'est écrit pour elle. Du plus récent au plus ancien. Sans la 457 : aucun. Lecture seule.
+ */
+export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> {
+  if (!Number.isSafeInteger(lotId) || lotId <= 0 || !(await mailsAvisDisponibles())) return [];
+  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec' }>(
+    `SELECT id::text, sorte, envoye_le::text AS quand, auteur_libelle AS par, destinataires AS a, copies AS cc, objet, texte, statut
+       FROM gestion_location_mail_avis WHERE lot_id = $1 ORDER BY envoye_le DESC, id DESC LIMIT 200`, [lotId]);
+  return rows.map((r) => ({ ...r, id: Number(r.id) }));
 }

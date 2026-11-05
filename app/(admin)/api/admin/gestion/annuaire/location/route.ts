@@ -16,7 +16,8 @@ import { dossierDuBailDuLocataire, resumeBailDuLocataire } from '../../../../../
 import { creerBrancheBail } from '../../../../../../lib/location/brancheBailDriveRepo';
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
-import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
+import { annulerPreavis, corrigerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
+import { apercuMailsPreavis, enregistrerPreavisAvecMails } from '../../../../../../lib/location/mailsPreavisSortieRepo';
 import { lireStatutBien, transitionsDuBien } from '../../../../../../lib/gestion/statutBienRepo';
 import { transitionStatutAvecSuites } from '../../../../../../lib/gestion/statutBienSuites';
 import { lireFicheEntiere, modifierFicheEntiere, versionDuBien } from '../../../../../../lib/location/ficheBienEntiereRepo';
@@ -230,9 +231,15 @@ export async function POST(request: Request): Promise<Response> {
         return repondre(d.ok ? { etat: 'ok', data: { driveId: d.driveId, geste: d.geste } } : { etat: 'refus', motif: d.motif });
       }
       // LE PRÉAVIS depuis la fiche commune (Arno, 18/10/2026) : les MÊMES fonctions que la tuile Location.
+      // 🔴 Arno (05/11/2026) — les mails du préavis depuis la fiche commune aussi : LA porte commune (`enregistrerPreavisAvecMails`),
+      //    après le MÊME aperçu (`apercu-preavis`) et le MÊME « Valider et envoyer » (`envoyerMails`) que la tuile Location.
       case 'enregistrer-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await enregistrerPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
+        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true));
+      }
+      case 'apercu-preavis': {
+        const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        return repondre(await apercuMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix) }, auteur));
       }
       case 'corriger-preavis': {
         const pid = identifiant(corps.preavisId);
