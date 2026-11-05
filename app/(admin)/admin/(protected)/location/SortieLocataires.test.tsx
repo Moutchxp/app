@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { EcranAjouterLocatairesAVenir, EcranSortieLocataire, EcranSortieRecherche, FormulaireBail, libelleFaireSortir } from './SortieLocataires';
+import { BlocSortieLogement, EcranAjouterLocatairesAVenir, EcranSortieLocataire, EcranSortieRecherche, FormulaireBail, libelleFaireSortir } from './SortieLocataires';
 import { EcranLocataires } from './EcransLocation';
 import type { BailLogement, EncartLogement } from '../../../../lib/location/sortieLocataires';
 
@@ -175,9 +175,11 @@ describe('le bloc « Sortie du logement »', () => {
     expect(recap.textContent).toContain('01/09/2022');
     expect(recap.textContent).toContain('Le logement reste loué à : BERNARD Paul');
     await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
-    const corps = JSON.parse(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body));
-    expect(corps).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: HIER });
-    expect(apres).toHaveBeenCalledWith('Le logement reste loué à : BERNARD Paul', 'Enregistré, mais mail de confirmation non envoyé : Gmail injoignable.');
+    const post = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+    const corps = JSON.parse(String((post[1] as RequestInit).body));
+    // 🔴 Arno (05/11/2026) — la case « Informer nos partenaires », cochée par défaut : le comportement d'avant (le serveur informe).
+    expect(corps).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: HIER, informerPartenaires: true });
+    expect(apres).toHaveBeenCalledWith('Le logement reste loué à : BERNARD Paul', 'Enregistré, mais mail de confirmation non envoyé : Gmail injoignable.', expect.anything());
   });
 });
 
@@ -947,5 +949,96 @@ describe('🔴 Arno (05/11/2026) — picto « i » et modale de confirmation (pr
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(container.querySelector('[data-aucun-destinataire]')?.textContent).toContain('Aucun destinataire configuré');
     expect(container.querySelector('[data-lien-destinataires]')?.getAttribute('href')).toBe('/admin/location/outils/parametres?onglet=destinataires&liste=sorties');
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — sortie depuis la FICHE LOCATAIRE : case « Informer nos partenaires », picto « i », modale', () => {
+  const PARTENAIRES = [{ adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' }];
+  const RECAP = { envoye: true, ignore: false, motif: null, destinataires: ['moi@exemple.test'], objet: 'Sortie de locataire — 4 rue Fictive' };
+  const ADHOC_OK = { sorte: 'sortie_adhoc', objet: '[Information] Sortie de locataire(s)', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr', 'moi@exemple.test'], envoye: true, motif: null };
+  const modale = () => document.querySelector('[data-modale-issue]');
+  const rendre = async (o: { liste?: typeof PARTENAIRES; enGestion?: boolean; reponse?: () => Response } = {}) => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') return o.reponse !== undefined ? o.reponse() : ok({ date: HIER, vacant: true, restants: [] }, { mail: RECAP, adhoc: { etat: 'ok', envois: [ADHOC_OK] } });
+      const url = String(u);
+      return url.includes('bauxLocataire=') ? ok({ enPlace: [{ occupationId: 11, adresse: '4 rue Fictive' }], sorties: [] })
+        : url.includes('partenairesSortie=') ? ok({ enGestion: o.enGestion ?? true, liste: o.liste ?? PARTENAIRES })
+        : url.includes('destinatairesMails=') ? ok({ destinataires: o.liste ?? PARTENAIRES, copies: [] }) : ok(BAIL);
+    });
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(BlocSortieLogement, { locataireId: 101, occupationDemandee: 11 })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+  const jusquauRecap = async () => {
+    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
+    act(() => (container.querySelector('button[data-valider]') as HTMLButtonElement).click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+  const confirmer = async () => {
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+
+  it('la case, COCHÉE par défaut, avec la liste « Sorties » et le picto ; cochée → `true` ; modale « transmis », « Fermer » seul', async () => {
+    const f = await rendre();
+    // Rien n'est lu tant que le récapitulatif n'est pas affiché.
+    expect(f.mock.calls.some((c) => String(c[0]).includes('partenairesSortie='))).toBe(false);
+    await jusquauRecap();
+    const recap = container.querySelector('[data-recapitulatif]')!;
+    expect((recap.querySelector('[data-case-partenaires]') as HTMLInputElement).checked).toBe(true);
+    expect([...recap.querySelectorAll('[data-partenaire]')].map((x) => x.textContent)).toEqual(['ADHOC — gestion.criterimmo@gmail.com']);
+    expect(recap.querySelector('[data-info-destinataires="sortie"] [data-picto-i]')).not.toBeNull();
+    // Aucun autre contrôle retiré : « Revenir » et « Confirmer la sortie » restent.
+    expect([...recap.querySelectorAll('.loc-boutons button')].map((b) => b.textContent)).toEqual(['Revenir', 'Confirmer la sortie']);
+    await confirmer();
+    expect(posts(f).at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, informerPartenaires: true });
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré et transmis à nos partenaires');
+    expect([...document.querySelectorAll('[data-mail-parti]')].map((b) => b.getAttribute('data-mail-parti'))).toEqual(['sortie_interne', 'sortie_adhoc']);
+    expect(container.querySelector('[data-sortie-faite]')?.textContent).toContain('Sortie enregistrée.'); // le bilan d'avant reste
+    expect([...modale()!.querySelectorAll('.mis-actions > *')].map((b) => b.textContent)).toEqual(['Fermer']);
+    const n = posts(f).length;
+    await act(async () => { (modale()!.querySelector('[data-fermer-confirmation]') as HTMLButtonElement).click(); });
+    expect(modale()).toBeNull();
+    expect(posts(f)).toHaveLength(n);
+  });
+
+  it('décochée → `informerPartenaires: false`, modale « Enregistré » + le message', async () => {
+    const f = await rendre({ reponse: () => ok({ date: HIER, vacant: true, restants: [] }, { mail: RECAP, adhoc: { etat: 'ok', envois: [] } }) });
+    await jusquauRecap();
+    act(() => (container.querySelector('[data-case-partenaires]') as HTMLInputElement).click());
+    await confirmer();
+    expect(posts(f).at(-1)).toMatchObject({ action: 'sortie-locataires', informerPartenaires: false });
+    expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Enregistré');
+    expect(modale()!.querySelector('[data-message-confirmation]')?.textContent)
+      .toBe('Aucun mail n’a été envoyé à nos partenaires. L’information a été transmise uniquement en interne, à notre service gestion.');
+  });
+
+  it('envoi partenaires en ÉCHEC : en rouge avec l’adresse, jamais « transmis »', async () => {
+    await rendre({ reponse: () => ok({ date: HIER, vacant: true, restants: [] }, { mail: RECAP, adhoc: { etat: 'ok', envois: [{ ...ADHOC_OK, envoye: false, motif: 'Gmail injoignable' }] } }) });
+    await jusquauRecap();
+    await confirmer();
+    expect(modale()?.querySelector('h2')?.textContent).toBe('⚠ Enregistré');
+    expect(modale()!.querySelector('[data-echec-envoi]')?.textContent).toBe('Échec de l’envoi à gestion.criterimmo@gmail.com : Gmail injoignable.');
+  });
+
+  it('bien en gestion, liste VIDE : la ligne « aucun destinataire configuré » et le picto ; hors gestion : rien', async () => {
+    await rendre({ liste: [] });
+    await jusquauRecap();
+    expect(container.querySelector('[data-partenaires-vide]')?.textContent).toContain('aucun destinataire configuré');
+    expect(container.querySelector('[data-partenaires-vide] [data-picto-i]')).not.toBeNull();
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre({ enGestion: false, liste: [] });
+    await jusquauRecap();
+    expect(container.querySelector('[data-partenaires-vide], [data-informer-partenaires]')).toBeNull();
+    expect(container.querySelector('button[data-confirmer]')).not.toBeNull();
+  });
+
+  it('une sortie REFUSÉE : pas de modale de succès, le message d’erreur existant reste', async () => {
+    await rendre({ reponse: () => ({ ok: false, status: 400, json: async () => ({ etat: 'refus', motif: 'Date de sortie invalide.' }) }) as unknown as Response });
+    await jusquauRecap();
+    await confirmer();
+    expect(modale()).toBeNull();
+    expect(container.textContent).toContain('Date de sortie invalide.');
   });
 });
