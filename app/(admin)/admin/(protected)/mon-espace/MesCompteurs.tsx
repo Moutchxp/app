@@ -63,6 +63,9 @@ import { FormulaireDossier, etatRepartitionDe, type References } from '../transa
  *     côtés), tri et filtre par négociateur sur les compromis ; les gestes et le rafraîchissement restent (empreinte de la structure).
  */
 type Espace = 'moi' | Agence;
+/** 🔴 Arno (05/11/2026) — le message d'un espace personnel sans aucune affaire rattachée au compte. */
+export const MESSAGE_ESPACE_VIDE = 'Aucune vente ni compromis rattaché à votre compte pour l’instant.';
+
 /** L'adresse de lecture (et d'empreinte) d'un espace : le mien, ou une structure (`?agence=`). PUR. */
 export const avecEspace = (url: string, e: Espace): string => (e === 'moi' ? url : `${url}?agence=${e}`);
 /** En mode agence, la carte et la fiche montrent tout (les deux côtés, leurs commissions), en lecture : les gestes passent par « Mon espace ». */
@@ -356,6 +359,8 @@ export function MesCompteurs() {
           <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       </div>
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
+      {/* 🔴 Arno (05/11/2026) — un collaborateur sans aucune affaire rattachée à son compte : un message clair, jamais un espace muet. */}
+      {disponible && nomAgence === null && !data.ventes.some((v) => v.mesCotes.length > 0) && <p className="loc-alerte" role="status" data-espace-vide>{MESSAGE_ESPACE_VIDE}</p>}
       {/* Décision 10 (Arno, 02/11/2026) : la phrase « Le montant est votre CA … » est retirée de « Mon espace » ; celle du mode agence reste. */}
       {nomAgence !== null && <p className="loc-muet mes-compteurs-note" data-note-ca>{`Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>}
       {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}

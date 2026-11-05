@@ -33,7 +33,8 @@ export async function lireMesApporteurs(compteId: number): Promise<MesApporteurs
   const moi = await moiDansLesVentes(compteId, ventes);
   const miennes = ventes.filter((v) => estAMoi(v, moi));
   const ids = new Set(miennes.map((v) => v.id));
-  const mesRetros = retros.filter((r) => (r.venteId !== null && ids.has(r.venteId)) || (r.venteId === null && moi.libelles.has(r.negociateur)));
+  const mesRetros = retros.filter((r) => (r.venteId !== null && ids.has(r.venteId))
+    || (r.venteId === null && (moi.libelles.has(r.negociateur) || (r.compteId != null && r.compteId === compteId)))); // 🔴 458 — ou à mon compte
   const lignes = parApporteur(mesRetros, miennes.filter((v) => v.statut === 'vendue'));
   const apporteurs = mesApporteursAnnuaire(annuaire, { compteId, administrateur, jour, utilises: await utilises(compteId), lignes,
     idsSurMesVentes: new Set(miennes.flatMap((v) => (v.dossier?.apporteurId == null ? [] : [v.dossier.apporteurId]))),

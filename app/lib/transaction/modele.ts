@@ -47,6 +47,8 @@ export const estModeCommission = (x: unknown): x is ModeCommission => x === 'cal
 export interface LigneVente {
   id: number;
   negociateur: string;
+  /** 🔴 458 (Arno, 05/11/2026) — le compte du négociateur, posé quand il est SÛR ; absent : rapproché par le texte, comme avant. */
+  compteId?: number | null;
   role: RoleLigne;
   /** Le montant TTC — pour une ligne saisie EN HT (437), son équivalent TTC (HT × 1,2), le montant saisi restant `montantHt`. */
   montantTtc: number | null;
@@ -378,6 +380,8 @@ export interface Retrocession {
   annee: number;
   mois: number;
   negociateur: string;
+  /** 🔴 458 (Arno, 05/11/2026) — le compte du négociateur, posé quand il est SÛR ; absent : rapproché par le texte, comme avant. */
+  compteId?: number | null;
   montantTtc: number;
   apporteur: string | null;
   /** null : « à répartir ». */

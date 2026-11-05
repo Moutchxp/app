@@ -25,6 +25,8 @@ export async function moiDansLesVentes(compteId: number, ventes: readonly Vente[
     for (const p of v.repartition?.parties ?? []) if (p.compteId === compteId && p.negociateur !== null) libelles.add(p.negociateur);
     if (v.dossier?.entree?.id === compteId && v.dossier.entree.nom) libelles.add(v.dossier.entree.nom);
     if (v.dossier?.sortie?.id === compteId && v.dossier.sortie.nom) libelles.add(v.dossier.sortie.nom);
+    // 🔴 458 (Arno, 05/11/2026) — une ligne qui PORTE mon compte me désigne, quel que soit son texte (même devenu ambigu : un second compte homonyme).
+    for (const l of v.lignes) if (l.compteId != null && l.compteId === compteId && l.negociateur.trim() !== '') libelles.add(l.negociateur);
   }
   const tous = [...new Set(ventes.flatMap(libellesDeVente))];
   const rapproches = tous.length === 0 ? {} : await comptesRapprochesDesLibelles(tous);
@@ -81,7 +83,8 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
   // 🔴 D27 — les 4 cartes de l'onglet « Compromis » : ce que chacun de MES compromis en cours verse à d'autres, sur la vente ENTIÈRE (mêmes options).
   for (const v of ventes) if (v.mesCotes.length > 0 && v.statut === 'compromis') v.verse = verseAffairePerso(entieres.get(v.id) ?? v, moi, optsNet);
   const mesIds = new Set(mesVentesActees(toutes, moi).map((v) => v.id));
-  const retrocessions = toutesRetros.filter((r) => (r.venteId !== null && mesIds.has(r.venteId)) || (r.venteId === null && moi.libelles.has(r.negociateur)));
+  const retrocessions = toutesRetros.filter((r) => (r.venteId !== null && mesIds.has(r.venteId))
+    || (r.venteId === null && (moi.libelles.has(r.negociateur) || (r.compteId != null && r.compteId === compteId)))); // 🔴 458 — ou à mon compte
   return { disponible: true, aujourdhui, titulaire, ventes, compteurs, schema, nomsNegociateurs, statutsNegociateurs, statistiques, retrocessions };
 }
 

@@ -118,6 +118,7 @@
     "transaction:ranger-porteuse": "tsx app/scripts/transaction-ranger-porteuse.ts",
     "transaction:reclasser-retro": "tsx app/scripts/transaction-reclasser-retro.ts",
     "transaction:statut-negociateur": "tsx app/scripts/transaction-statut-negociateur.ts",
+    "transaction:relier-comptes": "tsx app/scripts/transaction-relier-comptes.ts",
     "location:reparer-categorie-prime": "tsx app/scripts/reparer-categorie-prime.ts",
     "location:apporteurs-internes": "tsx app/scripts/apporteurs-internes.ts",
     "location:origine-proprietaires": "tsx app/scripts/origine-proprietaires.ts",

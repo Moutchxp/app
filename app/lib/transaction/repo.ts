@@ -15,6 +15,7 @@ import { statutLu, type Statut } from '../admin/statut';
 import { statutsDesComptes } from '../admin/statutCompte';
 import { commissionneEffectif, commissionneLu } from '../admin/commissionneCompte';
 import { lireAliasNegociateurs, lireComptesNegociateurs } from '../location/suivi/negociateurIdentiteRepo';
+import { relierComptesSurs } from './negociateurCompte';
 import { eclaterSalaires, salairesParMois, type CoutLigne } from './coutsSaisis';
 import { aUnePrincipaleAuMois, repartirSalaire, type VersionPrincipale } from '../admin/activitePrincipale';
 import { LIBELLE_FONCTION } from '../admin/fonctionsCompteModele';
@@ -160,7 +161,7 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
             v.repartition, ${NOM_COMPTE('negociateur_entree_id')} AS entree_nom, ${NOM_COMPTE('negociateur_sortie_id')} AS sortie_nom` : ''}
        FROM transaction_vente v WHERE v.retire_le IS NULL AND ${filtre} ORDER BY v.annee, v.mois_acte NULLS LAST, v.id`, [societe]);
   const { rows: ls } = await query<Record<string, unknown>>(
-    `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note${avecUnite ? ', l.cote, l.montant_ht' : ''}${avecTaux ? ', l.taux' : ''}${avecMode ? ', l.mode_commission' : ''}
+    `SELECT l.id, l.vente_id, l.negociateur, l.role, l.montant_ttc, l.nature, l.compte, l.origine, l.source_fichier, l.source_onglet, l.source_ligne, l.note, to_jsonb(l) ->> 'compte_id' AS compte_id${avecUnite ? ', l.cote, l.montant_ht' : ''}${avecTaux ? ', l.taux' : ''}${avecMode ? ', l.mode_commission' : ''}
        FROM transaction_vente_ligne l JOIN transaction_vente v ON v.id = l.vente_id
       WHERE l.retire_le IS NULL AND v.retire_le IS NULL AND ${filtre} ORDER BY l.id`, [societe]);
   const parVente = new Map<number, LigneVente[]>();
@@ -171,7 +172,8 @@ async function lireVentesBrutes(societe: Societe | null): Promise<Vente[]> {
     parVente.set(id, [...(parVente.get(id) ?? []), { id: n(l.id), negociateur: String(l.negociateur), role: l.role as LigneVente['role'],
       montantTtc: enHt !== null ? enHt * TVA : nOuNull(l.montant_ttc), ...(avecUnite ? { montantHt: enHt, cote: (l.cote ?? null) as LigneVente['cote'] } : {}),
       ...(avecTaux ? { taux: nOuNull(l.taux) } : {}), ...(avecMode ? { mode: modeLu(l.mode_commission) } : {}), nature: l.nature as LigneVente['nature'], compte: l.compte === true, origine: l.origine as LigneVente['origine'],
-      sourceFichier: t(l.source_fichier), sourceOnglet: t(l.source_onglet), sourceLigne: nOuNull(l.source_ligne), note: t(l.note) }]);
+      sourceFichier: t(l.source_fichier), sourceOnglet: t(l.source_onglet), sourceLigne: nOuNull(l.source_ligne), note: t(l.note),
+      ...(l.compte_id != null ? { compteId: n(l.compte_id) } : {}) }]); // 🔴 458 — le compte du négociateur, quand il est posé
   }
   if (!lotD) return rows.map((r) => venteDe(r, parVente.get(n(r.id)) ?? []));
   const ids = rows.map((r) => n(r.id));
@@ -303,11 +305,13 @@ export function poserApporteursRetros(rs: Retrocession[], t: TypesApporteurs, ve
 export async function lireRetrocessions(societe: Societe | null): Promise<Retrocession[]> {
   const { rows } = await query<Record<string, unknown>>(
     `SELECT id, societe, annee, mois, negociateur, montant_ttc, apporteur, vente_id, libelle, origine, source_onglet, source_cellule,
-            to_jsonb(r) ->> 'statut_apporteur' AS statut_apporteur
+            to_jsonb(r) ->> 'statut_apporteur' AS statut_apporteur, to_jsonb(r) ->> 'compte_id' AS compte_id
        FROM transaction_retrocession r WHERE retire_le IS NULL AND ($1::text IS NULL OR societe = $1) ORDER BY annee, mois, id`, [societe]);
   const rs: Retrocession[] = rows.map((r) => ({ id: n(r.id), societe: r.societe as Societe, annee: n(r.annee), mois: n(r.mois), negociateur: String(r.negociateur),
     montantTtc: n(r.montant_ttc), apporteur: t(r.apporteur), venteId: nOuNull(r.vente_id), libelle: t(r.libelle), origine: r.origine as Retrocession['origine'],
     sourceOnglet: t(r.source_onglet), sourceCellule: t(r.source_cellule),
+    // 🔴 458 — le compte du négociateur, quand il est posé (sans la migration : absent, lu par le texte comme avant)
+    ...(r.compte_id != null ? { compteId: n(r.compte_id) } : {}),
     ...(r.statut_apporteur === 'particulier' || r.statut_apporteur === 'professionnel' ? { statutApporteur: r.statut_apporteur as StatutTva } : {}) }));
   // 🔴 D29 / D38 — avec ou sans TVA (l'annuaire) ; sans la 455 et sans collaborateur dans l'annuaire : toutes sans TVA, rien de plus à lire
   const types = rs.length === 0 ? null : await lireTypesApporteurs();
@@ -848,6 +852,7 @@ export async function creerVente(s: VenteSaisie, auteur: AuteurTx): Promise<Issu
                VALUES ($1, $2, $3, $4, $5, $6, 'saisie', $7)`,
         [id, p.negociateur, p.role, p.montantTtc, s.statut === 'compromis' ? 'compromis' : 'vente', p.role !== 'negociateur', auteur.libelle]);
     }
+    await relierComptesSurs(q, { venteIds: [id] }); // 🔴 458 — le compte SÛR du négociateur, en plus du texte
     await journaliser(q, { entite: 'vente', id, action: 'saisie', avant: null, apres: { ...s, parts: s.parts }, auteur,
       commentaire: 'Vente saisie à l’écran ; « Annuler » la retire (retire_le), rien n’est supprimé.' });
     return { ok: true, valeur: id };
@@ -973,6 +978,7 @@ export async function saisirRetro(s: RetroSaisie, auteur: AuteurTx): Promise<Iss
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'saisie', $8) RETURNING id`,
       [s.societe, s.annee, s.mois, s.negociateur, s.montantTtc, s.apporteur, s.venteId, auteur.libelle]);
     const id = n(rows[0].id);
+    await relierComptesSurs(q, { retroIds: [id] }); // 🔴 458 — le compte SÛR du négociateur, en plus du texte
     await journaliser(q, { entite: 'retrocession', id, action: 'saisie', avant: null, apres: s, auteur });
     return { ok: true, valeur: id };
   });
@@ -1271,6 +1277,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
                  VALUES ($1, $2, $3, $4, $5, $6, 'saisie', $7)`,
           [venteId, p.negociateur, p.role, p.montantTtc, s.statut === 'compromis' ? 'compromis' : 'vente', p.role !== 'negociateur', auteur.libelle]);
       }
+      await relierComptesSurs(q, { venteIds: [venteId] }); // 🔴 458 — le compte SÛR du négociateur, en plus du texte
       await journaliser(q, { entite: 'vente', id: venteId, action: 'saisie', avant: null, apres: { ...valeurs, lignes: s.lignes }, auteur,
         commentaire: s.statut === 'compromis' ? 'Compromis saisi (onglet Compromis) ; « Annuler » le retire (retire_le), rien n’est supprimé.' : 'Vente saisie avec sa répartition.' });
     } else {
@@ -1505,6 +1512,7 @@ async function poserCommissions(q: RequeteTx, venteId: number, statut: string, v
         [venteId, c.negociateur, c.ttc, c.ht, c.cote, statut === 'compromis' ? 'compromis' : 'vente', auteur.libelle, ...(avecTaux ? [c.taux] : []), ...(avecMode ? [c.mode] : [])]);
       ids.push(n(rows[0].id));
     }
+    await relierComptesSurs(q, { venteIds: [venteId] }); // 🔴 458 — le compte SÛR du négociateur, en plus du texte
     return ids;
   }, `${prefixe === undefined ? '' : `${prefixe} — `}${voulues.length === 0 ? 'Commissions versées retirées.' : `Commissions versées : ${voulues.map((c) => `${c.cote === 'entree' ? 'entrée' : 'sortie'} ${c.negociateur} ${c.ht ?? c.ttc} € ${c.ht !== null ? 'HT' : 'TTC'}${c.taux !== null ? ` (taux ${c.taux.toLocaleString('fr-FR', { maximumFractionDigits: 4 })} %)` : ''}${c.mode === 'manuelle' ? ', saisie à la main' : c.mode === 'calculee' ? ', calculée' : ''}`).join(' · ')}`}`);
 }

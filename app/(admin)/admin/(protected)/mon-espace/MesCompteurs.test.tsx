@@ -92,6 +92,8 @@ describe('🔴 « Mes compromis en cours » : la liste de la tuile Suivi CA, en 
     // décision 11 : l'onglet « Mes compromis en cours » (doublon) est retiré
     expect(container.querySelector('[data-onglet-mon-espace="compromis"]')).toBeNull();
     expect(container.textContent).not.toContain('PAS À MOI');
+    // Des affaires à moi : pas de message « espace vide ».
+    expect(container.querySelector('[data-espace-vide]')).toBeNull();
   });
   it('carte repliée : le côté de l’autre n’affiche ni com négo ni reste ; le mien, oui', async () => {
     reponse = { status: 200, corps: reponseLea() };
@@ -152,6 +154,8 @@ describe('compte sans aucune vente', () => {
     reponse = { status: 200, corps: { etat: 'ok', data: { disponible: true, aujourdhui: '2026-11-02', ventes: [], titulaire: { id: 9, prenom: null, administrateur: false },
       compteurs: { compromis: vide, actees: { ...vide, annee: 2026 }, parAnnee: [] } } } };
     await rendre();
+    // 🔴 Arno (05/11/2026) — un message clair en tête, jamais une page muette.
+    expect(texte('[data-espace-vide]')).toBe('Aucune vente ni compromis rattaché à votre compte pour l’instant.');
     expect(texte('[data-liste-vide="compromis"]')).toBe('Aucun compromis en cours à votre nom.');
     await cliquer('[data-vue="mois"]');
     expect([texte('[data-tuile-nb-compromis]'), texte('[data-valeur-tuile="nombre"]'), texte('[data-valeur-tuile="ca"]')]).toEqual(['0 compromis', '0', '0 €']);

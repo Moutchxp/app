@@ -1,5 +1,6 @@
 // Pas de `import 'server-only'` : lu par la commande `transaction:reclasser-retro` (même convention que `repo.ts` de la tuile).
 import { withTransaction } from '../db/client';
+import { relierComptesSurs } from './negociateurCompte';
 
 /**
  * 🔴 LOT BV — L'ÉCRITURE d'un reclassement « rétrocession → commission du négociateur » (`transaction:reclasser-retro --ecrire`), pour UNE vente,
@@ -21,6 +22,7 @@ export async function reclasserRetroEnCommission(o: { venteId: number; retroIds:
       `INSERT INTO transaction_vente_ligne (vente_id, negociateur, role, montant_ttc, nature, compte, origine, note, cree_par_libelle)
        VALUES ($1, $2, 'negociateur', $3, 'vente', true, 'saisie', $4, $5) RETURNING id`, [o.venteId, o.negociateur, o.montantTtc, note, o.auteur]);
     const ligneId = Number(rows[0].id);
+    await relierComptesSurs(q, { venteIds: [o.venteId] }); // 🔴 458 — le compte SÛR du négociateur, en plus du texte
     await q('UPDATE transaction_retrocession SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[]) AND retire_le IS NULL', [[...o.retroIds], o.auteur]);
     const journal = (entite: string, id: number, action: string, avant: unknown, apres: unknown) => q(
       `INSERT INTO transaction_journal (entite, entite_id, action, avant, apres, commentaire, auteur_id, auteur_libelle) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, NULL, $7)`,
