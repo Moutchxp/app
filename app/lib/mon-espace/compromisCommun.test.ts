@@ -68,7 +68,7 @@ describe('la ligne rouge : MES côtés d’un compromis COMMUN sans client rense
 describe('le mail à l’autre collaborateur', () => {
   const D: DonneesMailCommun = { destinataire: { prenom: 'Pierre', nom: 'Pierre Thevenin' }, createur: 'Arnaud Jorel', quand: '2026-11-05', structure: 'CRITERIMMO',
     mandat: 'M-42', adresse: '12 rue de l’Essai, 75011 Paris', prixVente: 450000, honorairesTtc: 20000, sesCotes: ['sortie'],
-    partage: ['entrée du mandat — Arnaud Jorel (CRITERIMMO) : 50 %', 'sortie du mandat — Pierre Thevenin (MACJ) : 50 %'], clientsSaisis: 0,
+    partage: ['entrée du mandat — Arnaud Jorel (CRITERIMMO) : 60 % soit 12 000 € TTC (10 000 € HT)', 'sortie du mandat — Pierre Thevenin (MACJ) : 40 % soit 8 000 € TTC (6 666,67 € HT)'], clientsSaisis: 0,
     lien: 'https://exemple.test/admin/mon-espace?affaire=99&cote=sortie&modifier=1' };
   it('objet : « Nouveau compromis commun — mandat <n°> — <adresse si connue> »', () => {
     expect(objetMailCommun(D)).toBe('Nouveau compromis commun — mandat M-42 — 12 rue de l’Essai, 75011 Paris');
@@ -81,14 +81,19 @@ describe('le mail à l’autre collaborateur', () => {
       'Arnaud Jorel a créé le 05/11/2026 un compromis commun avec vous dans « Mon espace ».', '',
       'Structure : CRITERIMMO', 'N° de mandat : M-42', 'Bien : 12 rue de l’Essai, 75011 Paris', 'Prix de vente : 450 000 €',
       'Honoraires : 20 000 € TTC (16 666,67 € HT)', 'Votre côté : sortie du mandat (côté acquéreur)',
-      'Partage de la commission : entrée du mandat — Arnaud Jorel (CRITERIMMO) : 50 % ; sortie du mandat — Pierre Thevenin (MACJ) : 50 %', '',
-      PHRASE_CLIENTS_A_SAISIR, '', 'Renseigner mes clients : https://exemple.test/admin/mon-espace?affaire=99&cote=sortie&modifier=1'].join('\n'));
+      'Partage des honoraires :', '– entrée du mandat — Arnaud Jorel (CRITERIMMO) : 60 % soit 12 000 € TTC (10 000 € HT)',
+      '– sortie du mandat — Pierre Thevenin (MACJ) : 40 % soit 8 000 € TTC (6 666,67 € HT)', '',
+      PHRASE_CLIENTS_A_SAISIR, '', 'Renseigner mes clients : https://exemple.test/admin/mon-espace?affaire=99&cote=sortie&modifier=1', '',
+      'Bonne journée,', 'L’équipe Sans Vis-à-Vis'].join('\n'));
     expect(m.html).toContain('href="https://exemple.test/admin/mon-espace?affaire=99&amp;cote=sortie&amp;modifier=1"');
     expect(m.html).toContain('>Renseigner mes clients</a>');
   });
-  it('🔴 clients saisis : « N fiche(s) client créée(s) », sans lien', () => {
+  it('🔴 clients saisis : accordé (« 1 fiche client créée » / « 2 fiches clients créées »), sans lien, avec la signature', () => {
+    expect(mailCommun({ ...D, clientsSaisis: 1 }).texte).toContain('Les coordonnées de vos clients ont été saisies : 1 fiche client créée.');
     const m = mailCommun({ ...D, clientsSaisis: 2 });
-    expect(m.texte.endsWith('Les coordonnées de vos clients ont été saisies : 2 fiche(s) client créée(s).')).toBe(true);
+    expect(m.texte.endsWith('Les coordonnées de vos clients ont été saisies : 2 fiches clients créées.\n\nBonne journée,\nL’équipe Sans Vis-à-Vis')).toBe(true);
+    expect(m.texte).not.toContain('(s)');
+    expect(m.html).toContain('<div>L’équipe Sans Vis-à-Vis</div>');
     expect(m.texte).not.toContain('Renseigner mes clients');
     expect(m.html).not.toContain('href=');
   });

@@ -162,3 +162,38 @@ describe('🔴 Arno (05/11/2026) — les obligations du créateur, à l’écran
     expect(posts()).toHaveLength(0);
   });
 });
+
+describe('🔴 Arno (05/11/2026) — le partage SAISI par le créateur : jamais un 50/50 implicite', () => {
+  const soumettre = async () => { await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); }); await calmer(); };
+  const posts = () => (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST');
+  const pcts = () => [...container.querySelectorAll<HTMLInputElement>('[data-partie-pct]')].slice(0, 2).map((x) => x.value);
+  const preparer = async () => {
+    await jusquAuCote('entree');
+    await saisir('[data-formulaire-dossier] [data-champ="commission"]', '20000');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-nom]', 'DUPONT');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-prenom]', 'Jean');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-telephone]', '0600000000');
+    await act(async () => { (container.querySelector('[data-champ="sortie"]') as HTMLElement).click(); }); await calmer();
+    await act(async () => { (container.querySelector('[role="option"][data-option="7"]') as HTMLElement).click(); }); await calmer();
+  };
+  it('le collaborateur choisi, les parts restent VIDES ; « Enregistrer » refusé avec le message du partage ; rien ne part', async () => {
+    await preparer();
+    expect(pcts()).toEqual(['', '']);
+    await soumettre();
+    expect([...container.querySelectorAll('[data-manque-creation="repartition"]')].map((x) => x.textContent))
+      .toContain('Définissez le partage de la commission entre les deux côtés (il doit faire exactement 100 %).');
+    expect(posts()).toHaveLength(0);
+  });
+  it('total différent de 100 % : refusé par LA règle de la somme (écran et serveur) ; 60 tapé → 40 de l’autre côté → enregistré TEL QUEL', async () => {
+    const { motifSomme } = await import('../../../../lib/transaction/repartition');
+    const partie = (sorte: 'entree' | 'sortie', pourcentage: number) => ({ sorte, compteId: 1, negociateur: 'x', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage, montantHt: null });
+    expect(motifSomme([partie('entree', 60), partie('sortie', 30)], 10000)).not.toBeNull();
+    expect(motifSomme([partie('entree', 60), partie('sortie', 40)], 10000)).toBeNull();
+    await preparer();
+    await saisir('[data-partie-pct="0"]', '60');
+    expect(pcts()).toEqual(['60', '40']);
+    await soumettre();
+    expect(posts()).toHaveLength(1);
+    expect(JSON.parse(String((posts()[0][1] as RequestInit).body)).dossier.parties.slice(0, 2).map((p: { pourcentage: number }) => p.pourcentage)).toEqual([60, 40]);
+  });
+});

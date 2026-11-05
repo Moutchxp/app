@@ -90,6 +90,7 @@ export interface DonneesMailCommun {
   prixVente: number | null;
   honorairesTtc: number;
   sesCotes: CoteVente[];
+  /** 🔴 Arno (05/11/2026) — le partage du compromis ENREGISTRÉ, une ligne par côté (`lignePartage`) ; jamais une valeur par défaut. */
   partage: string[];
   /** Les fiches client renseignées de SES côtés. */
   clientsSaisis: number;
@@ -103,7 +104,23 @@ export const objetMailCommun = (d: Pick<DonneesMailCommun, 'mandat' | 'adresse'>
   `Nouveau compromis commun — mandat ${d.mandat}${d.adresse !== null && d.adresse.trim() !== '' ? ` — ${d.adresse.trim()}` : ''}`;
 
 export const PHRASE_CLIENTS_A_SAISIR = 'Les coordonnées de vos clients ne sont pas encore saisies. Merci de les renseigner : tant qu’elles manquent, ce compromis n’est pas comptabilisé dans votre total.';
-export const phraseClientsSaisis = (n: number): string => `Les coordonnées de vos clients ont été saisies : ${n} fiche(s) client créée(s).`;
+/** 🔴 Arno (05/11/2026) — accordé : « 1 fiche client créée » / « 2 fiches clients créées ». PUR. */
+export const phraseClientsSaisis = (n: number): string =>
+  `Les coordonnées de vos clients ont été saisies : ${n} ${n > 1 ? 'fiches clients créées' : 'fiche client créée'}.`;
+/** 🔴 Arno (05/11/2026) — la formule de fin et la signature. */
+export const SIGNATURE_MAIL_COMMUN = ['Bonne journée,', 'L’équipe Sans Vis-à-Vis'] as const;
+
+/** Une part du partage, telle que le compromis ENREGISTRÉ la porte : le collaborateur, sa structure, son pourcentage, ses honoraires (centimes). */
+export interface PartPartage { cote: 'entree' | 'sortie' | 'entree_sortie'; nom: string; structure: string | null; pourcentage: number | null; htC: number; ttcC: number }
+
+const euros = (centimes: number): string => `${(centimes / 100).toLocaleString('fr-FR', { minimumFractionDigits: centimes % 100 === 0 ? 0 : 2, maximumFractionDigits: 2 })} €`;
+const MOT_PART = { entree: 'entrée du mandat', sortie: 'sortie du mandat', entree_sortie: 'entrée et sortie du mandat' } as const;
+
+/** « entrée du mandat — Arnaud Jorel (CRITERIMMO) : 60 % soit 12 000 € TTC (10 000 € HT) ». PUR. */
+export function lignePartage(p: PartPartage): string {
+  const pct = p.pourcentage === null ? '' : `${p.pourcentage.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} % soit `;
+  return `${MOT_PART[p.cote]} — ${p.nom}${p.structure === null ? '' : ` (${p.structure})`} : ${pct}${euros(p.ttcC)} TTC (${euros(p.htC)} HT)`;
+}
 
 /** Les lignes du mail (texte), dans l'ordre. PUR. */
 export function lignesMailCommun(d: DonneesMailCommun): string[] {
@@ -119,9 +136,12 @@ export function lignesMailCommun(d: DonneesMailCommun): string[] {
     `Prix de vente : ${d.prixVente === null ? 'non renseigné' : eur(d.prixVente)}`,
     `Honoraires : ${eur(d.honorairesTtc)} TTC (${eur(Math.round((d.honorairesTtc / 1.2) * 100) / 100)} HT)`,
     `Votre côté : ${cotes}`,
-    `Partage de la commission : ${d.partage.join(' ; ')}`,
+    'Partage des honoraires :',
+    ...d.partage.map((x) => `– ${x}`),
     '',
     ...(d.clientsSaisis > 0 ? [phraseClientsSaisis(d.clientsSaisis)] : [PHRASE_CLIENTS_A_SAISIR, '', `Renseigner mes clients : ${d.lien}`]),
+    '',
+    ...SIGNATURE_MAIL_COMMUN,
   ];
 }
 
@@ -130,10 +150,10 @@ const echapper = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '
 /** Le mail complet : objet, texte, HTML (le lien en bouton quand les clients manquent). PUR. */
 export function mailCommun(d: DonneesMailCommun): { objet: string; texte: string; html: string } {
   const lignes = lignesMailCommun(d);
-  const sansLien = d.clientsSaisis > 0 ? lignes : lignes.slice(0, -1);
+  const ligneDuLien = lignes.findIndex((l) => l.startsWith('Renseigner mes clients : '));
+  const bouton = `<p style="margin:16px 0"><a href="${echapper(d.lien)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#a30402;color:#ffffff;font-weight:700;text-decoration:none">Renseigner mes clients</a></p>`;
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1a1f26;max-width:640px">`
-    + sansLien.map((l) => (l === '' ? '<br>' : `<div>${echapper(l)}</div>`)).join('')
-    + (d.clientsSaisis > 0 ? '' : `<p style="margin:16px 0"><a href="${echapper(d.lien)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#a30402;color:#ffffff;font-weight:700;text-decoration:none">Renseigner mes clients</a></p>`)
+    + lignes.map((l, i) => (i === ligneDuLien ? bouton : l === '' ? '<br>' : `<div>${echapper(l)}</div>`)).join('')
     + '</div>';
   return { objet: objetMailCommun(d), texte: lignes.join('\n'), html };
 }

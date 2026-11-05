@@ -176,7 +176,8 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
     const base = etatRepartitionDe(null, negos, refs.uniteCommission === true);
     const repartition = cote === 'aucun' ? base : changerNegociateur(base, cote, refs.titulaireId, negos);
     // 🔴 Arno (05/11/2026) — les obligations du créateur (le serveur les revérifie) ; enregistré : la fenêtre « Compromis enregistré ».
-    return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerCreation}
+    // 🔴 Arno (05/11/2026) — le partage est celui que le créateur SAISIT (parts vides au départ, jamais un 50/50 implicite).
+    return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerCreation} partageASaisir
       {...(messageStructure === undefined ? {} : { message: messageStructure })}
       controleCreation={({ personnes, repartition: rep, partageDefini }) => manquesCreateur({ entreeId: rep.entreeId, sortieId: rep.sortieId, partageDefini,
         personnes: personnes.map((p) => ({ role: p.role, type: p.type, nom: p.nom, prenom: p.prenom, telephone: p.telephone, email: p.email })) }, refs.titulaireId)}

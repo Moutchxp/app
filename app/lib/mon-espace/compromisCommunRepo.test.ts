@@ -6,7 +6,8 @@ import type { DossierSaisie } from '../transaction/saisie';
  * 🔴 Arno (05/11/2026) — APRÈS la création d'un compromis depuis « Mon espace » : la marque « commun », un mail à chaque collaborateur d'un
  * côté sauf le créateur, la variante (clients saisis / à saisir, avec le lien), le journal. Base simulée, transport FACTICE : rien ne part.
  */
-const h = vi.hoisted(() => ({ avec459: true, ecritures: [] as { sql: string; params: unknown[] }[] }));
+const h = vi.hoisted(() => ({ avec459: true, ecritures: [] as { sql: string; params: unknown[] }[], ventes: [] as unknown[] }));
+vi.mock('../transaction/repo', () => ({ lireVentes: async () => h.ventes }));
 vi.mock('../db/client', () => ({ query: vi.fn(async (sql: string, params: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ');
   if (s.includes('FROM admin_utilisateur WHERE id = ANY')) return { rows: [
@@ -32,7 +33,7 @@ const saisie = (o: Partial<DossierSaisie> = {}): DossierSaisie => ({ societe: 'c
   parties: [{ sorte: 'entree', compteId: 5, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, societe: 'criterimmo' },
     { sorte: 'sortie', compteId: 7, nom: null, coordonnees: null, pourcentage: 50, montantHt: null, societe: 'macj' }], ...o } as DossierSaisie);
 const journal = () => h.ecritures.filter((e) => e.sql.includes('INSERT INTO mon_espace_mail_compromis'));
-beforeEach(() => { h.avec459 = true; h.ecritures.length = 0; envoyes.length = 0; });
+beforeEach(() => { h.avec459 = true; h.ecritures.length = 0; envoyes.length = 0; h.ventes = []; });
 
 describe('🔴 le créateur sur UN côté : l’autre collaborateur prévenu', () => {
   it('ses clients PAS saisis : la variante « à renseigner », avec le lien qui ouvre CE compromis sur SON côté ; le compromis est marqué', async () => {
@@ -47,9 +48,9 @@ describe('🔴 le créateur sur UN côté : l’autre collaborateur prévenu', (
     expect(h.ecritures.some((e) => e.sql.includes('INSERT INTO mon_espace_compromis_commun'))).toBe(true);
     expect(journal().map((e) => [e.params[0], e.params[1], e.params[6], e.params[7]])).toEqual([[99, 7, 'clients_a_saisir', 'envoye']]);
   });
-  it('ses clients saisis par le créateur : « 2 fiche(s) client créée(s) », sans lien', async () => {
+  it('ses clients saisis par le créateur : « 2 fiches clients créées », sans lien', async () => {
     await apresCreationCompromis(99, saisie({ personnes: [vendeur, acquereur, { ...acquereur, nom: 'BERNARD', prenom: 'Bob', email: 'b@x.fr', telephone: null }] }), 5, '2026-11-05', AUTEUR, { transport });
-    expect(envoyes[0].corps).toContain('Les coordonnées de vos clients ont été saisies : 2 fiche(s) client créée(s).');
+    expect(envoyes[0].corps).toContain('Les coordonnées de vos clients ont été saisies : 2 fiches clients créées.');
     expect(envoyes[0].corps).not.toContain('Renseigner mes clients');
   });
 });
@@ -59,7 +60,7 @@ describe('🔴 « Pour un collègue » : DEUX mails ; le créateur seul sur les 
     const r = await apresCreationCompromis(99, saisie(), 2, '2026-11-05', { id: 2, libelle: 'a.jorel@sansvisavis.com' }, { transport });
     expect(envoyes.map((m) => m.a[0])).toEqual(['lea@sansvisavis.com', 'p.thevenin@sansvisavis.com']);
     expect(envoyes[0].corps).toContain('Votre côté : entrée du mandat (côté vendeur)');
-    expect(envoyes[0].corps).toContain('Les coordonnées de vos clients ont été saisies : 1 fiche(s) client créée(s).'); // le vendeur saisi
+    expect(envoyes[0].corps).toContain('Les coordonnées de vos clients ont été saisies : 1 fiche client créée.'); // le vendeur saisi
     expect(r.mails.map((m) => m.nom)).toEqual(['Léa MARTIN', 'Pierre Thevenin']);
   });
   it('Léa sur les deux côtés : aucun mail, rien de marqué (confirmation simple)', async () => {
@@ -86,5 +87,26 @@ describe('les cas de bord', () => {
     expect(partageDefiniSaisie(saisie().parties)).toBe(true);
     expect(partageDefiniSaisie([saisie().parties[0]])).toBe(false);
     expect(partageDefiniSaisie([{ ...saisie().parties[0], sorte: 'entree_sortie', pourcentage: 100 }])).toBe(true);
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — le partage du mail = celui du compromis ENREGISTRÉ (60 / 40), montants de la ligne « Mon espace » au centime', () => {
+  const enregistree = { id: 99, societe: 'criterimmo', libelle: 'DUPONT', honorairesTtc: 20000, statut: 'compromis', annee: 2026, mois: null, dateCompromis: null,
+    apporteur: null, note: null, origine: 'saisie', sourceFichier: null, sourceOnglet: null, sourceLigne: null, double: null, lignes: [],
+    repartition: { retroApporteurTtc: 0, parties: [
+      { sorte: 'entree', compteId: 5, negociateur: 'Léa MARTIN', societe: 'criterimmo', nom: null, coordonnees: null, pourcentage: 60, montantHt: null },
+      { sorte: 'sortie', compteId: 7, negociateur: 'Pierre THEVENIN', societe: 'macj', nom: null, coordonnees: null, pourcentage: 40, montantHt: null }] },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Léa MARTIN' }, sortie: { id: 7, nom: 'Pierre THEVENIN' }, apporteurId: null, personnes: [] } };
+  it('les lignes du mail et du récapitulatif : 60 % soit 12 000 € TTC (10 000 € HT), 40 % soit 8 000 € TTC (6 666,67 € HT) — ceux de `lignesCarteAffaire`', async () => {
+    h.ventes = [enregistree];
+    // La saisie dit AUTRE CHOSE (50 / 50) : seul l'enregistré compte.
+    const r = await apresCreationCompromis(99, saisie(), 5, '2026-11-05', AUTEUR, { transport });
+    const sp = (x: string) => x.replace(/[\u202f\u00a0]/g, ' ');
+    expect(r.partage.map(sp)).toEqual(['entrée du mandat — Léa MARTIN (CRITERIMMO) : 60 % soit 12 000 € TTC (10 000 € HT)',
+      'sortie du mandat — Pierre Thevenin (MACJ) : 40 % soit 8 000 € TTC (6 666,67 € HT)']);
+    expect(sp(envoyes[0].corps)).toContain('Partage des honoraires :\n– entrée du mandat — Léa MARTIN (CRITERIMMO) : 60 % soit 12 000 € TTC (10 000 € HT)\n– sortie du mandat — Pierre Thevenin (MACJ) : 40 % soit 8 000 € TTC (6 666,67 € HT)');
+    const { lignesCarteAffaire } = await import('../transaction/carteAffaireLignes');
+    const ligne = lignesCarteAffaire(enregistree as never, null).lignes.find((l) => l.cote === 'sortie')!;
+    expect([ligne.honoraires.ttcC, ligne.honoraires.htC]).toEqual([800000, 666667]);
   });
 });

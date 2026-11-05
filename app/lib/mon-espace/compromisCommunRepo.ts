@@ -6,7 +6,9 @@
 // Pas de `import 'server-only'` (même convention que les dépôts de « Mon espace », lus par les épreuves).
 import { randomBytes } from 'node:crypto';
 import { query } from '../db/client';
-import type { AuteurTx } from '../transaction/repo';
+import { lireVentes, type AuteurTx } from '../transaction/repo';
+import { lignesCarteAffaire } from '../transaction/carteAffaireLignes';
+import type { Vente } from '../transaction/modele';
 import type { DossierSaisie } from '../transaction/saisie';
 import { LIBELLE_SOCIETE } from '../transaction/modele';
 import { chargerConfigGestion } from '../gestion/config';
@@ -14,7 +16,7 @@ import { fabriquerMessageId } from '../gestion/envoiGmail';
 import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 import { adresseApplication } from '../gestion/adresseApplication';
 import { colonneExisteMemo } from '../location/sondeLocation';
-import { clientsRenseignes, collaborateursAPrevenir, cotesDuCompte, lienCompromis, mailCommun, MOT_COTE, type CoteVente } from './compromisCommun';
+import { clientsRenseignes, collaborateursAPrevenir, cotesDuCompte, lienCompromis, lignePartage, mailCommun, MOT_COTE, type CoteVente, type PartPartage } from './compromisCommun';
 
 export const compromisCommunDisponible = (): Promise<boolean> => colonneExisteMemo('mon_espace_compromis_commun', 'vente_id');
 
@@ -49,6 +51,21 @@ export function partageEnMots(parties: DossierSaisie['parties'], nom: (id: numbe
   });
 }
 
+/**
+ * 🔴 Arno (05/11/2026) — LE PARTAGE DU COMPROMIS ENREGISTRÉ : pour chaque côté, le collaborateur, sa structure, le pourcentage saisi (la partie
+ * enregistrée) et ses honoraires HT / TTC calculés par `lignesCarteAffaire` — LA fonction de la ligne du compromis dans « Mon espace » et dans le
+ * Suivi CA : les montants du mail sont ceux de l'écran, au centime. Jamais une valeur par défaut, jamais un autre calcul. PUR.
+ */
+export function partageEnregistre(v: Vente, nom: (compteId: number) => string): PartPartage[] {
+  const parties = v.repartition?.parties ?? [];
+  return lignesCarteAffaire(v, null).lignes.map((l) => {
+    const cote = l.cote ?? 'entree_sortie';
+    const partie = parties.find((p) => p.sorte === cote) ?? parties.find((p) => p.sorte === 'entree_sortie') ?? null;
+    return { cote, nom: partie?.compteId != null ? nom(partie.compteId) : l.nom, structure: l.societe == null ? null : LIBELLE_SOCIETE[l.societe],
+      pourcentage: partie?.pourcentage ?? (l.cote === null ? 100 : null), htC: l.honoraires.htC, ttcC: l.honoraires.ttcC };
+  });
+}
+
 /** Le partage est-il défini, côté serveur : une partie pour chaque côté (ou une seule « entrée et sortie »), chacune avec sa part. PUR. */
 export function partageDefiniSaisie(parties: DossierSaisie['parties']): boolean {
   const avecPart = parties.filter((p) => p.sorte !== 'exterieure' && (p.pourcentage !== null || p.montantHt !== null));
@@ -80,7 +97,9 @@ export async function apresCreationCompromis(venteId: number, s: DossierSaisie, 
     .map((r) => ({ ...r, id: Number(r.id) }));
   const compte = (id: number): CompteLu | undefined => comptes.find((c) => c.id === id);
   const nom = (id: number): string => nomDe(compte(id), id);
-  const partage = partageEnMots(s.parties, nom);
+  // 🔴 Arno (05/11/2026) — le partage tel que le compromis ENREGISTRÉ le porte (relu) ; la saisie seulement si la relecture échoue.
+  const enregistree = await lireVentes(null).then((vs) => vs.find((v) => v.id === venteId) ?? null).catch(() => null);
+  const partage = enregistree === null ? partageEnMots(s.parties, nom) : partageEnregistre(enregistree, nom).map(lignePartage);
   const recap: RecapCommun = { mandat: s.numeroMandat?.saisi ?? null, structure: LIBELLE_SOCIETE[s.societe],
     cotes: { entree: s.entreeId === null ? null : nom(s.entreeId), sortie: s.sortieId === null ? null : nom(s.sortieId) }, partage, mails: [], disponible: true };
   const aPrevenir = collaborateursAPrevenir(s, createurId);

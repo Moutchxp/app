@@ -97,11 +97,16 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     await saisir('[data-bloc-dossier="vendeurs"] [data-personne-prenom]', 'Jean');
     await saisir('[data-bloc-dossier="vendeurs"] [data-personne-telephone]', '0600000000');
     await cliquer('[data-champ="sortie"]'); await cliquer('[role="option"][data-option="7"]');
+    // 🔴 Arno (05/11/2026) — le partage SAISI par le créateur (les parts s'ouvrent vides) : 60 / 40.
+    expect([...container.querySelectorAll<HTMLInputElement>('[data-partie-pct]')].slice(0, 2).map((x) => x.value)).toEqual(['', '']);
+    await saisir('[data-partie-pct="0"]', '60');
+    await saisir('[data-partie-pct="1"]', '40');
     await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); });
     await calmer();
     expect(posts).toHaveLength(1);
     expect(posts[0].url).toBe(URL_COMPROMIS);
-    expect(posts[0].corps).toMatchObject({ id: null, dossier: { societe: 'criterimmo', statut: 'compromis', numeroMandat: 'M-42', entreeId: 5, sortieId: 7 } });
+    expect(posts[0].corps).toMatchObject({ id: null, dossier: { societe: 'criterimmo', statut: 'compromis', numeroMandat: 'M-42', entreeId: 5, sortieId: 7,
+      parties: [{ sorte: 'entree', compteId: 5, pourcentage: 60 }, { sorte: 'sortie', compteId: 7, pourcentage: 40 }] } });
     await calmer();
     // 🔴 Arno (05/11/2026) — la fenêtre « Compromis enregistré », puis « Voir le compromis ».
     expect(container.querySelector('[data-confirmation-compromis="99"]')).not.toBeNull();

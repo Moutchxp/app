@@ -38,6 +38,30 @@ export interface References { lotD: boolean; negociateurs: NegociateurRef[]; app
 
 const texteMontant = (x: number): string => String(x).replace('.', ',');
 
+/**
+ * 🔴 Arno (05/11/2026) — les parts que le créateur a TAPÉES : une part dont le négociateur est le même et dont le texte (ou le mode) change ; un
+ * changement de négociateur oublie la sienne. PUR.
+ */
+export function partsTapees(avant: EtatRepartition, apres: EtatRepartition, deja: ReadonlySet<number>): Set<number> {
+  const saisies = new Set(deja);
+  const change = (i: number): boolean => { const p = apres.parties[i]; const q = avant.parties[i]; return p === undefined || q === undefined || p.compteId !== q.compteId || p.sorte !== q.sorte; };
+  // Un CHANGEMENT DE NÉGOCIATEUR (sur l'un ou l'autre côté) n'est jamais une saisie de part : le composant y repose ses parts par défaut.
+  const negociateurChange = [0, 1].some(change);
+  apres.parties.forEach((p, i) => {
+    const q = avant.parties[i];
+    if (q === undefined || i > 1) return;
+    if (change(i)) saisies.delete(i);
+    else if (!negociateurChange && (p.texte !== q.texte || p.mode !== q.mode)) saisies.add(i);
+  });
+  return saisies;
+}
+
+/** Les parts (entrée, sortie) que le créateur n'a PAS tapées sont VIDES — sauf le même négociateur sur les deux côtés (la répartition d'avant). PUR. */
+export function partsNonSaisiesVides(r: EtatRepartition, saisies: ReadonlySet<number>): EtatRepartition {
+  if (r.entreeId !== null && r.entreeId === r.sortieId) return r;
+  return { ...r, parties: r.parties.map((p, i) => (i <= 1 && p.sorte !== 'exterieure' && !saisies.has(i) ? { ...p, texte: '' } : p)) };
+}
+
 /** Le nom lisible de chaque liste des références. */
 const MOT_LISTE = { negociateurs: 'des négociateurs', apporteurs: 'des apporteurs', personnes: 'des personnes', collegues: 'des collègues' } as const;
 type ListeReferences = keyof typeof MOT_LISTE;
@@ -130,7 +154,13 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
       sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false, controleCreation }: {
+export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false, controleCreation, partageASaisir = false }: {
+  /**
+   * 🔴 MON ESPACE (Arno, 05/11/2026) — le partage d'un compromis COMMUN est celui que le créateur SAISIT : les parts des deux côtés s'ouvrent VIDES
+   * et le restent tant qu'il ne les tape pas (un changement de négociateur ne pose plus de 50/50 qui compterait comme « défini ») ; le même
+   * négociateur sur les deux côtés (le créateur seul) garde la répartition d'avant. Absent (la tuile Suivi CA) : rien ne change.
+   */
+  partageASaisir?: boolean;
   /**
    * 🔴 MON ESPACE (Arno, 05/11/2026) — les obligations du créateur d'un compromis (ses clients, le collaborateur de l'autre côté, le partage) :
    * tant qu'il en manque, « Enregistrer » est refusé et chaque message s'affiche sous son bloc. Absent (la tuile Suivi CA) : rien ne change.
@@ -168,7 +198,18 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
     const base = [...(lues.some((p) => p.role === 'vendeur') ? [] : [personneVide('vendeur')]), ...lues, ...(lues.some((p) => p.role === 'acquereur') ? [] : [personneVide('acquereur')])];
     return ajouter !== null && lues.some((p) => p.role === ajouter) ? [...base, personneVide(ajouter)] : base;
   });
-  const [repartition, setRepartition] = useState<EtatRepartition>(() => repartitionInitiale ?? etatRepartitionDe(vente, references.negociateurs, references.uniteCommission === true));
+  const [repartition, setRepartition] = useState<EtatRepartition>(() => {
+    const r = repartitionInitiale ?? etatRepartitionDe(vente, references.negociateurs, references.uniteCommission === true);
+    return partageASaisir ? partsNonSaisiesVides(r, new Set()) : r;
+  });
+  // 🔴 Arno (05/11/2026) — les parts que le créateur a TAPÉES (index 0 : entrée, 1 : sortie) ; un changement de négociateur oublie la sienne.
+  const [partsSaisies, setPartsSaisies] = useState<Set<number>>(() => new Set());
+  const changerRepartition = (suivante: EtatRepartition): void => {
+    if (!partageASaisir) { setRepartition(suivante); return; }
+    const saisies = partsTapees(repartition, suivante, partsSaisies);
+    setPartsSaisies(saisies);
+    setRepartition(partsNonSaisiesVides(suivante, saisies));
+  };
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   // Une adresse déjà enregistrée n'est pas signalée « non vérifiée » ; une frappe libre l'est (sans rien bloquer), un choix BAN ne l'est pas.
@@ -284,7 +325,7 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
                 : unite === 'ttc' ? `soit ${eur(ht(commission))}${ESPACE}HT` : `soit ${eur(commission)}${ESPACE}TTC`}</span></label>
             </>)}
             {bloc('libelle', 'Libellé', <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>)}
-            {bloc('repartition', 'Négociateurs, structures et apporteur', <BlocRepartition etat={repartition} onChange={setRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
+            {bloc('repartition', 'Négociateurs, structures et apporteur', <BlocRepartition etat={repartition} onChange={changerRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
               commissionsMasquees={commissionsMasquees}
               societeVente={vente?.societe ?? societe}
               // 🔴 LOT BH (Arno) — une affaire déjà créée : le même composant que les Informations communes ; ici le geste change le formulaire,
