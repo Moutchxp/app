@@ -63,6 +63,25 @@ import { FormulaireDossier, etatRepartitionDe, type References } from '../transa
  *     côtés), tri et filtre par négociateur sur les compromis ; les gestes et le rafraîchissement restent (empreinte de la structure).
  */
 type Espace = 'moi' | Agence;
+/**
+ * 🔴 Arno (05/11/2026) — mes ventes signées des années PASSÉES, quand je n'ai ni vente signée cette année ni compromis en cours (les vues
+ * d'ouverture sont alors vides) : leur nombre, la première et la dernière année ; `null` sinon. PUR.
+ */
+export function ventesAnterieures(ventes: readonly { statut: string; annee: number; mesCotes: readonly string[] }[], anneeEnCours: number):
+  { nb: number; premiere: number; derniere: number } | null {
+  const miennes = ventes.filter((v) => v.mesCotes.length > 0);
+  if (miennes.some((v) => v.statut === 'compromis') || miennes.some((v) => v.statut === 'vendue' && v.annee >= anneeEnCours)) return null;
+  const annees = miennes.filter((v) => v.statut === 'vendue' && v.annee < anneeEnCours).map((v) => v.annee);
+  if (annees.length === 0) return null;
+  return { nb: annees.length, premiere: Math.min(...annees), derniere: Math.max(...annees) };
+}
+
+/** « Aucune vente signée en 2026 ni compromis en cours. Vos 60 ventes signées vont de 2024 à 2025. » PUR. */
+export function phraseVentesAnterieures(a: { nb: number; premiere: number; derniere: number }, anneeEnCours: number): string {
+  const quand = a.premiere === a.derniere ? `datent de ${a.derniere}` : `vont de ${a.premiere} à ${a.derniere}`;
+  return `Aucune vente signée en ${anneeEnCours} ni compromis en cours. ${a.nb > 1 ? `Vos ${a.nb} ventes signées ${quand}` : `Votre vente signée ${a.premiere === a.derniere ? `date de ${a.derniere}` : quand}`}.`;
+}
+
 /** 🔴 Arno (05/11/2026) — le message d'un espace personnel sans aucune affaire rattachée au compte. */
 export const MESSAGE_ESPACE_VIDE = 'Aucune vente ni compromis rattaché à votre compte pour l’instant.';
 
@@ -361,6 +380,15 @@ export function MesCompteurs() {
       {!disponible && <p className="loc-alerte loc-alerte--orange" role="status">Le Suivi CA n’est pas encore en place dans la base : aucune affaire à montrer.</p>}
       {/* 🔴 Arno (05/11/2026) — un collaborateur sans aucune affaire rattachée à son compte : un message clair, jamais un espace muet. */}
       {disponible && nomAgence === null && !data.ventes.some((v) => v.mesCotes.length > 0) && <p className="loc-alerte" role="status" data-espace-vide>{MESSAGE_ESPACE_VIDE}</p>}
+      {/* 🔴 Arno (05/11/2026) — l'espace de Pierre, « totalement vide » : aucune vente signée cette année ni compromis en cours, mais des ventes les
+          années passées. Les vues d'ouverture (compromis, année en cours) sont vides : on le DIT, et on mène à la dernière année qui en a. */}
+      {disponible && nomAgence === null && (() => {
+        const a = ventesAnterieures(data.ventes, Number(data.aujourdhui.slice(0, 4)));
+        return a === null ? null : (
+          <p className="loc-alerte" role="status" data-ventes-anterieures>{phraseVentesAnterieures(a, Number(data.aujourdhui.slice(0, 4)))}{' '}
+            <button type="button" className="svv-btn svv-btn-outline" onClick={() => ouvrirAnnee(a.derniere)} data-voir-annee={a.derniere}>Voir {a.derniere}</button></p>
+        );
+      })()}
       {/* Décision 10 (Arno, 02/11/2026) : la phrase « Le montant est votre CA … » est retirée de « Mon espace » ; celle du mode agence reste. */}
       {nomAgence !== null && <p className="loc-muet mes-compteurs-note" data-note-ca>{`Le montant est le CA de ${nomAgence}, calculé comme dans le Suivi CA (la somme des cartes ; les compromis en cours : la même règle).`}</p>}
       {motifEdition !== null && <p className="trx-erreur" role="alert" data-motif-edition>{motifEdition}</p>}

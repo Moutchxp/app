@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MesCompteurs, trierMesCompromis, trierMesVentes, URL_MES_AFFAIRES } from './MesCompteurs';
+import { MesCompteurs, phraseVentesAnterieures, trierMesCompromis, trierMesVentes, URL_MES_AFFAIRES, ventesAnterieures } from './MesCompteurs';
 import { CarteAffaire, DetailAffaire, type HoteDetail } from '../transaction/OngletCompromis';
 import { FournisseurAffichage } from '../transaction/commun';
 import type { LigneVente, Vente } from '../../../../lib/transaction/modele';
@@ -161,6 +161,36 @@ describe('compte sans aucune vente', () => {
     expect([texte('[data-tuile-nb-compromis]'), texte('[data-valeur-tuile="nombre"]'), texte('[data-valeur-tuile="ca"]')]).toEqual(['0 compromis', '0', '0 €']);
     expect(texte('[data-liste-periode-vide]')).toBe('Aucune affaire sur cette période.');
     expect(container.querySelector('[data-mon-espace-erreur]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — aucune vente cette année ni compromis : l’écran le DIT et mène aux années passées', () => {
+  const vide = { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } };
+  const seulement = (ventes: VenteMonEspace[]) => ({ etat: 'ok', data: { disponible: true, aujourdhui: '2026-11-02', ventes,
+    titulaire: { id: 8, prenom: 'Pierre', administrateur: false }, schema: { lotD: true, personneType: true, uniteCommission: true, prixVente: true, mandat: true },
+    nomsNegociateurs: {}, statutsNegociateurs: {}, compteurs: { compromis: vide, actees: { ...vide, annee: 2026 }, parAnnee: [] } } });
+  it('ventes en 2025 seulement : la phrase, et « Voir 2025 » ouvre cette année', async () => {
+    const autre25 = pourLea(partagee({ id: 5, libelle: 'VENDUE 2024', statut: 'vendue', annee: 2024, mois: 4, dossier: { ...partagee().dossier!, dateActe: '2024-04-02' } }));
+    reponse = { status: 200, corps: seulement([vendue25, autre25]) };
+    await rendre();
+    expect(texte('[data-ventes-anterieures]')).toBe('Aucune vente signée en 2026 ni compromis en cours. Vos 2 ventes signées vont de 2024 à 2025. Voir 2025');
+    expect(container.querySelector('[data-espace-vide]')).toBeNull();
+    await cliquer('[data-voir-annee="2025"]');
+    expect(container.querySelector('[data-vue="mois"]')!.getAttribute('aria-selected')).toBe('true');
+    expect([...container.querySelectorAll('[data-groupe-periode="vendus"] [data-ma-vente]')].map((x) => x.getAttribute('data-ma-vente'))).toEqual(['3']);
+  });
+  it('un compromis en cours, ou une vente cette année : pas de message', async () => {
+    reponse = { status: 200, corps: seulement([vendue25, c1]) };
+    await rendre();
+    expect(container.querySelector('[data-ventes-anterieures]')).toBeNull();
+  });
+  it('les règles (PUR)', () => {
+    const v = (statut: string, annee: number, mien = true) => ({ statut, annee, mesCotes: mien ? ['entree'] : [] });
+    expect(ventesAnterieures([v('vendue', 2025), v('vendue', 2024), v('vendue', 2026, false)], 2026)).toEqual({ nb: 2, premiere: 2024, derniere: 2025 });
+    expect(ventesAnterieures([v('vendue', 2025), v('vendue', 2026)], 2026)).toBeNull();
+    expect(ventesAnterieures([v('vendue', 2025), v('compromis', 2026)], 2026)).toBeNull();
+    expect(ventesAnterieures([], 2026)).toBeNull();
+    expect(phraseVentesAnterieures({ nb: 1, premiere: 2025, derniere: 2025 }, 2026)).toBe('Aucune vente signée en 2026 ni compromis en cours. Votre vente signée date de 2025.');
   });
 });
 

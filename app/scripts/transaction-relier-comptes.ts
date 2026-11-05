@@ -7,12 +7,15 @@
  *    homonyme, nom inconnu). Rapport dans `.captures/transaction-relier-comptes/` ; RIEN en base.
  * 🔴 ÉCRITURE seulement avec `--ecrire` : ne remplit QUE les cases vides (`compte_id IS NULL`), ne touche jamais au texte d'origine ; chaque
  *    ligne rattachée est journalisée (`transaction_journal`, action « compte »). Un cas douteux n'est JAMAIS deviné : il ne s'écrit que si Arno
- *    l'a tranché, passé explicitement par `--confirme="PIERRE=8,ARNAUD=2"` (libellé = identifiant du compte).
+ *    l'a tranché, passé explicitement par `--confirme="PIERRE=p.thevenin@sansvisavis.com,ARNAUD=2"` : libellé = ADRESSE E-MAIL du compte
+ *    (Arno, 05/11/2026 — les numéros diffèrent d'une base à l'autre) ou son numéro. Une adresse inconnue, ou portée par deux comptes : REFUS,
+ *    rien n'est écrit. L'essai montre, pour chaque libellé, le compte trouvé et le nombre de lignes qui lui seraient reliées.
  *
  * Usage :
  *   npm run transaction:relier-comptes                      (essai)
  *   npm run transaction:relier-comptes -- --ecrire          (cas sûrs seulement)
- *   npm run transaction:relier-comptes -- --ecrire --confirme="PIERRE=8"
+ *   npm run transaction:relier-comptes -- --confirme="PIERRE=p.thevenin@sansvisavis.com"   (essai : compte trouvé, lignes reliées)
+ *   npm run transaction:relier-comptes -- --ecrire --confirme="PIERRE=p.thevenin@sansvisavis.com"
  *   option : --rapport=/chemin (fichier ou dossier)
  */
 import '../lib/chargerEnv';
@@ -23,17 +26,37 @@ import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 const NOM_SCRIPT = 'transaction-relier-comptes';
 const P = '[transaction:relier-comptes]';
 
-/** `--confirme="PIERRE=8,ARNAUD=2"` → [{ libelle, compteId }] ; une entrée illisible est rendue à part. PUR. */
-export function lireConfirmations(brut: string | null): { ok: { libelle: string; compteId: number }[]; illisibles: string[] } {
-  const ok: { libelle: string; compteId: number }[] = [];
+/** `--confirme="PIERRE=p.thevenin@x.fr,ARNAUD=2"` → [{ libelle, compte }] (compte = adresse e-mail ou numéro) ; une entrée illisible à part. PUR. */
+export function lireConfirmations(brut: string | null): { ok: { libelle: string; compte: string }[]; illisibles: string[] } {
+  const ok: { libelle: string; compte: string }[] = [];
   const illisibles: string[] = [];
   for (const morceau of (brut ?? '').split(',').map((x) => x.trim()).filter((x) => x !== '')) {
     const i = morceau.lastIndexOf('=');
     const libelle = i <= 0 ? '' : morceau.slice(0, i).trim();
-    const id = i <= 0 ? NaN : Number(morceau.slice(i + 1).trim());
-    if (libelle === '' || !Number.isSafeInteger(id) || id <= 0) illisibles.push(morceau); else ok.push({ libelle, compteId: id });
+    const compte = i <= 0 ? '' : morceau.slice(i + 1).trim();
+    const lisible = /^[1-9]\d{0,15}$/.test(compte) || /^[^\s@,;<>=]+@[^\s@,;<>=]+\.[^\s@,;<>=]+$/.test(compte);
+    if (libelle === '' || !lisible) illisibles.push(morceau); else ok.push({ libelle, compte });
   }
   return { ok, illisibles };
+}
+
+/**
+ * Chaque confirmation → SON compte : par adresse e-mail (casse et espaces ignorés) ou par numéro. Une adresse inconnue, ou portée par
+ * PLUSIEURS comptes, un numéro inconnu : REFUS (avec la raison) — rien n'est deviné. PUR.
+ */
+export function resoudreConfirmations(conf: readonly { libelle: string; compte: string }[], comptes: readonly { id: number; identifiant: string; nom: string }[]):
+  { ok: { libelle: string; compteId: number; nom: string; identifiant: string }[]; refus: string[] } {
+  const ok: { libelle: string; compteId: number; nom: string; identifiant: string }[] = [];
+  const refus: string[] = [];
+  for (const c of conf) {
+    const parNumero = /^\d+$/.test(c.compte);
+    const trouves = parNumero ? comptes.filter((x) => x.id === Number(c.compte))
+      : comptes.filter((x) => x.identifiant.trim().toLowerCase() === c.compte.trim().toLowerCase());
+    if (trouves.length === 0) refus.push(`« ${c.libelle} » : ${parNumero ? `le compte n° ${c.compte}` : `l’adresse ${c.compte}`} n’existe pas.`);
+    else if (trouves.length > 1) refus.push(`« ${c.libelle} » : l’adresse ${c.compte} est portée par ${trouves.length} comptes (${trouves.map((x) => x.id).join(', ')}) — rien n’est deviné.`);
+    else ok.push({ libelle: c.libelle, compteId: trouves[0].id, nom: trouves[0].nom, identifiant: trouves[0].identifiant });
+  }
+  return { ok, refus };
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -43,13 +66,25 @@ export async function main(argv: readonly string[]): Promise<number> {
   const { negociateurCompteDisponible, planRattachementExistant } = await import('../lib/transaction/negociateurCompte');
   const l: string[] = [`${P} ${ecrire ? 'ÉCRITURE' : 'ESSAI (rien n’est écrit ; --ecrire pour écrire)'} — ${new Date().toISOString()}`];
   try {
-    if (conf.illisibles.length > 0) { l.push(`⛔ --confirme illisible : ${conf.illisibles.join(' ; ')} (forme : LIBELLÉ=identifiant). Rien n’est écrit.`); return fin(l, argv, 1); }
-    if (!(await negociateurCompteDisponible())) { l.push('⛔ Migration 458 non appliquée : rien à faire.'); return fin(l, argv, 1); }
-    const comptes = (await query<{ id: string; nom: string }>(`SELECT id::text, concat_ws(' ', prenom, nom) AS nom FROM admin_utilisateur`)).rows;
-    const nomDe = (id: number): string => comptes.find((c) => Number(c.id) === id)?.nom ?? `compte ${id} INCONNU`;
-    for (const c of conf.ok) if (!comptes.some((x) => Number(x.id) === c.compteId)) { l.push(`⛔ --confirme : le compte ${c.compteId} n’existe pas. Rien n’est écrit.`); return fin(l, argv, 1); }
-    const plan = (await planRattachementExistant()).map((x) => {
-      const confirme = x.compteId === null ? conf.ok.find((c) => c.libelle === x.libelle) : undefined;
+    if (conf.illisibles.length > 0) { l.push(`⛔ --confirme illisible : ${conf.illisibles.join(' ; ')} (forme : LIBELLÉ=adresse e-mail ou LIBELLÉ=numéro). Rien n’est écrit.`); return fin(l, argv, 1); }
+    const avec458 = await negociateurCompteDisponible();
+    if (!avec458 && ecrire) { l.push('⛔ Migration 458 non appliquée : --ecrire refusé (l’essai, lui, fonctionne). Rien n’est écrit.'); return fin(l, argv, 1); }
+    if (!avec458) l.push('ℹ️ Migration 458 non appliquée : ESSAI seulement — lignes comptées par libellé, rien ne peut être écrit avant la mise à jour de la base.');
+    const comptes = (await query<{ id: string; identifiant: string; nom: string }>(
+      `SELECT id::text, identifiant, concat_ws(' ', prenom, nom) AS nom FROM admin_utilisateur`)).rows.map((c) => ({ ...c, id: Number(c.id) }));
+    const nomDe = (id: number): string => { const c = comptes.find((x) => x.id === id); return c === undefined ? `compte ${id} INCONNU` : `${c.nom} <${c.identifiant}>`; };
+    const resolues = resoudreConfirmations(conf.ok, comptes);
+    if (resolues.refus.length > 0) { l.push('⛔ --confirme refusé — rien n’est écrit :', ...resolues.refus.map((x) => `   · ${x}`)); return fin(l, argv, 1); }
+    const lu = avec458 ? await planRattachementExistant() : await planSans458(query);
+    if (resolues.ok.length > 0) {
+      l.push('', 'CONFIRMATIONS D’ARNO (--confirme) : LIBELLÉ → COMPTE TROUVÉ → LIGNES RELIÉES (sans compte aujourd’hui)');
+      for (const c of resolues.ok) {
+        const n = lu.filter((x) => x.libelle === c.libelle && x.compteId === null).reduce((t, x) => t + x.lignes, 0);
+        l.push(`   « ${c.libelle} » → compte ${c.compteId} ${c.nom} <${c.identifiant}> → ${n} ligne(s)${n === 0 ? ' (aucune ligne sans compte à ce libellé : vérifiez l’orthographe exacte)' : ''}`);
+      }
+    }
+    const plan = lu.map((x) => {
+      const confirme = x.compteId === null ? resolues.ok.find((c) => c.libelle === x.libelle) : undefined;
       return confirme === undefined ? x : { ...x, compteId: confirme.compteId, raison: `tranché par Arno (--confirme) ; avant : ${x.raison}` };
     });
     l.push('', 'TABLE | LIBELLÉ | LIGNES SANS COMPTE | COMPTE POSÉ | RAISON');
@@ -76,6 +111,23 @@ export async function main(argv: readonly string[]): Promise<number> {
     l.push(`✅ ${n} ligne(s) rattachée(s) à leur compte ; aucun texte modifié, aucune case remplie écrasée.`);
     return fin(l, argv, 0);
   } finally { await closePool(); }
+}
+
+/** Sans la 458 : le même plan, toutes les lignes comptées par libellé (aucune n'a encore de compte). LECTURE SEULE. */
+async function planSans458(query: typeof import('../lib/db/client').query): Promise<{ table: 'ligne' | 'retrocession'; libelle: string; lignes: number; compteId: number | null; raison: string }[]> {
+  const { rattacherLibelle } = await import('../lib/location/suivi/negociateurIdentite');
+  const { lireAliasNegociateurs, lireComptesNegociateurs } = await import('../lib/location/suivi/negociateurIdentiteRepo');
+  const [comptes, alias] = await Promise.all([lireComptesNegociateurs(), lireAliasNegociateurs().catch(() => [])]);
+  const lus = await Promise.all([
+    query<{ libelle: string; n: string }>(`SELECT negociateur AS libelle, count(*)::text AS n FROM transaction_vente_ligne WHERE retire_le IS NULL GROUP BY 1 ORDER BY 1`),
+    query<{ libelle: string; n: string }>(`SELECT negociateur AS libelle, count(*)::text AS n FROM transaction_retrocession WHERE retire_le IS NULL GROUP BY 1 ORDER BY 1`),
+  ]);
+  return (['ligne', 'retrocession'] as const).flatMap((table, i) => lus[i].rows.map((r) => {
+    const x = rattacherLibelle(r.libelle, comptes, alias);
+    const compteId = x.sorte === 'compte' || x.sorte === 'alias' || x.sorte === 'auto' ? x.compteId : null;
+    return { table, libelle: r.libelle, lignes: Number(r.n), compteId,
+      raison: compteId !== null ? 'nom exact ou adresse d’un seul compte' : x.sorte === 'ambigu' ? `ambigu : comptes ${x.candidats.join(', ')}` : 'aucun compte sûr (prénom seul, nom inconnu ou sans compte)' };
+  }));
 }
 
 function fin(l: string[], argv: readonly string[], code: number): number {
