@@ -76,9 +76,12 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
   it('la modale : ses onglets (dont « Archivage des fins de gestion », 405) ; Enregistrer / Annuler en bas', async () => {
     await ouvrir();
     expect(container.querySelector('[data-modale-parametres]')?.getAttribute('role')).toBe('dialog');
-    // 🔴 Arno (05/11/2026, 460) — « Destinataires du mail » devient TROIS onglets (libellés courts sous « Destinataires : »), avant les barèmes.
-    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Nouvelles locations', 'Préavis', 'Sorties', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions', 'Indices']); // 406 : deux onglets AJOUTÉS en fin
-    expect(container.querySelector('.plo-groupe-onglets')?.textContent).toBe('Destinataires :');
+    // 🔴 Arno (05/11/2026) — UN onglet principal « Destinataires mails », ses trois listes en sous-onglets DANS le corps ; « Nouvelles locations » par défaut.
+    expect([...container.querySelectorAll('.plo-onglets [role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires mails', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions', 'Indices']); // 406 : deux onglets AJOUTÉS en fin
+    expect(container.querySelector('.plo-onglets [aria-selected="true"]')?.textContent).toBe('Destinataires mails');
+    expect([...container.querySelectorAll('.plo-corps .plo-sous-onglets [role="tab"]')].map((t) => t.textContent)).toEqual(['Nouvelles locations', 'Préavis', 'Sorties']);
+    expect(container.querySelector('.plo-sous-onglets [aria-selected="true"]')?.getAttribute('data-sous-onglet')).toBe('nouvelles');
+    expect(container.querySelector('.plo-groupe-onglets')).toBeNull();
     expect([...container.querySelectorAll('.plo-boutons button')].map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer']);
     await clic(container.querySelector('[data-annuler-parametres]'));
     expect(container.querySelector('[data-modale-parametres]')).toBeNull();
@@ -109,7 +112,7 @@ describe('🔴 onglet « Destinataires du mail »', () => {
   });
 });
 
-describe('🔴 Arno (05/11/2026, 460) — onglets « Préavis » et « Sorties » : leur propre liste', () => {
+describe('🔴 Arno (05/11/2026, 460) — sous-onglets « Préavis » et « Sorties » : leur propre liste', () => {
   const ADHOC = { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' };
   const avecListes = () => {
     global.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -125,17 +128,25 @@ describe('🔴 Arno (05/11/2026, 460) — onglets « Préavis » et « Sorties �
     avecListes();
     await ouvrir();
     expect(adresses()).toEqual(['gestion@criterimmo.fr', 'gestion.criterimmo@gmail.com']);
-    await clic(container.querySelector('[data-onglet="destinataires-preavis"]'));
+    await clic(container.querySelector('[data-sous-onglet="preavis"]'));
     expect(adresses()).toEqual(['gestion.criterimmo@gmail.com']);
     expect(container.textContent).toContain('La personne qui valide reçoit toujours une copie, ainsi que gestion@criterimmo.fr');
     expect(container.querySelector('[data-derniere-modification]')?.textContent).toContain('par migration 460');
-    await clic(container.querySelector('[data-onglet="destinataires-sorties"]'));
+    await clic(container.querySelector('[data-sous-onglet="sorties"]'));
     expect(adresses()).toEqual(['gestion.criterimmo@gmail.com', 'laura@monga.io']);
+    expect(container.querySelector('.plo-sous-onglets [aria-selected="true"]')?.textContent).toBe('Sorties');
+    expect(container.querySelector('.plo-onglets [aria-selected="true"]')?.textContent).toBe('Destinataires mails');
+    // Quitter « Destinataires mails » puis y revenir : « Nouvelles locations », ouvert par défaut.
+    await clic(container.querySelector('[data-onglet="baremes"]'));
+    expect(container.querySelector('.plo-sous-onglets')).toBeNull();
+    await clic(container.querySelector('[data-onglet="destinataires"]'));
+    expect(container.querySelector('.plo-sous-onglets [aria-selected="true"]')?.getAttribute('data-sous-onglet')).toBe('nouvelles');
+    expect(adresses()).toEqual(['gestion@criterimmo.fr', 'gestion.criterimmo@gmail.com']);
   });
   it('« Sorties » : réordonner puis Enregistrer → la liste DANS L’ORDRE, avec sa sorte', async () => {
     avecListes();
     await ouvrir();
-    await clic(container.querySelector('[data-onglet="destinataires-sorties"]'));
+    await clic(container.querySelector('[data-sous-onglet="sorties"]'));
     await clic(container.querySelector('[data-destinataire-defaut="1"] [data-monter]'));
     await clic(container.querySelector('[data-enregistrer-parametres]'));
     expect(posts).toEqual([{ action: 'destinataires', sorte: 'sortie', liste: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }, ADHOC] }]);
@@ -143,13 +154,13 @@ describe('🔴 Arno (05/11/2026, 460) — onglets « Préavis » et « Sorties �
   it('« Préavis » : liste VIDE autorisée (aucun mail partenaire) ; « Nouvelles locations » : refusée', async () => {
     avecListes();
     await ouvrir();
-    await clic(container.querySelector('[data-onglet="destinataires-preavis"]'));
+    await clic(container.querySelector('[data-sous-onglet="preavis"]'));
     await clic(container.querySelector('[data-destinataire-defaut="0"] [data-supprimer]'));
     expect(container.querySelector('[data-liste-vide]')?.textContent).toBe('Liste vide : aucun mail partenaire ne partira.');
     await clic(container.querySelector('[data-enregistrer-parametres]'));
     expect(posts).toEqual([{ action: 'destinataires', sorte: 'preavis', liste: [] }]);
     expect(container.querySelector('[data-info-parametres]')?.textContent).toBe('Liste vide enregistrée : aucun mail partenaire ne partira.');
-    await clic(container.querySelector('[data-onglet="destinataires"]'));
+    await clic(container.querySelector('[data-sous-onglet="nouvelles"]'));
     await clic(container.querySelector('[data-destinataire-defaut="0"] [data-supprimer]'));
     await clic(container.querySelector('[data-destinataire-defaut="0"] [data-supprimer]'));
     await clic(container.querySelector('[data-enregistrer-parametres]'));

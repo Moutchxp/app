@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { ONGLETS_PARAMETRES as ONGLETS, PARAM_MODALE, PARAM_PAGE } from './parametresAdresse';
+import { listeDe, ONGLETS_PARAMETRES as ONGLETS, PARAM_MODALE, PARAM_PAGE, type ListeDestinataires } from './parametresAdresse';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — L'ÉTAT DE LA MODALE « PARAMÈTRES LOCATION » EST DANS L'ADRESSE ═══════════════════════════════════════════
@@ -9,15 +9,15 @@ import { ONGLETS_PARAMETRES as ONGLETS, PARAM_MODALE, PARAM_PAGE } from './param
  * rechargement de la page (quelle qu'en soit la cause) la rouvre exactement au même endroit. L'adresse est réécrite SUR PLACE
  * (`history.replaceState`) : ni navigation, ni remontage de la page.
  */
-export type OngletModale = 'destinataires' | 'destinataires-preavis' | 'destinataires-sorties' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
-export { OUTILS_SUIVI, PAGE_PARAMETRES, PARAM_MODALE, PARAM_PAGE } from './parametresAdresse';
-export function lireEtatModale(recherche: string, cle: typeof PARAM_MODALE | typeof PARAM_PAGE = PARAM_MODALE): { onglet: OngletModale | null; apporteur: number | null; panneau: string | null } {
+export type OngletModale = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
+export { OUTILS_SUIVI, PAGE_PARAMETRES, PARAM_LISTE, PARAM_MODALE, PARAM_PAGE } from './parametresAdresse';
+export function lireEtatModale(recherche: string, cle: typeof PARAM_MODALE | typeof PARAM_PAGE = PARAM_MODALE): { onglet: OngletModale | null; liste: ListeDestinataires | null; apporteur: number | null; panneau: string | null } {
   const p = new URLSearchParams(recherche);
   const o = p.get(cle);
   const a = Number(p.get('apporteur'));
-  return { onglet: o !== null && (ONGLETS as readonly string[]).includes(o) ? o as OngletModale : null, apporteur: Number.isSafeInteger(a) && a > 0 ? a : null, panneau: p.get('panneau') };
+  return { onglet: o !== null && (ONGLETS as readonly string[]).includes(o) ? o as OngletModale : null, liste: listeDe(p.get('liste')), apporteur: Number.isSafeInteger(a) && a > 0 ? a : null, panneau: p.get('panneau') };
 }
-export function ecrireEtatModale(maj: Partial<Record<'parametres' | 'onglet' | 'apporteur' | 'panneau', string | null>>): void {
+export function ecrireEtatModale(maj: Partial<Record<'parametres' | 'onglet' | 'liste' | 'apporteur' | 'panneau', string | null>>): void {
   if (typeof window === 'undefined') return;
   const u = new URL(window.location.href);
   for (const [k, v] of Object.entries(maj)) { if (v === null || v === undefined) u.searchParams.delete(k); else u.searchParams.set(k, v); }

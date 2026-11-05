@@ -2,7 +2,8 @@
 
 import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
-import { ecrireEtatModale, lireEtatModale, OUTILS_SUIVI, PARAM_MODALE, PARAM_PAGE, useRechercheAdresse } from './etatModaleParametres';
+import { ecrireEtatModale, lireEtatModale, OUTILS_SUIVI, PARAM_LISTE, PARAM_MODALE, PARAM_PAGE, useRechercheAdresse } from './etatModaleParametres';
+import type { ListeDestinataires } from './parametresAdresse';
 import { DELAI_MAX_MOIS, DELAI_MIN_MOIS, dureeMois, verifierDelai } from '../../../../lib/gestion/finGestion';
 import { usePathname } from 'next/navigation';
 import { verifierDestinataires, type Destinataire } from '../../../../lib/location/mailNouvelleLocation';
@@ -37,18 +38,21 @@ interface Parametres {
   listes?: Record<SorteListe, { liste: Destinataire[]; saisis: { le: string; par: string } | null }>;
   parSorte?: boolean;
 }
-export type Onglet = 'destinataires' | 'destinataires-preavis' | 'destinataires-sorties' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
+export type Onglet = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
 type SorteListe = 'nouvelle_location' | 'preavis' | 'sortie';
-/** 🔴 Arno (05/11/2026) — les trois onglets « Destinataires » : leur liste, leur libellé court, leur aide. */
-export const ONGLETS_DESTINATAIRES: readonly { onglet: Onglet; sorte: SorteListe; mot: string; aide: string }[] = [
-  { onglet: 'destinataires', sorte: 'nouvelle_location', mot: 'Nouvelles locations',
+/**
+ * 🔴 Arno (05/11/2026) — les trois SOUS-ONGLETS de « Destinataires mails » : leur liste, leur libellé court, leur aide, et leur valeur
+ * dans l'adresse (`&liste=…` ; null = « Nouvelles locations », ouvert par défaut).
+ */
+export const ONGLETS_DESTINATAIRES: readonly { liste: ListeDestinataires | null; sorte: SorteListe; mot: string; aide: string }[] = [
+  { liste: null, sorte: 'nouvelle_location', mot: 'Nouvelles locations',
     aide: 'Les destinataires du mail « Nouvelle location » (bouton « Envoi ADHOC & MONGA »), dans l’ordre d’envoi.' },
-  { onglet: 'destinataires-preavis', sorte: 'preavis', mot: 'Préavis',
+  { liste: 'preavis', sorte: 'preavis', mot: 'Préavis',
     aide: 'Les partenaires informés à la validation d’un préavis (mail d’information, avec la copie de l’accusé envoyé aux locataires), dans l’ordre d’envoi. Liste vide : aucun mail partenaire.' },
-  { onglet: 'destinataires-sorties', sorte: 'sortie', mot: 'Sorties',
+  { liste: 'sorties', sorte: 'sortie', mot: 'Sorties',
     aide: 'Les partenaires informés à la validation d’une sortie de locataire(s) (récapitulatif de la sortie), dans l’ordre d’envoi. Liste vide : aucun mail partenaire.' },
 ];
-const listeDe = (o: Onglet) => ONGLETS_DESTINATAIRES.find((x) => x.onglet === o) ?? null;
+const sousOnglet = (l: ListeDestinataires | null) => ONGLETS_DESTINATAIRES.find((x) => x.liste === l) ?? ONGLETS_DESTINATAIRES[0];
 /** Arno (22/10/2026, 406) — les onglets du suivi de l'activité enregistrent par leurs propres boutons (une ligne = un geste). */
 const ONGLETS_SUIVI: readonly Onglet[] = ['apporteurs', 'commissions', 'indices'];
 interface SaisieBareme { depuis: string; tresTendue: string; tendue: string; autre: string; etatDesLieux: string; source: string }
@@ -76,8 +80,8 @@ export function OuvrirAnnuaireApporteurs({ rendu, onFerme }: { rendu: (ouvrir: (
   return (
     <>
       {rendu(() => { setLocal(true); ecrireEtatModale({ [PARAM_MODALE]: 'apporteurs' }); })}
-      {ouvert && <ModaleParametresLocation ongletInitial={etat.onglet ?? 'apporteurs'} url
-        onFermer={() => { setLocal(false); ecrireEtatModale({ [PARAM_MODALE]: null, apporteur: null, panneau: null }); onFerme?.(); }} />}
+      {ouvert && <ModaleParametresLocation ongletInitial={etat.onglet ?? 'apporteurs'} listeInitiale={etat.liste} url
+        onFermer={() => { setLocal(false); ecrireEtatModale({ [PARAM_MODALE]: null, [PARAM_LISTE]: null, apporteur: null, panneau: null }); onFerme?.(); }} />}
     </>
   );
 }
@@ -98,13 +102,15 @@ export function RoueParametresLocation({ administrateur }: { administrateur: boo
           <path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94 7.07 7.07 0 0 0-.05-.94l2.03-1.58a.48.48 0 0 0 .12-.62l-1.92-3.32a.48.48 0 0 0-.59-.21l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54A.48.48 0 0 0 13.93 2h-3.86a.48.48 0 0 0-.48.41l-.36 2.54a7 7 0 0 0-1.62.94l-2.39-.96a.48.48 0 0 0-.59.21L2.71 8.46a.48.48 0 0 0 .12.62l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.48.48 0 0 0-.12.62l1.92 3.32c.12.22.38.3.59.21l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.86c.24 0 .44-.17.48-.41l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96c.22.09.47 0 .59-.21l1.92-3.32a.48.48 0 0 0-.12-.62l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
         </svg>
       </button>
-      {ouvert && <ModaleParametresLocation ongletInitial={etat.onglet ?? 'destinataires'} url
-        onFermer={() => { setLocal(false); ecrireEtatModale({ [PARAM_MODALE]: null, apporteur: null, panneau: null }); }} />}
+      {ouvert && <ModaleParametresLocation ongletInitial={etat.onglet ?? 'destinataires'} listeInitiale={etat.liste} url
+        onFermer={() => { setLocal(false); ecrireEtatModale({ [PARAM_MODALE]: null, [PARAM_LISTE]: null, apporteur: null, panneau: null }); }} />}
     </>
   );
 }
 
-export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinataires', url = false, page = false }: { onFermer: () => void; ongletInitial?: Onglet;
+export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinataires', listeInitiale = null, url = false, page = false }: { onFermer: () => void; ongletInitial?: Onglet;
+  /** 🔴 Arno (05/11/2026) — le sous-onglet de « Destinataires mails » à l'ouverture (`&liste=`) ; null : « Nouvelles locations ». */
+  listeInitiale?: ListeDestinataires | null;
   /** L'état (onglet, carte, panneau) suit l'adresse (voir `lireEtatModale`). */
   url?: boolean;
   /**
@@ -114,6 +120,10 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
   page?: boolean }) {
   const titre = useId();
   const [onglet, setOnglet] = useState<Onglet>(ongletInitial);
+  const [sous, setSous] = useState<ListeDestinataires | null>(listeInitiale);
+  /** La liste éditée : celle du sous-onglet ouvert, et seulement dans « Destinataires mails ». */
+  const ldDe = (o: Onglet, l: ListeDestinataires | null) => (o === 'destinataires' ? sousOnglet(l) : null);
+  const ldCourant = ldDe(onglet, sous);
   const [lu, setLu] = useState<Parametres | null>(null);
   const [lecture, setLecture] = useState<string | null>(null);
   const [n, setN] = useState(0);
@@ -138,7 +148,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
       if (d.etat !== 'ok' || d.data === undefined) { setLecture(d.message ?? 'Lecture impossible.'); return; }
       setLu(d.data);
       if (d.data.archivage) setDelai(String(d.data.archivage.mois));
-      const ld = listeDe(onglet);
+      const ld = ldDe(onglet, sous);
       setListe((ld === null || d.data.listes === undefined ? d.data.destinataires : d.data.listes[ld.sorte].liste).map((x) => ({ ...x, cle: ++compteur })));
       // Pré-rempli avec les valeurs de la version EN VIGUEUR aujourd'hui (la plus récente qui a commencé), à la date du jour.
       const enVigueur = d.data.versions.find((v) => v.depuis <= d.data!.aujourdhui) ?? d.data.versions[0];
@@ -157,10 +167,10 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
   const clicDehors = useRef(false);
 
   const erreurs = liste.map((_, i) => erreurLigne(liste, i));
-  /** 🔴 Arno (05/11/2026) — changer d'onglet : la liste affichée devient celle de l'onglet (une saisie non enregistrée de l'autre est abandonnée). */
-  const changerOnglet = (k: Onglet): void => {
-    setOnglet(k); setMotif(null); setInfo(null);
-    const ld = listeDe(k);
+  /** 🔴 Arno (05/11/2026) — changer d'onglet ou de sous-onglet : la liste affichée devient la sienne (une saisie non enregistrée de l'autre est abandonnée). */
+  const changerOnglet = (k: Onglet, l: ListeDestinataires | null = null): void => {
+    setOnglet(k); setSous(l); setMotif(null); setInfo(null);
+    const ld = ldDe(k, l);
     if (ld !== null && lu !== null) setListe((lu.listes === undefined ? (ld.sorte === 'nouvelle_location' ? lu.destinataires : []) : lu.listes[ld.sorte].liste).map((x) => ({ ...x, cle: ++compteur })));
   };
   const deplacer = (i: number, sens: -1 | 1): void => {
@@ -193,7 +203,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
       await poster({ action: 'archivage-delai', mois: v.mois }, `Délai d’archivage enregistré : ${dureeMois(v.mois)} après la fin de gestion.`);
       return;
     }
-    const ld = listeDe(onglet);
+    const ld = ldCourant;
     if (ld !== null) {
       const v = verifierDestinataires(liste.map((x) => ({ adresse: x.adresse, libelle: x.libelle })), { videAutorise: ld.sorte !== 'nouvelle_location' });
       if (!v.ok) { setMotif(v.motif); return; }
@@ -227,13 +237,11 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
           </header>
         )}
         <div className="plo-onglets" role="tablist" aria-label="Paramètres">
-          {/* 🔴 Arno (05/11/2026) — « Destinataires du mail » devient TROIS onglets, libellés courts sous le titre « Destinataires ». */}
-          <span className="plo-groupe-onglets" aria-hidden="true">Destinataires :</span>
-          {([...ONGLETS_DESTINATAIRES.map((x) => [x.onglet, x.mot] as const), ['baremes', 'Barèmes d’honoraires'], ['archivage', 'Archivage des fins de gestion'],
+          {/* 🔴 Arno (05/11/2026) — UN onglet « Destinataires mails » (ses trois listes en sous-onglets, dans le corps) : la ligne tient sur une ligne. */}
+          {([['destinataires', 'Destinataires mails'], ['baremes', 'Barèmes d’honoraires'], ['archivage', 'Archivage des fins de gestion'],
             ['apporteurs', 'Apporteurs'], ['commissions', 'Commissions'], ['indices', 'Indices']] as const).map(([k, mot]) => (
             <button key={k} type="button" role="tab" aria-selected={onglet === k} className="plo-onglet" data-onglet={k}
-              aria-label={listeDe(k) === null ? undefined : `Destinataires — ${mot}`}
-              onClick={() => { changerOnglet(k); if (url || page) ecrireEtatModale({ [page ? PARAM_PAGE : PARAM_MODALE]: k, apporteur: null, panneau: null }); }}>{mot}</button>
+              onClick={() => { changerOnglet(k); if (url || page) ecrireEtatModale({ [page ? PARAM_PAGE : PARAM_MODALE]: k, [PARAM_LISTE]: null, apporteur: null, panneau: null }); }}>{mot}</button>
           ))}
         </div>
         <div className="plo-corps" role="tabpanel">
@@ -255,15 +263,23 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
                   <p className="plo-muet plo-petit-texte">À partir de cette date, une annexe (parking, cave, box…) reliée à son lot principal ne compte jamais comme une
                     gestion, même louée séparément (relocation). Avant cette date, tout est compté comme avant. Lecture seule.</p>
                 </section>
-              ) : listeDe(onglet) !== null ? (
-                <section data-onglet-destinataires={listeDe(onglet)!.sorte}>
-                  <p className="plo-note">{listeDe(onglet)!.aide}
-                    {listeDe(onglet)!.sorte === 'nouvelle_location'
+              ) : ldCourant !== null ? (
+                <section data-onglet-destinataires={ldCourant.sorte}>
+                  {/* 🔴 Arno (05/11/2026) — les sous-onglets, plus discrets que la ligne principale : « Nouvelles locations » par défaut. */}
+                  <div className="plo-sous-onglets" role="tablist" aria-label="Destinataires mails">
+                    {ONGLETS_DESTINATAIRES.map((x) => (
+                      <button key={x.sorte} type="button" role="tab" aria-selected={sous === x.liste} className="plo-sous-onglet" data-sous-onglet={x.liste ?? 'nouvelles'}
+                        aria-label={`Destinataires — ${x.mot}`}
+                        onClick={() => { changerOnglet('destinataires', x.liste); if (url || page) ecrireEtatModale({ [page ? PARAM_PAGE : PARAM_MODALE]: 'destinataires', [PARAM_LISTE]: x.liste, apporteur: null, panneau: null }); }}>{x.mot}</button>
+                    ))}
+                  </div>
+                  <p className="plo-note">{ldCourant.aide}
+                    {ldCourant.sorte === 'nouvelle_location'
                       ? <><strong> La personne qui envoie reçoit toujours une copie, automatiquement</strong> : inutile de l’ajouter ici.</>
                       : <><strong> La personne qui valide reçoit toujours une copie, ainsi que gestion@criterimmo.fr</strong> : inutile de les ajouter ici.</>}</p>
-                  {listeDe(onglet)!.sorte !== 'nouvelle_location' && lu.parSorte !== true && <p className="plo-alerte" role="status" data-sans-460>Mise à jour de la base à appliquer
+                  {ldCourant.sorte !== 'nouvelle_location' && lu.parSorte !== true && <p className="plo-alerte" role="status" data-sans-460>Mise à jour de la base à appliquer
                     (migration 460) : cette liste ne s’enregistre pas encore, et aucun mail partenaire ne part.</p>}
-                  {liste.length === 0 && <p className="plo-muet" data-liste-vide>Liste vide{listeDe(onglet)!.sorte === 'nouvelle_location' ? ' : ajoutez au moins un destinataire.' : ' : aucun mail partenaire ne partira.'}</p>}
+                  {liste.length === 0 && <p className="plo-muet" data-liste-vide>Liste vide{ldCourant.sorte === 'nouvelle_location' ? ' : ajoutez au moins un destinataire.' : ' : aucun mail partenaire ne partira.'}</p>}
                   <ol className="plo-liste">
                     {liste.map((d, i) => (
                       <li key={d.cle} data-destinataire-defaut={i}>
@@ -284,7 +300,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
                   </ol>
                   <button type="button" className="svv-btn svv-btn-outline gst-btn plo-ajout" onClick={() => { setListe((l) => [...l, { adresse: '', libelle: '', cle: ++compteur }]); setInfo(null); }} data-ajouter>+ Ajouter</button>
                   {(() => {
-                    const s = lu.listes?.[listeDe(onglet)!.sorte]?.saisis ?? (listeDe(onglet)!.sorte === 'nouvelle_location' ? lu.destinatairesSaisis : null);
+                    const s = lu.listes?.[ldCourant.sorte]?.saisis ?? (ldCourant.sorte === 'nouvelle_location' ? lu.destinatairesSaisis : null);
                     return s === null ? null : <p className="plo-muet plo-petit-texte" data-derniere-modification>Dernière modification le {dateFr(s.le)} par {s.par}.</p>;
                   })()}
                 </section>
@@ -363,11 +379,11 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
  * de l'admin (colonne de gauche conservée), « ← Outils de suivi » en haut. L'onglet, la carte et le panneau suivent l'adresse
  * (`?onglet=…&apporteur=…&panneau=…`). « Annuler » ramène aux Outils de suivi, sans rien enregistrer (comme fermer la modale).
  */
-export function PageParametresLocation({ ongletInitial }: { ongletInitial: Onglet }) {
+export function PageParametresLocation({ ongletInitial, listeInitiale = null }: { ongletInitial: Onglet; listeInitiale?: ListeDestinataires | null }) {
   return (
     <div data-page-parametres-location>
       <p className="plo-retour-page"><a href={OUTILS_SUIVI} data-retour-outils>← Outils de suivi</a></p>
-      <ModaleParametresLocation page ongletInitial={ongletInitial} onFermer={() => { window.location.assign(OUTILS_SUIVI); }} />
+      <ModaleParametresLocation page ongletInitial={ongletInitial} listeInitiale={listeInitiale} onFermer={() => { window.location.assign(OUTILS_SUIVI); }} />
     </div>
   );
 }
@@ -392,11 +408,11 @@ export const CSS_PARAMETRES = `
 .plo-tete h2{margin:0;font-size:1.2rem}
 .plo-x{width:44px;height:44px;border:0;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-ink);font-size:1.4rem;cursor:pointer}
 .plo-onglets{display:flex;gap:6px;padding:0 20px;border-bottom:1px solid var(--color-svv-line);overflow-x:auto;flex-shrink:0;align-items:center}
-.plo-groupe-onglets{font-size:.78rem;font-weight:800;color:var(--color-svv-muted);white-space:nowrap;padding-right:2px}
-/* Arno (05/11/2026) — avec les trois onglets « Destinataires », la ligne passe à la ligne sur grand écran (rien de coupé) ; sur téléphone : défilement, comme avant. */
-@media (min-width:761px){ .plo-onglets{flex-wrap:wrap;overflow-x:visible} }
 .plo-onglet{appearance:none;border:0;border-bottom:3px solid transparent;background:transparent;color:var(--color-svv-muted);font:inherit;font-weight:800;padding:10px 12px;min-height:44px;cursor:pointer;white-space:nowrap}
 .plo-onglet[aria-selected="true"]{color:var(--color-svv-ink);border-bottom-color:var(--color-svv-red)}
+.plo-sous-onglets{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.plo-sous-onglet{appearance:none;border:1px solid var(--color-svv-line-strong);border-radius:999px;background:var(--color-svv-surface);color:var(--color-svv-muted);font:inherit;font-size:.85rem;font-weight:700;padding:6px 14px;min-height:36px;cursor:pointer;white-space:nowrap}
+.plo-sous-onglet[aria-selected="true"]{background:var(--color-svv-field);color:var(--color-svv-ink);border-color:var(--color-svv-ink)}
 .plo-corps{padding:16px 20px;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:12px}
 .plo-note{margin:0 0 10px;line-height:1.5}
 .plo-muet{color:var(--color-svv-muted)}

@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { adressePageDepuisModale } from './parametresAdresse';
+import { adressePageDepuisModale, listeDe } from './parametresAdresse';
+import { lireEtatModale } from './etatModaleParametres';
 import type { Apporteur } from '../../../../lib/location/suivi/suivi';
 
 const redirect = vi.fn((u: string) => { throw Object.assign(new Error('NEXT_REDIRECT'), { cible: u }); });
@@ -28,6 +29,18 @@ describe('🔴 les anciennes adresses de la modale mènent à la page', () => {
     expect(adressePageDepuisModale({ parametres: 'baremes' })).toBe('/admin/location/outils/parametres?onglet=baremes');
     expect(adressePageDepuisModale({ parametres: 'inconnu' })).toBe('/admin/location/outils/parametres?onglet=destinataires');
     expect(adressePageDepuisModale({ apporteur: '4' })).toBeNull();
+    // 🔴 Arno (05/11/2026) — le sous-onglet de « Destinataires mails » suit.
+    expect(adressePageDepuisModale({ parametres: 'destinataires', liste: 'preavis' })).toBe('/admin/location/outils/parametres?onglet=destinataires&liste=preavis');
+  });
+  it('🔴 Arno (05/11/2026) — ?parametres=destinataires (&liste=preavis | sorties) : l’onglet « Destinataires mails » et son sous-onglet', () => {
+    expect(lireEtatModale('?parametres=destinataires')).toMatchObject({ onglet: 'destinataires', liste: null });
+    expect(lireEtatModale('?parametres=destinataires&liste=preavis')).toMatchObject({ onglet: 'destinataires', liste: 'preavis' });
+    expect(lireEtatModale('?parametres=destinataires&liste=sorties')).toMatchObject({ onglet: 'destinataires', liste: 'sorties' });
+    expect(lireEtatModale('?parametres=destinataires&liste=autre')).toMatchObject({ onglet: 'destinataires', liste: null });
+    expect(lireEtatModale('?onglet=destinataires&liste=sorties', 'onglet')).toMatchObject({ onglet: 'destinataires', liste: 'sorties' });
+    expect(lireEtatModale('?parametres=destinataires-preavis').onglet).toBeNull();
+    expect(listeDe(['sorties'])).toBe('sorties');
+    expect(listeDe(undefined)).toBeNull();
   });
   it('la page Outils de suivi redirige une ancienne adresse (serveur)', async () => {
     await expect(PageOutils({ searchParams: Promise.resolve({ parametres: 'apporteurs', apporteur: '12', panneau: 'taux' }) })).rejects.toThrow('NEXT_REDIRECT');
@@ -70,7 +83,7 @@ describe('🔴 la page « Paramètres Location »', () => {
     expect(container.querySelector('[data-retour-outils]')?.getAttribute('href')).toBe('/admin/location/outils');
     expect(container.querySelector('[data-page-parametres]')).not.toBeNull();
     expect(container.querySelector('[data-voile-parametres], [data-modale-parametres], .plo-x, [role="dialog"]')).toBeNull();
-    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.getAttribute('data-onglet'))).toEqual(['destinataires', 'destinataires-preavis', 'destinataires-sorties', 'baremes', 'archivage', 'apporteurs', 'commissions', 'indices']);
+    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.getAttribute('data-onglet'))).toEqual(['destinataires', 'baremes', 'archivage', 'apporteurs', 'commissions', 'indices']);
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('data-onglet')).toBe('apporteurs');
     await clic(container.querySelector('[data-apporteur-bouton="4"][data-panneau-bouton="cumul"]')!);
     expect(window.location.search).toBe('?onglet=apporteurs&apporteur=4&panneau=cumul');
@@ -87,6 +100,36 @@ describe('🔴 la page « Paramètres Location »', () => {
     expect(container.querySelector('[data-page-parametres]')).toBeNull();
     const src = readFileSync(join(__dirname, 'ParametresLocation.tsx'), 'utf8');
     expect(src).toMatch(/<ModaleParametresLocation page ongletInitial=\{ongletInitial\}/);   // la page REND la modale en mode page : pas de copie
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — « Destinataires mails » : un onglet, trois sous-onglets, dans l’adresse', () => {
+  const ADHOC = { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' };
+  it('&liste=preavis ouvre « Préavis » ; un sous-onglet réécrit &liste= ; un onglet principal l’efface ; Enregistrer envoie la bonne liste', async () => {
+    const posts: unknown[] = [];
+    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return json({ etat: 'ok' }); }
+      return json({ etat: 'ok', data: { destinataires: [], destinatairesSaisis: null, versions: [], aujourdhui: '2026-11-05', manquantes: [], archivage: { mois: 24, disponible: true },
+        parSorte: true, listes: { nouvelle_location: { liste: [ADHOC], saisis: null }, preavis: { liste: [ADHOC], saisis: null }, sortie: { liste: [], saisis: null } } } });
+    }) as unknown as typeof fetch;
+    window.history.replaceState(null, '', '/admin/location/outils/parametres?onglet=destinataires&liste=preavis');
+    await act(async () => { root.render(createElement(PageParametresLocation, { ongletInitial: 'destinataires', listeInitiale: 'preavis' })); });
+    await calmer();
+    expect(container.querySelector('.plo-onglets [aria-selected="true"]')?.getAttribute('data-onglet')).toBe('destinataires');
+    expect(container.querySelector('.plo-sous-onglets [aria-selected="true"]')?.getAttribute('data-sous-onglet')).toBe('preavis');
+    expect(container.querySelector('[data-onglet-destinataires]')?.getAttribute('data-onglet-destinataires')).toBe('preavis');
+    await clic(container.querySelector('[data-sous-onglet="sorties"]')!);
+    expect(window.location.search).toBe('?onglet=destinataires&liste=sorties');
+    await clic(container.querySelector('[data-ajouter]')!);
+    const champ = container.querySelector('[data-destinataire-defaut="0"] [data-adresse]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, 'partenaire@exemple.test'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
+    await clic(container.querySelector('[data-enregistrer-parametres]')!);
+    expect(posts).toEqual([{ action: 'destinataires', sorte: 'sortie', liste: [{ adresse: 'partenaire@exemple.test', libelle: '' }] }]);
+    await clic(container.querySelector('[data-sous-onglet="nouvelles"]')!);
+    expect(window.location.search).toBe('?onglet=destinataires');
+    await clic(container.querySelector('[data-sous-onglet="preavis"]')!);
+    await clic(container.querySelector('[data-onglet="baremes"]')!);
+    expect(window.location.search).toBe('?onglet=baremes');
   });
 });
 
