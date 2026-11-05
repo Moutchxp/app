@@ -38,6 +38,36 @@ export interface References { lotD: boolean; negociateurs: NegociateurRef[]; app
 
 const texteMontant = (x: number): string => String(x).replace('.', ',');
 
+/** Le nom lisible de chaque liste des références. */
+const MOT_LISTE = { negociateurs: 'des négociateurs', apporteurs: 'des apporteurs', personnes: 'des personnes', collegues: 'des collègues' } as const;
+type ListeReferences = keyof typeof MOT_LISTE;
+
+/**
+ * 🔴 Arno (05/11/2026, production) — LES RÉFÉRENCES TOUJOURS DANS LA BONNE FORME : chaque liste absente ou mal formée (réponse d'avant, erreur,
+ * champ perdu) devient une liste VIDE, et elle est nommée dans `manquantes` (l'écran le dit). « Collègues » est facultatif par contrat (absent :
+ * réponse d'avant le LOT AC) : vide sans message s'il est absent, message s'il est mal formé. PUR.
+ */
+export function referencesSures(r: References | null | undefined): { references: References; manquantes: ListeReferences[] } {
+  const brut = (r ?? {}) as Partial<Record<string, unknown>>;
+  const manquantes: ListeReferences[] = [];
+  const liste = <T,>(cle: ListeReferences, facultative = false): T[] => {
+    const v = brut[cle];
+    if (Array.isArray(v)) return v as T[];
+    if (!(facultative && v === undefined)) manquantes.push(cle);
+    return [];
+  };
+  const references = { ...(r ?? {}), lotD: brut.lotD === true, negociateurs: liste<NegociateurRef>('negociateurs'), apporteurs: liste<ApporteurRef>('apporteurs'),
+    personnes: liste<PersonneRef>('personnes'), collegues: liste<{ id: number; libelle: string; actif?: boolean }>('collegues', true) } as References;
+  return { references, manquantes };
+}
+
+/** « Liste des collègues indisponible, réessayez. » / « Listes des personnes et des collègues indisponibles, réessayez. » PUR. */
+export function phraseListesIndisponibles(manquantes: readonly ListeReferences[]): string {
+  const mots = manquantes.map((m) => MOT_LISTE[m]);
+  const liees = mots.length <= 1 ? mots.join('') : `${mots.slice(0, -1).join(', ')} et ${mots[mots.length - 1]}`;
+  return `${mots.length > 1 ? 'Listes' : 'Liste'} ${liees} ${mots.length > 1 ? 'indisponibles' : 'indisponible'}, réessayez.`;
+}
+
 /**
  * L'état de la répartition d'une vente lue (ou vide). PUR.
  * LOT I — `avecUnite` (437 appliquée) : la rétrocession et les commissions versées se lisent dans LEUR unité ; une saisie neuve propose
@@ -100,7 +130,7 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
       sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false }: {
+export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false }: {
   /**
    * 🔴 MON ESPACE, LOT 5 — l'envoi du dossier : par défaut, la tuile Suivi CA (`dossier-enregistrer`, inchangé) ; « Mon espace » passe le sien
    * (sa route, qui enregistre par la MÊME fonction). Rend le motif d'un refus (null : accepté) et l'id de l'affaire.
@@ -120,6 +150,8 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
   /** LOT F — « + Ajouter un vendeur / un acquéreur » depuis la carte : une ligne neuve de ce côté, prête à la saisie (personne connue ou neuve). */
   ajouter?: 'vendeur' | 'acquereur' | null;
 }) {
+  // 🔴 Arno (05/11/2026, production) — une liste absente de la réponse ne fait JAMAIS tomber la page : liste vide, et un message le dit.
+  const { references, manquantes } = referencesSures(referencesRecues);
   const statut: 'compromis' | 'vendue' = vente?.statut === 'vendue' ? 'vendue' : 'compromis';
   const d = vente?.dossier ?? null;
   const [champs, setChamps] = useState({ libelle: vente?.libelle ?? '', commission: vente === null ? '' : String(vente.honorairesTtc).replace('.', ','),
@@ -206,6 +238,7 @@ export function FormulaireDossier({ societe, vente, references, onFermer, onFait
           <style>{CSS_CHAMP_ADRESSE}{CSS_FORMULAIRE_DOSSIER}</style>
           {!references.lotD && <p className="loc-alerte loc-alerte--orange" role="status" data-sans-434>Disponible après la mise à jour de la base (migration 434) : rien ne s’enregistre encore.</p>}
           {message !== undefined && <p className="loc-alerte loc-alerte--orange" role="status" data-message-revoir>{message}</p>}
+          {manquantes.length > 0 && <p className="loc-alerte loc-alerte--orange" role="status" data-listes-indisponibles>{phraseListesIndisponibles(manquantes)}</p>}
           <form className="trx-form trx-form-dossier" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
             <datalist id="trx-personnes">{references.personnes.map((p) => <option key={p.id} value={decrire(p)} />)}</datalist>
             {bloc('mandat', 'Mandat', <label className="trx-champ-large" data-champ-mandat>N° de mandat{mandatObligatoire ? ' (obligatoire)' : avecMandat ? ' (facultatif pour une fiche existante)' : ''}

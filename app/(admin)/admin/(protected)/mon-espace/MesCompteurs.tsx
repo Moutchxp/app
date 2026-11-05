@@ -11,6 +11,7 @@ import { CarteAffaire, DetailAffaire, useColonnesNegociateurs, type HoteDetail, 
 import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import { empreinteDe, type MesAffaires, type VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
 import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENCES } from './NouveauCompromis';
+import { ProtectionFormulaire } from './ProtectionFormulaire';
 import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
 import { AccueilMonEspace } from './AccueilMonEspace';
@@ -398,10 +399,12 @@ export function MesCompteurs() {
       {reconnexion && <p className="loc-alerte loc-alerte--orange" role="alert" data-reconnexion>Votre session a expiré : <a href="/admin/login">reconnectez-vous</a> pour voir les dernières mises à jour.</p>}
       {/* 🔴 LOT 6 — le formulaire de la tuile, sur l'affaire telle que je la reçois ; la version lue part avec l'enregistrement (409 si un collègue a
           enregistré entre-temps : le message le dit, rien n'est écrasé). */}
-      {edition !== null && refs !== null && <FormulaireDossier societe={edition.societe} vente={edition} references={refs}
+      {edition !== null && refs !== null && <ProtectionFormulaire onFermer={() => setEdition(null)}><FormulaireDossier societe={edition.societe} vente={edition} references={refs}
         repartitionInitiale={etatRepartitionDe(edition, refs.negociateurs, refs.uniteCommission === true)} commissionsMasquees={!refs.administrateur}
-        envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} />}
-      {parcours && <NouveauCompromis modeAgence={espace !== 'moi'} onFermer={() => setParcours(false)} onCree={(id) => { setParcours(false); choisirVue('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} />}
+        envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} /></ProtectionFormulaire>}
+      {/* 🔴 Arno (05/11/2026, production) — protégé : une erreur du formulaire ne fait plus tomber la page entière. */}
+      {parcours && <ProtectionFormulaire onFermer={() => setParcours(false)}><NouveauCompromis modeAgence={espace !== 'moi'} onFermer={() => setParcours(false)}
+        onCree={(id) => { setParcours(false); choisirVue('compromis'); setNouvelle(id); setLecture((x) => x + 1); }} /></ProtectionFormulaire>}
       <div id="mon-espace-listes" role="tabpanel" ref={listes} data-liste-mon-espace={onglet ?? `vue-${vue}`}>
         {/* « Mois » : l'accueil au format « Le mois » du Suivi CA ; « Année(s) » : celui de « L'année ». */}
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />

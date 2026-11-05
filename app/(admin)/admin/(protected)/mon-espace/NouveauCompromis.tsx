@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FormulaireDossier, etatRepartitionDe, type References } from '../transaction/FormulaireDossier';
+import { FormulaireDossier, etatRepartitionDe, referencesSures, type References } from '../transaction/FormulaireDossier';
 import { changerNegociateur } from '../transaction/Repartition';
 import { LIBELLE_SOCIETE, SOCIETES, type Societe } from '../../../../lib/transaction/modele';
 import { LONGUEUR_MAX_MANDAT } from '../../../../lib/transaction/mandat';
@@ -70,7 +70,9 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
         const r = await fetch(URL_REFERENCES, { cache: 'no-store' });
         const j = (await r.json()) as { etat?: string; data?: Refs };
         if (vivant && r.ok && j.etat === 'ok' && j.data !== undefined) {
-          setRefs(j.data);
+          // 🔴 Arno (05/11/2026, production) — la réponse est gardée TELLE QUELLE : le formulaire dit les listes manquantes (`referencesSures`),
+          //    et ce parcours ne lit que leur forme sûre (`negos`). Ici, « collègues » est attendu (« + Nouvel apporteur ») : absent, il reste marqué comme manquant (null) pour que le formulaire le dise.
+          setRefs({ ...j.data, collegues: (Array.isArray(j.data.collegues) ? j.data.collegues : null) as unknown as References['collegues'] });
           // 🔴 Décision 12 — rattaché à UNE structure : la question n'est pas posée, la structure de mon profil est imposée (le serveur l'impose aussi).
           const imposee = modeAgence ? null : j.data.structureImposee ?? null;
           if (imposee !== null) { setSociete(imposee); setEtape((e) => (e === 'structure' ? 'mandat' : e)); }
@@ -112,16 +114,18 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
   const ligne = (mot: string, valeur: string | null) => <div className="mes-parcours-info"><dt>{mot}</dt><dd className={valeur === null ? 'trx-a-renseigner' : undefined}>{valeur ?? 'à renseigner'}</dd></div>;
 
   // 🔴 LOT 6 — le formulaire EXISTANT sur l'affaire rejointe : moi au côté libre choisi, les négociateurs présents gardés ; commissions non visibles.
+  // 🔴 Arno (05/11/2026, production) — les négociateurs dans leur forme sûre (liste vide si la réponse ne les porte pas).
+  const negosSurs = refs === null ? [] : referencesSures(refs).references.negociateurs;
   if (etape === 'formulaireRejoindre' && refs !== null && aRejoindre !== null && coteRejoint !== null && verifie !== null) {
-    const base = etatRepartitionDe(aRejoindre, refs.negociateurs, refs.uniteCommission === true);
-    return <FormulaireDossier societe={aRejoindre.societe} vente={aRejoindre} references={refs} repartitionInitiale={changerNegociateur(base, coteRejoint, refs.titulaireId, refs.negociateurs)}
+    const base = etatRepartitionDe(aRejoindre, negosSurs, refs.uniteCommission === true);
+    return <FormulaireDossier societe={aRejoindre.societe} vente={aRejoindre} references={refs} repartitionInitiale={changerNegociateur(base, coteRejoint, refs.titulaireId, negosSurs)}
       commissionsMasquees={!refs.administrateur} message={`Vous rejoignez cette affaire à ${coteRejoint === 'entree' ? 'l’entrée du mandat (côté vendeur)' : 'la sortie du mandat (côté acquéreur)'} : complétez ce qui manque, puis enregistrez.`}
       envoyer={(c) => envoyerMonEspace({ ...c, rejoindre: { numero: verifie } })}
       onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) onCree(e.id); else onFermer(); }} />;
   }
 
   if (etape === 'formulaire' && refs !== null && societe !== null && verifie !== null && cote !== null) {
-    const negos = refs.negociateurs;
+    const negos = negosSurs;
     const base = etatRepartitionDe(null, negos, refs.uniteCommission === true);
     const repartition = cote === 'aucun' ? base : changerNegociateur(base, cote, refs.titulaireId, negos);
     return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerMonEspace}
