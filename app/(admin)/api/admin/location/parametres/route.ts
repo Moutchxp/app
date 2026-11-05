@@ -43,7 +43,11 @@ export async function POST(request: Request): Promise<Response> {
   try {
     // Arno (21/10/2026, 405) — « Archivage des fins de gestion » : le délai en mois (vaut pour les biens pas encore archivés).
     if (corps.action === 'archivage-delai') return Response.json(await enregistrerDelaiArchivage(corps.mois, auteur), { headers: ENTETES });
-    if (corps.action === 'destinataires') return Response.json(await enregistrerDestinataires(corps.liste, auteur), { headers: ENTETES });
+    // 🔴 Arno (05/11/2026, 460) — `sorte` : « nouvelle_location » (défaut, inchangé), « preavis » ou « sortie ».
+    if (corps.action === 'destinataires') {
+      const sorte = corps.sorte === 'preavis' || corps.sorte === 'sortie' ? corps.sorte : 'nouvelle_location';
+      return Response.json(await enregistrerDestinataires(corps.liste, auteur, sorte), { headers: ENTETES });
+    }
     if (corps.action === 'bareme') return Response.json(await ajouterVersionBareme(corps, auteur), { headers: ENTETES });
     if (corps.action === 'corriger-bareme') {
       const id = typeof corps.id === 'number' && Number.isSafeInteger(corps.id) && corps.id > 0 ? corps.id : null;

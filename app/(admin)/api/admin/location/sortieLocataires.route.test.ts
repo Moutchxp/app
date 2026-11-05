@@ -80,7 +80,7 @@ describe('POST sortie-locataires', () => {
     envoyerMailSortieAdhoc.mockImplementation(async () => { ORDRE.push('adhoc'); return { etat: 'ok', envois: [envoi] }; });
     const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' }))).json();
     expect(ORDRE).toEqual(['compte-rendu', 'adhoc']);
-    expect(envoyerMailSortieAdhoc).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' });
+    expect(envoyerMailSortieAdhoc).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' }, {}, true); // case absente : cochée
     expect(r.mail).toEqual({ envoye: true, ignore: false, motif: null });
     expect(r.adhoc).toEqual({ etat: 'ok', envois: [envoi] });
   });
@@ -111,8 +111,20 @@ describe('Arno (05/11/2026) — POST apercu-preavis / enregistrer-preavis + envo
     const r = await (await POST(demande({ action: 'enregistrer-preavis', ...corps, motif: null, envoyerMails: true }))).json();
     expect(r).toEqual({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 }, mails: { etat: 'ok', envois: [] } });
     expect(enregistrerPreavisAvecMails).toHaveBeenLastCalledWith(
-      { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, motif: null }, { id: 3, libelle: 'arno@exemple.fr' }, true);
+      { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, motif: null }, { id: 3, libelle: 'arno@exemple.fr' }, true, {}, true);
     await POST(demande({ action: 'enregistrer-preavis', ...corps }));
     expect(enregistrerPreavisAvecMails.mock.calls[1][2]).toBe(false);
+  });
+});
+
+describe('🔴 Arno (05/11/2026, 460) — la case « Informer nos partenaires » passe aux mails', () => {
+  it('sortie : case décochée → `false` ; préavis : case décochée → `false`', async () => {
+    enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
+    notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: [], objet: 'x' });
+    await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', informerPartenaires: false }));
+    expect(envoyerMailSortieAdhoc).toHaveBeenLastCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' }, {}, false);
+    enregistrerPreavisAvecMails.mockResolvedValue({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 1 } });
+    await POST(demande({ action: 'enregistrer-preavis', occupationIds: [11], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, envoyerMails: true, informerPartenaires: false }));
+    expect(enregistrerPreavisAvecMails.mock.calls.at(-1)?.[4]).toBe(false);
   });
 });

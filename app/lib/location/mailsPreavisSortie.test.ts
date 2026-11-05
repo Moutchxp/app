@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ADRESSE_ADHOC, adressesUniques, copiesAvis, dateFinBail, enumerer, mailAccuseConge, mailAdhocPreavis, mailAdhocSortie, mailsDuPreavis,
+  adressesUniques, copiesAvis, dateFinBail, enumerer, mailAccuseConge, mailAdhocPreavis, mailAdhocSortie, mailsDuPreavis,
   objetAdhocSortie, prenomNom, type DonneesPreavisMails,
 } from './mailsPreavisSortie';
 
@@ -17,6 +17,8 @@ const D: DonneesPreavisMails = {
   ],
   recuLe: '2026-11-10', choix: { mode: 'mois', duree: 1 }, expediteur: 'gestion@criterimmo.fr',
   valideur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, signature: { html: '', texte: '' },
+  // 🔴 Arno (05/11/2026, 460) — les partenaires viennent de la liste « Préavis » (ici, l'amorce : ADHOC).
+  partenaires: ['gestion.criterimmo@gmail.com'],
 };
 
 describe('la date de fin du bail : réception + durée, jour pour jour', () => {
@@ -126,7 +128,6 @@ describe('B) l’information à ADHOC, pour le préavis', () => {
   it('À = ADHOC ; Cc = gestion@ + la personne qui valide ; objet ; texte ; puis la copie complète du mail A', () => {
     const a = mailAccuseConge(D)!;
     const b = mailAdhocPreavis(D, a)!;
-    expect(b.a).toEqual([ADRESSE_ADHOC]);
     expect(b.a).toEqual(['gestion.criterimmo@gmail.com']);
     expect(b.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
     expect(b.objet).toBe('[Information] Préavis reçu — 4 rue Fictive, 92800 Puteaux — Alice BERNARD et Paul MARTIN');
@@ -162,7 +163,7 @@ describe('l’information à ADHOC, pour la sortie', () => {
     adresse: '4 rue Fictive, 92800 Puteaux', lotId: 7, type: 'Appartement', etage: '3', porte: 'G', annexes: ['Cave n° 7'], proprietaire: 'DUPONT Jean',
     sortants: [{ nom: 'BERNARD Alice', entree: '2022-09-01', sortie: '2026-11-04' }], vacant: false, restants: ['MARTIN Paul'],
     auteur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, quand: '2026-11-04T10:00:00Z',
-    enGestion: true, expediteur: 'gestion@criterimmo.fr', signature: { html: '', texte: '' },
+    enGestion: true, expediteur: 'gestion@criterimmo.fr', signature: { html: '', texte: '' }, partenaires: ['gestion.criterimmo@gmail.com'] as string[],
   };
 
   it('À = ADHOC ; Cc = gestion@ + la personne qui valide ; logement, adresse, propriétaire, sortants avec leurs dates, reste loué à', () => {
@@ -187,5 +188,25 @@ describe('l’information à ADHOC, pour la sortie', () => {
 
   it('🔴 bien HORS gestion : aucun mail', () => {
     expect(mailAdhocSortie({ ...S, enGestion: false })).toBeNull();
+  });
+});
+
+describe('🔴 Arno (05/11/2026, 460) — les partenaires viennent de la LISTE configurée (plus aucune adresse dans le code)', () => {
+  it('préavis : À = toute la liste, DANS L’ORDRE (doublon ignoré) ; Cc = gestion@ + la personne qui valide', () => {
+    const b = mailAdhocPreavis({ ...D, partenaires: ['monga@x.fr', 'gestion.criterimmo@gmail.com', 'MONGA@x.fr'] }, mailAccuseConge(D))!;
+    expect(b.a).toEqual(['monga@x.fr', 'gestion.criterimmo@gmail.com']);
+    expect(b.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
+  });
+  it('liste VIDE (ou case décochée) : aucun mail partenaire ; l’accusé aux locataires part toujours', () => {
+    const r = mailsDuPreavis({ ...D, partenaires: [] });
+    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires']);
+  });
+  it('sortie : À = la liste « Sorties » dans l’ordre ; vide : aucun mail', () => {
+    const S = { adresse: '4 rue Fictive', lotId: 7, type: 'Appartement', etage: '3', porte: 'G', annexes: [], proprietaire: 'DUPONT Jean',
+      sortants: [{ nom: 'BERNARD Alice', entree: '2022-09-01', sortie: '2026-11-04' }], vacant: true, restants: [],
+      auteur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, quand: '2026-11-04T10:00:00Z', enGestion: true, expediteur: 'gestion@criterimmo.fr',
+      signature: { html: '', texte: '' } };
+    expect(mailAdhocSortie({ ...S, partenaires: ['b@x.fr', 'a@x.fr'] })!.a).toEqual(['b@x.fr', 'a@x.fr']);
+    expect(mailAdhocSortie({ ...S, partenaires: [] })).toBeNull();
   });
 });

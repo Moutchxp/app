@@ -26,7 +26,9 @@ export function MentionPreavis({ p, jour, court = false }: { p: Pick<PreavisAffi
 
 type Choix = '1' | '3' | 'manuelle';
 
-export interface SaisiePreavis { occupationIds?: number[]; recuLe: string; choix: ModePreavis; motif: string | null }
+export interface SaisiePreavis { occupationIds?: number[]; recuLe: string; choix: ModePreavis; motif: string | null;
+  /** 🔴 Arno (05/11/2026) — la case « Informer nos partenaires » de l'aperçu (absente : cochée). */
+  informerPartenaires?: boolean }
 
 /**
  * LE FORMULAIRE DU PRÉAVIS — création (avec les locataires à cocher, tous cochés par défaut) ou correction (sans cases).
@@ -146,6 +148,7 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
   const [tente, setTente] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
   const [vu, setVu] = useState<ApercuMailsPreavis | null>(null);
+  const [informer, setInformer] = useState(true);
   const concernes = selection.filter((l) => !l.enPreavis);
   const mode: ModePreavis = choix === 'manuelle' ? { mode: 'date_manuelle', dateMax: dateManuelle } : { mode: 'mois', duree: Number(choix) as DureeMois };
   const verdict = verifierPreavis({ recuLe, choix: mode, motif, entrees: concernes.map((l) => l.entree) }, jour);
@@ -156,7 +159,8 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
   const probleme = manque === null && !verdict.ok ? verdict.motif : null;
   const erreur = refus ?? probleme ?? (tente ? manque : null);
   const dateMax = dateIsoValide(recuLe) && (mode.mode === 'mois' || dateIsoValide(mode.dateMax)) ? dateMaxPreavis(recuLe, mode) : null;
-  const saisie = (): SaisiePreavis => ({ occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode, motif: motif.trim() === '' ? null : motif.trim() });
+  const saisie = (): SaisiePreavis => ({ occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode, motif: motif.trim() === '' ? null : motif.trim(),
+    ...(apercu !== undefined ? { informerPartenaires: informer } : {}) });
   const enregistrer = async (): Promise<void> => {
     setTente(true);
     if (manque !== null || probleme !== null) return;
@@ -177,7 +181,7 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
       <div className="loc-confirmation pvs-compact" role="group" aria-label="Aperçu des mails du préavis" data-formulaire-preavis data-compact data-apercu-preavis>
         <p className="pvs-compact-ligne" style={{ margin: 0 }}><strong>{libelleEnregistrer}</strong>
           <span className="loc-muet">— reçu le {dateFrPreavis(recuLe)}, fin du bail le {dateFrPreavis(vu.dateFin)}{motif.trim() !== '' ? ` — motif : ${motif.trim()}` : ''}</span></p>
-        <ApercuMails a={vu} />
+        <ApercuMails a={vu} informer={informer} onInformer={setInformer} />
         {refus !== null && <p className="cp-refus" role="alert" data-refus-preavis>{refus}</p>}
         <span className="sor-compact-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setVu(null); setRefus(null); }} disabled={envoi} data-revenir-saisie>Revenir</button>
@@ -237,28 +241,50 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
 }
 
 /** L'aperçu des mails du préavis, tel que la route `apercu-preavis` le rend (lecture seule : rien n'est parti). */
-export interface ApercuMailsPreavis { mails: MailAvis[]; sansEmail: string[]; enGestion: boolean; dateFin: string; envoiPossible: boolean }
+export interface ApercuMailsPreavis { mails: MailAvis[]; sansEmail: string[]; enGestion: boolean; dateFin: string; envoiPossible: boolean;
+  /** 🔴 Arno (05/11/2026, 460) — les partenaires de la liste « Préavis » (vide ou absent : pas de case). */
+  partenaires?: { adresse: string; libelle: string }[] }
+
+/**
+ * 🔴 Arno (05/11/2026, 460) — LA CASE « INFORMER NOS PARTENAIRES » (préavis et sortie) : les destinataires lus dans « Paramètres Location »
+ * (libellé et adresse, dans l'ordre), cochée par défaut ; décochée : aucun mail partenaire. Rien si la liste est vide (ou bien hors gestion).
+ */
+export function CaseInformerPartenaires({ liste, coche, onChange }: { liste: readonly { adresse: string; libelle: string }[]; coche: boolean; onChange: (v: boolean) => void }) {
+  if (liste.length === 0) return null;
+  return (
+    <div className="pvs-partenaires" data-informer-partenaires>
+      <label className="pvs-case"><input type="checkbox" checked={coche} onChange={(e) => onChange(e.target.checked)} data-case-partenaires />
+        <span><strong>Informer nos partenaires</strong> <span className="loc-muet">(copie à gestion@criterimmo.fr et à vous)</span></span></label>
+      <ul className="pvs-partenaires-liste">
+        {liste.map((d) => <li key={d.adresse} data-partenaire={d.adresse}>{d.libelle !== '' ? `${d.libelle} — ` : ''}{d.adresse}</li>)}
+      </ul>
+    </div>
+  );
+}
 
 const LIBELLE_SORTE: Record<MailAvis['sorte'], string> = {
   preavis_locataires: 'Aux locataires — accusé de réception du congé',
-  preavis_adhoc: 'À ADHOC — information',
-  sortie_adhoc: 'À ADHOC — information de sortie',
+  preavis_adhoc: 'Aux partenaires — information',
+  sortie_adhoc: 'Aux partenaires — information de sortie',
 };
 
 /**
  * Arno (05/11/2026) — LES MAILS, EN LECTURE, avant « Valider et envoyer » : expéditeur, destinataires, copies, objet, texte
  * (celui qui part, signature comprise). Un locataire sans e-mail est dit en ORANGE, avec les mots — jamais bloquant.
  */
-export function ApercuMails({ a }: { a: ApercuMailsPreavis }) {
+export function ApercuMails({ a, informer = true, onInformer }: { a: ApercuMailsPreavis; informer?: boolean; onInformer?: (v: boolean) => void }) {
+  // La case décochée : le mail partenaire n'apparaît plus dans l'aperçu (il ne partira pas).
+  const mails = a.mails.filter((m) => informer || m.sorte !== 'preavis_adhoc');
   return (
     <div className="pvs-apercu" data-apercu-mails>
+      {a.enGestion && onInformer !== undefined && <CaseInformerPartenaires liste={a.partenaires ?? []} coche={informer} onChange={onInformer} />}
       {a.sansEmail.map((nom) => (
         <p key={nom} className="pvs-sans-email" role="note" data-sans-email>⚠ {nom} : {MENTION_SANS_EMAIL}</p>
       ))}
-      {!a.enGestion && <p className="loc-muet" data-hors-gestion>Bien hors gestion : aucun mail à ADHOC.</p>}
+      {!a.enGestion && <p className="loc-muet" data-hors-gestion>Bien hors gestion : aucun mail aux partenaires.</p>}
       {!a.envoiPossible && <p className="cp-refus" role="note" data-sans-457>La mise à jour de la base (migration 457) n’est pas appliquée : le préavis sera enregistré, mais aucun mail ne partira.</p>}
-      {a.mails.length === 0 && <p className="loc-muet" data-aucun-mail>Aucun mail ne partira pour ce préavis.</p>}
-      {a.mails.map((m) => (
+      {mails.length === 0 && <p className="loc-muet" data-aucun-mail>Aucun mail ne partira pour ce préavis.</p>}
+      {mails.map((m) => (
         <article key={m.sorte} className="pvs-mail" data-mail={m.sorte} aria-label={LIBELLE_SORTE[m.sorte]}>
           <h4 className="pvs-mail-titre">{LIBELLE_SORTE[m.sorte]}</h4>
           <dl className="pvs-mail-entete">
@@ -356,6 +382,8 @@ export const CSS_PREAVIS = `
 .pvs-gestes{display:flex;flex-direction:column;gap:6px}
 /* Arno (05/11/2026) — l'aperçu des mails du préavis (lecture seule) ; « pas d'e-mail » en ORANGE, avec les mots. */
 .pvs-apercu{display:flex;flex-direction:column;gap:10px;min-width:0}
+.pvs-partenaires{border:1px solid var(--color-svv-line);border-radius:12px;padding:6px 12px;background:var(--color-svv-surface)}
+.pvs-partenaires-liste{margin:0 0 6px;padding-left:2.4rem;font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .pvs-sans-email{margin:0;padding:8px 12px;border-radius:10px;font-weight:700;background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-urgence-orange)}
 .pvs-mail{border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);padding:10px 12px;min-width:0}
 .pvs-mail-titre{margin:0 0 6px;font-size:.95rem;color:var(--color-svv-ink)}

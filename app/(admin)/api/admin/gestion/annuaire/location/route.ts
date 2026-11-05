@@ -235,7 +235,8 @@ export async function POST(request: Request): Promise<Response> {
       //    après le MÊME aperçu (`apercu-preavis`) et le MÊME « Valider et envoyer » (`envoyerMails`) que la tuile Location.
       case 'enregistrer-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true));
+        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true,
+          {}, corps.informerPartenaires !== false));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];

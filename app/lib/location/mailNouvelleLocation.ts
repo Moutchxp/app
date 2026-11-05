@@ -692,9 +692,10 @@ export function listeProposee(config: readonly Destinataire[], session: { email:
 }
 
 /** Vérifie une liste (format, doublon, au moins une adresse) — la même règle à l'écran et au serveur. PUR. */
-export function verifierDestinataires(brut: unknown): { ok: true; liste: Destinataire[] } | { ok: false; motif: string } {
+export function verifierDestinataires(brut: unknown, o: { videAutorise?: boolean } = {}): { ok: true; liste: Destinataire[] } | { ok: false; motif: string } {
   if (!Array.isArray(brut)) return { ok: false, motif: 'La liste des destinataires est illisible.' };
-  if (brut.length === 0) return { ok: false, motif: 'Ajoutez au moins un destinataire.' };
+  // 🔴 Arno (05/11/2026) — les listes « Préavis » et « Sorties » peuvent être VIDES (aucun mail partenaire ne part) ; « Nouvelles locations » : non.
+  if (brut.length === 0) return o.videAutorise === true ? { ok: true, liste: [] } : { ok: false, motif: 'Ajoutez au moins un destinataire.' };
   if (brut.length > MAX_DESTINATAIRES) return { ok: false, motif: `Au plus ${MAX_DESTINATAIRES} destinataires.` };
   const vus = new Set<string>();
   const liste: Destinataire[] = [];

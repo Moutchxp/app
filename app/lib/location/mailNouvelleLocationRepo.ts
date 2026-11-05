@@ -51,12 +51,23 @@ export const DESTINATAIRES_DEFAUT: readonly Destinataire[] = [
   { adresse: 'laura@monga.io', libelle: 'MONGA' },
 ];
 
-/** La liste configurée (la plus récente version) ; l'amorce sans la migration 395. */
-export async function lireDestinatairesDefaut(): Promise<Destinataire[]> {
-  if (!(await colonneExisteMemo('gestion_location_mail_destinataires', 'liste'))) return [...DESTINATAIRES_DEFAUT];
-  const { rows } = await query<{ liste: unknown }>('SELECT liste FROM gestion_location_mail_destinataires ORDER BY id DESC LIMIT 1');
-  if (rows[0] === undefined) return [...DESTINATAIRES_DEFAUT];
-  const v = verifierDestinataires(rows[0].liste);
+/** 🔴 Arno (05/11/2026, migration 460) — les trois listes de « Paramètres Location » : « Nouvelles locations », « Préavis », « Sorties ». */
+export type SorteDestinataires = 'nouvelle_location' | 'preavis' | 'sortie';
+export const SORTES_DESTINATAIRES: readonly SorteDestinataires[] = ['nouvelle_location', 'preavis', 'sortie'];
+export const destinatairesParSorteDisponibles = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_destinataires', 'sorte');
+
+/**
+ * La liste configurée (la plus récente version) de CETTE sorte. « Nouvelle location » : l'amorce sans la migration 395 (inchangé). « Préavis » /
+ * « Sorties » : sans la migration 460, AUCUN destinataire (plus aucune adresse partenaire dans le code : l'amorce ADHOC est posée par la 460).
+ */
+export async function lireDestinatairesDefaut(sorte: SorteDestinataires = 'nouvelle_location'): Promise<Destinataire[]> {
+  if (!(await colonneExisteMemo('gestion_location_mail_destinataires', 'liste'))) return sorte === 'nouvelle_location' ? [...DESTINATAIRES_DEFAUT] : [];
+  const parSorte = await destinatairesParSorteDisponibles();
+  if (!parSorte && sorte !== 'nouvelle_location') return [];
+  const { rows } = await query<{ liste: unknown }>(
+    `SELECT liste FROM gestion_location_mail_destinataires${parSorte ? ' WHERE sorte = $1' : ''} ORDER BY id DESC LIMIT 1`, parSorte ? [sorte] : []);
+  if (rows[0] === undefined) return sorte === 'nouvelle_location' ? [...DESTINATAIRES_DEFAUT] : [];
+  const v = verifierDestinataires(rows[0].liste, { videAutorise: sorte !== 'nouvelle_location' });
   return v.ok ? v.liste : [];
 }
 

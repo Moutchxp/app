@@ -9,6 +9,10 @@ import type { MessageAEnvoyer } from '../gestion/envoiGmail';
 let enGestion = true;
 let avec457 = true;
 let emailsPaul: string[] = ['paul@exemple.test'];
+// 🔴 Arno (05/11/2026, 460) — les listes « Préavis » / « Sorties » de « Paramètres Location » (simulées ; l'amorce de la 460 : ADHOC).
+const ADHOC = { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' };
+let listes: Record<string, { adresse: string; libelle: string }[]> = { preavis: [ADHOC], sortie: [ADHOC] };
+vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async (sorte: string) => listes[sorte] ?? [] }));
 const ecritures: { sql: string; params: unknown[] }[] = [];
 
 vi.mock('../db/client', () => ({
@@ -42,7 +46,7 @@ vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
 const enregistrerPreavis = vi.fn();
 vi.mock('./preavisRepo', () => ({ enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a) }));
 
-const { apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien } = await import('./mailsPreavisSortieRepo');
+const { apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const envoyes: MessageAEnvoyer[] = [];
@@ -53,7 +57,7 @@ const deps = {
 const DEMANDE = { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois' as const, duree: 1 as const } };
 const journalAvis = () => ecritures.filter((e) => e.sql.includes('INSERT INTO gestion_location_mail_avis'));
 
-beforeEach(() => { enGestion = true; avec457 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; });
+beforeEach(() => { enGestion = true; avec457 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; listes = { preavis: [ADHOC], sortie: [ADHOC] }; });
 
 describe('l’aperçu : lecture seule', () => {
   it('sélection multiple : les deux mails, sans rien envoyer ni écrire', async () => {
@@ -200,9 +204,56 @@ describe('🔴 Arno (05/11/2026) — le mail ADHOC entre dans l’historique du 
     expect((await mailsAvisDuBien(7)).map((m) => [m.id, m.sorte])).toEqual([[3, 'preavis_adhoc']]);
   });
 
-  it('l’adresse d’ADHOC est celle du PARTENAIRE de la Gestion, jamais « nous » ni un client', async () => {
+  it('l’adresse d’ADHOC (amorce de la 460) est celle du PARTENAIRE de la Gestion, jamais « nous » ni un client', async () => {
     const { ADRESSES_INTERNES } = await import('../gestion/adresseInterne');
-    const { ADRESSE_ADHOC } = await import('./mailsPreavisSortie');
-    expect(ADRESSES_INTERNES).toContain(ADRESSE_ADHOC);
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('db/migrations/460_location_destinataires_preavis_sortie.sql', 'utf8')).toContain('"adresse": "gestion.criterimmo@gmail.com", "libelle": "ADHOC"');
+    expect(ADRESSES_INTERNES).toContain(ADHOC.adresse);
+  });
+});
+
+describe('🔴 Arno (05/11/2026, 460) — « Informer nos partenaires » : la liste configurée, la case', () => {
+  it('préavis, case cochée : un seul mail aux partenaires, À = la liste DANS L’ORDRE, Cc = gestion@ + la personne qui valide', async () => {
+    listes = { preavis: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }, ADHOC], sortie: [] };
+    await envoyerMailsPreavis(DEMANDE, AUTEUR, deps, true);
+    const p = envoyes.find((m) => m.a.includes('laura@monga.io'))!;
+    expect(p.a).toEqual(['laura@monga.io', 'gestion.criterimmo@gmail.com']);
+    expect(p.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
+    expect(envoyes).toHaveLength(2); // l'accusé aux locataires + UN mail partenaires
+  });
+  it('préavis, case DÉCOCHÉE : aucun mail partenaire ; l’accusé aux locataires part toujours', async () => {
+    await envoyerMailsPreavis(DEMANDE, AUTEUR, deps, false);
+    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test', 'paul@exemple.test']]);
+  });
+  it('préavis, liste VIDE : aucun mail partenaire ; l’aperçu n’annonce aucune case (liste vide)', async () => {
+    listes = { preavis: [], sortie: [] };
+    const a = await apercuMailsPreavis(DEMANDE, AUTEUR, deps);
+    expect(a.etat === 'ok' && [a.data.partenaires, a.data.mails.map((m) => m.sorte)]).toEqual([[], ['preavis_locataires']]);
+  });
+  it('préavis, bien HORS gestion : ni partenaires annoncés, ni mail partenaire', async () => {
+    enGestion = false;
+    const a = await apercuMailsPreavis(DEMANDE, AUTEUR, deps);
+    expect(a.etat === 'ok' && a.data.partenaires).toEqual([]);
+  });
+  const FAITE = {
+    bail: { lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean', entree: '2022-09-01',
+      locataires: [], annexes: [], autresOccupants: [] },
+    date: '2026-11-04', sortants: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }], occupationIds: [11],
+    vacant: true, restants: [], annexes: [],
+  };
+  it('sortie : la liste « Sorties » dans l’ordre ; case décochée ou liste vide : aucun mail', async () => {
+    listes = { preavis: [], sortie: [{ adresse: 'b@x.fr', libelle: 'B' }, { adresse: 'a@x.fr', libelle: 'A' }] };
+    await envoyerMailSortieAdhoc(FAITE, AUTEUR, deps, true);
+    expect(envoyes.map((m) => m.a)).toEqual([['b@x.fr', 'a@x.fr']]);
+    envoyes.length = 0;
+    await envoyerMailSortieAdhoc(FAITE, AUTEUR, deps, false);
+    listes.sortie = [];
+    await envoyerMailSortieAdhoc(FAITE, AUTEUR, deps, true);
+    expect(envoyes).toEqual([]);
+  });
+  it('les partenaires de la sortie pour l’écran : la liste si le bien est en gestion, rien sinon', async () => {
+    expect(await partenairesDeSortie(11)).toEqual({ enGestion: true, liste: [ADHOC] });
+    enGestion = false;
+    expect(await partenairesDeSortie(11)).toEqual({ enGestion: false, liste: [] });
   });
 });

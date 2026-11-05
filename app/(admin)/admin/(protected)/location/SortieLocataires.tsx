@@ -5,7 +5,7 @@ import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phras
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
-import { CSS_PREAVIS, FormulairePreavisCompact, GestesPreavis, MentionPreavis, aujourdhuiParisEcran, type ApercuMailsPreavis } from './Preavis';
+import { CSS_PREAVIS, CaseInformerPartenaires, FormulairePreavisCompact, GestesPreavis, MentionPreavis, aujourdhuiParisEcran, type ApercuMailsPreavis } from './Preavis';
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
   casesParDefaut, dateFr, dateMinSortie, descriptionLogement, phraseIssue, verifierSortie,
@@ -280,6 +280,11 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
   const [date, setDate] = useState('');
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  // 🔴 Arno (05/11/2026, 460) — « Informer nos partenaires » : la liste « Sorties » (bien en gestion seulement), cochée par défaut.
+  const partenaires = useLecture<{ enGestion: boolean; liste: { adresse: string; libelle: string }[] }>(`partenairesSortie=${occupationId}`);
+  const [informer, setInformer] = useState(true);
+  const listePartenaires = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion ? partenaires.etat.data.liste : [];
+  const casePartenaires = <CaseInformerPartenaires liste={listePartenaires} coche={informer} onChange={setInformer} />;
   const id = useId();
   const jour = aujourdhuiParis();
   const n = choix.length;
@@ -296,7 +301,7 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
     const v = verifierSortie(bail, [...choix], date, jour);
     if (!v.ok) { setMotif(v.motif); return; }
     setEnvoi(true); setMotif(null);
-    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: [...choix], date });
+    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: [...choix], date, informerPartenaires: listePartenaires.length > 0 && informer });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
     const mail = r.mail as EtatMail | undefined;
@@ -336,6 +341,7 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
               {envoi ? 'Enregistrement…' : 'Confirmer la sortie'}</button>
           </span>
         </div>
+        {casePartenaires}
         {erreur !== null && <p id={`${id}-message`} className="cp-refus sor-compact-erreur" role="alert" data-message-date>{erreur}</p>}
       </div>
     );
@@ -368,6 +374,7 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
           <ul>{restants.map((nom, i) => <li key={`${i}-${nom}`}>{nom}</li>)}</ul>
         </div>
       )}
+      {casePartenaires}
       {motif !== null && <p className="cp-refus" role="alert" data-refus>{motif}</p>}
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
@@ -582,7 +589,8 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                 return r.motif !== null ? { motif: r.motif } : { data: r.data as ApercuMailsPreavis };
               }}
               onEnregistrer={async (saisie) => {
-                const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix, motif: saisie.motif, envoyerMails: true });
+                const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix, motif: saisie.motif, envoyerMails: true,
+                  informerPartenaires: saisie.informerPartenaires !== false });
                 if (r.motif !== null) return r.motif;
                 const d = r.data as { dateMax?: string } | undefined;
                 setPreavisOuvert(false);

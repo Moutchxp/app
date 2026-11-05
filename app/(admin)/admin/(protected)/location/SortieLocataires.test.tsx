@@ -284,7 +284,7 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(confirmer().disabled).toBe(false);
     await act(async () => { confirmer().click(); });
     const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: HIER });
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: HIER, informerPartenaires: false });
     await act(async () => { await Promise.resolve(); });
     expect(container.querySelector('[data-sortie-faite]')?.textContent).toContain('Le logement reste loué à : BERNARD Paul');
   });
@@ -453,7 +453,7 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
     expect([...apercu.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Revenir', 'Valider et envoyer']);
     await act(async () => { (apercu.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); });
     expect(posts(f)[1]).toEqual({
-      action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null, envoyerMails: true });
+      action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null, envoyerMails: true, informerPartenaires: true });
     expect(container.querySelector('[data-preavis-fait] [data-mail-ok]')?.textContent).toBe('Mail « Accusé » envoyé à alice@exemple.test.');
   });
 
@@ -686,7 +686,7 @@ describe('Arno (19/10/2026) — le bloc « Enregistrer un préavis » compact, a
     await act(async () => { (container.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); });
     expect(posts(f)).toEqual([
       { action: 'apercu-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' } },
-      { action: 'enregistrer-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' }, motif: null, envoyerMails: true }]);
+      { action: 'enregistrer-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' }, motif: null, envoyerMails: true, informerPartenaires: true }]);
   });
 
   it('la correction d’un préavis (fiche, cartes) garde son formulaire : seul le bloc de l’écran de sortie est compacté', () => {
@@ -744,5 +744,62 @@ describe('Arno (05/11/2026) — tous les occupants du logement : le locataire re
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(container.querySelector('[data-sortie-faite] [data-mail-ok]')?.textContent)
       .toBe('Mail « [Information] Sortie de locataire(s) — 4 rue Fictive » envoyé à gestion.criterimmo@gmail.com (copie : gestion@criterimmo.fr).');
+  });
+});
+
+describe('🔴 Arno (05/11/2026, 460) — « Informer nos partenaires » à l’écran (préavis et sortie)', () => {
+  const PARTENAIRES = [{ adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' }, { adresse: 'laura@monga.io', libelle: 'MONGA' }];
+  const APERCU_P = { ...APERCU, partenaires: PARTENAIRES, mails: [...APERCU.mails,
+    { sorte: 'preavis_adhoc', de: 'gestion@criterimmo.fr', a: ['gestion.criterimmo@gmail.com', 'laura@monga.io'], cc: ['gestion@criterimmo.fr'], objet: '[Information] Préavis reçu', texte: 'Bonjour,', html: '' }] };
+  const rendre = async (o: { enGestion?: boolean; liste?: typeof PARTENAIRES; apercu?: unknown } = {}) => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as { action?: string };
+        return corps.action === 'apercu-preavis' ? ok(o.apercu ?? APERCU_P) : ok({ dateMax: '2099-01-01', date: HIER, vacant: false, restants: [] });
+      }
+      const url = String(u);
+      return url.includes('partenairesSortie=') ? ok({ enGestion: o.enGestion ?? true, liste: o.liste ?? PARTENAIRES })
+        : url.includes('encartBail=') ? ok(ENCART) : url.includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL);
+    });
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+  it('préavis : la case cochée avec les vrais destinataires ; décochée → le mail partenaire disparaît de l’aperçu et `informerPartenaires: false`', async () => {
+    const f = await rendre();
+    act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
+    act(() => saisir(container.querySelector('input[data-recu-le]') as HTMLInputElement, HIER));
+    await act(async () => { (container.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement).click(); });
+    expect([...container.querySelectorAll('[data-partenaire]')].map((x) => x.textContent)).toEqual(['ADHOC — gestion.criterimmo@gmail.com', 'MONGA — laura@monga.io']);
+    expect((container.querySelector('[data-case-partenaires]') as HTMLInputElement).checked).toBe(true);
+    expect(container.querySelector('[data-mail="preavis_adhoc"] [data-a]')?.textContent).toBe('gestion.criterimmo@gmail.com, laura@monga.io');
+    act(() => (container.querySelector('[data-case-partenaires]') as HTMLInputElement).click());
+    expect(container.querySelector('[data-mail="preavis_adhoc"]')).toBeNull();
+    expect(container.querySelector('[data-mail="preavis_locataires"]')).not.toBeNull(); // l'accusé aux locataires part toujours
+    await act(async () => { (container.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); });
+    expect(posts(f).at(-1)).toMatchObject({ action: 'enregistrer-preavis', informerPartenaires: false });
+  });
+  it('préavis, bien HORS gestion : pas de case', async () => {
+    await rendre({ apercu: { ...APERCU, enGestion: false, partenaires: [] } });
+    act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
+    act(() => saisir(container.querySelector('input[data-recu-le]') as HTMLInputElement, HIER));
+    await act(async () => { (container.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-informer-partenaires]')).toBeNull();
+  });
+  it('sortie : la case avec la liste « Sorties » ; cochée → `true` ; décochée → `false` ; hors gestion ou liste vide : pas de case', async () => {
+    const f = await rendre();
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect([...container.querySelectorAll('[data-recapitulatif] [data-partenaire]')].map((x) => x.textContent)).toHaveLength(2);
+    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
+    act(() => (container.querySelector('[data-case-partenaires]') as HTMLInputElement).click());
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    expect(posts(f).at(-1)).toMatchObject({ action: 'sortie-locataires', informerPartenaires: false });
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre({ enGestion: false, liste: [] });
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-informer-partenaires]')).toBeNull();
   });
 });

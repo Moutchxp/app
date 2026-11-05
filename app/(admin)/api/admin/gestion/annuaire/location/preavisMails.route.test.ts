@@ -37,7 +37,7 @@ describe('🔴 fiche de la Gestion : préavis avec ses mails', () => {
   it('« Valider et envoyer » : LA porte commune, mails demandés ; sans le drapeau : préavis seul, comme avant', async () => {
     const r = await (await POST(demande({ action: 'enregistrer-preavis', ...CORPS, motif: null, envoyerMails: true }))).json();
     expect(r.mails).toEqual({ etat: 'ok', envois: [] });
-    expect(porte).toHaveBeenLastCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 3 }, motif: null }, AUTEUR, true);
+    expect(porte).toHaveBeenLastCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 3 }, motif: null }, AUTEUR, true, {}, true);
     await POST(demande({ action: 'enregistrer-preavis', ...CORPS }));
     expect(porte.mock.calls[1][2]).toBe(false);
   });

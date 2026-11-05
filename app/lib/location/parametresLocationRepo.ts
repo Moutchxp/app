@@ -4,7 +4,7 @@ import type { Auteur } from '../gestion/gestes';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
 import { verifierDestinataires, type Destinataire } from './mailNouvelleLocation';
-import { lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
+import { destinatairesParSorteDisponibles, lireDestinatairesDefaut, SORTES_DESTINATAIRES, type SorteDestinataires } from './mailNouvelleLocationRepo';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { baremesDisponibles } from './honorairesProprietaireRepo';
 import { refusVersionBareme, verifierBareme, type VersionBareme } from './honorairesProprietaire';
@@ -43,6 +43,12 @@ export interface ParametresLocation {
   manquantes: string[];
   /** 🔴 Arno (25/10/2026, 426) — la date de bascule de la règle des annexes (lecture seule) ; null : la 426 n'est pas appliquée. */
   basculeAnnexes?: string | null;
+  /**
+   * 🔴 Arno (05/11/2026, 460) — les TROIS listes (« Nouvelles locations », « Préavis », « Sorties »), chacune avec sa dernière modification ;
+   * `parSorte` : la 460 est appliquée (sans elle, seules les « Nouvelles locations » s'enregistrent).
+   */
+  listes?: Record<SorteDestinataires, { liste: Destinataire[]; saisis: { le: string; par: string } | null }>;
+  parSorte?: boolean;
 }
 
 /** Les versions des barèmes, avec le nombre de baux qui les utilisent et qui les a créées / corrigées. */
@@ -63,33 +69,51 @@ export async function lireVersionsBaremes(): Promise<VersionBareme[]> {
 
 export async function lireParametresLocation(): Promise<ParametresLocation> {
   const avec395 = await parametresDisponibles();
-  let saisis: ParametresLocation['destinatairesSaisis'] = null;
-  if (avec395) {
-    const { rows } = await query<{ le: string; par: string }>('SELECT saisi_le::text AS le, saisi_par_libelle AS par FROM gestion_location_mail_destinataires ORDER BY id DESC LIMIT 1');
-    saisis = rows[0] ?? null;
-  }
+  const parSorte = avec395 && await destinatairesParSorteDisponibles();
+  // La dernière modification de CHAQUE liste (une amorce de migration n'est pas une « modification » humaine pour la 395 : inchangé).
+  const saisisDe = async (sorte: SorteDestinataires): Promise<{ le: string; par: string } | null> => {
+    if (!avec395 || (!parSorte && sorte !== 'nouvelle_location')) return null;
+    const { rows } = await query<{ le: string; par: string }>(
+      `SELECT saisi_le::text AS le, saisi_par_libelle AS par FROM gestion_location_mail_destinataires${parSorte ? ' WHERE sorte = $1' : ''} ORDER BY id DESC LIMIT 1`,
+      parSorte ? [sorte] : []);
+    return rows[0] ?? null;
+  };
+  const saisis = await saisisDe('nouvelle_location');
+  const listes = Object.fromEntries(await Promise.all(SORTES_DESTINATAIRES.map(async (s) =>
+    [s, { liste: await lireDestinatairesDefaut(s), saisis: await saisisDe(s) }] as const))) as NonNullable<ParametresLocation['listes']>;
   const { rows: j } = await query<{ jour: string }>(`SELECT ${SQL_AUJOURDHUI_PARIS}::text AS jour`);
   return {
     archivage: { mois: await delaiArchivageMois(), disponible: await colonneExisteMemo('gestion_location_reglage', 'valeur_entiere') },
     destinataires: await lireDestinatairesDefaut(), destinatairesSaisis: saisis, versions: await lireVersionsBaremes(),
     aujourdhui: j[0]?.jour ?? new Date().toISOString().slice(0, 10), manquantes: avec395 ? [] : ['395'],
-    basculeAnnexes: await lireBasculeAnnexes(),
+    basculeAnnexes: await lireBasculeAnnexes(), listes, parSorte,
   };
 }
 
-/** Enregistre une NOUVELLE version de la liste des destinataires par défaut (la précédente reste en base). */
-export async function enregistrerDestinataires(brut: unknown, auteur: Auteur): Promise<Issue> {
+const MOT_LISTE: Record<SorteDestinataires, string> = {
+  nouvelle_location: 'destinataires par défaut du mail « Nouvelle location »',
+  preavis: 'destinataires du mail d’information « Préavis » (partenaires)',
+  sortie: 'destinataires du mail d’information « Sortie » (partenaires)',
+};
+
+/**
+ * Enregistre une NOUVELLE version d'une liste de destinataires (la précédente reste en base). 🔴 Arno (05/11/2026, 460) — `sorte` : la liste
+ * visée ; « Préavis » / « Sorties » peuvent être vides (aucun mail partenaire) et demandent la migration 460 ; « Nouvelles locations » : inchangé.
+ */
+export async function enregistrerDestinataires(brut: unknown, auteur: Auteur, sorte: SorteDestinataires = 'nouvelle_location'): Promise<Issue> {
   if (!(await parametresDisponibles())) return { etat: 'sans_schema' };
-  const v = verifierDestinataires(brut);
+  const parSorte = await destinatairesParSorteDisponibles();
+  if (sorte !== 'nouvelle_location' && !parSorte) return { etat: 'sans_schema' };
+  const v = verifierDestinataires(brut, { videAutorise: sorte !== 'nouvelle_location' });
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const { nom } = await emailDeLAuteur(auteur);
   return withTransaction(async (q): Promise<Issue> => {
-    await q('INSERT INTO gestion_location_mail_destinataires (liste, saisi_par, saisi_par_libelle) VALUES ($1::jsonb, $2, $3)',
-      [JSON.stringify(v.liste), auteur.id, nom || auteur.libelle]);
+    await q(`INSERT INTO gestion_location_mail_destinataires (liste, saisi_par, saisi_par_libelle${parSorte ? ', sorte' : ''}) VALUES ($1::jsonb, $2, $3${parSorte ? ', $4' : ''})`,
+      [JSON.stringify(v.liste), auteur.id, nom || auteur.libelle, ...(parSorte ? [sorte] : [])]);
     await q(
       `INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle)
        VALUES ('annuaire', 0, 'location_mail_destinataires', $1, $2, $3, $4)`,
-      [v.liste.map((d) => `${d.adresse}${d.libelle ? ` (${d.libelle})` : ''}`).join(', '), 'destinataires par défaut du mail « Nouvelle location »', auteur.id, auteur.libelle]);
+      [v.liste.length === 0 ? '(liste vide : aucun mail partenaire)' : v.liste.map((d) => `${d.adresse}${d.libelle ? ` (${d.libelle})` : ''}`).join(', '), MOT_LISTE[sorte], auteur.id, auteur.libelle]);
     return { etat: 'ok', data: undefined };
   });
 }

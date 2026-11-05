@@ -243,7 +243,8 @@ describe('la ligne dépliée', () => {
     act(() => saisir(conf.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
     await act(async () => { (conf.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
     await attendre();
-    expect(posts.at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER });
+    // 🔴 Arno (05/11/2026, 460) — aucun partenaire configuré ici : la case n'apparaît pas, rien ne part aux partenaires.
+    expect(posts.at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, informerPartenaires: false });
     expect(ordre()).toEqual(['B', 'A']);
     expect(container.querySelector('[data-preavis-bilan]')?.textContent).toContain('Sortie enregistrée — BERNARD Alice, BERNARD Paul.');
   });

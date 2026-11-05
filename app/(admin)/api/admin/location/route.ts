@@ -33,7 +33,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuMailsPreavis, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc } from '../../../../lib/location/mailsPreavisSortieRepo';
+import { apercuMailsPreavis, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -161,6 +161,12 @@ export async function GET(request: Request): Promise<Response> {
     if (idPreavis !== null) {
       const d = await preavisDuBail(idPreavis);
       return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
+    }
+    // 🔴 Arno (05/11/2026, 460) — les partenaires à informer à la sortie (la case de l'écran de sortie) — LECTURE SEULE.
+    const idPartenaires = identifiant(p('partenairesSortie'));
+    if (idPartenaires !== null) {
+      const x = await partenairesDeSortie(idPartenaires);
+      return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: x }, { headers: ENTETES });
     }
     const idEncart = identifiant(p('encartBail'));
     if (idEncart !== null) {
@@ -496,7 +502,8 @@ export async function POST(request: Request): Promise<Response> {
         if (r.etat !== 'ok') return repondre(r);
         const m = await notifierSortie(r.data, auteur);
         // Arno (05/11/2026) — PUIS le mail d'information à ADHOC (bien en gestion seulement) ; le compte rendu ci-dessus reste tel quel.
-        const adhoc = await envoyerMailSortieAdhoc(r.data, auteur);
+        // 🔴 Arno (05/11/2026, 460) — la liste « Sorties » ; la case « Informer nos partenaires » décochée : aucun mail partenaire.
+        const adhoc = await envoyerMailSortieAdhoc(r.data, auteur, {}, corps.informerPartenaires !== false);
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
           ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif },
           adhoc: adhoc.etat === 'ok' ? { etat: 'ok', envois: adhoc.envois } : { etat: adhoc.etat, motif: adhoc.motif } });
@@ -513,7 +520,9 @@ export async function POST(request: Request): Promise<Response> {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
         // Arno (05/11/2026) — « Valider et envoyer » (après l'aperçu) : le préavis d'abord, les mails ENSUITE, jamais bloquants —
         // LA porte commune à toutes les entrées (fiche de la Gestion comprise).
-        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true));
+        // 🔴 Arno (05/11/2026, 460) — `informerPartenaires` : la case « Informer nos partenaires » (absente : cochée).
+        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true,
+          {}, corps.informerPartenaires !== false));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];

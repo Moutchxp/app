@@ -76,7 +76,9 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
   it('la modale : ses onglets (dont « Archivage des fins de gestion », 405) ; Enregistrer / Annuler en bas', async () => {
     await ouvrir();
     expect(container.querySelector('[data-modale-parametres]')?.getAttribute('role')).toBe('dialog');
-    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires du mail', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions', 'Indices']); // 406 : deux onglets AJOUTÉS en fin
+    // 🔴 Arno (05/11/2026, 460) — « Destinataires du mail » devient TROIS onglets (libellés courts sous « Destinataires : »), avant les barèmes.
+    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Nouvelles locations', 'Préavis', 'Sorties', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions', 'Indices']); // 406 : deux onglets AJOUTÉS en fin
+    expect(container.querySelector('.plo-groupe-onglets')?.textContent).toBe('Destinataires :');
     expect([...container.querySelectorAll('.plo-boutons button')].map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer']);
     await clic(container.querySelector('[data-annuler-parametres]'));
     expect(container.querySelector('[data-modale-parametres]')).toBeNull();
@@ -100,10 +102,58 @@ describe('🔴 onglet « Destinataires du mail »', () => {
     expect(posts).toEqual([]);
     await saisir(container.querySelector('[data-destinataire-defaut="2"] [data-adresse]'), 'nouveau@exemple.test');
     await clic(container.querySelector('[data-enregistrer-parametres]'));
-    expect(posts).toEqual([{ action: 'destinataires', liste: [
+    expect(posts).toEqual([{ action: 'destinataires', sorte: 'nouvelle_location', liste: [
       { adresse: 'laura@monga.io', libelle: 'MONGA' }, { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC (compta)' }, { adresse: 'nouveau@exemple.test', libelle: '' },
     ] }]);
     expect(container.querySelector('[data-info-parametres]')?.textContent).toBe('Liste des destinataires enregistrée.');
+  });
+});
+
+describe('🔴 Arno (05/11/2026, 460) — onglets « Préavis » et « Sorties » : leur propre liste', () => {
+  const ADHOC = { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' };
+  const avecListes = () => {
+    global.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return json({ etat: 'ok' }); }
+      return json({ etat: 'ok', data: { destinataires: [ADHOC], destinatairesSaisis: null, versions, aujourdhui: '2026-10-21', manquantes: [], archivage: { mois: 24, disponible: true },
+        parSorte: true, listes: {
+          nouvelle_location: { liste: [{ adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion' }, ADHOC], saisis: null },
+          preavis: { liste: [ADHOC], saisis: { le: '2026-11-05T10:00:00+01', par: 'migration 460' } },
+          sortie: { liste: [ADHOC, { adresse: 'laura@monga.io', libelle: 'MONGA' }], saisis: null } } } });
+    }) as unknown as typeof fetch;
+  };
+  it('chaque onglet lit SA liste ; le rappel des copies (la personne qui valide + gestion@) ; la dernière modification', async () => {
+    avecListes();
+    await ouvrir();
+    expect(adresses()).toEqual(['gestion@criterimmo.fr', 'gestion.criterimmo@gmail.com']);
+    await clic(container.querySelector('[data-onglet="destinataires-preavis"]'));
+    expect(adresses()).toEqual(['gestion.criterimmo@gmail.com']);
+    expect(container.textContent).toContain('La personne qui valide reçoit toujours une copie, ainsi que gestion@criterimmo.fr');
+    expect(container.querySelector('[data-derniere-modification]')?.textContent).toContain('par migration 460');
+    await clic(container.querySelector('[data-onglet="destinataires-sorties"]'));
+    expect(adresses()).toEqual(['gestion.criterimmo@gmail.com', 'laura@monga.io']);
+  });
+  it('« Sorties » : réordonner puis Enregistrer → la liste DANS L’ORDRE, avec sa sorte', async () => {
+    avecListes();
+    await ouvrir();
+    await clic(container.querySelector('[data-onglet="destinataires-sorties"]'));
+    await clic(container.querySelector('[data-destinataire-defaut="1"] [data-monter]'));
+    await clic(container.querySelector('[data-enregistrer-parametres]'));
+    expect(posts).toEqual([{ action: 'destinataires', sorte: 'sortie', liste: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }, ADHOC] }]);
+  });
+  it('« Préavis » : liste VIDE autorisée (aucun mail partenaire) ; « Nouvelles locations » : refusée', async () => {
+    avecListes();
+    await ouvrir();
+    await clic(container.querySelector('[data-onglet="destinataires-preavis"]'));
+    await clic(container.querySelector('[data-destinataire-defaut="0"] [data-supprimer]'));
+    expect(container.querySelector('[data-liste-vide]')?.textContent).toBe('Liste vide : aucun mail partenaire ne partira.');
+    await clic(container.querySelector('[data-enregistrer-parametres]'));
+    expect(posts).toEqual([{ action: 'destinataires', sorte: 'preavis', liste: [] }]);
+    expect(container.querySelector('[data-info-parametres]')?.textContent).toBe('Liste vide enregistrée : aucun mail partenaire ne partira.');
+    await clic(container.querySelector('[data-onglet="destinataires"]'));
+    await clic(container.querySelector('[data-destinataire-defaut="0"] [data-supprimer]'));
+    await clic(container.querySelector('[data-destinataire-defaut="0"] [data-supprimer]'));
+    await clic(container.querySelector('[data-enregistrer-parametres]'));
+    expect(posts).toHaveLength(1);
   });
 });
 

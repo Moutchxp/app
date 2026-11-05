@@ -11,6 +11,8 @@ import { imagesSignaturePourEnvoi, signatureHtmlDeGestion } from '../gestion/sig
 import { sqlStatutBien } from '../gestion/statutBienRepo';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
+import { lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
+import type { Destinataire } from './mailNouvelleLocation';
 import { mailAdhocSortie, mailsDuPreavis, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { verifierPreavis, type ModePreavis } from './preavis';
 import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
@@ -74,13 +76,15 @@ async function locatairesAvis(occupationIds: readonly number[]): Promise<(Locata
 }
 
 export type IssueApercuPreavis =
-  | { etat: 'ok'; data: { mails: MailAvis[]; sansEmail: string[]; enGestion: boolean; dateFin: string; envoiPossible: boolean } }
+  | { etat: 'ok'; data: { mails: MailAvis[]; sansEmail: string[]; enGestion: boolean; dateFin: string; envoiPossible: boolean;
+    /** 🔴 Arno (05/11/2026) — les partenaires de la liste « Préavis » (la case « Informer nos partenaires ») ; vide : pas de case. */
+    partenaires: Destinataire[] } }
   | { etat: 'refus'; motif: string }
   | { etat: 'inconnu' };
 
 async function donneesPreavis(
-  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis,
-): Promise<{ etat: 'ok'; donnees: DonneesPreavisMails; lotId: number; brute: string; dateFin: string } | { etat: 'refus'; motif: string } | { etat: 'inconnu' }> {
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis, informerPartenaires = true,
+): Promise<{ etat: 'ok'; donnees: DonneesPreavisMails; lotId: number; brute: string; dateFin: string; partenaires: Destinataire[] } | { etat: 'refus'; motif: string } | { etat: 'inconnu' }> {
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0) return { etat: 'refus', motif: 'Cochez au moins un locataire.' };
   const logement = await logementDe(ids[0]);
@@ -94,10 +98,13 @@ async function donneesPreavis(
   const config = await chargerConfigGestion();
   const valideur = await emailDeLAuteur(auteur);
   const sig = await signatureEcran(deps);
+  // 🔴 Arno (05/11/2026, 460) — les partenaires : la liste « Préavis » de « Paramètres Location » (bien hors gestion : aucun) ; case décochée : aucun.
+  const partenaires = logement.enGestion ? await lireDestinatairesDefaut('preavis') : [];
   return {
-    etat: 'ok', lotId: logement.lotId, brute: sig.brute, dateFin: v.dateMax,
+    etat: 'ok', lotId: logement.lotId, brute: sig.brute, dateFin: v.dateMax, partenaires,
     donnees: {
       adresse: logement.adresse, proprietaire: logement.proprietaire, enGestion: logement.enGestion,
+      partenaires: informerPartenaires ? partenaires.map((x) => x.adresse) : [],
       locataires: locs.map(({ occupationId, nom, prenom, emails }) => ({ occupationId, nom, prenom, emails })),
       recuLe: d.recuLe as string, choix: d.choix as ModePreavis, expediteur: config.adresseGestion, valideur, signature: sig.ecran,
     },
@@ -111,7 +118,7 @@ export async function apercuMailsPreavis(
   const lu = await donneesPreavis(d, auteur, deps);
   if (lu.etat !== 'ok') return lu;
   const { mails, sansEmail } = mailsDuPreavis(lu.donnees);
-  return { etat: 'ok', data: { mails, sansEmail, enGestion: lu.donnees.enGestion, dateFin: lu.dateFin, envoiPossible: await mailsAvisDisponibles() } };
+  return { etat: 'ok', data: { mails, sansEmail, enGestion: lu.donnees.enGestion, dateFin: lu.dateFin, envoiPossible: await mailsAvisDisponibles(), partenaires: lu.partenaires } };
 }
 
 /** Ce que l'écran dit de chaque mail, après l'envoi. */
@@ -175,11 +182,11 @@ export type IssueMailsAvis = { etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'sans
  * que l'aperçu : ce qui part est ce qui a été montré. Ne lève jamais.
  */
 export async function envoyerMailsPreavis(
-  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis = {},
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis = {}, informerPartenaires = true,
 ): Promise<IssueMailsAvis> {
   try {
     if (!(await mailsAvisDisponibles())) return { etat: 'sans_schema', motif: MOTIF_SANS_457 };
-    const lu = await donneesPreavis(d, auteur, deps);
+    const lu = await donneesPreavis(d, auteur, deps, informerPartenaires);
     if (lu.etat !== 'ok') return { etat: 'echec', motif: lu.etat === 'refus' ? lu.motif : 'Logement introuvable : aucun mail n’est parti.' };
     const { mails } = mailsDuPreavis(lu.donnees);
     return { etat: 'ok', envois: await envoyerSerie(mails, lu.brute, { lotId: lu.lotId, occupationIds: d.occupationIds, auteur }, deps) };
@@ -192,8 +199,9 @@ export async function envoyerMailsPreavis(
  * LE MAIL D'INFORMATION DE LA SORTIE À ADHOC, APRÈS l'écriture de la sortie (et après le compte rendu déjà en place, qui ne
  * change pas). Bien hors gestion : rien. Ne lève jamais.
  */
-export async function envoyerMailSortieAdhoc(f: SortieFaite, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}): Promise<IssueMailsAvis> {
+export async function envoyerMailSortieAdhoc(f: SortieFaite, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}, informerPartenaires = true): Promise<IssueMailsAvis> {
   try {
+    if (!informerPartenaires) return { etat: 'ok', envois: [] }; // 🔴 Arno (05/11/2026) — case « Informer nos partenaires » décochée
     if (!(await mailsAvisDisponibles())) return { etat: 'sans_schema', motif: MOTIF_SANS_457 };
     const { rows } = await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [f.bail.lotId]);
     const enGestion = rows[0]?.s === 'en_gestion';
@@ -201,7 +209,9 @@ export async function envoyerMailSortieAdhoc(f: SortieFaite, auteur: Auteur, dep
     const qui = await emailDeLAuteur(auteur);
     const config = await chargerConfigGestion();
     const sig = await signatureEcran(deps);
-    const m = mailAdhocSortie({ ...donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString()), enGestion, expediteur: config.adresseGestion, signature: sig.ecran });
+    // 🔴 Arno (05/11/2026, 460) — À : la liste « Sorties » de « Paramètres Location », dans l'ordre ; vide : aucun mail.
+    const partenaires = (await lireDestinatairesDefaut('sortie')).map((x) => x.adresse);
+    const m = mailAdhocSortie({ ...donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString()), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires });
     if (m === null) return { etat: 'ok', envois: [] };
     return { etat: 'ok', envois: await envoyerSerie([m], sig.brute, { lotId: f.bail.lotId, occupationIds: f.occupationIds, auteur }, deps) };
   } catch (e) {
@@ -217,12 +227,22 @@ export async function envoyerMailSortieAdhoc(f: SortieFaite, auteur: Auteur, dep
  */
 export async function enregistrerPreavisAvecMails(
   d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; motif?: unknown }, auteur: Auteur,
-  envoyerMails: boolean, deps: DepsAvis = {},
+  envoyerMails: boolean, deps: DepsAvis = {}, informerPartenaires = true,
 ): Promise<IssuePreavis<{ dateMax: string; preavis: number }> & { mails?: { etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'sans_schema' | 'echec'; motif: string } }> {
   const r = await enregistrerPreavis(d, auteur);
   if (r.etat !== 'ok' || !envoyerMails) return r;
-  const m = await envoyerMailsPreavis({ occupationIds: d.occupationIds, recuLe: d.recuLe, choix: d.choix }, auteur, deps);
+  const m = await envoyerMailsPreavis({ occupationIds: d.occupationIds, recuLe: d.recuLe, choix: d.choix }, auteur, deps, informerPartenaires);
   return { ...r, mails: m.etat === 'ok' ? { etat: 'ok', envois: m.envois } : { etat: m.etat, motif: m.motif } };
+}
+
+/**
+ * 🔴 Arno (05/11/2026, 460) — LES PARTENAIRES À INFORMER pour la sortie d'un logement (la case « Informer nos partenaires » de l'écran de sortie) :
+ * la liste « Sorties » de « Paramètres Location » si le bien est EN GESTION ; hors gestion : aucun (la case n'apparaît pas). Lecture seule.
+ */
+export async function partenairesDeSortie(occupationId: number): Promise<{ enGestion: boolean; liste: Destinataire[] } | null> {
+  const logement = await logementDe(occupationId);
+  if (logement === null) return null;
+  return { enGestion: logement.enGestion, liste: logement.enGestion ? await lireDestinatairesDefaut('sortie') : [] };
 }
 
 /** Un mail de préavis ou de sortie, tel que l'Historique du bien le montre. */

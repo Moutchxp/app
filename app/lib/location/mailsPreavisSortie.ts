@@ -20,8 +20,11 @@ import { echapper } from './mailNouvelleLocation';
 import { ajouterMois, dateFrPreavis, type DureeMois, type ModePreavis } from './preavis';
 import { descriptionLogement, type DonneesMailSortie } from './sortieLocataires';
 
-/** L'adresse d'ADHOC (partenaire de comptabilité de la gestion) — celle de la liste « Nouvelle location » (migration 395). */
-export const ADRESSE_ADHOC = 'gestion.criterimmo@gmail.com';
+/**
+ * 🔴 Arno (05/11/2026, 460) — PLUS AUCUNE ADRESSE PARTENAIRE DANS LE CODE : les destinataires des mails d'information (préavis, sortie) sont
+ * ceux des listes « Destinataires — Préavis » / « Sorties » de « Paramètres Location », dans leur ordre ; liste vide (ou case « Informer nos
+ * partenaires » décochée) : aucun mail partenaire.
+ */
 
 /** Le libellé de l'aperçu pour un locataire sans adresse e-mail (affiché en orange, jamais bloquant). */
 export const MENTION_SANS_EMAIL = 'pas d’e-mail, il ne recevra pas l’accusé de réception';
@@ -52,6 +55,8 @@ export interface DonneesPreavisMails {
   /** Statut du bien = « en gestion » : seul cas où ADHOC est informé. */
   enGestion: boolean;
   locataires: LocataireAvis[];
+  /** 🔴 Arno (05/11/2026) — les partenaires informés (liste « Préavis », dans l'ordre) ; vide : aucun mail partenaire. */
+  partenaires: readonly string[];
   recuLe: string;
   choix: ModePreavis;
   expediteur: string;
@@ -170,6 +175,8 @@ function enteteCopie(m: MailAvis): string[] {
 /** Le mail B, ou `null` pour un bien HORS gestion (aucun mail ADHOC). `accuse` = le mail A tel qu'il part (ou `null`). PUR. */
 export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null): MailAvis | null {
   if (!d.enGestion) return null;
+  const a = adressesUniques(d.partenaires);
+  if (a.length === 0) return null;
   const noms = enumerer(d.locataires.map(prenomNom));
   const plusieurs = d.locataires.length > 1;
   const intro = [
@@ -179,7 +186,6 @@ export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null
       ? 'Ce message est purement informatif : aucune action n’est attendue de votre part. Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.'
       : 'Ce message est purement informatif : aucune action n’est attendue de votre part. Vous trouverez ci-dessous la copie du mail envoyé aux locataires.',
   ];
-  const a = [ADRESSE_ADHOC];
   // Notre signature d'abord, PUIS la copie (comme un transfert) — dans le texte comme dans le HTML.
   const sig = avecSignature(intro.join('\n\n'), d.signature);
   const texte = accuse === null ? sig.texte : `${sig.texte}\n\n${enteteCopie(accuse).join('\n')}\n\n${accuse.texte}`;
@@ -211,8 +217,10 @@ export function objetAdhocSortie(adresse: string): string {
  * Le mail d'information de la SORTIE à ADHOC, ou `null` pour un bien HORS gestion. Les données sont celles du mail de compte
  * rendu déjà en place (`DonneesMailSortie`), qui reste envoyé tel quel. PUR.
  */
-export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature }): MailAvis | null {
+export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[] }): MailAvis | null {
   if (!d.enGestion) return null;
+  const a = adressesUniques(d.partenaires);
+  if (a.length === 0) return null;
   const adresse = d.adresse ?? `Bien ${d.lotId}`;
   const plusieurs = d.sortants.length > 1;
   const paras = [
@@ -225,7 +233,6 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
     d.vacant ? 'Le logement est désormais vacant.' : `Le logement reste loué à ${enumerer(d.restants.map((n) => prenomNom({ nom: n, prenom: null })))}.`,
     'Ce message est purement informatif : aucune action n’est attendue de votre part.',
   ];
-  const a = [ADRESSE_ADHOC];
   const sig = avecSignature(paras.join('\n\n'), d.signature);
   return {
     sorte: 'sortie_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.auteur, a), objet: objetAdhocSortie(adresse),
