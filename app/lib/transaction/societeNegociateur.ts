@@ -43,7 +43,7 @@ export type Deduction =
   | { sorte: 'aucune'; compte: CompteDeduit };
 
 /** Les comptes qu'un onglet désigne : prénom seul, « prénom nom » ou « nom prénom », égal au libellé normalisé. PUR. */
-export function comptesDeLOnglet(onglet: string, comptes: readonly CompteDeduit[]): CompteDeduit[] {
+export function comptesDeLOnglet<T extends CompteDeduit>(onglet: string, comptes: readonly T[]): T[] {
   const o = normaliserPrenom(onglet);
   if (o === '') return [];
   return comptes.filter((c) => {

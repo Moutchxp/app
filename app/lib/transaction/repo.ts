@@ -19,7 +19,7 @@ import { relierComptesSurs } from './negociateurCompte';
 import { eclaterSalaires, salairesParMois, type CoutLigne } from './coutsSaisis';
 import { aUnePrincipaleAuMois, repartirSalaire, type VersionPrincipale } from '../admin/activitePrincipale';
 import { LIBELLE_FONCTION } from '../admin/fonctionsCompteModele';
-import { rattacherLibelle } from '../location/suivi/negociateurIdentite';
+import { preferActifs, rattacherLibelle } from '../location/suivi/negociateurIdentite';
 import { comptesDeLOnglet } from './societeNegociateur';
 import { lireFichesStatut, statutDeFiche } from './statutSansCompte';
 import { nomAffiche } from './nomNegociateur';
@@ -1689,12 +1689,13 @@ export async function lireStatutsNegociateurs(libelles: readonly string[]): Prom
 /** Le compte rapproché de chaque libellé (règles ① à ③ ci-dessus), ou null : aucun compte sûr. LECTURE SEULE. */
 export async function comptesRapprochesDesLibelles(libelles: readonly string[]): Promise<Record<string, { id: number; nom: string; prenom: string | null; nomFamille: string | null } | null>> {
   const [comptes, alias] = await Promise.all([lireComptesNegociateurs(), lireAliasNegociateurs().catch(() => [])]);
-  const pourOnglet = comptes.map((c) => ({ id: c.id, prenom: c.prenom ?? '', nom: c.nom ?? '' }));
+  const pourOnglet = comptes.map((c) => ({ id: c.id, prenom: c.prenom ?? '', nom: c.nom ?? '', actif: c.actif }));
   const out: Record<string, { id: number; nom: string; prenom: string | null; nomFamille: string | null } | null> = {};
   for (const l of libelles) {
     const r = rattacherLibelle(l, comptes, alias);
     let id: number | null = r.sorte === 'compte' || r.sorte === 'alias' || r.sorte === 'auto' ? r.compteId : null;
-    if (id === null) { const cs = comptesDeLOnglet(l, pourOnglet); if (cs.length === 1) id = cs[0].id; }
+    // 🔴 Arno (05/11/2026) — le prénom seul aussi : les comptes ACTIFS l'emportent (le doublon désactivé de Pierre ne bloque plus « PIERRE »).
+    if (id === null) { const cs = preferActifs(comptesDeLOnglet(l, pourOnglet)); if (cs.length === 1) id = cs[0].id; }
     const c = id === null ? undefined : comptes.find((x) => x.id === id);
     out[l] = c === undefined ? null : { id: c.id, nom: [c.prenom, c.nom].filter(Boolean).join(' ') || c.identifiant, prenom: c.prenom, nomFamille: c.nom };
   }

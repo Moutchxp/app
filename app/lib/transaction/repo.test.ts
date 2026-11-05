@@ -456,7 +456,7 @@ describe('🔴 LOT P (439) — le statut du négociateur FIGÉ sur la vente ; un
 
 describe('🔴 LOT Q — le statut ACTUEL du compte rapproché d’un négociateur importé', () => {
   it('nom complet ou prénom d’UN SEUL compte → son statut ; plusieurs comptes ou aucun → null (non déduit, signalé)', async () => {
-    reponses.push((s) => (s.includes('SELECT id::text, identifiant, prenom, nom FROM admin_utilisateur') ? { rows: [
+    reponses.push((s) => (s.includes('FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> \'statut\', \'\') <> \'observateur\'') ? { rows: [
       { id: '2', identifiant: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nom: 'Jorel' }, { id: '4', identifiant: 'arnaud.jorel@gmail.com', prenom: 'Augustin', nom: 'Jorel' },
       { id: '5', identifiant: 'jb.pons@sansvisavis.com', prenom: 'Jean-Baptiste', nom: 'PONS' }] } : undefined),
     (s) => (s.includes("to_jsonb(u) ->> 'statut' AS statut FROM admin_utilisateur u WHERE u.id = ANY") ? { rows: [{ id: '2', statut: 'associe' }, { id: '4', statut: null }, { id: '5', statut: 'salarie' }] } : undefined));

@@ -17,7 +17,18 @@
  * Le libellé d'origine est gardé (`negociateurLibelleOrigine`). Aucun montant ne change : seules les clés se rejoignent.
  */
 
-export interface CompteNegociateur { id: number; identifiant: string; prenom: string | null; nom: string | null }
+export interface CompteNegociateur { id: number; identifiant: string; prenom: string | null; nom: string | null;
+  /** 🔴 Arno (05/11/2026) — faux : compte DÉSACTIVÉ, ignoré par le rapprochement par TEXTE (il ne crée plus d'ambiguïté) ; absent : actif. */
+  actif?: boolean }
+
+/** 🔴 Arno (05/11/2026) — un compte désactivé ne crée pas d'ambiguïté dans le rapprochement par texte (le doublon « sasnvisavis » de Pierre). PUR. */
+export const compteActif = (c: { actif?: boolean }): boolean => c.actif !== false;
+
+/** Les comptes qui correspondent à un texte : les ACTIFS s'il y en a, sinon tous (désactivés compris). PUR. */
+export function preferActifs<T extends { actif?: boolean }>(correspondants: readonly T[]): T[] {
+  const actifs = correspondants.filter(compteActif);
+  return actifs.length > 0 ? actifs : [...correspondants];
+}
 export interface AliasNegociateur { libelleNormalise: string; libelle: string; compteId: number }
 
 /** Casse, accents et espaces ignorés. PUR. */
@@ -39,11 +50,15 @@ export function rattacherLibelle(libelle: string, comptes: readonly CompteNegoci
   if (n === '') return { sorte: 'aucun' };
   const a = alias.find((x) => x.libelleNormalise === n && comptes.some((c) => c.id === x.compteId));
   if (a !== undefined) return { sorte: 'alias', compteId: a.compteId };
-  const candidats = comptes.filter((c) => {
+  // Un rattachement posé à la main (ci-dessus) vaut, lui, quel que soit l'état du compte : c'est une décision explicite.
+  const tous = comptes.filter((c) => {
     const p = normaliserLibelle(c.prenom); const nm = normaliserLibelle(c.nom);
     const formes = [p !== '' && nm !== '' ? `${p} ${nm}` : null, p !== '' && nm !== '' ? `${nm} ${p}` : null, normaliserLibelle(c.identifiant)];
     return formes.includes(n);
-  }).map((c) => c.id);
+  });
+  // 🔴 Arno (05/11/2026) — un compte DÉSACTIVÉ ne crée plus d'ambiguïté : les comptes actifs l'emportent ; sans compte actif, le seul compte
+  // (désactivé) qui correspond reste rattaché, comme avant (un ancien collaborateur ne perd pas ses lignes).
+  const candidats = (preferActifs(tous)).map((c) => c.id);
   if (candidats.length === 1) return { sorte: 'auto', compteId: candidats[0] };
   return candidats.length > 1 ? { sorte: 'ambigu', candidats } : { sorte: 'aucun' };
 }

@@ -13,10 +13,12 @@ import { normaliserLibelle, type AliasNegociateur, type CompteNegociateur } from
 export function aliasNegociateurDisponible(): Promise<boolean> { return colonneExisteMemo('gestion_location_negociateur_alias', 'compte_id'); }
 
 export async function lireComptesNegociateurs(): Promise<CompteNegociateur[]> {
-  const { rows } = await query<{ id: string; identifiant: string; prenom: string | null; nom: string | null }>(
+  const { rows } = await query<{ id: string; identifiant: string; prenom: string | null; nom: string | null; actif: boolean | null }>(
     // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur (statut lu via to_jsonb : sans la migration 439, personne n'est exclu).
-    "SELECT id::text, identifiant, prenom, nom FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur' ORDER BY id");
-  return rows.map((r) => ({ id: Number(r.id), identifiant: r.identifiant, prenom: r.prenom, nom: r.nom }));
+    // 🔴 Arno (05/11/2026) — `actif` lu : les comptes désactivés restent dans la liste (une ligne qui PORTE leur identifiant garde leur
+    //    nom), mais le rapprochement par TEXTE les ignore (`rattacherLibelle`, `comptesRapprochesDesLibelles`).
+    "SELECT id::text, identifiant, prenom, nom, actif FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur' ORDER BY id");
+  return rows.map((r) => ({ id: Number(r.id), identifiant: r.identifiant, prenom: r.prenom, nom: r.nom, actif: r.actif !== false }));
 }
 
 export async function lireAliasNegociateurs(): Promise<AliasNegociateur[]> {

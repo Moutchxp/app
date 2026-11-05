@@ -16,7 +16,7 @@
  *   npm run transaction:relier-comptes -- --ecrire          (cas sûrs seulement)
  *   npm run transaction:relier-comptes -- --confirme="PIERRE=p.thevenin@sansvisavis.com"   (essai : compte trouvé, lignes reliées)
  *   npm run transaction:relier-comptes -- --ecrire --confirme="PIERRE=p.thevenin@sansvisavis.com"
- *   option : --rapport=/chemin (fichier ou dossier)
+ *   option : --rapport=/chemin (fichier ou dossier) ; --sans-rapport : aucun fichier écrit, tout à l'écran (sur le serveur)
  */
 import '../lib/chargerEnv';
 import { writeFileSync } from 'node:fs';
@@ -77,10 +77,12 @@ export async function main(argv: readonly string[]): Promise<number> {
     if (resolues.refus.length > 0) { l.push('⛔ --confirme refusé — rien n’est écrit :', ...resolues.refus.map((x) => `   · ${x}`)); return fin(l, argv, 1); }
     const lu = avec458 ? await planRattachementExistant() : await planSans458(query);
     if (resolues.ok.length > 0) {
-      l.push('', 'CONFIRMATIONS D’ARNO (--confirme) : LIBELLÉ → COMPTE TROUVÉ → LIGNES RELIÉES (sans compte aujourd’hui)');
+      l.push('', 'CONFIRMATIONS D’ARNO (--confirme) : LIBELLÉ → COMPTE TROUVÉ → CE QUI SERAIT RELIÉ (lignes et rétrocessions sans compte aujourd’hui)');
       for (const c of resolues.ok) {
-        const n = lu.filter((x) => x.libelle === c.libelle && x.compteId === null).reduce((t, x) => t + x.lignes, 0);
-        l.push(`   « ${c.libelle} » → compte ${c.compteId} ${c.nom} <${c.identifiant}> → ${n} ligne(s)${n === 0 ? ' (aucune ligne sans compte à ce libellé : vérifiez l’orthographe exacte)' : ''}`);
+        const compte = (table: 'ligne' | 'retrocession'): number => lu.filter((x) => x.table === table && x.libelle === c.libelle && x.compteId === null).reduce((t, x) => t + x.lignes, 0);
+        const [lignes, retros] = [compte('ligne'), compte('retrocession')];
+        l.push(`   « ${c.libelle} » → compte ${c.compteId} ${c.nom} <${c.identifiant}> → ${lignes} ligne(s) de commission, ${retros} rétrocession(s)`
+          + `${lignes + retros === 0 ? ' (rien à relier à ce libellé : vérifiez l’orthographe exacte, ou déjà rattaché)' : ''}`);
       }
     }
     const plan = lu.map((x) => {
@@ -133,6 +135,8 @@ async function planSans458(query: typeof import('../lib/db/client').query): Prom
 function fin(l: string[], argv: readonly string[], code: number): number {
   const texte = l.join('\n');
   console.log(texte);
+  // Sur le serveur : `--sans-rapport` — tout est à l'écran, AUCUN fichier n'est écrit.
+  if (argv.includes('--sans-rapport')) return code;
   const chemin = cheminRapport({ nomScript: NOM_SCRIPT, demande: optionLigne(argv, 'rapport') });
   writeFileSync(chemin, `${texte}\n`);
   console.log(`${P} rapport : ${chemin}`);
