@@ -33,6 +33,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
+import { apercuMailsPreavis, envoyerMailSortieAdhoc, envoyerMailsPreavis } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -69,6 +70,9 @@ import { bauxEnPlace, marquerBailEnPlace, rentreOccupeDisponible, rentreOccupeDu
  * SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — GET `?occupants=texte` (les seuls occupants en place) · `?bail=N`
  *       (le bail d'une occupation) · `?encartBail=N` (l'encart « Le logement » de l'écran de sortie) · `?bauxLocataire=N` ; POST `sortie-locataires` (`occupationId`, `sortants`, `date` ; + mail de
  *       confirmation, jamais bloquant) · `corriger-sortie-locataires` (`occupationIds`, `date`) · `annuler-sortie-locataires` (`occupationIds`).
+ * MAILS AUTOMATIQUES DU PRÉAVIS ET DE LA SORTIE (Arno, 05/11/2026) — POST `apercu-preavis` (`occupationIds`, `recuLe`, `choix` : les
+ *       mails, en lecture, rien ne part) · `enregistrer-preavis` + `envoyerMails: true` (le préavis, PUIS l'accusé aux locataires et
+ *       l'information ADHOC) · `sortie-locataires` (après le compte rendu, l'information ADHOC — bien en gestion seulement).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -491,8 +495,11 @@ export async function POST(request: Request): Promise<Response> {
         const r = await enregistrerSortie({ occupationId: occ, sortants, date: corps.date }, auteur);
         if (r.etat !== 'ok') return repondre(r);
         const m = await notifierSortie(r.data, auteur);
+        // Arno (05/11/2026) — PUIS le mail d'information à ADHOC (bien en gestion seulement) ; le compte rendu ci-dessus reste tel quel.
+        const adhoc = await envoyerMailSortieAdhoc(r.data, auteur);
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
-          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif } });
+          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif },
+          adhoc: adhoc.etat === 'ok' ? { etat: 'ok', envois: adhoc.envois } : { etat: adhoc.etat, motif: adhoc.motif } });
       }
       case 'corriger-sortie-locataires':
       case 'annuler-sortie-locataires': {
@@ -504,7 +511,15 @@ export async function POST(request: Request): Promise<Response> {
       // LE PRÉAVIS (Arno, 18/10/2026) : ouvert aux comptes Location — enregistrer, corriger, annuler (journalisés, rien d'effacé).
       case 'enregistrer-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await enregistrerPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
+        const r = await enregistrerPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur);
+        // Arno (05/11/2026) — « Valider et envoyer » (après l'aperçu) : le préavis d'abord, les mails ENSUITE, jamais bloquants.
+        if (r.etat !== 'ok' || corps.envoyerMails !== true) return repondre(r);
+        const mails = await envoyerMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix) }, auteur);
+        return repondre({ ...r, mails: mails.etat === 'ok' ? { etat: 'ok', envois: mails.envois } : { etat: mails.etat, motif: mails.motif } });
+      }
+      case 'apercu-preavis': {
+        const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        return repondre(await apercuMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix) }, auteur));
       }
       case 'corriger-preavis': {
         const pid = identifiant(corps.preavisId);

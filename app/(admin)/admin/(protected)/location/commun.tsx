@@ -59,6 +59,19 @@ export const liste = <T,>(x: readonly T[] | null | undefined): readonly T[] => (
 export interface EtatMail { envoye: boolean; ignore: boolean; motif: string | null }
 
 /** « Enregistré, mais mail non envoyé : … » — `null` quand il n'y a rien à dire (envoyé, ou rien à envoyer). */
+/** Arno (05/11/2026) — l'issue des mails automatiques du préavis et de la sortie, telle que la route la rend. */
+export type EtatMailsAvis =
+  | { etat: 'ok'; envois: { sorte: string; objet: string; a: string[]; cc: string[]; envoye: boolean; motif: string | null }[] }
+  | { etat: 'sans_schema' | 'echec'; motif: string };
+
+/** Une phrase par mail (« Mail « … » envoyé à … » / « non envoyé : … »), ou la raison pour laquelle aucun n'est parti. PUR. */
+export function phrasesMailsAvis(m: EtatMailsAvis | undefined): { ok: boolean; texte: string }[] {
+  if (m === undefined) return [];
+  if (m.etat !== 'ok') return [{ ok: false, texte: m.motif }];
+  return m.envois.map((e) => (e.envoye ? { ok: true, texte: `Mail « ${e.objet} » envoyé à ${e.a.join(', ')}${e.cc.length > 0 ? ` (copie : ${e.cc.join(', ')})` : ''}.` }
+    : { ok: false, texte: `Mail « ${e.objet} » non envoyé${e.motif ? ` : ${e.motif}` : ''}.` }));
+}
+
 export function phraseMail(m: EtatMail | undefined): string | null {
   if (m === undefined || m.ignore || m.envoye) return null;
   return `Enregistré, mais mail de confirmation non envoyé${m.motif ? ` : ${m.motif}` : ''}.`;
@@ -71,21 +84,27 @@ export function phraseMail(m: EtatMail | undefined): string | null {
  */
 export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec; etat?: string;
   /** Arno (21/10/2026, 404) — le dossier Drive créé après l'enregistrement (absent : rien tenté). */
-  drive?: { ok: boolean; motif: string | null } }> {
+  drive?: { ok: boolean; motif: string | null };
+  /** Arno (05/11/2026) — les mails automatiques du préavis (`mails`) et de la sortie (`adhoc`) ; absents : rien tenté. */
+  mails?: EtatMailsAvis; adhoc?: EtatMailsAvis }> {
   let res: Response;
   try {
     res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
   } catch {
     return { motif: 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: 'technique' };
   }
-  let d: { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail; erreur?: string; drive?: { ok: boolean; motif: string | null } };
+  let d: { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail; erreur?: string; drive?: { ok: boolean; motif: string | null };
+    mails?: EtatMailsAvis; adhoc?: EtatMailsAvis };
   try {
     d = await res.json() as typeof d;
   } catch {
     const cause = causeDeLaReponse({ statut: res.status });
     return { motif: cause === 'droit' ? MOTIF_DROIT : 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: cause === 'saisie' ? 'technique' : cause };
   }
-  if (d.etat === 'ok') return { motif: null, data: d.data, mail: d.mail, ...(d.drive !== undefined ? { drive: d.drive } : {}) };
+  if (d.etat === 'ok') {
+    return { motif: null, data: d.data, mail: d.mail, ...(d.drive !== undefined ? { drive: d.drive } : {}),
+      ...(d.mails !== undefined ? { mails: d.mails } : {}), ...(d.adhoc !== undefined ? { adhoc: d.adhoc } : {}) };
+  }
   const cause = causeDeLaReponse({ statut: res.status, etat: d.etat, erreur: d.erreur });
   if (cause === 'droit') return { motif: MOTIF_DROIT, cause };
   if (d.etat === 'sans_schema') return { motif: MOTIF_SANS_MIGRATION, cause };

@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, useLecture, type EtatMail } from './commun';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, phrasesMailsAvis, useLecture, type EtatMail } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
-import { CSS_PREAVIS, FormulairePreavisCompact, GestesPreavis, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
+import { CSS_PREAVIS, FormulairePreavisCompact, GestesPreavis, MentionPreavis, aujourdhuiParisEcran, type ApercuMailsPreavis } from './Preavis';
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
   casesParDefaut, dateFr, dateMinSortie, descriptionLogement, phraseIssue, verifierSortie,
@@ -272,7 +272,8 @@ function RecapSortie({ bail, sortants, date, phrase, vacant }: {
  */
 export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFait, compact = false }: {
   bail: BailLogement; choix: readonly number[]; occupationId: number; onAnnuler: () => void;
-  onFait: (phrase: string, mail: string | null) => void;
+  /** Arno (05/11/2026) — `adhoc` : l'issue du mail d'information à ADHOC (une phrase par mail ; vide : aucun mail). */
+  onFait: (phrase: string, mail: string | null, adhoc?: { ok: boolean; texte: string }[]) => void;
   /** Arno (19/10/2026) — la forme COMPACTE, sur deux lignes, de l'ÉCRAN DE SORTIE seulement (l'accueil garde celle-ci). */
   compact?: boolean;
 }) {
@@ -301,7 +302,8 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
     const mail = r.mail as EtatMail | undefined;
     // Arno (19/10/2026) — une réintégration faite par cette sortie s'annonce avec le bilan.
     const reintegrations = (r.data as { reintegrations?: string[] } | undefined)?.reintegrations ?? [];
-    onFait(`${phrase.replace('deviendra', 'devient')}${reintegrations.length > 0 ? ` — ${reintegrations.join(' ')}` : ''}`, mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
+    onFait(`${phrase.replace('deviendra', 'devient')}${reintegrations.length > 0 ? ` — ${reintegrations.join(' ')}` : ''}`, mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail),
+      phrasesMailsAvis(r.adhoc));
   };
   if (compact) {
     /* 🔴 Arno (19/10/2026) — DEUX LIGNES : « Qui sort : » + une étiquette par locataire ; puis la date (focus), la
@@ -395,7 +397,7 @@ export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { 
   const [etatLu, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
   const etat: EtatRecherche = texte.trim().length < 2 ? { etat: 'vide' } : etatLu;
   const [version, setVersion] = useState(0);
-  const [bilan, setBilan] = useState<{ phrase: string; mail: string | null } | null>(null);
+  const [bilan, setBilan] = useState<{ phrase: string; mail: string | null; adhoc?: { ok: boolean; texte: string }[] } | null>(null);
   const controleur = useRef<AbortController | null>(null);
   useEffect(() => {
     const terme = texte.trim();
@@ -440,7 +442,7 @@ export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { 
       ) : (
         <SortieDuBail key={`${occupation}-${version}`} bail={lu.etat.data} occupationId={occupation} bilan={bilan} gestion={gestion}
           barre={<BarreOccupants texte={texte} setTexte={setTexte} etat={etat} choisir={choisir} />}
-          apres={(phrase, mail) => { setBilan({ phrase, mail }); setVersion((v) => v + 1); }} />
+          apres={(phrase, mail, adhoc) => { setBilan({ phrase, mail, adhoc }); setVersion((v) => v + 1); }} />
       )}
     </div>
   );
@@ -491,8 +493,8 @@ function BarreOccupants({ texte, setTexte, etat, choisir }: {
 }
 
 function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
-  bail: BailLogement; occupationId: number; barre: React.ReactNode; bilan: { phrase: string; mail: string | null } | null; gestion: boolean;
-  apres: (phrase: string, mail: string | null) => void;
+  bail: BailLogement; occupationId: number; barre: React.ReactNode; bilan: { phrase: string; mail: string | null; adhoc?: { ok: boolean; texte: string }[] } | null; gestion: boolean;
+  apres: (phrase: string, mail: string | null, adhoc?: { ok: boolean; texte: string }[]) => void;
 }) {
   const [choix, setChoix] = useState<number[]>(() => casesParDefaut(bail));
   const [ouvert, setOuvert] = useState(false);
@@ -503,10 +505,47 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
   const preavis = useLecture<PreavisDuBail>(`preavisBail=${occupationId}&p=${versionPreavis}`);
   const [preavisOuvert, setPreavisOuvert] = useState(false);
   const [preavisFait, setPreavisFait] = useState<string | null>(null);
+  const [mailsPreavis, setMailsPreavis] = useState<{ ok: boolean; texte: string }[]>([]);
   const pv = preavis.etat.etat === 'ok' ? preavis.etat.data : null;
   const preavisDe = (occupation: number) => pv?.locataires.find((l) => l.occupationId === occupation)?.preavis ?? null;
   const envoyerGeste = async (corps: Record<string, unknown>): Promise<string | null> => (await envoyer(corps)).motif;
   const relirePreavis = (): void => setVersionPreavis((v) => v + 1);
+  // Arno (05/11/2026) — le libellé du bouton suit le nombre de locataires choisis (hors préavis déjà ouverts) ; un seul occupant :
+  // l'écran reste tel qu'avant (« Enregistrer un préavis »).
+  const nPreavis = choix.filter((id) => preavisDe(id) === null).length;
+  const libellePreavis = libelleEnregistrerPreavis(bail.locataires.length, nPreavis);
+  // Arno (05/11/2026) — LE LOCATAIRE RECHERCHÉ en tête, mis en avant ; les autres occupants du logement sous la question.
+  const recherche = bail.locataires.find((l) => l.occupationId === occupationId) ?? bail.locataires[0];
+  const autres = bail.locataires.filter((l) => l !== recherche);
+  const carte = (l: BailLogement['locataires'][number], enAvant: boolean) => {
+    const pris = choix.includes(l.occupationId);
+    return (
+      <li key={l.occupationId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}${enAvant ? ' sor-carte--recherche' : ''}`} data-locataire={l.occupationId}
+        {...(enAvant ? { 'data-recherche': '' } : {})}>
+        {enAvant && autres.length > 0 && <span className="sor-recherche-mot" data-mot-recherche>Locataire recherché</span>}
+        {/* Arno (19/10/2026) — EN PRÉAVIS : le nom passe du surlignage vert au BLEU ; la mention, dessous, le dit en mots. */}
+        <ul className="arc-noms"><li>{preavisDe(l.occupationId) !== null
+          ? <mark className="arc-surligne sor-surligne--preavis" data-en-preavis>{l.nom}</mark>
+          : <mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark>}</li></ul>
+        {/* Arno (19/10/2026) — TOUS ses téléphones (avec leur libellé) et ses e-mails, cliquables, un par ligne. */}
+        {encart.etat.etat === 'ok' && <CoordonneesCarte c={encart.etat.data.coordonnees?.locataires.find((x) => x.occupationId === l.occupationId) ?? null} />}
+        <span className="loc-muet" data-entree-le>{l.entree === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(l.entree)}`}</span>
+        {(() => {
+          const p = preavisDe(l.occupationId);
+          return p === null ? null : (
+            <div className="sor-carte-preavis" data-carte-preavis={l.occupationId}>
+              <MentionPreavis p={p} jour={aujourdhuiParisEcran()} />
+              <GestesPreavis p={p} entree={l.entree} envoyerGeste={envoyerGeste} apres={relirePreavis} />
+            </div>
+          );
+        })()}
+        <a className="arc-lien sor-voir" href={`/admin/location/locataire/${l.locataireId}`} data-voir-fiche>Voir la fiche</a>
+        <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={l.occupationId} onClick={() => basculer(l.occupationId)}>
+          {pris ? `✓ ${libelleBoutonCarte(ouvert && n > 0 ? 'sortie' : preavisOuvert ? 'preavis' : 'aucun')}` : 'Reste dans le logement'}
+        </button>
+      </li>
+    );
+  };
   return (
     <>
       <div className="arc-collant" data-collant>
@@ -520,8 +559,8 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
             {/* Arno (19/10/2026) — « Enregistrer un préavis » À GAUCHE (et en premier sur téléphone), « Faire sortir » À DROITE. */}
             <button type="button" className="arc-gros sor-bascule" aria-pressed={preavisOuvert} disabled={pv === null || !pv.disponible || bail.locataires.length === 0}
               title={pv !== null && !pv.disponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
-              onClick={() => { setPreavisOuvert(!preavisOuvert); setOuvert(false); setPreavisFait(null); }} data-enregistrer-un-preavis>
-              {preavisOuvert ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}Enregistrer un préavis
+              onClick={() => { setPreavisOuvert(!preavisOuvert); setOuvert(false); setPreavisFait(null); setMailsPreavis([]); }} data-enregistrer-un-preavis>
+              {preavisOuvert ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}{libellePreavis}
             </button>
             {gestion ? (
               <button type="button" className="arc-gros sor-bascule" aria-pressed={ouvert && n > 0} disabled={n === 0}
@@ -537,17 +576,28 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
               selection={pv.locataires.filter((l) => choix.includes(l.occupationId)).map((l) => ({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, enPreavis: l.preavis !== null }))}
               dureeProposee={pv.dureeProposee} raison={pv.raison}
               onAnnuler={() => setPreavisOuvert(false)}
+              /* Arno (05/11/2026) — d'abord l'APERÇU des mails (lecture seule), puis « Valider et envoyer ». */
+              apercu={async (saisie) => {
+                const r = await envoyer({ action: 'apercu-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix });
+                return r.motif !== null ? { motif: r.motif } : { data: r.data as ApercuMailsPreavis };
+              }}
               onEnregistrer={async (saisie) => {
-                const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix, motif: saisie.motif });
+                const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix, motif: saisie.motif, envoyerMails: true });
                 if (r.motif !== null) return r.motif;
                 const d = r.data as { dateMax?: string } | undefined;
                 setPreavisOuvert(false);
                 setPreavisFait(`Préavis enregistré — sortie au plus tard le ${dateFr(d?.dateMax ?? null)}. Le logement reste occupé jusqu’à la sortie validée.`);
+                setMailsPreavis(phrasesMailsAvis(r.mails));
                 relirePreavis();
                 return null;
               }} />
           )}
-          {preavisFait !== null && <p className="gst-info arc-bilan" role="status" data-preavis-fait>{preavisFait}</p>}
+          {preavisFait !== null && (
+            <div className="gst-info arc-bilan" role="status" data-preavis-fait>
+              <p style={{ margin: 0 }}>{preavisFait}</p>
+              <PhrasesMails phrases={mailsPreavis} />
+            </div>
+          )}
           {/* Arno (19/10/2026) — le bandeau « VACANT / reste loué » sous les deux gros boutons est RETIRÉ (avec son accord) : la
               conséquence ne s'affiche plus QU'UNE fois, dans le bloc « Faire sortir » ouvert. */}
           {ouvert && n > 0 && (
@@ -558,6 +608,7 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
               <p style={{ margin: 0 }}><strong>Sortie enregistrée.</strong> {bilan.phrase} — rien n’a été effacé.</p>
               {bilan.mail !== null ? <p className="cp-refus" role="alert" data-mail-echec>{bilan.mail}</p>
                 : <p className="loc-muet" style={{ margin: 0 }} data-mail-envoye>Mail de confirmation envoyé.</p>}
+              <PhrasesMails phrases={bilan.adhoc ?? []} />
             </div>
           )}
         </div>
@@ -570,37 +621,15 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
         </div>
         <div className="sor-partie" data-partie="locataires">
         <h2 className="arc-biens-titre">Les locataires <span className="loc-pastille">{bail.locataires.length}</span></h2>
-        {bail.locataires.length === 0 ? <p className="loc-muet">Plus aucun locataire en place dans ce logement : rien à faire sortir.</p> : (
-          <ul className="arc-biens-liste">
-            {bail.locataires.map((l) => {
-              const pris = choix.includes(l.occupationId);
-              return (
-                <li key={l.occupationId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}`} data-locataire={l.occupationId}>
-                  {/* Arno (19/10/2026) — EN PRÉAVIS : le nom passe du surlignage vert au BLEU ; la mention, dessous, le dit en mots. */}
-                  <ul className="arc-noms"><li>{preavisDe(l.occupationId) !== null
-                    ? <mark className="arc-surligne sor-surligne--preavis" data-en-preavis>{l.nom}</mark>
-                    : <mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark>}</li></ul>
-                  {/* Arno (19/10/2026) — TOUS ses téléphones (avec leur libellé) et ses e-mails, cliquables, un par ligne. */}
-                  {encart.etat.etat === 'ok' && <CoordonneesCarte c={encart.etat.data.coordonnees?.locataires.find((x) => x.occupationId === l.occupationId) ?? null} />}
-                  <span className="loc-muet" data-entree-le>{l.entree === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(l.entree)}`}</span>
-                  {(() => {
-                    const p = preavisDe(l.occupationId);
-                    return p === null ? null : (
-                      <div className="sor-carte-preavis" data-carte-preavis={l.occupationId}>
-                        <MentionPreavis p={p} jour={aujourdhuiParisEcran()} />
-                        <GestesPreavis p={p} entree={l.entree} envoyerGeste={envoyerGeste} apres={relirePreavis} />
-                      </div>
-                    );
-                  })()}
-                  <a className="arc-lien sor-voir" href={`/admin/location/locataire/${l.locataireId}`} data-voir-fiche>Voir la fiche</a>
-                  <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={l.occupationId} onClick={() => basculer(l.occupationId)}>
-                    {pris ? `✓ ${libelleBoutonCarte(ouvert && n > 0 ? 'sortie' : preavisOuvert ? 'preavis' : 'aucun')}` : 'Reste dans le logement'}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {bail.locataires.length === 0 ? <p className="loc-muet">Plus aucun locataire en place dans ce logement : rien à faire sortir.</p>
+          : autres.length === 0 ? <ul className="arc-biens-liste">{carte(recherche, true)}</ul> : (
+            <>
+              <ul className="arc-biens-liste">{carte(recherche, true)}</ul>
+              {/* Arno (05/11/2026) — les autres occupants, cochés par défaut, décochables un par un (« Reste dans le logement »). */}
+              <p className="sor-question" data-question-autres>{QUESTION_AUTRES_OCCUPANTS}</p>
+              <ul className="arc-biens-liste" data-autres-occupants>{autres.map((l) => carte(l, false))}</ul>
+            </>
+          )}
         </div>
       </section>
       {encart.etat.etat === 'ok' && (
@@ -631,6 +660,29 @@ function CoordonneesCarte({ c }: { c: { telephonesDetail?: { valeur: string; lib
     <ul className="sor-coords-carte" data-coordonnees-carte>
       {tels.map((t) => <li key={`t${t.valeur}`}><a href={`tel:${t.valeur.replace(/\s+/g, '')}`} data-tel>{t.libelle ? `${t.libelle} : ` : ''}{t.valeur}</a></li>)}
       {c.emails.map((m) => <li key={`m${m}`}><a href={`mailto:${m}`} data-mail>{m}</a></li>)}
+    </ul>
+  );
+}
+
+/**
+ * Arno (05/11/2026) — LE LIBELLÉ DU GROS BOUTON DE PRÉAVIS suit le nombre de locataires choisis (hors préavis déjà ouverts) :
+ * « Enregistrer le préavis de N locataire(s) ». Un logement à UN occupant (ou aucun choisi) garde « Enregistrer un préavis ». PUR.
+ */
+export function libelleEnregistrerPreavis(occupants: number, choisis: number): string {
+  return occupants <= 1 || choisis === 0 ? 'Enregistrer un préavis' : `Enregistrer le préavis de ${choisis} locataire${choisis > 1 ? 's' : ''}`;
+}
+
+/** Arno (05/11/2026) — la question au-dessus des AUTRES occupants du logement (cochés par défaut, décochables un par un). */
+export const QUESTION_AUTRES_OCCUPANTS = 'Associer les autres occupants du logement à ce préavis / cette sortie ?';
+
+/** Une phrase par mail automatique (envoyé : discrète ; non envoyé : en alerte, avec la raison). */
+function PhrasesMails({ phrases }: { phrases: readonly { ok: boolean; texte: string }[] }) {
+  if (phrases.length === 0) return null;
+  return (
+    <ul className="sor-mails" data-mails-automatiques>
+      {phrases.map((p, i) => (
+        <li key={`${i}-${p.texte}`} className={p.ok ? 'loc-muet' : 'cp-refus'} {...(p.ok ? { 'data-mail-ok': '' } : { 'data-mail-ko': '', role: 'alert' })}>{p.texte}</li>
+      ))}
     </ul>
   );
 }
@@ -823,6 +875,11 @@ export const CSS_SORTIE = `
 .sor-deux-boutons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px}
 .sor-gestion-seule{margin:0;cursor:default;background:var(--color-svv-field);color:var(--color-svv-ink);border-color:var(--color-svv-line-strong);font-size:1rem}
 .sor-carte-preavis{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-blue-soft)}
+/* Arno (05/11/2026) — le locataire RECHERCHÉ mis en avant (bord épais + mot), la question au-dessus des autres occupants. */
+.sor-carte--recherche{border-width:2px;border-color:var(--color-svv-ink)}
+.sor-recherche-mot{align-self:flex-start;border-radius:999px;padding:2px 10px;font-size:.74rem;font-weight:800;text-transform:uppercase;letter-spacing:.02em;background:var(--color-svv-ink);color:var(--color-svv-surface)}
+.sor-question{margin:14px 0 8px;font-weight:800;color:var(--color-svv-ink)}
+.sor-mails{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
 /* Arno (19/10/2026) — LE STATUT « EN PRÉAVIS » EN BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre), toujours avec le mot. */
 .sor-occupant--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border-color:var(--color-svv-blue)}
 .sor-surligne--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}

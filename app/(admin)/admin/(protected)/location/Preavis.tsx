@@ -5,6 +5,7 @@ import {
   dateFrPreavis, dateIsoValide, dateMaxPreavis, mentionCourtePreavis, mentionPreavis, MOTIF_MAX, statutPreavis, verifierPreavis,
   type DureeMois, type ModePreavis, type PreavisAffiche,
 } from '../../../../lib/location/preavis';
+import { MENTION_SANS_EMAIL, type MailAvis } from '../../../../lib/location/mailsPreavisSortie';
 
 /**
  * ══ 🔴🔴 LE PRÉAVIS DU LOCATAIRE — LES BRIQUES D'ÉCRAN (Arno, 18/10/2026) ════════════════════════════════════════════════
@@ -123,12 +124,17 @@ export function FormulairePreavis({
  * texte d'aide permanent : un message n'apparaît que pour un vrai problème, ou si l'on enregistre sans la réception.
  * Mêmes règles que le serveur (`verifierPreavis`) ; la liste envoyée est celle des cartes sélectionnées (hors préavis ouverts).
  */
-export function FormulairePreavisCompact({ selection, dureeProposee, raison, onEnregistrer, onAnnuler }: {
+export function FormulairePreavisCompact({ selection, dureeProposee, raison, onEnregistrer, onAnnuler, apercu }: {
   selection: { occupationId: number; nom: string; entree: string | null; enPreavis: boolean }[];
   dureeProposee: DureeMois;
   raison: string;
   onEnregistrer: (s: SaisiePreavis) => Promise<string | null>;
   onAnnuler: () => void;
+  /**
+   * Arno (05/11/2026) — L'APERÇU DES MAILS AVANT LA VALIDATION : fourni, « Enregistrer » montre d'abord les mails (en lecture),
+   * puis UN seul bouton « Valider et envoyer » (qui appelle `onEnregistrer`). Absent : le formulaire est celui d'avant.
+   */
+  apercu?: (s: SaisiePreavis) => Promise<{ motif: string } | { data: ApercuMailsPreavis }>;
 }) {
   const jour = aujourdhuiParisEcran();
   const id = useId();
@@ -139,6 +145,7 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
   const [envoi, setEnvoi] = useState(false);
   const [tente, setTente] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
+  const [vu, setVu] = useState<ApercuMailsPreavis | null>(null);
   const concernes = selection.filter((l) => !l.enPreavis);
   const mode: ModePreavis = choix === 'manuelle' ? { mode: 'date_manuelle', dateMax: dateManuelle } : { mode: 'mois', duree: Number(choix) as DureeMois };
   const verdict = verifierPreavis({ recuLe, choix: mode, motif, entrees: concernes.map((l) => l.entree) }, jour);
@@ -149,14 +156,37 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
   const probleme = manque === null && !verdict.ok ? verdict.motif : null;
   const erreur = refus ?? probleme ?? (tente ? manque : null);
   const dateMax = dateIsoValide(recuLe) && (mode.mode === 'mois' || dateIsoValide(mode.dateMax)) ? dateMaxPreavis(recuLe, mode) : null;
+  const saisie = (): SaisiePreavis => ({ occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode, motif: motif.trim() === '' ? null : motif.trim() });
   const enregistrer = async (): Promise<void> => {
     setTente(true);
     if (manque !== null || probleme !== null) return;
     setEnvoi(true); setRefus(null);
-    const r = await onEnregistrer({ occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode, motif: motif.trim() === '' ? null : motif.trim() });
+    if (apercu !== undefined && vu === null) {
+      const a = await apercu(saisie());
+      setEnvoi(false);
+      if ('motif' in a) setRefus(a.motif); else setVu(a.data);
+      return;
+    }
+    const r = await onEnregistrer(saisie());
     setEnvoi(false);
     if (r !== null) setRefus(r);
   };
+  const libelleEnregistrer = `Enregistrer le préavis de ${concernes.length} locataire${concernes.length > 1 ? 's' : ''}`;
+  if (vu !== null) {
+    return (
+      <div className="loc-confirmation pvs-compact" role="group" aria-label="Aperçu des mails du préavis" data-formulaire-preavis data-compact data-apercu-preavis>
+        <p className="pvs-compact-ligne" style={{ margin: 0 }}><strong>{libelleEnregistrer}</strong>
+          <span className="loc-muet">— reçu le {dateFrPreavis(recuLe)}, fin du bail le {dateFrPreavis(vu.dateFin)}{motif.trim() !== '' ? ` — motif : ${motif.trim()}` : ''}</span></p>
+        <ApercuMails a={vu} />
+        {refus !== null && <p className="cp-refus" role="alert" data-refus-preavis>{refus}</p>}
+        <span className="sor-compact-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setVu(null); setRefus(null); }} disabled={envoi} data-revenir-saisie>Revenir</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn sor-confirmer-btn" onClick={() => { void enregistrer(); }} disabled={envoi} data-valider-envoyer>
+            {envoi ? 'Enregistrement…' : 'Valider et envoyer'}</button>
+        </span>
+      </div>
+    );
+  }
   const segments: { cle: Choix; mot: string }[] = [
     { cle: '1', mot: `1 mois${dureeProposee === 1 ? ' (proposé)' : ''}` },
     { cle: '3', mot: `3 mois${dureeProposee === 3 ? ' (proposé)' : ''}` },
@@ -197,11 +227,49 @@ export function FormulairePreavisCompact({ selection, dureeProposee, raison, onE
         <span className="sor-compact-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
           <button type="button" className="svv-btn svv-btn-primary gst-btn sor-confirmer-btn" onClick={() => { void enregistrer(); }} disabled={envoi || probleme !== null} data-enregistrer-preavis>
-            {envoi ? 'Enregistrement…' : 'Enregistrer le préavis'}</button>
+            {envoi ? (apercu !== undefined ? 'Préparation des mails…' : 'Enregistrement…') : apercu !== undefined ? libelleEnregistrer : 'Enregistrer le préavis'}</button>
         </span>
       </div>
       <p className="loc-muet pvs-compact-raison" data-raison>Durée proposée : {dureeProposee} mois ({raison}).</p>
       {erreur !== null && <p id={`${id}-message`} className="cp-refus" role="alert" data-message-preavis>{erreur}</p>}
+    </div>
+  );
+}
+
+/** L'aperçu des mails du préavis, tel que la route `apercu-preavis` le rend (lecture seule : rien n'est parti). */
+export interface ApercuMailsPreavis { mails: MailAvis[]; sansEmail: string[]; enGestion: boolean; dateFin: string; envoiPossible: boolean }
+
+const LIBELLE_SORTE: Record<MailAvis['sorte'], string> = {
+  preavis_locataires: 'Aux locataires — accusé de réception du congé',
+  preavis_adhoc: 'À ADHOC — information',
+  sortie_adhoc: 'À ADHOC — information de sortie',
+};
+
+/**
+ * Arno (05/11/2026) — LES MAILS, EN LECTURE, avant « Valider et envoyer » : expéditeur, destinataires, copies, objet, texte
+ * (celui qui part, signature comprise). Un locataire sans e-mail est dit en ORANGE, avec les mots — jamais bloquant.
+ */
+export function ApercuMails({ a }: { a: ApercuMailsPreavis }) {
+  return (
+    <div className="pvs-apercu" data-apercu-mails>
+      {a.sansEmail.map((nom) => (
+        <p key={nom} className="pvs-sans-email" role="note" data-sans-email>⚠ {nom} : {MENTION_SANS_EMAIL}</p>
+      ))}
+      {!a.enGestion && <p className="loc-muet" data-hors-gestion>Bien hors gestion : aucun mail à ADHOC.</p>}
+      {!a.envoiPossible && <p className="cp-refus" role="note" data-sans-457>La mise à jour de la base (migration 457) n’est pas appliquée : le préavis sera enregistré, mais aucun mail ne partira.</p>}
+      {a.mails.length === 0 && <p className="loc-muet" data-aucun-mail>Aucun mail ne partira pour ce préavis.</p>}
+      {a.mails.map((m) => (
+        <article key={m.sorte} className="pvs-mail" data-mail={m.sorte} aria-label={LIBELLE_SORTE[m.sorte]}>
+          <h4 className="pvs-mail-titre">{LIBELLE_SORTE[m.sorte]}</h4>
+          <dl className="pvs-mail-entete">
+            <dt>De</dt><dd>{m.de}</dd>
+            <dt>À</dt><dd data-a>{m.a.join(', ')}</dd>
+            {m.cc.length > 0 && <><dt>Cc</dt><dd data-cc>{m.cc.join(', ')}</dd></>}
+            <dt>Objet</dt><dd data-objet><strong>{m.objet}</strong></dd>
+          </dl>
+          <div className="pvs-mail-texte" data-texte>{m.texte}</div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -286,5 +354,14 @@ export const CSS_PREAVIS = `
 .pvs-max{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:var(--color-svv-amber-soft);border:1px solid var(--color-svv-urgence-orange)}
 .pvs-max-valeur{font-size:1.5rem;font-weight:800;color:var(--color-svv-ink)}
 .pvs-gestes{display:flex;flex-direction:column;gap:6px}
+/* Arno (05/11/2026) — l'aperçu des mails du préavis (lecture seule) ; « pas d'e-mail » en ORANGE, avec les mots. */
+.pvs-apercu{display:flex;flex-direction:column;gap:10px;min-width:0}
+.pvs-sans-email{margin:0;padding:8px 12px;border-radius:10px;font-weight:700;background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-urgence-orange)}
+.pvs-mail{border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);padding:10px 12px;min-width:0}
+.pvs-mail-titre{margin:0 0 6px;font-size:.95rem;color:var(--color-svv-ink)}
+.pvs-mail-entete{display:grid;grid-template-columns:max-content 1fr;gap:2px 10px;margin:0 0 8px;font-size:.88rem}
+.pvs-mail-entete dt{font-weight:700;color:var(--color-svv-muted)}
+.pvs-mail-entete dd{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
+.pvs-mail-texte{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.9rem;line-height:1.45;color:var(--color-svv-ink);max-height:24rem;overflow:auto;border-top:1px solid var(--color-svv-line);padding-top:8px}
 .pvs-boutons{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 `;

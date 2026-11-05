@@ -55,6 +55,20 @@ const PREAVIS = { disponible: true, meuble: false, zoneTendue: true, dureePropos
     { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2022-09-01', preavis: null },
   ] };
 
+/** Arno (05/11/2026) — l'aperçu des mails du préavis, tel que la route `apercu-preavis` le rend (simulé : rien ne part). */
+const APERCU = {
+  mails: [{ sorte: 'preavis_locataires', de: 'gestion@criterimmo.fr', a: ['alice@exemple.test'], cc: ['gestion@criterimmo.fr', 'moi@exemple.test'],
+    objet: 'Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux', texte: 'Bonjour Alice BERNARD et Paul BERNARD,', html: '<p>Bonjour</p>' }],
+  sansEmail: ['Paul BERNARD'], enGestion: true, dateFin: '2099-01-01', envoiPossible: true };
+/** Les POST simulés : l'aperçu, puis l'enregistrement (avec l'issue des mails). */
+const reponsePost = (init?: RequestInit): Response => {
+  const corps = JSON.parse(String(init?.body ?? '{}')) as { action?: string };
+  return corps.action === 'apercu-preavis' ? ok(APERCU)
+    : ok({ dateMax: '2099-01-01' }, { mails: { etat: 'ok', envois: [{ sorte: 'preavis_locataires', objet: 'Accusé', a: ['alice@exemple.test'], cc: [], envoye: true, motif: null }] } });
+};
+const posts = (f: ReturnType<typeof vi.fn>) => f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')
+  .map((c) => JSON.parse(String((c[1] as RequestInit).body)) as Record<string, unknown>);
+
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
@@ -390,7 +404,7 @@ describe('le taux de gestion reste affiché ailleurs', () => {
 
 describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10/2026)', () => {
   const rendre = async (gestion: boolean, preavis: unknown = PREAVIS): Promise<ReturnType<typeof vi.fn>> => {
-    const f = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(ENCART)
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' ? reponsePost(init) : String(u).includes('encartBail=') ? ok(ENCART)
       : String(u).includes('preavisBail=') ? ok(preavis) : ok(BAIL)));
     global.fetch = f as unknown as typeof fetch;
     await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion })); });
@@ -428,10 +442,19 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
       d.setUTCDate(Math.min(j, new Date(Date.UTC(a, m + 1, 0)).getUTCDate())); return d.toISOString().slice(0, 10).split('-').reverse().join('/'); })();
     expect(form.querySelector('[data-date-max] .pvs-max-valeur')?.textContent).toBe(attendu);
     expect(bouton().disabled).toBe(false);
+    // Arno (05/11/2026) — le libellé suit le nombre ; « Enregistrer » montre d'abord l'APERÇU des mails (rien n'est écrit).
+    expect(bouton().textContent).toBe('Enregistrer le préavis de 2 locataires');
     await act(async () => { bouton().click(); });
-    const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
-      action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null });
+    expect(posts(f)).toEqual([{ action: 'apercu-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 } }]);
+    const apercu = container.querySelector('[data-apercu-preavis]')!;
+    expect(apercu.querySelector('[data-mail="preavis_locataires"] [data-objet]')?.textContent).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
+    expect(apercu.querySelector('[data-sans-email]')?.textContent).toBe('⚠ Paul BERNARD : pas d’e-mail, il ne recevra pas l’accusé de réception');
+    // UN seul bouton d'action : « Valider et envoyer » (et « Revenir »).
+    expect([...apercu.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Revenir', 'Valider et envoyer']);
+    await act(async () => { (apercu.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); });
+    expect(posts(f)[1]).toEqual({
+      action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null, envoyerMails: true });
+    expect(container.querySelector('[data-preavis-fait] [data-mail-ok]')?.textContent).toBe('Mail « Accusé » envoyé à alice@exemple.test.');
   });
 
   it('un locataire EN PRÉAVIS : la mention orange (avec le mot) sur sa carte, et « Corriger » / « Annuler » ; échu → alerte', async () => {
@@ -480,7 +503,7 @@ describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blanc
 
   it('à l’ouverture : les DEUX boutons blancs (même gabarit), aucun bloc ouvert', async () => {
     await rendre();
-    expect(etats()).toEqual([['arc-gros sor-bascule', 'false', 'Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'false', 'Enregistrer un préavis']]);
+    expect(etats()).toEqual([['arc-gros sor-bascule', 'false', 'Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'false', 'Enregistrer le préavis de 2 locataires']]);
     expect(blocSortie()).toBeNull();
     expect(blocPreavis()).toBeNull();
   });
@@ -488,7 +511,7 @@ describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blanc
   it('un clic : ce bouton passe au rouge (aria-pressed + coche ✓) et ouvre SON bloc ; l’autre reste blanc', async () => {
     await rendre();
     act(() => sortir().click());
-    expect(etats()).toEqual([['arc-gros sor-bascule', 'true', '✓ Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'false', 'Enregistrer un préavis']]);
+    expect(etats()).toEqual([['arc-gros sor-bascule', 'true', '✓ Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'false', 'Enregistrer le préavis de 2 locataires']]);
     expect(blocSortie()).not.toBeNull();
     expect(blocPreavis()).toBeNull();
   });
@@ -497,7 +520,7 @@ describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blanc
     await rendre();
     act(() => sortir().click());
     act(() => preavis().click());
-    expect(etats()).toEqual([['arc-gros sor-bascule', 'false', 'Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'true', '✓ Enregistrer un préavis']]);
+    expect(etats()).toEqual([['arc-gros sor-bascule', 'false', 'Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'true', '✓ Enregistrer le préavis de 2 locataires']]);
     expect(blocSortie()).toBeNull();
     expect(blocPreavis()).not.toBeNull();
     act(() => sortir().click());
@@ -635,7 +658,7 @@ describe('Arno (19/10/2026) — l’écran de sortie retravaillé', () => {
 
 describe('Arno (19/10/2026) — le bloc « Enregistrer un préavis » compact, alimenté par les cartes', () => {
   const rendre = async (): Promise<ReturnType<typeof vi.fn>> => {
-    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' ? ok({ dateMax: '2099-01-01' })
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' ? reponsePost(init)
       : String(u).includes('encartBail=') ? ok(ENCART) : String(u).includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL)));
     global.fetch = f as unknown as typeof fetch;
     await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
@@ -658,14 +681,68 @@ describe('Arno (19/10/2026) — le bloc « Enregistrer un préavis » compact, a
     act(() => saisir(form.querySelector('input[data-date-manuelle]') as HTMLInputElement, '2099-01-01'));
     expect(form.querySelector('[data-date-max]')?.textContent).toBe('→ sortie au plus tard le 01/01/2099');
     expect((lignes[2].querySelector('input[data-motif]') as HTMLInputElement).type).toBe('text');
+    expect((form.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement).textContent).toBe('Enregistrer le préavis de 1 locataire');
     await act(async () => { (form.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement).click(); });
-    const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
-      action: 'enregistrer-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' }, motif: null });
+    await act(async () => { (container.querySelector('button[data-valider-envoyer]') as HTMLButtonElement).click(); });
+    expect(posts(f)).toEqual([
+      { action: 'apercu-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' } },
+      { action: 'enregistrer-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' }, motif: null, envoyerMails: true }]);
   });
 
   it('la correction d’un préavis (fiche, cartes) garde son formulaire : seul le bloc de l’écran de sortie est compacté', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/Preavis.tsx', 'utf8');
     expect(src).toMatch(/<FormulairePreavis entrees=\{\[entree\]\}/);
+  });
+});
+
+describe('Arno (05/11/2026) — tous les occupants du logement : le locataire recherché en avant, les autres sous la question', () => {
+  const rendre = async (bail: BailLogement, occupation: number): Promise<void> => {
+    const preavis = { ...PREAVIS, locataires: bail.locataires.map((l) => ({ ...l, preavis: null })) };
+    global.fetch = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(ENCART)
+      : String(u).includes('preavisBail=') ? ok(preavis) : ok(bail))) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: occupation, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+
+  it('ouvert depuis Paul : sa carte en tête, mise en avant (mot « Locataire recherché ») ; Alice sous la question, cochée par défaut', async () => {
+    await rendre(BAIL, 12);
+    const tete = container.querySelector('[data-recherche]')!;
+    expect(tete.getAttribute('data-locataire')).toBe('12');
+    expect(tete.querySelector('[data-mot-recherche]')?.textContent).toBe('Locataire recherché');
+    expect(container.querySelector('[data-question-autres]')?.textContent).toBe('Associer les autres occupants du logement à ce préavis / cette sortie ?');
+    const autres = [...container.querySelectorAll('[data-autres-occupants] [data-locataire]')].map((x) => x.getAttribute('data-locataire'));
+    expect(autres).toEqual(['11']);
+    // Tous cochés par défaut : les deux boutons comptent 2.
+    expect((container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).textContent).toBe('Faire sortir 2 locataires');
+    expect((container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).textContent).toBe('Enregistrer le préavis de 2 locataires');
+    // Décocher Alice (rupture de couple) : les deux libellés suivent.
+    act(() => (container.querySelector('[data-autres-occupants] button[data-choisir="11"]') as HTMLButtonElement).click());
+    expect((container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).textContent).toBe('Faire sortir 1 locataire');
+    expect((container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).textContent).toBe('Enregistrer le préavis de 1 locataire');
+  });
+
+  it('UN seul occupant : l’écran reste tel qu’avant — ni question, ni mot, « Enregistrer un préavis »', async () => {
+    await rendre({ ...BAIL, locataires: [BAIL.locataires[0]] }, 11);
+    expect(container.querySelector('[data-question-autres]')).toBeNull();
+    expect(container.querySelector('[data-mot-recherche]')).toBeNull();
+    expect(container.querySelectorAll('button[data-choisir]')).toHaveLength(1);
+    expect((container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).textContent).toBe('Enregistrer un préavis');
+    expect((container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).textContent).toBe('Faire sortir 1 locataire');
+  });
+
+  it('la sortie confirmée : le bilan dit aussi l’issue du mail d’information à ADHOC', async () => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST'
+      ? ok({ date: HIER, vacant: true, restants: [] }, { mail: { envoye: true, ignore: false, motif: null },
+        adhoc: { etat: 'ok', envois: [{ sorte: 'sortie_adhoc', objet: '[Information] Sortie de locataire(s) — 4 rue Fictive', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr'], envoye: true, motif: null }] } })
+      : String(u).includes('encartBail=') ? ok(ENCART) : String(u).includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL)));
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-sortie-faite] [data-mail-ok]')?.textContent)
+      .toBe('Mail « [Information] Sortie de locataire(s) — 4 rue Fictive » envoyé à gestion.criterimmo@gmail.com (copie : gestion@criterimmo.fr).');
   });
 });
