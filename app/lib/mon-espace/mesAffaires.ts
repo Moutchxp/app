@@ -96,6 +96,8 @@ export function libellesDeVente(v: Vente): string[] {
  * dépend (« reste », part de l'agence), au lieu d'un « 0 € » ou d'un chiffre recalculé.
  */
 export type VenteMonEspace = Vente & { mesCotes: ('entree' | 'sortie' | 'unique')[]; commissionsRetirees?: boolean;
+  /** 🔴 Arno (05/11/2026) — compromis COMMUN (459) : MES côtés où aucun client n'est encore renseigné (ligne rouge, hors de mes totaux) ; vide ou absent : rien. */
+  clientsARenseigner?: ('entree' | 'sortie')[];
   /** 🔴 LOT 7 — l'auteur de la dernière écriture (l'entrée du journal qui fait la version) : « Léa a mis à jour … » quand ce n'est pas moi. */
   derniereModification?: { auteurId: number | null; prenom: string | null; libelle: string } | null;
   /** 🔴 La liste sous le graphique (Arno, 02/11/2026) — MA PART de cette affaire, calculée par le serveur sur la vente ENTIÈRE (`monCa`, `monCaNet` :

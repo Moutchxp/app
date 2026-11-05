@@ -130,7 +130,12 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
       sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false }: {
+export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false, controleCreation }: {
+  /**
+   * 🔴 MON ESPACE (Arno, 05/11/2026) — les obligations du créateur d'un compromis (ses clients, le collaborateur de l'autre côté, le partage) :
+   * tant qu'il en manque, « Enregistrer » est refusé et chaque message s'affiche sous son bloc. Absent (la tuile Suivi CA) : rien ne change.
+   */
+  controleCreation?: (x: { personnes: PersonneEcran[]; repartition: EtatRepartition; partageDefini: boolean }) => { bloc: 'vendeurs' | 'acquereurs' | 'repartition'; message: string }[];
   /**
    * 🔴 MON ESPACE, LOT 5 — l'envoi du dossier : par défaut, la tuile Suivi CA (`dossier-enregistrer`, inchangé) ; « Mon espace » passe le sien
    * (sa route, qui enregistre par la MÊME fonction). Rend le motif d'un refus (null : accepté) et l'id de l'affaire.
@@ -204,7 +209,14 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
     if (visee >= 0) return visee;
     return ajouter === null ? null : personnes.map((x) => x.role).lastIndexOf(ajouter);
   })();
+  const manquesCreation = controleCreation === undefined ? [] : controleCreation({ personnes, repartition, partageDefini: somme.motif === null && somme.parties.length > 0 });
+  const [tente, setTente] = useState(false);
+  const manquesDe = (bloc: 'vendeurs' | 'acquereurs' | 'repartition') => (tente ? manquesCreation.filter((m) => m.bloc === bloc) : []);
+  const messagesManques = (bloc: 'vendeurs' | 'acquereurs' | 'repartition') => manquesDe(bloc).map((m) => (
+    <p key={m.message} className="trx-erreur" role="alert" data-manque-creation={bloc}>{m.message}</p>));
   const enregistrer = async (): Promise<void> => {
+    setTente(true);
+    if (manquesCreation.length > 0) return; // 🔴 Arno (05/11/2026) — les obligations du créateur d'abord : rien ne part
     setEnvoi(true);
     // 🔴 MON ESPACE, LOT 6 — la version lue avec la vente : le serveur refuse (409) si un collègue a enregistré entre-temps.
     const corps = { id: vente?.id ?? null, version: vente?.version, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) };
@@ -248,7 +260,9 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
                   {mandatFixe !== undefined && <span className="loc-muet" data-mandat-fixe>Vérifié : libre dans cette structure (non modifiable à cette étape).</span>}</>
                 : <span className="loc-muet" data-mandat-indisponible>Disponible après la mise à jour de la base (migration 449).</span>}</label>)}
             {blocPersonnes('vendeur', 'Vendeur(s)')}
+            {messagesManques('vendeurs')}
             {blocPersonnes('acquereur', 'Acquéreur(s)')}
+            {messagesManques('acquereurs')}
             {bloc('bien', 'Bien', <label className="trx-plein" data-champ-adresse-bien>Adresse du bien
               <ChampAdresseBan id="trx-adresse-bien" valeur={champs.adresseBien} verifiee={adresseVerifiee} exemple="ex. 12 rue de la République, 92800 Puteaux"
                 onChange={(x) => { setAdresseVerifiee(false); setChamps((c) => ({ ...c, adresseBien: x })); }}
@@ -281,6 +295,7 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
                   montant: (() => { const x = nombre(repartition.retroTexte); return x === null || x === 0 ? null : { montant: x, unite: repartition.retroUnite ?? 'ttc' }; })() }}
                 onValider={(c) => { setRepartition({ ...repartition, apporteurId: c.id, apporteurNom: c.id === null ? c.nom : null, retroTexte: c.montant.texte, retroUnite: c.montant.unite, retirerApporteur: false }); return null; }}
                 onRetirer={() => { setRepartition({ ...repartition, apporteurId: null, apporteurNom: null, retroTexte: '', retirerApporteur: true }); return null; }} />} />)}
+            {messagesManques('repartition')}
             {bloc('notes', 'Notes', <label className="trx-plein">Note<textarea value={champs.note} onChange={champ('note')} /></label>)}
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}
             {/* 🔴 D30 — le pied reste en bas de la fenêtre pendant le défilement : « Enregistrer », « Annuler » (le même geste que l'ancien « Fermer ») */}
@@ -289,6 +304,7 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-annuler-dossier>Annuler</button>
               {somme.motif !== null && <span className="trx-explication" data-enregistrer-bloque>Enregistrer est désactivé : la répartition doit faire exactement 100 %.</span>}
               {somme.motif === null && manqueSociete !== null && <span className="trx-explication" data-enregistrer-bloque-societe>Enregistrer est désactivé : {manqueSociete}</span>}
+              {tente && manquesCreation.length > 0 && <span className="trx-explication" role="alert" data-enregistrer-bloque-creation>À compléter avant d’enregistrer : {manquesCreation.length === 1 ? manquesCreation[0].message : `${manquesCreation.length} points (voir sous chaque bloc).`}</span>}
             </div>
           </form>
           {/* 🔴 MON ESPACE, LOT 6 — l'historique avec « Annuler ce geste » est celui de la tuile ; « Mon espace » (`envoyer`) a le sien, en lecture. */}

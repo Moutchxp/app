@@ -92,12 +92,20 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     expect([champ.value, champ.readOnly]).toEqual(['M-42', true]);
     expect(texte('[data-formulaire-dossier="nouveau"] h3')).toBe('Nouveau compromis — CRITERIMMO');
     await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
+    // 🔴 Arno (05/11/2026) — je tiens l'entrée : mon vendeur RENSEIGNÉ et le collaborateur de la sortie (le partage 50/50 est proposé).
+    await saisir('[data-personne-nom="vendeur-0"], [data-bloc-dossier="vendeurs"] [data-personne-nom]', 'DUPONT');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-prenom]', 'Jean');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-telephone]', '0600000000');
+    await cliquer('[data-champ="sortie"]'); await cliquer('[role="option"][data-option="7"]');
     await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); });
     await calmer();
     expect(posts).toHaveLength(1);
     expect(posts[0].url).toBe(URL_COMPROMIS);
-    expect(posts[0].corps).toMatchObject({ id: null, dossier: { societe: 'criterimmo', statut: 'compromis', numeroMandat: 'M-42', entreeId: 5 } });
+    expect(posts[0].corps).toMatchObject({ id: null, dossier: { societe: 'criterimmo', statut: 'compromis', numeroMandat: 'M-42', entreeId: 5, sortieId: 7 } });
     await calmer();
+    // 🔴 Arno (05/11/2026) — la fenêtre « Compromis enregistré », puis « Voir le compromis ».
+    expect(container.querySelector('[data-confirmation-compromis="99"]')).not.toBeNull();
+    await cliquer('[data-voir-compromis]');
     expect(container.querySelector('[data-formulaire-dossier]')).toBeNull();
     expect(container.querySelector('[data-vue="compromis"]')!.getAttribute('aria-selected')).toBe('true'); // « Compromis » (décision 11)
     // en haut malgré une date de compromis plus ancienne, et déplié

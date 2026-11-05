@@ -125,3 +125,40 @@ describe('🔴 la protection d’écran : seule la zone du formulaire tombe', ()
     expect(fermer).toHaveBeenCalled();
   });
 });
+
+describe('🔴 Arno (05/11/2026) — les obligations du créateur, à l’écran : rien ne part tant qu’elles manquent', () => {
+  const soumettre = async () => { await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); }); await calmer(); };
+  const messages = (bloc: string) => [...container.querySelectorAll(`[data-manque-creation="${bloc}"]`)].map((x) => x.textContent);
+  const posts = () => (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST');
+  it('sur UN côté (entrée) : mon vendeur, le collaborateur de la sortie et le partage — sous chaque bloc ; aucun envoi', async () => {
+    await jusquAuCote('entree');
+    await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
+    expect(container.querySelector('[data-manque-creation]')).toBeNull(); // rien en rouge avant la tentative
+    await soumettre();
+    expect(messages('vendeurs')).toEqual(['Renseignez au moins un vendeur : nom et prénom (ou raison sociale), et un téléphone ou un e-mail.']);
+    expect(messages('acquereurs')).toEqual([]); // l'autre côté reste facultatif
+    expect(messages('repartition')).toContain('Choisissez le collaborateur rattaché à la sortie du mandat (côté acquéreur).');
+    expect(posts()).toHaveLength(0);
+  });
+  it('« Pour un collègue » (administrateur) : le collaborateur de chaque côté ; les clients facultatifs', async () => {
+    admin = true;
+    await jusquAuCote('aucun');
+    await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
+    await soumettre();
+    expect(messages('vendeurs')).toEqual([]);
+    expect(messages('repartition')).toEqual(expect.arrayContaining(['Choisissez le collaborateur rattaché à l’entrée du mandat (côté vendeur).',
+      'Choisissez le collaborateur rattaché à la sortie du mandat (côté acquéreur).']));
+    expect(posts()).toHaveLength(0);
+  });
+  it('sur les DEUX côtés (je me mets aussi à la sortie) : un vendeur ET un acquéreur obligatoires', async () => {
+    await jusquAuCote('entree');
+    await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
+    await act(async () => { (container.querySelector('[data-champ="sortie"]') as HTMLElement).click(); }); await calmer();
+    await act(async () => { (container.querySelector('[role="option"][data-option="5"]') as HTMLElement).click(); }); await calmer();
+    await soumettre();
+    expect(messages('vendeurs')).toHaveLength(1);
+    expect(messages('acquereurs')).toEqual(['Renseignez au moins un acquéreur : nom et prénom (ou raison sociale), et un téléphone ou un e-mail.']);
+    expect(messages('repartition')).toEqual([]);
+    expect(posts()).toHaveLength(0);
+  });
+});

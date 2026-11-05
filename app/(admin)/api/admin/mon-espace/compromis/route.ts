@@ -37,7 +37,9 @@ export async function POST(request: Request): Promise<Response> {
     const r = id === null
       ? await creerCompromisMonEspace(garde.auteurId, d.valeur, aujourdhuiParis(), auteur)
       : await modifierDepuisMonEspace(garde.auteurId, id, d.valeur, { version, rejoindre }, aujourdhuiParis(), auteur);
-    return r.ok ? json({ etat: 'ok', data: r.id }) : json({ etat: 'refus', motif: r.motif, ...(r.statut === 409 ? { conflit: true } : {}) }, r.statut);
+    // 🔴 Arno (05/11/2026) — une création rend aussi le récapitulatif du compromis commun (côtés, partage, mails envoyés) pour la confirmation.
+    return r.ok ? json({ etat: 'ok', data: r.id, ...('commun' in r ? { commun: r.commun } : {}) })
+      : json({ etat: 'refus', motif: r.motif, ...(r.statut === 409 ? { conflit: true } : {}) }, r.statut);
   } catch (e) {
     if (estDoublonMandat(e)) return json({ etat: 'refus', motif: MOTIF_DOUBLON_MANDAT }, 422);
     console.error('[mon-espace] création', e);

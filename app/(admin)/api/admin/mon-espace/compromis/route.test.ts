@@ -15,6 +15,9 @@ vi.mock('../../../../../lib/admin/schemaDroits', () => ({ mandatDisponible: asyn
   personneTypeDisponible: async () => true, prixVenteDisponible: async () => true, uniteCommissionDisponible: async () => true }));
 vi.mock('../../../../../lib/transaction/repo', () => ({ enregistrerDossier: h.enregistrer, lireNegociateurs: async () => [], lireVentes: async () => [],
   lirePeriodesSociete: async (ids: number[]) => new Map(ids.map((id) => [id, h.periodes])) }));
+// 🔴 Arno (05/11/2026) — l'après-création (marque, mails) : simulée ici, éprouvée dans `compromisCommun*.test.ts`.
+const RECAP = { mandat: 'M-42', structure: 'CRITERIMMO', cotes: { entree: 'Léa', sortie: 'Marc' }, partage: [], mails: [], disponible: true };
+vi.mock('../../../../../lib/mon-espace/compromisCommunRepo', async (orig) => ({ ...(await orig<object>()), apresCreationCompromis: async () => RECAP }));
 vi.mock('../../../../../lib/transaction/mandatRepo', async (orig) => ({ ...(await orig<object>()), venteDuMandat: async () => h.prise }));
 
 import { POST } from './route';
@@ -23,7 +26,8 @@ import { MOTIF_CREATION_PAS_SUR_UN_COTE, MOTIF_CREATION_SANS_449, MOTIF_CREATION
 import { INDEX_UNIQUE_MANDAT } from '../../../../../lib/transaction/mandatRepo';
 
 const dossier = (o: Record<string, unknown> = {}) => ({ societe: 'criterimmo', statut: 'compromis', honorairesTtc: 12000, retroApporteurTtc: 0, numeroMandat: 'M-42',
-  personnes: [{ role: 'vendeur', nom: 'DUPONT' }], entreeId: 5, sortieId: 7,
+  // 🔴 Arno (05/11/2026) — le créateur (5) tient l'entrée : un vendeur RENSEIGNÉ (nom, prénom, téléphone), le collaborateur de la sortie, le partage.
+  personnes: [{ role: 'vendeur', nom: 'DUPONT', prenom: 'Jean', telephone: '0600000000' }], entreeId: 5, sortieId: 7,
   parties: [{ sorte: 'entree', compteId: 5, pourcentage: 50 }, { sorte: 'sortie', compteId: 7, pourcentage: 50 }], ...o });
 const poster = async (corps: Record<string, unknown>) => {
   const r = await POST(new Request('http://local/api/admin/mon-espace/compromis', { method: 'POST', body: JSON.stringify(corps) }));
@@ -54,7 +58,7 @@ describe('🔴 POST /api/admin/mon-espace/compromis — créer depuis « Mon esp
   });
   it('n° libre : la saisie part TELLE QUELLE vers enregistrerDossier (la fonction de la tuile) ; l’id est rendu', async () => {
     const r = await poster({ dossier: dossier() });
-    expect([r.status, r.corps]).toEqual([200, { etat: 'ok', data: 99 }]);
+    expect([r.status, r.corps]).toEqual([200, { etat: 'ok', data: 99, commun: RECAP }]);
     const [id, saisie] = h.enregistrer.mock.calls[0] as [number | null, Record<string, unknown>];
     expect(id).toBeNull();
     expect(saisie).toMatchObject({ societe: 'criterimmo', statut: 'compromis', numeroMandat: { saisi: 'M-42', normalise: 'M42' }, entreeId: 5, sortieId: 7 });

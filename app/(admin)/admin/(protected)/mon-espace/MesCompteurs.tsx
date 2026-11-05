@@ -12,6 +12,7 @@ import { resolveurDe } from '../../../../lib/transaction/statutLigne';
 import { empreinteDe, type MesAffaires, type VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
 import { CSS_NOUVEAU_COMPROMIS, envoyerMonEspace, NouveauCompromis, URL_REFERENCES } from './NouveauCompromis';
 import { ProtectionFormulaire } from './ProtectionFormulaire';
+import { lireLienCompromis } from '../../../../lib/mon-espace/compromisCommun';
 import { HistoriqueAffaire } from './HistoriqueAffaire';
 import { GestesAffaire } from './GestesAffaire';
 import { AccueilMonEspace } from './AccueilMonEspace';
@@ -83,6 +84,9 @@ export function phraseVentesAnterieures(a: { nb: number; premiere: number; derni
   return `Aucune vente signée en ${anneeEnCours} ni compromis en cours. ${a.nb > 1 ? `Vos ${a.nb} ventes signées ${quand}` : `Votre vente signée ${a.premiere === a.derniere ? `date de ${a.derniere}` : quand}`}.`;
 }
 
+/** 🔴 Arno (05/11/2026) — le bandeau d'un compromis commun dont MES clients ne sont pas encore renseignés. */
+export const BANDEAU_CLIENTS_A_RENSEIGNER = 'Coordonnées de vos clients à renseigner — ce compromis n’est pas compté dans votre total';
+
 /** 🔴 Arno (05/11/2026) — le message d'un espace personnel sans aucune affaire rattachée au compte. */
 export const MESSAGE_ESPACE_VIDE = 'Aucune vente ni compromis rattaché à votre compte pour l’instant.';
 
@@ -142,6 +146,8 @@ export function MesCompteurs() {
   const [lecture, setLecture] = useState(0);
   // 🔴 LOT 6 — l'affaire en cours de modification, l'historique ouvert, les références du formulaire (lues à la première modification).
   const [edition, setEdition] = useState<VenteMonEspace | null>(null);
+  // 🔴 Arno (05/11/2026) — le côté à renseigner (bouton « Renseigner », lien du mail) : le formulaire s'ouvre sur le bloc de ce côté.
+  const [editionCote, setEditionCote] = useState<'entree' | 'sortie' | null>(null);
   const [historique, setHistorique] = useState<number | null>(null);
   const [refs, setRefs] = useState<(References & { titulaireId: number; administrateur: boolean }) | null>(null);
   const [motifEdition, setMotifEdition] = useState<string | null>(null);
@@ -149,8 +155,8 @@ export function MesCompteurs() {
   const [rappelCouts, setRappelCouts] = useState<string | null>(null);
   const [rappelRelu, setRappelRelu] = useState(0);
   const [saisieDemandee, setSaisieDemandee] = useState(0);
-  const modifier = async (v: VenteMonEspace): Promise<void> => {
-    setMotifEdition(null);
+  const modifier = async (v: VenteMonEspace, cote: 'entree' | 'sortie' | null = null): Promise<void> => {
+    setMotifEdition(null); setEditionCote(cote);
     if (refs !== null) { setEdition(v); return; }
     try {
       const r = await fetch(URL_REFERENCES, { cache: 'no-store' });
@@ -224,6 +230,19 @@ export function MesCompteurs() {
     return () => { vivant = false; clearInterval(minuterie); document.removeEventListener('visibilitychange', auRetour); };
   }, []);
   const data = lu.etat === 'ok' ? lu.data : null;
+  // 🔴 Arno (05/11/2026) — le LIEN DU MAIL « compromis commun » (?affaire=…&cote=…&modifier=1) : une fois les affaires lues, CE compromis s'ouvre en
+  // modification, sur le bloc de SON côté ; l'adresse est ensuite nettoyée (un rechargement ne rouvre pas le formulaire). Une affaire que je ne vois
+  // pas (pas la mienne) : rien ne s'ouvre — le serveur ne me l'a pas envoyée.
+  const lienTraite = useRef(false);
+  useEffect(() => {
+    if (data === null || lienTraite.current) return;
+    lienTraite.current = true;
+    const lien = lireLienCompromis(window.location.search);
+    if (lien === null) return;
+    ecrireAdresse({ affaire: null, cote: null, modifier: null });
+    const v = data.ventes.find((x) => x.id === lien.venteId);
+    if (v !== undefined) void modifier(v, lien.cote);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   // 🔴 « Les coûts », lot 3 (C17) — le rappel du mois précédent, pour l'espace vu (associés, mode agence)
   const agenceRappel = data !== null && ongletCoutsVisible(data.titulaire, data.agence?.cle ?? null) ? data.agence!.cle : null;
   useEffect(() => {
@@ -327,7 +346,8 @@ export function MesCompteurs() {
   };
   // 🔴 D27 / D28 — les compromis affichés (filtre « Négociateur » compris) : « Mon espace », ce que le serveur a calculé sur chaque vente entière ;
   // mode agence, la carte de la structure (les rétrocessions et le statut des négociateurs de sa page du Suivi CA).
-  const affairesEnTete = agence === null ? affairesCompromisPerso(compromis)
+  // 🔴 Arno (05/11/2026) — un compromis COMMUN dont MES clients ne sont pas encore renseignés n'entre pas dans MES grandes cases (vue perso seulement).
+  const affairesEnTete = agence === null ? affairesCompromisPerso(compromis.filter((v) => (v.clientsARenseigner ?? []).length === 0))
     : affairesCompromisAgence(compromis, agence.societe, { retros: data.retrocessions ?? [], statutDuLibelle: resolveurDe(data.statutsNegociateurs) });
   const personnel = (v: VenteMonEspace): VuePersonnelle => (agence !== null ? TOUT_VOIR : { mesCotes: v.mesCotes, commissionsRetirees: v.commissionsRetirees === true });
   const nomAgence = agence === null ? null : LIBELLE_AGENCE[agence.cle];
@@ -336,8 +356,17 @@ export function MesCompteurs() {
   const ongletsEspace: Onglet[] = avecCouts ? ['apporteurs', 'couts'] : ['apporteurs'];
   const peutAgir = (v: VenteMonEspace): boolean => (v.mesCotes.length > 0 || data.titulaire.administrateur) && disponible;
   const relire = (): void => setLecture((x) => x + 1);
+  const aRenseigner = (v: VenteMonEspace): ('entree' | 'sortie')[] => (agence === null ? v.clientsARenseigner ?? [] : []);
   const carte = (v: VenteMonEspace, section: 'compromis' | 'vente', montant?: { m: { htC: number; ttcC: number }; mot?: string }) => (
-    <div key={v.id} className={eclairees.includes(v.id) ? 'mes-eclairee' : undefined} data-eclairee={eclairees.includes(v.id) ? 'oui' : undefined}>
+    <div key={v.id} className={[eclairees.includes(v.id) ? 'mes-eclairee' : '', aRenseigner(v).length > 0 ? 'mes-a-renseigner' : ''].filter((x) => x !== '').join(' ') || undefined}
+      data-eclairee={eclairees.includes(v.id) ? 'oui' : undefined} {...(aRenseigner(v).length > 0 ? { 'data-clients-a-renseigner': aRenseigner(v).join(' ') } : {})}>
+    {/* 🔴 Arno (05/11/2026) — compromis commun, MES clients pas encore saisis : le bandeau, et « Renseigner » (le formulaire, sur le bloc de mon côté). */}
+    {aRenseigner(v).length > 0 && (
+      <p className="mes-bandeau-renseigner" role="status" data-bandeau-renseigner={v.id}>
+        <strong>{BANDEAU_CLIENTS_A_RENSEIGNER}</strong>
+        {peutAgir(v) && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void modifier(v, aRenseigner(v)[0])} data-renseigner={v.id}>Renseigner</button>}
+      </p>
+    )}
     <CarteAffaire v={v} aujourdhui={data.aujourdhui} section={`mon-espace-${section}`} vue={agence?.societe ?? null} retros={agence === null ? undefined : data.retrocessions} statutDuLibelle={hote.statutDuLibelle} personnel={personnel(v)}
       donnees={{ 'data-ma-vente': String(v.id) }} ouvertInitial={section === 'compromis' && v.id === nouvelle} {...(montant === undefined ? {} : { montant })}>
       <DetailAffaire v={v} hote={hote} etiquettes={section === 'vente'} personnel={personnel(v)} />
@@ -399,7 +428,8 @@ export function MesCompteurs() {
       {reconnexion && <p className="loc-alerte loc-alerte--orange" role="alert" data-reconnexion>Votre session a expiré : <a href="/admin/login">reconnectez-vous</a> pour voir les dernières mises à jour.</p>}
       {/* 🔴 LOT 6 — le formulaire de la tuile, sur l'affaire telle que je la reçois ; la version lue part avec l'enregistrement (409 si un collègue a
           enregistré entre-temps : le message le dit, rien n'est écrasé). */}
-      {edition !== null && refs !== null && <ProtectionFormulaire onFermer={() => setEdition(null)}><FormulaireDossier societe={edition.societe} vente={edition} references={refs}
+      {edition !== null && refs !== null && <ProtectionFormulaire onFermer={() => setEdition(null)}><FormulaireDossier
+        {...(editionCote === null ? {} : { ajouter: editionCote === 'entree' ? 'vendeur' as const : 'acquereur' as const })} societe={edition.societe} vente={edition} references={refs}
         repartitionInitiale={etatRepartitionDe(edition, refs.negociateurs, refs.uniteCommission === true)} commissionsMasquees={!refs.administrateur}
         envoyer={envoyerMonEspace} onFermer={() => setEdition(null)} onFait={() => { setEdition(null); setLecture((x) => x + 1); }} /></ProtectionFormulaire>}
       {/* 🔴 Arno (05/11/2026, production) — protégé : une erreur du formulaire ne fait plus tomber la page entière. */}
@@ -442,6 +472,11 @@ export function MesCompteurs() {
 
 // Les jetons de la charte seulement (Clair et Sombre) ; cibles de 44 px au moins ; une colonne sur téléphone.
 const CSS_MES_COMPTEURS = `
+/* Arno (05/11/2026) — compromis commun, MES clients à renseigner : le bandeau, et le montant de la ligne en ROUGE (au lieu du vert), avec le mot. */
+.mes-bandeau-renseigner{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 4px;padding:8px 12px;border-radius:10px;
+  background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border:1px solid var(--color-svv-red)}
+.mes-a-renseigner .trx-carte-montants,.mes-a-renseigner .trx-carte-montants *{color:var(--color-svv-red)}
+.mes-bandeau-renseigner .svv-btn{width:auto;flex:0 0 auto}
 .mes-ligne-espace{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 .75rem}
 .mes-ligne-espace .mes-nouveau{width:auto;flex:0 0 auto;margin-left:auto;min-height:44px;padding:0 1.25rem}
 /* Arno (02/11/2026) — « Mois » : la rangée (sélecteur compris) a la largeur du graphique ; les mois se RÉPARTISSENT sur toute la largeur

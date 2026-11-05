@@ -11,6 +11,9 @@ import { motifStructureImposee, refusCreation, type TransactionDuMandat } from '
 
 import { estAdministrateur } from './compteRepo';
 import { lireMesApporteurs } from './apporteursRepo';
+import { manquesCreateur } from './compromisCommun';
+import { apresCreationCompromis, partageDefiniSaisie, type RecapCommun } from './compromisCommunRepo';
+import type { TransportDemande } from '../gestion/envoiDemandeTache';
 export { estAdministrateur };
 
 /**
@@ -63,12 +66,18 @@ export async function transactionDuMandat(societe: Societe, numero: string): Pro
  * Crée le compromis : les conditions de « Mon espace » (`refusCreation`), puis `enregistrerDossier` de la tuile Suivi CA (qui refuse aussi un n°
  * déjà pris). Rend le statut HTTP d'un refus.
  */
-export async function creerCompromisMonEspace(compteId: number, s: DossierSaisie, aujourdhui: string, auteur: AuteurTx):
-  Promise<{ ok: true; id: number } | { ok: false; statut: 403 | 422; motif: string }> {
+export async function creerCompromisMonEspace(compteId: number, s: DossierSaisie, aujourdhui: string, auteur: AuteurTx, deps: { transport?: TransportDemande } = {}):
+  Promise<{ ok: true; id: number; commun: RecapCommun } | { ok: false; statut: 403 | 422; motif: string }> {
   const refus = refusCreation(s, { compteId, administrateur: await estAdministrateur(compteId), mandatDisponible: await mandatDisponible() });
   if (refus !== null) return { ok: false, ...refus };
   const autre = await refusStructure(compteId, s.societe, aujourdhui);
   if (autre !== null) return { ok: false, statut: 403, motif: autre };
+  // 🔴 Arno (05/11/2026) — LES OBLIGATIONS DU CRÉATEUR, revérifiées ici (l'écran bloque déjà) : ses clients, le collaborateur de l'autre côté, le partage.
+  const manques = manquesCreateur({ entreeId: s.entreeId, sortieId: s.sortieId, personnes: s.personnes, partageDefini: partageDefiniSaisie(s.parties) }, compteId);
+  if (manques.length > 0) return { ok: false, statut: 422, motif: manques.map((m) => m.message).join(' ') };
   const r: Issue<number> = await enregistrerDossier(null, s, aujourdhui, auteur);
-  return r.ok ? { ok: true, id: r.valeur as number } : { ok: false, statut: 422, motif: r.motif };
+  if (!r.ok) return { ok: false, statut: 422, motif: r.motif };
+  // APRÈS l'écriture (jamais avant) : la marque « compromis commun » et le mail aux autres collaborateurs ; un échec ne défait rien.
+  const commun = await apresCreationCompromis(r.valeur as number, s, compteId, aujourdhui, auteur, deps);
+  return { ok: true, id: r.valeur as number, commun };
 }

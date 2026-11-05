@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FormulaireDossier, etatRepartitionDe, referencesSures, type References } from '../transaction/FormulaireDossier';
 import { changerNegociateur } from '../transaction/Repartition';
 import { LIBELLE_SOCIETE, SOCIETES, type Societe } from '../../../../lib/transaction/modele';
 import { LONGUEUR_MAX_MANDAT } from '../../../../lib/transaction/mandat';
+import { manquesCreateur } from '../../../../lib/mon-espace/compromisCommun';
 import type { TransactionDuMandat } from '../../../../lib/mon-espace/creation';
 import type { VenteMonEspace } from '../../../../lib/mon-espace/mesAffaires';
 
@@ -48,6 +49,40 @@ export async function envoyerMonEspace(corps: Record<string, unknown>): Promise<
   }
 }
 
+/** 🔴 Arno (05/11/2026) — le récapitulatif du compromis commun que la route rend à la création (côtés, partage, mails envoyés). */
+export interface RecapCommunEcran {
+  mandat: string | null; structure: string; cotes: { entree: string | null; sortie: string | null }; partage: string[]; disponible: boolean;
+  mails: { compteId: number; nom: string; email: string | null; envoye: boolean; motif: string | null }[];
+}
+
+/** La ligne de chaque collaborateur prévenu (ou pas) dans la fenêtre de confirmation. PUR. */
+export function phraseMailPrevenu(m: RecapCommunEcran['mails'][number]): string {
+  return m.envoye ? `Un e-mail a été envoyé à ${m.nom} pour l’informer de ce compromis commun.`
+    : `L’e-mail à ${m.nom} n’a pas pu être envoyé${m.motif ? ` : ${m.motif}` : ''}. Prévenez-le directement.`;
+}
+
+/** 🔴 Arno (05/11/2026) — « Compromis enregistré » : le récapitulatif, et une ligne par collaborateur prévenu ; seul sur les deux côtés : la confirmation simple. */
+export function ConfirmationCompromis({ id, recap, onVoir }: { id: number; recap: RecapCommunEcran | null; onVoir: (id: number) => void }) {
+  const ligne = (mot: string, valeur: string | null) => <div className="mes-parcours-info"><dt>{mot}</dt><dd>{valeur ?? '—'}</dd></div>;
+  return (
+    <div className="tdb-voile">
+      <div className="tdb-fenetre mes-confirmation" role="dialog" aria-modal="true" aria-label="Compromis enregistré" data-confirmation-compromis={id}>
+        <header className="tdb-fenetre-tete"><h3>Compromis enregistré</h3></header>
+        <div className="tdb-fenetre-corps">
+          {recap !== null && <dl className="mes-parcours-infos" data-recap-compromis>
+            {ligne('N° de mandat', recap.mandat)}{ligne('Structure', recap.structure)}
+            {ligne('Entrée du mandat (côté vendeur)', recap.cotes.entree)}{ligne('Sortie du mandat (côté acquéreur)', recap.cotes.sortie)}
+            {ligne('Partage de la commission', recap.partage.length === 0 ? null : recap.partage.join(' ; '))}
+          </dl>}
+          {recap !== null && recap.mails.map((m) => <p key={m.compteId} className={m.envoye ? 'loc-muet' : 'loc-alerte loc-alerte--orange'} data-mail-prevenu={m.envoye ? 'envoye' : 'echec'}>{phraseMailPrevenu(m)}</p>)}
+          {recap !== null && !recap.disponible && <p className="loc-alerte loc-alerte--orange" data-commun-indisponible>La mise à jour de la base (migration 459) n’est pas appliquée : aucun e-mail n’est parti.</p>}
+          <div className="trx-actions"><button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => onVoir(id)} data-voir-compromis>Voir le compromis</button></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onFermer: () => void; onCree: (id: number) => void;
   /** Le mode agence (administrateurs) : la question de la structure reste toujours posée (inchangé). */
   modeAgence?: boolean }) {
@@ -63,6 +98,17 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
   // 🔴 LOT 6 — l'affaire à rejoindre (lue avec son n°, sans la commission des autres) et le côté libre choisi.
   const [aRejoindre, setARejoindre] = useState<VenteMonEspace | null>(null);
   const [coteRejoint, setCoteRejoint] = useState<'entree' | 'sortie' | null>(null);
+  // 🔴 Arno (05/11/2026) — après la création : la fenêtre « Compromis enregistré » et son récapitulatif.
+  const [confirme, setConfirme] = useState<{ id: number; recap: RecapCommunEcran | null } | null>(null);
+  const recapRecu = useRef<RecapCommunEcran | null>(null);
+  const envoyerCreation = async (corps: Record<string, unknown>): Promise<{ motif: string | null; data: number | null }> => {
+    try {
+      const r = await fetch(URL_COMPROMIS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+      const d = (await r.json()) as { etat?: string; motif?: string; message?: string; data?: number; commun?: RecapCommunEcran };
+      if (d.etat === 'ok') { recapRecu.current = d.commun ?? null; return { motif: null, data: d.data ?? null }; }
+      return { motif: d.motif ?? d.message ?? (r.status === 403 ? 'Accès refusé : droit « Mon espace » requis (ou session expirée).' : 'Enregistrement refusé.'), data: null };
+    } catch { return { motif: 'Enregistrement impossible : le serveur n’a pas répondu.', data: null }; }
+  };
   useEffect(() => {
     let vivant = true;
     void (async () => {
@@ -124,13 +170,17 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
       onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) onCree(e.id); else onFermer(); }} />;
   }
 
+  if (confirme !== null) return <ConfirmationCompromis id={confirme.id} recap={confirme.recap} onVoir={onCree} />;
   if (etape === 'formulaire' && refs !== null && societe !== null && verifie !== null && cote !== null) {
     const negos = negosSurs;
     const base = etatRepartitionDe(null, negos, refs.uniteCommission === true);
     const repartition = cote === 'aucun' ? base : changerNegociateur(base, cote, refs.titulaireId, negos);
-    return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerMonEspace}
+    // 🔴 Arno (05/11/2026) — les obligations du créateur (le serveur les revérifie) ; enregistré : la fenêtre « Compromis enregistré ».
+    return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerCreation}
       {...(messageStructure === undefined ? {} : { message: messageStructure })}
-      onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) onCree(e.id); else onFermer(); }} />;
+      controleCreation={({ personnes, repartition: rep, partageDefini }) => manquesCreateur({ entreeId: rep.entreeId, sortieId: rep.sortieId, partageDefini,
+        personnes: personnes.map((p) => ({ role: p.role, type: p.type, nom: p.nom, prenom: p.prenom, telephone: p.telephone, email: p.email })) }, refs.titulaireId)}
+      onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) setConfirme({ id: e.id, recap: recapRecu.current }); else onFermer(); }} />;
   }
 
   return (

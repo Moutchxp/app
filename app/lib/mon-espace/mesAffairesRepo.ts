@@ -9,6 +9,8 @@ import { mandatDisponible, personneTypeDisponible, prixVenteDisponible, repartit
 import type { Vente } from '../transaction/modele';
 import { resolveurDe } from '../transaction/statutLigne';
 import { verseAffairePerso } from './compromisCartes';
+import { cotesARenseigner } from './compromisCommun';
+import { ventesCommunes } from './compromisCommunRepo';
 import { compteursMonEspace, empreinteDe, estAMoi, libellesDeVente, mesCotes, monCa, monCaNet, sansCommissionsDesAutres, type CompteursMonEspace, type MesAffaires, type Moi, type VenteMonEspace } from './mesAffaires';
 
 const VIDE = (aujourdhui: string): CompteursMonEspace => ({ compromis: { nb: 0, ids: [], ca: { htC: 0, ttcC: 0 } },
@@ -67,6 +69,9 @@ export async function lireMesAffaires(compteId: number, aujourdhui: string): Pro
     });
   const schema = await schemaMonEspace();
   await poserAuteurs(ventes);
+  // 🔴 Arno (05/11/2026) — compromis COMMUN (459) : mes côtés sans client renseigné (sur la vente ENTIÈRE ; seulement dans MON espace).
+  const communes = await ventesCommunes(ventes.map((v) => v.id)).catch(() => new Set<number>());
+  for (const v of ventes) { const c = cotesARenseigner(v, compteId, communes.has(v.id)); if (c.length > 0) v.clientsARenseigner = c; }
   const nomsNegociateurs = await nomsAffichesNegociateurs([...new Set(ventes.flatMap(libellesDeVente))]).catch(() => ({}));
   const statutsNegociateurs = await lireStatutsNegociateurs(libellesDePaye(ventes)).catch(() => ({}));
   // 🔴 LOT 8 — mes statistiques (sur les ventes ENTIÈRES : aucun montant faussé par une commission retirée) et les rétrocessions liées à mes ventes

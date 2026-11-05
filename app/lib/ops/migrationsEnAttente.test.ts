@@ -146,6 +146,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 456 : le « New » d'un événement, état propre (seuil du dernier mail reçu vu — lot NEW-EVENEMENT-PROPRE, 04/11/2026).
   // 457 : le journal des mails automatiques du préavis et de la sortie (accusé aux locataires, information ADHOC — 05/11/2026).
   // 458 : le compte du négociateur sur les lignes de commission et les rétrocessions (Mon espace, cloisonnement — 05/11/2026).
+  // 459 : le compromis commun à deux collaborateurs (marque « clients à renseigner », journal des mails — 05/11/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -172,7 +173,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '445_transaction_negociateur_nom.sql', '446_transaction_gestion_monga.sql', '447_transaction_location_salaires.sql',
     '448_mon_espace_droit.sql', '449_transaction_numero_mandat.sql', '450_mon_espace_apporteur_utilise.sql', '451_couts_saisis.sql', '452_couts_validation.sql',
     '453_fonctions_datees_activite_principale.sql', '454_permissions_tuiles.sql', '455_apporteur_particulier_professionnel.sql',
-    '456_gestion_evenement_nouveaute.sql', '457_location_mails_preavis_sortie.sql', '458_transaction_negociateur_compte.sql'];
+    '456_gestion_evenement_nouveaute.sql', '457_location_mails_preavis_sortie.sql', '458_transaction_negociateur_compte.sql', '459_mon_espace_compromis_commun.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -185,7 +186,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 458 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 459 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -195,14 +196,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (459)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (460)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(458\)/);
-    const renumerotee = planifier([...existants, { fichier: '459_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(459\)/);
+    const renumerotee = planifier([...existants, { fichier: '460_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['459_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['460_permis_emprise_numero_reveil.sql']);
   });
 });
 
