@@ -374,20 +374,20 @@ export async function destinatairesSortie(emailAuteur: string | null): Promise<s
   return sortie;
 }
 
-async function auteurDuMail(auteur: Auteur): Promise<{ nom: string; email: string | null }> {
+async function auteurDuMail(auteur: Auteur): Promise<{ nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null }> {
   if (auteur.id !== null) {
     const { rows } = await query<{ identifiant: string; prenom: string | null; nom: string | null }>(
       'SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE id = $1', [auteur.id]);
     if (rows[0] !== undefined) {
       const nom = [rows[0].prenom, rows[0].nom].filter((x) => x && x.trim() !== '').join(' ');
-      return { email: ESSAI.test(rows[0].identifiant) ? rows[0].identifiant : null, nom: nom || rows[0].identifiant };
+      return { email: ESSAI.test(rows[0].identifiant) ? rows[0].identifiant : null, nom: nom || rows[0].identifiant, prenom: rows[0].prenom, nomFamille: rows[0].nom };
     }
   }
   return { email: ESSAI.test(auteur.libelle) ? auteur.libelle : null, nom: auteur.libelle };
 }
 
 /** Les données du mail, à partir de la sortie faite. PUR (exporté pour les tests). */
-export function donneesMailSortie(f: SortieFaite, auteur: { nom: string; email: string | null }, quand: string): DonneesMailSortie {
+export function donneesMailSortie(f: SortieFaite, auteur: DonneesMailSortie['auteur'], quand: string): DonneesMailSortie {
   return {
     adresse: f.bail.adresse, lotId: f.bail.lotId, type: f.bail.type, etage: f.bail.etage, porte: f.bail.porte,
     annexes: f.annexes, proprietaire: f.bail.proprietaire,

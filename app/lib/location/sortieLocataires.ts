@@ -16,6 +16,8 @@
  * Ce module ne lit rien et n'écrit rien : règles, phrases et composition du mail (objet, texte, HTML).
  */
 
+import { mentionEnvoyePar } from './mentionEnvoyePar';
+
 /** Un résultat de la recherche des occupants (en place à la date du jour). */
 export interface OccupantTrouve {
   occupationId: number; locataireId: number; nom: string; telephone: string | null; email: string | null;
@@ -175,7 +177,8 @@ export interface DonneesMailSortie {
   sortants: { nom: string; entree: string | null; sortie: string }[];
   vacant: boolean;
   restants: string[];
-  auteur: { nom: string; email: string | null };
+  /** `prenom` / `nomFamille` : ceux du compte (« Mail envoyé par … », Arno 05/11/2026) ; absents : seule l'adresse. */
+  auteur: { nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null };
   /** Instant de l'opération (ISO). */
   quand: string;
 }
@@ -204,6 +207,8 @@ export function texteMailSortie(d: DonneesMailSortie): string {
   t.push(d.sortants.length > 1 ? 'LOCATAIRES SORTANTS' : 'LOCATAIRE SORTANT');
   for (const s of d.sortants) t.push(`- ${s.nom} — entrée le ${dateFr(s.entree)} — sortie le ${dateFr(s.sortie)}`);
   t.push('', `Sortie enregistrée par ${d.auteur.nom}${d.auteur.email ? ` <${d.auteur.email}>` : ''} — ${quandFr(d.quand)}`);
+  const envoi = mentionEnvoyePar(d.auteur);
+  if (envoi !== null) t.push('', envoi);
   t.push('Mail automatique de l’application Sans Vis-à-Vis® — rien n’a été effacé : les sortants restent dans l’historique du bien.');
   return t.join('\n');
 }
@@ -241,6 +246,7 @@ export function htmlMailSortie(d: DonneesMailSortie): string {
     + bloc(d.sortants.length > 1 ? 'Locataires sortants' : 'Locataire sortant', sortants)
     + bloc('Opération', petit(`Sortie enregistrée par <strong>${echapper(d.auteur.nom)}</strong>${d.auteur.email ? ` · ${echapper(d.auteur.email)}` : ''}`)
       + petit(echapper(quandFr(d.quand))))
+    + (mentionEnvoyePar(d.auteur) === null ? '' : `<tr><td style="padding:10px 20px 0">${p(echapper(mentionEnvoyePar(d.auteur)!))}</td></tr>`)
     + `<tr><td style="padding:8px 20px 18px"></td></tr></table>`
     + `<div style="padding:10px;font-size:12px;color:${gris}">Mail automatique de l’application Sans Vis-à-Vis® — rien n’a été effacé : les sortants restent dans l’historique du bien.</div>`
     + `</td></tr></table></body></html>`;

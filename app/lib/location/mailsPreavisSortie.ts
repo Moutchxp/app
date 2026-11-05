@@ -19,6 +19,7 @@
 import { echapper } from './mailNouvelleLocation';
 import { ajouterMois, dateFrPreavis, type DureeMois, type ModePreavis } from './preavis';
 import { descriptionLogement, type DonneesMailSortie } from './sortieLocataires';
+import { mentionEnvoyePar } from './mentionEnvoyePar';
 
 /**
  * 🔴 Arno (05/11/2026, 460) — PLUS AUCUNE ADRESSE PARTENAIRE DANS LE CODE : les destinataires des mails d'information (préavis, sortie) sont
@@ -60,7 +61,8 @@ export interface DonneesPreavisMails {
   recuLe: string;
   choix: ModePreavis;
   expediteur: string;
-  valideur: { nom: string; email: string | null };
+  /** `prenom` / `nomFamille` : ceux du compte connecté (« Mail envoyé par … ») ; absents : seule l'adresse. */
+  valideur: { nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null };
   signature: Signature;
 }
 
@@ -117,6 +119,15 @@ const libelleDuree = (d: DureeMois): string => `${d} mois`;
 const paragraphesHtml = (paras: readonly string[]): string =>
   paras.map((p) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1a1f26">${echapper(p).replace(/\n/g, '<br>')}</p>`).join('');
 
+/** Une signature Gmail est-elle là (texte OU HTML) ? */
+const aSignature = (s: Signature): boolean => s.texte.trim() !== '' || s.html.trim() !== '';
+
+/** 🔴 Arno (05/11/2026) — les paragraphes suivis de « Mail envoyé par … » (après la politesse, avant la signature Gmail). PUR. */
+const avecMention = (paras: readonly string[], qui: Parameters<typeof mentionEnvoyePar>[0]): string[] => {
+  const m = mentionEnvoyePar(qui);
+  return m === null ? [...paras] : [...paras, m];
+};
+
 const avecSignature = (corps: string, s: Signature): { texte: string; html: string } => ({
   texte: s.texte.trim() === '' ? corps : `${corps}\n\n-- \n${s.texte.trim()}`,
   html: s.html.trim() === '' ? '' : `<div class="gmail_signature" style="margin-top:16px">${s.html}</div>`,
@@ -152,7 +163,7 @@ export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 
 export function mailAccuseConge(d: DonneesPreavisMails): MailAvis | null {
   const a = adressesUniques(d.locataires.flatMap((l) => l.emails));
   if (a.length === 0) return null;
-  const paras = paragraphesAccuseConge(d);
+  const paras = avecMention(paragraphesAccuseConge(d), d.valideur);
   const sig = avecSignature(paras.join('\n\n'), d.signature);
   return {
     sorte: 'preavis_locataires', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet: objetAccuseConge(d.adresse),
@@ -187,16 +198,18 @@ export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null
       // Aucun accusé envoyé par mail : pas de copie à annoncer (constat inchangé).
       ? 'Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.'
       : `Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous ${plusieurs ? 'leur' : 'lui'} avons adressé.`,
-    'Bonne journée,\nL’équipe Sans Vis-à-Vis',
+    // 🔴 Arno (05/11/2026) — avec une signature Gmail, elle tient lieu de « L’équipe Sans Vis-à-Vis » : « Bonne journée, » seul.
+    aSignature(d.signature) ? 'Bonne journée,' : 'Bonne journée,\nL’équipe Sans Vis-à-Vis',
   ];
+  const corps = avecMention(intro, d.valideur);
   // Notre signature d'abord, PUIS la copie (comme un transfert) — dans le texte comme dans le HTML.
-  const sig = avecSignature(intro.join('\n\n'), d.signature);
+  const sig = avecSignature(corps.join('\n\n'), d.signature);
   const texte = accuse === null ? sig.texte : `${sig.texte}\n\n${enteteCopie(accuse).join('\n')}\n\n${accuse.texte}`;
   const copieHtml = accuse === null ? '' : `<div style="margin-top:20px;padding:12px 16px;border-left:3px solid #c9ced6;background:#f4f5f7">`
     + `<div style="font-size:13px;line-height:1.5;color:#5b6472;margin-bottom:12px">${enteteCopie(accuse).map(echapper).join('<br>')}</div>${accuse.html}</div>`;
   return {
     sorte: 'preavis_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet: objetAdhocPreavis(d),
-    texte, html: enveloppe(`${paragraphesHtml(intro)}${sig.html}${copieHtml}`),
+    texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}${copieHtml}`),
   };
 }
 
@@ -236,9 +249,10 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
     d.vacant ? 'Le logement est désormais vacant.' : `Le logement reste loué à ${enumerer(d.restants.map((n) => prenomNom({ nom: n, prenom: null })))}.`,
     'Ce message est purement informatif : aucune action n’est attendue de votre part.',
   ];
-  const sig = avecSignature(paras.join('\n\n'), d.signature);
+  const corps = avecMention(paras, d.auteur);
+  const sig = avecSignature(corps.join('\n\n'), d.signature);
   return {
     sorte: 'sortie_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.auteur, a), objet: objetAdhocSortie(adresse),
-    texte: sig.texte, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}`),
+    texte: sig.texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}`),
   };
 }

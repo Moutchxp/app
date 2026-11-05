@@ -64,13 +64,14 @@ export function dedoublonner(liste: readonly (string | null | undefined)[]): str
 }
 
 /** L'e-mail du compte de l'auteur (identifiant de connexion), ou `null` (voie de secours). */
-export async function emailDeLAuteur(auteur: Auteur): Promise<{ email: string | null; nom: string }> {
+export async function emailDeLAuteur(auteur: Auteur): Promise<{ email: string | null; nom: string; prenom?: string | null; nomFamille?: string | null }> {
   if (auteur.id !== null) {
     const { rows } = await query<{ identifiant: string; prenom: string | null; nom: string | null }>(
       'SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE id = $1', [auteur.id]);
     if (rows[0] !== undefined) {
       const nom = [rows[0].prenom, rows[0].nom].filter((x) => x && x.trim() !== '').join(' ');
-      return { email: ESSAI.test(rows[0].identifiant) ? rows[0].identifiant : null, nom: nom || rows[0].identifiant };
+      // Arno (05/11/2026) — prénom et nom séparés, pour « Mail envoyé par Prénom NOM (adresse) ».
+      return { email: ESSAI.test(rows[0].identifiant) ? rows[0].identifiant : null, nom: nom || rows[0].identifiant, prenom: rows[0].prenom, nomFamille: rows[0].nom };
     }
   }
   return { email: ESSAI.test(auteur.libelle) ? auteur.libelle : null, nom: auteur.libelle };

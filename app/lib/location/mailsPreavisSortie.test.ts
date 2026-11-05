@@ -16,7 +16,7 @@ const D: DonneesPreavisMails = {
     { occupationId: 12, nom: 'MARTIN', prenom: 'Paul', emails: ['paul@exemple.test', 'PAUL@exemple.test', 'pas-une-adresse'] },
   ],
   recuLe: '2026-11-10', choix: { mode: 'mois', duree: 1 }, expediteur: 'gestion@criterimmo.fr',
-  valideur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, signature: { html: '', texte: '' },
+  valideur: { nom: 'Lucie Fictive', email: 'lucie.fictive@exemple.test', prenom: 'Lucie', nomFamille: 'Fictive' }, signature: { html: '', texte: '' },
   // 🔴 Arno (05/11/2026, 460) — les partenaires viennent de la liste « Préavis » (ici, l'amorce : ADHOC).
   partenaires: ['gestion.criterimmo@gmail.com'],
 };
@@ -70,7 +70,7 @@ describe('A) l’accusé de réception du congé, aux locataires', () => {
     const m = mailAccuseConge(D)!;
     expect(m.de).toBe('gestion@criterimmo.fr');
     expect(m.a).toEqual(['alice@exemple.test', 'paul@exemple.test']);
-    expect(m.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
+    expect(m.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
     expect(m.objet).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
   });
 
@@ -80,7 +80,7 @@ describe('A) l’accusé de réception du congé, aux locataires', () => {
       + 'Votre préavis étant de 1 mois, votre bail prendra fin le 10/12/2026. Nous vous rappelons que le loyer et les charges restent dus jusqu’à la fin du préavis, y compris si vous quittez le logement avant cette date.')).toBe(true);
     expect(t).toContain('Notre équipe vous propose d’organiser dans les 10 jours une visite de pré-état des lieux de sortie.');
     expect(t).toContain('(article 22 de la loi n° 89-462 du 6 juillet 1989)');
-    expect(t.endsWith('Nous restons à votre disposition pour toute question.')).toBe(true);
+    expect(t.endsWith('Nous restons à votre disposition pour toute question.\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)')).toBe(true);
   });
 
   it('3 mois : la durée et la date de fin suivent', () => {
@@ -89,7 +89,7 @@ describe('A) l’accusé de réception du congé, aux locataires', () => {
 
   it('la signature Gmail suit le texte (texte ET HTML)', () => {
     const m = mailAccuseConge({ ...D, signature: { html: '<b>Service Gestion</b>', texte: 'Service Gestion' } })!;
-    expect(m.texte.endsWith('Nous restons à votre disposition pour toute question.\n\n-- \nService Gestion')).toBe(true);
+    expect(m.texte.endsWith('Nous restons à votre disposition pour toute question.\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nService Gestion')).toBe(true);
     expect(m.html).toContain('<div class="gmail_signature" style="margin-top:16px"><b>Service Gestion</b></div>');
   });
 
@@ -131,27 +131,31 @@ describe('B) l’information à ADHOC, pour le préavis', () => {
     const a = mailAccuseConge(D)!;
     const b = mailAdhocPreavis(D, a)!;
     expect(b.a).toEqual(['gestion.criterimmo@gmail.com']);
-    expect(b.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
+    expect(b.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
     expect(b.objet).toBe('[Information] Préavis reçu — 4 rue Fictive, 92800 Puteaux — Alice BERNARD et Paul MARTIN');
     // 🔴 Arno (05/11/2026) — l'introduction EXACTE (deux locataires : « leur »), puis la copie.
     expect(b.texte.startsWith('Bonjour,\n\nNous vous informons que nous avons reçu, le 10/11/2026, le congé de Alice BERNARD et Paul MARTIN pour le logement situé '
       + '4 rue Fictive, 92800 Puteaux (propriétaire : DUPONT Jean). Le bail prendra théoriquement fin le 10/12/2026.\n\n'
       + 'Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous leur avons adressé.\n\n'
-      + 'Bonne journée,\nL’équipe Sans Vis-à-Vis\n\n---------- Copie du mail envoyé aux locataires ----------')).toBe(true);
+      + 'Bonne journée,\nL’équipe Sans Vis-à-Vis\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n---------- Copie du mail envoyé aux locataires ----------')).toBe(true);
     expect(b.texte).toContain('prendra théoriquement fin');
     expect(b.texte).not.toContain('purement informatif');
     expect(b.texte).not.toContain('aucune action n’est attendue');
     expect(b.html).not.toContain('purement informatif');
     expect(b.html).toContain('Le bail prendra théoriquement fin le 10/12/2026.');
-    expect(b.texte).toContain(`À : alice@exemple.test, paul@exemple.test\nCc : gestion@criterimmo.fr, a.jorel@sansvisavis.com\nObjet : ${a.objet}\n\n${a.texte}`);
+    expect(b.texte).toContain(`À : alice@exemple.test, paul@exemple.test\nCc : gestion@criterimmo.fr, lucie.fictive@exemple.test\nObjet : ${a.objet}\n\n${a.texte}`);
     expect(b.html).toContain(a.html);
   });
 
   it('notre signature AVANT la copie (comme un transfert), une seule fois pour nous', () => {
     const d = { ...D, signature: { html: '<b>Service Gestion</b>', texte: 'Service Gestion' } };
     const b = mailAdhocPreavis(d, mailAccuseConge(d))!;
-    expect(b.texte).toContain('L’équipe Sans Vis-à-Vis\n\n-- \nService Gestion\n\n---------- Copie du mail envoyé aux locataires ----------');
-    expect(b.texte.endsWith('Nous restons à votre disposition pour toute question.\n\n-- \nService Gestion')).toBe(true);
+    // 🔴 Arno (05/11/2026) — signature Gmail présente : « Bonne journée, » seul (plus « L’équipe Sans Vis-à-Vis »), la mention, puis la signature.
+    expect(b.texte).toContain('pour votre suivi, la copie de l’accusé de réception que nous leur avons adressé.\n\nBonne journée,\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nService Gestion\n\n---------- Copie du mail envoyé aux locataires ----------');
+    expect(b.texte).not.toContain('L’équipe Sans Vis-à-Vis');
+    expect(b.html).not.toContain('L’équipe Sans Vis-à-Vis');
+    expect(b.html.indexOf('Mail envoyé par Lucie FICTIVE')).toBeLessThan(b.html.indexOf('gmail_signature'));
+    expect(b.texte.endsWith('Nous restons à votre disposition pour toute question.\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nService Gestion')).toBe(true);
     expect(b.texte.split('-- \nService Gestion')).toHaveLength(3);
   });
 
@@ -169,6 +173,36 @@ describe('B) l’information à ADHOC, pour le préavis', () => {
     const r = mailsDuPreavis({ ...D, enGestion: false });
     expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires']);
     expect(mailAdhocPreavis({ ...D, enGestion: false }, null)).toBeNull();
+  });
+});
+
+describe('🔴 Arno (05/11/2026) — « Mail envoyé par … » et la formule de fin', () => {
+  it('signature Gmail ABSENTE : « Bonne journée, / L’équipe Sans Vis-à-Vis », puis la mention', () => {
+    const b = mailAdhocPreavis(D, mailAccuseConge(D))!;
+    expect(b.texte).toContain('Bonne journée,\nL’équipe Sans Vis-à-Vis\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)');
+    expect(b.html).toContain('Mail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)');
+  });
+  it('signature Gmail en HTML seul : elle compte aussi (« Bonne journée, » seul)', () => {
+    const d = { ...D, signature: { html: '<b>Gestion</b>', texte: '' } };
+    expect(mailAdhocPreavis(d, mailAccuseConge(d))!.texte).not.toContain('L’équipe Sans Vis-à-Vis');
+  });
+  it('compte SANS nom ni prénom : « Mail envoyé par adresse » (accusé, partenaires, sortie)', () => {
+    const d = { ...D, valideur: { nom: 'lucie.fictive@exemple.test', email: 'lucie.fictive@exemple.test', prenom: null, nomFamille: null } };
+    const a = mailAccuseConge(d)!;
+    expect(a.texte.endsWith('\n\nMail envoyé par lucie.fictive@exemple.test')).toBe(true);
+    expect(mailAdhocPreavis(d, a)!.texte).toContain('L’équipe Sans Vis-à-Vis\n\nMail envoyé par lucie.fictive@exemple.test\n\n---------- Copie');
+  });
+  it('seul le prénom, ou seul le nom : ce qui existe', () => {
+    const d1 = { ...D, valideur: { ...D.valideur, nomFamille: '' } };
+    expect(mailAccuseConge(d1)!.texte).toContain('Mail envoyé par Lucie (lucie.fictive@exemple.test)');
+    const d2 = { ...D, valideur: { ...D.valideur, prenom: null } };
+    expect(mailAccuseConge(d2)!.texte).toContain('Mail envoyé par FICTIVE (lucie.fictive@exemple.test)');
+  });
+  it('les destinataires, objets et textes juridiques ne changent pas', () => {
+    const a = mailAccuseConge(D)!;
+    expect(a.a).toEqual(['alice@exemple.test', 'paul@exemple.test']);
+    expect(a.objet).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
+    expect(a.texte).toContain('(article 22 de la loi n° 89-462 du 6 juillet 1989)');
   });
 });
 
@@ -192,6 +226,13 @@ describe('l’information à ADHOC, pour la sortie', () => {
     expect(m.texte).toContain('Le logement reste loué à Paul MARTIN.');
   });
 
+  it('🔴 Arno (05/11/2026) — « Mail envoyé par … » après la formule, avant la signature Gmail ; compte sans nom : l’adresse seule', () => {
+    expect(mailAdhocSortie(S)!.texte.endsWith('aucune action n’est attendue de votre part.\n\nMail envoyé par a.jorel@sansvisavis.com')).toBe(true);
+    const m = mailAdhocSortie({ ...S, auteur: { ...S.auteur, prenom: 'Arno', nomFamille: 'Jorel' }, signature: { html: '<b>G</b>', texte: 'G' } })!;
+    expect(m.texte.endsWith('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)\n\n-- \nG')).toBe(true);
+    expect(m.html.indexOf('Mail envoyé par Arno JOREL')).toBeLessThan(m.html.indexOf('gmail_signature'));
+  });
+
   it('tous sortis : « logement vacant » ; plusieurs sortants : pluriel', () => {
     const m = mailAdhocSortie({ ...S, vacant: true, restants: [],
       sortants: [...S.sortants, { nom: 'MARTIN Paul', entree: null, sortie: '2026-11-04' }] })!;
@@ -209,7 +250,7 @@ describe('🔴 Arno (05/11/2026, 460) — les partenaires viennent de la LISTE c
   it('préavis : À = toute la liste, DANS L’ORDRE (doublon ignoré) ; Cc = gestion@ + la personne qui valide', () => {
     const b = mailAdhocPreavis({ ...D, partenaires: ['monga@x.fr', 'gestion.criterimmo@gmail.com', 'MONGA@x.fr'] }, mailAccuseConge(D))!;
     expect(b.a).toEqual(['monga@x.fr', 'gestion.criterimmo@gmail.com']);
-    expect(b.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
+    expect(b.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
   });
   it('liste VIDE (ou case décochée) : aucun mail partenaire ; l’accusé aux locataires part toujours', () => {
     const r = mailsDuPreavis({ ...D, partenaires: [] });

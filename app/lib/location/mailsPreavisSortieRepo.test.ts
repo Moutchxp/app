@@ -36,7 +36,8 @@ vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (t: string) => (t =
 vi.mock('../gestion/statutBienRepo', () => ({ sqlStatutBien: async () => 'lo.statut_bien' }));
 vi.mock('../gestion/coordonneeVivante', () => ({ conditionCoordonneeVivante: async () => '' }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@criterimmo.fr' }) }));
-vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', nom: 'Arno JOREL' }) }));
+// 🔴 Arno (05/11/2026) — le compte connecté (session), lu côté serveur : prénom et nom séparés pour « Mail envoyé par … ».
+vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', nom: 'Arno Jorel', prenom: 'Arno', nomFamille: 'Jorel' }) }));
 vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./sortieLocatairesRepo')>()),
   lireBail: async () => ({ lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean',
@@ -70,6 +71,8 @@ describe('l’aperçu : lecture seule', () => {
     ]);
     expect(r.data.dateFin).toBe('2026-12-04');
     expect(r.data.sansEmail).toEqual([]);
+    // 🔴 Arno (05/11/2026) — l'aperçu montre la mention, comme le mail qui partira.
+    expect(r.data.mails.every((m) => m.texte.includes('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)'))).toBe(true);
     expect(envoyes).toEqual([]);
     expect(ecritures).toEqual([]);
   });
@@ -103,6 +106,12 @@ describe('l’envoi du préavis', () => {
       ['preavis_adhoc', 7, [11, 12], 'envoye', 'a.jorel@sansvisavis.com'],
     ]);
     expect(j[0].params[7]).toBe(envoyes[0].corps);
+    // 🔴 Arno (05/11/2026) — la mention du compte qui valide : dans chaque mail parti ET dans la copie enregistrée pour l'historique du bien.
+    for (const k of [0, 1]) {
+      expect(envoyes[k].corps).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
+      expect(j[k].params[7]).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
+      expect(j[k].params[8]).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
+    }
     // Et une ligne au journal du bien pour chacun.
     expect(ecritures.filter((e) => e.sql.includes('INSERT INTO gestion_journal')).map((e) => e.params[1])).toEqual([
       'location_mail_preavis_locataires', 'location_mail_preavis_adhoc']);
