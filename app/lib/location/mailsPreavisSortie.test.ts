@@ -121,6 +121,8 @@ describe('le locataire sans e-mail : signalé, jamais bloquant', () => {
     expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_adhoc']);
     expect(r.mails[0].texte).toContain('Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.');
     expect(r.mails[0].texte).not.toContain('Copie du mail');
+    expect(r.mails[0].texte).not.toContain('Vous trouverez ci-dessous');
+    expect(r.mails[0].texte).not.toContain('purement informatif');
   });
 });
 
@@ -131,9 +133,16 @@ describe('B) l’information à ADHOC, pour le préavis', () => {
     expect(b.a).toEqual(['gestion.criterimmo@gmail.com']);
     expect(b.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
     expect(b.objet).toBe('[Information] Préavis reçu — 4 rue Fictive, 92800 Puteaux — Alice BERNARD et Paul MARTIN');
-    expect(b.texte.startsWith('Bonjour,\n\nPour information, nous avons reçu le 10/11/2026 le congé de Alice BERNARD et Paul MARTIN, locataires du logement situé '
-      + '4 rue Fictive, 92800 Puteaux (propriétaire : DUPONT Jean). Fin du bail : 10/12/2026.\n\nCe message est purement informatif : aucune action n’est attendue de votre part. '
-      + 'Vous trouverez ci-dessous la copie du mail envoyé aux locataires.')).toBe(true);
+    // 🔴 Arno (05/11/2026) — l'introduction EXACTE (deux locataires : « leur »), puis la copie.
+    expect(b.texte.startsWith('Bonjour,\n\nNous vous informons que nous avons reçu, le 10/11/2026, le congé de Alice BERNARD et Paul MARTIN pour le logement situé '
+      + '4 rue Fictive, 92800 Puteaux (propriétaire : DUPONT Jean). Le bail prendra théoriquement fin le 10/12/2026.\n\n'
+      + 'Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous leur avons adressé.\n\n'
+      + 'Bonne journée,\nL’équipe Sans Vis-à-Vis\n\n---------- Copie du mail envoyé aux locataires ----------')).toBe(true);
+    expect(b.texte).toContain('prendra théoriquement fin');
+    expect(b.texte).not.toContain('purement informatif');
+    expect(b.texte).not.toContain('aucune action n’est attendue');
+    expect(b.html).not.toContain('purement informatif');
+    expect(b.html).toContain('Le bail prendra théoriquement fin le 10/12/2026.');
     expect(b.texte).toContain(`À : alice@exemple.test, paul@exemple.test\nCc : gestion@criterimmo.fr, a.jorel@sansvisavis.com\nObjet : ${a.objet}\n\n${a.texte}`);
     expect(b.html).toContain(a.html);
   });
@@ -141,14 +150,19 @@ describe('B) l’information à ADHOC, pour le préavis', () => {
   it('notre signature AVANT la copie (comme un transfert), une seule fois pour nous', () => {
     const d = { ...D, signature: { html: '<b>Service Gestion</b>', texte: 'Service Gestion' } };
     const b = mailAdhocPreavis(d, mailAccuseConge(d))!;
-    expect(b.texte).toContain('copie du mail envoyé aux locataires.\n\n-- \nService Gestion\n\n---------- Copie du mail envoyé aux locataires ----------');
+    expect(b.texte).toContain('L’équipe Sans Vis-à-Vis\n\n-- \nService Gestion\n\n---------- Copie du mail envoyé aux locataires ----------');
     expect(b.texte.endsWith('Nous restons à votre disposition pour toute question.\n\n-- \nService Gestion')).toBe(true);
     expect(b.texte.split('-- \nService Gestion')).toHaveLength(3);
   });
 
-  it('un seul locataire : « locataire » au singulier', () => {
+  it('un seul locataire : « que nous lui avons adressé » ; plusieurs : « leur »', () => {
     const d = { ...D, locataires: [D.locataires[0]] };
-    expect(mailAdhocPreavis(d, mailAccuseConge(d))!.texte).toContain('le congé de Alice BERNARD, locataire du logement');
+    const t = mailAdhocPreavis(d, mailAccuseConge(d))!.texte;
+    expect(t).toContain('le congé de Alice BERNARD pour le logement situé');
+    expect(t).toContain('la copie de l’accusé de réception que nous lui avons adressé.');
+    expect(t).not.toContain('que nous leur avons adressé');
+    expect(t).toContain('Bonjour Alice BERNARD,');   // la copie de l'accusé suit toujours
+    expect(mailAdhocPreavis(D, mailAccuseConge(D))!.texte).toContain('que nous leur avons adressé.');
   });
 
   it('🔴 bien HORS gestion : AUCUN mail ADHOC ; l’accusé aux locataires part quand même', () => {

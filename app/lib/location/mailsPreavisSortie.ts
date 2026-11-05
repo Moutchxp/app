@@ -179,12 +179,15 @@ export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null
   if (a.length === 0) return null;
   const noms = enumerer(d.locataires.map(prenomNom));
   const plusieurs = d.locataires.length > 1;
+  // 🔴 Arno (05/11/2026) — l'introduction telle qu'il l'a écrite (seuls les champs changent) ; « purement informatif » retiré.
   const intro = [
     'Bonjour,',
-    `Pour information, nous avons reçu le ${dateFrPreavis(d.recuLe)} le congé de ${noms}, ${plusieurs ? 'locataires' : 'locataire'} du logement situé ${d.adresse} (propriétaire : ${d.proprietaire ?? 'non renseigné'}). Fin du bail : ${dateFrPreavis(dateFinBail(d.recuLe, d.choix))}.`,
+    `Nous vous informons que nous avons reçu, le ${dateFrPreavis(d.recuLe)}, le congé de ${noms} pour le logement situé ${d.adresse} (propriétaire : ${d.proprietaire ?? 'non renseigné'}). Le bail prendra théoriquement fin le ${dateFrPreavis(dateFinBail(d.recuLe, d.choix))}.`,
     accuse === null
-      ? 'Ce message est purement informatif : aucune action n’est attendue de votre part. Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.'
-      : 'Ce message est purement informatif : aucune action n’est attendue de votre part. Vous trouverez ci-dessous la copie du mail envoyé aux locataires.',
+      // Aucun accusé envoyé par mail : pas de copie à annoncer (constat inchangé).
+      ? 'Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.'
+      : `Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous ${plusieurs ? 'leur' : 'lui'} avons adressé.`,
+    'Bonne journée,\nL’équipe Sans Vis-à-Vis',
   ];
   // Notre signature d'abord, PUIS la copie (comme un transfert) — dans le texte comme dans le HTML.
   const sig = avecSignature(intro.join('\n\n'), d.signature);
