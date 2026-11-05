@@ -30,6 +30,8 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 describe('🔴 LOT S — la création d’un compte', () => {
   it('collaborateur : aucun choix « Commissionné » ; administrateur : le choix, obligatoire (« Créer » désactivé sans lui), envoyé avec la création', async () => {
     await act(async () => { root.render(createElement(ComptesPage)); }); await calmer();
+    // Arno (05/11/2026) — le formulaire est replié par défaut : on le déplie d'abord.
+    await act(async () => { (container.querySelector('[data-replier-creation]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-choix-commissionne]')).toBeNull();
     const role = container.querySelector('select.cpt-champ') as HTMLSelectElement;
     await act(async () => { role.value = 'administrateur'; role.dispatchEvent(new Event('change', { bubbles: true })); });

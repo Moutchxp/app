@@ -637,6 +637,15 @@ function ModaleTemporaire({ identifiant, motDePasse, invitation, onFermer }: { i
   );
 }
 
+/** Arno (05/11/2026) — la ligne repliée du formulaire de création. */
+export const LIBELLE_CREER_COLLABORATEUR = 'Créer un nouveau Collaborateur';
+
+/** « Compte de Prénom Nom créé » (l'adresse si ni prénom ni nom). PUR. */
+export function messageCompteCree(prenom: string, nom: string, identifiant: string): string {
+  const qui = `${prenom.trim()} ${nom.trim()}`.trim() || identifiant.trim();
+  return `Compte de ${qui} créé`;
+}
+
 export default function ComptesPage() {
   const [comptes, setComptes] = useState<CompteVue[]>([]);
   const [chargement, setChargement] = useState(true);
@@ -665,6 +674,10 @@ export default function ComptesPage() {
   const [commissionneCreation, setCommissionneCreation] = useState<boolean | null>(null); // 🔴 LOT S (441) — aucune valeur pré-cochée
   const [commissionneDisponible, setCommissionneDisponible] = useState(false);
   const [enCours, setEnCours] = useState(false);
+  // 🔴 Arno (05/11/2026) — le formulaire de création REPLIÉ par défaut sur une ligne ; la saisie vit ici (pas dans le bloc replié) :
+  // replier en cours de saisie la garde jusqu'au rechargement de la page.
+  const [creationOuverte, setCreationOuverte] = useState(false);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
   const admin = role === 'administrateur';
   const societeManque = societeDisponible && societeCreation === null;
   const statutManque = statutDisponible && statutCreation === null;
@@ -693,7 +706,7 @@ export default function ComptesPage() {
   }, []);
 
   async function creer(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); setEnCours(true); setErreur(null);
+    e.preventDefault(); setEnCours(true); setErreur(null); setConfirmation(null);
     try {
       const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi, societe: societeCreation, statut: statutCreation, ...(admin ? { commissionne: commissionneCreation } : {}) }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
       const body = await res.json().catch(() => ({}));
@@ -703,6 +716,9 @@ export default function ComptesPage() {
           invitation: body.invitation ? { ok: body.invitation.ok === true, phrase: String(body.invitation.phrase ?? '') } : null,
         });
         setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false); setSocieteCreation(null); setStatutCreation(null); setCommissionneCreation(null);
+        // Arno (05/11/2026) — création réussie : le formulaire vidé SE REPLIE, et la confirmation le dit. (Une erreur le laisse déplié, saisie gardée.)
+        setCreationOuverte(false);
+        setConfirmation(messageCompteCree(prenom, nom, identifiant));
         if (body.societe && body.societe.ok === false) setErreur(String(body.societe.motif ?? 'Société non enregistrée.'));
         if (body.statut && body.statut.ok === false) setErreur(String(body.statut.motif ?? 'Statut non enregistré.'));
         if (body.commissionne && body.commissionne.ok === false) setErreur(String(body.commissionne.motif ?? 'Choix « Commissionné » non enregistré.'));
@@ -833,9 +849,16 @@ export default function ComptesPage() {
 
       {/* Bloc « Créer un compte » encapsulé en TRAME GRISE (cohérence admin) ; champs/cases/bouton restent en fond clair.
           Affichage seul — aucune logique compte/rôle/permission modifiée. */}
-      <section className="svv-card" style={{ marginBottom: 20, background: 'var(--color-svv-field)' }}>
-        <h2 className="cpt-h2">Créer un compte</h2>
-        <form onSubmit={creer} className="cpt-form">
+      <section className="svv-card" style={{ marginBottom: 20, background: 'var(--color-svv-field)' }} data-creation-compte>
+        {/* 🔴 Arno (05/11/2026) — REPLIÉ PAR DÉFAUT sur UNE ligne cliquable ; un clic déplie le formulaire, IDENTIQUE, un autre le replie.
+            Les messages « obligatoire » vivent DANS le formulaire : rien en rouge sur la ligne repliée. */}
+        <button type="button" className="cpt-repli cpt-btn--focus" aria-expanded={creationOuverte} aria-controls="cpt-form-creation"
+          onClick={() => setCreationOuverte((v) => !v)} data-replier-creation>
+          <span className="cpt-h2" style={{ margin: 0 }}>{LIBELLE_CREER_COLLABORATEUR}</span>
+          <span aria-hidden="true">{creationOuverte ? '▾' : '▸'}</span>
+        </button>
+        {creationOuverte && (
+        <form onSubmit={creer} className="cpt-form" id="cpt-form-creation" style={{ marginTop: 12 }}>
           <input className="cpt-champ" placeholder="Prénom" value={prenom} onChange={(e) => setPrenom(e.target.value)} required />
           <input className="cpt-champ" placeholder="Nom" value={nom} onChange={(e) => setNom(e.target.value)} required />
           <input className="cpt-champ" type="email" inputMode="email" autoCapitalize="none" placeholder="adresse e-mail" value={identifiant} onChange={(e) => setIdentifiant(e.target.value)} required />
@@ -892,7 +915,10 @@ export default function ComptesPage() {
           {!admin && envoiSansReponse(perms, envoi) && <p className="cpt-err" role="alert">{MSG_ENVOI_OBLIGATOIRE}</p>}
           <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi)) || societeManque || statutManque || commissionneManque}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>
+        )}
       </section>
+
+      {confirmation && <p role="status" className="cpt-invit cpt-invit--ok" data-compte-cree>{confirmation}</p>}
 
       {erreur && <p role="alert" className="cpt-err">{erreur}</p>}
 
