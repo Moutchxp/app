@@ -55,7 +55,7 @@ vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
 const enregistrerPreavis = vi.fn();
 vi.mock('./preavisRepo', () => ({ enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a) }));
 
-const { apercuMailsSortie, envoyerMailSortieLocataires, destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
+const { apercuMailsSortie, envoyerMailsSortie, envoyerMailSortieLocataires, destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const envoyes: MessageAEnvoyer[] = [];
@@ -379,14 +379,36 @@ describe('🔴 Arno (06/11/2026) — le texte du RÉCAPITULATIF est EXACTEMENT c
       const texte = (sorte: string) => ap.data.mails.find((m) => m.sorte === sorte)?.texte;
       const { lireBail, sortiePrevue, notifierSortie } = await import('./sortieLocatairesRepo');
       const f = { ...sortiePrevue((await lireBail(11))!, [11, 12], '2026-11-04') };
-      await envoyerMailSortieLocataires(f as never, AUTEUR, d2);
-      await envoyerMailSortieAdhoc(f as never, AUTEUR, d2, true);
+      await envoyerMailsSortie(f as never, AUTEUR, { ...d2, maintenant: new Date() }, true);
       expect(envoyes.map((m) => m.corps)).toEqual([texte('sortie_locataires'), texte('sortie_adhoc')]);
+      // 🔴 la copie COMPLÈTE du mail de départ, après notre signature, dans le mail aux partenaires
+      expect(texte('sortie_adhoc')).toContain(`---------- Copie du mail envoyé aux locataires ----------\nDe : gestion@criterimmo.fr\nÀ : alice@exemple.test, paul@exemple.test\nCc : gestion@criterimmo.fr, a.jorel@sansvisavis.com\nObjet : Votre départ du logement — 4 rue Fictive, 92800 Puteaux\n\n${texte('sortie_locataires')}`);
       const interne: string[] = [];
       await notifierSortie(f as never, AUTEUR, { transport: { envoyer: async (m: MessageAEnvoyer) => { interne.push(m.corps); return { ok: true as const, id: null, factice: true }; } },
         maintenant: new Date() });
       expect(interne).toEqual([texte('sortie_interne')]);
       for (const k of ['sortie_locataires', 'sortie_interne', 'sortie_adhoc']) expect((texte(k) ?? '').length).toBeGreaterThan(100);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — sortie SANS mail de départ (aucun sortant avec une adresse) : pas de copie, une ligne le dit', () => {
+  it('récapitulatif et envoi identiques ; la ligne « aucun mail de départ » ; aucune copie', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-06T10:00:00Z'));
+    try {
+      emailsPaul = [];
+      listes = { preavis: [], sortie: [ADHOC] };
+      const d2 = { ...deps, signatureBrute: async () => '' };
+      const ap = await apercuMailsSortie(11, AUTEUR, { sortants: [12], date: '2026-11-04' }, d2);
+      if (ap.etat !== 'ok') throw new Error('aperçu');
+      expect(ap.data.mails.map((m) => m.sorte)).toEqual(['sortie_interne', 'sortie_adhoc']);
+      const adhoc = ap.data.mails.find((m) => m.sorte === 'sortie_adhoc')!.texte!;
+      expect(adhoc).toContain('Aucun des locataires n’a d’adresse e-mail connue : le mail de départ ne leur a pas été envoyé par mail.');
+      expect(adhoc).not.toContain('Copie du mail envoyé aux locataires');
+      const { lireBail, sortiePrevue } = await import('./sortieLocatairesRepo');
+      const f = sortiePrevue((await lireBail(11))!, [12], '2026-11-04');
+      await envoyerMailsSortie(f as never, AUTEUR, { ...d2, maintenant: new Date() }, true);
+      expect(envoyes.map((m) => m.corps)).toEqual([adhoc]);
     } finally { vi.useRealTimers(); }
   });
 });

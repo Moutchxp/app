@@ -318,8 +318,9 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   const prevue = typeof o.date === 'string' ? sortiePrevue(bail, sortants, o.date) : null;
   const quand = new Date().toISOString();
   const texteInterne = prevue === null ? undefined : texteMailSortie(donneesMailSortie(prevue, await auteurDuMail(auteur), quand));
+  // 🔴 Arno (06/11/2026) — le mail aux partenaires porte la copie complète du mail de départ (ou la ligne « aucun mail de départ »).
   const adhoc = prevue === null || partenaires.length === 0 ? null
-    : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires });
+    : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart });
   return { etat: 'ok', data: { enGestion, copropriete: logement.copropriete, lotId: logement.lotId,
     sansEmail: locs.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
     mails: [
@@ -351,6 +352,33 @@ export async function envoyerMailSortieLocataires(f: SortieFaite, auteur: Auteur
       expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran });
     if (m === null) return { etat: 'ok', envois: [] };
     return { etat: 'ok', envois: await envoyerSerie([m], sig.brute, { lotId: f.bail.lotId, occupationIds: occs, auteur }, deps) };
+  } catch (e) {
+    return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };
+  }
+}
+
+/**
+ * 🔴 Arno (06/11/2026) — « ENREGISTRER ET ENVOYER LES MAILS » D'UNE SORTIE : le mail de départ aux locataires PUIS le mail aux partenaires (liste
+ * « Sorties », bien en gestion, case cochée), qui en porte la COPIE COMPLÈTE — ou la ligne « aucun mail de départ » si aucun sortant n'a d'adresse.
+ * Les mêmes fonctions que l'aperçu du récapitulatif. Ne lève jamais.
+ */
+export async function envoyerMailsSortie(f: SortieFaite, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}, informerPartenaires = true): Promise<IssueMailsAvis> {
+  try {
+    if (!(await mailsAvisDisponibles())) return { etat: 'sans_schema', motif: MOTIF_SANS_457 };
+    const occs = f.sortants.map((l) => l.occupationId);
+    const logement = await logementDe(occs[0] ?? f.occupationIds[0]);
+    if (logement === null) return { etat: 'ok', envois: [] };
+    const locs = occs.length === 0 ? [] : await locatairesAvis(occs);
+    const qui = await emailDeLAuteur(auteur);
+    const config = await chargerConfigGestion();
+    const sig = await signatureEcran(deps);
+    const depart = mailSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
+      expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran });
+    const partenaires = informerPartenaires && logement.enGestion ? (await lireDestinatairesDefaut('sortie')).map((x) => x.adresse) : [];
+    const adhoc = mailAdhocSortie({ ...donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString()), enGestion: logement.enGestion,
+      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart });
+    const mails = [depart, adhoc].filter((m): m is MailAvis => m !== null);
+    return { etat: 'ok', envois: mails.length === 0 ? [] : await envoyerSerie(mails, sig.brute, { lotId: f.bail.lotId, occupationIds: occs.length > 0 ? occs : f.occupationIds, auteur }, deps) };
   } catch (e) {
     return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };
   }

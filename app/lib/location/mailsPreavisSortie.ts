@@ -249,7 +249,15 @@ export function objetAdhocSortie(adresse: string): string {
  * Le mail d'information de la SORTIE à ADHOC, ou `null` pour un bien HORS gestion. Les données sont celles du mail de compte
  * rendu déjà en place (`DonneesMailSortie`), qui reste envoyé tel quel. PUR.
  */
-export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[] }): MailAvis | null {
+export const PAS_DE_MAIL_DE_DEPART = 'Aucun des locataires n’a d’adresse e-mail connue : le mail de départ ne leur a pas été envoyé par mail.';
+
+/**
+ * 🔴 Arno (06/11/2026) — `depart` : avec « Enregistrer et envoyer les mails », le mail de départ aux locataires — sa COPIE COMPLÈTE suit notre
+ * signature (comme l'accusé dans le mail du préavis) ; `null` : aucun ne part (aucun sortant avec une adresse), une ligne le dit ; absent : comme
+ * avant (ni copie, ni ligne). PUR.
+ */
+export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[];
+  depart?: MailAvis | null }): MailAvis | null {
   if (!d.enGestion) return null;
   const a = adressesUniques(d.partenaires);
   if (a.length === 0) return null;
@@ -264,12 +272,18 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
       ...d.sortants.map((s) => `- ${prenomNom({ nom: s.nom, prenom: null })} — ${s.entree === null ? 'date d’entrée non renseignée' : `entré(e) le ${dateFrPreavis(s.entree)}`}, sorti(e) le ${dateFrPreavis(s.sortie)}`)].join('\n'),
     d.vacant ? 'Le logement est désormais vacant.' : `Le logement reste loué à ${enumerer(d.restants.map((n) => prenomNom({ nom: n, prenom: null })))}.`,
     'Ce message est purement informatif : aucune action n’est attendue de votre part.',
+    ...(d.depart === null ? [PAS_DE_MAIL_DE_DEPART] : []),
   ];
   const corps = avecMention(paras, d.auteur);
   const sig = avecSignature(corps.join('\n\n'), d.signature);
+  const depart = d.depart ?? null;
+  // Notre signature d'abord, PUIS la copie (comme un transfert) — dans le texte comme dans le HTML (la présentation du mail du préavis).
+  const texte = depart === null ? sig.texte : `${sig.texte}\n\n${enteteCopie(depart).join('\n')}\n\n${depart.texte}`;
+  const copieHtml = depart === null ? '' : `<div style="margin-top:20px;padding:12px 16px;border-left:3px solid #c9ced6;background:#f4f5f7">`
+    + `<div style="font-size:13px;line-height:1.5;color:#5b6472;margin-bottom:12px">${enteteCopie(depart).map(echapper).join('<br>')}</div>${depart.html}</div>`;
   return {
     sorte: 'sortie_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.auteur, a), objet: objetAdhocSortie(adresse),
-    texte: sig.texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}`),
+    texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}${copieHtml}`),
   };
 }
 

@@ -315,3 +315,29 @@ describe('🔴 Arno (06/11/2026) — le mail de DÉPART aux locataires (texte ex
     expect(mailSortieLocataires({ ...base, copropriete: null, locataires: D.locataires.map((l) => ({ ...l, emails: [] })) })).toBeNull();
   });
 });
+
+describe('🔴 Arno (06/11/2026) — le mail aux partenaires de la SORTIE porte la copie du mail de départ', () => {
+  const S2 = {
+    adresse: '4 rue Fictive, 92800 Puteaux', lotId: 7, type: 'Appartement', etage: '3', porte: 'G', annexes: [], proprietaire: 'DUPONT Jean',
+    sortants: [{ nom: 'BERNARD Alice', entree: '2022-09-01', sortie: '2026-11-04' }], vacant: true, restants: [],
+    auteur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, quand: '2026-11-04T10:00:00Z',
+    enGestion: true, expediteur: 'gestion@criterimmo.fr', signature: { html: '<b>G</b>', texte: 'G' }, partenaires: ['gestion.criterimmo@gmail.com'] as string[],
+  };
+  const depart = mailSortieLocataires({ adresse: S2.adresse, locataires: [D.locataires[0]], dateSortie: '2026-11-04', copropriete: null, expediteur: S2.expediteur,
+    valideur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, signature: S2.signature })!;
+  it('avec le départ : signature, PUIS « Copie du mail envoyé aux locataires » (De / À / Cc / Objet) et le texte complet — texte et HTML', () => {
+    const m = mailAdhocSortie({ ...S2, depart })!;
+    expect(m.texte).toContain(`-- \nG\n\n---------- Copie du mail envoyé aux locataires ----------\nDe : gestion@criterimmo.fr\nÀ : alice@exemple.test\nCc : gestion@criterimmo.fr, a.jorel@sansvisavis.com\nObjet : ${depart.objet}\n\n${depart.texte}`);
+    expect(m.texte.endsWith(depart.texte)).toBe(true);
+    expect(m.html).toContain(depart.html);
+    expect(m.texte).not.toContain('le mail de départ ne leur a pas été envoyé');
+  });
+  it('sans départ (null) : la ligne le dit, aucune copie ; non fourni : le mail d’avant, inchangé', () => {
+    const sans = mailAdhocSortie({ ...S2, depart: null })!;
+    expect(sans.texte).toContain('Aucun des locataires n’a d’adresse e-mail connue : le mail de départ ne leur a pas été envoyé par mail.');
+    expect(sans.texte).not.toContain('Copie du mail');
+    const avant = mailAdhocSortie(S2)!;
+    expect(avant.texte).not.toContain('Copie du mail');
+    expect(avant.texte).not.toContain('le mail de départ');
+  });
+});

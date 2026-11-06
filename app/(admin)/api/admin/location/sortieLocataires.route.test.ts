@@ -27,11 +27,11 @@ const enregistrerPreavisAvecMails = vi.fn();
 const apercuMailsPreavis = vi.fn();
 const destinatairesPourInfo = vi.fn();
 const apercuMailsSortie = vi.fn();
-const envoyerMailSortieLocataires = vi.fn();
+const envoyerMailsSortie = vi.fn();
 vi.mock('../../../../lib/location/mailsPreavisSortieRepo', () => ({
   destinatairesPourInfo: (...a: unknown[]) => destinatairesPourInfo(...a),
   apercuMailsSortie: (...a: unknown[]) => apercuMailsSortie(...a),
-  envoyerMailSortieLocataires: (...a: unknown[]) => envoyerMailSortieLocataires(...a),
+  envoyerMailsSortie: (...a: unknown[]) => envoyerMailsSortie(...a),
   envoyerMailSortieAdhoc: (...a: unknown[]) => envoyerMailSortieAdhoc(...a),
   enregistrerPreavisAvecMails: (...a: unknown[]) => enregistrerPreavisAvecMails(...a),
   apercuMailsPreavis: (...a: unknown[]) => apercuMailsPreavis(...a),
@@ -175,23 +175,25 @@ describe('🔴 Arno (06/11/2026) — le parcours en une passe : « Enregistrer �
   });
 });
 
-describe('🔴 Arno (06/11/2026) — le mail de départ aux locataires : SEULEMENT avec « Enregistrer et envoyer les mails »', () => {
+describe('🔴 Arno (06/11/2026) — le mail de départ aux locataires (et sa copie aux partenaires) : SEULEMENT avec « Enregistrer et envoyer les mails »', () => {
   const DEPART = { sorte: 'sortie_locataires', objet: 'Votre départ du logement — 4 rue Fictive', a: ['alice@x.fr'], cc: ['gestion@criterimmo.fr'], envoye: true, motif: null };
   const ADHOC = { sorte: 'sortie_adhoc', objet: 'o', a: ['p@x.fr'], cc: [], envoye: true, motif: null };
-  beforeEach(() => { envoyerMailSortieLocataires.mockReset().mockResolvedValue({ etat: 'ok', envois: [DEPART] }); });
-  it('`envoyerMails: true` : envoyé, et rendu EN TÊTE des mails de la sortie', async () => {
+  beforeEach(() => { envoyerMailsSortie.mockReset().mockResolvedValue({ etat: 'ok', envois: [DEPART, ADHOC] }); });
+  it('`envoyerMails: true` : le départ PUIS les partenaires (qui en portent la copie), par une seule porte ; l’ancienne voie n’est pas appelée', async () => {
     enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
     notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: ['a@b.fr'], objet: 'x' });
-    envoyerMailSortieAdhoc.mockResolvedValue({ etat: 'ok', envois: [ADHOC] });
     const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', envoyerMails: true }))).json();
-    expect(envoyerMailSortieLocataires).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' });
+    expect(envoyerMailsSortie).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' }, {}, true);
+    expect(envoyerMailSortieAdhoc).not.toHaveBeenCalled();
     expect(r.adhoc).toEqual({ etat: 'ok', envois: [DEPART, ADHOC] });
   });
-  it('`envoyerMails` absent (comme avant) ou `false` : jamais de mail de départ', async () => {
+  it('`envoyerMails` absent (comme avant) : le mail aux partenaires seul, sans départ ; `false` : aucun mail', async () => {
     enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
     notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: [], objet: 'x' });
     await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' }));
+    expect(envoyerMailSortieAdhoc).toHaveBeenCalledTimes(1);
     await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', envoyerMails: false }));
-    expect(envoyerMailSortieLocataires).not.toHaveBeenCalled();
+    expect(envoyerMailsSortie).not.toHaveBeenCalled();
+    expect(envoyerMailSortieAdhoc).toHaveBeenCalledTimes(1);
   });
 });
