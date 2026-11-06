@@ -33,7 +33,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
+import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, envoyerMailSortieLocataires, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -514,7 +514,12 @@ export async function POST(request: Request): Promise<Response> {
         const m = await notifierSortie(r.data, auteur);
         // Arno (05/11/2026) — PUIS le mail d'information à ADHOC (bien en gestion seulement) ; le compte rendu ci-dessus reste tel quel.
         // 🔴 Arno (05/11/2026, 460) — la liste « Sorties » ; la case « Informer nos partenaires » décochée : aucun mail partenaire.
-        const adhoc = await envoyerMailSortieAdhoc(r.data, auteur, {}, corps.informerPartenaires !== false);
+        const adhocSeul = await envoyerMailSortieAdhoc(r.data, auteur, {}, corps.informerPartenaires !== false);
+        // 🔴 Arno (06/11/2026) — « Enregistrer et envoyer les mails » (`envoyerMails: true`) : AUSSI le mail de départ aux locataires, en tête.
+        const depart = corps.envoyerMails === true ? await envoyerMailSortieLocataires(r.data, auteur) : null;
+        const adhoc = depart === null ? adhocSeul
+          : depart.etat !== 'ok' ? depart
+          : adhocSeul.etat === 'ok' ? { etat: 'ok' as const, envois: [...depart.envois, ...adhocSeul.envois] } : adhocSeul;
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
           ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif, destinataires: m.destinataires, objet: m.objet },
           adhoc: adhoc.etat === 'ok' ? { etat: 'ok', envois: adhoc.envois } : { etat: adhoc.etat, motif: adhoc.motif } });
@@ -539,7 +544,8 @@ export async function POST(request: Request): Promise<Response> {
       case 'apercu-sortie': {
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();
-        return repondre(await apercuMailsSortie(occ, auteur));
+        const sortants = Array.isArray(corps.sortants) ? (corps.sortants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        return repondre(await apercuMailsSortie(occ, auteur, { sortants, date: corps.date }));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];

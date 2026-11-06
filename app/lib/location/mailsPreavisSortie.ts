@@ -32,7 +32,7 @@ export const MENTION_SANS_EMAIL = 'pas d’e-mail, il ne recevra pas l’accusé
 
 const FORMAT = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 
-export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adhoc';
+export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adhoc' | 'sortie_locataires';
 
 /** Un mail prêt : ce que l'aperçu montre et ce qui part, à l'identique. */
 export interface MailAvis {
@@ -61,6 +61,8 @@ export interface DonneesPreavisMails {
   recuLe: string;
   choix: ModePreavis;
   expediteur: string;
+  /** 🔴 Arno (06/11/2026, 461) — le bien est-il en copropriété (saisi sur le bien) : décide du paragraphe de la provision de 20 % ; null = non renseigné. */
+  copropriete?: boolean | null;
   /** `prenom` / `nomFamille` : ceux du compte connecté (« Mail envoyé par … ») ; absents : seule l'adresse. */
   valideur: { nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null };
   signature: Signature;
@@ -142,8 +144,21 @@ export function objetAccuseConge(adresse: string): string {
   return `Accusé de réception de votre congé — ${adresse}`;
 }
 
+/**
+ * ══ 🔴 Arno (06/11/2026, 461) — LE PARAGRAPHE DE LA PROVISION DE 20 % (article 22 de la loi de 1989), selon la copropriété SAISIE sur le bien ═══════
+ * Oui : la provision sera conservée (« Enfin, … » dans l'accusé de préavis ; sans « Enfin, » dans le mail de départ) ; Non : aucun paragraphe ;
+ * non renseigné : la formulation conditionnelle (« Si le logement est situé… »). Jamais déduit du type de logement ni de l'adresse. PUR.
+ */
+export const PROVISION_OUI = 'le logement étant situé dans un immeuble en copropriété, nous pourrons conserver, même si l’état des lieux de sortie est conforme, une provision de 20 % au plus du dépôt de garantie jusqu’à l’approbation des comptes annuels de l’immeuble par l’assemblée générale des copropriétaires (article 22 de la loi n° 89-462 du 6 juillet 1989). Cette provision sert à régulariser les charges réelles de l’année : le solde vous sera restitué, déduction faite des sommes éventuellement dues, dans le mois qui suit l’approbation des comptes.';
+export const PROVISION_NON_RENSEIGNE = 'Si le logement est situé dans un immeuble en copropriété, une provision de 20 % au plus du dépôt de garantie pourra être conservée, même si l’état des lieux de sortie est conforme, jusqu’à l’approbation des comptes annuels de l’immeuble par l’assemblée générale des copropriétaires (article 22 de la loi n° 89-462 du 6 juillet 1989). Le solde vous sera alors restitué, déduction faite des sommes éventuellement dues, dans le mois qui suit cette approbation.';
+export function paragrapheCopropriete(copropriete: boolean | null, mail: 'preavis' | 'sortie'): string[] {
+  if (copropriete === false) return [];
+  if (copropriete === null) return [PROVISION_NON_RENSEIGNE];
+  return [mail === 'preavis' ? `Enfin, ${PROVISION_OUI}` : `${PROVISION_OUI.charAt(0).toUpperCase()}${PROVISION_OUI.slice(1)}`];
+}
+
 /** Les paragraphes du mail A, tels qu'Arno les a écrits (seuls les champs entre chevrons changent). PUR. */
-export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 'locataires' | 'recuLe' | 'choix'>): string[] {
+export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 'locataires' | 'recuLe' | 'choix' | 'copropriete'>): string[] {
   const fin = dateFrPreavis(dateFinBail(d.recuLe, d.choix));
   const duree = d.choix.mode === 'mois'
     ? `Votre préavis étant de ${libelleDuree(d.choix.duree)}, votre bail prendra fin le ${fin}.`
@@ -154,7 +169,8 @@ export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 
     `Nous accusons réception de votre congé pour le logement situé ${d.adresse}, reçu le ${dateFrPreavis(d.recuLe)}.`,
     `${duree} Nous vous rappelons que le loyer et les charges restent dus jusqu’à la fin du préavis, y compris si vous quittez le logement avant cette date.`,
     'Notre équipe vous propose d’organiser dans les 10 jours une visite de pré-état des lieux de sortie. Elle permet de comparer l’état actuel du logement avec l’état des lieux d’entrée et de vous signaler, si besoin, les points à reprendre avant votre départ, afin de limiter les retenues sur le dépôt de garantie. Cette visite n’est pas obligatoire, mais nous vous la recommandons vivement : elle évite les incompréhensions le jour de l’état des lieux de sortie définitif. Pour la fixer, il vous suffit de répondre à ce message.',
-    'Enfin, le logement étant situé dans un immeuble collectif, nous pourrons conserver, même si l’état des lieux de sortie est conforme, une provision de 20 % au plus du dépôt de garantie jusqu’à l’approbation des comptes annuels de l’immeuble par l’assemblée générale des copropriétaires (article 22 de la loi n° 89-462 du 6 juillet 1989). Cette provision sert à régulariser les charges réelles de l’année : le solde vous sera restitué, déduction faite des sommes éventuellement dues, dans le mois qui suit l’approbation des comptes.',
+    // 🔴 Arno (06/11/2026, 461) — la provision de 20 % selon la copropriété SAISIE sur le bien (Oui / Non / non renseigné).
+    ...paragrapheCopropriete(d.copropriete ?? null, 'preavis'),
     'Nous restons à votre disposition pour toute question.',
   ];
 }
@@ -254,5 +270,39 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
   return {
     sorte: 'sortie_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.auteur, a), objet: objetAdhocSortie(adresse),
     texte: sig.texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}`),
+  };
+}
+
+// ══ 🔴 Arno (06/11/2026) — LE MAIL DE DÉPART AUX LOCATAIRES (sortie, « Enregistrer et envoyer les mails » seulement) ══════════════════════════
+
+export function objetSortieLocataires(adresse: string): string {
+  return `Votre départ du logement — ${adresse}`;
+}
+
+/** Les paragraphes du mail de départ, tels qu'Arno les a écrits (seuls les champs changent). PUR. */
+export function paragraphesSortieLocataires(d: { adresse: string; locataires: readonly Pick<LocataireAvis, 'nom' | 'prenom'>[]; dateSortie: string; copropriete: boolean | null }): string[] {
+  return [
+    `Bonjour ${enumerer(d.locataires.map(prenomNom))},`,
+    `Nous vous confirmons votre départ du logement situé ${d.adresse}, effectif le ${dateFrPreavis(d.dateSortie)}, date de la remise des clés.`,
+    'Le dépôt de garantie vous sera restitué dans un délai maximal d’un mois à compter de la remise des clés si l’état des lieux de sortie est conforme à l’état des lieux d’entrée, et de deux mois dans le cas contraire, déduction faite des sommes restant dues et justifiées (article 22 de la loi n° 89-462 du 6 juillet 1989).',
+    ...paragrapheCopropriete(d.copropriete, 'sortie'),
+    'Afin de procéder à la restitution, merci de nous communiquer par retour de mail votre nouvelle adresse postale ainsi qu’un RIB, si ce n’est pas déjà fait.',
+    'Nous vous remercions pour la confiance que vous nous avez accordée et vous souhaitons une bonne installation.',
+  ];
+}
+
+/**
+ * Le mail de départ : À = les locataires sortants qui ont une adresse ; Cc = gestion@ + la personne qui valide ; « Mail envoyé par … » puis la
+ * signature Gmail. `null` si aucun sortant n'a d'adresse (l'écran le signale). PUR.
+ */
+export function mailSortieLocataires(d: { adresse: string; locataires: readonly LocataireAvis[]; dateSortie: string; copropriete: boolean | null;
+  expediteur: string; valideur: DonneesPreavisMails['valideur']; signature: Signature }): MailAvis | null {
+  const a = adressesUniques(d.locataires.flatMap((l) => l.emails));
+  if (a.length === 0) return null;
+  const paras = avecMention(paragraphesSortieLocataires(d), d.valideur);
+  const sig = avecSignature(paras.join('\n\n'), d.signature);
+  return {
+    sorte: 'sortie_locataires', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet: objetSortieLocataires(d.adresse),
+    texte: sig.texte, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}`),
   };
 }

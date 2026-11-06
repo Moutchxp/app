@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   adressesUniques, copiesAvis, dateFinBail, enumerer, mailAccuseConge, mailAdhocPreavis, mailAdhocSortie, mailsDuPreavis,
-  objetAdhocSortie, prenomNom, type DonneesPreavisMails,
+  objetAdhocSortie, prenomNom, type DonneesPreavisMails, mailSortieLocataires, paragrapheCopropriete, PROVISION_NON_RENSEIGNE,
 } from './mailsPreavisSortie';
 
 /**
@@ -263,5 +263,55 @@ describe('🔴 Arno (05/11/2026, 460) — les partenaires viennent de la LISTE c
       signature: { html: '', texte: '' } };
     expect(mailAdhocSortie({ ...S, partenaires: ['b@x.fr', 'a@x.fr'] })!.a).toEqual(['b@x.fr', 'a@x.fr']);
     expect(mailAdhocSortie({ ...S, partenaires: [] })).toBeNull();
+  });
+});
+
+describe('🔴 Arno (06/11/2026, 461) — le paragraphe de 20 % selon la copropriété SAISIE (accusé de préavis et mail de départ)', () => {
+  const OUI_PREAVIS = 'Enfin, le logement étant situé dans un immeuble en copropriété, nous pourrons conserver, même si l’état des lieux de sortie est conforme, une provision de 20 % au plus du dépôt de garantie jusqu’à l’approbation des comptes annuels de l’immeuble par l’assemblée générale des copropriétaires (article 22 de la loi n° 89-462 du 6 juillet 1989). Cette provision sert à régulariser les charges réelles de l’année : le solde vous sera restitué, déduction faite des sommes éventuellement dues, dans le mois qui suit l’approbation des comptes.';
+  const NR = 'Si le logement est situé dans un immeuble en copropriété, une provision de 20 % au plus du dépôt de garantie pourra être conservée, même si l’état des lieux de sortie est conforme, jusqu’à l’approbation des comptes annuels de l’immeuble par l’assemblée générale des copropriétaires (article 22 de la loi n° 89-462 du 6 juillet 1989). Le solde vous sera alors restitué, déduction faite des sommes éventuellement dues, dans le mois qui suit cette approbation.';
+  it('les trois textes exacts', () => {
+    expect(paragrapheCopropriete(true, 'preavis')).toEqual([OUI_PREAVIS]);
+    expect(paragrapheCopropriete(true, 'sortie')).toEqual([OUI_PREAVIS.replace('Enfin, le logement', 'Le logement')]);
+    expect(paragrapheCopropriete(false, 'preavis')).toEqual([]);
+    expect(paragrapheCopropriete(false, 'sortie')).toEqual([]);
+    expect(paragrapheCopropriete(null, 'preavis')).toEqual([NR]);
+    expect(paragrapheCopropriete(null, 'sortie')).toEqual([NR]);
+    expect(PROVISION_NON_RENSEIGNE).toBe(NR);
+  });
+  it('l’accusé de préavis : Oui → le paragraphe « Enfin, … » ; Non → aucun ; non renseigné → le conditionnel ; plus jamais « immeuble collectif »', () => {
+    expect(mailAccuseConge({ ...D, copropriete: true })!.texte).toContain(OUI_PREAVIS);
+    expect(mailAccuseConge({ ...D, copropriete: false })!.texte).not.toContain('20 %');
+    expect(mailAccuseConge({ ...D, copropriete: null })!.texte).toContain(NR);
+    for (const c of [true, false, null]) expect(mailAccuseConge({ ...D, copropriete: c })!.texte).not.toContain('immeuble collectif');
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — le mail de DÉPART aux locataires (texte exact)', () => {
+  const base = { adresse: '4 rue Fictive, 92800 Puteaux', locataires: D.locataires, dateSortie: '2026-11-04', expediteur: 'gestion@criterimmo.fr', valideur: D.valideur, signature: { html: '', texte: '' } };
+  it('objet, destinataires, copies ; le texte d’Arno, la mention puis la signature', () => {
+    const m = mailSortieLocataires({ ...base, copropriete: false })!;
+    expect(m.sorte).toBe('sortie_locataires');
+    expect(m.objet).toBe('Votre départ du logement — 4 rue Fictive, 92800 Puteaux');
+    expect(m.a).toEqual(['alice@exemple.test', 'paul@exemple.test']);
+    expect(m.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
+    expect(m.texte).toBe([
+      'Bonjour Alice BERNARD et Paul MARTIN,',
+      'Nous vous confirmons votre départ du logement situé 4 rue Fictive, 92800 Puteaux, effectif le 04/11/2026, date de la remise des clés.',
+      'Le dépôt de garantie vous sera restitué dans un délai maximal d’un mois à compter de la remise des clés si l’état des lieux de sortie est conforme à l’état des lieux d’entrée, et de deux mois dans le cas contraire, déduction faite des sommes restant dues et justifiées (article 22 de la loi n° 89-462 du 6 juillet 1989).',
+      'Afin de procéder à la restitution, merci de nous communiquer par retour de mail votre nouvelle adresse postale ainsi qu’un RIB, si ce n’est pas déjà fait.',
+      'Nous vous remercions pour la confiance que vous nous avez accordée et vous souhaitons une bonne installation.',
+      'Mail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)',
+    ].join('\n\n'));
+  });
+  it('Oui : « Le logement étant situé… » (sans « Enfin, ») entre la restitution et le RIB ; non renseigné : le conditionnel', () => {
+    const oui = mailSortieLocataires({ ...base, copropriete: true })!.texte.split('\n\n');
+    expect(oui[3].startsWith('Le logement étant situé dans un immeuble en copropriété')).toBe(true);
+    expect(oui[4].startsWith('Afin de procéder à la restitution')).toBe(true);
+    expect(mailSortieLocataires({ ...base, copropriete: null })!.texte.split('\n\n')[3].startsWith('Si le logement est situé')).toBe(true);
+  });
+  it('signature Gmail après la mention ; aucun locataire avec une adresse : aucun mail', () => {
+    const m = mailSortieLocataires({ ...base, copropriete: null, signature: { html: '<b>G</b>', texte: 'G' } })!;
+    expect(m.texte.endsWith('Mail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nG')).toBe(true);
+    expect(mailSortieLocataires({ ...base, copropriete: null, locataires: D.locataires.map((l) => ({ ...l, emails: [] })) })).toBeNull();
   });
 });

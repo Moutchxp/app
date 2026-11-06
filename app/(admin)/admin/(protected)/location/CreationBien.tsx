@@ -190,7 +190,7 @@ function etatDepuisLecture(l: LectureFiche) {
     parkingSituation: (v.parkingSituation || null) as SituationParking | null, parkingType: (v.parkingType || null) as TypeParking | null,
     meuble: ouiNonDe(v.meuble), ascenseur: ouiNonDe(v.ascenseur), digicode: ouiNonDe(v.digicode),
     syndic: v.syndicId === '' ? null : { id: Number(v.syndicId), nom: v.syndicNom, ville: null, contactsIds: [], nouveauxContacts: [] } as SyndicChoisi,
-    assurancePno: ouiNonDe(v.assurancePno), chargesCopro: (v.chargesCopro || null) as ChargesCopro | null,
+    assurancePno: ouiNonDe(v.assurancePno), chargesCopro: (v.chargesCopro || null) as ChargesCopro | null, copropriete: ouiNonDe(v.copropriete),
     entretien: versSaisieEntretien(ouiNonDe(v.entretienAPrevoir), entretiens),
     annexes: l.annexes.map((a): Annexe => ({
       cle: a.id, id: a.id, categorie: a.categorie, etage: a.etage, numLotCopro: a.numLotCopro, porte: a.porte, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
@@ -280,6 +280,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [assurancePno, setAssurancePno] = useState<boolean | null>(init?.assurancePno ?? null);
   /** « PAIEMENT DES CHARGES » (Arno, 21/10/2026, migration 400) : Propriétaire / Agence / non renseigné — FACULTATIF. */
   const [chargesCopro, setChargesCopro] = useState<ChargesCopro | null>(init?.chargesCopro ?? null);
+  /** 🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non » : proposée, jamais obligatoire ; non choisie = « non renseigné ». */
+  const [copropriete, setCopropriete] = useState<boolean | null>(init?.copropriete ?? null);
   /** L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : Non vide le tout. */
   const [entretien, setEntretien] = useState<SaisieEntretien>(init?.entretien ?? ENTRETIEN_VIDE);
   /**
@@ -397,7 +399,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const ficheAnnexe = lu?.annexe === true;
   const avecAnnexes = famille !== 'parking' && !ficheAnnexe;
   const avecComplements = famille !== 'parking';
-  const montre = (cle: 'avecAg' | 'avecIdFiscal' | 'avecCharges' | 'avecPno' | 'avecEntretien'): boolean =>
+  const montre = (cle: 'avecAg' | 'avecIdFiscal' | 'avecCharges' | 'avecPno' | 'avecEntretien' | 'avecCopropriete'): boolean =>
     lu === undefined || (lu[cle] === true && (cle === 'avecAg' || cle === 'avecEntretien' || !lu.annexe));
   /** « Entretien à prévoir » : dans le bloc des caractéristiques complémentaires (pas pour un parking), là où la fiche le porte. */
   const avecEntretienEncadre = avecComplements && montre('avecEntretien');
@@ -436,7 +438,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       batiment: b.batiment, escalier: b.escalier, precisionAcces: b.precisionAcces, ascenseur: enOuiNon(ascenseur), digicode: enOuiNon(digicode), digicodeCode: b.digicodeCode,
       syndicId: syndic === null ? '' : String(syndic.id), syndicNom: syndic?.nom ?? '',
       syndicContacts: syndic === null ? '' : contactsSyndicEnTexte({ contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts }),
-      chargesCopro: chargesCopro ?? '', idFiscal: b.idFiscal, derniereAg: b.derniereAg, dpeClasse: b.dpeClasse, dpeDate: b.dpeDate,
+      chargesCopro: chargesCopro ?? '', copropriete: enOuiNon(copropriete), idFiscal: b.idFiscal, derniereAg: b.derniereAg, dpeClasse: b.dpeClasse, dpeDate: b.dpeDate,
       entretienAPrevoir: enOuiNon(e.entretienAPrevoir), entretiens: entretiensEnTexte(e.entretiens), commentaire: b.commentaire,
     };
     const valeursDuChemin = l.encart.annexe || famille === null ? valeurs : viderHorsChemin(valeurs, famille as FamilleBien);
@@ -599,7 +601,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 25/10/2026 — seuls les champs du chemin CHOISI partent (ceux des autres familles sont retirés de l'envoi).
       logement: restreindreAuChemin({ ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
         assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)),
-        ...(chargesCopro === null ? {} : { chargesCopro }) } as Record<string, unknown>, famille as FamilleBien | null),
+        ...(chargesCopro === null ? {} : { chargesCopro }), ...(copropriete === null ? {} : { copropriete }) } as Record<string, unknown>, famille as FamilleBien | null),
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts: continuite !== undefined ? continuite.contacts : contacts,
       annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
@@ -1044,6 +1046,17 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 <Pilules etiquette="Paiement des charges" options={ORDRE_BOUTONS_CHARGES} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
                 <small className="loc-charges-mention">Qui règle les charges de copropriété au syndic</small>
               </div>}
+            </div>
+          )}
+          {/* 🔴 Arno (06/11/2026, 461) — « COPROPRIÉTÉ : OUI / NON » : facultative (ne bloque rien), jamais déduite du type ni de l'adresse ; elle décide
+              du paragraphe de la provision de 20 % dans l'accusé de préavis et le mail de sortie aux locataires. */}
+          {montre('avecCopropriete') && !ficheAnnexe && (
+            <div className="loc-charges" data-ligne-copropriete>
+              <div className="loc-charges-bloc" data-copropriete>
+                <h4>Copropriété</h4>
+                <Pilules etiquette="Copropriété" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(copropriete)} onChoix={(v) => setCopropriete(v === null ? null : v === 'oui')} />
+                <small className="loc-charges-mention">Le logement est-il dans un immeuble en copropriété ? (facultatif)</small>
+              </div>
             </div>
           )}
         </section>

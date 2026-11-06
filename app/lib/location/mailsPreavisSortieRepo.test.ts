@@ -14,11 +14,14 @@ const ADHOC = { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' };
 let listes: Record<string, { adresse: string; libelle: string }[]> = { preavis: [ADHOC], sortie: [ADHOC] };
 vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async (sorte: string) => listes[sorte] ?? [] }));
 const ecritures: { sql: string; params: unknown[] }[] = [];
+/** 🔴 461 — la copropriété saisie sur le bien (null : non renseignée). */
+let copro: boolean | null = null;
 
 vi.mock('../db/client', () => ({
   query: vi.fn(async (sql: string, params: unknown[] = []) => {
     const s = sql.replace(/\s+/g, ' ');
-    if (s.includes('AS s FROM gestion_annuaire_lot')) return { rows: [{ s: enGestion ? 'en_gestion' : 'location_seule' }] };
+    // Le statut du bien (et, 461, sa copropriété saisie) — par le SENS de la requête, pas sa forme exacte.
+    if (s.includes('FROM gestion_annuaire_lot lo WHERE lo.id')) return { rows: [{ s: enGestion ? 'en_gestion' : 'location_seule', c: copro }] };
     if (s.includes('FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l')) {
       const ids = (params[0] as number[]).map(Number);
       return { rows: [
@@ -42,13 +45,14 @@ vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./sortieLocatairesRepo')>()),
   destinatairesSortie: async (e: string | null) => [...(e === null ? [] : [e]), 'collegue@exemple.test'],
   lireBail: async () => ({ lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean',
-    entree: '2022-09-01', locataires: [], annexes: [], autresOccupants: [] }),
+    entree: '2022-09-01', locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }, { occupationId: 12, locataireId: 102, nom: 'MARTIN', entree: '2022-09-01' }],
+    annexes: [], autresOccupants: [] }),
 }));
 
 const enregistrerPreavis = vi.fn();
 vi.mock('./preavisRepo', () => ({ enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a) }));
 
-const { apercuMailsSortie, destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
+const { apercuMailsSortie, envoyerMailSortieLocataires, destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const envoyes: MessageAEnvoyer[] = [];
@@ -59,7 +63,7 @@ const deps = {
 const DEMANDE = { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois' as const, duree: 1 as const } };
 const journalAvis = () => ecritures.filter((e) => e.sql.includes('INSERT INTO gestion_location_mail_avis'));
 
-beforeEach(() => { enGestion = true; avec457 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; listes = { preavis: [ADHOC], sortie: [ADHOC] }; });
+beforeEach(() => { copro = null; enGestion = true; avec457 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; listes = { preavis: [ADHOC], sortie: [ADHOC] }; });
 
 describe('l’aperçu : lecture seule', () => {
   it('sélection multiple : les deux mails, sans rien envoyer ni écrire', async () => {
@@ -285,20 +289,65 @@ describe('🔴 Arno (05/11/2026) — le picto « i » : destinataires et copies 
 });
 
 describe('🔴 Arno (06/11/2026) — l’aperçu des mails d’une SORTIE (récapitulatif avant « Confirmer ») : lecture seule', () => {
-  it('bien en gestion : le compte rendu interne et le mail aux partenaires (liste « Sorties »), avec leurs copies ; rien n’est écrit ni envoyé', async () => {
+  it('bien en gestion : le mail de départ aux locataires sortants, le compte rendu interne, le mail aux partenaires ; copropriété et bien dits ; rien n’est écrit ni envoyé', async () => {
     listes = { preavis: [], sortie: [ADHOC] };
-    const r = await apercuMailsSortie(11, AUTEUR);
-    expect(r).toEqual({ etat: 'ok', data: { enGestion: true, mails: [
-      { sorte: 'sortie_interne', objet: 'Sortie de locataire — 4 rue Fictive, 92800 Puteaux', a: ['a.jorel@sansvisavis.com', 'collegue@exemple.test'], cc: [] },
-      { sorte: 'sortie_adhoc', objet: '[Information] Sortie de locataire(s) — 4 rue Fictive, 92800 Puteaux', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'] },
-    ] } });
+    const r = await apercuMailsSortie(11, AUTEUR, { sortants: [11], date: '2026-11-04' });
+    expect(r.etat).toBe('ok');
+    if (r.etat !== 'ok') return;
+    expect(r.data).toMatchObject({ enGestion: true, copropriete: null, lotId: 7, sansEmail: [] });
+    expect(r.data.mails.map((m) => [m.sorte, m.objet, m.a, m.cc])).toEqual([
+      ['sortie_locataires', 'Votre départ du logement — 4 rue Fictive, 92800 Puteaux', ['alice@exemple.test'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']],
+      ['sortie_interne', 'Sortie de locataire — 4 rue Fictive, 92800 Puteaux', ['a.jorel@sansvisavis.com', 'collegue@exemple.test'], []],
+      ['sortie_adhoc', '[Information] Sortie de locataire(s) — 4 rue Fictive, 92800 Puteaux', ['gestion.criterimmo@gmail.com'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']],
+    ]);
+    expect(r.data.mails[0].texte).toContain('effectif le 04/11/2026, date de la remise des clés');
     expect(ecritures).toEqual([]);
     expect(envoyes).toEqual([]);
   });
-  it('bien HORS gestion : le compte rendu interne seulement', async () => {
+  it('bien HORS gestion : le mail de départ et le compte rendu interne, pas de partenaires', async () => {
     enGestion = false;
-    const r = await apercuMailsSortie(11, AUTEUR);
-    expect(r.etat === 'ok' ? r.data.mails.map((m) => m.sorte) : null).toEqual(['sortie_interne']);
-    expect(r.etat === 'ok' ? r.data.enGestion : null).toBe(false);
+    const r = await apercuMailsSortie(11, AUTEUR, { sortants: [11], date: '2026-11-04' });
+    expect(r.etat === 'ok' ? r.data.mails.map((m) => m.sorte) : null).toEqual(['sortie_locataires', 'sortie_interne']);
+  });
+  it('un sortant SANS e-mail : signalé ; le mail part aux autres', async () => {
+    emailsPaul = [];
+    const r = await apercuMailsSortie(11, AUTEUR, { sortants: [11, 12], date: '2026-11-04' });
+    expect(r.etat === 'ok' ? r.data.sansEmail : null).toEqual(['Paul MARTIN']);
+    expect(r.etat === 'ok' ? r.data.mails[0].a : null).toEqual(['alice@exemple.test']);
+  });
+});
+
+describe('🔴 Arno (06/11/2026, 461) — la copropriété SAISIE sur le bien décide du paragraphe de 20 %', () => {
+  for (const [c, attendu] of [[true, 'Enfin, le logement étant situé dans un immeuble en copropriété'], [false, null], [null, 'Si le logement est situé dans un immeuble en copropriété']] as const) {
+    it(`accusé de préavis — copropriété ${c === null ? 'non renseignée' : c ? 'oui' : 'non'}`, async () => {
+      copro = c;
+      const r = await apercuMailsPreavis(DEMANDE, AUTEUR, deps);
+      expect(r.etat).toBe('ok');
+      if (r.etat !== 'ok') return;
+      expect(r.data.copropriete).toBe(c);
+      const t = r.data.mails[0].texte;
+      if (attendu === null) expect(t).not.toContain('20 %'); else expect(t).toContain(attendu);
+    });
+  }
+});
+
+describe('🔴 Arno (06/11/2026) — l’ENVOI du mail de départ aux locataires', () => {
+  const FAITE_L = { bail: { lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux' }, date: '2026-11-04', sortants: [{ occupationId: 11, nom: 'BERNARD Alice' }, { occupationId: 12, nom: 'MARTIN' }],
+    occupationIds: [11, 12], vacant: true, restants: [], annexes: [] } as never;
+  it('un mail : À = les sortants qui ont une adresse ; Cc = gestion@ + la personne qui valide ; journalisé pour le bien', async () => {
+    copro = true;
+    const r = await envoyerMailSortieLocataires(FAITE_L, AUTEUR, deps);
+    expect(r.etat).toBe('ok');
+    expect(envoyes.map((m) => [m.objet, m.a, m.cc])).toEqual([['Votre départ du logement — 4 rue Fictive, 92800 Puteaux', ['alice@exemple.test', 'paul@exemple.test'],
+      ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']]]);
+    expect(envoyes[0].corps).toContain('Le logement étant situé dans un immeuble en copropriété');
+    expect(envoyes[0].corps).not.toContain('Enfin, le logement');
+    expect(journalAvis().map((e) => e.params[0])).toEqual(['sortie_locataires']);
+  });
+  it('aucun sortant avec une adresse : rien ne part', async () => {
+    emailsPaul = [];
+    const r = await envoyerMailSortieLocataires({ ...(FAITE_L as object), sortants: [{ occupationId: 12, nom: 'MARTIN' }] } as never, AUTEUR, deps);
+    expect(r).toEqual({ etat: 'ok', envois: [] });
+    expect(envoyes).toEqual([]);
   });
 });

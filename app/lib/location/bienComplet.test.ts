@@ -167,3 +167,10 @@ describe('🔴 « ID fiscal du bien » (Arno, 21/10/2026, migration 401) : facul
     }
   });
 });
+
+describe('🔴 Arno (06/11/2026, 461) — « Copropriété » : Oui / Non / non renseigné, saisi (jamais déduit)', () => {
+  it('Oui → true, Non → false, rien / vide → null ; le type de logement ne décide de rien', () => {
+    const c = (copropriete: unknown) => { const v = verifierComplements({ typeLogement: 'maison', copropriete }); return v.ok ? v.valeurs.copropriete : 'refus'; };
+    expect([c(true), c(false), c(null), c(undefined), c('')]).toEqual([true, false, null, null, null]);
+  });
+});

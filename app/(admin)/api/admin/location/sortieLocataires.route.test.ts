@@ -27,9 +27,11 @@ const enregistrerPreavisAvecMails = vi.fn();
 const apercuMailsPreavis = vi.fn();
 const destinatairesPourInfo = vi.fn();
 const apercuMailsSortie = vi.fn();
+const envoyerMailSortieLocataires = vi.fn();
 vi.mock('../../../../lib/location/mailsPreavisSortieRepo', () => ({
   destinatairesPourInfo: (...a: unknown[]) => destinatairesPourInfo(...a),
   apercuMailsSortie: (...a: unknown[]) => apercuMailsSortie(...a),
+  envoyerMailSortieLocataires: (...a: unknown[]) => envoyerMailSortieLocataires(...a),
   envoyerMailSortieAdhoc: (...a: unknown[]) => envoyerMailSortieAdhoc(...a),
   enregistrerPreavisAvecMails: (...a: unknown[]) => enregistrerPreavisAvecMails(...a),
   apercuMailsPreavis: (...a: unknown[]) => apercuMailsPreavis(...a),
@@ -168,7 +170,28 @@ describe('🔴 Arno (06/11/2026) — le parcours en une passe : « Enregistrer �
     apercuMailsSortie.mockResolvedValue({ etat: 'ok', data: { enGestion: true, mails: [{ sorte: 'sortie_interne', objet: 'o', a: ['a@b.fr'], cc: [] }] } });
     const r = await (await POST(demande({ action: 'apercu-sortie', occupationId: 11 }))).json();
     expect(r).toEqual({ etat: 'ok', data: { enGestion: true, mails: [{ sorte: 'sortie_interne', objet: 'o', a: ['a@b.fr'], cc: [] }] } });
-    expect(apercuMailsSortie).toHaveBeenCalledWith(11, { id: 3, libelle: 'arno@exemple.fr' });
+    expect(apercuMailsSortie).toHaveBeenCalledWith(11, { id: 3, libelle: 'arno@exemple.fr' }, { sortants: [], date: undefined });
     expect(enregistrerSortie).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — le mail de départ aux locataires : SEULEMENT avec « Enregistrer et envoyer les mails »', () => {
+  const DEPART = { sorte: 'sortie_locataires', objet: 'Votre départ du logement — 4 rue Fictive', a: ['alice@x.fr'], cc: ['gestion@criterimmo.fr'], envoye: true, motif: null };
+  const ADHOC = { sorte: 'sortie_adhoc', objet: 'o', a: ['p@x.fr'], cc: [], envoye: true, motif: null };
+  beforeEach(() => { envoyerMailSortieLocataires.mockReset().mockResolvedValue({ etat: 'ok', envois: [DEPART] }); });
+  it('`envoyerMails: true` : envoyé, et rendu EN TÊTE des mails de la sortie', async () => {
+    enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
+    notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: ['a@b.fr'], objet: 'x' });
+    envoyerMailSortieAdhoc.mockResolvedValue({ etat: 'ok', envois: [ADHOC] });
+    const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', envoyerMails: true }))).json();
+    expect(envoyerMailSortieLocataires).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' });
+    expect(r.adhoc).toEqual({ etat: 'ok', envois: [DEPART, ADHOC] });
+  });
+  it('`envoyerMails` absent (comme avant) ou `false` : jamais de mail de départ', async () => {
+    enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
+    notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: [], objet: 'x' });
+    await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' }));
+    await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', envoyerMails: false }));
+    expect(envoyerMailSortieLocataires).not.toHaveBeenCalled();
   });
 });

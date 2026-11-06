@@ -35,6 +35,8 @@ export interface ValeursEncart {
   surfaceHabitableM2: string; surfaceM2: string; epoqueConstruction: string; chauffage: string;
   batiment: string; escalier: string; precisionAcces: string; ascenseur: string; digicode: string; digicodeCode: string;
   syndicId: string; syndicNom: string; chargesCopro: string; idFiscal: string; derniereAg: string;
+  /** 🔴 Arno (06/11/2026, 461) — « Copropriété » : 'oui' / 'non' / '' (non renseigné). */
+  copropriete: string;
   /**
    * Les contacts du syndic désignés ou créés POUR CE BIEN dans la saisie (comme « Nouveau bien ») : texte JSON
    * `{ contactsIds, nouveauxContacts }` — '' = aucun ajout. Un AJOUT : la lecture du bien le rend toujours vide.
@@ -64,6 +66,7 @@ export function valeursDepuis(b: Pick<BienLocation, 'etage' | 'porte' | 'numLotC
     epoqueConstruction: t(c.epoqueConstruction), chauffage: t(c.chauffage),
     batiment: t(c.batiment), escalier: t(c.escalier), precisionAcces: t(c.precisionAcces), ascenseur: on(c.ascenseur), digicode: on(c.digicode),
     digicodeCode: t(c.digicodeCode), syndicId: t(c.syndicId), syndicNom: t(c.syndicNom), chargesCopro: t(c.chargesCopro), idFiscal: t(c.idFiscal),
+    copropriete: on(c.copropriete),
     derniereAg: t(c.derniereAg), syndicContacts: '',
     dpeClasse: c.dpeNonSoumis === true ? DPE_NON_SOUMIS : t(c.dpeClasse), dpeDate: c.dpeNonSoumis === true ? '' : t(c.dpeDate),
     entretienAPrevoir: on(c.entretienAPrevoir), entretiens: entretiensEnTexte(c.entretienAPrevoir === true ? c.entretiens ?? [] : []),
@@ -90,6 +93,8 @@ export interface PorteeEncart {
   adresseModifiable?: boolean;
   /** L'assurance PNO (migration 378), jamais sur une annexe — absent : non montrée. */
   avecPno?: boolean;
+  /** 🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non », jamais sur une annexe — absent : non montrée. */
+  avecCopropriete?: boolean;
 }
 
 /** TOUS les groupes, dans l'ordre du formulaire « Nouveau bien ». */
@@ -127,6 +132,7 @@ export function champsDuGroupe(g: GroupeEncart, f: PorteeEncart): Champ[] {
     case 'copropriete': return [
       { cle: 'numLotCopro', mot: 'N° de lot' },
       ...(f.avecIdFiscal && !f.annexe ? [{ cle: 'idFiscal' as const, mot: 'ID fiscal' }] : []),
+      ...(f.avecCopropriete === true && !f.annexe ? [{ cle: 'copropriete' as const, mot: 'Copropriété', mots: OUI_NON }] : []),
       { cle: 'syndicId', mot: 'Syndic' }, { cle: 'syndicContacts', mot: 'Contacts du syndic pour ce bien' },
       ...(f.avecCharges && !f.annexe ? [{ cle: 'chargesCopro' as const, mot: 'Charges de copropriété', mots: PAYEES_PAR as Record<string, string> }] : []),
       ...(f.avecAg ? [{ cle: 'derniereAg' as const, mot: 'Dernière AG' }] : []),

@@ -34,6 +34,7 @@ export const LIBELLE_MAIL: Record<string, string> = {
   preavis_adhoc: 'Mail à nos partenaires',
   sortie_adhoc: 'Mail à nos partenaires',
   sortie_interne: 'Récapitulatif de la sortie (interne)',
+  sortie_locataires: 'Mail de départ aux locataires',
   nouvelle_location: 'Mail à nos partenaires',
 };
 export const libelleMail = (m: Pick<MailParti, 'sorte'>): string => LIBELLE_MAIL[m.sorte] ?? 'Mail';

@@ -695,6 +695,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     digicodeCode: c.digicodeCode ?? '', precisionAcces: c.precisionAcces ?? '', derniereAg: c.derniereAg ?? '',
     assurancePno: c.assurancePno === undefined || c.assurancePno === null ? '' : c.assurancePno ? 'oui' : 'non', pnoDateAnniversaire: c.pnoDateAnniversaire ?? '',
     chargesCopro: c.chargesCopro ?? '', idFiscal: c.idFiscal ?? '',
+    copropriete: c.copropriete === undefined || c.copropriete === null ? '' : c.copropriete ? 'oui' : 'non',
   };
   // La dernière AG (Arno, 18/10/2026) : celle de l'IMMEUBLE du bien, partagée par ses lots ; masquée sans immeuble (parking nu).
   const avecAg = !annexe && c.agApplicable === true;
@@ -704,6 +705,8 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
   const avecCharges = !annexe && c.chargesCopro !== undefined;
   // « ID fiscal du bien » (Arno, 21/10/2026, migration 401) : le bien principal, JAMAIS une annexe ; absent sans la migration.
   const avecIdFiscal = !annexe && c.idFiscal !== undefined;
+  // 🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non » : sur le bien (pas une annexe) ; absente sans la migration.
+  const avecCopropriete = !annexe && c.copropriete !== undefined;
   const [entretien, setEntretien] = useState(() => versSaisieEntretien(c.entretienAPrevoir, c.entretiens));
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
@@ -718,11 +721,12 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     return () => { vivant = false; };
   }, [edition]);
   const enregistrer = async (): Promise<void> => {
-    const { derniereAg, assurancePno, pnoDateAnniversaire, chargesCopro, idFiscal, ...reste } = v;
+    const { derniereAg, assurancePno, pnoDateAnniversaire, chargesCopro, idFiscal, copropriete, ...reste } = v;
     // L'assurance PNO (Arno, 18/10/2026) : sur le bien (pas sur une annexe) ; Non (ou non renseigné) vide la date.
     const pno = annexe ? {} : { assurancePno, pnoDateAnniversaire: assurancePno === 'oui' ? pnoDateAnniversaire : '' };
     // « Paiement des charges » (Arno, 21/10/2026, migration 400) : sur le bien (pas une annexe), seulement si la fiche le montre.
-    const charges = { ...(avecCharges ? { chargesCopro } : {}), ...(avecIdFiscal ? { idFiscal } : {}) };
+    const charges = { ...(avecCharges ? { chargesCopro } : {}), ...(avecIdFiscal ? { idFiscal } : {}),
+      ...(avecCopropriete ? { copropriete: copropriete === 'oui' ? true : copropriete === 'non' ? false : null } : {}) };
     const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno, ...charges, ...(avecEntretien ? versEnvoiEntretien(entretien) : {}) } });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
@@ -752,6 +756,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     ['Bâtiment', c.batiment], ['Escalier', c.escalier],
     // Arno (21/10/2026, 401) : l'ID fiscal avec la copropriété (syndic, charges), comme au bloc « Copropriété & ID fiscal ».
     ...(avecIdFiscal ? [['ID fiscal', c.idFiscal ?? null] as [string, string | null]] : []),
+    ...(avecCopropriete ? [['Copropriété', c.copropriete === null || c.copropriete === undefined ? null : c.copropriete ? 'oui' : 'non'] as [string, string | null]] : []),
     ['Syndic', c.syndicNom],
     ...(avecCharges ? [['Charges de copropriété', c.chargesCopro ? PAYEES_PAR[c.chargesCopro] : null] as [string, string | null]] : []),
     ['Époque de construction', c.epoqueConstruction], ['Chauffage', c.chauffage],
@@ -826,6 +831,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
               {idFiscalInhabituel(v.idFiscal) && <small className="loc-muet" role="status" style={{ display: 'block', color: 'var(--color-svv-amber)', fontWeight: 600 }} data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}</span>}
             {choix('syndicId', 'Syndic (Gestion)', [...(c.syndicId !== null && !syndics.some((s) => s.id === c.syndicId) ? [[String(c.syndicId), c.syndicNom ?? `Syndic ${c.syndicId}`] as const] : []),
               ...syndics.map((x) => [String(x.id), x.nom] as const)])}
+            {avecCopropriete && choix('copropriete', 'Copropriété', [['oui', 'Oui'], ['non', 'Non']])}
             {avecCharges && choix('chargesCopro', 'Paiement des charges', CHARGES_COPRO.map((x) => [x, LIBELLE_CHARGES_COPRO[x]] as const))}
             {!parking && choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
             {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}

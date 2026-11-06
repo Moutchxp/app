@@ -121,7 +121,8 @@ describe('② le préavis, « Enregistrer » : récapitulatif, puis résultat SA
     await ecran();
     await preparerPreavis([11, 12]);
     await clic(container.querySelector('[data-enregistrer-sans-mail]'));
-    expect(posts).toEqual([]);
+    // Seule la LECTURE de l'aperçu (la copropriété du bien) : rien n'est enregistré avant « Confirmer ».
+    expect(posts.map((x) => x.corps.action)).toEqual(['apercu-preavis']);
     const f = fenetre()!;
     expect(f.getAttribute('data-fenetre-parcours')).toBe('recap');
     expect(f.querySelector('[data-rien-enregistre]')).not.toBeNull();
@@ -130,7 +131,7 @@ describe('② le préavis, « Enregistrer » : récapitulatif, puis résultat SA
     expect(f.querySelector('[data-resume]')!.textContent).toMatch(/Tous les locataires du logement sont en préavis : le logement deviendra vacant le \d{2}\/\d{2}\/\d{4} \(à la sortie effective\)\./);
     expect(f.querySelector('[data-aucun-mail-prevu]')?.textContent).toBe('Aucun mail ne sera envoyé.');
     await clic(f.querySelector('[data-confirmer-parcours]'));
-    expect(posts).toEqual([{ corps: { action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null, envoyerMails: false, informerPartenaires: true }, propre: true }]);
+    expect(posts.at(-1)).toEqual({ corps: { action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null, envoyerMails: false, informerPartenaires: true }, propre: true });
     expect(fenetre()!.getAttribute('data-fenetre-parcours')).toBe('resultat');
     expect(fenetre()!.querySelector('[data-titre-parcours]')?.textContent).toBe('✓ Préavis enregistré');
     expect(fenetre()!.querySelector('[data-aucun-mail-envoye]')?.textContent).toBe('Aucun mail n’a été envoyé.');
@@ -164,7 +165,7 @@ describe('② le préavis, « Enregistrer » : récapitulatif, puis résultat SA
     expect((container.querySelector('[data-recu-le]') as HTMLInputElement).value).toBe(HIER);
     expect((container.querySelector('[data-date-manuelle]') as HTMLInputElement).value).toBe('2099-02-01');
     expect((container.querySelector('[data-motif]') as HTMLInputElement).value).toBe('mutation');
-    expect(posts).toEqual([]);
+    expect(posts.every((x) => String(x.corps.action).startsWith('apercu'))).toBe(true);
   });
   it('un enregistrement REFUSÉ : message d’erreur clair dans la fenêtre, JAMAIS de succès ; rien ne passe en bleu', async () => {
     reponses['enregistrer-preavis'] = () => refus('La date de réception est postérieure à aujourd’hui.');
@@ -228,7 +229,8 @@ describe('④ la sortie, avec chacun des deux boutons', () => {
     await clic(container.querySelector('[data-enregistrer-sans-mail]'));
     expect(fenetre()!.querySelector('[data-resume]')!.textContent).toContain('Le logement devient vacant.');
     await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
-    expect(posts).toEqual([{ corps: { action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, envoyerMails: false, informerPartenaires: true }, propre: true }]);
+    expect(posts.at(-1)).toEqual({ corps: { action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, envoyerMails: false, informerPartenaires: true }, propre: true });
+    expect(posts.map((x) => x.corps.action)).toEqual(['apercu-sortie', 'sortie-locataires']);
     expect(fenetre()!.querySelector('[data-titre-parcours]')?.textContent).toBe('✓ Sortie enregistrée');
     expect(fenetre()!.querySelector('[data-aucun-mail-envoye]')).not.toBeNull();
     await clic(fenetre()!.querySelector('[data-fermer-parcours]'));
@@ -245,7 +247,7 @@ describe('④ la sortie, avec chacun des deux boutons', () => {
     await preparerSortie([11]);
     expect(container.querySelector('[data-info-destinataires="sortie"]')).not.toBeNull();
     await clic(container.querySelector('[data-enregistrer-avec-mails]'));
-    expect(posts).toEqual([{ corps: { action: 'apercu-sortie', occupationId: 11 }, propre: true }]);
+    expect(posts).toEqual([{ corps: { action: 'apercu-sortie', occupationId: 11, sortants: [11], date: HIER }, propre: true }]);
     expect([...fenetre()!.querySelectorAll('[data-mail-prevu]')].map((m) => m.getAttribute('data-mail-prevu'))).toEqual(['sortie_interne', 'sortie_adhoc']);
     await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
     expect(posts.at(-1)!.corps).toMatchObject({ action: 'sortie-locataires', envoyerMails: true });
@@ -281,5 +283,46 @@ describe('⑦ la fiche locataire : le MÊME parcours', () => {
     await clic(fenetre()!.querySelector('[data-fermer-parcours]'));
     expect([...container.querySelectorAll('[data-locataire] [data-en-preavis]')].map((x) => x.closest('[data-locataire]')!.getAttribute('data-locataire'))).toEqual(['12']);
     expect(container.querySelector('[data-preavis-fait] [data-aucun-mail]')).not.toBeNull();
+  });
+});
+
+describe('🔴 Arno (06/11/2026, 461) — la copropriété dans le récapitulatif ; le mail de départ aux locataires', () => {
+  it('récapitulatif : « Copropriété : oui / non / non renseignée » et le lien vers la fiche du bien ; jamais bloquant', async () => {
+    for (const [c, mot, cle] of [[true, 'oui', 'oui'], [false, 'non', 'non'], [null, 'non renseignée', 'non_renseignee']] as const) {
+      reponses['apercu-preavis'] = () => ok({ mails: [ACCUSE], sansEmail: [], enGestion: true, dateFin: '2099-01-01', envoiPossible: true, copropriete: c, lotId: 7 });
+      act(() => { root.unmount(); }); root = createRoot(container);
+      await ecran();
+      await preparerPreavis([11]);
+      await clic(container.querySelector('[data-enregistrer-sans-mail]'));
+      const p = fenetre()!.querySelector(`[data-copropriete-recap="${cle}"]`)!;
+      expect(p.textContent).toContain(`Copropriété : ${mot}`);
+      expect(p.querySelector('[data-lien-fiche-bien]')?.getAttribute('href')).toBe('/admin/location/bien/7');
+      expect((fenetre()!.querySelector('[data-confirmer-parcours]') as HTMLButtonElement).disabled).toBe(false);
+      await clic(fenetre()!.querySelector('[data-revenir-parcours]'));
+    }
+  });
+  it('sortie « Enregistrer et envoyer les mails » : le mail de départ aux locataires en tête ; un sortant sans e-mail est signalé', async () => {
+    reponses['apercu-sortie'] = () => ok({ enGestion: true, copropriete: null, lotId: 7, sansEmail: ['BERNARD Paul'], mails: [
+      { sorte: 'sortie_locataires', objet: 'Votre départ du logement — 4 rue Fictive', a: ['alice@exemple.test'], cc: ['gestion@criterimmo.fr', 'moi@exemple.test'], texte: 'Bonjour Alice BERNARD,' },
+      { sorte: 'sortie_interne', objet: 'Sortie de locataire', a: ['moi@exemple.test'], cc: [] }] });
+    await ecran();
+    for (const o of [11, 12]) await clic(container.querySelector(`[data-locataire="${o}"]`));
+    await clic(container.querySelector('[data-faire-sortir]'));
+    await saisir('[data-date-sortie]', HIER);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    const f = fenetre()!;
+    expect(f.querySelector('[data-mail-prevu]')?.getAttribute('data-mail-prevu')).toBe('sortie_locataires');
+    expect(f.querySelector('[data-mail-prevu="sortie_locataires"] .cev-mail-titre')?.textContent).toBe('Mail de départ aux locataires');
+    expect(f.querySelector('[data-sans-email]')?.textContent).toContain('BERNARD Paul');
+  });
+  it('« Enregistrer » seul d’une sortie : envoyerMails false — le serveur n’envoie AUCUN mail (ni locataires, ni partenaires, ni interne)', async () => {
+    await ecran();
+    await clic(container.querySelector('[data-locataire="11"]'));
+    await clic(container.querySelector('[data-faire-sortir]'));
+    await saisir('[data-date-sortie]', HIER);
+    await clic(container.querySelector('[data-enregistrer-sans-mail]'));
+    await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
+    expect(posts.at(-1)!.corps).toMatchObject({ action: 'sortie-locataires', envoyerMails: false });
+    expect(fenetre()!.querySelector('[data-aucun-mail-envoye]')).not.toBeNull();
   });
 });

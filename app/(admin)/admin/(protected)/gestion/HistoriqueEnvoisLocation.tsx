@@ -83,6 +83,7 @@ const LIBELLE_AVIS: Record<string, string> = {
   preavis_locataires: 'Accusé de réception du congé (locataires)',
   preavis_adhoc: 'Information préavis (ADHOC)',
   sortie_adhoc: 'Information sortie (ADHOC)',
+  sortie_locataires: 'Départ du logement (locataires)',
 };
 
 /**

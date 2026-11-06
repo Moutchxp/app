@@ -373,3 +373,24 @@ describe('🔴 Arno (25/10/2026) — choix en cascade remis à zéro, en MODIFIC
     expect([v.adresse, v.codePostal, v.dpeClasse, v.commentaire, v.etage, v.porte]).toEqual([VALEURS.adresse, VALEURS.codePostal, VALEURS.dpeClasse, VALEURS.commentaire, VALEURS.etage, VALEURS.porte]);
   });
 });
+
+describe('🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non » dans la MODIFICATION du bien', () => {
+  it('pré-rempli depuis le bien (Oui) ; « Non » choisi : la contre-validation le dit, la valeur part avec la saisie', async () => {
+    lecture = { ...LECTURE, encart: { ...LECTURE.encart, avecCopropriete: true, valeurs: { ...VALEURS, copropriete: 'oui' } } };
+    await ouvrir();
+    const bloc = q('[data-copropriete]')!;
+    expect(bloc.querySelector('h4')?.textContent).toBe('Copropriété');
+    const bouton = (mot: string) => [...bloc.querySelectorAll('button')].find((b) => b.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
+    expect(bouton('Oui').getAttribute('aria-pressed')).toBe('true');
+    await clic(bouton('Non'));
+    await clic('[data-valider-modification]');
+    expect([...document.querySelectorAll('[data-contre-validation] li')].map((l) => l.textContent)).toEqual(['Copropriété : oui → non']);
+    await clic('[data-confirmer-modification]');
+    expect(JSON.parse(String(posts()[0].init?.body)).saisie.valeurs).toMatchObject({ copropriete: 'non' });
+  });
+  it('sans la migration 461 (ou sur une annexe) : aucun choix proposé', async () => {
+    lecture = { ...LECTURE, encart: { ...LECTURE.encart, avecCopropriete: false } };
+    await ouvrir();
+    expect(q('[data-copropriete]')).toBeNull();
+  });
+});

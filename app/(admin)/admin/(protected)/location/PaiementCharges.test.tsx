@@ -189,3 +189,31 @@ describe('🔴 « Paiement des charges » — la fiche du bien (modifiable) (l�
   });
 
 });
+
+describe('🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non » dans la CRÉATION du bien', () => {
+  const bloc = () => container.querySelector('[data-copropriete]') as HTMLElement | null;
+  const bouton = (mot: string) => [...(bloc()?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
+  it('proposé, FACULTATIF : jamais dans « Reste à renseigner » ; non choisi → rien n’est envoyé (« non renseigné ») ; jamais déduit', async () => {
+    await rendre();
+    await parkingComplet();
+    expect(bloc()?.querySelector('h4')?.textContent).toBe('Copropriété');
+    expect(bouton('Oui').getAttribute('aria-pressed')).not.toBe('true');
+    expect(bouton('Non').getAttribute('aria-pressed')).not.toBe('true');
+    expect(barre()).not.toMatch(/copropri/i);
+    await soumettre();
+    expect(Object.prototype.hasOwnProperty.call(posts.at(-1)?.logement, 'copropriete')).toBe(false);
+  });
+  it('« Oui » choisi : envoyé avec le bien (copropriete: true) ; « Non » : false', async () => {
+    await rendre();
+    await parkingComplet();
+    await clic(bouton('Oui'));
+    await soumettre();
+    expect(posts.at(-1)?.logement).toMatchObject({ copropriete: true });
+    act(() => { root.unmount(); }); root = createRoot(container); posts = [];
+    await rendre();
+    await parkingComplet();
+    await clic(bouton('Non'));
+    await soumettre();
+    expect(posts.at(-1)?.logement).toMatchObject({ copropriete: false });
+  });
+});

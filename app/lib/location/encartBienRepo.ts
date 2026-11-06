@@ -50,6 +50,8 @@ export async function lectureDepuisFiche(fiche: Pick<FicheBienLocation, 'bien' |
     avecIdFiscal: c.idFiscal !== undefined, avecCharges: c.chargesCopro !== undefined, avecAg: c.agApplicable === true, avecEntretien: c.entretienAPrevoir !== undefined,
     // L'adresse d'un bien importé est tenue par WIPPIMMO (`modifierBien` ne l'écrit pas) : jamais proposée à la saisie.
     adresseModifiable: b.creeDansLApplication === true, avecPno: !annexe && (await annexeNomPnoDisponible()),
+    // 🔴 Arno (06/11/2026, 461) — « Copropriété » : sur le bien (jamais une annexe), quand la migration est là.
+    avecCopropriete: !annexe && c.copropriete !== undefined,
     digicodeImmeuble: c.digicodeImmeuble === undefined ? null : { mention: c.digicodeImmeuble.mention, source: c.digicodeImmeuble.source },
     categorie: b.categorie, adresse: b.adresse, codePostal: b.codePostal, commune: b.commune, nomAnnexe: (b as { nomAnnexe?: string | null }).nomAnnexe ?? null,
   } };
@@ -106,6 +108,7 @@ export async function modifierEncartBien(id: number, quoi: GroupeEncart | readon
       precisionAcces: apres.precisionAcces,
       // Les champs qui écrivent AILLEURS (immeuble, entretiens) ou qui ne sont pas partout : seulement avec LEUR groupe.
       ...(avec('copropriete') && e.avecCharges && !e.annexe ? { chargesCopro: apres.chargesCopro || null } : {}),
+      ...(avec('copropriete') && e.avecCopropriete === true && !e.annexe ? { copropriete: apres.copropriete === 'oui' ? true : apres.copropriete === 'non' ? false : null } : {}),
       ...(avec('copropriete') && e.avecIdFiscal && !e.annexe ? { idFiscal: apres.idFiscal } : {}),
       ...(avec('copropriete') && e.avecAg ? { derniereAg: apres.derniereAg } : {}),
       ...(avec('dpe') && e.avecEntretien ? entretiensEnvoi(apres) : {}),

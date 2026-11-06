@@ -34,7 +34,9 @@ export interface FinParcours { geste: Geste; noms: string[]; phrase: string; ave
 
 type MailRecap = { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string };
 type Fenetre =
-  | { etape: 'recap'; avecMails: boolean; mails: MailRecap[] | null; sansEmail: string[]; enGestion: boolean | null; motifMails: string | null; envoi: boolean; refus: string | null }
+  | { etape: 'recap'; avecMails: boolean; mails: MailRecap[] | null; sansEmail: string[]; enGestion: boolean | null; motifMails: string | null; envoi: boolean; refus: string | null;
+      /** 🔴 Arno (06/11/2026, 461) — la copropriété du bien (lue avec l'aperçu) : dite, jamais bloquante ; `undefined` : pas encore lue. */
+      copropriete?: boolean | null; lotId?: number }
   | { etape: 'resultat'; avecMails: boolean; mails: MailParti[]; motifGlobal: string | null; fin: FinParcours };
 
 type Duree = '1' | '3' | 'manuelle';
@@ -81,14 +83,15 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
     setTente(true);
     if (geste === null || !verdict.ok) return;
     setFenetre({ etape: 'recap', avecMails, mails: avecMails ? null : [], sansEmail: [], enGestion: null, motifMails: null, envoi: false, refus: null });
-    if (!avecMails) return;
+    // L'aperçu (une LECTURE) est lu dans les deux cas : il dit la copropriété du bien ; ses mails ne servent qu'avec l'envoi.
     const r = geste === 'preavis'
       ? await envoyer({ action: 'apercu-preavis', occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode }, { propre: true })
-      : await envoyer({ action: 'apercu-sortie', occupationId }, { propre: true });
-    if (r.motif !== null) { setFenetre((f) => (f?.etape === 'recap' ? { ...f, mails: [], motifMails: r.motif } : f)); return; }
-    const d = r.data as { mails?: MailRecap[]; sansEmail?: string[]; enGestion?: boolean; envoiPossible?: boolean } | undefined;
-    setFenetre((f) => (f?.etape === 'recap' ? { ...f, mails: d?.mails ?? [], sansEmail: d?.sansEmail ?? [], enGestion: d?.enGestion ?? null,
-      motifMails: d?.envoiPossible === false ? 'la mise à jour de la base (migration 457) n’est pas appliquée : aucun mail ne partira.' : null } : f));
+      : await envoyer({ action: 'apercu-sortie', occupationId, sortants: concernes.map((l) => l.occupationId), date: dateSortie }, { propre: true });
+    if (r.motif !== null) { setFenetre((f) => (f?.etape === 'recap' ? { ...f, mails: [], motifMails: avecMails ? r.motif : null } : f)); return; }
+    const d = r.data as { mails?: MailRecap[]; sansEmail?: string[]; enGestion?: boolean; envoiPossible?: boolean; copropriete?: boolean | null; lotId?: number } | undefined;
+    const copro = { ...(d?.copropriete !== undefined ? { copropriete: d.copropriete } : {}), ...(d?.lotId !== undefined ? { lotId: d.lotId } : {}) };
+    setFenetre((f) => (f?.etape !== 'recap' ? f : !avecMails ? { ...f, ...copro } : { ...f, ...copro, mails: d?.mails ?? [], sansEmail: d?.sansEmail ?? [], enGestion: d?.enGestion ?? null,
+      motifMails: d?.envoiPossible === false ? 'la mise à jour de la base (migration 457) n’est pas appliquée : aucun mail ne partira.' : null }));
   };
 
   const confirmer = async (): Promise<void> => {
@@ -258,6 +261,12 @@ function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfi
       <h2 id={titreId} className="mis-titre" data-titre-parcours>{titre}</h2>
       <p className="loc-muet pss-rien" data-rien-enregistre>Rien n’est encore enregistré : vérifiez, puis « Confirmer ».</p>
       {resume}
+      {fenetre.copropriete !== undefined && (
+        <p className="pss-copro" data-copropriete-recap={fenetre.copropriete === null ? 'non_renseignee' : fenetre.copropriete ? 'oui' : 'non'}>
+          <strong>Copropriété :</strong> {fenetre.copropriete === null ? 'non renseignée' : fenetre.copropriete ? 'oui' : 'non'}
+          {fenetre.lotId !== undefined && <> — <a href={`/admin/location/bien/${fenetre.lotId}`} target="_blank" rel="noopener noreferrer" data-lien-fiche-bien>voir la fiche du bien</a></>}
+        </p>
+      )}
       {!fenetre.avecMails ? <p className="mis-note pss-note-neutre" data-aucun-mail-prevu>{AUCUN_MAIL_PREVU}</p> : fenetre.mails === null
         ? <p className="loc-muet" role="status" data-mails-en-preparation>Préparation de la liste des mails…</p> : <>
           {fenetre.motifMails !== null && <p className="cev-alerte" role="alert" data-mails-impossibles>Les mails ne peuvent pas être préparés : {fenetre.motifMails}</p>}
@@ -325,6 +334,7 @@ export const CSS_PARCOURS = `
 .pss-envoi{display:inline-flex;align-items:center;gap:2px}
 .pss-boite-recap{border-color:var(--color-svv-ink)}
 .pss-rien{margin:0}
+.pss-copro{margin:0}
 .pss-sous-titre{margin:0;font-weight:800}
 .pss-note-neutre{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
 .pss-texte summary{cursor:pointer;font-weight:700;min-height:32px}

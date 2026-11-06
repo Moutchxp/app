@@ -13,10 +13,11 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
 import type { Destinataire } from './mailNouvelleLocation';
-import { adressesUniques, copiesAvis, mailAdhocSortie, mailsDuPreavis, objetAdhocSortie, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, copiesAvis, mailAdhocSortie, mailSortieLocataires, mailsDuPreavis, objetAdhocSortie, prenomNom, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { verifierPreavis, type ModePreavis } from './preavis';
 import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
 import { colonneExisteMemo } from './sondeLocation';
+import { coproprieteDisponible } from './creationBienRepo';
 import { destinatairesSortie, donneesMailSortie, lireBail, type SortieFaite } from './sortieLocatairesRepo';
 import { objetMailSortie } from './sortieLocataires';
 
@@ -55,11 +56,14 @@ async function signatureEcran(deps: DepsAvis): Promise<{ brute: string; ecran: S
 }
 
 /** Le logement d'une occupation : adresse complète, propriétaire, « en gestion ». `null` : occupation inconnue. */
-async function logementDe(occupationId: number): Promise<{ lotId: number; adresse: string; proprietaire: string | null; enGestion: boolean } | null> {
+async function logementDe(occupationId: number): Promise<{ lotId: number; adresse: string; proprietaire: string | null; enGestion: boolean; copropriete: boolean | null } | null> {
   const bail = await lireBail(occupationId);
   if (bail === null) return null;
-  const { rows } = await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [bail.lotId]);
-  return { lotId: bail.lotId, adresse: bail.adresse ?? `Bien ${bail.lotId}`, proprietaire: bail.proprietaire, enGestion: rows[0]?.s === 'en_gestion' };
+  // 🔴 Arno (06/11/2026, 461) — la copropriété SAISIE sur le bien (sans la migration : non renseignée).
+  const copro = await coproprieteDisponible();
+  const { rows } = await query<{ s: string; c: boolean | null }>(
+    `SELECT ${await sqlStatutBien('lo')} AS s, ${copro ? 'lo.copropriete' : 'NULL::boolean'} AS c FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [bail.lotId]);
+  return { lotId: bail.lotId, adresse: bail.adresse ?? `Bien ${bail.lotId}`, proprietaire: bail.proprietaire, enGestion: rows[0]?.s === 'en_gestion', copropriete: rows[0]?.c ?? null };
 }
 
 /** Les locataires de ces occupations, avec leur prénom éventuel et leurs adresses e-mail EN VIGUEUR. */
@@ -79,7 +83,9 @@ async function locatairesAvis(occupationIds: readonly number[]): Promise<(Locata
 export type IssueApercuPreavis =
   | { etat: 'ok'; data: { mails: MailAvis[]; sansEmail: string[]; enGestion: boolean; dateFin: string; envoiPossible: boolean;
     /** 🔴 Arno (05/11/2026) — les partenaires de la liste « Préavis » (la case « Informer nos partenaires ») ; vide : pas de case. */
-    partenaires: Destinataire[] } }
+    partenaires: Destinataire[];
+    /** 🔴 Arno (06/11/2026, 461) — la copropriété du bien (le récapitulatif la dit, avec le lien vers la fiche du bien). */
+    copropriete: boolean | null; lotId: number } }
   | { etat: 'refus'; motif: string }
   | { etat: 'inconnu' };
 
@@ -108,6 +114,7 @@ async function donneesPreavis(
       partenaires: informerPartenaires ? partenaires.map((x) => x.adresse) : [],
       locataires: locs.map(({ occupationId, nom, prenom, emails }) => ({ occupationId, nom, prenom, emails })),
       recuLe: d.recuLe as string, choix: d.choix as ModePreavis, expediteur: config.adresseGestion, valideur, signature: sig.ecran,
+      copropriete: logement.copropriete,
     },
   };
 }
@@ -119,7 +126,8 @@ export async function apercuMailsPreavis(
   const lu = await donneesPreavis(d, auteur, deps);
   if (lu.etat !== 'ok') return lu;
   const { mails, sansEmail } = mailsDuPreavis(lu.donnees);
-  return { etat: 'ok', data: { mails, sansEmail, enGestion: lu.donnees.enGestion, dateFin: lu.dateFin, envoiPossible: await mailsAvisDisponibles(), partenaires: lu.partenaires } };
+  return { etat: 'ok', data: { mails, sansEmail, enGestion: lu.donnees.enGestion, dateFin: lu.dateFin, envoiPossible: await mailsAvisDisponibles(), partenaires: lu.partenaires,
+    copropriete: lu.donnees.copropriete ?? null, lotId: lu.lotId } };
 }
 
 /** Ce que l'écran dit de chaque mail, après l'envoi. */
@@ -284,19 +292,55 @@ export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> 
  * part) : le compte rendu interne (ses destinataires) et l'information aux partenaires (liste « Sorties », bien en gestion seulement), avec leurs
  * copies — les mêmes règles que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`).
  */
-export async function apercuMailsSortie(occupationId: number, auteur: Auteur): Promise<{ etat: 'ok'; data: { enGestion: boolean; mails: { sorte: string; objet: string; a: string[]; cc: string[] }[] } } | { etat: 'inconnu' }> {
-  const bail = await lireBail(occupationId);
-  if (bail === null) return { etat: 'inconnu' };
+export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o: { sortants?: readonly number[]; date?: unknown } = {}): Promise<{ etat: 'ok'; data: {
+  enGestion: boolean; copropriete: boolean | null; lotId: number; sansEmail: string[];
+  mails: { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string }[] } } | { etat: 'inconnu' }> {
+  const logement = await logementDe(occupationId);
+  const bail = logement === null ? null : await lireBail(occupationId);
+  if (logement === null || bail === null) return { etat: 'inconnu' };
   const qui = await emailDeLAuteur(auteur);
   const config = await chargerConfigGestion();
-  const { rows } = await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [bail.lotId]);
-  const enGestion = rows[0]?.s === 'en_gestion';
-  const adresse = bail.adresse ?? `Bien ${bail.lotId}`;
+  const enGestion = logement.enGestion;
+  const adresse = logement.adresse;
   const internes = await destinatairesSortie(qui.email);
   const partenaires = enGestion ? adressesUniques((await lireDestinatairesDefaut('sortie')).map((x) => x.adresse)) : [];
   const valideur = { email: qui.email };
-  return { etat: 'ok', data: { enGestion, mails: [
-    ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [] }]),
-    ...(partenaires.length === 0 ? [] : [{ sorte: 'sortie_adhoc', objet: objetAdhocSortie(adresse), a: partenaires, cc: copiesAvis(config.adresseGestion, valideur, partenaires) }]),
-  ] } };
+  // 🔴 Arno (06/11/2026) — le mail de départ aux locataires sortants (ceux qui ont une adresse) ; les autres sont signalés.
+  const sortants = (o.sortants ?? []).filter((x) => bail.locataires.some((l) => l.occupationId === x));
+  const locs = sortants.length === 0 ? [] : await locatairesAvis(sortants);
+  const sig = await signatureEcran({});
+  const depart = typeof o.date === 'string' && locs.length > 0 ? mailSortieLocataires({ adresse, locataires: locs, dateSortie: o.date, copropriete: logement.copropriete,
+    expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran }) : null;
+  return { etat: 'ok', data: { enGestion, copropriete: logement.copropriete, lotId: logement.lotId,
+    sansEmail: locs.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
+    mails: [
+      ...(depart === null ? [] : [{ sorte: depart.sorte, objet: depart.objet, a: depart.a, cc: depart.cc, texte: depart.texte }]),
+      ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [] }]),
+      ...(partenaires.length === 0 ? [] : [{ sorte: 'sortie_adhoc', objet: objetAdhocSortie(adresse), a: partenaires, cc: copiesAvis(config.adresseGestion, valideur, partenaires) }]),
+    ] } };
+}
+
+/**
+ * 🔴 Arno (06/11/2026) — ENVOIE le mail de départ aux locataires sortants (« Enregistrer et envoyer les mails » d'une sortie, seulement) :
+ * Cc = gestion@ + la personne qui valide ; « Mail envoyé par … » puis la signature Gmail ; journalisé (historique du bien). Aucun sortant avec une
+ * adresse : rien ne part (l'écran l'a signalé). Ne lève jamais.
+ */
+export async function envoyerMailSortieLocataires(f: SortieFaite, auteur: Auteur, deps: DepsAvis = {}): Promise<IssueMailsAvis> {
+  try {
+    if (!(await mailsAvisDisponibles())) return { etat: 'sans_schema', motif: MOTIF_SANS_457 };
+    const occs = f.sortants.map((l) => l.occupationId);
+    if (occs.length === 0) return { etat: 'ok', envois: [] };
+    const logement = await logementDe(occs[0]);
+    if (logement === null) return { etat: 'ok', envois: [] };
+    const locs = await locatairesAvis(occs);
+    const qui = await emailDeLAuteur(auteur);
+    const config = await chargerConfigGestion();
+    const sig = await signatureEcran(deps);
+    const m = mailSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
+      expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran });
+    if (m === null) return { etat: 'ok', envois: [] };
+    return { etat: 'ok', envois: await envoyerSerie([m], sig.brute, { lotId: f.bail.lotId, occupationIds: occs, auteur }, deps) };
+  } catch (e) {
+    return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };
+  }
 }

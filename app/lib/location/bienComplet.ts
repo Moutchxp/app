@@ -151,6 +151,9 @@ export interface ComplementsBien {
   // ── migration 401 (Arno, 21/10/2026) ──
   /** Identifiant fiscal du local (avis de taxe foncière), espaces retirés ; `null` = non renseigné (facultatif). Bien principal seulement. */
   idFiscal?: string | null;
+  // ── migration 461 (Arno, 06/11/2026) ──
+  /** Le bien est-il dans un immeuble en copropriété : oui / non / `null` = non renseigné. SAISI, jamais déduit (type, adresse). */
+  copropriete?: boolean | null;
 }
 
 /** Une annexe saisie : ses champs, ses options de parking, et « même adresse » / « autre adresse ». */
@@ -357,6 +360,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       assurancePno: pno, pnoDateAnniversaire: pno === true ? datePno : null,
       chargesCopro: dans(CHARGES_COPRO, l.chargesCopro),
       idFiscal,
+      copropriete: ouiNon(l.copropriete),
     },
   };
 }
