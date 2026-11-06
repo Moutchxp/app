@@ -23,6 +23,7 @@ import { A_RENSEIGNER, carteCompromis, CLE_TRI_COMPROMIS, compromisDeLaVue, estT
 import { Journal } from './FormulaireVente';
 import { detailCa, detailCommissions, detailDu, detailSolde } from '../../../../lib/transaction/detailCommissions';
 import { controleVentilation, mentionPartAgence, ventilationVente, type MontantC, type VentilationCote } from '../../../../lib/transaction/partAgence';
+import { fusionDeuxCotes, type FusionDeuxCotes } from '../../../../lib/transaction/deuxCotes';
 import { FenetreCommissions, FenetreSolde } from './FenetreCommissions';
 import { BlocDu } from './BlocDu';
 import { ApporteurAffaire } from './ApporteurAffaire';
@@ -558,6 +559,9 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
   const c = carteCompromis(v, d.aujourdhui);
   // 🔴 LOT AY — la ventilation des honoraires de chaque partie, lue avec la société de l'écran (part de l'agence, rattachement associé).
   const ventilation = ventilationVente(v, vue);
+  // 🔴 Arno (06/11/2026) — MON ESPACE : une affaire tenue des DEUX côtés par le même négociateur se présente une seule fois (côté vendeurs).
+  //    La tuile Suivi CA (sans vue personnelle) : rien ne change.
+  const fusion = personnel === undefined ? null : fusionDeuxCotes(v, ventilation);
   const colonne = (role: 'vendeur' | 'acquereur', mot: string) => {
     const gens = (v.dossier?.personnes ?? []).filter((p) => p.role === role);
     return (
@@ -590,7 +594,8 @@ export function DetailAffaire({ v, hote, etiquettes = false, retros, personnel }
         <BoutonNegociateur v={v} cote={role === 'vendeur' ? 'entree' : 'sortie'} references={d} disponible={d.disponible && d.lotD} onFait={relire} statutDuLibelle={statutDuLibelle} vue={vue}
           onEnregistre={(e) => signalerPorteuse(v.id, e, v.honorairesTtc)} ventilation={ventilation[role === 'vendeur' ? 'entree' : 'sortie']}
           onRevoir={(repartition, message) => setEdition({ vente: v, ajouter: null, repartition, message })}
-          lecture={personnel === undefined ? undefined : personnel.mesCotes.includes(role === 'vendeur' ? 'entree' : 'sortie') ? 'mien' : 'autre'} />
+          lecture={personnel === undefined ? undefined : personnel.mesCotes.includes(role === 'vendeur' ? 'entree' : 'sortie') ? 'mien' : 'autre'}
+          {...(fusion === null ? {} : { deuxCotes: role === 'vendeur' ? { role: 'principal' as const, fusion } : { role: 'secondaire' as const } })} />
       </section>
     );
   };
@@ -794,7 +799,12 @@ const personnesDe = (v: Vente) => (v.dossier?.personnes ?? []).map(personneEcran
  * LOT I (437) — la COMMISSION VERSÉE à ce négociateur se saisit ici aussi (montant, « HT / TTC » au choix), enregistrée avec lui ; sous le
  * bouton, la commission enregistrée dans son unité et son équivalent.
  */
-function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre, ventilation, lecture }: {
+function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, statutDuLibelle, vue = null, onEnregistre, ventilation, lecture, deuxCotes }: {
+  /**
+   * 🔴 Arno (06/11/2026) — MON ESPACE, le même négociateur des DEUX côtés : « principal » (côté vendeurs) présente l'affaire ENTIÈRE (honoraires,
+   * part de l'agence, com négo) ; « secondaire » (côté acquéreurs) : son nom et une mention. Absent : la carte d'avant.
+   */
+  deuxCotes?: { role: 'principal'; fusion: FusionDeuxCotes } | { role: 'secondaire' };
   /**
    * 🔴 MON ESPACE, LOT 4 — la vue personnelle : « mien » (le côté du titulaire : tout, en lecture, sans bouton) ; « autre » (le côté d'un autre
    * collègue, dont le serveur a retiré la commission : son nom et ses honoraires seulement) ; absent (la tuile Suivi CA) : rien ne change.
@@ -891,6 +901,10 @@ function BoutonNegociateur({ v, cote, references, disponible, onFait, onRevoir, 
   const lignes = (montrer: 'honoraires' | 'commission') => <LignesCalcul montrer={montrer} classe={classe} mention={mentionCommission(statutCommission, precision)} cote={cote} lectureSeule={lecture !== undefined}
     premier={`Honoraires nets partie ${cote === 'entree' ? 'vendeur' : 'acquéreur'}`} honoraires={honoraires} honorairesVersesVers={versesVers === null ? null : LIBELLE_SOCIETE[versesVers]}
     rem={autreSociete === null ? rem : null} enregistree={avecUnite} occupe={!disponible || envoi} onAppliquer={appliquer} baseAffichee={ventilation?.base} sansCadre={ventilation?.conserve != null} />;
+  if (deuxCotes !== undefined && lecture !== undefined && actuel !== null) {
+    return <CarteDeuxCotes cote={cote} deuxCotes={deuxCotes} nom={nommer(actuel.nom)} taux={tauxDuCote(v, 'entree')} lecture={lecture}
+      nonCommissionne={actuelNonCommissionne} classe={classe} mention={mentionCommission(statutCommission, precision)} />;
+  }
   return (
     <div className="trx-negociateur-carte" data-negociateur-cote={cote}>
       {/* 🔴 LOT T (Arno) — « Négociateur : Prénom NOM · 25 % » : son TAUX DE COMMISSIONNEMENT sur cette vente (la société et la part sont dans le
@@ -1104,12 +1118,58 @@ function LignesCalcul({ cote, premier, honoraires, rem, enregistree, occupe, onA
 }
 
 /**
+ * 🔴 Arno (06/11/2026) — MON ESPACE, UNE AFFAIRE TENUE DES DEUX CÔTÉS PAR LE MÊME NÉGOCIATEUR (`fusionDeuxCotes`) : côté vendeurs, l'affaire ENTIÈRE —
+ * ses honoraires, la part de l'agence, la com négo (enregistrée, sinon calculée sur les honoraires attribués à chaque côté) ; côté acquéreurs, une
+ * mention. Jamais de montant négatif. Lecture seule (aucun bouton).
+ */
+function CarteDeuxCotes({ cote, deuxCotes, nom, taux, lecture, nonCommissionne, classe, mention }: {
+  cote: 'entree' | 'sortie'; deuxCotes: { role: 'principal'; fusion: FusionDeuxCotes } | { role: 'secondaire' }; nom: string; taux: number;
+  lecture: 'mien' | 'autre'; nonCommissionne: boolean; classe: ClasseCommission | null; mention: string;
+}) {
+  const u = useAffichage();
+  const t = (m: MontantC): string => montantAffiche(u, m.htC / 100, m.ttcC / 100);
+  const entete = <p className="trx-negociateur-lecture" data-negociateur-carte={cote} data-negociateur-lecture={lecture}>
+    {`Négociateur : ${nom}${lecture === 'autre' ? '' : ` · ${nonCommissionne ? 'non commissionné' : `${pctFr(taux)} %`}`}`}</p>;
+  if (deuxCotes.role === 'secondaire') {
+    return (
+      <div className="trx-negociateur-carte" data-negociateur-cote={cote} data-deux-cotes="secondaire">
+        {entete}
+        <p className="loc-muet trx-negociateur-commission" data-mention-deux-cotes>Même négociateur à l’entrée et à la sortie du mandat : les honoraires, la com négo
+          et la part de l’agence de l’affaire entière sont présentés côté vendeurs.</p>
+      </div>
+    );
+  }
+  const f = deuxCotes.fusion;
+  const seule = f.commissions.length === 1 ? f.commissions[0] : null;
+  return (
+    <div className="trx-negociateur-carte" data-negociateur-cote={cote} data-deux-cotes="principal">
+      {entete}
+      <VentilationPartie x={f.x} groupe="tete" partie="de l’affaire (vendeurs et acquéreurs)" />
+      {lecture === 'autre' && <p className="loc-muet trx-negociateur-commission" data-commission-autre={cote}>La commission de ce côté n’est visible que de son négociateur.</p>}
+      {lecture !== 'autre' && <VentilationPartie x={f.x} groupe="vert" />}
+      {lecture !== 'autre' && f.commissions.length > 0 && (
+        <LigneCalcul encadre={classe === 'independant' ? 'deduite' : 'interne'} mention={mention} donnees={{ 'data-commission-deux-cotes': '' }}
+          ttc={f.total.ttcC / 100} ht={f.total.htC / 100}
+          libelle={<><span className="trx-calcul-mot">Commission du négociateur (affaire entière) :</span> <span className="trx-calcul-operation">{seule !== null
+            ? (seule.source === 'calcul' ? `${t(seule.base)} × ${pctFr(seule.taux)}${ESPACE}% =` : 'commission enregistrée =')
+            : `${f.commissions.map((c) => `${t(c.m)} (${c.cote === 'entree' ? 'entrée' : 'sortie'})`).join(' + ')} =`}</span></>} />
+      )}
+      {lecture !== 'autre' && <VentilationPartie x={f.x} groupe="rouge" />}
+      {lecture !== 'autre' && f.alerte && <p className="trx-alerte" role="status" data-alerte-deux-cotes>Les commissions enregistrées ({t(f.total)}) dépassent les honoraires de
+        l’affaire ({t(f.x.base)}) : la part de l’agence n’est pas affichée, à vérifier.</p>}
+    </div>
+  );
+}
+
+/**
  * 🔴 LOT AY (Arno) — LA VENTILATION D'UNE PARTIE, sous la ou les commissions : la quote-part de l'apporteur et des agences extérieures (en
  * rouge : comptées dans « Commissions versées »), puis « Part de l'agence : honoraires de la partie − ce qui en sort = … » (liseré vert) —
  * ce qui reste dans le CA de la société, ou rattaché au CA de son associé. Commissions + quote-parts + inter-cabinet versé + part de l'agence
  * = honoraires de la partie, au centime, dans chaque unité (`ventilationVente`).
  */
-export function VentilationPartie({ x, groupe }: { x: VentilationCote;
+export function VentilationPartie({ x, groupe, partie }: { x: VentilationCote;
+  /** 🔴 Arno (06/11/2026) — le libellé de l'en-tête (« de l'affaire (vendeurs et acquéreurs) ») ; absent : « partie vendeur / acquéreur ». */
+  partie?: string;
   /** 🔴 LOT AZ — « tete » : les honoraires de la partie (sans cadre) ; « vert » : la part de l'agence ; « rouge » : les quote-parts. */
   groupe: 'tete' | 'vert' | 'rouge' }) {
   const nommer = useNommer(); // 🔴 LOT CG — « Prénom NOM »
@@ -1142,7 +1202,7 @@ export function VentilationPartie({ x, groupe }: { x: VentilationCote;
       {groupe === 'tete' && <div className={`trx-calcul-base-resultat ${x.recuDe === null && x.apporteurs.length > 0 ? 'trx-calcul-base-resultat--filet' : 'trx-calcul-base-resultat--seule'}`} data-base-resultat={x.cote}>
         <LigneCalcul donnees={{ 'data-honoraires-cote': x.cote }} ttc={x.honoraires.ttcC / 100} ht={x.honoraires.htC / 100} classe={x.apporteurs.length > 0 ? 'trx-calcul-total' : undefined}
           libelle={x.recuDe !== null ? <span className="trx-calcul-mot">Honoraires reçus de {LIBELLE_SOCIETE[x.recuDe]}</span>
-            : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires nets partie {mot}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
+            : <><span className="trx-calcul-mot">{x.apporteurs.length > 0 ? '= ' : ''}Honoraires nets {partie ?? `partie ${mot}`}</span> : <span className="trx-calcul-operation">{x.apporteurs.length > 0
               // 🔴 D29 — l'apporteur externe : son montant « sans TVA » ; en TTC, la TVA non récupérable aussi retranchée
               ? `(${[t(x.commissionVente), ...x.apporteurs.map((a) => (a.m.htC === a.m.ttcC ? eur(a.m.ttcC / 100) : t(a.m))),
                 ...(x.tvaApporteur !== undefined && (u === 'ht' ? x.tvaApporteur.htC : x.tvaApporteur.ttcC) !== 0 ? [`${eur((u === 'ht' ? x.tvaApporteur.htC : x.tvaApporteur.ttcC) / 100)} TVA`] : [])].join(' − ')})`
