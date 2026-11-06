@@ -63,6 +63,7 @@ export { societeDeLigne } from './modele';
  * 🔴 LOT J (Arno) — LA PART DE LA VENTE du négociateur d'un côté, en % de la commission nette, lue dans la répartition enregistrée :
  * ses parties de ce côté (entrée : « entrée » ou « entrée et sortie » ; sortie : « sortie » ou « entrée et sortie »), une part en € HT
  * ramenée en %. Le même négociateur des deux côtés, sans partie de sortie (il porte tout à l'entrée) : 0 % côté sortie.
+ * 🔴 Arno (06/11/2026) — une partie « entrée et sortie » compte à l'entrée seulement (côté sortie : 0 %), comme la ventilation des cartes.
  * null : pas de répartition (historique, import) ou négociateur absent de la répartition — rien n'est inventé. PUR.
  */
 export function partDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dossier'>, cote: 'entree' | 'sortie'): number | null {
@@ -70,7 +71,9 @@ export function partDuCote(v: Pick<Vente, 'honorairesTtc' | 'repartition' | 'dos
   const nego = cote === 'entree' ? v.dossier?.entree ?? null : v.dossier?.sortie ?? null;
   if (r == null || nego === null) return null;
   const net = commissionNetteHt(v.honorairesTtc, r.retroApporteurTtc, r.apporteurInterne);
-  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie', 'entree_sortie'];
+  // 🔴 Arno (06/11/2026) — « entrée et sortie » (UNE partie pour le même négociateur des deux côtés) est comptée UNE seule fois, à l'entrée :
+  //    côté sortie, elle vaut 0 % (jamais 100 % des deux côtés : la commission calculée était doublée). Les autres formes ne changent pas.
+  const sortes = cote === 'entree' ? ['entree', 'entree_sortie'] : ['sortie'];
   const siennes = r.parties.filter((p) => p.compteId === nego.id && sortes.includes(p.sorte));
   if (siennes.length === 0) return r.parties.some((p) => p.compteId === nego.id && p.sorte !== 'exterieure') ? 0 : null;
   return siennes.reduce((t, p) => t + (p.pourcentage !== null ? p.pourcentage : net === 0 ? 0 : ((p.montantHt ?? 0) / net) * 100), 0);
