@@ -44,7 +44,7 @@ beforeEach(() => {
     const u = String(url);
     const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) });
     if (init?.method === 'POST') { posts.push({ url: u, corps: JSON.parse(String(init.body)) }); cree = true; return ok(99); }
-    if (u.startsWith(URL_REFERENCES)) return ok({ disponible: true, aujourdhui: '2026-11-02', titulaireId: 5, administrateur: false, lotD: true, personneType: true, prixVente: true,
+    if (u.startsWith(URL_REFERENCES)) return ok({ disponible: true, aujourdhui: '2026-11-02', titulaireId: 5, administrateur: admin, lotD: true, personneType: true, prixVente: true,
       mandat: true, uniteCommission: true, negociateurs: [LEA, MARC], apporteurs: [], personnes: [], structureImposee: imposee });
     if (u.startsWith(URL_MANDAT)) return ok(prise === null ? { libre: true, numero: 'M-42' } : { libre: false, numero: 'M-42', transaction: prise });
     if (u.startsWith(URL_VENTE)) return ok(aRejoindre);
@@ -187,5 +187,66 @@ describe('🔴 décision 12 — la structure du nouveau compromis', () => {
     await cliquer('[data-espace="macj"]');
     await cliquer('[data-nouveau-compromis-mon-espace]');
     expect(container.querySelector('[data-parcours="structure"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — « Les deux côtés (entrée et sortie du mandat) » en un clic', () => {
+  const jusquauCote = async () => {
+    await ouvrir();
+    await cliquer('[data-structure="criterimmo"]');
+    await saisir('[data-parcours-mandat]', 'M-42');
+    await cliquer('[data-parcours-verifier]');
+  };
+  it('le 4ᵉ bouton, au même niveau ; les 3 boutons existants, « Changer le n° » et « Fermer » inchangés (administrateur)', async () => {
+    admin = true;
+    await jusquauCote();
+    expect([...container.querySelectorAll('[data-parcours="cote"] [role="group"] button')].map((b) => [b.getAttribute('data-cote'), b.textContent])).toEqual([
+      ['entree', 'Entrée du mandat (côté vendeur)'], ['sortie', 'Sortie du mandat (côté acquéreur)'], ['aucun', 'Pour un collègue (je ne suis sur aucun côté)'],
+      ['deux', 'Les deux côtés (entrée et sortie du mandat)']]);
+    expect([...container.querySelectorAll('[data-parcours="cote"] .trx-actions button')].map((b) => b.textContent)).toEqual(['Changer le n°', 'Fermer']);
+  });
+  it('non administrateur : « Pour un collègue » reste réservé (inchangé), « Les deux côtés » est offert', async () => {
+    await jusquauCote();
+    expect([...container.querySelectorAll('[data-parcours="cote"] [data-cote]')].map((b) => b.getAttribute('data-cote'))).toEqual(['entree', 'sortie', 'deux']);
+  });
+  it('le formulaire COMPLET des deux parties, moi aux deux côtés ; un côté sans client → refus clair, rien n’est envoyé ; complet → enregistré, sans partage ni mail', async () => {
+    await jusquauCote();
+    await cliquer('[data-cote="deux"]');
+    const form = container.querySelector('[data-formulaire-dossier="nouveau"]')!;
+    expect(form.textContent).toContain('Vous êtes sur les deux côtés de cette affaire (entrée et sortie du mandat)');
+    // Les deux blocs de clients, avec tous leurs champs (les mêmes qu'avec un seul côté).
+    for (const bloc of ['vendeurs', 'acquereurs']) {
+      for (const champ of ['nom', 'prenom', 'telephone', 'email']) expect(form.querySelector(`[data-bloc-dossier="${bloc}"] [data-personne-${champ}]`)).not.toBeNull();
+    }
+    // Aucune part à SAISIR : un seul négociateur (moi) sur les deux côtés — la répartition existante, déjà remplie.
+    expect([...form.querySelectorAll<HTMLInputElement>('[data-partie-pct]')].map((x) => x.value)).toEqual(['100', '0']);
+    await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
+    // Le vendeur seul : l'acquéreur manque → refus, le message sous le bloc, rien n'est envoyé.
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-nom]', 'DUPONT');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-prenom]', 'Jean');
+    await saisir('[data-bloc-dossier="vendeurs"] [data-personne-telephone]', '0600000000');
+    await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); }); await calmer();
+    expect(posts).toHaveLength(0);
+    expect([...container.querySelectorAll('[data-manque-creation]')].map((m) => [m.getAttribute('data-manque-creation'), m.textContent])).toEqual([
+      ['acquereurs', 'Renseignez au moins un acquéreur : nom et prénom (ou raison sociale), et un téléphone ou un e-mail.']]);
+    // L'acquéreur renseigné (raison sociale + e-mail) : enregistré, moi aux DEUX côtés, aucun partage saisi.
+    await saisir('[data-bloc-dossier="acquereurs"] [data-personne-nom]', 'MARTIN');
+    await saisir('[data-bloc-dossier="acquereurs"] [data-personne-prenom]', 'Paul');
+    await saisir('[data-bloc-dossier="acquereurs"] [data-personne-email]', 'paul@exemple.test');
+    await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); }); await calmer();
+    expect(posts).toHaveLength(1);
+    const d = posts[0].corps.dossier as { entreeId: number; sortieId: number; parties: { sorte: string; compteId: number | null; pourcentage: number | null }[]; personnes: { role: string; nom: string }[] };
+    expect([d.entreeId, d.sortieId]).toEqual([5, 5]);
+    expect(d.parties.filter((p) => p.sorte !== 'exterieure').map((p) => p.compteId)).toEqual(d.parties.filter((p) => p.sorte !== 'exterieure').map(() => 5));
+    expect(d.personnes.map((p) => [p.role, p.nom])).toEqual([['vendeur', 'DUPONT'], ['acquereur', 'MARTIN']]);
+    // La confirmation simple : aucun mail à un collègue.
+    expect(container.querySelector('[data-confirmation-compromis="99"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-mail-prevenu]')).toHaveLength(0);
+  });
+  it('les 3 choix existants : le formulaire d’avant (entrée → moi à l’entrée seulement, parts à saisir)', async () => {
+    await jusquauCote();
+    await cliquer('[data-cote="entree"]');
+    expect(container.querySelector('[data-formulaire-dossier="nouveau"]')!.textContent).not.toContain('Vous êtes sur les deux côtés');
+    expect(container.querySelectorAll('[data-partie-pct]').length).toBeGreaterThan(0);
   });
 });

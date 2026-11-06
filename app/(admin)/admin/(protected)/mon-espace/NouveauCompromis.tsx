@@ -32,7 +32,10 @@ type Refs = References & { titulaireId: number; administrateur: boolean; aujourd
   /** 🔴 Décision 12 — la structure de mon profil (rattaché à une seule) ; null : les deux, ou aucun rattachement enregistré (la question reste). */
   structureImposee?: Societe | null };
 type Etape = 'structure' | 'mandat' | 'pris' | 'rejoindre' | 'cote' | 'formulaire' | 'formulaireRejoindre';
-type Cote = 'entree' | 'sortie' | 'aucun';
+/** 🔴 Arno (06/11/2026) — `deux` : je tiens les DEUX côtés (entrée et sortie du mandat) ; aucun autre collaborateur, aucun partage à saisir. */
+type Cote = 'entree' | 'sortie' | 'aucun' | 'deux';
+
+export const MESSAGE_DEUX_COTES = 'Vous êtes sur les deux côtés de cette affaire (entrée et sortie du mandat) : renseignez au moins un vendeur et un acquéreur, puis enregistrez.';
 
 const jourFr = (d: string | null): string | null => (d === null ? null : d.split('-').reverse().join('/'));
 
@@ -174,11 +177,15 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
   if (etape === 'formulaire' && refs !== null && societe !== null && verifie !== null && cote !== null) {
     const negos = negosSurs;
     const base = etatRepartitionDe(null, negos, refs.uniteCommission === true);
-    const repartition = cote === 'aucun' ? base : changerNegociateur(base, cote, refs.titulaireId, negos);
+    // 🔴 Arno (06/11/2026) — « Les deux côtés » : moi à l'entrée ET à la sortie (la répartition d'un seul négociateur, sans partage à saisir).
+    const repartition = cote === 'aucun' ? base : cote === 'deux'
+      ? changerNegociateur(changerNegociateur(base, 'entree', refs.titulaireId, negos), 'sortie', refs.titulaireId, negos)
+      : changerNegociateur(base, cote, refs.titulaireId, negos);
+    const messageForm = cote === 'deux' ? [MESSAGE_DEUX_COTES, messageStructure].filter((x) => x !== undefined).join(' ') : messageStructure;
     // 🔴 Arno (05/11/2026) — les obligations du créateur (le serveur les revérifie) ; enregistré : la fenêtre « Compromis enregistré ».
     // 🔴 Arno (05/11/2026) — le partage est celui que le créateur SAISIT (parts vides au départ, jamais un 50/50 implicite).
     return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerCreation} partageASaisir
-      {...(messageStructure === undefined ? {} : { message: messageStructure })}
+      {...(messageForm === undefined ? {} : { message: messageForm })}
       controleCreation={({ personnes, repartition: rep, partageDefini }) => manquesCreateur({ entreeId: rep.entreeId, sortieId: rep.sortieId, partageDefini,
         personnes: personnes.map((p) => ({ role: p.role, type: p.type, nom: p.nom, prenom: p.prenom, telephone: p.telephone, email: p.email })) }, refs.titulaireId)}
       onFermer={onFermer} onFait={(e) => { if (e !== undefined && e.id > 0) setConfirme({ id: e.id, recap: recapRecu.current }); else onFermer(); }} />;
@@ -253,6 +260,8 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
             Sortie du mandat (côté acquéreur)</button>
           {refs?.administrateur === true && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setCote('aucun'); setEtape('formulaire'); }} data-cote="aucun">
             Pour un collègue (je ne suis sur aucun côté)</button>}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setCote('deux'); setEtape('formulaire'); }} disabled={refs === null} data-cote="deux">
+            Les deux côtés (entrée et sortie du mandat)</button>
         </div>
         <div className="trx-actions">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape('mandat')}>Changer le n°</button>

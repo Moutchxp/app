@@ -92,3 +92,18 @@ describe('« Mon CA » (décision 1) = les honoraires de mes côtés, par l’Es
     expect(compteursMonEspace([double], LEA, '2026-11-02').actees.nb).toBe(0);
   });
 });
+
+describe('🔴 Arno (06/11/2026) — « Les deux côtés » : le compromis compte ENTIÈREMENT dans mes totaux', () => {
+  const DEUX = (parties: NonNullable<Vente['repartition']>['parties']) => base({ id: 40, libelle: 'DEUX CÔTÉS', numeroMandat: 'M-42',
+    repartition: { retroApporteurTtc: 0, parties },
+    dossier: { adresseBien: null, dateActePrevue: null, dateActe: null, entree: { id: 5, nom: 'Léa MARTIN' }, sortie: { id: 5, nom: 'Léa MARTIN' }, apporteurId: null, personnes: [] } });
+  const P = (sorte: 'entree' | 'sortie' | 'entree_sortie', pourcentage: number) => ({ sorte, compteId: 5, negociateur: 'Léa MARTIN', societe: 'criterimmo' as const, nom: null, coordonnees: null, pourcentage, montantHt: null });
+  it('entrée et sortie à moi : mes deux côtés ; 100 % du CA (12 000 € TTC → 10 000 € HT), rien à un collègue', () => {
+    for (const v of [DEUX([P('entree_sortie', 100)]), DEUX([P('entree', 100), P('sortie', 0)])]) {
+      expect(mesCotes(v, LEA)).toEqual(['entree', 'sortie']);
+      expect(monCa([v], LEA)).toEqual({ htC: 1000000, ttcC: 1200000 });
+      expect(monCa([v], MARC)).toEqual({ htC: 0, ttcC: 0 });
+      expect(estAMoi(v, MARC)).toBe(false);
+    }
+  });
+});
