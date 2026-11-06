@@ -250,3 +250,30 @@ describe('🔴 Arno (06/11/2026) — « Les deux côtés (entrée et sortie du m
     expect(container.querySelectorAll('[data-partie-pct]').length).toBeGreaterThan(0);
   });
 });
+
+describe('🔴 Arno (06/11/2026) — la disposition de l’étape ③ (deux lignes, colonnes égales)', () => {
+  const jusquauCote = async () => {
+    await ouvrir(); await cliquer('[data-structure="criterimmo"]'); await saisir('[data-parcours-mandat]', 'M-42'); await cliquer('[data-parcours-verifier]');
+  };
+  it('administrateur : grille à 3 colonnes ; non administrateur : 2 ; les boutons, leur ordre et leur clic inchangés', async () => {
+    admin = true;
+    await jusquauCote();
+    const g = container.querySelector('[data-grille-cotes]')!;
+    expect(g.className).toBe('mes-parcours-choix mes-parcours-cotes mes-parcours-cotes--3');
+    expect([...g.querySelectorAll('button')].map((b) => b.getAttribute('data-cote'))).toEqual(['entree', 'sortie', 'aucun', 'deux']);
+    act(() => { root.unmount(); }); root = createRoot(container); admin = false;
+    await jusquauCote();
+    expect(container.querySelector('[data-grille-cotes]')!.className).toBe('mes-parcours-choix mes-parcours-cotes');
+    await cliquer('[data-cote="deux"]');
+    expect(container.querySelector('[data-formulaire-dossier="nouveau"]')).not.toBeNull();
+  });
+  it('le CSS : « Les deux côtés » sous vendeur et acquéreur (2 colonnes), la 3ᵉ libre ; au téléphone, empilés, « Les deux côtés » avant « Pour un collègue »', async () => {
+    const { CSS_NOUVEAU_COMPROMIS } = await import('./NouveauCompromis');
+    const css = CSS_NOUVEAU_COMPROMIS.replace(/\s+/g, ' ');
+    expect(css).toContain('.mes-parcours-cotes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr');
+    expect(css).toContain('.mes-parcours-cotes--3{grid-template-columns:repeat(3,minmax(0,1fr))}');
+    expect(css).toContain('.mes-parcours-cotes [data-cote="deux"]{grid-column:1 / span 2;grid-row:2}');
+    expect(css).toContain('.mes-parcours-cotes [data-cote="aucun"]{grid-column:3;grid-row:1}');
+    expect(css).toMatch(/@media \(max-width:640px\)\{.*\.mes-parcours-cotes \[data-cote="aucun"\]\{order:1\}/);
+  });
+});

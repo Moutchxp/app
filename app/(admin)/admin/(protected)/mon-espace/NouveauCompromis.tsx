@@ -253,7 +253,8 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
       </>}
       {etape === 'cote' && <>
         <p className="mes-parcours-question">N° {verifie} : libre chez {societe === null ? '' : LIBELLE_SOCIETE[societe]}. ③ Votre côté sur cette affaire ?</p>
-        <div className="mes-parcours-choix" role="group" aria-label="Votre côté">
+        {/* 🔴 Arno (06/11/2026) — deux lignes, colonnes égales : vendeur | acquéreur (| pour un collègue) ; dessous, « Les deux côtés » sous vendeur et acquéreur. */}
+        <div className={`mes-parcours-choix mes-parcours-cotes${refs?.administrateur === true ? ' mes-parcours-cotes--3' : ''}`} role="group" aria-label="Votre côté" data-grille-cotes>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setCote('entree'); setEtape('formulaire'); }} disabled={refs === null} data-cote="entree">
             Entrée du mandat (côté vendeur)</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setCote('sortie'); setEtape('formulaire'); }} disabled={refs === null} data-cote="sortie">
@@ -285,4 +286,17 @@ export const CSS_NOUVEAU_COMPROMIS = `
 .mes-parcours-info dd{margin:0;font-weight:600;color:var(--color-svv-ink)}
 .mes-nouveau{min-height:44px}
 .mes-parcours-tenu{margin:0;flex:1 1 220px;align-self:center}
+/* Arno (06/11/2026) — l'étape ③ : grille à colonnes égales (2, ou 3 avec « Pour un collègue ») ; « Les deux côtés » sur la 2ᵉ ligne, sous vendeur et acquéreur. */
+.mes-parcours-cotes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:1fr;gap:.5rem}
+.mes-parcours-cotes--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.mes-parcours-cotes .gst-btn{flex:none;width:100%;margin:0}
+.mes-parcours-cotes [data-cote="entree"]{grid-column:1;grid-row:1}
+.mes-parcours-cotes [data-cote="sortie"]{grid-column:2;grid-row:1}
+.mes-parcours-cotes [data-cote="aucun"]{grid-column:3;grid-row:1}
+.mes-parcours-cotes [data-cote="deux"]{grid-column:1 / span 2;grid-row:2}
+@media (max-width:640px){
+  .mes-parcours-cotes,.mes-parcours-cotes--3{grid-template-columns:minmax(0,1fr);grid-auto-rows:auto}
+  .mes-parcours-cotes [data-cote]{grid-column:1;grid-row:auto}
+  .mes-parcours-cotes [data-cote="aucun"]{order:1}
+}
 `;
