@@ -19,7 +19,14 @@ export const ROUTES_CONFIRMEES = ['/api/admin/location', '/api/admin/gestion/ann
 /** L'envoi ADHOC & MONGA a sa propre fenêtre de résultat (envoyé / non envoyé) : il n'est pas doublé. */
 export const ROUTES_EXCLUES = ['/api/admin/location/nouvelle-location'] as const;
 /** Pas d'annonce : une lecture en POST, une balise, ou un écran qui a sa propre modale de succès ET d'erreur. */
-export const ACTIONS_SANS_ANNONCE: ReadonlySet<string> = new Set(['apercu-lots', 'journal-echec', 'creer-bien', 'creer-locataires', 'creer-proprietaires']);
+export const ACTIONS_SANS_ANNONCE: ReadonlySet<string> = new Set(['apercu-lots', 'apercu-preavis', 'journal-echec', 'creer-bien', 'creer-locataires', 'creer-proprietaires']);
+/**
+ * 🔴 Arno (06/11/2026) — UNE LECTURE N'EST JAMAIS ANNONCÉE « Modification enregistrée » (constaté en production : l'aperçu des mails du préavis
+ * affichait un succès alors que rien n'était enregistré). Toute action « apercu-… » et toute requête `simuler: true` sont des lectures. PUR.
+ */
+export function estUneLecture(action: string, corps: Record<string, unknown>): boolean {
+  return action.startsWith('apercu') || corps.simuler === true;
+}
 /** L'échec s'affiche déjà DANS la fenêtre de confirmation du geste (on y corrige) : seul le succès s'annonce. */
 export const ECHEC_DANS_SA_FENETRE: ReadonlySet<string> = new Set(['statut-bien']);
 /** L'en-tête par lequel un écran dit « je confirme moi-même » (`propre`). */
@@ -108,7 +115,7 @@ export function requeteAConfirmer(url: string, methode: string, corpsBrut: unkno
   let corps: Record<string, unknown> = {};
   if (typeof corpsBrut === 'string') { try { const o = JSON.parse(corpsBrut) as unknown; if (o !== null && typeof o === 'object' && !Array.isArray(o)) corps = o as Record<string, unknown>; } catch { /* corps non JSON */ } }
   const action = typeof corps.action === 'string' ? corps.action : '';
-  if (ACTIONS_SANS_ANNONCE.has(action)) return null;
+  if (ACTIONS_SANS_ANNONCE.has(action) || estUneLecture(action, corps)) return null;
   return { action, corps };
 }
 

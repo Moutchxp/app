@@ -40,6 +40,7 @@ vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adres
 vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', nom: 'Arno Jorel', prenom: 'Arno', nomFamille: 'Jorel' }) }));
 vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./sortieLocatairesRepo')>()),
+  destinatairesSortie: async (e: string | null) => [...(e === null ? [] : [e]), 'collegue@exemple.test'],
   lireBail: async () => ({ lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean',
     entree: '2022-09-01', locataires: [], annexes: [], autresOccupants: [] }),
 }));
@@ -47,7 +48,7 @@ vi.mock('./sortieLocatairesRepo', async (importOriginal) => ({
 const enregistrerPreavis = vi.fn();
 vi.mock('./preavisRepo', () => ({ enregistrerPreavis: (...a: unknown[]) => enregistrerPreavis(...a) }));
 
-const { destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
+const { apercuMailsSortie, destinatairesPourInfo, apercuMailsPreavis, envoyerMailsPreavis, envoyerMailSortieAdhoc, enregistrerPreavisAvecMails, mailsAvisDuBien, partenairesDeSortie } = await import('./mailsPreavisSortieRepo');
 
 const AUTEUR = { id: 3, libelle: 'a.jorel@sansvisavis.com' };
 const envoyes: MessageAEnvoyer[] = [];
@@ -280,5 +281,24 @@ describe('🔴 Arno (05/11/2026) — le picto « i » : destinataires et copies 
     listes = { nouvelle_location: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }] };
     expect(await destinatairesPourInfo('nouvelle_location', AUTEUR)).toEqual({ destinataires: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }],
       copies: [{ adresse: 'a.jorel@sansvisavis.com', libelle: 'Vous (Arno Jorel) · copie personnelle' }] });
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — l’aperçu des mails d’une SORTIE (récapitulatif avant « Confirmer ») : lecture seule', () => {
+  it('bien en gestion : le compte rendu interne et le mail aux partenaires (liste « Sorties »), avec leurs copies ; rien n’est écrit ni envoyé', async () => {
+    listes = { preavis: [], sortie: [ADHOC] };
+    const r = await apercuMailsSortie(11, AUTEUR);
+    expect(r).toEqual({ etat: 'ok', data: { enGestion: true, mails: [
+      { sorte: 'sortie_interne', objet: 'Sortie de locataire — 4 rue Fictive, 92800 Puteaux', a: ['a.jorel@sansvisavis.com', 'collegue@exemple.test'], cc: [] },
+      { sorte: 'sortie_adhoc', objet: '[Information] Sortie de locataire(s) — 4 rue Fictive, 92800 Puteaux', a: ['gestion.criterimmo@gmail.com'], cc: ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'] },
+    ] } });
+    expect(ecritures).toEqual([]);
+    expect(envoyes).toEqual([]);
+  });
+  it('bien HORS gestion : le compte rendu interne seulement', async () => {
+    enGestion = false;
+    const r = await apercuMailsSortie(11, AUTEUR);
+    expect(r.etat === 'ok' ? r.data.mails.map((m) => m.sorte) : null).toEqual(['sortie_interne']);
+    expect(r.etat === 'ok' ? r.data.enGestion : null).toBe(false);
   });
 });

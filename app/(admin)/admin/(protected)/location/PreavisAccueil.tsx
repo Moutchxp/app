@@ -3,9 +3,8 @@
 import { ListeChoix } from './ListeChoix';
 import { useEffect, useMemo, useState } from 'react';
 import { EtatLecture, envoyer, useLecture } from './commun';
-import { ConfirmationSortie, EncartDuLogement, MESSAGE_SORTIE_GESTION } from './SortieLocataires';
-import { ModaleEnvois } from './ConfirmationEnvois';
-import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
+import { EncartDuLogement, MESSAGE_SORTIE_GESTION } from './SortieLocataires';
+import { ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
 import { aujourdhuiParisEcran, CSS_PREAVIS, MentionPreavis } from './Preavis';
 import {
   ajouterMois, dateFrPreavis, EDL_MOIS_APRES_FIN, lireTri, trierPreavis, TRI_DEFAUT, verifierEtatDesLieux,
@@ -57,8 +56,6 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
   useEffect(() => { setTri(lireTriMemorise()); }, []);
   const [ouverte, setOuverte] = useState<string | null>(null);
   const [bilan, setBilan] = useState<string | null>(null);
-  /** 🔴 Arno (05/11/2026) — la modale de confirmation de la sortie. */
-  const [confirmation, setConfirmation] = useState<ConfirmationAction | null>(null);
   // L'EDLS que l'on vient de planifier, montré AUSSITÔT, en attendant la relecture du serveur (qui le remplace).
   const [locaux, setLocaux] = useState<Record<string, EdlsAffiche>>({});
   const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t); };
@@ -94,7 +91,6 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
             </div>
           </div>
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}
-          {confirmation !== null && <ModaleEnvois issue={confirmation.issue} rappel={confirmation.rappel} onFermer={() => setConfirmation(null)} />}
           {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>Aucun locataire en préavis</p> : (
             <ul className="pva-liste">
               {lignes.map((l) => {
@@ -121,10 +117,9 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
                       <LigneDepliee l={l} gestion={gestion} edlDisponible={d!.etatDesLieux} planification={d!.planification === true}
                         apres={() => setVersion((v) => v + 1)}
                         edlsPose={(e) => { setLocaux((m) => ({ ...m, [l.cle]: e })); lu.rafraichir(); }}
-                        sortieFaite={(phrase, mail, c) => {
+                        sortieFaite={(f) => {
                           setOuverte(null);
-                          if (c !== undefined) setConfirmation(c);
-                          setBilan(`Sortie enregistrée — ${noms}. ${phrase}${mail === null ? '' : ` ${mail}`}`);
+                          setBilan(`${f.geste === 'sortie' ? 'Sortie enregistrée' : 'Préavis enregistré'} — ${f.noms.join(', ')}. ${f.phrase}${f.avecMails ? '' : ' Aucun mail n’a été envoyé.'}`);
                           setVersion((v) => v + 1);
                         }} />
                     )}
@@ -141,7 +136,7 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
 
 function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPose, sortieFaite }: {
   l: LignePreavisAccueil; gestion: boolean; edlDisponible: boolean; planification: boolean; apres: () => void;
-  edlsPose: (e: EdlsAffiche) => void; sortieFaite: (phrase: string, mail: string | null, confirmation?: ConfirmationAction) => void;
+  edlsPose: (e: EdlsAffiche) => void; sortieFaite: (f: FinParcours) => void;
 }) {
   const [edl, setEdl] = useState(l.etatDesLieuxLe ?? '');
   const [refusEdl, setRefusEdl] = useState<string | null>(null);
@@ -364,14 +359,18 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
   );
 }
 
-/** La confirmation réduite COMMUNE, sur le bail du préavis, avec ses locataires cochés (ceux du préavis). */
-function SortieDuPreavis({ l, onAnnuler, onFait }: { l: LignePreavisAccueil; onAnnuler: () => void; onFait: (phrase: string, mail: string | null, confirmation?: ConfirmationAction) => void }) {
+/** 🔴 Arno (06/11/2026) — LE MÊME PARCOURS que l'écran de sortie, sur le bail du préavis (aucun locataire présélectionné). */
+function SortieDuPreavis({ l, onAnnuler, onFait }: { l: LignePreavisAccueil; onAnnuler: () => void; onFait: (f: FinParcours) => void }) {
   const lu = useLecture<BailLogement>(`bail=${l.occupationId}`);
   if (lu.etat.etat !== 'ok') return <EtatLecture etat={lu.etat} />;
   const bail = lu.etat.data;
-  const choix = bail.locataires.filter((x) => l.occupationIds.includes(x.occupationId)).map((x) => x.occupationId);
-  if (choix.length === 0) return <p className="loc-muet">Ces locataires ne sont plus en place : rechargez la page.</p>;
-  return <ConfirmationSortie bail={bail} choix={choix} occupationId={choix[0]} onAnnuler={onAnnuler} onFait={(phrase, mail, _adhoc, c) => onFait(phrase, mail, c)} />;
+  if (bail.locataires.length === 0) return <p className="loc-muet">Ces locataires ne sont plus en place : rechargez la page.</p>;
+  return <>
+    <ParcoursSurBail bail={bail} occupationId={l.occupationId} gestion onFini={onFait} />
+    <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} data-fermer-sortie-accueil>Fermer</button>
+    </div>
+  </>;
 }
 
 /**

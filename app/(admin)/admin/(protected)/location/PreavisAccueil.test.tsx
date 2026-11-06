@@ -233,28 +233,32 @@ describe('la ligne dépliée', () => {
     expect(posts.at(-1)).toEqual({ action: 'etat-des-lieux', occupationIds: [11, 12], date: '' });
   });
 
-  it('« Valider la sortie » : LA confirmation commune (action `sortie-locataires`), puis la ligne disparaît', async () => {
+  it('« Valider la sortie » : 🔴 LE MÊME PARCOURS (Arno, 06/11/2026) — sélection sur les cartes, récapitulatif, résultat ; puis la ligne disparaît', async () => {
     await rendre(true);
     clic('button[data-ouvrir-preavis="C"]');
     clic('button[data-valider-sortie]');
     await attendre();
-    const conf = container.querySelector('[data-ligne-depliee="C"] [data-recapitulatif]')!;
-    expect([...conf.querySelectorAll('[data-sortant]')].map((l) => l.getAttribute('data-sortant'))).toEqual(['11', '12']);
-    act(() => saisir(conf.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
-    await act(async () => { (conf.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    const zone = container.querySelector('[data-ligne-depliee="C"] [data-parcours-sur-bail]')!;
+    // Aucune présélection : on choisit les deux cartes.
+    expect(zone.querySelectorAll('.arc-bien-carte--choisi')).toHaveLength(0);
+    for (const o of [11, 12]) await act(async () => { (zone.querySelector(`[data-locataire="${o}"]`) as HTMLElement).click(); });
+    await act(async () => { (zone.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click(); });
+    act(() => saisir(zone.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
+    await act(async () => { (zone.querySelector('button[data-enregistrer-sans-mail]') as HTMLButtonElement).click(); });
     await attendre();
-    // 🔴 Arno (05/11/2026, 460) — aucun partenaire configuré ici : la case n'apparaît pas, rien ne part aux partenaires.
-    expect(posts.at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, informerPartenaires: false });
+    const recap = document.querySelector('[data-fenetre-parcours="recap"]')!;
+    expect(recap.querySelector('[data-resume]')!.textContent).toContain('Le logement devient vacant.');
+    expect(posts.some((p) => p.action === 'sortie-locataires')).toBe(false); // rien avant « Confirmer »
+    await act(async () => { (recap.querySelector('[data-confirmer-parcours]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(posts.at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, envoyerMails: false, informerPartenaires: true });
+    const res = document.querySelector('[data-fenetre-parcours="resultat"]')!;
+    expect(res.querySelector('[data-titre-parcours]')?.textContent).toBe('✓ Sortie enregistrée');
+    await act(async () => { (res.querySelector('[data-fermer-parcours]') as HTMLButtonElement).click(); });
+    await attendre();
     expect(ordre()).toEqual(['B', 'A']);
     expect(container.querySelector('[data-preavis-bilan]')?.textContent).toContain('Sortie enregistrée — BERNARD Alice, BERNARD Paul.');
-    // 🔴 Arno (05/11/2026) — la modale de confirmation (sans envoi aux partenaires) ; « Fermer » seul, ne déclenche rien.
-    const m = document.querySelector('[data-modale-issue]')!;
-    expect(m.querySelector('h2')?.textContent).toBe('✓ Enregistré');
-    expect(m.querySelector('[data-resume] dd')?.textContent).toBe('Sortie de locataire');
-    const n = posts.length;
-    await act(async () => { (m.querySelector('[data-fermer-confirmation]') as HTMLButtonElement).click(); });
-    expect(document.querySelector('[data-modale-issue]')).toBeNull();
-    expect(posts).toHaveLength(n);
+    expect(container.querySelector('[data-preavis-bilan]')?.textContent).toContain('Aucun mail n’a été envoyé.');
   });
 
   it('sans le droit Gestion : « La sortie est validée par un utilisateur de la Gestion », aucun bouton de sortie', async () => {

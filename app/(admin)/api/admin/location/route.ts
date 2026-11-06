@@ -33,7 +33,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuMailsPreavis, destinatairesPourInfo, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
+import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -505,6 +505,12 @@ export async function POST(request: Request): Promise<Response> {
         const sortants = Array.isArray(corps.sortants) ? (corps.sortants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
         const r = await enregistrerSortie({ occupationId: occ, sortants, date: corps.date }, auteur);
         if (r.etat !== 'ok') return repondre(r);
+        // 🔴 Arno (06/11/2026) — « Enregistrer » seul (`envoyerMails: false`) : la sortie, et AUCUN mail (ni compte rendu interne, ni partenaires).
+        //    Absent : comme avant (les mails partent).
+        if (corps.envoyerMails === false) {
+          return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
+            ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, sansMail: true });
+        }
         const m = await notifierSortie(r.data, auteur);
         // Arno (05/11/2026) — PUIS le mail d'information à ADHOC (bien en gestion seulement) ; le compte rendu ci-dessus reste tel quel.
         // 🔴 Arno (05/11/2026, 460) — la liste « Sorties » ; la case « Informer nos partenaires » décochée : aucun mail partenaire.
@@ -528,6 +534,12 @@ export async function POST(request: Request): Promise<Response> {
         // 🔴 Arno (05/11/2026, 460) — `informerPartenaires` : la case « Informer nos partenaires » (absente : cochée).
         return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true,
           {}, corps.informerPartenaires !== false));
+      }
+      // 🔴 Arno (06/11/2026) — l'aperçu des mails d'une sortie (LECTURE : rien n'est écrit, rien ne part), pour le récapitulatif avant « Confirmer ».
+      case 'apercu-sortie': {
+        const occ = identifiant(corps.occupationId);
+        if (occ === null) return incomplet();
+        return repondre(await apercuMailsSortie(occ, auteur));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];

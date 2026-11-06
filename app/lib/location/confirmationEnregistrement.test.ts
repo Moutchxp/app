@@ -64,3 +64,31 @@ describe('🔴 ce qui s’annonce', () => {
     }
   });
 });
+
+describe('🔴 Arno (06/11/2026) — une LECTURE ne déclenche JAMAIS « Modification enregistrée » (défaut constaté en production)', () => {
+  it('l’aperçu des mails du préavis (route Location ET fiche commune) : aucune annonce', () => {
+    const corps = POST({ action: 'apercu-preavis', occupationIds: [214], recuLe: '2026-11-06', choix: { mode: 'date_manuelle', dateMax: '2026-12-10' } });
+    expect(requeteAConfirmer('/api/admin/location', 'POST', corps, null)).toBeNull();
+    expect(requeteAConfirmer('/api/admin/gestion/annuaire/location', 'POST', corps, null)).toBeNull();
+  });
+  it('toute simulation (`simuler: true`, ex. l’origine du propriétaire) : aucune annonce ; la même action SANS simuler s’annonce', () => {
+    expect(requeteAConfirmer('/api/admin/gestion/annuaire', 'POST', POST({ action: 'origine-proprietaire', id: 4, simuler: true }), null)).toBeNull();
+    expect(requeteAConfirmer('/api/admin/location/suivi', 'POST', POST({ action: 'origine-activite', id: 4, simuler: true }), null)).toBeNull();
+    expect(requeteAConfirmer('/api/admin/gestion/annuaire', 'POST', POST({ action: 'origine-proprietaire', id: 4 }), null)).not.toBeNull();
+  });
+  it('GARDE : chaque action « apercu-… » des routes confirmées est une lecture (une nouvelle ne pourra plus s’annoncer en succès)', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const racines = ['app/(admin)/api/admin/location', 'app/(admin)/api/admin/gestion/annuaire'];
+    const fichiers: string[] = [];
+    const parcourir = (d: string): void => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) parcourir(p); else if (n === 'route.ts') fichiers.push(p); } };
+    racines.forEach(parcourir);
+    const apercus = new Set(fichiers.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/case '(apercu[a-z-]*)'/g)].map((m) => m[1])));
+    expect([...apercus].sort()).toEqual(['apercu-lots', 'apercu-preavis', 'apercu-sortie']);
+    for (const a of apercus) expect(requeteAConfirmer('/api/admin/location', 'POST', POST({ action: a }), null)).toBeNull();
+    // Les routes de la tuile qui SIMULENT : le mot `simuler` est lu → ces requêtes ne s'annoncent pas.
+    const simulent = fichiers.filter((f) => readFileSync(f, 'utf8').includes('simuler'));
+    expect(simulent.length).toBeGreaterThan(0);
+    expect(ACTIONS_SANS_ANNONCE.has('apercu-preavis')).toBe(true);
+  });
+});

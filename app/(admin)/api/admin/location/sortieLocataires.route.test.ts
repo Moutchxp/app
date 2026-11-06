@@ -26,8 +26,10 @@ const envoyerMailSortieAdhoc = vi.fn();
 const enregistrerPreavisAvecMails = vi.fn();
 const apercuMailsPreavis = vi.fn();
 const destinatairesPourInfo = vi.fn();
+const apercuMailsSortie = vi.fn();
 vi.mock('../../../../lib/location/mailsPreavisSortieRepo', () => ({
   destinatairesPourInfo: (...a: unknown[]) => destinatairesPourInfo(...a),
+  apercuMailsSortie: (...a: unknown[]) => apercuMailsSortie(...a),
   envoyerMailSortieAdhoc: (...a: unknown[]) => envoyerMailSortieAdhoc(...a),
   enregistrerPreavisAvecMails: (...a: unknown[]) => enregistrerPreavisAvecMails(...a),
   apercuMailsPreavis: (...a: unknown[]) => apercuMailsPreavis(...a),
@@ -143,6 +145,30 @@ describe('🔴 Arno (05/11/2026) — GET ?destinatairesMails= (le picto « i »)
     destinatairesPourInfo.mockClear();
     await GET(new Request('http://localhost/api/admin/location?destinatairesMails=autre')).catch(() => null);
     expect(destinatairesPourInfo).not.toHaveBeenCalled();
+    expect(enregistrerSortie).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — le parcours en une passe : « Enregistrer » seul, et l’aperçu des mails de sortie', () => {
+  it('sortie avec `envoyerMails: false` : la sortie enregistrée, AUCUN mail (ni compte rendu interne, ni partenaires)', async () => {
+    enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
+    const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', envoyerMails: false }))).json();
+    expect(r).toEqual({ etat: 'ok', data: { date: '2026-10-31', vacant: true, restants: [] }, sansMail: true });
+    expect(notifierSortie).not.toHaveBeenCalled();
+    expect(envoyerMailSortieAdhoc).not.toHaveBeenCalled();
+  });
+  it('sortie sans `envoyerMails` (les autres écrans) : comme avant, les mails partent', async () => {
+    enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
+    notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: ['a@b.fr'], objet: 'x' });
+    await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' }));
+    expect(notifierSortie).toHaveBeenCalledTimes(1);
+    expect(envoyerMailSortieAdhoc).toHaveBeenCalledTimes(1);
+  });
+  it('`apercu-sortie` : une LECTURE (rien n’est écrit) — les mails qui partiraient', async () => {
+    apercuMailsSortie.mockResolvedValue({ etat: 'ok', data: { enGestion: true, mails: [{ sorte: 'sortie_interne', objet: 'o', a: ['a@b.fr'], cc: [] }] } });
+    const r = await (await POST(demande({ action: 'apercu-sortie', occupationId: 11 }))).json();
+    expect(r).toEqual({ etat: 'ok', data: { enGestion: true, mails: [{ sorte: 'sortie_interne', objet: 'o', a: ['a@b.fr'], cc: [] }] } });
+    expect(apercuMailsSortie).toHaveBeenCalledWith(11, { id: 3, libelle: 'arno@exemple.fr' });
     expect(enregistrerSortie).not.toHaveBeenCalled();
   });
 });

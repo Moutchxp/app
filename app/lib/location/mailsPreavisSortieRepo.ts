@@ -13,11 +13,12 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
 import type { Destinataire } from './mailNouvelleLocation';
-import { mailAdhocSortie, mailsDuPreavis, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, copiesAvis, mailAdhocSortie, mailsDuPreavis, objetAdhocSortie, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { verifierPreavis, type ModePreavis } from './preavis';
 import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
 import { colonneExisteMemo } from './sondeLocation';
-import { donneesMailSortie, lireBail, type SortieFaite } from './sortieLocatairesRepo';
+import { destinatairesSortie, donneesMailSortie, lireBail, type SortieFaite } from './sortieLocatairesRepo';
+import { objetMailSortie } from './sortieLocataires';
 
 /**
  * ══ 🔴🔴 LOCATION — LES MAILS AUTOMATIQUES DU PRÉAVIS ET DE LA SORTIE (Arno, 05/11/2026). IMPUR (base + envoi). ═══════════
@@ -276,4 +277,26 @@ export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> 
     `SELECT id::text, sorte, envoye_le::text AS quand, auteur_libelle AS par, destinataires AS a, copies AS cc, objet, texte, statut
        FROM gestion_location_mail_avis WHERE lot_id = $1 ORDER BY envoye_le DESC, id DESC LIMIT 200`, [lotId]);
   return rows.map((r) => ({ ...r, id: Number(r.id) }));
+}
+
+/**
+ * ══ 🔴 Arno (06/11/2026) — L'APERÇU DES MAILS D'UNE SORTIE, pour le récapitulatif AVANT « Confirmer » (LECTURE SEULE : rien n'est écrit, rien ne
+ * part) : le compte rendu interne (ses destinataires) et l'information aux partenaires (liste « Sorties », bien en gestion seulement), avec leurs
+ * copies — les mêmes règles que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`).
+ */
+export async function apercuMailsSortie(occupationId: number, auteur: Auteur): Promise<{ etat: 'ok'; data: { enGestion: boolean; mails: { sorte: string; objet: string; a: string[]; cc: string[] }[] } } | { etat: 'inconnu' }> {
+  const bail = await lireBail(occupationId);
+  if (bail === null) return { etat: 'inconnu' };
+  const qui = await emailDeLAuteur(auteur);
+  const config = await chargerConfigGestion();
+  const { rows } = await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [bail.lotId]);
+  const enGestion = rows[0]?.s === 'en_gestion';
+  const adresse = bail.adresse ?? `Bien ${bail.lotId}`;
+  const internes = await destinatairesSortie(qui.email);
+  const partenaires = enGestion ? adressesUniques((await lireDestinatairesDefaut('sortie')).map((x) => x.adresse)) : [];
+  const valideur = { email: qui.email };
+  return { etat: 'ok', data: { enGestion, mails: [
+    ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [] }]),
+    ...(partenaires.length === 0 ? [] : [{ sorte: 'sortie_adhoc', objet: objetAdhocSortie(adresse), a: partenaires, cc: copiesAvis(config.adresseGestion, valideur, partenaires) }]),
+  ] } };
 }

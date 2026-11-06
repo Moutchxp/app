@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { causeDeLaReponse, MOTIF_DROIT, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
+import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
 import type { GestesCartes } from '../gestion/CartesPersonnes';
 import { CSS_LIGNE_MANQUES } from './LigneManques';
 
@@ -84,14 +85,16 @@ export function phraseMail(m: EtatMail | undefined): string | null {
  * saisie, base, technique — `issueEnregistrement.ts`), et un 401 / 403 de la garde (`{ erreur: 'ACCES_REVOQUE' }`, sans `motif`)
  * n'est plus lu « Enregistrement refusé. » mais dit le droit manquant ou la session expirée. Une réponse réussie : inchangée.
  */
-export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec; etat?: string;
+export async function envoyer(corps: Record<string, unknown>,
+  /** 🔴 Arno (06/11/2026) — `propre` : l'écran confirme lui-même (sa modale) — l'annonce commune ne s'y ajoute pas. */
+  o: { propre?: boolean } = {}): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec; etat?: string;
   /** Arno (21/10/2026, 404) — le dossier Drive créé après l'enregistrement (absent : rien tenté). */
   drive?: { ok: boolean; motif: string | null };
   /** Arno (05/11/2026) — les mails automatiques du préavis (`mails`) et de la sortie (`adhoc`) ; absents : rien tenté. */
   mails?: EtatMailsAvis; adhoc?: EtatMailsAvis }> {
   let res: Response;
   try {
-    res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(o.propre === true ? { [ENTETE_CONFIRMATION]: 'propre' } : {}) }, body: JSON.stringify(corps) });
   } catch {
     return { motif: 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: 'technique' };
   }
