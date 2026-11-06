@@ -266,6 +266,19 @@ export interface SortieFaite {
  * ENREGISTRE LA SORTIE d'un ou plusieurs locataires d'un bail, à UNE date. LIRE (FOR UPDATE) → REFUSER → ÉCRIRE.
  * Les occupations des annexes du bail par les sortants sont closes à la même date (elles suivent le logement).
  */
+/**
+ * 🔴 Arno (06/11/2026) — CE QUE LA SORTIE FERA, calculé UNE fois pour l'écriture (`enregistrerSortie`) et pour l'aperçu des mails du récapitulatif :
+ * les sortants, leurs occupations (logement ET annexes qui les suivent), les annexes suivies, vacant ou « reste loué à ». PUR.
+ */
+export function sortiePrevue(bail: BailLogement, sortants: readonly number[], date: string): Omit<SortieFaite, 'reintegrations'> {
+  const quiSort = bail.locataires.filter((l) => sortants.includes(l.occupationId));
+  const locIds = new Set(quiSort.map((l) => l.locataireId));
+  const annexesOcc = bail.annexes.flatMap((a) => a.occupations.filter((o) => locIds.has(o.locataireId)).map((o) => o.occupationId));
+  const { vacant, restants } = issueSortie(bail, sortants);
+  const annexes = bail.annexes.filter((a) => a.occupations.some((o) => locIds.has(o.locataireId))).map((a) => a.libelle);
+  return { bail, date, sortants: quiSort, occupationIds: [...sortants, ...annexesOcc], vacant, restants, annexes };
+}
+
 export async function enregistrerSortie(
   demande: { occupationId: number; sortants: readonly number[]; date: unknown }, auteur: Auteur,
 ): Promise<IssueSortie<SortieFaite>> {
@@ -278,15 +291,10 @@ export async function enregistrerSortie(
     const v = verifierSortie(bail, sortants, demande.date, jour);
     if (!v.ok) return { etat: 'refus' as const, motif: v.motif };   // AVANT toute écriture
     const date = demande.date as string;
-    const quiSort = bail.locataires.filter((l) => sortants.includes(l.occupationId));
-    const locIds = new Set(quiSort.map((l) => l.locataireId));
-    const annexesOcc = bail.annexes.flatMap((a) => a.occupations.filter((o) => locIds.has(o.locataireId)).map((o) => o.occupationId));
-    const ids = [...sortants, ...annexesOcc];
+    const { sortants: quiSort, occupationIds: ids, annexes: annexesSuivies, vacant, restants } = sortiePrevue(bail, sortants, date);
     const ecrites = await ecrireDateSortie(q, ids, { mode: 'poser', date });
     if (ecrites !== ids.length) throw new Error('sortie : une occupation a changé pendant le geste');
-    const { vacant, restants } = issueSortie(bail, sortants);
     const issue = vacant ? 'le logement devient vacant' : `le logement reste loué à ${restants.join(', ')}`;
-    const annexesSuivies = bail.annexes.filter((a) => a.occupations.some((o) => locIds.has(o.locataireId))).map((a) => a.libelle);
     for (const l of quiSort) {
       await journaliser(q, {
         entite: 'annuaire', id: l.locataireId, action: 'location_sortie_locataire', avant: null, apres: date,
@@ -358,7 +366,9 @@ export async function annulerSortie(demande: { occupationIds: readonly number[] 
 
 const ESSAI = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export interface IssueMailSortie { envoye: boolean; motif: string | null; destinataires: string[]; objet: string | null }
+export interface IssueMailSortie { envoye: boolean; motif: string | null; destinataires: string[]; objet: string | null;
+  /** 🔴 Arno (06/11/2026) — le texte tel qu'il part (la fenêtre de résultat le montre). */
+  texte?: string }
 
 /** Les destinataires : l'auteur, puis tout compte ACTIF ayant la tuile Location OU la tuile Gestion (un administrateur a tout). */
 export async function destinatairesSortie(emailAuteur: string | null): Promise<string[]> {
@@ -374,7 +384,7 @@ export async function destinatairesSortie(emailAuteur: string | null): Promise<s
   return sortie;
 }
 
-async function auteurDuMail(auteur: Auteur): Promise<{ nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null }> {
+export async function auteurDuMail(auteur: Auteur): Promise<{ nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null }> {
   if (auteur.id !== null) {
     const { rows } = await query<{ identifiant: string; prenom: string | null; nom: string | null }>(
       'SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE id = $1', [auteur.id]);
@@ -411,7 +421,7 @@ export async function notifierSortie(
     const d = donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString());
     const destinataires = await destinatairesSortie(qui.email);
     const objet = objetMailSortie(d);
-    issue = { ...issue, destinataires, objet };
+    issue = { ...issue, destinataires, objet, texte: texteMailSortie(d) };
     if (destinataires.length === 0) {
       issue = { ...issue, motif: 'aucun destinataire (aucune adresse e-mail connue)' };
     } else {

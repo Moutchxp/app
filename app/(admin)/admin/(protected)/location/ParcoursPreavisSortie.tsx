@@ -242,6 +242,18 @@ export function ParcoursSurBail({ bail, occupationId, gestion, onFini }: { bail:
   );
 }
 
+/** Le texte d'un mail, repliable : « Masquer le texte » / « Afficher le texte ». */
+export function TexteDuMail({ texte, ouvert: ouvertInitial }: { texte: string; ouvert: boolean }) {
+  const [ouvert, setOuvert] = useState(ouvertInitial);
+  return (
+    <div className="pss-texte" data-texte-replie={ouvert ? undefined : ''}>
+      <button type="button" className="pss-bascule-texte" aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)} data-bascule-texte>
+        {ouvert ? 'Masquer le texte' : 'Afficher le texte du mail'}</button>
+      {ouvert && <pre className="pss-pre" data-texte-mail>{texte}</pre>}
+    </div>
+  );
+}
+
 /** La fenêtre : le récapitulatif (« Revenir » / « Confirmer »), puis le résultat (« Fermer »). */
 function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfirmer, onFermer }: {
   geste: Geste; fenetre: Fenetre; noms: string[]; sort: string; dates: [string, string][]; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void;
@@ -279,7 +291,8 @@ function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfi
                 <p className="cev-mail-titre">{libelleMail(m)}</p>
                 <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataires</dt><dd data-a>{m.a.join(', ') || '—'}</dd>
                   <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd></dl>
-                {m.texte !== undefined && <details className="pss-texte"><summary>Voir le texte du mail</summary><pre className="pss-pre" data-texte-mail>{m.texte}</pre></details>}
+                {/* 🔴 Arno (06/11/2026) — le texte INTÉGRAL, tel que le serveur l'enverra, DÉPLIÉ par défaut ; « Masquer le texte » le replie. */}
+                {m.texte !== undefined && <TexteDuMail texte={m.texte} ouvert />}
               </li>))}</ul></>}
           {fenetre.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : {MENTION_SANS_EMAIL}</p>)}
         </>}
@@ -306,7 +319,7 @@ function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfi
   const echec = fenetre.etape === 'resultat' && (fenetre.motifGlobal !== null || fenetre.mails.some((m) => !m.envoye));
   const boite = (
     <div className="mis-voile">
-      <div className={`mis-boite ${fenetre.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
+      <div className={`mis-boite pss-boite ${fenetre.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-parcours={fenetre.etape}>
         {contenu}
       </div>
@@ -337,7 +350,10 @@ export const CSS_PARCOURS = `
 .pss-copro{margin:0}
 .pss-sous-titre{margin:0;font-weight:800}
 .pss-note-neutre{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
-.pss-texte summary{cursor:pointer;font-weight:700;min-height:32px}
-.pss-pre{white-space:pre-wrap;font-family:inherit;font-size:.85rem;margin:6px 0 0;max-height:260px;overflow:auto;background:var(--color-svv-field);padding:8px;border-radius:8px}
+.pss-texte{margin-top:6px}
+.pss-bascule-texte{appearance:none;border:0;background:none;padding:0;min-height:32px;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
+.pss-pre{white-space:pre-wrap;font-family:inherit;font-size:.85rem;margin:6px 0 0;background:var(--color-svv-field);padding:8px;border-radius:8px;overflow-wrap:anywhere}
+.pss-boite .mis-actions{position:sticky;bottom:0;margin:0 -24px -22px;padding:12px 24px;background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line);z-index:1}
+@media (max-width:640px){ .pss-boite .mis-actions{bottom:0;margin:0 -16px calc(-16px - env(safe-area-inset-bottom));padding:12px 16px calc(12px + env(safe-area-inset-bottom))} }
 @media (max-width:640px){ .pss-boutons{justify-content:stretch} .pss-boutons .gst-btn{width:100%} .pss-envoi{width:100%} .pss-envoi .gst-btn{flex:1} }
 `;

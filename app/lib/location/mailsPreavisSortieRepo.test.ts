@@ -30,6 +30,9 @@ vi.mock('../db/client', () => ({
       ].filter((r) => ids.includes(Number(r.occupation_id))) };
     }
     if (s.includes('::text AS j')) return { rows: [{ j: '2026-11-05' }] };
+    // L'auteur du compte rendu interne (le même que l'envoi, `auteurDuMail`).
+    if (s.includes('FROM admin_utilisateur WHERE actif')) return { rows: [{ identifiant: 'collegue@exemple.test' }] };
+    if (s.includes('FROM admin_utilisateur WHERE id')) return { rows: [{ identifiant: 'a.jorel@sansvisavis.com', prenom: 'Arno', nom: 'Jorel' }] };
     if (s.startsWith('INSERT')) { ecritures.push({ sql: s, params }); return { rows: [], rowCount: 1 }; }
     throw new Error(`requête inattendue : ${s.slice(0, 80)}`);
   }),
@@ -349,5 +352,41 @@ describe('🔴 Arno (06/11/2026) — l’ENVOI du mail de départ aux locataires
     const r = await envoyerMailSortieLocataires({ ...(FAITE_L as object), sortants: [{ occupationId: 12, nom: 'MARTIN' }] } as never, AUTEUR, deps);
     expect(r).toEqual({ etat: 'ok', envois: [] });
     expect(envoyes).toEqual([]);
+  });
+});
+
+describe('🔴 Arno (06/11/2026) — le texte du RÉCAPITULATIF est EXACTEMENT celui qui part (même code serveur, comparaison au caractère près)', () => {
+  it('préavis : l’accusé ET le mail aux partenaires (avec la copie complète de l’accusé), mention et signature comprises', async () => {
+    const d2 = { ...deps, signatureBrute: async () => '<div>Service Gestion<br>CRITERIMMO</div>' };
+    const ap = await apercuMailsPreavis(DEMANDE, AUTEUR, d2);
+    expect(ap.etat).toBe('ok');
+    if (ap.etat !== 'ok') return;
+    await envoyerMailsPreavis(DEMANDE, AUTEUR, d2);
+    expect(ap.data.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_adhoc']);
+    expect(envoyes.map((m) => m.corps)).toEqual(ap.data.mails.map((m) => m.texte));
+    expect(ap.data.mails[1].texte).toContain(ap.data.mails[0].texte);   // la copie complète de l'accusé
+    expect(ap.data.mails[0].texte).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
+    expect(ap.data.mails[0].texte).toContain('Service Gestion');
+  });
+  it('sortie : le mail de départ, le compte rendu interne ET le mail aux partenaires — chacun identique à l’envoi', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-06T10:00:00Z'));
+    try {
+      const d2 = { ...deps, signatureBrute: async () => '<div>Service Gestion</div>' };
+      listes = { preavis: [], sortie: [ADHOC] };
+      const ap = await apercuMailsSortie(11, AUTEUR, { sortants: [11, 12], date: '2026-11-04' }, d2);
+      expect(ap.etat).toBe('ok');
+      if (ap.etat !== 'ok') return;
+      const texte = (sorte: string) => ap.data.mails.find((m) => m.sorte === sorte)?.texte;
+      const { lireBail, sortiePrevue, notifierSortie } = await import('./sortieLocatairesRepo');
+      const f = { ...sortiePrevue((await lireBail(11))!, [11, 12], '2026-11-04') };
+      await envoyerMailSortieLocataires(f as never, AUTEUR, d2);
+      await envoyerMailSortieAdhoc(f as never, AUTEUR, d2, true);
+      expect(envoyes.map((m) => m.corps)).toEqual([texte('sortie_locataires'), texte('sortie_adhoc')]);
+      const interne: string[] = [];
+      await notifierSortie(f as never, AUTEUR, { transport: { envoyer: async (m: MessageAEnvoyer) => { interne.push(m.corps); return { ok: true as const, id: null, factice: true }; } },
+        maintenant: new Date() });
+      expect(interne).toEqual([texte('sortie_interne')]);
+      for (const k of ['sortie_locataires', 'sortie_interne', 'sortie_adhoc']) expect((texte(k) ?? '').length).toBeGreaterThan(100);
+    } finally { vi.useRealTimers(); }
   });
 });

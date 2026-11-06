@@ -10,7 +10,9 @@
 export type ActionLocation = 'nouvelle_location' | 'preavis' | 'sortie';
 
 /** Un mail tel que le serveur dit l'avoir envoyé (ou tenté). */
-export interface MailParti { sorte: string; objet: string | null; a: string[]; cc: string[]; envoye: boolean; motif: string | null }
+export interface MailParti { sorte: string; objet: string | null; a: string[]; cc: string[]; envoye: boolean; motif: string | null;
+  /** 🔴 Arno (06/11/2026) — le texte tel qu'il est parti, rendu par le serveur ; absent : non montré. */
+  texte?: string }
 
 export interface IssueEnvois {
   /** Le choix de la personne : « informer nos partenaires » (case cochée, ou « Enregistrer et envoyer »). */
@@ -42,15 +44,17 @@ export const libelleMail = (m: Pick<MailParti, 'sorte'>): string => LIBELLE_MAIL
 /** Les mails du préavis / de la sortie (champ `mails` / `adhoc` de la réponse). PUR. */
 export function mailsDepuisAvis(m: { etat: 'ok'; envois: readonly MailParti[] } | { etat: string; motif: string } | undefined): { mails: MailParti[]; motifGlobal: string | null } {
   if (m === undefined) return { mails: [], motifGlobal: null };
-  if (m.etat === 'ok' && 'envois' in m) return { mails: m.envois.map((e) => ({ sorte: e.sorte, objet: e.objet, a: [...e.a], cc: [...e.cc], envoye: e.envoye, motif: e.motif })), motifGlobal: null };
+  if (m.etat === 'ok' && 'envois' in m) return { mails: m.envois.map((e) => ({ sorte: e.sorte, objet: e.objet, a: [...e.a], cc: [...e.cc], envoye: e.envoye, motif: e.motif,
+    ...(typeof e.texte === 'string' ? { texte: e.texte } : {}) })), motifGlobal: null };
   return { mails: [], motifGlobal: 'motif' in m ? m.motif : 'raison inconnue' };
 }
 
 /** Le récapitulatif interne de la sortie (champ `mail` de la réponse) ; rien à dire (ignoré, absent) : null. PUR. */
-export function mailInterneSortie(m: { envoye: boolean; ignore?: boolean; motif: string | null; destinataires?: string[]; objet?: string | null } | undefined): MailParti | null {
+export function mailInterneSortie(m: { envoye: boolean; ignore?: boolean; motif: string | null; destinataires?: string[]; objet?: string | null; texte?: string } | undefined): MailParti | null {
   // Une réponse sans issue lisible (`envoye` absent) n'invente aucun mail.
   if (m === undefined || m.ignore === true || typeof m.envoye !== 'boolean') return null;
-  return { sorte: 'sortie_interne', objet: m.objet ?? null, a: [...(m.destinataires ?? [])], cc: [], envoye: m.envoye, motif: m.motif };
+  return { sorte: 'sortie_interne', objet: m.objet ?? null, a: [...(m.destinataires ?? [])], cc: [], envoye: m.envoye, motif: m.motif,
+    ...(typeof m.texte === 'string' ? { texte: m.texte } : {}) };
 }
 
 /** Le titre : « transmis » seulement si un mail partenaires est parti et qu'aucun n'a échoué. PUR. */

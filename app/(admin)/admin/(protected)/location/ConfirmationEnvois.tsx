@@ -86,6 +86,8 @@ export function BlocsEnvois({ issue }: { issue: IssueEnvois }) {
                 <dt>Destinataires</dt><dd data-a>{m.a.length > 0 ? m.a.join(', ') : '—'}</dd>
                 <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd>
               </dl>
+              {/* 🔴 Arno (06/11/2026) — le texte tel qu'il est parti (rendu par le serveur), replié. */}
+              {m.texte !== undefined && <details className="cev-texte" data-texte-envoye><summary>Voir le texte du mail</summary><pre className="cev-pre">{m.texte}</pre></details>}
               {!m.envoye && <p className="cev-alerte" role="alert" data-echec-envoi>Échec de l’envoi à {m.a.length > 0 ? m.a.join(', ') : 'aucune adresse'}{m.motif ? ` : ${m.motif}` : ''}.</p>}
             </li>
           ))}
@@ -130,5 +132,8 @@ export const CSS_CONFIRMATION_ENVOIS = `
 .cev-dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;font-size:.9rem}
 .cev-dl dt{color:var(--color-svv-muted);font-weight:700}
 .cev-dl dd{margin:0;overflow-wrap:anywhere}
+.cev-texte{margin-top:6px}
+.cev-texte summary{cursor:pointer;font-weight:700;min-height:32px}
+.cev-pre{white-space:pre-wrap;font-family:inherit;font-size:.85rem;margin:6px 0 0;background:var(--color-svv-field);padding:8px;border-radius:8px;overflow-wrap:anywhere}
 @media (max-width:640px){ .cev-bulle{position:fixed;left:16px;right:16px;bottom:auto;top:30%;width:auto} }
 `;

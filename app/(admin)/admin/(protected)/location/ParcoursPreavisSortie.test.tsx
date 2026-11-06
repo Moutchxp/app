@@ -326,3 +326,53 @@ describe('🔴 Arno (06/11/2026, 461) — la copropriété dans le récapitulati
     expect(fenetre()!.querySelector('[data-aucun-mail-envoye]')).not.toBeNull();
   });
 });
+
+describe('🔴 Arno (06/11/2026) — chaque mail LISIBLE EN ENTIER avant de confirmer', () => {
+  const LONG = Array.from({ length: 60 }, (_, i) => `Ligne ${i + 1} du mail.`).join('\n');
+  it('récapitulatif : le texte INTÉGRAL de chaque mail, DÉPLIÉ par défaut ; « Masquer le texte » replie un seul bloc', async () => {
+    reponses['apercu-preavis'] = () => ok({ mails: [{ ...ACCUSE, texte: LONG }, { ...PART, texte: `Bonjour,\n\n${LONG}` }], sansEmail: [], enGestion: true, dateFin: '2099-01-01', envoiPossible: true });
+    await ecran();
+    await preparerPreavis([11, 12]);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    const f = fenetre()!;
+    expect([...f.querySelectorAll('[data-mail-prevu] [data-texte-mail]')].map((p) => p.textContent)).toEqual([LONG, `Bonjour,\n\n${LONG}`]);
+    const bascule = f.querySelector('[data-mail-prevu="preavis_locataires"] [data-bascule-texte]') as HTMLButtonElement;
+    expect([bascule.textContent, bascule.getAttribute('aria-expanded')]).toEqual(['Masquer le texte', 'true']);
+    await clic(bascule);
+    expect(f.querySelector('[data-mail-prevu="preavis_locataires"] [data-texte-mail]')).toBeNull();
+    expect(f.querySelector('[data-mail-prevu="preavis_adhoc"] [data-texte-mail]')).not.toBeNull();
+    await clic(f.querySelector('[data-mail-prevu="preavis_locataires"] [data-bascule-texte]'));
+    expect(f.querySelector('[data-mail-prevu="preavis_locataires"] [data-texte-mail]')?.textContent).toBe(LONG);
+  });
+  it('récapitulatif long : « Revenir » et « Confirmer » restent en bas, toujours visibles (barre collée au bas de la fenêtre qui défile)', async () => {
+    reponses['apercu-preavis'] = () => ok({ mails: [{ ...ACCUSE, texte: LONG }], sansEmail: [], enGestion: true, dateFin: '2099-01-01', envoiPossible: true });
+    await ecran();
+    await preparerPreavis([11]);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    const boite = fenetre()!;
+    expect(boite.className).toContain('pss-boite');
+    expect(boite.lastElementChild?.className).toBe('mis-actions');
+    expect([...boite.lastElementChild!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Revenir', 'Confirmer']);
+    const { CSS_PARCOURS } = await import('./ParcoursPreavisSortie');
+    expect(CSS_PARCOURS).toContain('.pss-boite .mis-actions{position:sticky;bottom:0;');
+    expect(CSS_PARCOURS).not.toContain('max-height:260px');
+  });
+  it('résultat : chaque mail réellement envoyé garde « Voir le texte du mail » (replié), le texte rendu par le serveur', async () => {
+    reponses['enregistrer-preavis'] = () => ok({ dateMax: '2099-01-01' }, { mails: { etat: 'ok', envois: [
+      { ...ACCUSE, texte: 'TEXTE ACCUSE ENVOYE', envoye: true, motif: null }, { ...PART, texte: 'TEXTE PARTENAIRES ENVOYE', envoye: true, motif: null }] } });
+    await ecran();
+    await preparerPreavis([11]);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
+    const details = [...fenetre()!.querySelectorAll('[data-mail-parti] details[data-texte-envoye]')] as HTMLDetailsElement[];
+    expect(details.map((d) => [d.open, d.querySelector('summary')?.textContent, d.querySelector('pre')?.textContent]))
+      .toEqual([[false, 'Voir le texte du mail', 'TEXTE ACCUSE ENVOYE'], [false, 'Voir le texte du mail', 'TEXTE PARTENAIRES ENVOYE']]);
+  });
+  it('« Enregistrer » seul : aucun mail, donc aucun texte (inchangé)', async () => {
+    await ecran();
+    await preparerPreavis([11]);
+    await clic(container.querySelector('[data-enregistrer-sans-mail]'));
+    expect(fenetre()!.querySelector('[data-texte-mail], [data-mail-prevu]')).toBeNull();
+    expect(fenetre()!.querySelector('[data-aucun-mail-prevu]')).not.toBeNull();
+  });
+});

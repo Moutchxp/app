@@ -18,8 +18,8 @@ import { verifierPreavis, type ModePreavis } from './preavis';
 import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { coproprieteDisponible } from './creationBienRepo';
-import { destinatairesSortie, donneesMailSortie, lireBail, type SortieFaite } from './sortieLocatairesRepo';
-import { objetMailSortie } from './sortieLocataires';
+import { auteurDuMail, destinatairesSortie, donneesMailSortie, lireBail, sortiePrevue, type SortieFaite } from './sortieLocatairesRepo';
+import { objetMailSortie, texteMailSortie } from './sortieLocataires';
 
 /**
  * ══ 🔴🔴 LOCATION — LES MAILS AUTOMATIQUES DU PRÉAVIS ET DE LA SORTIE (Arno, 05/11/2026). IMPUR (base + envoi). ═══════════
@@ -131,7 +131,9 @@ export async function apercuMailsPreavis(
 }
 
 /** Ce que l'écran dit de chaque mail, après l'envoi. */
-export interface EnvoiAvis { sorte: MailAvis['sorte']; objet: string; a: string[]; cc: string[]; envoye: boolean; motif: string | null }
+export interface EnvoiAvis { sorte: MailAvis['sorte']; objet: string; a: string[]; cc: string[]; envoye: boolean; motif: string | null;
+  /** 🔴 Arno (06/11/2026) — le texte tel qu'il est parti (la fenêtre de résultat le montre). */
+  texte?: string }
 
 async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null }): Promise<void> {
   try {
@@ -161,7 +163,7 @@ async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: r
 async function envoyerSerie(mails: readonly MailAvis[], brute: string, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur }, deps: DepsAvis): Promise<EnvoiAvis[]> {
   const issues: EnvoiAvis[] = [];
   for (const m of mails) {
-    const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc };
+    const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte };
     try {
       const domaine = m.de.split('@')[1] ?? 'criterimmo.fr';
       const alea = randomBytes(12).toString('hex');
@@ -292,7 +294,7 @@ export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> 
  * part) : le compte rendu interne (ses destinataires) et l'information aux partenaires (liste « Sorties », bien en gestion seulement), avec leurs
  * copies — les mêmes règles que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`).
  */
-export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o: { sortants?: readonly number[]; date?: unknown } = {}): Promise<{ etat: 'ok'; data: {
+export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o: { sortants?: readonly number[]; date?: unknown } = {}, deps: DepsAvis = {}): Promise<{ etat: 'ok'; data: {
   enGestion: boolean; copropriete: boolean | null; lotId: number; sansEmail: string[];
   mails: { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string }[] } } | { etat: 'inconnu' }> {
   const logement = await logementDe(occupationId);
@@ -308,15 +310,24 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   // 🔴 Arno (06/11/2026) — le mail de départ aux locataires sortants (ceux qui ont une adresse) ; les autres sont signalés.
   const sortants = (o.sortants ?? []).filter((x) => bail.locataires.some((l) => l.occupationId === x));
   const locs = sortants.length === 0 ? [] : await locatairesAvis(sortants);
-  const sig = await signatureEcran({});
+  const sig = await signatureEcran(deps);
   const depart = typeof o.date === 'string' && locs.length > 0 ? mailSortieLocataires({ adresse, locataires: locs, dateSortie: o.date, copropriete: logement.copropriete,
     expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran }) : null;
+  // 🔴 Arno (06/11/2026) — les TEXTES INTÉGRAUX, produits par les MÊMES fonctions que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`), sur la
+  //    sortie telle qu'elle sera écrite (`sortiePrevue`, partagé avec `enregistrerSortie`). Seuls varient l'heure du compte rendu interne.
+  const prevue = typeof o.date === 'string' ? sortiePrevue(bail, sortants, o.date) : null;
+  const quand = new Date().toISOString();
+  const texteInterne = prevue === null ? undefined : texteMailSortie(donneesMailSortie(prevue, await auteurDuMail(auteur), quand));
+  const adhoc = prevue === null || partenaires.length === 0 ? null
+    : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires });
   return { etat: 'ok', data: { enGestion, copropriete: logement.copropriete, lotId: logement.lotId,
     sansEmail: locs.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
     mails: [
       ...(depart === null ? [] : [{ sorte: depart.sorte, objet: depart.objet, a: depart.a, cc: depart.cc, texte: depart.texte }]),
-      ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [] }]),
-      ...(partenaires.length === 0 ? [] : [{ sorte: 'sortie_adhoc', objet: objetAdhocSortie(adresse), a: partenaires, cc: copiesAvis(config.adresseGestion, valideur, partenaires) }]),
+      ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [],
+        ...(texteInterne === undefined ? {} : { texte: texteInterne }) }]),
+      ...(adhoc !== null ? [{ sorte: adhoc.sorte, objet: adhoc.objet, a: adhoc.a, cc: adhoc.cc, texte: adhoc.texte }]
+        : partenaires.length === 0 ? [] : [{ sorte: 'sortie_adhoc', objet: objetAdhocSortie(adresse), a: partenaires, cc: copiesAvis(config.adresseGestion, valideur, partenaires) }]),
     ] } };
 }
 

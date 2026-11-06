@@ -521,7 +521,7 @@ export async function POST(request: Request): Promise<Response> {
           : depart.etat !== 'ok' ? depart
           : adhocSeul.etat === 'ok' ? { etat: 'ok' as const, envois: [...depart.envois, ...adhocSeul.envois] } : adhocSeul;
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
-          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif, destinataires: m.destinataires, objet: m.objet },
+          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif, destinataires: m.destinataires, objet: m.objet, ...(m.texte !== undefined ? { texte: m.texte } : {}) },
           adhoc: adhoc.etat === 'ok' ? { etat: 'ok', envois: adhoc.envois } : { etat: adhoc.etat, motif: adhoc.motif } });
       }
       case 'corriger-sortie-locataires':
