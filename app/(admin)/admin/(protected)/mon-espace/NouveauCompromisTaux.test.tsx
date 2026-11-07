@@ -84,6 +84,9 @@ describe('« Les deux côtés » : une ligne à 100 %, seul le taux de commissio
     expect(container.querySelectorAll('[data-partie-pct], [data-partie-eur], [data-champ="entree"], [data-champ="sortie"]')).toHaveLength(0);
     expect(container.querySelector('[data-revenir-5050]')).toBeNull();
     expect(container.querySelector('[data-ajouter-exterieure]')).toBeNull();
+    // 🔴 Arno (07/11/2026) — les apporteurs restent disponibles dans ce cas.
+    expect(container.querySelector('[data-champ="apporteur-annuaire"]')).not.toBeNull();
+    expect(container.querySelector('[data-montant-unite="retro"]')).not.toBeNull();
     expect(container.querySelector('[data-total-pct]')).toBeNull();
     // Le TAUX DE COMMISSION (seul champ), pré-rempli depuis le profil ; le montant calculé à côté : 60 % × 12 000 € TTC = 7 200 € TTC.
     expect(container.querySelector('[data-montant-unite="commission-entree"] label')!.textContent).toContain('Taux de commission (%)');
@@ -130,8 +133,15 @@ describe('deux collaborateurs : parts liées, CA par structure, un taux chacun',
     expect(valeur('[data-partie-pct="1"]')).toBe('40');
     expect(texte('[data-part-societe-form="criterimmo"]')).toContain('100 %');
     expect(texte('[data-part-societe-form="macj"]')).toContain('0 %');
-    // Léa : son profil (60 %) ; Paul : sans taux au profil, le défaut (50 %) ; puis 60 % pour lui aussi.
-    expect([valeur('[data-taux="commission-entree"]'), valeur('[data-taux="commission-sortie"]')]).toEqual(['60', '50']);
+    // Léa : son profil (60 %) ; Paul : sans taux au profil, VIDE et à saisir (aucun 50 % par défaut) — « Enregistrer » refusé, message clair.
+    expect([valeur('[data-taux="commission-entree"]'), valeur('[data-taux="commission-sortie"]')]).toEqual(['60', '']);
+    expect(valeur('[data-champ="commission-sortie"]')).toBe('');
+    expect(container.querySelector('[data-propose="commission-sortie"]')).toBeNull();
+    expect(texte('[data-motif-taux="sortie"]')).toBe('Saisissez le taux de commission de Paul BERNARD (entre 0 et 100 %) : aucun taux n’est renseigné dans son profil.');
+    expect(enregistrer().disabled).toBe(true);
+    expect(texte('[data-enregistrer-bloque-taux]')).toContain('Saisissez le taux de commission de Paul BERNARD');
+    await soumettre();
+    expect(posts).toEqual([]);
     await saisir('[data-taux="commission-sortie"]', '60');
     expect(container.querySelector('[data-motif-taux]')).toBeNull();
     expect(enregistrer().disabled).toBe(false);
@@ -213,7 +223,11 @@ describe('un collaborateur des deux structures (lu dans les comptes) : la struct
     await cliquer('[data-parcours-verifier]');
     await cliquer('[data-cote="deux"]');
     expect(texte('[data-ligne-deux-cotes]')).toBe('Entrée et sortie du mandat — Camille DOUBLE — CRITERIMMO — 100 % des honoraires');
-    // sans taux au profil : le défaut (50 %)
-    expect(valeur('[data-taux="commission-entree"]')).toBe('50');
+    // sans taux au profil : vide, à saisir avant d'enregistrer (aucun 50 % par défaut)
+    expect(valeur('[data-taux="commission-entree"]')).toBe('');
+    expect(enregistrer().disabled).toBe(true);
+    await saisir('[data-taux="commission-entree"]', '40');
+    expect(container.querySelector('[data-motif-taux]')).toBeNull();
+    expect(enregistrer().disabled).toBe(false);
   });
 });

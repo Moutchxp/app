@@ -101,6 +101,8 @@ describe('🔴 « + Nouveau compromis » depuis « Mon espace »', () => {
     expect([...container.querySelectorAll<HTMLInputElement>('[data-partie-pct]')].slice(0, 2).map((x) => x.value)).toEqual(['', '']);
     await saisir('[data-partie-pct="0"]', '60');
     await saisir('[data-partie-pct="1"]', '40');
+    // 🔴 Arno (07/11/2026) — aucun taux au profil : il se saisit (aucun 50 % par défaut).
+    await saisir('[data-taux="commission-entree"]', '50'); await saisir('[data-taux="commission-sortie"]', '50');
     await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); });
     await calmer();
     expect(posts).toHaveLength(1);
@@ -236,6 +238,7 @@ describe('🔴 Arno (06/11/2026) — « Les deux côtés (entrée et sortie du m
     await saisir('[data-bloc-dossier="acquereurs"] [data-personne-nom]', 'MARTIN');
     await saisir('[data-bloc-dossier="acquereurs"] [data-personne-prenom]', 'Paul');
     await saisir('[data-bloc-dossier="acquereurs"] [data-personne-email]', 'paul@exemple.test');
+    await saisir('[data-taux="commission-entree"]', '50'); // 🔴 07/11/2026 — mon taux, à saisir (aucun au profil)
     await act(async () => { (container.querySelector('[data-formulaire-dossier] form') as HTMLFormElement).requestSubmit(); }); await calmer();
     expect(posts).toHaveLength(1);
     const d = posts[0].corps.dossier as { entreeId: number; sortieId: number; parties: { sorte: string; compteId: number | null; pourcentage: number | null }[]; personnes: { role: string; nom: string }[] };

@@ -64,6 +64,23 @@ export function manquesCreateur(s: { entreeId: number | null; sortieId: number |
   return manques;
 }
 
+/**
+ * 🔴 Arno (07/11/2026) — LE TAUX DE COMMISSION EST OBLIGATOIRE à la création : aucun 50 % par défaut. Les côtés tenus par un négociateur commissionné
+ * dont le taux n'est pas saisi (« Les deux côtés » : une seule ligne « entrée et sortie », le taux de l'entrée seulement). Sans commissions dans la
+ * saisie (avant la 437) : rien n'est exigé (rien ne s'écrit). PUR.
+ */
+export function tauxManquants(s: { entreeId: number | null; sortieId: number | null; parties: readonly { sorte: string }[];
+  commissions?: { taux?: { entree: number | null; sortie: number | null } } }, commissionne: (compteId: number) => boolean): CoteVente[] {
+  if (s.commissions === undefined) return [];
+  const deuxCotes = s.parties.some((p) => p.sorte === 'entree_sortie');
+  return (['entree', 'sortie'] as const).filter((c) => {
+    const id = c === 'entree' ? s.entreeId : s.sortieId;
+    if (id === null || !commissionne(id) || (c === 'sortie' && deuxCotes)) return false;
+    return (s.commissions?.taux?.[c] ?? null) === null;
+  });
+}
+export const MANQUE_TAUX = (c: CoteVente): string => `Saisissez le taux de commission (entre 0 et 100 %) du collaborateur de ${MOT_COTE[c]}.`;
+
 /** Les collaborateurs à prévenir : ceux d'un côté, sauf le créateur, chacun une fois. PUR. */
 export function collaborateursAPrevenir(s: { entreeId: number | null; sortieId: number | null }, createurId: number): number[] {
   return [...new Set([s.entreeId, s.sortieId].filter((x): x is number => x !== null && x !== createurId))];

@@ -10,6 +10,7 @@ vi.mock('./schemaDroits', () => ({ tauxCommissionDisponible: () => h.dispo() }))
 const m = await import('./tauxCommissionCompte');
 const { lireDossier } = await import('../transaction/saisie');
 const { motifSomme, phraseEcart } = await import('../transaction/repartition');
+const { tauxManquants, MANQUE_TAUX } = await import('../mon-espace/compromisCommun');
 beforeEach(() => { h.q.mockReset(); h.dispo.mockResolvedValue(true); });
 
 describe('le taux de commission du profil', () => {
@@ -56,5 +57,19 @@ describe('le total des parts : l’écart dit clairement', () => {
     expect(n(phraseEcart(110, 11000, 10000))).toBe('Écart : 10 % de trop (1 000 € HT).');
     expect(n(motifSomme([p(60), { ...p(30), sorte: 'exterieure' as const, compteId: null, societe: null }], 10000) ?? '')).toContain('Écart : il manque 10 %');
     expect(motifSomme([p(100)], 10000)).toBeNull();
+  });
+});
+
+describe('le serveur : le taux de commission est obligatoire à la création (aucun 50 % par défaut)', () => {
+  const tous = () => true;
+  it('un côté commissionné sans taux : manquant ; non commissionné : non exigé ; « deux côtés » : l’entrée seule ; sans commissions : rien', () => {
+    const s = (taux: { entree: number | null; sortie: number | null }, parties = [{ sorte: 'entree' }, { sorte: 'sortie' }]) => ({ entreeId: 5, sortieId: 6, parties, commissions: { taux } });
+    expect(tauxManquants(s({ entree: 60, sortie: null }), tous)).toEqual(['sortie']);
+    expect(tauxManquants(s({ entree: 60, sortie: 0 }), tous)).toEqual([]);
+    expect(tauxManquants(s({ entree: 60, sortie: null }), (id) => id !== 6)).toEqual([]);
+    expect(tauxManquants({ entreeId: 5, sortieId: 5, parties: [{ sorte: 'entree_sortie' }], commissions: { taux: { entree: null, sortie: null } } }, tous)).toEqual(['entree']);
+    expect(tauxManquants({ entreeId: 5, sortieId: 5, parties: [{ sorte: 'entree_sortie' }], commissions: { taux: { entree: 45, sortie: null } } }, tous)).toEqual([]);
+    expect(tauxManquants({ entreeId: 5, sortieId: 6, parties: [] }, tous)).toEqual([]);
+    expect(MANQUE_TAUX('sortie')).toBe('Saisissez le taux de commission (entre 0 et 100 %) du collaborateur de sortie du mandat (côté acquéreur).');
   });
 });

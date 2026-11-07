@@ -11,7 +11,8 @@ import { motifStructureImposee, refusCreation, type TransactionDuMandat } from '
 
 import { estAdministrateur } from './compteRepo';
 import { lireMesApporteurs } from './apporteursRepo';
-import { manquesCreateur } from './compromisCommun';
+import { MANQUE_TAUX, manquesCreateur, tauxManquants } from './compromisCommun';
+import { commissionnesDesComptes } from '../admin/commissionneCompte';
 import { apresCreationCompromis, partageDefiniSaisie, type RecapCommun } from './compromisCommunRepo';
 import type { TransportDemande } from '../gestion/envoiDemandeTache';
 export { estAdministrateur };
@@ -75,6 +76,11 @@ export async function creerCompromisMonEspace(compteId: number, s: DossierSaisie
   // 🔴 Arno (05/11/2026) — LES OBLIGATIONS DU CRÉATEUR, revérifiées ici (l'écran bloque déjà) : ses clients, le collaborateur de l'autre côté, le partage.
   const manques = manquesCreateur({ entreeId: s.entreeId, sortieId: s.sortieId, personnes: s.personnes, partageDefini: partageDefiniSaisie(s.parties) }, compteId);
   if (manques.length > 0) return { ok: false, statut: 422, motif: manques.map((m) => m.message).join(' ') };
+  // 🔴 Arno (07/11/2026) — le taux de commission de chaque collaborateur commissionné est SAISI (aucun 50 % par défaut ; l'écran bloque déjà).
+  const ids = [s.entreeId, s.sortieId].filter((x): x is number => x !== null);
+  const commissionnes = await commissionnesDesComptes(ids);
+  const sansTaux = tauxManquants(s, (id) => commissionnes.get(id) ?? true);
+  if (sansTaux.length > 0) return { ok: false, statut: 422, motif: sansTaux.map(MANQUE_TAUX).join(' ') };
   const r: Issue<number> = await enregistrerDossier(null, s, aujourdhui, auteur);
   if (!r.ok) return { ok: false, statut: 422, motif: r.motif };
   // APRÈS l'écriture (jamais avant) : la marque « compromis commun » et le mail aux autres collaborateurs ; un échec ne défait rien.

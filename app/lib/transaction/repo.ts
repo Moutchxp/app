@@ -1106,7 +1106,7 @@ export interface NegociateurCompte { id: number; nom: string; actif: boolean; so
   statut?: Statut | null;
   /** LOT S (441) — commissionné aujourd'hui (un collaborateur l'est toujours ; sans la 441 : tous). */
   commissionne?: boolean;
-  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission de son profil (%) ; absent : non renseigné (50 % par défaut, ou avant la 462). */
+  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission de son profil (%) ; absent : non renseigné (à saisir sur chaque compromis, ou avant la 462). */
   tauxCommission?: number }
 
 /** Les comptes (négociateurs possibles) avec leurs périodes de société ; `societe` : celle d'aujourd'hui. */

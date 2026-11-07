@@ -1,7 +1,7 @@
 // 🔴 MON ESPACE (Arno, 07/11/2026, migration 462) — LE TAUX DE COMMISSION D'UN COLLABORATEUR, DANS SON PROFIL : lecture, changement journalisé
 // (admin_utilisateur_log, action 'changement_taux_commission', avant / après, auteur, date). Même convention que `commissionneCompte.ts`.
 // Le taux s'applique à SA part des honoraires ; il pré-remplit « Nouveau compromis » (modifiable pour chaque compromis). Entre 0 et 100 % ;
-// vide : non renseigné (le défaut de 50 % s'applique, comme avant). Sans la 462 : rien n'est lu, rien ne s'écrit.
+// vide : non renseigné (le taux se saisit sur chaque compromis : aucun 50 % par défaut). Sans la 462 : rien n'est lu, rien ne s'écrit.
 import { query } from '../db/client';
 import { tauxCommissionDisponible } from './schemaDroits';
 
@@ -29,7 +29,7 @@ export function tauxSaisi(x: unknown): number | null | undefined {
 
 export interface ChangementTaux { le: string; avant: number | null; apres: number | null; par: string | null }
 export interface EtatTauxCommissionCompte {
-  /** Le taux d'aujourd'hui ; null : non renseigné (50 % par défaut). */
+  /** Le taux d'aujourd'hui ; null : non renseigné (à saisir sur chaque compromis). */
   valeur: number | null;
   /** La migration 462 est-elle appliquée (le taux peut-il s'écrire) ? */
   disponible: boolean;

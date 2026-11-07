@@ -192,6 +192,8 @@ describe('🔴 Arno (05/11/2026) — le partage SAISI par le créateur : jamais 
     await preparer();
     await saisir('[data-partie-pct="0"]', '60');
     expect(pcts()).toEqual(['60', '40']);
+    // 🔴 Arno (07/11/2026) — aucun taux au profil : le taux de commission de chacun se saisit avant d'enregistrer.
+    await saisir('[data-taux="commission-entree"]', '50'); await saisir('[data-taux="commission-sortie"]', '50');
     await soumettre();
     expect(posts()).toHaveLength(1);
     expect(JSON.parse(String((posts()[0][1] as RequestInit).body)).dossier.parties.slice(0, 2).map((p: { pourcentage: number }) => p.pourcentage)).toEqual([60, 40]);

@@ -6,12 +6,12 @@ import { dateHeure } from './StatutCompte';
 /**
  * ══ 🔴 MON ESPACE (Arno, 07/11/2026, migration 462) — « TAUX DE COMMISSION » DU PROFIL ═════════════════════════════════════════════════
  * Le taux de commission du collaborateur, appliqué à SA part des honoraires : il pré-remplit « Nouveau compromis » (modifiable pour chaque
- * compromis). Facultatif, entre 0 et 100 % ; vide : non renseigné (50 % par défaut, comme avant). Journalisé avec sa date (avant / après,
+ * compromis). Facultatif, entre 0 et 100 % ; vide : non renseigné — le taux se saisit alors sur chaque compromis (aucun 50 % par défaut). Journalisé avec sa date (avant / après,
  * auteur). Un administrateur « Non commissionné » le reste : le taux ne s'applique pas tant qu'il l'est (la mention le dit).
  */
 export interface TauxCommissionVue { valeur: number | null; disponible: boolean; historique: { le: string; avant: number | null; apres: number | null; par: string | null }[] }
 
-export const AIDE_TAUX_COMMISSION = 'Appliqué à sa part des honoraires ; pré-remplit « Nouveau compromis » (modifiable pour chaque compromis). Vide : 50 % par défaut.';
+export const AIDE_TAUX_COMMISSION = 'Appliqué à sa part des honoraires ; pré-remplit « Nouveau compromis » (modifiable pour chaque compromis). Vide : à saisir sur chaque compromis.';
 const texte = (x: number | null): string => (x === null ? '' : String(x).replace('.', ','));
 const lib = (x: number | null): string => (x === null ? 'non renseigné' : `${texte(x)} %`);
 /** Le texte saisi : vide (non renseigné), un pourcentage entre 0 et 100, ou illisible (undefined). PUR. */
@@ -42,7 +42,7 @@ export function BlocTauxCommissionCompte({ compteId, etat, nonCommissionne = fal
     <div className="cpt-identite" role="group" aria-labelledby={`taux-commission-${compteId}`} style={{ marginTop: 8 }} data-taux-commission-compte>
       <div className="cpt-perms-titre" id={`taux-commission-${compteId}`}>Taux de commission</div>
       <label className="cpt-note">Taux de commission (%)
-        <input inputMode="decimal" value={saisie} onChange={(e) => setSaisie(e.target.value)} disabled={envoi || !etat.disponible} placeholder="50 par défaut"
+        <input inputMode="decimal" value={saisie} onChange={(e) => setSaisie(e.target.value)} disabled={envoi || !etat.disponible} placeholder="non renseigné"
           aria-invalid={lu === undefined} data-champ-taux-commission style={{ marginLeft: 8, width: 90, minHeight: 44 }} /></label>
       {lu === undefined && <span className="cpt-err" role="status" data-taux-commission-bornes>Le taux de commission doit être compris entre 0 et 100 %.</span>}
       {etat.disponible && (

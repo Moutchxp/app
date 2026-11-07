@@ -28,7 +28,7 @@ import { texteSaisie } from '../../../../lib/transaction/format';
 export interface NegociateurRef { id: number; nom: string; societe: SocieteCompte | null;
   /** LOT S (441) — commissionné aujourd'hui (absent : oui ; un collaborateur l'est toujours). */
   commissionne?: boolean;
-  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission de son profil (%) ; absent : non renseigné (50 % par défaut). */
+  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission de son profil (%) ; absent : non renseigné (à saisir dans « Mon espace »). */
   tauxCommission?: number }
 export interface ApporteurRef { id: number; nom: string;
   /** 🔴 D29 — un collaborateur (sa commission porte la TVA) ; absent ou faux : un apporteur externe (sans TVA). */
@@ -52,7 +52,12 @@ export interface MontantEcran { texte: string; unite: Unite;
    * 🔴 LOT R — le taux de rémunération (%) d'une commission de négociateur, tel que saisi ; absent ou vide : 50 %. Le montant proposé =
    * taux × la base (le CA que la vente apporte à sa société) ; un montant saisi recalcule le taux (l'un recalcule l'autre).
    */
-  taux?: string }
+  taux?: string;
+  /**
+   * 🔴 Mon espace (Arno, 07/11/2026) — le taux DOIT être saisi (aucun 50 % par défaut) : vide, pas de montant proposé, et « Enregistrer » est
+   * refusé avec un message. Absent (la tuile Suivi CA) : vide vaut 50 %, comme avant.
+   */
+  tauxObligatoire?: boolean }
 /**
  * `parties[0]` : la ligne « Entrée du mandat », `parties[1]` : « Sortie du mandat » (toujours là) ; ensuite les parties extérieures.
  * LOT I (437) — `retroUnite` : l'unité de la rétrocession ; `commissions` : les commissions versées aux négociateurs d'entrée et de sortie
@@ -212,22 +217,27 @@ export function etatSomme(etat: EtatRepartition, honorairesTtc: number, interne 
 // ── 🔴 MON ESPACE (Arno, 07/11/2026) : RÉPARTITION DES HONORAIRES ≠ TAUX DE COMMISSION ─────────────────────────────────────────
 
 /**
- * Le TAUX DE COMMISSION d'un côté pré-rempli depuis le PROFIL de son négociateur (migration 462) : son taux s'il est renseigné, sinon le défaut
- * (50 %, aucun taux posé). Il reste modifiable pour ce compromis. Sans commissions à l'écran (avant la 437) : rien ne change. PUR.
+ * Le TAUX DE COMMISSION d'un côté pré-rempli depuis le PROFIL de son négociateur (migration 462) : son taux s'il est renseigné, sinon VIDE, à
+ * saisir (Arno, 07/11/2026 : aucun 50 % par défaut). Il reste modifiable pour ce compromis. Sans commissions à l'écran (avant la 437) : rien ne change. PUR.
  */
 export function avecTauxDuProfil(etat: EtatRepartition, cote: 'entree' | 'sortie', negos: readonly NegociateurRef[]): EtatRepartition {
   if (etat.commissions == null) return etat;
   const id = cote === 'entree' ? etat.entreeId : etat.sortieId;
   const t = id === null ? undefined : negos.find((n) => n.id === id)?.tauxCommission;
-  const { taux: _ancien, ...sans } = etat.commissions[cote];
-  return { ...etat, commissions: { ...etat.commissions, [cote]: { ...sans, ...(t !== undefined ? { taux: texteTaux(t) } : {}) } } };
+  // 🔴 Arno (07/11/2026) — sans taux au profil : le champ est VIDE et doit être saisi (aucun 50 % par défaut).
+  return { ...etat, commissions: { ...etat.commissions, [cote]: { ...etat.commissions[cote], taux: t !== undefined ? texteTaux(t) : '', tauxObligatoire: true } } };
 }
 
-/** Le motif d'un taux de commission hors bornes (0 à 100 %) d'un côté, ou null. Vide : le défaut (50 %). Non commissionné : sans objet. PUR. */
+/** Le motif d'un taux de commission hors bornes (0 à 100 %) d'un côté, ou null ; vide : le défaut (50 %), sauf taux obligatoire (Mon espace) : à saisir.
+ *  Non commissionné : sans objet. PUR. */
 export function motifTauxCote(etat: Pick<EtatRepartition, 'parties' | 'commissions'>, cote: 'entree' | 'sortie'): string | null {
-  const brut = etat.commissions?.[cote]?.taux;
+  const c = etat.commissions?.[cote];
+  const brut = c?.taux;
   const p = etat.parties[cote === 'entree' ? 0 : 1];
-  if (brut === undefined || brut.trim() === '' || p === undefined || p.compteId === null || nonCommissionne(p)) return null;
+  if (p === undefined || p.compteId === null || nonCommissionne(p)) return null;
+  if ((brut === undefined || brut.trim() === '') && c?.tauxObligatoire === true)
+    return `Saisissez le taux de commission de ${p.negociateur ?? 'ce collaborateur'} (entre 0 et 100 %) : aucun taux n’est renseigné dans son profil.`;
+  if (brut === undefined || brut.trim() === '') return null;
   const x = nombre(brut);
   return x !== null && x >= 0 && x <= 100 ? null : `Le taux de commission de ${p.negociateur ?? 'ce collaborateur'} doit être compris entre 0 et 100 %.`;
 }
@@ -614,7 +624,10 @@ export function propositionCommission(etat: Pick<EtatRepartition, 'parties' | 'r
   if (x === null) return null;
   const netTtc = honorairesTtc - coutTtcApporteur(retroTtcDe(etat, interne), interne);
   const pct = p.mode === 'pct' ? x : pourcentageDe(x, commissionNetteHt(honorairesTtc, retroTtcDe(etat, interne), interne));
-  const taux = tauxDe(etat.commissions?.[cote]);
+  const c = etat.commissions?.[cote];
+  // 🔴 Mon espace (07/11/2026) — un taux obligatoire encore vide : aucun montant proposé (jamais un 50 % implicite).
+  if (c?.tauxObligatoire === true && (c.taux ?? '').trim() === '') return null;
+  const taux = tauxDe(c);
   const baseTtc = (netTtc * pct) / 100;
   return pct > 0 ? { pct, baseTtc, taux, ttc: (baseTtc * taux) / 100 } : null;
 }
