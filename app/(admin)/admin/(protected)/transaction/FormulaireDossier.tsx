@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { ht, LIBELLE_SOCIETE, type Societe, type Vente } from '../../../../lib/transaction/modele';
-import { BlocRepartition, commissionsResolues, texteDansUnite, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
+import { BlocRepartition, commissionsResolues, estDeuxCotes, motifTaux, texteDansUnite, texteTaux, etatSomme, motifSocieteVente, lignesDe, nombre, partiesPour, versModele, type ApporteurRef, type EtatRepartition, type NegociateurRef } from './Repartition';
 import { ESPACE, eur, grouperSaisie, MOT_UNITE, posterTransactionDonnee, SelecteurAffichage, useAffichage } from './commun';
 import { commissionDuCote, remunerationDuCote } from '../../../../lib/transaction/commissions';
 import { libelleTaux, TAUX_SANS_PRIX, tauxDuPrix } from '../../../../lib/transaction/compromisCarte';
@@ -151,10 +151,16 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
     // LOT I — les commissions versées (seulement avec la 437) : un côté sans négociateur n'en envoie pas.
     ...(r.commissions != null ? { commissions: {
       entree: r.entreeId === null ? null : { montant: r.commissions.entree.texte, unite: r.commissions.entree.unite, taux: r.commissions.entree.taux ?? null, mode: modeDe('entree') },
-      sortie: r.sortieId === null ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
+      // 🔴 Mon espace (07/11/2026) — « Les deux côtés » : une seule ligne « entrée et sortie », une seule commission (à l'entrée), aucune à la sortie.
+      sortie: r.sortieId === null || estDeuxCotes(r) ? null : { montant: r.commissions.sortie.texte, unite: r.commissions.sortie.unite, taux: r.commissions.sortie.taux ?? null, mode: modeDe('sortie') } } } : {}) };
 }
 
-export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false, controleCreation, partageASaisir = false }: {
+export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false, controleCreation, partageASaisir = false,
+  tauxDuProfil = false, motTaux }: {
+  /** 🔴 MON ESPACE (07/11/2026) — un négociateur choisi pré-remplit son taux de commission depuis son profil (462). Absent (la tuile) : rien ne change. */
+  tauxDuProfil?: boolean;
+  /** 🔴 MON ESPACE (07/11/2026) — le mot du champ du taux (« Taux de commission (%) ») ; absent : inchangé. */
+  motTaux?: string;
   /**
    * 🔴 MON ESPACE (Arno, 05/11/2026) — le partage d'un compromis COMMUN est celui que le créateur SAISIT : les parts des deux côtés s'ouvrent VIDES
    * et le restent tant qu'il ne les tape pas (un changement de négociateur ne pose plus de 50/50 qui compterait comme « défini ») ; le même
@@ -234,6 +240,8 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
   const somme = etatSomme(repartition, commission, apporteurInterne);
   // LOT K — un collaborateur des deux sociétés sans société choisie pour cette vente : « Enregistrer » désactivé, la saisie reste.
   const manqueSociete = motifSocieteVente(repartition, references.negociateurs);
+  // 🔴 Mon espace (07/11/2026) — un taux de commission hors de 0 à 100 % : « Enregistrer » désactivé (la saisie reste ; le serveur refuse aussi).
+  const manqueTaux = commissionsMasquees ? null : motifTaux(repartition);
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
     window.addEventListener('keydown', clavier);
@@ -258,6 +266,7 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
   const enregistrer = async (): Promise<void> => {
     setTente(true);
     if (manquesCreation.length > 0) return; // 🔴 Arno (05/11/2026) — les obligations du créateur d'abord : rien ne part
+    if (manqueTaux !== null) return; // 🔴 Mon espace (07/11/2026) — un taux hors de 0 à 100 % : rien ne part (même par la touche Entrée)
     setEnvoi(true);
     // 🔴 MON ESPACE, LOT 6 — la version lue avec la vente : le serveur refuse (409) si un collègue a enregistré entre-temps.
     const corps = { id: vente?.id ?? null, version: vente?.version, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) };
@@ -326,7 +335,7 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
             </>)}
             {bloc('libelle', 'Libellé', <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>)}
             {bloc('repartition', 'Négociateurs, structures et apporteur', <BlocRepartition etat={repartition} onChange={changerRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
-              commissionsMasquees={commissionsMasquees}
+              commissionsMasquees={commissionsMasquees} tauxDuProfil={tauxDuProfil} {...(motTaux === undefined ? {} : { motTaux })}
               societeVente={vente?.societe ?? societe}
               // 🔴 LOT BH (Arno) — une affaire déjà créée : le même composant que les Informations communes ; ici le geste change le formulaire,
               // « Enregistrer » l'écrit (journalisé).
@@ -341,10 +350,11 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
             {motif !== null && <p className="trx-erreur trx-plein" role="alert" data-motif-dossier>{motif}</p>}
             {/* 🔴 D30 — le pied reste en bas de la fenêtre pendant le défilement : « Enregistrer », « Annuler » (le même geste que l'ancien « Fermer ») */}
             <div className="trx-plein trx-actions trx-dossier-pied" data-pied-dossier>
-              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD || somme.motif !== null || manqueSociete !== null} data-enregistrer-dossier>Enregistrer</button>
+              <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !references.lotD || somme.motif !== null || manqueSociete !== null || manqueTaux !== null} data-enregistrer-dossier>Enregistrer</button>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-annuler-dossier>Annuler</button>
               {somme.motif !== null && <span className="trx-explication" data-enregistrer-bloque>Enregistrer est désactivé : la répartition doit faire exactement 100 %.</span>}
               {somme.motif === null && manqueSociete !== null && <span className="trx-explication" data-enregistrer-bloque-societe>Enregistrer est désactivé : {manqueSociete}</span>}
+              {somme.motif === null && manqueSociete === null && manqueTaux !== null && <span className="trx-explication" data-enregistrer-bloque-taux>Enregistrer est désactivé : {manqueTaux}</span>}
               {tente && manquesCreation.length > 0 && <span className="trx-explication" role="alert" data-enregistrer-bloque-creation>À compléter avant d’enregistrer : {manquesCreation.length === 1 ? manquesCreation[0].message : `${manquesCreation.length} points (voir sous chaque bloc).`}</span>}
             </div>
           </form>

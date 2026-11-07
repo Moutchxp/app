@@ -164,6 +164,14 @@ export function commissionneDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 MON ESPACE (Arno, 07/11/2026) — la migration 462 (le taux de commission d'un collaborateur, dans son profil) est-elle appliquée ?
+ * Sans elle : aucun taux n'est lu dans le profil (le défaut de 50 % reste), rien ne s'écrit.
+ */
+export function tauxCommissionDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.taux_commission', () => colonneExiste('admin_utilisateur', 'taux_commission'));
+}
+
+/**
  * LOT V — la migration 442 (le mode de chaque commission : calculée / saisie à la main) est-elle appliquée ? Sans elle : le mode se déduit
  * (égale au calcul : calculée), rien ne s'écrit dans la colonne.
  */

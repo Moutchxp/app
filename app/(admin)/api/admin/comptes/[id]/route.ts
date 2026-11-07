@@ -8,6 +8,7 @@ import { lireDroitCouts } from '../../../../../lib/admin/droitCouts';
 import { lireSocieteCompte } from '../../../../../lib/admin/societeCompte';
 import { lireStatutCompte } from '../../../../../lib/admin/statutCompte';
 import { lireCommissionneCompte } from '../../../../../lib/admin/commissionneCompte';
+import { lireTauxCommissionCompte } from '../../../../../lib/admin/tauxCommissionCompte';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -54,6 +55,8 @@ export async function GET(request: Request, ctx: Ctx) {
       statutDetail: await lireStatutCompte(c.id).catch(() => ({ valeur: null, disponible: false, historique: [] })),
       // 🔴 LOT S (441) — « Commissionné / Non commissionné » (administrateur seulement) et l'historique de ses changements.
       commissionneDetail: await lireCommissionneCompte(c.id).catch(() => ({ valeur: null, applicable: c.role === 'administrateur', disponible: false, historique: [] })),
+      // 🔴 Mon espace (Arno, 07/11/2026, 462) — le taux de commission du profil (pré-remplit « Nouveau compromis ») et son historique.
+      tauxCommissionDetail: await lireTauxCommissionCompte(c.id).catch(() => ({ valeur: null, disponible: false, historique: [] })),
     },
   });
 }

@@ -82,7 +82,18 @@ export function verifierRepartition(parties: readonly Partie[], honorairesTtc: n
 export function motifSomme(parties: readonly Partie[], netHt: number): string | null {
   const t = totalRepartition(parties, netHt);
   const juste = parties.every((p) => p.pourcentage !== null) ? Math.abs(t.pourcentage - 100) < 1e-9 : centimes(t.montantHt) === centimes(netHt);
-  return juste ? null : `La répartition fait ${pct(t.pourcentage)} (${eur(t.montantHt)} HT sur ${eur(netHt)} HT d’honoraires nets) : elle doit faire exactement 100 %.`;
+  return juste ? null : `La répartition fait ${pct(t.pourcentage)} (${eur(t.montantHt)} HT sur ${eur(netHt)} HT d’honoraires nets) : elle doit faire exactement 100 %. ${phraseEcart(t.pourcentage, t.montantHt, netHt)}`;
+}
+
+/**
+ * 🔴 Mon espace (Arno, 07/11/2026) — L'ÉCART, dit clairement : « Écart : il manque 10 % (1 000 € HT). » ou « Écart : 5 % de trop (500 € HT). »
+ * (en %, et en € HT dès que les honoraires nets sont connus). PUR.
+ */
+export function phraseEcart(pourcentage: number, montantHt: number, netHt: number): string {
+  const ecartPct = 100 - pourcentage;
+  const ecartHt = netHt - montantHt;
+  const enEuros = netHt !== 0 && Number.isFinite(ecartHt) ? ` (${eur(Math.abs(ecartHt))} HT)` : '';
+  return ecartPct > 0 ? `Écart : il manque ${pct(ecartPct)}${enEuros}.` : `Écart : ${pct(-ecartPct)} de trop${enEuros}.`;
 }
 
 /** Ce que chaque société reçoit, et la part extérieure (HT). PUR. */

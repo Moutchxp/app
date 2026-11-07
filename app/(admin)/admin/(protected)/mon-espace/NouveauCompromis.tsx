@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { FormulaireDossier, etatRepartitionDe, referencesSures, type References } from '../transaction/FormulaireDossier';
-import { changerNegociateur } from '../transaction/Repartition';
+import { avecTauxDuProfil, changerNegociateur, choisirSocietePartie, estDesDeux, repartitionDeuxCotes, type EtatRepartition, type NegociateurRef } from '../transaction/Repartition';
 import { LIBELLE_SOCIETE, SOCIETES, type Societe } from '../../../../lib/transaction/modele';
 import { LONGUEUR_MAX_MANDAT } from '../../../../lib/transaction/mandat';
 import { manquesCreateur } from '../../../../lib/mon-espace/compromisCommun';
@@ -38,6 +38,27 @@ type Cote = 'entree' | 'sortie' | 'aucun' | 'deux';
 export const MESSAGE_DEUX_COTES = 'Vous êtes sur les deux côtés de cette affaire (entrée et sortie du mandat) : renseignez au moins un vendeur et un acquéreur, puis enregistrez.';
 
 const jourFr = (d: string | null): string | null => (d === null ? null : d.split('-').reverse().join('/'));
+
+/** 🔴 Arno (07/11/2026) — le mot du champ dans « Mon espace » : la répartition des honoraires d'un côté, le TAUX DE COMMISSION de l'autre. */
+export const MOT_TAUX_COMMISSION = 'Taux de commission (%)';
+
+/**
+ * 🔴 Arno (07/11/2026) — LA RÉPARTITION AU DÉPART DU FORMULAIRE, selon mon côté :
+ *   · « Les deux côtés » : UNE ligne « entrée et sortie du mandat » à 100 % pour ma structure, non modifiable ; seul mon taux se saisit ;
+ *   · un côté : moi à ce côté (l'autre se choisit) ; « Pour un collègue » : personne ;
+ * mon taux de commission pré-rempli depuis mon profil (modifiable) ; un collaborateur des deux structures : ma ligne porte la structure choisie
+ * à l'étape ①. PUR.
+ */
+export function repartitionDeDepart(base: EtatRepartition, cote: Cote, titulaireId: number, societe: Societe, negos: readonly NegociateurRef[]): EtatRepartition {
+  const moi = negos.find((n) => n.id === titulaireId);
+  if (cote === 'deux' && moi !== undefined) return repartitionDeuxCotes(base, moi, societe);
+  // (compte absent de la liste des négociateurs : la répartition d'avant, moi aux deux côtés)
+  if (cote === 'deux') return changerNegociateur(changerNegociateur(base, 'entree', titulaireId, negos), 'sortie', titulaireId, negos);
+  if (cote === 'aucun') return base;
+  const r = avecTauxDuProfil(changerNegociateur(base, cote, titulaireId, negos), cote, negos);
+  const i = cote === 'entree' ? 0 : 1;
+  return estDesDeux(r.parties[i], negos) && r.parties[i].societe === null ? choisirSocietePartie(r, i, societe) : r;
+}
 
 /** Envoie le dossier à la route de « Mon espace » ; rend le motif d'un refus (null : accepté) et l'id du compromis. 🔴 LOT 6 : aussi une modification
  *  (`id`, `version`) ou un « Rejoindre » (`rejoindre: { numero }`). */
@@ -177,14 +198,13 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
   if (etape === 'formulaire' && refs !== null && societe !== null && verifie !== null && cote !== null) {
     const negos = negosSurs;
     const base = etatRepartitionDe(null, negos, refs.uniteCommission === true);
-    // 🔴 Arno (06/11/2026) — « Les deux côtés » : moi à l'entrée ET à la sortie (la répartition d'un seul négociateur, sans partage à saisir).
-    const repartition = cote === 'aucun' ? base : cote === 'deux'
-      ? changerNegociateur(changerNegociateur(base, 'entree', refs.titulaireId, negos), 'sortie', refs.titulaireId, negos)
-      : changerNegociateur(base, cote, refs.titulaireId, negos);
+    const repartition = repartitionDeDepart(base, cote, refs.titulaireId, societe, negos);
     const messageForm = cote === 'deux' ? [MESSAGE_DEUX_COTES, messageStructure].filter((x) => x !== undefined).join(' ') : messageStructure;
     // 🔴 Arno (05/11/2026) — les obligations du créateur (le serveur les revérifie) ; enregistré : la fenêtre « Compromis enregistré ».
     // 🔴 Arno (05/11/2026) — le partage est celui que le créateur SAISIT (parts vides au départ, jamais un 50/50 implicite).
+    // 🔴 Arno (07/11/2026) — la répartition des honoraires et le TAUX DE COMMISSION, séparés : chaque négociateur choisi pré-remplit son taux depuis son profil.
     return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerCreation} partageASaisir
+      tauxDuProfil motTaux={MOT_TAUX_COMMISSION}
       {...(messageForm === undefined ? {} : { message: messageForm })}
       controleCreation={({ personnes, repartition: rep, partageDefini }) => manquesCreateur({ entreeId: rep.entreeId, sortieId: rep.sortieId, partageDefini,
         personnes: personnes.map((p) => ({ role: p.role, type: p.type, nom: p.nom, prenom: p.prenom, telephone: p.telephone, email: p.email })) }, refs.titulaireId)}

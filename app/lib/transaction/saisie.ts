@@ -305,6 +305,8 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
       // LOT R — le taux de rémunération (%) : vide, le défaut.
       const t = montant(x.taux);
       if (t === undefined || (t !== null && t < 0)) return refus(`Le taux de rémunération du négociateur ${mot} doit être un pourcentage positif (ou vide).`);
+      // 🔴 Mon espace (Arno, 07/11/2026) — le taux de chaque collaborateur est propre à lui (aucun plafond commun) mais compris entre 0 et 100 %.
+      if (t !== null && t > 100) return refus(`Le taux de commission du négociateur ${mot} doit être compris entre 0 et 100 %.`);
       taux[k] = t;
       // LOT V — le mode : « calculee » ou « manuelle » ; toute autre valeur : inconnu (le montant envoyé, comme avant).
       mode[k] = estModeCommission(x.mode) ? x.mode : null;

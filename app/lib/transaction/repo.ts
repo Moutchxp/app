@@ -10,6 +10,7 @@ import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, Retro
 import { verifierRepartition } from './repartition';
 import { miroirsAttendus, planRegistre, venteDansSociete, type EntreeRegistre } from './interCabinet';
 import { calculDansUnite, estUnite, honorairesDuCote, TAUX_REMUNERATION_DEFAUT } from './commissions';
+import { tauxLu } from '../admin/tauxCommissionCompte';
 import { libelleDesPersonnes, personneExistante } from './personnes';
 import { statutLu, type Statut } from '../admin/statut';
 import { statutsDesComptes } from '../admin/statutCompte';
@@ -1104,20 +1105,24 @@ export interface NegociateurCompte { id: number; nom: string; actif: boolean; so
   /** LOT P (439) — son statut d'aujourd'hui ; null : à renseigner (ou avant la 439). */
   statut?: Statut | null;
   /** LOT S (441) — commissionné aujourd'hui (un collaborateur l'est toujours ; sans la 441 : tous). */
-  commissionne?: boolean }
+  commissionne?: boolean;
+  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission de son profil (%) ; absent : non renseigné (50 % par défaut, ou avant la 462). */
+  tauxCommission?: number }
 
 /** Les comptes (négociateurs possibles) avec leurs périodes de société ; `societe` : celle d'aujourd'hui. */
 export async function lireNegociateurs(aujourdhui: string): Promise<NegociateurCompte[]> {
   // 🔴 LOT P — un OBSERVATEUR n'est jamais négociateur : il n'entre pas dans la liste (statut lu via to_jsonb : sans la 439, personne n'est exclu).
-  const { rows } = await query<{ id: string; nom: string; actif: boolean; statut: string | null; role?: string; commissionne?: string | null }>(
+  const { rows } = await query<{ id: string; nom: string; actif: boolean; statut: string | null; role?: string; commissionne?: string | null; taux_commission?: string | null }>(
     `SELECT id, coalesce(nullif(btrim(concat_ws(' ', prenom, nom)), ''), identifiant) AS nom, actif, to_jsonb(u) ->> 'statut' AS statut,
-            role, to_jsonb(u) ->> 'commissionne' AS commissionne
+            role, to_jsonb(u) ->> 'commissionne' AS commissionne, to_jsonb(u) ->> 'taux_commission' AS taux_commission
        FROM admin_utilisateur u WHERE coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur' ORDER BY lower(nom), lower(prenom), id`);
   const periodes = await lirePeriodesSociete(rows.map((r) => n(r.id)));
   return rows.map((r) => {
     const p = periodes.get(n(r.id)) ?? [];
     return { id: n(r.id), nom: String(r.nom), actif: r.actif === true, societe: societeALaDate(p, aujourdhui), periodes: p, statut: statutLu(r.statut),
-      commissionne: commissionneEffectif(r.role, commissionneLu(r.commissionne)) };
+      commissionne: commissionneEffectif(r.role, commissionneLu(r.commissionne)),
+      // 🔴 Mon espace (07/11/2026, 462) — le taux du profil, seulement s'il est renseigné (sans la 462, la colonne n'existe pas : rien).
+      ...(tauxLu(r.taux_commission) !== null ? { tauxCommission: tauxLu(r.taux_commission) as number } : {}) };
   });
 }
 /** Les périodes de société de ces comptes (vide sans la 434). */

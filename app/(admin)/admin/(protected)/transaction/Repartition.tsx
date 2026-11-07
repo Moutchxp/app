@@ -27,7 +27,9 @@ import { texteSaisie } from '../../../../lib/transaction/format';
 /** LOT K — `societe` : « les_deux » pour un collaborateur des deux sociétés (la société se choisit alors vente par vente). */
 export interface NegociateurRef { id: number; nom: string; societe: SocieteCompte | null;
   /** LOT S (441) — commissionné aujourd'hui (absent : oui ; un collaborateur l'est toujours). */
-  commissionne?: boolean }
+  commissionne?: boolean;
+  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission de son profil (%) ; absent : non renseigné (50 % par défaut). */
+  tauxCommission?: number }
 export interface ApporteurRef { id: number; nom: string;
   /** 🔴 D29 — un collaborateur (sa commission porte la TVA) ; absent ou faux : un apporteur externe (sans TVA). */
   interne?: boolean;
@@ -190,7 +192,13 @@ export function changerNegociateur(etat: EtatRepartition, cote: 'entree' | 'sort
   const commissions = id === null && etat.commissions != null ? { ...etat.commissions, [cote]: { ...etat.commissions[cote], texte: '', auto: false } }
     : nonCommissionne(avant) && avant?.compteId !== id && etat.commissions != null ? { ...etat.commissions, [cote]: { texte: '', unite: etat.commissions[cote].unite, auto: true } } : etat.commissions;
   if (etat.parties.some((p) => p.sorte === 'exterieure') || (deux(etat.entreeId, etat.sortieId) && deux(entreeId, sortieId))) return { ...etat, entreeId, sortieId, commissions, parties: garder() };
-  return { ...etat, entreeId, sortieId, commissions, parties: partiesPour(negos, entreeId, sortieId) };
+  // 🔴 Mon espace (07/11/2026) — l'AUTRE côté, s'il garde son négociateur, garde aussi la structure déjà choisie pour cette vente (collaborateur des
+  // deux structures) : choisir le collègue d'en face ne la redemande pas.
+  const parties = partiesPour(negos, entreeId, sortieId).map((p, j) => {
+    const avantJ = etat.parties[j];
+    return j !== i && j < 2 && avantJ !== undefined && p.compteId !== null && p.compteId === avantJ.compteId && p.societe === null && avantJ.societe !== null ? { ...p, societe: avantJ.societe } : p;
+  });
+  return { ...etat, entreeId, sortieId, commissions, parties };
 }
 
 /** LOT E — l'état de la somme pour le formulaire : les parties retenues et, si elle ne fait pas 100 %, la phrase (Enregistrer désactivé). PUR. */
@@ -201,7 +209,53 @@ export function etatSomme(etat: EtatRepartition, honorairesTtc: number, interne 
   return { parties, netHt, motif: parties.length === 0 ? null : motifSomme(parties, netHt) };
 }
 
-export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false, collegues, apporteurEnLigne, commissionsMasquees = false }: {
+// ── 🔴 MON ESPACE (Arno, 07/11/2026) : RÉPARTITION DES HONORAIRES ≠ TAUX DE COMMISSION ─────────────────────────────────────────
+
+/**
+ * Le TAUX DE COMMISSION d'un côté pré-rempli depuis le PROFIL de son négociateur (migration 462) : son taux s'il est renseigné, sinon le défaut
+ * (50 %, aucun taux posé). Il reste modifiable pour ce compromis. Sans commissions à l'écran (avant la 437) : rien ne change. PUR.
+ */
+export function avecTauxDuProfil(etat: EtatRepartition, cote: 'entree' | 'sortie', negos: readonly NegociateurRef[]): EtatRepartition {
+  if (etat.commissions == null) return etat;
+  const id = cote === 'entree' ? etat.entreeId : etat.sortieId;
+  const t = id === null ? undefined : negos.find((n) => n.id === id)?.tauxCommission;
+  const { taux: _ancien, ...sans } = etat.commissions[cote];
+  return { ...etat, commissions: { ...etat.commissions, [cote]: { ...sans, ...(t !== undefined ? { taux: texteTaux(t) } : {}) } } };
+}
+
+/** Le motif d'un taux de commission hors bornes (0 à 100 %) d'un côté, ou null. Vide : le défaut (50 %). Non commissionné : sans objet. PUR. */
+export function motifTauxCote(etat: Pick<EtatRepartition, 'parties' | 'commissions'>, cote: 'entree' | 'sortie'): string | null {
+  const brut = etat.commissions?.[cote]?.taux;
+  const p = etat.parties[cote === 'entree' ? 0 : 1];
+  if (brut === undefined || brut.trim() === '' || p === undefined || p.compteId === null || nonCommissionne(p)) return null;
+  const x = nombre(brut);
+  return x !== null && x >= 0 && x <= 100 ? null : `Le taux de commission de ${p.negociateur ?? 'ce collaborateur'} doit être compris entre 0 et 100 %.`;
+}
+/** Le premier taux hors bornes (le formulaire désactive « Enregistrer » ; le serveur refuse aussi). PUR. */
+export const motifTaux = (etat: Pick<EtatRepartition, 'parties' | 'commissions'>): string | null => motifTauxCote(etat, 'entree') ?? motifTauxCote(etat, 'sortie');
+
+/**
+ * 🔴 « LES DEUX CÔTÉS » (Arno, 07/11/2026) — 100 % des honoraires reviennent à la structure du collaborateur : UNE ligne « entrée et sortie du
+ * mandat » à 100 % (la forme que le calcul des commissions compte une seule fois), non modifiable ; seul son taux de commission se saisit
+ * (pré-rempli depuis son profil). Plus de partage entrée / sortie ni de cumul à saisir. PUR.
+ */
+export function repartitionDeuxCotes(base: EtatRepartition, compte: NegociateurRef, societe: Societe): EtatRepartition {
+  const partie: PartieEcran = { ...ligne('entree', compte, 100), sorte: 'entree_sortie', societe };
+  const commissions = base.commissions == null ? base.commissions : { entree: { texte: '', unite: base.commissions.entree.unite, auto: true }, sortie: { texte: '', unite: base.commissions.sortie.unite, auto: true } };
+  return avecTauxDuProfil({ ...base, entreeId: compte.id, sortieId: compte.id, commissions, parties: [partie] }, 'entree', [compte]);
+}
+/** La répartition à l'écran est-elle celle des « deux côtés » (une seule ligne « entrée et sortie ») ? PUR. */
+export const estDeuxCotes = (etat: Pick<EtatRepartition, 'parties'>): boolean => etat.parties.length === 1 && etat.parties[0].sorte === 'entree_sortie';
+/** « Entrée et sortie du mandat — Prénom NOM — STRUCTURE — 100 % des honoraires ». PUR. */
+export const libelleDeuxCotes = (p: Pick<PartieEcran, 'negociateur' | 'societe'>): string =>
+  `Entrée et sortie du mandat — ${p.negociateur ?? 'collaborateur'} — ${p.societe === null ? 'structure à renseigner' : LIBELLE_SOCIETE[p.societe]} — 100 % des honoraires`;
+
+export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false, collegues, apporteurEnLigne, commissionsMasquees = false,
+  tauxDuProfil = false, motTaux }: {
+  /** 🔴 MON ESPACE (07/11/2026) — un négociateur choisi pré-remplit le taux de commission de son côté depuis son profil (462). Absent : rien ne change. */
+  tauxDuProfil?: boolean;
+  /** 🔴 MON ESPACE (07/11/2026) — le mot du champ du taux (« Taux de commission (%) ») ; absent : « Taux de rémunération (%) », inchangé. */
+  motTaux?: string;
   /**
    * 🔴 MON ESPACE, LOT 6 — la vue personnelle : les commissions versées aux négociateurs ne se voient ni ne se modifient ici (celle de l'autre
    * collègue reste privée ; le serveur reprend celles qui sont enregistrées) ; absent (la tuile Suivi CA) : rien ne change.
@@ -259,7 +313,11 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   // LOT K — un collaborateur des deux sociétés : la société de SA partie se choisit pour cette vente (obligatoire).
   const deux = (p: PartieEcran): boolean => estDesDeux(p, negociateurs);
   const motifChoix = motifSocieteVente(etat, negociateurs);
-  const choisirNego = (i: 0 | 1, v: string): void => onChange(changerNegociateur(etat, i === 0 ? 'entree' : 'sortie', v === '' ? null : Number(v), negociateurs));
+  const choisirNego = (i: 0 | 1, v: string): void => {
+    const cote = i === 0 ? 'entree' : 'sortie';
+    const suivant = changerNegociateur(etat, cote, v === '' ? null : Number(v), negociateurs);
+    onChange(tauxDuProfil ? avecTauxDuProfil(suivant, cote, negociateurs) : suivant);
+  };
   const changerPartie = (i: number, p: Partial<PartieEcran>): void => onChange({ ...etat, parties: etat.parties.map((x, j) => (j === i ? { ...x, ...p } : x)) });
   const changerPart = (i: number, mode: 'pct' | 'eur', texte: string): void => onChange({ ...etat, parties: saisirPart(etat.parties, i, mode, texte, net).map((p) => (p.saisieTtc === undefined ? p : { ...p, saisieTtc: undefined })) });
   // 🔴 LOT AN — une part en € tapée en TTC (sélecteur général) : convertie en HT au centime pour la répartition ; le texte tapé reste affiché.
@@ -272,6 +330,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   const eurTtc = centimesRepartition(lignesModele, commission, retro, porteuseEcran, 'ttc', apporteurInterne)?.parts;
   // 🔴 LOT AN — la case « Part (€) » en cours de frappe (tel que tapé) ; les autres, mises en forme.
   const [eurEnSaisie, setEurEnSaisie] = useState<number | null>(null);
+  const deuxCotes = estDeuxCotes(etat);
 
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
@@ -302,7 +361,9 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
       {/* 🔴 LOT U (Arno) — en tête, la base de répartition : commission de la vente − apporteur(s) = base (TTC et HT), en direct. */}
       <ResumeBase commissionTtc={commission} apporteurs={etat.apporteurId === null && retro === 0 ? []
         : [{ nom: apporteurs.find((a) => a.id === etat.apporteurId)?.nom ?? null, ttc: retro, interne: apporteurInterne }]} />
-      <ul className="trx-journal trx-parties" data-parties>
+      {deuxCotes && <DeuxCotes etat={etat} onChange={onChange} commission={commission} retro={retro} apporteurInterne={apporteurInterne} commissionsMasquees={commissionsMasquees}
+        {...(motTaux === undefined ? {} : { motTaux })} />}
+      {!deuxCotes && <ul className="trx-journal trx-parties" data-parties>
         {etat.parties.map((p, i) => {
           const interne = p.sorte !== 'exterieure';
           const pctAffiche = p.mode === 'pct' ? p.texte : (Number.isFinite(parts[i]) ? texteNombre(pourcentageDe(parts[i], net)) : '');
@@ -344,9 +405,11 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                 p.compteId === null ? <span className="loc-muet" data-commission-sans-negociateur={i === 0 ? 'entree' : 'sortie'}>Commission versée : choisissez d’abord le négociateur.</span>
                   // 🔴 LOT S — non commissionné : ni commission, ni taux, ni calcul ; sa part reste dans la répartition.
                   : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form={i === 0 ? 'entree' : 'sortie'}>Non commissionné</span>
-                  : <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
-                    propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission, apporteurInterne)}
+                  : <><ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
+                    propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission, apporteurInterne)} {...(motTaux === undefined ? {} : { motTaux })}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
+                    {/* 🔴 Mon espace (07/11/2026) — propre à chaque collaborateur, sans plafond commun : seulement entre 0 et 100 %. */}
+                    {motifTauxCote(etat, i === 0 ? 'entree' : 'sortie') !== null && <span className="trx-alerte" role="status" data-motif-taux={i === 0 ? 'entree' : 'sortie'}>{motifTauxCote(etat, i === 0 ? 'entree' : 'sortie')}</span>}</>
               ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
               {!interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse du mandat (dans ses commissions versées).</span>}
             </li>
@@ -392,12 +455,46 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
             </>;
           })()}
         </li>
-      </ul>
-      <p className="trx-actions">
+      </ul>}
+      {/* 🔴 Mon espace (Arno, 07/11/2026) — « Les deux côtés » : une seule ligne à 100 %, non modifiable ; ni partage, ni « Revenir au 50/50 ». */}
+      {!deuxCotes && <p className="trx-actions">
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: [...etat.parties, versEcran(partieExterieure())] })} data-ajouter-exterieure>+ Ajouter une partie extérieure</button>
         <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: revenirAuCinquante(etat.parties, negociateurs, etat.entreeId, etat.sortieId, commissionNetteHt(commission, retro, apporteurInterne)) })} data-revenir-5050>Revenir au 50/50</button>
-      </p>
+      </p>}
     </fieldset>
+  );
+}
+
+/**
+ * 🔴 MON ESPACE (Arno, 07/11/2026) — « LES DEUX CÔTÉS » : la ligne unique « Entrée et sortie du mandat — Prénom NOM — STRUCTURE — 100 % des
+ * honoraires », non modifiable, ses honoraires (100 % de la base), puis SON taux de commission avec le montant calculé à côté (non
+ * commissionné : la mention, rien à saisir). Le CA : 100 % à sa structure.
+ */
+function DeuxCotes({ etat, onChange, commission, retro, apporteurInterne, commissionsMasquees, motTaux }: { etat: EtatRepartition; onChange: (e: EtatRepartition) => void;
+  commission: number; retro: number; apporteurInterne: boolean; commissionsMasquees: boolean; motTaux?: string }) {
+  const p = etat.parties[0];
+  const net = commissionNetteHt(commission, retro, apporteurInterne);
+  const motif = motifTauxCote(etat, 'entree');
+  return (
+    <ul className="trx-journal trx-parties" data-parties data-deux-cotes>
+      <li className="trx-partie" data-partie="entree_sortie" data-ligne-partie={0}>
+        <div className="trx-partie-tete"><strong data-ligne-deux-cotes>{libelleDeuxCotes(p)}</strong></div>
+        <span className="loc-muet" data-honoraires-deux-cotes>Honoraires : <Montants disposition="ligne" ht={net} ttc={net * TVA} /> · 100{ESPACE}% · non modifiable</span>
+        {commissionsMasquees ? null : etat.commissions == null
+          ? <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>
+          : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form="entree">Non commissionné</span>
+          : <>
+            <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions.entree} avecHt {...(motTaux === undefined ? {} : { motTaux })}
+              propose={propositionCommission(etat, 'entree', commission, apporteurInterne)}
+              onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, entree: m } })} champ="commission-entree" />
+            {motif !== null && <span className="trx-alerte" role="status" data-motif-taux="entree">{motif}</span>}
+          </>}
+      </li>
+      <li className="trx-partie trx-partie--total" data-total-repartition>
+        <span className="loc-muet" data-parts-societes><span data-part-societe-form={p.societe ?? ''}>CA : {p.societe === null ? 'structure à renseigner' : LIBELLE_SOCIETE[p.societe]} reçoit 100{ESPACE}% des honoraires,{' '}
+          <Montants disposition="ligne" sens="recu" ht={net} ttc={net * TVA} /></span></span>
+      </li>
+    </ul>
   );
 }
 
@@ -416,7 +513,9 @@ export function equivalent(m: MontantEcran): string | null {
  * être réécrite : non retouchée, elle s'enregistre telle qu'elle était, au centime, même après plusieurs bascules. Une frappe la remplace par
  * ce qui est tapé, dans l'unité affichée (montant + unité : la forme enregistrée ne change pas).
  */
-export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose }: {
+export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose, motTaux = 'Taux de rémunération (%)' }: {
+  /** 🔴 Mon espace (07/11/2026) — le mot du champ du taux ; absent : « Taux de rémunération (%) », inchangé. */
+  motTaux?: string;
   mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
   /**
    * LOT O / R — la rémunération proposée (taux × la part de ce côté) ; montrée tant que le champ n'est pas saisi (`auto`). Avec elle, le
@@ -439,7 +538,7 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
   const pctTexte = (x: number): string => nombreFr(x, { maximumFractionDigits: 4 });
   return (
     <div className="trx-montant-unite" data-montant-unite={champ} data-unite-champ={u}>
-      {avecTaux && <label>Taux de rémunération (%)
+      {avecTaux && <label>{motTaux}
         <input inputMode="decimal" value={brute.taux ?? texteTaux(TAUX_REMUNERATION_DEFAUT)} onChange={(e) => onChange(saisirTaux(brute, e.target.value))} data-taux={champ} /></label>}
       <label>{mot} ({LIBELLE_UNITE[u]})
         <input inputMode="decimal" value={enSaisie ? valeur.texte : grouperSaisie(valeur.texte)} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: u }, e.target.value, propose ?? null) : { texte: e.target.value, unite: u, auto: false })}

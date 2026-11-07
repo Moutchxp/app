@@ -218,8 +218,11 @@ describe('🔴 Arno (06/11/2026) — « Les deux côtés (entrée et sortie du m
     for (const bloc of ['vendeurs', 'acquereurs']) {
       for (const champ of ['nom', 'prenom', 'telephone', 'email']) expect(form.querySelector(`[data-bloc-dossier="${bloc}"] [data-personne-${champ}]`)).not.toBeNull();
     }
-    // Aucune part à SAISIR : un seul négociateur (moi) sur les deux côtés — la répartition existante, déjà remplie.
-    expect([...form.querySelectorAll<HTMLInputElement>('[data-partie-pct]')].map((x) => x.value)).toEqual(['100', '0']);
+    // 🔴 Arno (07/11/2026) — aucune part à SAISIR : UNE ligne « entrée et sortie » à 100 %, non modifiable ; ni 50/50, ni cumul ; seul mon taux.
+    expect([...form.querySelectorAll<HTMLInputElement>('[data-partie-pct]')]).toEqual([]);
+    expect(texte('[data-ligne-deux-cotes]')).toBe('Entrée et sortie du mandat — Léa MARTIN — CRITERIMMO — 100 % des honoraires');
+    expect(form.querySelector('[data-revenir-5050]')).toBeNull();
+    expect(form.querySelectorAll('[data-taux]')).toHaveLength(1);
     await saisir('[data-formulaire-dossier] [data-champ="commission"]', '10000');
     // Le vendeur seul : l'acquéreur manque → refus, le message sous le bloc, rien n'est envoyé.
     await saisir('[data-bloc-dossier="vendeurs"] [data-personne-nom]', 'DUPONT');
@@ -237,7 +240,8 @@ describe('🔴 Arno (06/11/2026) — « Les deux côtés (entrée et sortie du m
     expect(posts).toHaveLength(1);
     const d = posts[0].corps.dossier as { entreeId: number; sortieId: number; parties: { sorte: string; compteId: number | null; pourcentage: number | null }[]; personnes: { role: string; nom: string }[] };
     expect([d.entreeId, d.sortieId]).toEqual([5, 5]);
-    expect(d.parties.filter((p) => p.sorte !== 'exterieure').map((p) => p.compteId)).toEqual(d.parties.filter((p) => p.sorte !== 'exterieure').map(() => 5));
+    expect(d.parties).toMatchObject([{ sorte: 'entree_sortie', compteId: 5, societe: 'criterimmo', pourcentage: 100, montantHt: null }]);
+    expect(d.parties).toHaveLength(1);
     expect(d.personnes.map((p) => [p.role, p.nom])).toEqual([['vendeur', 'DUPONT'], ['acquereur', 'MARTIN']]);
     // La confirmation simple : aucun mail à un collègue.
     expect(container.querySelector('[data-confirmation-compromis="99"]')).not.toBeNull();

@@ -2,6 +2,7 @@
 
 import { AIDE_STATUT, BlocStatutCompte, ChoixStatut, MSG_STATUT_OBLIGATOIRE, type StatutVue } from './StatutCompte';
 import { BlocFonctionsCompte } from './FonctionsCompte';
+import { BlocTauxCommissionCompte, type TauxCommissionVue } from './TauxCommissionCompte';
 import { AIDE_COMMISSIONNE, BlocCommissionneCompte, ChoixCommissionne, MSG_COMMISSIONNE_OBLIGATOIRE, type CommissionneVue } from './CommissionneCompte';
 import { LIBELLE_STATUT_PERSONNE, type Statut } from '../../../../lib/admin/statut';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -80,6 +81,8 @@ interface DetailCompte extends CompteVue {
   statutDetail?: StatutVue;
   /** 🔴 LOT S (441) — « Commissionné / Non commissionné » (administrateur) et son historique. Absent d'une réponse d'avant ce lot. */
   commissionneDetail?: CommissionneVue;
+  /** 🔴 Mon espace (07/11/2026, 462) — le taux de commission du profil et son historique. Absent d'une réponse d'avant ce lot. */
+  tauxCommissionDetail?: TauxCommissionVue;
 }
 /** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
 export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
@@ -307,6 +310,9 @@ export function DetailContenu({
 
       {/* 🔴 LOT S (Arno, 28/10/2026, 441) — « COMMISSIONNÉ / NON COMMISSIONNÉ » : administrateur seulement ; obligatoire, journalisé avec sa date. */}
       {compte.commissionneDetail !== undefined && <BlocCommissionneCompte key={`${compte.id}-c-${String(compte.commissionneDetail.valeur)}`} compteId={compte.id} etat={compte.commissionneDetail} onFait={() => onStatutEnregistre?.()} />}
+      {/* 🔴 Mon espace (Arno, 07/11/2026, 462) — « TAUX DE COMMISSION » du profil : pré-remplit « Nouveau compromis » (modifiable), journalisé avec sa date. */}
+      {compte.tauxCommissionDetail !== undefined && <BlocTauxCommissionCompte key={`${compte.id}-t-${String(compte.tauxCommissionDetail.valeur)}`} compteId={compte.id} etat={compte.tauxCommissionDetail}
+        nonCommissionne={compte.commissionneDetail?.applicable === true && compte.commissionneDetail.valeur === false} onFait={() => onStatutEnregistre?.()} />}
       {/* 🔴 « Les coûts », lot 2 (C9) — les fonctions du profil (vente / location / gestion), le bloc lit et enregistre lui-même */}
       <BlocFonctionsCompte compteId={compte.id} />
 
