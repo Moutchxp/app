@@ -204,7 +204,7 @@ export function NouveauCompromis({ onFermer, onCree, modeAgence = false }: { onF
     // 🔴 Arno (05/11/2026) — le partage est celui que le créateur SAISIT (parts vides au départ, jamais un 50/50 implicite).
     // 🔴 Arno (07/11/2026) — la répartition des honoraires et le TAUX DE COMMISSION, séparés : chaque négociateur choisi pré-remplit son taux depuis son profil.
     return <FormulaireDossier societe={societe} vente={null} references={refs} repartitionInitiale={repartition} mandatFixe={verifie} envoyer={envoyerCreation} partageASaisir
-      tauxDuProfil motTaux={MOT_TAUX_COMMISSION}
+      tauxDuProfil motTaux={MOT_TAUX_COMMISSION} parCote
       {...(messageForm === undefined ? {} : { message: messageForm })}
       controleCreation={({ personnes, repartition: rep, partageDefini }) => manquesCreateur({ entreeId: rep.entreeId, sortieId: rep.sortieId, partageDefini,
         personnes: personnes.map((p) => ({ role: p.role, type: p.type, nom: p.nom, prenom: p.prenom, telephone: p.telephone, email: p.email })) }, refs.titulaireId)}

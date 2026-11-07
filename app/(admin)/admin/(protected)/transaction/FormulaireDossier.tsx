@@ -156,7 +156,9 @@ export function corpsDossier(societe: Societe, statut: 'compromis' | 'vendue', c
 }
 
 export function FormulaireDossier({ societe, vente, references: referencesRecues, onFermer, onFait, ajouter = null, repartitionInitiale, message, personneVisee = null, envoyer, mandatFixe, commissionsMasquees = false, controleCreation, partageASaisir = false,
-  tauxDuProfil = false, motTaux }: {
+  tauxDuProfil = false, motTaux, parCote = false }: {
+  /** 🔴 MON ESPACE (07/11/2026) — la présentation « par côté » du bloc de répartition (① CA, ② commission) ; absent (la tuile) : inchangée. */
+  parCote?: boolean;
   /** 🔴 MON ESPACE (07/11/2026) — un négociateur choisi pré-remplit son taux de commission depuis son profil (462). Absent (la tuile) : rien ne change. */
   tauxDuProfil?: boolean;
   /** 🔴 MON ESPACE (07/11/2026) — le mot du champ du taux (« Taux de commission (%) ») ; absent : inchangé. */
@@ -335,7 +337,7 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
             </>)}
             {bloc('libelle', 'Libellé', <label className="trx-plein">Libellé (facultatif : sinon « vendeurs / acquéreurs »)<input value={champs.libelle} onChange={champ('libelle')} data-champ="libelle" /></label>)}
             {bloc('repartition', 'Négociateurs, structures et apporteur', <BlocRepartition etat={repartition} onChange={changerRepartition} negociateurs={references.negociateurs} apporteurs={references.apporteurs} collegues={references.collegues} honorairesTtc={commission}
-              commissionsMasquees={commissionsMasquees} tauxDuProfil={tauxDuProfil} {...(motTaux === undefined ? {} : { motTaux })}
+              commissionsMasquees={commissionsMasquees} tauxDuProfil={tauxDuProfil} {...(motTaux === undefined ? {} : { motTaux })} parCote={parCote}
               societeVente={vente?.societe ?? societe}
               // 🔴 LOT BH (Arno) — une affaire déjà créée : le même composant que les Informations communes ; ici le geste change le formulaire,
               // « Enregistrer » l'écrit (journalisé).

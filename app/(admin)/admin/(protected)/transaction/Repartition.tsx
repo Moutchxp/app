@@ -261,7 +261,12 @@ export const libelleDeuxCotes = (p: Pick<PartieEcran, 'negociateur' | 'societe'>
   `Entrée et sortie du mandat — ${p.negociateur ?? 'collaborateur'} — ${p.societe === null ? 'structure à renseigner' : LIBELLE_SOCIETE[p.societe]} — 100 % des honoraires`;
 
 export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, honorairesTtc, societeVente, desactive = false, seulementParts = false, collegues, apporteurEnLigne, commissionsMasquees = false,
-  tauxDuProfil = false, motTaux }: {
+  tauxDuProfil = false, motTaux, parCote = false }: {
+  /**
+   * 🔴 MON ESPACE (Arno, 07/11/2026) — PRÉSENTATION « par côté » : un grand bloc par côté, coupé en ① « Répartition du chiffre d'affaires » et
+   * ② « Commission du négociateur » ; le total coupé de même. Les MÊMES champs et contrôles, seule la disposition change. Absent (la tuile) : inchangé.
+   */
+  parCote?: boolean;
   /** 🔴 MON ESPACE (07/11/2026) — un négociateur choisi pré-remplit le taux de commission de son côté depuis son profil (462). Absent : rien ne change. */
   tauxDuProfil?: boolean;
   /** 🔴 MON ESPACE (07/11/2026) — le mot du champ du taux (« Taux de commission (%) ») ; absent : « Taux de rémunération (%) », inchangé. */
@@ -341,10 +346,15 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
   // 🔴 LOT AN — la case « Part (€) » en cours de frappe (tel que tapé) ; les autres, mises en forme.
   const [eurEnSaisie, setEurEnSaisie] = useState<number | null>(null);
   const deuxCotes = estDeuxCotes(etat);
+  const liens = <>
+    <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: [...etat.parties, versEcran(partieExterieure())] })} data-ajouter-exterieure>+ Ajouter une partie extérieure</button>
+    <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: revenirAuCinquante(etat.parties, negociateurs, etat.entreeId, etat.sortieId, commissionNetteHt(commission, retro, apporteurInterne)) })} data-revenir-5050>Revenir au 50/50</button>
+  </>;
 
   return (
     <fieldset className="trx-plein trx-parts" data-bloc-repartition disabled={desactive}>
       <legend className="loc-muet">{seulementParts ? 'Répartition des honoraires' : 'Apporteur et répartition des honoraires'}</legend>
+      {parCote && <style>{CSS_PAR_COTE}</style>}
       {!seulementParts && apporteurEnLigne !== undefined && <div className="trx-form"><div className="trx-plein" data-apporteur-formulaire>
         <span className="loc-muet">Apporteur d’affaires</span> {apporteurEnLigne}</div></div>}
       {!seulementParts && <div className="trx-form">
@@ -372,7 +382,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
       <ResumeBase commissionTtc={commission} apporteurs={etat.apporteurId === null && retro === 0 ? []
         : [{ nom: apporteurs.find((a) => a.id === etat.apporteurId)?.nom ?? null, ttc: retro, interne: apporteurInterne }]} />
       {deuxCotes && <DeuxCotes etat={etat} onChange={onChange} commission={commission} retro={retro} apporteurInterne={apporteurInterne} commissionsMasquees={commissionsMasquees}
-        {...(motTaux === undefined ? {} : { motTaux })} />}
+        {...(motTaux === undefined ? {} : { motTaux })} parCote={parCote} />}
       {!deuxCotes && <ul className="trx-journal trx-parties" data-parties>
         {etat.parties.map((p, i) => {
           const interne = p.sorte !== 'exterieure';
@@ -381,15 +391,15 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
           const eurAffiche = u === 'ttc'
             ? (p.mode === 'eur' ? p.saisieTtc ?? texteDansUnite(p.texte, 'ht', 'ttc') : (eurTtc !== undefined && Number.isFinite(eurTtc[i]) ? texteCentimes(eurTtc[i]) : Number.isFinite(eurAffiches[i]) ? texteCentimes(eurAffiches[i] * TVA) : ''))
             : (p.mode === 'eur' ? p.texte : (Number.isFinite(eurAffiches[i]) ? texteCentimes(eurAffiches[i]) : ''));
-          return (
-            <li key={i} className="trx-partie" data-partie={p.sorte} data-ligne-partie={i}>
-              <div className="trx-partie-tete">
+          const cote: 'entree' | 'sortie' = i === 0 ? 'entree' : 'sortie';
+          const tete = <div className="trx-partie-tete">
                 <strong>{interne ? LIBELLE_PARTIE[p.sorte] : 'Partie extérieure'}</strong>
                 {interne && <span className={p.compteId !== null && p.societe === null ? 'trx-alerte' : 'loc-muet'} data-societe-partie={i}>
                   {p.compteId === null ? 'négociateur à choisir' : p.societe === null ? (deux(p) ? 'société à choisir pour cette vente' : '⚠ société à renseigner dans Comptes') : LIBELLE_SOCIETE[p.societe]}</span>}
                 {!interne && <button type="button" className="trx-croix" aria-label="Retirer cette partie extérieure" title="Retirer cette partie extérieure"
                   onClick={() => onChange({ ...etat, parties: retirerPartie(etat.parties, i, net) })} data-retirer-exterieure>×</button>}
-              </div>
+              </div>;
+          const repartitionDuCote = <>
               <div className="trx-part">
                 {interne && seulementParts ? <span className="trx-partie-nego" data-nego-partie={i}>{p.negociateur ?? 'négociateur à choisir'}</span> : interne ? (
                   <label>Négociateur
@@ -409,6 +419,9 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   La répartition ne peut pas affecter cette part : {p.negociateur} n’a pas de société (CRITERIMMO ou MACJ). Renseignez-la dans Comptes.</span>
               )}
               {interne && p.compteId === null && (nombre(p.texte) ?? 0) !== 0 && <span className="loc-muet">Sans négociateur, cette part n’est pas comptée.</span>}
+            </>;
+          const propose = interne && i < 2 ? propositionCommission(etat, cote, commission, apporteurInterne) : null;
+          const commissionDuCote = <>
               {/* LOT I — la commission versée au négociateur de ce côté (entrée : ligne 0, sortie : ligne 1), HT ou TTC au choix. */}
               {interne && i < 2 && !seulementParts && commissionsMasquees && <span className="loc-muet" data-commission-masquee={i === 0 ? 'entree' : 'sortie'}>Commission versée : non modifiable depuis « Mon espace » (elle reste telle qu’enregistrée).</span>}
               {interne && i < 2 && !seulementParts && !commissionsMasquees && (etat.commissions != null ? (
@@ -416,16 +429,45 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   // 🔴 LOT S — non commissionné : ni commission, ni taux, ni calcul ; sa part reste dans la répartition.
                   : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form={i === 0 ? 'entree' : 'sortie'}>Non commissionné</span>
                   : <><ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
-                    propose={propositionCommission(etat, i === 0 ? 'entree' : 'sortie', commission, apporteurInterne)} {...(motTaux === undefined ? {} : { motTaux })}
+                    propose={propose} {...(motTaux === undefined ? {} : { motTaux })}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
+                    {/* 🔴 Mon espace (07/11/2026) — la base de SA commission : sa part des honoraires. */}
+                    {parCote && propose !== null && <span className="loc-muet" data-base-commission={cote}>calculée sur sa part de {eur(propose.baseTtc)}{ESPACE}TTC</span>}
                     {/* 🔴 Mon espace (07/11/2026) — propre à chaque collaborateur, sans plafond commun : seulement entre 0 et 100 %. */}
                     {motifTauxCote(etat, i === 0 ? 'entree' : 'sortie') !== null && <span className="trx-alerte" role="status" data-motif-taux={i === 0 ? 'entree' : 'sortie'}>{motifTauxCote(etat, i === 0 ? 'entree' : 'sortie')}</span>}</>
               ) : <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>)}
-              {!interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse du mandat (dans ses commissions versées).</span>}
+            </>;
+          const noteExterieure = !interne && <span className="loc-muet">Inter-cabinet extérieur : reversé par la société porteuse du mandat (dans ses commissions versées).</span>;
+          // 🔴 Mon espace (Arno, 07/11/2026) — un GRAND BLOC par côté : ① la répartition du CA, ② la commission du négociateur (une partie extérieure : ① seule).
+          if (parCote) return (
+            <li key={i} className="trx-partie trx-cote" data-partie={p.sorte} data-ligne-partie={i} data-cote-bloc={interne ? cote : 'exterieure'}>
+              <h5 className="trx-cote-titre" data-titre-cote>{interne ? TITRE_COTE[cote] : 'Partie extérieure'}</h5>
+              <div className="trx-zones">
+                <section className="trx-zone trx-zone--ca" data-zone="ca" aria-label="Répartition du chiffre d’affaires">
+                  <h6 className="trx-zone-titre">① Répartition du chiffre d’affaires</h6>
+                  <p className="trx-zone-rappel">{RAPPEL_CA}</p>
+                  {tete}
+                  {repartitionDuCote}
+                  {noteExterieure}
+                </section>
+                {interne && <section className="trx-zone trx-zone--commission" data-zone="commission" aria-label="Commission du négociateur">
+                  <h6 className="trx-zone-titre">② Commission du négociateur</h6>
+                  <p className="trx-zone-rappel">{RAPPEL_COMMISSION}</p>
+                  {commissionDuCote}
+                </section>}
+              </div>
+            </li>
+          );
+          return (
+            <li key={i} className="trx-partie" data-partie={p.sorte} data-ligne-partie={i}>
+              {tete}
+              {repartitionDuCote}
+              {commissionDuCote}
+              {noteExterieure}
             </li>
           );
         })}
-        <li className="trx-partie trx-partie--total" data-total-repartition>
+        {!parCote && <li className="trx-partie trx-partie--total" data-total-repartition>
           <div className="trx-partie-tete">
             <strong>Total</strong>
             <span className="trx-total" data-total-pct>{Number.isFinite(total.pourcentage) ? pctFr(total.pourcentage) : '—'}</span>
@@ -464,14 +506,138 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
               </span>
             </>;
           })()}
-        </li>
+        </li>}
+        {/* 🔴 Mon espace (Arno, 07/11/2026) — le TOTAL coupé en deux : ① la répartition du CA entre structures (avec les liens qui ne concernent que
+            le CA) ; ② les commissions des négociateurs, sans aucune référence à 100 %. Les mêmes éléments qu'au-dessus, seule la disposition change. */}
+        {parCote && <li className="trx-partie trx-partie--total trx-cote" data-total-repartition data-cote-bloc="total">
+          <h5 className="trx-cote-titre">Total</h5>
+          <div className="trx-zones">
+            <section className="trx-zone trx-zone--ca" data-zone="ca-total" aria-label="Répartition du CA entre structures">
+              <h6 className="trx-zone-titre">① Répartition du CA entre structures</h6>
+          <div className="trx-partie-tete">
+            <strong>Total</strong>
+            <span className="trx-total" data-total-pct>{Number.isFinite(total.pourcentage) ? pctFr(total.pourcentage) : '—'}</span>
+            <span data-total-eur>{Number.isFinite(total.montantHt) ? <Montants disposition="ligne" ht={total.montantHt} ttc={total.montantHt * TVA} /> : `—${ESPACE}${MOT_UNITE[u]}`}</span>
+          </div>
+              {parties.length > 0 && <LigneCaStructures parties={parties} commission={commission} retro={retro} apporteurInterne={apporteurInterne} societeVente={societeVente} total={total.pourcentage} />}
+          {parties.length === 0 && <span className="loc-muet" data-sans-repartition>Aucun négociateur choisi : pas de répartition, toute la commission va à {LIBELLE_SOCIETE[societeVente]}.</span>}
+          {motifTotal !== null && <span className="trx-alerte" role="status" data-motif-repartition>{motifTotal}</span>}
+          {motifAutre !== null && <span className="trx-alerte" role="status" data-motif-repartition-autre>{motifAutre}</span>}
+          {motifChoix !== null && <span className="trx-alerte" role="status" data-motif-societe-vente>{motifChoix}</span>}
+          {parties.length > 0 && (() => {
+            // 🔴 LOT R — la société PORTEUSE (négociateur d'entrée) encaisse le CA de la vente ; la part de l'autre société lui est reversée.
+            const b = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro, apporteurInterne } }, null);
+            const porteuse = b.porteuse;
+            // 🔴 LOT AJ (Arno) — les montants au centime par LA règle du lot AH (`centimesRepartition`, celle de la carte) ; à défaut (somme ≠ 100 %),
+            // l'arrondi simple d'avant. « Part X » et « reversé vers X » portaient le même montant : UNE mention « Part X − Reversé en inter-cabinet
+            // vers X », en rouge (fusion autorisée par Arno) ; idem pour l'extérieur. La part de la porteuse reste la sienne, en tête.
+            const c = centimesRepartition(parties, commission, retro, porteuse, 'ht', apporteurInterne);
+            // LOT AM — le TTC au centime par la même règle (`unite: 'ttc'`), pour l'unité affichée en grand.
+            const cT = centimesRepartition(parties, commission, retro, porteuse, 'ttc', apporteurInterne);
+            const caHt = c?.commissionHt ?? b.caHt;
+            const partDe = (s: Societe): number => c?.parSociete[s] ?? parSociete.societe[s];
+            const ttcDe = (s: Societe): number => cT?.parSociete[s] ?? parSociete.societe[s] * TVA;
+            const recoit = SOCIETES.filter((s) => s !== porteuse && partDe(s) > 0);
+            const exterieurHt = c === null ? parSociete.exterieurHt : c.exterieurs.reduce((t, e) => t + e.ht, 0);
+            const noms = c === null ? [] : c.exterieurs.filter((e) => e.ht > 0).map((e) => e.nom);
+            const exterieurTtc = cT === null ? exterieurHt * TVA : cT.exterieurs.reduce((t, e) => t + e.ht, 0);
+            return <>
+              <span className="loc-muet" data-inter-cabinet-form>CA de la vente : {LIBELLE_SOCIETE[porteuse]} (société porteuse du mandat), <Montants disposition="ligne" sens="recu" ht={caHt} ttc={commission} />
+                {recoit.length === 0 && exterieurHt === 0 ? ' · rien de reversé en inter-cabinet' : ''}</span>
+              <span className="loc-muet" data-parts-societes>
+                <span data-part-societe-form={porteuse}>Part {LIBELLE_SOCIETE[porteuse]} : <Montants disposition="ligne" ht={partDe(porteuse)} ttc={ttcDe(porteuse)} /> · {pctTexte(pcts.societe[porteuse])}</span>
+                {SOCIETES.filter((s) => s !== porteuse).map((s) => recoit.includes(s)
+                  ? <span key={s} className="trx-rouge" data-part-societe-form={s} data-reverse-form={s}> · Part {LIBELLE_SOCIETE[s]} − Reversé en inter-cabinet vers {LIBELLE_SOCIETE[s]} : <Montants disposition="ligne" sens="verse" ht={partDe(s)} ttc={ttcDe(s)} /> · {pctTexte(pcts.societe[s])}</span>
+                  : <span key={s} data-part-societe-form={s}> · Part {LIBELLE_SOCIETE[s]} : <Montants disposition="ligne" ht={partDe(s)} ttc={ttcDe(s)} /> · {pctTexte(pcts.societe[s])}</span>)}
+                {exterieurHt > 0 && <span className="trx-rouge" data-reverse-form="exterieur"> · {noms.length === 1 ? `Part ${noms[0]} − Reversé à ${noms[0]}` : `Part extérieure − Reversé à l’extérieur${noms.length > 1 ? ` (${noms.join(', ')})` : ''}`} : <Montants disposition="ligne" sens="verse" ht={exterieurHt} ttc={exterieurTtc} /> · {pctTexte(pcts.exterieur)}</span>}
+              </span>
+            </>;
+          })()}
+              <p className="trx-actions">{liens}</p>
+            </section>
+            <section className="trx-zone trx-zone--commission" data-zone="commission-total" aria-label="Commissions des négociateurs">
+              <h6 className="trx-zone-titre">② Commissions des négociateurs</h6>
+              <CommissionsNegociateurs etat={etat} commission={commission} apporteurInterne={apporteurInterne} commissionsMasquees={commissionsMasquees} />
+            </section>
+          </div>
+        </li>}
       </ul>}
       {/* 🔴 Mon espace (Arno, 07/11/2026) — « Les deux côtés » : une seule ligne à 100 %, non modifiable ; ni partage, ni « Revenir au 50/50 ». */}
-      {!deuxCotes && <p className="trx-actions">
-        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: [...etat.parties, versEcran(partieExterieure())] })} data-ajouter-exterieure>+ Ajouter une partie extérieure</button>
-        <button type="button" className="trx-bouton-lien" onClick={() => onChange({ ...etat, parties: revenirAuCinquante(etat.parties, negociateurs, etat.entreeId, etat.sortieId, commissionNetteHt(commission, retro, apporteurInterne)) })} data-revenir-5050>Revenir au 50/50</button>
-      </p>}
+      {!deuxCotes && !parCote && <p className="trx-actions">{liens}</p>}
     </fieldset>
+  );
+}
+
+// ── 🔴 MON ESPACE (Arno, 07/11/2026) : PRÉSENTATION « PAR CÔTÉ » — ① LA RÉPARTITION DU CA, ② LA COMMISSION DU NÉGOCIATEUR ───────────────────────
+
+/**
+ * La disposition « par côté » (Mon espace) : un grand bloc par côté, bordé ; ① (CA) et ② (commission) côte à côte sur grand écran, chacune son
+ * fond léger et sa bordure — ① en bleu, ② en violet, partout (blocs et total) ; empilées dans le même ordre sur téléphone. Jetons de la charte.
+ */
+export const CSS_PAR_COTE = `
+.trx-parties .trx-cote{list-style:none;border:2px solid var(--color-svv-line-strong);border-radius:14px;padding:12px;gap:10px;background:var(--color-svv-surface)}
+.trx-parties .trx-partie--total.trx-cote{background:var(--color-svv-surface)}
+.trx-cote-titre{margin:0;font-size:1rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-zones{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:12px;align-items:stretch}
+.trx-zone{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0;padding:10px 12px;border-radius:12px}
+.trx-zone:only-child{grid-column:1/-1}
+.trx-zone--ca{background:var(--color-svv-blue-soft);border:1px solid var(--color-svv-blue)}
+.trx-zone--commission{background:var(--color-svv-violet-faint);border:1px solid var(--color-svv-violet)}
+.trx-zone-titre{margin:0;font-size:.92rem;font-weight:800;color:var(--color-svv-ink)}
+.trx-zone-rappel{margin:0;font-size:.82rem;color:var(--color-svv-muted)}
+.trx-zone .trx-actions{margin:0}
+.trx-ca-structures{margin:0;font-weight:600;color:var(--color-svv-ink)}
+.trx-commissions-total{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;color:var(--color-svv-ink)}
+.trx-commissions-somme{border-top:1px solid var(--color-svv-line-strong);padding-top:4px}
+@container trx-dossier (max-width:760px){ .trx-zones{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:640px){ .trx-zones{grid-template-columns:minmax(0,1fr)} }
+`;
+
+export const TITRE_COTE = { entree: 'Côté vendeur — Entrée du mandat', sortie: 'Côté acquéreur — Sortie du mandat' } as const;
+export const TITRE_DEUX_COTES = 'Côtés vendeur et acquéreur — Entrée et sortie du mandat';
+export const RAPPEL_CA = 'Le total des deux côtés fait toujours 100 % des honoraires.';
+export const RAPPEL_COMMISSION = 'Taux propre à ce négociateur, indépendant de l’autre côté.';
+
+/** ① du total — « CRITERIMMO … € (… %) · MACJ … € (… %) = 100 % » : la part de chaque structure (et de l'extérieur), la même règle des centimes. */
+function LigneCaStructures({ parties, commission, retro, apporteurInterne, societeVente, total }: { parties: Partie[]; commission: number; retro: number; apporteurInterne: boolean;
+  societeVente: Societe; total: number }) {
+  const u = useAffichage();
+  const porteuse = bilanVente({ societe: societeVente, honorairesTtc: commission, repartition: { parties, retroApporteurTtc: retro, apporteurInterne } }, null).porteuse;
+  const c = centimesRepartition(parties, commission, retro, porteuse, 'ht', apporteurInterne);
+  const cT = centimesRepartition(parties, commission, retro, porteuse, 'ttc', apporteurInterne);
+  const brut = partsParSociete(parties, commission, retro, apporteurInterne);
+  const pcts = pourcentagesParSociete(parties, commissionNetteHt(commission, retro, apporteurInterne));
+  const morceaux = SOCIETES.map((s) => ({ cle: s, mot: LIBELLE_SOCIETE[s], ht: c?.parSociete[s] ?? brut.societe[s], ttc: cT?.parSociete[s] ?? brut.societe[s] * TVA, pct: pcts.societe[s] }));
+  const extHt = c === null ? brut.exterieurHt : c.exterieurs.reduce((t, e) => t + e.ht, 0);
+  if (extHt > 0) morceaux.push({ cle: 'exterieur' as Societe, mot: 'Extérieur', ht: extHt, ttc: cT === null ? extHt * TVA : cT.exterieurs.reduce((t, e) => t + e.ht, 0), pct: pcts.exterieur });
+  return <p className="trx-ca-structures" data-ca-structures>{morceaux.map((m, i) => <span key={m.cle} data-ca-structure={m.cle}>{i > 0 ? ' · ' : ''}<strong>{m.mot}</strong> {montantAffiche(u, m.ht, m.ttc)} ({pctFr(m.pct)})</span>)}
+    <span data-ca-total> = {Number.isFinite(total) ? pctFr(total) : '—'}</span></p>;
+}
+
+/** ② du total — une ligne par négociateur (nom, taux, commission TTC / HT) et leur total, SANS aucune référence à 100 %. */
+function CommissionsNegociateurs({ etat, commission, apporteurInterne, commissionsMasquees }: { etat: EtatRepartition; commission: number; apporteurInterne: boolean; commissionsMasquees: boolean }) {
+  const u = useAffichage();
+  if (commissionsMasquees) return <p className="loc-muet" data-commissions-total-masquees>Commissions versées : non visibles depuis « Mon espace ».</p>;
+  if (etat.commissions == null) return <p className="loc-muet">Commissions versées : disponibles après la mise à jour de la base (migration 437).</p>;
+  const cotes = (estDeuxCotes(etat) ? ['entree'] : ['entree', 'sortie']) as ('entree' | 'sortie')[];
+  const lignes = cotes.flatMap((cote) => {
+    const p = etat.parties[cote === 'entree' ? 0 : 1];
+    if (p === undefined || p.compteId === null) return [];
+    if (nonCommissionne(p)) return [{ cote, nom: p.negociateur ?? '', taux: null, ttc: null, non: true }];
+    const c = etat.commissions![cote];
+    const m = montantEffectif(c, propositionCommission(etat, cote, commission, apporteurInterne));
+    const x = nombre(m.texte);
+    const vide = (c.taux ?? '').trim() === '';
+    return [{ cote, nom: p.negociateur ?? '', taux: vide && c.tauxObligatoire === true ? null : texteTaux(tauxDe(c)), ttc: x === null ? null : m.unite === 'ttc' ? x : x * TVA, non: false }];
+  });
+  if (lignes.length === 0) return <p className="loc-muet" data-commissions-aucune>Aucun négociateur choisi.</p>;
+  const sommes = lignes.filter((l) => l.ttc !== null).reduce((t, l) => t + (l.ttc as number), 0);
+  return (
+    <ul className="trx-commissions-total" data-commissions-negociateurs>
+      {lignes.map((l) => <li key={l.cote} data-commission-negociateur={l.cote}>
+        <strong>{l.nom}</strong>{l.non ? ' — Non commissionné' : <> — taux {l.taux === null ? 'à saisir' : `${l.taux}${ESPACE}%`} — {l.ttc === null ? 'à calculer' : montantsTexte(u, l.ttc / TVA, l.ttc)}</>}</li>)}
+      <li className="trx-commissions-somme" data-commissions-somme><strong>Total des commissions</strong> — {montantsTexte(u, sommes / TVA, sommes)}</li>
+    </ul>
   );
 }
 
@@ -480,11 +646,53 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
  * honoraires », non modifiable, ses honoraires (100 % de la base), puis SON taux de commission avec le montant calculé à côté (non
  * commissionné : la mention, rien à saisir). Le CA : 100 % à sa structure.
  */
-function DeuxCotes({ etat, onChange, commission, retro, apporteurInterne, commissionsMasquees, motTaux }: { etat: EtatRepartition; onChange: (e: EtatRepartition) => void;
-  commission: number; retro: number; apporteurInterne: boolean; commissionsMasquees: boolean; motTaux?: string }) {
+function DeuxCotes({ etat, onChange, commission, retro, apporteurInterne, commissionsMasquees, motTaux, parCote = false }: { etat: EtatRepartition; onChange: (e: EtatRepartition) => void;
+  commission: number; retro: number; apporteurInterne: boolean; commissionsMasquees: boolean; motTaux?: string; parCote?: boolean }) {
   const p = etat.parties[0];
   const net = commissionNetteHt(commission, retro, apporteurInterne);
   const motif = motifTauxCote(etat, 'entree');
+  const propose = propositionCommission(etat, 'entree', commission, apporteurInterne);
+  const ligne = <div className="trx-partie-tete"><strong data-ligne-deux-cotes>{libelleDeuxCotes(p)}</strong></div>;
+  const honoraires = <span className="loc-muet" data-honoraires-deux-cotes>Honoraires : <Montants disposition="ligne" ht={net} ttc={net * TVA} /> · 100{ESPACE}% · non modifiable</span>;
+  const commissionPiece = commissionsMasquees ? null : etat.commissions == null
+    ? <span className="loc-muet" data-commission-indisponible>Commission versée au négociateur : disponible après la mise à jour de la base (migration 437).</span>
+    : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form="entree">Non commissionné</span>
+    : <>
+      <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions.entree} avecHt {...(motTaux === undefined ? {} : { motTaux })}
+        propose={propose} onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, entree: m } })} champ="commission-entree" />
+      {parCote && propose !== null && <span className="loc-muet" data-base-commission="entree">calculée sur sa part de {eur(propose.baseTtc)}{ESPACE}TTC</span>}
+      {motif !== null && <span className="trx-alerte" role="status" data-motif-taux="entree">{motif}</span>}
+    </>;
+  const caLigne = <span className="loc-muet" data-parts-societes><span data-part-societe-form={p.societe ?? ''}>CA : {p.societe === null ? 'structure à renseigner' : LIBELLE_SOCIETE[p.societe]} reçoit 100{ESPACE}% des honoraires,{' '}
+    <Montants disposition="ligne" sens="recu" ht={net} ttc={net * TVA} /></span></span>;
+  // 🔴 Mon espace (Arno, 07/11/2026) — UN grand bloc « Côtés vendeur et acquéreur », ① la répartition du CA, ② la commission ; le total de même.
+  if (parCote) return (
+    <ul className="trx-journal trx-parties" data-parties data-deux-cotes>
+      <li className="trx-partie trx-cote" data-partie="entree_sortie" data-ligne-partie={0} data-cote-bloc="deux">
+        <h5 className="trx-cote-titre" data-titre-cote>{TITRE_DEUX_COTES}</h5>
+        <div className="trx-zones">
+          <section className="trx-zone trx-zone--ca" data-zone="ca" aria-label="Répartition du chiffre d’affaires">
+            <h6 className="trx-zone-titre">① Répartition du chiffre d’affaires</h6><p className="trx-zone-rappel">{RAPPEL_CA}</p>{ligne}{honoraires}
+          </section>
+          <section className="trx-zone trx-zone--commission" data-zone="commission" aria-label="Commission du négociateur">
+            <h6 className="trx-zone-titre">② Commission du négociateur</h6><p className="trx-zone-rappel">{RAPPEL_COMMISSION}</p>{commissionPiece}
+          </section>
+        </div>
+      </li>
+      <li className="trx-partie trx-partie--total trx-cote" data-total-repartition data-cote-bloc="total">
+        <h5 className="trx-cote-titre">Total</h5>
+        <div className="trx-zones">
+          <section className="trx-zone trx-zone--ca" data-zone="ca-total" aria-label="Répartition du CA entre structures">
+            <h6 className="trx-zone-titre">① Répartition du CA entre structures</h6>{caLigne}
+          </section>
+          <section className="trx-zone trx-zone--commission" data-zone="commission-total" aria-label="Commissions des négociateurs">
+            <h6 className="trx-zone-titre">② Commissions des négociateurs</h6>
+            <CommissionsNegociateurs etat={etat} commission={commission} apporteurInterne={apporteurInterne} commissionsMasquees={commissionsMasquees} />
+          </section>
+        </div>
+      </li>
+    </ul>
+  );
   return (
     <ul className="trx-journal trx-parties" data-parties data-deux-cotes>
       <li className="trx-partie" data-partie="entree_sortie" data-ligne-partie={0}>
