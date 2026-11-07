@@ -429,7 +429,7 @@ export function BlocRepartition({ etat, onChange, negociateurs, apporteurs, hono
                   // 🔴 LOT S — non commissionné : ni commission, ni taux, ni calcul ; sa part reste dans la répartition.
                   : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form={i === 0 ? 'entree' : 'sortie'}>Non commissionné</span>
                   : <><ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions[i === 0 ? 'entree' : 'sortie']} avecHt
-                    propose={propose} {...(motTaux === undefined ? {} : { motTaux })}
+                    propose={propose} {...(motTaux === undefined ? {} : { motTaux })} sansLignePropose={parCote}
                     onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, [i === 0 ? 'entree' : 'sortie']: m } })} champ={`commission-${i === 0 ? 'entree' : 'sortie'}`} />
                     {/* 🔴 Mon espace (07/11/2026) — la base de SA commission : sa part des honoraires. */}
                     {parCote && propose !== null && <span className="loc-muet" data-base-commission={cote}>calculée sur sa part de {eur(propose.baseTtc)}{ESPACE}TTC</span>}
@@ -659,7 +659,7 @@ function DeuxCotes({ etat, onChange, commission, retro, apporteurInterne, commis
     : nonCommissionne(p) ? <span className="loc-muet" data-non-commissionne-form="entree">Non commissionné</span>
     : <>
       <ChampMontantUnite mot={`Commission versée à ${p.negociateur ?? 'ce négociateur'}`} valeur={etat.commissions.entree} avecHt {...(motTaux === undefined ? {} : { motTaux })}
-        propose={propose} onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, entree: m } })} champ="commission-entree" />
+        propose={propose} sansLignePropose={parCote} onChange={(m) => onChange({ ...etat, commissions: { ...etat.commissions!, entree: m } })} champ="commission-entree" />
       {parCote && propose !== null && <span className="loc-muet" data-base-commission="entree">calculée sur sa part de {eur(propose.baseTtc)}{ESPACE}TTC</span>}
       {motif !== null && <span className="trx-alerte" role="status" data-motif-taux="entree">{motif}</span>}
     </>;
@@ -731,7 +731,10 @@ export function equivalent(m: MontantEcran): string | null {
  * être réécrite : non retouchée, elle s'enregistre telle qu'elle était, au centime, même après plusieurs bascules. Une frappe la remplace par
  * ce qui est tapé, dans l'unité affichée (montant + unité : la forme enregistrée ne change pas).
  */
-export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose, motTaux = 'Taux de rémunération (%)' }: {
+export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ, aide, propose, motTaux = 'Taux de rémunération (%)', sansLignePropose = false }: {
+  /** 🔴 Mon espace (Arno, 07/11/2026) — « Nouveau compromis » : la ligne « proposé : … (sa part : …) » retirée (accord d'Arno, ce formulaire seul ;
+   *  « calculée sur sa part de … € TTC » la remplace). Absent (la tuile Suivi CA) : inchangé. */
+  sansLignePropose?: boolean;
   /** 🔴 Mon espace (07/11/2026) — le mot du champ du taux ; absent : « Taux de rémunération (%) », inchangé. */
   motTaux?: string;
   mot: string; valeur: MontantEcran; onChange: (m: MontantEcran) => void; avecHt: boolean; champ: string; aide?: string;
@@ -762,7 +765,7 @@ export function ChampMontantUnite({ mot, valeur: brute, onChange, avecHt, champ,
         <input inputMode="decimal" value={enSaisie ? valeur.texte : grouperSaisie(valeur.texte)} onChange={(e) => onChange(avecTaux ? saisirMontant({ ...brute, unite: u }, e.target.value, propose ?? null) : { texte: e.target.value, unite: u, auto: false })}
           onFocus={() => setEnSaisie(true)} onBlur={() => setEnSaisie(false)} data-champ={champ} /></label>
       {eq !== null && <span className="loc-muet" data-equivalent={champ}>{eq}</span>}
-      {brute.auto === true && propose != null && <span className="loc-muet" data-propose={champ}>
+      {brute.auto === true && propose != null && !sansLignePropose && <span className="loc-muet" data-propose={champ}>
         proposé : {pctTexte(propose.taux)}{ESPACE}% de {montantAffiche(choisie, propose.baseTtc / TVA, propose.baseTtc)} (sa part : {pctTexte(propose.pct)}{ESPACE}% des honoraires nets)</span>}
       {ecartCalcul(brute, propose ?? null) && propose != null && <span className="trx-ecart-calcul" data-ecart-calcul={champ}>
         <span className="trx-alerte">valeur saisie — calcul proposé : {montantsTexte(choisie, propose.ttc / TVA, propose.ttc)}</span>

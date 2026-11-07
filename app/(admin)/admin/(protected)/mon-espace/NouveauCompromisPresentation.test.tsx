@@ -87,6 +87,7 @@ describe('présentation « par côté » : ① répartition du CA, ② commissio
     expect(dans('deux', 'commission', '[data-champ="commission-entree"]')).not.toBeNull();
     expect(zone('deux', 'commission')).toContain('Taux propre à ce négociateur, indépendant de l’autre côté.');
     expect(n(dans('deux', 'commission', '[data-base-commission="entree"]')!.textContent!)).toBe('calculée sur sa part de 12 000 € TTC');
+    expect(container.querySelector('[data-propose]')).toBeNull(); // « Les deux côtés » aussi : la ligne « proposé » retirée
     expect(zone('total', 'ca-total')).toContain('CRITERIMMO reçoit 100 % des honoraires');
     expect(zone('total', 'commission-total')).toContain('Léa MARTIN — taux 60 % — 7 200 € TTC (6 000 € HT)');
     expect(zone('total', 'commission-total')).not.toMatch(/100\s?%/);
@@ -104,6 +105,8 @@ describe('présentation « par côté » : ① répartition du CA, ② commissio
       expect(dans(bloc, 'ca', `[data-taux="commission-${c}"]`)).toBeNull();
     }
     expect(n(dans('entree', 'commission', '[data-base-commission="entree"]')!.textContent!)).toBe('calculée sur sa part de 7 200 € TTC');
+    // 🔴 Arno (07/11/2026) — la ligne « proposé : … (sa part : …) » retirée de ce formulaire ; « calculée sur sa part de … » reste.
+    expect(container.querySelector('[data-propose]')).toBeNull();
     expect(n(container.querySelector('[data-ca-structures]')!.textContent!)).toBe('CRITERIMMO 12 000 € TTC (100 %) · MACJ 0 € TTC (0 %) = 100 %');
     expect(dans('total', 'ca-total', '[data-ajouter-exterieure]')).not.toBeNull();
     expect(dans('total', 'ca-total', '[data-revenir-5050]')).not.toBeNull();
@@ -151,11 +154,13 @@ describe('présentation « par côté » : ① répartition du CA, ② commissio
 
   it('la tuile Suivi CA (sans l’option) garde sa disposition : aucun bloc « par côté »', async () => {
     const { BlocRepartition } = await import('../transaction/Repartition');
-    await act(async () => { root.render(createElement(BlocRepartition, { etat: { entreeId: 5, sortieId: 7, apporteurId: null, retroTexte: '', commissions: null,
+    await act(async () => { root.render(createElement(BlocRepartition, { etat: { entreeId: 5, sortieId: 7, apporteurId: null, retroTexte: '',
+      commissions: { entree: { texte: '', unite: 'ttc', auto: true }, sortie: { texte: '', unite: 'ttc', auto: true } },
       parties: [{ sorte: 'entree', compteId: 5, negociateur: 'Léa MARTIN', societe: 'criterimmo', nom: null, coordonnees: null, mode: 'pct', texte: '50' },
         { sorte: 'sortie', compteId: 7, negociateur: 'Marc DURAND', societe: 'macj', nom: null, coordonnees: null, mode: 'pct', texte: '50' }] },
       onChange: () => {}, negociateurs: [LEA, MARC], apporteurs: [], honorairesTtc: 12000, societeVente: 'criterimmo' })); });
     expect(container.querySelector('[data-cote-bloc], [data-zone], [data-ca-structures]')).toBeNull();
     expect(container.querySelector('[data-bloc-repartition] > .trx-actions [data-revenir-5050]')).not.toBeNull();
+    expect(n(container.querySelector('[data-propose="commission-entree"]')?.textContent ?? '')).toContain('proposé : 50 % de');
   });
 });
