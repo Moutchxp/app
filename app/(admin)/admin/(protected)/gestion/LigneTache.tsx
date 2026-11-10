@@ -1,5 +1,6 @@
 'use client';
 
+import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   contactsQuiTiennent, couleurTache, echeanceCompacte, motCompteur, ORDRE_COULEURS, prenomNom, type CouleurTache, type PastilleFiltre, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
@@ -100,11 +101,14 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   const agir = async (g: GesteTache) => {
     setOccupe(true);
     setMessage(null);
-    const titre = g.geste === 'decaler' ? 'Tâche décalée' : g.geste === 'renvoyerInvitation' ? 'Invitation renvoyée' : g.geste === 'changerDestinataire' ? 'Destinataire changé' : null;
+    const titre = g.geste === 'decaler' ? 'Tâche décalée' : g.geste === 'renvoyerInvitation' ? 'Invitation renvoyée' : g.geste === 'changerDestinataire' ? 'Destinataire changé'
+      : g.geste === 'annuler' ? 'Tâche annulée' : null;
     const apercu = g.geste === 'decaler'
       ? ('raccourci' in g ? { geste: 'decaler', tacheId: tache.id, ...momentDuRaccourci(tache, g.raccourci) } : { geste: 'decaler', tacheId: tache.id, jour: g.jour, heure: g.heure, dureeMinutes: g.dureeMinutes ?? null })
       : g.geste === 'renvoyerInvitation' ? { geste: g.geste, tacheId: tache.id, inviteId: g.inviteId }
-        : g.geste === 'changerDestinataire' ? { geste: g.geste, tacheId: tache.id, inviteId: g.inviteId, collaborateurId: g.collaborateurId } : null;
+        : g.geste === 'changerDestinataire' ? { geste: g.geste, tacheId: tache.id, inviteId: g.inviteId, collaborateurId: g.collaborateurId }
+          // 🔴 Arno (10/11/2026) — l'annulation prévient les contacts extérieurs invités : le récapitulatif d'abord (aucun : sans fenêtre).
+          : g.geste === 'annuler' ? { geste: 'annuler', tacheId: tache.id } : null;
     const r = titre !== null && apercu !== null
       ? await recap.demander({ titre, apercu, action: () => agirSurTache(tache.id, g) })
       : await agirSurTache(tache.id, g);
@@ -352,6 +356,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         {contacts.length > 0 && (
           <div className="tch-carte-contacts tch-carte-bloc" data-ordre="contacts">
             <p className="tch-carte-etiquette">Contacts ({contacts.length})</p>
+            <LegendeConfidentialite />
             <EncadresContacts contacts={contacts} sources={sources} onEcrire={onEcrire} occupe={occupe}
               onMettreAJour={terminee ? undefined : (cle) => void agir({ geste: 'actualiserContact', cle })} />
           </div>

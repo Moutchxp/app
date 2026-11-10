@@ -146,6 +146,8 @@ export async function envoyerDemande(
   lecteur?: LecteurPiecesTache,
   /** 🔴 LOT GESTION-DECALER-TACHE — relance après décalage : mail « Tâche déplacée » (ancienne date barrée). */
   ancienneDate?: AncienneDate,
+  /** 🔴 Arno (10/11/2026) — reçoit l'objet du mail tel qu'il part (la fenêtre de résultat l'affiche). */
+  sortie?: { objet?: string },
 ): Promise<EtatMail> {
   const reglage = await lireReglageTaches();
   const marquer = async (etat: EtatMail, erreur: string | null = null, gmailId: string | null = null) => {
@@ -165,6 +167,7 @@ export async function envoyerDemande(
   if (vers.trim().toLowerCase() === config.adresseGestion.trim().toLowerCase()) return marquer('aucun');
   const r0 = await messageDeLaDemande({ demandeId, sorte: 'invitation', jeton, de: config.adresseGestion, lecteur, maintenant, ancienneDate });
   if (!r0.ok) return r0.motif === 'Demande introuvable.' ? 'aucun' : marquer('echec', r0.motif);
+  if (sortie) sortie.objet = r0.m.message.objet;
   const r = await t.envoyer(r0.m.message);
   await journaliserMailTachePrevisite(demandeId, 'previsite_invitation', r0.m.message, r); // 🔴 pré-visite seulement (sinon : rien)
   if (!r.ok) return marquer('echec', r.motif);
@@ -271,10 +274,10 @@ export function agendaApresAcceptation(phraseSynchro: string): 'ajoutee' | 'bien
  * APRÈS UN GESTE QUI A POSÉ UNE DEMANDE EN ATTENTE : préparer (et, réglage activé, envoyer) son mail. Ne lève jamais :
  * un échec d'envoi n'annule pas la tâche, il se lit sur la demande (« mail non envoyé »).
  */
-export async function envoyerSiBesoin(demande: DemandePosee | null | undefined): Promise<EtatMail | null> {
+export async function envoyerSiBesoin(demande: DemandePosee | null | undefined, sortie?: { objet?: string }): Promise<EtatMail | null> {
   if (!demande || demande.jeton === null) return null;
   try {
-    return await envoyerDemande(demande.demandeId, demande.jeton, null, new Date(), undefined, demande.ancienneDate);
+    return await envoyerDemande(demande.demandeId, demande.jeton, null, new Date(), undefined, demande.ancienneDate, sortie);
   } catch (e) {
     console.error('[taches/acceptation] préparation du mail impossible', e);
     await query(`UPDATE gestion_tache_demande SET mail_etat = 'echec', mail_le = now(), mail_erreur = $2 WHERE id = $1`,

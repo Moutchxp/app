@@ -178,16 +178,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
      son mail, préparé (et envoyé seulement si le réglage l'autorise). */
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
   /* 🔴 Arno (10/11/2026) — création d'invités, modification, décalage : les contacts cochés reçoivent leur mail (contenu restreint). */
-  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur) : [];
+  /* 🔴 Arno (10/11/2026) — l'annulation : le mail et le .ics d'annulation aux SEULS contacts extérieurs déjà invités. */
+  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur)
+    : geste === 'annuler' ? await envoisAuxContacts(request, issue.id, null, auteur, { annulation: true }) : [];
   if (issue.demandes !== undefined) {
     const envois = await envoyerAuxInvites(request, issue.demandes);
     const agenda = await synchroniserApresGeste(issue.id);
     return Response.json({ etat: 'ok', id: issue.id, collaborateurs: envois, exterieurs, message: `${MESSAGES[geste]}${phraseInvitations(envois)}${agenda}` });
   }
-  const mail = await envoyerSiAutorise(request, issue.demande);
+  const sortie: { objet?: string } = {};
+  const mail = await envoyerSiAutorise(request, issue.demande, sortie);
   const suite = issue.demande?.statut === 'en_attente'
     ? ` Nouvelle demande d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' envoyée par mail' : ''}.` : '';
   const agenda = await synchroniserApresGeste(issue.id);
   return Response.json({ etat: 'ok', id: issue.id, exterieurs,
-    collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail }], message: `${MESSAGES[geste]}${suite}${agenda}` });
+    collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail, ...(sortie.objet ? { objet: sortie.objet } : {}) }], message: `${MESSAGES[geste]}${suite}${agenda}` });
 }

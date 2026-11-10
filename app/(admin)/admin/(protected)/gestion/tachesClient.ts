@@ -52,8 +52,8 @@ export function ecouterDepliageBien(lotId: number, f: () => void): () => void {
  * (`refusDuServeur`, règle unique) : la fenêtre l'affiche en haut ET à côté du champ. Jamais de clic sans effet.
  */
 /** 🔴 Arno (10/11/2026) — les mails RÉELLEMENT tentés par le geste, d'après le serveur (fenêtre de résultat). */
-export interface EnvoiCollaborateur { destinataire: string; etat: string }
-export interface EnvoiContactExterne { nom: string; email: string | null; sorte: 'invitation' | 'modification' | 'annulation'; envoye: boolean; motif: string | null }
+export interface EnvoiCollaborateur { destinataire: string; etat: string; objet?: string }
+export interface EnvoiContactExterne { nom: string; email: string | null; sorte: 'invitation' | 'modification' | 'annulation'; envoye: boolean; motif: string | null; objet?: string }
 export type IssueGeste =
   | { ok: true; message: string; id?: number; collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[] }
   | { ok: false; message: string; champ?: ChampTache | null };

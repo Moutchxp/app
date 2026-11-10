@@ -85,13 +85,14 @@ export async function POST(request: Request): Promise<Response> {
       message: `${envois.length > 0 ? 'Tâche créée, en attente d’acceptation.' : 'Tâche créée.'}${phraseInvitations(envois)}${agenda}`,
     });
   }
-  const mail = await envoyerSiAutorise(request, issue.demande);
+  const sortie: { objet?: string } = {};
+  const mail = await envoyerSiAutorise(request, issue.demande, sortie);
   const exterieurs = await envoisAuxContacts(request, issue.id, null, auteur);
   const agenda = await synchroniserApresGeste(issue.id);
   const enAttente = issue.demande?.statut === 'en_attente';
   return Response.json({
     etat: 'ok', id: issue.id, exterieurs,
-    collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail }],
+    collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail, ...(sortie.objet ? { objet: sortie.objet } : {}) }],
     message: `${enAttente ? `Tâche créée, en attente d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' — demande envoyée par mail' : ''}.` : 'Tâche créée.'}${agenda}`,
   });
 }

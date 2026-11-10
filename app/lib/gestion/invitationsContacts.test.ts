@@ -84,12 +84,37 @@ describe('🔴 l’envoi aux contacts', () => {
     CONTACTS.push(contact(1, 'MARTIN Alice', 'alice@exemple.test', true, true));
     expect(await envoyerAuxContacts(10, { ancien: { jour: '2026-11-20', heure: '10:00', dureeMinutes: 60 } }, AUTEUR, { transport })).toEqual([]);
     const r = await envoyerAuxContacts(10, { ancien: { jour: '2026-11-18', heure: '09:00', dureeMinutes: 60 } }, AUTEUR, { transport });
-    expect(r).toEqual([{ nom: 'MARTIN Alice', email: 'alice@exemple.test', sorte: 'modification', envoye: true, motif: null }]);
+    expect(r).toEqual([{ nom: 'MARTIN Alice', email: 'alice@exemple.test', sorte: 'modification', envoye: true, motif: null,
+      objet: 'Rendez-vous modifié : Visite du logement — 20/11/2026 à 10h00' }]);
     expect(envoyes[0].objet).toBe('Rendez-vous modifié : Visite du logement — 20/11/2026 à 10h00');
   });
   it('coché sans adresse : rien ne part, et c’est dit', async () => {
     CONTACTS.push(contact(1, 'Sans Adresse', null, true));
     expect(await envoyerAuxContacts(10, { ancien: null }, AUTEUR, { transport })).toEqual([{ nom: 'Sans Adresse', email: null, sorte: 'invitation', envoye: false, motif: 'pas d’adresse e-mail' }]);
     expect(transport.envoyer).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 l’annulation d’une tâche (Arno, 10/11/2026) : le mail et le .ics d’annulation aux SEULS contacts déjà invités', () => {
+  const pieces = (m: (typeof envoyes)[number]) => (m.pieces ?? []).map((p) => p.octets.toString('utf8')).join('\n');
+  it('invité (invitation partie) : SON mail d’annulation, seul destinataire, .ics CANCEL sans participants ; coché mais jamais invité, ou déjà prévenu : rien', async () => {
+    tache = { ...tache, heure: '10:00' };
+    CONTACTS.push(contact(1, 'MARTIN Alice', 'alice@exemple.test', true, true), contact(2, 'DUPONT Jean', 'jean@exemple.test', true, false),
+      { ...contact(3, 'Plombier Test', 'plombier@exemple.test', true, true), annule: true }, contact(4, 'Non coché', 'non@exemple.test', false, true));
+    const r = await envoyerAuxContacts(10, { ancien: null, annulation: true }, AUTEUR, { transport });
+    expect(r).toEqual([{ nom: 'MARTIN Alice', email: 'alice@exemple.test', sorte: 'annulation', envoye: true, motif: null,
+      objet: 'Rendez-vous annulé : Visite du logement — 20/11/2026 à 10h00' }]);
+    expect(envoyes.map((m) => [m.a, m.cc, m.cci])).toEqual([[['alice@exemple.test'], [], []]]);
+    const tout = `${envoyes[0].objet}\n${envoyes[0].corps}\n${envoyes[0].corpsHtml ?? ''}\n${pieces(envoyes[0])}`;
+    for (const t of TIERS.filter((x) => !['MARTIN Alice', 'alice@exemple.test'].includes(x))) expect(tout, t).not.toContain(t);
+    expect(tout).not.toContain('MARTIN Alice');
+    expect(pieces(envoyes[0])).toContain('METHOD:CANCEL');
+    expect(pieces(envoyes[0])).not.toMatch(/ATTENDEE|ORGANIZER/);
+    expect(envoyes[0].corps).toContain('Le rendez-vous ci-dessous est annulé.');
+    expect(journal.map((p) => p[2])).toEqual(['annulation']);
+  });
+  it('sans l’option : une annulation n’est jamais envoyée (le geste normal ne prévient personne de déjà invité)', async () => {
+    CONTACTS.push(contact(1, 'MARTIN Alice', 'alice@exemple.test', true, true));
+    expect(await envoyerAuxContacts(10, { ancien: null }, AUTEUR, { transport })).toEqual([]);
   });
 });

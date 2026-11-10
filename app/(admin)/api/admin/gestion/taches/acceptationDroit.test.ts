@@ -71,11 +71,11 @@ describe('mail d’acceptation de tâche et droit d’envoi (point 9)', () => {
   it('AVEC le droit (administrateur, ou collaborateur autorisé) → mail comme avant', async () => {
     h.peutEnvoyer.mockResolvedValue(true);
     const res = await POST(creation());
-    expect(h.envoyerSiBesoin).toHaveBeenCalledWith(DEMANDE);
+    expect(h.envoyerSiBesoin).toHaveBeenCalledWith(DEMANDE, expect.any(Object)); // + l'objet du mail, recueilli pour le résultat
     expect((await res.json()).message).toContain('demande envoyée par mail');
     h.envoyerSiBesoin.mockClear();
     await PATCH(renvoi(), ctx);
-    expect(h.envoyerSiBesoin).toHaveBeenCalledWith(DEMANDE);
+    expect(h.envoyerSiBesoin).toHaveBeenCalledWith(DEMANDE, expect.any(Object)); // + l'objet du mail, recueilli pour le résultat
   });
 
   it('tâche acceptée d’office (confiée à soi-même : pas de jeton) → ni mail ni question de droit', async () => {

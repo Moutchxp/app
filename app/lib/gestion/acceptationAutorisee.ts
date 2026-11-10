@@ -14,10 +14,10 @@ import type { EtatMail } from './acceptationTache';
  */
 export type EtatMailRoute = EtatMail | 'sans_droit';
 
-export async function envoyerSiAutorise(request: Request, demande: DemandePosee | null | undefined): Promise<EtatMailRoute | null> {
+export async function envoyerSiAutorise(request: Request, demande: DemandePosee | null | undefined, sortie?: { objet?: string }): Promise<EtatMailRoute | null> {
   if (!demande || demande.jeton === null) return null;
   if (!(await peutEnvoyerAuNomDeGestion(request))) return 'sans_droit';
-  return envoyerSiBesoin(demande);
+  return envoyerSiBesoin(demande, sortie);
 }
 
 /**
@@ -25,11 +25,16 @@ export async function envoyerSiAutorise(request: Request, demande: DemandePosee 
  * chacune, le nom du destinataire et l'état de son mail ; le droit d'envoi n'est relu qu'une fois.
  */
 export async function envoyerAuxInvites(request: Request, demandes: readonly DemandePosee[] | null | undefined):
-  Promise<{ destinataire: string; etat: EtatMailRoute }[]> {
+  Promise<{ destinataire: string; etat: EtatMailRoute; objet?: string }[]> {
   const enAttente = (demandes ?? []).filter((d) => d.jeton !== null);
   if (enAttente.length === 0) return [];
   if (!(await peutEnvoyerAuNomDeGestion(request))) return enAttente.map((d) => ({ destinataire: d.destinataireLibelle ?? '', etat: 'sans_droit' as const }));
-  const out: { destinataire: string; etat: EtatMailRoute }[] = [];
-  for (const d of enAttente) out.push({ destinataire: d.destinataireLibelle ?? '', etat: (await envoyerSiBesoin(d)) ?? 'aucun' });
+  const out: { destinataire: string; etat: EtatMailRoute; objet?: string }[] = [];
+  for (const d of enAttente) {
+    // 🔴 Arno (10/11/2026) — l'objet du mail tel qu'il part, pour la fenêtre de résultat.
+    const sortie: { objet?: string } = {};
+    const etat = (await envoyerSiBesoin(d, sortie)) ?? 'aucun';
+    out.push({ destinataire: d.destinataireLibelle ?? '', etat, ...(sortie.objet ? { objet: sortie.objet } : {}) });
+  }
   return out;
 }

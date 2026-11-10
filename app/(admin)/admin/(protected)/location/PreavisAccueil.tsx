@@ -369,7 +369,7 @@ async function lireApercuEdls(corps: Record<string, unknown>): Promise<ApercuEnv
 /** La réponse d'un geste de l'état des lieux, en issue de la fenêtre de résultat (les mails tels que le serveur les rend). */
 function issueEdls(r: Awaited<ReturnType<typeof envoyer>>, mot: string): IssueGeste {
   if (r.motif !== null) return { ok: false, message: r.motif };
-  const d = (r.data ?? {}) as { mails?: { destinataire: string; etat: string }[] };
+  const d = (r.data ?? {}) as { mails?: { destinataire: string; etat: string; objet?: string }[] };
   return { ok: true, message: phraseGeste(mot, r.data), collaborateurs: d.mails ?? [], exterieurs: [] };
 }
 

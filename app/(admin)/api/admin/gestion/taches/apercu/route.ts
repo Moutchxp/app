@@ -12,7 +12,7 @@ import { apercuEnvoisTache, type GesteApercu } from '../../../../../../lib/gesti
  * collaborateur et par un extérieur. RIEN n'est écrit, RIEN ne part.
  */
 export const runtime = 'nodejs';
-const GESTES: readonly GesteApercu[] = ['creer', 'modifier', 'decaler', 'renvoyerDemande', 'renvoyerInvitation', 'changerDestinataire'];
+const GESTES: readonly GesteApercu[] = ['creer', 'modifier', 'decaler', 'renvoyerDemande', 'renvoyerInvitation', 'changerDestinataire', 'annuler'];
 
 export async function POST(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');

@@ -1,5 +1,6 @@
 'use client';
 
+import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useEffect, useRef, useState } from 'react';
 import {
   cleRappel, echeanceLisible, horodatageLisible, iconeType, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
@@ -322,9 +323,14 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const geste = async (g: 'annuler' | 'rouvrir') => {
     setOccupe(true);
     setMessage(null);
-    const r = await agirSurTache((mode as { id: number }).id, { geste: g });
+    const id = (mode as { id: number }).id;
+    // 🔴 Arno (10/11/2026) — l'annulation prévient les contacts extérieurs invités : le récapitulatif d'abord (aucun envoi : sans fenêtre).
+    const r = g === 'annuler'
+      ? await recap.demander({ titre: 'Tâche annulée', apercu: { geste: 'annuler', tacheId: id }, action: () => agirSurTache(id, { geste: g }) })
+      : await agirSurTache(id, { geste: g });
     setOccupe(false);
     setConfirmerAnnulation(false);
+    if (r === null) return; // « Revenir » : rien n'est fait
     setMessage({ ok: r.ok, texte: r.message });
     if (r.ok) setVersion((v) => v + 1);
   };
@@ -598,11 +604,14 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               ce bloc. Il se refait à chaque case cochée ou décochée ; la note, au-dessus, n'est jamais touchée. */}
           {sources !== null && pourLeBloc.length > 0 && (
             <div className="tchf-champ">
+              {/* 🔴 Arno (10/11/2026) — la légende de confidentialité, au-dessus de chaque liste de coordonnées. */}
+              <LegendeConfidentialite />
               <span className="tch-etiquette">Texte de la tâche — bloc « Contacts » (généré)</span>
               <pre className="tchc-apercu" data-bloc-contacts>{blocContacts(pourLeBloc)}</pre>
             </div>
           )}
 
+          {detail !== null && detail.contacts.length > 0 && <LegendeConfidentialite />}
           {detail !== null && (
             <ContactsAffiches contacts={detail.contacts} sources={sources} onEcrire={ecrire}
               onMettreAJour={terminee ? undefined : (cle) => void mettreAJour(cle)} occupe={occupe} />

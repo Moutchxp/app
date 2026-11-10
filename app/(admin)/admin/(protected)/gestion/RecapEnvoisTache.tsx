@@ -1,5 +1,6 @@
 'use client';
 
+import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { lireApercuEnvois, type ApercuEnvois, type IssueGeste } from './tachesClient';
@@ -38,9 +39,10 @@ const MOTIF_ETAT: Record<string, string> = {
 export function mailsDuResultat(r: IssueGeste): MailParti[] {
   if (!r.ok) return [];
   return [
-    ...(r.collaborateurs ?? []).map((c) => ({ sorte: 'tache_collaborateur', objet: null, a: [c.destinataire], cc: [], envoye: ETATS_PARTIS.has(c.etat),
+    // 🔴 Arno (10/11/2026) — l'objet RÉEL, tel que le serveur le rend (absent : « — »).
+    ...(r.collaborateurs ?? []).map((c) => ({ sorte: 'tache_collaborateur', objet: c.objet ?? null, a: [c.destinataire], cc: [], envoye: ETATS_PARTIS.has(c.etat),
       motif: ETATS_PARTIS.has(c.etat) ? null : MOTIF_ETAT[c.etat] ?? c.etat })),
-    ...(r.exterieurs ?? []).map((e) => ({ sorte: 'tache_exterieur', objet: null, a: [e.email ? `${e.nom} <${e.email}>` : e.nom], cc: [], envoye: e.envoye, motif: e.motif })),
+    ...(r.exterieurs ?? []).map((e) => ({ sorte: e.sorte === 'annulation' ? 'tache_exterieur_annulation' : 'tache_exterieur', objet: e.objet ?? null, a: [e.email ? `${e.nom} <${e.email}>` : e.nom], cc: [], envoye: e.envoye, motif: e.motif })),
   ];
 }
 
@@ -84,7 +86,11 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer }: { etat: 
       <h2 id={titreId} className="mis-titre" data-titre-recap-envois>Récapitulatif — {etat.titre}</h2>
       <p className="loc-muet pss-rien">Rien n’est encore enregistré ni envoyé : vérifiez, puis « Confirmer et envoyer ».</p>
       {a === null ? null : <>
-        <p className="pss-sous-titre" data-total-envois>{a.total === 0 ? 'Aucune invitation ne partira.' : a.total === 1 ? '1 invitation partira.' : `${a.total} invitations partiront.`}</p>
+        <p className="pss-sous-titre" data-total-envois>{a.collaborateurs.length === 0 && a.exterieurs.length > 0 && a.exterieurs.every((e) => e.sorte === 'annulation')
+          // 🔴 Arno (10/11/2026) — une annulation n'est pas une invitation : le mot juste.
+          ? (a.total === 0 ? 'Aucun mail d’annulation ne partira.' : a.total === 1 ? '1 mail d’annulation partira.' : `${a.total} mails d’annulation partiront.`)
+          : a.total === 0 ? 'Aucune invitation ne partira.' : a.total === 1 ? '1 invitation partira.' : `${a.total} invitations partiront.`}</p>
+        <LegendeConfidentialite />
         <div className="rce-groupe" data-recap-collaborateurs>
           <p className="rce-mot">Collaborateurs de l’agence ({a.collaborateurs.length})</p>
           {a.collaborateurs.length === 0 ? <p className="loc-muet">Aucun.</p> : <ul className="rce-liste">{a.collaborateurs.map((c, i) => (

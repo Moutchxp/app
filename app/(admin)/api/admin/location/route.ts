@@ -601,7 +601,7 @@ export async function POST(request: Request): Promise<Response> {
             ? await deplacerEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA }, auteur)
             : await reattribuerEdls({ occupationIds: occs, confieA }, auteur);
         if (r.etat !== 'ok') return repondre(r);
-        let mails: { destinataire: string; etat: string }[] = [];
+        let mails: { destinataire: string; etat: string; objet?: string }[] = [];
         if (r.demandes !== undefined) mails = await envoyerAuxInvites(request, r.demandes);
         else {
           const m = await envoyerSiAutorise(request, r.demande);

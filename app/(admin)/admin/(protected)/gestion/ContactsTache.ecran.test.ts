@@ -163,6 +163,10 @@ describe('🔴 détail : copie datée, « Mettre à jour », liens', () => {
     await calmer();
     const proprio = container.querySelector('[data-contact="proprietaire:12"]') as HTMLElement;
     const ancien = container.querySelector('[data-contact="locataire:45"]') as HTMLElement;
+    // 🔴 Arno (10/11/2026) — ④ le formulaire en modification : la légende de confidentialité AU-DESSUS des contacts copiés.
+    const legende = container.querySelector('.tchf-corps [data-legende-confidentialite]') as HTMLElement;
+    expect(legende.textContent).toContain('🔒 Coordonnées réservées à l’agence');
+    expect(legende.compareDocumentPosition(proprio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(proprio.getAttribute('data-etat-copie')).toBe('modifie');
     expect(proprio.textContent).toContain('Coordonnées modifiées depuis');
     // 🔴 Le contact sorti du bien reste lisible, avec SES coordonnées d'alors.

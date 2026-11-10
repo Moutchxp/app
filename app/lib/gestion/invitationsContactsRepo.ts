@@ -25,14 +25,18 @@ import { icsTacheExterne, mailTacheExterne, type SorteMailExterne } from './mail
  *     mail — seul destinataire, aucune copie, le contenu restreint de `mailTacheExterne` et une invitation d'agenda sans participants —, une
  *     seule fois par invitation (une modification seulement si la date a changé). Chaque mail au journal (`gestion_tache_contact_envoi`).
  *     Un contact non coché ne reçoit RIEN.
+ *   · 🔴 ANNULATION (Arno, 10/11/2026) — l'annulation d'une tâche envoie le mail et le .ics d'annulation (METHOD:CANCEL) aux SEULS contacts
+ *     extérieurs déjà invités (case cochée, invitation partie), une fois ; mêmes règles de confidentialité.
  *   · `apercuEnvoisTache` — le RÉCAPITULATIF avant tout envoi : qui (collaborateurs, extérieurs, séparés), combien, et le texte reçu par un
  *     collaborateur et par un extérieur. Lecture seule.
  * Le canal est celui des mails de tâche (`transportParDefaut` : factice sous les tests, intercepté en RECETTE). Sans la 465 : rien.
  */
 
-export interface EnvoiExterne { nom: string; email: string | null; sorte: SorteMailExterne; envoye: boolean; motif: string | null }
+export interface EnvoiExterne { nom: string; email: string | null; sorte: SorteMailExterne; envoye: boolean; motif: string | null;
+  /** L'objet du mail tel qu'il part (la fenêtre de résultat l'affiche). */
+  objet?: string }
 
-interface ContactInvite { id: number; cle: string; nom: string; email: string | null; dejaInvite: boolean }
+interface ContactInvite { id: number; cle: string; nom: string; email: string | null; dejaInvite: boolean; dejaAnnule: boolean }
 type Moment = { jour: string; heure: string | null; dureeMinutes: number | null };
 
 const premierEmail = (coordonnees: unknown): string | null => {
@@ -68,11 +72,12 @@ export async function momentDeLaTache(tacheId: number): Promise<Moment | null> {
 }
 
 async function contactsInvites(tacheId: number): Promise<ContactInvite[]> {
-  const { rows } = await query<{ id: string; cle: string; nom: string; coordonnees: unknown; deja: boolean }>(
+  const { rows } = await query<{ id: string; cle: string; nom: string; coordonnees: unknown; deja: boolean; annule?: boolean }>(
     `SELECT c.id::text, c.cle, c.nom, c.coordonnees,
-            EXISTS (SELECT 1 FROM gestion_tache_contact_envoi e WHERE e.contact_id = c.id AND e.statut = 'envoye' AND e.sorte <> 'annulation') AS deja
+            EXISTS (SELECT 1 FROM gestion_tache_contact_envoi e WHERE e.contact_id = c.id AND e.statut = 'envoye' AND e.sorte <> 'annulation') AS deja,
+            EXISTS (SELECT 1 FROM gestion_tache_contact_envoi e WHERE e.contact_id = c.id AND e.statut = 'envoye' AND e.sorte = 'annulation') AS annule
        FROM gestion_tache_contact c WHERE c.tache_id = $1 AND c.retire_le IS NULL AND c.inviter ORDER BY c.rang, c.id`, [tacheId]);
-  return rows.map((r) => ({ id: Number(r.id), cle: r.cle, nom: r.nom, email: premierEmail(r.coordonnees), dejaInvite: r.deja }));
+  return rows.map((r) => ({ id: Number(r.id), cle: r.cle, nom: r.nom, email: premierEmail(r.coordonnees), dejaInvite: r.deja === true, dejaAnnule: r.annule === true }));
 }
 
 async function sequenceTache(tacheId: number): Promise<number> {
@@ -84,20 +89,22 @@ async function sequenceTache(tacheId: number): Promise<number> {
  * APRÈS LE GESTE : un mail par contact invité. `ancien` : la date d'avant (modification, décalage) — un contact déjà invité ne reçoit
  * un mail de modification que si elle a changé. Ne lève jamais : un échec est rendu (et journalisé), jamais un faux « envoyé ».
  */
-export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | null }, auteur: Auteur,
+export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | null; annulation?: boolean }, auteur: Auteur,
   deps: DepsAvis & { transport?: TransportDemande; maintenant?: Date } = {}): Promise<EnvoiExterne[]> {
   try {
     if (!(await invitationContactsDisponible())) return [];
     const t = await lireTache(tacheId);
     if (t === null) return [];
     const changee = o.ancien !== null && !memeMoment(o.ancien, t.moment);
+    // 🔴 Annulation : aux SEULS contacts déjà invités (invitation partie), une fois ; jamais une invitation à qui ne l'a pas reçue.
     const cibles = (await contactsInvites(tacheId))
-      .map((c) => ({ c, sorte: (!c.dejaInvite ? 'invitation' : changee ? 'modification' : null) as SorteMailExterne | null }))
+      .map((c) => ({ c, sorte: (o.annulation === true ? (c.dejaInvite && !c.dejaAnnule ? 'annulation' : null)
+        : !c.dejaInvite ? 'invitation' : changee ? 'modification' : null) as SorteMailExterne | null }))
       .filter((x): x is { c: ContactInvite; sorte: SorteMailExterne } => x.sorte !== null);
     if (cibles.length === 0) return [];
     const config = await chargerConfigGestion();
     const sig = await signatureEcran(deps);
-    const sequence = await sequenceTache(tacheId);
+    const sequence = (await sequenceTache(tacheId)) + (o.annulation === true ? 1 : 0);
     const domaine = config.adresseGestion.split('@')[1] ?? 'criterimmo.fr';
     const out: EnvoiExterne[] = [];
     for (const { c, sorte } of cibles) {
@@ -124,7 +131,7 @@ export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [tacheId, c.id, sorte, c.email, m.objet, m.texte, issue.ok ? 'envoye' : 'echec', issue.ok ? null : issue.motif, issue.ok ? messageId : null,
           auteur.id, auteur.libelle || 'Gestion']).catch((e) => console.error('[tâches] journal du mail extérieur impossible', (e as Error)?.message));
-      out.push({ nom: c.nom, email: c.email, sorte, envoye: issue.ok, motif: issue.ok ? null : issue.motif });
+      out.push({ nom: c.nom, email: c.email, sorte, envoye: issue.ok, motif: issue.ok ? null : issue.motif, objet: m.objet });
     }
     return out;
   } catch (e) {
@@ -135,7 +142,7 @@ export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | 
 
 // ══ LE RÉCAPITULATIF AVANT ENVOI ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
-export type GesteApercu = 'creer' | 'modifier' | 'decaler' | 'renvoyerDemande' | 'renvoyerInvitation' | 'changerDestinataire';
+export type GesteApercu = 'creer' | 'modifier' | 'decaler' | 'renvoyerDemande' | 'renvoyerInvitation' | 'changerDestinataire' | 'annuler';
 
 export interface ApercuEnvois {
   collaborateurs: { libelle: string; mail: boolean; motif: string | null }[];
@@ -201,6 +208,9 @@ export async function apercuEnvoisTache(o: {
       }
     } else if (o.geste === 'decaler' && changee) {
       for (const d of deja.filter((x) => x.dejaInvite)) exterieurs.push({ nom: d.nom, email: d.email, sorte: 'modification', mail: d.email !== null, motif: d.email === null ? 'pas d’adresse e-mail' : null });
+    } else if (o.geste === 'annuler') {
+      // 🔴 Annulation : les seuls contacts déjà invités (et pas encore prévenus de l'annulation).
+      for (const d of deja.filter((x) => x.dejaInvite && !x.dejaAnnule)) exterieurs.push({ nom: d.nom, email: d.email, sorte: 'annulation', mail: d.email !== null, motif: d.email === null ? 'pas d’adresse e-mail' : null });
     }
   }
   const total = collaborateurs.filter((c) => c.mail).length + exterieurs.filter((e) => e.mail).length;
