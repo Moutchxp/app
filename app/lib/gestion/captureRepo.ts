@@ -278,10 +278,14 @@ export async function ecrireMessage(
 /**
  * Les `Message-ID` qu'un message CITE : son `In-Reply-To`, puis ceux de son `References`. C'est le fil d'Ariane des
  * conversations par mail — le même que celui dont se sert `resoudreFil`. PUR.
+ *
+ * 🔴 LOT GES-16/21 (10/11/2026) — DU PLUS PROCHE AU PLUS LOINTAIN : l'`In-Reply-To` (le mail auquel on répond), puis
+ * le `References` À REBOURS (la norme l'écrit du plus ancien au plus récent). `suivreLeMailDeplace` laisse décider le
+ * premier mail connu de cette liste : l'ordre est la règle.
  */
 export function citationsDuMessage(m: { inReplyTo: string | null; referencesBrut: string | null }): string[] {
-  const brut = `${m.inReplyTo ?? ''} ${m.referencesBrut ?? ''}`;
-  return [...new Set((brut.match(/<[^<>\s]+>/g) ?? []).map((c) => c.trim()))];
+  const ids = (s: string | null): string[] => (s?.match(/<[^<>\s]+>/g) ?? []).map((c) => c.trim());
+  return [...new Set([...ids(m.inReplyTo), ...ids(m.referencesBrut).reverse()])];
 }
 
 /**

@@ -83,8 +83,21 @@ export async function GET(
      * propose QUE “Réouverture” »). La demander à la colonne, c'était offrir « Réouverture » sur un dossier dont
      * la carte Clôture n'existe plus — le cas exact d'Arno sur GES-2026-000001.
      */
-    const { rows } = await query<{ ouvert: boolean; ouvert_le: string; reference: string }>(
-      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert, e.ouvert_le::text, e.reference
+    /**
+     * 🔴 LOT GES-16/21 (10/11/2026) — LA DATE DE CRÉATION DE LA CARTE « OUVERTURE » DÉRIVÉE, LUE DANS LE JOURNAL.
+     *
+     * La carte disait « date de création inconnue » sur tout événement sans étape « ouverture » enregistrée (GES-16 et
+     * GES-21 en production). Or l'instant existe : la création écrit sa ligne `ouverture` au journal, qui est append-only
+     * (gestes.ts, `creerEvenementDansTransaction`). On lit la PREMIÈRE, et seulement une ligne SANS valeur d'avant : les
+     * reprises et les ouvertures ramenées écrivent aussi `ouverture`, mais avec l'ancienne date en `valeur_avant`. Aucune
+     * ligne → `null`, et la carte continue d'avouer « date de création inconnue » : rien n'est inventé (règle d'Arno).
+     */
+    const { rows } = await query<{ ouvert: boolean; ouvert_le: string; reference: string; ouverture_creee_le?: string | null }>(
+      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert, e.ouvert_le::text, e.reference,
+              (SELECT to_char(min(j.horodatage) AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS')
+                 FROM gestion_journal j
+                WHERE j.entite = 'evenement' AND j.entite_id = e.id AND j.action = 'ouverture'
+                  AND j.valeur_avant IS NULL) AS ouverture_creee_le
          FROM gestion_evenement e WHERE e.id = $1`, [evenementId]);
     if (rows.length === 0) return Response.json({ erreur: 'Événement inconnu.' }, { status: 404 });
     const ouvertParLaFrise = rows[0].ouvert;
@@ -139,6 +152,8 @@ export async function GET(
          🔴 LOT CLOTURE-REOUVERTURE — le réservoir DÉPEND désormais de l'état : « Clôture » si l'événement est
          ouvert, « Réouverture » s'il est clos, jamais les deux. C'est le module pur qui tranche. */
       ouvertLe: rows[0].ouvert_le,
+      /* 🔴 LOT GES-16/21 — l'instant où l'événement a été créé (journal) ; `null` : inconnu, la carte l'avoue. */
+      ouvertureCreeeLe: rows[0].ouverture_creee_le ?? null,
       typesReservoir: cartesDuReservoir(ouvertParLaFrise),
       /* 🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — LA ROUTE ANNONCE CE QUE LA GRILLE PROPOSE, des DEUX côtés : « aucune
          autre carte ne peut être posée après une Clôture », et un point n'est pas une exception. Annoncer la

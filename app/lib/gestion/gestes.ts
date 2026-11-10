@@ -578,6 +578,20 @@ export async function remettreMessage(messageId: number, auteur: Auteur): Promis
  * SILENCIEUSE PAR CONSTRUCTION : aucune citation, aucun mail déplacé cité, ou un mail déjà rattaché → elle ne fait
  * rien. Elle ne peut pas non plus écraser un rattachement posé à la main, puisqu'elle ne touche qu'un message SANS
  * affectation active.
+ *
+ * ══ 🔴🔴 LOT GES-16/21 (10/11/2026) — C'EST LE PARENT LE PLUS PROCHE QUI DÉCIDE, PAS LE PLUS ANCIEN MAIL DÉPLACÉ ══
+ *
+ * CAS RÉEL (production, GES-2026-000016 « Humidité » et GES-2026-000021 « Fuite d'eau - Toilette ») : le mail 61177
+ * de l'artisan a suivi GES-16 à 12:35 ; à 12:37, une personne l'a REMIS dans son échange — il n'était pas de cette
+ * affaire. La règle lisait pourtant toutes les citations à plat (`In-Reply-To` et tout `References`) et prenait le
+ * mail déplacé le plus récemment rangé, n'importe où dans la conversation : les réponses suivantes de cette branche
+ * citaient encore, plus haut, des mails rangés dans GES-16, et elles y sont toutes retombées (61178, 61179, puis
+ * 61278 à 18:09). Le geste humain était défait à la relève suivante, sans que personne le voie.
+ *
+ * 🔴 DÉSORMAIS : les citations arrivent du plus proche au plus lointain (`citationsDuMessage`), et c'est le PREMIER
+ * mail CONNU qui décide. Déplacé (affectation de mail active) → la réponse le suit, comme avant. Pas déplacé — resté
+ * dans son échange, ou remis dedans à la main → la réponse reste dans son échange, comme son parent. Un mail
+ * déplacé plus haut dans la conversation ne l'emporte plus sur le mail auquel on répond vraiment.
  */
 export async function suivreLeMailDeplace(
   q: RequeteTx, messageId: number, filId: number, citations: readonly string[],
@@ -585,14 +599,15 @@ export async function suivreLeMailDeplace(
   const cites = citations.map((c) => c.trim()).filter((c) => c !== '').slice(0, 50);
   if (cites.length === 0) return { suivi: false };
 
-  const { rows } = await q<{ evenement_id: number; reference: string }>(
-    `SELECT a.evenement_id::int AS evenement_id, e.reference
-       FROM gestion_affectation a
-       JOIN gestion_message m ON m.id = a.message_id
-       JOIN gestion_evenement e ON e.id = a.evenement_id
-      WHERE a.actif AND a.message_id IS NOT NULL AND m.message_id = ANY($1::text[])
-      ORDER BY a.affecte_le DESC LIMIT 1`, [cites]);
-  if (!rows[0]) return { suivi: false };
+  const { rows } = await q<{ rang: number; evenement_id: number | null; reference: string | null }>(
+    `SELECT c.rang::int AS rang, a.evenement_id::int AS evenement_id, e.reference
+       FROM unnest($1::text[]) WITH ORDINALITY AS c(mid, rang)
+       JOIN gestion_message m ON m.message_id = c.mid AND m.id <> $2
+       LEFT JOIN gestion_affectation a ON a.message_id = m.id AND a.actif
+       LEFT JOIN gestion_evenement e ON e.id = a.evenement_id
+      ORDER BY c.rang, a.affecte_le DESC NULLS LAST LIMIT 1`, [cites, messageId]);
+  // Aucun mail cité n'est connu, ou le plus proche n'est pas déplacé : la réponse reste dans son échange.
+  if (!rows[0] || rows[0].evenement_id === null || rows[0].reference === null) return { suivi: false };
 
   const { rows: deja } = await q<{ id: number }>(
     `SELECT id FROM gestion_affectation WHERE message_id = $1 AND actif`, [messageId]);

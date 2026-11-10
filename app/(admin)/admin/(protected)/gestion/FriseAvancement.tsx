@@ -136,6 +136,8 @@ interface Reponse {
   passagesEnFiableProposes?: { type: TypeEtape; confirmees: number }[];
   /** 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'ÉVÉNEMENT : la première carte de la frise. */
   ouvertLe?: string;
+  /** 🔴 LOT GES-16/21 — l'instant de création de l'événement, lu au journal ; `null`/absent : inconnu. */
+  ouvertureCreeeLe?: string | null;
   /** 🔴 LOT MONGA-LIEN-PAR-LE-GESTE — les interventions de cet événement suivies dans un autre ; absent = aucune. */
   suiviesAilleurs?: { reference: string; evenementReference: string }[];
   /** 🔴 LOT FRISE-CORRECTION-MANUELLE — les éléments retirés, les interventions déliées, la 429, la référence GES. */
@@ -758,6 +760,7 @@ export function FriseAvancement({
           {ligne.map((el) => (
             <ElementDeLaFrise
               key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe} onOuvrirTache={setTacheOuverte}
+              ouvertureCreeeLe={vue.d.ouvertureCreeeLe ?? null}
               cleOuverture={cleOuverture} calerSurUneFois={defilement.calerSurUneFois}
               ouvert={ouvert} epingle={fixe} onOuvrir={setOuvert}
               /* 🔴 POINT 2 — « Le ✎ de la carte en cours d'édition reste visiblement “enfoncé” (état actif)
@@ -1104,6 +1107,8 @@ function ElementDeLaFrise(p: {
   aujourdhui: string;
   /** 🔴 Arno (23/10/2026) — ouvrir l'ajout d'une carte RDV intervention (le lien sous la date d'ouverture). Absent ⇒ pas de lien. */
   onRdvIntervention?: () => void;
+  /** 🔴 LOT GES-16/21 — l'instant de création de l'événement (journal), pour la carte d'ouverture dérivée. */
+  ouvertureCreeeLe?: string | null;
   /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — ce qui ne concerne que les carrés traverse sans être lu ici. */
   horsChronologie?: boolean;
   saisie?: number | null;
@@ -1232,7 +1237,7 @@ function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onRdvIntervention,
   horsChronologie = false, saisie = null, onSaisir, onPoignee, onModifier, onCommentaire,
-  enEdition = null,
+  enEdition = null, ouvertureCreeeLe = null,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -1242,6 +1247,8 @@ function Carre({
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
   onRdvIntervention?: () => void;
+  /** 🔴 LOT GES-16/21 — l'instant de création de l'événement (journal) ; `null` : la carte dérivée dit « inconnue ». */
+  ouvertureCreeeLe?: string | null;
   /** 🔴 POINT 10 — cette carte n'est plus à sa place chronologique : sa ligne « créée le » passe à l'orange. */
   horsChronologie?: boolean;
   /** L'identifiant de la carte actuellement saisie au clic maintenu, ou `null`. */
@@ -1322,8 +1329,13 @@ function Carre({
           * de date fausse »). Prendre `maj_le` aurait donné une date qui a l'air juste le jour de la création
           * et devient fausse à la première retouche — le pire des deux. Mesuré le 08/10/2026 : **2 cartes**
           * sont dans ce cas, une par événement sans étape « ouverture » enregistrée.
+          *
+          * 🔴 LOT GES-16/21 (10/11/2026) — L'INSTANT EXISTE POURTANT, AU JOURNAL : la création de l'événement y
+          * écrit sa ligne `ouverture`, append-only, que ni `ouvert_le` ni `maj_le` ne remplacent. La route la
+          * lit (`ouvertureCreeeLe`) et la carte dit « créée le … ». Sans cette ligne, elle avoue toujours
+          * « date de création inconnue », en gris : rien n'est inventé.
           */}
-        <LigneCreation creation={mentionCreation(null)} />
+        <LigneCreation creation={mentionCreation(ouvertureCreeeLe)} />
         {/**
           * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 8 — ET POURQUOI CETTE CARTE-CI N'A PAS LA RANGÉE
           *

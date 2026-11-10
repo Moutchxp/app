@@ -1122,6 +1122,19 @@ async function journaliser(
 }
 
 /**
+ * 🔴 LOT GES-16/21 (10/11/2026) — LE MOT DU JOURNAL DIT QUI A POSÉ LE LIEN. Le suivi de la conversation pose ses liens
+ * en `origine = 'manuel'` (la fenêtre a été décidée par une personne) avec le motif `MOTIF_POSE_PAR_SUIVI`
+ * (periodeRepo.ts, recopié ici pour ne pas créer d'import circulaire ; un test tient les deux égaux). Le journal écrivait
+ * pourtant « rattachement posé à la main », et cela s'est lu comme un geste humain : le lien du 09/11/2026 à 18:09 sur
+ * GES-2026-000016 venait du suivi, à la relève, sans personne derrière. PUR.
+ */
+export const MOTIF_SUIVI_DANS_LE_JOURNAL = 'posé par le suivi de la conversation';
+export function motPoseDuRattachement(auto: boolean, motif?: string | null): string {
+  if (auto) return 'automatiquement';
+  return motif === MOTIF_SUIVI_DANS_LE_JOURNAL ? 'par le suivi de la conversation' : 'à la main';
+}
+
+/**
  * RATTACHE À LA MAIN. Le lien naît `confirme` : quelqu'un l'a décidé, il n'y a rien à confirmer.
  *
  * ⚠️ SI LE LIEN EXISTE DÉJÀ, VIVANT, ON NE FAIT RIEN et on le dit. Deux clics sur le même bouton ne doivent pas
@@ -1279,7 +1292,7 @@ export async function rattacher(o: {
       [...id, libelles, o.motif ?? 'rattaché à la main', o.auteur.id, o.auteur.libelle,
         auto ? 'automatique' : 'manuel']);
     await journaliser(q, Number(rows[0].id), 'rattacher', o.auteur,
-      `rattachement posé ${auto ? 'automatiquement' : 'à la main'} : ${cibleCourte(o.cible)}`
+      `rattachement posé ${motPoseDuRattachement(auto, o.motif)} : ${cibleCourte(o.cible)}`
       + `${pieceId === null ? '' : ` (pièce ${pieceId})`}`,
       null, 'confirme');
     return { ok: true, id: Number(rows[0].id) };

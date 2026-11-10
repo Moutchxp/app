@@ -19,7 +19,7 @@ vi.mock('../../../../../../../lib/gestion/gestes', () => ({ deplacerOuvertureEve
 const queryMock = vi.fn();
 vi.mock('../../../../../../../lib/db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 
-import { PATCH, POST } from './route';
+import { GET, PATCH, POST } from './route';
 import { motDateAvantDernier } from '../../../../../../../lib/gestion/frise';
 
 /**
@@ -96,5 +96,21 @@ describe('🔴🔴 A4 — PATCH ordre : rien ne se dépose avant l’Ouverture',
     const res = await PATCH(req('PATCH', { geste: 'ordre', cartes: [1, 3, 2] }), ctx);
     expect(res.status).toBe(200);
     expect(repo.reordonnerCartes).toHaveBeenCalledWith(37, [1, 3, 2], 'Arnaud');
+  });
+});
+
+describe('🔴 LOT GES-16/21 — GET rend l’instant de création de l’événement, lu au journal', () => {
+  const get = () => GET(new Request('http://local/x'), ctx);
+  it('la ligne « ouverture » du journal existe : `ouvertureCreeeLe` la porte, et seule la première sans valeur d’avant est lue', async () => {
+    queryMock.mockResolvedValue({ rows: [{ ouvert: true, ouvert_le: '2026-10-30 10:30:49+01', reference: 'GES-2026-000016', ouverture_creee_le: '2026-10-30 10:30:49' }] });
+    const corps = await (await get()).json();
+    expect(corps.ouvertureCreeeLe).toBe('2026-10-30 10:30:49');
+    const sql = String(queryMock.mock.calls[0][0]).replace(/\s+/g, ' ');
+    expect(sql).toContain("j.action = 'ouverture'");
+    expect(sql).toContain('j.valeur_avant IS NULL');
+  });
+  it('aucune ligne : `null` (la carte avoue « date de création inconnue »)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ ouvert: true, ouvert_le: '2026-10-30 10:30:49+01', reference: 'GES-2026-000016', ouverture_creee_le: null }] });
+    expect((await (await get()).json()).ouvertureCreeeLe).toBeNull();
   });
 });
