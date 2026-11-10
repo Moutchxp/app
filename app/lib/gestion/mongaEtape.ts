@@ -401,6 +401,25 @@ function heureISO(brut: string): string {
  * que par un mot, et ce mot sépare deux étapes distinctes de la frise (le diagnostic et l'intervention). Le motif
  * de l'intervention passe donc en premier, et il est ancré sur « l'intervention » — pas sur « fixé ».
  */
+/**
+ * ══ 🔴🔴 LOT MONGA-ESPAGNOL (Arno, 10/11/2026) — LES COMMENTAIRES MONGA RÉDIGÉS EN ESPAGNOL ════════════════════════════════
+ *
+ * Inventaire en production le 10/11/2026 (`.captures/monga-espagnol/resultat-prod.txt`) : 14 commentaires en espagnol sur
+ * 274 mails Monga (missions MNG-24544, MNG-24548, MNG-25370), en TROIS formulations, chacune l'exacte traduction d'un
+ * gabarit français déjà lu ici. L'en-tête du mail (« concernant la mission … ») et l'objet restent en français : seul le
+ * commentaire change de langue. On ne lit QUE ces trois formulations — une phrase espagnole inconnue reste un commentaire,
+ * on n'invente rien. Et l'étape lue suit exactement la règle des françaises (même type, même certitude lue ; à valider
+ * à la création, `certitudeALaCreation`).
+ *
+ *   « Hola, la intervención con nuestro artesano asociado ha sido fijada para el 24/10/2026 entre 10h00 y 11h00 » (7)
+ *      → Rendez-vous d'intervention, avec sa date et sa plage ;
+ *   « No hemos podido contactar al contacto en el lugar durante nuestra (segunda) llamada… » (6) → Contact injoignable ;
+ *   « Hola, acusamos buena recepción de tu solicitud y programamos la cita… » (1) → Ouverture par accusé de réception.
+ */
+const ES_RDV_INTERVENTION = /la\s+intervenci[óo]n\s+con\s+nuestro\s+artesano\s+asociado\s+ha\s+sido\s+fijad/i;
+const ES_ACCUSE_RECEPTION = /acusamos\s+buena\s+recepci[óo]n\s+de\s+tu\s+solicitud/i;
+const ES_INJOIGNABLE = /no\s+hemos\s+podido\s+contactar\s+al\s+contacto/i;
+
 export function etapesDuMailMonga(
   objet: string | null | undefined, texte: string | null | undefined,
 ): EtapeLue[] {
@@ -417,7 +436,8 @@ export function etapesDuMailMonga(
   if (com !== null) {
     /** La plage horaire d'un rendez-vous : « entre 10h30 et 11h00 », ou la variante « vers 10h00 » (1 cas mesuré). */
     const plage = (s: string): { de: string; a: string | null } | null => {
-      const e = /entre\s+(\d{1,2}h\d{0,2})\s+et\s+(\d{1,2}h\d{0,2})/i.exec(s);
+      /* 🔴 LOT MONGA-ESPAGNOL — « entre 10h00 y 11h00 » : le « y » espagnol vaut le « et » (7 mails réels, production). */
+      const e = /entre\s+(\d{1,2}h\d{0,2})\s+(?:et|y)\s+(\d{1,2}h\d{0,2})/i.exec(s);
       if (e !== null) return { de: heureISO(e[1]), a: heureISO(e[2]) };
       const v = /vers\s+(\d{1,2}h\d{0,2})/i.exec(s);
       return v === null ? null : { de: heureISO(v[1]), a: null };
@@ -425,7 +445,8 @@ export function etapesDuMailMonga(
     const jourDe = (s: string): string | null => jourISO(/(\d{2}\/\d{2}\/\d{4})/.exec(s)?.[1] ?? null);
 
     /* 🔴 L'INTERVENTION AVANT LE RENDEZ-VOUS : un seul mot les sépare. Voir l'avertissement ci-dessus. */
-    if (/l[’']?intervention\s+avec\s+notre\s+artisan\s+partenaire\s+a\s+été\s+fix/i.test(com)) {
+    if (/l[’']?intervention\s+avec\s+notre\s+artisan\s+partenaire\s+a\s+été\s+fix/i.test(com)
+      || ES_RDV_INTERVENTION.test(com)) {
       out.push({
         type: 'rdv_intervention', certitude: 'fiable',
         jour: jourDe(com), heure: plage(com), numero: null, rang: null, texte: com, auteur,
@@ -435,7 +456,7 @@ export function etapesDuMailMonga(
         type: 'prise_rdv', certitude: 'fiable',
         jour: jourDe(com), heure: plage(com), numero: null, rang: null, texte: com, auteur,
       });
-    } else if (/accusons\s+bonne\s+réception\s+de\s+votre\s+demande/i.test(com)) {
+    } else if (/accusons\s+bonne\s+réception\s+de\s+votre\s+demande/i.test(com) || ES_ACCUSE_RECEPTION.test(com)) {
       /* 🔴 L'OUVERTURE PAR ACCUSÉ DE RÉCEPTION (Arno) — à confirmer : 2 cas seulement dans l'audit. */
       out.push({ ...vide, type: 'ouverture', certitude: 'a_confirmer', texte: com, auteur });
     } else if (/le\s+rendez-vous\s+a\s+bien\s+eu\s+lieu/i.test(com)) {
@@ -456,7 +477,7 @@ export function etapesDuMailMonga(
         ...vide, type: 'facture', certitude: 'a_confirmer',
         numero: /(FACT-\d{8}-\d+)/i.exec(com)?.[1] ?? null, texte: com, auteur,
       });
-    } else if (/pas\s+réussi\s+à\s+joindre\s+le\s+contact/i.test(com)) {
+    } else if (/pas\s+réussi\s+à\s+joindre\s+le\s+contact/i.test(com) || ES_INJOIGNABLE.test(com)) {
       out.push({ ...vide, type: 'contact_injoignable', certitude: 'a_confirmer', texte: com, auteur });
     } else {
       /**
