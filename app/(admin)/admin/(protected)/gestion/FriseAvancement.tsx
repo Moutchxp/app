@@ -11,7 +11,7 @@ import { ModaleIssue } from '../location/ModaleIssue';
  */
 import {
   carteDeplacable, cartesHorsChronologie,
-  cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
+  cleDOuverture, construireFrise, couleurDeLaCarte, couleurDeLEtape, dateAuCentre, etapeOuvrable, mentionCreation,
   type MentionCreation,
   /* 🔴 LOT FRISE-ORDRE — l'ordre unique de la frise, et le plancher de date d'une carte posée au bout (A1-A3). */
   dernierIdDeLaFrise, dernierJourDeLaFrise, jourDeRepliAuBout, ordreDeLaFrise, poseAuBout,
@@ -1460,7 +1460,7 @@ function Carre({
         * lue dans la bulle et au lecteur d'écran, et les deux boutons ✓ / ✕ restent là où ils étaient.
         */}
       <div className={`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`
-        + (aConfirmer && e.type === 'cloture' ? '' : CLASSE_COULEUR[couleurDeLaCarte(e.type)])}
+        + (aConfirmer && e.type === 'cloture' ? '' : CLASSE_COULEUR[couleurDeLEtape(e)])}
         title={pose ?? undefined}>
         {/**
           * ══ 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LA POIGNÉE, ET ELLE DÉMARRE LE GLISSER SUR-LE-CHAMP ════════
@@ -2978,7 +2978,10 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-commentaire-vide{font-style:italic;color:var(--color-svv-muted)}
 /* ⚠️ LES DEUX BOUTONS « A CONFIRMER » REMONTENT D'UNE RANGEE : la rangee de pictos occupe desormais le bas du
    carre. Ils ne sont ni retires ni masques — ils se posent juste au-dessus, et gardent leurs deux gestes. */
-.fav-doute{position:absolute;right:4px;bottom:30px;display:flex;gap:3px}
+/* LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026, accord explicite pour ce deplacement) : les deux boutons quittent la
+   position absolue, qui les posait SUR l'heure ou le montant, et prennent leur rang dans la colonne du carre, SOUS le
+   texte et au-dessus de la rangee de pictos. Ils gardent leurs deux gestes ; le carre grandit au besoin (min-height). */
+.fav-doute{position:static;display:flex;justify-content:center;gap:6px;margin-top:auto;padding-top:3px;flex:0 0 auto}
 .fav-mini{width:22px;height:22px;min-width:22px;padding:0;font:inherit;font-size:.72rem;cursor:pointer;
   border-radius:5px;border:1px solid var(--color-svv-amber);background:var(--color-svv-bg);
   color:var(--color-svv-ink);line-height:1}

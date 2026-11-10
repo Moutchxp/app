@@ -318,6 +318,19 @@ export function couleurDeLaCarte(t: TypeEtape): 'debut' | 'cloture' | 'ordinaire
   return 'ordinaire';
 }
 
+/**
+ * ══ 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — LA COULEUR D'UNE ÉTAPE ENREGISTRÉE. PUR. ══════════════════════
+ *
+ * Arno : « une carte Ouverture créée par Monga passe en contour VERT une fois validée, comme les autres étapes : sur les
+ * cartes Monga, le rouge signifie toujours “à valider”. Ne change pas l'aspect des cartes Ouverture créées à la main. »
+ * Une Ouverture MONGA qui n'attend plus rien est donc ordinaire (verte) ; en attente, c'est le rouge de l'attente qui la
+ * peint. L'Ouverture posée à la main, et l'Ouverture dérivée de l'événement, gardent le rouge de la règle du 08/10.
+ */
+export function couleurDeLEtape(e: { type: TypeEtape; source: string; certitude: string }): 'debut' | 'cloture' | 'ordinaire' {
+  if (e.type === 'ouverture' && e.source === 'monga' && e.certitude !== 'a_confirmer') return 'ordinaire';
+  return couleurDeLaCarte(e.type);
+}
+
 /** Ce qu'on écrit sous une carte : la mention, et si l'on sait vraiment quand elle a été créée. */
 export interface MentionCreation {
   mot: string;

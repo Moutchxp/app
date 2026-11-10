@@ -58,8 +58,10 @@ describe('🔴🔴 ① les pictos grandissent de 30 %, et le carré avec eux', (
   /** 🔴 ET LA HAUTEUR SUIT, plutôt que de rogner un texte (Arno) : 112 + 6 = 118. */
   it('🔴🔴 le carré gagne les 6 px de la rangée', () => {
     expect(FEUILLE).toContain('min-height:118px;');
-    /* ⚠️ LES DEUX BOUTONS ✓ / ✕ REMONTENT D'AUTANT : ils ne sont ni retirés ni masqués, ils se décalent. */
-    expect(FEUILLE).toContain('.fav-doute{position:absolute;right:4px;bottom:30px;');
+    /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026, accord explicite) — les boutons ✓ / ✕ ne sont plus posés en
+       absolu (ils cachaient l'heure et le montant) : ils prennent leur rang SOUS le texte, ni retirés ni masqués. */
+    expect(FEUILLE).toContain('.fav-doute{position:static;display:flex;justify-content:center;gap:6px;margin-top:auto;padding-top:3px;flex:0 0 auto}');
+    expect(FEUILLE).not.toContain('.fav-doute{position:absolute');
   });
 });
 

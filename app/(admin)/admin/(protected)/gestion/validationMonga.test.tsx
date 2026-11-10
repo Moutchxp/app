@@ -175,3 +175,34 @@ describe('🔴🔴 la vignette de la liste — encadré rouge = au moins une ét
     expect(item().classList.contains('gst-item--monga')).toBe(false);
   });
 });
+
+describe('🔴🔴 lot GESTION-VALIDATION-MONGA, suite (Arno, 10/11/2026) — boutons sous le texte, Ouverture Monga validée en vert', () => {
+  it('les boutons ✓/✗ sont SOUS le texte du carré (après la date), avant la rangée de pictos — plus en surimpression', async () => {
+    etapes = [etape(900, { type: 'rdv_intervention', heureConnue: true, heureFin: '18:00', survenuLe: '2026-11-11 17:00:00', messageId: 61174, certitude: 'a_confirmer' })];
+    await rendreFrise();
+    const doute = document.querySelector('.fav-doute') as HTMLElement;
+    const carre = doute.closest('.fav-carre') as HTMLElement;
+    const enfants = [...carre.children];
+    const iDoute = enfants.indexOf(doute);
+    const iPictos = enfants.findIndex((x) => x.classList.contains('fav-pictos'));
+    const iTexte = enfants.findIndex((x) => x.tagName === 'BUTTON' && !x.classList.contains('fav-poignee'));
+    expect(iTexte).toBeGreaterThanOrEqual(0);
+    expect(iTexte).toBeLessThan(iDoute);
+    expect(iDoute).toBeLessThan(iPictos);
+  });
+
+  it('Ouverture Monga : rouge à valider, VERTE une fois validée ; une Ouverture posée à la main garde son rouge', async () => {
+    etapes = [etape(683, { type: 'ouverture', certitude: 'a_confirmer' })];
+    await rendreFrise();
+    const carreOuv = () => document.querySelector('.fav-carre.fav-carre--dans') as HTMLElement;
+    expect(carreOuv().classList.contains('fav-carre--doute')).toBe(true);
+    await clic(boutons('valider')[0]);
+    expect(carreOuv().classList.contains('fav-carre--doute')).toBe(false);
+    expect(carreOuv().classList.contains('fav-carre--debut')).toBe(false);   // vert : la couleur ordinaire de --dans
+
+    act(() => root.unmount()); root = createRoot(container);
+    etapes = [etape(10, { type: 'ouverture', source: 'manuelle', reference: null })];
+    await rendreFrise();
+    expect(carreOuv().classList.contains('fav-carre--debut')).toBe(true);    // inchangée : rouge
+  });
+});

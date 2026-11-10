@@ -93,7 +93,9 @@ describe('🔴🔴 ② la frise : Clôture pleine verte, Ouverture et Réouvertu
     expect(FRISE).toContain("ordinaire: '',");
     /* 🔴 ET LES DEUX CARTES LA LISENT, chacune par `couleurDeLaCarte` — jamais par un test de type écrit sur place. */
     expect(FRISE).toContain('CLASSE_COULEUR[couleurDeLaCarte(c.type)]');
-    expect(FRISE).toContain('CLASSE_COULEUR[couleurDeLaCarte(e.type)]');
+    /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — l'étape enregistrée passe par `couleurDeLEtape`, qui délègue à
+       `couleurDeLaCarte` sauf pour une Ouverture MONGA validée (verte). */
+    expect(FRISE).toContain('CLASSE_COULEUR[couleurDeLEtape(e)]');
   });
 
   /** 🔴🔴 « Cartes “Ouverture” et “Réouverture” : contour ROUGE. » */
@@ -155,8 +157,8 @@ describe('🔴🔴 ② la frise : Clôture pleine verte, Ouverture et Réouvertu
    * leurs cartes « à confirmer » gardent par ailleurs leurs deux boutons ✓ / ✕, qui sont ambre et disent l'état
    * sans la bordure.
    */
-  it('🔴🔴 une clôture « à confirmer » reste ambre, et ne devient verte qu’une fois validée', () => {
-    expect(FRISE).toContain("(aConfirmer && e.type === 'cloture' ? '' : CLASSE_COULEUR[couleurDeLaCarte(e.type)])");
+  it('🔴🔴 une clôture « à confirmer » reste en attente (rouge depuis GESTION-VALIDATION-MONGA), et ne devient verte qu’une fois validée', () => {
+    expect(FRISE).toContain("(aConfirmer && e.type === 'cloture' ? '' : CLASSE_COULEUR[couleurDeLEtape(e)])");
     /* 🔴 L'AMBRE EST TOUJOURS POSÉE, et ses deux boutons sont toujours là. */
     expect(FRISE).toContain("`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`");
     expect(FRISE).toContain("onConfirmer(e.id, 'confirmer')");

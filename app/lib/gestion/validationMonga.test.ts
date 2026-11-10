@@ -123,3 +123,15 @@ describe('④ le filtre « Étapes à valider », dans la famille « À surveill
     expect(tb.idsParFiltre[CLE_FILTRE_ETAPES_A_VALIDER]).toEqual([1, 4]);
   });
 });
+
+describe('⑤ la couleur d’une Ouverture (Arno, 10/11/2026)', () => {
+  it('Monga : rouge tant qu’à valider, verte (ordinaire) ensuite ; à la main : rouge, inchangé', async () => {
+    const { couleurDeLEtape } = await import('./frise');
+    expect(couleurDeLEtape({ type: 'ouverture', source: 'monga', certitude: 'a_confirmer' })).toBe('debut');
+    expect(couleurDeLEtape({ type: 'ouverture', source: 'monga', certitude: 'confirmee' })).toBe('ordinaire');
+    expect(couleurDeLEtape({ type: 'ouverture', source: 'monga', certitude: 'fiable' })).toBe('ordinaire');
+    expect(couleurDeLEtape({ type: 'ouverture', source: 'manuelle', certitude: 'fiable' })).toBe('debut');
+    expect(couleurDeLEtape({ type: 'reouverture', source: 'manuelle', certitude: 'fiable' })).toBe('debut');
+    expect(couleurDeLEtape({ type: 'cloture', source: 'monga', certitude: 'confirmee' })).toBe('cloture');
+  });
+});

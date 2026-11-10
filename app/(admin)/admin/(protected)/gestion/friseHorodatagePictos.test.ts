@@ -282,7 +282,8 @@ describe('🔴🔴 ④ tous les textes centrés, et rien de perdu au passage', (
   it('🔴🔴 les boutons ✓ / ✕ sont toujours là, remontés d’une rangée', () => {
     /* ⚠️ 30 px ET NON 24 : la rangée de pictos a grandi de 30 % (26 px de haut au lieu de 20), donc les deux
        boutons remontent d'autant. Ils ne sont toujours NI retirés NI masqués — c'est tout l'objet du cas. */
-    expect(FEUILLE).toContain('.fav-doute{position:absolute;right:4px;bottom:30px;display:flex;gap:3px}');
+    /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026, accord explicite) — sous le texte, dans la colonne du carré. */
+    expect(FEUILLE).toContain('.fav-doute{position:static;display:flex;justify-content:center;gap:6px;margin-top:auto;padding-top:3px;flex:0 0 auto}');
     expect(FRISE).toContain("onClick={() => onConfirmer(e.id, 'confirmer')}>✓");
     expect(FRISE).toContain("onClick={() => onConfirmer(e.id, 'ecarter')}>✕");
   });
