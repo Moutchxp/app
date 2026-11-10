@@ -13,6 +13,13 @@ import {
 import { FenetreTache } from './FenetreTache';
 import { ecouterTaches, lireTaches } from './tachesClient';
 import { CSS_BLOC_REPLIE } from './blocReplie';
+import {
+  chercherTaches, collaborateursDesTaches, ECHEANCES, filtrerTachesPleinePage, lirePreferencesTaches, MOTS_ECHEANCE, MOTS_STATUT_PLEINE_PAGE,
+  STATUTS_PLEINE_PAGE, trierTachesPleinePage, TRI_TACHES_DEFAUT, FILTRES_TACHES_VIDES, type FiltresTaches, type TriTaches,
+} from '../../../../lib/gestion/tachesPleinePage';
+
+/** 🔴 Arno (10/11/2026) — la pleine page « Tâches » : son tri et ses filtres, conservés d'une visite à l'autre (préférence locale). */
+export const CLE_TACHES_PLEINE_PAGE = 'svav.gestion.taches.plein';
 
 /** 🔴 Arno (10/11/2026) — la relecture du bloc replié de l'écran partagé : toutes les 30 secondes (comme les préavis). */
 export const INTERVALLE_RELECTURE_MS = 30_000;
@@ -33,7 +40,7 @@ export const INTERVALLE_RELECTURE_MS = 30_000;
  *
  * ⚠️ SANS LA MIGRATION 346, NE REND RIEN. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable = false }: {
+export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable = false, plein = false, pleinePage }: {
   onOuvrirBien: (lotId: number) => void;
   /**
    * 🔴 Arno (10/11/2026, accord explicite pour CE repli, écran partagé seulement) — REPLIÉ à chaque ouverture de la page ; un clic sur la ligne
@@ -42,6 +49,13 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
    * chaque geste. Absent (page pleine « Tâches ») : rien ne change.
    */
   repliable?: boolean;
+  /**
+   * 🔴 Arno (10/11/2026) — la PLEINE PAGE « Tâches » : la liste complète, recherche, tris dans les deux sens, filtres cumulables (échéance,
+   * statut, collaborateur, avec ou sans bien), en plus des pastilles et filtres du bloc ; tri et filtres conservés. Même source, mêmes gestes.
+   */
+  plein?: boolean;
+  /** 🔴 Arno (10/11/2026) — le lien « Ouvrir en pleine page », en bout de la ligne de titre (comme celui des préavis). */
+  pleinePage?: () => void;
   /** 🔴 LOT GESTION-TACHES-PAGE — sur la page pleine « Tâches » : le bouton de retour, en tête. Absent sur l'écran partagé. */
   retour?: ReactNode;
   /** 🔴 LOT TACHES-1-BIS — ouvre le composeur « Nouveau message », adresse pré-remplie, sans rien envoyer. */
@@ -79,14 +93,32 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
   const [ouvert, setOuvert] = useState(false);
+  // 🔴 Arno (10/11/2026) — la pleine page : tri, filtres cumulables, recherche ; tri et filtres relus APRÈS le montage (rendu identique).
+  const [tri, setTri] = useState<TriTaches>(TRI_TACHES_DEFAUT);
+  const [filtres, setFiltres] = useState<FiltresTaches>(FILTRES_TACHES_VIDES);
+  const [recherche, setRecherche] = useState('');
+  const [prefsLues, setPrefsLues] = useState(false);
+  useEffect(() => {
+    if (!plein) return;
+    let brut: string | null = null;
+    try { brut = window.localStorage.getItem(CLE_TACHES_PLEINE_PAGE); } catch { /* sans stockage : les choix par défaut */ }
+    const p = lirePreferencesTaches(brut);
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setTri(p.tri); setFiltres(p.filtres); setQui(p.qui); setStatut(p.statut); setPastille(p.pastille); setPrefsLues(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [plein]);
+  useEffect(() => {
+    if (!plein || !prefsLues) return;
+    try { window.localStorage.setItem(CLE_TACHES_PLEINE_PAGE, JSON.stringify({ tri, filtres, qui, statut, pastille })); } catch { /* préférence seulement */ }
+  }, [plein, prefsLues, tri, filtres, qui, statut, pastille]);
   // 🔴 Arno (10/11/2026) — le bloc replié (écran partagé) : relu toutes les 30 s et au retour sur l'onglet, comme le bloc des préavis.
   useEffect(() => {
-    if (!repliable) return undefined;
+    if (!repliable && !plein) return undefined;
     const relire = (): void => { if (document.visibilityState !== 'hidden') void charger(); };
     const minuterie = window.setInterval(relire, INTERVALLE_RELECTURE_MS);
     document.addEventListener('visibilitychange', relire);
     return () => { window.clearInterval(minuterie); document.removeEventListener('visibilitychange', relire); };
-  }, [repliable, charger]);
+  }, [repliable, plein, charger]);
 
   if (!installe || donnees === null) return null;
   const visibles = filtrerParAcceptation(donnees.taches, qui, statut, donnees.moi);
@@ -98,7 +130,18 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
   const ouvertes = filtrerParPastille(toutes.ouvertes, pastille, maintenant);
   // 🔴 LOT TERMINEES-7-JOURS — affichage seulement : les terminées des 7 derniers jours.
   const terminees = termineesRecentes(filtrerParPastille(toutes.terminees, pastille, maintenant), maintenant);
+  /* 🔴 Arno (10/11/2026) — LA PLEINE PAGE : les filtres cumulables, la recherche et le tri s'ajoutent à ceux du bloc. Les terminées
+     entrent dans la liste quand on les demande (statut « Faite » ou « Annulée »). */
+  const avecTerminees = plein && filtres.statuts.some((x) => x === 'faite' || x === 'annulee');
+  const listePlein = plein ? trierTachesPleinePage(chercherTaches(filtrerTachesPleinePage(
+    avecTerminees ? [...ouvertes, ...filtrerParPastille(toutes.terminees, pastille, maintenant)] : ouvertes, filtres, maintenant), recherche), tri, maintenant) : ouvertes;
+  const collaborateurs = plein ? collaborateursDesTaches(donnees.taches) : [];
+  const filtresActifs = plein && (recherche.trim() !== '' || filtres.echeances.length > 0 || filtres.statuts.length > 0 || filtres.collaborateur !== null || filtres.bien !== 'tous');
+  const basculer = <T,>(l: readonly T[], v: T): T[] => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
   const urgentes = compterTachesUrgentes(ouvertes, maintenant);
+  const lien = pleinePage !== undefined && (
+    <button type="button" className="tch-plein" onClick={(e) => { e.stopPropagation(); pleinePage(); }} data-pleine-page-taches>Ouvrir en pleine page</button>
+  );
   const titre = (
     <h2 className={`gst-titre${repliable && !ouvert ? ' blr-titre' : ''}`} id="tch-tableau-titre">
       {repliable ? (
@@ -106,7 +149,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
           <span aria-hidden="true" className={`tch-fleche${!ouvert ? ' blr-fleche' : ''}`}>{ouvert ? '▾' : '▸'}</span>
           {ouvert ? <>Tâches <span className="gst-compte">{ouvertes.length}</span></> : <>Tâches · <span data-total-taches>{ouvertes.length}</span></>}
         </button>
-      ) : <>Tâches <span className="gst-compte">{ouvertes.length}</span></>}
+      ) : <>Tâches <span className="gst-compte" data-nombre-taches>{listePlein.length}</span></>}
       {repliable && !ouvert && urgentes > 0 && (
         <span className="tch-urgentes blr-alerte" data-urgentes-taches>● {urgentes} urgente{urgentes > 1 ? 's' : ''}</span>
       )}
@@ -116,7 +159,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
     return (
       <section className="tch-tableau tch-tableau--replie blr-bloc" aria-labelledby="tch-tableau-titre" data-bloc-taches="replie">
         <style>{CSS_TACHES}{CSS_TABLEAU}{CSS_BLOC_REPLIE}</style>
-        <div className="tch-tableau-tete">{titre}</div>
+        <div className="tch-tableau-tete">{titre}{lien}</div>
       </section>
     );
   }
@@ -130,6 +173,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
       <div className="tch-tableau-tete">
         {retour !== null && <div className="tch-retour">{retour}</div>}
         {titre}
+        {lien}
         {/* 🔴 LOT GESTION-TACHES-SANS-BIEN (Arno, 17/10/2026) — création simple, sans bien : la MÊME fenêtre que « + Tâche ». */}
         <button type="button" className="svv-btn svv-btn-primary gst-btn tch-btn tch-creer" data-action="creer-tache"
           onClick={(e) => { e.stopPropagation(); setCree(null); setCreation(true); }}>
@@ -157,23 +201,77 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
       {/* 🔴 LOT PASTILLES-FILTRES — les pastilles sont des filtres (écran fixe, comme les autres). */}
       {cree !== null && <p className="tch-message" role="status">{cree}</p>}
       <PastillesFiltres n={n} enAttente={enAttente} active={pastille} onChoisir={(p) => changerFiltre(() => setPastille(p))} />
+      {plein && (
+        <div className="tch-plein-outils" data-outils-pleine-page>
+          <label className="tch-plein-champ">
+            <span className="tch-plein-mot">Rechercher</span>
+            <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="ex. plombier, 12 rue des Lilas, Dupont, Claire" data-recherche-taches />
+          </label>
+          <div className="tch-filtre" role="group" aria-label="Trier les tâches">
+            <span className="tch-plein-mot">Trier</span>
+            {([['defaut:asc', 'Ordre du bloc'], ['echeance:asc', 'Date : plus proche'], ['echeance:desc', 'Date : plus lointaine'],
+              ['creation:asc', 'Création : plus ancienne'], ['creation:desc', 'Création : plus récente'], ['statut:asc', 'Statut ↑'], ['statut:desc', 'Statut ↓']] as const).map(([cle, mot]) => {
+              const [c, sens] = cle.split(':') as [TriTaches['cle'], TriTaches['sens']];
+              const actif = tri.cle === c && (c === 'defaut' || tri.sens === sens);
+              return <button key={cle} type="button" aria-pressed={actif} data-tri-taches={cle}
+                className={`tch-filtre-btn${actif ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => setTri({ cle: c, sens }))}>{mot}</button>;
+            })}
+          </div>
+          <div className="tch-filtre" role="group" aria-label="Échéance">
+            <span className="tch-plein-mot">Échéance</span>
+            {ECHEANCES.map((e) => (
+              <button key={e} type="button" aria-pressed={filtres.echeances.includes(e)} data-filtre-echeance={e}
+                className={`tch-filtre-btn${filtres.echeances.includes(e) ? ' tch-filtre-btn--actif' : ''}`}
+                onClick={() => changerFiltre(() => setFiltres((f) => ({ ...f, echeances: basculer(f.echeances, e) })))}>{MOTS_ECHEANCE[e]}</button>
+            ))}
+          </div>
+          <div className="tch-filtre" role="group" aria-label="Statut">
+            <span className="tch-plein-mot">Statut</span>
+            {STATUTS_PLEINE_PAGE.map((x) => (
+              <button key={x} type="button" aria-pressed={filtres.statuts.includes(x)} data-filtre-statut-plein={x}
+                className={`tch-filtre-btn${filtres.statuts.includes(x) ? ' tch-filtre-btn--actif' : ''}`}
+                onClick={() => changerFiltre(() => setFiltres((f) => ({ ...f, statuts: basculer(f.statuts, x) })))}>{MOTS_STATUT_PLEINE_PAGE[x]}</button>
+            ))}
+          </div>
+          <label className="tch-plein-champ">
+            <span className="tch-plein-mot">Collaborateur</span>
+            <select value={filtres.collaborateur ?? ''} onChange={(e) => { const v = e.target.value; changerFiltre(() => setFiltres((f) => ({ ...f, collaborateur: v === '' ? null : v }))); }} data-filtre-collaborateur>
+              <option value="">Tous</option>
+              {collaborateurs.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <label className="tch-plein-champ">
+            <span className="tch-plein-mot">Bien</span>
+            <select value={filtres.bien} onChange={(e) => { const v = e.target.value as FiltresTaches['bien']; changerFiltre(() => setFiltres((f) => ({ ...f, bien: v }))); }} data-filtre-bien>
+              <option value="tous">Avec ou sans bien</option>
+              <option value="avec">Avec un bien</option>
+              <option value="sans">Sans bien</option>
+            </select>
+          </label>
+          <button type="button" className="tch-filtre-btn" data-reinitialiser-taches
+            onClick={() => changerFiltre(() => { setFiltres(FILTRES_TACHES_VIDES); setTri(TRI_TACHES_DEFAUT); setQui('toutes'); setStatut('toutes'); setPastille(null); setRecherche(''); })}>
+            Réinitialiser</button>
+        </div>
+      )}
       <ReglageEnvoi />
       {donnees.tronque && <p className="gst-tronc">La liste est tronquée : toutes les tâches ne sont pas affichées.</p>}
       <div className="tch-zone-liste" ref={zoneListe} data-zone-liste style={hauteurMin > 0 ? { minHeight: `${hauteurMin}px` } : undefined}>
       <div ref={contenuListe}>
-      {ouvertes.length === 0 && terminees.length === 0 && (qui !== 'toutes' || statut !== 'toutes' || pastille !== null)
+      {listePlein.length === 0 && terminees.length === 0 && (qui !== 'toutes' || statut !== 'toutes' || pastille !== null || filtresActifs)
         ? <p className="tch-vide tch-vide-filtre" role="status">{MOT_AUCUNE_TACHE_FILTRE}</p>
-        : ouvertes.length === 0
+        : listePlein.length === 0 && filtresActifs
+        ? <p className="tch-vide tch-vide-filtre" role="status">{MOT_AUCUNE_TACHE_FILTRE}</p>
+        : listePlein.length === 0
         ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'collaborateurs' ? 'Aucune tâche à faire confiée à un collaborateur.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée par « + Créer une tâche », ou depuis la fiche d’un bien (« + Tâche »).</p>
         : (
           <ul className="tch-liste">
-            {ouvertes.map((t) => (
+            {listePlein.map((t) => (
               <LigneTache key={t.id} tache={t} maintenant={maintenant} avecAdresse onOuvrirBien={onOuvrirBien}
                 onDetail={setDetail} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />
             ))}
           </ul>
         )}
-      {terminees.length > 0 && (
+      {terminees.length > 0 && !avecTerminees && (
         <details className="tch-terminees" open={termineesOuvertes}
           onToggle={(e) => setTermineesOuvertes((e.currentTarget as HTMLDetailsElement).open)}>
           <summary>{TITRE_TERMINEES} ({terminees.length})</summary>
@@ -250,6 +348,18 @@ const CSS_TABLEAU = `
 .tch-repli{appearance:none;border:0;background:none;padding:0;margin:0;min-height:44px;font:inherit;color:inherit;display:inline-flex;align-items:center;gap:.4rem;cursor:pointer}
 .tch-fleche{display:inline-block;width:1em}
 .tch-urgentes{margin-left:.6rem;font-size:.9rem;font-weight:800;color:var(--color-svv-red)}
+/* Arno (10/11/2026) — le lien « Ouvrir en pleine page » en bout de ligne (comme celui des preavis) ; les outils de la pleine page. */
+.tch-plein{margin-left:auto;display:inline-flex;align-items:center;min-height:44px;padding:0 4px;border:0;background:none;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
+.blr-bloc .tch-tableau-tete{flex-wrap:nowrap}
+.tch-plein-outils{display:flex;flex-direction:column;gap:8px}
+.tch-plein-outils{align-items:flex-start}
+.tch-plein-outils .tch-filtre{display:flex;flex-wrap:wrap;align-items:center;width:fit-content;max-width:100%;box-sizing:border-box}
+.tch-plein-outils .tch-filtre > .tch-plein-mot{padding:0 10px}
+.tch-plein-outils .tch-plein-champ{align-self:stretch}
+.tch-plein-outils [data-reinitialiser-taches]{border:1px solid var(--color-svv-line-strong);border-radius:999px;min-height:44px}
+.tch-plein-champ{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.tch-plein-champ input,.tch-plein-champ select{min-height:44px;box-sizing:border-box;flex:1 1 240px;max-width:480px;padding:0 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;font:inherit;background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.tch-plein-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}
 /* LOT GESTION-TACHES-PAGE — le retour de la page pleine : sur sa ligne, a sa largeur naturelle. */
 .tch-retour{flex:0 0 100%}
 .tch-retour .svv-btn{width:auto}

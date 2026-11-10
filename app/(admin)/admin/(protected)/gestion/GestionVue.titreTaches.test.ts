@@ -72,10 +72,10 @@ describe('🔴 page Tâches : le titre « Tableau de bord des tâches », plus a
     expect(texte()).not.toContain('Copie des pièces vers le Drive à reprendre');
     expect(container.querySelector('.gst-veille')).toBeNull();
   });
-  it('le cadre des tâches est là, bouton « ← Boîte » compris', async () => {
+  it('le cadre des tâches est là, bouton « ← Retour à la Gestion » compris (Arno, 10/11/2026)', async () => {
     await monter('?ecran=taches');
     expect(container.querySelector('.pe-taches')).not.toBeNull();
-    expect(boutons()).toContain('← Boîte');
+    expect(boutons()).toContain('← Retour à la Gestion');
   });
   it('le statut de relève n’est plus mesuré sur cette page (aucun battement)', async () => {
     await monter('?ecran=taches');

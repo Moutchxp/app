@@ -676,7 +676,9 @@ export function GestionVue({ intro, location = false }: {
     //   reprend (avec une mesure immédiate) dès qu'on revient sur un autre écran. L'ADRESSE est lue aussi : au premier
     //   rendu, `ecran` vaut encore le défaut (la boîte) le temps que l'effet de montage la lise — sans quoi une
     //   ouverture directe de `?ecran=taches` mesurait une fois la relève pour rien.
-    if (ecran === 'taches' || lireEtatUrl(window.location.search).ecran === 'taches') return;
+    // 🔴 Arno (10/11/2026) — la pleine page Préavis n'affiche pas non plus l'état de la relève (même raison).
+    const sansReleve = (e: string): boolean => e === 'taches' || e === 'preavis';
+    if (sansReleve(ecran) || sansReleve(lireEtatUrl(window.location.search).ecran)) return;
     let vivant = true;
 
     const battre = async (): Promise<void> => {
@@ -1170,7 +1172,8 @@ export function GestionVue({ intro, location = false }: {
   const historiquePersonne = ecran === 'historique' && cibleHistorique !== null
     && (cibleHistorique.sorte === 'proprietaire' || cibleHistorique.sorte === 'locataire');
   /** 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'a plus le bloc d'en-tête (relève, alertes, copie Drive). */
-  const sansBlocEnTete = ecran === 'taches';
+  /* 🔴 Arno (10/11/2026, accord explicite) — la pleine page Préavis perd, comme la page Tâches, tout le bloc d'en-tête de la Gestion. */
+  const sansBlocEnTete = ecran === 'taches' || ecran === 'preavis';
 
   /**
    * ══ 🔴 LOT VEILLE-VIVE — LE BANDEAU JUGE SUR CE QUE LE BATTEMENT A VU ═══════════════════════════════════════════
@@ -1254,6 +1257,10 @@ export function GestionVue({ intro, location = false }: {
           avaient. Les mécanismes tournent toujours (relève automatique, copie) : on retire un affichage. Le battement
           qui ne servait qu'à ce bloc (statut de relève) ne tourne plus sur cette page, et reprend dès qu'on la quitte. */}
       {ecran === 'taches' && <style>{'.gst-page > .svv-page-head:not(.gst-titre-taches){display:none}'}</style>}
+      {/* 🔴 Arno (10/11/2026, accord explicite pour CETTE page) — pleine page Préavis : ni « Gestion » ni sa phrase, ni « Rapprochement des
+          dossiers clients » (rendus par la page serveur, d'où la feuille, même patron que la page Tâches) ; ni relève, ni ses boutons, ni ses
+          alertes (`sansBlocEnTete`). La page commence par « ← Retour à la Gestion ». Partout ailleurs, rien ne change. */}
+      {ecran === 'preavis' && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
       {ecran === 'taches' && (
         <header className="svv-page-head gst-titre-taches">
           <div className="svv-page-head-ligne"><h1 className="svv-page-title">{TITRE_PAGE_TACHES}</h1></div>
@@ -1469,7 +1476,9 @@ export function GestionVue({ intro, location = false }: {
            (filtres, pastilles, « Faites ou annulées »), avec son retour. Rien n'est copié. */
         <div className="pe pe-taches">
           <TableauTaches
-            retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button>}
+            /* 🔴 Arno (10/11/2026) — « ← Retour à la Gestion » ; la pleine page : recherche, tris, filtres cumulables, conservés. */
+            plein
+            retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })} data-retour-gestion>← Retour à la Gestion</button>}
             onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
             onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
               ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
@@ -1479,7 +1488,7 @@ export function GestionVue({ intro, location = false }: {
         /* 🔴🔴 Arno (10/11/2026) — LE MODULE « PRÉAVIS » EN PLEINE PAGE : le MÊME composant et la MÊME donnée que le bloc de la Location
            (et que celui sous les Tâches), avec tous ses tris, ses filtres et la recherche. */
         <div className="pe pe-preavis">
-          <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button></p>
+          <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })} data-retour-gestion>← Retour à la Gestion</button></p>
           <BlocPreavisAccueil gestion plein lecture="gestion" ecriture={location} />
         </div>
       ) : ecran === 'syndics' ? (
@@ -1931,7 +1940,7 @@ export function GestionVue({ intro, location = false }: {
           qui ne déplace, ne rétrécit ni ne masque rien : annuaire, boîte à gauche, événements à droite et « Échanges
           sans événement » restent exactement où ils étaient. L'adresse de chaque ligne ouvre la fiche du bien. */}
       {/* 🔴 Arno (10/11/2026, accord explicite) — replié à l'ouverture, « Tâches · N » et le repère rouge des urgentes visibles fermés. */}
-      <TableauTaches repliable onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
+      <TableauTaches repliable pleinePage={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }} onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
         /* 🔴 LOT TACHES-1-BIS — l'e-mail d'un contact de la tâche ouvre LE composeur « Nouveau message » de la boîte,
            adresse pré-remplie, comme depuis l'annuaire (même garde : rédaction prête et envoi permis). Rien ne part. */
         onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
