@@ -180,16 +180,35 @@ describe('🔴 le statut du bien sur sa fiche', () => {
     expect(changes).toBe(0);
   });
 
-  it('l’Historique : les transitions, du plus récent', async () => {
+  it('🔴 « Historique de gestion du bien » : titre, aide, phrases en clair, origine — jamais « migration 403 » ; pastilles, motif et mandat gardés', async () => {
     await act(async () => { racine.render(createElement(HistoriqueStatut, { lotId: 10 })); });
     await calmer();
-    expect(hote.querySelector('[data-historique-statut] .gst-compte')?.textContent).toBe('2');
-    await clic(hote.querySelector('[data-historique-statut] .hdb-replier'));
-    const lignes = [...hote.querySelectorAll('[data-transition-statut]')].map((l) => l.textContent);
-    expect(lignes[0]).toContain('au 20/10/2026');
-    expect(lignes[0]).toContain('En gestion → Location seule');
-    expect(lignes[0]).toContain('mandat résilié');
-    expect(lignes[1]).toContain('reprise');
+    const bloc = hote.querySelector('[data-historique-statut]')!;
+    expect(bloc.querySelector('.hdb-replier')?.textContent).toBe('▶Historique de gestion du bien2');
+    expect(bloc.querySelector('[data-aide-historique-gestion]')?.textContent).toBe('Indique depuis quand le bien est géré par l’agence. Ce statut décide notamment si les mails partent aux partenaires (ADHOC, MONGA).');
+    await clic(bloc.querySelector('.hdb-replier'));
+    const ligne = (i: number) => hote.querySelectorAll('[data-transition-statut]')[i];
+    expect(ligne(0).querySelector('[data-phrase-gestion]')?.textContent).toBe('Passé en location seule le 20/10/2026');
+    expect(ligne(0).querySelector('[data-origine-gestion]')?.textContent).toBe('par Arno');
+    expect(ligne(0).textContent).toContain('En gestion → Location seule'); // les pastilles restent
+    expect(ligne(0).textContent).toContain('mandat résilié');
+    expect(ligne(1).querySelector('[data-phrase-gestion]')?.textContent).toBe('En gestion depuis le 05/08/2025');
+    expect(ligne(1).querySelector('[data-origine-gestion]')?.textContent).toBe('date reprise des anciennes données');
+    expect(bloc.textContent).not.toMatch(/migration/i);
+    expect(bloc.textContent).not.toContain('Statut du bien : transitions');
+  });
+  it('les phrases d’Arno, et « par Prénom NOM » lu sur le compte du collaborateur', async () => {
+    const { ligneHistoriqueGestion } = await import('../../../../lib/gestion/statutBien');
+    const l = { viaLotId: null, effetLe: '2018-01-10', par: 'arno@exemple.test' };
+    expect(ligneHistoriqueGestion({ ...l, avant: null, apres: 'en_gestion', source: 'reprise', par: 'reprise (migration 403)' }))
+      .toEqual({ phrase: 'En gestion depuis le 10/01/2018', origine: 'date reprise des anciennes données' });
+    expect(ligneHistoriqueGestion({ ...l, avant: 'en_gestion', apres: 'ancienne_gestion', source: 'geste', parNom: 'Arno JOREL' }))
+      .toEqual({ phrase: 'Sorti de gestion le 10/01/2018', origine: 'par Arno JOREL' });
+    expect(ligneHistoriqueGestion({ ...l, avant: 'ancienne_gestion', apres: 'en_gestion', source: 'geste', parNom: 'Arno JOREL' }).phrase).toBe('Revenu en gestion le 10/01/2018');
+    expect(ligneHistoriqueGestion({ ...l, avant: 'location_seule', apres: 'en_gestion', source: 'geste' }).phrase).toBe('Passé en gestion le 10/01/2018');
+    expect(ligneHistoriqueGestion({ ...l, avant: null, apres: 'en_gestion', source: 'creation', par: 'création de la fiche' }).origine).toBe('à la création de la fiche');
+    // Un auteur technique n'est jamais affiché.
+    expect(ligneHistoriqueGestion({ ...l, avant: 'en_gestion', apres: 'ancienne_gestion', source: 'geste', par: 'migration 405' }).origine).toBeNull();
   });
 
   it('posé sur la fiche du bien (la même pour la Gestion et la Location), et dans son Historique', () => {

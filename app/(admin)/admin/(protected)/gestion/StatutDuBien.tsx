@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { ModaleIssue } from '../location/ModaleIssue';
 import {
-  aujourdhuiParis, LIBELLE_DESTINATION, LIBELLE_STATUT, mandatPropose, TEINTE_STATUT, type GesteStatut, type StatutBien,
+  AIDE_HISTORIQUE_GESTION, aujourdhuiParis, estTechnique, LIBELLE_DESTINATION, LIBELLE_STATUT, ligneHistoriqueGestion, mandatPropose, TEINTE_STATUT,
+  TITRE_HISTORIQUE_GESTION, type GesteStatut, type StatutBien,
 } from '../../../../lib/gestion/statutBien';
 import { LIBELLE_MANDAT, type Mandat } from '../../../../lib/location/mandatBien';
 import { texteBandeauGestionTerminee } from '../../../../lib/gestion/finGestion';
@@ -259,10 +260,15 @@ export function DossierDriveDuBien({ lotId, modifiable }: { lotId: number; modif
   );
 }
 
-/** L'Historique du bien : ses transitions de statut (journal en ajout seul de la 403), du plus récent. */
+/**
+ * L'Historique du bien : ses transitions de statut (journal en ajout seul), du plus récent.
+ * 🔴 Arno (10/11/2026) — « Historique de gestion du bien », en français clair (présentation seulement) : « En gestion depuis le … »,
+ * « Sorti de gestion le … », « Revenu en gestion le … », puis l'origine (« date reprise des anciennes données », « par Prénom NOM ») ;
+ * jamais un nom technique. Les pastilles de statut, le motif et le mandat restent, à leur place.
+ */
 export function HistoriqueStatut({ lotId }: { lotId: number }) {
   const [lignes, setLignes] = useState<{ id: number; avant: StatutBien | null; apres: StatutBien; effetLe: string; source: string; viaLotId: number | null;
-    motif: string | null; mandat: string | null; par: string; quand: string }[] | null>(null);
+    motif: string | null; mandat: string | null; par: string; quand: string; parNom?: string | null }[] | null>(null);
   const [ouvert, setOuvert] = useState(false);
   useEffect(() => {
     let vivant = true;
@@ -273,31 +279,30 @@ export function HistoriqueStatut({ lotId }: { lotId: number }) {
     return () => { vivant = false; };
   }, [lotId]);
   if (lignes === null || lignes.length === 0) return null;
-  const SOURCE: Record<string, string> = { reprise: 'reprise', creation: 'création', geste: '', annexe: 'suit son bien principal', auto: 'automatique', archivage: 'archivage automatique' };
   return (
     <section className="hdb-groupe hdb-groupe--bande" data-historique-statut>
       <style>{CSS_PASTILLE_STATUT + CSS_STATUT_DU_BIEN}</style>
       <div className="hdb-groupe-tete">
         <button type="button" className="hdb-replier" aria-expanded={ouvert} onClick={() => setOuvert((v) => !v)}>
           <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
-          Statut du bien : transitions
+          {TITRE_HISTORIQUE_GESTION}
           <span className="gst-compte">{lignes.length}</span>
         </button>
       </div>
+      <p className="sdb-muet sdb-histo-aide" data-aide-historique-gestion>{AIDE_HISTORIQUE_GESTION}</p>
       {ouvert && (
         <ul className="sdb-histo">
-          {lignes.map((l) => (
+          {lignes.map((l) => { const x = ligneHistoriqueGestion(l); return (
             <li key={l.id} data-transition-statut={l.id}>
-              <span className="sdb-histo-date">au {dateFr(l.effetLe)}</span>
+              <span className="sdb-histo-date" data-phrase-gestion>{x.phrase}</span>
+              {x.origine !== null && <span className="sdb-muet" data-origine-gestion>{x.origine}</span>}
               {l.source === 'archivage'
                 ? <span><PastilleStatut statut="ancienne_gestion" petite archive={false} /> → <PastilleStatut statut="ancienne_gestion" petite archive /></span>
                 : <span>{l.avant !== null && <><PastilleStatut statut={l.avant} petite /> → </>}<PastilleStatut statut={l.apres} petite /></span>}
-              {SOURCE[l.source] ? <span className="sdb-muet">{SOURCE[l.source]}{l.viaLotId !== null ? ` (bien ${l.viaLotId})` : ''}</span> : null}
-              {l.motif && <span className="sdb-muet">{l.motif}</span>}
+              {l.motif && !estTechnique(l.motif) && <span className="sdb-muet">{l.motif}</span>}
               {l.mandat && <span className="sdb-muet">{l.mandat}</span>}
-              <span className="sdb-muet">par {l.par}</span>
             </li>
-          ))}
+          ); })}
         </ul>
       )}
     </section>
@@ -346,6 +351,7 @@ export const CSS_STATUT_DU_BIEN = `
 .sdb-drive--a_creer,.sdb-drive--a_deplacer{padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-amber);background:var(--color-svv-amber-soft);color:var(--color-svv-ink)}
 .sdb-drive .sdb-refus{flex-basis:100%;margin:0}
 .sdb-histo{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.sdb-histo-aide{margin:2px 0 6px;font-size:.8rem;line-height:1.4;overflow-wrap:anywhere}
 .sdb-histo li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;overflow-wrap:anywhere}
 .sdb-histo-date{font-weight:700}
 `;

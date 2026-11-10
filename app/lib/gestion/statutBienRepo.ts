@@ -42,6 +42,8 @@ export async function sqlArchiveBien(alias: string): Promise<string> {
 export interface TransitionLue {
   id: number; avant: StatutBien | null; apres: StatutBien; effetLe: string; source: string; viaLotId: number | null;
   motif: string | null; mandat: string | null; par: string; quand: string;
+  /** 🔴 Arno (10/11/2026) — « Prénom NOM » du collaborateur qui a fait le geste (lu sur son compte) ; null : pas un collaborateur. */
+  parNom?: string | null;
 }
 
 export interface LectureStatut {
@@ -85,12 +87,15 @@ export async function lireStatutBien(lotId: number): Promise<LectureStatut | nul
 export async function transitionsDuBien(lotId: number): Promise<TransitionLue[]> {
   if (!(await statutBienDisponible())) return [];
   const { rows } = await query<{ id: string; avant: string | null; apres: string; effet_le: string; source: string; via_lot_id: string | null;
-    motif: string | null; mandat: string | null; auteur_libelle: string; survenu_le: string }>(
-    `SELECT id::text, avant, apres, effet_le::text, source, via_lot_id::text, motif, mandat, auteur_libelle, survenu_le::text
-       FROM gestion_bien_statut_transition WHERE lot_id = $1 ORDER BY survenu_le DESC, id DESC LIMIT 200`, [lotId]);
+    motif: string | null; mandat: string | null; auteur_libelle: string; survenu_le: string; auteur_nom: string | null }>(
+    `SELECT t.id::text, t.avant, t.apres, t.effet_le::text, t.source, t.via_lot_id::text, t.motif, t.mandat, t.auteur_libelle, t.survenu_le::text,
+            NULLIF(btrim(concat_ws(' ', btrim(u.prenom), upper(btrim(u.nom)))), '') AS auteur_nom
+       FROM gestion_bien_statut_transition t LEFT JOIN admin_utilisateur u ON u.id = t.auteur_id
+      WHERE t.lot_id = $1 ORDER BY t.survenu_le DESC, t.id DESC LIMIT 200`, [lotId]);
   const lignes: TransitionLue[] = rows.filter((t) => estStatutBien(t.apres)).map((t) => ({
     id: Number(t.id), avant: estStatutBien(t.avant) ? t.avant : null, apres: t.apres as StatutBien, effetLe: t.effet_le, source: t.source,
     viaLotId: t.via_lot_id === null ? null : Number(t.via_lot_id), motif: t.motif, mandat: t.mandat, par: t.auteur_libelle, quand: t.survenu_le,
+    parNom: t.auteur_nom ?? null,
   }));
   // Arno (21/10/2026, 405) — l'ARCHIVAGE automatique (une marque, pas un changement de statut) : sa ligne dans l'Historique.
   const { rows: a } = await query<{ id: string; quand: string; jour: string; commentaire: string | null; par: string | null }>(

@@ -142,3 +142,37 @@ export function phraseTransition(depuis: StatutBien | null, vers: StatutBien, ef
   const date = effetLe.split('-').reverse().join('/');
   return `${g?.libelle ?? 'Statut'} : ${depuis === null ? '' : `${LIBELLE_STATUT[depuis]} → `}${LIBELLE_STATUT[vers]}, au ${date}${motif ? ` — ${motif}` : ''}`;
 }
+
+// ══ 🔴 Arno (10/11/2026) — « HISTORIQUE DE GESTION DU BIEN » : chaque transition en français clair (présentation seulement) ═════════════
+
+export const TITRE_HISTORIQUE_GESTION = 'Historique de gestion du bien';
+export const AIDE_HISTORIQUE_GESTION = 'Indique depuis quand le bien est géré par l’agence. Ce statut décide notamment si les mails partent aux partenaires (ADHOC, MONGA).';
+
+/** Une ligne de l'historique, telle que la route la rend. */
+export interface TransitionAffichee {
+  avant: StatutBien | null; apres: StatutBien; effetLe: string; source: string; viaLotId: number | null; par: string; parNom?: string | null;
+}
+
+const jourFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
+/** Jamais un nom technique à l'écran (« reprise (migration 403) », « migration 405 »…). PUR. */
+export const estTechnique = (t: string | null | undefined): boolean => /migration\s*\d+/i.test(t ?? '');
+
+/**
+ * La phrase d'une transition : « En gestion depuis le 10/01/2018 », « Sorti de gestion le … », « Revenu en gestion le … », puis l'origine en
+ * clair — « date reprise des anciennes données » (reprise automatique) ou « par Prénom NOM » (geste d'un collaborateur). PUR.
+ */
+export function ligneHistoriqueGestion(l: TransitionAffichee): { phrase: string; origine: string | null } {
+  const d = jourFr(l.effetLe);
+  const phrase = l.source === 'archivage' ? `Archivé le ${d}`
+    : l.apres === 'en_gestion' ? (l.avant === null ? `En gestion depuis le ${d}` : l.avant === 'ancienne_gestion' ? `Revenu en gestion le ${d}` : `Passé en gestion le ${d}`)
+      : l.apres === 'ancienne_gestion' ? `Sorti de gestion le ${d}`
+        : l.avant === null ? `En location seule depuis le ${d}` : l.avant === 'en_gestion' ? `Passé en location seule le ${d}` : `Remis en location seule le ${d}`;
+  const nom = (l.parNom ?? '').trim();
+  const qui = nom !== '' ? nom : estTechnique(l.par) || l.par.trim() === '' || l.par === '—' ? null : l.par.trim();
+  const origine = l.source === 'reprise' ? 'date reprise des anciennes données'
+    : l.source === 'creation' ? 'à la création de la fiche'
+      : l.source === 'annexe' ? `suit son bien principal${l.viaLotId !== null ? ` (bien ${l.viaLotId})` : ''}`
+        : l.source === 'auto' || l.source === 'archivage' ? 'automatiquement'
+          : qui === null ? null : `par ${qui}`;
+  return { phrase, origine };
+}
