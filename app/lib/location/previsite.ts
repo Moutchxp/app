@@ -90,6 +90,11 @@ export function pastillesPrevisite(statuts: readonly StatutPrevisite[]): { statu
     .filter((p) => p.statut !== 'alerte' || p.nombre > 0);
 }
 
+/** 🔴 Arno (10/11/2026) — la pastille du menu de la Gestion : le nombre EXACT de préavis en alerte (0 : pas de pastille). PUR. */
+export function compterPreavisEnAlerte(lignes: readonly { previsite?: { statut: StatutPrevisite } | null }[]): number {
+  return lignes.filter((l) => l.previsite?.statut === 'alerte').length;
+}
+
 /** Le statut de la réponse d'un collègue invité (le module de tâches). */
 export type ReponseCollegue = 'en_attente' | 'acceptee' | 'refusee';
 

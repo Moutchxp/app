@@ -33,7 +33,7 @@ export default async function GestionPage() {
           Rapprochement des dossiers clients
         </a>
       ) : undefined} />
-      {autorise ? <GestionVue intro={INTRO_GESTION} /> : (
+      {autorise ? <GestionVue intro={INTRO_GESTION} location={session?.perms.location === true} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux comptes disposant du droit « Gestion ».
         </div>

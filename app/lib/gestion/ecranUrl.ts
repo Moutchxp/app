@@ -34,7 +34,8 @@
  */
 // LOT ANNUAIRE-SYNDICS — `syndics` : l'écran « Syndics », sous « Événements » dans la colonne de gauche.
 /** 🔴 LOT GESTION-TACHES-PAGE — `taches` : la page pleine du module Tâches (même composant que l'écran partagé). */
-export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier' | 'historique' | 'syndics' | 'taches';
+/** 🔴 Arno (10/11/2026) — `preavis` : le module Préavis en pleine page (même composant que le bloc de la Location). */
+export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier' | 'historique' | 'syndics' | 'taches' | 'preavis';
 
 /**
  * Les étiquettes de la boîte. `carte` est la seule à porter un identifiant : les autres sont des vues fixes.
@@ -421,7 +422,7 @@ export const ETAT_ACCUEIL_GESTION: EtatEcranUrl = {
 export const URL_ACCUEIL_GESTION = `/admin/gestion${ecrireEtatUrl(ETAT_ACCUEIL_GESTION)}`;
 
 
-const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique', 'syndics', 'taches'];
+const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique', 'syndics', 'taches', 'preavis'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons', 'spam',
   // 🔴🔴 LOT DOSSIER-A-CLASSER — le dossier des mails qui portent la pastille rouge. Voir l'encadré de la sorte :

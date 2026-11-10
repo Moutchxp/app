@@ -32,6 +32,8 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'location/locataire/[id]': [FICHE, { fichier: `${L}/locataire/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' },
     { fichier: `${L}/SortieLocataires.tsx`, lien: '<a href="/admin/location/locataires">← Ajouter ou supprimer un locataire</a>' }],
   'location/syndic/[id]': [RETOUR_LOCATION, { fichier: `${L}/syndic/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
+  // 🔴 Arno (10/11/2026) — le module « Préavis » en pleine page.
+  'location/preavis': [RETOUR_LOCATION, { fichier: `${L}/preavis/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   'location/clients': [{ fichier: `${L}/ClientsEtBiens.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
   'location/honoraires': [{ fichier: `${L}/honoraires/HonorairesGestion.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
   'location/locataires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location">← Location</a>' }],

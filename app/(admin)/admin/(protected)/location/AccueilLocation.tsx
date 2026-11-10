@@ -150,7 +150,8 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
       {/* Arno (18/10/2026) : le bloc « Locataires en préavis », séparé des cases par EXACTEMENT le même espace que celui qui
           sépare la barre de recherche des cases — le MÊME espace réservé (mêmes classes), entre les mêmes écarts de page. */}
       <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-preavis />
-      <BlocPreavisAccueil gestion={gestion} />
+      {/* 🔴 Arno (10/11/2026) — le lien « Ouvrir en pleine page » (module Préavis). */}
+      <BlocPreavisAccueil gestion={gestion} pleinePage="/admin/location/preavis" />
 
       {/* Arno (21/10/2026, 403) — « CLIENTS ET BIENS » : une entrée de plus, APRÈS ce qui existait (rien ne bouge au-dessus). */}
       <a className="loc-case loc-case--clients" href="/admin/location/clients" data-case="/admin/location/clients">

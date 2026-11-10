@@ -1,8 +1,8 @@
 'use client';
 
 import { ListeChoix } from './ListeChoix';
-import { useEffect, useMemo, useState } from 'react';
-import { EtatLecture, envoyer, useLecture } from './commun';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
 import { EncartDuLogement, MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
 import { aujourdhuiParisEcran, CSS_PREAVIS, MentionPreavis } from './Preavis';
@@ -17,6 +17,8 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import type { StatutPrevisite } from '../../../../lib/location/previsite';
 import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, PastillesPrevisite } from './PrevisiteAccueil';
+import { signalerPreavis, useRafraichissementPreavis } from './preavisSynchro';
+import { chercherPreavis } from '../../../../lib/location/preavis';
 
 /**
  * ══ 🔴🔴 ACCUEIL LOCATION — LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 18/10/2026) ═════════════════════════════════════════
@@ -39,37 +41,59 @@ import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, Pas
  */
 
 export const CLE_TRI = 'svav.location.preavis.tri';
+/** 🔴 Arno (10/11/2026) — le tri de la PLEINE PAGE, conservé à part (préférence locale) : retrouvé quand on revient sur la page. */
+export const CLE_TRI_PLEINE_PAGE = 'svav.location.preavis.tri.plein';
 
-function lireTriMemorise(): TriPreavis {
-  try { return lireTri(window.localStorage.getItem(CLE_TRI)); } catch { return TRI_DEFAUT; }
+function lireTriMemorise(cle: string = CLE_TRI): TriPreavis {
+  try { return lireTri(window.localStorage.getItem(cle)); } catch { return TRI_DEFAUT; }
 }
-function memoriserTri(t: TriPreavis): void {
-  try { window.localStorage.setItem(CLE_TRI, `${t.cle}:${t.sens}`); } catch { /* préférence d'affichage seulement : l'écran marche sans */ }
+function memoriserTri(t: TriPreavis, cle: string = CLE_TRI): void {
+  try { window.localStorage.setItem(cle, `${t.cle}:${t.sens}`); } catch { /* préférence d'affichage seulement : l'écran marche sans */ }
 }
 
 interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: boolean; lignes: LignePreavisAccueil[];
   /** 🔴 Arno (10/11/2026) — la pré-visite est-elle installée (migration 464) ? */
   previsite?: boolean }
 
-export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
+/**
+ * ══ 🔴🔴 Arno (10/11/2026) — LE MÊME BLOC DANS LA GESTION, ET EN PLEINE PAGE ══════════════════════════════════════════════════════════
+ * Le bloc est rendu tel quel sous les Tâches de la Gestion, et en pleine page (Location `/admin/location/preavis`, Gestion
+ * `?ecran=preavis`) : MÊME composant, MÊME source (`preavisEnCours`). Il se relit toutes les 30 s, au retour sur l'onglet et aussitôt après
+ * chaque geste (signalé à toute la page : l'autre bloc, la pastille du menu). `plein` : tous les tris dans les deux sens (réception, fin,
+ * pré-visite, état des lieux, statut), la recherche par nom ou adresse ; le tri choisi est conservé. `pleinePage` : le lien « Ouvrir en
+ * pleine page » (une adresse, ou un geste de l'écran qui l'accueille).
+ */
+export function BlocPreavisAccueil({ gestion, plein = false, pleinePage }: {
+  gestion: boolean; plein?: boolean; pleinePage?: string | (() => void);
+}) {
   const [version, setVersion] = useState(0);
   const lu = useLecture<Donnees>(`preavisEnCours=1&v=${version}`);
+  // Relecture DOUCE (mêmes paramètres : l'affichage reste en place, une ligne dépliée et une fenêtre ouverte aussi).
+  const relireRef = useRef(lu.rafraichir);
+  relireRef.current = lu.rafraichir;
+  const relire = useCallback(() => relireRef.current(), []);
+  useRafraichissementPreavis(relire);
+  /** Après un geste : relire ici, et le dire au reste de la page (l'autre bloc, la pastille du menu). */
+  const apresGeste = (): void => { setVersion((v) => v + 1); signalerPreavis(); };
+  const cleTri = plein ? CLE_TRI_PLEINE_PAGE : CLE_TRI;
   const [tri, setTri] = useState<TriPreavis>(TRI_DEFAUT);
+  const [recherche, setRecherche] = useState('');
   // La préférence locale est lue APRÈS le montage : le rendu serveur et le premier rendu client restent identiques.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setTri(lireTriMemorise()); }, []);
+  useEffect(() => { setTri(lireTriMemorise(cleTri)); }, [cleTri]);
   const [ouverte, setOuverte] = useState<string | null>(null);
   const [bilan, setBilan] = useState<string | null>(null);
   // L'EDLS que l'on vient de planifier, montré AUSSITÔT, en attendant la relecture du serveur (qui le remplace).
   const [locaux, setLocaux] = useState<Record<string, EdlsAffiche>>({});
-  const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t); };
+  const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); };
   // 🔴 Arno (10/11/2026) — le filtre des pastilles de statut de pré-visite (vide : tous).
   const [filtre, setFiltre] = useState<Set<StatutPrevisite>>(new Set());
   const d = lu.etat.etat === 'ok' ? lu.etat.data : null;
   // Une réponse inattendue (serveur plus ancien que l'écran) ne fait jamais tomber l'accueil : on n'affiche que ce qui est lisible.
   const toutes = d === null || !Array.isArray(d.lignes) ? []
     : trierPreavis(d.lignes.map((x) => (locaux[x.cle] ? { ...x, edls: locaux[x.cle], etatDesLieuxLe: locaux[x.cle].jour } : x)), tri);
-  const lignes = filtre.size === 0 ? toutes : toutes.filter((x) => x.previsite && filtre.has(x.previsite.statut));
+  const filtrees = filtre.size === 0 ? toutes : toutes.filter((x) => x.previsite && filtre.has(x.previsite.statut));
+  const lignes = plein ? chercherPreavis(filtrees, recherche) : filtrees;
   // 🔴 Arno (10/11/2026) — `?previsite=<occupation>` (lien des mails d'alerte et d'invitation au compte rendu) : la ligne s'ouvre, dépliée.
   const [cible, setCible] = useState<number | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -91,13 +115,33 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
   );
   return (
     <section className="pva" aria-label="Locataires en préavis" data-bloc-preavis>
-      <style>{CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE}</style>
-      <h2 className="pva-titre">Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></h2>
+      {/* Les styles de la Location viennent AVEC le bloc : il s'affiche à l'identique sous les Tâches de la Gestion et en pleine page. */}
+      <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE}</style>
+      <div className="pva-entete">
+        <h2 className="pva-titre">Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></h2>
+        {/* 🔴 Arno (10/11/2026) — « Ouvrir en pleine page » (bloc de la Location, bloc sous les Tâches de la Gestion). */}
+        {!plein && pleinePage !== undefined && (typeof pleinePage === 'string'
+          ? <a className="pva-plein" href={pleinePage} data-pleine-page-preavis>Ouvrir en pleine page</a>
+          : <button type="button" className="pva-plein" onClick={pleinePage} data-pleine-page-preavis>Ouvrir en pleine page</button>)}
+      </div>
       {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : !d!.disponible ? (
         <p className="loc-muet" data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>
       ) : (
         <>
+          {plein && (
+            <label className="pva-recherche">
+              <span className="pva-tri-libelle">Rechercher</span>
+              <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="ex. Dupont, ou 12 rue des Lilas" data-recherche-preavis />
+            </label>
+          )}
           <div className="pva-tris" role="group" aria-label="Trier les préavis">
+            {plein && (
+              <div className="pva-tri" role="group" aria-label="Réception du préavis">
+                <span className="pva-tri-libelle">Réception du préavis</span>
+                {segment({ cle: 'recu', sens: 'asc' }, 'Plus ancienne d’abord')}
+                {segment({ cle: 'recu', sens: 'desc' }, 'Plus récente d’abord')}
+              </div>
+            )}
             <div className="pva-tri" role="group" aria-label="Fin de préavis">
               <span className="pva-tri-libelle">Fin de préavis</span>
               {segment({ cle: 'fin', sens: 'asc' }, 'Plus proche d’abord')}
@@ -150,12 +194,12 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
                     </div>
                     {estOuverte && (
                       <LigneDepliee l={l} gestion={gestion} edlDisponible={d!.etatDesLieux} planification={d!.planification === true}
-                        apres={() => setVersion((v) => v + 1)}
-                        edlsPose={(e) => { setLocaux((m) => ({ ...m, [l.cle]: e })); lu.rafraichir(); }}
+                        apres={apresGeste}
+                        edlsPose={(e) => { setLocaux((m) => ({ ...m, [l.cle]: e })); lu.rafraichir(); signalerPreavis(); }}
                         sortieFaite={(f) => {
                           setOuverte(null);
                           setBilan(`${f.geste === 'sortie' ? 'Sortie enregistrée' : 'Préavis enregistré'} — ${f.noms.join(', ')}. ${f.phrase}${f.avecMails ? '' : ' Aucun mail n’a été envoyé.'}`);
-                          setVersion((v) => v + 1);
+                          apresGeste();
                         }} />
                     )}
                   </li>
@@ -417,6 +461,10 @@ function SortieDuPreavis({ l, onAnnuler, onFait }: { l: LignePreavisAccueil; onA
 export const CSS_PREAVIS_ACCUEIL = `
 .pva{display:flex;flex-direction:column;gap:12px;min-width:0}
 .pva-titre{margin:0;font-size:1.15rem;font-weight:800;display:flex;align-items:center;gap:8px}
+.pva-entete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.pva-plein{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;border:0;background:none;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
+.pva-recherche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.pva-recherche input{min-height:44px;box-sizing:border-box;flex:1 1 260px;max-width:480px;padding:0 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;font:inherit}
 .pva-tris{display:flex;flex-wrap:wrap;gap:10px 18px}
 .pva-tri{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .pva-tri-libelle{font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}

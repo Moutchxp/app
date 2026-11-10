@@ -99,7 +99,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onTaches, tachesDuJour = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onTaches, tachesDuJour = 0, onPreavis, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -185,6 +185,10 @@ export function PleinEcranBoite({
   onTaches?: () => void;
   /** Les tâches prévues AUJOURD'HUI, ni faites ni annulées (pastille rouge ; rien à 0). */
   tachesDuJour?: number;
+  /** 🔴 Arno (10/11/2026) — « Préavis » (entre « Tâches » et « Syndics ») : le module en pleine page ; absent : pas d'entrée. */
+  onPreavis?: () => void;
+  /** Le nombre de préavis EN ALERTE (pastille rouge ; aucune à 0). */
+  preavisEnAlerte?: number;
   onAnnuaire?: () => void;
   /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
   etatDiscret?: readonly string[] | null;
@@ -1020,6 +1024,22 @@ export function PleinEcranBoite({
                   {tachesDuJour > 0 && (
                     <span className="cm-pastille-jour" data-pastille-taches aria-label={`${tachesDuJour} tâche${tachesDuJour > 1 ? 's' : ''} aujourd’hui`}>
                       {tachesDuJour}
+                    </span>
+                  )}
+                </button>
+              </li>
+            )}
+            {/* 🔴 Arno (10/11/2026) — « Préavis », ENTRE « Tâches » et « Syndics », même style : le module Préavis en pleine page ;
+                pastille rouge ronde, chiffre blanc : le nombre de préavis EN ALERTE ; aucune à 0. Une entrée AJOUTÉE. */}
+            {onPreavis && (
+              <li>
+                <button type="button" className="cm-entree" data-raccourci="preavis"
+                  onClick={() => { onPreavis(); setPanneauMobile('contenu'); }}
+                  title="Les locataires en préavis, en pleine page">
+                  <span className="cm-nom"><span className="cm-texte">Préavis</span></span>
+                  {preavisEnAlerte > 0 && (
+                    <span className="cm-pastille-jour" data-pastille-preavis aria-label={`${preavisEnAlerte} préavis en alerte`}>
+                      {preavisEnAlerte}
                     </span>
                   )}
                 </button>

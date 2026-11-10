@@ -31,6 +31,8 @@ import { CarteVive } from './CarteVive';
 import { TableauBordEvenements } from './TableauBordEvenements';
 /* 🔴🔴 LOT TACHES-1 — le récapitulatif général des tâches, tout en bas de l'écran partagé. */
 import { TableauTaches } from './TableauTaches';
+import { BlocPreavisAccueil } from '../location/PreavisAccueil';
+import { usePreavisEnAlerte } from '../location/preavisSynchro';
 /* 🔴 LOT GESTION-TACHES-PAGE — la pastille du raccourci « Tâches » : les tâches d'aujourd'hui, ni faites ni annulées. */
 import { ecouterTaches, lireTaches } from './tachesClient';
 import { compterTachesDuJour, type Tache } from '../../../../lib/gestion/taches';
@@ -123,13 +125,19 @@ type Chargement = { etat: 'charge' } | { etat: 'ok'; data: EtatEcran } | { etat:
  * à quelqu'un d'autre. On empile une entrée d'historique quand l'écran CHANGE, on remplace sinon — sans quoi trois
  * clics sur la même étiquette demanderaient trois « Précédent ».
  */
-export function GestionVue({ intro }: {
+export function GestionVue({ intro, location = false }: {
   /**
    * LOT 5-GMAIL — la phrase de description du module. En plein écran, l'en-tête de la page est COMPACTÉ sur une
    * ligne : la phrase passe alors dans une info-bulle CLIQUABLE (jamais au survol seul). Elle vient de la page, qui
    * la donne aussi à `EnTetePage` — une seule phrase, deux endroits, aucune divergence possible.
    */
   intro?: string;
+  /**
+   * 🔴 Arno (10/11/2026) — le compte a-t-il le droit « Location » (un administrateur a tout) ? Le bloc « Locataires en préavis », l'entrée
+   * « Préavis » du menu et sa pleine page lisent la donnée de la Location, par la route de la Location (droit relu en base) : sans ce droit,
+   * ils ne sont pas rendus (choix provisoire, soumis à Arno).
+   */
+  location?: boolean;
 }) {
   const [vue, setVue] = useState<Chargement>({ etat: 'charge' });
   // Instant de référence des « il y a … », figé au rendu et rafraîchi avec les données. JAMAIS calculé pendant le rendu
@@ -660,6 +668,8 @@ export function GestionVue({ intro }: {
     return () => { vivant = false; lacher(); window.clearInterval(t); };
   }, []);
   const tachesDuJour = compterTachesDuJour(tachesLues, minute);
+  // 🔴 Arno (10/11/2026) — la pastille « Préavis » du menu : les préavis EN ALERTE, relus comme le bloc (30 s, retour sur l'onglet, après un geste).
+  const preavisEnAlerte = usePreavisEnAlerte(location);
 
   useEffect(() => {
     // 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'affiche plus l'état de la relève : pas de battement ici. Il
@@ -1465,6 +1475,14 @@ export function GestionVue({ intro }: {
               ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
               : undefined} />
         </div>
+      ) : ecran === 'preavis' ? (
+        /* 🔴🔴 Arno (10/11/2026) — LE MODULE « PRÉAVIS » EN PLEINE PAGE : le MÊME composant et la MÊME donnée que le bloc de la Location
+           (et que celui sous les Tâches), avec tous ses tris, ses filtres et la recherche. */
+        <div className="pe pe-preavis">
+          <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button></p>
+          {location ? <BlocPreavisAccueil gestion plein />
+            : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Les préavis sont ceux de la Location : ils demandent aussi le droit « Location ».</div>}
+        </div>
       ) : ecran === 'syndics' ? (
         /* 🔴🔴 LOT ANNUAIRE-SYNDICS — L'ÉCRAN « SYNDICS ». Le composant ne sait rien de cet écran : il reçoit son
            retour et le composeur, et la future tuile Location le posera tel quel. */
@@ -1640,6 +1658,9 @@ export function GestionVue({ intro }: {
           /* 🔴 LOT GESTION-TACHES-PAGE — « Tâches », entre « Événements » et « Syndics » ; la page pleine du module. */
           onTaches={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }}
           tachesDuJour={tachesDuJour}
+          /* 🔴 Arno (10/11/2026) — « Préavis », entre « Tâches » et « Syndics » ; sa pastille : les préavis en alerte. */
+          onPreavis={location ? () => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); } : undefined}
+          preavisEnAlerte={preavisEnAlerte}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
@@ -1916,6 +1937,13 @@ export function GestionVue({ intro }: {
         onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
           ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
           : undefined} />
+      {/* 🔴🔴 Arno (10/11/2026) — SOUS LES TÂCHES : le bloc « Locataires en préavis » de la Location — le MÊME composant, la MÊME donnée
+          (une action d'un côté se voit de l'autre), avec « Ouvrir en pleine page ». Rien n'est déplacé : il s'ajoute en dessous. */}
+      {location && (
+        <div className="gst-preavis" data-bloc-preavis-gestion>
+          <BlocPreavisAccueil gestion pleinePage={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); }} />
+        </div>
+      )}
       </>
       )}
     </>

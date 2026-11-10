@@ -170,8 +170,8 @@ export interface LignePreavisAccueil {
   previsite?: PrevisiteAffiche | null;
 }
 
-/** 🔴 Arno (10/11/2026) — + le statut de pré-visite (ordre d'Arno) et la date du rendez-vous de pré-visite. */
-export type CleTri = 'fin' | 'edl' | 'statut' | 'previsite';
+/** 🔴 Arno (10/11/2026) — + le statut de pré-visite (ordre d'Arno), la date du rendez-vous de pré-visite et la date de réception (pleine page). */
+export type CleTri = 'fin' | 'edl' | 'statut' | 'previsite' | 'recu';
 const ORDRE_STATUT_PREVISITE = ['alerte', 'recu', 'programmee', 'effectuee', 'refusee'];
 export type SensTri = 'asc' | 'desc';
 export interface TriPreavis { cle: CleTri; sens: SensTri }
@@ -183,6 +183,7 @@ export function trierPreavis(lignes: readonly LignePreavisAccueil[], tri: TriPre
   const val = (l: LignePreavisAccueil): string | null => {
     if (tri.cle === 'fin') return l.dateMax;
     if (tri.cle === 'edl') return l.etatDesLieuxLe;
+    if (tri.cle === 'recu') return l.recuLe;
     if (tri.cle === 'statut') return l.previsite ? String(ORDRE_STATUT_PREVISITE.indexOf(l.previsite.statut)) : null;
     return l.previsite?.rdv ? `${l.previsite.rdv.jour} ${l.previsite.rdv.heure}` : null;
   };
@@ -200,5 +201,13 @@ export function trierPreavis(lignes: readonly LignePreavisAccueil[], tri: TriPre
 export function lireTri(brut: string | null): TriPreavis {
   if (brut === null) return TRI_DEFAUT;
   const [cle, sens] = brut.split(':');
-  return (cle === 'fin' || cle === 'edl' || cle === 'statut' || cle === 'previsite') && (sens === 'asc' || sens === 'desc') ? { cle, sens } : TRI_DEFAUT;
+  return (cle === 'fin' || cle === 'edl' || cle === 'statut' || cle === 'previsite' || cle === 'recu') && (sens === 'asc' || sens === 'desc') ? { cle, sens } : TRI_DEFAUT;
+}
+
+/** 🔴 Arno (10/11/2026) — la recherche de la pleine page : nom d'un locataire ou adresse, sans accents ni casse. PUR. */
+export function chercherPreavis(lignes: readonly LignePreavisAccueil[], texte: string): LignePreavisAccueil[] {
+  const plat = (s: string): string => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const t = plat(texte ?? '');
+  if (t === '') return [...lignes];
+  return lignes.filter((l) => plat(`${l.locataires.map((x) => x.nom).join(' ')} ${l.adresse ?? ''}`).includes(t));
 }
