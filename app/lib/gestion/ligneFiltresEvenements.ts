@@ -26,6 +26,7 @@
  */
 
 import type { CarteEvenement } from './fileRepo';
+import { CLE_FILTRE_ETAPES_A_VALIDER, MOT_FILTRE_ETAPES_A_VALIDER } from './etapesAValider';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LES CLÉS — l'alphabet que l'adresse écrit, et que les deux écrans lisent
@@ -58,6 +59,8 @@ export const INTERRUPTEURS: readonly { cle: string; mot: string }[] = [
   { cle: 'devis-attente', mot: 'Devis en attente' },
   { cle: 'sans-nouvelles', mot: 'Sans nouvelles > 15 j' },
   { cle: 'infos-manquantes', mot: 'Infos manquantes' },
+  /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — un AJOUT : les événements où une étape Monga attend ✓/✗. */
+  { cle: CLE_FILTRE_ETAPES_A_VALIDER, mot: MOT_FILTRE_ETAPES_A_VALIDER },
 ];
 
 /** Les trois tris de la ligne. `null` = aucun, c'est-à-dire l'ordre que « New »/« Urgent » donnent déjà. */

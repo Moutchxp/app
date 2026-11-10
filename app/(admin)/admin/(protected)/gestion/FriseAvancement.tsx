@@ -576,10 +576,24 @@ export function FriseAvancement({
     if (retraitCloturerait(bornesAffichees, lues?.ouvertLe ?? null, id)) { setClotureEnAttente({ sorte: 'retirer', id }); return; }
     void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE');
   };
+  /**
+   * ══ 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — ✗ DEMANDE D'ABORD, ET ✓ / ✗ PRÉVIENNENT TOUT L'ÉCRAN ══════
+   *
+   * « ✗ Refuser : d'abord une fenêtre de confirmation […] avec “Annuler” et “Effacer l'étape”. » Annuler : rien ne part.
+   * Et le geste passe par `signalFrise` (`signaler = true`) : cette frise se relit, toute autre frise du même événement aussi,
+   * et la liste des événements (GestionVue) relit ses vignettes — l'encadré rouge s'éteint sans recharger la page.
+   */
+  const [refusEnAttente, setRefusEnAttente] = useState<number | null>(null);
   const trancherCarte = (id: number, g: 'confirmer' | 'ecarter'): void => {
     const carte = (lues?.etapes ?? []).find((x) => x.id === id);
     if (g === 'confirmer' && carte?.type === 'cloture') { setClotureEnAttente({ sorte: 'confirmer', id }); return; }
-    void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g });
+    if (g === 'ecarter') { setRefusEnAttente(id); return; }
+    void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: g }, true);
+  };
+  const refuserEnAttente = (): void => {
+    const id = refusEnAttente;
+    setRefusEnAttente(null);
+    if (id !== null) void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'ecarter' }, true);
   };
   const cloturerEnAttente = (): void => {
     const c = clotureEnAttente;
@@ -588,7 +602,7 @@ export function FriseAvancement({
     if (c.sorte === 'retirer') void agir(`/api/admin/gestion/etapes/${c.id}`, 'DELETE');
     else if (c.sorte === 'retirer-correction') void agir(urlCorrection(c.id), 'PATCH', { geste: 'retirer' }, true);
     else if (c.sorte === 'remettre') void agir(urlCorrection(c.id), 'PATCH', { geste: 'remettre' }, true);
-    else void agir(`/api/admin/gestion/etapes/${c.id}`, 'PATCH', { geste: 'confirmer' });
+    else void agir(`/api/admin/gestion/etapes/${c.id}`, 'PATCH', { geste: 'confirmer' }, true);
   };
   /**
    * ══ 🔴🔴 LOT FRISE-CORRECTION-MANUELLE — LES GESTES DU PANNEAU, DE LA LISTE DES RETIRÉS ET DES INTERVENTIONS ══════════
@@ -711,6 +725,13 @@ export function FriseAvancement({
           actions={[
             { libelle: 'Annuler', onClick: () => setClotureEnAttente(null), repere: 'annuler-carte-borne' },
             { libelle: questionCloture.valider, onClick: cloturerEnAttente, principal: true, repere: 'confirmer-carte-borne' },
+          ]} />
+      )}
+      {refusEnAttente !== null && (
+        <ModaleIssue sorte="attention" titre={TITRE_REFUS_ETAPE} onFermer={() => setRefusEnAttente(null)} notes={[QUESTION_REFUS_ETAPE]}
+          actions={[
+            { libelle: 'Annuler', onClick: () => setRefusEnAttente(null), repere: 'annuler-refus-etape' },
+            { libelle: 'Effacer l’étape', onClick: refuserEnAttente, principal: true, repere: 'confirmer-refus-etape' },
           ]} />
       )}
       {tacheOuverte !== null && (
@@ -1231,6 +1252,10 @@ function Point({
   );
 }
 
+/** 🔴 LOT GESTION-VALIDATION-MONGA — la fenêtre de refus, mot pour mot (Arno, 10/11/2026). */
+export const TITRE_REFUS_ETAPE = 'Effacer cette étape ?';
+export const QUESTION_REFUS_ETAPE = 'Cette étape sera effacée de la frise chronologique de l’événement. Confirmer ?';
+
 /* ── UN CARRÉ : une vraie étape ────────────────────────────────────────────────────────────────────────────── */
 
 function Carre({
@@ -1527,9 +1552,9 @@ function Carre({
         {/* 🔴 LES DEUX PETITS BOUTONS D'UNE ÉTAPE « À CONFIRMER » (Arno : « confirmer ✓ / écarter ✕ »). */}
         {aConfirmer && !lectureCarre && (
           <span className="fav-doute">
-            <button type="button" className="fav-mini" disabled={occupe} title="Confirmer cette étape"
+            <button type="button" className="fav-mini" disabled={occupe} title="Confirmer cette étape" data-valider-etape=""
               onClick={() => onConfirmer(e.id, 'confirmer')}>✓<span className="fav-sr"> confirmer</span></button>
-            <button type="button" className="fav-mini" disabled={occupe} title="Écarter cette étape"
+            <button type="button" className="fav-mini" disabled={occupe} title="Écarter cette étape" data-refuser-etape=""
               onClick={() => onConfirmer(e.id, 'ecarter')}>✕<span className="fav-sr"> écarter</span></button>
           </span>
         )}
@@ -2621,7 +2646,9 @@ const CSS_FRISE_AVANCEMENT = `
   border-radius:10px;border:2px solid var(--color-svv-red);background:var(--color-svv-bg)}
 /* 🔴 UNE CARTE QUI EST DANS LA FRISE : contour VERT (Arno, points 2 et 5), quelle que soit son origine. */
 .fav-carre--dans{border-color:var(--color-svv-green);background:var(--color-svv-field)}
-.fav-carre--doute{border-color:var(--color-svv-amber);border-style:solid}
+/* LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) : une etape Monga en attente de validation a un contour ROUGE (plus l'ambre
+   d'avant), et ses deux boutons ; validee, elle reprend la couleur de son type (vert pour une carte ordinaire). */
+.fav-carre--doute{border-color:var(--color-svv-red);border-style:solid}
 /* ══ 🔴🔴 LOT CLOTURE-REOUVERTURE, POINT 4 — LA REOUVERTURE EST LA SEULE CARTE ROUGE DE LA FRISE ══════════════
    ARNO : « Sur la frise, la carte “Reouverture” est la SEULE a contour ROUGE. Toutes les autres cartes posees
    (y compris Cloture) gardent leur contour VERT. Dans la grille “Ajouter une carte”, le bouton “Reouverture” a
@@ -2685,7 +2712,7 @@ const CSS_FRISE_AVANCEMENT = `
    sans couleur, et elle ne masque pas la bordure d'etat (verte, ambre) qui reste visible juste a cote. */
 .fav-carre:hover,.fav-carre:focus-within{box-shadow:0 0 0 1px currentColor inset}
 .fav-carre--dans:hover,.fav-carre--dans:focus-within{border-color:var(--color-svv-green-ink)}
-.fav-carre--doute:hover,.fav-carre--doute:focus-within{border-color:var(--color-svv-amber)}
+.fav-carre--doute:hover,.fav-carre--doute:focus-within{border-color:var(--color-svv-red)}
 /* ⚠️ LE SURVOL DES CARTES DE CE LOT PASSE ENCORE APRES, pour la meme raison d'ordre : sans cela, le survol de
    « --dans » repeindrait en vert le contour rouge d'une Ouverture des qu'on passe la souris dessus.
    🔴 LE FILET INTERNE EN currentColor (regle .fav-carre:hover, au-dessus) sert les deux : sur la carte verte

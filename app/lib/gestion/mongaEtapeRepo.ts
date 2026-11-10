@@ -13,7 +13,7 @@
 
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import {
-  etapesDuMailMonga, ouvertureDeRepli, rangsDesDevis,
+  certitudeALaCreation, etapesDuMailMonga, ouvertureDeRepli, rangsDesDevis,
   type Certitude, type TypeEtape,
 } from './mongaEtape';
 import { sqlJamaisDansLeFutur } from './ouvertureEvenement';
@@ -143,7 +143,8 @@ export async function enregistrerEtapesDuMail(m: {
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [m.reference, e.type, survenu, e.heure !== null, e.heure?.a ?? null,
-        e.numero, e.rang, e.texte, e.auteur, m.messageId, m.messageCle, e.certitude],
+        /* 🔴 LOT GESTION-VALIDATION-MONGA — tout carré posé par un mail Monga naît « à confirmer » (Arno, 10/11/2026). */
+        e.numero, e.rang, e.texte, e.auteur, m.messageId, m.messageCle, certitudeALaCreation(e)],
     );
     ecrites += r.rowCount ?? 0;
   }
@@ -781,6 +782,49 @@ export async function etapePourRetrait(
 }
 
 /**
+ * ══ 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — TOUT REFUS (ET TOUTE VALIDATION) EST AU JOURNAL DU MODULE ══════
+ *
+ * « Conformément à la règle du module (rien n'est jamais supprimé, tout est journalisé), l'étape est retirée de la frise mais
+ * gardée et tracée dans le journal (qui, quand, quel mail Monga l'avait créée). » Mesuré en production le 10/11/2026 : les deux
+ * étapes écartées jusque-là (n° 26 et 104, GES-2026-000025) n'avaient AUCUNE ligne au journal — seule leur ligne d'étape
+ * gardait l'auteur et la date.
+ *
+ * ⚠️ LE JOURNAL N'A PAS D'ENTITÉ « ÉTAPE » (liste fermée, contrainte en base) : la ligne est écrite sur chaque ÉVÉNEMENT qui
+ * montre la carte (`evenementsDeLaCarte`) — c'est là qu'on la cherche. Une carte rattachée à aucun événement n'est sur aucune
+ * frise, donc ne peut pas être tranchée à l'écran ; si cela arrivait quand même, la ligne va sur le mail Monga d'origine.
+ * Aucune migration.
+ */
+export function motTranchage(geste: 'confirmer' | 'ecarter', e: {
+  id: number; type: string; reference: string | null; messageId: number | null; objet: string | null;
+}): string {
+  const quoi = geste === 'ecarter' ? 'refusée (effacée de la frise, conservée)' : 'validée';
+  const mail = e.messageId === null ? 'sans mail d’origine (déduite par Monga)'
+    : `créée par le mail Monga ${e.messageId}${e.objet ? ` « ${e.objet} »` : ''}`;
+  return `étape ${e.id} (${e.type}${e.reference ? `, ${e.reference}` : ''}) ${quoi} — ${mail}`;
+}
+
+async function journaliserTranchage(q: RequeteTx, id: number, geste: 'confirmer' | 'ecarter', parLibelle: string): Promise<void> {
+  const { rows } = await q<{ type: string; reference: string | null; message_id: string | null; objet: string | null }>(
+    `SELECT x.type, x.reference, x.message_id::text AS message_id, left(m.objet, 120) AS objet
+       FROM gestion_monga_etape x LEFT JOIN gestion_message m ON m.id = x.message_id WHERE x.id = $1`, [id]);
+  if (!rows[0]) return;
+  const e = { id, type: rows[0].type, reference: rows[0].reference,
+    messageId: rows[0].message_id === null ? null : Number(rows[0].message_id), objet: rows[0].objet };
+  const commentaire = motTranchage(geste, e);
+  const [avant, apres, action] = ['a_confirmer', geste === 'ecarter' ? 'ecartee' : 'confirmee',
+    geste === 'ecarter' ? 'etape_refusee' : 'etape_validee'];
+  const evts = await evenementsDeLaCarte(q, id);
+  const cibles: [string, number][] = evts.length > 0 ? evts.map((v) => ['evenement', v] as [string, number])
+    : e.messageId !== null ? [['message', e.messageId]] : [];
+  for (const [entite, entiteId] of cibles) {
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, champ, valeur_avant, valeur_apres, commentaire, auteur_libelle)
+       VALUES ($1, $2, $3, 'certitude', $4, $5, $6, $7)`,
+      [entite, entiteId, action, avant, apres, commentaire, parLibelle]);
+  }
+}
+
+/**
  * CONFIRMER OU ÉCARTER une étape « à confirmer » (Arno : deux boutons).
  *
  * ⚠️ UNE ÉTAPE ÉCARTÉE N'EST PAS SUPPRIMÉE : elle passe en `statut = 'retire'` ET `certitude = 'ecartee'`. Les
@@ -791,11 +835,16 @@ export async function trancherEtape(
   id: number, geste: 'confirmer' | 'ecarter', parLibelle: string,
 ): Promise<{ fait: boolean; etatChange: boolean; ouvertApres: boolean | null }> {
   if (geste === 'ecarter') {
-    const r = await query(
-      `UPDATE gestion_monga_etape
-          SET certitude = 'ecartee', statut = 'retire', retire_le = now(), retire_par_libelle = $2
-        WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle]);
-    return { fait: (r.rowCount ?? 0) > 0, etatChange: false, ouvertApres: null };
+    /* 🔴 LOT GESTION-VALIDATION-MONGA — l'écart et sa ligne de journal partent ensemble, ou pas du tout. */
+    return withTransaction(async (q) => {
+      const r = await q(
+        `UPDATE gestion_monga_etape
+            SET certitude = 'ecartee', statut = 'retire', retire_le = now(), retire_par_libelle = $2
+          WHERE id = $1 AND certitude = 'a_confirmer'`, [id, parLibelle]);
+      const fait = (r.rowCount ?? 0) > 0;
+      if (fait) await journaliserTranchage(q, id, 'ecarter', parLibelle);
+      return { fait, etatChange: false, ouvertApres: null };
+    });
   }
   /**
    * 🔴 Arno (23/10/2026) — CONFIRMER UNE CLÔTURE VENUE DE MONGA EST UN PASSAGE À LA CLÔTURE comme un autre : elle doit fermer la
@@ -821,6 +870,7 @@ export async function trancherEtape(
     const apres: boolean[] = [];
     for (const e of evts) apres.push(await ouvertDansLaTransaction(q, e));
     if (rows[0].type === 'cloture') for (const o of apres) exigerEffet('cloture', o);
+    await journaliserTranchage(q, id, 'confirmer', parLibelle);
     return {
       fait: true, etatChange: apres.some((o, i) => o !== avant[i]), ouvertApres: apres.length === 0 ? null : apres[0],
     };

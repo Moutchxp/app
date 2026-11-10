@@ -89,8 +89,8 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
     expect(FRISE).toContain('.fav-carre--dans{border-color:var(--color-svv-green)');
     expect(FRISE).toContain('.fav-carre--reserve');
     expect(FRISE).toMatch(/\.fav-carre--reserve\{[^}]*border-color:var\(--color-svv-red\)/);
-    /* 🔴 ET L'AMBRE RESTE CELLE DE MONGA-2 : « à confirmer », avec ses deux boutons. */
-    expect(FRISE).toContain('.fav-carre--doute{border-color:var(--color-svv-amber)');
+    /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — « à confirmer » est désormais ROUGE (plus l'ambre de MONGA-2). */
+    expect(FRISE).toContain('.fav-carre--doute{border-color:var(--color-svv-red)');
   });
 
   /**
@@ -172,9 +172,9 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    *
    * ⚠️ CHACUN PORTE SON MOT POUR LE LECTEUR D'ÉCRAN : un ✓ seul ne se lit pas.
    */
-  it('🔴 les étapes « à confirmer » portent leur bordure ambre et les deux gestes', () => {
+  it('🔴 les étapes « à confirmer » portent leur bordure ROUGE (lot GESTION-VALIDATION-MONGA) et les deux gestes', () => {
     expect(FRISE).toContain('fav-carre--doute');
-    expect(FRISE).toContain('border-color:var(--color-svv-amber)');
+    expect(FRISE).toContain('.fav-carre--doute{border-color:var(--color-svv-red)');
     expect(FRISE).toContain("onConfirmer(e.id, 'confirmer')");
     expect(FRISE).toContain("onConfirmer(e.id, 'ecarter')");
     expect(FRISE).toContain('<span className="fav-sr"> confirmer</span>');
@@ -1369,7 +1369,8 @@ describe('㉑ la vignette d’un événement', () => {
     expect(CARTE).toContain('<MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}');
     expect(VUE).toContain('.gst-mini{');
     expect(VUE).toMatch(/\.gst-mini\{[^}]*border:2px solid var\(--color-svv-green\)/);
-    expect(VUE).toContain('.gst-mini--doute{border-color:var(--color-svv-amber)}');
+    /* LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — l'attente de validation est ROUGE, plus ambre. */
+    expect(VUE).toContain('.gst-mini--doute{border-color:var(--color-svv-red)}');
     expect(CARTE).toContain('{deMonga && <span className="gst-mini-picto" aria-hidden="true"> ◆</span>}');
   });
 
@@ -2010,51 +2011,28 @@ describe('㉖ « mis à jour par Monga » : rouge, et en tête (lot EVENEMENT-MI
   });
 
   /**
-   * 🔴🔴 LA REMONTÉE EN TÊTE EST LE **MÊME CALCUL** QUE L'EFFET : « la dernière écriture de Monga est postérieure
-   * à MA dernière vue ». Un second critère aurait pu allumer la vignette sans la faire remonter, ou l'inverse.
-   */
-  it('🔴🔴 le tri remonte exactement ce que l’effet allume', () => {
-    expect(REPO_FILE).toContain('function triMongaDAbord(avecVues: boolean): string {');
-    expect(REPO_FILE).toContain(
-      'const allumee = `(mg.le IS NOT NULL AND (${vue} IS NULL OR mg.le > ${vue}))`;');
-    /* 🔴 LOT ETAT-PAR-LA-FRISE — le second critère du tri reste « les ouverts d'abord », mais « ouvert » se
-       lit sur les cartes de BORNE de la frise. Le lien entre l'effet et le tri, lui, n'a pas bougé. */
-    expect(REPO_FILE).toContain('ORDER BY ${triMongaDAbord(avecVues)}NOT ${sqlEvenementOuvertParLaFrise(\'e\')} ASC,');
-  });
-
-  /**
-   * ══ 🔴🔴 DÉFAUT MESURÉ À L'ÉCRAN : VUE, LA VIGNETTE NE REPRENAIT PAS SA PLACE ══════════════════════════════
+   * ══ 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026, accord explicite) — CE QUI REMONTE, C'EST CE QUI ATTEND ✓/✗ ═════
    *
-   * Premier jet : `mg.le DESC NULLS LAST` tout court, donc appliqué à TOUTES les vignettes. Essai — l'événement
-   * 2, remonté parce qu'allumé, Y RESTAIT après avoir été vu : son `mg.le` récent le faisait passer devant
-   * l'événement 1, qui n'a aucune référence Monga (`mg.le` nul). Arno demande l'inverse : « Une fois vue, elle
-   * reprend sa place NORMALE. »
-   *
-   * 🔴 LE `CASE` BORNE LE SECOND CRITÈRE AUX ALLUMÉES : éteinte, la date ne pèse plus rien.
+   * Avant ce lot, la remontée en tête suivait « mis à jour par Monga depuis MA dernière vue » (`triMongaDAbord`, par
+   * collaborateur). Arno : l'encadré rouge « ne s'allume que s'il reste au moins une étape à valider sur l'événement, commun
+   * à toute l'équipe, et c'est lui qui fait remonter l'événement en tête ». Le tri reste le MÊME calcul que l'encadré.
    */
-  it('🔴🔴 le second critère ne vaut qu’entre vignettes allumées', () => {
-    expect(REPO_FILE).toContain('CASE WHEN ${allumee} THEN mg.le END DESC NULLS LAST');
-    expect(REPO_FILE).not.toContain('mg.le DESC NULLS LAST,\n               `;');
+  it('🔴🔴 le tri remonte exactement ce que l’encadré allume : les étapes à valider, pour tout le monde', () => {
+    expect(REPO_FILE).not.toContain('function triMongaDAbord');
+    expect(REPO_FILE).toContain('const TRI_A_VALIDER_D_ABORD = `(${sqlNbEtapesAValider(\'e\')} > 0) DESC,');
+    expect(REPO_FILE).toContain('${sqlNbEtapesAValider(\'e\')} AS etapes_a_valider,');
+    expect(REPO_FILE).toContain('ORDER BY ${TRI_A_VALIDER_D_ABORD}NOT ${sqlEvenementOuvertParLaFrise(\'e\')} ASC,');
   });
 
-  /**
-   * ⚠️ SANS COLLABORATEUR — ou sans la migration 316 — LE CRITÈRE DISPARAÎT DE LA REQUÊTE, et la liste retrouve
-   * son ordre d'avant, exactement. Un tri par vue qui s'appliquerait sans savoir QUI lit serait un tri faux.
-   */
-  it('⚠️ sans collaborateur, le tri est celui de tout le monde', () => {
-    expect(REPO_FILE).toContain("  if (!avecVues) return '';");
+  /** 🔴 Le second critère ne départage que les événements en rouge : éteint, la date ne pèse plus rien (NULL). */
+  it('🔴🔴 le second critère ne vaut qu’entre événements en rouge', () => {
+    expect(REPO_FILE).toContain('${sqlDerniereEtapeAValiderLe(\'e\')} DESC NULLS LAST,');
   });
 
-  /**
-   * ⚠️ L'EXPLICATION VIT EN COMMENTAIRE JAVASCRIPT, PAS DANS LE LITTÉRAL SQL — et c'est une épreuve de ce
-   * fichier qui l'a imposé. Un bloc de commentaire à l'intérieur d'un gabarit n'est pas un commentaire : c'est
-   * du TEXTE, qui partait dans la requête à chaque appel.
-   */
+  /** ⚠️ Aucun pavé de commentaire dans le SQL rendu. */
   it('⚠️ aucun pavé de commentaire ne part dans le SQL', () => {
-    const i = REPO_FILE.indexOf('function triMongaDAbord');
-    const corps = REPO_FILE.slice(i, REPO_FILE.indexOf('\n}', i));
-    /* Les commentaires de ce corps sont AVANT le `return`, jamais dans la chaîne rendue. */
-    expect(corps.slice(corps.indexOf('return `'))).not.toContain('/*');
+    const i = REPO_FILE.indexOf('const TRI_A_VALIDER_D_ABORD');
+    expect(REPO_FILE.slice(i, REPO_FILE.indexOf('`;', i))).not.toContain('/*');
   });
 });
 

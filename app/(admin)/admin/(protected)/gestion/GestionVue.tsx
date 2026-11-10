@@ -13,6 +13,7 @@ import {
 import { decisionRetour, lireMemoire, memoirePour } from '../../../../lib/gestion/retourEcran';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » change le classement d'un mail : les compteurs suivent. */
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
+import { ecouterFrise } from '../../../../lib/gestion/signalFrise';
 import type { DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — de quoi relire l'état rangé derrière le jeton de retour. Le module
    est PUR : l'importer ici ne tire ni `pg` ni React. */
@@ -600,6 +601,10 @@ export function GestionVue({ intro }: {
     //   on garde ce qui est affiché. Un battement qui échoue ne doit pas vider l'écran de quelqu'un qui travaille.
     setVue((avant) => (r.etat === 'ok' || avant.etat !== 'ok' ? r : avant));
   }, [lire]);
+
+  /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — une étape validée ou refusée sur une frise (événement ouvert, fiche du
+     bien) relit les vignettes : l'encadré rouge s'éteint, et l'événement reprend sa place, sans recharger la page. */
+  useEffect(() => ecouterFrise(() => { void rafraichirDiscret(); }), [rafraichirDiscret]);
 
   // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
   const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
@@ -2580,12 +2585,13 @@ ${CSS_BOUTON_PILULE}
   display:flex;flex-direction:column;gap:1px;position:relative;
   border-radius:8px;border:2px solid var(--color-svv-green);background:var(--color-svv-field)}
 /* 🔴 AMBRE QUAND L'ETAPE EST « A CONFIRMER » — la meme regle que la frise, et le MOT est ecrit en dessous. */
-.gst-mini--doute{border-color:var(--color-svv-amber)}
+/* LOT GESTION-VALIDATION-MONGA : une etape en attente de validation est ROUGE (plus l'ambre), comme son carre de la frise. */
+.gst-mini--doute{border-color:var(--color-svv-red)}
 .gst-mini-titre{font-size:.72rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gst-mini-picto{color:var(--color-svv-red)}
 .gst-mini-date{font-size:.68rem;color:var(--color-svv-muted)}
-.gst-mini-doute{font-size:.64rem;font-style:italic;color:var(--color-svv-amber)}
+.gst-mini-doute{font-size:.64rem;font-style:italic;color:var(--color-svv-red)}
 .gst-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
 
@@ -2752,6 +2758,9 @@ ${CSS_BOUTON_PILULE}
    🔴 DEFAUT MESURE A L'ECRAN : « white-space:nowrap » etait HERITE de la vignette, et le badge se faisait
    couper — « Mis a jour par Monga · 19: », l'heure amputee (135 px de texte pour 116 de place). On le remet
    donc explicitement a « normal » : le badge tient sur deux lignes plutot que de perdre ce qu'il annonce. */
+/* LOT GESTION-VALIDATION-MONGA : la mention qui accompagne l'encadre rouge, ecrite en rouge comme lui. */
+.gst-mini-a-valider{display:block;margin-top:2px;font-size:.62rem;font-weight:700;line-height:1.2;white-space:normal;
+  color:var(--color-svv-red)}
 .gst-mini-monga{display:block;margin-top:1px;font-size:.62rem;font-weight:700;line-height:1.2;
   white-space:normal;color:var(--color-svv-red);overflow-wrap:anywhere}
 /* ⚠️ ECRAN ETROIT : la miniature passe SOUS le texte plutot que de l'etrangler. Elle reste entiere — c'est

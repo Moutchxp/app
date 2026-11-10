@@ -35,6 +35,7 @@ import {
 import type { SuiteVue } from './suiteReleve';
 import type { CopieVue } from './copieArretee';
 import { lireEtatCopie } from './copieArreteeRepo';
+import { sqlDerniereEtapeAValiderLe, sqlNbEtapesAValider } from './etapesAValider';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -111,6 +112,12 @@ export interface CarteEvenement {
    * rien — un effet sans mise à jour serait un cri sans nouvelle.
    */
   mongaMajLe: string | null;
+  /**
+   * 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — combien d'étapes Monga attendent ✓/✗ (`etapesAValider.ts`).
+   * C'est LUI qui allume l'encadré rouge et fait remonter en tête, pour toute l'équipe ; `mongaMajLe`/`vuLe` ne
+   * portent plus que le badge « Mis à jour par Monga · heure ». Facultatif : une route d'avant ce lot vaut 0.
+   */
+  etapesAValider?: number;
   /** Quand MOI, le collaborateur qui lit, j'ai vu cet événement pour la dernière fois. `null` = jamais. */
   vuLe: string | null;
   /**
@@ -381,6 +388,7 @@ interface CarteDB {
   etapem_certitude: DerniereEtapeVignette['certitude'] | null;
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière écriture de Monga, et ma dernière vue. */
   monga_maj_le: string | null; vu_le: string | null;
+  etapes_a_valider: number | null;
   monga_refs: string[] | null;
   categorie: string | null;
   /* 🔴 LOT URGENCE-EVENEMENT, POINT 1 — le degré d'urgence, qui peint la capsule de la carte. */
@@ -555,48 +563,23 @@ function sqlNouveauteDeLEvenement(
 }
 
 /**
- * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 4 — LES MISES À JOUR MONGA REMONTENT EN TÊTE ═══════════════════════════
+ * ══ 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — CE QUI REMONTE EN TÊTE : LES ÉTAPES À VALIDER ════════════════
  *
- * Arno (07/10/2026) : « Tant que l'effet est actif pour ce collaborateur, la vignette REMONTE EN PREMIÈRE
- * POSITION de la liste (plusieurs : la plus récente mise à jour d'abord). Une fois vue (clic ou fiche ouverte),
- * elle reprend sa place normale. Mêmes règles par collaborateur qu'au lot précédent. »
+ * AVANT CE LOT (lot EVENEMENT-MINIMALISTE, 07/10/2026) : remontait la vignette « mise à jour par Monga depuis MA dernière
+ * vue », par collaborateur, jusqu'à ce qu'il l'ouvre. ARNO (accord explicite pour modifier ce contrôle) : « Encadré rouge de
+ * la liste : il ne s'allume que s'il reste au moins une étape à valider sur l'événement, commun à toute l'équipe, et c'est lui
+ * qui fait remonter l'événement en tête ; il s'éteint quand plus aucune étape n'est en attente. »
  *
- * 🔴 LE TRI EST LE MÊME CALCUL QUE L'EFFET : « la dernière écriture de Monga est postérieure à MA dernière vue ».
- * Un second critère aurait pu allumer la vignette sans la faire remonter, ou l'inverse — et c'est le genre
- * d'écart qu'on ne voit qu'après l'avoir expédié.
+ * 🔴 LE TRI EST LE MÊME CALCUL QUE L'ENCADRÉ (`etapesAValider.ts`) : un second critère aurait pu allumer la vignette sans la
+ * faire remonter, ou l'inverse. Entre événements en rouge, la plus récente étape à valider d'abord ; éteint, la date ne pèse
+ * plus rien et l'ordre habituel reprend (les traités en dernier, puis ce qui attend, puis la plus ancienne attente).
  *
- * 🔴 PAR COLLABORATEUR, DONC DANS LE TRI AUSSI : la liste n'est pas dans le même ordre pour deux personnes, et
- * c'est exactement ce qu'Arno demande. Sans la migration 316 — ou appelée sans clé de collaborateur — le critère
- * DISPARAÎT de la requête, et la liste retrouve son ordre d'avant, exactement.
- *
- * ⚠️ IL PASSE AVANT « les traités en dernier » : une mise à jour Monga sur un dossier clos est justement ce
- * qu'on veut voir tout de suite — c'est peut-être une reprise.
- *
- * ⚠️ L'EXPLICATION VIT ICI, EN COMMENTAIRE JAVASCRIPT, ET NON DANS LE LITTÉRAL SQL. Un premier jet l'y avait
- * mise : un bloc `/* … *` + `/` à l'intérieur d'un gabarit n'est pas un commentaire JavaScript, c'est du TEXTE
- * — il partait dans la requête à chaque appel, et il a fait échouer l'épreuve qui lit le SQL émis. Les
- * commentaires de ce fichier qui vivent DANS le SQL sont des `--` d'une ligne, et c'est la bonne mesure.
+ * ⚠️ IL PASSE AVANT « les traités en dernier », comme le tri d'avant : une étape à valider sur un dossier clos se voit tout de
+ * suite. Le badge « Mis à jour par Monga · heure » garde, lui, sa règle par collaborateur (`mongaMajLe` / `vuLe`).
  */
-function triMongaDAbord(avecVues: boolean): string {
-  if (!avecVues) return '';
-  const vue = `(SELECT v.vu_le FROM gestion_evenement_vu v
-                 WHERE v.evenement_id = e.id AND v.compte_cle = $4)`;
-  const allumee = `(mg.le IS NOT NULL AND (${vue} IS NULL OR mg.le > ${vue}))`;
-  /**
-   * ⚠️ LE SECOND CRITÈRE NE VAUT QU'ENTRE VIGNETTES ALLUMÉES, ET C'EST UN DÉFAUT MESURÉ À L'ÉCRAN.
-   *
-   * Premier jet : `mg.le DESC NULLS LAST` tout court. Essai sur l'écran partagé — l'événement 2, remonté en tête
-   * parce qu'allumé, Y RESTAIT APRÈS AVOIR ÉTÉ VU : son `mg.le` récent le faisait passer devant l'événement 1,
-   * qui n'a aucune référence Monga reliée (`mg.le` nul). Arno demande l'inverse en toutes lettres : « Une fois
-   * vue (clic ou fiche ouverte), elle reprend sa place NORMALE. »
-   *
-   * 🔴 LE `CASE` LE BORNE AUX ALLUMÉES : éteinte, la date ne pèse plus rien, et les critères d'origine
-   * reprennent la main — les traités en dernier, puis ce qui attend, puis la plus ancienne attente.
-   */
-  return `${allumee} DESC,
-               CASE WHEN ${allumee} THEN mg.le END DESC NULLS LAST,
+const TRI_A_VALIDER_D_ABORD = `(${sqlNbEtapesAValider('e')} > 0) DESC,
+               ${sqlDerniereEtapeAValiderLe('e')} DESC NULLS LAST,
                `;
-}
 
 const SQL_DERNIERE_MAJ_MONGA = `
   LEFT JOIN LATERAL (
@@ -696,6 +679,7 @@ export async function lireEvenements(
             /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — la dernière ÉCRITURE de Monga (ajout OU modification), et ma
                dernière vue de cet événement. L'écran compare les deux, il ne lit aucun drapeau. */
             to_char(mg.le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS monga_maj_le,
+            ${sqlNbEtapesAValider('e')} AS etapes_a_valider,
             ${avecVues
     ? `to_char((SELECT v.vu_le FROM gestion_evenement_vu v
                  WHERE v.evenement_id = e.id AND v.compte_cle = $4) AT TIME ZONE 'UTC',
@@ -708,7 +692,7 @@ export async function lireEvenements(
             -- 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, et le bien avec ceux qui gravitent autour.
             -- 🔴 LOT URGENCE-EVENEMENT, POINT 1 — et le degre d'urgence, qui peint la capsule du type. Meme
             --    migration, donc meme temoin : avecCategorie. ⚠️ AUCUN ACCENT GRAVE ICI, et des -- d'une ligne :
-            --    ce commentaire vit DANS un litteral de gabarit (regle du fichier, cf. triMongaDAbord).
+            --    ce commentaire vit DANS un litteral de gabarit (regle du fichier, cf. TRI_A_VALIDER_D_ABORD).
             ${avecCategorie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
             -- 🔴 LOT FILTRES-EVENEMENTS-NEW — le statut « New » : combien de mails RECUS non lus, et le plus recent.
             coalesce(nl.nb, 0) AS nb_recus_non_lus,
@@ -734,7 +718,7 @@ export async function lireEvenements(
                nl.nb, nl.le
       /* 🔴 LOT ETAT-PAR-LA-FRISE — LES OUVERTS D'ABORD, et « ouvert » se lit sur la frise : un evenement dont
          la carte Cloture a ete retiree remonte desormais dans la file, comme il le doit. */
-      ORDER BY ${triMongaDAbord(avecVues)}NOT ${sqlEvenementOuvertParLaFrise('e')} ASC,
+      ORDER BY ${TRI_A_VALIDER_D_ABORD}NOT ${sqlEvenementOuvertParLaFrise('e')} ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
                e.id ASC
@@ -785,6 +769,7 @@ export async function lireEvenements(
         certitude: r.etapem_certitude ?? 'fiable',
       },
       mongaMajLe: r.monga_maj_le, vuLe: r.vu_le,
+      etapesAValider: Number(r.etapes_a_valider ?? 0),
       /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran n'a pas à distinguer « aucune référence » d'une absence. */
       mongaRefs: r.monga_refs ?? [],
       categorie: r.categorie,

@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { sqlNbEtapesAValider } from './etapesAValider';
 import { sqlEvenementOuvertParLaFrise, sqlPeriodesDeLEvenement, CERTITUDE_ECARTEE } from './etatParLaFrise';
 import {
   tableauBordEvenements, type FaitsEvenement, type PeriodeEvenement, type TableauBordEvenements,
@@ -104,6 +105,7 @@ interface LigneFaits {
   nb_devis_acceptes: string;
   nb_devis_refuses: string;
   nb_reouvertures: string;
+  nb_etapes_a_valider: string | number | null;
   derniere_activite_le: string | null;
   avec_monga: boolean;
   avec_bien: boolean;
@@ -135,6 +137,7 @@ export async function faitsDesEvenements(): Promise<FaitsEvenement[]> {
             ${compteCartes(['devis_accepte'])} AS nb_devis_acceptes,
             ${compteCartes(['devis_refuse'])} AS nb_devis_refuses,
             ${compteCartes(['reouverture'])} AS nb_reouvertures,
+            ${sqlNbEtapesAValider('e')} AS nb_etapes_a_valider,
             (SELECT max(svv_c.survenu_le) FROM gestion_monga_etape svv_c
               WHERE ${CARTE_VIVE} AND ${CARTE_DE_L_EVENEMENT}) AS derniere_activite_le,
             EXISTS (SELECT 1 FROM gestion_monga_lien svv_l
@@ -160,6 +163,7 @@ export async function faitsDesEvenements(): Promise<FaitsEvenement[]> {
     nbDevisAcceptes: Number(r.nb_devis_acceptes),
     nbDevisRefuses: Number(r.nb_devis_refuses),
     nbReouvertures: Number(r.nb_reouvertures),
+    nbEtapesAValider: Number(r.nb_etapes_a_valider ?? 0),
     derniereActiviteLe: r.derniere_activite_le,
     avecMonga: r.avec_monga === true,
     avecBien: r.avec_bien === true,

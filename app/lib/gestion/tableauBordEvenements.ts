@@ -25,6 +25,7 @@
  */
 
 import { TYPES_EVENEMENT, NIVEAUX_URGENCE } from './evenementQualite';
+import { CLE_FILTRE_ETAPES_A_VALIDER } from './etapesAValider';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LES FAITS — ce que le serveur rend, un enregistrement par événement
@@ -71,6 +72,8 @@ export interface FaitsEvenement {
   nbDevisRefuses: number;
   /** Combien de cartes « Réouverture » : un événement rouvert au moins une fois en porte au moins une. */
   nbReouvertures: number;
+  /** 🔴 LOT GESTION-VALIDATION-MONGA — combien d'étapes Monga attendent ✓/✗ (`etapesAValider.ts`). Absent : 0. */
+  nbEtapesAValider?: number;
   /** La carte vive la plus récente de la frise — à défaut, l'ouverture. C'est le signal « des nouvelles ». */
   derniereActiviteLe: string | null;
   /** Une mission Monga est reliée à cet événement (lien vif). */
@@ -429,6 +432,8 @@ export function tableauBordEvenements(
   /* Les deux ensembles de l'argent : ils n'ont pas de chiffre d'événements à eux, mais le clic les demande. */
   retenir('devis-acceptes', (f) => f.nbDevisAcceptes > 0);
   retenir('devis-refuses', (f) => f.nbDevisRefuses > 0);
+  /* 🔴 LOT GESTION-VALIDATION-MONGA — le filtre « Étapes à valider » de la famille « À surveiller » (Arno, 10/11/2026). */
+  retenir(CLE_FILTRE_ETAPES_A_VALIDER, (f) => (f.nbEtapesAValider ?? 0) > 0);
 
   return {
     idsParFiltre: ids,

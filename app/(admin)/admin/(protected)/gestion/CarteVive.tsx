@@ -25,6 +25,7 @@ import {
 import { normaliserNom } from '../../../../lib/gestion/documentsAuto';
 /* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — « cet événement est-il New ? ». Module PUR, la MÊME règle que les deux tris. */
 import { estNouveau } from '../../../../lib/gestion/triEvenements';
+import { aValider, motEtapesAValider } from '../../../../lib/gestion/etapesAValider';
 /* ══ 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — CE QUE CE FICHIER N'IMPORTE PLUS, ET POURQUOI ═══════════════════════
    La carte dépliée ne montre plus que les infos manquantes et le bouton rouge : avec les blocs de détail sont
    partis leurs composants (`Conversation`, `MenuDiscret`, `ChoisirEvenement`, `DeplacerVers`, `FriseAvancement`,
@@ -354,7 +355,10 @@ export function CarteVive({
 
   return (
     <li ref={ancre}
-      className={`gst-item${misAJour ? ' gst-item--monga' : ''}${vise ? ' gst-item--vise' : ''}`}
+      /* 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026, accord explicite) — l'encadré rouge dit « au moins une étape
+         à valider », pour toute l'équipe ; il ne dit plus « Monga a écrit depuis ma dernière vue » (c'est le badge). */
+      className={`gst-item${aValider(carte) ? ' gst-item--monga' : ''}${vise ? ' gst-item--vise' : ''}`}
+      data-a-valider={aValider(carte) ? String(carte.etapesAValider) : undefined}
       /* ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le liseré se voit, `aria-current` s'entend. */
       aria-current={vise ? true : undefined}
       onClickCapture={auClic}>
@@ -474,6 +478,10 @@ export function CarteVive({
             <span className="gst-carte-droite">
               <MiniatureEtape etape={carte.derniereEtape} ouvertLe={carte.ouvertLe}
                 misAJourLe={misAJour ? majMonga : null} />
+              {/* 🔴 LOT GESTION-VALIDATION-MONGA — l'encadré ne porte jamais l'information seul : il est écrit. */}
+              {aValider(carte) && (
+                <span className="gst-mini-a-valider" data-mot-a-valider="">{motEtapesAValider(carte.etapesAValider ?? 0)}</span>
+              )}
               {/**
                 * ══ 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — LA CAPSULE DU TYPE ═══════════════════════════════
                 *

@@ -292,6 +292,21 @@ export function motEtape(t: TypeEtape): string {
  */
 export type Certitude = 'fiable' | 'a_confirmer';
 
+/**
+ * ══ 🔴🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — TOUTE ÉTAPE (CARRÉ) CRÉÉE PAR UN MAIL MONGA EST À VALIDER. PUR.
+ *
+ * Arno : « TOUTE étape créée automatiquement par un mail Monga passe par la validation (✓/✗), y compris les formulations
+ * aujourd'hui “jugées sûres” (rendez-vous d'intervention, prise de rendez-vous, devis numéroté, rappels…). Une étape créée à
+ * la main n'est jamais à valider. » La certitude LUE (`fiable` / `a_confirmer`) reste ce qu'elle dit du motif ; c'est la
+ * certitude POSÉE qui devient « à confirmer » pour tout CARRÉ. Les repères (points : commentaire, facture, rappel, injoignable,
+ * note) ne portent pas de boutons et gardent leur certitude lue.
+ *
+ * ⚠️ SEULEMENT À LA CRÉATION (Arno, réponse 1) : les étapes déjà enregistrées restent telles quelles.
+ */
+export function certitudeALaCreation(e: Pick<EtapeLue, 'type' | 'certitude'>): Certitude {
+  return estRepere(e.type) ? e.certitude : 'a_confirmer';
+}
+
 /** Le nombre de confirmations, sans un seul écart, à partir duquel on PROPOSE le passage en fiable (Arno). */
 export const CONFIRMATIONS_POUR_PROPOSER = 5;
 

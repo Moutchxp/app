@@ -10,6 +10,7 @@ import {
 /* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit la règle au même endroit que le dépôt : la recopier ici en ferait
    une seconde vérité, et c'est précisément ce que le lot supprime. */
 import { sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+import { sqlDerniereEtapeAValiderLe, sqlNbEtapesAValider } from './etapesAValider';
 
 /** Blancs normalisés : on éprouve le SENS d'un SQL émis, jamais sa mise en forme (AGENTS.md). */
 const plat = (t: string): string => t.replace(/\s+/g, ' ');
@@ -164,7 +165,9 @@ describe('fileRepo — les cartes (colonne de droite)', () => {
      * mais « ouvert » se lit maintenant sur la frise, et un dossier dont la carte Clôture a été retirée remonte
      * dans la file, comme il le doit.
      */
-    expect(s).toContain(`ORDER BY NOT ${plat(sqlEvenementOuvertParLaFrise('e'))} ASC`);
+    /* 🔴 LOT GESTION-VALIDATION-MONGA (Arno, 10/11/2026) — les événements à étapes à valider passent d'abord, POUR TOUT LE MONDE
+       (plus de critère par collaborateur) ; puis, exactement comme avant, les ouverts d'abord. */
+    expect(s).toContain(`ORDER BY (${plat(sqlNbEtapesAValider('e'))} > 0) DESC, ${plat(sqlDerniereEtapeAValiderLe('e'))} DESC NULLS LAST, NOT ${plat(sqlEvenementOuvertParLaFrise('e'))} ASC`);
     expect(s).not.toContain('ORDER BY (e.traite_le IS NOT NULL)');
     expect(s).toContain('min(d.recu_le) FILTER (WHERE CASE WHEN ex.fil_id IS NOT NULL');
     /* 🔴 ET SANS COLLABORATEUR, AUCUNE TRACE DU CRITÈRE PAR VUE : la liste est celle de tout le monde. */
