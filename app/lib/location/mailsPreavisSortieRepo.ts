@@ -160,7 +160,10 @@ export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupatio
  * ENVOIE une série de mails, dans l'ordre, chacun une seule fois ; chaque issue est journalisée. Ne lève jamais. La signature
  * part avec ses images INCORPORÉES (`cid:`) ; une image introuvable est retirée, jamais un carré barré.
  */
-export async function envoyerSerie(mails: readonly MailAvis[], brute: string, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur }, deps: DepsAvis): Promise<EnvoiAvis[]> {
+export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
+  o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur;
+    /** 🔴 Arno (10/11/2026, pré-visite) — un mail qui concerne PLUSIEURS biens (récapitulatif des alertes) : envoyé UNE fois, rangé aussi dans leurs historiques. */
+    autres?: readonly { lotId: number; occupationIds: readonly number[] }[] }, deps: DepsAvis): Promise<EnvoiAvis[]> {
   const issues: EnvoiAvis[] = [];
   for (const m of mails) {
     const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte };
@@ -177,11 +180,15 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string, o:
         // 🔴 Arno (10/11/2026, pré-visite) — l'invitation d'agenda jointe ; aucun autre mail n'en porte (rien ne change pour eux).
         ...(m.ics ? { pieces: [{ nom: m.ics.nom, typeMime: 'text/calendar; charset=UTF-8; method=PUBLISH', octets: Buffer.from(m.ics.contenu, 'utf8') }] } : {}),
       });
-      await journaliserAvis({ ...m, html }, { ...o, statut: r.ok ? 'envoye' : 'echec', erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null });
+      for (const cible of [o, ...(o.autres ?? [])]) {
+        await journaliserAvis({ ...m, html }, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: r.ok ? 'envoye' : 'echec', erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null });
+      }
       issues.push({ ...base, envoye: r.ok, motif: r.ok ? null : r.motif });
     } catch (e) {
       const motif = (e as Error)?.message || 'erreur inattendue';
-      await journaliserAvis(m, { ...o, statut: 'echec', erreur: motif, messageId: null });
+      for (const cible of [o, ...(o.autres ?? [])]) {
+        await journaliserAvis(m, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: 'echec', erreur: motif, messageId: null });
+      }
       issues.push({ ...base, envoye: false, motif });
     }
   }

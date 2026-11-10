@@ -194,6 +194,24 @@ export function paragraphesAlertePrevisite(d: { adresse: string; locataires: rea
   ];
 }
 
+// ── 🔴 Arno (10/11/2026) — le PREMIER passage en production : UN seul mail récapitulatif (un par adresse) pour tous les préavis déjà en retard ──
+
+export interface PreavisEnRetard { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; recuLe: string; lien: string }
+
+export function objetRecapAlertes(n: number): string {
+  return `Alerte préavis — ${n} préavis sans pré-visite fixée`;
+}
+
+export function paragraphesRecapAlertes(liste: readonly PreavisEnRetard[]): string[] {
+  return [
+    'Bonjour,',
+    `${liste.length === 1 ? 'Le préavis suivant n’a' : `Les ${liste.length} préavis suivants n’ont`} fait l’objet d’aucun rendez-vous de pré-visite saisi dans les ${JOURS_SANS_PREVISITE} jours qui ont suivi leur réception :`,
+    ...liste.map((p) => `· ${noms(p.locataires)} — ${p.adresse} — reçu le ${dateFrPreavis(p.recuLe)}
+  ${p.lien}`),
+    'Merci de fixer un rendez-vous de pré-visite (bouton « RDV pré-visite ») ou, si les locataires la refusent ou ne répondent pas, de leur envoyer le mail « Refus / absence de pré-visite ». Chaque nouvelle alerte fera ensuite l’objet de son propre mail.',
+  ];
+}
+
 // ── Aux locataires : confirmation, puis modification ─────────────────────────────────────────────────────────────────
 
 export function objetConfirmationLocataires(adresse: string, r: RdvPrevisite): string {

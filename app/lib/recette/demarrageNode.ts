@@ -16,6 +16,8 @@ export interface DependancesDemarrage {
   env: Record<string, string | undefined>;
   nomMachine: () => string;
   sortir: (code: number) => void;
+  /** 🔴 Arno (10/11/2026) — la minuterie de la pré-visite (épreuves : un espion) ; absente : la vraie. */
+  minuterie?: (d: { env: Record<string, string | undefined> }) => boolean;
 }
 
 const PROCESSUS: DependancesDemarrage = { env: process.env, nomMachine: hostname, sortir: (code) => process.exit(code) };
@@ -41,6 +43,14 @@ export async function demarrerServeurNode(deps: DependancesDemarrage = PROCESSUS
   } catch (e) {
     // Recette DEMANDÉE mais verrou impossible à poser : on n'ouvre pas un site local qui écrirait pour de vrai.
     console.error('[RECETTE] contrôle de démarrage indisponible', (e as Error)?.message);
-    if (env.SVAV_RECETTE === '1' && env.NODE_ENV !== 'production') deps.sortir(1);
+    if (env.SVAV_RECETTE === '1' && env.NODE_ENV !== 'production') { deps.sortir(1); return; }
+  }
+  /* 🔴 Arno (10/11/2026) — LA MINUTERIE DE LA PRÉ-VISITE (alerte du 11e jour, invitation au compte rendu), toutes les 5 minutes, APRÈS le
+     verrou de la recette (en recette, rien ne part). Jamais sous les tests ; jamais bloquante pour le démarrage. */
+  try {
+    const { demarrerMinuteriePrevisite } = await import('../location/minuteriePrevisite');
+    (deps.minuterie ?? demarrerMinuteriePrevisite)({ env });
+  } catch (e) {
+    console.error('[pré-visite] minuterie non lancée', (e as Error)?.message);
   }
 }
