@@ -41,6 +41,7 @@ import {
   estRepere, motEtape, rangEtape, type TypeEtape,
 } from './mongaEtape';
 import type { TacheFrise } from './tacheFrise';
+import type { TraductionEtape } from './traductionCommentaire';
 
 /**
  * Ce que la frise a besoin de savoir d'une étape. STRUCTUREL, et non le type du dépôt : `mongaEtapeRepo` tire
@@ -95,6 +96,11 @@ export interface EtapeAAfficher {
    * jointe » ; il faut donc d'abord pouvoir la lire.
    */
   pieceNom: string | null;
+  /**
+   * 🔴 LOT GESTION-TRADUCTION (Arno, 10/11/2026) — la traduction en français d'un commentaire écrit dans une autre langue. `texte`
+   * reste TOUJOURS l'original ; l'écran affiche la traduction au-dessus, l'original à déplier. Absente ou `null` : rien à traduire.
+   */
+  traduction?: TraductionEtape | null;
   /**
    * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — L'ORDRE DE POSE, ET C'EST LUI QUI RANGE LA FRISE ═══════════════
    *

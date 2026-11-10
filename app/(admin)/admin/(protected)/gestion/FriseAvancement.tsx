@@ -65,6 +65,9 @@ import { useDrapeauGeste, useGlisserCarte } from './useGlisserCarte';
    `app/lib/gestion/survolBulle.ts`. */
 import { useBulleSurvol } from './useBulleSurvol';
 import { ChampNombre } from '../location/ChampNombre';
+/* 🔴 LOT GESTION-TRADUCTION — le texte d'une étape, traduit s'il y a lieu ; sans traduction, rendu identique à avant. */
+import { TexteTraduit } from './TexteTraduit';
+import type { TraductionEtape } from '../../../../lib/gestion/traductionCommentaire';
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA FRISE D'AVANCEMENT, EN LIGNE ═════════════════════════════════════════════════
@@ -268,7 +271,7 @@ export function FriseAvancement({
    * sous le « i » qu'on survole. L'abscisse est lue au survol, dans le repère du cadre.
    */
   const [commentaire, setCommentaire] = useState<
-    { origine: string; texte: string | null; x: number } | null>(null);
+    { id?: number; origine: string; texte: string | null; traduction?: TraductionEtape | null; x: number } | null>(null);
   /**
    * 🔴 LA BULLE DU « i » SUIT LA MÊME RÈGLE (Arno : « Même comportement pour la bulle du “i” des carrés »).
    * Deux crochets et non un seul : les deux bulles peuvent se succéder sous la souris, et un état partagé
@@ -813,7 +816,7 @@ export function FriseAvancement({
                   /* 🔴 LOT FRISE-EPURE-ET-BANDE-BIEN — l'origine de la carte, qu'un pictogramme disait au prix
                      d'une légende à connaître. Elle est calculée par le module pur, comme le reste. */
                   origine: motOrigineCarte(x),
-                  texte: x.texte, x: Math.round(r.left + r.width / 2 - (rc?.left ?? 0)),
+                  id: x.id, texte: x.texte, traduction: x.traduction ?? null, x: Math.round(r.left + r.width / 2 - (rc?.left ?? 0)),
                 });
                 bulleTexte.entrerCible(`i${x.id}`);
               }}
@@ -856,7 +859,8 @@ export function FriseAvancement({
             <span className="fav-commentaire-origine">{commentaire.origine}</span>
             {(commentaire.texte ?? '').trim() === ''
               ? <span className="fav-commentaire-vide">Aucun commentaire</span>
-              : <span className="fav-commentaire-texte">{commentaire.texte}</span>}
+              : <TexteTraduit key={commentaire.id} texte={commentaire.texte as string} traduction={commentaire.traduction}
+                  classe="fav-commentaire-texte" balise="span" />}
           </div>
         )}
         {/**
@@ -1782,7 +1786,7 @@ function BulleDetail({
         <p className="fav-bulle-pose">{motAjout(e.creeLe, e.creeParLibelle)}</p>
       )}
       {e.numero !== null && <p className="fav-bulle-texte">N° {e.numero}</p>}
-      {e.texte !== null && <p className="fav-bulle-texte">{e.texte}</p>}
+      {e.texte !== null && <TexteTraduit key={e.id} texte={e.texte} traduction={e.traduction} classe="fav-bulle-texte" />}
       {/* 🔴 LA PHRASE QUI JUSTIFIE TOUT LE LOT MONGA-2 : sans la table des étapes, il n'y aurait rien à garder. */}
       {e.source === 'monga' && e.filId === null && <p className="fav-perdu">{motMailDOrigine(e)}</p>}
       <p className="fav-bulle-gestes">

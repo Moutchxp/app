@@ -96,6 +96,7 @@
     "demo:reponse:supprimer": "tsx app/scripts/demo-reponse.ts supprimer",
     "gestion:relever-continu": "tsx app/scripts/relever-gestion-continu.ts",
     "gestion:reponses-suivies:reaffecter": "tsx app/scripts/reaffecter-reponses-suivies.ts",
+    "gestion:monga-commentaires:traduire": "tsx app/scripts/monga-commentaires-traduire.ts",
     "gestion:google:autoriser": "tsx app/scripts/gestion-google-autoriser.ts",
     "gestion:google:verifier": "tsx app/scripts/gestion-google-verifier.ts",
     "gestion:purger-jetons-google": "tsx app/scripts/purger-jetons-google.ts",

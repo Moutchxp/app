@@ -416,8 +416,9 @@ export async function passeMongaSurLesMails(messageIds: readonly number[]): Prom
        * ⚠️ ELLE NE JETTE PAS NON PLUS : même règle que la passe entière — le courrier est arrivé, et un échec
        * d'enregistrement d'étape ne doit pas faire passer la relève pour ratée.
        */
+      let ecritesDuMail = 0;
       try {
-        etapes += await enregistrerEtapesDuMail({
+        ecritesDuMail = await enregistrerEtapesDuMail({
           messageId: Number(r.id),
           messageCle: r.cle,
           reference: lecture.reference,
@@ -425,9 +426,21 @@ export async function passeMongaSurLesMails(messageIds: readonly number[]): Prom
           texte: r.texte,
           recuLe: r.recu_le,
         });
+        etapes += ecritesDuMail;
         /* 🔴 ET L'OUVERTURE DE REPLI, pour que la frise commence quelque part : voir `poserOuvertureDeRepli`. */
         if (lecture.reference !== null) await poserOuvertureDeRepli(lecture.reference);
       } catch { /* l'étape attendra la reprise ; la relève, elle, continue */ }
+      /**
+       * 🔴🔴 LOT GESTION-TRADUCTION (Arno, 10/11/2026) — LE COMMENTAIRE QUI VIENT D'ÊTRE ENREGISTRÉ, TRADUIT S'IL N'EST PAS EN FRANÇAIS.
+       * APRÈS l'enregistrement, et seulement s'il vient d'écrire quelque chose : la lecture des étapes s'est faite sur le texte d'origine,
+       * et un mail déjà lu (relu par la relève) ne repart pas au service. `traduireCommentairesDuMail` ne jette jamais.
+       */
+      if (ecritesDuMail > 0) {
+        try {
+          const { traduireCommentairesDuMail, traducteurMistral } = await import('./traductionCommentaireRepo');
+          await traduireCommentairesDuMail(Number(r.id), traducteurMistral());
+        } catch { /* la traduction attendra : le commentaire s'affiche en original, le classement continue */ }
+      }
       const issue = await classerUnMailMonga({ messageId: r.id });
       if (issue.classe) classes += 1;
       else if (issue.refus === 'reference_a_relier') aRelier += 1;

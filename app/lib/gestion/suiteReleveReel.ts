@@ -128,6 +128,17 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
      * ⚠️ ELLE NE PEUT PAS FAIRE ÉCHOUER LA SUITE : sans la migration 282, `appliquerCiblesEnAttente` rend 0 sans
      * émettre une seule requête, et elle attrape ses propres erreurs.
      */
+    /**
+     * ── ⓪ ter 🔴 LOT GESTION-TRADUCTION — LES TRADUCTIONS ÉCHOUÉES, RETENTÉES PLUS TARD (Arno : « une nouvelle tentative a lieu plus
+     * tard ; jamais de blocage de la relève »). AVANT LES RETOURS ANTICIPÉS : une passe sans mail neuf est justement celle où le service
+     * a pu revenir. Ne reprend que des lignes « echec » ; au plus quelques-unes par passe ; ne jette jamais ; sans la 463, rien.
+     */
+    try {
+      const { retenterTraductionsEchouees, traducteurMistral } = await import('./traductionCommentaireRepo');
+      const retraduits = await retenterTraductionsEchouees(traducteurMistral());
+      if (retraduits > 0) journal?.(`suite : ${retraduits} commentaire(s) Monga traduit(s) à la nouvelle tentative`);
+    } catch { /* la traduction attendra la passe suivante ; la relève continue */ }
+
     const { appliquerCiblesEnAttente, appliquerHorsGestionEnAttente, appliquerInterneEnAttente } =
       await import('./envoiCiblesRepo');
     const posesEnvoi = await appliquerCiblesEnAttente();

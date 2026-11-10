@@ -23,6 +23,8 @@ import {
 } from '../../../../lib/gestion/correctionEtape';
 /* 🔴 LOT FRISE-ORDRE, PARTIE B — les deux transformations, composants PARTAGÉS avec la bulle (la grille du « + »). */
 import { BoutonTransformerEnPoint, PanneauTransformerEnEtape } from './GrilleCartes';
+/* 🔴 LOT GESTION-TRADUCTION — le texte lu par l'automatisation, traduit s'il y a lieu (l'original à déplier). */
+import { TexteTraduit } from './TexteTraduit';
 import { dateAffichee, etapeOuvrable, type EtapeAAfficher } from '../../../../lib/gestion/frise';
 import { motEtape, type TypeEtape } from '../../../../lib/gestion/mongaEtape';
 
@@ -77,7 +79,9 @@ export function PanneauCorrection({
       {/* LE CONTENU DU MAIL D'ORIGINE reste lisible ici (Arno) : le texte lu par l'automatisation, et le mail lui-même. */}
       {((e.texte ?? '').trim() !== '' || etapeOuvrable(e)) && (
         <div className="pce-mail">
-          {(e.texte ?? '').trim() !== '' && <p className="pce-mail-texte">{e.texte}</p>}
+          {(e.texte ?? '').trim() !== '' && (
+            <TexteTraduit key={e.id} texte={e.texte as string} traduction={e.traduction} classe="pce-mail-texte" />
+          )}
           {etapeOuvrable(e) && onOuvrirFil !== undefined && (
             <button type="button" className="pce-btn pce-btn--trait" onClick={() => onOuvrirFil(e.filId as number)}>
               Ouvrir le mail d’origine

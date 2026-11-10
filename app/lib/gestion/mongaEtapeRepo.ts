@@ -18,7 +18,8 @@ import {
 } from './mongaEtape';
 import { sqlJamaisDansLeFutur } from './ouvertureEvenement';
 /* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
-import { correctionEtapeDisponible, evenementQualifieDisponible } from './schema';
+import { correctionEtapeDisponible, evenementQualifieDisponible, traductionDisponible } from './schema';
+import type { TraductionEtape } from './traductionCommentaire';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
 import {
   sensDeLaBorne, sqlBornesDeLEvenement, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlInstantDeBorne,
@@ -84,6 +85,11 @@ export interface EtapeEcran {
   corrigeParLibelle?: string | null;
   retireLe?: string | null;
   retireParLibelle?: string | null;
+  /**
+   * 🔴 LOT GESTION-TRADUCTION (migration 463) — la traduction d'un commentaire écrit dans une autre langue, rangée À CÔTÉ : `texte`
+   * reste l'original. `null` : aucune (commentaire français, ancien non repris, ou base sans la 463).
+   */
+  traduction?: TraductionEtape | null;
 }
 
 /**
@@ -249,7 +255,12 @@ export async function friseDeLEvenement(
     ? `, e.auto_type, e.auto_statut, e.corrige_par_libelle,
             to_char(e.corrige_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS corrige_le`
     : '';
+  /* 🔴 LOT GESTION-TRADUCTION — la traduction n'est jointe que si la 463 est là (sonde HORS transaction). Lecture seule. */
+  const traduction = await traductionDisponible();
+  const colonnesTraduction = traduction ? ', tr.statut AS tr_statut, tr.langue AS tr_langue, tr.texte_traduit AS tr_texte' : '';
+  const jointureTraduction = traduction ? 'LEFT JOIN gestion_monga_traduction tr ON tr.etape_id = e.id' : '';
   const { rows } = await query<{
+    tr_statut?: TraductionEtape['statut'] | null; tr_langue?: string | null; tr_texte?: string | null;
     auto_type?: TypeEtape | null; auto_statut?: 'vif' | 'retire' | null; corrige_le?: string | null;
     corrige_par_libelle?: string | null; retire_le: string | null; retire_par_libelle: string | null;
     id: string; reference: string | null; type: TypeEtape; survenu_le: string;
@@ -277,9 +288,10 @@ export async function friseDeLEvenement(
             -- Sa place ne decoule alors pas de son horodatage, et la regle vert/orange la laisse tranquille.
             e.pose_choisie,
             to_char(e.retire_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS retire_le, e.retire_par_libelle
-            ${colonnesCorrection}
+            ${colonnesCorrection}${colonnesTraduction}
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
+       ${jointureTraduction}
       WHERE e.statut = '${statut === 'retire' ? 'retire' : 'vif'}'
         AND (e.evenement_id = $1
              OR e.reference IN (SELECT reference FROM gestion_monga_lien
@@ -352,6 +364,7 @@ export async function friseDeLEvenement(
       corrigeLe: r.corrige_le ?? null, corrigeParLibelle: r.corrige_par_libelle ?? null,
     } : {}),
     retireLe: r.retire_le, retireParLibelle: r.retire_par_libelle,
+    traduction: r.tr_statut == null ? null : { statut: r.tr_statut, langue: r.tr_langue ?? null, texte: r.tr_texte ?? null },
   }));
 }
 

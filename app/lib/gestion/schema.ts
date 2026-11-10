@@ -1338,3 +1338,11 @@ export function rattacheDepuisDisponible(): Promise<boolean> {
 export function correctionEtapeDisponible(): Promise<boolean> {
   return memoiser('etape.corrige_le', () => colonneExiste('gestion_monga_etape', 'corrige_le'));
 }
+
+/**
+ * 🔴 LOT GESTION-TRADUCTION (10/11/2026) — la migration 463 (`gestion_monga_traduction`) est-elle appliquée ? Sans elle, aucun
+ * commentaire n'est traduit, et la frise lit ses étapes sans jointure, comme avant. Sondée HORS transaction.
+ */
+export function traductionDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_monga_traduction', () => tableExiste('gestion_monga_traduction'));
+}
