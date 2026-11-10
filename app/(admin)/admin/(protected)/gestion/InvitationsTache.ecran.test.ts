@@ -150,3 +150,25 @@ describe('🔴 les autres points d’entrée : décaler, renvoyer une invitation
     expect(posts[0]).toMatchObject({ corps: { geste: 'renvoyerInvitation', tacheId: 9, inviteId: 31 } });
   });
 });
+
+describe('🔴 règle 5 — la tâche d’un bien accepte aussi un contact saisi à la main (avec sa case d’invitation)', () => {
+  it('saisi, invitable, envoyé avec la tâche ; la phrase « tiers indépendant » est dite', async () => {
+    await creer();
+    expect(container.querySelector('[data-aide-tiers]')?.textContent).toContain('« tiers indépendant »');
+    const poser = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    const champ = async (nom: string, v: string) => {
+      const el = container.querySelector(`[data-champ-contact="${nom}"]`) as HTMLInputElement;
+      await act(async () => { poser.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    };
+    await champ('nom', 'Plombier Test');
+    await champ('qualite', 'Plombier');
+    await champ('email', 'plombier@exemple.test');
+    await clic(bouton('+ Ajouter ce contact'));
+    const caseNouveau = container.querySelector('[data-inviter-contact="nouveau-0"] input') as HTMLInputElement;
+    expect(caseNouveau.checked).toBe(false);
+    await clic(caseNouveau);
+    await clic(bouton('Créer la tâche'));
+    expect(posts[0]).toMatchObject({ url: '/api/admin/gestion/taches/apercu', corps: { lotId: 10,
+      contactsManuels: [{ nom: 'Plombier Test', qualite: 'Plombier', telephone: null, email: 'plombier@exemple.test', inviter: true }] } });
+  });
+});

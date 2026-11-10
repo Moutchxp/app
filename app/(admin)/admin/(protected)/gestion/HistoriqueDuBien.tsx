@@ -2,6 +2,7 @@
 
 /* 🔴 LOT GESTION-HISTORIQUE-TACHES — la ligne repliable des tâches validées du bien. */
 import { HistoriqueTaches } from './HistoriqueTaches';
+import { BandeTiersDuBien } from './TiersDuBien';
 import { HistoriqueEnvoisLocation } from './HistoriqueEnvoisLocation';
 import { HistoriqueAnnexes } from './AnnexesDuBien';
 import { HistoriqueStatut } from './StatutDuBien';
@@ -3018,6 +3019,8 @@ export function HistoriqueDuBien({
           {personne === null && lotId !== null && <HistoriqueAnnexes lotId={lotId} />}
           {personne === null && lotId !== null && <HistoriqueStatut lotId={lotId} />}
           {personne === null && lotId !== null && <HistoriqueEncart lotId={lotId} />}
+          {/* 🔴 Arno (10/11/2026) — les tiers indépendants qu'une tâche (rattachée à ce seul bien) a ajoutés à ce bien. */}
+          {personne === null && lotId !== null && <BandeTiersDuBien lotId={lotId} />}
 
           {/* ══ 🔴🔴 LE MESSAGE D'APRÈS-DÉPÔT, ET SON « ANNULER » ═══════════════════════════════════════════════
               Arno : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler” quelques secondes. »

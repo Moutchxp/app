@@ -198,7 +198,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const copies = detail?.contacts ?? [];
   const proposes: ContactPropose[] = sources === null ? [] : [
     ...sources,
-    ...copies.filter((c) => !sources.some((x) => x.cle === c.cle)).map((c) => ({ ...c, plusLie: true })),
+    // Les contacts saisis à la main ont leur propre section (ci-dessous) : ils ne sont pas « plus liés au bien ».
+    ...copies.filter((c) => !sources.some((x) => x.cle === c.cle) && !c.cle.startsWith('manuel:')).map((c) => ({ ...c, plusLie: true })),
   ];
   /* Le bloc « Contacts » tel qu'il sera écrit : la COPIE pour un contact déjà dans la tâche, la fiche sinon. */
   const pourLeBloc = choisis
@@ -219,7 +220,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
     /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : les copies gardées (cochées) et les contacts saisis à la main. */
     const avecContacts0: SaisieEcran = sansBien ? { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) }
-      : sources === null ? saisie : { ...saisie, contacts: choisis, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) };
+      : sources === null ? saisie : { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) };
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — les autres invités ne voyagent que si le serveur sait les recevoir (365). */
     const avecContacts1: SaisieEcran = collab?.invites === true
       ? { ...avecContacts0, invites: (avecContacts0.invites ?? []).filter((id) => id !== avecContacts0.confieeA) }
@@ -528,6 +529,12 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule}
               invites={invitesContacts} onBasculerInvite={basculerInvite} />
           )}
+          {/* 🔴 Arno (10/11/2026) — sur la tâche d'un bien AUSSI : un contact saisi à la main (s'il n'est pas dans l'historique du bien, il y est
+              ajouté comme « tiers indépendant » quand la tâche n'est rattachée qu'à ce bien). */}
+          {sources !== null && !sansBien && (
+            <ContactsManuels copies={copies.filter((c) => c.cle.startsWith('manuel:'))} choisis={choisis} onBasculer={basculerContact} nouveaux={nouveauxContacts}
+              onNouveaux={setNouveauxContacts} desactive={lectureSeule} invites={invitesContacts} onBasculerInvite={basculerInvite} surUnBien />
+          )}
           {/* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, pas de fiche : les contacts se SAISISSENT À LA MAIN. */}
           {sansBien && (
             <ContactsManuels copies={copies} choisis={choisis} onBasculer={basculerContact} nouveaux={nouveauxContacts}
@@ -723,10 +730,12 @@ function phraseAcceptation(a: AcceptationTache): string {
  * 🔴 LOT GESTION-TACHES-SANS-BIEN — LES CONTACTS D'UNE TÂCHE SANS BIEN, SAISIS À LA MAIN : nom (obligatoire), rôle,
  * téléphone, e-mail. Ceux déjà dans la tâche restent cochés (décocher les retire — tracé, jamais effacé).
  */
-function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, desactive, invites, onBasculerInvite }: {
+function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, desactive, invites, onBasculerInvite, surUnBien = false }: {
   copies: readonly ContactTache[]; choisis: readonly string[]; onBasculer: (cle: string) => void;
   nouveaux: readonly ContactManuel[]; onNouveaux: (l: ContactManuel[]) => void; desactive: boolean;
   invites: readonly string[]; onBasculerInvite: (cle: string) => void;
+  /** Tâche d'un bien : la phrase qui dit ce que devient un contact absent de l'historique du bien. */
+  surUnBien?: boolean;
 }) {
   const vide = { nom: '', qualite: '', telephone: '', email: '' };
   const [f, setF] = useState(vide);
@@ -740,6 +749,11 @@ function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, de
   return (
     <fieldset className="tchf-groupe tchf-contacts-manuels" disabled={desactive}>
       <legend className="tch-etiquette">Contacts de la tâche (saisis à la main)</legend>
+      {surUnBien && (
+        <p className="tchf-aide" data-aide-tiers>
+          Si la tâche n’est rattachée qu’à ce bien, un contact absent de l’historique du bien y est ajouté comme « tiers indépendant ».
+        </p>
+      )}
       {copies.length > 0 && (
         <div className="tchf-rappels">
           {copies.map((c) => (

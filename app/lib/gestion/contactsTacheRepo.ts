@@ -102,6 +102,18 @@ export async function contactsDuBienPourTache(lotId: number): Promise<ContactSou
     if (net(c.telephone) !== '') coords.push({ sorte: 'telephone', libelle: 'Téléphone (signature)', valeur: net(c.telephone), affichage: null });
     out.push({ cle: `adresse:${adresse}`, famille, nom: net(c.nom) || adresse, qualite: null, organisation: null, adresse: null, coordonnees: coords });
   }
+  // 🔴 Arno (10/11/2026, migration 465) — les TIERS INDÉPENDANTS posés sur ce bien par une tâche (nom, rôle, téléphone, e-mail).
+  try {
+    const { rows } = await query<{ id: string; nom: string; role: string | null; telephone: string | null; email: string | null }>(
+      'SELECT id::text, nom, role, telephone, email FROM gestion_bien_tiers WHERE lot_id = $1 AND retire_le IS NULL ORDER BY id', [lotId]);
+    for (const t of rows) {
+      if (out.some((c) => c.nom.trim().toLowerCase() === t.nom.trim().toLowerCase())) continue;
+      out.push({ cle: `tiers:${t.id}`, famille: 'independant', nom: t.nom, qualite: t.role, organisation: null, adresse: null, coordonnees: [
+        ...(t.telephone ? [{ sorte: 'telephone' as const, libelle: null, valeur: t.telephone.replace(/[^\d+]/g, ''), affichage: t.telephone }] : []),
+        ...(t.email ? [{ sorte: 'email' as const, libelle: null, valeur: t.email, affichage: null }] : []),
+      ] });
+    }
+  } catch { /* sans la migration 465 : aucun tiers */ }
   return out;
 }
 
@@ -170,4 +182,31 @@ async function syndicEtImmeuble(lotCle: string): Promise<ContactSource[]> {
     });
   }
   return out;
+}
+
+/** 🔴 Arno (10/11/2026, migration 465) — un tiers indépendant posé sur un bien par une tâche, pour la bande de l'Historique du bien. */
+export interface TiersDuBien {
+  id: number;
+  nom: string;
+  role: string | null;
+  telephone: string | null;
+  email: string | null;
+  tacheId: number | null;
+  creeLe: string;
+  par: string;
+}
+
+/** Les tiers indépendants du bien (non retirés), du plus ancien au plus récent. Sans la migration 465 : aucun. */
+export async function tiersDuBien(lotId: number): Promise<TiersDuBien[]> {
+  try {
+    const { rows } = await query<{ id: number; nom: string; role: string | null; telephone: string | null; email: string | null; tache_id: number | null; cree_le: Date | string; par: string }>(
+      `SELECT id::int AS id, nom, role, telephone, email, tache_id::int AS tache_id, cree_le, cree_par_libelle AS par
+         FROM gestion_bien_tiers WHERE lot_id = $1 AND retire_le IS NULL ORDER BY cree_le, id`, [lotId]);
+    return rows.map((r) => ({
+      id: Number(r.id), nom: r.nom, role: r.role, telephone: r.telephone, email: r.email, tacheId: r.tache_id === null ? null : Number(r.tache_id),
+      creeLe: r.cree_le instanceof Date ? r.cree_le.toISOString() : String(r.cree_le), par: r.par,
+    }));
+  } catch {
+    return [];
+  }
 }

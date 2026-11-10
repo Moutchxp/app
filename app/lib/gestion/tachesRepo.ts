@@ -2,6 +2,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { titreLogement } from './annuaireRecherche';
+import { sqlLiensDuBien } from './rattachement';
 import type { Auteur } from './gestes';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
@@ -397,6 +398,50 @@ async function alignerInvitationsContacts(q: RequeteTx, tacheId: number, cles: r
 }
 
 /**
+ * ══ 🔴🔴 Arno (10/11/2026, migration 465) — LE TIERS INDÉPENDANT D'UN BIEN ══════════════════════════════════════════════════════════
+ * « Tâche rattachée à UN SEUL bien : un contact ajouté qui n'existe pas dans l'historique de ce bien y est ajouté comme tiers indépendant
+ * (nom, rôle, téléphone, e-mail), avec trace au journal. Tâche rattachée à plusieurs biens ou à aucun : rien n'est ajouté. »
+ * Les biens de la tâche : le sien, et ceux des événements auxquels elle est rattachée (par leurs mails rattachés). Un contact AJOUTÉ est un
+ * contact saisi à la main ; il « existe » déjà s'il est un contact de la fiche du bien (même e-mail, ou même nom) ou un tiers déjà posé.
+ */
+async function poserTiersDuBien(q: RequeteTx, tacheId: number, auteur: Auteur, nom: string): Promise<void> {
+  if (!(await invitationSondee())) return;
+  const { rows: biens } = await q<{ cle: string }>(
+    `SELECT l.wippimmo_id AS cle FROM gestion_tache t JOIN gestion_annuaire_lot l ON l.id = t.lot_id WHERE t.id = $1
+     UNION
+     SELECT DISTINCT r.cible_cle AS cle FROM gestion_tache_evenement te
+       JOIN gestion_affectation a ON a.evenement_id = te.evenement_id AND a.actif
+       JOIN gestion_message m ON m.fil_id = a.fil_id
+       JOIN gestion_rattachement r ON r.message_id = m.id
+      WHERE te.tache_id = $1 AND te.retire_le IS NULL AND ${sqlLiensDuBien('r')}`,
+    [tacheId]).catch(() => ({ rows: [] as { cle: string }[] }));
+  const cles = [...new Set(biens.map((b) => b.cle))];
+  if (cles.length !== 1) return; // aucun bien, ou plusieurs : rien n'est ajouté
+  const { rows: lot } = await q<{ id: number }>('SELECT id::int AS id FROM gestion_annuaire_lot WHERE wippimmo_id = $1', [cles[0]]);
+  if (lot[0] === undefined) return;
+  const lotId = Number(lot[0].id);
+  const manuels = (await contactsCopies(tacheId, q)).filter((c) => c.cle.startsWith('manuel:'));
+  if (manuels.length === 0) return;
+  const fiche = await contactsDuBienPourTache(lotId).catch(() => [] as ContactSource[]);
+  const net = (x: string | null | undefined) => (x ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const email = (c: ContactSource) => net(c.coordonnees.find((x) => x.sorte === 'email')?.valeur);
+  const tel = (c: ContactSource) => c.coordonnees.find((x) => x.sorte === 'telephone')?.affichage ?? c.coordonnees.find((x) => x.sorte === 'telephone')?.valeur ?? null;
+  for (const c of manuels) {
+    const existe = fiche.some((f) => (email(c) !== '' && email(f) === email(c)) || net(f.nom) === net(c.nom));
+    if (existe) continue;
+    const { rows } = await q<{ id: number }>(
+      `INSERT INTO gestion_bien_tiers (lot_id, nom, role, telephone, email, tache_id, cree_par, cree_par_libelle)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING RETURNING id::int AS id`,
+      [lotId, c.nom, c.qualite, tel(c), email(c) === '' ? null : c.coordonnees.find((x) => x.sorte === 'email')?.valeur ?? null, tacheId, auteur.id, nom]);
+    if (rows.length === 0) continue; // déjà posé sur ce bien
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle)
+       VALUES ('annuaire_lot', $1, 'tiers_independant_ajoute', $2, $3, $4, $5)`,
+      [lotId, c.nom, `tiers indépendant ajouté au bien depuis la tâche ${tacheId} : ${[c.nom, c.qualite, tel(c), email(c) || null].filter(Boolean).join(' · ')}`, auteur.id, nom]);
+  }
+}
+
+/**
  * 🔴 LOT GESTION-TACHES-SANS-BIEN — LES CONTACTS SAISIS À LA MAIN (tâche sans bien) : une COPIE datée, comme un contact
  * de la fiche, rangée en « Tiers indépendant », sous une clé `manuel:…` propre à la tâche. Tracé comme les autres.
  */
@@ -526,7 +571,8 @@ async function creerTacheSansRefus(
     }, auteur, nom);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     await alignerInvitationsContacts(q, id, s.invitesContacts);
-    if (lotId === null && await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
+    /* 🔴 Arno (10/11/2026) — un contact saisi à la main se pose AUSSI sur une tâche d'un bien (avant : sans bien seulement). */
+    if (await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours choisis ; un refus annule toute la création. */
     if (s.evenements !== undefined && s.evenements.length > 0 && await evenementsTacheDisponible()) {
@@ -535,6 +581,8 @@ async function creerTacheSansRefus(
     }
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — l'ancien champ, s'il est encore envoyé, devient aussi un rattachement. */
     if (s.evenementId !== null && await evenementsTacheDisponible()) await assurerRattachement(q, id, s.evenementId, auteur, nom);
+    /* 🔴 Arno (10/11/2026) — après les événements : le bien unique se lit sur la tâche ET ses événements rattachés. */
+    await poserTiersDuBien(q, id, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — confiée à soi : acceptée d'office ; à un autre : en attente, et un mail à préparer. */
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité par personne (« Confiée à » d'abord), chacun SA demande. */
     if (plusieurs) {
@@ -775,7 +823,7 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     const nom = await nomAuteur(q, auteur);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     await alignerInvitationsContacts(q, id, s.invitesContacts);
-    if (lotDeLaTache === null && await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
+    if (await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher ou retirer des événements (tracé ligne à ligne par le dépôt). */
     if (s.evenements !== undefined && await evenementsTacheDisponible()) {
       const refus = await alignerEvenements(q, id, s.evenements, auteur, nom);
@@ -785,6 +833,8 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     if (s.evenementId !== null && 'evenementId' in apres && await evenementsTacheDisponible()) {
       await assurerRattachement(q, id, s.evenementId, auteur, nom);
     }
+    /* 🔴 Arno (10/11/2026) — après les événements : le bien unique se lit sur la tâche ET ses événements rattachés. */
+    await poserTiersDuBien(q, id, auteur, nom);
     await marquerASynchroniser(q, id);
     if (Object.keys(apres).length === 0) return { ok: true, id };
     await q(
