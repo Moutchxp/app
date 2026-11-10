@@ -20,7 +20,8 @@ interface EnvoiLu { id: number; bailId: number; quand: string; par: string; n: n
 /** Arno (05/11/2026) — un mail de préavis ou de sortie du bien (journal 457), lu par la même route. */
 interface AvisLu { id: number; sorte: string; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: string }
 
-export function HistoriqueEnvoisLocation({ lotId }: { lotId: number }) {
+/** 🔴 Arno (10/11/2026, règle 7) — `locataire` (clé de la fiche) : l'historique d'un LOCATAIRE — ses mails Location, lus par ses occupations. */
+export function HistoriqueEnvoisLocation({ lotId, locataire }: { lotId?: number; locataire?: string }) {
   const [envois, setEnvois] = useState<EnvoiLu[] | null>(null);
   const [avis, setAvis] = useState<AvisLu[]>([]);
   const [ouvert, setOuvert] = useState(false);
@@ -33,7 +34,8 @@ export function HistoriqueEnvoisLocation({ lotId }: { lotId: number }) {
   }, []);
   useEffect(() => {
     let vivant = true;
-    fetch(`/api/admin/gestion/historique/envois-location?lot=${lotId}`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+    const cible = locataire !== undefined ? `locataire=${encodeURIComponent(locataire)}` : `lot=${lotId ?? ''}`;
+    fetch(`/api/admin/gestion/historique/envois-location?${cible}`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
       .then((r) => r.json())
       .then((d: { etat?: string; envois?: unknown; avis?: unknown }) => {
         if (!vivant) return;
@@ -42,7 +44,7 @@ export function HistoriqueEnvoisLocation({ lotId }: { lotId: number }) {
       })
       .catch(() => { if (vivant) setEnvois([]); });
     return () => { vivant = false; };
-  }, [lotId, tour]);
+  }, [lotId, locataire, tour]);
 
   if (envois === null) return null;
   return (
@@ -84,6 +86,15 @@ const LIBELLE_AVIS: Record<string, string> = {
   preavis_adhoc: 'Information préavis (ADHOC)',
   sortie_adhoc: 'Information sortie (ADHOC)',
   sortie_locataires: 'Départ du logement (locataires)',
+  // 🔴 Arno (10/11/2026, règle 7) — la pré-visite : un libellé clair par type.
+  previsite_alerte: 'Pré-visite — alerte « aucune pré-visite fixée » (collaborateurs)',
+  previsite_invitation: 'Pré-visite — invitation d’un collègue (Accepter / Refuser)',
+  previsite_reponse: 'Pré-visite — réponse d’un collègue',
+  previsite_locataires: 'Pré-visite — confirmation du rendez-vous (locataires)',
+  previsite_locataires_modif: 'Pré-visite — rendez-vous déplacé (locataires)',
+  previsite_invitation_cr: 'Pré-visite — invitation à faire le compte rendu (collègues)',
+  previsite_compte_rendu: 'Pré-visite — compte rendu',
+  previsite_refus: 'Pré-visite — refus / absence (locataires)',
 };
 
 /**

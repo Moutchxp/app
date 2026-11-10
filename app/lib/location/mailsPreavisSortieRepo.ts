@@ -292,6 +292,23 @@ export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> 
 }
 
 /**
+ * ══ 🔴 Arno (10/11/2026, pré-visite, règle 7) — LES MAILS DE LA LOCATION D'UN LOCATAIRE, POUR SON HISTORIQUE ═══════════════════════════════
+ * Le même journal (457), lu par les OCCUPATIONS du locataire (posées à l'envoi : `occupation_ids`) — préavis, pré-visite, sortie : chaque
+ * mail qui le concerne, même parti à un collaborateur seulement (alerte, compte rendu). Jamais par une adresse. `wippimmoId` : la clé de sa
+ * fiche (celle de l'adresse de l'écran). Du plus récent au plus ancien. Sans la 457 : aucun. Lecture seule.
+ */
+export async function mailsAvisDuLocataire(wippimmoId: string): Promise<MailAvisDuBien[]> {
+  if ((wippimmoId ?? '').trim() === '' || !(await mailsAvisDisponibles())) return [];
+  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec' }>(
+    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut
+       FROM gestion_location_mail_avis m
+      WHERE m.occupation_ids && ARRAY(SELECT o.id FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+                                       WHERE l.wippimmo_id = $1)
+      ORDER BY m.envoye_le DESC, m.id DESC LIMIT 200`, [wippimmoId]);
+  return rows.map((r) => ({ ...r, id: Number(r.id) }));
+}
+
+/**
  * ══ 🔴 Arno (06/11/2026) — L'APERÇU DES MAILS D'UNE SORTIE, pour le récapitulatif AVANT « Confirmer » (LECTURE SEULE : rien n'est écrit, rien ne
  * part) : le compte rendu interne (ses destinataires) et l'information aux partenaires (liste « Sorties », bien en gestion seulement), avec leurs
  * copies — les mêmes règles que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`).

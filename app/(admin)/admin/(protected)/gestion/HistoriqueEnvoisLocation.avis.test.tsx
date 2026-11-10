@@ -43,3 +43,21 @@ describe('🔴 l’historique du bien : les mails de préavis et de sortie', () 
     expect(container.querySelector('[data-historique-envois-location]')).not.toBeNull();
   });
 });
+
+describe('🔴 Arno (10/11/2026, pré-visite, règle 7) — l’historique d’un LOCATAIRE : ses mails Location, avec un libellé clair par type', () => {
+  it('lu par la fiche du locataire (`?locataire=`) ; les mails de pré-visite portent leur libellé', async () => {
+    global.fetch = vi.fn(async () => ({ json: async () => ({ etat: 'ok', envois: [], avis: [
+      { id: 7, sorte: 'previsite_locataires', quand: '2026-11-10T10:00:00+01:00', par: 'Arno Test', a: ['alice@exemple.test'], cc: ['gestion@criterimmo.fr'],
+        objet: 'Rendez-vous de pré-visite', texte: 'Bonjour Alice,', statut: 'envoye' },
+      { id: 8, sorte: 'previsite_alerte', quand: '2026-11-12T08:00:00+01:00', par: 'Envoi automatique (pré-visite)', a: ['arno@exemple.test'], cc: [],
+        objet: 'Alerte préavis — aucune pré-visite fixée', texte: 'Bonjour,', statut: 'echec' },
+    ] }) }) as unknown as Response) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(HistoriqueEnvoisLocation, { locataire: 'LOC 42' })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain('envois-location?locataire=LOC%2042');
+    const bande = container.querySelector('[data-historique-mails-avis]')!;
+    act(() => (bande.querySelector('button') as HTMLButtonElement).click());
+    expect(bande.querySelector('[data-mail-avis="7"]')?.textContent).toContain('Pré-visite — confirmation du rendez-vous (locataires) — « Rendez-vous de pré-visite »');
+    expect(bande.querySelector('[data-mail-avis="8"]')?.textContent).toContain('Pré-visite — alerte « aucune pré-visite fixée » (collaborateurs) — « Alerte préavis — aucune pré-visite fixée » — NON ENVOYÉ');
+  });
+});
