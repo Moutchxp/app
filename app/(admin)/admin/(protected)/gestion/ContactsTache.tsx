@@ -25,6 +25,24 @@ import { horodatageLisible } from '../../../../lib/gestion/taches';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 
+/**
+ * 🔴 Arno (10/11/2026) — LA LÉGENDE DES COULEURS par type de contact (les MÊMES tons que le bloc PARTIES, `tonDuGroupe`) : propriétaire,
+ * locataire en place, ancien locataire, tiers indépendant. Lue par la liste des contacts d'une tâche ET par la recherche « Rattacher à des
+ * événements en cours » : une seule légende, jamais une copie.
+ */
+export const FAMILLES_LEGENDE = ['proprietaire', 'locataire', 'ancien_locataire', 'independant'] as const;
+export function LegendeFamilles() {
+  return (
+    <p className="tchc-legende" data-legende-familles>
+      {FAMILLES_LEGENDE.map((f) => (
+        <span key={f} className="tchc-legende-item" data-legende={f}>
+          <span aria-hidden="true" className={`tchc-pastille tchc-pastille--${tonDuGroupe(f)}`} />{MOT_FAMILLE[f]}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 /** Un contact proposé à la case : la fiche d'aujourd'hui, ou la copie d'un contact qui n'est plus lié au bien. */
 export interface ContactPropose extends ContactSource { plusLie?: boolean }
 
@@ -41,6 +59,7 @@ export function ChoixContacts({ proposes, choisis, onBasculer, desactive = false
     <fieldset className="tchc" disabled={desactive}>
       <legend className="tch-etiquette">Contacts de la tâche</legend>
       {proposes.length === 0 && <p className="tchc-vide">Aucun contact n’est lié à la fiche de ce bien.</p>}
+      {proposes.length > 0 && <LegendeFamilles />}
       {avecRecherche && (
         <input type="search" className="tchc-recherche" placeholder="Chercher un contact (nom, famille, téléphone…)"
           aria-label="Chercher un contact" value={recherche} onChange={(e) => setRecherche(e.target.value)} />
@@ -213,6 +232,14 @@ export const CSS_CONTACTS_TACHE = `
 .tchc-groupe--rose .tchc-case input{accent-color:var(--color-svv-syndic-texte)}
 .tchc-groupe--bleu{border-left-color:var(--color-svv-blue)}
 .tchc-groupe--gris{border-left-color:var(--color-svv-line-strong)}
+.tchc-legende{display:flex;flex-wrap:wrap;gap:.25rem .9rem;margin:0;font-size:.78rem;color:var(--color-svv-muted)}
+.tchc-legende-item{display:inline-flex;align-items:center;gap:.3rem}
+.tchc-pastille{display:inline-block;width:.8em;height:.8em;border-radius:999px;background:var(--color-svv-line-strong)}
+.tchc-pastille--rouge{background:var(--color-svv-red)}
+.tchc-pastille--vert{background:var(--color-svv-green)}
+.tchc-pastille--violet{background:var(--color-svv-violet)}
+.tchc-pastille--rose{background:var(--color-svv-syndic-bord)}
+.tchc-pastille--bleu{background:var(--color-svv-blue)}
 .tchc-famille{margin:0;font-size:.76rem;font-weight:700;color:var(--color-svv-muted);text-transform:uppercase;letter-spacing:.02em}
 .tchc-case{display:flex;align-items:center;gap:.45rem;min-height:36px;font-size:.88rem;min-width:0}
 .tchc-nom{min-width:0;overflow-wrap:anywhere;margin:0;font-size:.88rem;color:var(--color-svv-ink)}

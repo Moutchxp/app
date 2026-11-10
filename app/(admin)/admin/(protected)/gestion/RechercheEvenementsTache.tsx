@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { LONGUEUR_MINIMALE } from '../../../../lib/gestion/annuaireRecherche';
+import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
+import { MOT_FAMILLE } from '../../../../lib/gestion/contactsTache';
+import { LegendeFamilles } from './ContactsTache';
 import {
   chercherPropositionsEvenements, lireEvenementsOuvertsDesLots,
   type EvenementPropose, type GroupeEvenementsOuverts, type PropositionEvenements,
@@ -94,19 +97,21 @@ export function RechercheEvenementsTache({ rattaches, duBien, choisis, desactive
         propositions.length === 0
           ? <p className="tchf-aide" role="status">Aucun résultat pour « {texte.trim()} ».</p>
           : (
+            <><LegendeFamilles />
             <ul className="tchf-propositions" role="listbox" aria-label="Propositions">
               {propositions.map((p, i) => (
                 <li key={`${p.sorte}-${i}`}>
-                  <button type="button" className="tchf-proposition" data-proposition={p.sorte} onClick={() => void choisir(p)}>
+                  <button type="button" className={`tchf-proposition${p.famille ? ` tchf-proposition--${tonDuGroupe(p.famille)}` : ''}`} data-proposition={p.sorte}
+                    data-famille={p.famille ?? undefined} onClick={() => void choisir(p)}>
                     <span className={`tchf-prop-sorte tchf-prop-sorte--${p.sorte}`}>
-                      {p.sorte === 'bien' ? 'Adresse' : p.sorte === 'proprietaire' ? 'Propriétaire' : 'Locataire'}
+                      {p.sorte === 'bien' ? 'Adresse' : p.famille ? MOT_FAMILLE[p.famille] : p.sorte === 'proprietaire' ? 'Propriétaire' : 'Locataire'}
                     </span>
                     <span className="tchf-prop-libelle">{p.libelle}</span>
                     {p.detail && <span className="tchf-prop-detail">{p.detail}</span>}
                   </button>
                 </li>
               ))}
-            </ul>
+            </ul></>
           )
       )}
       {choix !== null && (
@@ -152,6 +157,11 @@ export const CSS_RECHERCHE_EVENEMENTS = `
   text-align:left;font:inherit;font-size:.86rem;color:var(--color-svv-ink);background:var(--color-svv-surface);
   border:1px solid var(--color-svv-line);border-radius:.4rem;cursor:pointer}
 .tchf-proposition:hover,.tchf-proposition:focus-visible{border-color:var(--color-svv-line-strong)}
+.tchf-proposition--rouge,.tchf-proposition--vert,.tchf-proposition--violet,.tchf-proposition--bleu{border-left-width:5px}
+.tchf-proposition--rouge{border-left-color:var(--color-svv-red)}
+.tchf-proposition--vert{border-left-color:var(--color-svv-green)}
+.tchf-proposition--violet{border-left-color:var(--color-svv-violet)}
+.tchf-proposition--bleu{border-left-color:var(--color-svv-blue)}
 .tchf-prop-sorte{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--color-svv-muted)}
 .tchf-prop-libelle{font-weight:600}
 .tchf-prop-detail{font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}

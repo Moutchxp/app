@@ -200,6 +200,8 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
 
 export interface PropositionEvenements {
   sorte: 'locataire' | 'proprietaire' | 'bien';
+  /** 🔴 Arno (10/11/2026) — le TYPE de la personne, pour sa couleur (propriétaire, locataire en place, ancien locataire) ; `null` : une adresse. */
+  famille?: 'proprietaire' | 'locataire' | 'ancien_locataire' | null;
   libelle: string;
   /** « propriétaire de 3 biens », « locataire en place », l'e-mail ou le téléphone trouvé… */
   detail: string | null;
@@ -223,6 +225,7 @@ export async function propositionsEvenements(brut: string): Promise<PropositionE
         : x.roles.includes('locataire') ? 'locataire en place' : 'ancien locataire';
       out.push({
         sorte: proprietaire ? 'proprietaire' : 'locataire', libelle: x.nomAffiche,
+        famille: proprietaire ? 'proprietaire' : x.roles.includes('locataire') ? 'locataire' : 'ancien_locataire',
         detail: [role, x.raison, x.email, x.mobile].filter((v): v is string => typeof v === 'string' && v.trim() !== '').join(' · '),
         lots,
       });
@@ -249,7 +252,7 @@ export async function propositionsEvenements(brut: string): Promise<PropositionE
   for (const l of biens) {
     if (vus.has(l.lotId)) continue;
     vus.add(l.lotId);
-    out.push({ sorte: 'bien', libelle: l.libelle, detail: l.detail, lots: [l.lotId] });
+    out.push({ sorte: 'bien', famille: null, libelle: l.libelle, detail: l.detail, lots: [l.lotId] });
     if (vus.size >= 8) break;
   }
   return out;

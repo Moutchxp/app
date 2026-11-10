@@ -185,7 +185,9 @@ export async function lireEvenementsProposes(lotCle: string | null): Promise<{ l
 }
 
 /** 🔴 LOT GESTION-RECHERCHE-EVENEMENTS — une proposition du moteur : un locataire, un propriétaire, ou un bien. */
-export interface PropositionEvenements { sorte: 'locataire' | 'proprietaire' | 'bien'; libelle: string; detail: string | null; lots: number[] }
+export interface PropositionEvenements { sorte: 'locataire' | 'proprietaire' | 'bien'; libelle: string; detail: string | null; lots: number[];
+  /** 🔴 Arno (10/11/2026) — le type de la personne, pour sa couleur ; `null` / absent : une adresse. */
+  famille?: 'proprietaire' | 'locataire' | 'ancien_locataire' | null }
 export interface GroupeEvenementsOuverts { lotId: number; adresse: string; evenements: { id: number; reference: string; objet: string }[] }
 
 /** Les propositions pour un terme (recherche de l'annuaire). `null` = la lecture a échoué. */
