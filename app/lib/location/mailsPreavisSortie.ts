@@ -32,7 +32,10 @@ export const MENTION_SANS_EMAIL = 'pas d’e-mail, il ne recevra pas l’accusé
 
 const FORMAT = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 
-export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adhoc' | 'sortie_locataires';
+export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adhoc' | 'sortie_locataires'
+  // 🔴 Arno (10/11/2026, migration 464) — les mails de la PRÉ-VISITE (`previsite.ts`).
+  | 'previsite_alerte' | 'previsite_invitation' | 'previsite_reponse' | 'previsite_locataires' | 'previsite_locataires_modif'
+  | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus';
 
 /** Un mail prêt : ce que l'aperçu montre et ce qui part, à l'identique. */
 export interface MailAvis {
@@ -137,6 +140,16 @@ const avecSignature = (corps: string, s: Signature): { texte: string; html: stri
 
 const enveloppe = (contenu: string): string =>
   `<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px">${contenu}</div>`;
+
+/**
+ * 🔴 Arno (10/11/2026, pré-visite) — LE MÊME ASSEMBLAGE pour tout autre mail de la Location : les paragraphes, puis « Mail envoyé par … »
+ * (ou la mention donnée, pour un envoi automatique), puis la signature Gmail ; texte et HTML disent la même chose. PUR.
+ */
+export function composerMailLocation(paras: readonly string[], qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string }, s: Signature): { texte: string; html: string } {
+  const avec = 'mention' in qui ? [...paras, qui.mention] : avecMention(paras, qui);
+  const sig = avecSignature(avec.join('\n\n'), s);
+  return { texte: sig.texte, html: enveloppe(`${paragraphesHtml(avec)}${sig.html}`) };
+}
 
 // ── A) L'ACCUSÉ DE RÉCEPTION DU CONGÉ, AUX LOCATAIRES ─────────────────────────────────────────────────────────────────────
 
