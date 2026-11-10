@@ -185,7 +185,8 @@ describe('🔴 le statut du bien sur sa fiche', () => {
     await calmer();
     const bloc = hote.querySelector('[data-historique-statut]')!;
     expect(bloc.querySelector('.hdb-replier')?.textContent).toBe('▶Historique de gestion du bien2');
-    expect(bloc.querySelector('[data-aide-historique-gestion]')?.textContent).toBe('Indique depuis quand le bien est géré par l’agence. Ce statut décide notamment si les mails partent aux partenaires (ADHOC, MONGA).');
+    expect(bloc.querySelector('[data-aide-historique-gestion]')?.textContent).toBe('Indique depuis quand le bien est géré par l’agence, et ses éventuelles sorties ou retours en gestion.');
+    expect(bloc.querySelector('[data-aide-historique-gestion]')?.textContent).not.toMatch(/partenaires|ADHOC|MONGA/);
     await clic(bloc.querySelector('.hdb-replier'));
     const ligne = (i: number) => hote.querySelectorAll('[data-transition-statut]')[i];
     expect(ligne(0).querySelector('[data-phrase-gestion]')?.textContent).toBe('Passé en location seule le 20/10/2026');

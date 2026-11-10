@@ -146,7 +146,7 @@ export function phraseTransition(depuis: StatutBien | null, vers: StatutBien, ef
 // ══ 🔴 Arno (10/11/2026) — « HISTORIQUE DE GESTION DU BIEN » : chaque transition en français clair (présentation seulement) ═════════════
 
 export const TITRE_HISTORIQUE_GESTION = 'Historique de gestion du bien';
-export const AIDE_HISTORIQUE_GESTION = 'Indique depuis quand le bien est géré par l’agence. Ce statut décide notamment si les mails partent aux partenaires (ADHOC, MONGA).';
+export const AIDE_HISTORIQUE_GESTION = 'Indique depuis quand le bien est géré par l’agence, et ses éventuelles sorties ou retours en gestion.';
 
 /** Une ligne de l'historique, telle que la route la rend. */
 export interface TransitionAffichee {
