@@ -88,13 +88,13 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer }: { etat: 
         <div className="rce-groupe" data-recap-collaborateurs>
           <p className="rce-mot">Collaborateurs de l’agence ({a.collaborateurs.length})</p>
           {a.collaborateurs.length === 0 ? <p className="loc-muet">Aucun.</p> : <ul className="rce-liste">{a.collaborateurs.map((c, i) => (
-            <li key={`${i}-${c.libelle}`} data-mail={c.mail ? 'oui' : 'non'}>{c.libelle}{c.mail ? ' — invitation par mail' : ` — aucun mail : ${c.motif ?? ''}`}</li>))}</ul>}
+            <li key={`${i}-${c.libelle}`} data-mail={c.mail ? 'oui' : 'non'}>{c.libelle}{c.mail ? ' — invitation par mail' : ` — aucun mail${c.motif ? ` (${c.motif})` : ''}`}</li>))}</ul>}
         </div>
         <div className="rce-groupe" data-recap-exterieurs>
           <p className="rce-mot">Contacts extérieurs ({a.exterieurs.length})</p>
           {a.exterieurs.length === 0 ? <p className="loc-muet">Aucun : un contact ne reçoit rien sans sa case « Envoyer une invitation ».</p>
             : <ul className="rce-liste">{a.exterieurs.map((e, i) => (
-              <li key={`${i}-${e.nom}`} data-mail={e.mail ? 'oui' : 'non'}>{e.nom}{e.email ? ` <${e.email}>` : ''} — {e.mail ? (e.sorte === 'invitation' ? 'invitation' : e.sorte === 'modification' ? 'modification du rendez-vous' : 'annulation') : `aucun mail : ${e.motif ?? ''}`}</li>))}</ul>}
+              <li key={`${i}-${e.nom}`} data-mail={e.mail ? 'oui' : 'non'}>{e.nom}{e.email ? ` <${e.email}>` : ''} — {e.mail ? (e.sorte === 'invitation' ? 'invitation' : e.sorte === 'modification' ? 'modification du rendez-vous' : 'annulation') : `aucun mail${e.motif ? ` (${e.motif})` : ''}`}</li>))}</ul>}
         </div>
         {a.texteCollaborateur !== null && <div className="rce-groupe" data-texte-collaborateur><p className="rce-mot">Texte reçu par un collaborateur (complet)</p><TexteDuMail texte={a.texteCollaborateur} ouvert={false} /></div>}
         {a.texteExterieur !== null && <div className="rce-groupe" data-texte-exterieur><p className="rce-mot">Texte reçu par un contact extérieur (sans aucune coordonnée de tiers)</p><TexteDuMail texte={a.texteExterieur} ouvert /></div>}
@@ -113,7 +113,7 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer }: { etat: 
       <h2 id={titreId} className="mis-titre" data-titre-resultat-envois>✓ {etat.titre}</h2>
       <p className="cev-message" data-resultat-message>{etat.issue.message}</p>
       <p className="pss-sous-titre" data-resultat-nombre>{partis} destinataire{partis > 1 ? 's' : ''} {partis > 1 ? 'ont' : 'a'} reçu le mail{mails.length > partis ? ` ; ${mails.length - partis} non envoyé${mails.length - partis > 1 ? 's' : ''}` : ''}.</p>
-      <BlocsEnvois issue={{ informer: false, mails, motifGlobal: mails.length === 0 ? 'Aucun mail n’est parti pour cette opération.' : null }} />
+      <BlocsEnvois issue={{ informer: false, mails, motifGlobal: null }} sansPartenaires />
       <div className="mis-actions"><button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={onFermer} data-fermer-resultat>Fermer</button></div>
     </>;
   }

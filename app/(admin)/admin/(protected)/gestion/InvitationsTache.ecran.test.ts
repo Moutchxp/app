@@ -20,7 +20,7 @@ const LOCATAIRE: ContactSource = { cle: 'locataire:45', famille: 'locataire', no
   coordonnees: [{ sorte: 'telephone', libelle: 'Portable', valeur: '0700000000', affichage: null }] };
 const APERCU = {
   etat: 'ok', total: 2,
-  collaborateurs: [{ libelle: 'Claire Test', mail: true, motif: null }, { libelle: 'Arno Jorel', mail: false, motif: 'vous-même : acceptée d’office, aucun mail' }],
+  collaborateurs: [{ libelle: 'Claire Test', mail: true, motif: null }, { libelle: 'Arno Jorel', mail: false, motif: 'vous-même : acceptée d’office' }],
   exterieurs: [{ nom: 'M. DUPONT Jean', email: 'jean@exemple.test', sorte: 'invitation', mail: true, motif: null }],
   texteCollaborateur: 'Bonjour Claire Test, … M. DUPONT Jean — jean@exemple.test', texteExterieur: 'Bonjour,\n\nNous vous confirmons le rendez-vous suivant.',
 };
@@ -85,7 +85,7 @@ describe('🔴 le récapitulatif avant envoi, « Revenir », puis le résultat',
     expect(posts.at(-1)?.corps).toMatchObject({ geste: 'creer', invitesContacts: ['proprietaire:12'] });
     const f = document.querySelector('[data-fenetre-envois="recap"]')!;
     expect(f.querySelector('[data-total-envois]')?.textContent).toBe('2 invitations partiront.');
-    expect([...f.querySelectorAll('[data-recap-collaborateurs] li')].map((l) => l.textContent)).toEqual(['Claire Test — invitation par mail', 'Arno Jorel — aucun mail : vous-même : acceptée d’office, aucun mail']);
+    expect([...f.querySelectorAll('[data-recap-collaborateurs] li')].map((l) => l.textContent)).toEqual(['Claire Test — invitation par mail', 'Arno Jorel — aucun mail (vous-même : acceptée d’office)']);
     expect([...f.querySelectorAll('[data-recap-exterieurs] li')].map((l) => l.textContent)).toEqual(['M. DUPONT Jean <jean@exemple.test> — invitation']);
     expect(f.querySelector('[data-texte-exterieur]')?.textContent).toContain('Nous vous confirmons le rendez-vous suivant.');
     expect(f.querySelector('[data-texte-collaborateur]')).not.toBeNull();
@@ -116,6 +116,8 @@ describe('🔴 le récapitulatif avant envoi, « Revenir », puis le résultat',
     expect([...r.querySelectorAll('[data-mail-parti]')].map((m) => [m.getAttribute('data-envoye'), m.querySelector('[data-a]')?.textContent])).toEqual([
       ['oui', 'Claire Test'], ['non', 'M. DUPONT Jean <jean@exemple.test>']]);
     expect(r.querySelector('[data-envoye="non"] [data-echec-envoi]')?.textContent).toContain('Gmail indisponible');
+    // 🔴 Une tâche n'a pas de « partenaires » : la phrase de la Location ne s'y écrit jamais (elle aurait été fausse).
+    expect(r.textContent).not.toContain('partenaires');
   });
 });
 

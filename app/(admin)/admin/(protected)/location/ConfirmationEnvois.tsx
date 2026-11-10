@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { ModaleIssue, type ActionIssue } from './ModaleIssue';
 import {
-  libelleMail, lienDestinataires, messagesConfirmation, titreConfirmation, type ActionLocation, type IssueEnvois,
+  libelleMail, lienDestinataires, messagesConfirmation, messagesSansPartenaires, titreConfirmation, type ActionLocation, type IssueEnvois,
 } from '../../../../lib/location/confirmationEnvois';
 
 /**
@@ -69,11 +69,11 @@ export function InfoDestinataires({ action }: { action: ActionLocation }) {
 }
 
 /** Les messages et les blocs de mails (un par mail, avec objet, destinataires, copies) — d'après la réponse du serveur. */
-export function BlocsEnvois({ issue }: { issue: IssueEnvois }) {
+export function BlocsEnvois({ issue, sansPartenaires = false }: { issue: IssueEnvois; sansPartenaires?: boolean }) {
   return (
     <div className="cev-corps" data-confirmation-envois>
       <style>{CSS_CONFIRMATION_ENVOIS}</style>
-      {messagesConfirmation(issue).map((m) => (
+      {(sansPartenaires ? messagesSansPartenaires(issue) : messagesConfirmation(issue)).map((m) => (
         <p key={m.texte} className={m.alerte ? 'cev-alerte' : 'cev-message'} {...(m.alerte ? { role: 'alert', 'data-message-echec': '' } : { 'data-message-confirmation': '' })}>{m.texte}</p>
       ))}
       {issue.mails.length > 0 && (

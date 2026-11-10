@@ -49,3 +49,13 @@ describe('« Rattacher à des événements en cours » : la recherche colorée p
       ['tchf-proposition tchf-proposition--violet', 'Ancien locataire'], ['tchf-proposition', 'Adresse']]);
   });
 });
+
+describe('🔴 la légende explique toute couleur visible dans la liste', () => {
+  it('les quatre types toujours, puis « Syndic & immeuble » quand un tel contact est proposé (sans doublon)', async () => {
+    const { LegendeFamilles } = await import('./ContactsTache');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { createElement: ce } = await import('react');
+    const html = renderToStaticMarkup(ce(LegendeFamilles, { presentes: ['proprietaire', 'syndic_immeuble', 'syndic_immeuble'] }));
+    expect([...html.matchAll(/data-legende="([a-z_]+)"/g)].map((m) => m[1])).toEqual(['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'syndic_immeuble']);
+  });
+});

@@ -93,6 +93,15 @@ export function messagesConfirmation(i: IssueEnvois): { texte: string; alerte: b
   return out;
 }
 
+/**
+ * 🔴 Arno (10/11/2026) — les messages d'un résultat SANS notion de partenaires (tâches, état des lieux de sortie) : seulement l'échec global
+ * ou « aucun mail n'est parti ». Les phrases « nos partenaires » restent propres à la Location (`messagesConfirmation`). PUR.
+ */
+export function messagesSansPartenaires(i: IssueEnvois): { texte: string; alerte: boolean }[] {
+  if (i.motifGlobal !== null) return [{ texte: `Les mails n’ont pas pu partir : ${i.motifGlobal}`, alerte: true }];
+  return i.mails.length === 0 ? [{ texte: AUCUN_MAIL_PARTI, alerte: false }] : [];
+}
+
 /** Le lien vers la liste de « Paramètres Location » > « Destinataires mails » de ce type d'action. PUR. */
 export function lienDestinataires(action: ActionLocation): string {
   return `/admin/location/outils/parametres?onglet=destinataires${action === 'preavis' ? '&liste=preavis' : action === 'sortie' ? '&liste=sorties' : ''}`;

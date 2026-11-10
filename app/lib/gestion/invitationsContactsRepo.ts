@@ -174,7 +174,7 @@ export async function apercuEnvoisTache(o: {
     ids = rows[0]?.c ? [Number(rows[0].c)] : [];
   } else if (o.geste === 'changerDestinataire' && o.collaborateurId) ids = [o.collaborateurId];
   const collaborateurs = [...new Set(ids)].map((id) => {
-    if (id === Number(o.auteur.id) && o.geste !== 'renvoyerInvitation' && o.geste !== 'renvoyerDemande') return { libelle: libelle(id), mail: false, motif: 'vous-même : acceptée d’office, aucun mail' };
+    if (id === Number(o.auteur.id) && o.geste !== 'renvoyerInvitation' && o.geste !== 'renvoyerDemande') return { libelle: libelle(id), mail: false, motif: 'vous-même : acceptée d’office' };
     if (!reglage.envoiMail) return { libelle: libelle(id), mail: false, motif: 'l’envoi des demandes par mail est désactivé dans les réglages des tâches' };
     return { libelle: libelle(id), mail: true, motif: null };
   });

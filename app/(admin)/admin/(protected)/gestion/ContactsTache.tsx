@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   chercherContacts, etatCopie, grouperParFamille, libelleCoordonnee, lienTelephone, MOT_FAMILLE,
-  SEUIL_RECHERCHE_CONTACTS, type ContactSource, type ContactTache,
+  SEUIL_RECHERCHE_CONTACTS, type ContactSource, type ContactTache, type FamilleContact,
 } from '../../../../lib/gestion/contactsTache';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { horodatageLisible } from '../../../../lib/gestion/taches';
@@ -31,10 +31,12 @@ import { horodatageLisible } from '../../../../lib/gestion/taches';
  * événements en cours » : une seule légende, jamais une copie.
  */
 export const FAMILLES_LEGENDE = ['proprietaire', 'locataire', 'ancien_locataire', 'independant'] as const;
-export function LegendeFamilles() {
+export function LegendeFamilles({ presentes = [] }: { presentes?: readonly FamilleContact[] }) {
+  // Les quatre types toujours ; et toute autre couleur visible dans la liste (syndic & immeuble…) est expliquée aussi.
+  const familles: FamilleContact[] = [...FAMILLES_LEGENDE, ...presentes.filter((f, i) => !(FAMILLES_LEGENDE as readonly string[]).includes(f) && presentes.indexOf(f) === i)];
   return (
     <p className="tchc-legende" data-legende-familles>
-      {FAMILLES_LEGENDE.map((f) => (
+      {familles.map((f) => (
         <span key={f} className="tchc-legende-item" data-legende={f}>
           <span aria-hidden="true" className={`tchc-pastille tchc-pastille--${tonDuGroupe(f)}`} />{MOT_FAMILLE[f]}
         </span>
@@ -78,7 +80,7 @@ export function ChoixContacts({ proposes, choisis, onBasculer, desactive = false
     <fieldset className="tchc" disabled={desactive}>
       <legend className="tch-etiquette">Contacts de la tâche</legend>
       {proposes.length === 0 && <p className="tchc-vide">Aucun contact n’est lié à la fiche de ce bien.</p>}
-      {proposes.length > 0 && <LegendeFamilles />}
+      {proposes.length > 0 && <LegendeFamilles presentes={proposes.map((c) => c.famille)} />}
       {avecRecherche && (
         <input type="search" className="tchc-recherche" placeholder="Chercher un contact (nom, famille, téléphone…)"
           aria-label="Chercher un contact" value={recherche} onChange={(e) => setRecherche(e.target.value)} />

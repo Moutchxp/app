@@ -280,7 +280,7 @@ export async function apercuEdls(d: { occupationIds: readonly number[]; jour: st
   const collaborateurs = personne === undefined ? [] : [{
     libelle: personne.libelle,
     mail: reglage.envoiMail && Number(personne.id) !== Number(auteur.id),
-    motif: Number(personne.id) === Number(auteur.id) ? 'vous-même : acceptée d’office, aucun mail' : reglage.envoiMail ? null : 'l’envoi des demandes par mail est désactivé dans les réglages des tâches',
+    motif: Number(personne.id) === Number(auteur.id) ? 'vous-même : acceptée d’office' : reglage.envoiMail ? null : 'l’envoi des demandes par mail est désactivé dans les réglages des tâches',
   }];
   const v = verifierPlanification({ jour: d.jour, debut: d.debut, fin: d.fin, confieA: qui === null ? null : Number(qui), commentaire: d.commentaire }, groupePreavis(g.lignes));
   const texteCollaborateur = personne === undefined ? null : mailTache({
