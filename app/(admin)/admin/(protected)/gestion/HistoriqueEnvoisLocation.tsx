@@ -99,7 +99,7 @@ const LIBELLE_AVIS: Record<string, string> = {
 };
 
 /**
- * ══ 🔴 Arno (05/11/2026) — « MAILS DE PRÉAVIS ET DE SORTIE (N) » : chaque mail envoyé depuis la Location pour CE bien (accusé aux
+ * ══ 🔴 Arno (05/11/2026) — « MAILS DE PRÉAVIS, PRÉ-VISITE ET SORTIE (N) » (titre d’Arno du 10/11/2026) : chaque mail envoyé depuis la Location pour CE bien (accusé aux
  * locataires, information à ADHOC), même gabarit que la bande ci-dessus, repliée par défaut. Une ligne par mail : date et heure,
  * sorte, objet, destinataires et copies, qui l'a validé ; le texte tel qu'il est parti se déplie. Un envoi en échec le dit.
  */
@@ -111,7 +111,7 @@ function BandeMailsAvis({ avis }: { avis: AvisLu[] }) {
       <div className="hdb-groupe-tete">
         <button type="button" className="hdb-replier" aria-expanded={ouvert} onClick={() => setOuvert((v) => !v)}>
           <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
-          Mails de préavis et de sortie
+          Mails de préavis, pré-visite et sortie
           <span className="gst-compte">{avis.length}</span>
         </button>
       </div>

@@ -26,7 +26,7 @@ describe('🔴 l’historique du bien : les mails de préavis et de sortie', () 
     await rendre({ etat: 'ok', envois: [], avis: AVIS });
     expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain('envois-location?lot=441');
     const bande = container.querySelector('[data-historique-mails-avis]')!;
-    expect(bande.querySelector('button')?.textContent).toBe('▶Mails de préavis et de sortie1');
+    expect(bande.querySelector('button')?.textContent).toBe('▶Mails de préavis, pré-visite et sortie1');
     expect(bande.querySelector('[data-mail-avis]')).toBeNull();
     act(() => (bande.querySelector('button') as HTMLButtonElement).click());
     const ligne = bande.querySelector('[data-mail-avis="3"]')!;
