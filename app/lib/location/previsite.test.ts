@@ -93,8 +93,10 @@ describe('🔴 Règle 5 — le compte rendu : objet prérempli mot pour mot ; l�
 
 describe('🔴 Règle 6 — le texte prérempli du refus / de l’absence', () => {
   const t = texteRefusPrevisite({ adresse: '28 Avenue Marceau, 92400 Courbevoie', locataires: [{ nom: 'TEST', prenom: 'Alice' }, { nom: 'TEST', prenom: 'Bruno' }] });
-  it('courtois, adressé aux locataires, avec les idées d’Arno', () => {
-    expect(t.startsWith('Bonjour Alice TEST et Bruno TEST,')).toBe(true);
+  it('courtois, adressé aux locataires, avec les idées d’Arno ; 🔴 le nom de CHAQUE destinataire, jamais ceux des colocataires', () => {
+    expect(t.startsWith('Bonjour [nom du locataire],')).toBe(true);
+    expect(t).not.toContain('Alice');
+    expect(t).not.toContain('Bruno');
     expect(t).toContain('Malgré nos recommandations, aucun rendez-vous de pré-visite n’a pu être fixé.');
     expect(t).toContain('le jour de l’état des lieux de sortie');
     expect(t).toContain('éviter une retenue sur le dépôt de garantie');

@@ -234,13 +234,13 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
           <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={10} data-corps-compte-rendu /></label>
         <label className="pvv-case"><input type="checkbox" checked={aussiLocataires} onChange={(e) => setAussiLocataires(e.target.checked)} data-aussi-locataires />
           <span>Envoyer aussi aux locataires</span></label>
-        <p className="loc-muet">Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location.</p>
+        <p className="loc-muet">Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location. Avec la case cochée, chaque locataire reçoit en plus SON propre mail (seul destinataire, sans copie visible).</p>
       </>}
       {geste === 'refus' && (propose.etat.etat !== 'ok' ? <EtatLecture etat={propose.etat} /> : <>
         <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span>{propose.etat.data.objet}</span></p>
         <label className="pvs-champ"><span className="pvs-libelle">Texte du mail (modifiable) *</span>
           <textarea value={texteRefus ?? ''} onChange={(e) => setTexteRefus(e.target.value)} rows={14} data-texte-refus /></label>
-        <p className="loc-muet">Aux locataires, copie à tous les collaborateurs ayant accès à Gestion et/ou Location.</p>
+        <p className="loc-muet" data-refus-confidentialite>Chaque locataire reçoit SON mail (seul destinataire, sans copie visible) : « [nom du locataire] » y est remplacé par son nom. Les collaborateurs ayant accès à Gestion et/ou Location reçoivent une copie interne séparée.</p>
         {p.statut === 'programmee' && p.rdv && <p className="mis-note pss-note-neutre" data-refus-annule-rdv>Une pré-visite est programmée le {creneauFr(p.rdv)} : à l’envoi, elle sera annulée (tâche des collègues annulée) et chaque collègue destinataire recevra un mail d’annulation.</p>}
       </>)}
       {verdict !== null && !verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-previsite-message>{verdict.motif}</p>}

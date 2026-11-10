@@ -13,7 +13,7 @@ import { locatairesAvis, logementDe, signatureEcran, type DepsAvis } from './mai
 import type { LignePreavisAccueil } from './preavis';
 import {
   NOM_FICHIER_ICS, finDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
-  paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
+  copieInterneLocataires, mailsAuxLocataires, paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
   type FaitsPrevisite, type MailPrevisite, type RdvPrevisite, type ReponseDuCollegue,
 } from './previsite';
 
@@ -200,21 +200,28 @@ export function icsDuRdv(c: Contexte, previsiteId: number, rdv: RdvPrevisite, se
     nom: NOM_FICHIER_ICS,
     contenu: invitationIcs({ uid: uidPrevisite(previsiteId, c.expediteur.split('@')[1] ?? ''), sequence, rdv, maintenant,
       titre: `Pré-visite d’état des lieux de sortie — ${c.adresse}`, lieu: c.adresse,
-      description: `Pré-visite d’état des lieux de sortie du logement situé ${c.adresse} (${c.locataires.map(prenomNom).join(', ')}).` }),
+      // 🔴 Arno (10/11/2026, confidentialité) — aucun nom dans l'invitation : elle part aux locataires (et sans liste de participants).
+      description: `Pré-visite d’état des lieux de sortie du logement situé ${c.adresse}.` }),
   };
 }
 
-/** Le mail aux locataires (confirmation ou modification), ou `null` si aucun n'a d'adresse. PUR (le contexte est lu). */
-export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisite, sequence: number, ancien: RdvPrevisite | null, maintenant: Date): MailPrevisite | null {
-  const a = adressesUniques(c.locataires.flatMap((l) => l.emails));
-  if (a.length === 0) return null;
-  return mailPrevisite({
-    sorte: ancien === null ? 'previsite_locataires' : 'previsite_locataires_modif', de: c.expediteur, a, cc: copiesAvis(c.expediteur, c.qui, a),
-    objet: ancien === null ? objetConfirmationLocataires(c.adresse, rdv) : objetModificationLocataires(c.adresse, rdv),
-    paragraphes: ancien === null ? paragraphesConfirmationLocataires({ adresse: c.adresse, locataires: c.locataires, rdv })
-      : paragraphesModificationLocataires({ adresse: c.adresse, locataires: c.locataires, rdv, ancien }),
-    qui: c.qui, signature: c.signature, ics: icsDuRdv(c, previsiteId, rdv, sequence, maintenant),
-  });
+/**
+ * Les mails aux locataires (confirmation ou modification) : 🔴 UN PAR LOCATAIRE (Arno, 10/11/2026, confidentialité) — seul destinataire,
+ * « Bonjour Prénom NOM », sans copie visible, sans « Mail envoyé par … » ; puis la COPIE INTERNE (gestion@ et la personne connectée, qui
+ * étaient en copie visible avant). Vide si aucun locataire n'a d'adresse. PUR (le contexte est lu).
+ */
+export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisite, sequence: number, ancien: RdvPrevisite | null, maintenant: Date): MailPrevisite[] {
+  const sorte = ancien === null ? 'previsite_locataires' as const : 'previsite_locataires_modif' as const;
+  const objet = ancien === null ? objetConfirmationLocataires(c.adresse, rdv) : objetModificationLocataires(c.adresse, rdv);
+  const paragraphesDe = (l: Pick<Contexte['locataires'][number], 'nom' | 'prenom'>) => (ancien === null
+    ? paragraphesConfirmationLocataires({ adresse: c.adresse, locataires: [l], rdv })
+    : paragraphesModificationLocataires({ adresse: c.adresse, locataires: [l], rdv, ancien }));
+  const envois = mailsAuxLocataires({ sorte, de: c.expediteur, locataires: c.locataires, objet, paragraphesDe, signature: c.signature,
+    ics: icsDuRdv(c, previsiteId, rdv, sequence, maintenant) });
+  const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
+  const copie = premier === undefined ? null : copieInterneLocataires({ sorte, de: c.expediteur, a: copiesAvis(c.expediteur, c.qui, []), objet, envois,
+    locataires: c.locataires, paragraphes: paragraphesDe(premier), qui: c.qui, signature: c.signature });
+  return copie === null ? envois : [...envois, copie];
 }
 
 export const recapitulatifMission = (c: Pick<Contexte, 'adresse' | 'locataires'>): string =>

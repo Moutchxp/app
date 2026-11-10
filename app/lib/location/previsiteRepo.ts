@@ -11,6 +11,7 @@ import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
   CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
+  copieInterneLocataires, mailsAuxLocataires, personnaliserTexte,
   texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
 import {
@@ -108,8 +109,7 @@ export async function apercuRdvPrevisite(
     sorte: 'previsite_invitation', objet: objetCollegue, a: [l], cc: [], piece: NOM_FICHIER_ICS,
     texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
   }));
-  const loc = mailLocataires(c, 0, rdv, 0, ancien, new Date());
-  if (loc !== null) mails.push({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: NOM_FICHIER_ICS });
+  for (const loc of mailLocataires(c, 0, rdv, 0, ancien, new Date())) mails.push({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: loc.ics ? NOM_FICHIER_ICS : null });
   return { etat: 'ok', data: { mails, sansEmail: sansEmail(c) } };
 }
 
@@ -235,7 +235,7 @@ export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Aut
     const c = await contexte(r.occupationIds, auteur, deps);
     if (c === null) return { envois: [], sansEmail: [] };
     const m = mailLocataires(c, r.previsiteId, r.rdv, await sequenceTache(r.tacheId), r.ancien, deps.maintenant ?? new Date());
-    return { envois: m === null ? [] : await envoyerSerie([m], c.brute, { lotId: c.lotId, occupationIds: r.occupationIds, auteur }, deps), sansEmail: sansEmail(c) };
+    return { envois: m.length === 0 ? [] : await envoyerSerie(m, c.brute, { lotId: c.lotId, occupationIds: r.occupationIds, auteur }, deps), sansEmail: sansEmail(c) };
   } catch (e) {
     return { envois: [{ sorte: 'previsite_locataires', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: (e as Error)?.message || 'erreur inattendue' }], sansEmail: [] };
   }
@@ -244,7 +244,7 @@ export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Aut
 // ══ LE COMPTE RENDU ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
 async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocataires: boolean, auteur: Auteur, deps: DepsAvis):
-  Promise<IssuePrevisite<{ mail: MailPrevisite; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[] }>> {
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
   if (texte === '') return { etat: 'refus', motif: 'Écrivez le compte rendu.', champ: 'corps' };
@@ -259,19 +259,20 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const c = await contexte(ids, auteur, deps);
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
-  const locs = aussiLocataires ? adressesUniques(c.locataires.flatMap((l) => l.emails)) : [];
-  const a = locs.length > 0 ? locs : internes;
-  const mail = mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a, cc: locs.length > 0 ? adressesUniques(internes, locs) : [],
-    objet: objetCompteRendu(rdv), paragraphes: paragraphesDuTexte(texte), qui: c.qui, signature: c.signature });
-  return { etat: 'ok', data: { mail, c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [] } };
+  /* 🔴 Arno (10/11/2026, confidentialité) — les collaborateurs : UN mail interne (complet, « Mail envoyé par … ») ; « Envoyer aussi aux
+     locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, sans mention — jamais les adresses des collaborateurs. */
+  const interne = mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
+    paragraphes: paragraphesDuTexte(texte), qui: c.qui, signature: c.signature });
+  const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
+    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(texte, l)), signature: c.signature }) : [];
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [] } };
 }
 
 export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps);
   if (r.etat !== 'ok') return r;
-  const m = r.data.mail;
-  return { etat: 'ok', data: { mails: [{ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte }], sansEmail: r.data.sansEmail } };
+  return { etat: 'ok', data: { mails: r.data.mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte })), sansEmail: r.data.sansEmail } };
 }
 
 /** ENVOIE le compte rendu ; dès qu'il est parti, le préavis passe en « Pré-visite effectuée » (et la tâche est faite). */
@@ -281,11 +282,13 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
   const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps);
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
-  const envois = await envoyerSerie([r.data.mail], r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
+  if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };
+  const envois = await envoyerSerie(r.data.mails, r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
   if (!envois.some((e) => e.envoye)) return { etat: 'ok', data: { envois, statut: null } };
   await withTransaction(async (q) => {
     await q('UPDATE gestion_location_previsite SET effectuee_le = now(), effectuee_par_libelle = $2 WHERE id = $1 AND effectuee_le IS NULL', [Number(r.data.s.id), auteur.libelle]);
-    await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mail.objet, `compte rendu de pré-visite envoyé à ${r.data.mail.a.join(', ')}`, auteur);
+    await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mails[0].objet,
+      `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
   });
   if (r.data.s.tache_etat === 'a_faire') await marquerFaite(Number(r.data.s.tache_id), auteur).catch(() => null);
   return { etat: 'ok', data: { envois, statut: 'effectuee' } };
@@ -309,7 +312,7 @@ export async function texteRefusPropose(ids: readonly number[], auteur: Auteur):
 interface AnnulationRdv { tacheId: number; previsiteId: number; mail: MailPrevisite }
 
 async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, deps: DepsAvis):
-  Promise<IssuePrevisite<{ mail: MailPrevisite; c: Contexte; g: Groupe; sansEmail: string[]; annulation: AnnulationRdv | null }>> {
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; g: Groupe; sansEmail: string[]; annulation: AnnulationRdv | null }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const t = (texte ?? '').trim();
   if (t === '') return { etat: 'refus', motif: 'Le texte du mail est vide.', champ: 'texte' };
@@ -322,11 +325,16 @@ async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, 
   const c = await contexte(ids, auteur, deps);
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
-  const locs = adressesUniques(c.locataires.flatMap((l) => l.emails));
-  // Aux locataires, copie à tous les collaborateurs (une fois par adresse) ; aucun locataire joignable : aux seuls collaborateurs.
-  const a = locs.length > 0 ? locs : internes;
-  const mail = mailPrevisite({ sorte: 'previsite_refus', de: c.expediteur, a, cc: locs.length > 0 ? adressesUniques(internes, locs) : [],
-    objet: objetRefusPrevisite(c.adresse), paragraphes: paragraphesDuTexte(t), qui: c.qui, signature: c.signature });
+  /* 🔴 Arno (10/11/2026, confidentialité) — UN mail PAR locataire (seul destinataire, son nom à la place du repère, sans copie, sans mention) ;
+     la copie aux collaborateurs part SÉPARÉMENT (copie interne : à qui, et le texte). Aucun locataire joignable : aux seuls collaborateurs. */
+  const objet = objetRefusPrevisite(c.adresse);
+  const auxLocataires = mailsAuxLocataires({ sorte: 'previsite_refus', de: c.expediteur, locataires: c.locataires, objet,
+    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(t, l)), signature: c.signature });
+  const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
+  const copie = premier === undefined ? null : copieInterneLocataires({ sorte: 'previsite_refus', de: c.expediteur, a: internes, objet, envois: auxLocataires,
+    locataires: c.locataires, paragraphes: paragraphesDuTexte(personnaliserTexte(t, premier)), qui: c.qui, signature: c.signature });
+  const mails = auxLocataires.length > 0 ? [...auxLocataires, ...(copie !== null ? [copie] : [])]
+    : internes.length > 0 ? [mailPrevisite({ sorte: 'previsite_refus', de: c.expediteur, a: internes, cc: [], objet, paragraphes: paragraphesDuTexte(t), qui: c.qui, signature: c.signature })] : [];
   let annulation: AnnulationRdv | null = null;
   const rdv = rdvDuSuivi(lu.s);
   if (lu.s !== null && rdv !== null && lu.s.tache_etat === 'a_faire') {
@@ -339,13 +347,13 @@ async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, 
       ics: ics ? { nom: ics.nom, contenu: ics.contenu.replace('METHOD:PUBLISH', 'METHOD:CANCEL').replace('STATUS:CONFIRMED', 'STATUS:CANCELLED') } : null,
     }) };
   }
-  return { etat: 'ok', data: { mail, c, g: lu.g, sansEmail: sansEmail(c), annulation } };
+  return { etat: 'ok', data: { mails, c, g: lu.g, sansEmail: sansEmail(c), annulation } };
 }
 
 export async function apercuRefus(d: { occupationIds: readonly number[]; texte: string }, auteur: Auteur, deps: DepsAvis = {}): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   const r = await mailRefus([...new Set(d.occupationIds)], d.texte, auteur, deps);
   if (r.etat !== 'ok') return r;
-  const mails: MailApercu[] = [r.data.mail, ...(r.data.annulation !== null ? [r.data.annulation.mail] : [])]
+  const mails: MailApercu[] = [...r.data.mails, ...(r.data.annulation !== null ? [r.data.annulation.mail] : [])]
     .map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(m.ics ? { piece: m.ics.nom } : {}) }));
   return { etat: 'ok', data: { mails, sansEmail: r.data.sansEmail } };
 }
@@ -360,14 +368,16 @@ export async function envoyerRefus(d: { occupationIds: readonly number[]; texte:
   const r = await mailRefus(ids, d.texte, auteur, deps);
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
-  const envois = await envoyerSerie([r.data.mail], r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
+  if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni locataire avec une adresse, ni collaborateur.' };
+  const envois = await envoyerSerie(r.data.mails, r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
   if (!envois.some((e) => e.envoye)) return { etat: 'ok', data: { envois, statut: null, tacheAnnulee: null } };
   await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
     if (!g.ok) return;
     const s = await assurerSuivi(q, g.g);
     await q('UPDATE gestion_location_previsite SET refus_le = now(), refus_par_libelle = $2 WHERE id = $1', [Number(s.id), auteur.libelle]);
-    await journaliser(q, g.g.lignes, 'location_previsite_refusee', null, r.data.mail.objet, `mail de refus / absence de pré-visite envoyé à ${r.data.mail.a.join(', ')}`, auteur);
+    await journaliser(q, g.g.lignes, 'location_previsite_refusee', null, r.data.mails[0].objet,
+      `mail de refus / absence de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
   });
   let tacheAnnulee: number | null = null;
   const an = r.data.annulation;

@@ -165,15 +165,26 @@ describe('🔴 Règle 3 — « RDV pré-visite » : le module de tâches, plusie
     expect(r).toMatchObject({ etat: 'refus' });
     expect(creerTache).not.toHaveBeenCalled();
   });
-  it('à la saisie, UN mail de confirmation à TOUS les locataires du préavis, avec l’invitation d’agenda', async () => {
+  it('🔴 confidentialité — à la saisie, CHAQUE colocataire reçoit SON mail de confirmation (seul destinataire, sans copie, sans « Mail envoyé par », .ics sans aucun nom) ; la copie interne part à part', async () => {
     const r = await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
     if (r.etat !== 'ok') throw new Error('attendu ok');
     const m = await envoyerMailLocatairesPrevisite(r.data, AUTEUR);
-    const [mails, , o] = envoyerSerie.mock.calls[0] as unknown as [{ sorte: string; a: string[]; cc: string[]; objet: string; ics: { contenu: string } }[], string, { occupationIds: number[]; lotId: number }];
-    expect(mails[0].sorte).toBe('previsite_locataires');
-    expect(mails[0].a).toEqual(['alice@exemple.test', 'bruno@exemple.test']);
-    expect(mails[0].cc).toEqual(['gestion@exemple.test', 'arno@exemple.test']);
-    expect(mails[0].ics.contenu).toContain('UID:previsite-40@exemple.test');
+    const [mails, , o] = envoyerSerie.mock.calls[0] as unknown as [{ sorte: string; a: string[]; cc: string[]; objet: string; texte: string; html: string; ics?: { contenu: string } }[], string, { occupationIds: number[]; lotId: number }];
+    expect(mails.map((x) => [x.sorte, x.a, x.cc])).toEqual([
+      ['previsite_locataires', ['alice@exemple.test'], []], ['previsite_locataires', ['bruno@exemple.test'], []],
+      ['previsite_locataires', ['gestion@exemple.test', 'arno@exemple.test'], []]]);
+    expect(mails[0].texte.startsWith('Bonjour Alice TEST,')).toBe(true);
+    expect(mails[1].texte.startsWith('Bonjour Bruno TEST,')).toBe(true);
+    for (const [x, autre] of [[mails[0], 'bruno'], [mails[1], 'alice']] as const) {
+      const tout = `${x.texte} ${x.html} ${x.ics?.contenu ?? ''}`.toLowerCase();
+      expect(tout).not.toContain(autre);
+      expect(tout).not.toContain('arno@exemple.test');
+      expect(tout).not.toContain('mail envoyé par');
+      expect(tout).not.toContain('attendee');
+      expect(x.ics?.contenu).toContain('UID:previsite-40@exemple.test');
+    }
+    expect(mails[2].objet.startsWith('[Copie interne]')).toBe(true);
+    expect(mails[2].texte).toContain('· Alice TEST — alice@exemple.test');
     // 🔴 Règle 7 — rangé dans l'historique du bien ET des deux locataires (lot + occupations du journal).
     expect(o).toMatchObject({ lotId: 7, occupationIds: [11, 12] });
     expect(m.envois[0].envoye).toBe(true);
@@ -181,7 +192,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » : le module de tâches, plusie
   it('l’aperçu donne le texte intégral de chaque mail (un par collègue, puis celui des locataires), sans rien écrire', async () => {
     const r = await apercuRdvPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4, 5] }, AUTEUR);
     if (r.etat !== 'ok') throw new Error('attendu ok');
-    expect(r.data.mails.map((m) => m.sorte)).toEqual(['previsite_invitation', 'previsite_invitation', 'previsite_locataires']);
+    expect(r.data.mails.map((m) => m.sorte)).toEqual(['previsite_invitation', 'previsite_invitation', 'previsite_locataires', 'previsite_locataires', 'previsite_locataires']);
     expect(r.data.mails[0].texte).toContain('[lien personnel « Accepter »]');
     expect(r.data.mails[2].texte).toContain('le 20/11/2026 de 10h00 à 11h00');
     expect(ecritures()).toEqual([]);
@@ -243,12 +254,12 @@ describe('🔴 Règle 5 — le compte rendu fait passer en « Pré-visite effect
     expect(suivi?.effectuee_le).toBe(MAINTENANT);
     expect(marquerFaite).toHaveBeenCalledWith(500, AUTEUR);
   });
-  it('« Envoyer aussi aux locataires » : À les locataires, copie aux collaborateurs', async () => {
+  it('🔴 « Envoyer aussi aux locataires » : un mail interne aux collaborateurs, et UN mail par locataire (seul destinataire, sans copie, sans adresse de collaborateur)', async () => {
     programmee();
     await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true }, AUTEUR);
-    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[] }[]];
-    expect(mails[0].a).toEqual(['alice@exemple.test', 'bruno@exemple.test']);
-    expect(mails[0].cc).toEqual(INTERNES);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string }[]];
+    expect(mails.map((x) => [x.a, x.cc])).toEqual([[INTERNES, []], [['alice@exemple.test'], []], [['bruno@exemple.test'], []]]);
+    for (const x of mails.slice(1)) for (const adr of INTERNES) expect(x.texte).not.toContain(adr);
   });
   it('l’envoi échoue : le statut ne change pas', async () => {
     programmee(); echecEnvoi = true;
@@ -265,12 +276,14 @@ describe('🔴 Règle 5 — le compte rendu fait passer en « Pré-visite effect
 });
 
 describe('🔴 Règle 6 — le refus / l’absence : aux locataires, copie aux collaborateurs une fois par adresse ; statut', () => {
-  it('parti → « refusée / absente » ; le texte modifié est celui qui part', async () => {
-    const r = await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour,\n\nTexte modifié par Arno.' }, AUTEUR);
+  it('parti → « refusée / absente » ; le texte modifié est celui qui part ; 🔴 UN mail par locataire (son nom), la copie interne à part', async () => {
+    const r = await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour [nom du locataire],\n\nTexte modifié par Arno.' }, AUTEUR);
     expect(r).toMatchObject({ etat: 'ok', data: { statut: 'refusee' } });
-    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string; sorte: string }[]];
-    expect(mails[0]).toMatchObject({ sorte: 'previsite_refus', a: ['alice@exemple.test', 'bruno@exemple.test'], cc: INTERNES });
-    expect(mails[0].texte.startsWith('Bonjour,\n\nTexte modifié par Arno.')).toBe(true);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string; sorte: string; objet: string }[]];
+    expect(mails.map((x) => [x.a, x.cc])).toEqual([[['alice@exemple.test'], []], [['bruno@exemple.test'], []], [INTERNES, []]]);
+    expect(mails[0].texte).toBe('Bonjour Alice TEST,\n\nTexte modifié par Arno.');
+    expect(mails[1].texte).toBe('Bonjour Bruno TEST,\n\nTexte modifié par Arno.');
+    expect(mails[2].objet.startsWith('[Copie interne]')).toBe(true);
     expect(suivi?.refus_le).toBe(MAINTENANT);
     expect(journal().map((a) => a.params[1])).toEqual(['location_previsite_refusee', 'location_previsite_refusee']);
   });
@@ -394,9 +407,10 @@ describe('🔴 Arno (10/11/2026) — refus / absence avec un rendez-vous program
     const r = await apercuRefus({ occupationIds: OCC, texte: 'Bonjour,' }, AUTEUR);
     if (r.etat !== 'ok') throw new Error('attendu ok');
     expect(r.data.mails.map((m) => [m.sorte, m.a])).toEqual([
-      ['previsite_refus', ['alice@exemple.test', 'bruno@exemple.test']], ['previsite_annulation', ['claire@exemple.test', 'paul@exemple.test']]]);
-    expect(r.data.mails[1].objet).toBe('Pré-visite annulée — 4 rue Fictive, 92800 Puteaux — 12/11/2026 à 10h00');
-    expect(r.data.mails[1].piece).toBe('pre-visite.ics');
+      ['previsite_refus', ['alice@exemple.test']], ['previsite_refus', ['bruno@exemple.test']], ['previsite_refus', INTERNES],
+      ['previsite_annulation', ['claire@exemple.test', 'paul@exemple.test']]]);
+    expect(r.data.mails[3].objet).toBe('Pré-visite annulée — 4 rue Fictive, 92800 Puteaux — 12/11/2026 à 10h00');
+    expect(r.data.mails[3].piece).toBe('pre-visite.ics');
     expect(annulerTache).not.toHaveBeenCalled();
   });
   it('envoyé : le refus part, la tâche est annulée (module de tâches), puis le mail d’annulation — journalisé pour le bien et chaque locataire', async () => {

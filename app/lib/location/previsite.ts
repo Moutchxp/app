@@ -9,7 +9,7 @@
  * Ce module décide : le statut d'un préavis, l'alerte, les compteurs des pastilles, la saisie d'un rendez-vous, l'objet et le texte de
  * chaque mail, et l'invitation d'agenda (.ics) jointe. Le dépôt (`previsiteRepo.ts`) lit, écrit et envoie.
  */
-import { composerMailLocation, enumerer, prenomNom, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, enumerer, prenomNom, type Signature } from './mailsPreavisSortie';
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
 import { heureFr, minutesDe, plageFr } from './edls';
 import { instantParis } from '../temps/paris';
@@ -293,10 +293,19 @@ export function objetRefusPrevisite(adresse: string): string {
   return `Pré-visite d’état des lieux de sortie — ${adresse}`;
 }
 
+/**
+ * 🔴 Arno (10/11/2026, confidentialité) — chaque locataire reçoit SON mail : le texte prérempli porte ce repère, remplacé dans chaque mail par
+ * le nom de SON destinataire (jamais les noms des colocataires).
+ */
+export const REPERE_NOM_LOCATAIRE = '[nom du locataire]';
+export function personnaliserTexte(texte: string, l: Pick<LocatairePrevisite, 'nom' | 'prenom'>): string {
+  return texte.split(REPERE_NOM_LOCATAIRE).join(prenomNom(l));
+}
+
 /** Le texte prérempli (entièrement modifiable dans la modale). PUR. */
 export function texteRefusPrevisite(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[] }): string {
   return [
-    `Bonjour ${noms(d.locataires)},`,
+    `Bonjour ${REPERE_NOM_LOCATAIRE},`,
     `À la suite de votre congé, nous vous avons proposé une visite de pré-état des lieux de sortie de votre logement situé ${d.adresse}, et nous vous l’avons vivement recommandée.`,
     'Malgré nos recommandations, aucun rendez-vous de pré-visite n’a pu être fixé.',
     'Les éventuelles remarques sur l’état du logement vous seront donc faites sur place, le jour de l’état des lieux de sortie. Cela ne vous laissera malheureusement pas le temps d’effectuer les réparations ou les démarches qui vous auraient permis d’éviter une retenue sur le dépôt de garantie.',
@@ -311,6 +320,37 @@ export function paragraphesDuTexte(texte: string): string[] {
 
 // ── L'assemblage commun ────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * ══ 🔴🔴 CONFIDENTIALITÉ (Arno, 10/11/2026, sans exception) ══════════════════════════════════════════════════════════════════════
+ * Un contact extérieur (locataire) reçoit SON mail, seul destinataire, sans aucune copie visible, sans la ligne « Mail envoyé par … » (seule
+ * la signature de l'agence) : jamais le nom, le téléphone ou l'e-mail d'un autre contact, client ou collaborateur. Les collaborateurs, eux,
+ * reçoivent une COPIE INTERNE séparée, qui dit à qui chaque mail est parti. PUR.
+ */
+export function mailsAuxLocataires(o: {
+  sorte: MailPrevisite['sorte']; de: string; locataires: readonly LocatairePrevisite[]; objet: string;
+  paragraphesDe: (l: LocatairePrevisite) => readonly string[]; signature: Signature; ics?: MailPrevisite['ics'];
+}): MailPrevisite[] {
+  return o.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => mailPrevisite({
+    sorte: o.sorte, de: o.de, a: adressesUniques(l.emails), cc: [], objet: o.objet, paragraphes: o.paragraphesDe(l),
+    qui: { mention: null }, signature: o.signature, ics: o.ics ?? null,
+  }));
+}
+
+/** La copie interne (collaborateurs) des mails partis aux locataires : à qui, puis le texte du premier, mention et signature comprises. PUR. */
+export function copieInterneLocataires(o: {
+  sorte: MailPrevisite['sorte']; de: string; a: readonly string[]; objet: string; envois: readonly MailPrevisite[];
+  locataires: readonly LocatairePrevisite[]; paragraphes: readonly string[]; qui: QuiEnvoie; signature: Signature;
+}): MailPrevisite | null {
+  const a = adressesUniques(o.a);
+  if (a.length === 0 || o.envois.length === 0) return null;
+  const destinataires = o.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => `· ${prenomNom(l)} — ${adressesUniques(l.emails).join(', ')}`);
+  return mailPrevisite({
+    sorte: o.sorte, de: o.de, a, cc: [], objet: `[Copie interne] ${o.objet}`, qui: o.qui, signature: o.signature,
+    paragraphes: [`Copie interne : ce mail est parti séparément à chaque locataire (un destinataire par mail, sans copie visible) :\n${destinataires.join('\n')}`,
+      'Texte reçu (chaque locataire avec son propre nom) :', ...o.paragraphes],
+  });
+}
+
 /** Un mail de pré-visite prêt : ce que le récapitulatif montre et ce qui part, à l'identique. */
 export interface MailPrevisite {
   sorte: 'previsite_alerte' | 'previsite_locataires' | 'previsite_locataires_modif' | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus'
@@ -321,7 +361,7 @@ export interface MailPrevisite {
 }
 
 /** L'identité qui signe : le compte connecté (« Mail envoyé par … ») ou l'envoi automatique. */
-export type QuiEnvoie = { prenom?: string | null; nomFamille?: string | null; email: string | null } | { mention: string };
+export type QuiEnvoie = { prenom?: string | null; nomFamille?: string | null; email: string | null } | { mention: string | null };
 
 export function mailPrevisite(o: {
   sorte: MailPrevisite['sorte']; de: string; a: readonly string[]; cc: readonly string[]; objet: string; paragraphes: readonly string[];

@@ -147,8 +147,9 @@ const enveloppe = (contenu: string): string =>
  * 🔴 Arno (10/11/2026, pré-visite) — LE MÊME ASSEMBLAGE pour tout autre mail de la Location : les paragraphes, puis « Mail envoyé par … »
  * (ou la mention donnée, pour un envoi automatique), puis la signature Gmail ; texte et HTML disent la même chose. PUR.
  */
-export function composerMailLocation(paras: readonly string[], qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string }, s: Signature): { texte: string; html: string } {
-  const avec = 'mention' in qui ? [...paras, qui.mention] : avecMention(paras, qui);
+export function composerMailLocation(paras: readonly string[], qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string | null }, s: Signature): { texte: string; html: string } {
+  // 🔴 Arno (10/11/2026, confidentialité) — `{ mention: null }` : AUCUNE mention (mail à un contact extérieur : seule la signature de l'agence).
+  const avec = 'mention' in qui ? (qui.mention ? [...paras, qui.mention] : [...paras]) : avecMention(paras, qui);
   const sig = avecSignature(avec.join('\n\n'), s);
   return { texte: sig.texte, html: enveloppe(`${paragraphesHtml(avec)}${sig.html}`) };
 }
