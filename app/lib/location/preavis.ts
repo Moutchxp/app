@@ -11,6 +11,7 @@
  */
 
 import type { EdlsAffiche } from './edls';
+import type { PrevisiteAffiche } from './previsite';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -165,6 +166,8 @@ export interface LignePreavisAccueil {
   etatDesLieuxLe: string | null;
   /** Arno (19/10/2026) — l'état des lieux de sortie PLANIFIÉ (tâche du module de tâches) ; absent = pas planifié (ou migration 385 absente). */
   edls?: EdlsAffiche | null;
+  /** 🔴 Arno (10/11/2026, migration 464) — la pré-visite de ce préavis (statut, rendez-vous, collègues) ; absente sans la 464. */
+  previsite?: PrevisiteAffiche | null;
 }
 
 export type CleTri = 'fin' | 'edl';

@@ -49,14 +49,14 @@ export interface DepsAvis {
 }
 
 /** La signature telle que l'ÉCRAN la montre (images par notre relais) ; `''` sans connexion Google. Ne lève jamais. */
-async function signatureEcran(deps: DepsAvis): Promise<{ brute: string; ecran: Signature }> {
+export async function signatureEcran(deps: DepsAvis): Promise<{ brute: string; ecran: Signature }> {
   const brute = await (deps.signatureBrute ?? signatureHtmlDeGestion)().catch(() => '');
   if (brute.trim() === '') return { brute: '', ecran: { html: '', texte: '' } };
   return { brute, ecran: { html: signaturePourEcran(brute), texte: htmlVersTexte(brute) } };
 }
 
 /** Le logement d'une occupation : adresse complète, propriétaire, « en gestion ». `null` : occupation inconnue. */
-async function logementDe(occupationId: number): Promise<{ lotId: number; adresse: string; proprietaire: string | null; enGestion: boolean; copropriete: boolean | null } | null> {
+export async function logementDe(occupationId: number): Promise<{ lotId: number; adresse: string; proprietaire: string | null; enGestion: boolean; copropriete: boolean | null } | null> {
   const bail = await lireBail(occupationId);
   if (bail === null) return null;
   // 🔴 Arno (06/11/2026, 461) — la copropriété SAISIE sur le bien (sans la migration : non renseignée).
@@ -67,7 +67,7 @@ async function logementDe(occupationId: number): Promise<{ lotId: number; adress
 }
 
 /** Les locataires de ces occupations, avec leur prénom éventuel et leurs adresses e-mail EN VIGUEUR. */
-async function locatairesAvis(occupationIds: readonly number[]): Promise<(LocataireAvis & { entree: string | null; sortie: string | null })[]> {
+export async function locatairesAvis(occupationIds: readonly number[]): Promise<(LocataireAvis & { entree: string | null; sortie: string | null })[]> {
   const vivante = await conditionCoordonneeVivante('c');
   const { rows } = await query<{ occupation_id: string; nom: string; prenom: string | null; entree: string | null; sortie: string | null; emails: string[] }>(
     `SELECT o.id::text AS occupation_id, l.nom, l.prenom, o.entree::text, o.sortie::text,
@@ -135,7 +135,7 @@ export interface EnvoiAvis { sorte: MailAvis['sorte']; objet: string; a: string[
   /** 🔴 Arno (06/11/2026) — le texte tel qu'il est parti (la fenêtre de résultat le montre). */
   texte?: string }
 
-async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null }): Promise<void> {
+export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null }): Promise<void> {
   try {
     await query(
       `INSERT INTO gestion_location_mail_avis (sorte, lot_id, occupation_ids, expediteur, destinataires, copies, objet, texte, html, statut, erreur, message_id, auteur_id, auteur_libelle)
@@ -160,7 +160,7 @@ async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: r
  * ENVOIE une série de mails, dans l'ordre, chacun une seule fois ; chaque issue est journalisée. Ne lève jamais. La signature
  * part avec ses images INCORPORÉES (`cid:`) ; une image introuvable est retirée, jamais un carré barré.
  */
-async function envoyerSerie(mails: readonly MailAvis[], brute: string, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur }, deps: DepsAvis): Promise<EnvoiAvis[]> {
+export async function envoyerSerie(mails: readonly MailAvis[], brute: string, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur }, deps: DepsAvis): Promise<EnvoiAvis[]> {
   const issues: EnvoiAvis[] = [];
   for (const m of mails) {
     const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte };
@@ -174,6 +174,8 @@ async function envoyerSerie(mails: readonly MailAvis[], brute: string, o: { lotI
       const r = await (deps.transport ?? transportParDefaut()).envoyer({
         de: m.de, deNom: 'Gestion', a: m.a, cc: m.cc, cci: [], objet: m.objet, corps: m.texte, corpsHtml: html, messageId,
         ...(images.length > 0 ? { imagesIntegrees: images.map(({ cid, nom, typeMime, octets }) => ({ cid, nom, typeMime, octets })) } : {}),
+        // 🔴 Arno (10/11/2026, pré-visite) — l'invitation d'agenda jointe ; aucun autre mail n'en porte (rien ne change pour eux).
+        ...(m.ics ? { pieces: [{ nom: m.ics.nom, typeMime: 'text/calendar; charset=UTF-8; method=PUBLISH', octets: Buffer.from(m.ics.contenu, 'utf8') }] } : {}),
       });
       await journaliserAvis({ ...m, html }, { ...o, statut: r.ok ? 'envoye' : 'echec', erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null });
       issues.push({ ...base, envoye: r.ok, motif: r.ok ? null : r.motif });

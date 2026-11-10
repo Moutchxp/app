@@ -18,6 +18,7 @@ import { marquerASynchroniser } from './agendaSynchroRepo';
 import { invitesTacheDisponible } from './schema';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — le contenu du mail (invitation, récapitulatif), ses pièces jointes. */
 import { adresseDuDemandeur, destinatairesConfirmation, messageDeLaDemande, type LecteurPiecesTache } from './mailTacheRepo';
+import { journaliserMailTachePrevisite } from '../location/previsiteMailTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE DÉPÔT DES DEMANDES D'ACCEPTATION (migration 349) ══════════════════════════════
@@ -165,6 +166,7 @@ export async function envoyerDemande(
   const r0 = await messageDeLaDemande({ demandeId, sorte: 'invitation', jeton, de: config.adresseGestion, lecteur, maintenant, ancienneDate });
   if (!r0.ok) return r0.motif === 'Demande introuvable.' ? 'aucun' : marquer('echec', r0.motif);
   const r = await t.envoyer(r0.m.message);
+  await journaliserMailTachePrevisite(demandeId, 'previsite_invitation', r0.m.message, r); // 🔴 pré-visite seulement (sinon : rien)
   if (!r.ok) return marquer('echec', r.motif);
   return marquer(r.factice ? 'factice' : 'envoye', null, r.id);
 }
@@ -198,6 +200,7 @@ export async function envoyerRecapitulatif(
       return 'echec';
     }
     const r = await (transport ?? transportParDefaut()).envoyer(m.m.message);
+    await journaliserMailTachePrevisite(demandeId, 'previsite_reponse', m.m.message, r); // 🔴 pré-visite seulement (sinon : rien)
     const etat: EtatMail = !r.ok ? 'echec' : r.factice ? 'factice' : 'envoye';
     await tracer(query, Number(d.tache_id), null,
       { recapitulatif: d.destinataire_libelle, etat, ...(r.ok ? {} : { erreur: r.motif }) }, auteur, d.destinataire_libelle);
@@ -244,6 +247,7 @@ export async function envoyerConfirmationAcceptation(
     });
     if (!m.ok) { await trace('echec', m.motif); return 'echec'; }
     const r = await (transport ?? transportParDefaut()).envoyer(m.m.message);
+    await journaliserMailTachePrevisite(demandeId, 'previsite_reponse', m.m.message, r); // 🔴 pré-visite seulement (sinon : rien)
     const etat: EtatMail = !r.ok ? 'echec' : r.factice ? 'factice' : 'envoye';
     await trace(etat, r.ok ? undefined : r.motif);
     return etat;

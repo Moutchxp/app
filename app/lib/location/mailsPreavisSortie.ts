@@ -46,6 +46,8 @@ export interface MailAvis {
   objet: string;
   texte: string;
   html: string;
+  /** 🔴 Arno (10/11/2026, pré-visite) — l’invitation d’agenda jointe (.ics), le cas échéant. */
+  ics?: { nom: string; contenu: string } | null;
 }
 
 export interface Signature { html: string; texte: string }

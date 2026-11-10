@@ -93,6 +93,21 @@ export function pastillesPrevisite(statuts: readonly StatutPrevisite[]): { statu
 /** Le statut de la réponse d'un collègue invité (le module de tâches). */
 export type ReponseCollegue = 'en_attente' | 'acceptee' | 'refusee';
 
+/** Un collègue invité au rendez-vous et sa réponse courante. */
+export interface ReponseDuCollegue { collaborateurId: number | null; libelle: string; email: string | null; statut: ReponseCollegue | null; motif: string | null }
+
+/** Ce que la ligne du préavis montre de la pré-visite. */
+export interface PrevisiteAffiche {
+  statut: StatutPrevisite;
+  rdv: RdvPrevisite | null;
+  tacheId: number | null;
+  collegues: ReponseDuCollegue[];
+  tousRefusent: boolean;
+  /** Le rendez-vous est passé : le bouton « Compte rendu pré-visite » est proposé. */
+  rdvPasse: boolean;
+  alerteEnvoyeeLe: string | null;
+}
+
 /** Tous les collègues invités ont refusé (au moins un invité). PUR. */
 export function tousRefusent(reponses: readonly (ReponseCollegue | null)[]): boolean {
   return reponses.length > 0 && reponses.every((r) => r === 'refusee');

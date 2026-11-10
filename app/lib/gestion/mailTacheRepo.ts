@@ -15,6 +15,7 @@ import { fetchDriveLectureSeule } from './driveLectureSeule';
 import { invitesTacheDisponible } from './schema';
 import type { MessageAEnvoyer, PieceAEnvoyer } from './envoiGmail';
 import { objetMailEdls } from '../location/edls';
+import { habillerMailTachePrevisite } from '../location/previsiteMailTache';
 
 /**
  * ══ 🔴🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — CE QUE LE MAIL D'UNE TÂCHE DIT, LU EN BASE ══════════════════════
@@ -285,17 +286,24 @@ export async function messageDeLaDemande(o: {
     : o.sorte === 'confirmation'
       ? objetConfirmation({ par: d.repondu_par_libelle ?? d.destinataire_libelle, titre: d.objet, jour: d.jour, heure: d.heure, refusee: d.statut === 'refusee' })
       : `${PREFIXE_OBJET_RECAPITULATIF}${adresseCourte === null ? '' : `${adresseCourte} — `}${d.objet.trim()} — ${echeance}`;
+  const message: MessageAEnvoyer = {
+    de: o.de, deNom: 'Gestion', a: destinataires.filter((x) => x.trim() !== ''), cc: [], cci: [], objet, corps: corps.texte, corpsHtml: corps.html,
+    // La marque que la relève reconnaît (jamais rattaché à un bien), pour l'invitation comme pour le récapitulatif.
+    messageId: messageIdDemande(o.de.split('@')[1] ?? '', randomBytes(12).toString('hex')),
+    ...(jointes.length > 0 ? { pieces: jointes } : {}),
+  };
   return {
     ok: true,
     m: {
       destinataire: d.destinataire_libelle,
       resumePieces: piecesMail.map((p) => `${p.nom} : ${p.jointe ? 'jointe' : p.lien !== null ? 'lien' : `non jointe (${p.motif ?? ''})`}`),
-      message: {
-        de: o.de, deNom: 'Gestion', a: destinataires.filter((x) => x.trim() !== ''), cc: [], cci: [], objet, corps: corps.texte, corpsHtml: corps.html,
-        // La marque que la relève reconnaît (jamais rattaché à un bien), pour l'invitation comme pour le récapitulatif.
-        messageId: messageIdDemande(o.de.split('@')[1] ?? '', randomBytes(12).toString('hex')),
-        ...(jointes.length > 0 ? { pieces: jointes } : {}),
-      },
+      /* 🔴 Arno (10/11/2026) — UNE TÂCHE DE PRÉ-VISITE (Location) : son objet, l'invitation d'agenda (.ics), « Mail envoyé par … » et la
+         signature Gmail. Toute autre tâche : le message tel quel. */
+      message: await habillerMailTachePrevisite({
+        tacheId: d.tache_id, objetTache: d.objet, sorte: o.sorte, adresse: adresseCourte, jour: d.jour, heure: d.heure,
+        dureeMinutes: d.duree_minutes === null ? null : Number(d.duree_minutes), deplace: o.ancienneDate !== undefined,
+        par: d.repondu_par_libelle ?? d.destinataire_libelle, refusee: d.statut === 'refusee', demandeurEmail: d.demandeur_email,
+      }, message, o.maintenant ? { maintenant: o.maintenant } : {}),
     },
   };
 }

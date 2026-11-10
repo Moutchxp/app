@@ -33,6 +33,10 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
+import {
+  apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
+  envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
+} from '../../../../lib/location/previsiteRepo';
 import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, envoyerMailsSortie, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
@@ -82,6 +86,11 @@ const MOTIF_SORTIE_GESTION = 'La sortie est validée par un utilisateur de la Ge
 
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 
+/** Une liste d'identifiants reçue de l'écran (au plus 20). */
+const idsOccupations = (brut: unknown): number[] =>
+  (Array.isArray(brut) ? brut : []).map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
+const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
+
 function identifiant(brut: unknown): number | null {
   const s = typeof brut === 'number' ? String(brut) : typeof brut === 'string' ? brut : '';
   if (!/^[1-9]\d{0,15}$/.test(s)) return null;
@@ -122,7 +131,17 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json(b === null ? { etat: 'inconnu' } : { etat: 'ok', data: b }, { headers: ENTETES });
     }
     // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
-    if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
+    // 🔴 Arno (10/11/2026, 464) — avec le statut de pré-visite de chaque ligne (sans la 464 : les lignes telles quelles).
+    if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await avecPrevisites(await preavisEnCours()) }, { headers: ENTETES });
+    // 🔴 Arno (10/11/2026) — les collègues destinataires d'une pré-visite (accès Gestion et/ou Location, Workspace ; moi en tête) — LECTURE SEULE.
+    if (p('previsiteCollegues') !== null) {
+      return Response.json({ etat: 'ok', data: await collegesPrevisite((await auteurDeLaRequete(request)).id) }, { headers: ENTETES });
+    }
+    // 🔴 Arno (10/11/2026) — le texte prérempli du refus / de l'absence de pré-visite — LECTURE SEULE.
+    if (p('previsiteRefus') !== null) {
+      const ids = (p('previsiteRefus') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
+      return Response.json(ids.length === 0 ? { etat: 'inconnu' } : await texteRefusPropose(ids, await auteurDeLaRequete(request)), { headers: ENTETES });
+    }
     // Arno (20/10/2026) — le bloc « Conditions d'entrée » : la migration 391 est-elle là ? (sinon l'écran le dit, et crée comme avant)
     if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });
     // Arno (20/10/2026) — partie par partie, ce que la base permet d'enregistrer (bandeau « migration NNN » de l'écran).
@@ -585,6 +604,36 @@ export async function POST(request: Request): Promise<Response> {
         const statut = r.demandes?.[0]?.statut ?? r.demande?.statut ?? null;
         return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim() } });
       }
+      // ══ 🔴🔴 LA PRÉ-VISITE (Arno, 10/11/2026) — ouverte aux comptes Location. Aperçu (lecture : rien n'est écrit, rien ne part), puis le
+      //    geste ; après l'écriture, les mails des collègues (module de tâches, droit d'envoi relu, mode RECETTE) et ceux des locataires.
+      case 'apercu-previsite': {
+        const occs = idsOccupations(corps.occupationIds);
+        return repondre(await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
+          destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true }, auteur));
+      }
+      case 'programmer-previsite':
+      case 'deplacer-previsite':
+      case 'reaffecter-previsite': {
+        const occs = idsOccupations(corps.occupationIds);
+        const r = action === 'programmer-previsite'
+          ? await programmerPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), destinataires: idsOccupations(corps.destinataires) }, auteur)
+          : action === 'deplacer-previsite'
+            ? await deplacerPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin) }, auteur)
+            : await reaffecterPrevisite({ occupationIds: occs, destinataires: idsOccupations(corps.destinataires) }, auteur);
+        if (r.etat !== 'ok') return repondre(r);
+        const collegues = await envoyerAuxInvites(request, r.demandes);
+        const agenda = await synchroniserApresGeste(r.data.tacheId);
+        const locataires = action === 'reaffecter-previsite' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur);
+        return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
+      }
+      case 'apercu-compte-rendu-previsite':
+        return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true }, auteur));
+      case 'compte-rendu-previsite':
+        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true }, auteur));
+      case 'apercu-refus-previsite':
+        return repondre(await apercuRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur));
+      case 'refus-previsite':
+        return repondre(await envoyerRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur));
       case 'etat-des-lieux': {
         // La date d'état des lieux de sortie prévu (accueil, 18/10/2026) : saisie, modifiée ou effacée, journalisée.
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
