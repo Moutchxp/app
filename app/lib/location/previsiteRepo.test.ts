@@ -382,3 +382,50 @@ describe('🔴 Arno (10/11/2026) — le PREMIER passage : UN SEUL mail récapitu
     expect(await passeAlertesPrevisite([LIGNE])).toEqual({ alertes: 0, echecs: 0, recapitulatif: false });
   });
 });
+
+describe('🔴 Arno (10/11/2026) — refus / absence avec un rendez-vous programmé : la tâche est annulée, chaque collègue reçoit un mail d’annulation', () => {
+  beforeEach(() => {
+    reponses = [{ tache_id: '500', destinataire_id: '4', libelle: 'Claire Test', email: 'claire@exemple.test', statut: 'acceptee', motif: null },
+      { tache_id: '500', destinataire_id: '5', libelle: 'Paul Test', email: 'paul@exemple.test', statut: 'en_attente', motif: null }];
+  });
+  it('l’aperçu montre les deux mails : le refus aux locataires, l’annulation aux collègues (invitation d’annulation jointe)', async () => {
+    programmee();
+    const { apercuRefus } = await import('./previsiteRepo');
+    const r = await apercuRefus({ occupationIds: OCC, texte: 'Bonjour,' }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error('attendu ok');
+    expect(r.data.mails.map((m) => [m.sorte, m.a])).toEqual([
+      ['previsite_refus', ['alice@exemple.test', 'bruno@exemple.test']], ['previsite_annulation', ['claire@exemple.test', 'paul@exemple.test']]]);
+    expect(r.data.mails[1].objet).toBe('Pré-visite annulée — 4 rue Fictive, 92800 Puteaux — 12/11/2026 à 10h00');
+    expect(r.data.mails[1].piece).toBe('pre-visite.ics');
+    expect(annulerTache).not.toHaveBeenCalled();
+  });
+  it('envoyé : le refus part, la tâche est annulée (module de tâches), puis le mail d’annulation — journalisé pour le bien et chaque locataire', async () => {
+    programmee();
+    const r = await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour,' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: 'refusee', tacheAnnulee: 500 } });
+    expect(annulerTache).toHaveBeenCalledWith(500, AUTEUR);
+    expect(envoyerSerie).toHaveBeenCalledTimes(2);
+    const [mails, , o] = envoyerSerie.mock.calls[1] as unknown as [{ sorte: string; a: string[]; texte: string; ics: { contenu: string } }[], string, { lotId: number; occupationIds: number[] }];
+    expect(mails[0].sorte).toBe('previsite_annulation');
+    expect(mails[0].a).toEqual(['claire@exemple.test', 'paul@exemple.test']);
+    expect(mails[0].texte).toContain('prévue le 12/11/2026 de 10h00 à 11h00, est annulée');
+    expect(mails[0].ics.contenu).toContain('METHOD:CANCEL');
+    expect(mails[0].ics.contenu).toContain('STATUS:CANCELLED');
+    expect(mails[0].ics.contenu).toContain('UID:previsite-40@exemple.test');
+    expect(o).toMatchObject({ lotId: 7, occupationIds: [11, 12] });
+    expect(journal().map((a) => a.params[1])).toEqual(['location_previsite_refusee', 'location_previsite_refusee', 'location_previsite_annulee', 'location_previsite_annulee']);
+  });
+  it('le refus n’est pas parti : rien n’est annulé', async () => {
+    programmee(); echecEnvoi = true;
+    const r = await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour,' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: null, tacheAnnulee: null } });
+    expect(annulerTache).not.toHaveBeenCalled();
+    expect(envoyerSerie).toHaveBeenCalledTimes(1);
+  });
+  it('sans rendez-vous programmé : seulement le refus, aucune annulation', async () => {
+    const r = await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour,' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: 'refusee', tacheAnnulee: null } });
+    expect(annulerTache).not.toHaveBeenCalled();
+    expect(envoyerSerie).toHaveBeenCalledTimes(1);
+  });
+});

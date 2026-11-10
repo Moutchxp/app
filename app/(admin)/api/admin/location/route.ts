@@ -632,8 +632,12 @@ export async function POST(request: Request): Promise<Response> {
         return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true }, auteur));
       case 'apercu-refus-previsite':
         return repondre(await apercuRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur));
-      case 'refus-previsite':
-        return repondre(await envoyerRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur));
+      case 'refus-previsite': {
+        // 🔴 Arno (10/11/2026) — un rendez-vous programmé : sa tâche est annulée ; l'agenda Google suit, comme après tout geste sur une tâche.
+        const r = await envoyerRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur);
+        if (r.etat === 'ok' && r.data.tacheAnnulee !== null) await synchroniserApresGeste(r.data.tacheAnnulee);
+        return repondre(r);
+      }
       case 'etat-des-lieux': {
         // La date d'état des lieux de sortie prévu (accueil, 18/10/2026) : saisie, modifiée ou effacée, journalisée.
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];

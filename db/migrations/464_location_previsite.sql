@@ -66,6 +66,6 @@ DO $$ BEGIN
     ALTER TABLE gestion_location_mail_avis ADD CONSTRAINT gestion_location_mail_avis_sorte_check
       CHECK (sorte IN ('preavis_locataires', 'preavis_adhoc', 'sortie_adhoc', 'sortie_locataires',
         'previsite_alerte', 'previsite_invitation', 'previsite_reponse', 'previsite_locataires', 'previsite_locataires_modif',
-        'previsite_invitation_cr', 'previsite_compte_rendu', 'previsite_refus'));
+        'previsite_invitation_cr', 'previsite_compte_rendu', 'previsite_refus', 'previsite_annulation'));
   END IF;
 END $$;

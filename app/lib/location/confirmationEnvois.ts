@@ -47,6 +47,7 @@ export const LIBELLE_MAIL: Record<string, string> = {
   previsite_invitation_cr: 'Invitation à faire le compte rendu (collègues)',
   previsite_compte_rendu: 'Compte rendu de pré-visite',
   previsite_refus: 'Refus / absence de pré-visite (locataires)',
+  previsite_annulation: 'Annulation de la pré-visite (collègues)',
 };
 export const libelleMail = (m: Pick<MailParti, 'sorte'>): string => LIBELLE_MAIL[m.sorte] ?? 'Mail';
 

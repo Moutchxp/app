@@ -221,6 +221,15 @@ describe('🔴 Règle 6 — « Refus / absence de pré-visite » : texte prérem
   });
 });
 
+describe('🔴 Arno (10/11/2026) — refus avec un rendez-vous programmé : la fenêtre annonce l’annulation', () => {
+  it('la note dit que la pré-visite sera annulée et que les collègues recevront un mail d’annulation', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-refus-previsite]'));
+    expect(document.querySelector('[data-refus-annule-rdv]')?.textContent).toContain('à l’envoi, elle sera annulée (tâche des collègues annulée) et chaque collègue destinataire recevra un mail d’annulation');
+  });
+});
+
 describe('🔴 Règle 5 — le lien des mails : `?previsite=<occupation>` ouvre la ligne, dépliée', () => {
   it('?previsite=31 ouvre la ligne B', async () => {
     window.history.replaceState(null, '', '/admin/location?previsite=31');

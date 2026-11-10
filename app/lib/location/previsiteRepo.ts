@@ -10,11 +10,11 @@ import { envoyerSerie, mailsAvisDisponibles, type DepsAvis, type EnvoiAvis } fro
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
-  CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetCompteRendu, objetRefusPrevisite, paragraphesDuTexte,
+  CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
   texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
 import {
-  SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
+  SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, icsDuRdv, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
   recapitulatifMission, reponsesDesTaches, sansEmail, sequenceTache, suiviOuvert, type Contexte, type Groupe, type IssuePrevisite, type LigneSuivi,
   type MailApercu,
 } from './previsiteBase';
@@ -301,14 +301,24 @@ export async function texteRefusPropose(ids: readonly number[], auteur: Auteur):
   return { etat: 'ok', data: { texte: texteRefusPrevisite({ adresse: c.adresse, locataires: c.locataires }), objet: objetRefusPrevisite(c.adresse), sansEmail: sansEmail(c) } };
 }
 
+/**
+ * 🔴 Arno (10/11/2026) — UN RENDEZ-VOUS PROGRAMMÉ au moment du refus / de l'absence : la tâche des collègues est ANNULÉE et chaque collègue
+ * destinataire reçoit un mail d'annulation (invitation d'agenda d'annulation jointe : même UID, l'agenda retire le rendez-vous), rangé dans
+ * l'historique du bien et des locataires — comme un déplacement.
+ */
+interface AnnulationRdv { tacheId: number; previsiteId: number; mail: MailPrevisite }
+
 async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, deps: DepsAvis):
-  Promise<IssuePrevisite<{ mail: MailPrevisite; c: Contexte; g: Groupe; sansEmail: string[] }>> {
+  Promise<IssuePrevisite<{ mail: MailPrevisite; c: Contexte; g: Groupe; sansEmail: string[]; annulation: AnnulationRdv | null }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const t = (texte ?? '').trim();
   if (t === '') return { etat: 'refus', motif: 'Le texte du mail est vide.', champ: 'texte' };
   if (t.length > CORPS_MAX) return { etat: 'refus', motif: `Le texte dépasse ${CORPS_MAX} caractères.`, champ: 'texte' };
-  const g = await withTransaction(async (q) => lireGroupe(q, ids));
-  if (!g.ok) return g.issue;
+  const lu = await withTransaction(async (q) => {
+    const g = await lireGroupe(q, ids);
+    return g.ok ? { ok: true as const, g: g.g, s: await suiviOuvert(q, g.g.cle) } : g;
+  });
+  if (!lu.ok) return lu.issue;
   const c = await contexte(ids, auteur, deps);
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
@@ -317,25 +327,41 @@ async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, 
   const a = locs.length > 0 ? locs : internes;
   const mail = mailPrevisite({ sorte: 'previsite_refus', de: c.expediteur, a, cc: locs.length > 0 ? adressesUniques(internes, locs) : [],
     objet: objetRefusPrevisite(c.adresse), paragraphes: paragraphesDuTexte(t), qui: c.qui, signature: c.signature });
-  return { etat: 'ok', data: { mail, c, g: g.g, sansEmail: sansEmail(c) } };
+  let annulation: AnnulationRdv | null = null;
+  const rdv = rdvDuSuivi(lu.s);
+  if (lu.s !== null && rdv !== null && lu.s.tache_etat === 'a_faire') {
+    const tacheId = Number(lu.s.tache_id);
+    const collegues = adressesUniques(((await reponsesDesTaches([tacheId])).get(tacheId) ?? []).map((x) => x.email));
+    const ics = icsDuRdv(c, Number(lu.s.id), rdv, (await sequenceTache(tacheId)) + 1, new Date());
+    annulation = { tacheId, previsiteId: Number(lu.s.id), mail: mailPrevisite({
+      sorte: 'previsite_annulation', de: c.expediteur, a: collegues, cc: [], objet: objetAnnulationCollegues(c.adresse, rdv),
+      paragraphes: paragraphesAnnulationCollegues({ adresse: c.adresse, locataires: c.locataires, rdv }), qui: c.qui, signature: c.signature,
+      ics: ics ? { nom: ics.nom, contenu: ics.contenu.replace('METHOD:PUBLISH', 'METHOD:CANCEL').replace('STATUS:CONFIRMED', 'STATUS:CANCELLED') } : null,
+    }) };
+  }
+  return { etat: 'ok', data: { mail, c, g: lu.g, sansEmail: sansEmail(c), annulation } };
 }
 
 export async function apercuRefus(d: { occupationIds: readonly number[]; texte: string }, auteur: Auteur, deps: DepsAvis = {}): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   const r = await mailRefus([...new Set(d.occupationIds)], d.texte, auteur, deps);
   if (r.etat !== 'ok') return r;
-  const m = r.data.mail;
-  return { etat: 'ok', data: { mails: [{ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte }], sansEmail: r.data.sansEmail } };
+  const mails: MailApercu[] = [r.data.mail, ...(r.data.annulation !== null ? [r.data.annulation.mail] : [])]
+    .map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(m.ics ? { piece: m.ics.nom } : {}) }));
+  return { etat: 'ok', data: { mails, sansEmail: r.data.sansEmail } };
 }
 
-/** ENVOIE le mail de refus / absence ; parti, le préavis passe en « Pré-visite refusée / absente » et l'alerte tombe. */
+/**
+ * ENVOIE le mail de refus / absence ; parti, le préavis passe en « Pré-visite refusée / absente » et l'alerte tombe. Un rendez-vous était
+ * programmé : sa tâche est ANNULÉE (module de tâches, tracée), puis le mail d'annulation part aux collègues destinataires.
+ */
 export async function envoyerRefus(d: { occupationIds: readonly number[]; texte: string }, auteur: Auteur, deps: DepsAvis = {}):
-  Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null }>> {
+  Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null; tacheAnnulee: number | null }>> {
   const ids = [...new Set(d.occupationIds)];
   const r = await mailRefus(ids, d.texte, auteur, deps);
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
   const envois = await envoyerSerie([r.data.mail], r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
-  if (!envois.some((e) => e.envoye)) return { etat: 'ok', data: { envois, statut: null } };
+  if (!envois.some((e) => e.envoye)) return { etat: 'ok', data: { envois, statut: null, tacheAnnulee: null } };
   await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
     if (!g.ok) return;
@@ -343,7 +369,20 @@ export async function envoyerRefus(d: { occupationIds: readonly number[]; texte:
     await q('UPDATE gestion_location_previsite SET refus_le = now(), refus_par_libelle = $2 WHERE id = $1', [Number(s.id), auteur.libelle]);
     await journaliser(q, g.g.lignes, 'location_previsite_refusee', null, r.data.mail.objet, `mail de refus / absence de pré-visite envoyé à ${r.data.mail.a.join(', ')}`, auteur);
   });
-  return { etat: 'ok', data: { envois, statut: 'refusee' } };
+  let tacheAnnulee: number | null = null;
+  const an = r.data.annulation;
+  if (an !== null) {
+    const t = await annulerTache(an.tacheId, auteur);
+    if (t.ok) {
+      tacheAnnulee = an.tacheId;
+      await withTransaction(async (q) => journaliser(q, r.data.g.lignes, 'location_previsite_annulee', null, an.mail.objet,
+        `pré-visite annulée après le refus / l’absence — tâche ${an.tacheId} annulée${an.mail.a.length > 0 ? ` — mail d’annulation à ${an.mail.a.join(', ')}` : ''}`, auteur));
+      if (an.mail.a.length > 0) envois.push(...await envoyerSerie([an.mail], r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps));
+    } else {
+      envois.push({ sorte: 'previsite_annulation', objet: an.mail.objet, a: an.mail.a, cc: [], envoye: false, motif: `la tâche n’a pas pu être annulée : ${t.motif}` });
+    }
+  }
+  return { etat: 'ok', data: { envois, statut: 'refusee', tacheAnnulee } };
 }
 
 /** « 12/11/2026 de 10h00 à 11h00 » (réexport pour l'écran du résultat). */

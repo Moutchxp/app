@@ -176,13 +176,15 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
     const d = (r.data ?? {}) as { rdv?: { jour: string; heure: string; dureeMinutes: number }; ancien?: { jour: string; heure: string; dureeMinutes: number } | null;
-      collegues?: { destinataire: string; etat: string }[]; locataires?: MailParti[]; envois?: MailParti[]; sansEmail?: string[]; statut?: StatutPrevisite | null; agenda?: string };
+      collegues?: { destinataire: string; etat: string }[]; locataires?: MailParti[]; envois?: MailParti[]; sansEmail?: string[]; statut?: StatutPrevisite | null; agenda?: string;
+      tacheAnnulee?: number | null };
     const mails: MailParti[] = [...(d.collegues ?? []).map(mailCollegue), ...(d.locataires ?? []), ...(d.envois ?? [])];
     const lignes: [string, ReactNode][] = [[l.locataires.length > 1 ? 'Locataires' : 'Locataire', l.locataires.map((x) => x.nom).join(', ')], ['Le logement', l.adresse ?? `Bien ${l.lotId}`]];
     if (d.rdv) lignes.push(['Rendez-vous', `le ${creneauFr(d.rdv)}`]);
     if (d.ancien) lignes.push(['Ancien rendez-vous', `le ${creneauFr(d.ancien)}`]);
     if (d.statut !== undefined) lignes.push(['Statut', d.statut === null ? 'inchangé : le mail n’est pas parti' : LIBELLE_STATUT_PREVISITE[d.statut]]);
     for (const n of d.sansEmail ?? []) lignes.push(['Sans adresse e-mail', `${n} n’a pas reçu le mail`]);
+    if (typeof d.tacheAnnulee === 'number') lignes.push(['Rendez-vous', 'annulé — la tâche des collègues est annulée']);
     if (d.agenda) lignes.push(['Agenda', d.agenda]);
     setEtape({ etape: 'resultat', mails, lignes, motif: mails.length === 0 ? 'Aucun mail n’est parti pour cette opération.' : null });
   };
@@ -229,6 +231,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
         <label className="pvs-champ"><span className="pvs-libelle">Texte du mail (modifiable) *</span>
           <textarea value={texteRefus ?? ''} onChange={(e) => setTexteRefus(e.target.value)} rows={14} data-texte-refus /></label>
         <p className="loc-muet">Aux locataires, copie à tous les collaborateurs ayant accès à Gestion et/ou Location.</p>
+        {p.statut === 'programmee' && p.rdv && <p className="mis-note pss-note-neutre" data-refus-annule-rdv>Une pré-visite est programmée le {creneauFr(p.rdv)} : à l’envoi, elle sera annulée (tâche des collègues annulée) et chaque collègue destinataire recevra un mail d’annulation.</p>}
       </>)}
       {verdict !== null && !verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-previsite-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}

@@ -256,6 +256,20 @@ export function paragraphesInvitationCompteRendu(d: { adresse: string; locataire
   ];
 }
 
+// ── 🔴 Arno (10/11/2026) — le refus / l'absence envoyé alors qu'un rendez-vous est programmé : la pré-visite est ANNULÉE pour les collègues ──
+
+export function objetAnnulationCollegues(adresse: string, r: Pick<RdvPrevisite, 'jour' | 'heure'>): string {
+  return `Pré-visite annulée — ${adresse} — ${dateFrPreavis(r.jour)} à ${heureFr(r.heure)}`;
+}
+
+export function paragraphesAnnulationCollegues(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: RdvPrevisite }): string[] {
+  return [
+    'Bonjour,',
+    `La pré-visite d’état des lieux de sortie du logement situé ${d.adresse} (${noms(d.locataires)}), prévue le ${creneauFr(d.rdv)}, est annulée : les locataires l’ont refusée ou n’ont pas répondu, et le mail de refus / absence de pré-visite leur a été envoyé.`,
+    'La tâche est annulée. L’invitation d’agenda jointe retire le rendez-vous de votre agenda.',
+  ];
+}
+
 // ── Le compte rendu ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** L'objet prérempli, mot pour mot celui d'Arno. PUR. */
@@ -291,7 +305,8 @@ export function paragraphesDuTexte(texte: string): string[] {
 
 /** Un mail de pré-visite prêt : ce que le récapitulatif montre et ce qui part, à l'identique. */
 export interface MailPrevisite {
-  sorte: 'previsite_alerte' | 'previsite_locataires' | 'previsite_locataires_modif' | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus';
+  sorte: 'previsite_alerte' | 'previsite_locataires' | 'previsite_locataires_modif' | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus'
+    | 'previsite_annulation';
   de: string; a: string[]; cc: string[]; objet: string; texte: string; html: string;
   /** L'invitation d'agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;

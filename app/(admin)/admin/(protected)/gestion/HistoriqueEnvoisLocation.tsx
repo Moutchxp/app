@@ -95,6 +95,7 @@ const LIBELLE_AVIS: Record<string, string> = {
   previsite_invitation_cr: 'Pré-visite — invitation à faire le compte rendu (collègues)',
   previsite_compte_rendu: 'Pré-visite — compte rendu',
   previsite_refus: 'Pré-visite — refus / absence (locataires)',
+  previsite_annulation: 'Pré-visite — annulation (collègues)',
 };
 
 /**
