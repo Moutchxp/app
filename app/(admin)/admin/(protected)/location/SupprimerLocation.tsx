@@ -13,18 +13,29 @@ import { API_SUIVI, posterSuivi } from './suiviApi';
  * (403, garde centrale).
  */
 
-interface LocataireDuPlan { id: number; nom: string; conserve: boolean; autreBien: string | null }
+interface LocataireDuPlan { id: number; nom: string; conserve: boolean; autreBien: string | null; bailEnCours?: boolean }
 interface Plan { id: number; bien: string; dateSignature: string; locataires: LocataireDuPlan[] }
 
 const fr = (iso: string): string => iso.split('-').reverse().join('/');
 
 /** La phrase d'un locataire dans la confirmation. PUR. */
 export function phraseLocataire(l: LocataireDuPlan): string {
+  // 🔴 Arno (10/11/2026, E) — un locataire dont le bail est en cours ne perd jamais sa fiche.
+  if (l.bailEnCours === true) return `${l.nom} a un bail en cours : sa fiche est conservée. Seule la ligne de suivi de cette location est annulée.`;
   return l.conserve
     ? `${l.nom} est aussi rattaché à ${l.autreBien ?? 'un autre bien'}. Ses coordonnées sont conservées pour cette autre location ; seul son lien avec la location supprimée est retiré.`
     : `${l.nom} — profil supprimé`;
 }
 /** Le texte d'en-tête de la confirmation (selon qu'au moins un profil est supprimé). PUR. */
+/**
+ * 🔴 Arno (10/11/2026, E) — « elle annule seulement la ligne de suivi (et le dit dans sa fenêtre de confirmation) » : la phrase, quand au moins
+ * un locataire a un bail en cours (`null` sinon). PUR.
+ */
+export function phraseBailEnCours(p: Plan): string | null {
+  return p.locataires.some((l) => l.bailEnCours === true)
+    ? 'Seule la ligne de suivi est annulée : elle sort des totaux (Suivi du mois, CA). La fiche d’un locataire dont le bail est en cours n’est jamais supprimée.'
+    : null;
+}
 export function enteteConfirmation(p: Plan): { action: string; aucunProfil: boolean } {
   const aucunProfil = !p.locataires.some((l) => !l.conserve);
   const loc = `${p.bien} — ${fr(p.dateSignature)}`;
@@ -74,6 +85,7 @@ export function SupprimerLocation({ id: brut, onFini }: { id: number | string; o
             <div className="tdb-fenetre-corps fdm-suppression-corps">
               {e.aucunProfil && <p className="fdm-suppression-aucun" data-aucun-profil>Aucun profil de locataire ne sera supprimé.</p>}
               <p data-phrase-action>{e.action}</p>
+              {phraseBailEnCours(plan) !== null && <p className="fdm-suppression-aucun" data-phrase-bail-en-cours>{phraseBailEnCours(plan)}</p>}
               <p data-phrase-conserve>Toutes les données du ou des propriétaires et toutes les données du bien sont conservées, pour permettre une nouvelle location.</p>
               {plan.locataires.length > 0 && <ul className="fdm-suppression-liste" data-locataires-suppression>
                 {plan.locataires.map((l) => <li key={l.id} data-locataire-suppression={l.id} data-conserve={l.conserve ? 'oui' : 'non'}>{phraseLocataire(l)}</li>)}

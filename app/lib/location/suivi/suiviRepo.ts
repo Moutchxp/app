@@ -1,5 +1,5 @@
 import 'server-only';
-import { query, withTransaction } from '../../db/client';
+import { query, withTransaction, type RequeteTx } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 // 🔴 Arno (26/10/2026, 430) — le bail d'un locataire en place à la prise en gestion (jamais un bail signé par l'agence).
 import { bailEnPlace } from '../rentreOccupeRepo';
@@ -13,6 +13,8 @@ import {
   collegueADate, droitRattachement, depuisLibelle, remunerationADate, tauxVide, MOT_TAUX_LOCATION_VIDE, MOT_TAUX_GESTION_VIDE,
 } from './suivi';
 import { colonnesTrace } from '../../gestion/traceJournal';
+/* 🔴 Arno (10/11/2026, lot DOUBLON-RENVOI-ADHOC, B) — la ligne importée sans bail qui décrit peut-être déjà la location saisie. */
+import { JOURS_PROXIMITE_LIGNE_IMPORTEE, lireChoixLigneImportee, motifLigneImportee, type LigneImporteeProposee } from './ligneImportee';
 import { changementsLigne, ECRAN_SUIVI_MOIS, famillesDesLots, motStatutBien, type EtatCommercialLu } from './ligneSuivi';
 import { modifierEncartBien } from '../encartBienRepo';
 import { NATURES_BIEN, type NatureBien } from './tableauBord';
@@ -41,7 +43,9 @@ import { lireAliasNegociateurs, lireComptesNegociateurs } from './negociateurIde
  * s'annule (marque), jamais supprimée. Sans la migration 406 : `suiviDisponible()` est faux et rien n'est lu ni écrit.
  */
 interface Auteur { id: number | null; libelle: string }
-export type Reponse<T = unknown> = { etat: 'ok'; data?: T } | { etat: 'refus'; motif: string } | { etat: 'indisponible'; motif: string };
+export type Reponse<T = unknown> = { etat: 'ok'; data?: T }
+  /* 🔴 Arno (10/11/2026, B) — `lignesImportees` : la saisie doit d'abord dire si elle relie la ligne importée trouvée (l'écran pose la question). */
+  | { etat: 'refus'; motif: string; lignesImportees?: LigneImporteeProposee[] } | { etat: 'indisponible'; motif: string };
 const INDISPONIBLE: Reponse<never> = { etat: 'indisponible', motif: 'La mise à jour de la base (migration 406) n’est pas encore appliquée.' };
 const num = (v: unknown): number => Number(v);
 const numOuNull = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
@@ -1009,6 +1013,44 @@ export async function validerStatutBien(activiteId: unknown, statut: unknown, au
  */
 class RefusSuivi extends Error {}
 
+/**
+ * ══ 🔴🔴 Arno (10/11/2026, lot DOUBLON-RENVOI-ADHOC, B) — LES LIGNES IMPORTÉES SANS BAIL QUI DÉCRIVENT PEUT-ÊTRE CETTE LOCATION ══════════
+ * Une ligne du fichier de suivi (source « import »), sans bail, non annulée, de même nature, pour le MÊME BIEN ou le MÊME NOM de locataire
+ * (le nom importé contenu dans celui d'un locataire du bail, ou l'inverse), datée à moins d'un trimestre de l'entrée du bail. Lecture seule.
+ */
+async function lignesImporteesCandidates(q: RequeteTx, o: { bailId: number; lotId: number; type: string; dateRepere: string }): Promise<LigneImporteeProposee[]> {
+  const { rows } = await q<{ id: string; date: string; loc: string | null; prop: string | null; ca: string; meme_bien: boolean }>(
+    `WITH noms AS (
+       SELECT lower(btrim(lo.nom)) AS nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire lo ON lo.id = o.locataire_id
+        WHERE o.bail_id = $1 AND length(btrim(coalesce(lo.nom, ''))) >= 3),
+     repere AS (SELECT coalesce((SELECT g.entree FROM gestion_bail g WHERE g.id = $1), $4::date) AS d)
+     SELECT a.id::text, to_char(a.date_signature, 'YYYY-MM-DD') AS date, a.libelle_locataire AS loc, a.libelle_proprietaire AS prop,
+            (coalesce(a.hono_proprietaire_ht, 0) + coalesce(a.hono_locataire_ht, 0))::text AS ca, coalesce(a.lot_id = $2, false) AS meme_bien
+       FROM gestion_location_activite a, repere
+      WHERE a.source = 'import' AND a.bail_id IS NULL AND a.annule_le IS NULL AND a.type = $3
+        AND abs(a.date_signature - repere.d) <= ${JOURS_PROXIMITE_LIGNE_IMPORTEE}
+        AND (a.lot_id = $2
+             OR (length(btrim(coalesce(a.libelle_locataire, ''))) >= 3 AND EXISTS (
+                   SELECT 1 FROM noms n WHERE position(lower(btrim(a.libelle_locataire)) IN n.nom) > 0
+                                           OR position(n.nom IN lower(a.libelle_locataire)) > 0)))
+      ORDER BY coalesce(a.lot_id = $2, false) DESC, abs(a.date_signature - repere.d), a.id`, [o.bailId, o.lotId, o.type, o.dateRepere]);
+  return rows.map((r) => ({ id: num(r.id), dateSignature: r.date, libelleLocataire: r.loc ?? '', libelleProprietaire: r.prop ?? '', caHt: Number(r.ca), memeBien: r.meme_bien }));
+}
+
+/** Le choix tracé au journal (relier, ou créer une nouvelle ligne en connaissance de cause). */
+async function journaliserChoixLigneImportee(q: RequeteTx, o: { activiteId: number; action: 'ligne_importee_reliee' | 'ligne_importee_non_reliee';
+  bailId: number; lignes: readonly LigneImporteeProposee[]; auteur: Auteur }): Promise<void> {
+  const t = await colonnesTrace({ sujet: 'activite', champ: 'Ligne importée' }, 6);
+  const liste = o.lignes.map((l) => `n° ${l.id} (${l.dateSignature.split('-').reverse().join('/')}, ${l.libelleLocataire || '—'})`).join(', ');
+  const commentaire = o.action === 'ligne_importee_reliee'
+    ? `Nouveau locataire — la ligne importée ${liste} est reliée au bail ${o.bailId} (aucune seconde ligne créée)`
+    : `Nouveau locataire — une nouvelle ligne de suivi est créée pour le bail ${o.bailId} ; ligne(s) importée(s) proposée(s) et NON reliée(s) : ${liste}`;
+  await q(
+    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle${t.colonnes})
+     VALUES ('location_activite', $1, $2, $3, $4, $5, $6, $7${t.marques})`,
+    [o.activiteId, o.action, o.action === 'ligne_importee_reliee' ? 'sans bail' : null, `bail ${o.bailId}`, commentaire, o.auteur.id, o.auteur.libelle, ...t.valeurs]);
+}
+
 export async function enregistrerActiviteBail(bailId: unknown, brut: unknown, auteur: Auteur): Promise<Reponse<{ id: number; note?: string }>> {
   try {
     const r = await enregistrerActiviteBailTx(bailId, brut, auteur);
@@ -1079,6 +1121,32 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
       const deja = await primeDejaVersee(q as typeof query, lotId, { bailId: id });
       if (deja !== null) return { etat: 'refus', motif: `${motPrimeDejaVersee(deja)} : ${MOT_UNE_SEULE_PRIME}` } as const;
     }
+    /**
+     * 🔴🔴 Arno (10/11/2026, B) — JAMAIS DE SECONDE LIGNE EN SILENCE. Une ligne importée sans bail décrit peut-être déjà cette location :
+     * sans choix de la saisie, REFUS (rien n'est écrit) avec les lignes trouvées, et l'écran pose la question ; « relier » rattache la ligne
+     * importée au bail (sa date et ses montants restent) ; « nouvelle » crée la ligne. Le choix est tracé au journal. Seulement quand ce
+     * bail n'a pas encore sa ligne (sinon c'est une mise à jour, inchangée) ; jamais pour le mandat de gestion seul.
+     */
+    const typeLigne = a.type === 'avenant' ? 'avenant' : a.type === 'gestion_seule' ? 'gestion_seule' : 'bail';
+    const choix = lireChoixLigneImportee(brut);
+    const dejaLigne = (await q('SELECT 1 FROM gestion_location_activite WHERE bail_id = $1 AND type = $2 AND annule_le IS NULL LIMIT 1', [id, typeLigne])).rows.length > 0;
+    const importees = seule || dejaLigne ? [] : await lignesImporteesCandidates(q, { bailId: id, lotId, type: typeLigne, dateRepere: a.dateSignature });
+    if (importees.length > 0 && choix === null) {
+      return { etat: 'refus', motif: motifLigneImportee(importees), lignesImportees: importees } as const;
+    }
+    if (choix !== null && choix !== 'nouvelle') {
+      const cible = importees.find((l) => l.id === choix.relier);
+      if (cible === undefined) return { etat: 'refus', motif: 'Cette ligne importée ne peut plus être reliée à ce bail (déjà reliée, annulée, ou trop éloignée) : rien n’a été enregistré.' } as const;
+      const r = await q(
+        `UPDATE gestion_location_activite
+            SET bail_id = $2, lot_id = coalesce(lot_id, $3), proprietaire_id = coalesce(proprietaire_id, $4), locataire_id = coalesce(locataire_id, $5),
+                modifie_le = now(), modifie_par_libelle = $6
+          WHERE id = $1 AND source = 'import' AND bail_id IS NULL AND annule_le IS NULL`,
+        [cible.id, id, lotId, proprietaireId, locs.rows[0] ? num(locs.rows[0].id) : null, auteur.libelle]);
+      if ((r.rowCount ?? 0) === 0) throw new RefusSuivi('Cette ligne importée vient d’être modifiée : rien n’a été enregistré.');
+      await journaliserChoixLigneImportee(q, { activiteId: cible.id, action: 'ligne_importee_reliee', bailId: id, lignes: [cible], auteur });
+      return { etat: 'ok', data: { id: cible.id } } as const;
+    }
     const { rows } = await q<{ id: string }>(
       `INSERT INTO gestion_location_activite
          (type, date_signature, bail_id, lot_id, proprietaire_id, locataire_id, libelle_proprietaire, libelle_locataire,
@@ -1103,6 +1171,9 @@ async function enregistrerActiviteBailTx(bailId: unknown, brut: unknown, auteur:
         origines.proprietaire, a.origineProprietaire, origines.locataire, a.origineLocataire, auteur.libelle,
         loyerHc, charges]);
     const activiteId = num(rows[0].id);
+    if (choix === 'nouvelle' && importees.length > 0) {
+      await journaliserChoixLigneImportee(q, { activiteId, action: 'ligne_importee_non_reliee', bailId: id, lignes: importees, auteur });
+    }
     // 413 — la part gestion : le mode et le taux de l'apporteur pour CE bail (vides : la règle à la signature), et le taux de gestion
     // du bien RELEVÉ à la signature (ce qui fait les honoraires de gestion du bail, lu à l'écriture, jamais recalculé ensuite).
     if (await commissionGestionDisponible()) {

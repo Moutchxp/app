@@ -9,7 +9,13 @@ import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { nomDeCarte, SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
-import { BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, motifSuivi, posterSuivi, SUIVI_VIDE, useParametresSuivi, type SaisieSuivi } from './SuiviCommercial';
+import { aujourdhuiParis, BlocSuiviCommercial, CSS_SUIVI_COMMERCIAL, motifSuivi, posterSuivi, SUIVI_VIDE, useParametresSuivi, type SaisieSuivi } from './SuiviCommercial';
+/* 🔴 Arno (10/11/2026, lot DOUBLON-RENVOI-ADHOC, A) — le mois compté d'une nouvelle location = le mois de la date d'entrée. */
+import { alerteMoisCompte, dateSignatureProposee } from '../../../../lib/location/moisCompte';
+/* 🔴 Arno (10/11/2026, B) — une ligne importée sans bail existe peut-être déjà pour cette location : la question, jamais une seconde ligne en silence. */
+import {
+  LIBELLE_NOUVELLE, LIBELLE_RELIER, PRECISION_RELIER, questionLigneImportee, type ChoixLigneImportee, type LigneImporteeProposee,
+} from '../../../../lib/location/suivi/ligneImportee';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { familleDeCategorie, manquesEntretien, type ChargesCopro } from '../../../../lib/location/bienComplet';
@@ -168,6 +174,10 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
   /* Arno (22/10/2026, 406) — BLOC 4 « SUIVI COMMERCIAL » : le suivi mensuel de l'activité (date de signature, honoraires HT,
      négociateur, apporteur, gestion, origine client), enregistré sur le bail créé, juste après lui. */
   const [suivi, setSuivi] = useState<SaisieSuivi>(SUIVI_VIDE);
+  /* 🔴 Arno (10/11/2026, A) — la date de signature a-t-elle été changée À LA MAIN ? Tant que non, elle suit la date d'entrée. */
+  const [signatureALaMain, setSignatureALaMain] = useState(false);
+  /* 🔴 Arno (10/11/2026, B) — la question « la relier à ce bail ? », en attente de la réponse (la promesse de l'enregistrement en cours). */
+  const [questionImportee, setQuestionImportee] = useState<{ ligne: LigneImporteeProposee; repondre: (c: ChoixLigneImportee | null) => void } | null>(null);
   const parametresSuivi = useParametresSuivi();
   /* 🔴 Arno (24/10/2026) — LE NÉGOCIATEUR PAR DÉFAUT = la personne connectée (le compte de la session), toujours modifiable. Posé
      ici par une mise à jour FONCTIONNELLE (elle ne peut être écrasée par une autre mise à jour du bloc dans le même rendu). */
@@ -333,6 +343,17 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
 
   const nbLocataires = etat.clients.length + etat.existants.length;
   const dateEntreeSaisie = /^\d{4}-\d{2}-\d{2}$/.test(entree);
+  /* 🔴🔴 Arno (10/11/2026, A) — « Le mois compté d'une nouvelle location = le mois de la DATE D'ENTRÉE du locataire (pas la date de saisie).
+     Champ modifiable. » La date de signature du suivi (qui fait le mois compté) SUIT la date d'entrée tant qu'on ne l'a pas changée à la
+     main (mise à jour fonctionnelle, comme le négociateur et le type de bien). Le locataire en place garde la date de son mandat. */
+  useEffect(() => {
+    if (modeEnPlace !== null) return;
+    setSuivi((v) => {
+      const d = dateSignatureProposee({ entree, saisie: v.dateSignature, changeeALaMain: signatureALaMain });
+      return d === v.dateSignature ? v : { ...v, dateSignature: d };
+    });
+  }, [entree, signatureALaMain, modeEnPlace]);
+  const alerteMois = modeEnPlace !== null ? null : alerteMoisCompte({ entree, signature: suivi.dateSignature, aujourdhui: aujourdhuiParis() });
   // La liste de la barre du bas, dans l'ordre des messages d'avant (le bien loué à choisir garde sa phrase propre).
   const manquesLigne: string[] = nbLocataires === 0 ? ['au moins un locataire (client)'] : bien === null ? []
     : !dateEntreeSaisie ? ['la date d’entrée dans les lieux'] : Object.values(manque).map((m) => m.replace(/\s*[.?]$/, ''));
@@ -412,8 +433,17 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
     }
     if (avecSuivi && bailId !== null) {
       const base = { ...suivi, loyerHc: conditions.loyer.principal, charges: conditions.loyer.provisions };
-      const rs = await posterSuivi({ action: 'enregistrer-activite', bailId,
-        activite: modeEnPlace !== null ? activiteEnPlace(base, modeEnPlace.dateMandat) : base }, { propre: true });
+      const activite = modeEnPlace !== null ? activiteEnPlace(base, modeEnPlace.dateMandat) : base;
+      let rs = await posterSuivi({ action: 'enregistrer-activite', bailId, activite }, { propre: true });
+      /* 🔴🔴 Arno (10/11/2026, B) — « Une ligne importée existe déjà pour ce bien en [mois] : la relier à ce bail ? » Oui / Non, créer une
+         nouvelle ligne. Le serveur a refusé SANS RIEN ÉCRIRE et rendu la ligne trouvée ; la réponse repart avec la saisie (tracée au
+         journal). Fermer sans répondre : le suivi n'est pas enregistré, et c'est dit. */
+      const proposees = (rs.lignesImportees ?? []) as LigneImporteeProposee[];
+      if (proposees.length > 0) {
+        const choix = await new Promise<ChoixLigneImportee | null>((repondre) => setQuestionImportee({ ligne: proposees[0], repondre }));
+        setQuestionImportee(null);
+        if (choix !== null) rs = await posterSuivi({ action: 'enregistrer-activite', bailId, activite: { ...activite, ligneImportee: choix } }, { propre: true });
+      }
       if (rs.motif !== null) annonces.push(`Le locataire est enregistré, mais pas son suivi commercial : ${rs.motif}`);
       // 🔴 Arno (25/10/2026) — le « Type de bien » n'a pas été reporté sur la fiche du bien (lots de familles différentes) : dit.
       const note = (rs.data as { note?: unknown } | undefined)?.note;
@@ -541,13 +571,17 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
         <h3 id="loc-l4"><span className="loc-num">4</span>Suivi commercial</h3>
         <p className="loc-section-phrase">Pour le tableau de bord « Outils de suivi » : les honoraires se saisissent <strong>HT</strong> (le TTC des conditions
           d’entrée suit, à 20 %). La date de signature est obligatoire.</p>
-        <BlocSuiviCommercial valeur={suivi} onChange={setSuivi} parametres={parametresSuivi} lotId={bien?.id ?? null}
+        <BlocSuiviCommercial valeur={suivi}
+          onChange={(v) => { if (modeEnPlace === null && v.dateSignature !== suivi.dateSignature) setSignatureALaMain(true); setSuivi(v); }}
+          parametres={parametresSuivi} lotId={bien?.id ?? null}
           locataireIds={etat.existants.map((x) => x.id)}
           ttcProprietaire={honoSaisie.valeur} ttcLocataire={conditions.sommes.honorairesAgence}
           onTtcProprietaire={(t) => setHonoSaisie(t === '' ? { valeur: '', manuel: false } : { valeur: t, manuel: true })}
           onTtcLocataire={(t) => setConditions((c) => ({ ...c, sommes: { ...c.sommes, honorairesAgence: t }, agenceManuel: t !== '' }))}
           manque={manqueDe('suivi')} loyer={conditions.loyer} typeBien={typeBien}
           {...(modeEnPlace !== null ? { enPlace: { dateMandat: modeEnPlace.dateMandat } } : {})} />
+        {/* 🔴 Arno (10/11/2026, A) — « alerte visible si l'entrée tombe dans un autre mois que la saisie ». */}
+        {alerteMois !== null && <p className="loc-alerte loc-alerte--orange" role="status" data-alerte-mois-compte>{alerteMois}</p>}
       </section>
 
       {recap !== null && (
@@ -574,6 +608,17 @@ export function CreationLocataire({ bienInitial = null, enPlace = false }: { bie
         </section>
       )}
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      {questionImportee !== null && (
+        <ModaleIssue sorte="attention" titre="Une ligne importée existe déjà" onFermer={() => questionImportee.repondre(null)}
+          notes={[questionLigneImportee(questionImportee.ligne),
+            `Ligne n° ${questionImportee.ligne.id} du fichier de suivi : ${questionImportee.ligne.dateSignature.split('-').reverse().join('/')} · `
+              + `${questionImportee.ligne.libelleLocataire || 'locataire non renseigné'} · ${questionImportee.ligne.caHt.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € HT.`,
+            PRECISION_RELIER]}
+          actions={[
+            { libelle: LIBELLE_RELIER, onClick: () => questionImportee.repondre({ relier: questionImportee.ligne.id }), principal: true, repere: 'relier-ligne-importee' },
+            { libelle: LIBELLE_NOUVELLE, onClick: () => questionImportee.repondre('nouvelle'), repere: 'nouvelle-ligne' },
+          ]} />
+      )}
       {issue !== null && (issue.sorte === 'succes' ? (
         <ModaleIssue sorte="succes" titre={issue.titre} lignes={issue.lignes} notes={issue.notes} onFermer={() => setIssue(null)}
           // 🔴 Arno (05/11/2026) — sans envoi aux partenaires : le message et les mails réellement partis.

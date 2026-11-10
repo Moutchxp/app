@@ -17,6 +17,10 @@ import { ECRAN_SUIVI_MOIS } from './ligneSuivi';
  *   · 🔴 SAUF un locataire rattaché à un AUTRE bien (une occupation sur un autre lot, à toute date) ou à une AUTRE location vivante : sa fiche,
  *     ses coordonnées et son autre rattachement restent intacts ; seul son lien avec la location supprimée disparaît (la ligne). La location sur
  *     l'autre bien n'est touchée en rien.
+ *   · 🔴🔴 Arno (10/11/2026, lot DOUBLON-RENVOI-ADHOC, point E) — ET JAMAIS la fiche d'un locataire dont le BAIL EST EN COURS (une occupation
+ *     non sortie, sur un bail non clos) : la suppression n'annule alors QUE la ligne de suivi, et la fenêtre de confirmation le dit. Cas qui
+ *     l'a décidé : le 10/11/2026, la suppression du doublon PIEULHET (ligne 854) a supprimé la fiche de la locataire réelle, en place depuis
+ *     le 10/10 sur le bail 542 toujours en cours.
  * Ce qui reste, sans aucune écriture : le bien, son ou ses propriétaires, le mandat de gestion, le bail et les occupations (option A : la tuile
  * Gestion — mails, Drive, historique, fiche du bien — n'est pas touchée ; sa fiche du bien peut encore montrer l'ancien locataire).
  * Aucun DELETE. Journalisé (la location, et chaque fiche supprimée). Le plan est RECALCULÉ dans la transaction, verrous posés : ce que l'écran
@@ -25,7 +29,9 @@ import { ECRAN_SUIVI_MOIS } from './ligneSuivi';
 
 export interface LocataireDuPlan { id: number; nom: string; conserve: boolean;
   /** Le bien (ou la location) qui le retient ; null : sa fiche est supprimée. */
-  autreBien: string | null }
+  autreBien: string | null;
+  /** 🔴 Arno (10/11/2026, E) — son bail est en cours : sa fiche est conservée, seule la ligne de suivi est annulée. */
+  bailEnCours: boolean }
 export interface PlanSuppression { id: number; bien: string; dateSignature: string; locataires: LocataireDuPlan[] }
 export type IssueSuppression = { etat: 'ok'; data: PlanSuppression } | { etat: 'inconnu' } | { etat: 'refus'; motif: string };
 
@@ -61,6 +67,11 @@ export async function planSuppression(q: RequeteTx, id: number, verrou = false):
   const lots = lotsLoc.map((r) => n(r.id));
   const locataires: LocataireDuPlan[] = [];
   for (const lo of locs.filter((x) => !x.supprime)) {
+    // 🔴 Arno (10/11/2026, E) — un BAIL EN COURS : une occupation non sortie (ni absente de l'import), sur un bail non clos (ou sans bail).
+    const enCours = avecBailOcc && (await q(
+      `SELECT 1 FROM gestion_annuaire_occupation o LEFT JOIN gestion_bail g ON g.id = o.bail_id
+        WHERE o.locataire_id = $1 AND o.sortie IS NULL AND o.absent_le IS NULL AND (o.bail_id IS NULL OR g.sortie IS NULL) LIMIT 1`, [n(lo.id)])).rows.length > 0;
+    if (enCours) { locataires.push({ id: n(lo.id), nom: lo.nom, conserve: true, autreBien: null, bailEnCours: true }); continue; }
     // 🔴 L'EXCEPTION D'ARNO : une occupation sur un AUTRE lot (à toute date), ou une AUTRE location vivante qui le nomme (son locataire, ou un
     // occupant de son bail) — la première trouvée nomme le bien qui le retient.
     const { rows: autre } = await q<{ bien: string }>(
@@ -73,7 +84,7 @@ export async function planSuppression(q: RequeteTx, id: number, verrou = false):
           WHERE a.id <> $3 AND a.annule_le IS NULL
             AND (a.locataire_id = $1 ${avecBailOcc ? 'OR a.bail_id IN (SELECT oc.bail_id FROM gestion_annuaire_occupation oc WHERE oc.locataire_id = $1 AND oc.bail_id IS NOT NULL)' : ''})
        ) x ORDER BY rang, cle LIMIT 1`, [n(lo.id), lots, n(a.id)]);
-    locataires.push({ id: n(lo.id), nom: lo.nom, conserve: autre.length > 0, autreBien: autre[0]?.bien ?? null });
+    locataires.push({ id: n(lo.id), nom: lo.nom, conserve: autre.length > 0, autreBien: autre[0]?.bien ?? null, bailEnCours: false });
   }
   return { id: n(a.id), bien: a.bien ?? a.libelle ?? `location n° ${a.id}`, dateSignature: a.date, locataires };
 }
@@ -111,7 +122,8 @@ export async function supprimerLocation(id: unknown, auteur: Auteur): Promise<Is
     }
     const resume = [
       ...aSupprimer.map((l) => `${l.nom} : fiche supprimée`),
-      ...p.locataires.filter((l) => l.conserve).map((l) => `${l.nom} : conservé (aussi rattaché à ${l.autreBien})`),
+      ...p.locataires.filter((l) => l.conserve).map((l) => (l.bailEnCours ? `${l.nom} : fiche conservée (bail en cours) — seule la ligne de suivi est annulée`
+        : `${l.nom} : conservé (aussi rattaché à ${l.autreBien})`)),
     ].join(' ; ');
     const t = await colonnesTrace({ sujet: 'activite', champ: 'Location' }, 6);
     await q(
