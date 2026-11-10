@@ -283,6 +283,19 @@ export function repartirTaches(taches: readonly Tache[], maintenant: Date): { ou
   return { ouvertes, terminees };
 }
 
+/**
+ * 🔴 Arno (10/11/2026) — LE REPÈRE ROUGE du bloc « Tâches » replié : les tâches URGENTES — en retard, aujourd'hui / demain (le rouge des
+ * pastilles, `couleurTache`), ou refusées à réattribuer (`statutTache`, la règle du badge et du filtre « Refusées »). Une tâche qui est à la
+ * fois en retard et refusée ne compte qu'une fois. PUR.
+ */
+export function compterTachesUrgentes(taches: readonly Tache[], maintenant: Date): number {
+  return taches.filter((t) => {
+    if (t.etat !== 'a_faire') return false;
+    const c = couleurTache(t, maintenant);
+    return c === 'retard' || c === 'jour' || statutTache({ confieeA: null, acceptation: t.acceptation, invites: t.invites }) === 'refusee';
+  }).length;
+}
+
 /** Les quatre compteurs du récapitulatif. PUR. */
 export function compterTaches(taches: readonly Tache[], maintenant: Date): Record<CouleurTache, number> {
   const n: Record<CouleurTache, number> = { retard: 0, jour: 0, proche: 0, plus_tard: 0 };

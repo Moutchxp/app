@@ -57,7 +57,7 @@ export function usePreavisEnAlerte(actif: boolean, base: string = API_PREAVIS_LO
     let vivant = true;
     fetch(`${base}?preavisEnCours=1`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
       .then((r) => r.json())
-      .then((d: { etat?: string; data?: { lignes?: { previsite?: { statut: StatutPrevisite } | null }[] } }) => {
+      .then((d: { etat?: string; data?: { lignes?: { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean } | null }[] } }) => {
         if (vivant) setN(d.etat === 'ok' && Array.isArray(d.data?.lignes) ? compterPreavisEnAlerte(d.data.lignes) : 0);
       })
       .catch(() => { if (vivant) setN(0); });

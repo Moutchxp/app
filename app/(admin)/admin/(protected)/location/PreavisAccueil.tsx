@@ -15,7 +15,7 @@ import {
   heureFinProposee, mentionEdls, pastilleEdls, verifierPlanification, type EdlsAffiche,
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
-import type { StatutPrevisite } from '../../../../lib/location/previsite';
+import { compterPreavisEnAlerte, type StatutPrevisite } from '../../../../lib/location/previsite';
 import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, MentionReserveLocation, PastillesPrevisite } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
@@ -63,8 +63,15 @@ interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: 
  * pré-visite, état des lieux, statut), la recherche par nom ou adresse ; le tri choisi est conservé. `pleinePage` : le lien « Ouvrir en
  * pleine page » (une adresse, ou un geste de l'écran qui l'accueille).
  */
-export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture = 'location', ecriture = true }: {
+export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture = 'location', ecriture = true, repliable = false }: {
   gestion: boolean; plein?: boolean; pleinePage?: string | (() => void);
+  /**
+   * 🔴 Arno (10/11/2026, accord explicite pour CE repli : le bloc sous les Tâches de la Gestion seulement) — REPLIÉ à chaque ouverture de la
+   * page ; un clic sur la ligne de titre l'ouvre ou le ferme (▸ / ▾). Fermé : « Préavis · N » et le repère rouge des préavis en alerte
+   * (`compterPreavisEnAlerte`, LE nombre de la pastille du menu ; absent à zéro). Ouvert : exactement comme avant. Absent : rien ne change
+   * (écran Location, pleine page).
+   */
+  repliable?: boolean;
   /**
    * 🔴 Arno (10/11/2026, option A) — `gestion` : lu par la route de LECTURE de la Gestion (tout compte Gestion) ; `ecriture` : le compte a
    * le droit « Location » — sinon les boutons qui écrivent restent visibles, INACTIFS, avec « Réservé aux comptes Location ».
@@ -85,6 +92,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const cleTri = plein ? CLE_TRI_PLEINE_PAGE : CLE_TRI;
   const [tri, setTri] = useState<TriPreavis>(TRI_DEFAUT);
   const [recherche, setRecherche] = useState('');
+  const [ouvert, setOuvert] = useState(false);
+  const deplie = !repliable || ouvert;
   // La préférence locale est lue APRÈS le montage : le rendu serveur et le premier rendu client restent identiques.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setTri(lireTriMemorise(cleTri)); }, [cleTri]);
@@ -101,6 +110,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
     : trierPreavis(d.lignes.map((x) => (locaux[x.cle] ? { ...x, edls: locaux[x.cle], etatDesLieuxLe: locaux[x.cle].jour } : x)), tri);
   const filtrees = filtre.size === 0 ? toutes : toutes.filter((x) => x.previsite && filtre.has(x.previsite.statut));
   const lignes = plein ? chercherPreavis(filtrees, recherche) : filtrees;
+  // 🔴 Arno (10/11/2026) — le repère rouge du bloc replié : LA fonction de la pastille du menu, sur les mêmes lignes que l'intérieur.
+  const alertes = compterPreavisEnAlerte(lignes);
   // 🔴 Arno (10/11/2026) — `?previsite=<occupation>` (lien des mails d'alerte et d'invitation au compte rendu) : la ligne s'ouvre, dépliée.
   const [cible, setCible] = useState<number | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -126,13 +137,22 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
       {/* Les styles de la Location viennent AVEC le bloc : il s'affiche à l'identique sous les Tâches de la Gestion et en pleine page. */}
       <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE}</style>
       <div className="pva-entete">
-        <h2 className="pva-titre">Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></h2>
+        <h2 className="pva-titre">
+          {repliable ? (
+            <button type="button" className="pva-repli" aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)} data-repli-preavis>
+              <span aria-hidden="true" className="pva-fleche">{ouvert ? '▾' : '▸'}</span>
+              {ouvert ? <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></>
+                : <>Préavis · <span data-total-preavis>{lignes.length}</span></>}
+            </button>
+          ) : <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></>}
+          {repliable && !ouvert && alertes > 0 && <span className="pva-alertes" data-alertes-preavis>● {alertes} en alerte</span>}
+        </h2>
         {/* 🔴 Arno (10/11/2026) — « Ouvrir en pleine page » (bloc de la Location, bloc sous les Tâches de la Gestion). */}
         {!plein && pleinePage !== undefined && (typeof pleinePage === 'string'
           ? <a className="pva-plein" href={pleinePage} data-pleine-page-preavis>Ouvrir en pleine page</a>
           : <button type="button" className="pva-plein" onClick={pleinePage} data-pleine-page-preavis>Ouvrir en pleine page</button>)}
       </div>
-      {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : !d!.disponible ? (
+      {!deplie ? null : lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : !d!.disponible ? (
         <p className="loc-muet" data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>
       ) : (
         <>
@@ -479,6 +499,9 @@ function SortieDuPreavis({ l, onAnnuler, onFait }: { l: LignePreavisAccueil; onA
 export const CSS_PREAVIS_ACCUEIL = `
 .pva{display:flex;flex-direction:column;gap:12px;min-width:0}
 .pva-titre{margin:0;font-size:1.15rem;font-weight:800;display:flex;align-items:center;gap:8px}
+.pva-repli{appearance:none;border:0;background:none;padding:0;margin:0;min-height:44px;font:inherit;color:inherit;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.pva-fleche{display:inline-block;width:1em}
+.pva-alertes{margin-left:.6rem;font-size:.9rem;font-weight:800;color:var(--color-svv-red)}
 .pva-entete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
 .pva-plein{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;border:0;background:none;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
 .pva-recherche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}

@@ -102,7 +102,11 @@ const monter = async (el: ReturnType<typeof createElement>): Promise<HTMLDivElem
 };
 const gestion = async (adresse: string, location = true) => {
   window.history.replaceState(null, '', `/admin/gestion${adresse}`);
-  return monter(createElement(GestionVue, { location }));
+  const c = await monter(createElement(GestionVue, { location }));
+  // 🔴 Arno (10/11/2026) — sous les Tâches, le bloc est REPLIÉ à l'ouverture : ces épreuves portent sur son intérieur, on l'ouvre.
+  const repli = c.querySelector('[data-bloc-preavis-gestion] [data-repli-preavis]');
+  if (repli !== null) { await act(async () => { (repli as HTMLElement).click(); }); await calmer(); }
+  return c;
 };
 const clic = async (el: Element | null) => { if (el === null) throw new Error('élément absent'); await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
 const ordre = (c: HTMLElement) => [...c.querySelectorAll('[data-ligne-preavis]')].map((li) => li.getAttribute('data-ligne-preavis'));

@@ -1930,7 +1930,8 @@ export function GestionVue({ intro, location = false }: {
       {/* 🔴🔴 LOT TACHES-1 — LE RÉCAPITULATIF GÉNÉRAL DES TÂCHES, TOUT EN BAS DE L'ÉCRAN PARTAGÉ. C'est la seule place
           qui ne déplace, ne rétrécit ni ne masque rien : annuaire, boîte à gauche, événements à droite et « Échanges
           sans événement » restent exactement où ils étaient. L'adresse de chaque ligne ouvre la fiche du bien. */}
-      <TableauTaches onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
+      {/* 🔴 Arno (10/11/2026, accord explicite) — replié à l'ouverture, « Tâches · N » et le repère rouge des urgentes visibles fermés. */}
+      <TableauTaches repliable onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
         /* 🔴 LOT TACHES-1-BIS — l'e-mail d'un contact de la tâche ouvre LE composeur « Nouveau message » de la boîte,
            adresse pré-remplie, comme depuis l'annuaire (même garde : rédaction prête et envoi permis). Rien ne part. */
         onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
@@ -1939,7 +1940,8 @@ export function GestionVue({ intro, location = false }: {
       {/* 🔴🔴 Arno (10/11/2026) — SOUS LES TÂCHES : le bloc « Locataires en préavis » de la Location — le MÊME composant, la MÊME donnée
           (une action d'un côté se voit de l'autre), avec « Ouvrir en pleine page ». Rien n'est déplacé : il s'ajoute en dessous. */}
       <div className="gst-preavis" data-bloc-preavis-gestion>
-        <BlocPreavisAccueil gestion lecture="gestion" ecriture={location}
+        {/* 🔴 Arno (10/11/2026, accord explicite) — replié à l'ouverture, compteurs visibles fermés. */}
+        <BlocPreavisAccueil gestion lecture="gestion" ecriture={location} repliable
           pleinePage={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); }} />
       </div>
       </>

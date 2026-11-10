@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 /* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
 import { estClicDansLeVide, MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import {
-  compterTaches, filtrerParPastille, termineesRecentes, TITRE_TERMINEES, type PastilleFiltre, repartirTaches, type Tache,
+  compterTaches, compterTachesUrgentes, filtrerParPastille, termineesRecentes, TITRE_TERMINEES, type PastilleFiltre, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
 import { CSS_TACHES, LigneTache, PastillesFiltres, useLignesDepliees, useMaintenant } from './LigneTache';
 import {
@@ -12,6 +12,9 @@ import {
 } from '../../../../lib/gestion/acceptationTache';
 import { FenetreTache } from './FenetreTache';
 import { ecouterTaches, lireTaches } from './tachesClient';
+
+/** 🔴 Arno (10/11/2026) — la relecture du bloc replié de l'écran partagé : toutes les 30 secondes (comme les préavis). */
+export const INTERVALLE_RELECTURE_MS = 30_000;
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LE RÉCAPITULATIF GÉNÉRAL, SUR L'ÉCRAN PARTAGÉ DE LA TUILE GESTION ═══════════════════════
@@ -29,8 +32,15 @@ import { ecouterTaches, lireTaches } from './tachesClient';
  *
  * ⚠️ SANS LA MIGRATION 346, NE REND RIEN. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
+export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable = false }: {
   onOuvrirBien: (lotId: number) => void;
+  /**
+   * 🔴 Arno (10/11/2026, accord explicite pour CE repli, écran partagé seulement) — REPLIÉ à chaque ouverture de la page ; un clic sur la ligne
+   * de titre l'ouvre ou le ferme (▸ / ▾). Fermé : « Tâches · N » et le repère rouge des urgentes (absent à zéro). Ouvert : exactement comme
+   * avant. Les compteurs sont ceux de l'intérieur (mêmes données, mêmes fonctions), relus toutes les 30 s, au retour sur l'onglet et après
+   * chaque geste. Absent (page pleine « Tâches ») : rien ne change.
+   */
+  repliable?: boolean;
   /** 🔴 LOT GESTION-TACHES-PAGE — sur la page pleine « Tâches » : le bouton de retour, en tête. Absent sur l'écran partagé. */
   retour?: ReactNode;
   /** 🔴 LOT TACHES-1-BIS — ouvre le composeur « Nouveau message », adresse pré-remplie, sans rien envoyer. */
@@ -67,6 +77,15 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
 
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
+  const [ouvert, setOuvert] = useState(false);
+  // 🔴 Arno (10/11/2026) — le bloc replié (écran partagé) : relu toutes les 30 s et au retour sur l'onglet, comme le bloc des préavis.
+  useEffect(() => {
+    if (!repliable) return undefined;
+    const relire = (): void => { if (document.visibilityState !== 'hidden') void charger(); };
+    const minuterie = window.setInterval(relire, INTERVALLE_RELECTURE_MS);
+    document.addEventListener('visibilitychange', relire);
+    return () => { window.clearInterval(minuterie); document.removeEventListener('visibilitychange', relire); };
+  }, [repliable, charger]);
 
   if (!installe || donnees === null) return null;
   const visibles = filtrerParAcceptation(donnees.taches, qui, statut, donnees.moi);
@@ -78,18 +97,38 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
   const ouvertes = filtrerParPastille(toutes.ouvertes, pastille, maintenant);
   // 🔴 LOT TERMINEES-7-JOURS — affichage seulement : les terminées des 7 derniers jours.
   const terminees = termineesRecentes(filtrerParPastille(toutes.terminees, pastille, maintenant), maintenant);
+  const urgentes = compterTachesUrgentes(ouvertes, maintenant);
+  const titre = (
+    <h2 className="gst-titre" id="tch-tableau-titre">
+      {repliable ? (
+        <button type="button" className="tch-repli" aria-expanded={ouvert} onClick={(e) => { e.stopPropagation(); setOuvert((o) => !o); }} data-repli-taches>
+          <span aria-hidden="true" className="tch-fleche">{ouvert ? '▾' : '▸'}</span>
+          {ouvert ? <>Tâches <span className="gst-compte">{ouvertes.length}</span></> : <>Tâches · <span data-total-taches>{ouvertes.length}</span></>}
+        </button>
+      ) : <>Tâches <span className="gst-compte">{ouvertes.length}</span></>}
+      {repliable && !ouvert && urgentes > 0 && (
+        <span className="tch-urgentes" data-urgentes-taches>● {urgentes} urgente{urgentes > 1 ? 's' : ''}</span>
+      )}
+    </h2>
+  );
+  if (repliable && !ouvert) {
+    return (
+      <section className="tch-tableau tch-tableau--replie" aria-labelledby="tch-tableau-titre" data-bloc-taches="replie">
+        <style>{CSS_TACHES}{CSS_TABLEAU}</style>
+        <div className="tch-tableau-tete">{titre}</div>
+      </section>
+    );
+  }
 
   return (
     /* 🔴 LOT SORTIR-DU-FILTRE — trois sorties du filtre de pastille : re-clic sur la pastille active, « Toutes » (qui ou
        statut), et un clic dans une zone vide du bloc. Toutes à écran fixe. */
-    <section className="tch-tableau" aria-labelledby="tch-tableau-titre"
+    <section className="tch-tableau" aria-labelledby="tch-tableau-titre"{...(repliable ? { 'data-bloc-taches': 'ouvert' } : {})}
       onClick={(e) => { if (pastille !== null && estClicDansLeVide(e.target, e.currentTarget)) changerFiltre(() => setPastille(null)); }}>
       <style>{CSS_TACHES}{CSS_TABLEAU}</style>
       <div className="tch-tableau-tete">
         {retour !== null && <div className="tch-retour">{retour}</div>}
-        <h2 className="gst-titre" id="tch-tableau-titre">
-          Tâches <span className="gst-compte">{ouvertes.length}</span>
-        </h2>
+        {titre}
         {/* 🔴 LOT GESTION-TACHES-SANS-BIEN (Arno, 17/10/2026) — création simple, sans bien : la MÊME fenêtre que « + Tâche ». */}
         <button type="button" className="svv-btn svv-btn-primary gst-btn tch-btn tch-creer" data-action="creer-tache"
           onClick={(e) => { e.stopPropagation(); setCree(null); setCreation(true); }}>
@@ -206,6 +245,10 @@ function ReglageEnvoi() {
 
 /* ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous. */
 const CSS_TABLEAU = `
+/* Arno (10/11/2026) — la ligne de titre repliable (ecran partage) : toute la ligne se clique, cible de 44 px ; le repere rouge, avec le mot. */
+.tch-repli{appearance:none;border:0;background:none;padding:0;margin:0;min-height:44px;font:inherit;color:inherit;display:inline-flex;align-items:center;gap:.4rem;cursor:pointer}
+.tch-fleche{display:inline-block;width:1em}
+.tch-urgentes{margin-left:.6rem;font-size:.9rem;font-weight:800;color:var(--color-svv-red)}
 /* LOT GESTION-TACHES-PAGE — le retour de la page pleine : sur sa ligne, a sa largeur naturelle. */
 .tch-retour{flex:0 0 100%}
 .tch-retour .svv-btn{width:auto}
