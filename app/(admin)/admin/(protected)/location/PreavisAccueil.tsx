@@ -19,6 +19,7 @@ import { compterPreavisEnAlerte, type StatutPrevisite } from '../../../../lib/lo
 import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, MentionReserveLocation, PastillesPrevisite } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
+import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
 
 /**
  * ══ 🔴🔴 ACCUEIL LOCATION — LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 18/10/2026) ═════════════════════════════════════════
@@ -133,19 +134,19 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   );
   return (
     <ContextePreavis.Provider value={contexte}>
-    <section className="pva" aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>
+    <section className={`pva${deplie ? '' : ' blr-bloc'}`} aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>
       {/* Les styles de la Location viennent AVEC le bloc : il s'affiche à l'identique sous les Tâches de la Gestion et en pleine page. */}
-      <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE + (repliable ? CSS_BLOC_REPLIE : '')}</style>
       <div className="pva-entete">
-        <h2 className="pva-titre">
+        <h2 className={`pva-titre${deplie ? '' : ' blr-titre'}`}>
           {repliable ? (
-            <button type="button" className="pva-repli" aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)} data-repli-preavis>
-              <span aria-hidden="true" className="pva-fleche">{ouvert ? '▾' : '▸'}</span>
+            <button type="button" className={`pva-repli${deplie ? '' : ' blr-repli'}`} aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)} data-repli-preavis>
+              <span aria-hidden="true" className={`pva-fleche${deplie ? '' : ' blr-fleche'}`}>{ouvert ? '▾' : '▸'}</span>
               {ouvert ? <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></>
                 : <>Préavis · <span data-total-preavis>{lignes.length}</span></>}
             </button>
           ) : <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></>}
-          {repliable && !ouvert && alertes > 0 && <span className="pva-alertes" data-alertes-preavis>● {alertes} en alerte</span>}
+          {repliable && !ouvert && alertes > 0 && <span className="pva-alertes blr-alerte" data-alertes-preavis>● {alertes} en alerte</span>}
         </h2>
         {/* 🔴 Arno (10/11/2026) — « Ouvrir en pleine page » (bloc de la Location, bloc sous les Tâches de la Gestion). */}
         {!plein && pleinePage !== undefined && (typeof pleinePage === 'string'

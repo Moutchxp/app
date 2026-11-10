@@ -12,6 +12,7 @@ import {
 } from '../../../../lib/gestion/acceptationTache';
 import { FenetreTache } from './FenetreTache';
 import { ecouterTaches, lireTaches } from './tachesClient';
+import { CSS_BLOC_REPLIE } from './blocReplie';
 
 /** 🔴 Arno (10/11/2026) — la relecture du bloc replié de l'écran partagé : toutes les 30 secondes (comme les préavis). */
 export const INTERVALLE_RELECTURE_MS = 30_000;
@@ -99,22 +100,22 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
   const terminees = termineesRecentes(filtrerParPastille(toutes.terminees, pastille, maintenant), maintenant);
   const urgentes = compterTachesUrgentes(ouvertes, maintenant);
   const titre = (
-    <h2 className="gst-titre" id="tch-tableau-titre">
+    <h2 className={`gst-titre${repliable && !ouvert ? ' blr-titre' : ''}`} id="tch-tableau-titre">
       {repliable ? (
-        <button type="button" className="tch-repli" aria-expanded={ouvert} onClick={(e) => { e.stopPropagation(); setOuvert((o) => !o); }} data-repli-taches>
-          <span aria-hidden="true" className="tch-fleche">{ouvert ? '▾' : '▸'}</span>
+        <button type="button" className={`tch-repli${!ouvert ? ' blr-repli' : ''}`} aria-expanded={ouvert} onClick={(e) => { e.stopPropagation(); setOuvert((o) => !o); }} data-repli-taches>
+          <span aria-hidden="true" className={`tch-fleche${!ouvert ? ' blr-fleche' : ''}`}>{ouvert ? '▾' : '▸'}</span>
           {ouvert ? <>Tâches <span className="gst-compte">{ouvertes.length}</span></> : <>Tâches · <span data-total-taches>{ouvertes.length}</span></>}
         </button>
       ) : <>Tâches <span className="gst-compte">{ouvertes.length}</span></>}
       {repliable && !ouvert && urgentes > 0 && (
-        <span className="tch-urgentes" data-urgentes-taches>● {urgentes} urgente{urgentes > 1 ? 's' : ''}</span>
+        <span className="tch-urgentes blr-alerte" data-urgentes-taches>● {urgentes} urgente{urgentes > 1 ? 's' : ''}</span>
       )}
     </h2>
   );
   if (repliable && !ouvert) {
     return (
-      <section className="tch-tableau tch-tableau--replie" aria-labelledby="tch-tableau-titre" data-bloc-taches="replie">
-        <style>{CSS_TACHES}{CSS_TABLEAU}</style>
+      <section className="tch-tableau tch-tableau--replie blr-bloc" aria-labelledby="tch-tableau-titre" data-bloc-taches="replie">
+        <style>{CSS_TACHES}{CSS_TABLEAU}{CSS_BLOC_REPLIE}</style>
         <div className="tch-tableau-tete">{titre}</div>
       </section>
     );

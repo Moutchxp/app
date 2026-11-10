@@ -199,3 +199,33 @@ describe('🔴 5 — ailleurs, rien ne change', () => {
     expect(c.querySelector('[data-action="creer-tache"]')).not.toBeNull();
   });
 });
+
+describe('🔴 Arno (10/11/2026) — les deux lignes de titre repliées, harmonisées (présentation seulement)', () => {
+  const classes = (el: Element | null) => (el?.className ?? '').split(/\s+/).filter((x) => x.startsWith('blr-'));
+  it('fermés : le même cadre, le même titre, la même flèche, le même repère rouge — une seule feuille', async () => {
+    const c = await gestion('?ecran=partage');
+    const t = c.querySelector('[data-bloc-taches]')!;
+    const p = c.querySelector('[data-bloc-preavis-gestion] [data-bloc-preavis]')!;
+    expect(classes(t)).toEqual(['blr-bloc']);
+    expect(classes(p)).toEqual(['blr-bloc']);
+    expect(classes(t.querySelector('h2'))).toEqual(['blr-titre']);
+    expect(classes(p.querySelector('h2'))).toEqual(['blr-titre']);
+    expect(classes(t.querySelector('[data-repli-taches]'))).toEqual(['blr-repli']);
+    expect(classes(p.querySelector('[data-repli-preavis]'))).toEqual(['blr-repli']);
+    expect(classes(t.querySelector('[data-repli-taches] [aria-hidden]'))).toEqual(['blr-fleche']);
+    expect(classes(p.querySelector('[data-repli-preavis] [aria-hidden]'))).toEqual(['blr-fleche']);
+    expect(classes(t.querySelector('[data-urgentes-taches]'))).toEqual(['blr-alerte']);
+    expect(classes(p.querySelector('[data-alertes-preavis]'))).toEqual(['blr-alerte']);
+    const { CSS_BLOC_REPLIE } = await import('./blocReplie');
+    for (const bloc of [t, p]) expect([...bloc.querySelectorAll('style')].some((s) => (s.textContent ?? '').includes(CSS_BLOC_REPLIE))).toBe(true);
+  });
+  it('ouverts : chacun garde exactement sa présentation d’avant (aucune classe du repli)', async () => {
+    const c = await gestion('?ecran=partage');
+    await clic(c.querySelector('[data-repli-taches]'));
+    await clic(c.querySelector('[data-bloc-preavis-gestion] [data-repli-preavis]'));
+    expect(c.querySelector('[data-bloc-taches] [class*="blr-"]')).toBeNull();
+    expect(classes(c.querySelector('[data-bloc-taches]'))).toEqual([]);
+    expect(c.querySelector('[data-bloc-preavis-gestion] [class*="blr-"]')).toBeNull();
+    expect(classes(c.querySelector('[data-bloc-preavis-gestion] [data-bloc-preavis]'))).toEqual([]);
+  });
+});
