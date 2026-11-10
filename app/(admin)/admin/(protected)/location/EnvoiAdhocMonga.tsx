@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ModaleEnvois } from './ConfirmationEnvois';
-import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
+import { lienDestinataires, type ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
 import { dateCourte, editionNouvelleLocation, FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
 import type { Retouche } from '../../../../lib/location/texteModifiable';
 import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from './TexteModifiableMail';
@@ -28,6 +28,8 @@ export interface EnvoiLu { quand: string; par: string; destinataires: string[]; 
 interface Apercu {
   bailId: number; objet: string; html: string; texte: string; expediteur: string;
   destinataires: DestinatairePropose[]; dernierEnvoi: EnvoiLu | null; envoiPossible: boolean;
+  /** 🔴 Arno (11/11/2026) — le nombre de destinataires configurés dans ses préférences (« Nouvelles locations ») ; 0 : aucun. */
+  configures?: number;
   /** Les données du mail et le nom de la personne connectée : l'aperçu se refait en direct avec le message d'accompagnement. */
   donnees?: DonneesNouvelleLocation; auteurNom?: string;
 }
@@ -198,6 +200,14 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
                   </label>
                   <section aria-label="Destinataires" className="eam-dest" data-destinataires>
                     <h3>Destinataires <span className="eam-muet">({lignes.length})</span></h3>
+                    {/* 🔴 Arno (11/11/2026) — seules ses préférences décident : liste vide ou absente = aucun destinataire proposé, et c'est dit. */}
+                    {apercu.configures === 0 && (
+                      <p className="eam-alerte" role="status" data-aucun-destinataire-configure>
+                        Aucun destinataire n’est configuré pour les nouvelles locations : aucun partenaire n’est proposé.{' '}
+                        <a href={lienDestinataires('nouvelle_location')} target="_blank" rel="noopener noreferrer" data-lien-preferences-destinataires>
+                          Configurer la liste dans Paramètres Location › Destinataires mails</a>
+                      </p>
+                    )}
                     <p className="eam-muet eam-petit">Les changements ne valent que pour cet envoi : la liste par défaut ne change pas.</p>
                     <ol>
                       {lignes.map((l, i) => (

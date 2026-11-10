@@ -46,12 +46,11 @@ export function mailNouvelleLocationDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_mail_envoi', 'bail_id');
 }
 
-/** La liste par défaut des destinataires, si la base ne la porte pas encore (amorce de la migration 395). */
-export const DESTINATAIRES_DEFAUT: readonly Destinataire[] = [
-  { adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion (copie de confirmation)' },
-  { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' },
-  { adresse: 'laura@monga.io', libelle: 'MONGA' },
-];
+/**
+ * 🔴 Arno (11/11/2026) — PLUS AUCUNE ADRESSE DE DESTINATAIRE DANS LE CODE : seules ses préférences (Paramètres Location › Destinataires mails)
+ * décident. Liste « Nouvelles locations » vide ou absente (ou base sans la 395) : AUCUN destinataire proposé — la fenêtre le dit, avec le lien.
+ * (Avant : une liste de secours écrite ici — gestion@, ADHOC, MONGA — était proposée quand rien n'était enregistré.)
+ */
 
 /** 🔴 Arno (05/11/2026, migration 460) — les trois listes de « Paramètres Location » : « Nouvelles locations », « Préavis », « Sorties ». */
 export type SorteDestinataires = 'nouvelle_location' | 'preavis' | 'sortie';
@@ -63,12 +62,12 @@ export const destinatairesParSorteDisponibles = (): Promise<boolean> => colonneE
  * « Sorties » : sans la migration 460, AUCUN destinataire (plus aucune adresse partenaire dans le code : l'amorce ADHOC est posée par la 460).
  */
 export async function lireDestinatairesDefaut(sorte: SorteDestinataires = 'nouvelle_location'): Promise<Destinataire[]> {
-  if (!(await colonneExisteMemo('gestion_location_mail_destinataires', 'liste'))) return sorte === 'nouvelle_location' ? [...DESTINATAIRES_DEFAUT] : [];
+  if (!(await colonneExisteMemo('gestion_location_mail_destinataires', 'liste'))) return [];
   const parSorte = await destinatairesParSorteDisponibles();
   if (!parSorte && sorte !== 'nouvelle_location') return [];
   const { rows } = await query<{ liste: unknown }>(
     `SELECT liste FROM gestion_location_mail_destinataires${parSorte ? ' WHERE sorte = $1' : ''} ORDER BY id DESC LIMIT 1`, parSorte ? [sorte] : []);
-  if (rows[0] === undefined) return sorte === 'nouvelle_location' ? [...DESTINATAIRES_DEFAUT] : [];
+  if (rows[0] === undefined) return [];
   const v = verifierDestinataires(rows[0].liste, { videAutorise: sorte !== 'nouvelle_location' });
   return v.ok ? v.liste : [];
 }
@@ -325,6 +324,8 @@ export interface ApercuNouvelleLocation {
   donnees: DonneesNouvelleLocation; auteurNom: string;
   /** Proposés pour CET envoi : la copie personnelle en tête, puis la liste configurée. */
   destinataires: DestinatairePropose[];
+  /** 🔴 Arno (11/11/2026) — le nombre de destinataires de la liste « Nouvelles locations » des préférences (0 : aucun configuré). */
+  configures: number;
   dernierEnvoi: EnvoiJournalise | null;
   /** Faux sans la migration 395 : l'aperçu se lit, l'envoi est refusé (le journal manque). */
   envoiPossible: boolean;
@@ -335,10 +336,11 @@ export async function apercuNouvelleLocation(bailId: number, auteur: Auteur): Pr
   const d = await donneesNouvelleLocation(bailId);
   if (d === null) return null;
   const session = await emailDeLAuteur(auteur);
+  const liste = await lireDestinatairesDefaut();
   return {
     bailId, objet: objetNouvelleLocation(d), html: htmlNouvelleLocation(d), texte: texteNouvelleLocation(d), expediteur: d.expediteur,
     donnees: d, auteurNom: session.nom,
-    destinataires: listeProposee(await lireDestinatairesDefaut(), session), dernierEnvoi: await dernierEnvoi(bailId),
+    destinataires: listeProposee(liste, session), configures: liste.length, dernierEnvoi: await dernierEnvoi(bailId),
     envoiPossible: await mailNouvelleLocationDisponible(),
   };
 }

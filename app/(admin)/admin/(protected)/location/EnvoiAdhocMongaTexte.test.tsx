@@ -64,3 +64,24 @@ describe('🔴🔴 « Modifier le texte » dans la fenêtre « Envoi ADHOC & MON
     });
   }
 });
+
+describe('🔴 Arno (11/11/2026) — aucun destinataire configuré : la fenêtre le dit, avec le lien vers les préférences', () => {
+  it('aucun partenaire proposé ; l’avertissement et le lien « Paramètres Location › Destinataires mails »', async () => {
+    global.fetch = vi.fn(async () => json({ etat: 'ok', data: {
+      bailId: 536, objet: 'Nouvelle location', html: '<p>Aperçu</p>', texte: 'x', expediteur: 'gestion@criterimmo.fr', donnees: DONNEES, auteurNom: 'Arno Test',
+      destinataires: listeProposee([], { email: 'a@exemple.test', nom: 'Arno Test' }), configures: 0, dernierEnvoi: null, envoiPossible: true,
+    } })) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EnvoiAdhocMonga, { bailId: 536 })); });
+    await clic(container.querySelector('[data-ouvrir-envoi]'));
+    const f = document.querySelector('[data-fenetre-envoi]')!;
+    expect(f.querySelector('[data-aucun-destinataire-configure]')?.textContent).toContain('Aucun destinataire n’est configuré pour les nouvelles locations');
+    expect(f.querySelector('[data-lien-preferences-destinataires]')?.getAttribute('href')).toBe('/admin/location/outils/parametres?onglet=destinataires');
+    // Seule la copie personnelle de la personne connectée : aucun partenaire.
+    expect([...f.querySelectorAll('[data-ligne-destinataire] [data-adresse]')].map((x) => (x as HTMLInputElement).value)).toEqual(['a@exemple.test']);
+  });
+  it('des destinataires configurés : aucun avertissement', async () => {
+    await act(async () => { root.render(createElement(EnvoiAdhocMonga, { bailId: 536 })); });
+    await clic(container.querySelector('[data-ouvrir-envoi]'));
+    expect(document.querySelector('[data-aucun-destinataire-configure]')).toBeNull();
+  });
+});

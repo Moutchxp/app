@@ -35,7 +35,7 @@ import { decisionRecette, decoderRfc822 } from '../recette/interception';
 import { creerBienComplet, creerProprietaires } from './creationBienRepo';
 import { creerLocatairesSurBienAvec } from './portefeuilleRepo';
 import { oublierSchemaLocation } from './sondeLocation';
-import { apercuNouvelleLocation, DESTINATAIRES_DEFAUT, dernierEnvoi, donneesNouvelleLocation, envoyerNouvelleLocation, lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
+import { apercuNouvelleLocation, dernierEnvoi, donneesNouvelleLocation, envoyerNouvelleLocation, lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
 import { htmlNouvelleLocation, objetNouvelleLocation, texteNouvelleLocation } from './mailNouvelleLocation';
 import { ajouterVersionBareme, corrigerVersionBareme, enregistrerDestinataires, lireParametresLocation, lireVersionsBaremes } from './parametresLocationRepo';
 import type { DepsBrancheBail } from './brancheBailDriveRepo';
@@ -281,8 +281,10 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     const loc = await un<{ id: string; bail: string }>(`SELECT l.id::text, o.bail_id::text AS bail FROM gestion_annuaire_locataire l
       JOIN gestion_annuaire_occupation o ON o.locataire_id = l.id WHERE l.nom = 'ESSAI BAIL DRIVE' ORDER BY o.id DESC LIMIT 1`);
     const bail = Number(loc.bail);
-    // La liste par défaut d'Arno, remise par une nouvelle version (③ l'avait changée) : la copie personnelle revient en tête.
-    ok(await enregistrerDestinataires(DESTINATAIRES_DEFAUT, AUTEUR));
+    // La liste d'Arno, remise par une nouvelle version (③ l'avait changée) : la copie personnelle revient en tête.
+    // 🔴 (11/11/2026) plus de liste écrite dans le code : la liste de l'essai est posée ici, comme une préférence.
+    ok(await enregistrerDestinataires([{ adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion (copie de confirmation)' },
+      { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' }, { adresse: 'laura@monga.io', libelle: 'MONGA' }], AUTEUR));
     const a = (await apercuNouvelleLocation(bail, AUTEUR))!;
     expect(a.destinataires.map((d) => d.adresse)).toEqual(['a.jorel@sansvisavis.com', 'gestion@criterimmo.fr', 'gestion.criterimmo@gmail.com', 'laura@monga.io']);
     ecrire('apercu-essai.json', JSON.stringify(a, null, 2));
