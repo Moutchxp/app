@@ -431,14 +431,15 @@ export async function passeMongaSurLesMails(messageIds: readonly number[]): Prom
         if (lecture.reference !== null) await poserOuvertureDeRepli(lecture.reference);
       } catch { /* l'étape attendra la reprise ; la relève, elle, continue */ }
       /**
-       * 🔴🔴 LOT GESTION-TRADUCTION (Arno, 10/11/2026) — LE COMMENTAIRE QUI VIENT D'ÊTRE ENREGISTRÉ, TRADUIT S'IL N'EST PAS EN FRANÇAIS.
+       * 🔴🔴 LOT GESTION-TRADUCTION (Arno, 10/11/2026) — LES ÉTAPES QUI VIENNENT D'ÊTRE ENREGISTRÉES (commentaire, rendez-vous, injoignable…),
+       * LEUR TEXTE TRADUIT S'IL N'EST PAS EN FRANÇAIS — affichage seul : type, date et validation de l'étape ne changent pas.
        * APRÈS l'enregistrement, et seulement s'il vient d'écrire quelque chose : la lecture des étapes s'est faite sur le texte d'origine,
-       * et un mail déjà lu (relu par la relève) ne repart pas au service. `traduireCommentairesDuMail` ne jette jamais.
+       * et un mail déjà lu (relu par la relève) ne repart pas au service. `traduireEtapesDuMail` ne jette jamais.
        */
       if (ecritesDuMail > 0) {
         try {
-          const { traduireCommentairesDuMail, traducteurMistral } = await import('./traductionCommentaireRepo');
-          await traduireCommentairesDuMail(Number(r.id), traducteurMistral());
+          const { traduireEtapesDuMail, traducteurMistral } = await import('./traductionCommentaireRepo');
+          await traduireEtapesDuMail(Number(r.id), traducteurMistral());
         } catch { /* la traduction attendra : le commentaire s'affiche en original, le classement continue */ }
       }
       const issue = await classerUnMailMonga({ messageId: r.id });

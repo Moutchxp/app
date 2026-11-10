@@ -5,9 +5,12 @@
  *
  *   · LE TEXTE D'ORIGINE N'EST JAMAIS TOUCHÉ : on n'écrit QUE dans `gestion_monga_traduction` (migration 463), jamais dans
  *     `gestion_monga_etape`. Aucune étape n'est créée, modifiée ni validée ici.
- *   · À L'ARRIVÉE : la relève traduit les commentaires du mail qu'elle vient d'enregistrer (`traduireCommentairesDuMail`), et retente
- *     plus tard ceux dont la traduction a échoué (`retenterTraductionsEchouees`). Les commentaires DÉJÀ enregistrés avant ce lot ne sont
- *     traduits QUE par le script `gestion:monga-commentaires:traduire --appliquer`, lancé à la main par Arno.
+ *   · 🔴 TOUTE ÉTAPE LUE DANS UN MAIL MONGA (Arno, 10/11/2026, 2e temps) : le commentaire, mais aussi le texte d'une étape reconnue
+ *     (rendez-vous, contact injoignable, ouverture…) quand le mail n'est pas en français. Même présentation, affichage seulement :
+ *     l'étape, sa date et sa validation ne changent pas — rien ici ne nomme `type`, `survenu_le` ni `certitude` en écriture.
+ *   · À L'ARRIVÉE : la relève traduit les étapes du mail qu'elle vient d'enregistrer (`traduireEtapesDuMail`), et retente
+ *     plus tard celles dont la traduction a échoué (`retenterTraductionsEchouees`). Les étapes DÉJÀ enregistrées avant ce lot ne sont
+ *     traduites QUE par le script `gestion:monga-commentaires:traduire --appliquer`, lancé à la main par Arno.
  *   · JAMAIS DE BLOCAGE DE LA RELÈVE : chaque fonction appelée par la relève attrape tout ; le service a un délai borné.
  *   · SERVICE : Mistral AI (`api.mistral.ai`, hébergé dans l'Union européenne), déjà configuré pour les permis (`MISTRAL_API_KEY`). Ne
  *     part QUE le texte du commentaire : ni objet, ni nom, ni adresse, ni référence.
@@ -40,7 +43,7 @@ type Requete = (sql: string, params?: unknown[]) => Promise<{ rows: unknown[]; r
  * 🔴 `ignore` : le texte est reconnu français, ou sa langue est inconnue (trop court) — RIEN n'est envoyé, RIEN n'est écrit.
  * ⚠️ Une traduction RÉUSSIE n'est jamais écrasée par un échec ultérieur : la mise à jour ne vise qu'une ligne restée « echec ».
  */
-export async function traduireUnCommentaire(
+export async function traduireUnTexte(
   etapeId: number, texte: string | null, traducteur: Traducteur, q: Requete = query as unknown as Requete,
 ): Promise<IssueTraduction> {
   if (texte === null || !estATraduire(texte)) return 'ignore';
@@ -75,18 +78,18 @@ export async function traduireUnCommentaire(
 }
 
 /**
- * 🔴 À L'ARRIVÉE — les commentaires que la relève vient d'enregistrer pour CE mail, et qui n'ont encore aucune traduction. Sans la 463 :
+ * 🔴 À L'ARRIVÉE — les étapes (commentaire, rendez-vous, injoignable…) que la relève vient d'enregistrer pour CE mail, et qui n'ont encore aucune traduction. Sans la 463 :
  * rien. NE JETTE JAMAIS. Rend le nombre de commentaires traduits.
  */
-export async function traduireCommentairesDuMail(messageId: number, traducteur: Traducteur): Promise<number> {
+export async function traduireEtapesDuMail(messageId: number, traducteur: Traducteur): Promise<number> {
   try {
     if (!await traductionDisponible()) return 0;
     const { rows } = await query<{ id: string; texte: string | null }>(
       `SELECT e.id::text AS id, e.texte FROM gestion_monga_etape e
-        WHERE e.message_id = $1 AND e.source = 'monga' AND e.type = 'commentaire'
+        WHERE e.message_id = $1 AND e.source = 'monga' AND e.texte IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM gestion_monga_traduction t WHERE t.etape_id = e.id)`, [messageId]);
     let traduits = 0;
-    for (const r of rows) if (await traduireUnCommentaire(Number(r.id), r.texte, traducteur) === 'traduite') traduits += 1;
+    for (const r of rows) if (await traduireUnTexte(Number(r.id), r.texte, traducteur) === 'traduite') traduits += 1;
     return traduits;
   } catch {
     return 0;
@@ -108,25 +111,25 @@ export async function retenterTraductionsEchouees(traducteur: Traducteur, limite
           AND t.derniere_tentative_le < now() - make_interval(mins => $2)
         ORDER BY t.derniere_tentative_le LIMIT $3`, [TENTATIVES_MAX, DELAI_NOUVELLE_TENTATIVE_MIN, limite]);
     let traduits = 0;
-    for (const r of rows) if (await traduireUnCommentaire(Number(r.id), r.texte, traducteur) === 'traduite') traduits += 1;
+    for (const r of rows) if (await traduireUnTexte(Number(r.id), r.texte, traducteur) === 'traduite') traduits += 1;
     return traduits;
   } catch {
     return 0;
   }
 }
 
-/** Pour le script de reprise : les commentaires Monga qui n'ont encore aucune traduction (LECTURE SEULE). */
-export async function commentairesSansTraduction(q: Requete = query as unknown as Requete): Promise<{
-  id: number; reference: string | null; survenuLe: string; texte: string | null;
+/** Pour le script de reprise : les étapes Monga (commentaires ET étapes reconnues) qui ont un texte et aucune traduction (LECTURE SEULE). */
+export async function etapesSansTraduction(q: Requete = query as unknown as Requete): Promise<{
+  id: number; reference: string | null; type: string; survenuLe: string; texte: string | null;
 }[]> {
   const { rows } = await q(
-    `SELECT e.id::text AS id, e.reference, to_char(e.survenu_le AT TIME ZONE 'Europe/Paris', 'DD/MM/YYYY') AS survenu, e.texte
+    `SELECT e.id::text AS id, e.reference, e.type, to_char(e.survenu_le AT TIME ZONE 'Europe/Paris', 'DD/MM/YYYY') AS survenu, e.texte
        FROM gestion_monga_etape e
-      WHERE e.source = 'monga' AND e.type = 'commentaire' AND e.texte IS NOT NULL
+      WHERE e.source = 'monga' AND e.texte IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM gestion_monga_traduction t WHERE t.etape_id = e.id)
       ORDER BY e.survenu_le, e.id`);
-  return (rows as { id: string; reference: string | null; survenu: string; texte: string | null }[])
-    .map((r) => ({ id: Number(r.id), reference: r.reference, survenuLe: r.survenu, texte: r.texte }));
+  return (rows as { id: string; reference: string | null; type: string; survenu: string; texte: string | null }[])
+    .map((r) => ({ id: Number(r.id), reference: r.reference, type: r.type, survenuLe: r.survenu, texte: r.texte }));
 }
 
 // ── Le service RÉEL (Mistral AI, Union européenne) — hors des tests. ─────────────────────────────────────────────────────────────────
@@ -161,31 +164,31 @@ export function traducteurMistral(): Traducteur {
 }
 
 /**
- * ══ 🔴 LA REPRISE DES COMMENTAIRES DÉJÀ ENREGISTRÉS (script `gestion:monga-commentaires:traduire`, lancé à la main par Arno) ══════════
+ * ══ 🔴 LA REPRISE DES ÉTAPES DÉJÀ ENREGISTRÉES (commentaires et étapes reconnues) (script `gestion:monga-commentaires:traduire`, lancé à la main par Arno) ══════════
  *
  * `appliquer` faux (ESSAI) : liste ce qui SERAIT traduit — langue probable, date, référence, début du texte — sans appeler le service
  * et sans rien écrire (le script ouvre en plus sa session en lecture seule). `appliquer` vrai : traduit chacun, l'un après l'autre ;
  * un échec s'écrit « echec » et sera retenté par la relève.
  */
-export async function repriseDesCommentaires(o: {
+export async function repriseDesTextes(o: {
   appliquer: boolean; q: Requete; traducteur: Traducteur | null; dire: (ligne: string) => void;
 }): Promise<{ candidats: number; ignores: number; traduits: number; francais: number; echecs: number }> {
-  const tous = await commentairesSansTraduction(o.q);
+  const tous = await etapesSansTraduction(o.q);
   const candidats = tous.filter((c) => estATraduire(c.texte));
   const bilan = { candidats: candidats.length, ignores: tous.length - candidats.length, traduits: 0, francais: 0, echecs: 0 };
-  o.dire(`${tous.length} commentaire(s) Monga sans traduction ; ${candidats.length} à traduire (langue autre que le français), `
+  o.dire(`${tous.length} étape(s) Monga avec un texte et sans traduction ; ${candidats.length} à traduire (langue autre que le français), `
     + `${bilan.ignores} laissé(s) tel(s) quel(s) (français, ou langue inconnue).`);
   for (const c of candidats) {
     const debut = (c.texte ?? '').replace(/\s+/g, ' ').slice(0, 110);
     if (!o.appliquer || o.traducteur === null) {
-      o.dire(`  À TRADUIRE  étape ${c.id} · ${c.survenuLe} · ${c.reference ?? '—'} · langue probable : ${detecterLangue(c.texte)} · « ${debut} »`);
+      o.dire(`  À TRADUIRE  étape ${c.id} (${c.type}) · ${c.survenuLe} · ${c.reference ?? '—'} · langue probable : ${detecterLangue(c.texte)} · « ${debut} »`);
       continue;
     }
-    const issue = await traduireUnCommentaire(c.id, c.texte, o.traducteur, o.q);
+    const issue = await traduireUnTexte(c.id, c.texte, o.traducteur, o.q);
     if (issue === 'traduite') bilan.traduits += 1;
     else if (issue === 'francais') bilan.francais += 1;
     else if (issue === 'echec') bilan.echecs += 1;
-    o.dire(`  ${issue.toUpperCase().padEnd(10)} étape ${c.id} · ${c.survenuLe} · ${c.reference ?? '—'}`);
+    o.dire(`  ${issue.toUpperCase().padEnd(10)} étape ${c.id} (${c.type}) · ${c.survenuLe} · ${c.reference ?? '—'}`);
   }
   return bilan;
 }

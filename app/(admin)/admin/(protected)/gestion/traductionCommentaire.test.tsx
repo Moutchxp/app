@@ -99,3 +99,49 @@ describe('le panneau de correction montre le même texte traduit (même composan
     expect(frise).toContain('classe="fav-commentaire-texte" balise="span"');
   });
 });
+
+/**
+ * 🔴🔴 2e TEMPS (Arno, 10/11/2026) — le texte des ÉTAPES reconnues depuis un mail non français, même présentation, affichage seul.
+ * Un rendez-vous espagnol RÉEL, À VALIDER : la bulle du « i » le montre traduit ; le carré garde son mot, sa date, sa plage et ses ✓/✗.
+ */
+const RDV_ES = 'Hola, la intervención con nuestro artesano asociado ha sido fijada para el 11/11/2026 entre 17h00 y 19h00';
+const RDV_FR = 'Bonjour, l’intervention avec notre artisan partenaire a été fixée au 11/11/2026 entre 17h00 et 19h00';
+describe('🔴🔴 une étape reconnue (rendez-vous espagnol, à valider) : traduite dans sa bulle, l’étape inchangée', () => {
+  const rdv = (traduction: unknown) => etape(10, { type: 'rdv_intervention', texte: RDV_ES, certitude: 'a_confirmer', survenuLe: '2026-11-11 17:00:00',
+    heureFin: '19:00', traduction });
+  const carre = () => container.querySelector('li.fav-el--carre[data-carte="10"]') as HTMLElement;
+  const survolerI = async () => {
+    const i = carre().querySelector('.fav-picto-i') as HTMLButtonElement;
+    await act(async () => { i.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); i.focus(); });
+    return container.querySelector('.fav-commentaire') as HTMLElement;
+  };
+  it('la bulle du « i » : « Traduit automatiquement de l’espagnol », la traduction, « Voir l’original » qui rend l’original intact', async () => {
+    etapes = [rdv({ statut: 'traduite', langue: 'es', texte: RDV_FR })];
+    await monter();
+    const b = await survolerI();
+    expect(b.querySelector('.trad-titre')?.textContent).toBe('Traduit automatiquement de l’espagnol');
+    expect(b.querySelector('.fav-commentaire-texte')?.textContent).toBe(RDV_FR);
+    await act(async () => { (b.querySelector('.trad-lien') as HTMLButtonElement).click(); });
+    expect(b.querySelector('[data-original]')?.textContent).toBe(RDV_ES);
+  });
+  it('🔴 l’étape ne change pas : même carré (mot, date, plage, ✓/✗, encadré à valider) avec ou sans traduction', async () => {
+    etapes = [rdv(null)];
+    await monter();
+    const sans = carre().cloneNode(true) as HTMLElement;
+    act(() => root.unmount()); root = createRoot(container);
+    etapes = [rdv({ statut: 'traduite', langue: 'es', texte: RDV_FR })];
+    await monter();
+    const avec = carre();
+    expect(avec.outerHTML).toBe(sans.outerHTML);
+    expect(avec.querySelector('[data-valider-etape]')).not.toBeNull();
+    expect(avec.querySelector('[data-refuser-etape]')).not.toBeNull();
+    expect(avec.textContent).toContain('11/11/2026');
+  });
+  it('un contact injoignable espagnol (point) : même présentation dans sa bulle', async () => {
+    etapes = [etape(11, { type: 'contact_injoignable', certitude: 'a_confirmer', texte: ORIGINAL_ES, traduction: { statut: 'traduite', langue: 'es', texte: TRADUIT } })];
+    await monter();
+    const b = await ouvrir(11);
+    expect(b.querySelector('.trad-titre')?.textContent).toBe('Traduit automatiquement de l’espagnol');
+    expect(b.querySelector('.fav-bulle-texte')?.textContent).toBe(TRADUIT);
+  });
+});

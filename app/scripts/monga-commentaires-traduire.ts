@@ -1,11 +1,13 @@
 /**
- * ══ 🔴🔴 LOT GESTION-TRADUCTION (Arno, 10/11/2026) — TRADUIRE LES COMMENTAIRES MONGA DÉJÀ ENREGISTRÉS ══════════════════════════════════
+ * ══ 🔴🔴 LOT GESTION-TRADUCTION (Arno, 10/11/2026) — TRADUIRE LE TEXTE DES ÉTAPES MONGA DÉJÀ ENREGISTRÉES ════════════════════════════════
  *
- * Les commentaires arrivés APRÈS la mise à jour sont traduits par la relève. Ceux d'avant ne le sont QUE par ce script, lancé à la main.
+ * Le texte des étapes Monga — commentaires ET étapes reconnues (rendez-vous, contact injoignable, ouverture…) — écrit dans une autre langue.
+ * Celles arrivées APRÈS la mise à jour sont traduites par la relève. Celles d'avant ne le sont QUE par ce script, lancé à la main.
+ * Affichage seul : le type, la date et la validation d'une étape ne changent jamais.
  *
  *   · ESSAI (défaut) : liste ce qui serait traduit (langue probable, date, référence, début du texte). Session en LECTURE SEULE, AUCUN
  *     appel au service, rien n'est écrit.
- *   · --appliquer : traduit chacun avec Mistral AI (Union européenne, `MISTRAL_API_KEY`), en n'envoyant QUE le texte du commentaire, et
+ *   · --appliquer : traduit chacun avec Mistral AI (Union européenne, `MISTRAL_API_KEY`), en n'envoyant QUE le texte de l'étape, et
  *     range la traduction dans `gestion_monga_traduction` (migration 463). Le texte d'origine n'est jamais modifié ; aucune étape n'est
  *     créée, modifiée ni validée. Un échec s'écrit « echec » : l'écran dit « Traduction indisponible », la relève retentera plus tard.
  *
@@ -16,7 +18,7 @@
 import '../lib/chargerEnv';
 import { writeFileSync } from 'node:fs';
 import { pool, closePool } from '../lib/db/client';
-import { repriseDesCommentaires, traducteurMistral } from '../lib/gestion/traductionCommentaireRepo';
+import { repriseDesTextes, traducteurMistral } from '../lib/gestion/traductionCommentaireRepo';
 import { cheminRapport } from '../lib/ops/rapportScript';
 
 const NOM = 'monga-commentaires-traduire';
@@ -30,7 +32,7 @@ async function main(): Promise<void> {
   const appliquer = process.argv.includes('--appliquer');
   const lignes: string[] = [];
   const dire = (t = '') => { lignes.push(t); console.log(t); };
-  dire(`══ Traduction des commentaires Monga — ${appliquer ? 'APPLIQUER (service Mistral AI, UE)' : 'ESSAI (rien n’est écrit, rien n’est envoyé)'}`);
+  dire(`══ Traduction des textes des étapes Monga — ${appliquer ? 'APPLIQUER (service Mistral AI, UE)' : 'ESSAI (rien n’est écrit, rien n’est envoyé)'}`);
 
   const client = await pool.connect();
   try {
@@ -44,10 +46,10 @@ async function main(): Promise<void> {
       await q('BEGIN');
       await q('SET TRANSACTION READ ONLY');
     }
-    const bilan = await repriseDesCommentaires({ appliquer, q, traducteur: appliquer ? traducteurMistral() : null, dire });
+    const bilan = await repriseDesTextes({ appliquer, q, traducteur: appliquer ? traducteurMistral() : null, dire });
     if (!appliquer) {
       await q('ROLLBACK');
-      dire(`Essai : ${bilan.candidats} commentaire(s) seraient traduits. Rien n’a été écrit ni envoyé. Relancer avec --appliquer.`);
+      dire(`Essai : ${bilan.candidats} texte(s) d’étape seraient traduits. Rien n’a été écrit ni envoyé. Relancer avec --appliquer.`);
     } else {
       dire(`✓ ${bilan.traduits} traduit(s), ${bilan.francais} reconnu(s) français par le service, ${bilan.echecs} échec(s) (retentés par la relève).`);
     }
