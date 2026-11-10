@@ -270,3 +270,34 @@ describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirm
     expect(posts.at(-1)).toMatchObject({ action: 'programmer-previsite', retouches: { previsite_locataires: { conclusion: 'Le gardien vous ouvrira.' } } });
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » s’ouvre VISIBLE sous la confirmation ET sous la modification aux locataires', () => {
+  for (const [geste, sorte, bouton] of [['rdv', 'previsite_locataires', '[data-rdv-previsite]'], ['deplacer', 'previsite_locataires_modif', '[data-deplacer-previsite]']] as const) {
+    it(`${geste} : clic réel → éditeur dans le récapitulatif, juste sous le bouton, défilement, « Fermer l’éditeur »`, async () => {
+      const defile: Element[] = [];
+      Element.prototype.scrollIntoView = function (this: Element) { defile.push(this); } as never;
+      const { mailRdvLocataire } = await import('../../../../lib/location/previsite');
+      reponsePost = (c) => {
+        if (!String(c.action).startsWith('apercu')) return { rdv: RDV, ancien: null, collegues: [], locataires: [], sansEmail: [] };
+        const m = mailRdvLocataire({ sorte, de: 'gestion@exemple.test', objet: 'Rendez-vous de pré-visite', adresse: '4 rue Fictive', rdv: RDV,
+          ancien: sorte === 'previsite_locataires' ? null : { jour: '2026-11-12', heure: '10:00', dureeMinutes: 60 },
+          locataire: { nom: 'RECU', prenom: 'Carla', emails: ['carla@exemple.test'] }, qui: { email: 'arno@exemple.test' }, signature: { html: '', texte: '' } })!;
+        return { mails: [{ sorte: m.sorte, objet: m.objet, a: m.a, cc: [], texte: m.texte, edition: m.edition }], sansEmail: [] };
+      };
+      await rendre();
+      await clic(container.querySelector(`[data-ouvrir-preavis="${geste === 'rdv' ? 'C' : 'B'}"]`));
+      await clic(container.querySelector(bouton));
+      if (geste === 'rdv') { saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20'); saisir(document.querySelector('[data-previsite-debut]'), '10:00'); }
+      else saisir(document.querySelector('[data-previsite-jour]'), '2026-11-25');
+      await clic(document.querySelector('[data-recap-previsite]'));
+      const f = fenetre()!;
+      const b = f.querySelector(`[data-modifier-texte="${sorte}"]`) as HTMLButtonElement;
+      await clic(b);
+      const editeur = f.querySelector(`[data-editeur-texte="${sorte}"]`);
+      expect(editeur).not.toBeNull();
+      expect(editeur!.closest('[data-texte-modifiable]')).toBe(b.closest('[data-texte-modifiable]'));
+      expect(defile).toContain(editeur);
+      expect(b.textContent).toBe('Fermer l’éditeur');
+    });
+  }
+});

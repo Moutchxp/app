@@ -448,3 +448,64 @@ describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » : parties modif
     expect(posts.at(-1)!.corps).toMatchObject({ action: 'enregistrer-preavis', envoyerMails: true, retouches: { preavis_locataires: { conclusion: 'Merci de votre confiance.' } } });
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » s’ouvre VISIBLE sous chaque mail du préavis et de la sortie', () => {
+  let defile: Element[] = [];
+  beforeEach(async () => {
+    defile = [];
+    Element.prototype.scrollIntoView = function (this: Element) { defile.push(this); } as never;
+    const { mailsDuPreavis, mailsSortieLocataires, mailAdhocSortie } = await import('../../../../lib/location/mailsPreavisSortie');
+    const valideur = { nom: 'Moi', email: 'moi@exemple.test', prenom: 'Arno', nomFamille: 'Test' };
+    const locs = [{ occupationId: 11, nom: 'BERNARD Alice', prenom: null, emails: ['alice@exemple.test'] }, { occupationId: 12, nom: 'BERNARD Paul', prenom: null, emails: ['paul@exemple.test'] }];
+    const precedent = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (corps.action === 'apercu-preavis') {
+          return ok({ mails: mailsDuPreavis({ adresse: '4 rue Fictive', proprietaire: 'DUPONT', enGestion: true, partenaires: ['gestion.criterimmo@gmail.com'], locataires: locs,
+            recuLe: HIER, choix: { mode: 'mois', duree: 1 }, expediteur: 'gestion@criterimmo.fr', copropriete: null, valideur, signature: { html: '', texte: '' } }).mails,
+          sansEmail: [], enGestion: true, dateFin: '2099-01-01', envoiPossible: true });
+        }
+        if (corps.action === 'apercu-sortie') {
+          const departs = mailsSortieLocataires({ adresse: '4 rue Fictive', locataires: locs, dateSortie: HIER, copropriete: null, expediteur: 'gestion@criterimmo.fr', valideur, signature: { html: '', texte: '' } });
+          const adhoc = mailAdhocSortie({ adresse: '4 rue Fictive', lotId: 7, type: 'Appartement', etage: '3', porte: 'G', annexes: [], proprietaire: 'DUPONT', vacant: true, restants: [],
+            sortants: [{ nom: 'BERNARD Alice', entree: null, sortie: HIER }], auteur: valideur, quand: '2026-11-10T10:00:00Z', enGestion: true, expediteur: 'gestion@criterimmo.fr',
+            signature: { html: '', texte: '' }, partenaires: ['gestion.criterimmo@gmail.com'], depart: departs[0] })!;
+          return ok({ enGestion: true, mails: [...departs, adhoc] });
+        }
+      }
+      return precedent(u, init);
+    }) as unknown as typeof fetch;
+  });
+  /** Clic réel sur le bouton d'un mail : l'éditeur est DANS la fenêtre du récapitulatif, juste sous ce bouton, la page défile jusqu'à lui. */
+  const ouvrirVisible = async (cle: string) => {
+    const f = fenetre()!;
+    const bouton = f.querySelector(`[data-mail-prevu] [data-modifier-texte="${cle}"]`) as HTMLButtonElement;
+    expect(bouton.textContent).toBe('Modifier le texte');
+    await clic(bouton);
+    const editeur = f.querySelector(`[data-editeur-texte="${cle}"]`);
+    expect(editeur, cle).not.toBeNull();
+    expect(editeur!.closest('[data-texte-modifiable]')).toBe(bouton.closest('[data-texte-modifiable]'));
+    expect(editeur!.closest('.mis-voile')).toBe(f.closest('.mis-voile'));   // la même couche que le récapitulatif, aucune autre
+    expect(defile).toContain(editeur);
+    expect(bouton.textContent).toBe('Fermer l’éditeur');
+    await clic(bouton);
+    expect(f.querySelector(`[data-editeur-texte="${cle}"]`)).toBeNull();
+  };
+  it('préavis : l’accusé de réception et le mail aux partenaires', async () => {
+    await ecran();
+    await preparerPreavis([11, 12]);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    await ouvrirVisible('preavis_locataires');
+    await ouvrirVisible('preavis_adhoc');
+  });
+  it('sortie : le mail de départ et le mail aux partenaires', async () => {
+    await ecran();
+    for (const o of [11, 12]) await clic(container.querySelector(`[data-locataire="${o}"]`));
+    await clic(container.querySelector('[data-faire-sortir]'));
+    await saisir('[data-date-sortie]', HIER);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    await ouvrirVisible('sortie_locataires');
+    await ouvrirVisible('sortie_adhoc');
+  });
+});

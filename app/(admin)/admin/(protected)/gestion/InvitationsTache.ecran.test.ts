@@ -293,3 +293,56 @@ describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » du mail reçu p
     expect(posts.at(-1)).toMatchObject({ url: '/api/admin/gestion/taches', corps: { retouchesExterieurs: { tache_exterieur_invitation: { conclusion: 'Sonnez au 12.' } } } });
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » d’un mail extérieur s’ouvre VISIBLE (invitation, modification, annulation)', () => {
+  const AUJ = jourParisDe(new Date());
+  const tache: Tache = {
+    id: 9, lotId: 10, lotCle: '315', adresseBien: '7 avenue de l’Union', evenement: null, objet: 'Visite', note: null, jour: ajouterJours(AUJ, 3), heure: '10:00', rappels: [],
+    etat: 'a_faire', confieeA: 2, confieeALibelle: 'Claire Test', creeLe: '', creeParLibelle: '', majLe: '2026-11-01T08:00:00Z', faiteLe: null, faiteParLibelle: null,
+    annuleeLe: null, annuleeParLibelle: null, nbContacts: 0, contacts: [], pieces: [], invites: [],
+  };
+  let defile: Element[] = [];
+  const preparer = async (sorte: 'invitation' | 'modification' | 'annulation') => {
+    defile = [];
+    Element.prototype.scrollIntoView = function (this: Element) { defile.push(this); } as never;
+    const { editionMailExterne } = await import('../../../../lib/gestion/mailTacheExterne');
+    APERCU_SUIVANT = { etat: 'ok', total: 1, collaborateurs: [], texteCollaborateur: null, texteExterieur: 'Bonjour,',
+      exterieurs: [{ nom: 'M. DUPONT Jean', email: 'jean@exemple.test', sorte, mail: true, motif: null }],
+      editions: [editionMailExterne({ sorte, titre: 'Visite', jour: '2026-11-20', heure: '10:00', dureeMinutes: 60, adresse: null, notes: null,
+        ancien: sorte === 'modification' ? { jour: '2026-11-19', heure: '10:00', dureeMinutes: 60 } : null, signature: { texte: '', html: '' } })] };
+  };
+  const verifier = async (cle: string) => {
+    const f = document.querySelector('[data-fenetre-envois="recap"]')!;
+    const b = f.querySelector(`[data-modifier-texte="${cle}"]`) as HTMLButtonElement;
+    expect(b.textContent).toBe('Modifier le texte');
+    await clic(b);
+    const editeur = f.querySelector(`[data-editeur-texte="${cle}"]`);
+    expect(editeur).not.toBeNull();                                              // dans la fenêtre du récapitulatif
+    expect(editeur!.closest('[data-texte-modifiable]')).toBe(b.closest('[data-texte-modifiable]'));
+    expect(editeur!.closest('.mis-voile')).toBe(f.closest('.mis-voile'));
+    expect(defile).toContain(editeur);
+    expect(b.textContent).toBe('Fermer l’éditeur');
+  };
+  it('invitation (création d’une tâche)', async () => {
+    await preparer('invitation');
+    await creer();
+    await clic(caseDe('DUPONT'));
+    await clic(invitation('proprietaire:12'));
+    await clic(bouton('Créer la tâche'));
+    await verifier('tache_exterieur_invitation');
+  });
+  it('modification (décaler)', async () => {
+    await preparer('modification');
+    await act(async () => { root.render(createElement('ul', null, createElement(LigneTache, { tache, maintenant: new Date(), deplie: true, onDetail: () => {}, onBasculer: () => {} }))); }); await calmer();
+    await clic([...container.querySelectorAll('button')].find((b) => /Décaler/.test(b.textContent ?? '')) ?? null);
+    await clic(container.querySelector('.tch-decaler button'));
+    await verifier('tache_exterieur_modification');
+  });
+  it('annulation', async () => {
+    await preparer('annulation');
+    await act(async () => { root.render(createElement('ul', null, createElement(LigneTache, { tache, maintenant: new Date(), deplie: true, onDetail: () => {}, onBasculer: () => {} }))); }); await calmer();
+    await clic(container.querySelector('[data-action="annuler"]'));
+    await clic(container.querySelector('[data-action="annuler-oui"]'));
+    await verifier('tache_exterieur_annulation');
+  });
+});
