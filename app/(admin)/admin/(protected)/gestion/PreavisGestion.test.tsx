@@ -53,8 +53,11 @@ const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ eta
 let racines: { c: HTMLDivElement; r: Root }[] = [];
 let lignes: LignePreavisAccueil[];
 let lecturesPreavis = 0;
+let lecturesGestion = 0;
+let postsLocation: Record<string, unknown>[] = [];
+let lecturesLocation = 0;
 beforeEach(() => {
-  racines = []; lecturesPreavis = 0;
+  racines = []; lecturesPreavis = 0; lecturesGestion = 0; postsLocation = []; lecturesLocation = 0;
   try { window.localStorage.clear(); } catch { /* sans stockage */ }
   lignes = [
     ligne('A', 21, 'ALERTE Alice', '1 rue Alpha, Paris', '2026-09-01', '2026-12-01', pv({ statut: 'alerte' }), '2026-12-02'),
@@ -65,6 +68,7 @@ beforeEach(() => {
     const s = decodeURIComponent(String(u));
     if (init?.method === 'POST' && s.startsWith('/api/admin/location')) {
       const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+      postsLocation.push(corps);
       if (corps.action === 'apercu-refus-previsite') return ok({ mails: [{ sorte: 'previsite_refus', objet: 'x', a: ['c@exemple.test'], cc: [], texte: String(corps.texte) }], sansEmail: [] });
       if (corps.action === 'refus-previsite') {
         // La « base » change : la ligne C passe en refusée (un seul serveur pour la Location et la Gestion).
@@ -73,6 +77,10 @@ beforeEach(() => {
       }
       return ok({});
     }
+    // 🔴 Option A — la Gestion lit par SA route de lecture ; la Location par la sienne : une seule « base » derrière.
+    if (s.includes('/api/admin/gestion/preavis?preavisEnCours=1')) { lecturesPreavis += 1; lecturesGestion += 1; return ok({ disponible: true, etatDesLieux: true, planification: true, previsite: true, lignes }); }
+    if (s.includes('/api/admin/gestion/preavis?encartBail=')) return ok(ENCART);
+    if (s.startsWith('/api/admin/location')) lecturesLocation += 1;
     if (s.includes('/api/admin/location?preavisEnCours=1')) { lecturesPreavis += 1; return ok({ disponible: true, etatDesLieux: true, planification: true, previsite: true, lignes }); }
     if (s.includes('/api/admin/location?encartBail=')) return ok(ENCART);
     if (s.includes('/api/admin/location?previsiteRefus=')) return ok({ texte: 'Bonjour,\n\nMalgré nos recommandations…', objet: 'Pré-visite d’état des lieux de sortie', sansEmail: [] });
@@ -137,10 +145,51 @@ describe('🔴 1 — sous les Tâches de la Gestion : LE bloc de la Location, la
     await act(async () => { vi.advanceTimersByTime(INTERVALLE_PREAVIS_MS); }); await calmer();
     expect(lecturesPreavis).toBeGreaterThan(apres);
   });
-  it('sans le droit « Location » : ni bloc, ni lecture des préavis (choix provisoire soumis à Arno)', async () => {
+});
+
+describe('🔴 Option A — compte Gestion SANS le droit « Location » : lecture OK, boutons visibles mais inactifs, aucune écriture', () => {
+  it('le bloc, la pastille et la pleine page sont lus par la route de la Gestion (jamais par celle de la Location)', async () => {
     const c = await gestion('?ecran=partage', false);
-    expect(c.querySelector('[data-bloc-preavis-gestion]')).toBeNull();
-    expect(lecturesPreavis).toBe(0);
+    expect(c.querySelector('[data-bloc-preavis-gestion] [data-bloc-preavis]')?.getAttribute('data-ecriture')).toBe('non');
+    expect(c.querySelector('[data-bloc-preavis-gestion] [data-filtre-previsite="alerte"]')?.textContent).toBe('Alerte préavis 2');
+    expect(lecturesGestion).toBeGreaterThan(0);
+    expect(lecturesLocation).toBe(0);
+    const m = await gestion('', false);
+    expect(m.querySelector('[data-pastille-preavis]')?.textContent).toBe('2');
+    await clic(m.querySelector('[data-raccourci="preavis"]'));
+    expect(m.querySelector('.pe-preavis [data-bloc-preavis]')?.getAttribute('data-ecriture')).toBe('non');
+    expect(lecturesLocation).toBe(0);
+  });
+  it('dépliée : chaque bouton qui écrit est visible, INACTIF, avec « Réservé aux comptes Location » ; un clic n’ouvre rien et n’envoie rien', async () => {
+    const c = await gestion('?ecran=partage', false);
+    await clic(c.querySelector('[data-bloc-preavis-gestion] [data-ouvrir-preavis="B"]'));
+    const ligneB = c.querySelector('[data-bloc-preavis-gestion] [data-ligne-depliee="B"]')!;
+    for (const sel of ['[data-deplacer-previsite]', '[data-refus-previsite]', '[data-planifier-edls]', '[data-valider-sortie]']) {
+      const b = ligneB.querySelector(sel) as HTMLButtonElement | null;
+      expect(b, sel).not.toBeNull();
+      expect(b!.disabled, sel).toBe(true);
+      expect(b!.title, sel).toBe('Réservé aux comptes Location');
+      await clic(b);
+    }
+    expect([...ligneB.querySelectorAll('[data-reserve-location]')].map((x) => x.textContent)).toContain('Réservé aux comptes Location');
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    expect(ligneB.querySelector('[data-formulaire-edls]')).toBeNull();
+    await clic(c.querySelector('[data-bloc-preavis-gestion] [data-ouvrir-preavis="C"]'));
+    const ligneC = c.querySelector('[data-bloc-preavis-gestion] [data-ligne-depliee="C"]')!;
+    const rdv = ligneC.querySelector('[data-rdv-previsite]') as HTMLButtonElement;
+    expect(rdv.disabled).toBe(true);
+    await clic(rdv);
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    expect(postsLocation).toEqual([]);
+    // l'encart du logement est lu, lui aussi, par la route de la Gestion
+    expect(lecturesLocation).toBe(0);
+  });
+  it('avec le droit « Location » : les mêmes boutons sont actifs, sans la mention', async () => {
+    const c = await gestion('?ecran=partage', true);
+    await clic(c.querySelector('[data-bloc-preavis-gestion] [data-ouvrir-preavis="C"]'));
+    const ligneC = c.querySelector('[data-bloc-preavis-gestion] [data-ligne-depliee="C"]')!;
+    expect((ligneC.querySelector('[data-rdv-previsite]') as HTMLButtonElement).disabled).toBe(false);
+    expect(ligneC.querySelector('[data-reserve-location]')).toBeNull();
   });
 });
 

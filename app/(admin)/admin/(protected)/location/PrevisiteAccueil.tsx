@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
+import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
 import { CSS_PARCOURS, TexteDuMail } from './ParcoursPreavisSortie';
@@ -62,12 +63,20 @@ interface Collegue { id: number; libelle: string }
 type Geste = 'rdv' | 'deplacer' | 'reaffecter' | 'compte_rendu' | 'refus';
 const LIBELLE_REPONSE: Record<string, string> = { en_attente: 'en attente', acceptee: 'acceptée', refusee: 'refusée' };
 
+/** 🔴 Arno (10/11/2026, option A) — sous des boutons inactifs (compte sans le droit « Location ») : la mention, avec le mot. */
+export function MentionReserveLocation() {
+  return <p className="pvv-reserve" role="note" data-reserve-location>{MENTION_RESERVE_LOCATION}</p>;
+}
+
 /** Le bloc « Pré-visite » de la ligne dépliée. */
 export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () => void }) {
   const p = l.previsite ?? null;
   const [geste, setGeste] = useState<Geste | null>(null);
   if (p === null) return null;
   const programmee = p.statut === 'programmee' && p.rdv !== null;
+  // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : les boutons restent visibles, INACTIFS, avec la mention.
+  const { ecriture } = useContextePreavis();
+  const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
   return (
     <div className="pva-bloc" data-bloc-previsite data-statut-previsite={p.statut}>
       <p className="pvs-libelle" style={{ margin: 0 }}>Pré-visite d’état des lieux de sortie</p>
@@ -82,15 +91,16 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
         </ul>
       )}
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-        {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setGeste('rdv')} data-rdv-previsite>RDV pré-visite</button>}
-        {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setGeste('deplacer')} data-deplacer-previsite>Déplacer la pré-visite</button>}
-        {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
+        {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>RDV pré-visite</button>}
+        {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Déplacer la pré-visite</button>}
+        {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
         {p.rdv !== null && p.rdvPasse && p.statut === 'programmee' && (
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setGeste('compte_rendu')} data-compte-rendu-previsite>Compte rendu pré-visite</button>)}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('compte_rendu')} data-compte-rendu-previsite>Compte rendu pré-visite</button>)}
         {p.statut !== 'effectuee' && p.statut !== 'refusee' && (
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
       </div>
-      {geste !== null && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
+      {!ecriture && <MentionReserveLocation />}
+      {geste !== null && ecriture && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
     </div>
   );
 }
@@ -302,4 +312,5 @@ export const CSS_PREVISITE = `
 .pvv-case{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}
 .pvv-case input{width:20px;height:20px}
 .pss-boite textarea{width:100%;box-sizing:border-box;font:inherit}
+.pvv-reserve{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-muted)}
 `;

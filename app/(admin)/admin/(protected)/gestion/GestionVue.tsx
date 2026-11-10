@@ -32,7 +32,7 @@ import { TableauBordEvenements } from './TableauBordEvenements';
 /* 🔴🔴 LOT TACHES-1 — le récapitulatif général des tâches, tout en bas de l'écran partagé. */
 import { TableauTaches } from './TableauTaches';
 import { BlocPreavisAccueil } from '../location/PreavisAccueil';
-import { usePreavisEnAlerte } from '../location/preavisSynchro';
+import { API_PREAVIS_GESTION, usePreavisEnAlerte } from '../location/preavisSynchro';
 /* 🔴 LOT GESTION-TACHES-PAGE — la pastille du raccourci « Tâches » : les tâches d'aujourd'hui, ni faites ni annulées. */
 import { ecouterTaches, lireTaches } from './tachesClient';
 import { compterTachesDuJour, type Tache } from '../../../../lib/gestion/taches';
@@ -133,9 +133,9 @@ export function GestionVue({ intro, location = false }: {
    */
   intro?: string;
   /**
-   * 🔴 Arno (10/11/2026) — le compte a-t-il le droit « Location » (un administrateur a tout) ? Le bloc « Locataires en préavis », l'entrée
-   * « Préavis » du menu et sa pleine page lisent la donnée de la Location, par la route de la Location (droit relu en base) : sans ce droit,
-   * ils ne sont pas rendus (choix provisoire, soumis à Arno).
+   * 🔴 Arno (10/11/2026, option A) — le compte a-t-il le droit « Location » (un administrateur a tout) ? Le bloc « Locataires en préavis »,
+   * l'entrée « Préavis » du menu et sa pleine page sont rendus pour TOUT compte Gestion, lus par la route de lecture de la Gestion ; sans ce
+   * droit, les boutons qui écrivent restent visibles, INACTIFS, avec « Réservé aux comptes Location ».
    */
   location?: boolean;
 }) {
@@ -669,7 +669,7 @@ export function GestionVue({ intro, location = false }: {
   }, []);
   const tachesDuJour = compterTachesDuJour(tachesLues, minute);
   // 🔴 Arno (10/11/2026) — la pastille « Préavis » du menu : les préavis EN ALERTE, relus comme le bloc (30 s, retour sur l'onglet, après un geste).
-  const preavisEnAlerte = usePreavisEnAlerte(location);
+  const preavisEnAlerte = usePreavisEnAlerte(true, API_PREAVIS_GESTION);
 
   useEffect(() => {
     // 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'affiche plus l'état de la relève : pas de battement ici. Il
@@ -1480,8 +1480,7 @@ export function GestionVue({ intro, location = false }: {
            (et que celui sous les Tâches), avec tous ses tris, ses filtres et la recherche. */
         <div className="pe pe-preavis">
           <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button></p>
-          {location ? <BlocPreavisAccueil gestion plein />
-            : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Les préavis sont ceux de la Location : ils demandent aussi le droit « Location ».</div>}
+          <BlocPreavisAccueil gestion plein lecture="gestion" ecriture={location} />
         </div>
       ) : ecran === 'syndics' ? (
         /* 🔴🔴 LOT ANNUAIRE-SYNDICS — L'ÉCRAN « SYNDICS ». Le composant ne sait rien de cet écran : il reçoit son
@@ -1659,7 +1658,7 @@ export function GestionVue({ intro, location = false }: {
           onTaches={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }}
           tachesDuJour={tachesDuJour}
           /* 🔴 Arno (10/11/2026) — « Préavis », entre « Tâches » et « Syndics » ; sa pastille : les préavis en alerte. */
-          onPreavis={location ? () => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); } : undefined}
+          onPreavis={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); }}
           preavisEnAlerte={preavisEnAlerte}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
@@ -1939,11 +1938,10 @@ export function GestionVue({ intro, location = false }: {
           : undefined} />
       {/* 🔴🔴 Arno (10/11/2026) — SOUS LES TÂCHES : le bloc « Locataires en préavis » de la Location — le MÊME composant, la MÊME donnée
           (une action d'un côté se voit de l'autre), avec « Ouvrir en pleine page ». Rien n'est déplacé : il s'ajoute en dessous. */}
-      {location && (
-        <div className="gst-preavis" data-bloc-preavis-gestion>
-          <BlocPreavisAccueil gestion pleinePage={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); }} />
-        </div>
-      )}
+      <div className="gst-preavis" data-bloc-preavis-gestion>
+        <BlocPreavisAccueil gestion lecture="gestion" ecriture={location}
+          pleinePage={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); }} />
+      </div>
       </>
       )}
     </>

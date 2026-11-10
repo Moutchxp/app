@@ -17,8 +17,11 @@ export const API = '/api/admin/location';
 
 export type Chargement<T> = { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; data: T };
 
-/** Lit `/api/admin/location?…` et rend l'état de chargement. `rafraichir` relit sans recharger la page. */
-export function useLecture<T>(parametres: string | null): { etat: Chargement<T>; rafraichir: () => void } {
+/**
+ * Lit `/api/admin/location?…` et rend l'état de chargement. `rafraichir` relit sans recharger la page.
+ * 🔴 Arno (10/11/2026) — `base` : une autre route de LECTURE (les préavis lus côté Gestion) ; absente : la route de la Location, comme avant.
+ */
+export function useLecture<T>(parametres: string | null, base: string = API): { etat: Chargement<T>; rafraichir: () => void } {
   /**
    * 🔴🔴 CORRECTIF DU 17/10/2026 (plantage de l'accueil sur les vraies données de recette) — LA RÉPONSE EST LIÉE À LA
    * DEMANDE QUI L'A PRODUITE. Avant, changer d'onglet rendait UNE fois l'écran avec les lignes de l'onglet précédent
@@ -35,8 +38,8 @@ export function useLecture<T>(parametres: string | null): { etat: Chargement<T>;
     const poser = (etat: Chargement<T>): void => { if (vivant) setLu({ cle: parametres, etat }); };
     void (async () => {
       try {
-        const res = await fetch(`${API}?${parametres}`, { cache: 'no-store' });
-        if (res.status === 403) { poser({ etat: 'erreur', message: 'Accès refusé : droit « Location » requis.' }); return; }
+        const res = await fetch(`${base}?${parametres}`, { cache: 'no-store' });
+        if (res.status === 403) { poser({ etat: 'erreur', message: base === API ? 'Accès refusé : droit « Location » requis.' : 'Accès refusé.' }); return; }
         const d = await res.json() as { etat?: string; data?: T; message?: string };
         if (d.etat === 'ok' && d.data !== undefined) poser({ etat: 'ok', data: d.data });
         else if (d.etat === 'inconnu') poser({ etat: 'erreur', message: 'Cette fiche n’existe plus.' });
@@ -47,7 +50,7 @@ export function useLecture<T>(parametres: string | null): { etat: Chargement<T>;
       }
     })();
     return () => { vivant = false; };
-  }, [parametres, n]);
+  }, [parametres, n, base]);
   const etat: Chargement<T> = lu !== null && parametres !== null && lu.cle === parametres ? lu.etat : { etat: 'charge' };
   return { etat, rafraichir: useCallback(() => setN((x) => x + 1), []) };
 }

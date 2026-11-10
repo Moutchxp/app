@@ -16,8 +16,8 @@ import {
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
 import type { StatutPrevisite } from '../../../../lib/location/previsite';
-import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, PastillesPrevisite } from './PrevisiteAccueil';
-import { signalerPreavis, useRafraichissementPreavis } from './preavisSynchro';
+import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, MentionReserveLocation, PastillesPrevisite } from './PrevisiteAccueil';
+import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 
 /**
@@ -63,11 +63,18 @@ interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: 
  * pré-visite, état des lieux, statut), la recherche par nom ou adresse ; le tri choisi est conservé. `pleinePage` : le lien « Ouvrir en
  * pleine page » (une adresse, ou un geste de l'écran qui l'accueille).
  */
-export function BlocPreavisAccueil({ gestion, plein = false, pleinePage }: {
+export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture = 'location', ecriture = true }: {
   gestion: boolean; plein?: boolean; pleinePage?: string | (() => void);
+  /**
+   * 🔴 Arno (10/11/2026, option A) — `gestion` : lu par la route de LECTURE de la Gestion (tout compte Gestion) ; `ecriture` : le compte a
+   * le droit « Location » — sinon les boutons qui écrivent restent visibles, INACTIFS, avec « Réservé aux comptes Location ».
+   */
+  lecture?: 'location' | 'gestion'; ecriture?: boolean;
 }) {
+  const base = lecture === 'gestion' ? API_PREAVIS_GESTION : API_PREAVIS_LOCATION;
+  const contexte = useMemo(() => ({ base, ecriture }), [base, ecriture]);
   const [version, setVersion] = useState(0);
-  const lu = useLecture<Donnees>(`preavisEnCours=1&v=${version}`);
+  const lu = useLecture<Donnees>(`preavisEnCours=1&v=${version}`, base);
   // Relecture DOUCE (mêmes paramètres : l'affichage reste en place, une ligne dépliée et une fenêtre ouverte aussi).
   const relireRef = useRef(lu.rafraichir);
   relireRef.current = lu.rafraichir;
@@ -114,7 +121,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage }: {
       data-tri={`${t.cle}:${t.sens}`} onClick={() => choisirTri(t)}>{libelle}</button>
   );
   return (
-    <section className="pva" aria-label="Locataires en préavis" data-bloc-preavis>
+    <ContextePreavis.Provider value={contexte}>
+    <section className="pva" aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>
       {/* Les styles de la Location viennent AVEC le bloc : il s'affiche à l'identique sous les Tâches de la Gestion et en pleine page. */}
       <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE}</style>
       <div className="pva-entete">
@@ -210,6 +218,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage }: {
         </>
       )}
     </section>
+    </ContextePreavis.Provider>
   );
 }
 
@@ -221,6 +230,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
   const [refusEdl, setRefusEdl] = useState<string | null>(null);
   const [envoiEdl, setEnvoiEdl] = useState(false);
   const [sortie, setSortie] = useState(false);
+  // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : visibles, inactifs, « Réservé aux comptes Location ».
+  const { ecriture } = useContextePreavis();
   const verdict = verifierEtatDesLieux(edl, [{ recuLe: l.recuLe, dateMax: l.dateMax }]);
   const enregistrerEdl = async (date: string): Promise<void> => {
     setEnvoiEdl(true); setRefusEdl(null);
@@ -240,30 +251,33 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
       <div className="pva-bloc" data-bloc-edl>
         <label className="pvs-champ">
           <span className="pvs-libelle">Date d’état des lieux de sortie prévue</span>
-          <input type="date" value={edl} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} disabled={!edlDisponible}
+          <input type="date" value={edl} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} disabled={!edlDisponible || !ecriture}
             onChange={(e) => { setEdl(e.target.value); setRefusEdl(null); }} data-date-edl />
         </label>
         {!edlDisponible && <p className="loc-muet">La mise à jour de la base (migration 384) reste à appliquer.</p>}
         {edlDisponible && !verdict.ok && <p className="cp-refus" role="status" data-message-edl>{verdict.motif}</p>}
         {refusEdl !== null && <p className="cp-refus" role="alert">{refusEdl}</p>}
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!edlDisponible || envoiEdl || !verdict.ok || edl === '' || edl === (l.etatDesLieuxLe ?? '')}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!ecriture || !edlDisponible || envoiEdl || !verdict.ok || edl === '' || edl === (l.etatDesLieuxLe ?? '')}
             onClick={() => { void enregistrerEdl(edl); }} data-enregistrer-edl>Enregistrer la date</button>
           {l.etatDesLieuxLe !== null && (
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoiEdl} onClick={() => { void enregistrerEdl(''); }} data-effacer-edl>Effacer la date</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoiEdl || !ecriture} onClick={() => { void enregistrerEdl(''); }} data-effacer-edl>Effacer la date</button>
           )}
         </div>
+        {!ecriture && <MentionReserveLocation />}
         <p className="loc-muet" data-planification-indisponible>Planifier l’état des lieux (tâche, rendez-vous) : la mise à jour de la base (migration 385) reste à appliquer.</p>
       </div>
       )}
       <div className="pva-bloc" data-bloc-sortie-officielle>
         <p className="pvs-libelle" style={{ margin: 0 }}>Date officielle de sortie</p>
         {!gestion ? <p className="sor-gestion-seule-texte" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>
-          : !sortie ? (
+          : !sortie || !ecriture ? (<>
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setSortie(true)} data-valider-sortie>Valider la sortie</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setSortie(true)} data-valider-sortie
+                {...(ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true })}>Valider la sortie</button>
             </div>
-          ) : <SortieDuPreavis l={l} onAnnuler={() => setSortie(false)} onFait={sortieFaite} />}
+            {!ecriture && <MentionReserveLocation />}
+          </>) : <SortieDuPreavis l={l} onAnnuler={() => setSortie(false)} onFait={sortieFaite} />}
       </div>
       <p className="pva-liens">
         {l.locataires.map((x) => (
@@ -278,7 +292,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
 
 /** L'encart « Le logement » de l'écran de sortie (MÊME composant), avec les coordonnées, et les dates du préavis. */
 function InfosDuLogement({ l }: { l: LignePreavisAccueil }) {
-  const lu = useLecture<EncartLogement>(`encartBail=${l.occupationId}`);
+  const { base } = useContextePreavis();
+  const lu = useLecture<EncartLogement>(`encartBail=${l.occupationId}`, base);
   return (
     <div className="pva-bloc pva-logement" data-infos-logement>
       {lu.etat.etat === 'ok' ? <EncartDuLogement e={lu.etat.data} coordonnees /> : <EtatLecture etat={lu.etat} />}
@@ -295,6 +310,8 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
   const [bilan, setBilan] = useState<string | null>(null);
   const e = l.edls ?? null;
   const fait = (x: EdlsAffiche, phrase: string): void => { setMode('lecture'); setBilan(phrase); edlsPose(x); };
+  const { ecriture } = useContextePreavis();
+  const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
   return (
     <div className="pva-bloc" data-bloc-edls>
       <p className="pvs-libelle" style={{ margin: 0 }}>État des lieux de sortie</p>
@@ -302,18 +319,19 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
       {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}
       {mode === 'lecture' && (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-          {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
+          {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
             <>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Déplacer</button>
-              {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Déplacer</button>
+              {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
             </>
           )}
         </div>
       )}
-      {(mode === 'planifier' || mode === 'deplacer') && (
+      {!ecriture && <MentionReserveLocation />}
+      {ecriture && (mode === 'planifier' || mode === 'deplacer') && (
         <FormulaireEdls l={l} e={mode === 'deplacer' ? e : null} onAnnuler={() => setMode('lecture')} onFait={fait} />
       )}
-      {mode === 'reattribuer' && e !== null && <FormulaireReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
+      {ecriture && mode === 'reattribuer' && e !== null && <FormulaireReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
     </div>
   );
 }
