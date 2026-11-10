@@ -23,7 +23,7 @@ import { alignerInvites, invitesDesTaches, personnesInvitees, refusRenvoiPrincip
 import { invitesDeLaSaisie } from './taches';
 /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés (migration 366). */
 import { alignerEvenements, assurerRattachement, evenementsDesTaches } from './tacheEvenementsRepo';
-import { evenementsTacheDisponible } from './schema';
+import { evenementsTacheDisponible, invitationContactsDisponible } from './schema';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LE DÉPÔT DES TÂCHES (migration 346) ═══════════════════════════════════════════════════════
@@ -325,10 +325,11 @@ interface LigneContact {
 
 /** Les contacts ACTIFS d'une tâche, tels qu'ils ont été copiés (et quand). */
 export async function contactsCopies(tacheId: number, q: RequeteTx = query): Promise<ContactTache[]> {
-  const { rows } = await q<LigneContact>(
-    `SELECT cle, famille, nom, qualite, organisation, adresse, coordonnees, copie_le
+  const avecInvitation = await invitationSondee();
+  const { rows } = await q<LigneContact & { inviter?: boolean }>(
+    `SELECT cle, famille, nom, qualite, organisation, adresse, coordonnees, copie_le${avecInvitation ? ', inviter' : ''}
        FROM gestion_tache_contact WHERE tache_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [tacheId]);
-  return rows.filter((r) => estFamille(r.famille)).map(versContact);
+  return rows.filter((r) => estFamille(r.famille)).map((r) => ({ ...versContact(r), ...(r.inviter === true ? { inviter: true } : {}) }));
 }
 
 function versContact(r: LigneContact): ContactTache {
@@ -381,6 +382,21 @@ async function sourcesPour(lotId: number | null, s: SaisieTache): Promise<Contac
 }
 
 /**
+ * 🔴 Arno (10/11/2026, migration 465) — LA CASE « Envoyer une invitation à ce contact » : les contacts actifs de la tâche sont invités si et
+ * seulement si leur clé est cochée (décochée par défaut). `undefined` : ne pas y toucher. Sans la 465 : rien.
+ */
+/** La sonde de la 465, sans jamais lever (une sonde en échec éteint la fonction : rien n'est invité). */
+async function invitationSondee(): Promise<boolean> {
+  try { return await invitationContactsDisponible(); } catch { return false; }
+}
+
+async function alignerInvitationsContacts(q: RequeteTx, tacheId: number, cles: readonly string[] | undefined): Promise<void> {
+  if (cles === undefined || !(await invitationSondee())) return;
+  await q(`UPDATE gestion_tache_contact SET inviter = (cle = ANY($2::text[])) WHERE tache_id = $1 AND retire_le IS NULL AND inviter IS DISTINCT FROM (cle = ANY($2::text[]))`,
+    [tacheId, [...cles]]);
+}
+
+/**
  * 🔴 LOT GESTION-TACHES-SANS-BIEN — LES CONTACTS SAISIS À LA MAIN (tâche sans bien) : une COPIE datée, comme un contact
  * de la fiche, rangée en « Tiers indépendant », sous une clé `manuel:…` propre à la tâche. Tracé comme les autres.
  */
@@ -393,9 +409,10 @@ async function poserContactsManuels(q: RequeteTx, tacheId: number, l: readonly C
       ...(c.telephone ? [{ sorte: 'telephone', libelle: null, valeur: c.telephone.replace(/[^\d+]/g, ''), affichage: c.telephone }] : []),
       ...(c.email ? [{ sorte: 'email', libelle: null, valeur: c.email, affichage: null }] : []),
     ];
+    const inviter = c.inviter === true && c.email !== null && await invitationSondee();
     await q(
-      `INSERT INTO gestion_tache_contact (tache_id, cle, famille, nom, qualite, coordonnees, rang, ajoute_par_libelle)
-       VALUES ($1, $2, 'independant', $3, $4, $5::jsonb, $6, $7)`,
+      `INSERT INTO gestion_tache_contact (tache_id, cle, famille, nom, qualite, coordonnees, rang, ajoute_par_libelle${inviter ? ', inviter' : ''})
+       VALUES ($1, $2, 'independant', $3, $4, $5::jsonb, $6, $7${inviter ? ', true' : ''})`,
       [tacheId, `manuel:${randomUUID()}`, c.nom, c.qualite, JSON.stringify(coordonnees), rang, nom]);
     await tracer(q, tacheId, 'modification', null, { contactAjoute: c.nom }, auteur, nom);
   }
@@ -508,6 +525,7 @@ async function creerTacheSansRefus(
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    await alignerInvitationsContacts(q, id, s.invitesContacts);
     if (lotId === null && await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours choisis ; un refus annule toute la création. */
@@ -756,6 +774,7 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     if (invitesChangent) { avant.invites = listeInvites(invitesAvant); apres.invites = listeInvites(invitesVoulus); }
     const nom = await nomAuteur(q, auteur);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    await alignerInvitationsContacts(q, id, s.invitesContacts);
     if (lotDeLaTache === null && await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher ou retirer des événements (tracé ligne à ligne par le dépôt). */
     if (s.evenements !== undefined && await evenementsTacheDisponible()) {

@@ -23,6 +23,8 @@ const SANS_BIEN = {
 beforeEach(() => {
   envois = []; lectures = [];
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
+    // 🔴 Arno (10/11/2026) — le récapitulatif avant envoi (lecture seule) : ici, aucun envoi prévu ⇒ le geste se fait sans fenêtre, comme avant.
+    if (String(u).includes('/taches/apercu')) return Response.json({ etat: 'ok', collaborateurs: [], exterieurs: [], total: 0, texteCollaborateur: null, texteExterieur: null });
     const url = String(u);
     lectures.push(url);
     if (init?.method === 'POST') { envois.push(JSON.parse(String(init.body))); return Response.json({ etat: 'ok', id: 32, message: 'Tâche créée.' }); }

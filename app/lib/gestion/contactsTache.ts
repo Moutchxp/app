@@ -67,6 +67,8 @@ export interface ContactSource {
 /** Un contact COPIÉ dans une tâche : la copie, et sa date. */
 export interface ContactTache extends ContactSource {
   copieLe: string;
+  /** 🔴 Arno (10/11/2026, migration 465) — la case « Envoyer une invitation à ce contact » est cochée. */
+  inviter?: boolean;
 }
 
 const net = (x: string | null | undefined): string => (x ?? '').trim();

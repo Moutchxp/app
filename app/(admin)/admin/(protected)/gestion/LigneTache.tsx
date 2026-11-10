@@ -12,6 +12,8 @@ import { CSS_CONTACTS_TACHE, EncadresContacts } from './ContactsTache';
 /* 🔴 LOT TACHES-LIGNE-CONTACTS — la couleur de famille d'un contact : la source unique du bloc PARTIES. */
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, type GesteTache } from './tachesClient';
+import { useRecapEnvois } from './RecapEnvoisTache';
+import { jourDecale, type RaccourciDecalage } from '../../../../lib/gestion/taches';
 import { badgeTache, mentionMail } from '../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — chaque invité, son état, « N acceptées sur M » ; « Changer le destinataire ». */
 import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
@@ -90,11 +92,24 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   /** 🔴 LOT DECALER-DUREE — la durée du rendez-vous, pré-remplie (1 h par défaut), mêmes choix que la fenêtre. */
   const [duree, setDuree] = useState<number>(tache.dureeMinutes ?? DUREE_DEFAUT_MINUTES);
 
+  /** La nouvelle date d'un raccourci (« +1 jour »…), pour le récapitulatif — la même règle que le serveur (`jourDecale`). */
+  const momentDuRaccourci = (t: { jour: string; heure: string | null; dureeMinutes?: number | null }, r: RaccourciDecalage) =>
+    ({ jour: jourDecale(t.jour, r, new Date()), heure: t.heure, dureeMinutes: t.dureeMinutes ?? null });
+  /** 🔴 Arno (10/11/2026) — décaler, renvoyer une invitation, changer le destinataire : le récapitulatif avant envoi, puis le résultat. */
+  const recap = useRecapEnvois();
   const agir = async (g: GesteTache) => {
     setOccupe(true);
     setMessage(null);
-    const r = await agirSurTache(tache.id, g);
+    const titre = g.geste === 'decaler' ? 'Tâche décalée' : g.geste === 'renvoyerInvitation' ? 'Invitation renvoyée' : g.geste === 'changerDestinataire' ? 'Destinataire changé' : null;
+    const apercu = g.geste === 'decaler'
+      ? ('raccourci' in g ? { geste: 'decaler', tacheId: tache.id, ...momentDuRaccourci(tache, g.raccourci) } : { geste: 'decaler', tacheId: tache.id, jour: g.jour, heure: g.heure, dureeMinutes: g.dureeMinutes ?? null })
+      : g.geste === 'renvoyerInvitation' ? { geste: g.geste, tacheId: tache.id, inviteId: g.inviteId }
+        : g.geste === 'changerDestinataire' ? { geste: g.geste, tacheId: tache.id, inviteId: g.inviteId, collaborateurId: g.collaborateurId } : null;
+    const r = titre !== null && apercu !== null
+      ? await recap.demander({ titre, apercu, action: () => agirSurTache(tache.id, g) })
+      : await agirSurTache(tache.id, g);
     setOccupe(false);
+    if (r === null) return;
     if (r.ok) { setDecaler(false); setConfirmerAnnulation(false); }
     setMessage({ ok: r.ok, texte: r.message });
   };
@@ -250,6 +265,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
     return (
       <li className={`${classe} tch-carte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'}
         data-depliee={onBasculer !== undefined ? 'oui' : undefined}>
+        {recap.fenetre}
         {/* 🔴 LOT CARTE-CONTACTS-PARTOUT — la carte porte la feuille de ses encadrés de contact (liseré de famille, liens) :
             dans le récapitulatif, personne d'autre ne la montait, et les contacts y perdaient leur couleur. */}
         <style>{CSS_CONTACTS_TACHE}</style>
@@ -360,6 +376,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   const agenda = tache.agendaCarte ?? tache.agenda ?? null;
   return (
     <li className={`${classe} tch-compacte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'} data-depliee="non">
+      {recap.fenetre}
       <div className="tch-l1" role="button" tabIndex={0} aria-expanded={false} title="Déplier la tâche"
         onClick={() => onBasculer?.()} onKeyDown={basculerAuClavier}>
         <span className="tch-pastille-mot">

@@ -15,6 +15,7 @@ import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../../lib/gestion
 import { mentionMail, phraseInvitations } from '../../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT TACHES-AGENDA — après la création : l'agenda (réglage actif seulement) ; la lecture relance la reprise automatique. */
 import { declencherReprise, synchroniserApresGeste } from '../../../../../lib/gestion/agendaSynchroRepo';
+import { envoisAuxContacts } from '../../../../../lib/gestion/invitationsContactsAutorisees';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LES TÂCHES : LIRE, CRÉER ════════════════════════════════════════════════════════════════
@@ -71,22 +72,26 @@ export async function POST(request: Request): Promise<Response> {
     if (!r.ok) return Response.json({ erreur: r.motif, champ: 'pieces' }, { status: 400 });
     pieces = r.valeur;
   }
-  const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request), pieces);
+  const auteur = await auteurDeLaRequete(request);
+  const issue = await creerTache(lotId, saisie, auteur, pieces);
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
   if (issue.demandes !== undefined) {
     const envois = await envoyerAuxInvites(request, issue.demandes);
+    const exterieurs = await envoisAuxContacts(request, issue.id, null, auteur);
     const agenda = await synchroniserApresGeste(issue.id);
     return Response.json({
-      etat: 'ok', id: issue.id,
+      etat: 'ok', id: issue.id, collaborateurs: envois, exterieurs,
       message: `${envois.length > 0 ? 'Tâche créée, en attente d’acceptation.' : 'Tâche créée.'}${phraseInvitations(envois)}${agenda}`,
     });
   }
   const mail = await envoyerSiAutorise(request, issue.demande);
+  const exterieurs = await envoisAuxContacts(request, issue.id, null, auteur);
   const agenda = await synchroniserApresGeste(issue.id);
   const enAttente = issue.demande?.statut === 'en_attente';
   return Response.json({
-    etat: 'ok', id: issue.id,
+    etat: 'ok', id: issue.id, exterieurs,
+    collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail }],
     message: `${enAttente ? `Tâche créée, en attente d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' — demande envoyée par mail' : ''}.` : 'Tâche créée.'}${agenda}`,
   });
 }

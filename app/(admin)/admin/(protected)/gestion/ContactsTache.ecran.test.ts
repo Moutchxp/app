@@ -40,6 +40,8 @@ beforeEach(() => {
   sources = [PROPRIO, SYNDIC];
   envois = [];
   vi.stubGlobal('fetch', vi.fn(async (entree: unknown, init?: { method?: string; body?: string }) => {
+    // 🔴 Arno (10/11/2026) — le récapitulatif avant envoi (lecture seule) : ici, aucun envoi prévu ⇒ le geste se fait sans fenêtre, comme avant.
+    if (String(entree).includes('/taches/apercu')) return Response.json({ etat: 'ok', collaborateurs: [], exterieurs: [], total: 0, texteCollaborateur: null, texteExterieur: null });
     const url = String(entree);
     const method = init?.method ?? 'GET';
     if (method !== 'GET') {

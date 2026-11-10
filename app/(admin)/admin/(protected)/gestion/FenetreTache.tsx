@@ -17,7 +17,8 @@ import { BADGE_ACCEPTATION, mentionMail, type AcceptationTache } from '../../../
 import { CSS_RECHERCHE_EVENEMENTS, RechercheEvenementsTache } from './RechercheEvenementsTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche : la même liste que la carte. */
 import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
-import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
+import { aUnEmail, CaseInvitation, ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
+import { useRecapEnvois } from './RecapEnvoisTache';
 /* 🔴 LOT TACHES-PIECES-DRIVE — le sélecteur Drive en LECTURE SEULE des tâches. */
 import { SelecteurDriveTache, type FichierChoisi } from './SelecteurDriveTache';
 /* 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (1 h par défaut) et l'état « Agenda » du détail. */
@@ -67,6 +68,10 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   /** 🔴 LOT TACHES-1-BIS — les contacts du bien (fiche d'aujourd'hui) ; `null` ⇒ section absente. */
   const [sources, setSources] = useState<ContactSource[] | null>(null);
   const [choisis, setChoisis] = useState<string[]>([]);
+  /** 🔴 Arno (10/11/2026) — les contacts cochés « Envoyer une invitation » (décochés par défaut) ; `null` : sans la migration 465. */
+  const [invitesContacts, setInvitesContacts] = useState<string[]>([]);
+  /** 🔴 Arno (10/11/2026) — le récapitulatif avant envoi, puis le résultat : la même fenêtre pour tous les gestes. */
+  const recap = useRecapEnvois();
   /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les fichiers choisis (envoyés avec la tâche) ; le sélecteur. */
   const [piecesChoisies, setPiecesChoisies] = useState<FichierChoisi[]>([]);
   const [selecteurDrive, setSelecteurDrive] = useState(false);
@@ -132,6 +137,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           ...(t.evenements !== undefined ? { evenements: t.evenements.map((e) => e.id) } : {}),
         });
         setChoisis(d.contacts.map((c) => c.cle));
+        setInvitesContacts(d.contacts.filter((c) => c.inviter === true).map((c) => c.cle));
       }
     })();
     return () => { annule = true; };
@@ -198,8 +204,12 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const pourLeBloc = choisis
     .map((cle) => copies.find((c) => c.cle === cle) ?? sources?.find((c) => c.cle === cle))
     .filter((c): c is ContactSource => c !== undefined);
-  const basculerContact = (cle: string) =>
+  const basculerContact = (cle: string) => {
     setChoisis((l) => (l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]));
+    // Un contact décoché ne peut pas rester invité.
+    if (choisis.includes(cle)) setInvitesContacts((l) => l.filter((x) => x !== cle));
+  };
+  const basculerInvite = (cle: string) => setInvitesContacts((l) => (l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]));
 
   const enregistrer = async () => {
     const refus = verifierSaisie(saisie);
@@ -208,8 +218,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setMessage(null);
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
     /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : les copies gardées (cochées) et les contacts saisis à la main. */
-    const avecContacts0: SaisieEcran = sansBien ? { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts }
-      : sources === null ? saisie : { ...saisie, contacts: choisis };
+    const avecContacts0: SaisieEcran = sansBien ? { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) }
+      : sources === null ? saisie : { ...saisie, contacts: choisis, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) };
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — les autres invités ne voyagent que si le serveur sait les recevoir (365). */
     const avecContacts1: SaisieEcran = collab?.invites === true
       ? { ...avecContacts0, invites: (avecContacts0.invites ?? []).filter((id) => id !== avecContacts0.confieeA) }
@@ -220,10 +230,15 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       : Object.fromEntries(Object.entries(avecContacts1).filter(([k]) => k !== 'evenements')) as SaisieEcran;
     const envoi: SaisieEcran = mode.sorte === 'creer' && piecesChoisies.length > 0
       ? { ...avecContacts, pieces: piecesChoisies.map((p) => p.id) } : avecContacts;
-    const r = mode.sorte === 'creer'
-      ? await creerTache(mode.lotId, envoi)
-      : await agirSurTache(mode.id, { geste: 'modifier', ...envoi });
+    /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (« Revenir » garde toute la saisie), puis le résultat. */
+    const r = await recap.demander({
+      titre: mode.sorte === 'creer' ? 'Tâche créée' : 'Tâche modifiée',
+      apercu: { geste: mode.sorte === 'creer' ? 'creer' : 'modifier', tacheId: mode.sorte === 'detail' ? mode.id : null,
+        lotId: mode.sorte === 'creer' ? mode.lotId : (tache?.lotId ?? null), ...envoi },
+      action: () => (mode.sorte === 'creer' ? creerTache(mode.lotId, envoi) : agirSurTache(mode.id, { geste: 'modifier', ...envoi })),
+    });
     setOccupe(false);
+    if (r === null) return; // « Revenir » : rien n'est fait, la saisie reste
     if (!r.ok) { setMessage({ ok: false, texte: r.message, champ: r.champ ?? null }); return; }
     if (mode.sorte === 'creer') {
       /* 🔴 LOT TACHES-ACCEPTATION — confiée à un collègue : la confirmation dit aussi « en attente d'acceptation » et l'état
@@ -267,8 +282,10 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     if (mode.sorte !== 'detail') return;
     setOccupe(true);
     setMessage(null);
-    const r = await agirSurTache(mode.id, { geste: 'renvoyerDemande' });
+    const id = mode.id;
+    const r = await recap.demander({ titre: 'Demande renvoyée', apercu: { geste: 'renvoyerDemande', tacheId: id }, action: () => agirSurTache(id, { geste: 'renvoyerDemande' }) });
     setOccupe(false);
+    if (r === null) return;
     setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: r.champ ?? null });
     if (r.ok) setVersion((v) => v + 1);
   };
@@ -278,8 +295,15 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     if (mode.sorte !== 'detail') return;
     setOccupe(true);
     setMessage(null);
-    const r = await agirSurTache(mode.id, g);
+    const id = mode.id;
+    /* 🔴 Arno (10/11/2026) — renvoi d'une invitation, changement de destinataire : le récapitulatif, puis le résultat. */
+    const r = g.geste === 'renvoyerInvitation' || g.geste === 'changerDestinataire'
+      ? await recap.demander({ titre: g.geste === 'renvoyerInvitation' ? 'Invitation renvoyée' : 'Destinataire changé',
+        apercu: { geste: g.geste, tacheId: id, inviteId: g.inviteId, ...(g.geste === 'changerDestinataire' ? { collaborateurId: g.collaborateurId } : {}) },
+        action: () => agirSurTache(id, g) })
+      : await agirSurTache(id, g);
     setOccupe(false);
+    if (r === null) return;
     setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: r.champ ?? null });
     if (r.ok) setVersion((v) => v + 1);
   };
@@ -310,6 +334,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   return (
     <div className="tchf-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
       <style>{CSS_TACHES}{CSS_FENETRE}{CSS_CONTACTS_TACHE}{CSS_RECHERCHE_EVENEMENTS}</style>
+      {recap.fenetre}
       {selecteurDrive && (lotId !== null || sansBien) && (
         <SelecteurDriveTache lotId={lotId} onChoisir={choisirPieces} onFermer={() => setSelecteurDrive(false)} />
       )}
@@ -500,12 +525,13 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           )}
           {erreurDe('evenements')}
           {sources !== null && !sansBien && (
-            <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule} />
+            <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule}
+              invites={invitesContacts} onBasculerInvite={basculerInvite} />
           )}
           {/* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, pas de fiche : les contacts se SAISISSENT À LA MAIN. */}
           {sansBien && (
             <ContactsManuels copies={copies} choisis={choisis} onBasculer={basculerContact} nouveaux={nouveauxContacts}
-              onNouveaux={setNouveauxContacts} desactive={lectureSeule} />
+              onNouveaux={setNouveauxContacts} desactive={lectureSeule} invites={invitesContacts} onBasculerInvite={basculerInvite} />
           )}
           {erreurDe('contacts')}
 
@@ -697,9 +723,10 @@ function phraseAcceptation(a: AcceptationTache): string {
  * 🔴 LOT GESTION-TACHES-SANS-BIEN — LES CONTACTS D'UNE TÂCHE SANS BIEN, SAISIS À LA MAIN : nom (obligatoire), rôle,
  * téléphone, e-mail. Ceux déjà dans la tâche restent cochés (décocher les retire — tracé, jamais effacé).
  */
-function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, desactive }: {
+function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, desactive, invites, onBasculerInvite }: {
   copies: readonly ContactTache[]; choisis: readonly string[]; onBasculer: (cle: string) => void;
   nouveaux: readonly ContactManuel[]; onNouveaux: (l: ContactManuel[]) => void; desactive: boolean;
+  invites: readonly string[]; onBasculerInvite: (cle: string) => void;
 }) {
   const vide = { nom: '', qualite: '', telephone: '', email: '' };
   const [f, setF] = useState(vide);
@@ -716,10 +743,13 @@ function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, de
       {copies.length > 0 && (
         <div className="tchf-rappels">
           {copies.map((c) => (
-            <label key={c.cle} className="tchf-case">
-              <input type="checkbox" data-contact-manuel={c.cle} checked={choisis.includes(c.cle)} onChange={() => onBasculer(c.cle)} />
-              {c.nom}{c.qualite ? ` · ${c.qualite}` : ''}
-            </label>
+            <div key={c.cle} className="tchc-contact">
+              <label className="tchf-case">
+                <input type="checkbox" data-contact-manuel={c.cle} checked={choisis.includes(c.cle)} onChange={() => onBasculer(c.cle)} />
+                {c.nom}{c.qualite ? ` · ${c.qualite}` : ''}
+              </label>
+              {choisis.includes(c.cle) && <CaseInvitation cle={c.cle} coche={invites.includes(c.cle)} possible={aUnEmail(c)} onBasculer={() => onBasculerInvite(c.cle)} />}
+            </div>
           ))}
         </div>
       )}
@@ -728,6 +758,8 @@ function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, de
           {nouveaux.map((c, i) => (
             <li key={`${c.nom}-${i}`} className="tchf-piece" data-contact-nouveau={i}>
               <span>{c.nom}{c.qualite ? ` · ${c.qualite}` : ''}{c.telephone ? ` · ${c.telephone}` : ''}{c.email ? ` · ${c.email}` : ''}</span>
+              <CaseInvitation cle={`nouveau-${i}`} coche={c.inviter === true} possible={c.email !== null}
+                onBasculer={() => onNouveaux(nouveaux.map((x, j) => (j === i ? { ...x, inviter: x.inviter !== true } : x)))} />
               <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" onClick={() => onNouveaux(nouveaux.filter((_, j) => j !== i))}>
                 Retirer
               </button>

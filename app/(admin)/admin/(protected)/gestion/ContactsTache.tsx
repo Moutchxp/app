@@ -46,11 +46,30 @@ export function LegendeFamilles() {
 /** Un contact proposé à la case : la fiche d'aujourd'hui, ou la copie d'un contact qui n'est plus lié au bien. */
 export interface ContactPropose extends ContactSource { plusLie?: boolean }
 
-export function ChoixContacts({ proposes, choisis, onBasculer, desactive = false }: {
+/** Un contact a-t-il une adresse e-mail (sans elle, l'invitation ne peut pas partir) ? PUR. */
+export const aUnEmail = (c: Pick<ContactSource, 'coordonnees'>): boolean => c.coordonnees.some((x) => x.sorte === 'email' && x.valeur.trim() !== '');
+
+/**
+ * 🔴 Arno (10/11/2026) — sous CHAQUE contact coché : la case « Envoyer une invitation à ce contact », DÉCOCHÉE par défaut. Sans elle cochée,
+ * le contact ne reçoit rien ; cochée, il reçoit SON mail (contenu restreint, jamais les coordonnées d'un tiers).
+ */
+export function CaseInvitation({ cle, coche, possible, onBasculer, desactive = false }: { cle: string; coche: boolean; possible: boolean; onBasculer: () => void; desactive?: boolean }) {
+  return (
+    <label className="tchc-invitation" data-inviter-contact={cle}>
+      <input type="checkbox" checked={coche && possible} disabled={desactive || !possible} onChange={onBasculer} />
+      <span>Envoyer une invitation à ce contact{possible ? '' : ' (pas d’adresse e-mail)'}</span>
+    </label>
+  );
+}
+
+export function ChoixContacts({ proposes, choisis, onBasculer, desactive = false, invites, onBasculerInvite }: {
   proposes: readonly ContactPropose[];
   choisis: readonly string[];
   onBasculer: (cle: string) => void;
   desactive?: boolean;
+  /** 🔴 Arno (10/11/2026) — les contacts à inviter ; absent (sans la migration 465) : pas de case. */
+  invites?: readonly string[];
+  onBasculerInvite?: (cle: string) => void;
 }) {
   const [recherche, setRecherche] = useState('');
   const avecRecherche = proposes.length > SEUIL_RECHERCHE_CONTACTS;
@@ -69,14 +88,19 @@ export function ChoixContacts({ proposes, choisis, onBasculer, desactive = false
         <div key={g.famille} className={`tchc-groupe tchc-groupe--${tonDuGroupe(g.famille)}`} data-famille={g.famille}>
           <p className="tchc-famille">{MOT_FAMILLE[g.famille]}</p>
           {g.contacts.map((c) => (
-            <label key={c.cle} className="tchc-case">
-              <input type="checkbox" checked={choisis.includes(c.cle)} onChange={() => onBasculer(c.cle)} />
-              <span className="tchc-nom">
-                {c.nom}
-                {c.qualite && <span className="tchc-qualite"> · {c.qualite}</span>}
-                {c.plusLie && <span className="tchc-qualite"> · n’est plus lié à ce bien</span>}
-              </span>
-            </label>
+            <div key={c.cle} className="tchc-contact">
+              <label className="tchc-case">
+                <input type="checkbox" checked={choisis.includes(c.cle)} onChange={() => onBasculer(c.cle)} />
+                <span className="tchc-nom">
+                  {c.nom}
+                  {c.qualite && <span className="tchc-qualite"> · {c.qualite}</span>}
+                  {c.plusLie && <span className="tchc-qualite"> · n’est plus lié à ce bien</span>}
+                </span>
+              </label>
+              {invites !== undefined && onBasculerInvite !== undefined && choisis.includes(c.cle) && (
+                <CaseInvitation cle={c.cle} coche={invites.includes(c.cle)} possible={aUnEmail(c)} onBasculer={() => onBasculerInvite(c.cle)} desactive={desactive} />
+              )}
+            </div>
           ))}
         </div>
       ))}
@@ -240,6 +264,9 @@ export const CSS_CONTACTS_TACHE = `
 .tchc-pastille--violet{background:var(--color-svv-violet)}
 .tchc-pastille--rose{background:var(--color-svv-syndic-bord)}
 .tchc-pastille--bleu{background:var(--color-svv-blue)}
+.tchc-contact{display:flex;flex-direction:column;min-width:0}
+.tchc-invitation{display:flex;align-items:center;gap:.4rem;min-height:36px;margin-left:1.6rem;font-size:.82rem;color:var(--color-svv-ink)}
+.tchc-invitation input:disabled + span{color:var(--color-svv-muted)}
 .tchc-famille{margin:0;font-size:.76rem;font-weight:700;color:var(--color-svv-muted);text-transform:uppercase;letter-spacing:.02em}
 .tchc-case{display:flex;align-items:center;gap:.45rem;min-height:36px;font-size:.88rem;min-width:0}
 .tchc-nom{min-width:0;overflow-wrap:anywhere;margin:0;font-size:.88rem;color:var(--color-svv-ink)}

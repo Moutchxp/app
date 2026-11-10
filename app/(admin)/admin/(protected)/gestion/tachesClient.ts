@@ -51,8 +51,11 @@ export function ecouterDepliageBien(lotId: number, f: () => void): () => void {
  * L'ISSUE D'UN GESTE. Un refus porte TOUJOURS un message en français, et le champ concerné quand il y en a un
  * (`refusDuServeur`, règle unique) : la fenêtre l'affiche en haut ET à côté du champ. Jamais de clic sans effet.
  */
+/** 🔴 Arno (10/11/2026) — les mails RÉELLEMENT tentés par le geste, d'après le serveur (fenêtre de résultat). */
+export interface EnvoiCollaborateur { destinataire: string; etat: string }
+export interface EnvoiContactExterne { nom: string; email: string | null; sorte: 'invitation' | 'modification' | 'annulation'; envoye: boolean; motif: string | null }
 export type IssueGeste =
-  | { ok: true; message: string; id?: number }
+  | { ok: true; message: string; id?: number; collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[] }
   | { ok: false; message: string; champ?: ChampTache | null };
 
 async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): Promise<IssueGeste> {
@@ -62,7 +65,8 @@ async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): P
   } catch {
     return { ok: false, message: 'Le serveur ne répond pas : rien n’a été enregistré.', champ: null };
   }
-  const d = (await res.json().catch(() => null)) as { message?: string; erreur?: string; champ?: string; id?: number; etat?: string } | null;
+  const d = (await res.json().catch(() => null)) as { message?: string; erreur?: string; champ?: string; id?: number; etat?: string;
+    collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[] } | null;
   if (!res.ok) {
     const r = refusDuServeur(res.status, d);
     return { ok: false, message: r.message, champ: r.champ };
@@ -72,7 +76,25 @@ async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): P
     return { ok: false, message: 'Réponse inattendue du serveur : rien ne confirme l’enregistrement. Recharge la page.', champ: null };
   }
   signalerTaches();
-  return { ok: true, message: d.message ?? 'Enregistré.', id: d.id };
+  return { ok: true, message: d.message ?? 'Enregistré.', id: d.id,
+    ...(Array.isArray(d.collaborateurs) ? { collaborateurs: d.collaborateurs } : {}), ...(Array.isArray(d.exterieurs) ? { exterieurs: d.exterieurs } : {}) };
+}
+
+/** 🔴 Arno (10/11/2026) — le RÉCAPITULATIF avant envoi (lecture seule, rien ne part). */
+export interface ApercuEnvois {
+  collaborateurs: { libelle: string; mail: boolean; motif: string | null }[];
+  exterieurs: { nom: string; email: string | null; sorte: 'invitation' | 'modification' | 'annulation'; mail: boolean; motif: string | null }[];
+  total: number; texteCollaborateur: string | null; texteExterieur: string | null;
+}
+export async function lireApercuEnvois(corps: Record<string, unknown>): Promise<ApercuEnvois | { erreur: string }> {
+  try {
+    const res = await fetch('/api/admin/gestion/taches/apercu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    const d = (await res.json().catch(() => null)) as (ApercuEnvois & { etat?: string; erreur?: string }) | null;
+    if (!res.ok || d === null || d.etat !== 'ok') return { erreur: d?.erreur ?? 'Récapitulatif impossible : rien n’a été envoyé.' };
+    return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null };
+  } catch {
+    return { erreur: 'Le serveur ne répond pas : rien n’a été envoyé.' };
+  }
 }
 
 /** Ce que l'écran envoie à la création et à la modification. */
@@ -81,6 +103,8 @@ export interface SaisieEcran {
   evenementId: number | null; rappels: Rappel[];
   /** 🔴 LOT TACHES-1-BIS — les clés des contacts cochés ; absent ⇒ les contacts ne sont pas touchés. */
   contacts?: string[];
+  /** 🔴 Arno (10/11/2026) — les contacts cochés « Envoyer une invitation à ce contact » (décochée par défaut). */
+  invitesContacts?: string[];
   /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les identifiants Drive des pièces choisies. */
   pieces?: string[];
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null` = 1 h. */
@@ -90,7 +114,7 @@ export interface SaisieEcran {
   /** 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés ; absent ⇒ inchangés. */
   evenements?: number[];
   /** 🔴 LOT GESTION-TACHES-SANS-BIEN — les contacts saisis à la main (tâche sans bien). */
-  contactsManuels?: { nom: string; qualite: string | null; telephone: string | null; email: string | null }[];
+  contactsManuels?: { nom: string; qualite: string | null; telephone: string | null; email: string | null; inviter?: boolean }[];
 }
 
 export type GesteTache =

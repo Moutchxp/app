@@ -48,6 +48,9 @@ export const LIBELLE_MAIL: Record<string, string> = {
   previsite_compte_rendu: 'Compte rendu de pré-visite',
   previsite_refus: 'Refus / absence de pré-visite (locataires)',
   previsite_annulation: 'Annulation de la pré-visite (collègues)',
+  // 🔴 Arno (10/11/2026) — les invitations d'une tâche.
+  tache_collaborateur: 'Invitation (collaborateur de l’agence)',
+  tache_exterieur: 'Invitation (contact extérieur)',
 };
 export const libelleMail = (m: Pick<MailParti, 'sorte'>): string => LIBELLE_MAIL[m.sorte] ?? 'Mail';
 

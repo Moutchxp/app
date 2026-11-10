@@ -356,6 +356,11 @@ export function tachesDisponibles(): Promise<boolean> {
  * 🔴 LOT TACHES-1-BIS — la migration 347 est-elle appliquée ? Elle porte les contacts copiés dans une tâche. Sans
  * elle, la section « Contacts de la tâche » ne s'affiche pas et les tâches se comportent exactement comme au lot 1.
  */
+/** 🔴 Arno (10/11/2026) — la migration 465 (inviter les contacts d'une tâche, journal de leurs mails, tiers d'un bien) est-elle appliquée ? */
+export function invitationContactsDisponible(): Promise<boolean> {
+  return memoiser('colonne.gestion_tache_contact.inviter', () => colonneExiste('gestion_tache_contact', 'inviter'));
+}
+
 export function contactsTacheDisponible(): Promise<boolean> {
   return memoiser('table.gestion_tache_contact', () => tableExiste('gestion_tache_contact'));
 }

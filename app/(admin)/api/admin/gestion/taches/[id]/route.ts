@@ -17,6 +17,8 @@ import { mentionMail, phraseInvitations } from '../../../../../../lib/gestion/ac
 import { changerDestinataire, erreurMailDemande, renvoyerInvitation } from '../../../../../../lib/gestion/invitesRepo';
 /* 🔴 LOT TACHES-AGENDA — après chaque geste : l'agenda (réglage actif seulement) ; « Réessayer » le relance. */
 import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../../../../../lib/gestion/agendaSynchroRepo';
+import { momentDeLaTache } from '../../../../../../lib/gestion/invitationsContactsRepo';
+import { envoisAuxContacts } from '../../../../../../lib/gestion/invitationsContactsAutorisees';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE : SON DÉTAIL, SES GESTES ═══════════════════════════════════════════════════════
@@ -91,7 +93,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!r.ok) return Response.json({ erreur: r.motif }, { status: r.statut });
     const envois = await envoyerAuxInvites(request, r.demandes);
     const agenda = await synchroniserApresGeste(r.id);
-    return Response.json({ etat: 'ok', id: r.id, message: `${r.message}${phraseInvitations(envois)}${agenda}` });
+    return Response.json({ etat: 'ok', id: r.id, collaborateurs: envois, exterieurs: [], message: `${r.message}${phraseInvitations(envois)}${agenda}` });
   }
 
   if (geste === 'renvoyerInvitation') {
@@ -103,8 +105,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const agenda = await synchroniserApresGeste(r.id);
     const nouveauLien = ' Un nouveau lien a été créé ; l’ancien ne fonctionne plus.';
     const qui = envoi?.destinataire ?? '';
-    if (envoi === undefined || envoi.etat === 'envoye') return Response.json({ etat: 'ok', id: r.id, message: `${r.message}${agenda}` });
-    if (envoi.etat === 'factice') return Response.json({ etat: 'ok', id: r.id, message: `${r.message} (essai : rien n’est parti).${agenda}` });
+    if (envoi === undefined || envoi.etat === 'envoye') return Response.json({ etat: 'ok', id: r.id, collaborateurs: envoi ? [envoi] : [], exterieurs: [], message: `${r.message}${agenda}` });
+    if (envoi.etat === 'factice') return Response.json({ etat: 'ok', id: r.id, collaborateurs: [envoi], exterieurs: [], message: `${r.message} (essai : rien n’est parti).${agenda}` });
     // 🔴 L'ERREUR RÉELLE : le lien est renouvelé, mais le mail n'est pas parti — on le dit, avec sa cause.
     const cause = envoi.etat === 'echec'
       ? (await erreurMailDemande(r.demandes[0].demandeId)) ?? 'échec de l’envoi'
@@ -113,6 +115,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   let issue: IssueTache;
+  /* 🔴 Arno (10/11/2026) — la date d'AVANT le geste : un contact déjà invité ne reçoit un mail de modification que si elle change. */
+  const ancien = geste === 'modifier' || geste === 'decaler' ? await momentDeLaTache(id).catch(() => null) : null;
   if (geste === 'faite') issue = await marquerFaite(id, auteur);
   else if (geste === 'annuler') issue = await annulerTache(id, auteur);
   else if (geste === 'rouvrir') issue = await rouvrirTache(id, auteur);
@@ -173,14 +177,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   /* 🔴 LOT TACHES-ACCEPTATION — un geste qui a posé une demande en attente (renvoi, date/heure/personne changée) :
      son mail, préparé (et envoyé seulement si le réglage l'autorise). */
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
+  /* 🔴 Arno (10/11/2026) — création d'invités, modification, décalage : les contacts cochés reçoivent leur mail (contenu restreint). */
+  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur) : [];
   if (issue.demandes !== undefined) {
     const envois = await envoyerAuxInvites(request, issue.demandes);
     const agenda = await synchroniserApresGeste(issue.id);
-    return Response.json({ etat: 'ok', id: issue.id, message: `${MESSAGES[geste]}${phraseInvitations(envois)}${agenda}` });
+    return Response.json({ etat: 'ok', id: issue.id, collaborateurs: envois, exterieurs, message: `${MESSAGES[geste]}${phraseInvitations(envois)}${agenda}` });
   }
   const mail = await envoyerSiAutorise(request, issue.demande);
   const suite = issue.demande?.statut === 'en_attente'
     ? ` Nouvelle demande d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' envoyée par mail' : ''}.` : '';
   const agenda = await synchroniserApresGeste(issue.id);
-  return Response.json({ etat: 'ok', id: issue.id, message: `${MESSAGES[geste]}${suite}${agenda}` });
+  return Response.json({ etat: 'ok', id: issue.id, exterieurs,
+    collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail }], message: `${MESSAGES[geste]}${suite}${agenda}` });
 }

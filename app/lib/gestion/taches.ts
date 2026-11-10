@@ -544,10 +544,17 @@ export interface SaisieTache {
   evenements?: number[];
   /** 🔴 LOT GESTION-TACHES-SANS-BIEN — des contacts SAISIS À LA MAIN (tâche sans bien) ; ajoutés à ceux déjà là. */
   contactsManuels?: ContactManuel[];
+  /**
+   * 🔴 Arno (10/11/2026, migration 465) — les clés des contacts à INVITER (case « Envoyer une invitation à ce contact », décochée par défaut) ;
+   * `undefined` = ne pas y toucher. Un contact non coché ne reçoit rien.
+   */
+  invitesContacts?: string[];
 }
 
 /** 🔴 LOT GESTION-TACHES-SANS-BIEN — un contact saisi à la main : nom obligatoire, le reste facultatif. */
-export interface ContactManuel { nom: string; qualite: string | null; telephone: string | null; email: string | null }
+export interface ContactManuel { nom: string; qualite: string | null; telephone: string | null; email: string | null;
+  /** 🔴 Arno (10/11/2026) — la case « Envoyer une invitation à ce contact » (décochée par défaut). */
+  inviter?: boolean }
 
 /** Les contacts saisis à la main, relus : nom non vide, champs bornés, 20 au plus. PUR. */
 export function lireContactsManuels(brut: unknown): ContactManuel[] | undefined {
@@ -559,7 +566,8 @@ export function lireContactsManuels(brut: unknown): ContactManuel[] | undefined 
     const nom = txt(o.nom, 200);
     if (nom === null) continue;
     const email = txt(o.email, 200);
-    out.push({ nom, qualite: txt(o.qualite, 200), telephone: txt(o.telephone, 40), email: email !== null && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null });
+    out.push({ nom, qualite: txt(o.qualite, 200), telephone: txt(o.telephone, 40), email: email !== null && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null,
+      ...(o.inviter === true ? { inviter: true } : {}) });
   }
   return out.slice(0, 20);
 }
@@ -625,6 +633,7 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     ...('invites' in corps ? { invites: lireIdsInvites(corps.invites) ?? [] } : {}),
     ...('evenements' in corps ? { evenements: lireIdsInvites(corps.evenements) ?? [] } : {}),
     ...('contactsManuels' in corps ? { contactsManuels: lireContactsManuels(corps.contactsManuels) ?? [] } : {}),
+    ...('invitesContacts' in corps ? { invitesContacts: lireClesContacts(corps.invitesContacts) ?? [] } : {}),
     ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}),
   };
 }

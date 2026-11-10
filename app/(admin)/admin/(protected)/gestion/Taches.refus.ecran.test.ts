@@ -36,6 +36,8 @@ beforeEach(() => {
     return Response.json({ etat: 'ok', id: 3, message: 'Tâche créée.' });
   };
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
+    // 🔴 Arno (10/11/2026) — le récapitulatif avant envoi (lecture seule) : ici, aucun envoi prévu ⇒ le geste se fait sans fenêtre, comme avant.
+    if (String(u).includes('/taches/apercu')) return Response.json({ etat: 'ok', collaborateurs: [], exterieurs: [], total: 0, texteCollaborateur: null, texteExterieur: null });
     const url = String(u);
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return reponsePost(); }
     if (url.includes('collaborateurs')) {
