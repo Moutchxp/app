@@ -260,11 +260,11 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
   /* 🔴 Arno (10/11/2026, confidentialité) — les collaborateurs : UN mail interne (complet, « Mail envoyé par … ») ; « Envoyer aussi aux
-     locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, sans mention — jamais les adresses des collaborateurs. */
+     locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, avec « Mail envoyé par … » (l'expéditeur de l'agence) — jamais les adresses des autres collaborateurs. */
   const interne = mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
     paragraphes: paragraphesDuTexte(texte), qui: c.qui, signature: c.signature });
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
-    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(texte, l)), signature: c.signature }) : [];
+    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(texte, l)), qui: c.qui, signature: c.signature }) : [];
   return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [] } };
 }
 
@@ -325,11 +325,11 @@ async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, 
   const c = await contexte(ids, auteur, deps);
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
-  /* 🔴 Arno (10/11/2026, confidentialité) — UN mail PAR locataire (seul destinataire, son nom à la place du repère, sans copie, sans mention) ;
+  /* 🔴 Arno (10/11/2026, confidentialité) — UN mail PAR locataire (seul destinataire, son nom à la place du repère, sans copie, avec « Mail envoyé par … ») ;
      la copie aux collaborateurs part SÉPARÉMENT (copie interne : à qui, et le texte). Aucun locataire joignable : aux seuls collaborateurs. */
   const objet = objetRefusPrevisite(c.adresse);
   const auxLocataires = mailsAuxLocataires({ sorte: 'previsite_refus', de: c.expediteur, locataires: c.locataires, objet,
-    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(t, l)), signature: c.signature });
+    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(t, l)), qui: c.qui, signature: c.signature });
   const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
   const copie = premier === undefined ? null : copieInterneLocataires({ sorte: 'previsite_refus', de: c.expediteur, a: internes, objet, envois: auxLocataires,
     locataires: c.locataires, paragraphes: paragraphesDuTexte(personnaliserTexte(t, premier)), qui: c.qui, signature: c.signature });

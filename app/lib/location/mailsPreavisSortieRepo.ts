@@ -13,7 +13,7 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
 import type { Destinataire } from './mailNouvelleLocation';
-import { adressesUniques, copiesAvis, mailAdhocSortie, mailSortieLocataires, mailsDuPreavis, objetAdhocSortie, prenomNom, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, copiesAvis, mailAdhocSortie, mailsAuxLocatairesSeuls, mailsSortieLocataires, mailsDuPreavis, objetAdhocSortie, prenomNom, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { verifierPreavis, type ModePreavis } from './preavis';
 import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
 import { colonneExisteMemo } from './sondeLocation';
@@ -337,8 +337,10 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   const sortants = (o.sortants ?? []).filter((x) => bail.locataires.some((l) => l.occupationId === x));
   const locs = sortants.length === 0 ? [] : await locatairesAvis(sortants);
   const sig = await signatureEcran(deps);
-  const depart = typeof o.date === 'string' && locs.length > 0 ? mailSortieLocataires({ adresse, locataires: locs, dateSortie: o.date, copropriete: logement.copropriete,
-    expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran }) : null;
+  // 🔴 Arno (10/11/2026, confidentialité) — un mail par sortant, puis la copie interne.
+  const departs = typeof o.date === 'string' && locs.length > 0 ? mailsSortieLocataires({ adresse, locataires: locs, dateSortie: o.date, copropriete: logement.copropriete,
+    expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran }) : [];
+  const auxSortants = mailsAuxLocatairesSeuls(departs);
   // 🔴 Arno (06/11/2026) — les TEXTES INTÉGRAUX, produits par les MÊMES fonctions que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`), sur la
   //    sortie telle qu'elle sera écrite (`sortiePrevue`, partagé avec `enregistrerSortie`). Seuls varient l'heure du compte rendu interne.
   const prevue = typeof o.date === 'string' ? sortiePrevue(bail, sortants, o.date) : null;
@@ -346,11 +348,12 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   const texteInterne = prevue === null ? undefined : texteMailSortie(donneesMailSortie(prevue, await auteurDuMail(auteur), quand));
   // 🔴 Arno (06/11/2026) — le mail aux partenaires porte la copie complète du mail de départ (ou la ligne « aucun mail de départ »).
   const adhoc = prevue === null || partenaires.length === 0 ? null
-    : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart });
+    : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires,
+      depart: auxSortants[0] ?? null, nDeparts: auxSortants.length });
   return { etat: 'ok', data: { enGestion, copropriete: logement.copropriete, lotId: logement.lotId,
     sansEmail: locs.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
     mails: [
-      ...(depart === null ? [] : [{ sorte: depart.sorte, objet: depart.objet, a: depart.a, cc: depart.cc, texte: depart.texte }]),
+      ...departs.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte })),
       ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [],
         ...(texteInterne === undefined ? {} : { texte: texteInterne }) }]),
       ...(adhoc !== null ? [{ sorte: adhoc.sorte, objet: adhoc.objet, a: adhoc.a, cc: adhoc.cc, texte: adhoc.texte }]
@@ -360,8 +363,9 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
 
 /**
  * 🔴 Arno (06/11/2026) — ENVOIE le mail de départ aux locataires sortants (« Enregistrer et envoyer les mails » d'une sortie, seulement) :
- * Cc = gestion@ + la personne qui valide ; « Mail envoyé par … » puis la signature Gmail ; journalisé (historique du bien). Aucun sortant avec une
- * adresse : rien ne part (l'écran l'a signalé). Ne lève jamais.
+ * 🔴 Arno (10/11/2026, confidentialité) — UN mail par sortant (seul destinataire), puis la copie interne à gestion@ + la personne qui valide ;
+ * « Mail envoyé par … » puis la signature Gmail ; journalisé (historique du bien). Aucun sortant avec une adresse : rien ne part (l'écran l'a
+ * signalé). Ne lève jamais.
  */
 export async function envoyerMailSortieLocataires(f: SortieFaite, auteur: Auteur, deps: DepsAvis = {}): Promise<IssueMailsAvis> {
   try {
@@ -374,10 +378,10 @@ export async function envoyerMailSortieLocataires(f: SortieFaite, auteur: Auteur
     const qui = await emailDeLAuteur(auteur);
     const config = await chargerConfigGestion();
     const sig = await signatureEcran(deps);
-    const m = mailSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
+    const mails = mailsSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
       expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran });
-    if (m === null) return { etat: 'ok', envois: [] };
-    return { etat: 'ok', envois: await envoyerSerie([m], sig.brute, { lotId: f.bail.lotId, occupationIds: occs, auteur }, deps) };
+    if (mails.length === 0) return { etat: 'ok', envois: [] };
+    return { etat: 'ok', envois: await envoyerSerie(mails, sig.brute, { lotId: f.bail.lotId, occupationIds: occs, auteur }, deps) };
   } catch (e) {
     return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };
   }
@@ -398,12 +402,13 @@ export async function envoyerMailsSortie(f: SortieFaite, auteur: Auteur, deps: D
     const qui = await emailDeLAuteur(auteur);
     const config = await chargerConfigGestion();
     const sig = await signatureEcran(deps);
-    const depart = mailSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
+    const departs = mailsSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
       expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran });
+    const auxSortants = mailsAuxLocatairesSeuls(departs);
     const partenaires = informerPartenaires && logement.enGestion ? (await lireDestinatairesDefaut('sortie')).map((x) => x.adresse) : [];
     const adhoc = mailAdhocSortie({ ...donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString()), enGestion: logement.enGestion,
-      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart });
-    const mails = [depart, adhoc].filter((m): m is MailAvis => m !== null);
+      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart: auxSortants[0] ?? null, nDeparts: auxSortants.length });
+    const mails = [...departs, ...(adhoc === null ? [] : [adhoc])];
     return { etat: 'ok', envois: mails.length === 0 ? [] : await envoyerSerie(mails, sig.brute, { lotId: f.bail.lotId, occupationIds: occs.length > 0 ? occs : f.occupationIds, auteur }, deps) };
   } catch (e) {
     return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };

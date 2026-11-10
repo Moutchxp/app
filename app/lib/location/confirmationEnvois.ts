@@ -51,8 +51,11 @@ export const LIBELLE_MAIL: Record<string, string> = {
   // 🔴 Arno (10/11/2026) — les invitations d'une tâche.
   tache_collaborateur: 'Invitation (collaborateur de l’agence)',
   tache_exterieur: 'Invitation (contact extérieur)',
+  tache_exterieur_annulation: 'Annulation (contact extérieur)',
 };
-export const libelleMail = (m: Pick<MailParti, 'sorte'>): string => LIBELLE_MAIL[m.sorte] ?? 'Mail';
+// 🔴 Arno (10/11/2026) — la copie interne des mails partis séparément à chaque locataire garde la sorte du mail (journal) : son objet la dit.
+export const libelleMail = (m: Pick<MailParti, 'sorte'> & { objet?: string | null }): string =>
+  ((m.objet ?? '').startsWith('[Copie interne] ') ? 'Copie interne (collaborateurs)' : LIBELLE_MAIL[m.sorte] ?? 'Mail');
 
 /** Les mails du préavis / de la sortie (champ `mails` / `adhoc` de la réponse). PUR. */
 export function mailsDepuisAvis(m: { etat: 'ok'; envois: readonly MailParti[] } | { etat: string; motif: string } | undefined): { mails: MailParti[]; motifGlobal: string | null } {

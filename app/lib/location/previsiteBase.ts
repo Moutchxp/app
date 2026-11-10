@@ -207,7 +207,7 @@ export function icsDuRdv(c: Contexte, previsiteId: number, rdv: RdvPrevisite, se
 
 /**
  * Les mails aux locataires (confirmation ou modification) : 🔴 UN PAR LOCATAIRE (Arno, 10/11/2026, confidentialité) — seul destinataire,
- * « Bonjour Prénom NOM », sans copie visible, sans « Mail envoyé par … » ; puis la COPIE INTERNE (gestion@ et la personne connectée, qui
+ * « Bonjour Prénom NOM », sans copie visible, avec « Mail envoyé par … » (l'expéditeur de l'agence, décision remise d'Arno) ; puis la COPIE INTERNE (gestion@ et la personne connectée, qui
  * étaient en copie visible avant). Vide si aucun locataire n'a d'adresse. PUR (le contexte est lu).
  */
 export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisite, sequence: number, ancien: RdvPrevisite | null, maintenant: Date): MailPrevisite[] {
@@ -216,7 +216,7 @@ export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisi
   const paragraphesDe = (l: Pick<Contexte['locataires'][number], 'nom' | 'prenom'>) => (ancien === null
     ? paragraphesConfirmationLocataires({ adresse: c.adresse, locataires: [l], rdv })
     : paragraphesModificationLocataires({ adresse: c.adresse, locataires: [l], rdv, ancien }));
-  const envois = mailsAuxLocataires({ sorte, de: c.expediteur, locataires: c.locataires, objet, paragraphesDe, signature: c.signature,
+  const envois = mailsAuxLocataires({ sorte, de: c.expediteur, locataires: c.locataires, objet, paragraphesDe, qui: c.qui, signature: c.signature,
     ics: icsDuRdv(c, previsiteId, rdv, sequence, maintenant) });
   const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
   const copie = premier === undefined ? null : copieInterneLocataires({ sorte, de: c.expediteur, a: copiesAvis(c.expediteur, c.qui, []), objet, envois,

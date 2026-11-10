@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-  adressesUniques, copiesAvis, dateFinBail, enumerer, mailAccuseConge, mailAdhocPreavis, mailAdhocSortie, mailsDuPreavis,
-  objetAdhocSortie, prenomNom, type DonneesPreavisMails, mailSortieLocataires, paragrapheCopropriete, PROVISION_NON_RENSEIGNE,
+  adressesUniques, copiesAvis, dateFinBail, enumerer, mailAccuseConge as accuseDe, mailAdhocPreavis, mailAdhocSortie, mailsDuPreavis,
+  objetAdhocSortie, prenomNom, type DonneesPreavisMails, mailSortieLocataire, mailsSortieLocataires, paragrapheCopropriete, PROVISION_NON_RENSEIGNE,
+  type LocataireAvis, type MailAvis,
 } from './mailsPreavisSortie';
+
+/** 🔴 Arno (10/11/2026, confidentialité) — l'accusé d'UN locataire (le premier, par défaut) ; le départ de même. */
+const mailAccuseConge = (d: DonneesPreavisMails, i = 0): MailAvis | null => accuseDe(d, d.locataires[i]);
+const mailSortieLocataires = (d: Parameters<typeof mailsSortieLocataires>[0], i = 0): MailAvis | null => mailSortieLocataire(d, d.locataires[i] as LocataireAvis);
 
 /**
  * ══ LOCATION — LES MAILS AUTOMATIQUES DU PRÉAVIS ET DE LA SORTIE (Arno, 05/11/2026). MODULE PUR. ══════════════════════════
@@ -66,17 +71,26 @@ describe('les noms et les adresses', () => {
 });
 
 describe('A) l’accusé de réception du congé, aux locataires', () => {
-  it('UN mail : À = tous les locataires choisis ; Cc = gestion@ + la personne qui valide', () => {
-    const m = mailAccuseConge(D)!;
-    expect(m.de).toBe('gestion@criterimmo.fr');
-    expect(m.a).toEqual(['alice@exemple.test', 'paul@exemple.test']);
-    expect(m.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
-    expect(m.objet).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
+  it('🔴 UN mail PAR locataire (seul destinataire, son nom, aucune copie visible), puis la copie interne à gestion@ + la personne qui valide', () => {
+    const l = mailsDuPreavis({ ...D, partenaires: [] }).mails;
+    expect(l.map((m) => [m.a, m.cc])).toEqual([
+      [['alice@exemple.test'], []], [['paul@exemple.test'], []], [['gestion@criterimmo.fr', 'lucie.fictive@exemple.test'], []]]);
+    expect(l[0].de).toBe('gestion@criterimmo.fr');
+    expect(l[0].objet).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
+    // Aucune adresse ni aucun nom d'un autre client dans le mail d'un locataire.
+    expect(`${l[0].texte} ${l[0].html}`).not.toMatch(/paul|MARTIN/i);
+    expect(`${l[1].texte} ${l[1].html}`).not.toMatch(/alice|BERNARD/i);
+    expect(l[1].texte.startsWith('Bonjour Paul MARTIN,')).toBe(true);
+    for (const m of l.slice(0, 2)) expect(m.texte).toContain('Mail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)');
+    // La copie interne : à qui chaque mail est parti, puis le texte du premier.
+    expect(l[2].objet).toBe('[Copie interne] Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
+    expect(l[2].texte).toContain('· Alice BERNARD — alice@exemple.test\n· Paul MARTIN — paul@exemple.test');
+    expect(l[2].texte.endsWith(l[0].texte)).toBe(true);
   });
 
   it('le texte d’Arno, tel quel, avec les champs remplis (1 mois)', () => {
     const t = mailAccuseConge(D)!.texte;
-    expect(t.startsWith('Bonjour Alice BERNARD et Paul MARTIN,\n\nNous accusons réception de votre congé pour le logement situé 4 rue Fictive, 92800 Puteaux, reçu le 10/11/2026.\n\n'
+    expect(t.startsWith('Bonjour Alice BERNARD,\n\nNous accusons réception de votre congé pour le logement situé 4 rue Fictive, 92800 Puteaux, reçu le 10/11/2026.\n\n'
       + 'Votre préavis étant de 1 mois, votre bail prendra fin le 10/12/2026. Nous vous rappelons que le loyer et les charges restent dus jusqu’à la fin du préavis, y compris si vous quittez le logement avant cette date.')).toBe(true);
     expect(t).toContain('Notre équipe vous propose d’organiser dans les 10 jours une visite de pré-état des lieux de sortie.');
     expect(t).toContain('(article 22 de la loi n° 89-462 du 6 juillet 1989)');
@@ -106,13 +120,13 @@ describe('A) l’accusé de réception du congé, aux locataires', () => {
 });
 
 describe('le locataire sans e-mail : signalé, jamais bloquant', () => {
-  it('un sans e-mail : il est listé ; le mail part aux autres', () => {
+  it('un sans e-mail : il est listé ; le mail part aux autres (chacun le sien, à son nom seul)', () => {
     const r = mailsDuPreavis({ ...D, locataires: [D.locataires[0], { occupationId: 12, nom: 'MARTIN', prenom: 'Paul', emails: [] }] });
     expect(r.sansEmail).toEqual(['Paul MARTIN']);
-    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_adhoc']);
+    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_locataires', 'preavis_adhoc']);
     expect(r.mails[0].a).toEqual(['alice@exemple.test']);
-    // Il reste NOMMÉ dans l'accusé : le congé est le sien aussi.
-    expect(r.mails[0].texte.startsWith('Bonjour Alice BERNARD et Paul MARTIN,')).toBe(true);
+    expect(r.mails[0].texte.startsWith('Bonjour Alice BERNARD,')).toBe(true);
+    expect(r.mails[1].objet.startsWith('[Copie interne]')).toBe(true);
   });
 
   it('AUCUN n’a d’e-mail : pas d’accusé ; ADHOC est informé, et le mail le dit à la place de la copie', () => {
@@ -127,31 +141,32 @@ describe('le locataire sans e-mail : signalé, jamais bloquant', () => {
 });
 
 describe('B) l’information à ADHOC, pour le préavis', () => {
-  it('À = ADHOC ; Cc = gestion@ + la personne qui valide ; objet ; texte ; puis la copie complète du mail A', () => {
+  it('À = ADHOC ; Cc = gestion@ + la personne qui valide ; objet ; texte ; puis la copie complète du PREMIER mail A (« envoyé à chacun des N locataires »)', () => {
     const a = mailAccuseConge(D)!;
-    const b = mailAdhocPreavis(D, a)!;
+    const b = mailAdhocPreavis(D, a, 2)!;
     expect(b.a).toEqual(['gestion.criterimmo@gmail.com']);
     expect(b.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
     expect(b.objet).toBe('[Information] Préavis reçu — 4 rue Fictive, 92800 Puteaux — Alice BERNARD et Paul MARTIN');
-    // 🔴 Arno (05/11/2026) — l'introduction EXACTE (deux locataires : « leur »), puis la copie.
+    // 🔴 Arno (05/11/2026) — l'introduction EXACTE ; 🔴 (10/11/2026) deux locataires : un accusé chacun, la copie du premier.
     expect(b.texte.startsWith('Bonjour,\n\nNous vous informons que nous avons reçu, le 10/11/2026, le congé de Alice BERNARD et Paul MARTIN pour le logement situé '
       + '4 rue Fictive, 92800 Puteaux (propriétaire : DUPONT Jean). Le bail prendra théoriquement fin le 10/12/2026.\n\n'
-      + 'Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous leur avons adressé.\n\n'
+      + 'Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous avons adressé — envoyé à chacun des 2 locataires, séparément et à son nom (ci-dessous, celui du premier).\n\n'
       + 'Bonne journée,\nL’équipe Sans Vis-à-Vis\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n---------- Copie du mail envoyé aux locataires ----------')).toBe(true);
     expect(b.texte).toContain('prendra théoriquement fin');
     expect(b.texte).not.toContain('purement informatif');
     expect(b.texte).not.toContain('aucune action n’est attendue');
     expect(b.html).not.toContain('purement informatif');
     expect(b.html).toContain('Le bail prendra théoriquement fin le 10/12/2026.');
-    expect(b.texte).toContain(`À : alice@exemple.test, paul@exemple.test\nCc : gestion@criterimmo.fr, lucie.fictive@exemple.test\nObjet : ${a.objet}\n\n${a.texte}`);
+    expect(b.texte).toContain(`À : alice@exemple.test\nObjet : ${a.objet}\n\n${a.texte}`);
+    expect(b.texte).not.toContain('paul@exemple.test');
     expect(b.html).toContain(a.html);
   });
 
   it('notre signature AVANT la copie (comme un transfert), une seule fois pour nous', () => {
     const d = { ...D, signature: { html: '<b>Service Gestion</b>', texte: 'Service Gestion' } };
-    const b = mailAdhocPreavis(d, mailAccuseConge(d))!;
+    const b = mailAdhocPreavis(d, mailAccuseConge(d), 2)!;
     // 🔴 Arno (05/11/2026) — signature Gmail présente : « Bonne journée, » seul (plus « L’équipe Sans Vis-à-Vis »), la mention, puis la signature.
-    expect(b.texte).toContain('pour votre suivi, la copie de l’accusé de réception que nous leur avons adressé.\n\nBonne journée,\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nService Gestion\n\n---------- Copie du mail envoyé aux locataires ----------');
+    expect(b.texte).toContain('(ci-dessous, celui du premier).\n\nBonne journée,\n\nMail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nService Gestion\n\n---------- Copie du mail envoyé aux locataires ----------');
     expect(b.texte).not.toContain('L’équipe Sans Vis-à-Vis');
     expect(b.html).not.toContain('L’équipe Sans Vis-à-Vis');
     expect(b.html.indexOf('Mail envoyé par Lucie FICTIVE')).toBeLessThan(b.html.indexOf('gmail_signature'));
@@ -159,19 +174,22 @@ describe('B) l’information à ADHOC, pour le préavis', () => {
     expect(b.texte.split('-- \nService Gestion')).toHaveLength(3);
   });
 
-  it('un seul locataire : « que nous lui avons adressé » ; plusieurs : « leur »', () => {
+  it('un seul locataire : la copie de son accusé ; plusieurs : « envoyé à chacun des N locataires » (mailsDuPreavis)', () => {
     const d = { ...D, locataires: [D.locataires[0]] };
     const t = mailAdhocPreavis(d, mailAccuseConge(d))!.texte;
     expect(t).toContain('le congé de Alice BERNARD pour le logement situé');
-    expect(t).toContain('la copie de l’accusé de réception que nous lui avons adressé.');
-    expect(t).not.toContain('que nous leur avons adressé');
+    expect(t).toContain('la copie de l’accusé de réception que nous avons adressé.');
+    expect(t).not.toContain('chacun des');
     expect(t).toContain('Bonjour Alice BERNARD,');   // la copie de l'accusé suit toujours
-    expect(mailAdhocPreavis(D, mailAccuseConge(D))!.texte).toContain('que nous leur avons adressé.');
+    const r = mailsDuPreavis(D).mails;
+    expect(r.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_locataires', 'preavis_locataires', 'preavis_adhoc']);
+    expect(r[3].texte).toContain('envoyé à chacun des 2 locataires, séparément et à son nom');
+    expect(r[3].texte).toContain('À : alice@exemple.test\nObjet');
   });
 
   it('🔴 bien HORS gestion : AUCUN mail ADHOC ; l’accusé aux locataires part quand même', () => {
     const r = mailsDuPreavis({ ...D, enGestion: false });
-    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires']);
+    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_locataires', 'preavis_locataires']);
     expect(mailAdhocPreavis({ ...D, enGestion: false }, null)).toBeNull();
   });
 });
@@ -200,7 +218,8 @@ describe('🔴 Arno (05/11/2026) — « Mail envoyé par … » et la formule de
   });
   it('les destinataires, objets et textes juridiques ne changent pas', () => {
     const a = mailAccuseConge(D)!;
-    expect(a.a).toEqual(['alice@exemple.test', 'paul@exemple.test']);
+    expect(a.a).toEqual(['alice@exemple.test']);
+    expect(mailAccuseConge(D, 1)!.a).toEqual(['paul@exemple.test']);
     expect(a.objet).toBe('Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux');
     expect(a.texte).toContain('(article 22 de la loi n° 89-462 du 6 juillet 1989)');
   });
@@ -254,7 +273,7 @@ describe('🔴 Arno (05/11/2026, 460) — les partenaires viennent de la LISTE c
   });
   it('liste VIDE (ou case décochée) : aucun mail partenaire ; l’accusé aux locataires part toujours', () => {
     const r = mailsDuPreavis({ ...D, partenaires: [] });
-    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires']);
+    expect(r.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_locataires', 'preavis_locataires']);
   });
   it('sortie : À = la liste « Sorties » dans l’ordre ; vide : aucun mail', () => {
     const S = { adresse: '4 rue Fictive', lotId: 7, type: 'Appartement', etage: '3', porte: 'G', annexes: [], proprietaire: 'DUPONT Jean',
@@ -288,14 +307,17 @@ describe('🔴 Arno (06/11/2026, 461) — le paragraphe de 20 % selon la copropr
 
 describe('🔴 Arno (06/11/2026) — le mail de DÉPART aux locataires (texte exact)', () => {
   const base = { adresse: '4 rue Fictive, 92800 Puteaux', locataires: D.locataires, dateSortie: '2026-11-04', expediteur: 'gestion@criterimmo.fr', valideur: D.valideur, signature: { html: '', texte: '' } };
-  it('objet, destinataires, copies ; le texte d’Arno, la mention puis la signature', () => {
+  it('🔴 un mail PAR sortant (seul destinataire, aucune copie, aucune adresse d’un autre client), puis la copie interne ; le texte d’Arno, la mention puis la signature', () => {
+    const l = mailsSortieLocataires({ ...base, copropriete: false });
+    expect(l.map((x) => [x.a, x.cc])).toEqual([[['alice@exemple.test'], []], [['paul@exemple.test'], []], [['gestion@criterimmo.fr', 'lucie.fictive@exemple.test'], []]]);
+    expect(`${l[0].texte} ${l[0].html}`).not.toMatch(/paul|MARTIN/i);
+    expect(`${l[1].texte} ${l[1].html}`).not.toMatch(/alice|BERNARD/i);
+    expect(l[2].objet).toBe('[Copie interne] Votre départ du logement — 4 rue Fictive, 92800 Puteaux');
     const m = mailSortieLocataires({ ...base, copropriete: false })!;
     expect(m.sorte).toBe('sortie_locataires');
     expect(m.objet).toBe('Votre départ du logement — 4 rue Fictive, 92800 Puteaux');
-    expect(m.a).toEqual(['alice@exemple.test', 'paul@exemple.test']);
-    expect(m.cc).toEqual(['gestion@criterimmo.fr', 'lucie.fictive@exemple.test']);
     expect(m.texte).toBe([
-      'Bonjour Alice BERNARD et Paul MARTIN,',
+      'Bonjour Alice BERNARD,',
       'Nous vous confirmons votre départ du logement situé 4 rue Fictive, 92800 Puteaux, effectif le 04/11/2026, date de la remise des clés.',
       'Le dépôt de garantie vous sera restitué dans un délai maximal d’un mois à compter de la remise des clés si l’état des lieux de sortie est conforme à l’état des lieux d’entrée, et de deux mois dans le cas contraire, déduction faite des sommes restant dues et justifiées (article 22 de la loi n° 89-462 du 6 juillet 1989).',
       'Afin de procéder à la restitution, merci de nous communiquer par retour de mail votre nouvelle adresse postale ainsi qu’un RIB, si ce n’est pas déjà fait.',
@@ -312,7 +334,7 @@ describe('🔴 Arno (06/11/2026) — le mail de DÉPART aux locataires (texte ex
   it('signature Gmail après la mention ; aucun locataire avec une adresse : aucun mail', () => {
     const m = mailSortieLocataires({ ...base, copropriete: null, signature: { html: '<b>G</b>', texte: 'G' } })!;
     expect(m.texte.endsWith('Mail envoyé par Lucie FICTIVE (lucie.fictive@exemple.test)\n\n-- \nG')).toBe(true);
-    expect(mailSortieLocataires({ ...base, copropriete: null, locataires: D.locataires.map((l) => ({ ...l, emails: [] })) })).toBeNull();
+    expect(mailsSortieLocataires({ ...base, copropriete: null, locataires: D.locataires.map((l) => ({ ...l, emails: [] })) })).toEqual([]);
   });
 });
 
@@ -327,7 +349,10 @@ describe('🔴 Arno (06/11/2026) — le mail aux partenaires de la SORTIE porte 
     valideur: { nom: 'Arno JOREL', email: 'a.jorel@sansvisavis.com' }, signature: S2.signature })!;
   it('avec le départ : signature, PUIS « Copie du mail envoyé aux locataires » (De / À / Cc / Objet) et le texte complet — texte et HTML', () => {
     const m = mailAdhocSortie({ ...S2, depart })!;
-    expect(m.texte).toContain(`-- \nG\n\n---------- Copie du mail envoyé aux locataires ----------\nDe : gestion@criterimmo.fr\nÀ : alice@exemple.test\nCc : gestion@criterimmo.fr, a.jorel@sansvisavis.com\nObjet : ${depart.objet}\n\n${depart.texte}`);
+    expect(m.texte).toContain(`-- \nG\n\n---------- Copie du mail envoyé aux locataires ----------\nDe : gestion@criterimmo.fr\nÀ : alice@exemple.test\nObjet : ${depart.objet}\n\n${depart.texte}`);
+    expect(m.texte).not.toContain('chacun des');
+    // Deux départs : la copie du premier, et le nombre.
+    expect(mailAdhocSortie({ ...S2, depart, nDeparts: 2 })!.texte).toContain('Le mail de départ a été envoyé à chacun des 2 locataires, séparément et à son nom : ci-dessous, la copie de celui du premier.');
     expect(m.texte.endsWith(depart.texte)).toBe(true);
     expect(m.html).toContain(depart.html);
     expect(m.texte).not.toContain('le mail de départ ne leur a pas été envoyé');

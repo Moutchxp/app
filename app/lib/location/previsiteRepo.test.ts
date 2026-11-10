@@ -165,7 +165,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » : le module de tâches, plusie
     expect(r).toMatchObject({ etat: 'refus' });
     expect(creerTache).not.toHaveBeenCalled();
   });
-  it('🔴 confidentialité — à la saisie, CHAQUE colocataire reçoit SON mail de confirmation (seul destinataire, sans copie, sans « Mail envoyé par », .ics sans aucun nom) ; la copie interne part à part', async () => {
+  it('🔴 confidentialité — à la saisie, CHAQUE colocataire reçoit SON mail de confirmation (seul destinataire, sans copie, « Mail envoyé par » l’expéditeur de l’agence seul, .ics sans aucun nom) ; la copie interne part à part', async () => {
     const r = await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
     if (r.etat !== 'ok') throw new Error('attendu ok');
     const m = await envoyerMailLocatairesPrevisite(r.data, AUTEUR);
@@ -178,8 +178,13 @@ describe('🔴 Règle 3 — « RDV pré-visite » : le module de tâches, plusie
     for (const [x, autre] of [[mails[0], 'bruno'], [mails[1], 'alice']] as const) {
       const tout = `${x.texte} ${x.html} ${x.ics?.contenu ?? ''}`.toLowerCase();
       expect(tout).not.toContain(autre);
-      expect(tout).not.toContain('arno@exemple.test');
-      expect(tout).not.toContain('mail envoyé par');
+      // 🔴 Arno (10/11/2026, décision remise) — la mention de l'expéditeur de l'agence ET la signature, comme les autres mails Location ;
+      // ni gestion@ (copie interne), ni aucun autre collaborateur.
+      expect(x.texte).toContain('Mail envoyé par Arno TEST (arno@exemple.test)');
+      expect(x.html).toContain('Mail envoyé par Arno TEST (arno@exemple.test)');
+      expect(tout).not.toContain('gestion@exemple.test');
+      expect(x.ics?.contenu ?? '').not.toContain('arno@exemple.test'); // la mention vit dans le texte et le HTML — jamais dans le .ics
+      expect(x.ics?.contenu.toLowerCase()).not.toContain('arno');
       expect(tout).not.toContain('attendee');
       expect(x.ics?.contenu).toContain('UID:previsite-40@exemple.test');
     }
@@ -259,7 +264,10 @@ describe('🔴 Règle 5 — le compte rendu fait passer en « Pré-visite effect
     await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true }, AUTEUR);
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string }[]];
     expect(mails.map((x) => [x.a, x.cc])).toEqual([[INTERNES, []], [['alice@exemple.test'], []], [['bruno@exemple.test'], []]]);
-    for (const x of mails.slice(1)) for (const adr of INTERNES) expect(x.texte).not.toContain(adr);
+    for (const x of mails.slice(1)) {
+      expect(x.texte).toContain('Mail envoyé par Arno TEST (arno@exemple.test)');
+      for (const adr of INTERNES.filter((a) => a !== 'arno@exemple.test')) expect(x.texte).not.toContain(adr);
+    }
   });
   it('l’envoi échoue : le statut ne change pas', async () => {
     programmee(); echecEnvoi = true;
@@ -281,8 +289,9 @@ describe('🔴 Règle 6 — le refus / l’absence : aux locataires, copie aux c
     expect(r).toMatchObject({ etat: 'ok', data: { statut: 'refusee' } });
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string; sorte: string; objet: string }[]];
     expect(mails.map((x) => [x.a, x.cc])).toEqual([[['alice@exemple.test'], []], [['bruno@exemple.test'], []], [INTERNES, []]]);
-    expect(mails[0].texte).toBe('Bonjour Alice TEST,\n\nTexte modifié par Arno.');
-    expect(mails[1].texte).toBe('Bonjour Bruno TEST,\n\nTexte modifié par Arno.');
+    expect(mails[0].texte.startsWith('Bonjour Alice TEST,\n\nTexte modifié par Arno.\n\nMail envoyé par Arno TEST (arno@exemple.test)')).toBe(true);
+    expect(mails[1].texte.startsWith('Bonjour Bruno TEST,\n\nTexte modifié par Arno.\n\nMail envoyé par Arno TEST (arno@exemple.test)')).toBe(true);
+    for (const x of mails.slice(0, 2)) for (const adr of INTERNES.filter((a) => a !== 'arno@exemple.test')) expect(x.texte).not.toContain(adr);
     expect(mails[2].objet.startsWith('[Copie interne]')).toBe(true);
     expect(suivi?.refus_le).toBe(MAINTENANT);
     expect(journal().map((a) => a.params[1])).toEqual(['location_previsite_refusee', 'location_previsite_refusee']);

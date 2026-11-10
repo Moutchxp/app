@@ -65,18 +65,25 @@ const deps = {
 };
 const DEMANDE = { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois' as const, duree: 1 as const } };
 const journalAvis = () => ecritures.filter((e) => e.sql.includes('INSERT INTO gestion_location_mail_avis'));
+/** 🔴 Arno (10/11/2026, confidentialité) — gestion@ + la personne qui valide : la COPIE INTERNE (mail à part), jamais plus en copie visible. */
+const INTERNE = ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'];
 
 beforeEach(() => { copro = null; enGestion = true; avec457 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; listes = { preavis: [ADHOC], sortie: [ADHOC] }; });
 
 describe('l’aperçu : lecture seule', () => {
-  it('sélection multiple : les deux mails, sans rien envoyer ni écrire', async () => {
+  it('sélection multiple : 🔴 un accusé PAR locataire, la copie interne, puis le mail aux partenaires — sans rien envoyer ni écrire', async () => {
     const r = await apercuMailsPreavis(DEMANDE, AUTEUR, deps);
     expect(r.etat).toBe('ok');
     if (r.etat !== 'ok') return;
     expect(r.data.mails.map((m) => [m.sorte, m.a, m.cc])).toEqual([
-      ['preavis_locataires', ['alice@exemple.test', 'paul@exemple.test'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']],
-      ['preavis_adhoc', ['gestion.criterimmo@gmail.com'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']],
+      ['preavis_locataires', ['alice@exemple.test'], []],
+      ['preavis_locataires', ['paul@exemple.test'], []],
+      ['preavis_locataires', INTERNE, []],
+      ['preavis_adhoc', ['gestion.criterimmo@gmail.com'], INTERNE],
     ]);
+    // Aucune adresse d'un autre client dans l'accusé d'un locataire.
+    expect(r.data.mails[0].texte).not.toContain('paul@exemple.test');
+    expect(r.data.mails[1].texte).not.toContain('alice@exemple.test');
     expect(r.data.dateFin).toBe('2026-12-04');
     expect(r.data.sansEmail).toEqual([]);
     // 🔴 Arno (05/11/2026) — l'aperçu montre la mention, comme le mail qui partira.
@@ -99,30 +106,38 @@ describe('l’aperçu : lecture seule', () => {
 });
 
 describe('l’envoi du préavis', () => {
-  it('deux mails, dans l’ordre, de gestion@ : destinataires et copies ; chacun journalisé (auteur, texte tel qu’il part)', async () => {
+  it('🔴 un accusé PAR locataire (seul destinataire, aucune copie), la copie interne à part, puis les partenaires — chacun journalisé (auteur, texte tel qu’il part)', async () => {
     const r = await envoyerMailsPreavis(DEMANDE, AUTEUR, deps);
     expect(r.etat).toBe('ok');
-    expect(envoyes.map((m) => [m.de, m.a, m.cc, m.objet])).toEqual([
-      ['gestion@criterimmo.fr', ['alice@exemple.test', 'paul@exemple.test'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'],
-        'Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux'],
-      ['gestion@criterimmo.fr', ['gestion.criterimmo@gmail.com'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'],
+    expect(envoyes.map((m) => [m.de, m.a, m.cc, m.cci, m.objet])).toEqual([
+      ['gestion@criterimmo.fr', ['alice@exemple.test'], [], [], 'Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux'],
+      ['gestion@criterimmo.fr', ['paul@exemple.test'], [], [], 'Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux'],
+      ['gestion@criterimmo.fr', INTERNE, [], [], '[Copie interne] Accusé de réception de votre congé — 4 rue Fictive, 92800 Puteaux'],
+      ['gestion@criterimmo.fr', ['gestion.criterimmo@gmail.com'], INTERNE, [],
         '[Information] Préavis reçu — 4 rue Fictive, 92800 Puteaux — Alice BERNARD et Paul MARTIN'],
     ]);
+    expect(envoyes[0].corps.startsWith('Bonjour Alice BERNARD,')).toBe(true);
+    expect(envoyes[1].corps.startsWith('Bonjour Paul MARTIN,')).toBe(true);
+    for (const [k, autre] of [[0, /paul|MARTIN/i], [1, /alice|BERNARD/i]] as const) expect(`${envoyes[k].corps} ${envoyes[k].corpsHtml ?? ''}`).not.toMatch(autre);
+    // Le mail aux partenaires : la copie du PREMIER accusé, et « envoyé à chacun des 2 locataires ».
+    expect(envoyes[3].corps).toContain('envoyé à chacun des 2 locataires, séparément et à son nom');
     const j = journalAvis();
     expect(j.map((e) => [e.params[0], e.params[1], e.params[2], e.params[9], e.params[13]])).toEqual([
+      ['preavis_locataires', 7, [11, 12], 'envoye', 'a.jorel@sansvisavis.com'],
+      ['preavis_locataires', 7, [11, 12], 'envoye', 'a.jorel@sansvisavis.com'],
       ['preavis_locataires', 7, [11, 12], 'envoye', 'a.jorel@sansvisavis.com'],
       ['preavis_adhoc', 7, [11, 12], 'envoye', 'a.jorel@sansvisavis.com'],
     ]);
     expect(j[0].params[7]).toBe(envoyes[0].corps);
     // 🔴 Arno (05/11/2026) — la mention du compte qui valide : dans chaque mail parti ET dans la copie enregistrée pour l'historique du bien.
-    for (const k of [0, 1]) {
+    for (const k of [0, 1, 2, 3]) {
       expect(envoyes[k].corps).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
       expect(j[k].params[7]).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
       expect(j[k].params[8]).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
     }
     // Et une ligne au journal du bien pour chacun.
     expect(ecritures.filter((e) => e.sql.includes('INSERT INTO gestion_journal')).map((e) => e.params[1])).toEqual([
-      'location_mail_preavis_locataires', 'location_mail_preavis_adhoc']);
+      'location_mail_preavis_locataires', 'location_mail_preavis_locataires', 'location_mail_preavis_locataires', 'location_mail_preavis_adhoc']);
   });
 
   it('un colocataire décoché : seul l’autre reçoit l’accusé', async () => {
@@ -134,13 +149,13 @@ describe('l’envoi du préavis', () => {
   it('🔴 bien HORS gestion : l’accusé seul, aucun mail à ADHOC', async () => {
     enGestion = false;
     await envoyerMailsPreavis(DEMANDE, AUTEUR, deps);
-    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test', 'paul@exemple.test']]);
+    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test'], ['paul@exemple.test'], INTERNE]);
   });
 
   it('un échec d’envoi est journalisé « echec » et rendu, sans lever', async () => {
     const r = await envoyerMailsPreavis(DEMANDE, AUTEUR, { ...deps, transport: { envoyer: async () => ({ ok: false as const, motif: 'Gmail injoignable' }) } });
-    expect(r.etat === 'ok' && r.envois.map((e) => [e.envoye, e.motif])).toEqual([[false, 'Gmail injoignable'], [false, 'Gmail injoignable']]);
-    expect(journalAvis().map((e) => [e.params[9], e.params[10]])).toEqual([['echec', 'Gmail injoignable'], ['echec', 'Gmail injoignable']]);
+    expect(r.etat === 'ok' && r.envois.map((e) => [e.envoye, e.motif])).toEqual(Array.from({ length: 4 }, () => [false, 'Gmail injoignable']));
+    expect(journalAvis().map((e) => [e.params[9], e.params[10]])).toEqual(Array.from({ length: 4 }, () => ['echec', 'Gmail injoignable']));
   });
 
   it('sans la migration 457 : aucun mail ne part, et la raison est dite', async () => {
@@ -182,9 +197,9 @@ describe('🔴 Arno (05/11/2026) — LA porte commune à toutes les entrées : `
     enregistrerPreavis.mockImplementation(async () => { expect(envoyes).toEqual([]); return { etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } }; });
     const r = await enregistrerPreavisAvecMails({ ...DEMANDE, motif: null }, AUTEUR, true, deps);
     expect(enregistrerPreavis).toHaveBeenCalledWith({ ...DEMANDE, motif: null }, AUTEUR);
-    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test', 'paul@exemple.test'], ['gestion.criterimmo@gmail.com']]);
+    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test'], ['paul@exemple.test'], INTERNE, ['gestion.criterimmo@gmail.com']]);
     expect(r.etat).toBe('ok');
-    expect(r.mails?.etat === 'ok' && r.mails.envois.map((e) => e.envoye)).toEqual([true, true]);
+    expect(r.mails?.etat === 'ok' && r.mails.envois.map((e) => e.envoye)).toEqual([true, true, true, true]);
   });
 
   it('un préavis refusé : aucun mail ; sans « Valider et envoyer » : le préavis seul, aucun mail', async () => {
@@ -236,16 +251,16 @@ describe('🔴 Arno (05/11/2026, 460) — « Informer nos partenaires » : la li
     const p = envoyes.find((m) => m.a.includes('laura@monga.io'))!;
     expect(p.a).toEqual(['laura@monga.io', 'gestion.criterimmo@gmail.com']);
     expect(p.cc).toEqual(['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']);
-    expect(envoyes).toHaveLength(2); // l'accusé aux locataires + UN mail partenaires
+    expect(envoyes).toHaveLength(4); // un accusé par locataire, la copie interne, + UN mail partenaires
   });
   it('préavis, case DÉCOCHÉE : aucun mail partenaire ; l’accusé aux locataires part toujours', async () => {
     await envoyerMailsPreavis(DEMANDE, AUTEUR, deps, false);
-    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test', 'paul@exemple.test']]);
+    expect(envoyes.map((m) => m.a)).toEqual([['alice@exemple.test'], ['paul@exemple.test'], INTERNE]);
   });
   it('préavis, liste VIDE : aucun mail partenaire ; l’aperçu n’annonce aucune case (liste vide)', async () => {
     listes = { preavis: [], sortie: [] };
     const a = await apercuMailsPreavis(DEMANDE, AUTEUR, deps);
-    expect(a.etat === 'ok' && [a.data.partenaires, a.data.mails.map((m) => m.sorte)]).toEqual([[], ['preavis_locataires']]);
+    expect(a.etat === 'ok' && [a.data.partenaires, a.data.mails.map((m) => m.sorte)]).toEqual([[], ['preavis_locataires', 'preavis_locataires', 'preavis_locataires']]);
   });
   it('préavis, bien HORS gestion : ni partenaires annoncés, ni mail partenaire', async () => {
     enGestion = false;
@@ -299,7 +314,8 @@ describe('🔴 Arno (06/11/2026) — l’aperçu des mails d’une SORTIE (réca
     if (r.etat !== 'ok') return;
     expect(r.data).toMatchObject({ enGestion: true, copropriete: null, lotId: 7, sansEmail: [] });
     expect(r.data.mails.map((m) => [m.sorte, m.objet, m.a, m.cc])).toEqual([
-      ['sortie_locataires', 'Votre départ du logement — 4 rue Fictive, 92800 Puteaux', ['alice@exemple.test'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']],
+      ['sortie_locataires', 'Votre départ du logement — 4 rue Fictive, 92800 Puteaux', ['alice@exemple.test'], []],
+      ['sortie_locataires', '[Copie interne] Votre départ du logement — 4 rue Fictive, 92800 Puteaux', INTERNE, []],
       ['sortie_interne', 'Sortie de locataire — 4 rue Fictive, 92800 Puteaux', ['a.jorel@sansvisavis.com', 'collegue@exemple.test'], []],
       ['sortie_adhoc', '[Information] Sortie de locataire(s) — 4 rue Fictive, 92800 Puteaux', ['gestion.criterimmo@gmail.com'], ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']],
     ]);
@@ -310,7 +326,7 @@ describe('🔴 Arno (06/11/2026) — l’aperçu des mails d’une SORTIE (réca
   it('bien HORS gestion : le mail de départ et le compte rendu interne, pas de partenaires', async () => {
     enGestion = false;
     const r = await apercuMailsSortie(11, AUTEUR, { sortants: [11], date: '2026-11-04' });
-    expect(r.etat === 'ok' ? r.data.mails.map((m) => m.sorte) : null).toEqual(['sortie_locataires', 'sortie_interne']);
+    expect(r.etat === 'ok' ? r.data.mails.map((m) => m.sorte) : null).toEqual(['sortie_locataires', 'sortie_locataires', 'sortie_interne']);
   });
   it('un sortant SANS e-mail : signalé ; le mail part aux autres', async () => {
     emailsPaul = [];
@@ -337,15 +353,19 @@ describe('🔴 Arno (06/11/2026, 461) — la copropriété SAISIE sur le bien d�
 describe('🔴 Arno (06/11/2026) — l’ENVOI du mail de départ aux locataires', () => {
   const FAITE_L = { bail: { lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux' }, date: '2026-11-04', sortants: [{ occupationId: 11, nom: 'BERNARD Alice' }, { occupationId: 12, nom: 'MARTIN' }],
     occupationIds: [11, 12], vacant: true, restants: [], annexes: [] } as never;
-  it('un mail : À = les sortants qui ont une adresse ; Cc = gestion@ + la personne qui valide ; journalisé pour le bien', async () => {
+  it('🔴 un mail PAR sortant (seul destinataire, aucune copie, aucune adresse d’un autre client), puis la copie interne ; journalisés pour le bien', async () => {
     copro = true;
     const r = await envoyerMailSortieLocataires(FAITE_L, AUTEUR, deps);
     expect(r.etat).toBe('ok');
-    expect(envoyes.map((m) => [m.objet, m.a, m.cc])).toEqual([['Votre départ du logement — 4 rue Fictive, 92800 Puteaux', ['alice@exemple.test', 'paul@exemple.test'],
-      ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com']]]);
+    const objet = 'Votre départ du logement — 4 rue Fictive, 92800 Puteaux';
+    expect(envoyes.map((m) => [m.objet, m.a, m.cc, m.cci])).toEqual([[objet, ['alice@exemple.test'], [], []], [objet, ['paul@exemple.test'], [], []],
+      [`[Copie interne] ${objet}`, INTERNE, [], []]]);
+    expect(`${envoyes[0].corps} ${envoyes[0].corpsHtml ?? ''}`).not.toMatch(/paul|MARTIN/i);
+    expect(`${envoyes[1].corps} ${envoyes[1].corpsHtml ?? ''}`).not.toMatch(/alice|BERNARD/i);
     expect(envoyes[0].corps).toContain('Le logement étant situé dans un immeuble en copropriété');
     expect(envoyes[0].corps).not.toContain('Enfin, le logement');
-    expect(journalAvis().map((e) => e.params[0])).toEqual(['sortie_locataires']);
+    expect(envoyes[0].corps).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
+    expect(journalAvis().map((e) => e.params[0])).toEqual(['sortie_locataires', 'sortie_locataires', 'sortie_locataires']);
   });
   it('aucun sortant avec une adresse : rien ne part', async () => {
     emailsPaul = [];
@@ -362,9 +382,10 @@ describe('🔴 Arno (06/11/2026) — le texte du RÉCAPITULATIF est EXACTEMENT c
     expect(ap.etat).toBe('ok');
     if (ap.etat !== 'ok') return;
     await envoyerMailsPreavis(DEMANDE, AUTEUR, d2);
-    expect(ap.data.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_adhoc']);
+    expect(ap.data.mails.map((m) => m.sorte)).toEqual(['preavis_locataires', 'preavis_locataires', 'preavis_locataires', 'preavis_adhoc']);
     expect(envoyes.map((m) => m.corps)).toEqual(ap.data.mails.map((m) => m.texte));
-    expect(ap.data.mails[1].texte).toContain(ap.data.mails[0].texte);   // la copie complète de l'accusé
+    expect(ap.data.mails[3].texte).toContain(ap.data.mails[0].texte);   // la copie complète du premier accusé
+    expect(ap.data.mails[3].texte).not.toContain(ap.data.mails[1].texte);
     expect(ap.data.mails[0].texte).toContain('Mail envoyé par Arno JOREL (a.jorel@sansvisavis.com)');
     expect(ap.data.mails[0].texte).toContain('Service Gestion');
   });
@@ -377,12 +398,15 @@ describe('🔴 Arno (06/11/2026) — le texte du RÉCAPITULATIF est EXACTEMENT c
       expect(ap.etat).toBe('ok');
       if (ap.etat !== 'ok') return;
       const texte = (sorte: string) => ap.data.mails.find((m) => m.sorte === sorte)?.texte;
+      const departs = ap.data.mails.filter((m) => m.sorte === 'sortie_locataires').map((m) => m.texte);
       const { lireBail, sortiePrevue, notifierSortie } = await import('./sortieLocatairesRepo');
       const f = { ...sortiePrevue((await lireBail(11))!, [11, 12], '2026-11-04') };
       await envoyerMailsSortie(f as never, AUTEUR, { ...d2, maintenant: new Date() }, true);
-      expect(envoyes.map((m) => m.corps)).toEqual([texte('sortie_locataires'), texte('sortie_adhoc')]);
-      // 🔴 la copie COMPLÈTE du mail de départ, après notre signature, dans le mail aux partenaires
-      expect(texte('sortie_adhoc')).toContain(`---------- Copie du mail envoyé aux locataires ----------\nDe : gestion@criterimmo.fr\nÀ : alice@exemple.test, paul@exemple.test\nCc : gestion@criterimmo.fr, a.jorel@sansvisavis.com\nObjet : Votre départ du logement — 4 rue Fictive, 92800 Puteaux\n\n${texte('sortie_locataires')}`);
+      expect(departs).toHaveLength(3); // Alice, Paul, la copie interne
+      expect(envoyes.map((m) => m.corps)).toEqual([...departs, texte('sortie_adhoc')]);
+      // 🔴 la copie COMPLÈTE du PREMIER mail de départ, après notre signature, dans le mail aux partenaires ; et « chacun des 2 locataires »
+      expect(texte('sortie_adhoc')).toContain(`---------- Copie du mail envoyé aux locataires ----------\nDe : gestion@criterimmo.fr\nÀ : alice@exemple.test\nObjet : Votre départ du logement — 4 rue Fictive, 92800 Puteaux\n\n${departs[0]}`);
+      expect(texte('sortie_adhoc')).toContain('Le mail de départ a été envoyé à chacun des 2 locataires');
       const interne: string[] = [];
       await notifierSortie(f as never, AUTEUR, { transport: { envoyer: async (m: MessageAEnvoyer) => { interne.push(m.corps); return { ok: true as const, id: null, factice: true }; } },
         maintenant: new Date() });

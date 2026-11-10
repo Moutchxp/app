@@ -191,17 +191,57 @@ export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 
   ];
 }
 
-/** Le mail A, ou `null` si aucun locataire choisi n'a d'adresse e-mail. PUR. */
-export function mailAccuseConge(d: DonneesPreavisMails): MailAvis | null {
-  const a = adressesUniques(d.locataires.flatMap((l) => l.emails));
+/**
+ * Le mail A d'UN locataire, ou `null` s'il n'a pas d'adresse e-mail. 🔴 Arno (10/11/2026, confidentialité) — SEUL destinataire, « Bonjour
+ * Prénom NOM » (le sien), aucune copie visible ; « Mail envoyé par … » (l'expéditeur de l'agence) puis la signature Gmail. PUR.
+ */
+export function mailAccuseConge(d: DonneesPreavisMails, l: LocataireAvis): MailAvis | null {
+  const a = adressesUniques(l.emails);
   if (a.length === 0) return null;
-  const paras = avecMention(paragraphesAccuseConge(d), d.valideur);
+  const paras = avecMention(paragraphesAccuseConge({ ...d, locataires: [l] }), d.valideur);
   const sig = avecSignature(paras.join('\n\n'), d.signature);
   return {
-    sorte: 'preavis_locataires', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet: objetAccuseConge(d.adresse),
+    sorte: 'preavis_locataires', de: d.expediteur, a, cc: [], objet: objetAccuseConge(d.adresse),
     texte: sig.texte, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}`),
   };
 }
+
+/** 🔴 Arno (10/11/2026) — l'objet d'une copie interne (collaborateurs) des mails partis séparément aux locataires. */
+export const PREFIXE_COPIE_INTERNE = '[Copie interne] ';
+
+/**
+ * ══ 🔴🔴 LA COPIE INTERNE des mails partis SÉPARÉMENT à chaque locataire (Arno, 10/11/2026, comme pour la pré-visite) ═══════════════════
+ * À : gestion@ et la personne qui valide (ceux qui étaient en copie visible avant) ; aucune copie. Elle dit à qui chaque mail est parti,
+ * puis le texte du premier (chacun a reçu le sien, à son nom). `null` : aucun mail parti, ou personne à qui la faire. PUR.
+ */
+export function copieInterneLocataires(d: { sorte: MailAvis['sorte']; expediteur: string; valideur: DonneesPreavisMails['valideur']; signature: Signature;
+  locataires: readonly LocataireAvis[]; envois: readonly MailAvis[] }): MailAvis | null {
+  const a = copiesAvis(d.expediteur, d.valideur, []);
+  const premier = d.envois[0];
+  if (a.length === 0 || premier === undefined) return null;
+  const destinataires = d.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => `· ${prenomNom(l)} — ${adressesUniques(l.emails).join(', ')}`);
+  const paras = avecMention([
+    `Copie interne : ce mail est parti séparément à chaque locataire (un destinataire par mail, sans copie visible) :\n${destinataires.join('\n')}`,
+    'Texte reçu (chaque locataire avec son propre nom) :',
+  ], d.valideur);
+  const sig = avecSignature(paras.join('\n\n'), d.signature);
+  return {
+    sorte: d.sorte, de: d.expediteur, a, cc: [], objet: `${PREFIXE_COPIE_INTERNE}${premier.objet}`,
+    texte: `${sig.texte}\n\n${premier.texte}`, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}<div style="margin-top:20px">${premier.html}</div>`),
+  };
+}
+
+/** Les mails A (un par locataire qui a une adresse), puis leur copie interne. PUR. */
+export function mailsAccuseConge(d: DonneesPreavisMails): MailAvis[] {
+  const envois = d.locataires.map((l) => mailAccuseConge(d, l)).filter((m): m is MailAvis => m !== null);
+  const copie = copieInterneLocataires({ sorte: 'preavis_locataires', expediteur: d.expediteur, valideur: d.valideur, signature: d.signature, locataires: d.locataires, envois });
+  return copie === null ? envois : [...envois, copie];
+}
+
+/** La phrase du mail aux partenaires sur les accusés : la copie du PREMIER, et « envoyé à chacun des N locataires » s'ils sont plusieurs. PUR. */
+const phraseCopiePartenaires = (mot: string, n: number): string => (n > 1
+  ? `Vous trouverez ci-dessous, pour votre suivi, la copie ${mot} — envoyé à chacun des ${n} locataires, séparément et à son nom (ci-dessous, celui du premier).`
+  : `Vous trouverez ci-dessous, pour votre suivi, la copie ${mot}.`);
 
 // ── B) L'INFORMATION À ADHOC, POUR LE PRÉAVIS ────────────────────────────────────────────────────────────────────────────
 
@@ -215,13 +255,15 @@ function enteteCopie(m: MailAvis): string[] {
     ...(m.cc.length > 0 ? [`Cc : ${m.cc.join(', ')}`] : []), `Objet : ${m.objet}`];
 }
 
-/** Le mail B, ou `null` pour un bien HORS gestion (aucun mail ADHOC). `accuse` = le mail A tel qu'il part (ou `null`). PUR. */
-export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null): MailAvis | null {
+/**
+ * Le mail B, ou `null` pour un bien HORS gestion (aucun mail ADHOC). `accuse` = le PREMIER mail A tel qu'il part (ou `null`) ; `n` = le nombre
+ * de locataires qui ont reçu le leur (🔴 Arno, 10/11/2026 : la copie d'un seul accusé, et « envoyé à chacun des N locataires »). PUR.
+ */
+export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null, n = accuse === null ? 0 : 1): MailAvis | null {
   if (!d.enGestion) return null;
   const a = adressesUniques(d.partenaires);
   if (a.length === 0) return null;
   const noms = enumerer(d.locataires.map(prenomNom));
-  const plusieurs = d.locataires.length > 1;
   // 🔴 Arno (05/11/2026) — l'introduction telle qu'il l'a écrite (seuls les champs changent) ; « purement informatif » retiré.
   const intro = [
     'Bonjour,',
@@ -229,7 +271,7 @@ export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null
     accuse === null
       // Aucun accusé envoyé par mail : pas de copie à annoncer (constat inchangé).
       ? 'Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.'
-      : `Vous trouverez ci-dessous, pour votre suivi, la copie de l’accusé de réception que nous ${plusieurs ? 'leur' : 'lui'} avons adressé.`,
+      : phraseCopiePartenaires('de l’accusé de réception que nous avons adressé', n),
     // 🔴 Arno (05/11/2026) — avec une signature Gmail, elle tient lieu de « L’équipe Sans Vis-à-Vis » : « Bonne journée, » seul.
     aSignature(d.signature) ? 'Bonne journée,' : 'Bonne journée,\nL’équipe Sans Vis-à-Vis',
   ];
@@ -247,10 +289,11 @@ export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null
 
 /** Les deux mails du préavis, et les locataires choisis SANS adresse (orange dans l'aperçu). PUR. */
 export function mailsDuPreavis(d: DonneesPreavisMails): { mails: MailAvis[]; sansEmail: string[] } {
-  const accuse = mailAccuseConge(d);
-  const adhoc = mailAdhocPreavis(d, accuse);
+  const accuses = mailsAccuseConge(d);
+  const auxLocataires = accuses.filter((m) => !m.objet.startsWith(PREFIXE_COPIE_INTERNE));
+  const adhoc = mailAdhocPreavis(d, auxLocataires[0] ?? null, auxLocataires.length);
   return {
-    mails: [accuse, adhoc].filter((m): m is MailAvis => m !== null),
+    mails: [...accuses, ...(adhoc === null ? [] : [adhoc])],
     sansEmail: d.locataires.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
   };
 }
@@ -273,7 +316,7 @@ export const PAS_DE_MAIL_DE_DEPART = 'Aucun des locataires n’a d’adresse e-m
  * avant (ni copie, ni ligne). PUR.
  */
 export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[];
-  depart?: MailAvis | null }): MailAvis | null {
+  depart?: MailAvis | null; nDeparts?: number }): MailAvis | null {
   if (!d.enGestion) return null;
   const a = adressesUniques(d.partenaires);
   if (a.length === 0) return null;
@@ -289,6 +332,8 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
     d.vacant ? 'Le logement est désormais vacant.' : `Le logement reste loué à ${enumerer(d.restants.map((n) => prenomNom({ nom: n, prenom: null })))}.`,
     'Ce message est purement informatif : aucune action n’est attendue de votre part.',
     ...(d.depart === null ? [PAS_DE_MAIL_DE_DEPART] : []),
+    // 🔴 Arno (10/11/2026) — un mail de départ par locataire : la copie du premier, et le nombre.
+    ...(d.depart && (d.nDeparts ?? 1) > 1 ? [`Le mail de départ a été envoyé à chacun des ${d.nDeparts} locataires, séparément et à son nom : ci-dessous, la copie de celui du premier.`] : []),
   ];
   const corps = avecMention(paras, d.auteur);
   const sig = avecSignature(corps.join('\n\n'), d.signature);
@@ -321,18 +366,31 @@ export function paragraphesSortieLocataires(d: { adresse: string; locataires: re
   ];
 }
 
+type DonneesDepart = { adresse: string; locataires: readonly LocataireAvis[]; dateSortie: string; copropriete: boolean | null;
+  expediteur: string; valideur: DonneesPreavisMails['valideur']; signature: Signature };
+
 /**
- * Le mail de départ : À = les locataires sortants qui ont une adresse ; Cc = gestion@ + la personne qui valide ; « Mail envoyé par … » puis la
- * signature Gmail. `null` si aucun sortant n'a d'adresse (l'écran le signale). PUR.
+ * Le mail de départ d'UN locataire sortant, ou `null` s'il n'a pas d'adresse. 🔴 Arno (10/11/2026, confidentialité) — SEUL destinataire, son
+ * nom, aucune copie visible (gestion@ et la personne qui valide reçoivent la copie interne, à part) ; « Mail envoyé par … » puis la
+ * signature Gmail. PUR.
  */
-export function mailSortieLocataires(d: { adresse: string; locataires: readonly LocataireAvis[]; dateSortie: string; copropriete: boolean | null;
-  expediteur: string; valideur: DonneesPreavisMails['valideur']; signature: Signature }): MailAvis | null {
-  const a = adressesUniques(d.locataires.flatMap((l) => l.emails));
+export function mailSortieLocataire(d: DonneesDepart, l: LocataireAvis): MailAvis | null {
+  const a = adressesUniques(l.emails);
   if (a.length === 0) return null;
-  const paras = avecMention(paragraphesSortieLocataires(d), d.valideur);
+  const paras = avecMention(paragraphesSortieLocataires({ ...d, locataires: [l] }), d.valideur);
   const sig = avecSignature(paras.join('\n\n'), d.signature);
   return {
-    sorte: 'sortie_locataires', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet: objetSortieLocataires(d.adresse),
+    sorte: 'sortie_locataires', de: d.expediteur, a, cc: [], objet: objetSortieLocataires(d.adresse),
     texte: sig.texte, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}`),
   };
 }
+
+/** Les mails de départ (un par sortant qui a une adresse), puis leur copie interne ; vide si aucun sortant n'a d'adresse (l'écran le signale). PUR. */
+export function mailsSortieLocataires(d: DonneesDepart): MailAvis[] {
+  const envois = d.locataires.map((l) => mailSortieLocataire(d, l)).filter((m): m is MailAvis => m !== null);
+  const copie = copieInterneLocataires({ sorte: 'sortie_locataires', expediteur: d.expediteur, valideur: d.valideur, signature: d.signature, locataires: d.locataires, envois });
+  return copie === null ? envois : [...envois, copie];
+}
+
+/** Les mails partis aux locataires eux-mêmes (sans la copie interne). PUR. */
+export const mailsAuxLocatairesSeuls = (l: readonly MailAvis[]): MailAvis[] => l.filter((m) => !m.objet.startsWith(PREFIXE_COPIE_INTERNE));

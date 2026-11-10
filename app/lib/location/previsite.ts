@@ -322,17 +322,18 @@ export function paragraphesDuTexte(texte: string): string[] {
 
 /**
  * ══ 🔴🔴 CONFIDENTIALITÉ (Arno, 10/11/2026, sans exception) ══════════════════════════════════════════════════════════════════════
- * Un contact extérieur (locataire) reçoit SON mail, seul destinataire, sans aucune copie visible, sans la ligne « Mail envoyé par … » (seule
- * la signature de l'agence) : jamais le nom, le téléphone ou l'e-mail d'un autre contact, client ou collaborateur. Les collaborateurs, eux,
- * reçoivent une COPIE INTERNE séparée, qui dit à qui chaque mail est parti. PUR.
+ * Un contact extérieur (locataire) reçoit SON mail, seul destinataire, sans aucune copie visible : jamais le nom, le téléphone ou l'e-mail
+ * d'un autre contact, client ou collaborateur. Les collaborateurs, eux, reçoivent une COPIE INTERNE séparée, qui dit à qui chaque mail est parti.
+ * 🔴 Arno (10/11/2026, décision remise) — la mention « Mail envoyé par Prénom NOM (adresse) » et la signature Gmail y sont, comme dans les
+ * autres mails Location : c'est l'expéditeur de l'agence, pas la coordonnée d'un client ; aucun autre collaborateur n'y apparaît. PUR.
  */
 export function mailsAuxLocataires(o: {
   sorte: MailPrevisite['sorte']; de: string; locataires: readonly LocatairePrevisite[]; objet: string;
-  paragraphesDe: (l: LocatairePrevisite) => readonly string[]; signature: Signature; ics?: MailPrevisite['ics'];
+  paragraphesDe: (l: LocatairePrevisite) => readonly string[]; qui: QuiEnvoie; signature: Signature; ics?: MailPrevisite['ics'];
 }): MailPrevisite[] {
   return o.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => mailPrevisite({
     sorte: o.sorte, de: o.de, a: adressesUniques(l.emails), cc: [], objet: o.objet, paragraphes: o.paragraphesDe(l),
-    qui: { mention: null }, signature: o.signature, ics: o.ics ?? null,
+    qui: o.qui, signature: o.signature, ics: o.ics ?? null,
   }));
 }
 
