@@ -1,5 +1,7 @@
 'use client';
 
+import type { Retouche, Retouches } from '../../../../lib/location/texteModifiable';
+import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from '../location/TexteModifiableMail';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -23,10 +25,14 @@ import type { MailParti } from '../../../../lib/location/confirmationEnvois';
  */
 
 type Etat =
-  | { etape: 'recap'; titre: string; apercu: ApercuEnvois | null; erreur: string | null; occupe: boolean }
+  | { etape: 'recap'; titre: string; apercu: ApercuEnvois | null; erreur: string | null; occupe: boolean;
+      /** 🔴 Arno (10/11/2026) — le texte modifié des mails aux extérieurs ; un refus du serveur (partie protégée) est dit ici. */
+      retouches?: Retouches; refusTexte?: string | null }
   | { etape: 'resultat'; titre: string; issue: IssueGeste };
 
-interface Demande { titre: string; apercu: Record<string, unknown>; action: () => Promise<IssueGeste>;
+interface Demande { titre: string; apercu: Record<string, unknown>;
+  /** Le geste ; `retouches` : le texte modifié des mails aux contacts extérieurs (« Modifier le texte »), à joindre à la requête. */
+  action: (retouches?: Retouches) => Promise<IssueGeste>;
   /** Un autre aperçu que celui de la Gestion (ex. l'état des lieux de sortie, lu par la route de la Location). */
   lireApercu?: () => Promise<ApercuEnvois | { erreur: string }> }
 
@@ -65,7 +71,8 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
     const c = courant.current;
     if (c === null) return;
     setEtat((e) => (e && e.etape === 'recap' ? { ...e, occupe: true } : e));
-    const r = await c.d.action();
+    const rt = etat?.etape === 'recap' ? etat.retouches : undefined;
+    const r = await c.d.action(rt && Object.keys(rt).length > 0 ? rt : undefined);
     if (!r.ok) { setEtat((e) => (e && e.etape === 'recap' ? { ...e, occupe: false, erreur: r.message } : e)); return; }
     setEtat({ etape: 'resultat', titre: c.d.titre, issue: r });
   };
@@ -74,10 +81,22 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
     const r = etat?.etape === 'resultat' ? etat.issue : null;
     courant.current = null; setEtat(null); c?.resoudre(r);
   };
-  return { demander, fenetre: etat === null ? null : <FenetreRecapEnvois etat={etat} onRevenir={revenir} onConfirmer={() => { void confirmer(); }} onFermer={fermer} /> };
+  /** 🔴 Arno (10/11/2026) — « Appliquer » dans l'éditeur : le récapitulatif RELU au serveur avec la retouche ; refusée, elle n'est pas gardée. */
+  const appliquerTexte = async (cle: string, r: Retouche | undefined): Promise<void> => {
+    const c = courant.current;
+    if (c === null || etat?.etape !== 'recap') return;
+    const suivantes: Retouches = { ...(etat.retouches ?? {}) };
+    if (r === undefined) delete suivantes[cle]; else suivantes[cle] = r;
+    const a = await (c.d.lireApercu ?? (() => lireApercuEnvois({ ...c.d.apercu, retouchesExterieurs: suivantes })))();
+    if ('erreur' in a) { setEtat((e) => (e && e.etape === 'recap' ? { ...e, refusTexte: a.erreur } : e)); return; }
+    setEtat((e) => (e && e.etape === 'recap' ? { ...e, apercu: a, retouches: suivantes, refusTexte: null } : e));
+  };
+  return { demander, fenetre: etat === null ? null : <FenetreRecapEnvois etat={etat} onRevenir={revenir} onConfirmer={() => { void confirmer(); }} onFermer={fermer}
+    onAppliquerTexte={(cle, r) => { void appliquerTexte(cle, r); }} /> };
 }
 
-function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer }: { etat: Etat; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void }) {
+function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onAppliquerTexte }: { etat: Etat; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void;
+  onAppliquerTexte?: (cle: string, r: Retouche | undefined) => void }) {
   const titreId = useId();
   let contenu: ReactNode;
   if (etat.etape === 'recap') {
@@ -103,7 +122,16 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer }: { etat: 
               <li key={`${i}-${e.nom}`} data-mail={e.mail ? 'oui' : 'non'}>{e.nom}{e.email ? ` <${e.email}>` : ''} — {e.mail ? (e.sorte === 'invitation' ? 'invitation' : e.sorte === 'modification' ? 'modification du rendez-vous' : 'annulation') : `aucun mail${e.motif ? ` (${e.motif})` : ''}`}</li>))}</ul>}
         </div>
         {a.texteCollaborateur !== null && <div className="rce-groupe" data-texte-collaborateur><p className="rce-mot">Texte reçu par un collaborateur (complet)</p><TexteDuMail texte={a.texteCollaborateur} ouvert={false} /></div>}
-        {a.texteExterieur !== null && <div className="rce-groupe" data-texte-exterieur><p className="rce-mot">Texte reçu par un contact extérieur (sans aucune coordonnée de tiers)</p><TexteDuMail texte={a.texteExterieur} ouvert /></div>}
+        {a.texteExterieur !== null && <div className="rce-groupe" data-texte-exterieur><p className="rce-mot">Texte reçu par un contact extérieur (sans aucune coordonnée de tiers)</p><TexteDuMail key={a.texteExterieur} texte={a.texteExterieur} ouvert />
+          {/* 🔴 Arno (10/11/2026) — « Modifier le texte » : un bouton par sorte de mail extérieur qui part ; « Texte modifié » quand il l'a été. */}
+          {onAppliquerTexte !== undefined && (a.editions ?? []).map((ed) => (
+            <div key={ed.cle} className="rce-edition" data-edition-exterieur={ed.cle}>
+              {(a.editions ?? []).length > 1 && <p className="loc-muet rce-mot-edition">{ed.cle.endsWith('modification') ? 'Mail de modification' : ed.cle.endsWith('annulation') ? 'Mail d’annulation' : 'Mail d’invitation'}</p>}
+              <ModifierTexteMail edition={ed} retouche={etat.retouches?.[ed.cle]} desactive={etat.occupe} plusieurs={a.exterieurs.filter((x) => x.mail).length > 1}
+                onAppliquer={(r) => onAppliquerTexte(ed.cle, r)} />
+            </div>))}
+        </div>}
+        {etat.refusTexte && <p className="cev-alerte" role="alert" data-refus-texte-serveur>Le texte modifié est refusé : {etat.refusTexte}</p>}
       </>}
       {etat.erreur !== null && <p className="cev-alerte" role="alert" data-recap-erreur>{etat.erreur}</p>}
       <div className="mis-actions">
@@ -126,7 +154,7 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer }: { etat: 
   const echec = etat.etape === 'resultat' && mailsDuResultat(etat.issue).some((m) => !m.envoye);
   const boite = (
     <div className="mis-voile">
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_RECAP_ENVOIS}</style>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_RECAP_ENVOIS + CSS_TEXTE_MODIFIABLE}</style>
       <div className={`mis-boite pss-boite ${etat.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-envois={etat.etape}>{contenu}</div>
     </div>

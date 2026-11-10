@@ -252,3 +252,44 @@ describe('🔴 la légende de confidentialité « 🔒 Coordonnées réservées 
     expect(l.compareDocumentPosition(section.querySelector('[data-contact="proprietaire:12"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » du mail reçu par un contact extérieur', () => {
+  it('le bouton sous le texte d’un extérieur ; parties protégées 🔒 ; « Appliquer » relit le serveur ; « Texte modifié » ; la retouche part avec la tâche', async () => {
+    const { editionMailExterne, mailTacheExterne } = await import('../../../../lib/gestion/mailTacheExterne');
+    const contenu = (r: unknown) => ({ sorte: 'invitation' as const, titre: 'Visite', jour: '2026-11-20', heure: '10:00', dureeMinutes: 60, adresse: '7 avenue de l’Union, Paris',
+      notes: null, signature: { texte: 'L’agence', html: '' }, retouche: (r ?? null) as never });
+    // Le « serveur » compose avec le VRAI module, selon la retouche reçue.
+    vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
+      const url = String(u);
+      const method = init?.method ?? 'GET';
+      if (method !== 'GET') posts.push({ url, method, corps: JSON.parse(String(init?.body)) });
+      if (url.includes('/taches/apercu')) {
+        const r = (JSON.parse(String(init?.body)).retouchesExterieurs ?? {}).tache_exterieur_invitation;
+        return Response.json({ ...APERCU, texteExterieur: mailTacheExterne(contenu(r)).texte, editions: [editionMailExterne(contenu(r))] });
+      }
+      if (method !== 'GET') return Response.json(reponseGeste);
+      if (url.includes('/taches/collaborateurs')) return Response.json({ etat: 'ok', collaborateurs: [{ id: 1, libelle: 'Arno Jorel' }, { id: 2, libelle: 'Claire Test' }], moi: 1 });
+      if (url.includes('/biens/evenements')) return Response.json({ etat: 'ok', evenements: [] });
+      if (url.includes('/taches/contacts')) return Response.json({ etat: 'ok', contacts: [PROPRIO, LOCATAIRE] });
+      return Response.json({});
+    }));
+    await creer();
+    await clic(caseDe('DUPONT'));
+    await clic(invitation('proprietaire:12'));
+    await clic(bouton('Créer la tâche'));
+    const f = document.querySelector('[data-fenetre-envois="recap"]')!;
+    expect(f.querySelector('[data-texte-exterieur] [data-modifier-texte="tache_exterieur_invitation"]')).not.toBeNull();
+    await clic(f.querySelector('[data-modifier-texte]'));
+    const e = document.querySelector('[data-editeur-texte]')!;
+    expect([...e.querySelectorAll('[data-partie-protegee] .tmm-libelle')].map((x) => x.textContent)).toEqual(['Objet', 'Le rendez-vous (objet, date, durée, adresse)',
+      'Invitation d’agenda jointe', 'Signature de l’agence']);
+    const zone = e.querySelector('[data-partie-modifiable="conclusion"] textarea') as HTMLTextAreaElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(zone, 'Sonnez au 12.'); zone.dispatchEvent(new Event('input', { bubbles: true })); });
+    await clic(e.querySelector('[data-appliquer-texte]'));
+    expect(posts.at(-1)).toMatchObject({ url: '/api/admin/gestion/taches/apercu', corps: { retouchesExterieurs: { tache_exterieur_invitation: { conclusion: 'Sonnez au 12.' } } } });
+    expect(document.querySelector('[data-texte-modifie]')?.textContent).toBe('Texte modifié');
+    expect(document.querySelector('[data-texte-exterieur] [data-texte-mail]')?.textContent).toContain('Sonnez au 12.\n\n-- \nL’agence');
+    await clic(document.querySelector('[data-confirmer-recap]'));
+    expect(posts.at(-1)).toMatchObject({ url: '/api/admin/gestion/taches', corps: { retouchesExterieurs: { tache_exterieur_invitation: { conclusion: 'Sonnez au 12.' } } } });
+  });
+});

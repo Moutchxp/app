@@ -14,6 +14,8 @@ vi.mock('../db/client', () => ({
     if (s.includes('FROM gestion_tache t LEFT JOIN gestion_annuaire_lot')) return { rows: [tache] };
     if (s.includes('FROM gestion_tache_contact c WHERE c.tache_id')) return { rows: CONTACTS.filter((c) => c.inviter) };
     if (s.includes('FROM gestion_tache_action')) return { rows: [{ n: 0 }] };
+    // 🔴 466 — la colonne du texte d'origine existe (sondée une fois).
+    if (s.includes('information_schema.columns') && s.includes('texte_origine')) return { rows: [{ n: 1 }] };
     if (s.startsWith('INSERT INTO gestion_tache_contact_envoi')) { journal.push(params); return { rows: [] }; }
     return { rows: [] };
   },
@@ -116,5 +118,37 @@ describe('🔴 l’annulation d’une tâche (Arno, 10/11/2026) : le mail et le 
   it('sans l’option : une annulation n’est jamais envoyée (le geste normal ne prévient personne de déjà invité)', async () => {
     CONTACTS.push(contact(1, 'MARTIN Alice', 'alice@exemple.test', true, true));
     expect(await envoyerAuxContacts(10, { ancien: null }, AUTEUR, { transport })).toEqual([]);
+  });
+});
+
+describe('🔴🔴 Arno (10/11/2026) — le texte modifiable des mails aux extérieurs : parties protégées, journal, confidentialité inchangée', () => {
+  it('la retouche vaut pour CHAQUE extérieur ; le rendez-vous, les notes et la signature restent ; aucune coordonnée de tiers ; le journal garde l’origine', async () => {
+    CONTACTS.push(contact(1, 'MARTIN Alice', 'alice@exemple.test', true), contact(2, 'DUPONT Jean', 'jean@exemple.test', true));
+    const r = await envoyerAuxContacts(10, { ancien: null, retouches: { tache_exterieur_invitation: { appel: 'Bonjour à vous,', conclusion: 'Sonnez à l’interphone 12.', politesse: 'Cordialement,' } } }, AUTEUR, { transport });
+    expect(r.map((x) => x.envoye)).toEqual([true, true]);
+    for (const m of envoyes) {
+      expect(m.corps.startsWith('Bonjour à vous,\n\nNous vous confirmons le rendez-vous suivant.\n\nObjet : Visite du logement')).toBe(true);
+      expect(m.corps).toContain('Notes :\nMerci de prévoir les clés.');
+      expect(m.corps).toContain('Sonnez à l’interphone 12.\n\nCordialement,\n\n-- \nL’agence');
+      for (const t of TIERS) expect(`${m.corps}${m.corpsHtml ?? ''}`, t).not.toContain(t);
+      expect(m.a).toHaveLength(1);
+    }
+    // Le journal : qui, le texte ENVOYÉ et le texte d'ORIGINE.
+    expect(journal).toHaveLength(2);
+    expect(journal[0][5]).toBe(envoyes[0].corps);
+    expect(String(journal[0][11]).startsWith('Bonjour,\n\nNous vous confirmons le rendez-vous suivant.')).toBe(true);
+    expect(journal[0][10]).toBe('Arno Test');
+  });
+  it('sans retouche : le texte d’origine part, aucun texte d’origine au journal', async () => {
+    CONTACTS.push(contact(1, 'MARTIN Alice', 'alice@exemple.test', true));
+    await envoyerAuxContacts(10, { ancien: null }, AUTEUR, { transport });
+    expect(envoyes[0].corps.startsWith('Bonjour,\n\nNous vous confirmons')).toBe(true);
+    expect(journal[0]).toHaveLength(11);
+  });
+  it('🔴 un repère protégé retiré (l’ancienne date d’une modification) ou une partie protégée : REFUSÉ', async () => {
+    const { refusRetouchesExterieurs } = await import('./invitationsContactsRepo');
+    expect(refusRetouchesExterieurs({ tache_exterieur_modification: { intro: 'Le rendez-vous est déplacé.' } })).toContain('{ancien rendez-vous}');
+    expect(refusRetouchesExterieurs({ tache_exterieur_modification: { intro: 'Déplacé (au lieu du {ancien rendez-vous}).' } })).toBeNull();
+    expect(refusRetouchesExterieurs({ tache_exterieur_invitation: { protege_0: 'Objet : autre' } as never })).toContain('n’est pas modifiable');
   });
 });

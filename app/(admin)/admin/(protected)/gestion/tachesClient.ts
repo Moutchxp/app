@@ -11,6 +11,7 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
+import type { EditionMail, Retouches } from '../../../../lib/location/texteModifiable';
 import {
   refusDuServeur, type ChampTache, type PieceTache, type RaccourciDecalage, type Rappel, type Tache, type TraceTache,
 } from '../../../../lib/gestion/taches';
@@ -85,13 +86,16 @@ export interface ApercuEnvois {
   collaborateurs: { libelle: string; mail: boolean; motif: string | null }[];
   exterieurs: { nom: string; email: string | null; sorte: 'invitation' | 'modification' | 'annulation'; mail: boolean; motif: string | null }[];
   total: number; texteCollaborateur: string | null; texteExterieur: string | null;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — une édition par sorte de mail extérieur qui part (« Modifier le texte »). */
+  editions?: EditionMail[];
 }
 export async function lireApercuEnvois(corps: Record<string, unknown>): Promise<ApercuEnvois | { erreur: string }> {
   try {
     const res = await fetch('/api/admin/gestion/taches/apercu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
     const d = (await res.json().catch(() => null)) as (ApercuEnvois & { etat?: string; erreur?: string }) | null;
     if (!res.ok || d === null || d.etat !== 'ok') return { erreur: d?.erreur ?? 'Récapitulatif impossible : rien n’a été envoyé.' };
-    return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null };
+    return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null,
+      ...(Array.isArray(d.editions) ? { editions: d.editions } : {}) };
   } catch {
     return { erreur: 'Le serveur ne répond pas : rien n’a été envoyé.' };
   }
@@ -139,13 +143,14 @@ export type GesteTache =
   | { geste: 'renvoyerInvitation'; inviteId: number };
 
 /** LA porte des gestes sur une tâche existante. */
-export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {
-  return envoyer(`/api/admin/gestion/taches/${id}`, 'PATCH', g);
+/** 🔴 Arno (10/11/2026) — `retouches` : le texte modifié des mails aux contacts extérieurs (récapitulatif) ; absent : le texte proposé. */
+export function agirSurTache(id: number, g: GesteTache, retouches?: Retouches): Promise<IssueGeste> {
+  return envoyer(`/api/admin/gestion/taches/${id}`, 'PATCH', retouches && Object.keys(retouches).length > 0 ? { ...g, retouchesExterieurs: retouches } : g);
 }
 
 /** 🔴 LOT GESTION-TACHES-SANS-BIEN — `lotId` à `null` : une tâche sans bien. */
-export function creerTache(lotId: number | null, s: SaisieEcran): Promise<IssueGeste> {
-  return envoyer('/api/admin/gestion/taches', 'POST', { lotId, ...s });
+export function creerTache(lotId: number | null, s: SaisieEcran, retouches?: Retouches): Promise<IssueGeste> {
+  return envoyer('/api/admin/gestion/taches', 'POST', { lotId, ...s, ...(retouches && Object.keys(retouches).length > 0 ? { retouchesExterieurs: retouches } : {}) });
 }
 
 export type ListeTaches =

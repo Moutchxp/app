@@ -18,7 +18,7 @@ import { changerDestinataire, erreurMailDemande, renvoyerInvitation } from '../.
 /* 🔴 LOT TACHES-AGENDA — après chaque geste : l'agenda (réglage actif seulement) ; « Réessayer » le relance. */
 import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../../../../../lib/gestion/agendaSynchroRepo';
 import { momentDeLaTache } from '../../../../../../lib/gestion/invitationsContactsRepo';
-import { envoisAuxContacts } from '../../../../../../lib/gestion/invitationsContactsAutorisees';
+import { envoisAuxContacts, lireRetouchesExterieurs } from '../../../../../../lib/gestion/invitationsContactsAutorisees';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE : SON DÉTAIL, SES GESTES ═══════════════════════════════════════════════════════
@@ -82,6 +82,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const corps = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const geste = String(corps.geste ?? '');
   const auteur = await auteurDeLaRequete(request);
+  // 🔴 Arno (10/11/2026) — le texte modifié des mails aux extérieurs : contrôlé AVANT le geste (refusé : rien n'est écrit, rien ne part).
+  const rt = lireRetouchesExterieurs(corps);
+  if (!rt.ok) return Response.json({ erreur: rt.motif }, { status: 400 });
 
   const entier = (x: unknown): number | null => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
   if (geste === 'changerDestinataire') {
@@ -179,8 +182,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
   /* 🔴 Arno (10/11/2026) — création d'invités, modification, décalage : les contacts cochés reçoivent leur mail (contenu restreint). */
   /* 🔴 Arno (10/11/2026) — l'annulation : le mail et le .ics d'annulation aux SEULS contacts extérieurs déjà invités. */
-  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur)
-    : geste === 'annuler' ? await envoisAuxContacts(request, issue.id, null, auteur, { annulation: true }) : [];
+  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur, { retouches: rt.retouches })
+    : geste === 'annuler' ? await envoisAuxContacts(request, issue.id, null, auteur, { annulation: true, retouches: rt.retouches }) : [];
   if (issue.demandes !== undefined) {
     const envois = await envoyerAuxInvites(request, issue.demandes);
     const agenda = await synchroniserApresGeste(issue.id);

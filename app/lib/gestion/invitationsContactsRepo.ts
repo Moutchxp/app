@@ -16,7 +16,8 @@ import { invitesDeLaSaisie, type SaisieTache } from './taches';
 import { mailTache } from './mailTache';
 import type { ContactSource } from './contactsTache';
 import { signatureEcran, type DepsAvis } from '../location/mailsPreavisSortieRepo';
-import { icsTacheExterne, mailTacheExterne, type SorteMailExterne } from './mailTacheExterne';
+import { cleRetoucheExterne, editionMailExterne, icsTacheExterne, mailTacheExterne, partiesMailExterne, type SorteMailExterne } from './mailTacheExterne';
+import { refusRetouche, type EditionMail, type Retouches } from '../location/texteModifiable';
 
 /**
  * ══ 🔴🔴 INVITER LES CONTACTS D'UNE TÂCHE, EN TOUTE CONFIDENTIALITÉ — LE DÉPÔT (Arno, 10/11/2026, migration 465) ════════════════════════
@@ -89,7 +90,32 @@ async function sequenceTache(tacheId: number): Promise<number> {
  * APRÈS LE GESTE : un mail par contact invité. `ancien` : la date d'avant (modification, décalage) — un contact déjà invité ne reçoit
  * un mail de modification que si elle a changé. Ne lève jamais : un échec est rendu (et journalisé), jamais un faux « envoyé ».
  */
-export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | null; annulation?: boolean }, auteur: Auteur,
+/**
+ * 🔴 Arno (10/11/2026, texte modifiable) — le CONTRÔLE des retouches des mails aux extérieurs, avant tout geste : seules les parties
+ * modifiables, et le repère `{ancien rendez-vous}` d'une modification gardé. `null` = accepté. PUR (les parties ne dépendent que de la sorte).
+ */
+export function refusRetouchesExterieurs(retouches: Retouches | undefined): string | null {
+  for (const sorte of ['invitation', 'modification', 'annulation'] as const) {
+    const r = retouches?.[cleRetoucheExterne(sorte)];
+    if (r === undefined) continue;
+    const modele = { sorte, titre: '', jour: '2026-01-01', heure: null, dureeMinutes: null, adresse: null, notes: null,
+      ancien: sorte === 'modification' ? { jour: '2026-01-01', heure: null, dureeMinutes: null } : null };
+    const refus = refusRetouche(partiesMailExterne(modele), r);
+    if (refus !== null) return refus;
+  }
+  return null;
+}
+
+/** 🔴 466 — le journal des mails aux extérieurs sait-il garder le texte d'origine ? (sondé une fois) */
+let origineSondee: Promise<boolean> | null = null;
+async function texteOrigineExterneDisponible(): Promise<boolean> {
+  origineSondee ??= query<{ n: number }>(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'gestion_tache_contact_envoi' AND column_name = 'texte_origine'`)
+    .then((r) => Number(r.rows[0]?.n ?? 0) > 0).catch(() => false);
+  return origineSondee;
+}
+export const MOTIF_TACHE_SANS_466 = 'Un texte modifié demande la mise à jour de la base (migration 466) : rien n’est parti. Revenez au texte d’origine, ou faites appliquer la 466.';
+
+export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | null; annulation?: boolean; retouches?: Retouches }, auteur: Auteur,
   deps: DepsAvis & { transport?: TransportDemande; maintenant?: Date } = {}): Promise<EnvoiExterne[]> {
   try {
     if (!(await invitationContactsDisponible())) return [];
@@ -110,8 +136,13 @@ export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | 
     for (const { c, sorte } of cibles) {
       if (c.email === null) { out.push({ nom: c.nom, email: null, sorte, envoye: false, motif: 'pas d’adresse e-mail' }); continue; }
       const contenu = { sorte, titre: t.objet, jour: t.moment.jour, heure: t.moment.heure, dureeMinutes: t.moment.dureeMinutes, adresse: t.adresse,
-        notes: t.note, ancien: sorte === 'modification' ? o.ancien : null, signature: sig.ecran };
+        notes: t.note, ancien: sorte === 'modification' ? o.ancien : null, signature: sig.ecran, retouche: o.retouches?.[cleRetoucheExterne(sorte)] ?? null };
       const m = mailTacheExterne(contenu);
+      // 🔴 Arno (10/11/2026) — un texte modifié ne part que s'il peut être tracé (texte d'origine, migration 466) ; sinon : rien ne part, c'est dit.
+      if (m.texteOrigine !== null && !(await texteOrigineExterneDisponible())) {
+        out.push({ nom: c.nom, email: c.email, sorte, envoye: false, motif: MOTIF_TACHE_SANS_466, objet: m.objet });
+        continue;
+      }
       const ics = icsTacheExterne({ ...contenu, tacheId, domaine, sequence, maintenant: deps.maintenant ?? new Date() });
       const alea = randomBytes(12).toString('hex');
       const messageId = fabriquerMessageId(domaine, alea, new Date());
@@ -126,11 +157,13 @@ export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | 
         });
         issue = r.ok ? { ok: true } : { ok: false, motif: r.motif };
       } catch (e) { issue = { ok: false, motif: (e as Error)?.message || 'erreur inattendue' }; }
+      // 🔴 Arno (10/11/2026, 466) — texte modifié : le journal garde aussi le texte d'ORIGINE (le texte envoyé est dans `texte`).
+      const origine = m.texteOrigine !== null;
       await query(
-        `INSERT INTO gestion_tache_contact_envoi (tache_id, contact_id, sorte, email, objet, texte, statut, erreur, message_id, auteur_id, auteur_libelle)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO gestion_tache_contact_envoi (tache_id, contact_id, sorte, email, objet, texte, statut, erreur, message_id, auteur_id, auteur_libelle${origine ? ', texte_origine' : ''})
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11${origine ? ', $12' : ''})`,
         [tacheId, c.id, sorte, c.email, m.objet, m.texte, issue.ok ? 'envoye' : 'echec', issue.ok ? null : issue.motif, issue.ok ? messageId : null,
-          auteur.id, auteur.libelle || 'Gestion']).catch((e) => console.error('[tâches] journal du mail extérieur impossible', (e as Error)?.message));
+          auteur.id, auteur.libelle || 'Gestion', ...(origine ? [m.texteOrigine] : [])]).catch((e) => console.error('[tâches] journal du mail extérieur impossible', (e as Error)?.message));
       out.push({ nom: c.nom, email: c.email, sorte, envoye: issue.ok, motif: issue.ok ? null : issue.motif, objet: m.objet });
     }
     return out;
@@ -151,6 +184,8 @@ export interface ApercuEnvois {
   total: number;
   texteCollaborateur: string | null;
   texteExterieur: string | null;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — les mails aux extérieurs, une édition par sorte qui part (« Modifier le texte »). */
+  editions: EditionMail[];
 }
 
 /**
@@ -159,7 +194,7 @@ export interface ApercuEnvois {
  */
 export async function apercuEnvoisTache(o: {
   geste: GesteApercu; auteur: Auteur; tacheId?: number | null; lotId?: number | null; saisie?: SaisieTache; moment?: Moment;
-  collaborateurId?: number | null; inviteId?: number | null;
+  collaborateurId?: number | null; inviteId?: number | null; retouches?: Retouches;
 }, deps: DepsAvis = {}): Promise<ApercuEnvois> {
   const reglage = await lireReglageTaches();
   const tous = await listerCollaborateurs(o.auteur.id);
@@ -229,9 +264,12 @@ export async function apercuEnvoisTache(o: {
     pieces: [], liens: { accepter: '[lien personnel « Accepter »]', refuser: '[lien personnel « Refuser »]', expireLe: new Date(Date.now() + 7 * 86_400_000).toISOString() },
   }).texte;
   const ext = exterieurs[0];
-  const texteExterieur = ext === undefined ? null : mailTacheExterne({ sorte: ext.sorte, titre, jour: m.jour, heure: m.heure, dureeMinutes: m.dureeMinutes, adresse, notes,
-    ancien: ext.sorte === 'modification' ? avant : null, signature: sig.ecran }).texte;
-  return { collaborateurs, exterieurs, total, texteCollaborateur, texteExterieur };
+  const contenuDe = (sorte: SorteMailExterne) => ({ sorte, titre, jour: m.jour, heure: m.heure, dureeMinutes: m.dureeMinutes, adresse, notes,
+    ancien: sorte === 'modification' ? avant : null, signature: sig.ecran, retouche: o.retouches?.[cleRetoucheExterne(sorte)] ?? null });
+  const texteExterieur = ext === undefined ? null : mailTacheExterne(contenuDe(ext.sorte)).texte;
+  // 🔴 Arno (10/11/2026) — une édition par sorte de mail extérieur qui part : « Modifier le texte » sous le texte d'un extérieur.
+  const editions = [...new Set(exterieurs.filter((e) => e.mail).map((e) => e.sorte))].map((sorte) => editionMailExterne(contenuDe(sorte)));
+  return { collaborateurs, exterieurs, total, texteCollaborateur, texteExterieur, editions };
 }
 
 async function adresseDuLot(lotId: number): Promise<string | null> {

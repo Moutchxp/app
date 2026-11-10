@@ -4,6 +4,7 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import { lireSaisie } from '../../../../../../lib/gestion/taches';
 import { apercuEnvoisTache, type GesteApercu } from '../../../../../../lib/gestion/invitationsContactsRepo';
+import { lireRetouchesExterieurs } from '../../../../../../lib/gestion/invitationsContactsAutorisees';
 
 /**
  * ══ 🔴🔴 LE RÉCAPITULATIF AVANT TOUT ENVOI D'UNE TÂCHE (Arno, 10/11/2026) — LECTURE SEULE ═════════════════════════════════════════
@@ -23,12 +24,15 @@ export async function POST(request: Request): Promise<Response> {
   if (!GESTES.includes(geste)) return Response.json({ erreur: 'Geste inconnu.' }, { status: 400 });
   const entier = (x: unknown): number | null => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
   const heure = typeof corps.heure === 'string' && corps.heure.trim() !== '' ? corps.heure.trim() : null;
+  // 🔴 Arno (10/11/2026) — le texte modifié des mails aux extérieurs : contrôlé ici comme au geste (même code).
+  const rt = lireRetouchesExterieurs(corps);
+  if (!rt.ok) return Response.json({ erreur: rt.motif }, { status: 400 });
   try {
     const a = await apercuEnvoisTache({
       geste, auteur: await auteurDeLaRequete(request), tacheId: entier(corps.tacheId), lotId: entier(corps.lotId),
       ...(geste === 'creer' || geste === 'modifier' ? { saisie: lireSaisie(corps) } : {}),
       ...(geste === 'decaler' && typeof corps.jour === 'string' ? { moment: { jour: corps.jour.trim(), heure, dureeMinutes: heure === null ? null : entier(corps.dureeMinutes) } } : {}),
-      inviteId: entier(corps.inviteId), collaborateurId: entier(corps.collaborateurId),
+      inviteId: entier(corps.inviteId), collaborateurId: entier(corps.collaborateurId), retouches: rt.retouches,
     });
     return Response.json({ etat: 'ok', ...a }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {

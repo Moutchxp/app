@@ -86,3 +86,23 @@ describe('mail d’acceptation de tâche et droit d’envoi (point 9)', () => {
     expect((await res.json()).message).toBe('Tâche créée.');
   });
 });
+
+describe('🔴 Arno (10/11/2026) — texte modifiable des mails aux extérieurs : forcer une partie protégée est REFUSÉ, avant tout geste', () => {
+  const avec = (retouchesExterieurs: unknown) => new Request('http://local/api/admin/gestion/taches', { method: 'POST',
+    body: JSON.stringify({ lotId: 12, objet: 'Visite', retouchesExterieurs }) });
+  it('une partie protégée, une sorte inconnue, un repère retiré : 400, la tâche n’est PAS créée', async () => {
+    for (const rt of [{ tache_exterieur_invitation: { signature: 'x' } }, { tache_exterieur_invitation: { objet: 'x' } }, { previsite_alerte: { intro: 'x' } },
+      { tache_exterieur_modification: { intro: 'Déplacé.' } }]) {
+      h.creerTache.mockClear();
+      const res = await POST(avec(rt));
+      expect(res.status, JSON.stringify(rt)).toBe(400);
+      expect(h.creerTache).not.toHaveBeenCalled();
+    }
+  });
+  it('les parties modifiables passent : la tâche est créée', async () => {
+    h.creerTache.mockClear();
+    const res = await POST(avec({ tache_exterieur_invitation: { conclusion: 'Merci.' } }));
+    expect(res.status).toBe(200);
+    expect(h.creerTache).toHaveBeenCalled();
+  });
+});

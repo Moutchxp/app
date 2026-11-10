@@ -110,7 +110,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
           // 🔴 Arno (10/11/2026) — l'annulation prévient les contacts extérieurs invités : le récapitulatif d'abord (aucun : sans fenêtre).
           : g.geste === 'annuler' ? { geste: 'annuler', tacheId: tache.id } : null;
     const r = titre !== null && apercu !== null
-      ? await recap.demander({ titre, apercu, action: () => agirSurTache(tache.id, g) })
+      ? await recap.demander({ titre, apercu, action: (rt) => agirSurTache(tache.id, g, rt) })
       : await agirSurTache(tache.id, g);
     setOccupe(false);
     if (r === null) return;

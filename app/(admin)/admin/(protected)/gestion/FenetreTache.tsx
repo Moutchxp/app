@@ -237,7 +237,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       titre: mode.sorte === 'creer' ? 'Tâche créée' : 'Tâche modifiée',
       apercu: { geste: mode.sorte === 'creer' ? 'creer' : 'modifier', tacheId: mode.sorte === 'detail' ? mode.id : null,
         lotId: mode.sorte === 'creer' ? mode.lotId : (tache?.lotId ?? null), ...envoi },
-      action: () => (mode.sorte === 'creer' ? creerTache(mode.lotId, envoi) : agirSurTache(mode.id, { geste: 'modifier', ...envoi })),
+      // 🔴 Arno (10/11/2026) — `rt` : le texte modifié des mails aux contacts extérieurs (« Modifier le texte » du récapitulatif).
+      action: (rt) => (mode.sorte === 'creer' ? creerTache(mode.lotId, envoi, rt) : agirSurTache(mode.id, { geste: 'modifier', ...envoi }, rt)),
     });
     setOccupe(false);
     if (r === null) return; // « Revenir » : rien n'est fait, la saisie reste
@@ -326,7 +327,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     const id = (mode as { id: number }).id;
     // 🔴 Arno (10/11/2026) — l'annulation prévient les contacts extérieurs invités : le récapitulatif d'abord (aucun envoi : sans fenêtre).
     const r = g === 'annuler'
-      ? await recap.demander({ titre: 'Tâche annulée', apercu: { geste: 'annuler', tacheId: id }, action: () => agirSurTache(id, { geste: g }) })
+      ? await recap.demander({ titre: 'Tâche annulée', apercu: { geste: 'annuler', tacheId: id }, action: (rt) => agirSurTache(id, { geste: g }, rt) })
       : await agirSurTache(id, { geste: g });
     setOccupe(false);
     setConfirmerAnnulation(false);
