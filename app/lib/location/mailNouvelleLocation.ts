@@ -15,6 +15,7 @@ import { estGarantme, GLI_GARANTME, LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBEL
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } from './indicesLoyers';
 import { PAYEES_PAR } from './bienComplet';
+import { estModifie, partiesDuMail, texteDeLaPartie, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────
 /** Arno (21/10/2026) — l'introduction et la formule de fin du mail. */
@@ -89,6 +90,39 @@ export interface DonneesNouvelleLocation {
   /** Le dossier N7 du bail sur le Drive ; `null` : pas encore créé. */
   driveUrl: string | null;
   expediteur: string;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — la formule d'appel, l'introduction, la conclusion et la politesse, modifiées avant l'envoi. */
+  retouche?: Retouche | null;
+}
+
+/**
+ * ══ 🔴🔴 LE TEXTE MODIFIABLE DU MAIL « NOUVELLE LOCATION » (Arno, 10/11/2026) ══════════════════════════════════════════════════════════
+ * Modifiables : « Bonjour, », l'introduction, une conclusion libre (vide par défaut, avant la politesse) et « Merci et belle journée, ».
+ * Protégés : tout le dossier (statut, propriétaires, bien, locataires et garants, bail, lien du Drive), « L'équipe gestion » et le pied.
+ * Sans retouche, le mail est EXACTEMENT celui d'avant. PUR.
+ */
+export const LIBELLE_DOSSIER_PROTEGE = 'Le dossier de la location (statut, propriétaires, bien loué, locataires et garants, bail, dossier Drive)';
+export function partiesNouvelleLocation(): PartieTexte[] {
+  return partiesDuMail({
+    appel: INTRODUCTION[0], intro: INTRODUCTION[1],
+    proteges: [{ libelle: LIBELLE_DOSSIER_PROTEGE, texte: '[Le dossier complet de la location — voir l’aperçu du mail]' }],
+    politesse: SIGNATURE[0], apres: [{ libelle: 'Signature', texte: SIGNATURE[1] }],
+  });
+}
+
+/** Les morceaux modifiables, retouche appliquée : l'en-tête (appel, introduction) et la fin (conclusion, politesse, « L'équipe gestion »). PUR. */
+function morceaux(d: Pick<DonneesNouvelleLocation, 'retouche'>): { debut: string[]; fin: string[] } {
+  const parties = partiesNouvelleLocation();
+  const t = (cle: string) => texteDeLaPartie(parties.find((p) => p.cle === cle)!, d.retouche).trim();
+  const conclusion = t('conclusion');
+  const politesse = t('politesse');
+  return { debut: [t('appel'), t('intro')].filter((x) => x !== ''), fin: [...(conclusion === '' ? [] : [conclusion, '']), ...(politesse === '' ? [] : [politesse]), SIGNATURE[1]] };
+}
+
+/** Ce que l'éditeur « Modifier le texte » montre pour ce mail. PUR. */
+export function editionNouvelleLocation(d: DonneesNouvelleLocation): EditionMail {
+  const parties = partiesNouvelleLocation();
+  return { cle: 'nouvelle_location', objet: objetNouvelleLocation(d), parties, valeurs: {}, modifie: estModifie(parties, d.retouche),
+    suite: [{ libelle: 'Pied du mail', texte: `Pour toute question, répondez simplement à ce mail.\nL’équipe gestion · Sans Vis-à-Vis® · SARL CRITERIMMO\n${d.expediteur}` }] };
 }
 
 // ── FORMATS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -581,7 +615,7 @@ export function htmlNouvelleLocation(d: DonneesNouvelleLocation): string {
 <div style="margin-top:6px;font-size:15px;color:#e3e5ea;">${echapper(adresse)}${d.entree ? ` · entrée le ${echapper(dateEnLettres(d.entree))}` : ''}</div>
 `, 'class="haut"')}</tr>
 <tr><td class="corps" style="word-break:break-word;overflow-wrap:anywhere;padding:24px 28px 8px;font-family:${POLICE};color:${C.ink};">
-<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${INTRODUCTION.map(echapper).join('<br>')}</p>
+<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${morceaux(d).debut.map(echapper).join('<br>')}</p>
 ${htmlMessage(d.message ?? null)}
 ${htmlStatut(d.statut)}
 ${proprietaires}
@@ -589,7 +623,8 @@ ${htmlBien(d.lots)}
 ${locataires}
 ${htmlBail(d)}
 ${bouton}
-<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${SIGNATURE.map(echapper).join('<br>')}</p>
+${(() => { const f = morceaux(d).fin; const i = f.indexOf(''); return i < 0 ? '' : `<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${echapper(f[0]).replace(/\n/g, '<br>')}</p>`; })()}
+<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${(() => { const f = morceaux(d).fin; const i = f.indexOf(''); return f.slice(i + 1).map((x) => echapper(x).replace(/\n/g, '<br>')).join('<br>'); })()}</p>
 </td></tr>
 <tr><td class="pied" style="border-top:1px solid ${C.line};padding:18px 28px 24px;font-size:13.5px;color:${C.mut};line-height:1.6;font-family:${POLICE};">Pour toute question, répondez simplement à ce mail.<br><b style="color:${C.ink};">L’équipe gestion</b> · Sans Vis-à-Vis® · SARL CRITERIMMO<br>${lienMail(d.expediteur)}</td></tr>
 </table>`, 'align="center"')}</tr></table>
@@ -628,7 +663,7 @@ export function texteNouvelleLocation(d: DonneesNouvelleLocation): string {
   const l: string[] = [];
   const titre = (t: string) => { l.push('', `━━ ${t.toLocaleUpperCase('fr-FR')} ━━`); };
   l.push('Sans Vis-à-Vis® · Gestion locative', 'NOUVELLE LOCATION', `${adresseAffichee(d.bien)}${d.entree ? ` · entrée le ${dateEnLettres(d.entree)}` : ''}`, '',
-    ...INTRODUCTION, '',
+    ...morceaux(d).debut, '',
     ...(d.message && d.message.texte.trim() !== '' ? [`── Message de ${d.message.auteur} ──`, ...d.message.texte.replace(/\r\n?/g, '\n').split('\n'), ''] : []),
     `[${d.statut.pastille.join(' ')}] ${d.statut.phrase}`);
   if (d.statut.mandat !== null) l.push(d.statut.mandat);
@@ -661,7 +696,7 @@ export function texteNouvelleLocation(d: DonneesNouvelleLocation): string {
   }
   for (const x of d.bail.sousLoyer ?? []) l.push(`${x.mot} : ${x.valeur}`);
   for (const x of d.bail.lignes) l.push(`${x.mot} : ${x.valeur}`);
-  l.push('', d.driveUrl !== null ? `Ouvrir le dossier Drive du bail : ${d.driveUrl}` : 'Dossier Drive en cours de création', '', ...SIGNATURE, '',
+  l.push('', d.driveUrl !== null ? `Ouvrir le dossier Drive du bail : ${d.driveUrl}` : 'Dossier Drive en cours de création', '', ...morceaux(d).fin, '',
     'Pour toute question, répondez simplement à ce mail.', 'L’équipe gestion · Sans Vis-à-Vis® · SARL CRITERIMMO', d.expediteur);
   return l.join('\n');
 }

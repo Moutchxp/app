@@ -6,7 +6,8 @@ import { renvoyerInvitation } from '../gestion/invitesRepo';
 import { mailTache } from '../gestion/mailTache';
 import { colonneExisteMemo } from './sondeLocation';
 import { adressesUniques } from './mailsPreavisSortie';
-import { envoyerSerie, mailsAvisDisponibles, type DepsAvis, type EnvoiAvis } from './mailsPreavisSortieRepo';
+import { envoyerSerie, mailsAvisDisponibles, refusRetouches, type DepsAvis, type EnvoiAvis } from './mailsPreavisSortieRepo';
+import type { Retouches } from './texteModifiable';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
@@ -83,7 +84,7 @@ export interface ResultatRdv { previsiteId: number; tacheId: number; rdv: RdvPre
 
 /** L'APERÇU d'un rendez-vous (programmer ou déplacer) : les textes intégraux, sans rien écrire ni envoyer. */
 export async function apercuRdvPrevisite(
-  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; destinataires?: readonly number[]; deplacer?: boolean }, auteur: Auteur, deps: DepsAvis = {},
+  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; destinataires?: readonly number[]; deplacer?: boolean; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis = {},
 ): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const ids = [...new Set(d.occupationIds)];
@@ -109,7 +110,14 @@ export async function apercuRdvPrevisite(
     sorte: 'previsite_invitation', objet: objetCollegue, a: [l], cc: [], piece: NOM_FICHIER_ICS,
     texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
   }));
-  for (const loc of mailLocataires(c, 0, rdv, 0, ancien, new Date())) mails.push({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: loc.ics ? NOM_FICHIER_ICS : null });
+  // 🔴 Arno (10/11/2026, texte modifiable) — les retouches : CONTRÔLÉES ici comme à l'envoi (même code) ; refusées, rien n'est montré comme parti.
+  const auxLocataires = mailLocataires(c, 0, rdv, 0, ancien, new Date(), d.retouches);
+  const refus = await refusRetouches(auxLocataires, d.retouches);
+  if (refus !== null) return { etat: 'refus', motif: refus };
+  for (const loc of auxLocataires) {
+    mails.push({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: loc.ics ? NOM_FICHIER_ICS : null,
+      ...(loc.edition ? { edition: loc.edition } : {}), ...(loc.texteOrigine ? { modifie: true } : {}) });
+  }
   return { etat: 'ok', data: { mails, sansEmail: sansEmail(c) } };
 }
 
@@ -229,12 +237,14 @@ export async function reaffecterPrevisite(d: { occupationIds: readonly number[];
 }
 
 /** APRÈS le rendez-vous écrit : le mail aux locataires (confirmation, ou modification avec l'ancien créneau). Ne lève jamais. */
-export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}): Promise<{ envois: EnvoiAvis[]; sansEmail: string[] }> {
+export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}, retouches?: Retouches): Promise<{ envois: EnvoiAvis[]; sansEmail: string[] }> {
   try {
     if (!(await mailsAvisDisponibles())) return { envois: [], sansEmail: [] };
     const c = await contexte(r.occupationIds, auteur, deps);
     if (c === null) return { envois: [], sansEmail: [] };
-    const m = mailLocataires(c, r.previsiteId, r.rdv, await sequenceTache(r.tacheId), r.ancien, deps.maintenant ?? new Date());
+    const m = mailLocataires(c, r.previsiteId, r.rdv, await sequenceTache(r.tacheId), r.ancien, deps.maintenant ?? new Date(), retouches);
+    const refus = await refusRetouches(m, retouches);
+    if (refus !== null) return { envois: [{ sorte: r.ancien === null ? 'previsite_locataires' : 'previsite_locataires_modif', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: refus }], sansEmail: [] };
     return { envois: m.length === 0 ? [] : await envoyerSerie(m, c.brute, { lotId: c.lotId, occupationIds: r.occupationIds, auteur }, deps), sansEmail: sansEmail(c) };
   } catch (e) {
     return { envois: [{ sorte: 'previsite_locataires', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: (e as Error)?.message || 'erreur inattendue' }], sansEmail: [] };

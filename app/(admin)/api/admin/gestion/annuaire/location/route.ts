@@ -1,4 +1,5 @@
 import 'server-only';
+import { lireRetouches, SORTES_MODIFIABLES_PREAVIS } from '../../../../../../lib/location/texteModifiable';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
 import { creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
@@ -235,12 +236,17 @@ export async function POST(request: Request): Promise<Response> {
       //    après le MÊME aperçu (`apercu-preavis`) et le MÊME « Valider et envoyer » (`envoyerMails`) que la tuile Location.
       case 'enregistrer-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true,
-          {}, corps.informerPartenaires !== false));
+        // 🔴 Arno (10/11/2026) — le texte modifié dans le récapitulatif : parties modifiables seulement, sinon REFUS (rien n'est enregistré).
+        const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREAVIS);
+        if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
+        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif, retouches: rt.retouches },
+          auteur, corps.envoyerMails === true, {}, corps.informerPartenaires !== false));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await apercuMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix) }, auteur));
+        const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREAVIS);
+        if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
+        return repondre(await apercuMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), retouches: rt.retouches }, auteur));
       }
       case 'corriger-preavis': {
         const pid = identifiant(corps.preavisId);

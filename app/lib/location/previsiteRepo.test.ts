@@ -107,6 +107,8 @@ const envoyerSerie = vi.fn(async (mails: { sorte: string; objet: string; a: stri
 vi.mock('./mailsPreavisSortieRepo', () => ({
   envoyerSerie: (...a: unknown[]) => envoyerSerie(...(a as [never])),
   mailsAvisDisponibles: async () => true,
+  // 🔴 Arno (10/11/2026) — le contrôle des retouches : la règle pure (la migration 466 est supposée appliquée ici).
+  refusRetouches: async (m: { edition?: never }[], r: never) => (await import('./texteModifiable')).refusDesRetouches(m.map((x) => x.edition), r),
   signatureEcran: async () => ({ brute: '', ecran: { html: '', texte: '' } }),
   logementDe: async () => ({ lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', proprietaire: null, enGestion: true, copropriete: null }),
   locatairesAvis: async () => [
@@ -450,5 +452,53 @@ describe('🔴 Arno (10/11/2026) — refus / absence avec un rendez-vous program
     expect(r).toMatchObject({ etat: 'ok', data: { statut: 'refusee', tacheAnnulee: null } });
     expect(annulerTache).not.toHaveBeenCalled();
     expect(envoyerSerie).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('🔴🔴 Arno (10/11/2026) — la confirmation et la modification aux locataires : texte modifiable, parties protégées', () => {
+  const RT = { previsite_locataires: { appel: 'Bonjour {nom du locataire} !', conclusion: 'Le gardien vous ouvrira.' } };
+  it('l’aperçu porte les parties ; la retouche vaut pour CHAQUE locataire (son nom) ; le créneau et l’invitation jointe restent', async () => {
+    const r = await apercuRdvPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4], retouches: RT }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error('attendu ok');
+    const loc = r.data.mails.filter((m) => m.sorte === 'previsite_locataires');
+    expect(loc[0].texte.startsWith('Bonjour Alice TEST !\n\nNous vous confirmons le rendez-vous de pré-visite d’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux, le 20/11/2026 de 10h00 à 11h00.')).toBe(true);
+    expect(loc[1].texte.startsWith('Bonjour Bruno TEST !')).toBe(true);
+    for (const m of loc.slice(0, 2)) {
+      expect(m.texte).toContain('Le gardien vous ouvrira.\n\nNous restons à votre disposition');
+      expect(m.texte).toContain('Vous trouverez en pièce jointe une invitation à ajouter à votre agenda.');
+      expect(m.modifie).toBe(true);
+      expect(m.edition?.parties.filter((p) => p.modifiable).map((p) => p.cle)).toEqual(['appel', 'intro', 'conclusion', 'politesse']);
+    }
+    expect(loc[2].objet.startsWith('[Copie interne]')).toBe(true);
+    expect(loc[2].texte).toContain('Bonjour Alice TEST !');
+  });
+  it('aperçu = texte ENVOYÉ ; sans retouche : le texte d’origine', async () => {
+    const ap = await apercuRdvPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4], retouches: RT }, AUTEUR);
+    if (ap.etat !== 'ok') throw new Error('aperçu');
+    const r = await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error('rdv');
+    await envoyerMailLocatairesPrevisite(r.data, AUTEUR, {}, RT);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; texteOrigine?: string }[]];
+    expect(mails.map((m) => m.texte)).toEqual(ap.data.mails.filter((m) => m.sorte === 'previsite_locataires').map((m) => m.texte));
+    expect(mails[0].texteOrigine?.startsWith('Bonjour Alice TEST,')).toBe(true);
+    envoyerSerie.mockClear();
+    await envoyerMailLocatairesPrevisite(r.data, AUTEUR);
+    const [sans] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; texteOrigine?: string }[]];
+    expect(sans[0].texte.startsWith('Bonjour Alice TEST,\n\nNous vous confirmons')).toBe(true);
+    expect(sans[0].texteOrigine).toBeUndefined();
+  });
+  it('🔴 modification : l’ancien et le nouveau créneau sont protégés — un repère retiré est refusé, rien ne part', async () => {
+    programmee();
+    const r = await deplacerPrevisite({ occupationIds: OCC, jour: '2026-11-25', debut: '14:00', fin: '15:00' }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error('déplacer');
+    const m = await envoyerMailLocatairesPrevisite(r.data, AUTEUR, {}, { previsite_locataires_modif: { intro: 'Votre rendez-vous est déplacé au {rendez-vous}.' } });
+    expect(m.envois).toHaveLength(1);
+    expect(m.envois[0]).toMatchObject({ envoye: false });
+    expect(m.envois[0].motif).toContain('{adresse}');
+    expect(envoyerSerie).not.toHaveBeenCalled();
+    // Le même texte AVEC ses repères : accepté, l'ancien et le nouveau créneau remplis par le serveur.
+    await envoyerMailLocatairesPrevisite(r.data, AUTEUR, {}, { previsite_locataires_modif: { intro: 'Pour {adresse} : le {ancien rendez-vous} devient le {rendez-vous}.' } });
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string }[]];
+    expect(mails[0].texte).toContain('Pour 4 rue Fictive, 92800 Puteaux : le 12/11/2026 de 10h00 à 11h00 devient le 25/11/2026 de 14h00 à 15h00.');
   });
 });

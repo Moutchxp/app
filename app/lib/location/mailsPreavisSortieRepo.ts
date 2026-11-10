@@ -20,6 +20,7 @@ import { colonneExisteMemo } from './sondeLocation';
 import { coproprieteDisponible } from './creationBienRepo';
 import { auteurDuMail, destinatairesSortie, donneesMailSortie, lireBail, sortiePrevue, type SortieFaite } from './sortieLocatairesRepo';
 import { objetMailSortie, texteMailSortie } from './sortieLocataires';
+import { refusDesRetouches, type Retouches } from './texteModifiable';
 
 /**
  * ══ 🔴🔴 LOCATION — LES MAILS AUTOMATIQUES DU PRÉAVIS ET DE LA SORTIE (Arno, 05/11/2026). IMPUR (base + envoi). ═══════════
@@ -36,6 +37,25 @@ import { objetMailSortie, texteMailSortie } from './sortieLocataires';
  */
 
 export const mailsAvisDisponibles = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'sorte');
+/** 🔴 Arno (10/11/2026, migration 466) — le journal sait-il garder le texte d'ORIGINE d'un mail modifié ? */
+export const texteOrigineDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'texte_origine');
+export const MOTIF_SANS_466 = 'Un texte modifié demande la mise à jour de la base (migration 466) : rien n’est parti. Revenez au texte d’origine, ou faites appliquer la 466.';
+
+
+/**
+ * ══ 🔴🔴 LE CONTRÔLE DES RETOUCHES PAR LE SERVEUR (Arno, 10/11/2026) ════════════════════════════════════════════════════════════════
+ * Chaque retouche (d'un mail qui part ; sinon sans objet) ne touche que ses parties modifiables, et garde tous les repères protégés ; un texte
+ * modifié n'est accepté que si le journal peut garder son ORIGINE (migration 466). `null` = accepté. Les parties protégées, elles, sont
+ * reconstruites par le composeur : elles ne viennent jamais de la requête.
+ */
+export async function refusRetouches(mails: readonly MailAvis[], retouches: Retouches | undefined): Promise<string | null> {
+  // Un mail qui ne part pas (case « Informer nos partenaires » décochée…) : sa retouche est sans objet. Une sorte INCONNUE, elle, a déjà
+  // été refusée à la lecture de la requête (`lireRetouches`).
+  const refus = refusDesRetouches(mails.map((m) => m.edition), retouches);
+  if (refus !== null) return refus;
+  if (mails.some((m) => m.texteOrigine) && !(await texteOrigineDisponible())) return MOTIF_SANS_466;
+  return null;
+}
 
 /** Le motif dit à l'écran quand la 457 manque : le préavis s'enregistre, les mails ne partent pas. */
 export const MOTIF_SANS_457 = 'Les mails automatiques demandent la mise à jour de la base (migration 457) : aucun mail n’est parti.';
@@ -90,7 +110,7 @@ export type IssueApercuPreavis =
   | { etat: 'inconnu' };
 
 async function donneesPreavis(
-  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis, informerPartenaires = true,
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis, informerPartenaires = true,
 ): Promise<{ etat: 'ok'; donnees: DonneesPreavisMails; lotId: number; brute: string; dateFin: string; partenaires: Destinataire[] } | { etat: 'refus'; motif: string } | { etat: 'inconnu' }> {
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0) return { etat: 'refus', motif: 'Cochez au moins un locataire.' };
@@ -114,18 +134,21 @@ async function donneesPreavis(
       partenaires: informerPartenaires ? partenaires.map((x) => x.adresse) : [],
       locataires: locs.map(({ occupationId, nom, prenom, emails }) => ({ occupationId, nom, prenom, emails })),
       recuLe: d.recuLe as string, choix: d.choix as ModePreavis, expediteur: config.adresseGestion, valideur, signature: sig.ecran,
-      copropriete: logement.copropriete,
+      copropriete: logement.copropriete, ...(d.retouches && Object.keys(d.retouches).length > 0 ? { retouches: d.retouches } : {}),
     },
   };
 }
 
 /** L'APERÇU des mails du préavis, en lecture : rien n'est écrit, rien ne part. */
 export async function apercuMailsPreavis(
-  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis = {},
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis = {},
 ): Promise<IssueApercuPreavis> {
   const lu = await donneesPreavis(d, auteur, deps);
   if (lu.etat !== 'ok') return lu;
   const { mails, sansEmail } = mailsDuPreavis(lu.donnees);
+  // 🔴 Arno (10/11/2026) — les retouches du récapitulatif : contrôlées ici comme à l'envoi (même code) ; refusées, rien n'est montré comme parti.
+  const refus = await refusRetouches(mails, d.retouches);
+  if (refus !== null) return { etat: 'refus', motif: refus };
   return { etat: 'ok', data: { mails, sansEmail, enGestion: lu.donnees.enGestion, dateFin: lu.dateFin, envoiPossible: await mailsAvisDisponibles(), partenaires: lu.partenaires,
     copropriete: lu.donnees.copropriete ?? null, lotId: lu.lotId } };
 }
@@ -136,11 +159,14 @@ export interface EnvoiAvis { sorte: MailAvis['sorte']; objet: string; a: string[
   texte?: string }
 
 export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null }): Promise<void> {
+  // 🔴 Arno (10/11/2026, 466) — texte modifié : le journal garde aussi le texte d'ORIGINE (le texte envoyé est dans `texte`).
+  const origine = typeof m.texteOrigine === 'string' && await texteOrigineDisponible().catch(() => false) ? m.texteOrigine : null;
   try {
     await query(
-      `INSERT INTO gestion_location_mail_avis (sorte, lot_id, occupation_ids, expediteur, destinataires, copies, objet, texte, html, statut, erreur, message_id, auteur_id, auteur_libelle)
-       VALUES ($1, $2, $3::bigint[], $4, $5::text[], $6::text[], $7, $8, $9, $10, $11, $12, $13, $14)`,
-      [m.sorte, o.lotId, [...o.occupationIds], m.de, m.a, m.cc, m.objet, m.texte, m.html, o.statut, o.erreur, o.messageId, o.auteur.id, o.auteur.libelle]);
+      `INSERT INTO gestion_location_mail_avis (sorte, lot_id, occupation_ids, expediteur, destinataires, copies, objet, texte, html, statut, erreur, message_id, auteur_id, auteur_libelle${origine !== null ? ', texte_origine' : ''})
+       VALUES ($1, $2, $3::bigint[], $4, $5::text[], $6::text[], $7, $8, $9, $10, $11, $12, $13, $14${origine !== null ? ', $15' : ''})`,
+      [m.sorte, o.lotId, [...o.occupationIds], m.de, m.a, m.cc, m.objet, m.texte, m.html, o.statut, o.erreur, o.messageId, o.auteur.id, o.auteur.libelle,
+        ...(origine !== null ? [origine] : [])]);
   } catch (e) {
     console.error('[location] journal du mail « %s » impossible', m.sorte, (e as Error)?.message);
   }
@@ -149,7 +175,7 @@ export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupatio
       `INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle)
        VALUES ('annuaire_lot', $1, $2, $3, $4, $5, $6)`,
       [o.lotId, `location_mail_${m.sorte}`, o.statut,
-        `${m.objet} — à : ${m.a.join(', ')}${m.cc.length > 0 ? ` — cc : ${m.cc.join(', ')}` : ''}${o.erreur ? ` — non envoyé : ${o.erreur}` : ''}`,
+        `${m.objet} — à : ${m.a.join(', ')}${m.cc.length > 0 ? ` — cc : ${m.cc.join(', ')}` : ''}${m.texteOrigine ? ' — texte modifié avant l’envoi' : ''}${o.erreur ? ` — non envoyé : ${o.erreur}` : ''}`,
         o.auteur.id, o.auteur.libelle]);
   } catch (e) {
     console.error('[location] journal du bien (mail « %s ») impossible', m.sorte, (e as Error)?.message);
@@ -202,13 +228,15 @@ export type IssueMailsAvis = { etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'sans
  * que l'aperçu : ce qui part est ce qui a été montré. Ne lève jamais.
  */
 export async function envoyerMailsPreavis(
-  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null }, auteur: Auteur, deps: DepsAvis = {}, informerPartenaires = true,
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis = {}, informerPartenaires = true,
 ): Promise<IssueMailsAvis> {
   try {
     if (!(await mailsAvisDisponibles())) return { etat: 'sans_schema', motif: MOTIF_SANS_457 };
     const lu = await donneesPreavis(d, auteur, deps, informerPartenaires);
     if (lu.etat !== 'ok') return { etat: 'echec', motif: lu.etat === 'refus' ? lu.motif : 'Logement introuvable : aucun mail n’est parti.' };
     const { mails } = mailsDuPreavis(lu.donnees);
+    const refus = await refusRetouches(mails, d.retouches);
+    if (refus !== null) return { etat: 'echec', motif: refus };
     return { etat: 'ok', envois: await envoyerSerie(mails, lu.brute, { lotId: lu.lotId, occupationIds: d.occupationIds, auteur }, deps) };
   } catch (e) {
     return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };
@@ -246,12 +274,18 @@ export async function envoyerMailSortieAdhoc(f: SortieFaite, auteur: Auteur, dep
  * (`envoyerMails`) — les mails, par `envoyerMailsPreavis`. Un préavis refusé n'envoie rien ; un mail en échec ne défait rien.
  */
 export async function enregistrerPreavisAvecMails(
-  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; motif?: unknown }, auteur: Auteur,
+  d: { occupationIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; motif?: unknown; retouches?: Retouches }, auteur: Auteur,
   envoyerMails: boolean, deps: DepsAvis = {}, informerPartenaires = true,
 ): Promise<IssuePreavis<{ dateMax: string; preavis: number }> & { mails?: { etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'sans_schema' | 'echec'; motif: string } }> {
-  const r = await enregistrerPreavis(d, auteur);
+  // 🔴 Arno (10/11/2026) — un texte modifié REFUSÉ (partie protégée, repère retiré, 466 absente) : RIEN n'est enregistré, la personne corrige.
+  if (envoyerMails && d.retouches && Object.keys(d.retouches).length > 0) {
+    const a = await apercuMailsPreavis({ occupationIds: d.occupationIds, recuLe: d.recuLe, choix: d.choix, retouches: d.retouches }, auteur, deps);
+    if (a.etat === 'refus') return { etat: 'refus', motif: a.motif } as never;
+  }
+  const { retouches, ...preavis } = d;
+  const r = await enregistrerPreavis(preavis, auteur);
   if (r.etat !== 'ok' || !envoyerMails) return r;
-  const m = await envoyerMailsPreavis({ occupationIds: d.occupationIds, recuLe: d.recuLe, choix: d.choix }, auteur, deps, informerPartenaires);
+  const m = await envoyerMailsPreavis({ occupationIds: d.occupationIds, recuLe: d.recuLe, choix: d.choix, ...(retouches ? { retouches } : {}) }, auteur, deps, informerPartenaires);
   return { ...r, mails: m.etat === 'ok' ? { etat: 'ok', envois: m.envois } : { etat: m.etat, motif: m.motif } };
 }
 
@@ -320,9 +354,9 @@ export async function mailsAvisDuLocataire(wippimmoId: string): Promise<MailAvis
  * part) : le compte rendu interne (ses destinataires) et l'information aux partenaires (liste « Sorties », bien en gestion seulement), avec leurs
  * copies — les mêmes règles que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`).
  */
-export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o: { sortants?: readonly number[]; date?: unknown } = {}, deps: DepsAvis = {}): Promise<{ etat: 'ok'; data: {
+export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o: { sortants?: readonly number[]; date?: unknown; retouches?: Retouches } = {}, deps: DepsAvis = {}): Promise<{ etat: 'ok'; data: {
   enGestion: boolean; copropriete: boolean | null; lotId: number; sansEmail: string[];
-  mails: { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string }[] } } | { etat: 'inconnu' }> {
+  mails: { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string; edition?: MailAvis['edition']; modifie?: boolean }[] } } | { etat: 'inconnu' } | { etat: 'refus'; motif: string }> {
   const logement = await logementDe(occupationId);
   const bail = logement === null ? null : await lireBail(occupationId);
   if (logement === null || bail === null) return { etat: 'inconnu' };
@@ -339,7 +373,7 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   const sig = await signatureEcran(deps);
   // 🔴 Arno (10/11/2026, confidentialité) — un mail par sortant, puis la copie interne.
   const departs = typeof o.date === 'string' && locs.length > 0 ? mailsSortieLocataires({ adresse, locataires: locs, dateSortie: o.date, copropriete: logement.copropriete,
-    expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran }) : [];
+    expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran, ...(o.retouches ? { retouches: o.retouches } : {}) }) : [];
   const auxSortants = mailsAuxLocatairesSeuls(departs);
   // 🔴 Arno (06/11/2026) — les TEXTES INTÉGRAUX, produits par les MÊMES fonctions que l'envoi (`notifierSortie`, `envoyerMailSortieAdhoc`), sur la
   //    sortie telle qu'elle sera écrite (`sortiePrevue`, partagé avec `enregistrerSortie`). Seuls varient l'heure du compte rendu interne.
@@ -349,14 +383,17 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   // 🔴 Arno (06/11/2026) — le mail aux partenaires porte la copie complète du mail de départ (ou la ligne « aucun mail de départ »).
   const adhoc = prevue === null || partenaires.length === 0 ? null
     : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires,
-      depart: auxSortants[0] ?? null, nDeparts: auxSortants.length });
+      depart: auxSortants[0] ?? null, nDeparts: auxSortants.length, ...(o.retouches ? { retouches: o.retouches } : {}) });
+  const refus = await refusRetouches([...departs, ...(adhoc === null ? [] : [adhoc])], o.retouches);
+  if (refus !== null) return { etat: 'refus', motif: refus };
+  const vu = (m: MailAvis) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(m.edition ? { edition: m.edition } : {}), ...(m.texteOrigine ? { modifie: true } : {}) });
   return { etat: 'ok', data: { enGestion, copropriete: logement.copropriete, lotId: logement.lotId,
     sansEmail: locs.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
     mails: [
-      ...departs.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte })),
+      ...departs.map(vu),
       ...(internes.length === 0 ? [] : [{ sorte: 'sortie_interne', objet: objetMailSortie({ adresse: bail.adresse, lotId: bail.lotId }), a: internes, cc: [],
         ...(texteInterne === undefined ? {} : { texte: texteInterne }) }]),
-      ...(adhoc !== null ? [{ sorte: adhoc.sorte, objet: adhoc.objet, a: adhoc.a, cc: adhoc.cc, texte: adhoc.texte }]
+      ...(adhoc !== null ? [vu(adhoc)]
         : partenaires.length === 0 ? [] : [{ sorte: 'sortie_adhoc', objet: objetAdhocSortie(adresse), a: partenaires, cc: copiesAvis(config.adresseGestion, valideur, partenaires) }]),
     ] } };
 }
@@ -392,7 +429,7 @@ export async function envoyerMailSortieLocataires(f: SortieFaite, auteur: Auteur
  * « Sorties », bien en gestion, case cochée), qui en porte la COPIE COMPLÈTE — ou la ligne « aucun mail de départ » si aucun sortant n'a d'adresse.
  * Les mêmes fonctions que l'aperçu du récapitulatif. Ne lève jamais.
  */
-export async function envoyerMailsSortie(f: SortieFaite, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}, informerPartenaires = true): Promise<IssueMailsAvis> {
+export async function envoyerMailsSortie(f: SortieFaite, auteur: Auteur, deps: DepsAvis & { maintenant?: Date } = {}, informerPartenaires = true, retouches?: Retouches): Promise<IssueMailsAvis> {
   try {
     if (!(await mailsAvisDisponibles())) return { etat: 'sans_schema', motif: MOTIF_SANS_457 };
     const occs = f.sortants.map((l) => l.occupationId);
@@ -403,12 +440,14 @@ export async function envoyerMailsSortie(f: SortieFaite, auteur: Auteur, deps: D
     const config = await chargerConfigGestion();
     const sig = await signatureEcran(deps);
     const departs = mailsSortieLocataires({ adresse: logement.adresse, locataires: locs, dateSortie: f.date, copropriete: logement.copropriete,
-      expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran });
+      expediteur: config.adresseGestion, valideur: qui, signature: sig.ecran, ...(retouches ? { retouches } : {}) });
     const auxSortants = mailsAuxLocatairesSeuls(departs);
     const partenaires = informerPartenaires && logement.enGestion ? (await lireDestinatairesDefaut('sortie')).map((x) => x.adresse) : [];
     const adhoc = mailAdhocSortie({ ...donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString()), enGestion: logement.enGestion,
-      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart: auxSortants[0] ?? null, nDeparts: auxSortants.length });
+      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart: auxSortants[0] ?? null, nDeparts: auxSortants.length, ...(retouches ? { retouches } : {}) });
     const mails = [...departs, ...(adhoc === null ? [] : [adhoc])];
+    const refus = await refusRetouches(mails, retouches);
+    if (refus !== null) return { etat: 'echec', motif: refus };
     return { etat: 'ok', envois: mails.length === 0 ? [] : await envoyerSerie(mails, sig.brute, { lotId: f.bail.lotId, occupationIds: occs.length > 0 ? occs : f.occupationIds, auteur }, deps) };
   } catch (e) {
     return { etat: 'echec', motif: (e as Error)?.message || 'erreur inattendue' };

@@ -11,6 +11,8 @@ import { AUCUN_MAIL_ENVOYE, AUCUN_MAIL_PREVU, sortDuLogementPreavis, sortDuLogem
 import { dateFrPreavis, dateIsoValide, dateMaxPreavis, MOTIF_MAX, verifierPreavis, type DureeMois, type ModePreavis } from '../../../../lib/location/preavis';
 import { dateFr, dateMinSortie, verifierSortie, type BailLogement } from '../../../../lib/location/sortieLocataires';
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
+import type { EditionMail, Retouche, Retouches } from '../../../../lib/location/texteModifiable';
+import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from './TexteModifiableMail';
 
 /**
  * ══ 🔴🔴 LOCATION — LE PARCOURS « PRÉAVIS / SORTIE », UNE SEULE PASSE (Arno, 06/11/2026) ═══════════════════════════════════════════════════════
@@ -32,9 +34,13 @@ export type Geste = 'preavis' | 'sortie';
 /** Ce que l'écran garde une fois la fenêtre fermée (son bandeau de bilan). */
 export interface FinParcours { geste: Geste; noms: string[]; phrase: string; avecMails: boolean; mail?: EtatMail; mails?: EtatMailsAvis; adhoc?: EtatMailsAvis; dateMax?: string }
 
-type MailRecap = { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string };
+type MailRecap = { sorte: string; objet: string; a: string[]; cc: string[]; texte?: string;
+  /** 🔴 Arno (10/11/2026) — un mail à texte modifiable : ses parties (l'éditeur « Modifier le texte »). */
+  edition?: EditionMail };
 type Fenetre =
   | { etape: 'recap'; avecMails: boolean; mails: MailRecap[] | null; sansEmail: string[]; enGestion: boolean | null; motifMails: string | null; envoi: boolean; refus: string | null;
+      /** 🔴 Arno (10/11/2026) — un texte modifié refusé par le serveur (partie protégée, repère retiré) : dit, les mails d'avant restent. */
+      refusTexte?: string | null;
       /** 🔴 Arno (06/11/2026, 461) — la copropriété du bien (lue avec l'aperçu) : dite, jamais bloquante ; `undefined` : pas encore lue. */
       copropriete?: boolean | null; lotId?: number }
   | { etape: 'resultat'; avecMails: boolean; mails: MailParti[]; motifGlobal: string | null; fin: FinParcours };
@@ -63,6 +69,8 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
   const [dateSortie, setDateSortie] = useState('');
   const [tente, setTente] = useState(false);
   const [fenetre, setFenetre] = useState<Fenetre | null>(null);
+  /** 🔴 Arno (10/11/2026) — le texte modifié dans le récapitulatif, par sorte de mail ; vidé à chaque nouveau récapitulatif. */
+  const [retouches, setRetouches] = useState<Retouches>({});
   const choisis = locataires.filter((l) => choix.includes(l.occupationId));
   const concernes = geste === 'preavis' ? choisis.filter((l) => l.dateMaxPreavis === null) : choisis;
   const mode: ModePreavis = duree === 'manuelle' ? { mode: 'date_manuelle', dateMax: dateManuelle } : { mode: 'mois', duree: Number(duree) as DureeMois };
@@ -79,14 +87,29 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
     : sortDuLogementPreavis(bail, new Map(locataires.filter((l) => l.dateMaxPreavis !== null).map((l) => [l.occupationId, l.dateMaxPreavis as string])),
       concernes.map((l) => l.occupationId), dateMax ?? recuLe);
 
+  /** L'aperçu au serveur (une LECTURE), avec les retouches : ce qu'il rend est exactement ce qui partira. */
+  const lireApercu = (rt: Retouches) => (geste === 'preavis'
+    ? envoyer({ action: 'apercu-preavis', occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode, retouches: rt }, { propre: true })
+    : envoyer({ action: 'apercu-sortie', occupationId, sortants: concernes.map((l) => l.occupationId), date: dateSortie, retouches: rt }, { propre: true }));
+
+  /** 🔴 Arno (10/11/2026) — « Appliquer » dans l'éditeur : la retouche, puis le récapitulatif RELU au serveur ; refusée, elle n'est pas gardée. */
+  const appliquerTexte = async (cle: string, r: Retouche | undefined): Promise<void> => {
+    const suivantes: Retouches = { ...retouches };
+    if (r === undefined) delete suivantes[cle]; else suivantes[cle] = r;
+    const lu = await lireApercu(suivantes);
+    if (lu.motif !== null) { setFenetre((f) => (f?.etape === 'recap' ? { ...f, refusTexte: lu.motif } : f)); return; }
+    const d = lu.data as { mails?: MailRecap[] } | undefined;
+    setRetouches(suivantes);
+    setFenetre((f) => (f?.etape === 'recap' ? { ...f, mails: d?.mails ?? f.mails, refusTexte: null } : f));
+  };
+
   const ouvrirRecap = async (avecMails: boolean): Promise<void> => {
     setTente(true);
     if (geste === null || !verdict.ok) return;
+    setRetouches({});
     setFenetre({ etape: 'recap', avecMails, mails: avecMails ? null : [], sansEmail: [], enGestion: null, motifMails: null, envoi: false, refus: null });
     // L'aperçu (une LECTURE) est lu dans les deux cas : il dit la copropriété du bien ; ses mails ne servent qu'avec l'envoi.
-    const r = geste === 'preavis'
-      ? await envoyer({ action: 'apercu-preavis', occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode }, { propre: true })
-      : await envoyer({ action: 'apercu-sortie', occupationId, sortants: concernes.map((l) => l.occupationId), date: dateSortie }, { propre: true });
+    const r = await lireApercu({});
     if (r.motif !== null) { setFenetre((f) => (f?.etape === 'recap' ? { ...f, mails: [], motifMails: avecMails ? r.motif : null } : f)); return; }
     const d = r.data as { mails?: MailRecap[]; sansEmail?: string[]; enGestion?: boolean; envoiPossible?: boolean; copropriete?: boolean | null; lotId?: number } | undefined;
     const copro = { ...(d?.copropriete !== undefined ? { copropriete: d.copropriete } : {}), ...(d?.lotId !== undefined ? { lotId: d.lotId } : {}) };
@@ -100,7 +123,7 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
     setFenetre({ ...fenetre, envoi: true, refus: null });
     if (geste === 'preavis') {
       const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode,
-        motif: motif.trim() === '' ? null : motif.trim(), envoyerMails: avecMails, informerPartenaires: true }, { propre: true });
+        motif: motif.trim() === '' ? null : motif.trim(), envoyerMails: avecMails, informerPartenaires: true, ...(avecMails ? { retouches } : {}) }, { propre: true });
       if (r.motif !== null) { setFenetre({ ...fenetre, envoi: false, refus: `Le préavis n’a pas été enregistré : ${r.motif}` }); return; }
       const fin = (r.data as { dateMax?: string } | undefined)?.dateMax;
       const lus = mailsDepuisAvis(r.mails);
@@ -108,8 +131,8 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
         fin: { geste, noms, phrase: sort.phrase, avecMails, ...(r.mails !== undefined ? { mails: r.mails } : {}), ...(fin !== undefined ? { dateMax: fin } : {}) } });
       return;
     }
-    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: concernes.map((l) => l.occupationId), date: dateSortie, envoyerMails: avecMails, informerPartenaires: true },
-      { propre: true });
+    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: concernes.map((l) => l.occupationId), date: dateSortie, envoyerMails: avecMails, informerPartenaires: true,
+      ...(avecMails ? { retouches } : {}) }, { propre: true });
     if (r.motif !== null) { setFenetre({ ...fenetre, envoi: false, refus: `La sortie n’a pas été enregistrée : ${r.motif}` }); return; }
     const interne = mailInterneSortie(r.mail);
     const adhoc = mailsDepuisAvis(r.adhoc);
@@ -138,7 +161,7 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
 
   return (
     <div className="pss" data-parcours-preavis-sortie>
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS}</style>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_TEXTE_MODIFIABLE}</style>
       <div className="sor-deux-boutons" data-choix-geste>
         <button type="button" className="arc-gros sor-bascule" aria-pressed={geste === 'preavis'} disabled={!preavisDisponible || locataires.length === 0}
           title={!preavisDisponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
@@ -195,7 +218,8 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
       )}
       {fenetre !== null && <FenetreParcours geste={geste ?? 'preavis'} fenetre={fenetre} noms={noms} sort={sort.phrase}
         dates={geste === 'sortie' ? [['Date de sortie', dateFrPreavis(dateSortie)]] : [['Réception du recommandé', dateFrPreavis(recuLe)], ['Fin du bail au plus tard', dateMax === null ? '—' : dateFrPreavis(dateMax)]]}
-        onRevenir={() => setFenetre(null)} onConfirmer={() => void confirmer()} onFermer={fermer} />}
+        onRevenir={() => setFenetre(null)} onConfirmer={() => void confirmer()} onFermer={fermer}
+        retouches={retouches} onAppliquerTexte={(cle, r) => void appliquerTexte(cle, r)} />}
     </div>
   );
 }
@@ -255,8 +279,9 @@ export function TexteDuMail({ texte, ouvert: ouvertInitial }: { texte: string; o
 }
 
 /** La fenêtre : le récapitulatif (« Revenir » / « Confirmer »), puis le résultat (« Fermer »). */
-function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfirmer, onFermer }: {
+function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfirmer, onFermer, retouches = {}, onAppliquerTexte }: {
   geste: Geste; fenetre: Fenetre; noms: string[]; sort: string; dates: [string, string][]; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void;
+  retouches?: Retouches; onAppliquerTexte?: (cle: string, r: Retouche | undefined) => void;
 }) {
   const titreId = useId();
   useEffect(() => {
@@ -292,8 +317,15 @@ function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfi
                 <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataires</dt><dd data-a>{m.a.join(', ') || '—'}</dd>
                   <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd></dl>
                 {/* 🔴 Arno (06/11/2026) — le texte INTÉGRAL, tel que le serveur l'enverra, DÉPLIÉ par défaut ; « Masquer le texte » le replie. */}
-                {m.texte !== undefined && <TexteDuMail texte={m.texte} ouvert />}
+                {m.texte !== undefined && <TexteDuMail key={m.texte} texte={m.texte} ouvert />}
+                {/* 🔴 Arno (10/11/2026) — « Modifier le texte » sous chaque mail à texte fixe ; « Texte modifié » quand il l'a été. */}
+                {m.edition !== undefined && onAppliquerTexte !== undefined && (
+                  <ModifierTexteMail edition={m.edition} retouche={retouches[m.edition.cle]} desactive={fenetre.envoi}
+                    plusieurs={(fenetre.mails ?? []).filter((x) => x.edition?.cle === m.edition?.cle).length > 1}
+                    onAppliquer={(r) => onAppliquerTexte(m.edition!.cle, r)} />
+                )}
               </li>))}</ul></>}
+          {fenetre.refusTexte && <p className="cev-alerte" role="alert" data-refus-texte-serveur>Le texte modifié est refusé : {fenetre.refusTexte}</p>}
           {fenetre.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : {MENTION_SANS_EMAIL}</p>)}
         </>}
       {fenetre.refus !== null && <p className="cev-alerte" role="alert" data-echec-enregistrement>{fenetre.refus}</p>}

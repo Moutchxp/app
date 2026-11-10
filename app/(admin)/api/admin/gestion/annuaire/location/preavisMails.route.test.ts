@@ -30,14 +30,14 @@ describe('🔴 fiche de la Gestion : préavis avec ses mails', () => {
     apercu.mockResolvedValue({ etat: 'ok', data: { mails: [], sansEmail: [], enGestion: true, dateFin: '2027-02-04', envoiPossible: true } });
     const r = await (await POST(demande({ action: 'apercu-preavis', ...CORPS }))).json();
     expect(r.etat).toBe('ok');
-    expect(apercu).toHaveBeenCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 3 } }, AUTEUR);
+    expect(apercu).toHaveBeenCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 3 }, retouches: {} }, AUTEUR);
     expect(porte).not.toHaveBeenCalled();
   });
 
   it('« Valider et envoyer » : LA porte commune, mails demandés ; sans le drapeau : préavis seul, comme avant', async () => {
     const r = await (await POST(demande({ action: 'enregistrer-preavis', ...CORPS, motif: null, envoyerMails: true }))).json();
     expect(r.mails).toEqual({ etat: 'ok', envois: [] });
-    expect(porte).toHaveBeenLastCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 3 }, motif: null }, AUTEUR, true, {}, true);
+    expect(porte).toHaveBeenLastCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 3 }, motif: null, retouches: {} }, AUTEUR, true, {}, true);
     await POST(demande({ action: 'enregistrer-preavis', ...CORPS }));
     expect(porte.mock.calls[1][2]).toBe(false);
   });
@@ -53,5 +53,26 @@ describe('🔴 une seule fonction d’envoi pour toutes les entrées (pas de cop
       expect(src, f).not.toMatch(/\benregistrerPreavis\(/);
       expect(src, f).not.toMatch(/envoyerMailsPreavis\(/);
     }
+  });
+});
+
+describe('🔴 Arno (10/11/2026) — texte modifiable : une partie protégée forcée dans la requête est REFUSÉE, rien n’est enregistré', () => {
+  for (const [action, cle] of [['apercu-preavis', 'objet'], ['enregistrer-preavis', 'signature'], ['enregistrer-preavis', 'protege_0']] as const) {
+    it(`${action} + « ${cle} » → 400, ni aperçu ni préavis`, async () => {
+      const res = await POST(demande({ action, ...CORPS, envoyerMails: true, retouches: { preavis_locataires: { [cle]: 'texte forcé' } } }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).motif).toContain('partie protégée');
+      expect(porte).not.toHaveBeenCalled();
+      expect(apercu).not.toHaveBeenCalled();
+    });
+  }
+  it('une sorte non modifiable (alerte automatique) → 400', async () => {
+    const res = await POST(demande({ action: 'enregistrer-preavis', ...CORPS, envoyerMails: true, retouches: { previsite_alerte: { intro: 'x' } } }));
+    expect(res.status).toBe(400);
+    expect(porte).not.toHaveBeenCalled();
+  });
+  it('les parties modifiables passent, telles quelles, à LA porte commune', async () => {
+    await POST(demande({ action: 'enregistrer-preavis', ...CORPS, envoyerMails: true, retouches: { preavis_locataires: { conclusion: 'Merci.' } } }));
+    expect(porte.mock.calls[0][0]).toMatchObject({ retouches: { preavis_locataires: { conclusion: 'Merci.' } } });
   });
 });

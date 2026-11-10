@@ -1,4 +1,5 @@
 import 'server-only';
+import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
 import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arbreStatutDriveRepo';
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
@@ -522,6 +523,14 @@ export async function POST(request: Request): Promise<Response> {
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();
         const sortants = Array.isArray(corps.sortants) ? (corps.sortants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        // 🔴 Arno (10/11/2026) — le texte modifié dans le récapitulatif : lu, puis CONTRÔLÉ (même code que l'aperçu) AVANT d'écrire la sortie ;
+        //    refusé (partie protégée, repère retiré, 466 absente) : rien n'est enregistré, la personne corrige.
+        const rtS = lireRetouches(corps.retouches, SORTES_MODIFIABLES_SORTIE);
+        if (!rtS.ok) return Response.json({ etat: 'refus', motif: rtS.motif }, { status: 400, headers: ENTETES });
+        if (corps.envoyerMails === true && Object.keys(rtS.retouches).length > 0) {
+          const a = await apercuMailsSortie(occ, auteur, { sortants, date: corps.date, retouches: rtS.retouches });
+          if (a.etat === 'refus') return Response.json(a, { status: 400, headers: ENTETES });
+        }
         const r = await enregistrerSortie({ occupationId: occ, sortants, date: corps.date }, auteur);
         if (r.etat !== 'ok') return repondre(r);
         // 🔴 Arno (06/11/2026) — « Enregistrer » seul (`envoyerMails: false`) : la sortie, et AUCUN mail (ni compte rendu interne, ni partenaires).
@@ -535,7 +544,7 @@ export async function POST(request: Request): Promise<Response> {
         // 🔴 Arno (05/11/2026, 460) — la liste « Sorties » ; la case « Informer nos partenaires » décochée : aucun mail partenaire.
         // 🔴 Arno (06/11/2026) — « Enregistrer et envoyer les mails » (`envoyerMails: true`) : le mail de départ aux locataires, PUIS le mail aux
         //    partenaires qui en porte la copie complète. Sans `envoyerMails` (comme avant) : le mail aux partenaires seul.
-        const adhoc = corps.envoyerMails === true ? await envoyerMailsSortie(r.data, auteur, {}, corps.informerPartenaires !== false)
+        const adhoc = corps.envoyerMails === true ? await envoyerMailsSortie(r.data, auteur, {}, corps.informerPartenaires !== false, rtS.retouches)
           : await envoyerMailSortieAdhoc(r.data, auteur, {}, corps.informerPartenaires !== false);
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
           ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif, destinataires: m.destinataires, objet: m.objet, ...(m.texte !== undefined ? { texte: m.texte } : {}) },
@@ -554,19 +563,26 @@ export async function POST(request: Request): Promise<Response> {
         // Arno (05/11/2026) — « Valider et envoyer » (après l'aperçu) : le préavis d'abord, les mails ENSUITE, jamais bloquants —
         // LA porte commune à toutes les entrées (fiche de la Gestion comprise).
         // 🔴 Arno (05/11/2026, 460) — `informerPartenaires` : la case « Informer nos partenaires » (absente : cochée).
-        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur, corps.envoyerMails === true,
-          {}, corps.informerPartenaires !== false));
+        // 🔴 Arno (10/11/2026) — le texte modifié dans le récapitulatif : parties modifiables seulement, sinon REFUS (rien n'est enregistré).
+        const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREAVIS);
+        if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
+        return repondre(await enregistrerPreavisAvecMails({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif, retouches: rt.retouches },
+          auteur, corps.envoyerMails === true, {}, corps.informerPartenaires !== false));
       }
       // 🔴 Arno (06/11/2026) — l'aperçu des mails d'une sortie (LECTURE : rien n'est écrit, rien ne part), pour le récapitulatif avant « Confirmer ».
       case 'apercu-sortie': {
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();
         const sortants = Array.isArray(corps.sortants) ? (corps.sortants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await apercuMailsSortie(occ, auteur, { sortants, date: corps.date }));
+        const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_SORTIE);
+        if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
+        return repondre(await apercuMailsSortie(occ, auteur, { sortants, date: corps.date, retouches: rt.retouches }));
       }
       case 'apercu-preavis': {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
-        return repondre(await apercuMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix) }, auteur));
+        const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREAVIS);
+        if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
+        return repondre(await apercuMailsPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), retouches: rt.retouches }, auteur));
       }
       case 'corriger-preavis': {
         const pid = identifiant(corps.preavisId);
@@ -616,13 +632,23 @@ export async function POST(request: Request): Promise<Response> {
       //    geste ; après l'écriture, les mails des collègues (module de tâches, droit d'envoi relu, mode RECETTE) et ceux des locataires.
       case 'apercu-previsite': {
         const occs = idsOccupations(corps.occupationIds);
+        const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREVISITE);
+        if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
         return repondre(await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
-          destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true }, auteur));
+          destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true, retouches: rt.retouches }, auteur));
       }
       case 'programmer-previsite':
       case 'deplacer-previsite':
       case 'reaffecter-previsite': {
         const occs = idsOccupations(corps.occupationIds);
+        // 🔴 Arno (10/11/2026) — le texte modifié du mail aux locataires : lu, puis CONTRÔLÉ (même code que l'aperçu) AVANT d'écrire le rendez-vous.
+        const rtP = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREVISITE);
+        if (!rtP.ok) return Response.json({ etat: 'refus', motif: rtP.motif }, { status: 400, headers: ENTETES });
+        if (action !== 'reaffecter-previsite' && Object.keys(rtP.retouches).length > 0) {
+          const a = await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
+            destinataires: idsOccupations(corps.destinataires), deplacer: action === 'deplacer-previsite', retouches: rtP.retouches }, auteur);
+          if (a.etat === 'refus') return Response.json(a, { status: 400, headers: ENTETES });
+        }
         const r = action === 'programmer-previsite'
           ? await programmerPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), destinataires: idsOccupations(corps.destinataires) }, auteur)
           : action === 'deplacer-previsite'
@@ -631,7 +657,7 @@ export async function POST(request: Request): Promise<Response> {
         if (r.etat !== 'ok') return repondre(r);
         const collegues = await envoyerAuxInvites(request, r.demandes);
         const agenda = await synchroniserApresGeste(r.data.tacheId);
-        const locataires = action === 'reaffecter-previsite' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur);
+        const locataires = action === 'reaffecter-previsite' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur, {}, rtP.retouches);
         return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
       }
       case 'apercu-compte-rendu-previsite':

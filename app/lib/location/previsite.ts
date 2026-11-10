@@ -9,7 +9,8 @@
  * Ce module décide : le statut d'un préavis, l'alerte, les compteurs des pastilles, la saisie d'un rendez-vous, l'objet et le texte de
  * chaque mail, et l'invitation d'agenda (.ics) jointe. Le dépôt (`previsiteRepo.ts`) lit, écrit et envoie.
  */
-import { adressesUniques, composerMailLocation, enumerer, prenomNom, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, prenomNom, REPERE_NOM, type Signature } from './mailsPreavisSortie';
+import { paragraphesDesParties, partiesDuMail, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
 import { heureFr, minutesDe, plageFr } from './edls';
 import { instantParis } from '../temps/paris';
@@ -226,27 +227,59 @@ export function objetConfirmationLocataires(adresse: string, r: RdvPrevisite): s
   return `Rendez-vous de pré-visite d’état des lieux de sortie — ${dateFrPreavis(r.jour)} à ${heureFr(r.heure)} — ${adresse}`;
 }
 
-export function paragraphesConfirmationLocataires(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: RdvPrevisite }): string[] {
-  return [
-    `Bonjour ${noms(d.locataires)},`,
-    `Nous vous confirmons le rendez-vous de pré-visite d’état des lieux de sortie de votre logement situé ${d.adresse}, le ${creneauFr(d.rdv)}.`,
-    'Cette visite permet de comparer l’état actuel du logement avec l’état des lieux d’entrée et de vous signaler, si besoin, les points à reprendre avant votre départ, afin de limiter les retenues sur le dépôt de garantie.',
-    'Vous trouverez en pièce jointe une invitation à ajouter à votre agenda. Si ce créneau ne vous convient pas, il vous suffit de répondre à ce message.',
-    'Nous restons à votre disposition pour toute question.',
-  ];
+/**
+ * 🔴 Arno (10/11/2026, texte modifiable) — LES PARTIES de la confirmation : appel, introduction (repères `{adresse}`, `{rendez-vous}`),
+ * conclusion libre et politesse modifiables ; le paragraphe du dépôt de garantie et celui de l'invitation jointe protégés. PUR.
+ */
+export function partiesConfirmationLocataires(): PartieTexte[] {
+  return partiesDuMail({
+    appel: `Bonjour {${REPERE_NOM}},`,
+    intro: 'Nous vous confirmons le rendez-vous de pré-visite d’état des lieux de sortie de votre logement situé {adresse}, le {rendez-vous}.',
+    proteges: [
+      { libelle: 'Pré-visite et dépôt de garantie', texte: 'Cette visite permet de comparer l’état actuel du logement avec l’état des lieux d’entrée et de vous signaler, si besoin, les points à reprendre avant votre départ, afin de limiter les retenues sur le dépôt de garantie.' },
+      { libelle: 'Invitation d’agenda jointe', texte: 'Vous trouverez en pièce jointe une invitation à ajouter à votre agenda. Si ce créneau ne vous convient pas, il vous suffit de répondre à ce message.' },
+    ],
+    politesse: 'Nous restons à votre disposition pour toute question.',
+  });
+}
+
+/** Les parties de la MODIFICATION : l'ancien et le nouveau créneau sont des repères protégés. PUR. */
+export function partiesModificationLocataires(): PartieTexte[] {
+  return partiesDuMail({
+    appel: `Bonjour {${REPERE_NOM}},`,
+    intro: 'Le rendez-vous de pré-visite d’état des lieux de sortie de votre logement situé {adresse}, prévu le {ancien rendez-vous}, est déplacé au {rendez-vous}.',
+    proteges: [{ libelle: 'Invitation d’agenda jointe', texte: 'Vous trouverez en pièce jointe l’invitation mise à jour pour votre agenda. Si ce nouveau créneau ne vous convient pas, il vous suffit de répondre à ce message.' }],
+    politesse: 'Nous restons à votre disposition pour toute question.',
+  });
+}
+
+const valeursRdv = (d: { adresse: string; rdv: RdvPrevisite; ancien?: RdvPrevisite | null }, nom: string): Record<string, string> => ({
+  [REPERE_NOM]: nom, adresse: d.adresse, 'rendez-vous': creneauFr(d.rdv), ...(d.ancien ? { 'ancien rendez-vous': creneauFr(d.ancien) } : {}) });
+
+export function paragraphesConfirmationLocataires(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: RdvPrevisite; retouche?: Retouche }): string[] {
+  return paragraphesDesParties(partiesConfirmationLocataires(), d.retouche, valeursRdv(d, noms(d.locataires)));
 }
 
 export function objetModificationLocataires(adresse: string, r: RdvPrevisite): string {
   return `Modification de votre rendez-vous de pré-visite — nouvelle date : ${dateFrPreavis(r.jour)} à ${heureFr(r.heure)} — ${adresse}`;
 }
 
-export function paragraphesModificationLocataires(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: RdvPrevisite; ancien: RdvPrevisite }): string[] {
-  return [
-    `Bonjour ${noms(d.locataires)},`,
-    `Le rendez-vous de pré-visite d’état des lieux de sortie de votre logement situé ${d.adresse}, prévu le ${creneauFr(d.ancien)}, est déplacé au ${creneauFr(d.rdv)}.`,
-    'Vous trouverez en pièce jointe l’invitation mise à jour pour votre agenda. Si ce nouveau créneau ne vous convient pas, il vous suffit de répondre à ce message.',
-    'Nous restons à votre disposition pour toute question.',
-  ];
+export function paragraphesModificationLocataires(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: RdvPrevisite; ancien: RdvPrevisite; retouche?: Retouche }): string[] {
+  return paragraphesDesParties(partiesModificationLocataires(), d.retouche, valeursRdv(d, noms(d.locataires)));
+}
+
+/**
+ * 🔴 Arno (10/11/2026, texte modifiable) — la confirmation / modification d'UN locataire, depuis ses parties (retouche appliquée, chacun son
+ * nom) : le texte PROPOSÉ gardé quand il est modifié, et ce que l'éditeur montre. PUR.
+ */
+export function mailRdvLocataire(o: { sorte: 'previsite_locataires' | 'previsite_locataires_modif'; de: string; objet: string; adresse: string; rdv: RdvPrevisite;
+  ancien: RdvPrevisite | null; locataire: LocatairePrevisite; qui: QuiEnvoie; signature: Signature; retouche?: Retouche; ics?: MailPrevisite['ics'] }): MailPrevisite | null {
+  const a = adressesUniques(o.locataire.emails);
+  if (a.length === 0) return null;
+  const c = corpsDepuisParties({ cle: o.sorte, objet: o.objet, parties: o.ancien === null ? partiesConfirmationLocataires() : partiesModificationLocataires(),
+    retouche: o.retouche, valeurs: valeursRdv(o, prenomNom(o.locataire)), qui: o.qui, signature: o.signature });
+  return { sorte: o.sorte, de: o.de, a, cc: [], objet: o.objet, texte: c.texte, html: c.html, ...(o.ics ? { ics: o.ics } : {}),
+    ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition };
 }
 
 // ── Aux collègues : l'invitation à faire le compte rendu ──────────────────────────────────────────────────────────────
@@ -359,6 +392,9 @@ export interface MailPrevisite {
   de: string; a: string[]; cc: string[]; objet: string; texte: string; html: string;
   /** L'invitation d'agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — le texte PROPOSÉ quand il a été modifié ; ce que l'éditeur montre. */
+  texteOrigine?: string | null;
+  edition?: EditionMail;
 }
 
 /** L'identité qui signe : le compte connecté (« Mail envoyé par … ») ou l'envoi automatique. */

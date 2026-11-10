@@ -38,7 +38,9 @@ vi.mock('../db/client', () => ({
   }),
   withTransaction: vi.fn(), closePool: vi.fn(),
 }));
-vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (t: string) => (t === 'gestion_location_mail_avis' ? avec457 : true) }));
+vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (t: string, c?: string) => (t === 'gestion_location_mail_avis' ? (c === 'texte_origine' ? avec466 : avec457) : true) }));
+/** 🔴 466 — le journal garde le texte d'origine d'un mail modifié. */
+let avec466 = true;
 vi.mock('../gestion/statutBienRepo', () => ({ sqlStatutBien: async () => 'lo.statut_bien' }));
 vi.mock('../gestion/coordonneeVivante', () => ({ conditionCoordonneeVivante: async () => '' }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@criterimmo.fr' }) }));
@@ -68,7 +70,7 @@ const journalAvis = () => ecritures.filter((e) => e.sql.includes('INSERT INTO ge
 /** 🔴 Arno (10/11/2026, confidentialité) — gestion@ + la personne qui valide : la COPIE INTERNE (mail à part), jamais plus en copie visible. */
 const INTERNE = ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'];
 
-beforeEach(() => { copro = null; enGestion = true; avec457 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; listes = { preavis: [ADHOC], sortie: [ADHOC] }; });
+beforeEach(() => { copro = null; enGestion = true; avec457 = true; avec466 = true; emailsPaul = ['paul@exemple.test']; ecritures.length = 0; envoyes.length = 0; listes = { preavis: [ADHOC], sortie: [ADHOC] }; });
 
 describe('l’aperçu : lecture seule', () => {
   it('sélection multiple : 🔴 un accusé PAR locataire, la copie interne, puis le mail aux partenaires — sans rien envoyer ni écrire', async () => {
@@ -433,6 +435,73 @@ describe('🔴 Arno (06/11/2026) — sortie SANS mail de départ (aucun sortant 
       const f = sortiePrevue((await lireBail(11))!, [12], '2026-11-04');
       await envoyerMailsSortie(f as never, AUTEUR, { ...d2, maintenant: new Date() }, true);
       expect(envoyes.map((m) => m.corps)).toEqual([adhoc]);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('🔴🔴 Arno (10/11/2026) — le texte modifiable avant envoi : contrôlé par le serveur, tracé au journal', () => {
+  const RETOUCHE = { preavis_locataires: { appel: 'Chère, cher {nom du locataire},', conclusion: 'Au plaisir de vous lire.' } };
+  beforeEach(() => { enregistrerPreavis.mockReset().mockResolvedValue({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 } }); });
+  it('l’aperçu = le texte ENVOYÉ, au caractère près ; chaque locataire avec son nom', async () => {
+    const ap = await apercuMailsPreavis({ ...DEMANDE, retouches: RETOUCHE }, AUTEUR, deps);
+    if (ap.etat !== 'ok') throw new Error('aperçu');
+    await enregistrerPreavisAvecMails({ ...DEMANDE, retouches: RETOUCHE }, AUTEUR, true, deps);
+    expect(envoyes.map((m) => m.corps)).toEqual(ap.data.mails.map((m) => m.texte));
+    expect(envoyes[0].corps.startsWith('Chère, cher Alice BERNARD,')).toBe(true);
+    expect(envoyes[1].corps.startsWith('Chère, cher Paul MARTIN,')).toBe(true);
+    expect(envoyes[0].corps).toContain('Au plaisir de vous lire.\n\nNous restons à votre disposition');
+    expect(ap.data.mails[0].edition?.modifie).toBe(true);
+  });
+  it('🔴 le journal garde QUI, le texte d’ORIGINE et le texte ENVOYÉ ; le journal du bien dit « texte modifié »', async () => {
+    await enregistrerPreavisAvecMails({ ...DEMANDE, retouches: RETOUCHE }, AUTEUR, true, deps);
+    const j = journalAvis();
+    expect(j[0].sql).toContain('texte_origine');
+    expect(j[0].params[13]).toBe('a.jorel@sansvisavis.com');          // qui
+    expect(j[0].params[7]).toBe(envoyes[0].corps);                     // le texte envoyé
+    expect(String(j[0].params[14]).startsWith('Bonjour Alice BERNARD,')).toBe(true); // le texte d'origine
+    const bien = ecritures.filter((e) => e.sql.includes('INSERT INTO gestion_journal'));
+    expect(String(bien[0].params[3])).toContain('texte modifié avant l’envoi');
+    // Non modifié (partenaires) : aucun texte d'origine.
+    expect(j.find((e) => e.params[0] === 'preavis_adhoc')!.sql).not.toContain('texte_origine');
+  });
+  it('sans retouche : le texte d’origine part, rien de plus au journal', async () => {
+    await enregistrerPreavisAvecMails(DEMANDE, AUTEUR, true, deps);
+    expect(envoyes[0].corps.startsWith('Bonjour Alice BERNARD,\n\nNous accusons réception')).toBe(true);
+    expect(journalAvis().every((e) => !e.sql.includes('texte_origine'))).toBe(true);
+  });
+  it('🔴 forcer la requête — un repère protégé retiré : REFUS, le préavis n’est PAS enregistré, rien ne part', async () => {
+    const r = await enregistrerPreavisAvecMails({ ...DEMANDE, retouches: { preavis_locataires: { intro: 'Nous accusons réception de votre congé pour le logement du 99 rue Inventée.' } } }, AUTEUR, true, deps);
+    expect(r).toMatchObject({ etat: 'refus' });
+    expect((r as { motif: string }).motif).toContain('{adresse}');
+    expect(enregistrerPreavis).not.toHaveBeenCalled();
+    expect(envoyes).toEqual([]);
+  });
+  it('🔴 forcer la requête — une partie protégée sous une clé modifiable inexistante dans ce mail : refus', async () => {
+    const ap = await apercuMailsPreavis({ ...DEMANDE, retouches: { preavis_locataires: { protege_0: 'Votre bail ne prend jamais fin.' } as never } }, AUTEUR, deps);
+    expect(ap).toMatchObject({ etat: 'refus' });
+  });
+  it('sans la migration 466 : un texte modifié est refusé (il ne pourrait pas être tracé) ; le texte proposé part toujours', async () => {
+    avec466 = false;
+    expect(await enregistrerPreavisAvecMails({ ...DEMANDE, retouches: RETOUCHE }, AUTEUR, true, deps)).toMatchObject({ etat: 'refus' });
+    expect(enregistrerPreavis).not.toHaveBeenCalled();
+    await enregistrerPreavisAvecMails(DEMANDE, AUTEUR, true, deps);
+    expect(envoyes.length).toBeGreaterThan(0);
+  });
+  it('la sortie : le départ modifié, l’aperçu identique à l’envoi', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-06T10:00:00Z'));
+    try {
+      listes = { preavis: [], sortie: [ADHOC] };
+      const rt = { sortie_locataires: { appel: 'Bonjour {nom du locataire} !' }, sortie_adhoc: { politesse: 'Bonne journée,' } };
+      const ap = await apercuMailsSortie(11, AUTEUR, { sortants: [11, 12], date: '2026-11-04', retouches: rt }, deps);
+      if (ap.etat !== 'ok') throw new Error('aperçu');
+      const { lireBail, sortiePrevue } = await import('./sortieLocatairesRepo');
+      await envoyerMailsSortie(sortiePrevue((await lireBail(11))!, [11, 12], '2026-11-04') as never, AUTEUR, { ...deps, maintenant: new Date() }, true, rt);
+      const attendus = ap.data.mails.filter((m) => m.sorte !== 'sortie_interne').map((m) => m.texte);
+      expect(envoyes.map((m) => m.corps)).toEqual(attendus);
+      expect(envoyes[0].corps.startsWith('Bonjour Alice BERNARD !')).toBe(true);
+      expect(envoyes[1].corps.startsWith('Bonjour Paul MARTIN !')).toBe(true);
+      expect(envoyes.at(-1)!.corps).toContain('Bonne journée,\n\nMail envoyé par');
+      expect(ap.data.mails.filter((m) => m.modifie).length).toBe(3); // les deux départs et le mail aux partenaires
     } finally { vi.useRealTimers(); }
   });
 });

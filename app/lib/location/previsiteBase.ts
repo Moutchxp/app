@@ -13,9 +13,10 @@ import { locatairesAvis, logementDe, signatureEcran, type DepsAvis } from './mai
 import type { LignePreavisAccueil } from './preavis';
 import {
   NOM_FICHIER_ICS, finDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
-  copieInterneLocataires, mailsAuxLocataires, paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
+  copieInterneLocataires, mailRdvLocataire, paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
   type FaitsPrevisite, type MailPrevisite, type RdvPrevisite, type ReponseDuCollegue,
 } from './previsite';
+import type { Retouches } from './texteModifiable';
 
 /**
  * ══ 🔴🔴 LA PRÉ-VISITE — LA BASE COMMUNE DU DÉPÔT (Arno, 10/11/2026) ════════════════════════════════════════════════════════════
@@ -210,14 +211,18 @@ export function icsDuRdv(c: Contexte, previsiteId: number, rdv: RdvPrevisite, se
  * « Bonjour Prénom NOM », sans copie visible, avec « Mail envoyé par … » (l'expéditeur de l'agence, décision remise d'Arno) ; puis la COPIE INTERNE (gestion@ et la personne connectée, qui
  * étaient en copie visible avant). Vide si aucun locataire n'a d'adresse. PUR (le contexte est lu).
  */
-export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisite, sequence: number, ancien: RdvPrevisite | null, maintenant: Date): MailPrevisite[] {
+export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisite, sequence: number, ancien: RdvPrevisite | null, maintenant: Date,
+  retouches?: Retouches): MailPrevisite[] {
   const sorte = ancien === null ? 'previsite_locataires' as const : 'previsite_locataires_modif' as const;
   const objet = ancien === null ? objetConfirmationLocataires(c.adresse, rdv) : objetModificationLocataires(c.adresse, rdv);
+  const retouche = retouches?.[sorte];
   const paragraphesDe = (l: Pick<Contexte['locataires'][number], 'nom' | 'prenom'>) => (ancien === null
-    ? paragraphesConfirmationLocataires({ adresse: c.adresse, locataires: [l], rdv })
-    : paragraphesModificationLocataires({ adresse: c.adresse, locataires: [l], rdv, ancien }));
-  const envois = mailsAuxLocataires({ sorte, de: c.expediteur, locataires: c.locataires, objet, paragraphesDe, qui: c.qui, signature: c.signature,
-    ics: icsDuRdv(c, previsiteId, rdv, sequence, maintenant) });
+    ? paragraphesConfirmationLocataires({ adresse: c.adresse, locataires: [l], rdv, ...(retouche ? { retouche } : {}) })
+    : paragraphesModificationLocataires({ adresse: c.adresse, locataires: [l], rdv, ancien, ...(retouche ? { retouche } : {}) }));
+  // 🔴 Arno (10/11/2026, texte modifiable) — chaque locataire : SON mail, depuis les parties (la retouche vaut pour chacun, avec son nom).
+  const ics = icsDuRdv(c, previsiteId, rdv, sequence, maintenant);
+  const envois = c.locataires.map((l) => mailRdvLocataire({ sorte, de: c.expediteur, objet, adresse: c.adresse, rdv, ancien, locataire: l, qui: c.qui,
+    signature: c.signature, ...(retouche ? { retouche } : {}), ics })).filter((m): m is MailPrevisite => m !== null);
   const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
   const copie = premier === undefined ? null : copieInterneLocataires({ sorte, de: c.expediteur, a: copiesAvis(c.expediteur, c.qui, []), objet, envois,
     locataires: c.locataires, paragraphes: paragraphesDe(premier), qui: c.qui, signature: c.signature });
@@ -228,4 +233,6 @@ export const recapitulatifMission = (c: Pick<Contexte, 'adresse' | 'locataires'>
   [`Mission : pré-visite d’état des lieux de sortie.`, '', `Adresse : ${c.adresse}`, '',
     `Locataire${c.locataires.length > 1 ? 's' : ''} :`, ...c.locataires.map((l) => `· ${[prenomNom(l), ...adressesUniques(l.emails)].join(' — ')}`)].join('\n');
 
-export interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null }
+export interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — les parties, pour « Modifier le texte » ; `modifie` : le texte a été modifié. */
+  edition?: import('./texteModifiable').EditionMail; modifie?: boolean }

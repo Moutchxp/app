@@ -20,6 +20,7 @@ import { echapper } from './mailNouvelleLocation';
 import { ajouterMois, dateFrPreavis, type DureeMois, type ModePreavis } from './preavis';
 import { descriptionLogement, type DonneesMailSortie } from './sortieLocataires';
 import { mentionEnvoyePar } from './mentionEnvoyePar';
+import { estModifie, paragraphesDesParties, partiesDuMail, type EditionMail, type PartieTexte, type Retouche, type Retouches } from './texteModifiable';
 
 /**
  * 🔴 Arno (05/11/2026, 460) — PLUS AUCUNE ADRESSE PARTENAIRE DANS LE CODE : les destinataires des mails d'information (préavis, sortie) sont
@@ -48,6 +49,10 @@ export interface MailAvis {
   html: string;
   /** 🔴 Arno (10/11/2026, pré-visite) — l’invitation d’agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — le texte PROPOSÉ quand la personne l'a modifié (le journal garde les deux) ; absent : non modifié. */
+  texteOrigine?: string | null;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — ce que l'éditeur du récapitulatif montre (parties modifiables et protégées). Jamais envoyé. */
+  edition?: EditionMail;
 }
 
 export interface Signature { html: string; texte: string }
@@ -71,6 +76,8 @@ export interface DonneesPreavisMails {
   /** `prenom` / `nomFamille` : ceux du compte connecté (« Mail envoyé par … ») ; absents : seule l'adresse. */
   valideur: { nom: string; email: string | null; prenom?: string | null; nomFamille?: string | null };
   signature: Signature;
+  /** 🔴 Arno (10/11/2026, texte modifiable) — les retouches du récapitulatif, par sorte (« preavis_locataires », « preavis_adhoc »). */
+  retouches?: Retouches;
 }
 
 // ── LES BRIQUES ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -140,6 +147,34 @@ const avecSignature = (corps: string, s: Signature): { texte: string; html: stri
   html: s.html.trim() === '' ? '' : `<div class="gmail_signature" style="margin-top:16px">${s.html}</div>`,
 });
 
+/** 🔴 Arno (10/11/2026) — le repère du nom : chaque locataire reçoit SON mail, avec son nom, même texte modifié. */
+export const REPERE_NOM = 'nom du locataire';
+
+/**
+ * ══ 🔴 LE CORPS D'UN MAIL À PARTIR DE SES PARTIES (texte modifiable) ══════════════════════════════════════════════════════════════
+ * Les paragraphes (retouche appliquée, repères remplis), puis « Mail envoyé par … » et la signature Gmail — PROTÉGÉS, reconstruits ici.
+ * Rend aussi le texte PROPOSÉ (sans retouche) quand il diffère, et ce que l'éditeur montre. `copie` : ce qui suit la signature (la copie
+ * de l'accusé dans le mail aux partenaires), protégé lui aussi. PUR.
+ */
+export function corpsDepuisParties(o: { cle: string; objet: string; parties: readonly PartieTexte[]; retouche: Retouche | null | undefined;
+  valeurs: Readonly<Record<string, string>>; qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string | null }; signature: Signature;
+  copie?: { texte: string; html: string; libelle: string } | null }): { texte: string; html: string; texteOrigine: string | null; edition: EditionMail } {
+  const construire = (r: Retouche | null | undefined) => {
+    const c = composerMailLocation(paragraphesDesParties(o.parties, r, o.valeurs), o.qui, o.signature);
+    return o.copie ? { texte: `${c.texte}\n\n${o.copie.texte}`, html: c.html.replace(/<\/div>$/, `${o.copie.html}</div>`) } : c;
+  };
+  const m = construire(o.retouche);
+  const modifie = estModifie(o.parties, o.retouche);
+  const mention = 'mention' in o.qui ? o.qui.mention : mentionEnvoyePar(o.qui);
+  return {
+    texte: m.texte, html: m.html, texteOrigine: modifie ? construire(null).texte : null,
+    edition: { cle: o.cle, objet: o.objet, parties: [...o.parties], valeurs: { ...o.valeurs }, modifie,
+      suite: [...(mention ? [{ libelle: 'Mention de l’expéditeur', texte: mention }] : []),
+        ...(o.signature.texte.trim() !== '' ? [{ libelle: 'Signature Gmail', texte: `-- \n${o.signature.texte.trim()}` }] : []),
+        ...(o.copie ? [{ libelle: o.copie.libelle, texte: o.copie.texte }] : [])] },
+  };
+}
+
 const enveloppe = (contenu: string): string =>
   `<div style="font-family:Arial,Helvetica,sans-serif;max-width:680px">${contenu}</div>`;
 
@@ -173,22 +208,36 @@ export function paragrapheCopropriete(copropriete: boolean | null, mail: 'preavi
   return [mail === 'preavis' ? `Enfin, ${PROVISION_OUI}` : `${PROVISION_OUI.charAt(0).toUpperCase()}${PROVISION_OUI.slice(1)}`];
 }
 
-/** Les paragraphes du mail A, tels qu'Arno les a écrits (seuls les champs entre chevrons changent). PUR. */
-export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 'locataires' | 'recuLe' | 'choix' | 'copropriete'>): string[] {
+/**
+ * 🔴 Arno (10/11/2026, texte modifiable) — LES PARTIES du mail A : l'appel et l'introduction (avec les repères `{nom du locataire}`,
+ * `{adresse}`, `{date de réception}`), la conclusion libre et la politesse sont modifiables ; la fin du bail, la pré-visite et la provision de
+ * 20 % (article 22) sont protégées. Le texte d'Arno est celui des parties, repères remplis. PUR.
+ */
+export function partiesAccuseConge(d: Pick<DonneesPreavisMails, 'recuLe' | 'choix' | 'copropriete'>): PartieTexte[] {
   const fin = dateFrPreavis(dateFinBail(d.recuLe, d.choix));
   const duree = d.choix.mode === 'mois'
     ? `Votre préavis étant de ${libelleDuree(d.choix.duree)}, votre bail prendra fin le ${fin}.`
     // La date maximale saisie à la main (cas prévu par l'écran depuis le 18/10) : la phrase garde la date, sans durée inventée.
     : `Votre bail prendra fin le ${fin}.`;
-  return [
-    `Bonjour ${enumerer(d.locataires.map(prenomNom))},`,
-    `Nous accusons réception de votre congé pour le logement situé ${d.adresse}, reçu le ${dateFrPreavis(d.recuLe)}.`,
-    `${duree} Nous vous rappelons que le loyer et les charges restent dus jusqu’à la fin du préavis, y compris si vous quittez le logement avant cette date.`,
-    'Notre équipe vous propose d’organiser dans les 10 jours une visite de pré-état des lieux de sortie. Elle permet de comparer l’état actuel du logement avec l’état des lieux d’entrée et de vous signaler, si besoin, les points à reprendre avant votre départ, afin de limiter les retenues sur le dépôt de garantie. Cette visite n’est pas obligatoire, mais nous vous la recommandons vivement : elle évite les incompréhensions le jour de l’état des lieux de sortie définitif. Pour la fixer, il vous suffit de répondre à ce message.',
-    // 🔴 Arno (06/11/2026, 461) — la provision de 20 % selon la copropriété SAISIE sur le bien (Oui / Non / non renseigné).
-    ...paragrapheCopropriete(d.copropriete ?? null, 'preavis'),
-    'Nous restons à votre disposition pour toute question.',
-  ];
+  return partiesDuMail({
+    appel: `Bonjour {${REPERE_NOM}},`,
+    intro: 'Nous accusons réception de votre congé pour le logement situé {adresse}, reçu le {date de réception}.',
+    proteges: [
+      { libelle: 'Fin du bail', texte: `${duree} Nous vous rappelons que le loyer et les charges restent dus jusqu’à la fin du préavis, y compris si vous quittez le logement avant cette date.` },
+      { libelle: 'Pré-état des lieux de sortie (dépôt de garantie)', texte: 'Notre équipe vous propose d’organiser dans les 10 jours une visite de pré-état des lieux de sortie. Elle permet de comparer l’état actuel du logement avec l’état des lieux d’entrée et de vous signaler, si besoin, les points à reprendre avant votre départ, afin de limiter les retenues sur le dépôt de garantie. Cette visite n’est pas obligatoire, mais nous vous la recommandons vivement : elle évite les incompréhensions le jour de l’état des lieux de sortie définitif. Pour la fixer, il vous suffit de répondre à ce message.' },
+      // 🔴 Arno (06/11/2026, 461) — la provision de 20 % selon la copropriété SAISIE sur le bien (Oui / Non / non renseigné).
+      ...paragrapheCopropriete(d.copropriete ?? null, 'preavis').map((t) => ({ libelle: 'Provision de 20 % (article 22 de la loi de 1989)', texte: t })),
+    ],
+    politesse: 'Nous restons à votre disposition pour toute question.',
+  });
+}
+
+const valeursAccuse = (d: Pick<DonneesPreavisMails, 'adresse' | 'recuLe'>, noms: string): Record<string, string> =>
+  ({ [REPERE_NOM]: noms, adresse: d.adresse, 'date de réception': dateFrPreavis(d.recuLe) });
+
+/** Les paragraphes du mail A, tels qu'Arno les a écrits (seuls les champs entre chevrons changent). PUR. */
+export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 'locataires' | 'recuLe' | 'choix' | 'copropriete' | 'retouches'>): string[] {
+  return paragraphesDesParties(partiesAccuseConge(d), d.retouches?.preavis_locataires, valeursAccuse(d, enumerer(d.locataires.map(prenomNom))));
 }
 
 /**
@@ -198,11 +247,12 @@ export function paragraphesAccuseConge(d: Pick<DonneesPreavisMails, 'adresse' | 
 export function mailAccuseConge(d: DonneesPreavisMails, l: LocataireAvis): MailAvis | null {
   const a = adressesUniques(l.emails);
   if (a.length === 0) return null;
-  const paras = avecMention(paragraphesAccuseConge({ ...d, locataires: [l] }), d.valideur);
-  const sig = avecSignature(paras.join('\n\n'), d.signature);
+  const objet = objetAccuseConge(d.adresse);
+  const c = corpsDepuisParties({ cle: 'preavis_locataires', objet, parties: partiesAccuseConge(d), retouche: d.retouches?.preavis_locataires,
+    valeurs: valeursAccuse(d, prenomNom(l)), qui: d.valideur, signature: d.signature });
   return {
-    sorte: 'preavis_locataires', de: d.expediteur, a, cc: [], objet: objetAccuseConge(d.adresse),
-    texte: sig.texte, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}`),
+    sorte: 'preavis_locataires', de: d.expediteur, a, cc: [], objet, texte: c.texte, html: c.html,
+    ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition,
   };
 }
 
@@ -265,25 +315,36 @@ export function mailAdhocPreavis(d: DonneesPreavisMails, accuse: MailAvis | null
   if (a.length === 0) return null;
   const noms = enumerer(d.locataires.map(prenomNom));
   // 🔴 Arno (05/11/2026) — l'introduction telle qu'il l'a écrite (seuls les champs changent) ; « purement informatif » retiré.
-  const intro = [
-    'Bonjour,',
-    `Nous vous informons que nous avons reçu, le ${dateFrPreavis(d.recuLe)}, le congé de ${noms} pour le logement situé ${d.adresse} (propriétaire : ${d.proprietaire ?? 'non renseigné'}). Le bail prendra théoriquement fin le ${dateFrPreavis(dateFinBail(d.recuLe, d.choix))}.`,
-    accuse === null
+  // 🔴 Arno (10/11/2026, texte modifiable) — appel, introduction (repères protégés), conclusion et politesse modifiables ; la phrase de
+  //    la copie, la mention, la signature et la copie de l'accusé protégées.
+  const parties = partiesDuMail({
+    appel: 'Bonjour,',
+    intro: 'Nous vous informons que nous avons reçu, le {date de réception}, le congé de {locataires} pour le logement situé {adresse} (propriétaire : {propriétaire}). Le bail prendra théoriquement fin le {date de fin du bail}.',
+    proteges: [{ libelle: 'La copie de l’accusé', texte: accuse === null
       // Aucun accusé envoyé par mail : pas de copie à annoncer (constat inchangé).
       ? 'Aucun des locataires n’a d’adresse e-mail connue : l’accusé de réception ne leur a pas été envoyé par mail.'
-      : phraseCopiePartenaires('de l’accusé de réception que nous avons adressé', n),
+      : phraseCopiePartenaires('de l’accusé de réception que nous avons adressé', n) }],
     // 🔴 Arno (05/11/2026) — avec une signature Gmail, elle tient lieu de « L’équipe Sans Vis-à-Vis » : « Bonne journée, » seul.
-    aSignature(d.signature) ? 'Bonne journée,' : 'Bonne journée,\nL’équipe Sans Vis-à-Vis',
-  ];
-  const corps = avecMention(intro, d.valideur);
+    politesse: aSignature(d.signature) ? 'Bonne journée,' : 'Bonne journée,\nL’équipe Sans Vis-à-Vis',
+  });
+  const valeurs = { 'date de réception': dateFrPreavis(d.recuLe), locataires: noms, adresse: d.adresse, propriétaire: d.proprietaire ?? 'non renseigné',
+    'date de fin du bail': dateFrPreavis(dateFinBail(d.recuLe, d.choix)) };
+  const objet = objetAdhocPreavis(d);
   // Notre signature d'abord, PUIS la copie (comme un transfert) — dans le texte comme dans le HTML.
-  const sig = avecSignature(corps.join('\n\n'), d.signature);
-  const texte = accuse === null ? sig.texte : `${sig.texte}\n\n${enteteCopie(accuse).join('\n')}\n\n${accuse.texte}`;
-  const copieHtml = accuse === null ? '' : `<div style="margin-top:20px;padding:12px 16px;border-left:3px solid #c9ced6;background:#f4f5f7">`
-    + `<div style="font-size:13px;line-height:1.5;color:#5b6472;margin-bottom:12px">${enteteCopie(accuse).map(echapper).join('<br>')}</div>${accuse.html}</div>`;
+  const c = corpsDepuisParties({ cle: 'preavis_adhoc', objet, parties, retouche: d.retouches?.preavis_adhoc, valeurs, qui: d.valideur, signature: d.signature,
+    copie: accuse === null ? null : copieDuMail(accuse, 'Copie de l’accusé (protégée)') });
   return {
-    sorte: 'preavis_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet: objetAdhocPreavis(d),
-    texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}${copieHtml}`),
+    sorte: 'preavis_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.valideur, a), objet, texte: c.texte, html: c.html,
+    ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition,
+  };
+}
+
+/** La copie d'un mail (comme un transfert), texte et HTML — protégée. PUR. */
+function copieDuMail(m: MailAvis, libelle: string): { texte: string; html: string; libelle: string } {
+  return {
+    libelle, texte: `${enteteCopie(m).join('\n')}\n\n${m.texte}`,
+    html: `<div style="margin-top:20px;padding:12px 16px;border-left:3px solid #c9ced6;background:#f4f5f7">`
+      + `<div style="font-size:13px;line-height:1.5;color:#5b6472;margin-bottom:12px">${enteteCopie(m).map(echapper).join('<br>')}</div>${m.html}</div>`,
   };
 }
 
@@ -316,15 +377,13 @@ export const PAS_DE_MAIL_DE_DEPART = 'Aucun des locataires n’a d’adresse e-m
  * avant (ni copie, ni ligne). PUR.
  */
 export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[];
-  depart?: MailAvis | null; nDeparts?: number }): MailAvis | null {
+  depart?: MailAvis | null; nDeparts?: number; retouches?: Retouches }): MailAvis | null {
   if (!d.enGestion) return null;
   const a = adressesUniques(d.partenaires);
   if (a.length === 0) return null;
   const adresse = d.adresse ?? `Bien ${d.lotId}`;
   const plusieurs = d.sortants.length > 1;
-  const paras = [
-    'Bonjour,',
-    `Pour information, ${plusieurs ? 'les locataires suivants ont quitté' : 'le locataire suivant a quitté'} le logement situé ${adresse}.`,
+  const proteges = [
     [`Logement : ${descriptionLogement(d)}${d.annexes.length > 0 ? ` — avec ${d.annexes.join(', ')}` : ''}`, `Adresse : ${adresse}`,
       `Propriétaire : ${d.proprietaire ?? 'non renseigné'}`].join('\n'),
     [`${plusieurs ? 'Locataires sortis' : 'Locataire sorti'} :`,
@@ -335,16 +394,22 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
     // 🔴 Arno (10/11/2026) — un mail de départ par locataire : la copie du premier, et le nombre.
     ...(d.depart && (d.nDeparts ?? 1) > 1 ? [`Le mail de départ a été envoyé à chacun des ${d.nDeparts} locataires, séparément et à son nom : ci-dessous, la copie de celui du premier.`] : []),
   ];
-  const corps = avecMention(paras, d.auteur);
-  const sig = avecSignature(corps.join('\n\n'), d.signature);
+  // 🔴 Arno (10/11/2026, texte modifiable) — appel, introduction (adresse protégée), conclusion et politesse (aucune par défaut) modifiables ;
+  //    le logement, les sortants et leurs dates, la copie du départ, la mention et la signature protégés.
+  const parties = partiesDuMail({
+    appel: 'Bonjour,',
+    intro: `Pour information, ${plusieurs ? 'les locataires suivants ont quitté' : 'le locataire suivant a quitté'} le logement situé {adresse}.`,
+    proteges: proteges.map((t) => ({ libelle: 'Logement, locataires et dates', texte: t })),
+    politesse: '',
+  });
   const depart = d.depart ?? null;
+  const objet = objetAdhocSortie(adresse);
   // Notre signature d'abord, PUIS la copie (comme un transfert) — dans le texte comme dans le HTML (la présentation du mail du préavis).
-  const texte = depart === null ? sig.texte : `${sig.texte}\n\n${enteteCopie(depart).join('\n')}\n\n${depart.texte}`;
-  const copieHtml = depart === null ? '' : `<div style="margin-top:20px;padding:12px 16px;border-left:3px solid #c9ced6;background:#f4f5f7">`
-    + `<div style="font-size:13px;line-height:1.5;color:#5b6472;margin-bottom:12px">${enteteCopie(depart).map(echapper).join('<br>')}</div>${depart.html}</div>`;
+  const c = corpsDepuisParties({ cle: 'sortie_adhoc', objet, parties, retouche: d.retouches?.sortie_adhoc, valeurs: { adresse }, qui: d.auteur, signature: d.signature,
+    copie: depart === null ? null : copieDuMail(depart, 'Copie du mail de départ (protégée)') });
   return {
-    sorte: 'sortie_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.auteur, a), objet: objetAdhocSortie(adresse),
-    texte, html: enveloppe(`${paragraphesHtml(corps)}${sig.html}${copieHtml}`),
+    sorte: 'sortie_adhoc', de: d.expediteur, a, cc: copiesAvis(d.expediteur, d.auteur, a), objet, texte: c.texte, html: c.html,
+    ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition,
   };
 }
 
@@ -355,19 +420,27 @@ export function objetSortieLocataires(adresse: string): string {
 }
 
 /** Les paragraphes du mail de départ, tels qu'Arno les a écrits (seuls les champs changent). PUR. */
-export function paragraphesSortieLocataires(d: { adresse: string; locataires: readonly Pick<LocataireAvis, 'nom' | 'prenom'>[]; dateSortie: string; copropriete: boolean | null }): string[] {
-  return [
-    `Bonjour ${enumerer(d.locataires.map(prenomNom))},`,
-    `Nous vous confirmons votre départ du logement situé ${d.adresse}, effectif le ${dateFrPreavis(d.dateSortie)}, date de la remise des clés.`,
-    'Le dépôt de garantie vous sera restitué dans un délai maximal d’un mois à compter de la remise des clés si l’état des lieux de sortie est conforme à l’état des lieux d’entrée, et de deux mois dans le cas contraire, déduction faite des sommes restant dues et justifiées (article 22 de la loi n° 89-462 du 6 juillet 1989).',
-    ...paragrapheCopropriete(d.copropriete, 'sortie'),
-    'Afin de procéder à la restitution, merci de nous communiquer par retour de mail votre nouvelle adresse postale ainsi qu’un RIB, si ce n’est pas déjà fait.',
-    'Nous vous remercions pour la confiance que vous nous avez accordée et vous souhaitons une bonne installation.',
-  ];
+/** 🔴 Arno (10/11/2026, texte modifiable) — LES PARTIES du mail de départ : dépôt de garantie, article 22, provision de 20 % et RIB protégés. PUR. */
+export function partiesSortieLocataires(d: { copropriete: boolean | null }): PartieTexte[] {
+  return partiesDuMail({
+    appel: `Bonjour {${REPERE_NOM}},`,
+    intro: 'Nous vous confirmons votre départ du logement situé {adresse}, effectif le {date de sortie}, date de la remise des clés.',
+    proteges: [
+      { libelle: 'Dépôt de garantie (article 22 de la loi de 1989)', texte: 'Le dépôt de garantie vous sera restitué dans un délai maximal d’un mois à compter de la remise des clés si l’état des lieux de sortie est conforme à l’état des lieux d’entrée, et de deux mois dans le cas contraire, déduction faite des sommes restant dues et justifiées (article 22 de la loi n° 89-462 du 6 juillet 1989).' },
+      ...paragrapheCopropriete(d.copropriete, 'sortie').map((t) => ({ libelle: 'Provision de 20 % (article 22 de la loi de 1989)', texte: t })),
+      { libelle: 'Restitution (adresse et RIB)', texte: 'Afin de procéder à la restitution, merci de nous communiquer par retour de mail votre nouvelle adresse postale ainsi qu’un RIB, si ce n’est pas déjà fait.' },
+    ],
+    politesse: 'Nous vous remercions pour la confiance que vous nous avez accordée et vous souhaitons une bonne installation.',
+  });
+}
+
+export function paragraphesSortieLocataires(d: { adresse: string; locataires: readonly Pick<LocataireAvis, 'nom' | 'prenom'>[]; dateSortie: string; copropriete: boolean | null; retouches?: Retouches }): string[] {
+  return paragraphesDesParties(partiesSortieLocataires(d), d.retouches?.sortie_locataires,
+    { [REPERE_NOM]: enumerer(d.locataires.map(prenomNom)), adresse: d.adresse, 'date de sortie': dateFrPreavis(d.dateSortie) });
 }
 
 type DonneesDepart = { adresse: string; locataires: readonly LocataireAvis[]; dateSortie: string; copropriete: boolean | null;
-  expediteur: string; valideur: DonneesPreavisMails['valideur']; signature: Signature };
+  expediteur: string; valideur: DonneesPreavisMails['valideur']; signature: Signature; retouches?: Retouches };
 
 /**
  * Le mail de départ d'UN locataire sortant, ou `null` s'il n'a pas d'adresse. 🔴 Arno (10/11/2026, confidentialité) — SEUL destinataire, son
@@ -377,11 +450,12 @@ type DonneesDepart = { adresse: string; locataires: readonly LocataireAvis[]; da
 export function mailSortieLocataire(d: DonneesDepart, l: LocataireAvis): MailAvis | null {
   const a = adressesUniques(l.emails);
   if (a.length === 0) return null;
-  const paras = avecMention(paragraphesSortieLocataires({ ...d, locataires: [l] }), d.valideur);
-  const sig = avecSignature(paras.join('\n\n'), d.signature);
+  const objet = objetSortieLocataires(d.adresse);
+  const c = corpsDepuisParties({ cle: 'sortie_locataires', objet, parties: partiesSortieLocataires(d), retouche: d.retouches?.sortie_locataires,
+    valeurs: { [REPERE_NOM]: prenomNom(l), adresse: d.adresse, 'date de sortie': dateFrPreavis(d.dateSortie) }, qui: d.valideur, signature: d.signature });
   return {
-    sorte: 'sortie_locataires', de: d.expediteur, a, cc: [], objet: objetSortieLocataires(d.adresse),
-    texte: sig.texte, html: enveloppe(`${paragraphesHtml(paras)}${sig.html}`),
+    sorte: 'sortie_locataires', de: d.expediteur, a, cc: [], objet, texte: c.texte, html: c.html,
+    ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition,
   };
 }
 

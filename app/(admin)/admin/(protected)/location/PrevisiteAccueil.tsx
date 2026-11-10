@@ -7,6 +7,8 @@ import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
 import { CSS_PARCOURS, TexteDuMail } from './ParcoursPreavisSortie';
+import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from './TexteModifiableMail';
+import type { EditionMail, Retouche, Retouches } from '../../../../lib/location/texteModifiable';
 import { libelleMail, type MailParti } from '../../../../lib/location/confirmationEnvois';
 import { ajouterMois, dateFrPreavis, EDL_MOIS_APRES_FIN, type LignePreavisAccueil } from '../../../../lib/location/preavis';
 import { heureFinProposee, heureFr } from '../../../../lib/location/edls';
@@ -105,7 +107,9 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
   );
 }
 
-interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null }
+interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null;
+  /** 🔴 Arno (10/11/2026) — un mail aux locataires à texte modifiable : ses parties. */
+  edition?: EditionMail }
 type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[] } | { etape: 'resultat'; mails: MailParti[]; lignes: [string, ReactNode][]; motif: string | null };
 
 const TITRES: Record<Geste, [string, string]> = {
@@ -129,6 +133,8 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const [etape, setEtape] = useState<Etape>({ etape: 'saisie' });
   const [envoi, setEnvoi] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
+  /** 🔴 Arno (10/11/2026) — le texte modifié des mails aux locataires (confirmation, modification), par sorte. */
+  const [retouches, setRetouches] = useState<Retouches>({});
   const deplacement = geste === 'deplacer';
   const avecDate = geste === 'rdv' || geste === 'deplacer';
   const avecCollegues = geste === 'rdv' || geste === 'reaffecter';
@@ -164,14 +170,16 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const corpsCommun = { occupationIds: l.occupationIds };
   const rdvActuel = p.rdv;
 
-  const voirRecap = async (): Promise<void> => {
+  const voirRecap = async (rt: Retouches = {}): Promise<void> => {
     setEnvoi(true); setRefus(null);
     const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
-          : { action: 'apercu-previsite', ...corpsCommun, jour, debut, fin, destinataires: dest, deplacer: deplacement }, { propre: true });
+          : { action: 'apercu-previsite', ...corpsCommun, jour, debut, fin, destinataires: dest, deplacer: deplacement, retouches: rt }, { propre: true });
     setEnvoi(false);
+    // Un texte modifié refusé par le serveur : le récapitulatif d'avant reste, la raison est dite (la retouche n'est pas gardée).
     if (r.motif !== null) { setRefus(r.motif); return; }
+    setRetouches(rt);
     const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[] };
     // Réaffecter : seules les invitations des collègues partent (les locataires ne sont pas prévenus d'un changement de collègue).
     const mails = (d.mails ?? []).filter((m) => geste !== 'reaffecter' || m.sorte === 'previsite_invitation');
@@ -182,7 +190,8 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     setEnvoi(true); setRefus(null);
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
-    const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '' }, { propre: true });
+    const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '',
+      ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
     const d = (r.data ?? {}) as { rdv?: { jour: string; heure: string; dureeMinutes: number }; ancien?: { jour: string; heure: string; dureeMinutes: number } | null;
@@ -247,7 +256,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => onFermer(false)} disabled={envoi} data-annuler-previsite>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap(); }} disabled={envoi || !saisieOk} data-recap-previsite>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk} data-recap-previsite>
           {envoi ? 'Préparation…' : 'Voir le récapitulatif'}</button>
       </div>
     </>;
@@ -263,7 +272,18 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
             <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataires</dt><dd data-a>{m.a.join(', ') || '—'}</dd>
               <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd>
               {m.piece && <><dt>Pièce jointe</dt><dd>{m.piece} (invitation d’agenda)</dd></>}</dl>
-            <TexteDuMail texte={m.texte} ouvert />
+            <TexteDuMail key={m.texte} texte={m.texte} ouvert />
+            {/* 🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirmation / la modification aux locataires ; « Texte modifié ». */}
+            {m.edition !== undefined && (
+              <ModifierTexteMail edition={m.edition} retouche={retouches[m.edition.cle]} desactive={envoi}
+                plusieurs={etape.mails.filter((x) => x.edition?.cle === m.edition?.cle).length > 1}
+                onAppliquer={(r: Retouche | undefined) => {
+                  const cle = m.edition!.cle;
+                  const suivantes: Retouches = { ...retouches };
+                  if (r === undefined) delete suivantes[cle]; else suivantes[cle] = r;
+                  void voirRecap(suivantes);
+                }} />
+            )}
           </li>))}</ul>
       </>}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
@@ -287,7 +307,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const echec = etape.etape === 'resultat' && (etape.motif !== null || etape.mails.some((m) => !m.envoye));
   const boite = (
     <div className="mis-voile">
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE}</style>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE}</style>
       <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
         {contenu}

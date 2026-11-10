@@ -109,7 +109,7 @@ describe('Arno (05/11/2026) — POST apercu-preavis / enregistrer-preavis + envo
     apercuMailsPreavis.mockResolvedValue({ etat: 'ok', data: { mails: [], sansEmail: [], enGestion: true, dateFin: '2026-12-04', envoiPossible: true } });
     const r = await (await POST(demande({ action: 'apercu-preavis', ...corps }))).json();
     expect(r.etat).toBe('ok');
-    expect(apercuMailsPreavis).toHaveBeenCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 } }, { id: 3, libelle: 'arno@exemple.fr' });
+    expect(apercuMailsPreavis).toHaveBeenCalledWith({ occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, retouches: {} }, { id: 3, libelle: 'arno@exemple.fr' });
     expect(enregistrerPreavisAvecMails).not.toHaveBeenCalled();
   });
 
@@ -118,7 +118,7 @@ describe('Arno (05/11/2026) — POST apercu-preavis / enregistrer-preavis + envo
     const r = await (await POST(demande({ action: 'enregistrer-preavis', ...corps, motif: null, envoyerMails: true }))).json();
     expect(r).toEqual({ etat: 'ok', data: { dateMax: '2026-12-04', preavis: 2 }, mails: { etat: 'ok', envois: [] } });
     expect(enregistrerPreavisAvecMails).toHaveBeenLastCalledWith(
-      { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, motif: null }, { id: 3, libelle: 'arno@exemple.fr' }, true, {}, true);
+      { occupationIds: [11, 12], recuLe: '2026-11-04', choix: { mode: 'mois', duree: 1 }, motif: null, retouches: {} }, { id: 3, libelle: 'arno@exemple.fr' }, true, {}, true);
     await POST(demande({ action: 'enregistrer-preavis', ...corps }));
     expect(enregistrerPreavisAvecMails.mock.calls[1][2]).toBe(false);
   });
@@ -170,7 +170,7 @@ describe('🔴 Arno (06/11/2026) — le parcours en une passe : « Enregistrer �
     apercuMailsSortie.mockResolvedValue({ etat: 'ok', data: { enGestion: true, mails: [{ sorte: 'sortie_interne', objet: 'o', a: ['a@b.fr'], cc: [] }] } });
     const r = await (await POST(demande({ action: 'apercu-sortie', occupationId: 11 }))).json();
     expect(r).toEqual({ etat: 'ok', data: { enGestion: true, mails: [{ sorte: 'sortie_interne', objet: 'o', a: ['a@b.fr'], cc: [] }] } });
-    expect(apercuMailsSortie).toHaveBeenCalledWith(11, { id: 3, libelle: 'arno@exemple.fr' }, { sortants: [], date: undefined });
+    expect(apercuMailsSortie).toHaveBeenCalledWith(11, { id: 3, libelle: 'arno@exemple.fr' }, { sortants: [], date: undefined, retouches: {} });
     expect(enregistrerSortie).not.toHaveBeenCalled();
   });
 });
@@ -183,7 +183,7 @@ describe('🔴 Arno (06/11/2026) — le mail de départ aux locataires (et sa co
     enregistrerSortie.mockResolvedValue({ etat: 'ok', data: FAITE });
     notifierSortie.mockResolvedValue({ envoye: true, motif: null, destinataires: ['a@b.fr'], objet: 'x' });
     const r = await (await POST(demande({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31', envoyerMails: true }))).json();
-    expect(envoyerMailsSortie).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' }, {}, true);
+    expect(envoyerMailsSortie).toHaveBeenCalledWith(FAITE, { id: 3, libelle: 'arno@exemple.fr' }, {}, true, {});
     expect(envoyerMailSortieAdhoc).not.toHaveBeenCalled();
     expect(r.adhoc).toEqual({ etat: 'ok', envois: [DEPART, ADHOC] });
   });

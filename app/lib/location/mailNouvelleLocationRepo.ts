@@ -25,6 +25,8 @@ import {
   objetNouvelleLocation, statutProprietaires, texteNouvelleLocation, verifierDestinataires,
   type Destinataire, type DestinatairePropose, type DonneesNouvelleLocation, type GarantMail, type LotSource, type PersonneMail,
 } from './mailNouvelleLocation';
+import { partiesNouvelleLocation } from './mailNouvelleLocation';
+import { estModifie, lireRetouches, refusRetouche, type Retouche } from './texteModifiable';
 
 /**
  * ══ 🔴🔴 LOCATION — LE MAIL « NOUVELLE LOCATION » (ENVOI ADHOC & MONGA) (Arno, 21/10/2026). IMPUR (base + envoi). ═══════════
@@ -349,14 +351,20 @@ export type IssueEnvoiNouvelleLocation =
   | { etat: 'inconnu' };
 
 async function journaliser(o: { bailId: number; auteur: Auteur; nom: string; email: string | null; liste: Destinataire[]; expediteur: string;
-  objet: string; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null; message: string | null }): Promise<string | null> {
+  objet: string; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null; message: string | null;
+  /** 🔴 Arno (10/11/2026, 466) — texte modifié : le texte d'ORIGINE et le texte ENVOYÉ. */
+  textes?: { origine: string; envoye: string } | null }): Promise<string | null> {
   try {
     // Arno (21/10/2026, 398) : le message d'accompagnement, dans le journal — avec sa colonne seulement (sans la 398 : comme avant).
     const avecMessage = await colonneExisteMemo('gestion_location_mail_envoi', 'message');
+    const t = o.textes ?? null;
+    const colonnes = ['bail_id', 'auteur_id', 'auteur_libelle', 'auteur_email', 'destinataires', 'expediteur', 'objet', 'statut', 'erreur', 'message_id',
+      ...(avecMessage ? ['message'] : []), ...(t !== null ? ['texte_origine', 'texte_envoye'] : [])];
+    const valeurs = [o.bailId, o.auteur.id, o.nom, o.email, JSON.stringify(o.liste), o.expediteur, o.objet, o.statut, o.erreur, o.messageId,
+      ...(avecMessage ? [o.message] : []), ...(t !== null ? [t.origine, t.envoye] : [])];
     const { rows } = await query<{ quand: string }>(
-      `INSERT INTO gestion_location_mail_envoi (bail_id, auteur_id, auteur_libelle, auteur_email, destinataires, expediteur, objet, statut, erreur, message_id${avecMessage ? ', message' : ''})
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10${avecMessage ? ', $11' : ''}) RETURNING envoye_le::text AS quand`,
-      [o.bailId, o.auteur.id, o.nom, o.email, JSON.stringify(o.liste), o.expediteur, o.objet, o.statut, o.erreur, o.messageId, ...(avecMessage ? [o.message] : [])]);
+      `INSERT INTO gestion_location_mail_envoi (${colonnes.join(', ')})
+       VALUES (${valeurs.map((_, i) => (i === 4 ? `$${i + 1}::jsonb` : `$${i + 1}`)).join(', ')}) RETURNING envoye_le::text AS quand`, valeurs);
     return rows[0]?.quand ?? null;
   } catch (e) {
     console.error('[location] journal du mail « nouvelle location » impossible', (e as Error)?.message);
@@ -372,10 +380,20 @@ async function journaliser(o: { bailId: number; auteur: Auteur; nom: string; ema
 export const MOTIF_ENVOI_HORS_GESTION = 'Ce bien n’est pas en gestion : l’envoi à ADHOC & MONGA ne concerne que les biens en gestion.';
 
 export async function envoyerNouvelleLocation(bailId: number, brut: unknown, auteur: Auteur,
-  deps: { transport?: TransportDemande } = {}, messageBrut: unknown = null): Promise<IssueEnvoiNouvelleLocation> {
+  deps: { transport?: TransportDemande } = {}, messageBrut: unknown = null, retouchesBrutes: unknown = undefined): Promise<IssueEnvoiNouvelleLocation> {
   if (!(await mailNouvelleLocationDisponible())) return { etat: 'sans_schema' };
   const v = verifierDestinataires(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  // 🔴 Arno (10/11/2026, texte modifiable) — l'appel, l'introduction, la conclusion et la politesse seulement ; toute autre partie : REFUS.
+  const rt = lireRetouches(retouchesBrutes, ['nouvelle_location']);
+  if (!rt.ok) return { etat: 'refus', motif: rt.motif };
+  const retouche: Retouche | null = rt.retouches.nouvelle_location ?? null;
+  const refusTexte = refusRetouche(partiesNouvelleLocation(), retouche);
+  if (refusTexte !== null) return { etat: 'refus', motif: refusTexte };
+  const modifie = estModifie(partiesNouvelleLocation(), retouche);
+  if (modifie && !(await colonneExisteMemo('gestion_location_mail_envoi', 'texte_origine'))) {
+    return { etat: 'refus', motif: 'Un texte modifié demande la mise à jour de la base (migration 466) : rien n’est parti. Revenez au texte d’origine, ou faites appliquer la 466.' };
+  }
   // Arno (21/10/2026) — le message d'accompagnement (facultatif, sans limite pratique) : vide = aucun encart.
   const message = typeof messageBrut === 'string' && messageBrut.trim() !== '' ? messageBrut.replace(/\r\n?/g, '\n') : null;
   if (message !== null && message.length > MESSAGE_MAX) return { etat: 'refus', motif: `Le message d’accompagnement dépasse ${MESSAGE_MAX.toLocaleString('fr-FR')} caractères.` };
@@ -389,7 +407,8 @@ export async function envoyerNouvelleLocation(bailId: number, brut: unknown, aut
   try {
     const lu = await donneesNouvelleLocation(bailId);
     if (lu === null) return { etat: 'inconnu' };
-    const d: DonneesNouvelleLocation = { ...lu, message: message === null ? null : { auteur: session.nom, texte: message } };
+    const d: DonneesNouvelleLocation = { ...lu, message: message === null ? null : { auteur: session.nom, texte: message }, ...(retouche ? { retouche } : {}) };
+    const textes = modifie ? { origine: texteNouvelleLocation({ ...d, retouche: null }), envoye: texteNouvelleLocation(d) } : null;
     objet = objetNouvelleLocation(d);
     expediteur = d.expediteur;
     const domaine = expediteur.split('@')[1] ?? 'criterimmo.fr';
@@ -399,10 +418,10 @@ export async function envoyerNouvelleLocation(bailId: number, brut: unknown, aut
       corps: texteNouvelleLocation(d), corpsHtml: htmlNouvelleLocation(d), messageId,
     });
     if (!r.ok) {
-      await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'echec', erreur: r.motif, messageId: null, message });
+      await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'echec', erreur: r.motif, messageId: null, message, textes });
       return { etat: 'echec', motif: r.motif };
     }
-    const quand = (await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'envoye', erreur: null, messageId, message }))
+    const quand = (await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'envoye', erreur: null, messageId, message, textes }))
       ?? new Date().toISOString();
     const destinataires = v.liste.map((x) => x.adresse);
     return { etat: 'ok', data: { n: destinataires.length, envoi: { quand, par: session.nom, destinataires, objet, mention: mentionEnvoi({ quand, par: session.nom, destinataires }) } } };

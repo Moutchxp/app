@@ -238,3 +238,35 @@ describe('🔴 Règle 5 — le lien des mails : `?previsite=<occupation>` ouvre 
     expect(container.querySelector('[data-ligne-depliee="A"]')).toBeNull();
   });
 });
+
+describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirmation aux locataires', () => {
+  it('le bouton sous le mail aux locataires (pas sous l’invitation des collègues) ; « Appliquer » relit le serveur ; « Texte modifié » ; la retouche part avec le rendez-vous', async () => {
+    const { mailRdvLocataire } = await import('../../../../lib/location/previsite');
+    reponsePost = (c) => {
+      if (!String(c.action).startsWith('apercu')) return { rdv: RDV, ancien: null, collegues: [], locataires: [], sansEmail: [] };
+      const r = (c.retouches as Record<string, never> | undefined)?.previsite_locataires;
+      const m = mailRdvLocataire({ sorte: 'previsite_locataires', de: 'gestion@exemple.test', objet: 'Rendez-vous de pré-visite', adresse: '4 rue Fictive', rdv: RDV, ancien: null,
+        locataire: { nom: 'RECU', prenom: 'Carla', emails: ['carla@exemple.test'] }, qui: { email: 'arno@exemple.test', prenom: 'Arno', nomFamille: 'Test' },
+        signature: { html: '', texte: '' }, ...(r ? { retouche: r } : {}) })!;
+      return { mails: [{ sorte: 'previsite_invitation', objet: 'x', a: ['Arno Test'], cc: [], texte: 'Bonjour Arno Test' },
+        { sorte: m.sorte, objet: m.objet, a: m.a, cc: [], texte: m.texte, edition: m.edition, ...(m.texteOrigine ? { modifie: true } : {}) }], sansEmail: [] };
+    };
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="C"]'));
+    await clic(container.querySelector('[data-rdv-previsite]'));
+    saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
+    saisir(document.querySelector('[data-previsite-debut]'), '10:00');
+    await clic(document.querySelector('[data-recap-previsite]'));
+    expect([...document.querySelectorAll('[data-modifier-texte]')].map((b) => b.closest('[data-mail-prevu]')?.getAttribute('data-mail-prevu'))).toEqual(['previsite_locataires']);
+    await clic(document.querySelector('[data-modifier-texte]'));
+    const zone = document.querySelector('[data-partie-modifiable="conclusion"] textarea') as HTMLTextAreaElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(zone, 'Le gardien vous ouvrira.'); zone.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(document.querySelector('[data-partie-protegee="protege_0"] .tmm-cadenas')?.textContent).toBe('🔒');
+    await clic(document.querySelector('[data-appliquer-texte]'));
+    expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', retouches: { previsite_locataires: { conclusion: 'Le gardien vous ouvrira.' } } });
+    expect(document.querySelector('[data-texte-modifie]')?.textContent).toBe('Texte modifié');
+    expect([...document.querySelectorAll('[data-texte-mail]')][1].textContent).toContain('Le gardien vous ouvrira.\n\nNous restons à votre disposition');
+    await clic(document.querySelector('[data-confirmer-previsite]'));
+    expect(posts.at(-1)).toMatchObject({ action: 'programmer-previsite', retouches: { previsite_locataires: { conclusion: 'Le gardien vous ouvrira.' } } });
+  });
+});

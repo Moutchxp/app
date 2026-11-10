@@ -4,7 +4,9 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ModaleEnvois } from './ConfirmationEnvois';
 import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
-import { dateCourte, FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
+import { dateCourte, editionNouvelleLocation, FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
+import type { Retouche } from '../../../../lib/location/texteModifiable';
+import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from './TexteModifiableMail';
 
 /**
  * ══ 🔴🔴 LOCATION — LE BOUTON « ENVOI ADHOC & MONGA » ET SA FENÊTRE DE CONFIRMATION (Arno, 21/10/2026) ══════════════════════
@@ -74,6 +76,8 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
   const [confirmation, setConfirmation] = useState<ConfirmationAction | null>(null);
   /** Arno (21/10/2026) — le message d'accompagnement (facultatif, sans limite) : repris dans le mail et dans le journal. */
   const [message, setMessage] = useState('');
+  /** 🔴 Arno (10/11/2026) — le texte modifié (appel, introduction, conclusion, politesse) ; le dossier reste protégé. */
+  const [retouche, setRetouche] = useState<Retouche | undefined>(undefined);
   const zoneMessage = useRef<HTMLTextAreaElement | null>(null);
   // La zone s'agrandit avec le texte (jamais de barre de défilement interne).
   useEffect(() => {
@@ -87,7 +91,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
   useEffect(() => { setDernier(dernierEnvoi); }, [dernierEnvoi]);
 
   const ouvrir = useCallback(async (): Promise<void> => {
-    setOuvert(true); setApercu(null); setLecture(null); setEnvoi('repos'); setMotif(null); setSucces(null); setMessage('');
+    setOuvert(true); setApercu(null); setLecture(null); setEnvoi('repos'); setMotif(null); setSucces(null); setMessage(''); setRetouche(undefined);
     try {
       const r = await fetch(`${API}?bail=${bailId}`, { headers: { Accept: 'application/json' } });
       const d = await r.json() as { etat?: string; data?: Apercu; message?: string; motif?: string };
@@ -128,7 +132,8 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
     setEnvoi('envoi'); setMotif(null);
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bailId, destinataires: v.liste, ...(message.trim() === '' ? {} : { message }) }) });
+        body: JSON.stringify({ bailId, destinataires: v.liste, ...(message.trim() === '' ? {} : { message }),
+          ...(retouche !== undefined ? { retouches: { nouvelle_location: retouche } } : {}) }) });
       const d = await r.json() as { etat?: string; motif?: string; data?: { n: number; envoi: EnvoiLu } };
       if (d.etat === 'ok' && d.data !== undefined) {
         setDernier(d.data.envoi);
@@ -148,7 +153,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
 
   return (
     <div className={variante === 'discret' ? 'eam eam--discret' : 'eam'} data-envoi-adhoc={bailId} data-variante={variante}>
-      <style>{CSS_ENVOI}</style>
+      <style>{CSS_ENVOI + CSS_TEXTE_MODIFIABLE}</style>
       {variante === 'discret' ? (
         <>
           <button type="button" className="eam-discret" onClick={() => { void ouvrir(); }} title={infoBulleEnvoi(dernier)} data-ouvrir-envoi>
@@ -213,9 +218,14 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage =
                   </section>
                   <section aria-label="Aperçu du mail" className="eam-apercu">
                     <h3>Aperçu du mail</h3>
+                    {/* 🔴 Arno (10/11/2026) — « Modifier le texte » : l'aperçu ci-dessous se refait aussitôt, avec le MÊME code que l'envoi. */}
+                    {apercu.donnees !== undefined && (
+                      <ModifierTexteMail edition={editionNouvelleLocation({ ...apercu.donnees, retouche: retouche ?? null })} retouche={retouche}
+                        desactive={envoi === 'envoi'} onAppliquer={(r) => { setRetouche(r); setMotif(null); }} />
+                    )}
                     <iframe title="Aperçu du mail Nouvelle location" sandbox="" data-apercu-mail
-                      srcDoc={apercu.donnees === undefined || message.trim() === '' ? apercu.html
-                        : htmlNouvelleLocation({ ...apercu.donnees, message: { auteur: apercu.auteurNom ?? '', texte: message } })} />
+                      srcDoc={apercu.donnees === undefined || (message.trim() === '' && retouche === undefined) ? apercu.html
+                        : htmlNouvelleLocation({ ...apercu.donnees, message: message.trim() === '' ? null : { auteur: apercu.auteurNom ?? '', texte: message }, retouche: retouche ?? null })} />
                   </section>
                 </>
               )}

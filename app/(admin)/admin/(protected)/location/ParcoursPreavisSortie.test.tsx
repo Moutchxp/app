@@ -186,7 +186,7 @@ describe('③ le préavis, « Enregistrer et envoyer les mails »', () => {
     await preparerPreavis([11, 12]);
     expect(container.querySelector('[data-info-destinataires="preavis"]')).not.toBeNull(); // le picto « i » à côté du bouton
     await clic(container.querySelector('[data-enregistrer-avec-mails]'));
-    expect(posts).toEqual([{ corps: { action: 'apercu-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 } }, propre: true }]);
+    expect(posts).toEqual([{ corps: { action: 'apercu-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, retouches: {} }, propre: true }]);
     const f = fenetre()!;
     expect([...f.querySelectorAll('[data-mail-prevu]')].map((m) => [m.getAttribute('data-mail-prevu'), m.querySelector('[data-a]')?.textContent, m.querySelector('[data-cc]')?.textContent]))
       .toEqual([['preavis_locataires', 'alice@exemple.test, paul@exemple.test', 'gestion@criterimmo.fr, moi@exemple.test'],
@@ -247,7 +247,7 @@ describe('④ la sortie, avec chacun des deux boutons', () => {
     await preparerSortie([11]);
     expect(container.querySelector('[data-info-destinataires="sortie"]')).not.toBeNull();
     await clic(container.querySelector('[data-enregistrer-avec-mails]'));
-    expect(posts).toEqual([{ corps: { action: 'apercu-sortie', occupationId: 11, sortants: [11], date: HIER }, propre: true }]);
+    expect(posts).toEqual([{ corps: { action: 'apercu-sortie', occupationId: 11, sortants: [11], date: HIER, retouches: {} }, propre: true }]);
     expect([...fenetre()!.querySelectorAll('[data-mail-prevu]')].map((m) => m.getAttribute('data-mail-prevu'))).toEqual(['sortie_interne', 'sortie_adhoc']);
     await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
     expect(posts.at(-1)!.corps).toMatchObject({ action: 'sortie-locataires', envoyerMails: true });
@@ -374,5 +374,77 @@ describe('🔴 Arno (06/11/2026) — chaque mail LISIBLE EN ENTIER avant de conf
     await clic(container.querySelector('[data-enregistrer-sans-mail]'));
     expect(fenetre()!.querySelector('[data-texte-mail], [data-mail-prevu]')).toBeNull();
     expect(fenetre()!.querySelector('[data-aucun-mail-prevu]')).not.toBeNull();
+  });
+});
+
+describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » : parties modifiables, parties protégées 🔒, aperçu immédiat, « Revenir au texte d’origine »', () => {
+  /** Le « serveur » compose avec le VRAI module (le même code que l'envoi), selon les retouches reçues. */
+  const composer = async (corps: Record<string, unknown>) => {
+    const { mailsDuPreavis } = await import('../../../../lib/location/mailsPreavisSortie');
+    return mailsDuPreavis({ adresse: '4 rue Fictive, 92800 Puteaux', proprietaire: 'DUPONT Jean', enGestion: true, partenaires: ['gestion.criterimmo@gmail.com'],
+      locataires: [{ occupationId: 11, nom: 'BERNARD Alice', prenom: null, emails: ['alice@exemple.test'] }, { occupationId: 12, nom: 'BERNARD Paul', prenom: null, emails: ['paul@exemple.test'] }],
+      recuLe: HIER, choix: { mode: 'mois', duree: 1 }, expediteur: 'gestion@criterimmo.fr', copropriete: null,
+      valideur: { nom: 'Moi', email: 'moi@exemple.test', prenom: 'Arno', nomFamille: 'Test' }, signature: { html: '', texte: 'Service Gestion' },
+      retouches: (corps.retouches ?? {}) as never }).mails;
+  };
+  beforeEach(() => {
+    const precedent = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (corps.action === 'apercu-preavis') {
+          posts.push({ corps, propre: true });
+          return ok({ mails: await composer(corps), sansEmail: [], enGestion: true, dateFin: '2099-01-01', envoiPossible: true });
+        }
+      }
+      return precedent(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const editeur = () => document.querySelector('[data-editeur-texte]');
+  const taper = async (el: Element | null, v: string) => {
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, v); (el as HTMLElement).dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+
+  it('le bouton sous chaque mail ; l’éditeur ; aperçu ; origine ; « Appliquer » relit le serveur ; « Texte modifié » ; « Confirmer » envoie la retouche', async () => {
+    await ecran();
+    await preparerPreavis([11, 12]);
+    await clic(container.querySelector('[data-enregistrer-avec-mails]'));
+    // ① un bouton sous CHAQUE mail à texte fixe (les deux accusés et le mail aux partenaires) ; pas sous la copie interne.
+    const boutons = [...fenetre()!.querySelectorAll('[data-modifier-texte]')].map((b) => b.getAttribute('data-modifier-texte'));
+    expect(boutons).toEqual(['preavis_locataires', 'preavis_locataires', 'preavis_adhoc']);
+    expect(fenetre()!.querySelector('[data-texte-modifie]')).toBeNull();
+    await clic(fenetre()!.querySelector('[data-modifier-texte="preavis_locataires"]'));
+    // ② les parties : quatre modifiables, les protégées grisées avec un cadenas (objet, fin du bail, pré-visite, provision, mention, signature).
+    const e = editeur()!;
+    expect([...e.querySelectorAll('[data-partie-modifiable]')].map((x) => x.getAttribute('data-partie-modifiable'))).toEqual(['appel', 'intro', 'conclusion', 'politesse']);
+    const proteges = [...e.querySelectorAll('[data-partie-protegee]')];
+    expect(proteges.map((x) => x.querySelector('.tmm-libelle')?.textContent)).toEqual(['Objet', 'Fin du bail', 'Pré-état des lieux de sortie (dépôt de garantie)',
+      'Provision de 20 % (article 22 de la loi de 1989)', 'Mention de l’expéditeur', 'Signature Gmail']);
+    for (const p of proteges) { expect(p.querySelector('.tmm-cadenas')?.textContent).toBe('🔒'); expect(p.querySelector('textarea, input')).toBeNull(); }
+    expect((e.querySelector('[data-partie-modifiable="appel"] textarea') as HTMLTextAreaElement).value).toBe('Bonjour {nom du locataire},');
+    // ③ l'aperçu se met à jour aussitôt
+    await taper(e.querySelector('[data-partie-modifiable="conclusion"] textarea'), 'Merci de votre confiance.');
+    expect(e.querySelector('[data-apercu-texte]')?.textContent).toContain('Merci de votre confiance.\n\nNous restons à votre disposition');
+    // ④ un repère protégé retiré : refusé à l'écran (le serveur le refuse aussi), « Appliquer » inactif
+    await taper(e.querySelector('[data-partie-modifiable="intro"] textarea'), 'Nous accusons réception de votre congé.');
+    expect(e.querySelector('[data-refus-texte]')?.textContent).toContain('{adresse}');
+    expect((e.querySelector('[data-appliquer-texte]') as HTMLButtonElement).disabled).toBe(true);
+    // ⑤ « Revenir au texte d'origine »
+    await clic(e.querySelector('[data-texte-origine]'));
+    expect(e.querySelector('[data-apercu-texte]')?.textContent?.startsWith('Bonjour Alice BERNARD,\n\nNous accusons réception de votre congé pour le logement situé 4 rue Fictive')).toBe(true);
+    expect(e.querySelector('[data-apercu-texte]')?.textContent).not.toContain('Merci de votre confiance.');
+    // ⑥ une vraie modification, « Appliquer » : le serveur relit, le récapitulatif dit « Texte modifié » et montre le texte qui partira
+    await taper(e.querySelector('[data-partie-modifiable="conclusion"] textarea'), 'Merci de votre confiance.');
+    await clic(e.querySelector('[data-appliquer-texte]'));
+    expect(editeur()).toBeNull();
+    expect(posts.at(-1)!.corps).toMatchObject({ action: 'apercu-preavis', retouches: { preavis_locataires: { conclusion: 'Merci de votre confiance.' } } });
+    expect([...fenetre()!.querySelectorAll('[data-texte-modifie]')].map((x) => x.textContent)).toEqual(['Texte modifié', 'Texte modifié']);
+    const textes = [...fenetre()!.querySelectorAll('[data-mail-prevu="preavis_locataires"] [data-texte-mail]')].map((x) => x.textContent ?? '');
+    expect(textes[0].startsWith('Bonjour Alice BERNARD,')).toBe(true);
+    expect(textes[1].startsWith('Bonjour Paul BERNARD,')).toBe(true);
+    for (const t of textes.slice(0, 2)) expect(t).toContain('Merci de votre confiance.');
+    // ⑦ « Confirmer » : la retouche part avec le préavis
+    await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
+    expect(posts.at(-1)!.corps).toMatchObject({ action: 'enregistrer-preavis', envoyerMails: true, retouches: { preavis_locataires: { conclusion: 'Merci de votre confiance.' } } });
   });
 });

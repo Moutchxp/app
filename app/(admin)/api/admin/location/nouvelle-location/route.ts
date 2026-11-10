@@ -59,7 +59,7 @@ export async function POST(request: Request): Promise<Response> {
   const bail = identifiant(corps.bailId);
   if (bail === null) return Response.json({ etat: 'refus', motif: 'Demande incomplète : le bail manque.' }, { status: 400, headers: ENTETES });
   try {
-    return Response.json(await envoyerNouvelleLocation(bail, corps.destinataires, await auteurDeLaRequete(request), {}, corps.message ?? null), { headers: ENTETES });
+    return Response.json(await envoyerNouvelleLocation(bail, corps.destinataires, await auteurDeLaRequete(request), {}, corps.message ?? null, corps.retouches), { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/location/nouvelle-location] envoi impossible', e);
     return Response.json({ etat: 'echec', motif: 'la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
