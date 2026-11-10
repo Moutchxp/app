@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { THEME_DEFAUT } from '../lib/admin/theme';
-import { modeRecette } from '../lib/recette/mode';
+import { modeRecette, modeReelLocal, TEXTE_MODE_REEL } from '../lib/recette/mode';
 
 /** L'interface admin ne doit jamais être indexée (EX-1, isolation du public). */
 export const metadata: Metadata = {
@@ -29,6 +29,19 @@ export default function AdminGroupLayout({ children }: { children: React.ReactNo
           RECETTE — aucun envoi réel
           <span style={{ fontWeight: 400 }}> · mails, agenda et Drive interceptés · </span>
           <a href="/admin/recette" style={{ color: '#fff', textDecoration: 'underline' }}>boîte de test</a>
+        </div>
+      )}
+      {/* 🔴 Arno (11/11/2026) — HORS mode recette sur une machine qui n'est pas la production (le Mac) : un bandeau ROUGE, sur TOUTES les
+          pages de l'admin, connexion comprise. Jamais en production (`modeReelLocal()` y est toujours faux, cf. app/lib/recette/mode.ts). */}
+      {modeReelLocal() && (
+        <div
+          id="bandeau-mode-reel"
+          role="alert"
+          data-bandeau-mode-reel
+          style={{ background: '#b30000', color: '#fff', padding: '.6rem 1rem', textAlign: 'center', fontWeight: 900, fontSize: '.95rem', letterSpacing: '.02em' }}
+        >
+          {TEXTE_MODE_REEL}
+          <span style={{ fontWeight: 400 }}> · pour travailler sans effet réel, relancez le site avec « npm run recette »</span>
         </div>
       )}
       {children}

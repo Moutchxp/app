@@ -44,3 +44,23 @@ export function etatRecette(env: Record<string, string | undefined>, nomMachine 
 export function modeRecette(): boolean {
   return etatRecette(process.env, hostname()).actif;
 }
+
+/**
+ * ══ 🔴🔴 LE GARDE-FOU DU MODE RÉEL SUR UN MAC (décision d'Arno du 11/11/2026) ══════════════════════════════════════════════════════════
+ * Constaté : le site a tourné du 02/11 au 11/11 sur le Mac en `npm run dev` — HORS mode recette, avec les vrais accès d'envoi — sans que rien ne
+ * le montre. Désormais : hors mode recette, sur toute machine qui n'est PAS la production, un bandeau ROUGE en haut de chaque page de l'admin.
+ * « Pas la production » : ni la machine `svav-prod`, ni l'adresse publique de la production ; et soit un Mac (`darwin`), soit hors
+ * `NODE_ENV=production` (un `next start` lancé sur le Mac est donc signalé aussi). La production (Linux, `next start`) ne l'affiche jamais. PUR.
+ */
+export const TEXTE_MODE_REEL = 'ATTENTION : mode réel — les mails partent vraiment';
+export function bandeauModeReel(env: Record<string, string | undefined>, nomMachine = '', plateforme = ''): boolean {
+  if (etatRecette(env, nomMachine).actif) return false;
+  if (MACHINE_PRODUCTION.test(nomMachine)) return false;
+  for (const cle of ['SITE_URL', 'GESTION_URL_APPLICATION']) if (hote(env[cle]) === HOTE_PRODUCTION) return false;
+  return plateforme === 'darwin' || env.NODE_ENV !== 'production';
+}
+
+/** Le bandeau rouge du mode réel s'affiche-t-il dans ce processus ? (côté serveur) */
+export function modeReelLocal(): boolean {
+  return bandeauModeReel(process.env, hostname(), process.platform);
+}
