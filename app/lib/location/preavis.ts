@@ -170,15 +170,22 @@ export interface LignePreavisAccueil {
   previsite?: PrevisiteAffiche | null;
 }
 
-export type CleTri = 'fin' | 'edl';
+/** 🔴 Arno (10/11/2026) — + le statut de pré-visite (ordre d'Arno) et la date du rendez-vous de pré-visite. */
+export type CleTri = 'fin' | 'edl' | 'statut' | 'previsite';
+const ORDRE_STATUT_PREVISITE = ['alerte', 'recu', 'programmee', 'effectuee', 'refusee'];
 export type SensTri = 'asc' | 'desc';
 export interface TriPreavis { cle: CleTri; sens: SensTri }
 /** Par défaut : la fin de préavis la plus proche d'abord. */
 export const TRI_DEFAUT: TriPreavis = { cle: 'fin', sens: 'asc' };
 
-/** Le tri : par fin de préavis ou par état des lieux, dans un sens ; les lignes SANS état des lieux toujours à la fin. PUR. */
+/** Le tri : par fin de préavis, par état des lieux, par statut ou par date de pré-visite, dans un sens ; les lignes SANS valeur toujours à la fin. PUR. */
 export function trierPreavis(lignes: readonly LignePreavisAccueil[], tri: TriPreavis): LignePreavisAccueil[] {
-  const val = (l: LignePreavisAccueil): string | null => (tri.cle === 'fin' ? l.dateMax : l.etatDesLieuxLe);
+  const val = (l: LignePreavisAccueil): string | null => {
+    if (tri.cle === 'fin') return l.dateMax;
+    if (tri.cle === 'edl') return l.etatDesLieuxLe;
+    if (tri.cle === 'statut') return l.previsite ? String(ORDRE_STATUT_PREVISITE.indexOf(l.previsite.statut)) : null;
+    return l.previsite?.rdv ? `${l.previsite.rdv.jour} ${l.previsite.rdv.heure}` : null;
+  };
   return [...lignes].sort((a, b) => {
     const x = val(a); const y = val(b);
     if (x === null && y === null) return a.dateMax.localeCompare(b.dateMax) || a.cle.localeCompare(b.cle);
@@ -193,5 +200,5 @@ export function trierPreavis(lignes: readonly LignePreavisAccueil[], tri: TriPre
 export function lireTri(brut: string | null): TriPreavis {
   if (brut === null) return TRI_DEFAUT;
   const [cle, sens] = brut.split(':');
-  return (cle === 'fin' || cle === 'edl') && (sens === 'asc' || sens === 'desc') ? { cle, sens } : TRI_DEFAUT;
+  return (cle === 'fin' || cle === 'edl' || cle === 'statut' || cle === 'previsite') && (sens === 'asc' || sens === 'desc') ? { cle, sens } : TRI_DEFAUT;
 }

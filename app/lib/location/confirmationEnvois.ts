@@ -38,6 +38,15 @@ export const LIBELLE_MAIL: Record<string, string> = {
   sortie_interne: 'Récapitulatif de la sortie (interne)',
   sortie_locataires: 'Mail de départ aux locataires',
   nouvelle_location: 'Mail à nos partenaires',
+  // 🔴 Arno (10/11/2026) — la pré-visite.
+  previsite_alerte: 'Alerte « aucune pré-visite fixée » (collaborateurs)',
+  previsite_invitation: 'Invitation au rendez-vous de pré-visite (collègue)',
+  previsite_reponse: 'Réponse d’un collègue à la pré-visite',
+  previsite_locataires: 'Confirmation du rendez-vous aux locataires',
+  previsite_locataires_modif: 'Modification du rendez-vous aux locataires',
+  previsite_invitation_cr: 'Invitation à faire le compte rendu (collègues)',
+  previsite_compte_rendu: 'Compte rendu de pré-visite',
+  previsite_refus: 'Refus / absence de pré-visite (locataires)',
 };
 export const libelleMail = (m: Pick<MailParti, 'sorte'>): string => LIBELLE_MAIL[m.sorte] ?? 'Mail';
 

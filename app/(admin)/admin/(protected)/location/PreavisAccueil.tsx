@@ -15,6 +15,8 @@ import {
   heureFinProposee, mentionEdls, pastilleEdls, verifierPlanification, type EdlsAffiche,
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
+import type { StatutPrevisite } from '../../../../lib/location/previsite';
+import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, PastillesPrevisite } from './PrevisiteAccueil';
 
 /**
  * ══ 🔴🔴 ACCUEIL LOCATION — LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 18/10/2026) ═════════════════════════════════════════
@@ -45,7 +47,9 @@ function memoriserTri(t: TriPreavis): void {
   try { window.localStorage.setItem(CLE_TRI, `${t.cle}:${t.sens}`); } catch { /* préférence d'affichage seulement : l'écran marche sans */ }
 }
 
-interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: boolean; lignes: LignePreavisAccueil[] }
+interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: boolean; lignes: LignePreavisAccueil[];
+  /** 🔴 Arno (10/11/2026) — la pré-visite est-elle installée (migration 464) ? */
+  previsite?: boolean }
 
 export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
   const [version, setVersion] = useState(0);
@@ -59,10 +63,25 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
   // L'EDLS que l'on vient de planifier, montré AUSSITÔT, en attendant la relecture du serveur (qui le remplace).
   const [locaux, setLocaux] = useState<Record<string, EdlsAffiche>>({});
   const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t); };
+  // 🔴 Arno (10/11/2026) — le filtre des pastilles de statut de pré-visite (vide : tous).
+  const [filtre, setFiltre] = useState<Set<StatutPrevisite>>(new Set());
   const d = lu.etat.etat === 'ok' ? lu.etat.data : null;
   // Une réponse inattendue (serveur plus ancien que l'écran) ne fait jamais tomber l'accueil : on n'affiche que ce qui est lisible.
-  const lignes = d === null || !Array.isArray(d.lignes) ? []
+  const toutes = d === null || !Array.isArray(d.lignes) ? []
     : trierPreavis(d.lignes.map((x) => (locaux[x.cle] ? { ...x, edls: locaux[x.cle], etatDesLieuxLe: locaux[x.cle].jour } : x)), tri);
+  const lignes = filtre.size === 0 ? toutes : toutes.filter((x) => x.previsite && filtre.has(x.previsite.statut));
+  // 🔴 Arno (10/11/2026) — `?previsite=<occupation>` (lien des mails d'alerte et d'invitation au compte rendu) : la ligne s'ouvre, dépliée.
+  const [cible, setCible] = useState<number | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { const v = Number(new URLSearchParams(window.location.search).get('previsite')); if (Number.isSafeInteger(v) && v > 0) setCible(v); } catch { /* sans adresse lisible : rien */ } }, []);
+  useEffect(() => {
+    if (cible === null) return;
+    const l = toutes.find((x) => x.occupationIds.includes(cible));
+    if (l === undefined) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOuverte(l.cle); setCible(null);
+    setTimeout(() => { try { document.querySelector(`[data-ligne-preavis="${CSS.escape(l.cle)}"]`)?.scrollIntoView({ block: 'start' }); } catch { /* rien */ } }, 0);
+  }, [cible, toutes]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLocaux({}); }, [d]);
   const jour = aujourdhuiParisEcran();
@@ -72,7 +91,7 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
   );
   return (
     <section className="pva" aria-label="Locataires en préavis" data-bloc-preavis>
-      <style>{CSS_PREAVIS + CSS_PREAVIS_ACCUEIL}</style>
+      <style>{CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE}</style>
       <h2 className="pva-titre">Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></h2>
       {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : !d!.disponible ? (
         <p className="loc-muet" data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>
@@ -89,14 +108,28 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
               {segment({ cle: 'edl', sens: 'asc' }, 'Plus proche d’abord')}
               {segment({ cle: 'edl', sens: 'desc' }, 'Plus lointain d’abord')}
             </div>
+            {d!.previsite === true && <>
+              <div className="pva-tri" role="group" aria-label="Statut de pré-visite">
+                <span className="pva-tri-libelle">Statut</span>
+                {segment({ cle: 'statut', sens: 'asc' }, 'Alerte d’abord')}
+                {segment({ cle: 'statut', sens: 'desc' }, 'Refusées d’abord')}
+              </div>
+              <div className="pva-tri" role="group" aria-label="Date de pré-visite">
+                <span className="pva-tri-libelle">Pré-visite</span>
+                {segment({ cle: 'previsite', sens: 'asc' }, 'Plus proche d’abord')}
+                {segment({ cle: 'previsite', sens: 'desc' }, 'Plus lointaine d’abord')}
+              </div>
+            </>}
           </div>
+          {d!.previsite === true && <PastillesPrevisite lignes={toutes} filtre={filtre} onChange={setFiltre} />}
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}
-          {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>Aucun locataire en préavis</p> : (
+          {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>{toutes.length > 0 ? 'Aucun préavis avec ce statut' : 'Aucun locataire en préavis'}</p> : (
             <ul className="pva-liste">
               {lignes.map((l) => {
                 const noms = l.locataires.map((x) => x.nom).join(', ');
                 const detail = [l.adresse ?? `Bien ${l.lotId}`, `Fin de préavis le ${dateFrPreavis(l.dateMax)}`,
-                  l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null].filter((x) => x !== null).join(' · ');
+                  l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null,
+                  detailPrevisite(l.previsite)].filter((x) => x !== null).join(' · ');
                 const estOuverte = ouverte === l.cle;
                 return (
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
@@ -109,6 +142,8 @@ export function BlocPreavisAccueil({ gestion }: { gestion: boolean }) {
                       {l.edls && statutPreavis(l, jour) !== 'echu'
                         ? <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut={l.edls.statut ?? 'planifie'}>{pastilleEdls(l.edls)}</span>
                         : <MentionPreavis p={l} jour={jour} court />}
+                      {/* 🔴 Arno (10/11/2026) — « Aucune pré-visite fixée » / « Personne n'a accepté la pré-visite ». */}
+                      <span className="pvv-cartouches" data-cartouches-previsite><CartouchesPrevisite p={l.previsite} /></span>
                       <button type="button" className="svv-btn svv-btn-outline gst-btn pva-ouvrir" aria-expanded={estOuverte}
                         aria-label={`${estOuverte ? 'Fermer' : 'Ouvrir'} le préavis de ${noms}`} data-ouvrir-preavis={l.cle}
                         onClick={() => setOuverte(estOuverte ? null : l.cle)}>{estOuverte ? 'Fermer' : 'Ouvrir'}</button>
@@ -155,6 +190,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
   return (
     <div className="pva-depliee" data-ligne-depliee={l.cle}>
       <InfosDuLogement l={l} />
+      {/* 🔴 Arno (10/11/2026) — la pré-visite (migration 464 ; sans elle, rien ici). */}
+      <BlocPrevisite l={l} apres={apres} />
       {planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
       <div className="pva-bloc" data-bloc-edl>
         <label className="pvs-champ">
@@ -388,7 +425,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-segment[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface);border-color:var(--color-svv-red);font-weight:700}
 .pva-liste{list-style:none;margin:0;padding:0;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .pva-item + .pva-item{border-top:1px solid var(--color-svv-line)}
-.pva-ligne{box-sizing:border-box;height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:8px 12px}
+.pva-ligne{box-sizing:border-box;height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:10px;padding:8px 12px}
+.pvv-cartouches{display:flex;flex-direction:column;gap:2px;align-items:flex-end}
 .pva-textes{display:flex;flex-direction:column;gap:2px;min-width:0}
 .pva-noms,.pva-detail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .pva-noms{font-weight:800;color:var(--color-svv-ink)}
@@ -409,6 +447,8 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-ligne{height:6.25rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
   .pva-textes{grid-column:1 / -1}
   .pva-ligne .pvs-mention{justify-self:start}
+  .pva-ligne{grid-template-columns:auto minmax(0,1fr) auto}
+  .pvv-cartouches{align-items:flex-start}
   .pva-depliee{grid-template-columns:1fr}
 }
 `;
