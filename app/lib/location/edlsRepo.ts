@@ -260,6 +260,39 @@ export async function reattribuerEdls(d: { occupationIds: readonly number[]; con
   return { etat: 'ok', data: { tacheId }, tacheId, demande: t.demande, demandes: t.demandes };
 }
 
+/**
+ * ══ 🔴 Arno (10/11/2026) — LE RÉCAPITULATIF AVANT ENVOI de l'état des lieux de sortie (planifier, déplacer, confier à quelqu'un d'autre) :
+ * le collègue qui recevra l'invitation (ou pourquoi aucun mail ne partira), et le texte qu'il recevra (le mail de la tâche, sa mission).
+ * Aucun contact extérieur n'est invité par ce geste. LECTURE SEULE : rien n'est écrit, rien ne part.
+ */
+export async function apercuEdls(d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; confieA: number | null; commentaire: string | null; geste: 'planifier' | 'deplacer' | 'reattribuer' }, auteur: Auteur):
+  Promise<IssueEdls<{ collaborateurs: { libelle: string; mail: boolean; motif: string | null }[]; exterieurs: never[]; total: number; texteCollaborateur: string | null; texteExterieur: null }>> {
+  if (!(await edlsDisponible())) return { etat: 'sans_schema' };
+  const ids = [...new Set(d.occupationIds)];
+  if (ids.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  const g = await withTransaction(async (q) => lireGroupe(q, ids));
+  if (!g.ok) return g.issue;
+  const { lireReglageTaches } = await import('../gestion/acceptationRepo');
+  const { mailTache } = await import('../gestion/mailTache');
+  const reglage = await lireReglageTaches();
+  const qui = d.confieA ?? (d.geste === 'deplacer' ? (await withTransaction(async (q) => liensOuverts(q, ids))).find((l) => l.etat === 'a_faire')?.confiee_a ?? null : null);
+  const personne = (await confiablesEdls(auteur.id)).find((c) => Number(c.id) === Number(qui));
+  const collaborateurs = personne === undefined ? [] : [{
+    libelle: personne.libelle,
+    mail: reglage.envoiMail && Number(personne.id) !== Number(auteur.id),
+    motif: Number(personne.id) === Number(auteur.id) ? 'vous-même : acceptée d’office, aucun mail' : reglage.envoiMail ? null : 'l’envoi des demandes par mail est désactivé dans les réglages des tâches',
+  }];
+  const v = verifierPlanification({ jour: d.jour, debut: d.debut, fin: d.fin, confieA: qui === null ? null : Number(qui), commentaire: d.commentaire }, groupePreavis(g.lignes));
+  const texteCollaborateur = personne === undefined ? null : mailTache({
+    sorte: 'invitation', destinataire: personne.libelle, expediteur: auteur.libelle, demandeLe: new Date().toISOString(),
+    jour: v.ok ? v.jour : d.jour, heure: v.ok ? v.heure : null, dureeMinutes: v.ok ? v.dureeMinutes : null, titre: OBJET_TACHE_EDLS,
+    notes: await recapitulatif(ids, g.lignes, v.ok ? v.commentaire : null), adresse: null, contacts: [], pieces: [],
+    invites: [{ libelle: personne.libelle, statut: 'en_attente', moi: true }],
+    liens: { accepter: '[lien personnel « Accepter »]', refuser: '[lien personnel « Refuser »]', expireLe: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+  }).texte;
+  return { etat: 'ok', data: { collaborateurs, exterieurs: [], total: collaborateurs.filter((c) => c.mail).length, texteCollaborateur, texteExterieur: null }, tacheId: 0 };
+}
+
 /** LES EDLS EN COURS de ces occupations (lecture seule), pour les lignes du bloc de l'accueil. */
 export async function edlsDesOccupations(occupationIds: readonly number[]): Promise<{ occupationIds: number[]; edls: EdlsAffiche }[]> {
   if (occupationIds.length === 0 || !(await edlsDisponible())) return [];

@@ -32,7 +32,7 @@ import { verifierOrigine } from '../../../../lib/location/archivage';
 import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
-import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
+import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
   envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
@@ -577,6 +577,14 @@ export async function POST(request: Request): Promise<Response> {
         const pid = identifiant(corps.preavisId);
         if (pid === null) return incomplet();
         return repondre(await annulerPreavis({ preavisId: pid }, auteur));
+      }
+      // 🔴 Arno (10/11/2026) — le récapitulatif avant envoi de l'état des lieux de sortie (LECTURE : rien n'est écrit, rien ne part).
+      case 'apercu-edls': {
+        const occs = idsOccupations(corps.occupationIds);
+        const geste = corps.geste === 'deplacer' || corps.geste === 'reattribuer' ? corps.geste : 'planifier';
+        const r = await apercuEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA: identifiant(corps.confieA),
+          commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null, geste }, auteur);
+        return repondre(r.etat === 'ok' ? { etat: 'ok', data: r.data } : r);
       }
       case 'planifier-edls':
       case 'deplacer-edls':

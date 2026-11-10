@@ -16,6 +16,8 @@ import {
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte, type StatutPrevisite } from '../../../../lib/location/previsite';
+import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
+import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
 import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, MentionReserveLocation, PastillesPrevisite } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
@@ -357,6 +359,20 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
   );
 }
 
+/** 🔴 Arno (10/11/2026) — l'aperçu de l'état des lieux de sortie (route de la Location, lecture seule). */
+async function lireApercuEdls(corps: Record<string, unknown>): Promise<ApercuEnvois | { erreur: string }> {
+  const r = await envoyer({ ...corps, action: 'apercu-edls' }, { propre: true });
+  if (r.motif !== null) return { erreur: r.motif };
+  const d = (r.data ?? {}) as Partial<ApercuEnvois>;
+  return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null };
+}
+/** La réponse d'un geste de l'état des lieux, en issue de la fenêtre de résultat (les mails tels que le serveur les rend). */
+function issueEdls(r: Awaited<ReturnType<typeof envoyer>>, mot: string): IssueGeste {
+  if (r.motif !== null) return { ok: false, message: r.motif };
+  const d = (r.data ?? {}) as { mails?: { destinataire: string; etat: string }[] };
+  return { ok: true, message: phraseGeste(mot, r.data), collaborateurs: d.mails ?? [], exterieurs: [] };
+}
+
 /** La phrase après un geste : la tâche, ses mails (canal du module de tâches) et l'agenda. */
 function phraseGeste(debut: string, data: unknown): string {
   const r = (data ?? {}) as { mails?: { destinataire: string; etat: string }[]; agenda?: string };
@@ -409,14 +425,24 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data)) setLibelles(Object.fromEntries(lu.etat.data.map((p) => [p.id, p.libelle]))); }, [lu.etat]);
   const verdict = verifierPlanification({ jour, debut, fin, confieA, commentaire }, [{ recuLe: l.recuLe, dateMax: l.dateMax }]);
+  /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (qui recevra l'invitation, et son texte) ; « Revenir » garde la saisie. */
+  const recap = useRecapEnvois();
   const valider = async (): Promise<void> => {
     if (!verdict.ok) { setRefus(verdict.motif); return; }
     setEnvoi(true); setRefus(null);
-    const r = await envoyer(e === null
+    const corps = e === null
       ? { action: 'planifier-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, commentaire }
-      : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA });
+      : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA };
+    const tenu: { r: Awaited<ReturnType<typeof envoyer>> | null } = { r: null };
+    const issue = await recap.demander({
+      titre: e === null ? 'État des lieux de sortie planifié' : 'Rendez-vous déplacé', apercu: {},
+      lireApercu: () => lireApercuEdls({ ...corps, geste: e === null ? 'planifier' : 'deplacer' }),
+      action: async () => { tenu.r = await envoyer(corps, { propre: true }); return issueEdls(tenu.r, e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé'); },
+    });
     setEnvoi(false);
-    if (r.motif !== null) { setRefus(r.motif); return; }
+    if (issue === null) return; // « Revenir » : rien n'est fait, la saisie reste
+    const r = tenu.r;
+    if (r === null || r.motif !== null) { setRefus(issue.ok ? null : issue.message); return; }
     const data = (r.data ?? {}) as { statut?: EdlsAffiche['statut'] };
     onFait({
       edlsId: e?.edlsId ?? 0, tacheId: e?.tacheId ?? 0, jour: verdict.jour, heure: verdict.heure, dureeMinutes: verdict.dureeMinutes,
@@ -426,6 +452,7 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   };
   return (
     <div className="pvs-form pva-form-edls" data-formulaire-edls={e === null ? 'planifier' : 'deplacer'}>
+      {recap.fenetre}
       <div className="pva-grille-edls">
         <label className="pvs-champ"><span className="pvs-libelle">Date de l’EDLS *</span>
           <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(ev) => { setJour(ev.target.value); setRefus(null); }} data-edls-jour /></label>
@@ -457,17 +484,27 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
   const [envoi, setEnvoi] = useState(false);
   const lu = useLecture<Personne[]>('edlsConfiables=1');
   const libelle = (id: number | null): string => (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data) ? lu.etat.data.find((p) => p.id === id)?.libelle ?? '' : '');
+  const recap = useRecapEnvois();
   const valider = async (): Promise<void> => {
     setEnvoi(true); setRefus(null);
-    const r = await envoyer({ action: 'reattribuer-edls', occupationIds: l.occupationIds, confieA });
+    const corps = { action: 'reattribuer-edls', occupationIds: l.occupationIds, confieA };
+    const tenu: { r: Awaited<ReturnType<typeof envoyer>> | null } = { r: null };
+    const issue = await recap.demander({
+      titre: 'État des lieux confié à quelqu’un d’autre', apercu: {},
+      lireApercu: () => lireApercuEdls({ ...corps, geste: 'reattribuer', jour: e.jour, debut: e.heure ?? '', fin: '' }),
+      action: async () => { tenu.r = await envoyer(corps, { propre: true }); return issueEdls(tenu.r, 'État des lieux confié'); },
+    });
     setEnvoi(false);
-    if (r.motif !== null) { setRefus(r.motif); return; }
+    if (issue === null) return;
+    const r = tenu.r;
+    if (r === null || r.motif !== null) { setRefus(issue.ok ? null : issue.message); return; }
     const data = (r.data ?? {}) as { statut?: EdlsAffiche['statut'] };
     onFait({ ...e, confieA: libelle(confieA), confieAId: confieA, statut: data.statut ?? 'en_attente', reponduPar: null, motifRefus: null },
       phraseGeste(`État des lieux confié à ${libelle(confieA)}`, r.data));
   };
   return (
     <div className="pvs-form" data-formulaire-reattribuer>
+      {recap.fenetre}
       <ChoixPersonne valeur={confieA} onChange={setConfieA} exclure={e.confieAId} />
       {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>

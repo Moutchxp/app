@@ -25,7 +25,9 @@ type Etat =
   | { etape: 'recap'; titre: string; apercu: ApercuEnvois | null; erreur: string | null; occupe: boolean }
   | { etape: 'resultat'; titre: string; issue: IssueGeste };
 
-interface Demande { titre: string; apercu: Record<string, unknown>; action: () => Promise<IssueGeste> }
+interface Demande { titre: string; apercu: Record<string, unknown>; action: () => Promise<IssueGeste>;
+  /** Un autre aperçu que celui de la Gestion (ex. l'état des lieux de sortie, lu par la route de la Location). */
+  lireApercu?: () => Promise<ApercuEnvois | { erreur: string }> }
 
 const ETATS_PARTIS = new Set(['envoye', 'factice']);
 const MOTIF_ETAT: Record<string, string> = {
@@ -47,7 +49,7 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
   const courant = useRef<{ d: Demande; resoudre: (r: IssueGeste | null) => void } | null>(null);
   const demander = useCallback((d: Demande) => new Promise<IssueGeste | null>((resoudre) => {
     void (async () => {
-      const a = await lireApercuEnvois(d.apercu);
+      const a = await (d.lireApercu ?? (() => lireApercuEnvois(d.apercu)))();
       if (!('erreur' in a) && a.collaborateurs.length === 0 && a.exterieurs.length === 0) {
         resoudre(await d.action()); // aucun envoi prévu : le geste, sans fenêtre
         return;
