@@ -29,10 +29,10 @@ describe('🔴 libellés, compteurs, échéance', () => {
   it('aujourd’hui, demain, 2 jours : le libellé (et l’heure), sans date ; plus tard et en retard : la date', () => {
     const e = (jour: string, heure: string | null = null) => echeanceCompacte({ jour, heure, etat: 'a_faire' }, MAINTENANT);
     expect(e('2026-10-13', '09:30')).toBe('Aujourd’hui · 9 h 30');
-    expect(e('2026-10-14')).toBe('Demain');
+    expect(e('2026-10-14')).toBe('Demain · sans heure'); // 🔴 Arno (11/11/2026) : « sans heure »
     expect(e('2026-10-15', '16:00')).toBe('Dans 2 jours · 16 h');
     expect(e('2026-10-16', '16:30')).toBe('ven. 16 oct. · 16 h 30');
-    expect(e('2026-10-10')).toBe('sam. 10 oct. · journée');
+    expect(e('2026-10-10')).toBe('sam. 10 oct. · sans heure'); // 🔴 Arno (11/11/2026) : « sans heure »
   });
 });
 
@@ -93,7 +93,7 @@ describe('🔴 la ligne repliée', () => {
     const l = ligne(1);
     expect(l.getAttribute('data-depliee')).toBe('non');
     expect([...l.children].map((c) => c.className)).toEqual(['tch-l1', 'tch-l2']);
-    expect(l.querySelector('.tch-l1 b.tch-date')?.textContent).toMatch(/^[a-z]{3}\. \d+ [a-zé]+\.? · journée$/); // en retard : la date
+    expect(l.querySelector('.tch-l1 b.tch-date')?.textContent).toMatch(/^[a-z]{3}\. \d+ [a-zé]+\.? · sans heure$/); // en retard : la date
     expect(l.querySelector('.tch-l1-titre')?.textContent).toBe('Relancer le plombier');
     // LOT TACHES-LIGNE-CONTACTS : plus de « 👤 n contacts » ; à gauche l'adresse et les contacts nommés, à droite confiée + agenda.
     const visible = (el: Element) => { const c = el.cloneNode(true) as Element; c.querySelectorAll('.tch-cts-mesure').forEach((m) => m.remove()); return c.textContent; };

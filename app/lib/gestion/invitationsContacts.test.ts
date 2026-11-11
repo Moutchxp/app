@@ -20,7 +20,7 @@ vi.mock('../db/client', () => ({
     return { rows: [] };
   },
 }));
-vi.mock('./schema', () => ({ invitationContactsDisponible: async () => true }));
+vi.mock('./schema', () => ({ creneauTacheDisponible: async () => false, sorteTacheDisponible: async () => false, invitationContactsDisponible: async () => true }));
 vi.mock('./config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@exemple.test' }) }));
 vi.mock('../location/mailsPreavisSortieRepo', () => ({ signatureEcran: async () => ({ brute: '', ecran: { html: '<b>L’agence</b>', texte: 'L’agence' } }) }));
 vi.mock('./signatureImagesReel', () => ({ imagesSignaturePourEnvoi: async () => ({ images: [] }) }));

@@ -11,7 +11,8 @@ import {
   type ActionTache, type ChampTache, type ContactManuel, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
-import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, invitesTacheDisponible, piecesTacheDisponible, sorteTacheDisponible } from './schema';
+import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, creneauTacheDisponible, invitesTacheDisponible, piecesTacheDisponible, sorteTacheDisponible } from './schema';
+import { premierCreneauLibre } from './agendaTache';
 /* 🔴 LOT TACHES-AGENDA — chaque geste réussi demande la synchronisation de l'agenda, dans SA transaction (migration 350). */
 import { complementsAgenda, marquerASynchroniser } from './agendaSynchroRepo';
 /* 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation, posée dans la transaction du geste qui la provoque. */
@@ -173,6 +174,35 @@ async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
     const c = m.get(t.id);
     return c === undefined ? t : { ...t, dureeMinutes: c.dureeMinutes, agenda: c.agenda, agendaCarte: c.agendaCarte };
   });
+}
+
+/**
+ * ══ 🔴🔴 Arno (11/11/2026, 470) — LE CRÉNEAU D'AGENDA D'UNE TÂCHE SANS HEURE ══════════════════════════════════════════════════════════════════
+ * Une tâche (type « tache ») sans heure, à faire, reçoit SON créneau de 30 min : le premier libre parmi 9h00, 8h30, 8h00… pour SON collaborateur
+ * ce jour-là (verrou par collaborateur et par jour : deux créations simultanées ne prennent pas le même). Une fois posé, il ne bouge plus — sauf
+ * `force` (la tâche change de jour ou de collaborateur : un créneau libre du nouveau jour). Avec une heure, rendez-vous, annulée : aucun créneau.
+ * Les autres tâches ne sont jamais réorganisées. Sans la 470 : rien.
+ */
+async function placerSansHeure(q: RequeteTx, id: number, force: boolean): Promise<void> {
+  if (!(await creneauTacheDisponible())) return;
+  const avecSorte = await sorteTacheDisponible();
+  const { rows } = await q<{ jour: string; heure: string | null; confiee_a: number | null; etat: string; creneau: string | null; sorte: string }>(
+    `SELECT to_char(jour, 'YYYY-MM-DD') AS jour, to_char(heure, 'HH24:MI') AS heure, confiee_a::int AS confiee_a, etat,
+            to_char(creneau_sans_heure, 'HH24:MI') AS creneau, ${avecSorte ? 'sorte' : "'tache'::text AS sorte"} FROM gestion_tache WHERE id = $1`, [id]);
+  const t = rows[0];
+  if (t === undefined) return;
+  const sansCreneau = t.heure !== null || t.etat === 'annulee' || t.sorte !== 'tache';
+  if (sansCreneau) {
+    if (t.creneau !== null) await q('UPDATE gestion_tache SET creneau_sans_heure = NULL WHERE id = $1', [id]);
+    return;
+  }
+  if (t.creneau !== null && !force) return;
+  await q('SELECT pg_advisory_xact_lock(hashtext($1))', [`svav-creneau:${t.confiee_a ?? 0}:${t.jour}`]);
+  const pris = await q<{ c: string }>(
+    `SELECT to_char(creneau_sans_heure, 'HH24:MI') AS c FROM gestion_tache
+      WHERE jour = $1::date AND confiee_a IS NOT DISTINCT FROM $2 AND heure IS NULL AND etat <> 'annulee' AND creneau_sans_heure IS NOT NULL AND id <> $3`,
+    [t.jour, t.confiee_a, id]);
+  await q('UPDATE gestion_tache SET creneau_sans_heure = $2::time WHERE id = $1', [id, premierCreneauLibre(pris.rows.map((r) => r.c))]);
 }
 
 /** 🔴 Arno (11/11/2026, lot C, 469) — le type « RDV » / « Tâche » de chaque entrée (une requête pour toute la liste ; sans la 469 : rien). */
@@ -576,6 +606,7 @@ async function creerTacheSansRefus(
     }
     // 🔴 Arno (11/11/2026, lot C, 469) — le type choisi (« Rendez-vous » / « Tâche ») ; sans choix (écran d'avant) : « Tâche » par défaut.
     if (s.sorte !== undefined && await sorteTacheDisponible()) await q('UPDATE gestion_tache SET sorte = $2 WHERE id = $1', [id, s.sorte]);
+    await placerSansHeure(q, id, false);
     await tracer(q, id, 'creation', null, {
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
@@ -735,6 +766,8 @@ export async function decalerTache(
       `UPDATE gestion_tache SET jour = $2::date, heure = $3::time, rappels = $4::jsonb, maj_le = now() WHERE id = $1`,
       [id, jour, heure, JSON.stringify(rappels)]);
     if (dureeChange) await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, dureeApres]);
+    // 🔴 Arno (11/11/2026, 470) — passée à un autre jour : un créneau libre de ce jour ; une heure posée : plus de créneau.
+    await placerSansHeure(q, id, jour !== t.jour);
     // La trace garde l'ancienne et la nouvelle durée quand elle change (LOT DECALER-DUREE).
     await tracer(q, id, 'decalage',
       { jour: t.jour, heure: t.heure, ...(dureeChange ? { dureeMinutes: dureeAvant ?? null } : {}) },
@@ -855,6 +888,8 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
       [id, nouveau.objet, nouveau.note, nouveau.jour, nouveau.heure, c.id, c.libelle, nouveau.evenementId,
         JSON.stringify(rappels)]);
     if ('dureeMinutes' in apres) await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, apres.dureeMinutes]);
+    // 🔴 Arno (11/11/2026, 470) — autre jour ou autre collaborateur : un créneau libre ; une heure posée : plus de créneau. Les autres ne bougent pas.
+    await placerSansHeure(q, id, 'jour' in apres || 'confieeA' in apres || 'heure' in apres);
     await tracer(q, id, 'modification', avant, apres, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — date, heure ou personne changée ⇒ nouvelle demande ; le reste ne change pas le statut. */
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité retiré perd son lien, un nouveau reçoit le sien ; date ou

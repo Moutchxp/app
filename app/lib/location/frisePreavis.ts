@@ -9,7 +9,9 @@ import { creneauFr } from './previsite';
 
 export type StatutEtape = 'faite' | 'refusee' | 'programmee' | 'a_faire';
 export type CleEtape = 'preavis' | 'previsite' | 'edls' | 'sortie';
-export interface EtapePreavis { cle: CleEtape; numero: number; titre: string; statut: StatutEtape; libelle: string; enCours: boolean }
+export interface EtapePreavis { cle: CleEtape; numero: number; titre: string; statut: StatutEtape; libelle: string; enCours: boolean;
+  /** 🔴 Arno (11/11/2026) — les lignes affichées sous le titre (« Préavis reçu » : « Reçu le … » puis « Fin du préavis le … ») ; sinon le libellé seul. */
+  lignes: string[] }
 
 const jourIso = (d: string | null | undefined): string | null => (d ? d.slice(0, 10) : null);
 
@@ -29,12 +31,13 @@ export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string,
         : { statut: 'programmee', libelle: `Prévu le ${dateFrPreavis(jourEdl)}${l.edls?.confieA ? ` — confié à ${l.edls.confieA}` : ''}` };
   const sortie: Pick<EtapePreavis, 'statut' | 'libelle'> = o.sortieValidee ? { statut: 'faite', libelle: `Validée le ${dateFrPreavis(o.sortieValidee)}${o.retenue ? ' — Retenue 20 % appliquée' : ''}` }
     : { statut: 'a_faire', libelle: `À valider — fin du préavis le ${dateFrPreavis(l.dateMax)}` };
-  const etapes: Omit<EtapePreavis, 'enCours'>[] = [
-    { cle: 'preavis', numero: 1, titre: 'Préavis reçu', statut: 'faite', libelle: `Reçu le ${dateFrPreavis(l.recuLe)} — fin du préavis le ${dateFrPreavis(l.dateMax)}` },
+  const etapes: (Omit<EtapePreavis, 'enCours' | 'lignes'> & { lignes?: string[] })[] = [
+    { cle: 'preavis', numero: 1, titre: 'Préavis reçu', statut: 'faite', libelle: `Reçu le ${dateFrPreavis(l.recuLe)} — fin du préavis le ${dateFrPreavis(l.dateMax)}`,
+      lignes: [`Reçu le ${dateFrPreavis(l.recuLe)}`, `Fin du préavis le ${dateFrPreavis(l.dateMax)}`] },
     { cle: 'previsite', numero: 2, titre: 'Pré-visite', ...previsite },
     { cle: 'edls', numero: 3, titre: 'État des lieux de sortie', ...edls },
     { cle: 'sortie', numero: 4, titre: 'Sortie validée', ...sortie },
   ];
   const courante = etapes.find((e) => e.statut === 'a_faire' || e.statut === 'programmee')?.cle ?? null;
-  return etapes.map((e) => ({ ...e, enCours: e.cle === courante }));
+  return etapes.map((e) => ({ ...e, lignes: e.lignes ?? [e.libelle], enCours: e.cle === courante }));
 }

@@ -49,6 +49,19 @@ export function objetRendezVous(jour: string, heure: string | null): string {
   return `Demande de rendez-vous le ${date} à ${h}`;
 }
 
+/**
+ * 🔴 Arno (11/11/2026) — « Demande de participation à une tâche de gestion le 20/11/2026 » (+ « à 10h30 » seulement avec une heure) — l'objet
+ * proposé d'une TÂCHE (modifiable). PUR.
+ */
+export function objetTacheGestion(jour: string, heure: string | null): string {
+  const [a, m, j] = (jour ?? '').split('-');
+  const date = a && m && j ? `${j}/${m}/${a}` : 'JJ/MM/AAAA';
+  return `Demande de participation à une tâche de gestion le ${date}${heure && /^\d{2}:\d{2}$/.test(heure) ? ` à ${heure.replace(':', 'h')}` : ''}`;
+}
+/** L'objet type du type choisi. PUR. */
+export const objetType = (sorte: SorteTache, jour: string, heure: string | null): string =>
+  (sorte === 'rdv' ? objetRendezVous(jour, heure) : objetTacheGestion(jour, heure));
+
 /** L'heure de fin d'un rendez-vous (« HH:MM »), bornée à 23:59 ; `null` sans heure ou sans durée. PUR. */
 export function heureFinRdv(heure: string | null, dureeMinutes: number | null | undefined): string | null {
   if (heure === null || !/^\d{2}:\d{2}$/.test(heure) || dureeMinutes === null || dureeMinutes === undefined) return null;
@@ -751,7 +764,8 @@ export function echeanceLisible(jour: string, heure: string | null, maintenant: 
   const jds = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)).getUTCDay();
   const annee = m[1] === jourParisDe(maintenant).slice(0, 4) ? '' : ` ${m[1]}`;
   const date = `${JOURS_COURTS[jds]} ${Number(m[3])} ${MOIS_COURTS[Number(m[2]) - 1]}${annee}`;
-  if (heure === null) return `${date} · journée`;
+  // 🔴 Arno (11/11/2026) — une tâche sans heure est dite « sans heure » dans l'application (dans l'agenda, elle a son créneau de 30 min).
+  if (heure === null) return `${date} · sans heure`;
   const [hh, mm] = heure.split(':');
   return `${date} · ${Number(hh)} h${mm === '00' ? '' : ` ${mm}`}`;
 }
@@ -766,7 +780,7 @@ export function echeanceCompacte(t: { jour: string; heure: string | null; etat: 
   const c = couleurTache(t, maintenant);
   if (c === 'jour' || c === 'proche') {
     const mot = motCouleurTache(t, maintenant) ?? '';
-    if (t.heure === null) return mot;
+    if (t.heure === null) return `${mot} · sans heure`;
     const [hh, mm] = t.heure.split(':');
     return `${mot} · ${Number(hh)} h${mm === '00' ? '' : ` ${mm}`}`;
   }

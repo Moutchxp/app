@@ -4,7 +4,8 @@ import type { Auteur } from './gestes';
 import { chargerConfigGestion } from './config';
 import { fabriquerMessageId } from './envoiGmail';
 import { transportParDefaut, type TransportDemande } from './envoiDemandeTache';
-import { invitationContactsDisponible } from './schema';
+import { creneauTacheDisponible, invitationContactsDisponible, sorteTacheDisponible } from './schema';
+import { placeDansAgenda } from './agendaTache';
 import { titreLogement } from './annuaireRecherche';
 import { adressesSignature, corpsPourEnvoi } from './signatureImages';
 import { imagesSignaturePourEnvoi } from './signatureImagesReel';
@@ -47,15 +48,22 @@ const premierEmail = (coordonnees: unknown): string | null => {
 };
 const memeMoment = (a: Moment, b: Moment): boolean => a.jour === b.jour && a.heure === b.heure && (a.dureeMinutes ?? 60) === (b.dureeMinutes ?? 60);
 
-async function lireTache(tacheId: number): Promise<{ objet: string; note: string | null; moment: Moment; adresse: string | null } | null> {
-  const { rows } = await query<{ objet: string; note: string | null; jour: string; heure: string | null; duree: number | null; lot_id: number | null; adresse: string | null; commune: string | null }>(
+async function lireTache(tacheId: number): Promise<{ objet: string; note: string | null; moment: Moment; adresse: string | null;
+  /** 🔴 Arno (11/11/2026, 469 / 470) — la place dans l'agenda (l'invitation .ics) : rendez-vous, tâche à son heure, ou SON créneau sans heure. */
+  place: { heure: string; duree: number } | null } | null> {
+  const [avecSorte, avecCreneau] = await Promise.all([sorteTacheDisponible(), creneauTacheDisponible()]);
+  const { rows } = await query<{ objet: string; note: string | null; jour: string; heure: string | null; duree: number | null; lot_id: number | null; adresse: string | null; commune: string | null;
+    sorte: 'rdv' | 'tache' | null; creneau: string | null }>(
     `SELECT t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure, t.duree_minutes AS duree,
+            ${avecSorte ? 't.sorte' : 'NULL::text'} AS sorte, ${avecCreneau ? "to_char(t.creneau_sans_heure, 'HH24:MI')" : 'NULL::text'} AS creneau,
             t.lot_id::int AS lot_id, l.adresse, l.commune
        FROM gestion_tache t LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id WHERE t.id = $1`, [tacheId]);
   const r = rows[0];
   if (r === undefined) return null;
-  return { objet: r.objet, note: r.note, moment: { jour: r.jour, heure: r.heure, dureeMinutes: r.duree === null ? null : Number(r.duree) },
-    adresse: r.lot_id === null ? null : titreLogement(r.adresse, r.commune) };
+  const dureeMinutes = r.duree === null ? null : Number(r.duree);
+  return { objet: r.objet, note: r.note, moment: { jour: r.jour, heure: r.heure, dureeMinutes },
+    adresse: r.lot_id === null ? null : titreLogement(r.adresse, r.commune),
+    place: placeDansAgenda({ ...(r.sorte ? { sorte: r.sorte } : {}), heure: r.heure, dureeMinutes, creneau: r.creneau }) };
 }
 
 /** Y a-t-il au moins un contact coché « Envoyer une invitation » ? (Sinon, rien à envoyer, aucune question de droit.) */
@@ -143,7 +151,7 @@ export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | 
         out.push({ nom: c.nom, email: c.email, sorte, envoye: false, motif: MOTIF_TACHE_SANS_466, objet: m.objet });
         continue;
       }
-      const ics = icsTacheExterne({ ...contenu, tacheId, domaine, sequence, maintenant: deps.maintenant ?? new Date() });
+      const ics = icsTacheExterne({ ...contenu, place: t.place, tacheId, domaine, sequence, maintenant: deps.maintenant ?? new Date() });
       const alea = randomBytes(12).toString('hex');
       const messageId = fabriquerMessageId(domaine, alea, new Date());
       let issue: { ok: true } | { ok: false; motif: string };

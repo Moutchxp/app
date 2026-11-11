@@ -5,7 +5,7 @@
  * Aucun de ses imports ne porte `server-only`.
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { acceptationTacheDisponible, agendaTacheDisponible, invitesTacheDisponible } from './schema';
+import { acceptationTacheDisponible, agendaTacheDisponible, creneauTacheDisponible, invitesTacheDisponible, sorteTacheDisponible } from './schema';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import { coordonneesLisibles, estFamille, texteCompletTache, type ContactSource } from './contactsTache';
@@ -113,12 +113,16 @@ interface LigneAgenda {
   synchro_etat: SynchroEtat; synchro_erreur: string | null;
   confiee_email: string | null; confiee_actif: boolean | null;
   adresse: string | null; code_postal: string | null; commune: string | null; acceptation: string | null;
+  /** 🔴 Arno (11/11/2026, 469 / 470) — le type et le créneau d'une tâche sans heure (absents sans les migrations). */
+  sorte?: 'rdv' | 'tache' | null; creneau?: string | null;
 }
 
 async function lireLigne(q: RequeteTx, ids: readonly number[]): Promise<LigneAgenda[]> {
   const avecDemande = await acceptationTacheDisponible();
+  const [avecSorte, avecCreneau] = await Promise.all([sorteTacheDisponible(), creneauTacheDisponible()]);
   const { rows } = await q<LigneAgenda>(
     `SELECT t.id::int AS id, t.etat, t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
+            ${avecSorte ? 't.sorte' : 'NULL::text'} AS sorte, ${avecCreneau ? "to_char(t.creneau_sans_heure, 'HH24:MI')" : 'NULL::text'} AS creneau,
             t.rappels, t.duree_minutes, t.confiee_a::int AS confiee_a, t.confiee_a_libelle, t.cree_par::int AS cree_par,
             t.lot_id::int AS lot_id, t.google_agenda, t.google_evenement_id, t.synchro_version::text AS synchro_version,
             t.synchro_essais, t.synchro_etat, t.synchro_erreur,
@@ -348,7 +352,7 @@ export async function synchroniserTache(tacheId: number, o: { porte?: PorteAgend
         id: tacheId, objet: r.objet, texte: texteCompletTache(r.note, await contactsDe(tacheId)), jour: r.jour, heure: r.heure,
         dureeMinutes: r.duree_minutes, rappels: Array.isArray(r.rappels) ? r.rappels : [], faite, lotId: Number(r.lot_id),
         adresse: r.adresse, codePostal: r.code_postal, commune: r.commune, pieces: await piecesDe(tacheId),
-        sansBien: r.lot_id === null,
+        sansBien: r.lot_id === null, ...(r.sorte ? { sorte: r.sorte } : {}), creneau: r.creneau ?? null,
       }, { siteUrl, motRappel, lienLocal });
 
       const echouer = async (motif: string, refs: { agenda: string; id: string } | null, inviteId: number | null): Promise<IssueSynchro> => {

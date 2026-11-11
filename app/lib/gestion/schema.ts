@@ -406,6 +406,10 @@ export function evenementsTacheDisponible(): Promise<boolean> {
  * vers l'agenda et les tâches sont exactement celles d'avant ce lot.
  */
 /** 🔴 Arno (11/11/2026, lot C, migration 469) — le type « RDV » / « Tâche » d'une entrée du module. */
+/** 🔴 Arno (11/11/2026, migration 470) — le créneau d'agenda d'une tâche sans heure. */
+export function creneauTacheDisponible(): Promise<boolean> {
+  return memoiser('colonne.gestion_tache.creneau_sans_heure', () => colonneExiste('gestion_tache', 'creneau_sans_heure'));
+}
 export function sorteTacheDisponible(): Promise<boolean> {
   return memoiser('colonne.gestion_tache.sorte', () => colonneExiste('gestion_tache', 'sorte'));
 }

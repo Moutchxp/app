@@ -296,7 +296,9 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
                   ORANGE pour une pré-visite refusée / absente). Le titre ne répète plus le chiffre (lu tout de même par un lecteur d'écran). */}
               <span className="frp-numero" aria-hidden="true" data-pastille-etape>{e.statut === 'faite' ? '✓' : e.numero}</span>
               <span className="frp-titre"><span className="frp-lu">Étape {e.numero} : </span>{e.titre}</span>
-              <span className="frp-statut" data-libelle-etape>{e.libelle}{e.enCours ? ' · étape en cours' : ''}</span>
+              {/* 🔴 Arno (11/11/2026) — une ligne par information (« Préavis reçu » : la réception, puis la fin du préavis). */}
+              <span className="frp-statut" data-libelle-etape>{e.lignes.map((x, i) => (
+                <span key={i} className="frp-ligne" data-ligne-etape>{x}{i === e.lignes.length - 1 && e.enCours ? ' · étape en cours' : ''}</span>))}</span>
             </div>
             {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} />}
             {e.cle === 'edls' && (planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
@@ -636,15 +638,17 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-etape{display:grid;grid-row:span 3;grid-template-rows:subgrid;row-gap:8px;align-content:start;min-width:0;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .frp-etape--faite{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .frp-etape--refusee{border-color:var(--color-svv-urgence-orange);background:color-mix(in srgb, var(--color-svv-urgence-orange) 14%, var(--color-svv-surface))}
-.frp-etape--en-cours{border-width:3px;border-color:var(--color-svv-ink);box-shadow:0 0 0 3px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
-.frp-tete{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:center}
-.frp-numero{grid-row:span 2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:999px;font-weight:900;
+/* La mise en évidence ne change pas l'épaisseur du bord (2 px partout) : les pastilles restent à la même hauteur dans les 4 cases. */
+.frp-etape--en-cours{border-color:var(--color-svv-ink);box-shadow:inset 0 0 0 1px var(--color-svv-ink), 0 0 0 3px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
+.frp-tete{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start}
+/* 🔴 Arno (11/11/2026) — la pastille sur la LIGNE DU TITRE, à la même hauteur dans les 4 cases. */
+.frp-numero{grid-row:1;align-self:start;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:999px;font-weight:900;
   background:var(--color-svv-ink);color:var(--color-svv-surface)}
 .frp-etape--faite .frp-numero{background:var(--color-svv-green-ink)}
 .frp-etape--refusee .frp-numero{background:var(--color-svv-urgence-orange)}
-.frp-titre{font-weight:900;color:var(--color-svv-ink)}
+.frp-titre{font-weight:900;color:var(--color-svv-ink);line-height:22px;padding-top:3px}
 .frp-lu{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.frp-statut{font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.frp-statut{grid-column:2;font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere;display:flex;flex-direction:column}
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
 .frp-etape > .pva-bloc{grid-row:2 / span 2;display:grid;grid-template-rows:subgrid;row-gap:8px;min-width:0;margin:0}
 .frp-infos,.frp-actions{display:flex;flex-direction:column;gap:8px;min-width:0}

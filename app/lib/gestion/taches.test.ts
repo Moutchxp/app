@@ -174,10 +174,10 @@ describe('🔴 PARTIE A — l’échéance, au format d’Arno', () => {
   it('« mar. 13 oct. · 9 h 30 », « … · 10 h », « … · journée »', () => {
     expect(echeanceLisible('2026-10-13', '09:30', MAINT)).toBe('mar. 13 oct. · 9 h 30');
     expect(echeanceLisible('2026-10-13', '10:00', MAINT)).toBe('mar. 13 oct. · 10 h');
-    expect(echeanceLisible('2026-10-13', null, MAINT)).toBe('mar. 13 oct. · journée');
-    expect(echeanceLisible('2026-02-01', null, MAINT)).toBe('dim. 1 févr. · journée');
+    expect(echeanceLisible('2026-10-13', null, MAINT)).toBe('mar. 13 oct. · sans heure'); // 🔴 Arno (11/11/2026) : « sans heure »
+    expect(echeanceLisible('2026-02-01', null, MAINT)).toBe('dim. 1 févr. · sans heure'); // 🔴 Arno (11/11/2026) : « sans heure »
   });
   it('l’année n’apparaît que si elle n’est pas l’année en cours', () => {
-    expect(echeanceLisible('2027-01-04', null, MAINT)).toBe('lun. 4 janv. 2027 · journée');
+    expect(echeanceLisible('2027-01-04', null, MAINT)).toBe('lun. 4 janv. 2027 · sans heure'); // 🔴 Arno (11/11/2026) : « sans heure »
   });
 });

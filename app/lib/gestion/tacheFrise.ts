@@ -88,7 +88,7 @@ export function dateMissionTache(jour: string, heure: string | null, dureeMinute
   const h = (j + Math.floor((13 * ((mo < 3 ? mo + 12 : mo) + 1)) / 5) + a + Math.floor(a / 4) - Math.floor(a / 100) + Math.floor(a / 400)) % 7;
   const nom = JOURS[(h + 6) % 7];
   const date = `${nom.charAt(0).toUpperCase()}${nom.slice(1)} ${j}${j === 1 ? 'er' : ''} ${MOIS[mo - 1]} ${a0}`;
-  if (heure === null) return `${date} · journée`;
+  if (heure === null) return `${date} · sans heure`; // 🔴 Arno (11/11/2026)
   const [hh, mm] = heure.split(':');
   const d = dureeMinutes ?? 60;
   const duree = d < 60 ? `${d} min` : `${Math.floor(d / 60)} h${d % 60 === 0 ? '' : ` ${String(d % 60).padStart(2, '0')}`}`;

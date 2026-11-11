@@ -108,11 +108,14 @@ export function mailTacheExterne(c: ContenuMailExterne): { objet: string; texte:
 }
 
 /** L'invitation d'agenda d'un extérieur : SANS participants, sans organisateur ; même UID d'un envoi à l'autre. PUR. */
-export function icsTacheExterne(c: ContenuMailExterne & { tacheId: number; domaine: string; sequence: number; maintenant: Date }): string | null {
-  if (c.heure === null) return null;
+export function icsTacheExterne(c: ContenuMailExterne & { tacheId: number; domaine: string; sequence: number; maintenant: Date;
+  /** 🔴 Arno (11/11/2026) — la place dans l'agenda (`placeDansAgenda`) : une tâche sans heure part dans SON créneau de 30 min. Absente : comme avant. */
+  place?: { heure: string; duree: number } | null }): string | null {
+  const place = c.place !== undefined ? c.place : c.heure === null ? null : { heure: c.heure, duree: c.dureeMinutes ?? 60 };
+  if (place === null) return null;
   return invitationIcs({
     uid: `tache-${c.tacheId}@${c.domaine.replace(/^@/, '') || 'criterimmo.fr'}`, sequence: c.sequence, maintenant: c.maintenant,
-    rdv: { jour: c.jour, heure: c.heure, dureeMinutes: c.dureeMinutes ?? 60 }, titre: c.titre.trim(), lieu: c.adresse ?? '',
+    rdv: { jour: c.jour, heure: place.heure, dureeMinutes: place.duree }, titre: c.titre.trim(), lieu: c.adresse ?? '',
     description: (c.notes ?? '').trim(), annule: c.sorte === 'annulation',
   });
 }

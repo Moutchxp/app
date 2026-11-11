@@ -130,3 +130,60 @@ describe('🔴 Arno (11/11/2026) — « Rendez-vous » et « Tâche » : toute l
     expect(css).toContain('.tchf-sorte .tchf-sorte-btn{min-height:44px;width:100%;');
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — type en rouge, objet type, heure et durée selon le type', () => {
+  const jj = (() => { const [a, m, j] = jourParisDe(new Date()).split('-'); return `${j}/${m}/${a}`; })();
+  it('le bouton choisi est dans le rouge de l’application (texte blanc), l’autre blanc bordé ; plus de noir', async () => {
+    await ouvrir();
+    await clic('[data-sorte="rdv"]');
+    expect((container.querySelector('[data-sorte="rdv"]') as HTMLElement).className).toContain('svv-btn-primary');
+    expect((container.querySelector('[data-sorte="tache"]') as HTMLElement).className).toContain('svv-btn-outline');
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/FenetreTache.tsx', 'utf8')).toContain('.tchf-sorte-btn--choisi{background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}');
+  });
+  it('l’objet suit le type, la date et l’heure ; modifié à la main, il est gardé et « Rétablir l’objet type » reprend le modèle', async () => {
+    await ouvrir();
+    await clic('[data-sorte="rdv"]');
+    expect(objet()).toBe(`Demande de rendez-vous le ${jj} à HHhMM`);
+    await clic('[data-sorte="tache"]');
+    expect(objet()).toBe(`Demande de participation à une tâche de gestion le ${jj}`);
+    await saisir('[data-champ-heure]', '14:15');
+    expect(objet()).toBe(`Demande de participation à une tâche de gestion le ${jj} à 14h15`);
+    await saisir('.tchf-corps input[type="date"]', '2026-12-03');
+    expect(objet()).toBe('Demande de participation à une tâche de gestion le 03/12/2026 à 14h15');
+    expect(container.querySelector('[data-retablir-objet]')).toBeNull();
+    await saisir('[data-champ-objet]', 'Passer chez le gardien');
+    await saisir('.tchf-corps input[type="date"]', '2026-12-04');
+    expect(objet()).toBe('Passer chez le gardien');
+    await clic('[data-retablir-objet]');
+    expect(objet()).toBe('Demande de participation à une tâche de gestion le 04/12/2026 à 14h15');
+  });
+  it('Rendez-vous → Tâche : heure et durée effacées (heure vide, facultative) ; « × » vide l’heure ; retour au Rendez-vous : à remplir', async () => {
+    await ouvrir();
+    await clic('[data-sorte="rdv"]');
+    await saisir('[data-champ-heure]', '10:30');
+    await clic('[data-duree-rapide="90"]');
+    expect(container.querySelector('[data-effacer-heure]')).toBeNull(); // pas de « × » pour un rendez-vous (heure obligatoire)
+    await clic('[data-sorte="tache"]');
+    expect((container.querySelector('[data-champ-heure]') as HTMLInputElement).value).toBe('');
+    expect(container.querySelector('.tchf-corps')?.textContent).toContain('Sans heure : la tâche est placée en début de journée dans l’agenda.');
+    expect(container.querySelector('.tchf-corps')?.textContent).not.toContain('Avec heure : rendez-vous.');
+    await saisir('[data-champ-heure]', '16:00');
+    expect((container.querySelector('[data-effacer-heure]') as HTMLButtonElement).disabled).toBe(false);
+    await clic('[data-effacer-heure]');
+    expect((container.querySelector('[data-champ-heure]') as HTMLInputElement).value).toBe('');
+    await clic('[data-sorte="rdv"]');
+    expect((container.querySelector('[data-champ-heure]') as HTMLInputElement).value).toBe('');
+    expect(container.querySelector('[data-duree-rapide][aria-pressed="true"]')).toBeNull();
+    await clic('[data-enregistrer-tache]');
+    expect(container.querySelector('.tchf-alerte')?.textContent).toBe('Indiquez l’heure de début du rendez-vous.');
+    expect(posts).toEqual([]);
+  });
+  it('une tâche SANS heure est valide et part sans heure', async () => {
+    await ouvrir();
+    await clic('[data-sorte="tache"]');
+    await clic('[data-enregistrer-tache]');
+    const corps = posts.find((p) => p.url.includes('/taches/apercu'))?.corps;
+    expect(corps).toMatchObject({ sorte: 'tache', heure: null, objet: `Demande de participation à une tâche de gestion le ${jj}` });
+  });
+});

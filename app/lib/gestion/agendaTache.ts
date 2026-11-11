@@ -118,6 +118,34 @@ export interface ContenuTache {
   pieces: { driveId: string; nom: string; typeMime: string | null; lien: string | null }[];
   /** 🔴 LOT GESTION-TACHES-SANS-BIEN — tâche sans bien : ni lieu, ni adresse dans le titre, ni lien de fiche. */
   sansBien?: boolean;
+  /** 🔴 Arno (11/11/2026, 469 / 470) — le type, et le créneau de 30 min d'une tâche SANS heure (`placeDansAgenda`). */
+  sorte?: 'rdv' | 'tache';
+  creneau?: string | null;
+}
+
+/* ══ 🔴🔴 Arno (11/11/2026) — LA PLACE D'UNE ENTRÉE DANS L'AGENDA ═══════════════════════════════════════════════════════════════════════════
+   Rendez-vous : son heure et sa durée. Tâche AVEC heure : un créneau de 30 min à cette heure. Tâche SANS heure : SON créneau de 30 min (9h00,
+   8h30, 8h00… attribué une fois, par collaborateur et par jour, jamais réorganisé) ; sans créneau (tâche d'avant la 470) : la journée, comme
+   avant. */
+export const DUREE_TACHE_MINUTES = 30;
+/** Les débuts de créneau d'une tâche sans heure, du premier au dernier : 9h00, 8h30, 8h00… jusqu'à minuit (jamais après 9h30). */
+export const CRENEAUX_SANS_HEURE: readonly string[] = Array.from({ length: 19 }, (_, i) => {
+  const m = 9 * 60 - i * DUREE_TACHE_MINUTES;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+});
+/** Le premier créneau LIBRE (9h00 d'abord, puis en remontant) ; `null` s'ils sont tous pris. PUR. */
+export function premierCreneauLibre(pris: readonly (string | null)[]): string | null {
+  const occupes = new Set(pris.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 5)));
+  return CRENEAUX_SANS_HEURE.find((c) => !occupes.has(c)) ?? null;
+}
+/** Où l'entrée se place dans l'agenda : `{ heure, duree }`, ou `null` = la journée entière. PUR. */
+export function placeDansAgenda(c: { sorte?: 'rdv' | 'tache'; heure: string | null; dureeMinutes: number | null; creneau?: string | null }): { heure: string; duree: number } | null {
+  if (c.heure !== null) {
+    // Une tâche avec heure : 30 min (une durée d'avant, explicite, est gardée) ; un rendez-vous ou une entrée d'avant : sa durée, 1 h par défaut.
+    return { heure: c.heure, duree: c.dureeMinutes ?? (c.sorte === 'tache' ? DUREE_TACHE_MINUTES : DUREE_DEFAUT_MINUTES) };
+  }
+  if (c.sorte === 'tache' && typeof c.creneau === 'string' && /^\d{2}:\d{2}/.test(c.creneau)) return { heure: c.creneau.slice(0, 5), duree: DUREE_TACHE_MINUTES };
+  return null;
 }
 
 /** La ressource « événement » de l'API Agenda, dans la seule forme que l'application écrit. */
@@ -205,12 +233,20 @@ export const VEILLE_DE_REMPLACEMENT = '17:00';
  * 🔴 JAMAIS LES NOTIFICATIONS PAR DÉFAUT DE L'AGENDA (`useDefault` toujours faux, décision d'Arno : « La veille à
  * 23:50 », inutile) : aucun rappel choisi ⇒ aucune notification. PUR.
  */
-export function rappelsGoogle(rappels: readonly Rappel[], avecHeure: boolean):
+export function rappelsGoogle(rappels: readonly Rappel[], avecHeure: boolean,
+  /** 🔴 Arno (11/11/2026) — une tâche SANS heure placée dans SON créneau : ses rappels « la veille / le jour même à HH:MM » comptés jusqu'à ce début. */
+  debutSansHeure?: string):
   { reminders: EvenementGoogle['reminders']; remplaces: Rappel[] } {
   const minutes: number[] = [];
   const remplaces: Rappel[] = [];
   const veille = (heure: string) => { const [h, m] = heure.split(':').map(Number); return 1440 - (h * 60 + m); };
+  const debut = debutSansHeure !== undefined && estHeureValide(debutSansHeure) ? Number(debutSansHeure.slice(0, 2)) * 60 + Number(debutSansHeure.slice(3, 5)) : null;
   for (const r of rappels) {
+    if (debut !== null && !avecHeure && (r.sorte === 'veille' || r.sorte === 'jour') && estHeureValide(r.heure)) {
+      const [h, m] = r.heure.split(':').map(Number);
+      minutes.push(r.sorte === 'veille' ? debut + 1440 - (h * 60 + m) : Math.max(0, debut - (h * 60 + m)));
+      continue;
+    }
     if (r.sorte === 'avant' && avecHeure && r.minutes >= 0 && r.minutes <= 40_320) minutes.push(r.minutes);
     else if (r.sorte === 'veille' && !avecHeure && estHeureValide(r.heure)) minutes.push(veille(r.heure));
     else if (r.sorte === 'jour' && !avecHeure && estHeureValide(r.heure)) {
@@ -246,7 +282,8 @@ export function construireEvenement(c: ContenuTache, o: {
   lienLocal?: boolean;
 }): EvenementGoogle {
   const avecHeure = c.heure !== null;
-  const { reminders, remplaces } = rappelsGoogle(c.rappels, avecHeure);
+  const place = placeDansAgenda(c);
+  const { reminders, remplaces } = rappelsGoogle(c.rappels, avecHeure, !avecHeure && place !== null ? place.heure : undefined);
   const lien = c.sansBien === true ? null : lienFicheBien(o.siteUrl, c.lotId);
   const blocs = [
     c.texte.trim(),
@@ -257,16 +294,15 @@ export function construireEvenement(c: ContenuTache, o: {
     'Créée depuis l’application Gestion. Pour la modifier, passez par l’application.',
   ].filter((x) => x !== '');
   const lieu = c.sansBien === true ? null : adresseComplete(c.adresse, c.codePostal, c.commune);
-  const duree = c.dureeMinutes ?? DUREE_DEFAUT_MINUTES;
   return {
     summary: titreEvenement(c),
     ...(lieu !== null ? { location: lieu } : {}),
     description: blocs.join('\n\n'),
     visibility: 'private',
     colorId: COULEUR_EVENEMENT,
-    start: avecHeure ? { dateTime: `${c.jour}T${c.heure}:00`, timeZone: FUSEAU_AGENDA } : { date: c.jour },
+    start: place !== null ? { dateTime: `${c.jour}T${place.heure}:00`, timeZone: FUSEAU_AGENDA } : { date: c.jour },
     // ⚠️ JOURNÉE ENTIÈRE : la fin est le LENDEMAIN (borne exclusive de Google).
-    end: avecHeure ? { dateTime: ajouterMinutesLocal(c.jour, c.heure as string, duree), timeZone: FUSEAU_AGENDA } : { date: ajouterJours(c.jour, 1) },
+    end: place !== null ? { dateTime: ajouterMinutesLocal(c.jour, place.heure, place.duree), timeZone: FUSEAU_AGENDA } : { date: ajouterJours(c.jour, 1) },
     reminders,
     ...(c.pieces.length > 0 ? { attachments: c.pieces.slice(0, 25).map(pieceJointe) } : {}),
     extendedProperties: { private: marqueTache(c.id) },

@@ -818,3 +818,18 @@ describe('🔴🔴 Arno (11/11/2026) — le « ← Retour » commun rend le bloc
     expect(readFileSync('app/(admin)/admin/(protected)/location/EmailLocataireRequis.tsx', 'utf8')).toContain('target="_blank" rel="noopener" data-completer-fiche-locataire');
   });
 });
+
+describe('🔴 Arno (11/11/2026) — frise : pastilles sur la ligne du titre ; « Préavis reçu » sur deux lignes', () => {
+  it('« Reçu le … » puis « Fin du préavis le … », deux lignes distinctes ; la pastille sur la 1re ligne de la grille, en haut, dans les 4 cases', async () => {
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const lignesP = [...container.querySelectorAll('[data-ligne-depliee="C"] [data-etape="preavis"] [data-ligne-etape]')].map((x) => x.textContent);
+    expect(lignesP).toEqual(['Reçu le 01/10/2026', 'Fin du préavis le 01/11/2099']);
+    const css = CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ');
+    expect(css).toContain('.frp-tete{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start}');
+    expect(css).toContain('.frp-numero{grid-row:1;align-self:start;');
+    expect(css).toContain('.frp-statut{grid-column:2;');
+    expect(container.querySelectorAll('[data-ligne-depliee="C"] [data-etape] .frp-tete > [data-pastille-etape]:first-child')).toHaveLength(4);
+  });
+});

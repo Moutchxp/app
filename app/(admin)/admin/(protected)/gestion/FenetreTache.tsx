@@ -7,7 +7,7 @@ import {
   type Rappel,
 } from '../../../../lib/gestion/taches';
 import { blocContacts, type ContactSource, type ContactTache } from '../../../../lib/gestion/contactsTache';
-import { DUREES_RAPIDES_RDV, heureFinRdv, objetRendezVous, type ContactManuel, type SorteTache } from '../../../../lib/gestion/taches';
+import { DUREES_RAPIDES_RDV, heureFinRdv, objetType, type ContactManuel, type SorteTache } from '../../../../lib/gestion/taches';
 import {
   agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
   lireEvenementsProposes, type CollaborateurEcran, type DetailTache, type EvenementPropose, type GesteTache, type SaisieEcran,
@@ -95,15 +95,19 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const [dureeRdv, setDureeRdv] = useState<number | null>(null);
   const choisi = saisie.sorte !== undefined || mode.sorte === 'detail';
   const estRdv = saisie.sorte === 'rdv';
-  const choisirSorte = (x: SorteTache) => setSaisie((s) => {
-    if (x === 'rdv') return { ...s, sorte: x, rappels: s.heure === null ? s.rappels : rappelsParDefaut(true), ...(objetTouche ? {} : { objet: objetRendezVous(s.jour, s.heure) }) };
-    // Une tâche ne porte ni durée ni objet de rendez-vous proposé (celui-ci s'efface s'il n'a pas été modifié).
-    return { ...s, sorte: x, ...(objetTouche ? {} : { objet: '' }) };
-  });
+  /* 🔴 Arno (11/11/2026) — changer de type EFFACE l'heure et la durée : une tâche part sans heure (facultative) ; un rendez-vous redemande
+     l'heure de début et la durée (champs vides à remplir). Les rappels reprennent ceux d'une entrée sans heure. */
+  const choisirSorte = (x: SorteTache) => {
+    if (saisie.sorte === x) return;
+    setDureeRdv(null);
+    setSaisie((s) => ({ ...s, sorte: x, heure: null, rappels: s.heure === null ? s.rappels : rappelsParDefaut(false),
+      ...(s.dureeMinutes !== undefined ? { dureeMinutes: null } : {}) }));
+  };
+  // L'objet type du type choisi SUIT la date et l'heure — tant que la personne ne l'a pas modifié elle-même.
+  const modeleObjet = saisie.sorte === undefined ? null : objetType(saisie.sorte, saisie.jour, saisie.heure);
   useEffect(() => {
-    // L'objet proposé SUIT la date et l'heure — tant que la personne ne l'a pas modifié elle-même.
-    if (estRdv && !objetTouche) setSaisie((s) => (s.objet === objetRendezVous(s.jour, s.heure) ? s : { ...s, objet: objetRendezVous(s.jour, s.heure) }));
-  }, [estRdv, objetTouche, saisie.jour, saisie.heure]);
+    if (modeleObjet !== null && !objetTouche) setSaisie((s) => (s.objet === modeleObjet ? s : { ...s, objet: modeleObjet }));
+  }, [modeleObjet, objetTouche]);
   /**
    * 🔴🔴 RÈGLE D'ARNO (13/10/2026) — « un refus, qu'il vienne du formulaire ou du serveur, affiche TOUJOURS un message
    * clair en français, à côté du champ concerné ET en haut de la fenêtre. Jamais de clic sans effet visible. »
@@ -450,7 +454,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           {(mode.sorte === 'creer' || saisie.sorte !== undefined) && (
             <div className="tchf-sorte" role="group" aria-label="Type" data-choix-sorte>
               {(['rdv', 'tache'] as const).map((x) => (
-                <button key={x} type="button" className={`svv-btn gst-btn tchf-sorte-btn${saisie.sorte === x ? ' tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
+                <button key={x} type="button" className={`svv-btn gst-btn tchf-sorte-btn${saisie.sorte === x ? ' svv-btn-primary tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
                   aria-pressed={saisie.sorte === x} disabled={lectureSeule} onClick={() => choisirSorte(x)} data-sorte={x}>{x === 'rdv' ? 'Rendez-vous' : 'Tâche'}</button>
               ))}
               {!choisi && <span className="tchf-aide" data-choix-sorte-aide>Choisissez d’abord « Rendez-vous » ou « Tâche ».</span>}
@@ -465,6 +469,10 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               onChange={(e) => { setObjetTouche(true); setSaisie((s) => ({ ...s, objet: e.target.value })); }} />
             {erreurDe('objet')}
           </label>
+          {/* 🔴 Arno (11/11/2026) — l'objet modifié à la main est gardé ; ce lien reprend le modèle du type choisi. */}
+          {objetTouche && modeleObjet !== null && saisie.objet !== modeleObjet && !lectureSeule && (
+            <button type="button" className="tchf-lien-retablir" onClick={() => setObjetTouche(false)} data-retablir-objet>Rétablir l’objet type</button>
+          )}
           <div className="tchf-rangee">
             <label className="tchf-champ">
               <span className="tch-etiquette">Date</span>
@@ -474,14 +482,21 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             </label>
             <label className="tchf-champ">
               <span className="tch-etiquette">{estRdv ? 'Heure de début *' : 'Heure (facultative)'}</span>
-              <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
-                onChange={(e) => changerHeure(e.target.value)} />
+              <span className="tchf-heure">
+                <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
+                  onChange={(e) => changerHeure(e.target.value)} data-champ-heure />
+                {/* 🔴 Arno (11/11/2026) — « Effacer l'heure » : toujours là pour une tâche, la vide en un clic. */}
+                {!estRdv && (
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn tchf-effacer-heure" disabled={lectureSeule || saisie.heure === null}
+                    onClick={() => changerHeure('')} aria-label="Effacer l’heure" title="Effacer l’heure" data-effacer-heure>×</button>
+                )}
+              </span>
               {erreurDe('heure')}
             </label>
           </div>
           {!estRdv && (
             <p className="tchf-aide">
-              {saisie.heure === null ? 'Sans heure : repère sur la journée.' : 'Avec heure : rendez-vous.'}
+              {'Sans heure : la tâche est placée en début de journée dans l’agenda.'}
             </p>
           )}
           {estRdv && (
@@ -489,7 +504,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               <legend className="tch-etiquette">Durée *</legend>
               <div className="tchf-rappels">
                 {DUREES_RAPIDES_RDV.map((d) => (
-                  <button key={d} type="button" className={`svv-btn gst-btn tch-btn${dureeRdv === d ? ' tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
+                  <button key={d} type="button" className={`svv-btn gst-btn tch-btn${dureeRdv === d ? ' svv-btn-primary tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
                     aria-pressed={dureeRdv === d} disabled={lectureSeule} onClick={() => setDureeRdv(d)} data-duree-rapide={d}>{motDuree(d)}</button>
                 ))}
                 <label className="tchf-case">Autre (min)
@@ -780,7 +795,11 @@ const CSS_FENETRE = `
 .tchf-sorte > :not(.tchf-sorte-btn){grid-column:1 / -1}
 @media (max-width:600px){.tchf-sorte{grid-template-columns:1fr}}
 .tchf-sorte .tchf-sorte-btn{min-height:44px;width:100%;margin:0;justify-content:center}
-.tchf-sorte-btn--choisi{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
+.tchf-sorte-btn--choisi{background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}
+.tchf-lien-retablir{align-self:flex-start;background:none;border:0;padding:2px 0;color:var(--color-svv-ink);text-decoration:underline;font-size:.85rem;cursor:pointer;min-height:28px}
+.tchf-heure{display:flex;gap:6px;align-items:stretch}
+.tchf-heure input{flex:1 1 auto;min-width:0;width:auto}
+.tchf-heure .tchf-effacer-heure{flex:0 0 44px;width:44px;min-width:44px;min-height:40px;padding:0;margin:0;font-size:1.1rem;justify-content:center}
 .tchf-sous-choix{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:inherit}
 .tchf-sous-choix:disabled{opacity:.55}
 .tchf-duree-libre{width:6rem;min-height:40px}

@@ -44,7 +44,7 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...(a as [string, unknown[]])),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...(a as [string, unknown[]]))),
 }));
-vi.mock('./schema', () => ({
+vi.mock('./schema', () => ({ creneauTacheDisponible: async () => false, sorteTacheDisponible: async () => false,
   acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, evenementsTacheDisponible: async () => false,
   agendaTacheDisponible: async () => false, contactsTacheDisponible: async () => true, tachesDisponibles: async () => true,
   piecesTacheDisponible: async () => false, invitationContactsDisponible: async () => true,

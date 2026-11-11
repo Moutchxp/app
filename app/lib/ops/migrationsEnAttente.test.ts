@@ -176,7 +176,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '453_fonctions_datees_activite_principale.sql', '454_permissions_tuiles.sql', '455_apporteur_particulier_professionnel.sql',
     '456_gestion_evenement_nouveaute.sql', '457_location_mails_preavis_sortie.sql', '458_transaction_negociateur_compte.sql', '459_mon_espace_compromis_commun.sql', '460_location_destinataires_preavis_sortie.sql',
     '461_location_lot_copropriete.sql', '462_admin_taux_commission.sql', '463_gestion_monga_traduction.sql', '464_location_previsite.sql', '465_gestion_tache_invitation_contacts.sql', '466_location_mails_texte_modifiable.sql',
-    '467_location_validation_sortie_edls.sql', '468_location_sortie_pieces_retenue.sql', '469_gestion_tache_sorte_rdv.sql'];
+    '467_location_validation_sortie_edls.sql', '468_location_sortie_pieces_retenue.sql', '469_gestion_tache_sorte_rdv.sql', '470_gestion_tache_creneau_sans_heure.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -189,7 +189,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 469 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 470 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -199,14 +199,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (470)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (471)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(469\)/);
-    const renumerotee = planifier([...existants, { fichier: '470_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(470\)/);
+    const renumerotee = planifier([...existants, { fichier: '471_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['470_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['471_permis_emprise_numero_reveil.sql']);
   });
 });
 

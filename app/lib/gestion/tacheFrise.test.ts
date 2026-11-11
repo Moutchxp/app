@@ -65,7 +65,7 @@ describe('la bulle : le récapitulatif, 1 élément = 1 ligne', () => {
     expect(bulleTacheFrise(tache({ etat: 'annulee' })).etat).toBe('Tâche annulée');
   });
   it('les dates, sans fuseau : jour de la semaine juste', () => {
-    expect(dateMissionTache('2024-02-29', null, null)).toBe('Jeudi 29 février 2024 · journée');
+    expect(dateMissionTache('2024-02-29', null, null)).toBe('Jeudi 29 février 2024 · sans heure'); // 🔴 Arno (11/11/2026) : « sans heure »
     expect(dateMissionTache('2026-11-01', '09:05', 30)).toBe('Dimanche 1er novembre 2026 · 9 h 05 (30 min)');
   });
 });
