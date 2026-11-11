@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour, retourVersOrigine } from '../_composants/NavigationRetour';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Annuaire } from './Annuaire';
@@ -79,6 +80,8 @@ export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBa
   }, [router, ouvrir]);
   const onRetour = useCallback(() => {
     if (ouvrir !== undefined) { ouvrir(null); return; }
+    // 🔴 Arno (11/11/2026) — venu d'une autre page : retour à elle, dans son état ; sinon, comme avant.
+    if (retourVersOrigine()) return;
     if (window.history.length > 1) window.history.back();
     else router.push('/admin/location');
   }, [router, ouvrir]);
@@ -86,7 +89,7 @@ export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBa
     <div className="gst-vue fco" data-fiche-commune data-contexte="location">
       <style>{CSS_GESTION}</style><style>{CSS_BARRE_PAGES}</style>
       <style>{`.fco-retour{margin:0 0 10px}.fco-note{margin:0 0 12px;font-size:.85rem;color:var(--color-svv-muted)}`}</style>
-      {!sansRetour && <p className="fco-retour"><a href="/admin/location">← Location</a></p>}
+      {!sansRetour && <p className="fco-retour"><LienRetour href="/admin/location" mot="Location" /></p>}
       <p className="fco-note" role="note">Fiche commune avec la Gestion. Depuis la Location, les mails sont en lecture : écrire, répondre ou transférer se fait depuis la Gestion.</p>
       <Annuaire fiche={fiche} onFiche={onFiche} onRetour={onRetour} redaction={null} sansEntete={sansBarreAnnuaire} />
     </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEtatRetour } from '../_composants/NavigationRetour';
 import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
@@ -114,6 +115,15 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); };
   // 🔴 Arno (10/11/2026) — le filtre des pastilles de statut de pré-visite (vide : tous).
   const [filtre, setFiltre] = useState<Set<StatutPrevisite>>(new Set());
+  /* 🔴 Arno (11/11/2026) — le « ← Retour » commun rend ce bloc TEL QU'IL ÉTAIT : ligne dépliée, statut filtré, recherche, bloc ouvert (le tri
+     est déjà gardé par le navigateur). Une clé par écran (bloc / pleine page, Location / Gestion). */
+  useEtatRetour(`preavis:${plein ? 'plein' : 'bloc'}:${lecture}`, { ouverte, filtre: [...filtre], recherche, ouvert },
+    (v: { ouverte?: string | null; filtre?: StatutPrevisite[]; recherche?: string; ouvert?: boolean }) => {
+      if (v.ouverte !== undefined) setOuverte(v.ouverte);
+      if (Array.isArray(v.filtre)) setFiltre(new Set(v.filtre));
+      if (typeof v.recherche === 'string') setRecherche(v.recherche);
+      if (typeof v.ouvert === 'boolean') setOuvert(v.ouvert);
+    });
   const d = lu.etat.etat === 'ok' ? lu.etat.data : null;
   // Une réponse inattendue (serveur plus ancien que l'écran) ne fait jamais tomber l'accueil : on n'affiche que ce qui est lisible.
   const toutes = d === null || !Array.isArray(d.lignes) ? []

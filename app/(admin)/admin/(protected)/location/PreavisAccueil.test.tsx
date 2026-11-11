@@ -800,3 +800,21 @@ describe('🔴🔴 Arno (11/11/2026, lot B) — UNE seule numérotation par case
     expect([...frise.querySelectorAll('.frp-titre')].some((t) => /^\d\./.test(t.textContent ?? ''))).toBe(false);
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — le « ← Retour » commun rend le bloc des préavis TEL QU’IL ÉTAIT', () => {
+  it('au retour sur la page : la même ligne dépliée, le même statut filtré (restauration notée au départ)', async () => {
+    window.history.replaceState(null, '', '/admin/location');
+    window.sessionStorage.setItem('svav.retour.restaurer', JSON.stringify({ url: '/admin/location', defilement: 0, le: Date.now(),
+      etat: { 'preavis:bloc:location': { ouverte: 'C', filtre: [], recherche: '', ouvert: false } } }));
+    await rendre(true);
+    expect(container.querySelector('[data-ligne-depliee="C"]')).not.toBeNull();
+    window.sessionStorage.clear();
+  });
+  it('« Voir la fiche du bien » est un lien suivi par le mécanisme commun (même onglet, aucun target) ; « compléter la fiche… » des fenêtres reste un nouvel onglet', async () => {
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    const l = container.querySelector('[data-ligne-depliee="C"] a[data-lien-fiche-bien]')!;
+    expect(l.getAttribute('target')).toBeNull();
+    expect(readFileSync('app/(admin)/admin/(protected)/location/EmailLocataireRequis.tsx', 'utf8')).toContain('target="_blank" rel="noopener" data-completer-fiche-locataire');
+  });
+});

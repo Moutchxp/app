@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour } from '../../_composants/NavigationRetour';
 import { ListeChoix } from '../ListeChoix';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -95,7 +96,7 @@ export function HonorairesGestion() {
   return (
     <div className="hon">
       <style>{CSS_HONORAIRES}</style>
-      <p className="hon-retour"><a href="/admin/location">← Location</a></p>
+      <p className="hon-retour"><LienRetour href="/admin/location" mot="Location" /></p>
       <p className="hon-theorique">{PHRASE_THEORIQUE}</p>
 
       <div className="hon-barre" role="toolbar" aria-label="Vue et période">

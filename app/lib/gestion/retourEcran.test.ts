@@ -321,7 +321,10 @@ describe('🔒 un seul mécanisme, et il est bien branché', () => {
    */
   it('🔴 la vue définit le retour commun et le passe aux flèches', () => {
     expect(code).toContain('const retour = useCallback(');
-    expect(code).toContain('decisionRetour(courant, lireMemoire(window.history.state))');
+    // 🔴 Arno (11/11/2026) — la mémoire du module est lue une fois (le retour commun vers une AUTRE page n'est pris que si elle est vide).
+    expect(code).toContain('const memoire = lireMemoire(window.history.state);');
+    expect(code).toContain('decisionRetour(courant, memoire)');
+    expect(code).toContain('if ((memoire?.parent ?? null) === null && retourVersOrigine()) return;');
     // La flèche de fermeture d'un mail, dans les trois endroits où une conversation s'affiche.
     expect(code).toContain('onFermerFil={retour}');
     expect((code.match(/onFerme=\{retour\}/g) ?? []).length).toBe(2);

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEtatRetour } from '../_composants/NavigationRetour';
+import { LienRetour } from '../_composants/NavigationRetour';
+import { useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, useLecture } from './commun';
 import { CSS_PASTILLE_STATUT, PastilleStatut } from '../gestion/StatutDuBien';
 import type { FiltreStatut, PageClients } from '../../../../lib/location/clientsBiensRepo';
@@ -22,15 +24,24 @@ export function ClientsEtBiens() {
   const [terme, setTerme] = useState('');
   const [filtre, setFiltre] = useState<FiltreStatut>('tous');
   const [page, setPage] = useState(0);
+  // La page revient à 0 seulement si le terme CHANGE (une page rendue par le « ← Retour » n'est pas effacée par l'attente de la saisie).
+  const termeEcrit = useRef('');
   useEffect(() => {
-    const t = setTimeout(() => { setTerme(texte.trim()); setPage(0); }, 200);
+    const t = setTimeout(() => { const n = texte.trim(); setTerme(n); if (n !== termeEcrit.current) setPage(0); termeEcrit.current = n; }, 200);
     return () => clearTimeout(t);
   }, [texte]);
+  // 🔴 Arno (11/11/2026) — le « ← Retour » commun rend la recherche, le filtre et la page.
+  useEtatRetour('clients-biens', { texte, terme, filtre, page }, (v: { texte?: string; terme?: string; filtre?: FiltreStatut; page?: number }) => {
+    if (typeof v.texte === 'string') setTexte(v.texte);
+    if (typeof v.terme === 'string') { setTerme(v.terme); termeEcrit.current = v.terme; }
+    if (v.filtre !== undefined) setFiltre(v.filtre);
+    if (typeof v.page === 'number') setPage(v.page);
+  });
   const { etat } = useLecture<PageClients>(`clients=1&q=${encodeURIComponent(terme)}&statut=${filtre}&page=${page}`);
   return (
     <div className="loc-page cb" data-clients-et-biens>
       <style>{CSS_LOCATION_ECRANS + CSS_PASTILLE_STATUT + CSS_CLIENTS_BIENS}</style>
-      <p className="loc-retour"><a href="/admin/location">← Location</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location" mot="Location" /></p>
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Clients et biens</h1></div>
         <p className="svv-page-sub">Les propriétaires et tous leurs biens : en gestion, en location seule, en ancienne gestion.</p>

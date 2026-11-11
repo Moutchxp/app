@@ -1,5 +1,6 @@
 'use client';
 
+import { noterDepart, retourVersOrigine } from '../_composants/NavigationRetour';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CarteEvenement, EtatEcran, LigneFile } from '../../../../lib/gestion/fileRepo';
 import {
@@ -454,6 +455,8 @@ export function GestionVue({ intro, location = false }: {
     const memoire = memoirePour(courant, suivant, lireMemoire(window.history.state));
     // Empiler une entrée seulement si l'écran CHANGE : sinon « Précédent » demanderait autant de clics qu'on en a
     //   donné pour rien. `pushState` (et non `router.push`) : aucun aller-retour serveur pour un changement d'écran.
+    // 🔴 Arno (11/11/2026) — un CHANGEMENT d'écran note aussi un départ (le « ← Retour » commun rend l'écran quitté dans son état).
+    if (!memeEtat(courant, suivant)) noterDepart(url);
     if (memeEtat(courant, suivant)) window.history.replaceState(memoire, '', url);
     else window.history.pushState(memoire, '', url);
   }, []);
@@ -536,9 +539,20 @@ export function GestionVue({ intro, location = false }: {
   const retour = useCallback(() => {
     if (typeof window === 'undefined') return;
     const courant = lireEtatUrl(window.location.search);
-    const d = decisionRetour(courant, lireMemoire(window.history.state));
+    const memoire = lireMemoire(window.history.state);
+    // 🔴 Arno (11/11/2026) — arrivé ici d'une AUTRE page (aucune mémoire du module) : le « ← Retour » y ramène, dans son état.
+    if ((memoire?.parent ?? null) === null && retourVersOrigine()) return;
+    const d = decisionRetour(courant, memoire);
     if (d.sorte === 'reculer') { window.history.back(); return; }
     aller(d.etat);
+  }, [aller]);
+  /**
+   * 🔴 Arno (11/11/2026) — « ← Retour à la Gestion » / « ← Boîte » : venu d'un écran de la Gestion, il y revient TEL QU'IL ÉTAIT (ligne
+   * dépliée, filtres, défilement), sans recharger ; sinon, l'écran par défaut, comme avant.
+   */
+  const retourEcranOuDefaut = useCallback(() => {
+    if (retourVersOrigine({ memePage: true, naviguer: (u) => aller(lireEtatUrl(new URL(u, window.location.origin).search)) })) return;
+    aller({ ...ETAT_DEFAUT });
   }, [aller]);
 
   /**
@@ -1478,7 +1492,7 @@ export function GestionVue({ intro, location = false }: {
           <TableauTaches
             /* 🔴 Arno (10/11/2026) — « ← Retour à la Gestion » ; la pleine page : recherche, tris, filtres cumulables, conservés. */
             plein
-            retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })} data-retour-gestion>← Retour à la Gestion</button>}
+            retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut} data-retour-gestion>← Retour à la Gestion</button>}
             onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
             onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
               ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
@@ -1488,14 +1502,14 @@ export function GestionVue({ intro, location = false }: {
         /* 🔴🔴 Arno (10/11/2026) — LE MODULE « PRÉAVIS » EN PLEINE PAGE : le MÊME composant et la MÊME donnée que le bloc de la Location
            (et que celui sous les Tâches), avec tous ses tris, ses filtres et la recherche. */
         <div className="pe pe-preavis">
-          <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })} data-retour-gestion>← Retour à la Gestion</button></p>
+          <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut} data-retour-gestion>← Retour à la Gestion</button></p>
           <BlocPreavisAccueil gestion plein lecture="gestion" ecriture={location} />
         </div>
       ) : ecran === 'syndics' ? (
         /* 🔴🔴 LOT ANNUAIRE-SYNDICS — L'ÉCRAN « SYNDICS ». Le composant ne sait rien de cet écran : il reçoit son
            retour et le composeur, et la future tuile Location le posera tel quel. */
         <EcranSyndics
-          retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button>}
+          retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut}>← Boîte</button>}
           onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
             ? (email, contexte) => {
               /* LOT MAIL-SYNDIC-PREREMPLI — le syndic (et le bien) voyagent avec l'adresse : le message s'ouvre pré-rempli. */
@@ -1540,7 +1554,7 @@ export function GestionVue({ intro, location = false }: {
           /* LOT ERGO-BOITE — le retour mène à la BOÎTE, d'où l'on vient maintenant (entrée « À rattacher » de la
              colonne). Auparavant il menait à l'écran partagé, parce que le bouton y vivait. Rien n'est perdu :
              l'écran partagé reste à un clic depuis la colonne. */
-          onRetour={() => aller({ ...ETAT_DEFAUT })}
+          onRetour={retourEcranOuDefaut}
           /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — « la liste Réception, depuis n'importe quel
              écran » : cet écran n'a pas la colonne, donc pas de tuile. On lui donne le chemin. */
           onReception={() => aller({ ...ETAT_DEFAUT, ecran: 'boite', etiquette: ETIQUETTE_RECEPTION })}

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { LienRetour as LienRetourCommun } from './NavigationRetour';
 
 /**
  * En-tête STANDARD des pages admin (socle unifié — Phase 1). Composant SERVEUR, purement présentationnel : aucune
@@ -22,11 +23,14 @@ type Props = {
   retour?: string;
 };
 
-/** « ← Retour » vers la page parente de la tuile (Arno, 22/10/2026) : un lien ordinaire, jamais `history.back()`. */
+/**
+ * « ← Retour » vers la page parente de la tuile (Arno, 22/10/2026) : un lien ordinaire, jamais `history.back()`.
+ * 🔴 Arno (11/11/2026) — LE MÊME LIEN COMMUN partout (`NavigationRetour`) : venu d'une autre page, il y ramène, dans son état ; sinon, le parent.
+ */
 export function LienRetour({ href }: { href: string }) {
   return (
     <p className="svv-page-retour">
-      <a href={href} className="svv-page-retour-lien" data-retour-tuile="">← Retour</a>
+      <LienRetourCommun href={href} className="svv-page-retour-lien" data-retour-tuile="" />
     </p>
   );
 }

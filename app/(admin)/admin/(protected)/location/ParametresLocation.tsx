@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour } from '../_composants/NavigationRetour';
 import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ecrireEtatModale, lireEtatModale, OUTILS_SUIVI, PARAM_LISTE, PARAM_MODALE, PARAM_PAGE, useRechercheAdresse } from './etatModaleParametres';
@@ -382,7 +383,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
 export function PageParametresLocation({ ongletInitial, listeInitiale = null }: { ongletInitial: Onglet; listeInitiale?: ListeDestinataires | null }) {
   return (
     <div data-page-parametres-location>
-      <p className="plo-retour-page"><a href={OUTILS_SUIVI} data-retour-outils>← Outils de suivi</a></p>
+      <p className="plo-retour-page"><LienRetour href={OUTILS_SUIVI} mot="Outils de suivi" data-retour-outils="" /></p>
       <ModaleParametresLocation page ongletInitial={ongletInitial} listeInitiale={listeInitiale} onFermer={() => { window.location.assign(OUTILS_SUIVI); }} />
     </div>
   );

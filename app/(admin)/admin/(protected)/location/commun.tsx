@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour } from '../_composants/NavigationRetour';
 import { useCallback, useEffect, useState } from 'react';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { causeDeLaReponse, MOTIF_DROIT, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
@@ -162,8 +163,8 @@ export function EnTeteLocation({ titre, sous, actions, retour = true, retourVers
   return (
     <header className="loc-tete">
       {/* Arno (24/10/2026) — `surClic` : le lien referme une modale au lieu de quitter la page (« Caractéristiques du bien loué »). */}
-      {retour && <p className="loc-retour"><a href={retourVers?.href ?? '/admin/location'}
-        onClick={retourVers?.surClic === undefined ? undefined : (e) => { e.preventDefault(); retourVers.surClic?.(); }}>← {retourVers?.mot ?? 'Location'}</a></p>}
+      {/* 🔴 Arno (11/11/2026) — LE lien « ← Retour » commun : venu d'une autre page, il y ramène (dans son état) ; sinon, comme avant. */}
+      {retour && <p className="loc-retour"><LienRetour href={retourVers?.href ?? '/admin/location'} mot={retourVers?.mot ?? 'Location'} surClic={retourVers?.surClic} /></p>}
       <div className="loc-tete-ligne">
         <div>
           <h2 className="loc-titre">{titre}</h2>

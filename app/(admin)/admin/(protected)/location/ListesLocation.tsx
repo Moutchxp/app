@@ -1,5 +1,6 @@
 'use client';
 
+import { useEtatRetour } from '../_composants/NavigationRetour';
 import { titreAnnexe } from '../../../../lib/location/bienComplet';
 import { useState } from 'react';
 import { EtatLecture, liste, useLecture } from './commun';
@@ -17,6 +18,11 @@ type Ligne = LigneProprietaire | LigneLocataire | (BienLocation & { annexes?: Bi
 export function ListeLocation({ sorte }: { sorte: SorteListe }) {
   const [page, setPage] = useState(0);
   const [anciens, setAnciens] = useState(false);
+  // 🔴 Arno (11/11/2026) — le « ← Retour » commun rend la liste à la même page, avec ou sans les anciens.
+  useEtatRetour(`liste:${sorte}`, { page, anciens }, (v: { page?: number; anciens?: boolean }) => {
+    if (typeof v.page === 'number') setPage(v.page);
+    if (typeof v.anciens === 'boolean') setAnciens(v.anciens);
+  });
   const { etat } = useLecture<PageListe<Ligne>>(`liste=${sorte}&page=${page}${anciens ? '&anciens=1' : ''}`);
   return (
     <>

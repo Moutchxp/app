@@ -13,6 +13,7 @@ import { HeureParis } from './HeureParis';
 import { Sidebar } from './Sidebar';
 import { ContenuTuile } from './ContenuTuile';
 import { RevocationWatcher } from './RevocationWatcher';
+import { SuiviNavigationRetour } from './_composants/NavigationRetour';
 import { RoueParametresLocation } from './location/ParametresLocation';
 import { ModeObservateur } from './ModeObservateur';
 import { statutDuCompte } from '../../../lib/admin/statutCompte';
@@ -49,6 +50,8 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
   return (
     <div className="svv-adm-shell">
       <RevocationWatcher />
+      {/* 🔴 Arno (11/11/2026) — le « ← Retour » vers la page d'origine, dans toute l'application : le suivi, monté une fois. */}
+      <SuiviNavigationRetour />
       <Sidebar role={session.role} perms={session.perms} ordreModules={ordreModules} />
       <div className="svv-adm-content">
         <div className="svv-adm-bandeau" style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>

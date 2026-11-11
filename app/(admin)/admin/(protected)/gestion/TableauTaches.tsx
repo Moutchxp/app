@@ -1,5 +1,6 @@
 'use client';
 
+import { useEtatRetour } from '../_composants/NavigationRetour';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 /* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
 import { estClicDansLeVide, MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
@@ -99,6 +100,17 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
   const [recherche, setRecherche] = useState('');
   // 🔴 Arno (11/11/2026, lot C) — le filtre par TYPE de la pleine page (« RDV » / « Tâche »).
   const [sorteFiltre, setSorteFiltre] = useState<'toutes' | 'rdv' | 'tache'>('toutes');
+  /* 🔴 Arno (11/11/2026) — le « ← Retour » commun rend ce bloc TEL QU'IL ÉTAIT : ouvert ou replié, filtres, pastille, recherche, type
+     (le tri et les filtres de la pleine page sont déjà gardés par le navigateur). Une clé par écran. */
+  useEtatRetour(`taches:${plein ? 'plein' : 'bloc'}`, { ouvert, qui, statut, pastille, recherche, sorteFiltre },
+    (v: { ouvert?: boolean; qui?: FiltreQui; statut?: FiltreStatut; pastille?: PastilleFiltre | null; recherche?: string; sorteFiltre?: 'toutes' | 'rdv' | 'tache' }) => {
+      if (typeof v.ouvert === 'boolean') setOuvert(v.ouvert);
+      if (v.qui !== undefined) setQui(v.qui);
+      if (v.statut !== undefined) setStatut(v.statut);
+      if (v.pastille !== undefined) setPastille(v.pastille);
+      if (typeof v.recherche === 'string') setRecherche(v.recherche);
+      if (v.sorteFiltre !== undefined) setSorteFiltre(v.sorteFiltre);
+    });
   const [prefsLues, setPrefsLues] = useState(false);
   useEffect(() => {
     if (!plein) return;

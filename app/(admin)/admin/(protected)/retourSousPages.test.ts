@@ -18,10 +18,11 @@ const RACINE = 'app/(admin)/admin/(protected)';
 const L = `${RACINE}/location`;
 // EnTeteLocation (retour par défaut : « ← Location » ; Arno, 23/10/2026 : « Modifier » la fiche du bien y passe le retour vers la fiche).
 // Arno (24/10/2026) — le lien peut refermer une modale (`surClic`, « Caractéristiques du bien loué ») : il reste le même lien.
-const RETOUR_LOCATION = { fichier: `${L}/commun.tsx`, lien: "<a href={retourVers?.href ?? '/admin/location'}\n        onClick={retourVers?.surClic === undefined ? undefined : (e) => { e.preventDefault(); retourVers.surClic?.(); }}>← {retourVers?.mot ?? 'Location'}</a>" };
+// 🔴 Arno (11/11/2026) — LE lien de retour COMMUN (`LienRetour`, `_composants/NavigationRetour`) : vers l'origine si elle est connue, sinon ce parent.
+const RETOUR_LOCATION = { fichier: `${L}/commun.tsx`, lien: "<LienRetour href={retourVers?.href ?? '/admin/location'} mot={retourVers?.mot ?? 'Location'} surClic={retourVers?.surClic} />" };
 /** Arno (23/10/2026) — « Modifier » la fiche du bien : « ← Fiche du bien », vers la fiche de la tuile d'où l'on vient. */
 const RETOUR_FICHE_BIEN = [RETOUR_LOCATION, { fichier: `${L}/CreationBien.tsx`, lien: '<EnTeteLocation titre="Modifier le bien" retourVers={modification.dansModale === true ? { ...modification.retour, surClic: annulerModification } : modification.retour}' }];
-const FICHE = { fichier: `${RACINE}/gestion/FicheCommune.tsx`, lien: '<a href="/admin/location">← Location</a>' };
+const FICHE = { fichier: `${RACINE}/gestion/FicheCommune.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' };
 
 const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'gestion/bien/[id]/modifier': [...RETOUR_FICHE_BIEN, { fichier: 'app/lib/gestion/ficheBienAdresses.ts', lien: "{ href: `/admin/gestion?ecran=annuaire&fiche=lot-${lotId}`, mot: 'Fiche du bien' }" }],
@@ -30,29 +31,29 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'location/bien/[id]': [FICHE, { fichier: `${L}/bien/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   'location/proprietaire/[id]': [FICHE, { fichier: `${L}/proprietaire/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   'location/locataire/[id]': [FICHE, { fichier: `${L}/locataire/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' },
-    { fichier: `${L}/SortieLocataires.tsx`, lien: '<a href="/admin/location/locataires">← Ajouter ou supprimer un locataire</a>' }],
+    { fichier: `${L}/SortieLocataires.tsx`, lien: '<LienRetour href="/admin/location/locataires" mot="Ajouter ou supprimer un locataire" />' }],
   'location/syndic/[id]': [RETOUR_LOCATION, { fichier: `${L}/syndic/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   // 🔴 Arno (10/11/2026) — le module « Préavis » en pleine page.
   'location/preavis': [RETOUR_LOCATION, { fichier: `${L}/preavis/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
-  'location/clients': [{ fichier: `${L}/ClientsEtBiens.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
-  'location/honoraires': [{ fichier: `${L}/honoraires/HonorairesGestion.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
-  'location/locataires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
-  'location/locataires/ajouter': [{ fichier: `${L}/SortieLocataires.tsx`, lien: '<a href="/admin/location/locataires">← Locataires</a>' }],
-  'location/locataires/supprimer': [{ fichier: `${L}/SortieLocataires.tsx`, lien: '<a href="/admin/location/locataires">← Locataires</a>' }],
+  'location/clients': [{ fichier: `${L}/ClientsEtBiens.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
+  'location/honoraires': [{ fichier: `${L}/honoraires/HonorairesGestion.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
+  'location/locataires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
+  'location/locataires/ajouter': [{ fichier: `${L}/SortieLocataires.tsx`, lien: '<LienRetour href="/admin/location/locataires" mot="Locataires" />' }],
+  'location/locataires/supprimer': [{ fichier: `${L}/SortieLocataires.tsx`, lien: '<LienRetour href="/admin/location/locataires" mot="Locataires" />' }],
   'location/nouveau-bien': [RETOUR_LOCATION, { fichier: `${L}/CreationBien.tsx`, lien: '<EnTeteLocation titre="Ajouter un nouveau bien"' }],
   'location/nouveau-locataire': [RETOUR_LOCATION, { fichier: `${L}/CreationLocataire.tsx`, lien: '<EnTeteLocation titre="Nouveau locataire"' }],
   'location/nouveau-proprietaire': [RETOUR_LOCATION, { fichier: `${L}/CreationProprietaires.tsx`, lien: '<EnTeteLocation titre="Créer un nouveau propriétaire"' }],
   'location/nouveau': [RETOUR_LOCATION, { fichier: `${L}/CreationProprietaireBien.tsx`, lien: '<EnTeteLocation titre="Nouveau propriétaire + bien"' }],
   'location/outils': [RETOUR_LOCATION, { fichier: `${L}/EcransLocation.tsx`, lien: '<EnTeteLocation titre="Outils de suivi"' }],
   // Arno (23/10/2026) — les deux briques des « Outils de suivi » : retour vers les outils.
-  'location/outils/mois': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/outils">← Outils de suivi</a>' }],
-  'location/outils/annee': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/outils">← Outils de suivi</a>' }],
+  'location/outils/mois': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location/outils" mot="Outils de suivi" />' }],
+  'location/outils/annee': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location/outils" mot="Outils de suivi" />' }],
   // 🔴 Arno (25/10/2026) — « Paramètres Location » en page, depuis Outils de suivi (OUTILS_SUIVI = '/admin/location/outils').
-  'location/outils/parametres': [{ fichier: `${L}/ParametresLocation.tsx`, lien: '<a href={OUTILS_SUIVI} data-retour-outils>← Outils de suivi</a>' },
+  'location/outils/parametres': [{ fichier: `${L}/ParametresLocation.tsx`, lien: '<LienRetour href={OUTILS_SUIVI} mot="Outils de suivi" data-retour-outils="" />' },
     { fichier: `${L}/parametresAdresse.ts`, lien: "export const OUTILS_SUIVI = '/admin/location/outils';" }],
-  'location/proprietaires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location">← Location</a>' }],
-  'location/proprietaires/supprimer': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<a href="/admin/location/proprietaires">← Propriétaires et biens</a>' }],
-  'location/proprietaires/archiver': [{ fichier: `${L}/ArchivageProprietaire.tsx`, lien: '<a href="/admin/location/proprietaires/supprimer">← Supprimer un propriétaire ou un bien</a>' }],
+  'location/proprietaires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
+  'location/proprietaires/supprimer': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location/proprietaires" mot="Propriétaires et biens" />' }],
+  'location/proprietaires/archiver': [{ fichier: `${L}/ArchivageProprietaire.tsx`, lien: '<LienRetour href="/admin/location/proprietaires/supprimer" mot="Supprimer un propriétaire ou un bien" />' }],
   // TRANSACTION (27/10/2026) — les trois tuiles de la Transaction : retour vers l'accueil de la tuile.
   // LOT L (Arno, 28/10/2026) — CRITERIMMO et MACJ sont sous « Transaction » (/admin/transaction/ventes) ; « Gestion » et « CA global » sous l'accueil.
   'transaction/criterimmo': [{ fichier: `${RACINE}/transaction/criterimmo/page.tsx`, lien: 'retour="/admin/transaction/ventes"' }],
@@ -101,12 +102,26 @@ describe('le lien « ← Retour » de l’en-tête standard', () => {
     const html = renderToStaticMarkup(createElement(EnTetePage, { titre: 'T', intro: 'I', retour: '/admin/gestion?ecran=partage' }));
     expect(html.indexOf('← Retour')).toBeGreaterThan(-1);
     expect(html.indexOf('← Retour')).toBeLessThan(html.indexOf('<h1'));
-    expect(html).toContain('<a href="/admin/gestion?ecran=partage" class="svv-page-retour-lien" data-retour-tuile="">← Retour</a>');
+    // 🔴 Arno (11/11/2026) — le lien commun : même adresse parente et même classe ; vers l'origine quand elle est connue (navigateur).
+    expect(html).toMatch(/<a href="\/admin\/gestion\?ecran=partage" class="svv-page-retour-lien" data-retour-lien="" data-retour-origine="non" data-retour-tuile="">← Retour<\/a>/);
   });
   it('sans `retour` : rien de changé', () => {
     expect(renderToStaticMarkup(createElement(EnTetePage, { titre: 'T', intro: 'I' }))).not.toContain('Retour');
   });
   it('cible tactile ≥ 44 px', () => {
     expect(readFileSync('app/globals.css', 'utf8')).toMatch(/\.svv-page-retour-lien\{[^}]*min-height:44px/);
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026) — UN SEUL mécanisme de retour (pas une copie par page)', () => {
+  it('chaque « ← … » de retour de la Location passe par le lien commun `LienRetour` ; le suivi est monté une fois, dans le gabarit', () => {
+    const tsx: string[] = [];
+    const parcourir = (d: string): void => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) parcourir(p); else if (/\.tsx$/.test(n) && !/\.test\.tsx$/.test(n)) tsx.push(p); } };
+    parcourir(`${RACINE}/location`);
+    tsx.push(`${RACINE}/gestion/FicheCommune.tsx`);
+    const brutes = tsx.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/<p className="(loc-retour|fco-retour|hon-retour|plo-retour-page)"[^>]*>(?!\s*<LienRetour)/g)].map((m) => `${f} : ${m[0]}`));
+    expect(brutes).toEqual([]);
+    const gabarit = readFileSync(`${RACINE}/layout.tsx`, 'utf8');
+    expect(gabarit.match(/<SuiviNavigationRetour \/>/g)).toHaveLength(1);
   });
 });

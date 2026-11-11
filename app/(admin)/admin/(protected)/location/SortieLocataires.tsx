@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour } from '../_composants/NavigationRetour';
 import { useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, phrasesMailsAvis, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
@@ -61,7 +62,7 @@ export function EcranSortieRecherche() {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_SORTIE + CSS_PREAVIS}</style>
-      <p className="loc-retour"><a href="/admin/location/locataires">← Locataires</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location/locataires" mot="Locataires" /></p>
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Supprimer un/des locataire(s)</h1></div>
         <p className="svv-page-sub">Faire sortir un ou plusieurs locataires d’un logement. Rien n’est effacé : un sortant reste dans l’historique du bien.</p>
@@ -113,7 +114,7 @@ export function EcranAjouterLocatairesAVenir() {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
-      <p className="loc-retour"><a href="/admin/location/locataires">← Locataires</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location/locataires" mot="Locataires" /></p>
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Ajouter un/des locataire(s)</h1></div>
         <p className="svv-page-sub">Faire entrer un ou plusieurs locataires dans un logement.</p>
@@ -236,7 +237,7 @@ export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { 
   return (
     <div className="loc-page arc-page" data-ecran-sortie-locataire>
       <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS + CSS_ECRAN_ARCHIVAGE + CSS_SORTIE + CSS_PREAVIS}</style>
-      <p className="loc-retour"><a href="/admin/location/locataires">← Ajouter ou supprimer un locataire</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location/locataires" mot="Ajouter ou supprimer un locataire" /></p>
       <h1 className="arc-cache">Faire sortir un ou plusieurs locataires</h1>
       {lu.etat.etat !== 'ok' ? (
         <>

@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour } from '../_composants/NavigationRetour';
 import { FiltreOrigineACompleter } from './FiltreOrigineACompleter';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
@@ -17,7 +18,7 @@ export function EcranProprietairesBiens() {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
-      <p className="loc-retour"><a href="/admin/location">← Location</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location" mot="Location" /></p>
       {/* Arno (17/10/2026) : titre → légende, puis légende → 2 gros boutons, EXACTEMENT les espacements de l'accueil (titre →
           légende, puis moteur de recherche → 3 grosses cases). D'où les MÊMES classes d'en-tête que l'accueil (`svv-page-*`,
           celles d'`EnTetePage`), puis le MÊME espace réservé que sous le moteur (`loc-zone-resultats`, vide). */}
@@ -55,7 +56,7 @@ export function EcranSupprimerChoix() {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
-      <p className="loc-retour"><a href="/admin/location/proprietaires">← Propriétaires et biens</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location/proprietaires" mot="Propriétaires et biens" /></p>
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Supprimer un propriétaire ou un bien</h1></div>
         <p className="svv-page-sub">Supprimer = sortir de la gestion (du portefeuille) : rien n’est effacé, tout reste consultable et se réactive.</p>
@@ -85,7 +86,7 @@ export function EcranLocataires() {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
-      <p className="loc-retour"><a href="/admin/location">← Location</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location" mot="Location" /></p>
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Ajouter ou supprimer un locataire</h1></div>
         <p className="svv-page-sub">Supprimer = sortir du logement : rien n’est effacé, tout reste consultable.</p>
@@ -146,7 +147,7 @@ export function EcranSuiviActivite({ vue, administrateur = false }: { vue: 'mois
   return (
     <div className="loc-page loc-ample">
       <style>{CSS_LOCATION_ECRANS}</style>
-      <p className="loc-retour" style={{ margin: 0 }}><a href="/admin/location/outils">← Outils de suivi</a></p>
+      <p className="loc-retour" style={{ margin: 0 }}><LienRetour href="/admin/location/outils" mot="Outils de suivi" /></p>
       <EnTeteLocation retour={false} titre={vue === 'mois' ? 'Suivi du mois' : 'Suivi annuel'}
         sous={vue === 'mois' ? 'La feuille d’un mois, sur le modèle du suivi mensuel.' : 'L’année : cumul, apporteurs, gestion, indicateurs, négociateurs, export.'} />
       <TableauBordSuivi vue={vue} administrateur={administrateur} />

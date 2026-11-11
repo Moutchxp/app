@@ -1,5 +1,6 @@
 'use client';
 
+import { LienRetour } from '../_composants/NavigationRetour';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
@@ -92,7 +93,7 @@ export function EcranArchivageProprietaire({ refusFiche, mode = 'proprietaire' }
   return (
     <div className="loc-page arc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS + CSS_ECRAN_ARCHIVAGE + CSS_MODALE_ARCHIVAGE}</style>
-      <p className="loc-retour"><a href="/admin/location/proprietaires/supprimer">← Supprimer un propriétaire ou un bien</a></p>
+      <p className="loc-retour"><LienRetour href="/admin/location/proprietaires/supprimer" mot="Supprimer un propriétaire ou un bien" /></p>
       <h1 className="arc-cache">{titreEcran}</h1>
       <div className="arc-collant" data-collant>
         <div className="arc-recherche">
