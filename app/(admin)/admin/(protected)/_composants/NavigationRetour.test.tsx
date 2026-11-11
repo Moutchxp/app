@@ -106,3 +106,16 @@ describe('le retour vers la page d’origine, dans le même état', () => {
     expect(retourVersOrigine({ memePage: true, naviguer })).toBe(false);
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — « ← Retour » puis retour : aucun blocage du défilement ne survit au changement de page', () => {
+  it('un blocage resté compté sans fenêtre ouverte est levé à l’arrivée (le suivi commun vérifie à chaque changement de page)', async () => {
+    const { verrouillerDefilement, blocagesOuverts } = await import('./verrouDefilement');
+    verrouillerDefilement(); // une fenêtre de la page quittée, jamais libérée
+    expect(document.body.style.overflow).toBe('hidden');
+    vi.useFakeTimers();
+    aller('/admin/location');
+    await act(async () => { root.render(createElement(SuiviNavigationRetour)); });
+    await act(async () => { vi.advanceTimersByTime(10); });
+    expect([blocagesOuverts(), document.body.style.overflow]).toEqual([0, '']);
+  });
+});

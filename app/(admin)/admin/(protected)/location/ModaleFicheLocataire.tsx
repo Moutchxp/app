@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_CARTES, type ChampsSaisis } from '../gestion/CartesPersonnes';
 import { CSS_MODALE_CARACTERISTIQUES } from './ModaleCaracteristiquesBien';
@@ -123,11 +124,8 @@ export function ModaleFicheLocataire({ locataireId, bailId = null, activiteId = 
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
   }, [fermer]);
-  useEffect(() => {
-    const avant = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = avant; };
-  }, []);
+  // 🔴 Arno (11/11/2026) — le blocage du défilement COMPTÉ, commun à toutes les fenêtres (jamais « la valeur d'avant »).
+  useVerrouDefilement();
 
   const enregistrer = (): void => {
     if (lu === null || saisie === null || !aEnregistrer) return;

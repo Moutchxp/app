@@ -833,3 +833,85 @@ describe('🔴 Arno (11/11/2026) — frise : pastilles sur la ligne du titre ; �
     expect(container.querySelectorAll('[data-ligne-depliee="C"] [data-etape] .frp-tete > [data-pastille-etape]:first-child')).toHaveLength(4);
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — la page DÉFILE toujours après chaque fenêtre de la ligne de préavis (blocage compté, rendu à la dernière fermée)', () => {
+  const bloque = (): boolean => document.body.style.overflow === 'hidden';
+  const echap = (): void => act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+  const preparer = async (): Promise<void> => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'recu', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const s = String(u);
+      if (s.startsWith('/api/admin/location/pieces-sortie')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { fichiers: [], tronque: false, lotId: 7 } }) } as unknown as Response;
+      if (s.includes('previsiteCollegues=1')) return ok([{ id: 3, libelle: 'Collègue Test' }]);
+      if (s.includes('previsiteRefus=')) return ok({ texte: 'Bonjour', objet: 'Pré-visite', sansEmail: [] });
+      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: true });
+      if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) return ok({ mails: [], alertes: [], sansEmail: [], vacant: true, enGestion: false, date: HIER });
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+  };
+  const ouvrirFenetre = async (sel: string): Promise<void> => { await act(async () => { (document.querySelector(sel) as HTMLButtonElement).click(); }); await attendre(); };
+  const cliquer = async (sel: string): Promise<void> => { await act(async () => { (document.querySelector(sel) as HTMLButtonElement).click(); }); await attendre(); };
+
+  it('RDV pré-visite : bloque pendant ; Échap → la page défile ; « Annuler » → la page défile', async () => {
+    await preparer();
+    await ouvrirFenetre('[data-rdv-previsite]');
+    expect(bloque()).toBe(true);
+    echap(); await attendre();
+    expect([document.querySelector('[data-fenetre-previsite]'), bloque()]).toEqual([null, false]);
+    await ouvrirFenetre('[data-rdv-previsite]');
+    await cliquer('[data-annuler-previsite]');
+    expect(bloque()).toBe(false);
+  });
+  it('Refus / absence : « Annuler » → la page défile', async () => {
+    await preparer();
+    await ouvrirFenetre('[data-refus-previsite]');
+    expect(bloque()).toBe(true);
+    await cliquer('[data-annuler-previsite]');
+    expect(bloque()).toBe(false);
+  });
+  it('deux fenêtres superposées (« Depuis le Drive du bien » au-dessus de « Valider l’état des lieux de sortie ») : fermer la Drive laisse la page bloquée sous la validation ; fermer la validation rend le défilement', async () => {
+    await preparer();
+    await ouvrirFenetre('[data-valider-sortie]');
+    await ouvrirFenetre('[data-pieces-drive]');
+    expect(bloque()).toBe(true);
+    await cliquer('[data-drive-annuler]');
+    expect([document.querySelector('[data-fenetre-drive-bien]'), bloque()]).toEqual([null, true]);
+    await cliquer('[data-annuler-validation]');
+    expect([document.querySelector('[data-fenetre-validation-sortie]'), bloque()]).toEqual([null, false]);
+    // Échap avec les deux ouvertes : tout se ferme, la page défile.
+    await ouvrirFenetre('[data-valider-sortie]');
+    await ouvrirFenetre('[data-pieces-drive]');
+    echap(); await attendre();
+    echap(); await attendre();
+    expect([document.querySelectorAll('[aria-modal="true"]').length, bloque()]).toEqual([0, false]);
+  });
+  it('« Valider la sortie » : récapitulatif puis « Revenir » puis « Annuler » → la page défile', async () => {
+    await preparer();
+    await ouvrirFenetre('[data-valider-sortie]');
+    await act(async () => { (document.querySelector('input[data-edls-realise]') as HTMLInputElement).click(); });
+    await cliquer('button[data-recap-validation]');
+    await cliquer('[data-revenir-validation]');
+    await cliquer('[data-annuler-validation]');
+    expect(bloque()).toBe(false);
+  });
+  it('le rafraîchissement des 30 s PENDANT une fenêtre ouverte : la fenêtre reste, puis, fermée, la page défile', async () => {
+    await preparer();
+    await ouvrirFenetre('[data-rdv-previsite]');
+    await act(async () => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+    await attendre();
+    expect(bloque()).toBe(true);
+    await cliquer('[data-annuler-previsite]');
+    expect(bloque()).toBe(false);
+  });
+  it('la ligne repliée (« Fermer ») ou le bloc démonté (changement de page) avec une fenêtre ouverte : rien ne reste bloqué', async () => {
+    await preparer();
+    await ouvrirFenetre('[data-rdv-previsite]');
+    expect(bloque()).toBe(true);
+    act(() => root.unmount()); root = createRoot(container); // la page change : tout est démonté
+    expect(bloque()).toBe(false);
+  });
+});

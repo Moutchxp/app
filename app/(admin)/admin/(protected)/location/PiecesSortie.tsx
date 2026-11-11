@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -95,6 +96,8 @@ export function PiecesSortie({ occupationId, lotId, pieces, onChange, desactive 
 
 /** LA FENÊTRE « DEPUIS LE DRIVE DU BIEN » : lecture seule. */
 function FenetreDriveBien({ occupationId, lotId, onFermer, onJoindre }: { occupationId: number; lotId: number | null; onFermer: () => void; onJoindre: (ids: string[]) => void }) {
+  // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
+  useVerrouDefilement();
   const titreId = useId();
   const [lu, setLu] = useState<{ etat: 'chargement' } | { etat: 'ok'; fichiers: FichierDrive[]; tronque: boolean } | { etat: 'sans_dossier' | 'refus'; motif: string }>({ etat: 'chargement' });
   const [recherche, setRecherche] = useState('');

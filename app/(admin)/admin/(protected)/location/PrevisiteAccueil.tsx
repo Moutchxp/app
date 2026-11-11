@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
@@ -135,6 +136,8 @@ export function mailCollegue(c: { destinataire: string; etat: string }): MailPar
 }
 
 function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePreavisAccueil; p: PrevisiteAffiche; onFermer: (fait: boolean) => void }) {
+  // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
+  useVerrouDefilement();
   const titreId = useId();
   const [etape, setEtape] = useState<Etape>({ etape: 'saisie' });
   const [envoi, setEnvoi] = useState(false);

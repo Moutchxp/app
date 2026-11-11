@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
+import { verifierApresChangementDePage } from './verrouDefilement';
 import {
   adresseInterne, apresRetour, clicASuivre, CLE_PILE, CLE_RESTAURER, empiler, lirePile, origineDe, restaurationPour, type Depart, type Restauration,
 } from '../../../../lib/navigation/retour';
@@ -101,6 +103,12 @@ export function useEtatRetour<T>(cle: string, valeur: T, appliquer: (v: T) => vo
  * après coup), puis la restauration est retirée.
  */
 export function SuiviNavigationRetour() {
+  // 🔴 Arno (11/11/2026) — à chaque changement de page : aucun blocage du défilement ne survit sans fenêtre ouverte (`verrouDefilement`).
+  const chemin = usePathname();
+  useEffect(() => {
+    const t = window.setTimeout(verifierApresChangementDePage, 0);
+    return () => window.clearTimeout(t);
+  }, [chemin]);
   useEffect(() => {
     const clic = (e: MouseEvent): void => {
       const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
@@ -110,6 +118,7 @@ export function SuiviNavigationRetour() {
       noterDepart(a.href);
     };
     document.addEventListener('click', clic);
+    window.addEventListener('popstate', verifierApresChangementDePage);
     // Les navigations de l'application sans lien (`router.push`) vers une autre page : notées elles aussi.
     const pousser = window.history.pushState;
     window.history.pushState = function (this: History, ...args: Parameters<History['pushState']>) {
@@ -142,6 +151,7 @@ export function SuiviNavigationRetour() {
     window.addEventListener(EVENEMENT, appliquer);
     return () => {
       document.removeEventListener('click', clic);
+      window.removeEventListener('popstate', verifierApresChangementDePage);
       window.history.pushState = pousser;
       window.removeEventListener(EVENEMENT, appliquer);
       window.clearInterval(minuterie);

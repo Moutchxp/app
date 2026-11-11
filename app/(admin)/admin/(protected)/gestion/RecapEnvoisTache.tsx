@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import type { Retouche, Retouches } from '../../../../lib/location/texteModifiable';
 import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from '../location/TexteModifiableMail';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
@@ -97,6 +98,8 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
 
 function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onAppliquerTexte }: { etat: Etat; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void;
   onAppliquerTexte?: (cle: string, r: Retouche | undefined) => void }) {
+  // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
+  useVerrouDefilement();
   const titreId = useId();
   let contenu: ReactNode;
   if (etat.etape === 'recap') {

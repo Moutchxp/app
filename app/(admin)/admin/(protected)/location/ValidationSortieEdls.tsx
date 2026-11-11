@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
@@ -55,6 +56,8 @@ export function partiesDeLEncart(e: EncartLogement): PartieVue[] {
 }
 
 export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; onFermer: (fin: FinParcours | null) => void }) {
+  // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
+  useVerrouDefilement();
   const titreId = useId();
   const { base } = useContextePreavis();
   const encart = useLecture<EncartLogement>(`encartBail=${l.occupationId}`, base);

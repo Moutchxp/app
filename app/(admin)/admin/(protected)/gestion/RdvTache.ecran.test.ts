@@ -187,3 +187,12 @@ describe('🔴🔴 Arno (11/11/2026) — type en rouge, objet type, heure et dur
     expect(corps).toMatchObject({ sorte: 'tache', heure: null, objet: `Demande de participation à une tâche de gestion le ${jj}` });
   });
 });
+
+describe('🔴 Arno (11/11/2026) — la fenêtre RDV / Tâche bloque le défilement de la page tant qu’elle est ouverte, et le rend en se fermant', () => {
+  it('ouverte : bloqué ; fermée (démontée) : la page défile', async () => {
+    await ouvrir();
+    expect(document.body.style.overflow).toBe('hidden');
+    await act(async () => { root.render(createElement('div')); });
+    expect(document.body.style.overflow).toBe('');
+  });
+});

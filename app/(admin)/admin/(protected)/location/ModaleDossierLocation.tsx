@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
 import { CSS_CARTES, FormulaireCarte, Rangee, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
@@ -115,11 +116,8 @@ export function ModaleDossierLocation({ activiteId, onFermer, onEnregistre, onRe
     void charger().then((d) => { if (vivant) appliquer(d, false); });
     return () => { vivant = false; };
   }, [charger, appliquer]);
-  useEffect(() => {
-    const avant = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = avant; };
-  }, []);
+  // 🔴 Arno (11/11/2026) — le blocage du défilement COMPTÉ, commun à toutes les fenêtres (jamais « la valeur d'avant »).
+  useVerrouDefilement();
 
   const saisie: SaisieDossier | null = lecture === null || suivi === null ? null : {
     version: lecture.version,

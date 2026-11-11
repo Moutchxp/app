@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -63,6 +64,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   /** 🔴 Une tâche vient d'être CRÉÉE : la fenêtre se ferme, et l'appelant AFFICHE la confirmation (jamais en silence). */
   onCree?: (confirmation: string) => void;
 }) {
+  // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
+  useVerrouDefilement();
   /** `invites` : la migration 365 est là — la fenêtre propose « Inviter aussi » (plusieurs invités par tâche). */
   const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null; invites?: boolean } | null>(null);
   const [detail, setDetail] = useState<DetailTache | null>(null);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useCallback, useEffect, useId, useRef } from 'react';
 import { ModifierFicheBien } from '../gestion/ModifierFicheBien';
 import type { EcranTrace } from '../../../../lib/gestion/traceFiche';
@@ -37,11 +38,8 @@ export function ModaleCaracteristiquesBien({ lotId, onFermer, onEnregistre, trac
     return () => window.removeEventListener('keydown', clavier);
   }, [fermer]);
   // La page derrière ne défile plus tant que la modale est ouverte.
-  useEffect(() => {
-    const avant = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = avant; };
-  }, []);
+  // 🔴 Arno (11/11/2026) — le blocage du défilement COMPTÉ, commun à toutes les fenêtres (jamais « la valeur d'avant »).
+  useVerrouDefilement();
   return (
     <div className="mcb-voile">
       <style>{CSS_MODALE_CARACTERISTIQUES}</style>
