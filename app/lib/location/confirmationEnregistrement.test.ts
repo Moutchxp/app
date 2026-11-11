@@ -84,7 +84,9 @@ describe('🔴 Arno (06/11/2026) — une LECTURE ne déclenche JAMAIS « Modific
     const parcourir = (d: string): void => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) parcourir(p); else if (n === 'route.ts') fichiers.push(p); } };
     racines.forEach(parcourir);
     const apercus = new Set(fichiers.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/case '(apercu[a-z-]*)'/g)].map((m) => m[1])));
-    expect([...apercus].sort()).toEqual(['apercu-compte-rendu-previsite', 'apercu-edls', 'apercu-lots', 'apercu-preavis', 'apercu-previsite', 'apercu-refus-previsite', 'apercu-sortie']);
+    expect([...apercus].sort()).toEqual(['apercu-compte-rendu-previsite', 'apercu-edls', 'apercu-lots', 'apercu-preavis', 'apercu-previsite', 'apercu-refus-previsite', 'apercu-sortie',
+      // 🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie » : l'aperçu est une lecture.
+      'apercu-validation-sortie']);
     for (const a of apercus) expect(requeteAConfirmer('/api/admin/location', 'POST', POST({ action: a }), null)).toBeNull();
     // Les routes de la tuile qui SIMULENT : le mot `simuler` est lu → ces requêtes ne s'annoncent pas.
     const simulent = fichiers.filter((f) => readFileSync(f, 'utf8').includes('simuler'));

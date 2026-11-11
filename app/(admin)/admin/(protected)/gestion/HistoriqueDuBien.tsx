@@ -3125,6 +3125,9 @@ export function HistoriqueDuBien({
         {/* 🔴 Arno (10/11/2026, pré-visite, règle 7) — la fiche d'un LOCATAIRE : ses mails Location (préavis, pré-visite, sortie), même bande que
             celle du bien, lue par ses occupations. */}
         {personne !== null && personne.sorte === 'locataire' && <HistoriqueEnvoisLocation locataire={personne.cle} />}
+        {/* 🔴 Arno (11/11/2026, lot 4) — la fiche d'un PROPRIÉTAIRE : ses mails Location (compte rendu de l'état des lieux de sortie…), lus par
+            le propriétaire posé à l'envoi (467), jamais par une adresse. */}
+        {personne !== null && personne.sorte === 'proprietaire' && <HistoriqueEnvoisLocation proprietaire={personne.cle} />}
 
         {/* ══ 🔴🔴 BLOC 3 — « OPTIONS » : UNE SEULE RANGÉE, PROPRE ET ALIGNÉE (lot HISTORIQUE-BIEN-3, point 5)
             DEMANDE D'ARNO (05/10/2026), qui juge l'actuel « immonde » : « Une seule rangée horizontale, propre,

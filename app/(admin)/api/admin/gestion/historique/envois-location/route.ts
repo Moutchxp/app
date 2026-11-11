@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { envoisDuBien } from '../../../../../../lib/location/mailNouvelleLocationRepo';
-import { mailsAvisDuBien, mailsAvisDuLocataire } from '../../../../../../lib/location/mailsPreavisSortieRepo';
+import { mailsAvisDuBien, mailsAvisDuLocataire, mailsAvisDuProprietaire } from '../../../../../../lib/location/mailsPreavisSortieRepo';
 
 /**
  * ══ LES ENVOIS « NOUVELLE LOCATION » (ADHOC & MONGA) D'UN BIEN, POUR SON HISTORIQUE (Arno, 21/10/2026) ═══════════════════
@@ -12,6 +12,8 @@ import { mailsAvisDuBien, mailsAvisDuLocataire } from '../../../../../../lib/loc
  *   · GET ?locataire=<clé de la fiche> → { etat: 'ok', envois: [], avis: MailAvisDuBien[] }
  *     🔴 Arno (10/11/2026, pré-visite, règle 7) — les mails Location (préavis, pré-visite, sortie) qui concernent CE locataire, lus par ses
  *     occupations dans le même journal (457).
+ *   · GET ?proprietaire=<clé de la fiche> → { etat: 'ok', envois: [], avis: MailAvisDuBien[] }
+ *     🔴 Arno (11/11/2026, lot 4) — les mails Location qui concernent CE propriétaire, lus par `proprietaire_ids` (467).
  *
  * 🔒 LECTURE SEULE, au droit « Gestion » (l'Historique du bien est un écran de la Gestion).
  */
@@ -29,6 +31,16 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', envois: [], avis: await mailsAvisDuLocataire(locataire) }, { headers: ENTETES });
     } catch (e) {
       console.error('[gestion/historique/envois-location] lecture impossible (locataire)', e);
+      return Response.json({ etat: 'erreur' }, { status: 503, headers: ENTETES });
+    }
+  }
+  const proprietaire = (new URL(request.url).searchParams.get('proprietaire') ?? '').trim();
+  if (proprietaire !== '') {
+    if (proprietaire.length > 200) return Response.json({ etat: 'refus', motif: 'Demande incomplète : le propriétaire manque.' }, { status: 400, headers: ENTETES });
+    try {
+      return Response.json({ etat: 'ok', envois: [], avis: await mailsAvisDuProprietaire(proprietaire) }, { headers: ENTETES });
+    } catch (e) {
+      console.error('[gestion/historique/envois-location] lecture impossible (propriétaire)', e);
       return Response.json({ etat: 'erreur' }, { status: 503, headers: ENTETES });
     }
   }

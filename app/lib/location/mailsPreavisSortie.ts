@@ -36,7 +36,9 @@ const FORMAT = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
 export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adhoc' | 'sortie_locataires'
   // 🔴 Arno (10/11/2026, migration 464) — les mails de la PRÉ-VISITE (`previsite.ts`).
   | 'previsite_alerte' | 'previsite_invitation' | 'previsite_reponse' | 'previsite_locataires' | 'previsite_locataires_modif'
-  | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus' | 'previsite_annulation';
+  | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus' | 'previsite_annulation'
+  // 🔴 Arno (11/11/2026, migration 467) — « Valider l'état des lieux de sortie » (`validationSortie.ts`).
+  | 'sortie_edls_locataire' | 'sortie_edls_proprietaire' | 'sortie_edls_interne';
 
 /** Un mail prêt : ce que l'aperçu montre et ce qui part, à l'identique. */
 export interface MailAvis {

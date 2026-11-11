@@ -21,7 +21,9 @@ export const ROUTES_EXCLUES = ['/api/admin/location/nouvelle-location'] as const
 /** Pas d'annonce : une lecture en POST, une balise, ou un écran qui a sa propre modale de succès ET d'erreur. */
 export const ACTIONS_SANS_ANNONCE: ReadonlySet<string> = new Set(['apercu-lots', 'apercu-preavis', 'journal-echec', 'creer-bien', 'creer-locataires', 'creer-proprietaires',
   // 🔴 Arno (10/11/2026) — la pré-visite : sa propre fenêtre dit ce qui a été fait et les mails réellement envoyés (échecs en rouge).
-  'programmer-previsite', 'deplacer-previsite', 'reaffecter-previsite', 'compte-rendu-previsite', 'refus-previsite']);
+  'programmer-previsite', 'deplacer-previsite', 'reaffecter-previsite', 'compte-rendu-previsite', 'refus-previsite',
+  // 🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie » : sa propre fenêtre de résultat (mails partis, échecs en rouge).
+  'valider-sortie-edls']);
 /**
  * 🔴 Arno (06/11/2026) — UNE LECTURE N'EST JAMAIS ANNONCÉE « Modification enregistrée » (constaté en production : l'aperçu des mails du préavis
  * affichait un succès alors que rien n'était enregistré). Toute action « apercu-… » et toute requête `simuler: true` sont des lectures. PUR.

@@ -39,6 +39,8 @@ import { refusDesRetouches, type Retouches } from './texteModifiable';
 export const mailsAvisDisponibles = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'sorte');
 /** 🔴 Arno (10/11/2026, migration 466) — le journal sait-il garder le texte d'ORIGINE d'un mail modifié ? */
 export const texteOrigineDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'texte_origine');
+/** 🔴 Arno (11/11/2026, migration 467) — le journal sait-il dire les PROPRIÉTAIRES qu'un mail concerne (historique du propriétaire) ? */
+export const proprietairesDuMailDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'proprietaire_ids');
 export const MOTIF_SANS_466 = 'Un texte modifié demande la mise à jour de la base (migration 466) : rien n’est parti. Revenez au texte d’origine, ou faites appliquer la 466.';
 
 
@@ -158,15 +160,22 @@ export interface EnvoiAvis { sorte: MailAvis['sorte']; objet: string; a: string[
   /** 🔴 Arno (06/11/2026) — le texte tel qu'il est parti (la fenêtre de résultat le montre). */
   texte?: string }
 
-export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null }): Promise<void> {
+export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null;
+  /** 🔴 Arno (11/11/2026, 467) — les propriétaires que le mail concerne ; absent ou sans la 467 : rien de plus n'est écrit. */
+  proprietaireIds?: readonly number[] }): Promise<void> {
   // 🔴 Arno (10/11/2026, 466) — texte modifié : le journal garde aussi le texte d'ORIGINE (le texte envoyé est dans `texte`).
   const origine = typeof m.texteOrigine === 'string' && await texteOrigineDisponible().catch(() => false) ? m.texteOrigine : null;
+  const proprios = (o.proprietaireIds ?? []).length > 0 && await proprietairesDuMailDisponible().catch(() => false) ? [...(o.proprietaireIds ?? [])] : null;
   try {
+    const extra: { colonne: string; valeur: unknown; type: string }[] = [
+      ...(origine !== null ? [{ colonne: 'texte_origine', valeur: origine, type: '' }] : []),
+      ...(proprios !== null ? [{ colonne: 'proprietaire_ids', valeur: proprios, type: '::bigint[]' }] : []),
+    ];
     await query(
-      `INSERT INTO gestion_location_mail_avis (sorte, lot_id, occupation_ids, expediteur, destinataires, copies, objet, texte, html, statut, erreur, message_id, auteur_id, auteur_libelle${origine !== null ? ', texte_origine' : ''})
-       VALUES ($1, $2, $3::bigint[], $4, $5::text[], $6::text[], $7, $8, $9, $10, $11, $12, $13, $14${origine !== null ? ', $15' : ''})`,
+      `INSERT INTO gestion_location_mail_avis (sorte, lot_id, occupation_ids, expediteur, destinataires, copies, objet, texte, html, statut, erreur, message_id, auteur_id, auteur_libelle${extra.map((x) => `, ${x.colonne}`).join('')})
+       VALUES ($1, $2, $3::bigint[], $4, $5::text[], $6::text[], $7, $8, $9, $10, $11, $12, $13, $14${extra.map((x, i) => `, $${15 + i}${x.type}`).join('')})`,
       [m.sorte, o.lotId, [...o.occupationIds], m.de, m.a, m.cc, m.objet, m.texte, m.html, o.statut, o.erreur, o.messageId, o.auteur.id, o.auteur.libelle,
-        ...(origine !== null ? [origine] : [])]);
+        ...extra.map((x) => x.valeur)]);
   } catch (e) {
     console.error('[location] journal du mail « %s » impossible', m.sorte, (e as Error)?.message);
   }
@@ -189,7 +198,9 @@ export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupatio
 export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
   o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur;
     /** 🔴 Arno (10/11/2026, pré-visite) — un mail qui concerne PLUSIEURS biens (récapitulatif des alertes) : envoyé UNE fois, rangé aussi dans leurs historiques. */
-    autres?: readonly { lotId: number; occupationIds: readonly number[] }[] }, deps: DepsAvis): Promise<EnvoiAvis[]> {
+    autres?: readonly { lotId: number; occupationIds: readonly number[] }[];
+    /** 🔴 Arno (11/11/2026, 467) — les propriétaires que ces mails concernent (historique du propriétaire). */
+    proprietaireIds?: readonly number[] }, deps: DepsAvis): Promise<EnvoiAvis[]> {
   const issues: EnvoiAvis[] = [];
   for (const m of mails) {
     const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte };
@@ -207,13 +218,15 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
         ...(m.ics ? { pieces: [{ nom: m.ics.nom, typeMime: 'text/calendar; charset=UTF-8; method=PUBLISH', octets: Buffer.from(m.ics.contenu, 'utf8') }] } : {}),
       });
       for (const cible of [o, ...(o.autres ?? [])]) {
-        await journaliserAvis({ ...m, html }, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: r.ok ? 'envoye' : 'echec', erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null });
+        await journaliserAvis({ ...m, html }, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: r.ok ? 'envoye' : 'echec', erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null,
+          ...(cible === o && o.proprietaireIds ? { proprietaireIds: o.proprietaireIds } : {}) });
       }
       issues.push({ ...base, envoye: r.ok, motif: r.ok ? null : r.motif });
     } catch (e) {
       const motif = (e as Error)?.message || 'erreur inattendue';
       for (const cible of [o, ...(o.autres ?? [])]) {
-        await journaliserAvis(m, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: 'echec', erreur: motif, messageId: null });
+        await journaliserAvis(m, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: 'echec', erreur: motif, messageId: null,
+          ...(cible === o && o.proprietaireIds ? { proprietaireIds: o.proprietaireIds } : {}) });
       }
       issues.push({ ...base, envoye: false, motif });
     }
@@ -345,6 +358,21 @@ export async function mailsAvisDuLocataire(wippimmoId: string): Promise<MailAvis
        FROM gestion_location_mail_avis m
       WHERE m.occupation_ids && ARRAY(SELECT o.id FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
                                        WHERE l.wippimmo_id = $1)
+      ORDER BY m.envoye_le DESC, m.id DESC LIMIT 200`, [wippimmoId]);
+  return rows.map((r) => ({ ...r, id: Number(r.id) }));
+}
+
+/**
+ * ══ 🔴 Arno (11/11/2026, lot 4) — LES MAILS DE LA LOCATION D'UN PROPRIÉTAIRE, POUR SON HISTORIQUE ═══════════════════════════════════════════
+ * Le même journal (457), lu par les PROPRIÉTAIRES posés à l'envoi (`proprietaire_ids`, migration 467) — jamais par une adresse. `wippimmoId` :
+ * la clé de sa fiche. Du plus récent au plus ancien. Sans la 467 : aucun. Lecture seule.
+ */
+export async function mailsAvisDuProprietaire(wippimmoId: string): Promise<MailAvisDuBien[]> {
+  if ((wippimmoId ?? '').trim() === '' || !(await mailsAvisDisponibles()) || !(await proprietairesDuMailDisponible())) return [];
+  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec' }>(
+    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut
+       FROM gestion_location_mail_avis m
+      WHERE m.proprietaire_ids && ARRAY(SELECT p.id FROM gestion_annuaire_proprietaire p WHERE p.wippimmo_id = $1)
       ORDER BY m.envoye_le DESC, m.id DESC LIMIT 200`, [wippimmoId]);
   return rows.map((r) => ({ ...r, id: Number(r.id) }));
 }

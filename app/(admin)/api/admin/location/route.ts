@@ -34,6 +34,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
+import { apercuValidationSortie, validerSortieEdls } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
   envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
@@ -549,6 +550,22 @@ export async function POST(request: Request): Promise<Response> {
         return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
           ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif, destinataires: m.destinataires, objet: m.objet, ...(m.texte !== undefined ? { texte: m.texte } : {}) },
           adhoc: adhoc.etat === 'ok' ? { etat: 'ok', envois: adhoc.envois } : { etat: adhoc.etat, motif: adhoc.motif } });
+      }
+      // 🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie » (ligne de préavis) : l'aperçu (LECTURE : rien n'est écrit, rien ne
+      //    part) puis la validation. Comme `sortie-locataires` : réservée à un utilisateur de la GESTION, droit RELU EN BASE.
+      case 'apercu-validation-sortie':
+      case 'valider-sortie-edls': {
+        if (await exigerCompteActif(request, 'gestion') !== null) {
+          return Response.json({ etat: 'refus', motif: MOTIF_SORTIE_GESTION }, { status: 403, headers: ENTETES });
+        }
+        const occ = identifiant(corps.occupationId);
+        if (occ === null) return incomplet();
+        const demande = {
+          occupationId: occ, realise: corps.realise, date: corps.date, sortants: idsOccupations(corps.sortants), compteRendu: corps.compteRendu,
+          destinataires: (Array.isArray(corps.destinataires) ? corps.destinataires : []).filter((x): x is string => typeof x === 'string' && /^(loc|pro)-\d{1,16}$/.test(x)).slice(0, 40),
+          informerPartenaires: corps.informerPartenaires !== false,
+        };
+        return repondre(action === 'apercu-validation-sortie' ? await apercuValidationSortie(demande, auteur) : await validerSortieEdls(demande, auteur));
       }
       case 'corriger-sortie-locataires':
       case 'annuler-sortie-locataires': {

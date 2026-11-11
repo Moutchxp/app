@@ -20,8 +20,9 @@ interface EnvoiLu { id: number; bailId: number; quand: string; par: string; n: n
 /** Arno (05/11/2026) — un mail de préavis ou de sortie du bien (journal 457), lu par la même route. */
 interface AvisLu { id: number; sorte: string; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: string }
 
-/** 🔴 Arno (10/11/2026, règle 7) — `locataire` (clé de la fiche) : l'historique d'un LOCATAIRE — ses mails Location, lus par ses occupations. */
-export function HistoriqueEnvoisLocation({ lotId, locataire }: { lotId?: number; locataire?: string }) {
+/** 🔴 Arno (10/11/2026, règle 7) — `locataire` (clé de la fiche) : l'historique d'un LOCATAIRE — ses mails Location, lus par ses occupations.
+ *  🔴 Arno (11/11/2026, lot 4) — `proprietaire` (clé de la fiche) : l'historique d'un PROPRIÉTAIRE — ses mails Location (migration 467). */
+export function HistoriqueEnvoisLocation({ lotId, locataire, proprietaire }: { lotId?: number; locataire?: string; proprietaire?: string }) {
   const [envois, setEnvois] = useState<EnvoiLu[] | null>(null);
   const [avis, setAvis] = useState<AvisLu[]>([]);
   const [ouvert, setOuvert] = useState(false);
@@ -34,7 +35,8 @@ export function HistoriqueEnvoisLocation({ lotId, locataire }: { lotId?: number;
   }, []);
   useEffect(() => {
     let vivant = true;
-    const cible = locataire !== undefined ? `locataire=${encodeURIComponent(locataire)}` : `lot=${lotId ?? ''}`;
+    const cible = locataire !== undefined ? `locataire=${encodeURIComponent(locataire)}`
+      : proprietaire !== undefined ? `proprietaire=${encodeURIComponent(proprietaire)}` : `lot=${lotId ?? ''}`;
     fetch(`/api/admin/gestion/historique/envois-location?${cible}`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
       .then((r) => r.json())
       .then((d: { etat?: string; envois?: unknown; avis?: unknown }) => {
@@ -44,7 +46,7 @@ export function HistoriqueEnvoisLocation({ lotId, locataire }: { lotId?: number;
       })
       .catch(() => { if (vivant) setEnvois([]); });
     return () => { vivant = false; };
-  }, [lotId, locataire, tour]);
+  }, [lotId, locataire, proprietaire, tour]);
 
   if (envois === null) return null;
   return (
@@ -96,6 +98,10 @@ const LIBELLE_AVIS: Record<string, string> = {
   previsite_compte_rendu: 'Pré-visite — compte rendu',
   previsite_refus: 'Pré-visite — refus / absence (locataires)',
   previsite_annulation: 'Pré-visite — annulation (collègues)',
+  // 🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie ».
+  sortie_edls_locataire: 'État des lieux de sortie — compte rendu (locataire)',
+  sortie_edls_proprietaire: 'État des lieux de sortie — compte rendu (propriétaire)',
+  sortie_edls_interne: 'État des lieux de sortie — copie interne de la validation',
 };
 
 /**

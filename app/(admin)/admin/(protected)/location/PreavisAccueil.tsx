@@ -9,7 +9,8 @@ import { ficheDepuisEncart } from '../../../../lib/location/ficheIntervention';
 import { etapesPreavis } from '../../../../lib/location/frisePreavis';
 
 const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
-import { ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
+import type { FinParcours } from './ParcoursPreavisSortie';
+import { ValidationSortieEdls } from './ValidationSortieEdls';
 import { aujourdhuiParisEcran, CSS_PREAVIS, MentionPreavis } from './Preavis';
 import {
   ajouterMois, dateFrPreavis, EDL_MOIS_APRES_FIN, lireTri, trierPreavis, TRI_DEFAUT, verifierEtatDesLieux,
@@ -316,7 +317,14 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
                 {...(ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true })}>Valider la sortie</button>
             </div>
             {!ecriture && <MentionReserveLocation />}
-          </>) : <SortieDuPreavis l={l} onAnnuler={() => setSortie(false)} onFait={sortieFaite} />}
+          </>) : (<>
+            {/* 🔴 Arno (11/11/2026, lot 4) — « Valider la sortie » ouvre DIRECTEMENT « Valider l'état des lieux de sortie » (le sélecteur
+                « Sélectionner / Enregistrer un préavis / Faire sortir » n'est plus ici, sur son accord pour CET endroit ; « Écran de sortie » reste). */}
+            <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled data-valider-sortie>Valider la sortie</button>
+            </div>
+            <ValidationSortieEdls l={l} onFermer={(f) => { setSortie(false); if (f !== null) sortieFaite(f); }} />
+          </>)}
       </div>
             )}
           </li>
@@ -539,20 +547,6 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
       </div>
     </div>
   );
-}
-
-/** 🔴 Arno (06/11/2026) — LE MÊME PARCOURS que l'écran de sortie, sur le bail du préavis (aucun locataire présélectionné). */
-function SortieDuPreavis({ l, onAnnuler, onFait }: { l: LignePreavisAccueil; onAnnuler: () => void; onFait: (f: FinParcours) => void }) {
-  const lu = useLecture<BailLogement>(`bail=${l.occupationId}`);
-  if (lu.etat.etat !== 'ok') return <EtatLecture etat={lu.etat} />;
-  const bail = lu.etat.data;
-  if (bail.locataires.length === 0) return <p className="loc-muet">Ces locataires ne sont plus en place : rechargez la page.</p>;
-  return <>
-    <ParcoursSurBail bail={bail} occupationId={l.occupationId} gestion onFini={onFait} />
-    <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} data-fermer-sortie-accueil>Fermer</button>
-    </div>
-  </>;
 }
 
 /**

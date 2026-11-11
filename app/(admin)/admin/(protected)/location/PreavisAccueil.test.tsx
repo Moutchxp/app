@@ -233,32 +233,86 @@ describe('la ligne dépliée', () => {
     expect(posts.at(-1)).toEqual({ action: 'etat-des-lieux', occupationIds: [11, 12], date: '' });
   });
 
-  it('« Valider la sortie » : 🔴 LE MÊME PARCOURS (Arno, 06/11/2026) — sélection sur les cartes, récapitulatif, résultat ; puis la ligne disparaît', async () => {
+  it('« Valider la sortie » : 🔴 Arno (11/11/2026, lot 4) — ouvre DIRECTEMENT « Valider l’état des lieux de sortie » ; saisie, récapitulatif, résultat ; puis la ligne disparaît', async () => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (corps.action === 'apercu-validation-sortie') {
+          posts.push(corps);
+          return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], mails: [
+            { sorte: 'sortie_edls_interne', objet: '[Copie interne] État des lieux de sortie — 4 rue Fictive', a: ['gestion@exemple.test'], cc: [], texte: 'Sortie validée', cle: null, famille: 'interne' }] });
+        }
+        if (corps.action === 'valider-sortie-edls') {
+          posts.push(corps);
+          lignes = lignes.filter((l) => !l.occupationIds.includes(Number(corps.occupationId)));
+          return ok({ date: HIER, vacant: true, restants: [], envois: [
+            { sorte: 'sortie_edls_interne', objet: '[Copie interne] État des lieux de sortie — 4 rue Fictive', a: ['gestion@exemple.test'], cc: [], envoye: true, motif: null, famille: 'interne' }] });
+        }
+      }
+      if (String(u).includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
+      return base(u, init);
+    }) as unknown as typeof fetch;
     await rendre(true);
     clic('button[data-ouvrir-preavis="C"]');
     clic('button[data-valider-sortie]');
     await attendre();
-    const zone = container.querySelector('[data-ligne-depliee="C"] [data-parcours-sur-bail]')!;
-    // Aucune présélection : on choisit les deux cartes.
-    expect(zone.querySelectorAll('.arc-bien-carte--choisi')).toHaveLength(0);
-    for (const o of [11, 12]) await act(async () => { (zone.querySelector(`[data-locataire="${o}"]`) as HTMLElement).click(); });
-    await act(async () => { (zone.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click(); });
-    act(() => saisir(zone.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
-    await act(async () => { (zone.querySelector('button[data-enregistrer-sans-mail]') as HTMLButtonElement).click(); });
+    // Plus de sélecteur « Sélectionner / Enregistrer un préavis / Faire sortir » ICI ; le lien « Écran de sortie » reste.
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-parcours-sur-bail]')).toBeNull();
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-lien-ecran-sortie]')).not.toBeNull();
+    const f = (): Element => document.querySelector('[data-fenetre-validation-sortie]')!;
+    expect(f().getAttribute('data-fenetre-validation-sortie')).toBe('saisie');
+    expect(f().querySelector('[data-titre-validation-sortie]')?.textContent).toBe('Valider l’état des lieux de sortie');
+    // Tous les locataires cochés ; aucun destinataire coché ; « Voir le récapitulatif » fermé tant que l'état des lieux n'est pas déclaré réalisé.
+    expect([...f().querySelectorAll('input[data-sortant]')].map((x) => (x as HTMLInputElement).checked)).toEqual([true, true]);
+    expect([...f().querySelectorAll('input[data-destinataire-sortie]')].filter((x) => (x as HTMLInputElement).checked)).toHaveLength(0);
+    expect([...f().querySelectorAll('[data-famille-destinataires]')].map((x) => x.getAttribute('data-famille-destinataires'))).toEqual(['locataire', 'proprietaire']);
+    expect((f().querySelector('input[data-date-sortie-effective]') as HTMLInputElement).max).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect((f().querySelector('button[data-recap-validation]') as HTMLButtonElement).disabled).toBe(true);
+    act(() => (f().querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f().querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    expect((f().querySelector('button[data-recap-validation]') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { (f().querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
     await attendre();
-    const recap = document.querySelector('[data-fenetre-parcours="recap"]')!;
-    expect(recap.querySelector('[data-resume]')!.textContent).toContain('Le logement devient vacant.');
-    expect(posts.some((p) => p.action === 'sortie-locataires')).toBe(false); // rien avant « Confirmer »
-    await act(async () => { (recap.querySelector('[data-confirmer-parcours]') as HTMLButtonElement).click(); });
+    expect(f().getAttribute('data-fenetre-validation-sortie')).toBe('recap');
+    expect(posts.some((p) => p.action === 'valider-sortie-edls')).toBe(false); // rien avant « Confirmer »
+    expect(posts.at(-1)).toMatchObject({ action: 'apercu-validation-sortie', occupationId: 11, realise: true, date: HIER, sortants: [11, 12], destinataires: [] });
+    expect(f().querySelector('[data-nombre-mails]')?.textContent).toBe('1 mail partira.');
+    expect(f().querySelector('[data-recap-famille="interne"]')).not.toBeNull();
+    await act(async () => { (f().querySelector('button[data-confirmer-validation]') as HTMLButtonElement).click(); });
     await attendre();
-    expect(posts.at(-1)).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11, 12], date: HIER, envoyerMails: false, informerPartenaires: true });
-    const res = document.querySelector('[data-fenetre-parcours="resultat"]')!;
-    expect(res.querySelector('[data-titre-parcours]')?.textContent).toBe('✓ Sortie enregistrée');
-    await act(async () => { (res.querySelector('[data-fermer-parcours]') as HTMLButtonElement).click(); });
+    expect(posts.at(-1)).toMatchObject({ action: 'valider-sortie-edls', occupationId: 11, sortants: [11, 12], date: HIER });
+    expect(f().getAttribute('data-fenetre-validation-sortie')).toBe('resultat');
+    expect(f().querySelector('[data-frise-resultat] [data-etape="sortie"]')?.getAttribute('data-statut-etape')).toBe('faite');
+    await act(async () => { (f().querySelector('button[data-fermer-validation]') as HTMLButtonElement).click(); });
     await attendre();
+    expect(document.querySelector('[data-fenetre-validation-sortie]')).toBeNull();
     expect(ordre()).toEqual(['B', 'A']);
     expect(container.querySelector('[data-preavis-bilan]')?.textContent).toContain('Sortie enregistrée — BERNARD Alice, BERNARD Paul.');
-    expect(container.querySelector('[data-preavis-bilan]')?.textContent).toContain('Aucun mail n’a été envoyé.');
+  });
+
+  it('🔴 lot 4 — une alerte de coordonnées ferme « Confirmer et envoyer » (rien ne part)', async () => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
+        return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], mails: [], alertes: [{ cle: 'loc-11', libelle: 'Alice BERNARD', phrase: 'Attention : ce texte contient les coordonnées de Jean DUPONT (nom).' }] });
+      }
+      if (String(u).includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    clic('button[data-valider-sortie]');
+    await attendre();
+    const f = (): Element => document.querySelector('[data-fenetre-validation-sortie]')!;
+    act(() => (f().querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f().querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    await act(async () => { (f().querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(f().querySelector('[data-alerte-coordonnees="loc-11"]')?.textContent).toContain('Attention : ce texte contient les coordonnées de Jean DUPONT');
+    expect((f().querySelector('button[data-confirmer-validation]') as HTMLButtonElement).disabled).toBe(true);
+    act(() => (f().querySelector('button[data-revenir-validation]') as HTMLButtonElement).click());
+    expect(f().getAttribute('data-fenetre-validation-sortie')).toBe('saisie');
   });
 
   it('sans le droit Gestion : « La sortie est validée par un utilisateur de la Gestion », aucun bouton de sortie', async () => {

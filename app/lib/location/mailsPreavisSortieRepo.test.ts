@@ -505,3 +505,20 @@ describe('🔴🔴 Arno (10/11/2026) — le texte modifiable avant envoi : contr
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe('🔴 Arno (11/11/2026, lot 4, 467) — un mail entre dans l’historique de SES propriétaires (`proprietaire_ids`)', () => {
+  it('avec les propriétaires : la colonne est écrite ; sans : l’insertion d’avant, inchangée', async () => {
+    const { journaliserAvis } = await import('./mailsPreavisSortieRepo');
+    const m = { sorte: 'sortie_edls_proprietaire' as const, de: 'gestion@criterimmo.fr', a: ['jean@exemple.test'], cc: [], objet: 'État des lieux de sortie — 4 rue Fictive', texte: 't', html: 'h' };
+    await journaliserAvis(m, { lotId: 7, occupationIds: [], auteur: { id: 1, libelle: 'Arno' }, statut: 'envoye', erreur: null, messageId: 'x', proprietaireIds: [5] });
+    const avec = ecritures.find((e) => e.sql.includes('gestion_location_mail_avis'))!;
+    expect(avec.sql).toContain(', proprietaire_ids)');
+    expect(avec.sql).toContain('$15::bigint[])');
+    expect(avec.params.at(-1)).toEqual([5]);
+    ecritures.length = 0;
+    await journaliserAvis(m, { lotId: 7, occupationIds: [11], auteur: { id: 1, libelle: 'Arno' }, statut: 'envoye', erreur: null, messageId: 'x' });
+    const sans = ecritures.find((e) => e.sql.includes('gestion_location_mail_avis'))!;
+    expect(sans.sql).not.toContain('proprietaire_ids');
+    expect(sans.params).toHaveLength(14);
+  });
+});
