@@ -282,8 +282,10 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
           <li key={e.cle} className={`frp-etape frp-etape--${e.statut}${e.enCours ? ' frp-etape--en-cours' : ''}`} data-etape={e.cle} data-statut-etape={e.statut}
             {...(e.enCours ? { 'aria-current': 'step' as const } : {})}>
             <div className="frp-tete">
-              <span className="frp-numero" aria-hidden="true">{e.statut === 'faite' ? '✓' : e.numero}</span>
-              <span className="frp-titre">{e.numero}. {e.titre}</span>
+              {/* 🔴 Arno (11/11/2026, lot B) — UNE seule numérotation : la pastille ronde (noire ; VERTE avec une coche une fois l'étape faite ;
+                  ORANGE pour une pré-visite refusée / absente). Le titre ne répète plus le chiffre (lu tout de même par un lecteur d'écran). */}
+              <span className="frp-numero" aria-hidden="true" data-pastille-etape>{e.statut === 'faite' ? '✓' : e.numero}</span>
+              <span className="frp-titre"><span className="frp-lu">Étape {e.numero} : </span>{e.titre}</span>
               <span className="frp-statut" data-libelle-etape>{e.libelle}{e.enCours ? ' · étape en cours' : ''}</span>
             </div>
             {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} />}
@@ -631,6 +633,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-etape--faite .frp-numero{background:var(--color-svv-green-ink)}
 .frp-etape--refusee .frp-numero{background:var(--color-svv-urgence-orange)}
 .frp-titre{font-weight:900;color:var(--color-svv-ink)}
+.frp-lu{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .frp-statut{font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
 .frp-etape > .pva-bloc{grid-row:2 / span 2;display:grid;grid-template-rows:subgrid;row-gap:8px;min-width:0;margin:0}

@@ -233,7 +233,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       </dl>
       <ol className="frp vse-frise" data-frise-resultat>{etapes.map((e) => (
         <li key={e.cle} className={`frp-etape frp-etape--${e.statut}`} data-etape={e.cle} data-statut-etape={e.statut}>
-          <div className="frp-tete"><span className="frp-numero" aria-hidden="true">{e.statut === 'faite' ? '✓' : e.numero}</span><span className="frp-titre">{e.numero}. {e.titre}</span>{e.cle === 'sortie' && <span className="frp-statut" data-libelle-etape>{e.libelle}</span>}</div>
+          <div className="frp-tete"><span className="frp-numero" aria-hidden="true" data-pastille-etape>{e.statut === 'faite' ? '✓' : e.numero}</span><span className="frp-titre"><span className="frp-lu">Étape {e.numero} : </span>{e.titre}</span>{e.cle === 'sortie' && <span className="frp-statut" data-libelle-etape>{e.libelle}</span>}</div>
         </li>))}</ol>
       <BlocsEnvois issue={{ informer: false, mails: r.envois, motifGlobal: r.envois.length === 0 ? 'Aucun mail n’est parti pour cette opération.' : null }} sansPartenaires />
       <div className="mis-actions">

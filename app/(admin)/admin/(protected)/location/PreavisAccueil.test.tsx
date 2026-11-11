@@ -568,7 +568,10 @@ describe('🔴🔴 Arno (11/11/2026, lot 5) — retouches de PRÉSENTATION de la
     expect(frise.textContent).not.toContain('Pré-visite d’état des lieux de sortie');
     expect(frise.textContent).not.toContain('Date officielle de sortie');
     // Les titres des cases, eux, restent ; et un AUTRE état de la pré-visite garde son bandeau.
-    expect([...frise.querySelectorAll('.frp-titre')].map((x) => x.textContent)).toEqual(['1. Préavis reçu', '2. Pré-visite', '3. État des lieux de sortie', '4. Sortie validée']);
+    // 🔴 Arno (11/11/2026, lot B) — le titre VISIBLE sans chiffre (la pastille numérote) ; le numéro reste dit au lecteur d'écran.
+    const visible = (x: Element): string => [...x.childNodes].filter((n) => !(n instanceof HTMLElement && n.classList.contains('frp-lu'))).map((n) => n.textContent).join('');
+    expect([...frise.querySelectorAll('.frp-titre')].map(visible)).toEqual(['Préavis reçu', 'Pré-visite', 'État des lieux de sortie', 'Sortie validée']);
+    expect([...frise.querySelectorAll('.frp-titre .frp-lu')].map((x) => x.textContent)).toEqual(['Étape 1 : ', 'Étape 2 : ', 'Étape 3 : ', 'Étape 4 : ']);
   });
 
   it('un autre état de la pré-visite (refusée) garde son bandeau', async () => {
@@ -777,5 +780,23 @@ describe('🔴 Arno (11/11/2026, 468) — la fenêtre « Depuis le Drive du bien
     const { CSS_MODALE_ISSUE } = await import('./ModaleIssue');
     const z = (css: string, sel: RegExp): number => Number(css.replace(/\s+/g, '').match(sel)?.[1] ?? NaN);
     expect(z(CSS_PIECES_SORTIE, /\.mis-voile\.vps-voile\{z-index:(\d+)\}/)).toBeGreaterThan(z(CSS_MODALE_ISSUE, /\.mis-voile\{position:fixed;inset:0;z-index:(\d+)/));
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026, lot B) — UNE seule numérotation par case : la pastille ; verte avec coche une fois faite, orange si refusée', () => {
+  it('la pastille porte le chiffre (à faire), ✓ (faite) ; refusée / absente : orange ; le CSS le dit', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'refusee', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const frise = container.querySelector('[data-ligne-depliee="C"] [data-frise-preavis]')!;
+    const pastille = (cle: string): string | null | undefined => frise.querySelector(`[data-etape="${cle}"] [data-pastille-etape]`)?.textContent;
+    expect([pastille('preavis'), pastille('previsite'), pastille('edls'), pastille('sortie')]).toEqual(['✓', '2', '3', '4']);
+    expect(frise.querySelector('[data-etape="previsite"]')?.className).toContain('frp-etape--refusee');
+    const css = CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ');
+    expect(css).toContain('.frp-etape--faite .frp-numero{background:var(--color-svv-green-ink)}');
+    expect(css).toContain('.frp-etape--refusee .frp-numero{background:var(--color-svv-urgence-orange)}');
+    // Plus aucun « 1. », « 2. »… visible dans les titres.
+    expect([...frise.querySelectorAll('.frp-titre')].some((t) => /^\d\./.test(t.textContent ?? ''))).toBe(false);
   });
 });
