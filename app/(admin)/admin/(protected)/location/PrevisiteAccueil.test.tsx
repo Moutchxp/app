@@ -43,7 +43,10 @@ const RDV = { jour: '2026-11-20', heure: '10:00', dureeMinutes: 60 };
 
 let container: HTMLDivElement; let root: Root; let lignes: LignePreavisAccueil[]; let posts: Record<string, unknown>[];
 let reponsePost: (c: Record<string, unknown>) => unknown;
+/** Les occupations dont le locataire n'a PAS d'e-mail (règle bloquante du 11/11/2026). */
+let sansEmailOcc: number[] = [];
 beforeEach(() => {
+  sansEmailOcc = [];
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   try { window.localStorage.removeItem(CLE_TRI); } catch { /* sans stockage */ }
   window.history.replaceState(null, '', '/admin/location');
@@ -66,7 +69,13 @@ beforeEach(() => {
     }
     const s = decodeURIComponent(String(u));
     if (s.includes('preavisEnCours=1')) return ok({ disponible: true, etatDesLieux: true, planification: true, previsite: true, lignes });
-    if (s.includes('encartBail=')) return ok(ENCART);
+    // 🔴 Arno (11/11/2026) — l'encart du bail de la ligne : son locataire, AVEC une adresse (sauf ceux de `sansEmailOcc`, pour la règle bloquante).
+    if (s.includes('encartBail=')) {
+      const occ = Number(s.split('encartBail=')[1]);
+      const l = lignes.find((x) => x.occupationId === occ);
+      const locs = (l?.locataires ?? []).map((x) => ({ occupationId: x.occupationId, locataireId: x.locataireId, nom: x.nom, telephones: [], emails: sansEmailOcc.includes(x.occupationId) ? [] : [`occ${x.occupationId}@exemple.test`] }));
+      return ok({ ...ENCART, coordonnees: { ...ENCART.coordonnees!, locataires: [...ENCART.coordonnees!.locataires, ...locs] } });
+    }
     if (s.includes('previsiteCollegues=1')) return ok([{ id: 3, libelle: 'Arno Test', accesGestion: true }, { id: 4, libelle: 'Claire Test', accesGestion: true }]);
     if (s.includes('previsiteRefus=')) return ok({ texte: 'Bonjour Carla RECU,\n\nMalgré nos recommandations, aucun rendez-vous de pré-visite n’a pu être fixé.', objet: 'Pré-visite d’état des lieux de sortie — C rue', sansEmail: [] });
     if (s.includes('edlsConfiables=1')) return ok([{ id: 3, libelle: 'Arno Test', accesGestion: true }]);
@@ -321,5 +330,70 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
     const css = readFileSync('app/(admin)/admin/(protected)/location/PrevisiteAccueil.tsx', 'utf8');
     expect(css).toContain('.pvv-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}');
     expect(css).toContain('@media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}');
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec un e-mail, aucun rendez-vous de pré-visite (à l’écran)', () => {
+  const MOTIF = 'Impossible de valider : aucun locataire n’a d’adresse e-mail. Ajoutez l’e-mail d’au moins un locataire avant de fixer le rendez-vous.';
+  const blocage = (): Element | null => document.querySelector('[data-fenetre-previsite] [data-blocage-email-locataire]');
+  const auRetour = async (): Promise<void> => { await act(async () => { window.dispatchEvent(new Event('focus')); }); await attendre(); };
+
+  it('RDV : message rouge, lien « compléter la fiche de Carla RECU » (sa fiche), « Voir le récapitulatif » inactif ; au retour sur la fenêtre, l’e-mail est relu et tout se débloque', async () => {
+    sansEmailOcc = [41];
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="C"]'));
+    await clic(container.querySelector('[data-rdv-previsite]'));
+    saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
+    saisir(document.querySelector('[data-previsite-debut]'), '10:00');
+    expect(blocage()?.textContent).toContain(MOTIF);
+    expect(blocage()?.getAttribute('role')).toBe('alert');
+    const lien = blocage()!.querySelector('[data-completer-fiche-locataire="410"]')!;
+    expect([lien.getAttribute('href'), lien.textContent, lien.getAttribute('target')]).toEqual(['/admin/location/locataire/410', 'compléter la fiche de Carla RECU', '_blank']);
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
+    expect(posts.some((p) => String(p.action).includes('previsite'))).toBe(false);
+    // La fiche est complétée dans l'autre onglet ; retour sur la fenêtre : relu sans recharger la page, la saisie est gardée.
+    sansEmailOcc = [];
+    await auRetour();
+    expect(blocage()).toBeNull();
+    expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toBe('2026-11-20');
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('récapitulatif : si l’e-mail a disparu entre-temps, le message rouge y est et « Confirmer » est inactif', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="C"]'));
+    await clic(container.querySelector('[data-rdv-previsite]'));
+    saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
+    saisir(document.querySelector('[data-previsite-debut]'), '10:00');
+    await clic(document.querySelector('[data-recap-previsite]'));
+    expect(fenetre()?.getAttribute('data-fenetre-previsite')).toBe('recap');
+    expect((document.querySelector('[data-confirmer-previsite]') as HTMLButtonElement).disabled).toBe(false);
+    sansEmailOcc = [41];
+    await auRetour();
+    expect(blocage()?.textContent).toContain(MOTIF);
+    expect((document.querySelector('[data-confirmer-previsite]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('déplacer et réaffecter : bloqués de la même façon', async () => {
+    sansEmailOcc = [31];
+    lignes = lignes.map((l) => (l.cle === 'B' ? { ...l, previsite: { ...l.previsite!, tousRefusent: true } } : l));
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    expect(blocage()?.textContent).toContain(MOTIF);
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
+    await clic(document.querySelector('[data-annuler-previsite]'));
+    await clic(container.querySelector('[data-reaffecter-previsite]'));
+    expect(blocage()?.textContent).toContain(MOTIF);
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('« Refus / absence de pré-visite » n’y est PAS soumis', async () => {
+    sansEmailOcc = [41];
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="C"]'));
+    await clic(container.querySelector('[data-refus-previsite]'));
+    expect(blocage()).toBeNull();
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(false);
   });
 });

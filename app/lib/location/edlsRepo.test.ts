@@ -60,7 +60,13 @@ vi.mock('./sortieLocatairesRepo', () => ({
   })),
 }));
 
-import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from './edlsRepo';
+/** 🔴 Arno (11/11/2026) — la règle bloquante : les adresses des locataires du préavis (la règle elle-même, pure ; seule la lecture est simulée). */
+let emailsLocataires: string[][] = [['alice@exemple.fr']];
+vi.mock('./mailsPreavisSortieRepo', () => ({
+  locatairesAvis: async (ids: number[]) => ids.map((o, i) => ({ occupationId: o, nom: 'TEST', prenom: null, emails: emailsLocataires[i] ?? [], entree: null, sortie: null })),
+}));
+
+import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from './edlsRepo';
 
 const AUTEUR = { id: 3, libelle: 'arno@exemple.fr' };
 const ecritures = (): Appel[] => appels.filter((a) => /^(UPDATE|INSERT|DELETE)/.test(a.sql));
@@ -69,6 +75,7 @@ const LIEN = (o: Record<string, unknown> = {}) => ({ id: '20', tache_id: '500', 
 
 beforeEach(() => {
   appels.length = 0; lectures = 0; liensApres = null; permis = [3, 4];
+  emailsLocataires = [['alice@exemple.fr']];
   groupe = [{ id: '11', locataire_id: '101', lot_id: '7', sortie: null, recu_le: '2026-10-01', date_max: '2026-11-01' }];
   liens = [];
   for (const f of [creerTache, decalerTache, modifierTache, annulerTache]) f.mockClear();
@@ -177,5 +184,28 @@ describe('reattribuerEdls — après un refus seulement', () => {
     liens = [LIEN({ statut: 'en_attente' })];
     expect(await reattribuerEdls({ occupationIds: [11], confieA: 3 }, AUTEUR)).toMatchObject({ etat: 'refus' });
     expect(modifierTache).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec un e-mail, aucun rendez-vous d’état des lieux de sortie', () => {
+  const MOTIF = 'Impossible de valider : aucun locataire n’a d’adresse e-mail. Ajoutez l’e-mail d’au moins un locataire avant de fixer le rendez-vous.';
+  const D = { occupationIds: [11], jour: '2026-11-03', debut: '10:00', fin: '11:30', confieA: 4, commentaire: null };
+  it('planifier, déplacer, réattribuer, aperçu : refusés AVANT toute écriture — ni tâche, ni lien, ni mail', async () => {
+    emailsLocataires = [[]];
+    const refus = { etat: 'refus', motif: MOTIF, champ: 'locataires' };
+    expect(await apercuEdls({ ...D, geste: 'planifier' }, AUTEUR)).toEqual(refus);
+    expect(await planifierEdls(D, AUTEUR)).toEqual(refus);
+    liens = [LIEN({ statut: 'refusee' })];
+    expect(await deplacerEdls({ occupationIds: [11], jour: '2026-11-04', debut: '10:00', fin: '11:30' }, AUTEUR)).toEqual(refus);
+    expect(await reattribuerEdls({ occupationIds: [11], confieA: 3 }, AUTEUR)).toEqual(refus);
+    for (const f of [creerTache, decalerTache, modifierTache, annulerTache]) expect(f).not.toHaveBeenCalled();
+    expect(ecritures()).toEqual([]);
+  });
+  it('un locataire sur deux avec un e-mail : autorisé', async () => {
+    groupe = [{ id: '11', locataire_id: '101', lot_id: '7', sortie: null, recu_le: '2026-10-01', date_max: '2026-11-01' },
+      { id: '12', locataire_id: '102', lot_id: '7', sortie: null, recu_le: '2026-10-01', date_max: '2026-11-01' }];
+    emailsLocataires = [[], ['paul@exemple.fr']];
+    expect(await planifierEdls({ ...D, occupationIds: [11, 12] }, AUTEUR)).toMatchObject({ etat: 'ok' });
+    expect(creerTache).toHaveBeenCalledTimes(1);
   });
 });

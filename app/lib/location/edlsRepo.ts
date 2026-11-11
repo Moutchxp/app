@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { refusSansEmailLocataire } from './emailLocataireRequisRepo';
 import type { Auteur } from '../gestion/gestes';
 import { tachesDisponibles } from '../gestion/schema';
 import { rappelsParDefaut, type SaisieTache } from '../gestion/taches';
@@ -117,6 +118,9 @@ export async function planifierEdls(
   if (!(await edlsDisponible())) return { etat: 'sans_schema' };
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   // ① LIRE (verrouillé) → REFUSER, avant toute écriture.
   const avant = await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
@@ -197,6 +201,9 @@ export async function deplacerEdls(
   if (!(await edlsDisponible())) return { etat: 'sans_schema' };
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const avant = await withTransaction(async (q) => edlsCourant(q, ids));
   if (!avant.ok) return avant.issue;
   const l = avant.l;
@@ -236,6 +243,9 @@ export async function reattribuerEdls(d: { occupationIds: readonly number[]; con
   if (!(await edlsDisponible())) return { etat: 'sans_schema' };
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0 || d.confieA === null) return { etat: 'refus', motif: 'Choisissez à qui confier l’état des lieux.', champ: 'confieA' };
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const avant = await withTransaction(async (q) => edlsCourant(q, ids));
   if (!avant.ok) return avant.issue;
   const l = avant.l;
@@ -265,6 +275,9 @@ export async function apercuEdls(d: { occupationIds: readonly number[]; jour: st
   if (!(await edlsDisponible())) return { etat: 'sans_schema' };
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const g = await withTransaction(async (q) => lireGroupe(q, ids));
   if (!g.ok) return g.issue;
   const { lireReglageTaches } = await import('../gestion/acceptationRepo');

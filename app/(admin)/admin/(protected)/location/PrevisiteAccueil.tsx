@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
+import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
 import { CSS_PARCOURS, TexteDuMail } from './ParcoursPreavisSortie';
@@ -171,7 +172,10 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
 
   const dest = choisis ?? [];
   const verdict = avecDate ? verifierRdvPrevisite({ jour, debut, fin, destinataires: deplacement ? [1] : dest }, [{ recuLe: l.recuLe, dateMax: l.dateMax }]) : null;
-  const saisieOk = avecDate ? verdict?.ok === true : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '';
+  // 🔴 Arno (11/11/2026) — un RENDEZ-VOUS (programmer, déplacer, réaffecter) demande l'e-mail d'au moins un locataire ; le refus et le compte
+  // rendu n'y sont pas soumis. Relu au retour sur la fenêtre.
+  const emails = useEmailsLocataires(l, geste === 'rdv' || geste === 'deplacer' || geste === 'reaffecter');
+  const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
   const corpsCommun = { occupationIds: l.occupationIds };
   const rdvActuel = p.rdv;
 
@@ -260,6 +264,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
         <p className="loc-muet" data-refus-confidentialite>Chaque locataire reçoit SON mail (seul destinataire, sans copie visible) : « [nom du locataire] » y est remplacé par son nom. Les collaborateurs ayant accès à Gestion et/ou Location reçoivent une copie interne séparée.</p>
         {p.statut === 'programmee' && p.rdv && <p className="mis-note pss-note-neutre" data-refus-annule-rdv>Une pré-visite est programmée le {creneauFr(p.rdv)} : à l’envoi, elle sera annulée (tâche des collègues annulée) et chaque collègue destinataire recevra un mail d’annulation.</p>}
       </>)}
+      <BlocageEmailLocataires e={emails} />
       {verdict !== null && !verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-previsite-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
@@ -295,10 +300,11 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
           </li>))}</ul>
       </>}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
+      <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => setEtape({ etape: 'saisie' })} disabled={envoi} data-revenir-previsite>Revenir</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void confirmer(); }} disabled={envoi} data-confirmer-previsite>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void confirmer(); }} disabled={envoi || emails.bloque} data-confirmer-previsite>
           {envoi ? 'Envoi…' : 'Confirmer et envoyer'}</button>
       </div>
     </>;

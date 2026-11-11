@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { refusSansEmailLocataire } from './emailLocataireRequisRepo';
 import type { Auteur } from '../gestion/gestes';
 import { rappelsParDefaut, type SaisieTache } from '../gestion/taches';
 import { annulerTache, creerTache, decalerTache, listerCollaborateurs, marquerFaite, modifierTache, type Collaborateur, type IssueTache } from '../gestion/tachesRepo';
@@ -89,6 +90,9 @@ export async function apercuRdvPrevisite(
 ): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const ids = [...new Set(d.occupationIds)];
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const lu = await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
     return g.ok ? { ok: true as const, g: g.g, s: await suiviOuvert(q, g.g.cle) } : g;
@@ -130,6 +134,9 @@ export async function programmerPrevisite(
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const ids = [...new Set(d.occupationIds)];
   if (ids.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const avant = await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
     if (!g.ok) return g;
@@ -202,6 +209,9 @@ export async function deplacerPrevisite(
 ): Promise<IssuePrevisite<ResultatRdv>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const ids = [...new Set(d.occupationIds)];
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const avant = await withTransaction(async (q) => rdvCourant(q, ids));
   if (!avant.ok) return avant.issue;
   const v = verifierRdvPrevisite({ jour: d.jour, debut: d.debut, fin: d.fin, destinataires: [1] }, [{ recuLe: avant.g.recuLe, dateMax: avant.g.dateMax }]);
@@ -233,6 +243,9 @@ export async function reaffecterPrevisite(d: { occupationIds: readonly number[];
   const ids = [...new Set(d.occupationIds)];
   const dest = [...new Set(d.destinataires.filter((x) => Number.isSafeInteger(x) && x > 0))];
   if (dest.length === 0) return { etat: 'refus', motif: 'Choisissez au moins un collègue.', champ: 'destinataires' };
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
+  const sansEmailLoc = await refusSansEmailLocataire(ids);
+  if (sansEmailLoc !== null) return sansEmailLoc;
   const avant = await withTransaction(async (q) => rdvCourant(q, ids));
   if (!avant.ok) return avant.issue;
   const tacheId = Number(avant.s.tache_id);

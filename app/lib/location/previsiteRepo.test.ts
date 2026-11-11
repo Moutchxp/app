@@ -118,6 +118,8 @@ vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email:
 let echecEnvoi = false;
 const envoyerSerie = vi.fn(async (mails: { sorte: string; objet: string; a: string[]; cc: string[]; texte: string }[], ..._r: unknown[]) =>
   mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, envoye: !echecEnvoi, motif: echecEnvoi ? 'Gmail indisponible' : null, texte: m.texte })));
+/** 🔴 Arno (11/11/2026) — les adresses des deux locataires (la règle bloquante du rendez-vous). */
+let emailsLocataires: string[][] = [['alice@exemple.test'], ['bruno@exemple.test']];
 vi.mock('./mailsPreavisSortieRepo', () => ({
   envoyerSerie: (...a: unknown[]) => envoyerSerie(...(a as [never])),
   mailsAvisDisponibles: async () => true,
@@ -126,13 +128,13 @@ vi.mock('./mailsPreavisSortieRepo', () => ({
   signatureEcran: async () => ({ brute: '', ecran: { html: '', texte: '' } }),
   logementDe: async () => ({ lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', proprietaire: null, enGestion: true, copropriete: null }),
   locatairesAvis: async () => [
-    { occupationId: 11, nom: 'TEST', prenom: 'Alice', emails: ['alice@exemple.test'], entree: null, sortie: null },
-    { occupationId: 12, nom: 'TEST', prenom: 'Bruno', emails: ['bruno@exemple.test'], entree: null, sortie: null }],
+    { occupationId: 11, nom: 'TEST', prenom: 'Alice', emails: emailsLocataires[0], entree: null, sortie: null },
+    { occupationId: 12, nom: 'TEST', prenom: 'Bruno', emails: emailsLocataires[1], entree: null, sortie: null }],
 }));
 
 import {
   deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite, envoyerRefus, passeAlertesPrevisite, passeInvitationsCompteRendu,
-  programmerPrevisite, reaffecterPrevisite, apercuRdvPrevisite, avecPrevisites, passePrevisite,
+  programmerPrevisite, reaffecterPrevisite, apercuRdvPrevisite, avecPrevisites, passePrevisite, apercuRefus,
 } from './previsiteRepo';
 import type { LignePreavisAccueil } from './preavis';
 
@@ -148,6 +150,7 @@ const programmee = () => { suivi = { id: '40', cle: 'bail:9|2026-11-01', lot_id:
   tache_etat: 'a_faire', jour: '2026-11-12', heure: '10:00', duree: 60 }; };
 
 beforeEach(() => {
+  emailsLocataires = [['alice@exemple.test'], ['bruno@exemple.test']];
   appels.length = 0; suivi = null; autres = []; dejaAlerte = false; jour = '2026-11-12'; echecEnvoi = false; reponses = [];
   groupeAutre = [{ id: '51', locataire_id: '501', lot_id: '8', sortie: null, entree: '2023-01-01', bail_id: '10', recu_le: '2026-10-01', date_max: '2027-01-01' }];
   groupe = [
@@ -554,5 +557,35 @@ describe('🔴🔴 Arno (11/11/2026, lot 2) — la fiche d’intervention : CHEZ
         for (const t of [...INTERDIT, ...autreLocataire(m.a)]) expect(tout, `${m.a} ← ${t}`).not.toContain(t);
       }
     }
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec un e-mail, aucun rendez-vous de pré-visite', () => {
+  const MOTIF = 'Impossible de valider : aucun locataire n’a d’adresse e-mail. Ajoutez l’e-mail d’au moins un locataire avant de fixer le rendez-vous.';
+  it('programmer, déplacer, réaffecter, aperçu : refusés AVANT toute écriture — ni tâche, ni rendez-vous, ni mail', async () => {
+    emailsLocataires = [[], []];
+    expect(await apercuRdvPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF, champ: 'locataires' });
+    expect(await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF, champ: 'locataires' });
+    programmee();
+    reponses = [{ tache_id: '500', destinataire_id: '4', libelle: 'Claire Test', email: null, statut: 'refusee', motif: 'x' }];
+    expect(await deplacerPrevisite({ occupationIds: OCC, jour: '2026-11-25', debut: '14:00', fin: '15:00' }, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF, champ: 'locataires' });
+    expect(await reaffecterPrevisite({ occupationIds: OCC, destinataires: [3] }, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF, champ: 'locataires' });
+    expect(creerTache).not.toHaveBeenCalled();
+    expect(decalerTache).not.toHaveBeenCalled();
+    expect(modifierTache).not.toHaveBeenCalled();
+    expect(envoyerSerie).not.toHaveBeenCalled();
+    expect(ecritures()).toEqual([]);
+  });
+  it('un locataire sur deux avec un e-mail : autorisé ; l’autre est signalé (« sans e-mail »)', async () => {
+    emailsLocataires = [['alice@exemple.test'], []];
+    const a = await apercuRdvPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
+    expect(a).toMatchObject({ etat: 'ok', data: { sansEmail: ['Bruno TEST'] } });
+    expect((await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR)).etat).toBe('ok');
+    expect(creerTache).toHaveBeenCalledTimes(1);
+  });
+  it('le refus / l’absence de pré-visite n’y est PAS soumis', async () => {
+    emailsLocataires = [[], []];
+    const r = await apercuRefus({ occupationIds: OCC, texte: 'Bonjour,\n\nAucun rendez-vous.' }, AUTEUR);
+    expect(r.etat).not.toBe('refus');
   });
 });

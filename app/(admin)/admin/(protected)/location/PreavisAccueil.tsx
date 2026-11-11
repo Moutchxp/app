@@ -11,6 +11,7 @@ import { etapesPreavis } from '../../../../lib/location/frisePreavis';
 const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 import type { FinParcours } from './ParcoursPreavisSortie';
 import { ValidationSortieEdls } from './ValidationSortieEdls';
+import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { aujourdhuiParisEcran, CSS_PREAVIS, MentionPreavis } from './Preavis';
 import {
   ajouterMois, dateFrPreavis, EDL_MOIS_APRES_FIN, lireTri, trierPreavis, TRI_DEFAUT, verifierEtatDesLieux,
@@ -469,6 +470,8 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data)) setLibelles(Object.fromEntries(lu.etat.data.map((p) => [p.id, p.libelle]))); }, [lu.etat]);
   const verdict = verifierPlanification({ jour, debut, fin, confieA, commentaire }, [{ recuLe: l.recuLe, dateMax: l.dateMax }]);
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : planifier / déplacer impossible (le serveur refuse aussi).
+  const emails = useEmailsLocataires(l);
   /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (qui recevra l'invitation, et son texte) ; « Revenir » garde la saisie. */
   const recap = useRecapEnvois();
   const valider = async (): Promise<void> => {
@@ -510,11 +513,12 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
         <label className="pvs-champ"><span className="pvs-libelle">Commentaire (facultatif)</span>
           <textarea value={commentaire} onChange={(ev) => setCommentaire(ev.target.value)} rows={2} placeholder="ex. clés chez le gardien" data-edls-commentaire /></label>
       )}
+      <BlocageEmailLocataires e={emails} />
       {!verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-edls-message>{verdict.motif}</p>}
       {refus !== null && <p className="cp-refus" role="alert" data-edls-refus>{refus}</p>}
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !verdict.ok} onClick={() => { void valider(); }} data-valider-edls>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || !verdict.ok || emails.bloque} onClick={() => { void valider(); }} data-valider-edls>
           {envoi ? 'Enregistrement…' : e === null ? 'Planifier' : 'Déplacer le rendez-vous'}</button>
       </div>
     </div>
@@ -528,6 +532,8 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
   const [envoi, setEnvoi] = useState(false);
   const lu = useLecture<Personne[]>('edlsConfiables=1');
   const libelle = (id: number | null): string => (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data) ? lu.etat.data.find((p) => p.id === id)?.libelle ?? '' : '');
+  // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : réaffectation impossible (le serveur refuse aussi).
+  const emails = useEmailsLocataires(l);
   const recap = useRecapEnvois();
   const valider = async (): Promise<void> => {
     setEnvoi(true); setRefus(null);
@@ -550,10 +556,11 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
     <div className="pvs-form" data-formulaire-reattribuer>
       {recap.fenetre}
       <ChoixPersonne valeur={confieA} onChange={setConfieA} exclure={e.confieAId} />
+      <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || confieA === null} onClick={() => { void valider(); }} data-valider-reattribution>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || confieA === null || emails.bloque} onClick={() => { void valider(); }} data-valider-reattribution>
           {envoi ? 'Enregistrement…' : 'Confier'}</button>
       </div>
     </div>

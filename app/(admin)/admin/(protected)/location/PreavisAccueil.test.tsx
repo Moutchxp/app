@@ -598,3 +598,35 @@ describe('🔴🔴 Arno (11/11/2026, lot 5) — retouches de PRÉSENTATION de la
     expect(container.querySelector('[data-bloc-fiche="logement"] [data-lien-completer]')?.textContent).toBe('compléter la fiche du bien');
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec un e-mail, aucun rendez-vous d’état des lieux de sortie (à l’écran)', () => {
+  const MOTIF = 'Impossible de valider : aucun locataire n’a d’adresse e-mail. Ajoutez l’e-mail d’au moins un locataire avant de fixer le rendez-vous.';
+  const sansEmails = (): void => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (String(u).includes('encartBail=')
+      ? ok({ ...ENCART, coordonnees: { ...ENCART.coordonnees!, locataires: ENCART.coordonnees!.locataires.map((x) => ({ ...x, emails: [] })) } })
+      : base(u, init))) as unknown as typeof fetch;
+  };
+  const ouvrirPlanifier = async (): Promise<void> => {
+    planification = true;
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    clic('button[data-planifier-edls]');
+    await attendre();
+  };
+  it('aucun e-mail : message rouge, un lien par locataire vers SA fiche, « Planifier » inactif', async () => {
+    sansEmails();
+    await ouvrirPlanifier();
+    const b = container.querySelector('[data-formulaire-edls] [data-blocage-email-locataire]')!;
+    expect(b.textContent).toContain(MOTIF);
+    expect([...b.querySelectorAll('[data-completer-fiche-locataire]')].map((a) => [a.getAttribute('href'), a.textContent])).toEqual([
+      ['/admin/location/locataire/101', 'compléter la fiche de Alice BERNARD'], ['/admin/location/locataire/102', 'compléter la fiche de Paul BERNARD']]);
+    expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('un locataire sur deux avec un e-mail : pas de blocage', async () => {
+    await ouvrirPlanifier();
+    expect(container.querySelector('[data-formulaire-edls]')).not.toBeNull();
+    expect(container.querySelector('[data-blocage-email-locataire]')).toBeNull();
+  });
+});
