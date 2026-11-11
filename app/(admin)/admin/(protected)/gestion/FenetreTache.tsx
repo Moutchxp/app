@@ -776,8 +776,10 @@ const CSS_FENETRE = `
 .tchf-agenda{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem}
 .tchf-agenda.tch-agenda--a_resynchroniser{border-color:var(--color-svv-red)}
 .tchf-duree{max-width:14rem}
-.tchf-sorte{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.tchf-sorte .tchf-sorte-btn{min-height:44px;flex:1 1 9rem;width:auto}
+.tchf-sorte{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch}
+.tchf-sorte > :not(.tchf-sorte-btn){grid-column:1 / -1}
+@media (max-width:600px){.tchf-sorte{grid-template-columns:1fr}}
+.tchf-sorte .tchf-sorte-btn{min-height:44px;width:100%;margin:0;justify-content:center}
 .tchf-sorte-btn--choisi{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
 .tchf-sous-choix{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:inherit}
 .tchf-sous-choix:disabled{opacity:.55}

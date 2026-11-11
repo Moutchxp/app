@@ -38,7 +38,8 @@ export type EtatTache = 'a_faire' | 'faite' | 'annulee';
 export type SorteTache = 'rdv' | 'tache';
 export const MOT_SORTE: Record<SorteTache, string> = { rdv: 'RDV', tache: 'Tâche' };
 /** Les choix rapides de la durée d'un rendez-vous (saisie libre à côté). */
-export const DUREES_RAPIDES_RDV: readonly number[] = [30, 60, 90, 120];
+/** 🔴 Arno (11/11/2026) — 5 min et 15 min ajoutés en tête : 5 min · 15 min · 30 min · 1 h · 1 h 30 · 2 h, puis « Autre (min) ». */
+export const DUREES_RAPIDES_RDV: readonly number[] = [5, 15, 30, 60, 90, 120];
 
 /** « Demande de rendez-vous le 20/11/2026 à 10h30 » — l'objet proposé d'un rendez-vous (modifiable). PUR. */
 export function objetRendezVous(jour: string, heure: string | null): string {

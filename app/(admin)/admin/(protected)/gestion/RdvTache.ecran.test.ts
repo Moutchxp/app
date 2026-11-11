@@ -71,7 +71,12 @@ describe('Rendez-vous', () => {
     await clic('[data-enregistrer-tache]');
     expect(container.querySelector('.tchf-alerte')?.textContent).toBe('Indiquez la durée du rendez-vous (entre 5 min et 24 h).');
     expect(posts).toEqual([]);
-    expect([...container.querySelectorAll('[data-duree-rapide]')].map((b) => b.textContent)).toEqual(['30 min', '1 h', '1 h 30', '2 h']);
+    // 🔴 Arno (11/11/2026) — 5 min et 15 min en tête ; « Autre (min) » à la suite.
+    expect([...container.querySelectorAll('[data-duree-rapide]')].map((b) => b.textContent)).toEqual(['5 min', '15 min', '30 min', '1 h', '1 h 30', '2 h']);
+    await clic('[data-duree-rapide="5"]');
+    expect(container.querySelector('[data-heure-fin]')?.textContent).toBe('Fin : 10h35');
+    await clic('[data-duree-rapide="15"]');
+    expect(container.querySelector('[data-heure-fin]')?.textContent).toBe('Fin : 10h45');
     await clic('[data-duree-rapide="90"]');
     expect(container.querySelector('[data-heure-fin]')?.textContent).toBe('Fin : 12h00');
     await saisir('[data-duree-libre]', '45');
@@ -112,5 +117,16 @@ describe('le libellé du type sur la ligne', () => {
       await act(async () => { root.render(createElement(LigneTache, { tache: t, maintenant: new Date(), moi: 1, onDetail: () => {}, onChange: () => {} } as never)); });
       expect(container.querySelector('[data-sorte-tache]')?.textContent).toBe(mot);
     }
+  });
+});
+
+describe('🔴 Arno (11/11/2026) — « Rendez-vous » et « Tâche » : toute la largeur, à parts égales, sur une ligne (empilés sur mobile)', () => {
+  it('deux colonnes égales ; le texte d’aide sous les deux ; une colonne au téléphone', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/FenetreTache.tsx', 'utf8').replace(/\s+/g, ' ');
+    expect(css).toContain('.tchf-sorte{display:grid;grid-template-columns:1fr 1fr;');
+    expect(css).toContain('.tchf-sorte > :not(.tchf-sorte-btn){grid-column:1 / -1}');
+    expect(css).toContain('@media (max-width:600px){.tchf-sorte{grid-template-columns:1fr}}');
+    expect(css).toContain('.tchf-sorte .tchf-sorte-btn{min-height:44px;width:100%;');
   });
 });
