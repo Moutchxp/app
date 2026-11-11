@@ -39,7 +39,7 @@ import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
   envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
 } from '../../../../lib/location/previsiteRepo';
-import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, envoyerMailsSortie, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
+import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, envoyerMailsSortie, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, logementDe, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -193,6 +193,12 @@ export async function GET(request: Request): Promise<Response> {
     const sorteInfo = p('destinatairesMails');
     if (sorteInfo === 'nouvelle_location' || sorteInfo === 'preavis' || sorteInfo === 'sortie') {
       return Response.json({ etat: 'ok', data: await destinatairesPourInfo(sorteInfo, await auteurDeLaRequete(request)) }, { headers: ENTETES });
+    }
+    // 🔴 Arno (11/11/2026) — la copropriété SAISIE sur le bien (la case « Retenue de 20 % ») — LECTURE SEULE.
+    const idRetenue = identifiant(p('retenueSortie'));
+    if (idRetenue !== null) {
+      const x = await logementDe(idRetenue);
+      return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: { lotId: x.lotId, copropriete: x.copropriete } }, { headers: ENTETES });
     }
     const idEncart = identifiant(p('encartBail'));
     if (idEncart !== null) {
@@ -564,6 +570,8 @@ export async function POST(request: Request): Promise<Response> {
           occupationId: occ, realise: corps.realise, date: corps.date, sortants: idsOccupations(corps.sortants), compteRendu: corps.compteRendu,
           destinataires: (Array.isArray(corps.destinataires) ? corps.destinataires : []).filter((x): x is string => typeof x === 'string' && /^(loc|pro)-\d{1,16}$/.test(x)).slice(0, 40),
           informerPartenaires: corps.informerPartenaires !== false,
+          // 🔴 Arno (11/11/2026, 468) — les pièces jointes (identifiants inscrits) et la retenue de 20 %.
+          pieceIds: idsOccupations(corps.pieceIds), retenue: corps.retenue === true, paragrapheRetenue: corps.paragrapheRetenue,
         };
         return repondre(action === 'apercu-validation-sortie' ? await apercuValidationSortie(demande, auteur) : await validerSortieEdls(demande, auteur));
       }

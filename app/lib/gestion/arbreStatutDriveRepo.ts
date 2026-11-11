@@ -82,6 +82,15 @@ async function n5DuBien(teteId: number): Promise<N5Inscrit | null> {
   return { cle: r.cle, driveId: r.d, parent: r.p, place: { arbre: r.arbre as ArbreDrive, branche: (r.branche as PlaceDrive['branche']) ?? null }, teteId: Number(r.lot) };
 }
 
+/**
+ * 🔴 Arno (11/11/2026) — LE DOSSIER DRIVE D'UN BIEN (son N5 inscrit, par sa tête), pour le LIRE — la fenêtre « Valider l'état des lieux de
+ * sortie » y choisit des pièces à joindre. Lecture seule de la base ; rien n'est créé ni déplacé. `null` : aucun dossier connu.
+ */
+export async function dossierDriveDuLot(lotId: number): Promise<{ driveId: string; place: PlaceDrive } | null> {
+  const n5 = await n5DuBien(await teteDuLot(lotId));
+  return n5 === null ? null : { driveId: n5.driveId, place: n5.place };
+}
+
 /** Le statut ACTUEL d'un bien, et s'il est archivé (405). */
 async function etatDuLot(lotId: number): Promise<{ statut: StatutBien; archive: boolean } | null> {
   const { rows } = await query<{ s: string; a: string | null }>(

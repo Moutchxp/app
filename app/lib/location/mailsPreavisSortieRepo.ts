@@ -41,6 +41,8 @@ export const mailsAvisDisponibles = (): Promise<boolean> => colonneExisteMemo('g
 export const texteOrigineDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'texte_origine');
 /** 🔴 Arno (11/11/2026, migration 467) — le journal sait-il dire les PROPRIÉTAIRES qu'un mail concerne (historique du propriétaire) ? */
 export const proprietairesDuMailDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'proprietaire_ids');
+/** 🔴 Arno (11/11/2026, migration 468) — le journal sait-il dire les PIÈCES jointes à un mail ? */
+export const piecesDuMailDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_avis', 'piece_ids');
 export const MOTIF_SANS_466 = 'Un texte modifié demande la mise à jour de la base (migration 466) : rien n’est parti. Revenez au texte d’origine, ou faites appliquer la 466.';
 
 
@@ -166,10 +168,12 @@ export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupatio
   // 🔴 Arno (10/11/2026, 466) — texte modifié : le journal garde aussi le texte d'ORIGINE (le texte envoyé est dans `texte`).
   const origine = typeof m.texteOrigine === 'string' && await texteOrigineDisponible().catch(() => false) ? m.texteOrigine : null;
   const proprios = (o.proprietaireIds ?? []).length > 0 && await proprietairesDuMailDisponible().catch(() => false) ? [...(o.proprietaireIds ?? [])] : null;
+  const pieces = (m.pieces ?? []).length > 0 && await piecesDuMailDisponible().catch(() => false) ? (m.pieces ?? []).map((x) => x.id) : null;
   try {
     const extra: { colonne: string; valeur: unknown; type: string }[] = [
       ...(origine !== null ? [{ colonne: 'texte_origine', valeur: origine, type: '' }] : []),
       ...(proprios !== null ? [{ colonne: 'proprietaire_ids', valeur: proprios, type: '::bigint[]' }] : []),
+      ...(pieces !== null ? [{ colonne: 'piece_ids', valeur: pieces, type: '::bigint[]' }] : []),
     ];
     await query(
       `INSERT INTO gestion_location_mail_avis (sorte, lot_id, occupation_ids, expediteur, destinataires, copies, objet, texte, html, statut, erreur, message_id, auteur_id, auteur_libelle${extra.map((x) => `, ${x.colonne}`).join('')})
@@ -215,7 +219,14 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
         de: m.de, deNom: 'Gestion', a: m.a, cc: m.cc, cci: [], objet: m.objet, corps: m.texte, corpsHtml: html, messageId,
         ...(images.length > 0 ? { imagesIntegrees: images.map(({ cid, nom, typeMime, octets }) => ({ cid, nom, typeMime, octets })) } : {}),
         // 🔴 Arno (10/11/2026, pré-visite) — l'invitation d'agenda jointe ; aucun autre mail n'en porte (rien ne change pour eux).
-        ...(m.ics ? { pieces: [{ nom: m.ics.nom, typeMime: 'text/calendar; charset=UTF-8; method=PUBLISH', octets: Buffer.from(m.ics.contenu, 'utf8') }] } : {}),
+        ...(m.ics || (m.pieces ?? []).length > 0 ? { pieces: [
+          ...(m.ics ? [{ nom: m.ics.nom, typeMime: 'text/calendar; charset=UTF-8; method=PUBLISH', octets: Buffer.from(m.ics.contenu, 'utf8') }] : []),
+          // 🔴 Arno (11/11/2026, 468) — les pièces du compte rendu : leurs octets DOIVENT être là (lus du stockage juste avant) ; sinon, échec dit.
+          ...(m.pieces ?? []).map((x) => {
+            if (x.octets === undefined) throw new Error(`pièce « ${x.nom} » illisible : le mail n’est pas parti`);
+            return { nom: x.nom, typeMime: x.typeMime, octets: Buffer.from(x.octets) };
+          }),
+        ] } : {}),
       });
       for (const cible of [o, ...(o.autres ?? [])]) {
         await journaliserAvis({ ...m, html }, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: r.ok ? 'envoye' : 'echec', erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null,
@@ -329,6 +340,15 @@ export async function partenairesDeSortie(occupationId: number): Promise<{ enGes
 /** Un mail de préavis ou de sortie, tel que l'Historique du bien le montre. */
 export interface MailAvisDuBien {
   id: number; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec';
+  /** 🔴 Arno (11/11/2026, 468) — les pièces jointes au mail (nom, taille ; téléchargeables) ; absent sans la 468. */
+  pieces?: { id: number; nom: string; taille: number }[];
+}
+
+/** Les pièces d'un mail du journal, en colonne JSON (sans la 468 : rien). */
+async function sqlPiecesDuMail(alias: string): Promise<string> {
+  if (!(await piecesDuMailDisponible().catch(() => false))) return '';
+  return `, (SELECT coalesce(json_agg(json_build_object('id', p.id, 'nom', p.nom, 'taille', p.taille_octets) ORDER BY array_position(${alias}.piece_ids, p.id)), '[]'::json)
+             FROM gestion_location_sortie_piece p WHERE p.id = ANY(${alias}.piece_ids)) AS pieces`;
 }
 
 /**
@@ -339,9 +359,9 @@ export interface MailAvisDuBien {
  */
 export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> {
   if (!Number.isSafeInteger(lotId) || lotId <= 0 || !(await mailsAvisDisponibles())) return [];
-  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec' }>(
-    `SELECT id::text, sorte, envoye_le::text AS quand, auteur_libelle AS par, destinataires AS a, copies AS cc, objet, texte, statut
-       FROM gestion_location_mail_avis WHERE lot_id = $1 ORDER BY envoye_le DESC, id DESC LIMIT 200`, [lotId]);
+  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec'; pieces?: { id: number; nom: string; taille: number }[] }>(
+    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut${await sqlPiecesDuMail('m')}
+       FROM gestion_location_mail_avis m WHERE m.lot_id = $1 ORDER BY m.envoye_le DESC, m.id DESC LIMIT 200`, [lotId]);
   return rows.map((r) => ({ ...r, id: Number(r.id) }));
 }
 
@@ -353,8 +373,8 @@ export async function mailsAvisDuBien(lotId: number): Promise<MailAvisDuBien[]> 
  */
 export async function mailsAvisDuLocataire(wippimmoId: string): Promise<MailAvisDuBien[]> {
   if ((wippimmoId ?? '').trim() === '' || !(await mailsAvisDisponibles())) return [];
-  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec' }>(
-    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut
+  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec'; pieces?: { id: number; nom: string; taille: number }[] }>(
+    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut${await sqlPiecesDuMail('m')}
        FROM gestion_location_mail_avis m
       WHERE m.occupation_ids && ARRAY(SELECT o.id FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
                                        WHERE l.wippimmo_id = $1)
@@ -369,8 +389,8 @@ export async function mailsAvisDuLocataire(wippimmoId: string): Promise<MailAvis
  */
 export async function mailsAvisDuProprietaire(wippimmoId: string): Promise<MailAvisDuBien[]> {
   if ((wippimmoId ?? '').trim() === '' || !(await mailsAvisDisponibles()) || !(await proprietairesDuMailDisponible())) return [];
-  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec' }>(
-    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut
+  const { rows } = await query<{ id: string; sorte: MailAvis['sorte']; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: 'envoye' | 'echec'; pieces?: { id: number; nom: string; taille: number }[] }>(
+    `SELECT m.id::text, m.sorte, m.envoye_le::text AS quand, m.auteur_libelle AS par, m.destinataires AS a, m.copies AS cc, m.objet, m.texte, m.statut${await sqlPiecesDuMail('m')}
        FROM gestion_location_mail_avis m
       WHERE m.proprietaire_ids && ARRAY(SELECT p.id FROM gestion_annuaire_proprietaire p WHERE p.wippimmo_id = $1)
       ORDER BY m.envoye_le DESC, m.id DESC LIMIT 200`, [wippimmoId]);

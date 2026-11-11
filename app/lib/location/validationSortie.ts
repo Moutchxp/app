@@ -12,7 +12,7 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-import { adressesUniques, composerMailLocation, paragrapheCopropriete, prenomNom, type MailAvis, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, prenomNom, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { dateFrPreavis } from './preavis';
 import type { mentionEnvoyePar } from './mentionEnvoyePar';
 
@@ -121,6 +121,13 @@ export interface DonneesValidationSortie {
   /** Tout le logement est libéré (aucun locataire ne reste). */
   vacant: boolean;
   copropriete: boolean | null;
+  /**
+   * 🔴 Arno (11/11/2026) — la RETENUE DE 20 % du dépôt de garantie (la case de la fenêtre) : cochée, le paragraphe (modifiable) en fin de
+   * compte rendu des LOCATAIRES, la phrase courte chez les PROPRIÉTAIRES ; décochée ou absente : rien.
+   */
+  retenue?: { appliquee: boolean; paragrapheLocataire: string } | null;
+  /** 🔴 Arno (11/11/2026) — les pièces jointes : les MÊMES à chaque mail (locataires, propriétaires, copie interne). */
+  pieces?: readonly PieceJointe[];
   /** Les parties COCHÉES (un mail chacune, si elle a une adresse). */
   destinataires: readonly PartieSortie[];
   /** Les locataires concernés (pour la copie interne seulement). */
@@ -133,19 +140,21 @@ export interface DonneesValidationSortie {
 }
 
 /** Les paragraphes du mail d'UNE partie : rien d'un tiers dans les textes fixes ; le compte rendu tel qu'écrit (contrôlé à part). PUR. */
-export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'prenom'>, d: Pick<DonneesValidationSortie, 'adresse' | 'date' | 'compteRendu' | 'vacant' | 'copropriete'>): string[] {
+export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'prenom'>, d: Pick<DonneesValidationSortie, 'adresse' | 'date' | 'compteRendu' | 'vacant' | 'copropriete' | 'retenue'>): string[] {
   const date = dateFrPreavis(d.date);
   const cr = paragraphesLibres(d.compteRendu);
   const compteRendu = cr.length > 0 ? ['Compte rendu de l’état des lieux de sortie :', ...cr] : [];
   if (p.famille === 'locataire') {
     return [`Bonjour ${prenomNom(p)},`,
       `L’état des lieux de sortie de votre logement situé ${d.adresse} a été réalisé le ${date}. Votre sortie du logement est enregistrée à cette date.`,
-      ...compteRendu, ...paragrapheCopropriete(d.copropriete, 'sortie'),
+      // 🔴 Arno (11/11/2026) — la provision de 20 % : SEULEMENT si la case « Retenue de 20 % » est cochée (elle remplace le paragraphe
+      // automatique d'avant) ; le texte, modifiable, est celui de la fenêtre.
+      ...compteRendu, ...(d.retenue?.appliquee && d.retenue.paragrapheLocataire.trim() !== '' ? paragraphesLibres(d.retenue.paragrapheLocataire) : []),
       'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
   }
   return [`Bonjour ${prenomNom(p)},`,
     `L’état des lieux de sortie de votre bien situé ${d.adresse} a été réalisé le ${date}.${d.vacant ? ' Le logement est désormais libre de toute occupation.' : ''}`,
-    ...compteRendu, 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
+    ...compteRendu, ...(d.retenue?.appliquee ? [PHRASE_RETENUE_PROPRIETAIRE] : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
 }
 
 /** Le mail d'UNE partie : elle seule en destinataire, aucune copie. `null` : pas d'adresse e-mail. PUR. */
@@ -153,7 +162,8 @@ export function mailDeLaPartie(p: PartieSortie, d: DonneesValidationSortie): Mai
   const a = adressesUniques(p.emails);
   if (a.length === 0) return null;
   const c = composerMailLocation(paragraphesPour(p, d), d.qui, d.signature);
-  return { sorte: p.famille === 'locataire' ? 'sortie_edls_locataire' : 'sortie_edls_proprietaire', de: d.expediteur, a, cc: [], objet: objetValidationSortie(d.adresse), texte: c.texte, html: c.html };
+  return { sorte: p.famille === 'locataire' ? 'sortie_edls_locataire' : 'sortie_edls_proprietaire', de: d.expediteur, a, cc: [], objet: objetValidationSortie(d.adresse), texte: c.texte, html: c.html,
+    ...((d.pieces ?? []).length > 0 ? { pieces: [...(d.pieces ?? [])] } : {}) };
 }
 
 /**
@@ -172,8 +182,11 @@ export function copieInterneSortie(d: DonneesValidationSortie, partis: readonly 
     partis.length === 0 ? 'Aucun mail aux locataires ni aux propriétaires : copie interne seule.'
       : `Mails partis séparément (un destinataire par mail, sans copie visible) :\n${liste.join('\n')}`,
     ...(cr.length > 0 ? ['Compte rendu de l’état des lieux de sortie :', ...cr] : ['Aucun compte rendu saisi.']),
+    d.retenue?.appliquee ? 'Retenue de 20 % du dépôt de garantie : appliquée (article 22).' : 'Retenue de 20 % du dépôt de garantie : non appliquée.',
+    ...((d.pieces ?? []).length > 0 ? [`Pièces jointes : ${(d.pieces ?? []).map((x) => x.nom).join(', ')}.`] : []),
   ], d.qui, d.signature);
-  return { sorte: 'sortie_edls_interne', de: d.expediteur, a, cc: [], objet: `${PREFIXE_COPIE_INTERNE_SORTIE}${objetValidationSortie(d.adresse)}`, texte: c.texte, html: c.html };
+  return { sorte: 'sortie_edls_interne', de: d.expediteur, a, cc: [], objet: `${PREFIXE_COPIE_INTERNE_SORTIE}${objetValidationSortie(d.adresse)}`, texte: c.texte, html: c.html,
+    ...((d.pieces ?? []).length > 0 ? { pieces: [...(d.pieces ?? [])] } : {}) };
 }
 
 /** Tous les mails de la validation, dans l'ordre : LOCATAIRES, PROPRIÉTAIRES, puis la copie interne. PUR. */
@@ -187,4 +200,61 @@ export function mailsValidationSortie(d: DonneesValidationSortie): { parties: { 
 export function alertesDuCompteRendu(compteRendu: string, destinataires: readonly PartieSortie[], parties: readonly PartieSortie[]): { cle: string; libelle: string; tiers: TiersDansLeTexte[]; phrase: string }[] {
   return destinataires.map((p) => ({ p, tiers: coordonneesDeTiers(compteRendu, p, parties) })).filter((x) => x.tiers.length > 0)
     .map(({ p, tiers }) => ({ cle: p.cle, libelle: prenomNom(p), tiers, phrase: phraseAlerte(tiers) }));
+}
+
+// ── 🔴 Arno (11/11/2026) — LA RETENUE DE 20 % DU DÉPÔT DE GARANTIE (article 22) ────────────────────────────────────────────────
+
+/** Le paragraphe des LOCATAIRES, mot pour mot (modifiable avant l'envoi), apostrophes typographiques. */
+export const PARAGRAPHE_RETENUE_LOCATAIRE = 'Le logement étant situé dans un immeuble en copropriété, et conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989, une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation définitive des comptes annuels de la copropriété couvrant votre période d’occupation. Une régularisation des charges sera alors établie au prorata de votre durée d’occupation. Ce solde vous sera restitué intégralement si les dépenses réelles de la copropriété correspondent aux provisions versées, ou ajusté en fonction de ces dépenses réelles, dans le mois qui suit l’approbation des comptes.';
+/** La phrase des PROPRIÉTAIRES, à la place du paragraphe. */
+export const PHRASE_RETENUE_PROPRIETAIRE = 'Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété.';
+export const MOTIF_RETENUE_IMPOSSIBLE = 'Retenue impossible : le bien n’est pas en copropriété (article 22).';
+export const ALERTE_COPROPRIETE_NON_RENSEIGNEE = 'Copropriété non renseignée sur la fiche du bien : vérifiez avant d’appliquer la retenue.';
+
+/** La case « Retenue de 20 % », selon la copropriété SAISIE sur la fiche du bien. PUR. */
+export function etatRetenue(copropriete: boolean | null): 'impossible' | 'a_verifier' | 'possible' {
+  return copropriete === false ? 'impossible' : copropriete === null ? 'a_verifier' : 'possible';
+}
+
+// ── 🔴 Arno (11/11/2026) — LES PIÈCES JOINTES ───────────────────────────────────────────────────────────────────────────────
+
+/** Une pièce prête à partir : ses octets ne viennent qu'au moment de l'envoi (stockage objet). */
+export interface PieceJointe { id: number; nom: string; typeMime: string; taille: number; octets?: Uint8Array }
+
+/** 10 Mo par fichier, 15 Mo au total : un mail encodé (≈ × 1,37) reste sous la limite de 25 Mo de Gmail. */
+export const PIECE_MAX_OCTETS = 10 * 1024 * 1024;
+export const PIECES_MAX_OCTETS = 15 * 1024 * 1024;
+/** Types acceptés : PDF, JPG, PNG, HEIC, Word — par type annoncé OU par extension (un navigateur ne connaît pas toujours HEIC). */
+const TYPES_PIECE: Record<string, string> = {
+  pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', heif: 'image/heif',
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+export const TYPES_PIECE_LIBELLE = 'PDF, JPG, PNG, HEIC, Word';
+export const ACCEPT_PIECES = '.pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx,application/pdf,image/jpeg,image/png,image/heic,image/heif,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const mo = (octets: number): string => `${(octets / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo`;
+
+/** Le type normalisé d'une pièce acceptée, ou `null` (refusée). PUR. */
+export function typePiece(nom: string, typeMime: string | null | undefined): string | null {
+  const ext = (nom.split('.').pop() ?? '').toLowerCase();
+  const t = (typeMime ?? '').toLowerCase().trim();
+  const parType = Object.values(TYPES_PIECE).includes(t) ? t : null;
+  return parType ?? (nom.includes('.') ? TYPES_PIECE[ext] ?? null : null);
+}
+
+/** Le contrôle d'une pièce de plus : type, taille, total. `null` = acceptée. PUR. */
+export function refusPiece(p: { nom: string; typeMime: string | null; taille: number }, dejaJointes: readonly { taille: number }[]): string | null {
+  if (typePiece(p.nom, p.typeMime) === null) return `« ${p.nom} » : type refusé (acceptés : ${TYPES_PIECE_LIBELLE}).`;
+  if (!(p.taille > 0)) return `« ${p.nom} » : fichier vide.`;
+  if (p.taille > PIECE_MAX_OCTETS) return `« ${p.nom} » : ${mo(p.taille)}, au-delà de ${mo(PIECE_MAX_OCTETS)} par fichier.`;
+  const total = dejaJointes.reduce((n, x) => n + x.taille, 0) + p.taille;
+  if (total > PIECES_MAX_OCTETS) return `« ${p.nom} » : le total des pièces dépasserait ${mo(PIECES_MAX_OCTETS)} (${mo(total)}).`;
+  return null;
+}
+
+export const AVERTISSEMENT_PIECES = 'Vérifiez que les pièces jointes ne contiennent pas de coordonnées qui ne doivent pas être transmises à ce destinataire.';
+
+/** Le filtre « États des lieux » de la fenêtre Drive : le nom du fichier ou son chemin parle d'état des lieux. PUR. */
+export function estEtatDesLieux(nom: string, chemin: readonly string[] = []): boolean {
+  const t = normaliser([...chemin, nom].join(' / '));
+  return /etats? des lieux|\bedls?\b|\bedl[_\- ]/.test(t);
 }

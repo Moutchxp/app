@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { alertesDuCompteRendu, coordonneesDeTiers, mailsValidationSortie, verifierValidation, type PartieSortie } from './validationSortie';
+import {
+  alertesDuCompteRendu, coordonneesDeTiers, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
+  PHRASE_RETENUE_PROPRIETAIRE, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
+} from './validationSortie';
 
 /** 🔴🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie » : contrôles, alerte de coordonnées, confidentialité des mails. PUR. */
 const ALICE: PartieSortie = { cle: 'loc-11', famille: 'locataire', nom: 'BERNARD Alice', prenom: null, emails: ['alice@exemple.test'], telephones: ['06 55 66 77 88'], occupationId: 11 };
@@ -77,5 +80,50 @@ describe('🔴 les mails : un par destinataire, aucune coordonnée d’un tiers,
     const m = mailsValidationSortie(D({ destinataires: [{ ...PAUL, emails: [] }] }));
     expect(m.parties).toEqual([]);
     expect(m.sansEmail).toEqual(['Paul BERNARD']);
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026, 468) — la retenue de 20 % et les pièces jointes', () => {
+  it('case cochée : le paragraphe EXACT en fin de compte rendu des LOCATAIRES, la phrase courte chez les PROPRIÉTAIRES, la mention dans la copie interne ; apostrophes typographiques', () => {
+    expect(PARAGRAPHE_RETENUE_LOCATAIRE).not.toContain("'");
+    expect(PARAGRAPHE_RETENUE_LOCATAIRE.startsWith('Le logement étant situé dans un immeuble en copropriété, et conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989')).toBe(true);
+    const m = mailsValidationSortie(D({ destinataires: [ALICE, JEAN], retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } }));
+    const loc = m.parties[0].mail.texte;
+    expect(loc.indexOf('Compteurs relevés.')).toBeLessThan(loc.indexOf(PARAGRAPHE_RETENUE_LOCATAIRE));
+    expect(loc).not.toContain(PHRASE_RETENUE_PROPRIETAIRE);
+    const pro = m.parties[1].mail.texte;
+    expect(pro).toContain('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété.');
+    expect(pro).not.toContain('article 22');
+    expect(m.interne?.texte).toContain('Retenue de 20 % du dépôt de garantie : appliquée (article 22).');
+  });
+  it('le paragraphe est modifiable ; case décochée : ni paragraphe, ni phrase (et plus le paragraphe automatique d’avant)', () => {
+    const modifie = mailsValidationSortie(D({ destinataires: [ALICE], copropriete: true, retenue: { appliquee: true, paragrapheLocataire: 'Provision de 20 % conservée (texte revu).' } }));
+    expect(modifie.parties[0].mail.texte).toContain('Provision de 20 % conservée (texte revu).');
+    const sans = mailsValidationSortie(D({ destinataires: [ALICE, JEAN], copropriete: true, retenue: { appliquee: false, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } }));
+    for (const { mail } of sans.parties) { expect(mail.texte).not.toContain('20 %'); }
+    expect(sans.interne?.texte).toContain('Retenue de 20 % du dépôt de garantie : non appliquée.');
+  });
+  it('la case selon la copropriété de la fiche : Non → impossible ; Non renseigné → à vérifier ; Oui → possible', () => {
+    expect([etatRetenue(false), etatRetenue(null), etatRetenue(true)]).toEqual(['impossible', 'a_verifier', 'possible']);
+    expect(MOTIF_RETENUE_IMPOSSIBLE).toBe('Retenue impossible : le bien n’est pas en copropriété (article 22).');
+  });
+  it('les MÊMES pièces à chaque mail (locataires, propriétaires, copie interne) ; aucune coordonnée d’un tiers ajoutée par la retenue', () => {
+    const pieces = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 10 }, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 20 }];
+    const m = mailsValidationSortie(D({ destinataires: [ALICE, JEAN], pieces, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } }));
+    for (const x of [...m.parties.map((p) => p.mail), m.interne!]) expect(x.pieces?.map((p) => p.nom)).toEqual(['edl.pdf', 'salon.jpg']);
+    for (const { partie, mail } of m.parties) {
+      for (const tiers of TOUS.filter((p) => p.cle !== partie.cle)) {
+        for (const c of coordonneesDe(tiers).filter((x) => !coordonneesDe(partie).includes(x))) expect(mail.texte).not.toContain(c);
+      }
+    }
+  });
+  it('types et tailles : PDF, JPG, PNG, HEIC, Word ; 10 Mo par fichier, 15 Mo au total ; filtre « États des lieux »', () => {
+    expect(['a.pdf', 'b.JPG', 'c.png', 'd.heic', 'e.doc', 'f.docx'].map((n) => typePiece(n, ''))).toEqual(['application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+    expect(typePiece('g.xlsx', '')).toBeNull();
+    expect(refusPiece({ nom: 'a.pdf', typeMime: 'application/pdf', taille: PIECE_MAX_OCTETS + 1 }, [])).toContain('par fichier');
+    expect(refusPiece({ nom: 'a.pdf', typeMime: 'application/pdf', taille: 6 * 1024 * 1024 }, [{ taille: PIECES_MAX_OCTETS - 1024 }])).toContain('le total des pièces dépasserait 15 Mo');
+    expect(refusPiece({ nom: 'a.pdf', typeMime: 'application/pdf', taille: 1024 }, [])).toBeNull();
+    expect([estEtatDesLieux('EDL sortie.pdf'), estEtatDesLieux('scan.pdf', ['État des lieux']), estEtatDesLieux('bail.pdf')]).toEqual([true, true, false]);
   });
 });

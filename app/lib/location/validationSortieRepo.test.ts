@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 /** 🔴🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie », le serveur : refus AVANT toute écriture, un mail par destinataire, historiques. */
 const h = vi.hoisted(() => ({
   query: vi.fn(), enregistrerSortie: vi.fn(), envoyerSerie: vi.fn(), sans467: false,
+  copro: false as boolean | null, piecesLues: { ok: true, pieces: [] } as unknown, metas: [] as unknown[],
+}));
+vi.mock('./piecesSortieRepo', () => ({
+  MOTIF_SANS_468: 'sans 468', piecesSortieDisponibles: async () => true,
+  metaPieces: async () => h.metas, piecesPourEnvoi: async () => h.piecesLues,
 }));
 vi.mock('../db/client', () => ({ query: h.query }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@exemple.test' }) }));
@@ -11,7 +16,7 @@ vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async ()
 vi.mock('./mailsPreavisSortieRepo', () => ({
   MOTIF_SANS_457: 'sans 457', mailsAvisDisponibles: async () => true, proprietairesDuMailDisponible: async () => !h.sans467,
   signatureEcran: async () => ({ brute: '', ecran: { html: '', texte: '' } }), envoyerSerie: h.envoyerSerie,
-  logementDe: async () => ({ lotId: 7, adresse: '4 rue Fictive', proprietaire: 'DUPONT Jean', enGestion: false, copropriete: false }),
+  logementDe: async () => ({ lotId: 7, adresse: '4 rue Fictive', proprietaire: 'DUPONT Jean', enGestion: false, copropriete: h.copro }),
 }));
 const BAIL = { lotId: 7, adresse: '4 rue Fictive', locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }, { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2022-09-01' }], annexes: [] };
 vi.mock('./sortieLocatairesRepo', () => ({
@@ -28,7 +33,7 @@ import { apercuValidationSortie, MOTIF_SANS_467, validerSortieEdls } from './val
 const AUTEUR = { id: 1, libelle: 'Arno Test' };
 const DEMANDE = { occupationId: 11, realise: true, date: '2026-11-10', sortants: [11, 12], compteRendu: 'Logement rendu propre.', destinataires: ['loc-11', 'pro-5', 'pro-99'], informerPartenaires: true };
 beforeEach(() => {
-  h.sans467 = false;
+  h.sans467 = false; h.copro = false; h.metas = []; h.piecesLues = { ok: true, pieces: [] };
   h.query.mockReset().mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : { rows: [] }));
   h.enregistrerSortie.mockReset().mockResolvedValue({ etat: 'ok', data: { bail: BAIL, date: '2026-11-10', sortants: BAIL.locataires, occupationIds: [11, 12], vacant: true, restants: [], annexes: [] } });
   h.envoyerSerie.mockReset().mockImplementation(async (mails: { sorte: string; objet: string; a: string[]; cc: string[] }[]) => mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, envoye: true, motif: null })));
@@ -79,5 +84,44 @@ describe('la validation', () => {
     const r = await validerSortieEdls({ ...DEMANDE, destinataires: [] }, AUTEUR);
     expect(r.etat).toBe('ok');
     expect(h.envoyerSerie.mock.calls.map(([m]) => m[0].sorte)).toEqual(['sortie_edls_interne']);
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026, 468) — pièces jointes et retenue de 20 %, côté serveur', () => {
+  const PIECES = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 3 }, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 4 }];
+  it('les MÊMES pièces, avec leurs octets, dans CHAQUE mail (locataire, propriétaire, copie interne) ; la sortie validée et la retenue inscrites', async () => {
+    h.copro = true; h.metas = PIECES;
+    h.piecesLues = { ok: true, pieces: PIECES.map((p) => ({ ...p, octets: new Uint8Array([1, 2, 3]) })) };
+    const r = await validerSortieEdls({ ...DEMANDE, pieceIds: [1, 2], retenue: true, paragrapheRetenue: 'Provision de 20 % conservée.' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { retenue: true } });
+    const mails = h.envoyerSerie.mock.calls.map(([m]) => m[0] as { sorte: string; texte: string; pieces?: { nom: string; octets?: Uint8Array }[] });
+    expect(mails.map((m) => [m.sorte, (m.pieces ?? []).map((p) => [p.nom, p.octets?.length])])).toEqual([
+      ['sortie_edls_locataire', [['edl.pdf', 3], ['salon.jpg', 3]]], ['sortie_edls_proprietaire', [['edl.pdf', 3], ['salon.jpg', 3]]], ['sortie_edls_interne', [['edl.pdf', 3], ['salon.jpg', 3]]]]);
+    expect(mails[0].texte).toContain('Provision de 20 % conservée.');
+    expect(mails[1].texte).toContain('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété.');
+    const inscrite = h.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO gestion_location_sortie_validee'));
+    expect(inscrite?.[1]).toEqual([7, [11, 12], '2026-11-10', true, [1, 2], 1, 'Arno Test']);
+  });
+  it('aperçu : chaque mail annonce ses pièces ; la retenue décochée n’ajoute rien', async () => {
+    h.copro = true; h.metas = PIECES;
+    const a = await apercuValidationSortie({ ...DEMANDE, pieceIds: [1, 2], retenue: false }, AUTEUR);
+    expect(a.etat === 'ok' && a.data.mails.map((m) => m.pieces)).toEqual([['edl.pdf', 'salon.jpg'], ['edl.pdf', 'salon.jpg'], ['edl.pdf', 'salon.jpg']]);
+    expect(a.etat === 'ok' && a.data.mails.filter((m) => m.famille !== 'interne').some((m) => m.texte.includes('20 %'))).toBe(false);
+  });
+  it('copropriété Non : la retenue est REFUSÉE, rien n’est écrit ; Non renseigné : permise', async () => {
+    h.copro = false;
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true }, AUTEUR)).toMatchObject({ etat: 'refus', motif: 'Retenue impossible : le bien n’est pas en copropriété (article 22).' });
+    expect(h.enregistrerSortie).not.toHaveBeenCalled();
+    h.copro = null;
+    expect((await validerSortieEdls({ ...DEMANDE, retenue: true }, AUTEUR)).etat).toBe('ok');
+  });
+  it('une pièce illisible ou d’un autre bail : refus AVANT la sortie, rien n’est écrit ni envoyé', async () => {
+    h.copro = true; h.metas = PIECES;
+    h.piecesLues = { ok: false, motif: 'La pièce « edl.pdf » est illisible sur le stockage : rien n’est parti.' };
+    expect(await validerSortieEdls({ ...DEMANDE, pieceIds: [1, 2] }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'pieces' });
+    expect(h.enregistrerSortie).not.toHaveBeenCalled();
+    expect(h.envoyerSerie).not.toHaveBeenCalled();
+    h.metas = [PIECES[0]];
+    expect(await apercuValidationSortie({ ...DEMANDE, pieceIds: [1, 99] }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'pieces' });
   });
 });

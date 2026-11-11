@@ -187,6 +187,11 @@ describe('🔴 Option A — compte Gestion SANS le droit « Location » : lectur
     expect(postsLocation).toEqual([]);
     // l'encart du logement est lu, lui aussi, par la route de la Gestion
     expect(lecturesLocation).toBe(0);
+    // 🔴 Arno (11/11/2026) — « Voir la fiche du bien » en PREMIER ; dans la Gestion, la fiche du bien de l'annuaire.
+    const liens = [...ligneC.querySelectorAll('.pva-liens a')];
+    expect(liens[0].textContent).toBe('Voir la fiche du bien');
+    expect(liens[0].getAttribute('href')).toBe('/admin/gestion?ecran=annuaire&fiche=lot-7');
+    expect(liens.map((x) => x.textContent).slice(1).every((t) => t?.startsWith('Voir la fiche du locataire') || t === 'Écran de sortie')).toBe(true);
   });
   it('avec le droit « Location » : les mêmes boutons sont actifs, sans la mention', async () => {
     const c = await gestion('?ecran=partage', true);

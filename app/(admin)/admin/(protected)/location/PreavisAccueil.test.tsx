@@ -630,3 +630,152 @@ describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec
     expect(container.querySelector('[data-blocage-email-locataire]')).toBeNull();
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de sortie » : pièces jointes et retenue de 20 % (à l’écran)', () => {
+  let copro: boolean | null = true;
+  let postsPieces: { type: string; corps: unknown }[] = [];
+  let reponseDrive: unknown = null;
+  const PIECE = (id: number, nom: string, provenance: 'drive' | 'ordinateur', taille = 2048) => ({ id, nom, typeMime: 'application/pdf', taille, provenance });
+  const brancher = (): void => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const s = String(u);
+      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: copro });
+      if (s.includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
+      if (s.startsWith('/api/admin/location/pieces-sortie')) {
+        if ((init?.method ?? 'GET') === 'GET') return { ok: true, status: 200, json: async () => reponseDrive } as unknown as Response;
+        if (init?.body instanceof FormData) {
+          const noms = (init.body.getAll('fichier') as File[]).map((f) => f.name);
+          postsPieces.push({ type: 'ordinateur', corps: noms });
+          return ok({ pieces: noms.map((n, i) => PIECE(10 + i + postsPieces.length * 5, n, 'ordinateur')), refus: [] });
+        }
+        const c = JSON.parse(String(init?.body)) as { driveIds: string[] };
+        postsPieces.push({ type: 'drive', corps: c.driveIds });
+        return ok({ pieces: c.driveIds.map((id, i) => PIECE(100 + i, `${id}.pdf`, 'drive')), refus: [] });
+      }
+      if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        posts.push(c);
+        return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], retenue: c.retenue, mails: [
+          { sorte: 'sortie_edls_locataire', objet: 'État des lieux de sortie — 4 rue Fictive', a: ['alice@exemple.test'], cc: [], texte: 'Bonjour', cle: 'loc-11', famille: 'locataire', pieces: ['salon.jpg'] }] });
+      }
+      return base(u, init);
+    }) as unknown as typeof fetch;
+  };
+  const ouvrir = async (): Promise<Element> => {
+    brancher();
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    clic('button[data-valider-sortie]');
+    await attendre(); await attendre();
+    return document.querySelector('[data-fenetre-validation-sortie]')!;
+  };
+  beforeEach(() => { copro = true; postsPieces = []; reponseDrive = null; });
+
+  it('« Voir la fiche du bien » en PREMIER, avant « Voir la fiche du locataire » et « Écran de sortie » (rien de retiré)', async () => {
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    const liens = [...container.querySelectorAll('[data-ligne-depliee="C"] .pva-liens a')];
+    expect(liens.map((a) => a.textContent)).toEqual(['Voir la fiche du bien', 'Voir la fiche du locataire (BERNARD Alice)', 'Voir la fiche du locataire (BERNARD Paul)', 'Écran de sortie']);
+    expect(liens[0].getAttribute('href')).toBe('/admin/location/bien/7'); // contexte Location ; en Gestion : la fiche de l'annuaire
+  });
+
+  it('retenue — copropriété Oui : cochée, paragraphe modifiable ; décochée : il disparaît ; le choix part avec l’aperçu', async () => {
+    const f = await ouvrir();
+    const caseR = f.querySelector('[data-retenue-case]') as HTMLInputElement;
+    expect([caseR.checked, caseR.disabled]).toEqual([true, false]);
+    const para = f.querySelector('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement;
+    expect(para.value.startsWith('Le logement étant situé dans un immeuble en copropriété, et conformément à l’article 22')).toBe(true);
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(para, 'Provision conservée.'); para.dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(posts.at(-1)).toMatchObject({ action: 'apercu-validation-sortie', retenue: true, paragrapheRetenue: 'Provision conservée.' });
+    act(() => (document.querySelector('button[data-revenir-validation]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-retenue-case]') as HTMLInputElement).click());
+    expect(document.querySelector('textarea[data-retenue-paragraphe]')).toBeNull();
+  });
+  it('retenue — copropriété Non : case grisée et « Retenue impossible » ; Non renseigné : utilisable, alerte orange et lien vers la fiche du bien', async () => {
+    copro = false;
+    let f = await ouvrir();
+    expect((f.querySelector('[data-retenue-case]') as HTMLInputElement).disabled).toBe(true);
+    expect(f.querySelector('[data-retenue-impossible]')?.textContent).toBe('Retenue impossible : le bien n’est pas en copropriété (article 22).');
+    act(() => root.unmount()); root = createRoot(container);
+    copro = null;
+    f = await ouvrir();
+    const c = f.querySelector('[data-retenue-case]') as HTMLInputElement;
+    expect([c.disabled, c.checked]).toEqual([false, false]);
+    expect(f.querySelector('[data-retenue-a-verifier] a[data-lien-copropriete]')?.getAttribute('href')).toBe('/admin/location/bien/7');
+  });
+
+  it('pièces — « Parcourir », glisser-déposer, « Depuis le Drive du bien » : une seule liste (nom, taille, provenance), « Retirer » ; trop lourd refusé à l’écran', async () => {
+    reponseDrive = { etat: 'ok', data: { tronque: false, fichiers: [
+      { id: 'EDLSORTIE0001', nom: 'EDL sortie.pdf', typeMime: 'application/pdf', taille: 1000, modifieLe: '2026-11-10T09:00:00Z', chemin: ['6 Locataires'], joignable: true, etatDesLieux: true },
+      { id: 'SALON0000001', nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 2000, modifieLe: '2026-11-08T09:00:00Z', chemin: [], joignable: true, etatDesLieux: false }] } };
+    const f = await ouvrir();
+    // ① Parcourir mon ordinateur
+    const champ = f.querySelector('input[data-pieces-champ]') as HTMLInputElement;
+    Object.defineProperty(champ, 'files', { configurable: true, value: [new File(['%PDF'], 'compte-rendu.pdf', { type: 'application/pdf' })] });
+    await act(async () => { champ.dispatchEvent(new Event('change', { bubbles: true })); });
+    await attendre();
+    // ② Glisser-déposer
+    const zone = f.querySelector('[data-pieces-zone]')!;
+    const depot = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(depot, 'dataTransfer', { value: { files: [new File(['JPG'], 'cuisine.jpg', { type: 'image/jpeg' })] } });
+    await act(async () => { zone.dispatchEvent(depot); });
+    await attendre();
+    // ③ Depuis le Drive du bien : liste, filtre « États des lieux », cocher, « Joindre »
+    await act(async () => { (f.querySelector('[data-pieces-drive]') as HTMLButtonElement).click(); });
+    await attendre();
+    const fen = document.querySelector('[data-fenetre-drive-bien]')!;
+    expect([...fen.querySelectorAll('[data-fichier-drive]')].map((x) => x.getAttribute('data-fichier-drive'))).toEqual(['EDLSORTIE0001', 'SALON0000001']);
+    act(() => (fen.querySelector('[data-drive-filtre-edl]') as HTMLInputElement).click());
+    expect([...fen.querySelectorAll('[data-fichier-drive]')].map((x) => x.getAttribute('data-fichier-drive'))).toEqual(['EDLSORTIE0001']);
+    act(() => (fen.querySelector('[data-cocher-fichier="EDLSORTIE0001"]') as HTMLInputElement).click());
+    await act(async () => { (fen.querySelector('[data-drive-joindre]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(postsPieces).toEqual([{ type: 'ordinateur', corps: ['compte-rendu.pdf'] }, { type: 'ordinateur', corps: ['cuisine.jpg'] }, { type: 'drive', corps: ['EDLSORTIE0001'] }]);
+    const lignesP = () => [...f.querySelectorAll('[data-pieces-liste] [data-piece]')].map((x) => [x.querySelector('.vps-nom')?.textContent, x.querySelector('.vps-meta')?.textContent]);
+    expect(lignesP()).toEqual([['compte-rendu.pdf', '0 Mo · ordinateur'], ['cuisine.jpg', '0 Mo · ordinateur'], ['EDLSORTIE0001.pdf', '0 Mo · Drive']]);
+    // Retirer
+    act(() => (f.querySelector('[data-pieces-liste] [data-retirer-piece]') as HTMLButtonElement).click());
+    expect(lignesP().map((x) => x[0])).toEqual(['cuisine.jpg', 'EDLSORTIE0001.pdf']);
+    // Trop lourd : refusé à l'écran, rien n'est envoyé
+    const avant = postsPieces.length;
+    const gros = new File(['x'], 'enorme.pdf', { type: 'application/pdf' });
+    Object.defineProperty(gros, 'size', { value: 11 * 1024 * 1024 });
+    Object.defineProperty(champ, 'files', { configurable: true, value: [gros] });
+    await act(async () => { champ.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(postsPieces.length).toBe(avant);
+    expect(f.querySelector('[data-piece-refus]')?.textContent).toContain('au-delà de 10 Mo par fichier');
+    expect(f.querySelector('[data-regle-pieces]')?.textContent).toContain('PDF, JPG, PNG, HEIC, Word — 10 Mo par fichier, 15 Mo au total');
+  });
+  it('Drive : bien sans dossier connu → message clair et lien vers la fiche du bien', async () => {
+    reponseDrive = { etat: 'sans_dossier', lotId: 7, motif: 'Ce bien n’a pas de dossier Drive connu : renseignez-le sur la fiche du bien.' };
+    const f = await ouvrir();
+    await act(async () => { (f.querySelector('[data-pieces-drive]') as HTMLButtonElement).click(); });
+    await attendre();
+    const m = document.querySelector('[data-fenetre-drive-bien] [data-drive-sans-dossier]')!;
+    expect(m.textContent).toContain('renseignez-le sur la fiche du bien');
+    expect(m.querySelector('a[data-lien-fiche-bien-drive]')?.getAttribute('href')).toBe('/admin/location/bien/7');
+  });
+  it('récapitulatif : les pièces par mail et « Vérifiez que les pièces jointes ne contiennent pas de coordonnées… »', async () => {
+    const f = await ouvrir();
+    act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(document.querySelector('[data-pieces-mail]')?.textContent).toBe('📎 Pièces jointes : salon.jpg');
+    expect(document.querySelector('[data-avertissement-pieces]')?.textContent).toBe('Vérifiez que les pièces jointes ne contiennent pas de coordonnées qui ne doivent pas être transmises à ce destinataire.');
+  });
+});
+
+describe('🔴 Arno (11/11/2026, 468) — la fenêtre « Depuis le Drive du bien » s’ouvre AU-DESSUS de « Valider l’état des lieux de sortie »', () => {
+  it('son voile passe au-dessus de celui de la fenêtre de validation (z-index)', async () => {
+    const { CSS_PIECES_SORTIE } = await import('./PiecesSortie');
+    const { CSS_MODALE_ISSUE } = await import('./ModaleIssue');
+    const z = (css: string, sel: RegExp): number => Number(css.replace(/\s+/g, '').match(sel)?.[1] ?? NaN);
+    expect(z(CSS_PIECES_SORTIE, /\.mis-voile\.vps-voile\{z-index:(\d+)\}/)).toBeGreaterThan(z(CSS_MODALE_ISSUE, /\.mis-voile\{position:fixed;inset:0;z-index:(\d+)/));
+  });
+});

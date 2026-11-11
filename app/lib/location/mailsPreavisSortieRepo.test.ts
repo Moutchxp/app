@@ -230,7 +230,7 @@ describe('🔴 Arno (05/11/2026) — le mail ADHOC entre dans l’historique du 
     const q = query as unknown as ReturnType<typeof vi.fn>;
     q.mockImplementationOnce(async (sql: string, params: unknown[]) => {
       const s = sql.replace(/\s+/g, ' ');
-      expect(s).toContain('FROM gestion_location_mail_avis WHERE lot_id = $1');
+      expect(s).toContain('FROM gestion_location_mail_avis m WHERE m.lot_id = $1');
       expect(s).not.toMatch(/destinataires\s*@>|ANY\(destinataires|gestion_annuaire_contact/);
       expect(params).toEqual([7]);
       return { rows: [{ id: '3', sorte: 'preavis_adhoc', quand: '2026-11-05', par: 'x', a: ['gestion.criterimmo@gmail.com'], cc: [], objet: 'o', texte: 't', statut: 'envoye' }] };
@@ -520,5 +520,22 @@ describe('🔴 Arno (11/11/2026, lot 4, 467) — un mail entre dans l’historiq
     const sans = ecritures.find((e) => e.sql.includes('gestion_location_mail_avis'))!;
     expect(sans.sql).not.toContain('proprietaire_ids');
     expect(sans.params).toHaveLength(14);
+  });
+});
+
+describe('🔴 Arno (11/11/2026, 468) — les pièces jointes partent avec le mail, et le journal les garde', () => {
+  it('chaque pièce est jointe (nom, type, octets) ; `piece_ids` au journal ; une pièce sans octets : le mail n’est PAS parti (échec dit)', async () => {
+    const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
+    const m = { sorte: 'sortie_edls_locataire' as const, de: 'gestion@criterimmo.fr', a: ['alice@exemple.test'], cc: [], objet: 'État des lieux de sortie', texte: 't', html: '<p>t</p>',
+      pieces: [{ id: 4, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 3, octets: new Uint8Array([37, 80, 68]) }] };
+    const [ok] = await envoyerSerie([m], '', { lotId: 7, occupationIds: [11], auteur: AUTEUR }, deps);
+    expect(ok.envoye).toBe(true);
+    expect(envoyes[0].pieces?.map((p) => [p.nom, p.typeMime, Buffer.from(p.octets).toString()])).toEqual([['edl.pdf', 'application/pdf', '%PD']]);
+    const ligne = journalAvis().at(-1)!;
+    expect(ligne.sql).toContain(', piece_ids)');
+    expect(ligne.params.at(-1)).toEqual([4]);
+    const [ko] = await envoyerSerie([{ ...m, pieces: [{ id: 5, nom: 'perdue.pdf', typeMime: 'application/pdf', taille: 3 }] }], '', { lotId: 7, occupationIds: [11], auteur: AUTEUR }, deps);
+    expect(ko).toMatchObject({ envoye: false, motif: expect.stringContaining('pièce « perdue.pdf » illisible') });
+    expect(envoyes).toHaveLength(1);
   });
 });

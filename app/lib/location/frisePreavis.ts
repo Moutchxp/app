@@ -13,7 +13,9 @@ export interface EtapePreavis { cle: CleEtape; numero: number; titre: string; st
 
 const jourIso = (d: string | null | undefined): string | null => (d ? d.slice(0, 10) : null);
 
-export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string, o: { sortieValidee?: string | null } = {}): EtapePreavis[] {
+export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string,
+  /** 🔴 Arno (11/11/2026) — `retenue` : la retenue de 20 % appliquée à la sortie (« Retenue 20 % appliquée » à l'étape 4). */
+  o: { sortieValidee?: string | null; retenue?: boolean } = {}): EtapePreavis[] {
   const p = l.previsite ?? null;
   const previsite: Pick<EtapePreavis, 'statut' | 'libelle'> = p === null ? { statut: 'a_faire', libelle: 'À programmer' }
     : p.statut === 'effectuee' ? { statut: 'faite', libelle: p.rdv ? `Effectuée le ${creneauFr(p.rdv)}` : 'Effectuée' }
@@ -25,7 +27,7 @@ export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string, o: { s
     : jourEdl === null ? { statut: 'a_faire', libelle: 'À planifier' }
       : jourEdl < aujourdhui ? { statut: 'faite', libelle: `Réalisé le ${dateFrPreavis(jourEdl)}` }
         : { statut: 'programmee', libelle: `Prévu le ${dateFrPreavis(jourEdl)}${l.edls?.confieA ? ` — confié à ${l.edls.confieA}` : ''}` };
-  const sortie: Pick<EtapePreavis, 'statut' | 'libelle'> = o.sortieValidee ? { statut: 'faite', libelle: `Validée le ${dateFrPreavis(o.sortieValidee)}` }
+  const sortie: Pick<EtapePreavis, 'statut' | 'libelle'> = o.sortieValidee ? { statut: 'faite', libelle: `Validée le ${dateFrPreavis(o.sortieValidee)}${o.retenue ? ' — Retenue 20 % appliquée' : ''}` }
     : { statut: 'a_faire', libelle: `À valider — fin du préavis le ${dateFrPreavis(l.dateMax)}` };
   const etapes: Omit<EtapePreavis, 'enCours'>[] = [
     { cle: 'preavis', numero: 1, titre: 'Préavis reçu', statut: 'faite', libelle: `Reçu le ${dateFrPreavis(l.recuLe)} — fin du préavis le ${dateFrPreavis(l.dateMax)}` },

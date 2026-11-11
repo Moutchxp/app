@@ -18,7 +18,9 @@ import { EVENEMENT_ENVOI_LOCATION } from '../location/EnvoiAdhocMonga';
  */
 interface EnvoiLu { id: number; bailId: number; quand: string; par: string; n: number; message: string | null }
 /** Arno (05/11/2026) — un mail de préavis ou de sortie du bien (journal 457), lu par la même route. */
-interface AvisLu { id: number; sorte: string; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: string }
+interface AvisLu { id: number; sorte: string; quand: string; par: string; a: string[]; cc: string[]; objet: string; texte: string; statut: string;
+  /** 🔴 Arno (11/11/2026, 468) — les pièces jointes au mail, téléchargeables. */
+  pieces?: { id: number; nom: string; taille: number }[] }
 
 /** 🔴 Arno (10/11/2026, règle 7) — `locataire` (clé de la fiche) : l'historique d'un LOCATAIRE — ses mails Location, lus par ses occupations.
  *  🔴 Arno (11/11/2026, lot 4) — `proprietaire` (clé de la fiche) : l'historique d'un PROPRIÉTAIRE — ses mails Location (migration 467). */
@@ -129,6 +131,10 @@ function BandeMailsAvis({ avis }: { avis: AvisLu[] }) {
               <span className="hde-titre">{LIBELLE_AVIS[m.sorte] ?? m.sorte} — « {m.objet} »{m.statut === 'echec' ? ' — NON ENVOYÉ' : ''}</span>
               <span className="hde-message">À : {m.a.join(', ')}{m.cc.length > 0 ? ` · Cc : ${m.cc.join(', ')}` : ''} · validé par {m.par}</span>
               <details className="hde-details"><summary>Lire le mail</summary><div className="hde-message" data-texte-avis>{m.texte}</div></details>
+              {(m.pieces ?? []).length > 0 && (
+                <p className="hde-pieces" data-pieces-avis>📎 {(m.pieces ?? []).map((x, i) => (
+                  <span key={x.id}>{i > 0 ? ' · ' : ''}<a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} data-piece-avis={x.id}>{x.nom}</a> ({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span>))}</p>
+              )}
             </li>
           ))}
         </ul>

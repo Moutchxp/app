@@ -51,6 +51,8 @@ export interface MailAvis {
   html: string;
   /** 🔴 Arno (10/11/2026, pré-visite) — l’invitation d’agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;
+  /** 🔴 Arno (11/11/2026, 468) — les pièces jointes (compte rendu de l’état des lieux de sortie) : les octets ne sont lus qu’à l’envoi. */
+  pieces?: readonly { id: number; nom: string; typeMime: string; taille: number; octets?: Uint8Array }[];
   /** 🔴 Arno (10/11/2026, texte modifiable) — le texte PROPOSÉ quand la personne l'a modifié (le journal garde les deux) ; absent : non modifié. */
   texteOrigine?: string | null;
   /** 🔴 Arno (10/11/2026, texte modifiable) — ce que l'éditeur du récapitulatif montre (parties modifiables et protégées). Jamais envoyé. */

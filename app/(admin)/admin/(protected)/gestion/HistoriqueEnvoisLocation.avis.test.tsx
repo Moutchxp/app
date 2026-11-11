@@ -60,4 +60,18 @@ describe('🔴 Arno (10/11/2026, pré-visite, règle 7) — l’historique d’u
     expect(bande.querySelector('[data-mail-avis="7"]')?.textContent).toContain('Pré-visite — confirmation du rendez-vous (locataires) — « Rendez-vous de pré-visite »');
     expect(bande.querySelector('[data-mail-avis="8"]')?.textContent).toContain('Pré-visite — alerte « aucune pré-visite fixée » (collaborateurs) — « Alerte préavis — aucune pré-visite fixée » — NON ENVOYÉ');
   });
+  it('🔴 Arno (11/11/2026, 468) — un compte rendu de sortie avec ses pièces jointes : visibles avec le mail, téléchargeables ; lu aussi par la fiche d’un PROPRIÉTAIRE', async () => {
+    global.fetch = vi.fn(async () => ({ json: async () => ({ etat: 'ok', envois: [], avis: [
+      { id: 9, sorte: 'sortie_edls_proprietaire', quand: '2026-11-11T10:00:00Z', par: 'Arno', a: ['jean@exemple.test'], cc: [], objet: 'État des lieux de sortie — 4 rue Fictive', texte: 'Bonjour', statut: 'envoye',
+        pieces: [{ id: 4, nom: 'edl.pdf', taille: 1048576 }, { id: 5, nom: 'salon.jpg', taille: 524288 }] },
+    ] }) }) as unknown as Response) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(HistoriqueEnvoisLocation, { proprietaire: 'PRO 5' })); });
+    await act(async () => { await Promise.resolve(); });
+    expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain('envois-location?proprietaire=PRO%205');
+    act(() => (container.querySelector('[data-historique-mails-avis] button') as HTMLButtonElement).click());
+    const pieces = container.querySelector('[data-mail-avis="9"] [data-pieces-avis]')!;
+    expect([...pieces.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['edl.pdf', '/api/admin/location/pieces-sortie?piece=4'], ['salon.jpg', '/api/admin/location/pieces-sortie?piece=5']]);
+    expect(pieces.textContent).toContain('(1 Mo)');
+  });
 });

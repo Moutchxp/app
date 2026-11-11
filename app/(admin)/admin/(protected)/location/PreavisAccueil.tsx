@@ -261,7 +261,7 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
   const [envoiEdl, setEnvoiEdl] = useState(false);
   const [sortie, setSortie] = useState(false);
   // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : visibles, inactifs, « Réservé aux comptes Location ».
-  const { ecriture } = useContextePreavis();
+  const { ecriture, base } = useContextePreavis();
   const verdict = verifierEtatDesLieux(edl, [{ recuLe: l.recuLe, dateMax: l.dateMax }]);
   const enregistrerEdl = async (date: string): Promise<void> => {
     setEnvoiEdl(true); setRefusEdl(null);
@@ -339,6 +339,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
         ))}
       </ol>
       <p className="pva-liens">
+        {/* 🔴 Arno (11/11/2026) — EN PREMIER : la fiche du BIEN de ce préavis (Location : sa fiche ; Gestion : la fiche de l'annuaire), même style. */}
+        <a href={base === API_PREAVIS_LOCATION ? `/admin/location/bien/${l.lotId}` : `/admin/gestion?ecran=annuaire&fiche=lot-${l.lotId}`} data-lien-fiche-bien={l.lotId}>Voir la fiche du bien</a>
         {l.locataires.map((x) => (
           <a key={x.occupationId} href={`/admin/location/locataire/${x.locataireId}`} data-lien-fiche={x.locataireId}>
             Voir la fiche du locataire{l.locataires.length > 1 ? ` (${x.nom})` : ''}</a>

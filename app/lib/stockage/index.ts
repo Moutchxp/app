@@ -456,6 +456,26 @@ export async function deposerPieceBrouillon(
 }
 
 /**
+ * 🔴 Arno (11/11/2026, 468) — DÉPOSE une pièce jointe au compte rendu de l'état des lieux de sortie (Location) : `location/sorties/<occupation>/<uuid>.<ext>`.
+ * Le nom d'origine n'entre jamais dans la clé (il reste en base pour l'affichage). Le type est contrôlé en amont (`refusPiece`).
+ */
+export async function deposerPieceSortie(
+  contenu: Buffer | Uint8Array, typeMime: string, opts: { occupationId: number; tailleMaxOctets: number },
+): Promise<ResultatDepotEntrant> {
+  if (contenu.byteLength > opts.tailleMaxOctets) {
+    const mo = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    return { depose: false, motif: `pièce trop volumineuse : ${mo(contenu.byteLength)} Mo (maximum ${mo(opts.tailleMaxOctets)} Mo)` };
+  }
+  const infra = obtenir();
+  if (!infra) return { depose: false, motif: 'stockage non configuré' };
+  const type = typeMimeNormalise(typeMime) || 'application/octet-stream';
+  const ext = EXTENSIONS_GESTION[type] ?? ({ 'image/heic': 'heic', 'image/heif': 'heif' } as Record<string, string>)[type] ?? 'bin';
+  const cle = `location/sorties/${opts.occupationId}/${randomUUID()}.${ext}`;
+  await infra.client.send(new PutObjectCommand({ Bucket: infra.config.bucket, Key: cle, Body: contenu, ContentType: type }));
+  return { depose: true, cle, taille: contenu.byteLength, empreinte: empreinteSha256(contenu) };
+}
+
+/**
  * LOT 5-PJ-A — clé de la MINIATURE d'une pièce de gestion : `gestion/miniatures/<piece_id>/<uuid>.jpg`.
  *
  * 🔴 UN PRÉFIXE DISTINCT DE CELUI DES PIÈCES, ET C'EST TOUT L'ENJEU. Les originaux vivent sous
