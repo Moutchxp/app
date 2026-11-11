@@ -6,7 +6,8 @@ import { adresseApplication } from '../gestion/adresseApplication';
 import { tachesDisponibles } from '../gestion/schema';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
-import { destinatairesSortie } from './sortieLocatairesRepo';
+import { destinatairesSortie, encartDuBail } from './sortieLocatairesRepo';
+import { ficheDepuisEncart, texteMission } from './ficheIntervention';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { adressesUniques, copiesAvis, prenomNom } from './mailsPreavisSortie';
 import { locatairesAvis, logementDe, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
@@ -227,6 +228,16 @@ export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisi
   const copie = premier === undefined ? null : copieInterneLocataires({ sorte, de: c.expediteur, a: copiesAvis(c.expediteur, c.qui, []), objet, envois,
     locataires: c.locataires, paragraphes: paragraphesDe(premier), qui: c.qui, signature: c.signature });
   return copie === null ? envois : [...envois, copie];
+}
+
+/**
+ * 🔴 Arno (11/11/2026, lot 2) — la note de la tâche de pré-visite : la mission et la FICHE D'INTERVENTION (locataires, propriétaires,
+ * logement et annexes), lue dans l'encart du bail ; à défaut d'encart, le récapitulatif d'avant. Réservée aux COLLÈGUES.
+ */
+export async function noteMissionPrevisite(ids: readonly number[], c: Pick<Contexte, 'adresse' | 'locataires'> | null, preavis?: { recuLe: string; dateMax: string } | null): Promise<string> {
+  const e = ids.length === 0 ? null : await encartDuBail(ids[0]).catch(() => null);
+  if (e === null) return c === null ? 'Mission : pré-visite d’état des lieux de sortie.' : recapitulatifMission(c);
+  return texteMission({ mission: 'pré-visite d’état des lieux de sortie', fiche: ficheDepuisEncart(e), preavis: preavis ?? null });
 }
 
 export const recapitulatifMission = (c: Pick<Contexte, 'adresse' | 'locataires'>): string =>

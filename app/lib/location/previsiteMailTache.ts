@@ -76,13 +76,19 @@ export async function habillerMailTachePrevisite(o: {
     const html = brut.trim() === '' ? null
       : corpsPourEnvoi(/<\/body>/i.test(brut) ? brut.replace(/<\/body>/i, `${bloc}</body>`) : `${brut}${bloc}`, images).html;
     const texte = `${message.corps}\n\n${mention}${brute.trim() === '' ? '' : `\n\n-- \n${htmlVersTexte(brute).trim()}`}`;
+    // 🔴 Arno (11/11/2026, lot 2) — l'événement d'agenda des COLLÈGUES : la fiche d'intervention (note de la tâche) en description, et
+    //    l'ADRESSE EXACTE du logement pour lieu. (Les locataires ont leur propre invitation, sans aucune de ces informations.)
+    const { rows: tt } = await query<{ note: string | null; adresse: string | null; code_postal: string | null; commune: string | null }>(
+      `SELECT t.note, lo.adresse, lo.code_postal, lo.commune FROM gestion_tache t LEFT JOIN gestion_annuaire_lot lo ON lo.id = t.lot_id WHERE t.id = $1`, [o.tacheId]).catch(() => ({ rows: [] }));
+    const exacte = [tt[0]?.adresse, [tt[0]?.code_postal, tt[0]?.commune].filter((x) => x && x.trim() !== '').join(' ')].filter((x) => x && x.trim() !== '').join(', ');
+    const lieu = exacte !== '' ? exacte : (o.adresse ?? '');
+    const description = `${(tt[0]?.note ?? '').trim() !== '' ? `${tt[0]!.note!.trim()}\n\n` : ''}Répondez par les boutons Accepter / Refuser du mail.`;
     const ics = o.sorte === 'confirmation' || o.heure === null ? [] : [{
       nom: NOM_FICHIER_ICS, typeMime: 'text/calendar; charset=UTF-8; method=PUBLISH',
       octets: Buffer.from(invitationIcs({
         uid: uidPrevisite(suivi.id, domaine), sequence: suivi.sequence, maintenant: deps.maintenant ?? new Date(),
         rdv: { jour: o.jour, heure: o.heure, dureeMinutes: o.dureeMinutes ?? 60 },
-        titre: `Pré-visite d’état des lieux de sortie${o.adresse ? ` — ${o.adresse}` : ''}`, lieu: o.adresse ?? '',
-        description: 'Pré-visite d’état des lieux de sortie. Répondez par les boutons Accepter / Refuser du mail.',
+        titre: `Pré-visite d’état des lieux de sortie${o.adresse ? ` — ${o.adresse}` : ''}`, lieu, description,
       }), 'utf8'),
     }];
     return {

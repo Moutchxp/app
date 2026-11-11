@@ -9,6 +9,7 @@ const query = vi.fn(async (sql: string, _p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ');
   if (s.includes('FROM gestion_location_previsite s')) return { rows: [{ id: '40', lot_id: '7', occupation_ids: ['11', '12'], n: 1 }] };
   if (s.includes('FROM admin_utilisateur')) return { rows: [{ prenom: 'Arno', nom: 'Test' }] };
+  if (s.includes('SELECT t.note, lo.adresse')) return { rows: [{ note: 'Mission : pré-visite.\n\n━━ LOCATAIRES ━━\n• Alice TEST\n\n━━ PROPRIÉTAIRES ━━\n• DUPONT Jean\n  Tél. : 06 99 88 77 66', adresse: '4 rue Fictive', code_postal: '92800', commune: 'Puteaux' }] };
   if (s.includes('FROM gestion_tache_demande')) return { rows: [{ tache_id: '500', demandeur_id: '3', demandeur_libelle: 'Arno Test', destinataire_libelle: 'Claire Test', repondu: false }] };
   return { rows: [] };
 });
@@ -71,5 +72,15 @@ describe('🔴 Règle 7 — invitations et réponses rangées au journal de la L
     await journaliserMailTachePrevisite(1, 'previsite_invitation', MESSAGE, { ok: true, id: 'g', factice: true });
     expect(journaliserAvis).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 Arno (11/11/2026, lot 2) — l’événement d’agenda d’un COLLÈGUE porte la fiche d’intervention, et l’adresse exacte pour lieu', () => {
+  it('description = la note de la tâche (fiche), lieu = adresse complète du logement', async () => {
+    const m = await habillerMailTachePrevisite({ ...BASE, objetTache: 'Pré-visite EDL de sortie' }, MESSAGE, { maintenant: new Date('2026-11-12T09:00:00Z') });
+    const ics = (m.pieces?.[0]?.octets.toString('utf8') ?? '').replace(/\r\n /g, '');
+    expect(ics).toContain('LOCATION:4 rue Fictive\\, 92800 Puteaux');
+    expect(ics).toContain('━━ PROPRIÉTAIRES ━━');
+    expect(ics).toContain('06 99 88 77 66');
   });
 });

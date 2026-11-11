@@ -6,7 +6,7 @@ import { annulerTache, creerTache, decalerTache, listerCollaborateurs, modifierT
 import type { DemandePosee } from '../gestion/acceptationRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { encartDuBail } from './sortieLocatairesRepo';
-import { libelleLotEncart, lignesEncart } from './sortieLocataires';
+import { ficheDepuisEncart, texteMission } from './ficheIntervention';
 import { OBJET_TACHE_EDLS, texteRecapEdls, verifierPlanification, type EdlsAffiche } from './edls';
 
 /**
@@ -92,22 +92,17 @@ async function liensOuverts(q: RequeteTx, ids: readonly number[]): Promise<LienO
   return rows;
 }
 
-/** Le récapitulatif de la mission, écrit dans la note de la tâche (et donc dans le mail de la tâche). */
+/**
+ * Le récapitulatif de la mission, écrit dans la note de la tâche (et donc dans le mail de la tâche ET l'événement d'agenda des collègues).
+ * 🔴 Arno (11/11/2026, lot 2) — la FICHE D'INTERVENTION en trois blocs (locataires sortants, propriétaires, logement et annexes), les dates du
+ * préavis et le commentaire. Réservée aux COLLÈGUES.
+ */
 async function recapitulatif(ids: readonly number[], lignes: readonly LigneGroupe[], commentaire: string | null): Promise<string> {
   const e = await encartDuBail(ids[0]);
-  const acces = e === null ? [] : lignesEncart(e).filter((l) => ['batiment', 'escalier', 'etage', 'porte', 'acces', 'digicode', 'ascenseur'].includes(l.cle))
-    .map((l) => ({ libelle: l.libelle, valeur: l.valeur }));
-  const coords = e?.coordonnees;
-  const sortants = (coords?.locataires ?? []).filter((l) => ids.includes(l.occupationId));
   const recu = lignes.map((l) => l.recu_le as string).sort().pop() as string;
   const fin = lignes.map((l) => l.date_max as string).sort().pop() as string;
-  return texteRecapEdls({
-    adresse: e?.adresse ?? null, acces,
-    lots: e === null ? [] : e.lots.map(libelleLotEncart),
-    proprietaires: e?.proprietaire ? [{ nom: e.proprietaire.nom, telephones: coords?.proprietaire?.telephones ?? [], emails: coords?.proprietaire?.emails ?? [] }] : [],
-    locataires: sortants.map((l) => ({ nom: l.nom, telephones: l.telephones, emails: l.emails })),
-    preavis: { recuLe: recu, dateMax: fin }, commentaire,
-  });
+  if (e === null) return texteRecapEdls({ adresse: null, acces: [], lots: [], proprietaires: [], locataires: [], preavis: { recuLe: recu, dateMax: fin }, commentaire });
+  return texteMission({ mission: 'état des lieux de sortie', fiche: ficheDepuisEncart(e, { occupationIds: ids }), preavis: { recuLe: recu, dateMax: fin }, commentaire });
 }
 
 const groupePreavis = (lignes: readonly LigneGroupe[]) => lignes.map((l) => ({ recuLe: l.recu_le as string, dateMax: l.date_max as string }));

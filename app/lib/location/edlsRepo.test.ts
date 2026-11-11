@@ -93,7 +93,8 @@ describe('planifierEdls', () => {
     const [lotId, saisie] = creerTache.mock.calls[0] as [number, Record<string, unknown>];
     expect(lotId).toBe(7);
     expect(saisie).toMatchObject({ objet: 'EDL de sortie', jour: '2026-11-03', heure: '10:00', dureeMinutes: 90, confieeA: 4 });
-    expect(String(saisie.note)).toContain('Lots concernés (2) :');
+    // 🔴 Arno (11/11/2026, lot 2) — la note = la fiche d'intervention en trois blocs (réservée aux collègues).
+    for (const t of ['━━ LOCATAIRES ━━', '━━ PROPRIÉTAIRES ━━', '━━ LOGEMENT ET ANNEXES ━━', '2 lots concernés par ce préavis']) expect(String(saisie.note), t).toContain(t);
     expect(String(saisie.note)).toContain('Commentaire : clés chez le gardien');
     const lien = ecritures().find((a) => a.sql.startsWith('INSERT INTO gestion_location_edls'))!;
     expect(lien.params.slice(0, 4)).toEqual([500, 7, [11], 'clés chez le gardien']);

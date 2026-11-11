@@ -17,7 +17,7 @@ import {
 } from './previsite';
 import {
   SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, icsDuRdv, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
-  recapitulatifMission, reponsesDesTaches, sansEmail, sequenceTache, suiviOuvert, type Contexte, type Groupe, type IssuePrevisite, type LigneSuivi,
+  noteMissionPrevisite, reponsesDesTaches, sansEmail, sequenceTache, suiviOuvert, type Contexte, type Groupe, type IssuePrevisite, type LigneSuivi,
   type MailApercu,
 } from './previsiteBase';
 
@@ -54,10 +54,11 @@ export async function collegesPrevisite(moi: number | null): Promise<Collaborate
 
 /** Tous les collaborateurs ayant accès à Gestion et/ou Location — chaque adresse une fois. */
 /** Le texte de l'invitation des collègues (le mail du module de tâches), pour le récapitulatif : les liens y sont personnels. */
-function texteInvitationCollegue(c: Contexte, rdv: RdvPrevisite, libelle: string, invites: readonly string[], ancien: RdvPrevisite | null): string {
+function texteInvitationCollegue(c: Contexte, rdv: RdvPrevisite, libelle: string, invites: readonly string[], ancien: RdvPrevisite | null, note: string): string {
   const t = mailTache({
     sorte: 'invitation', destinataire: libelle, expediteur: c.qui.nom, demandeLe: new Date().toISOString(), jour: rdv.jour, heure: rdv.heure,
-    dureeMinutes: rdv.dureeMinutes, titre: OBJET_TACHE_PREVISITE, notes: recapitulatifMission(c), adresse: c.adresse, contacts: [],
+    // 🔴 Arno (11/11/2026, lot 2) — la note de la tâche = la fiche d'intervention (la même que celle qui partira).
+    dureeMinutes: rdv.dureeMinutes, titre: OBJET_TACHE_PREVISITE, notes: note, adresse: c.adresse, contacts: [],
     invites: invites.map((x) => ({ libelle: x, statut: 'en_attente' as const, moi: x === libelle })), pieces: [],
     liens: { accepter: '[lien personnel « Accepter »]', refuser: '[lien personnel « Refuser »]', expireLe: new Date(Date.now() + 7 * 86_400_000).toISOString() },
     ...(ancien !== null ? { deplacement: ancien } : {}),
@@ -106,9 +107,10 @@ export async function apercuRdvPrevisite(
   const libelles = d.deplacer ? reponses.map((r) => r.libelle)
     : (await collegesPrevisite(auteur.id)).filter((x) => dest.includes(Number(x.id))).map((x) => x.libelle);
   const objetCollegue = `${ancien ? 'Rendez-vous déplacé — ' : ''}${OBJET_TACHE_PREVISITE} — ${c.adresse} — ${plageFr(rdv.jour, rdv.heure, rdv.dureeMinutes)}`;
+  const note = await noteMissionPrevisite(ids, c, { recuLe: lu.g.recuLe, dateMax: lu.g.dateMax });
   const mails: MailApercu[] = libelles.map((l) => ({
     sorte: 'previsite_invitation', objet: objetCollegue, a: [l], cc: [], piece: NOM_FICHIER_ICS,
-    texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
+    texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien, note)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
   }));
   // 🔴 Arno (10/11/2026, texte modifiable) — les retouches : CONTRÔLÉES ici comme à l'envoi (même code) ; refusées, rien n'est montré comme parti.
   const auxLocataires = mailLocataires(c, 0, rdv, 0, ancien, new Date(), d.retouches);
@@ -142,7 +144,8 @@ export async function programmerPrevisite(
   if (horsDroit !== null) return { etat: 'refus', motif: horsDroit, champ: 'destinataires' };
   const rdv = { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes };
   const c = await contexte(ids, auteur, {});
-  const t = await creerTache(avant.g.lotId, saisieRdv(rdv, v.destinataires, c === null ? 'Mission : pré-visite d’état des lieux de sortie.' : recapitulatifMission(c)), auteur);
+  // 🔴 Arno (11/11/2026, lot 2) — la note de la tâche = la mission et la FICHE D'INTERVENTION (réservée aux collègues).
+  const t = await creerTache(avant.g.lotId, saisieRdv(rdv, v.destinataires, await noteMissionPrevisite(ids, c, { recuLe: avant.g.recuLe, dateMax: avant.g.dateMax })), auteur);
   if (!t.ok) return refusTache(t);
   const lien = await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
@@ -173,6 +176,23 @@ async function rdvCourant(q: RequeteTx, ids: readonly number[]): Promise<{ ok: t
   return { ok: true, g: g.g, s, rdv };
 }
 
+/** La note de la tâche remise à jour (fiche d'intervention), si elle a changé : mêmes date, créneau et collègues — seule la note bouge. */
+async function rafraichirNoteMission(tacheId: number, ids: readonly number[], rdv: RdvPrevisite, preavis: { recuLe: string; dateMax: string }, auteur: Auteur): Promise<void> {
+  try {
+    const note = await noteMissionPrevisite(ids, null, preavis);
+    const { rows } = await query<{ note: string | null; confiee: number | null }>('SELECT note, confiee_a::int AS confiee FROM gestion_tache WHERE id = $1', [tacheId]);
+    if ((rows[0]?.note ?? '') === note) return;
+    // La personne à qui la tâche est confiée reste EN TÊTE (aucun changement de personne, donc aucune nouvelle demande d'acceptation).
+    const autres = ((await reponsesDesTaches([tacheId])).get(tacheId) ?? []).map((r) => r.collaborateurId).filter((x): x is number => typeof x === 'number' && x > 0);
+    const confiee = rows[0]?.confiee ?? null;
+    const dest = confiee === null ? autres : [confiee, ...autres.filter((x) => x !== confiee)];
+    if (dest.length === 0) return;
+    await modifierTache(tacheId, saisieRdv(rdv, dest, note), auteur);
+  } catch (e) {
+    console.error('[pré-visite] note de la tâche non remise à jour', (e as Error)?.message);
+  }
+}
+
 /**
  * DÉPLACER le rendez-vous : nouvelle date / créneau — le module de tâches remet les statuts à zéro et renvoie « Tâche déplacée » à
  * chaque collègue ; le suivi garde sa date de PREMIÈRE saisie ; l'invitation au compte rendu redevient à faire.
@@ -191,6 +211,9 @@ export async function deplacerPrevisite(
     return { etat: 'refus', motif: 'La pré-visite est déjà à cette date et à ce créneau.' };
   }
   const tacheId = Number(avant.s.tache_id);
+  // 🔴 Arno (11/11/2026, lot 2) — le même contenu au déplacement : la note est remise à jour (fiche d'intervention) AVANT le décalage, qui
+  //    envoie « Tâche déplacée » aux collègues ; la date ne change que par le décalage.
+  await rafraichirNoteMission(tacheId, ids, avant.rdv, { recuLe: avant.g.recuLe, dateMax: avant.g.dateMax }, auteur);
   const t = await decalerTache(tacheId, { jour: rdv.jour, heure: rdv.heure, dureeMinutes: rdv.dureeMinutes }, auteur);
   if (!t.ok) return refusTache(t);
   await withTransaction(async (q) => {
@@ -217,8 +240,8 @@ export async function reaffecterPrevisite(d: { occupationIds: readonly number[];
   if (!tousRefusent(reponses.map((r) => r.statut))) return { etat: 'refus', motif: 'Tous les collègues n’ont pas refusé : déplacez la pré-visite pour changer de personne.' };
   const horsDroit = await verifierCollegues(dest, auteur);
   if (horsDroit !== null) return { etat: 'refus', motif: horsDroit, champ: 'destinataires' };
-  const { rows } = await query<{ note: string | null }>('SELECT note FROM gestion_tache WHERE id = $1', [tacheId]);
-  const t = await modifierTache(tacheId, saisieRdv(avant.rdv, dest, rows[0]?.note ?? ''), auteur);
+  // 🔴 Arno (11/11/2026, lot 2) — la note relue À JOUR (fiche d'intervention) pour les collègues de la réaffectation.
+  const t = await modifierTache(tacheId, saisieRdv(avant.rdv, dest, await noteMissionPrevisite(ids, null, { recuLe: avant.g.recuLe, dateMax: avant.g.dateMax })), auteur);
   if (!t.ok) return refusTache(t);
   const demandes = [...(t.demandes ?? (t.demande ? [t.demande] : []))];
   // Un collègue gardé qui avait refusé : son invitation est renvoyée (nouvelle demande, statut remis « en attente »).

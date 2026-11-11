@@ -99,7 +99,21 @@ vi.mock('../gestion/tachesRepo', () => ({
 }));
 vi.mock('../gestion/invitesRepo', () => ({ renvoyerInvitation: vi.fn(async () => ({ ok: true, demandes: [] })) }));
 const INTERNES = ['arno@exemple.test', 'claire@exemple.test', 'paul@exemple.test'];
-vi.mock('./sortieLocatairesRepo', () => ({ destinatairesSortie: async () => INTERNES }));
+// 🔴 Arno (11/11/2026, lot 2) — l'encart du bail : la fiche d'intervention (coordonnées du PROPRIÉTAIRE repérables : 06 99 88 77 66, proprio@exemple.test).
+const ENCART_FICHE = {
+  lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement T3', meuble: false, etage: '3', porte: 'G', numLotCopro: '45', numeroLot: '100',
+  batiment: null, escalier: null, surfaceCarrez: null, surfaceHabitable: null, surface: null, surfaceExterieure: null, nombrePieces: null, ascenseur: null,
+  digicode: true, digicodeCode: '4521A', precisionAcces: 'Code au portail', dpeClasse: null, dpeDate: null, dpeNonSoumis: null, chauffage: null, epoqueConstruction: null,
+  lots: [{ lotId: 7, role: 'logement', type: 'Appartement T3', etage: '3', numLotCopro: '45', numeroLot: '100', porte: 'G', place: false },
+    { lotId: 8, role: 'annexe', type: 'Cave', etage: '-1', numLotCopro: null, numeroLot: null, porte: '12', place: false }],
+  proprietaire: { id: 5, nom: 'DUPONT Jean' }, syndic: null, bail: { entree: '2022-09-01', loyerHc: null, provisions: null, taux: null, base: null },
+  coordonnees: { proprietaire: { telephones: ['06 99 88 77 66'], emails: ['proprio@exemple.test'] },
+    proprietaires: [{ id: 5, nom: 'DUPONT Jean', telephones: ['06 99 88 77 66'], emails: ['proprio@exemple.test'] }],
+    locataires: [{ occupationId: 11, locataireId: 101, nom: 'TEST', prenom: 'Alice', telephones: ['06 55 66 77 88'], emails: ['alice@exemple.test'], entree: '2022-09-01' },
+      { occupationId: 12, locataireId: 102, nom: 'TEST', prenom: 'Bruno', telephones: [], emails: ['bruno@exemple.test'], entree: '2022-09-01' }] },
+  locataireCle: null, lotCle: '100',
+};
+vi.mock('./sortieLocatairesRepo', () => ({ destinatairesSortie: async () => INTERNES, encartDuBail: async () => ENCART_FICHE }));
 vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'arno@exemple.test', nom: 'Arno Test', prenom: 'Arno', nomFamille: 'Test' }) }));
 let echecEnvoi = false;
 const envoyerSerie = vi.fn(async (mails: { sorte: string; objet: string; a: string[]; cc: string[]; texte: string }[], ..._r: unknown[]) =>
@@ -500,5 +514,45 @@ describe('🔴🔴 Arno (10/11/2026) — la confirmation et la modification aux 
     await envoyerMailLocatairesPrevisite(r.data, AUTEUR, {}, { previsite_locataires_modif: { intro: 'Pour {adresse} : le {ancien rendez-vous} devient le {rendez-vous}.' } });
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string }[]];
     expect(mails[0].texte).toContain('Pour 4 rue Fictive, 92800 Puteaux : le 12/11/2026 de 10h00 à 11h00 devient le 25/11/2026 de 14h00 à 15h00.');
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026, lot 2) — la fiche d’intervention : CHEZ LES COLLÈGUES, JAMAIS CHEZ LES LOCATAIRES', () => {
+  /** Tout ce qu'un locataire ne doit jamais lire : la fiche, les coordonnées du propriétaire, celles d'un AUTRE locataire. */
+  const INTERDIT = ['━━ LOCATAIRES ━━', '━━ PROPRIÉTAIRES ━━', '━━ LOGEMENT ET ANNEXES ━━', 'DUPONT', '06 99 88 77 66', 'proprio@exemple.test', '4521A', 'Code au portail'];
+  const autreLocataire = (a: string[]) => (a.includes('alice@exemple.test') ? ['bruno@exemple.test', 'Bruno'] : ['alice@exemple.test', '06 55 66 77 88', 'Alice']);
+  it('confirmation (programmer) : l’invitation du collègue porte la fiche ; chaque mail ET .ics d’un locataire n’en porte rien', async () => {
+    const r = await apercuRdvPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error('aperçu');
+    const collegue = r.data.mails.find((m) => m.sorte === 'previsite_invitation')!;
+    for (const t of ['━━ LOCATAIRES ━━', '━━ PROPRIÉTAIRES ━━', '━━ LOGEMENT ET ANNEXES ━━', '06 99 88 77 66', 'proprio@exemple.test', 'Digicode : 4521A', '2 lots concernés par ce préavis'])
+      expect(collegue.texte, t).toContain(t);
+    const prog = await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
+    if (prog.etat !== 'ok') throw new Error('rdv');
+    // La note de la tâche (mail du module de tâches ET agenda des collègues) = la fiche.
+    expect(String((creerTache.mock.calls.at(-1) as unknown as [number, { note: string }])[1].note)).toContain('━━ PROPRIÉTAIRES ━━');
+    await envoyerMailLocatairesPrevisite(prog.data, AUTEUR);
+    const [mails] = envoyerSerie.mock.calls.at(-1) as unknown as [{ a: string[]; objet: string; texte: string; html: string; ics?: { contenu: string } }[]];
+    const auxLocataires = mails.filter((m) => !m.objet.startsWith('[Copie interne]'));
+    expect(auxLocataires).toHaveLength(2);
+    for (const m of auxLocataires) {
+      const tout = `${m.objet}\n${m.texte}\n${m.html}\n${m.ics?.contenu ?? ''}`;
+      for (const t of [...INTERDIT, ...autreLocataire(m.a)]) expect(tout, `${m.a} ← ${t}`).not.toContain(t);
+    }
+  });
+  it('modification (déplacer) et refus / absence : rien de la fiche chez un locataire', async () => {
+    programmee();
+    const dep = await deplacerPrevisite({ occupationIds: OCC, jour: '2026-11-25', debut: '14:00', fin: '15:00' }, AUTEUR);
+    if (dep.etat !== 'ok') throw new Error('déplacer');
+    envoyerSerie.mockClear();
+    await envoyerMailLocatairesPrevisite(dep.data, AUTEUR);
+    const refus = await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour [nom du locataire],\n\nTexte.' }, AUTEUR);
+    expect(refus.etat).toBe('ok');
+    for (const [mails] of envoyerSerie.mock.calls as unknown as [{ a: string[]; objet: string; texte: string; html: string; ics?: { contenu: string } }[]][]) {
+      for (const m of mails.filter((x) => !x.objet.startsWith('[Copie interne]') && (x.a.includes('alice@exemple.test') || x.a.includes('bruno@exemple.test')))) {
+        const tout = `${m.objet}\n${m.texte}\n${m.html}\n${m.ics?.contenu ?? ''}`;
+        for (const t of [...INTERDIT, ...autreLocataire(m.a)]) expect(tout, `${m.a} ← ${t}`).not.toContain(t);
+      }
+    }
   });
 });

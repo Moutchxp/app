@@ -52,15 +52,17 @@ function digicodeLisible(e: Pick<EncartLogement, 'digicode' | 'digicodeCode'>): 
 /** Les clés de l'encart d'avant reprises dans le bloc ③ (les autres restent dans « Autres informations »). */
 const CLES_REPRISES = new Set(['etage', 'porte', 'copro', 'lot', 'digicode', 'acces']);
 
-export function ficheDepuisEncart(e: EncartLogement): FicheIntervention {
+export function ficheDepuisEncart(e: EncartLogement, o: { occupationIds?: readonly number[] } = {}): FicheIntervention {
   const lots = Array.isArray(e.lots) ? e.lots : [];
   const c = e.coordonnees;
+  // Un état des lieux de sortie partiel : seuls les locataires concernés (sortants) ; sans filtre, tous ceux du bail.
+  const dansLeFiltre = (occ: number) => o.occupationIds === undefined || o.occupationIds.length === 0 || o.occupationIds.includes(occ);
   const proprietaires = c?.proprietaires && c.proprietaires.length > 0
     ? c.proprietaires.map((p) => ({ id: p.id, nom: p.nom, prenom: null, telephones: p.telephones, emails: p.emails }))
     : e.proprietaire ? [{ id: e.proprietaire.id, nom: e.proprietaire.nom, prenom: null, telephones: c?.proprietaire?.telephones ?? [], emails: c?.proprietaire?.emails ?? [] }] : [];
   return {
     lotId: e.lotId,
-    locataires: (c?.locataires ?? []).map((l) => ({ nom: l.nom, prenom: l.prenom ?? null, telephones: l.telephones, emails: l.emails, entree: l.entree ?? e.bail?.entree ?? null })),
+    locataires: (c?.locataires ?? []).filter((l) => dansLeFiltre(l.occupationId)).map((l) => ({ nom: l.nom, prenom: l.prenom ?? null, telephones: l.telephones, emails: l.emails, entree: l.entree ?? e.bail?.entree ?? null })),
     proprietaires,
     logement: [
       { cle: 'adresse', libelle: 'Adresse', valeur: present(e.adresse) ? e.adresse : null },
@@ -106,4 +108,15 @@ export function texteFicheIntervention(f: FicheIntervention): string {
   }
   if (f.autres.length > 0) l.push('', 'Autres informations :', ...f.autres.map((x) => `${x.libelle} : ${x.valeur}`));
   return l.join('\n');
+}
+
+/**
+ * 🔴 Arno (11/11/2026, lot 2) — LE TEXTE DE LA MISSION d'un collègue (note de la tâche de pré-visite ou d'état des lieux de sortie, donc
+ * le mail du module de tâches ET l'événement d'agenda) : la mission, la fiche d'intervention en trois blocs, les dates du préavis, le
+ * commentaire. Réservé aux COLLÈGUES. PUR.
+ */
+export function texteMission(o: { mission: string; fiche: FicheIntervention; preavis?: { recuLe: string; dateMax: string } | null; commentaire?: string | null }): string {
+  return [`Mission : ${o.mission}.`, '', texteFicheIntervention(o.fiche),
+    ...(o.preavis ? ['', `Préavis : recommandé reçu le ${dateFrPreavis(o.preavis.recuLe)} — fin du préavis le ${dateFrPreavis(o.preavis.dateMax)}`] : []),
+    ...(o.commentaire && o.commentaire.trim() !== '' ? ['', `Commentaire : ${o.commentaire.trim()}`] : [])].join('\n');
 }
