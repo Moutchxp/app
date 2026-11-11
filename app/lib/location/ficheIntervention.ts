@@ -17,7 +17,9 @@ import { dateFrPreavis } from './preavis';
 export const NON_RENSEIGNE = 'non renseigné';
 
 export interface PersonneFiche { nom: string; prenom: string | null; telephones: string[]; emails: string[] }
-export interface LocataireFiche extends PersonneFiche { entree: string | null }
+export interface LocataireFiche extends PersonneFiche { entree: string | null;
+  /** 🔴 Arno (11/11/2026, lot 5) — la fiche du locataire (lien « compléter la fiche du locataire ») ; absent : inconnu. */
+  locataireId?: number }
 /** Une ligne du bloc ③ : `valeur` null = « non renseigné » (avec le lien vers la fiche du bien pour la compléter). */
 export interface LigneFiche { cle: string; libelle: string; valeur: string | null }
 export interface AnnexeFiche { type: string; etage: string | null; numeroLot: string | null; numero: string | null; place: boolean }
@@ -62,7 +64,7 @@ export function ficheDepuisEncart(e: EncartLogement, o: { occupationIds?: readon
     : e.proprietaire ? [{ id: e.proprietaire.id, nom: e.proprietaire.nom, prenom: null, telephones: c?.proprietaire?.telephones ?? [], emails: c?.proprietaire?.emails ?? [] }] : [];
   return {
     lotId: e.lotId,
-    locataires: (c?.locataires ?? []).filter((l) => dansLeFiltre(l.occupationId)).map((l) => ({ nom: l.nom, prenom: l.prenom ?? null, telephones: l.telephones, emails: l.emails, entree: l.entree ?? e.bail?.entree ?? null })),
+    locataires: (c?.locataires ?? []).filter((l) => dansLeFiltre(l.occupationId)).map((l) => ({ nom: l.nom, prenom: l.prenom ?? null, telephones: l.telephones, emails: l.emails, entree: l.entree ?? e.bail?.entree ?? null, locataireId: l.locataireId })),
     proprietaires,
     logement: [
       { cle: 'adresse', libelle: 'Adresse', valeur: present(e.adresse) ? e.adresse : null },

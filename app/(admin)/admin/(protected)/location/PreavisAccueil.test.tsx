@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { BlocPreavisAccueil, CLE_TRI, CSS_PREAVIS_ACCUEIL } from './PreavisAccueil';
+import { FicheInterventionPreavis } from './FicheInterventionPreavis';
+import { ficheDepuisEncart, texteFicheIntervention } from '../../../../lib/location/ficheIntervention';
 import { AccueilLocation } from './AccueilLocation';
 import { EcranSortieLocataire } from './SortieLocataires';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
@@ -533,5 +535,66 @@ describe('🔴🔴 Arno (11/11/2026, lot 3) — la frise des étapes dans la lig
     expect(sous('sortie', '[data-valider-sortie]')).not.toBeNull();
     // Les liens d'avant restent.
     expect(container.querySelector('[data-ligne-depliee="C"] [data-lien-ecran-sortie]')).not.toBeNull();
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026, lot 5) — retouches de PRÉSENTATION de la ligne dépliée', () => {
+  it('frise : informations puis boutons dans chaque case ; boutons pleine largeur, même hauteur, centrés ; lignes partagées d’une case à l’autre', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'recu', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const frise = container.querySelector('[data-ligne-depliee="C"] [data-frise-preavis]')!;
+    for (const [cle, bouton] of [['previsite', '[data-rdv-previsite]'], ['previsite', '[data-refus-previsite]'], ['sortie', '[data-valider-sortie]']]) {
+      expect(frise.querySelector(`[data-etape="${cle}"] .frp-actions ${bouton}`), `${bouton} dans la zone des boutons`).not.toBeNull();
+    }
+    expect(frise.querySelector('[data-etape="edls"] .frp-actions button')).not.toBeNull();
+    // Le CSS : une grille partagée (subgrid) — en-tête, informations, boutons à la même hauteur d'une case à l'autre ; boutons pleine largeur.
+    const css = CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ');
+    expect(css).toContain('.frp-etape{display:grid;grid-row:span 3;grid-template-rows:subgrid;');
+    expect(css).toContain('.frp-etape > .pva-bloc{grid-row:2 / span 2;display:grid;grid-template-rows:subgrid;');
+    expect(css).toMatch(/\.frp-actions \.loc-boutons \.svv-btn\{width:100%;min-height:48px;[^}]*justify-content:center;text-align:center/);
+  });
+
+  it('doublons retirés : bandeau « Préavis reçu » de la case 2, sous-titres « Pré-visite d’état des lieux de sortie », « État des lieux de sortie », « Date officielle de sortie »', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'recu', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const frise = container.querySelector('[data-ligne-depliee="C"] [data-frise-preavis]')!;
+    expect(frise.querySelector('[data-etape="previsite"] [data-previsite-etat]')).toBeNull();
+    const sousTitres = [...frise.querySelectorAll('.pva-bloc > .pvs-libelle')].map((x) => x.textContent);
+    expect(sousTitres).toEqual([]);
+    expect(frise.textContent).not.toContain('Pré-visite d’état des lieux de sortie');
+    expect(frise.textContent).not.toContain('Date officielle de sortie');
+    // Les titres des cases, eux, restent ; et un AUTRE état de la pré-visite garde son bandeau.
+    expect([...frise.querySelectorAll('.frp-titre')].map((x) => x.textContent)).toEqual(['1. Préavis reçu', '2. Pré-visite', '3. État des lieux de sortie', '4. Sortie validée']);
+  });
+
+  it('un autre état de la pré-visite (refusée) garde son bandeau', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'refusee', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-etape="previsite"] [data-previsite-etat]')).not.toBeNull();
+  });
+
+  it('bloc ③ : plus de ligne « Entrée dans les lieux » (doublon du bloc ①) — la fiche envoyée aux collègues la garde ; liens « compléter la fiche du locataire / du propriétaire »', () => {
+    const e = { ...ENCART, bail: { ...ENCART.bail, entree: '2022-09-01' }, coordonnees: { ...ENCART.coordonnees!,
+      proprietaires: [{ id: 5, nom: 'DUPONT Jean', telephones: [], emails: ['jean@exemple.test'] }] } };
+    const f = ficheDepuisEncart(e);
+    expect(f.autres.some((x) => x.cle === 'entree')).toBe(true);
+    expect(texteFicheIntervention(f)).toContain('Entrée dans les lieux : 01/09/2022');
+    act(() => root.render(createElement(FicheInterventionPreavis, { f, lienBien: '/admin/location/bien/7' })));
+    expect(container.querySelector('[data-autres-infos] [data-ligne="entree"]')).toBeNull();
+    expect(container.textContent).not.toContain('Entrée dans les lieux');
+    expect(container.querySelector('[data-autres-infos] [data-ligne="batiment"]')).not.toBeNull();
+    const paul = [...container.querySelectorAll('[data-fiche-locataire]')][1];
+    const lienPaul = paul.querySelector('[data-lien-completer]')!;
+    expect([lienPaul.getAttribute('href'), lienPaul.textContent]).toEqual(['/admin/location/locataire/102', 'compléter la fiche du locataire']);
+    const lienJean = container.querySelector('[data-fiche-proprietaire] [data-lien-completer]')!;
+    expect([lienJean.getAttribute('href'), lienJean.textContent]).toEqual(['/admin/location/proprietaire/5', 'compléter la fiche du propriétaire']);
+    // Le logement, lui, mène toujours à la fiche du bien.
+    expect(container.querySelector('[data-bloc-fiche="logement"] [data-lien-completer]')?.textContent).toBe('compléter la fiche du bien');
   });
 });

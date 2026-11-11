@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { dateFrPreavis } from '../../../../lib/location/preavis';
 import { NON_RENSEIGNE, nomFiche, type FicheIntervention, type PersonneFiche } from '../../../../lib/location/ficheIntervention';
 
@@ -10,13 +11,19 @@ import { NON_RENSEIGNE, nomFiche, type FicheIntervention, type PersonneFiche } f
  * n'est retiré). Interne à l'agence : ces coordonnées ne sortent jamais vers un locataire ou un propriétaire. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention; lienBien: string }) {
-  const manque = <span className="fip-manque" data-non-renseigne>{NON_RENSEIGNE} — <a href={lienBien} data-lien-completer>compléter la fiche du bien</a></span>;
-  const coords = (p: PersonneFiche) => (
+  // « non renseigné » + le lien pour compléter : la fiche du BIEN pour le logement ; 🔴 Arno (11/11/2026, lot 5) — pour un locataire ou un
+  // propriétaire, SA fiche (« compléter la fiche du locataire / du propriétaire »), la même adresse que les liens « Voir la fiche » de l'écran.
+  const manqueVers = (href: string, quoi: string) => <span className="fip-manque" data-non-renseigne>{NON_RENSEIGNE} — <a href={href} data-lien-completer>compléter la fiche {quoi}</a></span>;
+  const manque = manqueVers(lienBien, 'du bien');
+  const coords = (p: PersonneFiche, m: ReactNode) => (
     <dl className="fip-dl">
-      <div><dt>Téléphone</dt><dd>{p.telephones.length === 0 ? manque : p.telephones.map((t) => <a key={t} href={`tel:${t.replace(/\s+/g, '')}`}>{t}</a>)}</dd></div>
-      <div><dt>E-mail</dt><dd>{p.emails.length === 0 ? manque : p.emails.map((m) => <a key={m} href={`mailto:${m}`}>{m}</a>)}</dd></div>
+      <div><dt>Téléphone</dt><dd>{p.telephones.length === 0 ? m : p.telephones.map((t) => <a key={t} href={`tel:${t.replace(/\s+/g, '')}`}>{t}</a>)}</dd></div>
+      <div><dt>E-mail</dt><dd>{p.emails.length === 0 ? m : p.emails.map((x) => <a key={x} href={`mailto:${x}`}>{x}</a>)}</dd></div>
     </dl>
   );
+  // 🔴 Arno (11/11/2026, lot 5) — « Entrée dans les lieux » n'est plus répétée sous « Autres informations » (le bloc ① la porte, par locataire) :
+  // retirée de CET affichage seulement (la fiche envoyée aux collègues reste inchangée).
+  const autres = f.autres.filter((x) => x.cle !== 'entree');
   return (
     <div className="fip" data-fiche-intervention>
       <style>{CSS_FICHE_INTERVENTION}</style>
@@ -26,7 +33,7 @@ export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention
           <div key={`${p.nom}-${i}`} className="fip-personne" data-fiche-locataire>
             <p className="fip-nom">{nomFiche(p)}</p>
             <p className="fip-entree" data-date-entree>Entré(e) dans le logement le <strong>{p.entree ? dateFrPreavis(p.entree) : NON_RENSEIGNE}</strong></p>
-            {coords(p)}
+            {coords(p, p.locataireId !== undefined ? manqueVers(`/admin/location/locataire/${p.locataireId}`, 'du locataire') : manque)}
           </div>
         ))}
       </section>
@@ -35,7 +42,7 @@ export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention
         {f.proprietaires.length === 0 ? <p className="fip-vide">{manque}</p> : f.proprietaires.map((p, i) => (
           <div key={`${p.nom}-${i}`} className="fip-personne" data-fiche-proprietaire>
             <p className="fip-nom">{p.id !== null ? <a href={`/admin/location/proprietaire/${p.id}`} data-lien-proprietaire>{nomFiche(p)}</a> : nomFiche(p)}</p>
-            {coords(p)}
+            {coords(p, p.id !== null ? manqueVers(`/admin/location/proprietaire/${p.id}`, 'du propriétaire') : manque)}
           </div>
         ))}
       </section>
@@ -57,10 +64,10 @@ export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention
             ))}
           </ul>
         )}
-        {f.autres.length > 0 && (
+        {autres.length > 0 && (
           <div className="fip-autres" data-autres-infos>
             <p className="fip-sous">Autres informations du logement</p>
-            <dl className="fip-dl">{f.autres.map((x) => <div key={x.cle} data-ligne={x.cle}><dt>{x.libelle}</dt><dd>{x.valeur}</dd></div>)}</dl>
+            <dl className="fip-dl">{autres.map((x) => <div key={x.cle} data-ligne={x.cle}><dt>{x.libelle}</dt><dd>{x.valeur}</dd></div>)}</dl>
           </div>
         )}
       </section>

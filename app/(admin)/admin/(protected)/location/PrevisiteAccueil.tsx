@@ -81,9 +81,11 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
   const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
   return (
     <div className="pva-bloc" data-bloc-previsite data-statut-previsite={p.statut}>
-      <p className="pvs-libelle" style={{ margin: 0 }}>Pré-visite d’état des lieux de sortie</p>
-      <p className={`pvv-etat pvv-etat--${p.statut}`} role="status" data-previsite-etat>
-        {LIBELLE_STATUT_PREVISITE[p.statut]}{p.rdv && (p.statut === 'programmee' || p.statut === 'effectuee') ? ` — le ${creneauFr(p.rdv)}` : ''}</p>
+      {/* 🔴 Arno (11/11/2026, lot 5) — dans la case « 2. Pré-visite » : plus de sous-titre (le titre de la case le dit), plus de bandeau « Préavis
+          reçu » (doublon de la case 1) ; les autres états restent. Deux zones — informations, puis boutons — alignées d'une case à l'autre. */}
+      <div className="frp-infos">
+      {p.statut !== 'recu' && <p className={`pvv-etat pvv-etat--${p.statut}`} role="status" data-previsite-etat>
+        {LIBELLE_STATUT_PREVISITE[p.statut]}{p.rdv && (p.statut === 'programmee' || p.statut === 'effectuee') ? ` — le ${creneauFr(p.rdv)}` : ''}</p>}
       <CartouchesPrevisite p={p} />
       {p.collegues.length > 0 && p.statut === 'programmee' && (
         <ul className="pvv-collegues" data-previsite-collegues>
@@ -92,6 +94,8 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
           ))}
         </ul>
       )}
+      </div>
+      <div className="frp-actions">
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
         {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>RDV pré-visite</button>}
         {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Déplacer la pré-visite</button>}
@@ -102,6 +106,7 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
           <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
       </div>
       {!ecriture && <MentionReserveLocation />}
+      </div>
       {geste !== null && ecriture && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
     </div>
   );

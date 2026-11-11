@@ -288,6 +288,7 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
             {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} />}
             {e.cle === 'edls' && (planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
       <div className="pva-bloc" data-bloc-edl>
+        <div className="frp-infos">
         <label className="pvs-champ">
           <span className="pvs-libelle">Date d’état des lieux de sortie prévue</span>
           <input type="date" value={edl} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} disabled={!edlDisponible || !ecriture}
@@ -296,6 +297,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
         {!edlDisponible && <p className="loc-muet">La mise à jour de la base (migration 384) reste à appliquer.</p>}
         {edlDisponible && !verdict.ok && <p className="cp-refus" role="status" data-message-edl>{verdict.motif}</p>}
         {refusEdl !== null && <p className="cp-refus" role="alert">{refusEdl}</p>}
+        </div>
+        <div className="frp-actions">
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!ecriture || !edlDisponible || envoiEdl || !verdict.ok || edl === '' || edl === (l.etatDesLieuxLe ?? '')}
             onClick={() => { void enregistrerEdl(edl); }} data-enregistrer-edl>Enregistrer la date</button>
@@ -305,12 +308,15 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
         </div>
         {!ecriture && <MentionReserveLocation />}
         <p className="loc-muet" data-planification-indisponible>Planifier l’état des lieux (tâche, rendez-vous) : la mise à jour de la base (migration 385) reste à appliquer.</p>
+        </div>
       </div>
       ))}
             {e.cle === 'sortie' && (
       <div className="pva-bloc" data-bloc-sortie-officielle>
-        <p className="pvs-libelle" style={{ margin: 0 }}>Date officielle de sortie</p>
-        {!gestion ? <p className="sor-gestion-seule-texte" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>
+        {/* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « Date officielle de sortie » (la case « 4. Sortie validée » le dit) ; informations, puis boutons. */}
+        <div className="frp-infos">{!gestion && <p className="sor-gestion-seule-texte" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}</div>
+        <div className="frp-actions">
+        {!gestion ? null
           : !sortie || !ecriture ? (<>
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setSortie(true)} data-valider-sortie
@@ -325,6 +331,7 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
             </div>
             <ValidationSortieEdls l={l} onFermer={(f) => { setSortie(false); if (f !== null) sortieFaite(f); }} />
           </>)}
+        </div>
       </div>
             )}
           </li>
@@ -370,9 +377,12 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
   const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
   return (
     <div className="pva-bloc" data-bloc-edls>
-      <p className="pvs-libelle" style={{ margin: 0 }}>État des lieux de sortie</p>
+      {/* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « État des lieux de sortie » (le titre de la case le dit) ; informations, puis boutons. */}
+      <div className="frp-infos">
       {e !== null && <p className={`pva-edls${e.statut === 'refusee' ? ' pva-edls--refus' : ''}`} role="status" data-edls-mention>{mentionEdls(e)}</p>}
       {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}
+      </div>
+      <div className="frp-actions">
       {mode === 'lecture' && (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
           {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
@@ -388,6 +398,7 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
         <FormulaireEdls l={l} e={mode === 'deplacer' ? e : null} onAnnuler={() => setMode('lecture')} onFait={fait} />
       )}
       {ecriture && mode === 'reattribuer' && e !== null && <FormulaireReattribuer l={l} e={e} onAnnuler={() => setMode('lecture')} onFait={fait} />}
+      </div>
     </div>
   );
 }
@@ -600,7 +611,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp{grid-column:1 / -1;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:none;min-width:0}
 @media (max-width:1100px){.frp{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:600px){.frp{grid-template-columns:1fr}}
-.frp-etape{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.frp{grid-auto-rows:auto}
+.frp-etape{display:grid;grid-row:span 3;grid-template-rows:subgrid;row-gap:8px;align-content:start;min-width:0;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .frp-etape--faite{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .frp-etape--refusee{border-color:var(--color-svv-urgence-orange);background:color-mix(in srgb, var(--color-svv-urgence-orange) 14%, var(--color-svv-surface))}
 .frp-etape--en-cours{border-width:3px;border-color:var(--color-svv-ink);box-shadow:0 0 0 3px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
@@ -612,4 +624,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-titre{font-weight:900;color:var(--color-svv-ink)}
 .frp-statut{font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
+.frp-etape > .pva-bloc{grid-row:2 / span 2;display:grid;grid-template-rows:subgrid;row-gap:8px;min-width:0;margin:0}
+.frp-infos,.frp-actions{display:flex;flex-direction:column;gap:8px;min-width:0}
+.frp-actions .loc-boutons{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0}
+.frp-actions .loc-boutons .svv-btn{width:100%;min-height:48px;margin:0;display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:normal}
 `;

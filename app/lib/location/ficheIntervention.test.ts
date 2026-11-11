@@ -23,7 +23,7 @@ const E: EncartLogement = {
 describe('la fiche d’intervention', () => {
   it('① ② ③ : locataires (date d’entrée), TOUS les propriétaires, logement, lots concernés, annexes', () => {
     const f = ficheDepuisEncart(E);
-    expect(f.locataires).toEqual([{ nom: 'BERNARD', prenom: 'Alice', telephones: ['06 55 66 77 88'], emails: [], entree: '2022-09-01' }]);
+    expect(f.locataires).toEqual([{ nom: 'BERNARD', prenom: 'Alice', telephones: ['06 55 66 77 88'], emails: [], entree: '2022-09-01', locataireId: 101 }]);
     expect(f.proprietaires.map((p) => p.nom)).toEqual(['DUPONT Jean', 'DUPONT Marie']);
     expect(Object.fromEntries(f.logement.map((l) => [l.cle, l.valeur]))).toEqual({
       adresse: '4 rue Fictive, 92800 Puteaux', digicode: '4521A', type: 'Appartement T3', etage: '3e étage', lot: '45', porte: 'G', acces: 'Code au portail' });
