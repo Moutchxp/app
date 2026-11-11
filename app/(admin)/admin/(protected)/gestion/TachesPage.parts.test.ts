@@ -40,7 +40,8 @@ describe('la page pleine « Tâches »', () => {
 describe('le raccourci « Tâches » de la colonne des mails', () => {
   it('entre « Événements » et « Syndics », même style (cm-entree)', () => {
     const ev = BOITE.indexOf('<span className="cm-texte">Événements</span>');
-    const ta = BOITE.indexOf('<span className="cm-texte">Tâches</span>');
+    // 🔴 Arno (11/11/2026, lot C) — le raccourci s'appelle désormais « RDV / Tâches ».
+    const ta = BOITE.indexOf('<span className="cm-texte">RDV / Tâches</span>');
     const sy = BOITE.indexOf('<span className="cm-texte">Syndics</span>');
     expect(ev).toBeGreaterThan(0);
     expect(ta).toBeGreaterThan(ev);

@@ -95,14 +95,14 @@ describe('🔴 le bouton « + Tâche »', () => {
   it('≥ 1 en attente : rouge, « + Tâche » puis « 2 en attente » en petit dessous', async () => {
     await monter();
     expect(boutonTache().classList.contains('tch-btn-attente')).toBe(true);
-    expect(boutonTache().querySelector('.tch-btn-attente-mots > span')?.textContent).toBe('+ Tâche');
+    expect(boutonTache().querySelector('.tch-btn-attente-mots > span')?.textContent).toBe('+ RDV / Tâche'); // 🔴 lot C
     expect(boutonTache().querySelector('small')?.textContent).toBe('2 en attente');
   });
   it('0 en attente : inchangé (classes et texte d’avant)', async () => {
     taches = [t({ id: 4, etat: 'faite', faiteLe: '2026-10-01T09:00:00Z' })];
     await monter();
     expect(boutonTache().className).toBe('svv-btn svv-btn-outline gst-btn');
-    expect(boutonTache().textContent).toBe('+ Tâche');
+    expect(boutonTache().textContent).toBe('+ RDV / Tâche'); // 🔴 lot C
     expect(repli()).toBeNull();
     expect(container.querySelector('#bloc')?.innerHTML).toBe('');
   });
@@ -110,7 +110,7 @@ describe('🔴 le bouton « + Tâche »', () => {
     await monter();
     await act(async () => { boutonTache().click(); });
     await calmer();
-    expect(container.querySelector('.tchf-titre')?.textContent).toContain('Nouvelle tâche');
+    expect(container.querySelector('.tchf-titre')?.textContent).toContain('Nouveau RDV / tâche'); // 🔴 lot C : avant le choix du type
   });
 });
 

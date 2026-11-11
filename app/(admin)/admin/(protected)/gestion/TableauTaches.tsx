@@ -97,6 +97,8 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
   const [tri, setTri] = useState<TriTaches>(TRI_TACHES_DEFAUT);
   const [filtres, setFiltres] = useState<FiltresTaches>(FILTRES_TACHES_VIDES);
   const [recherche, setRecherche] = useState('');
+  // 🔴 Arno (11/11/2026, lot C) — le filtre par TYPE de la pleine page (« RDV » / « Tâche »).
+  const [sorteFiltre, setSorteFiltre] = useState<'toutes' | 'rdv' | 'tache'>('toutes');
   const [prefsLues, setPrefsLues] = useState(false);
   useEffect(() => {
     if (!plein) return;
@@ -134,9 +136,10 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
      entrent dans la liste quand on les demande (statut « Faite » ou « Annulée »). */
   const avecTerminees = plein && filtres.statuts.some((x) => x === 'faite' || x === 'annulee');
   const listePlein = plein ? trierTachesPleinePage(chercherTaches(filtrerTachesPleinePage(
-    avecTerminees ? [...ouvertes, ...filtrerParPastille(toutes.terminees, pastille, maintenant)] : ouvertes, filtres, maintenant), recherche), tri, maintenant) : ouvertes;
+    avecTerminees ? [...ouvertes, ...filtrerParPastille(toutes.terminees, pastille, maintenant)] : ouvertes, filtres, maintenant), recherche), tri, maintenant)
+      .filter((t) => sorteFiltre === 'toutes' || (t.sorte ?? 'tache') === sorteFiltre) : ouvertes;
   const collaborateurs = plein ? collaborateursDesTaches(donnees.taches) : [];
-  const filtresActifs = plein && (recherche.trim() !== '' || filtres.echeances.length > 0 || filtres.statuts.length > 0 || filtres.collaborateur !== null || filtres.bien !== 'tous');
+  const filtresActifs = plein && (sorteFiltre !== 'toutes' || recherche.trim() !== '' || filtres.echeances.length > 0 || filtres.statuts.length > 0 || filtres.collaborateur !== null || filtres.bien !== 'tous');
   const basculer = <T,>(l: readonly T[], v: T): T[] => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
   const urgentes = compterTachesUrgentes(ouvertes, maintenant);
   const lien = pleinePage !== undefined && (
@@ -147,9 +150,10 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
       {repliable ? (
         <button type="button" className={`tch-repli${!ouvert ? ' blr-repli' : ''}`} aria-expanded={ouvert} onClick={(e) => { e.stopPropagation(); setOuvert((o) => !o); }} data-repli-taches>
           <span aria-hidden="true" className={`tch-fleche${!ouvert ? ' blr-fleche' : ''}`}>{ouvert ? '▾' : '▸'}</span>
-          {ouvert ? <>Tâches <span className="gst-compte">{ouvertes.length}</span></> : <>Tâches · <span data-total-taches>{ouvertes.length}</span></>}
+          {/* 🔴 Arno (11/11/2026, lot C) — « RDV / Tâches » (ligne repliée, bloc ouvert, pleine page). */}
+          {ouvert ? <>RDV / Tâches <span className="gst-compte">{ouvertes.length}</span></> : <>RDV / Tâches · <span data-total-taches>{ouvertes.length}</span></>}
         </button>
-      ) : <>Tâches <span className="gst-compte" data-nombre-taches>{listePlein.length}</span></>}
+      ) : <>RDV / Tâches <span className="gst-compte" data-nombre-taches>{listePlein.length}</span></>}
       {repliable && !ouvert && urgentes > 0 && (
         <span className="tch-urgentes blr-alerte" data-urgentes-taches>● {urgentes} urgente{urgentes > 1 ? 's' : ''}</span>
       )}
@@ -177,7 +181,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
         {/* 🔴 LOT GESTION-TACHES-SANS-BIEN (Arno, 17/10/2026) — création simple, sans bien : la MÊME fenêtre que « + Tâche ». */}
         <button type="button" className="svv-btn svv-btn-primary gst-btn tch-btn tch-creer" data-action="creer-tache"
           onClick={(e) => { e.stopPropagation(); setCree(null); setCreation(true); }}>
-          + Créer une tâche
+          + RDV / Tâche
         </button>
         <div className="tch-filtres">
           <div className="tch-filtre" role="group" aria-label="Quelles tâches">
@@ -203,6 +207,13 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
       <PastillesFiltres n={n} enAttente={enAttente} active={pastille} onChoisir={(p) => changerFiltre(() => setPastille(p))} />
       {plein && (
         <div className="tch-plein-outils" data-outils-pleine-page>
+          <div className="tch-filtre" role="group" aria-label="Type" data-filtre-sorte>
+            <span className="tch-plein-mot">Type</span>
+            {([['toutes', 'Tous'], ['rdv', 'RDV'], ['tache', 'Tâche']] as const).map(([cle, mot]) => (
+              <button key={cle} type="button" aria-pressed={sorteFiltre === cle} data-filtre-sorte-choix={cle}
+                className={`tch-filtre-btn${sorteFiltre === cle ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setSorteFiltre(cle)}>{mot}</button>
+            ))}
+          </div>
           <label className="tch-plein-champ">
             <span className="tch-plein-mot">Rechercher</span>
             <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="ex. plombier, 12 rue des Lilas, Dupont, Claire" data-recherche-taches />
@@ -249,7 +260,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null, repliable
             </select>
           </label>
           <button type="button" className="tch-filtre-btn" data-reinitialiser-taches
-            onClick={() => changerFiltre(() => { setFiltres(FILTRES_TACHES_VIDES); setTri(TRI_TACHES_DEFAUT); setQui('toutes'); setStatut('toutes'); setPastille(null); setRecherche(''); })}>
+            onClick={() => changerFiltre(() => { setFiltres(FILTRES_TACHES_VIDES); setTri(TRI_TACHES_DEFAUT); setQui('toutes'); setStatut('toutes'); setPastille(null); setRecherche(''); setSorteFiltre('toutes'); })}>
             Réinitialiser</button>
         </div>
       )}

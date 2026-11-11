@@ -55,6 +55,8 @@ describe('« + Créer une tâche »', () => {
 
     await act(async () => { (container.querySelector('[data-action="creer-tache"]') as HTMLButtonElement).click(); });
     await calmer();
+    // 🔴 Arno (11/11/2026, lot C) — le choix OBLIGATOIRE en tête de la fenêtre : « Tâche » (le comportement d'avant).
+    await act(async () => { (document.querySelector('[data-sorte="tache"]') as HTMLButtonElement | null)?.click(); });
     expect(container.querySelector('#tchf-titre')?.textContent).toBe('Nouvelle tâche — sans bien');
     expect(lectures.some((u) => u.includes('/taches/contacts'))).toBe(false); // aucune fiche de bien lue
     expect(container.querySelector('.tchf-contacts-manuels legend')?.textContent).toBe('Contacts de la tâche (saisis à la main)');

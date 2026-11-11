@@ -145,6 +145,17 @@ describe('🔴 3 — la pleine page Tâches : recherche, tris, filtres cumulable
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, 'lilas'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
     expect(objets(c)).toEqual(['Clés']);
   });
+  it('🔴 Arno (11/11/2026, lot C) — filtre par TYPE : Tous / RDV / Tâche ; les tâches d’avant (sans type) sont des « Tâche » ; « Réinitialiser » le remet', async () => {
+    taches = taches.map((t) => (t.id === 3 ? { ...t, sorte: 'rdv' as const } : t.id === 2 ? { ...t, sorte: 'tache' as const } : t));
+    const c = await gestion('?ecran=taches');
+    expect([...c.querySelectorAll('[data-filtre-sorte-choix]')].map((b) => b.textContent)).toEqual(['Tous', 'RDV', 'Tâche']);
+    await clic(c.querySelector('[data-filtre-sorte-choix="rdv"]'));
+    expect(objets(c)).toEqual(['État des lieux']);
+    await clic(c.querySelector('[data-filtre-sorte-choix="tache"]'));
+    expect(objets(c)).toEqual(['Relancer le plombier', 'Visite', 'Clés']);
+    await clic(c.querySelector('[data-reinitialiser-taches]'));
+    expect(objets(c)).toHaveLength(4);
+  });
   it('les pastilles et filtres du bloc sont conservés en pleine page', async () => {
     const c = await gestion('?ecran=taches');
     expect(c.querySelector('[data-filtre-qui="confiees"]')).not.toBeNull();

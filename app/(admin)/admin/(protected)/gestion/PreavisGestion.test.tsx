@@ -207,7 +207,7 @@ describe('🔴 2 — « Préavis » dans le menu de gauche, entre « Tâches » 
   it('l’entrée est entre « Tâches » et « Syndics » ; la pastille dit 2 (deux préavis en alerte)', async () => {
     const c = await gestion('');
     const e = entrees(c);
-    expect(e.indexOf('Préavis')).toBe(e.indexOf('Tâches') + 1);
+    expect(e.indexOf('Préavis')).toBe(e.indexOf('RDV / Tâches') + 1); // 🔴 lot C : « Tâches » → « RDV / Tâches »
     expect(e.indexOf('Syndics')).toBe(e.indexOf('Préavis') + 1);
     expect(c.querySelector('[data-pastille-preavis]')?.textContent).toBe('2');
   });

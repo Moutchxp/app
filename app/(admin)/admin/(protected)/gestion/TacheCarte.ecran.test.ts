@@ -108,7 +108,9 @@ describe('🔴 la carte, de haut en bas', () => {
       .toEqual(['Quand / Qui', 'Notes', 'Pièces jointes', 'Contacts (2)']);
     expect(carte(7).querySelector('.tch-carte-pied [data-ordre="actions"]')).not.toBeNull();
     // Dépliée dans une liste, le bandeau porte « ▾ » : un clic la replie.
-    expect(carte(7).querySelector('.tch-carte-titre')?.textContent).toBe('▾ Visite technique');
+    // 🔴 Arno (11/11/2026, lot C) — le petit libellé du type (« Tâche ») devant l'objet ; l'objet lui-même inchangé.
+    expect(carte(7).querySelector('.tch-carte-titre [data-sorte-tache]')?.textContent).toBe('Tâche');
+    expect(carte(7).querySelector('.tch-carte-titre .tch-carte-objet')?.textContent).toBe('▾ Visite technique');
     const cle = carte(7).querySelector('.tch-carte-cle')!;
     expect(cle.querySelector('.tch-date')?.textContent).toMatch(/^📅 .+ · 9 h 30$/);
     expect(cle.textContent).toContain('Aujourd’hui');

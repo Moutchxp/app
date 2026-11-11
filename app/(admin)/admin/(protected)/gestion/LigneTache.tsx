@@ -14,7 +14,13 @@ import { CSS_CONTACTS_TACHE, EncadresContacts } from './ContactsTache';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, type GesteTache } from './tachesClient';
 import { useRecapEnvois } from './RecapEnvoisTache';
-import { jourDecale, type RaccourciDecalage } from '../../../../lib/gestion/taches';
+import { jourDecale, MOT_SORTE, type RaccourciDecalage, type Tache as TacheSorte } from '../../../../lib/gestion/taches';
+
+/** 🔴 Arno (11/11/2026, lot C) — le petit libellé « RDV » / « Tâche » d'une entrée (sans la 469 : « Tâche »). */
+export function BadgeSorte({ tache }: { tache: Pick<TacheSorte, 'sorte'> }) {
+  const s = tache.sorte ?? 'tache';
+  return <span className={`tch-sorte tch-sorte--${s}`} data-sorte-tache={s}>{MOT_SORTE[s]}</span>;
+}
 import { badgeTache, mentionMail } from '../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — chaque invité, son état, « N acceptées sur M » ; « Changer le destinataire ». */
 import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
@@ -281,6 +287,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
             élément focalisable, y remonte son clic (Entrée / Espace au clavier) : un seul repli, jamais deux. */}
         <h5 className={`tch-carte-titre tch-carte-bloc${onBasculer !== undefined ? ' tch-carte-titre--repli' : ''}`} data-ordre="titre"
           onClick={onBasculer !== undefined ? () => onBasculer() : undefined}>
+          <BadgeSorte tache={tache} />{' '}
           <button type="button" className="tch-objet tch-carte-objet"
             onClick={() => { if (onBasculer === undefined) onDetail(tache.id); }}
             aria-expanded={onBasculer !== undefined ? true : undefined}
@@ -391,6 +398,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
               : echeanceCompacte(tache, maintenant)}
           </b>
         </span>
+        <BadgeSorte tache={tache} />
         <b className="tch-l1-titre">{tache.objet}</b>
         {badge}
       </div>
@@ -532,6 +540,8 @@ export const MOT_ACTION = {
  * ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous (il fermerait le gabarit).
  */
 export const CSS_TACHES = `
+.tch-sorte{display:inline-flex;align-items:center;padding:1px 7px;margin-right:2px;border-radius:999px;font-size:.72rem;font-weight:900;letter-spacing:.03em;vertical-align:middle;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-ink);background:var(--color-svv-field)}
+.tch-sorte--rdv{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
 /* LOT COULEURS-TACHES (Arno, 13/10/2026) : retard = rouge fonce (bordeaux) ; aujourd'hui et demain = rouge ;
    apres-demain = orange ; plus tard = vert. Deux jetons propres aux taches, redefinis en Sombre (memes selecteurs que
    globals.css) : le bordeaux y reste distinct du rouge et lisible sur fond sombre. */

@@ -138,6 +138,8 @@ export async function planifierEdls(
   }
   // ② LA TÂCHE, par le module de tâches (sa transaction, sa demande, ses traces).
   const saisie: SaisieTache = {
+    // 🔴 Arno (11/11/2026, lot C) — l'état des lieux de sortie est un RENDEZ-VOUS (« RDV » dans le module RDV / Tâches).
+    sorte: 'rdv',
     objet: OBJET_TACHE_EDLS, jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes,
     note: await recapitulatif(ids, avant.lignes, v.commentaire), confieeA: d.confieA, evenementId: null, rappels: rappelsParDefaut(true),
   };
@@ -184,6 +186,8 @@ async function edlsCourant(q: RequeteTx, ids: readonly number[]): Promise<{ ok: 
 }
 
 const saisieDeLaTache = (l: LienOuvert, o: { jour: string; heure: string; dureeMinutes: number; confieeA: number }): SaisieTache => ({
+    // 🔴 Arno (11/11/2026, lot C) — l'état des lieux de sortie est un RENDEZ-VOUS (« RDV » dans le module RDV / Tâches).
+    sorte: 'rdv',
   objet: l.objet, note: l.note, jour: o.jour, heure: o.heure, dureeMinutes: o.dureeMinutes, confieeA: o.confieeA,
   evenementId: l.evenement_id === null ? null : Number(l.evenement_id),
   rappels: Array.isArray(l.rappels) ? (l.rappels as SaisieTache['rappels']) : rappelsParDefaut(true),

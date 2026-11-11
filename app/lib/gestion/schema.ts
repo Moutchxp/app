@@ -405,6 +405,11 @@ export function evenementsTacheDisponible(): Promise<boolean> {
  * l'agenda Google », la durée d'un rendez-vous et le journal des appels à l'agenda. Sans elle, aucune tâche ne part
  * vers l'agenda et les tâches sont exactement celles d'avant ce lot.
  */
+/** 🔴 Arno (11/11/2026, lot C, migration 469) — le type « RDV » / « Tâche » d'une entrée du module. */
+export function sorteTacheDisponible(): Promise<boolean> {
+  return memoiser('colonne.gestion_tache.sorte', () => colonneExiste('gestion_tache', 'sorte'));
+}
+
 export function agendaTacheDisponible(): Promise<boolean> {
   return memoiser('table.gestion_tache_agenda_appel', async () =>
     (await tableExiste('gestion_tache_agenda_appel')) && (await colonneExiste('gestion_tache', 'duree_minutes'))

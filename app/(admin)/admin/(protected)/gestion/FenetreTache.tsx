@@ -7,7 +7,7 @@ import {
   type Rappel,
 } from '../../../../lib/gestion/taches';
 import { blocContacts, type ContactSource, type ContactTache } from '../../../../lib/gestion/contactsTache';
-import type { ContactManuel } from '../../../../lib/gestion/taches';
+import { DUREES_RAPIDES_RDV, heureFinRdv, objetRendezVous, type ContactManuel, type SorteTache } from '../../../../lib/gestion/taches';
 import {
   agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
   lireEvenementsProposes, type CollaborateurEcran, type DetailTache, type EvenementPropose, type GesteTache, type SaisieEcran,
@@ -86,6 +86,24 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     rappels: rappelsParDefaut(false), dureeMinutes: null,
   }));
   const [occupe, setOccupe] = useState(false);
+  /* ══ 🔴🔴 Arno (11/11/2026, lot C) — « RENDEZ-VOUS » OU « TÂCHE », CHOIX OBLIGATOIRE EN TÊTE DE LA FENÊTRE ════════════════════════════════
+     Rendez-vous : objet proposé « Demande de rendez-vous le JJ/MM/AAAA à HHhMM » (suit la date et l'heure tant qu'on ne l'a pas modifié ;
+     toujours modifiable), date, heure de début et DURÉE obligatoires (choix rapides + saisie libre), heure de fin affichée ; l'invitation
+     d'agenda prend cette durée. Tâche : la date seule est obligatoire, heure facultative, pas de durée. Tant qu'aucun n'est choisi : le reste
+     de la fenêtre est inactif. */
+  const [objetTouche, setObjetTouche] = useState(mode.sorte === 'detail');
+  const [dureeRdv, setDureeRdv] = useState<number | null>(null);
+  const choisi = saisie.sorte !== undefined || mode.sorte === 'detail';
+  const estRdv = saisie.sorte === 'rdv';
+  const choisirSorte = (x: SorteTache) => setSaisie((s) => {
+    if (x === 'rdv') return { ...s, sorte: x, rappels: s.heure === null ? s.rappels : rappelsParDefaut(true), ...(objetTouche ? {} : { objet: objetRendezVous(s.jour, s.heure) }) };
+    // Une tâche ne porte ni durée ni objet de rendez-vous proposé (celui-ci s'efface s'il n'a pas été modifié).
+    return { ...s, sorte: x, ...(objetTouche ? {} : { objet: '' }) };
+  });
+  useEffect(() => {
+    // L'objet proposé SUIT la date et l'heure — tant que la personne ne l'a pas modifié elle-même.
+    if (estRdv && !objetTouche) setSaisie((s) => (s.objet === objetRendezVous(s.jour, s.heure) ? s : { ...s, objet: objetRendezVous(s.jour, s.heure) }));
+  }, [estRdv, objetTouche, saisie.jour, saisie.heure]);
   /**
    * 🔴🔴 RÈGLE D'ARNO (13/10/2026) — « un refus, qu'il vienne du formulaire ou du serveur, affiche TOUJOURS un message
    * clair en français, à côté du champ concerné ET en haut de la fenêtre. Jamais de clic sans effet visible. »
@@ -132,11 +150,13 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
         setSaisie({
           objet: t.objet, jour: t.jour, heure: t.heure, note: t.note ?? '', confieeA: t.confieeA,
           evenementId: t.evenement?.id ?? null, rappels: t.rappels,
+          ...(t.sorte !== undefined ? { sorte: t.sorte } : {}),
           ...(t.dureeMinutes !== undefined ? { dureeMinutes: t.dureeMinutes } : {}),
           ...(t.invites !== undefined
             ? { invites: t.invites.filter((i) => !i.principal && i.collaborateurId !== null).map((i) => Number(i.collaborateurId)) } : {}),
           ...(t.evenements !== undefined ? { evenements: t.evenements.map((e) => e.id) } : {}),
         });
+        setDureeRdv(t.dureeMinutes ?? 60);
         setChoisis(d.contacts.map((c) => c.cle));
         setInvitesContacts(d.contacts.filter((c) => c.inviter === true).map((c) => c.cle));
       }
@@ -214,14 +234,17 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const basculerInvite = (cle: string) => setInvitesContacts((l) => (l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]));
 
   const enregistrer = async () => {
-    const refus = verifierSaisie(saisie);
+    if (!choisi) { setMessage({ ok: false, texte: 'Choisissez d’abord « Rendez-vous » ou « Tâche ».', champ: 'sorte' }); return; }
+    // Un rendez-vous part avec SA durée (obligatoire) ; une tâche, sans durée.
+    const saisieTypee: SaisieEcran = estRdv ? { ...saisie, dureeMinutes: dureeRdv } : saisie.sorte === 'tache' ? Object.fromEntries(Object.entries(saisie).filter(([k]) => k !== 'dureeMinutes')) as SaisieEcran : saisie;
+    const refus = verifierSaisie(saisieTypee);
     if (refus !== null) { setMessage({ ok: false, texte: refus.message, champ: refus.champ }); return; }
     setOccupe(true);
     setMessage(null);
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
     /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : les copies gardées (cochées) et les contacts saisis à la main. */
-    const avecContacts0: SaisieEcran = sansBien ? { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) }
-      : sources === null ? saisie : { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) };
+    const avecContacts0: SaisieEcran = sansBien ? { ...saisieTypee, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) }
+      : sources === null ? saisieTypee : { ...saisieTypee, contacts: choisis, contactsManuels: nouveauxContacts, invitesContacts: invitesContacts.filter((c) => choisis.includes(c)) };
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — les autres invités ne voyagent que si le serveur sait les recevoir (365). */
     const avecContacts1: SaisieEcran = collab?.invites === true
       ? { ...avecContacts0, invites: (avecContacts0.invites ?? []).filter((id) => id !== avecContacts0.confieeA) }
@@ -234,7 +257,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       ? { ...avecContacts, pieces: piecesChoisies.map((p) => p.id) } : avecContacts;
     /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (« Revenir » garde toute la saisie), puis le résultat. */
     const r = await recap.demander({
-      titre: mode.sorte === 'creer' ? 'Tâche créée' : 'Tâche modifiée',
+      titre: mode.sorte === 'creer' ? (estRdv ? 'Rendez-vous créé' : 'Tâche créée') : (estRdv ? 'Rendez-vous modifié' : 'Tâche modifiée'),
       apercu: { geste: mode.sorte === 'creer' ? 'creer' : 'modifier', tacheId: mode.sorte === 'detail' ? mode.id : null,
         lotId: mode.sorte === 'creer' ? mode.lotId : (tache?.lotId ?? null), ...envoi },
       // 🔴 Arno (10/11/2026) — `rt` : le texte modifié des mails aux contacts extérieurs (« Modifier le texte » du récapitulatif).
@@ -247,7 +270,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       /* 🔴 LOT TACHES-ACCEPTATION — confiée à un collègue : la confirmation dit aussi « en attente d'acceptation » et l'état
          du mail (« mail non envoyé (envoi désactivé) » tant que le réglage est coupé). */
       const suite = r.message.startsWith('Tâche créée, ') ? ` — ${r.message.slice('Tâche créée, '.length).replace(/\.$/, '')}` : '';
-      onCree?.(`Tâche créée : « ${saisie.objet.trim()} » — ${echeanceLisible(saisie.jour, saisie.heure)}${suite}.`);
+      onCree?.(`${estRdv ? 'Rendez-vous créé' : 'Tâche créée'} : « ${saisie.objet.trim()} » — ${echeanceLisible(saisie.jour, saisie.heure)}${suite}.`);
       onFermer();
       return;
     }
@@ -336,7 +359,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     if (r.ok) setVersion((v) => v + 1);
   };
 
-  const titre = mode.sorte === 'creer' ? 'Nouvelle tâche' : 'Tâche';
+  const titre = mode.sorte === 'creer' ? (estRdv ? 'Nouveau rendez-vous' : saisie.sorte === 'tache' ? 'Nouvelle tâche' : 'Nouveau RDV / tâche') : (estRdv ? 'Rendez-vous' : 'Tâche');
   const adresse = sansBien ? 'sans bien' : mode.sorte === 'creer' ? mode.adresse : tache?.adresseBien ?? '';
 
   return (
@@ -423,11 +446,23 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
         )}
 
         <div className="tchf-corps">
+          {/* 🔴 Arno (11/11/2026, lot C) — le choix OBLIGATOIRE : « Rendez-vous » ou « Tâche » (le type est enregistré). */}
+          {(mode.sorte === 'creer' || saisie.sorte !== undefined) && (
+            <div className="tchf-sorte" role="group" aria-label="Type" data-choix-sorte>
+              {(['rdv', 'tache'] as const).map((x) => (
+                <button key={x} type="button" className={`svv-btn gst-btn tchf-sorte-btn${saisie.sorte === x ? ' tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
+                  aria-pressed={saisie.sorte === x} disabled={lectureSeule} onClick={() => choisirSorte(x)} data-sorte={x}>{x === 'rdv' ? 'Rendez-vous' : 'Tâche'}</button>
+              ))}
+              {!choisi && <span className="tchf-aide" data-choix-sorte-aide>Choisissez d’abord « Rendez-vous » ou « Tâche ».</span>}
+              {erreurDe('sorte')}
+            </div>
+          )}
+          <fieldset className="tchf-sous-choix" disabled={!choisi} data-formulaire-actif={choisi ? 'oui' : 'non'}>
           <label className="tchf-champ">
             <span className="tch-etiquette">Objet</span>
             <input ref={premier} type="text" value={saisie.objet} maxLength={300} disabled={lectureSeule}
-              aria-invalid={invalide('objet') || undefined}
-              onChange={(e) => setSaisie((s) => ({ ...s, objet: e.target.value }))} />
+              aria-invalid={invalide('objet') || undefined} data-champ-objet
+              onChange={(e) => { setObjetTouche(true); setSaisie((s) => ({ ...s, objet: e.target.value })); }} />
             {erreurDe('objet')}
           </label>
           <div className="tchf-rangee">
@@ -438,18 +473,37 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               {erreurDe('jour')}
             </label>
             <label className="tchf-champ">
-              <span className="tch-etiquette">Heure (facultative)</span>
+              <span className="tch-etiquette">{estRdv ? 'Heure de début *' : 'Heure (facultative)'}</span>
               <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
                 onChange={(e) => changerHeure(e.target.value)} />
               {erreurDe('heure')}
             </label>
           </div>
-          <p className="tchf-aide">
-            {saisie.heure === null ? 'Sans heure : repère sur la journée.' : 'Avec heure : rendez-vous.'}
-          </p>
+          {!estRdv && (
+            <p className="tchf-aide">
+              {saisie.heure === null ? 'Sans heure : repère sur la journée.' : 'Avec heure : rendez-vous.'}
+            </p>
+          )}
+          {estRdv && (
+            <fieldset className="tchf-groupe tchf-duree-rdv" data-duree-rdv>
+              <legend className="tch-etiquette">Durée *</legend>
+              <div className="tchf-rappels">
+                {DUREES_RAPIDES_RDV.map((d) => (
+                  <button key={d} type="button" className={`svv-btn gst-btn tch-btn${dureeRdv === d ? ' tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
+                    aria-pressed={dureeRdv === d} disabled={lectureSeule} onClick={() => setDureeRdv(d)} data-duree-rapide={d}>{motDuree(d)}</button>
+                ))}
+                <label className="tchf-case">Autre (min)
+                  <input type="number" min={5} max={1440} step={5} value={dureeRdv ?? ''} disabled={lectureSeule} className="tchf-duree-libre"
+                    aria-invalid={invalide('duree') || undefined} onChange={(e) => setDureeRdv(e.target.value === '' ? null : Math.max(0, Math.round(Number(e.target.value))))} data-duree-libre />
+                </label>
+              </div>
+              <p className="tchf-aide" data-heure-fin>{heureFinRdv(saisie.heure, dureeRdv) ? `Fin : ${heureFinRdv(saisie.heure, dureeRdv)!.replace(':', 'h')}` : 'Fin : indiquez l’heure de début et la durée.'}</p>
+              {erreurDe('duree')}
+            </fieldset>
+          )}
           {/* 🔴 LOT TACHES-AGENDA — « Durée » : seulement pour un rendez-vous ; 1 h par défaut (durée de l'événement
               dans l'agenda Google). */}
-          {saisie.heure !== null && saisie.dureeMinutes !== undefined && (
+          {saisie.sorte === undefined && saisie.heure !== null && saisie.dureeMinutes !== undefined && (
             <label className="tchf-champ tchf-duree">
               <span className="tch-etiquette">Durée</span>
               <select value={saisie.dureeMinutes ?? DUREE_DEFAUT_MINUTES} disabled={lectureSeule} data-champ-duree
@@ -626,15 +680,16 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               </ul>
             </section>
           )}
+          </fieldset>
         </div>
 
         {message && <p className={`tch-message${message.ok ? '' : ' tch-message--erreur'}`} role="status">{message.texte}</p>}
 
         <footer className="tchf-pied">
           {!lectureSeule && (
-            <button type="button" className="svv-btn gst-btn tch-btn" disabled={occupe} onClick={() => void enregistrer()}>
+            <button type="button" className="svv-btn gst-btn tch-btn" disabled={occupe || !choisi} onClick={() => void enregistrer()} data-enregistrer-tache>
               {/* Le clic a TOUJOURS un effet visible : le bouton dit qu'il travaille tant que le serveur n'a pas répondu. */}
-              {occupe ? 'Enregistrement…' : mode.sorte === 'creer' ? 'Créer la tâche' : 'Enregistrer les modifications'}
+              {occupe ? 'Enregistrement…' : mode.sorte === 'creer' ? (estRdv ? 'Créer le rendez-vous' : 'Créer la tâche') : 'Enregistrer les modifications'}
             </button>
           )}
           {mode.sorte === 'detail' && tache !== null && !terminee && (
@@ -721,6 +776,12 @@ const CSS_FENETRE = `
 .tchf-agenda{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem}
 .tchf-agenda.tch-agenda--a_resynchroniser{border-color:var(--color-svv-red)}
 .tchf-duree{max-width:14rem}
+.tchf-sorte{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tchf-sorte .tchf-sorte-btn{min-height:44px;flex:1 1 9rem;width:auto}
+.tchf-sorte-btn--choisi{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink)}
+.tchf-sous-choix{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:inherit}
+.tchf-sous-choix:disabled{opacity:.55}
+.tchf-duree-libre{width:6rem;min-height:40px}
 `;
 
 /** La phrase du statut, dans le détail : qui, quand, et l'état du mail. PUR. */

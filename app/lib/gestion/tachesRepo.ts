@@ -11,7 +11,7 @@ import {
   type ActionTache, type ChampTache, type ContactManuel, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
-import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, invitesTacheDisponible, piecesTacheDisponible } from './schema';
+import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, invitesTacheDisponible, piecesTacheDisponible, sorteTacheDisponible } from './schema';
 /* 🔴 LOT TACHES-AGENDA — chaque geste réussi demande la synchronisation de l'agenda, dans SA transaction (migration 350). */
 import { complementsAgenda, marquerASynchroniser } from './agendaSynchroRepo';
 /* 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation, posée dans la transaction du geste qui la provoque. */
@@ -21,7 +21,7 @@ import { contactsDuBienPourTache } from './contactsTacheRepo';
 import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache } from './contactsTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche, chacun sa demande (migration 365). */
 import { alignerInvites, invitesDesTaches, personnesInvitees, refusRenvoiPrincipal, type PersonneInvitee } from './invitesRepo';
-import { invitesDeLaSaisie } from './taches';
+import { invitesDeLaSaisie, type SorteTache } from './taches';
 /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés (migration 366). */
 import { alignerEvenements, assurerRattachement, evenementsDesTaches } from './tacheEvenementsRepo';
 import { evenementsTacheDisponible, invitationContactsDisponible } from './schema';
@@ -175,6 +175,14 @@ async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
   });
 }
 
+/** 🔴 Arno (11/11/2026, lot C, 469) — le type « RDV » / « Tâche » de chaque entrée (une requête pour toute la liste ; sans la 469 : rien). */
+async function avecSorte(taches: Tache[]): Promise<Tache[]> {
+  if (taches.length === 0 || !(await sorteTacheDisponible())) return taches;
+  const { rows } = await query<{ id: number; sorte: SorteTache }>('SELECT id::int AS id, sorte FROM gestion_tache WHERE id = ANY($1::bigint[])', [taches.map((t) => t.id)]);
+  const m = new Map(rows.map((r) => [Number(r.id), r.sorte]));
+  return taches.map((t) => (m.has(t.id) ? { ...t, sorte: m.get(t.id) } : t));
+}
+
 /** 🔴 LOT GESTION-INVITATIONS-TACHES — les invités actifs de chaque tâche (une requête pour toute la liste). */
 async function avecInvites(taches: Tache[]): Promise<Tache[]> {
   const [m, ev, avecEv] = await Promise.all([
@@ -233,7 +241,7 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
-  const taches = await avecInvites(await avecContactsResume(await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache))));
+  const taches = await avecSorte(await avecInvites(await avecContactsResume(await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache)))));
   // 🔴 LOT FICHE-CARTE-TACHE — sur la fiche d'UN bien, chaque carte montre ses contacts et ses pièces sans clic de plus.
   return { taches: lotId === null ? taches : await avecContactsEtPieces(taches), tronque };
 }
@@ -247,7 +255,7 @@ export async function lireTache(id: number): Promise<{ tache: Tache; traces: Tra
     `SELECT action, avant, apres, survenu_le, auteur_libelle FROM gestion_tache_action
       WHERE tache_id = $1 ORDER BY survenu_le, id`, [id]);
   return {
-    tache: (await avecInvites(await avecAgenda([versTache(rows[0])])))[0],
+    tache: (await avecSorte(await avecInvites(await avecAgenda([versTache(rows[0])]))))[0],
     traces: tr.rows.map((r) => ({
       action: r.action, avant: r.avant, apres: r.apres, survenuLe: iso(r.survenu_le) ?? '', auteurLibelle: r.auteur_libelle,
     })),
@@ -566,6 +574,8 @@ async function creerTacheSansRefus(
     if (avecDuree && s.heure !== null && (s.dureeMinutes ?? null) !== null) {
       await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, s.dureeMinutes]);
     }
+    // 🔴 Arno (11/11/2026, lot C, 469) — le type choisi (« Rendez-vous » / « Tâche ») ; sans choix (écran d'avant) : « Tâche » par défaut.
+    if (s.sorte !== undefined && await sorteTacheDisponible()) await q('UPDATE gestion_tache SET sorte = $2 WHERE id = $1', [id, s.sorte]);
     await tracer(q, id, 'creation', null, {
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
@@ -836,6 +846,8 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     /* 🔴 Arno (10/11/2026) — après les événements : le bien unique se lit sur la tâche ET ses événements rattachés. */
     await poserTiersDuBien(q, id, auteur, nom);
     await marquerASynchroniser(q, id);
+    // 🔴 Arno (11/11/2026, lot C, 469) — le type, s'il est envoyé (la fenêtre de modification le garde ; il ne change pas le reste).
+    if (s.sorte !== undefined && await sorteTacheDisponible()) await q('UPDATE gestion_tache SET sorte = $2 WHERE id = $1 AND sorte <> $2', [id, s.sorte]);
     if (Object.keys(apres).length === 0) return { ok: true, id };
     await q(
       `UPDATE gestion_tache SET objet = $2, note = $3, jour = $4::date, heure = $5::time, confiee_a = $6,

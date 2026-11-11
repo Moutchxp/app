@@ -589,3 +589,10 @@ describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec
     expect(r.etat).not.toBe('refus');
   });
 });
+
+describe('🔴 Arno (11/11/2026, lot C) — la pré-visite est un « Rendez-vous » dans le module RDV / Tâches', () => {
+  it('la tâche créée (et modifiée) porte sorte = rdv', async () => {
+    await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
+    expect((creerTache.mock.calls[0] as [number, { sorte?: string }])[1].sorte).toBe('rdv');
+  });
+});

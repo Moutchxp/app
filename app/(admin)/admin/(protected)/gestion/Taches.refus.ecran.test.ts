@@ -68,8 +68,10 @@ const creer = async (objet = 'Visite') => {
       createElement(RecapTachesDuBien, { lotId: 27 }))));
   });
   await calmer();
-  await act(async () => { bouton('+ Tâche')?.click(); });
+  await act(async () => { bouton('+ RDV / Tâche')?.click(); });
   await calmer();
+  // 🔴 Arno (11/11/2026, lot C) — le choix OBLIGATOIRE en tête de la fenêtre : « Tâche » (le comportement d'avant).
+  await act(async () => { (document.querySelector('[data-sorte="tache"]') as HTMLButtonElement | null)?.click(); });
   await taper(container.querySelector('.tchf input[type="text"]') as HTMLInputElement, objet);
   await act(async () => { bouton('Créer la tâche')?.click(); });
   await calmer();

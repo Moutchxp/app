@@ -56,6 +56,8 @@ const clic = async (el: Element | null) => { if (el === null) throw new Error('�
 const creer = async () => {
   await act(async () => { root.render(createElement(FenetreTache, { mode: { sorte: 'creer', lotId: 10, lotCle: '315', adresse: '7 avenue de l’Union, Paris' }, onFermer: () => {} })); });
   await calmer();
+  // 🔴 Arno (11/11/2026, lot C) — le choix OBLIGATOIRE en tête de la fenêtre : « Tâche » (le comportement d'avant).
+  await act(async () => { (document.querySelector('[data-sorte="tache"]') as HTMLButtonElement | null)?.click(); });
   const objet = container.querySelector('input[type="text"]') as HTMLInputElement;
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(objet, 'Visite'); objet.dispatchEvent(new Event('input', { bubbles: true })); });
 };

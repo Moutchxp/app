@@ -209,3 +209,10 @@ describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec
     expect(creerTache).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('🔴 Arno (11/11/2026, lot C) — l’état des lieux de sortie est un « Rendez-vous » dans le module RDV / Tâches', () => {
+  it('la tâche créée porte sorte = rdv', async () => {
+    await planifierEdls({ occupationIds: [11], jour: '2026-11-03', debut: '10:00', fin: '11:30', confieA: 4, commentaire: null }, AUTEUR);
+    expect((creerTache.mock.calls[0] as unknown[])[1]).toMatchObject({ sorte: 'rdv' });
+  });
+});

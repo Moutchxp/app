@@ -118,7 +118,7 @@ describe('🔴 1 — fermés à chaque ouverture de la page', () => {
 describe('🔴 2 — fermés : le total et le repère rouge, exacts', () => {
   it('« Tâches · 5 » et « ● 3 urgentes » (en retard + aujourd’hui/demain + refusée à réattribuer ; ni la tâche à J+2, ni la faite)', async () => {
     const c = await gestion('?ecran=partage');
-    expect(c.querySelector('[data-repli-taches]')?.textContent).toBe('▸Tâches · 5');
+    expect(c.querySelector('[data-repli-taches]')?.textContent).toBe('▸RDV / Tâches · 5');
     expect(c.querySelector('[data-urgentes-taches]')?.textContent).toBe('● 3 urgentes');
   });
   it('« Préavis · 3 » et « ● 2 en alerte » (Alerte préavis + Personne n’a accepté la pré-visite)', async () => {
@@ -159,7 +159,7 @@ describe('🔴 3 — un clic sur la ligne de titre ouvre ou ferme ; ouvert, le b
     await clic(c.querySelector('[data-repli-taches]'));
     expect(c.querySelector('[data-bloc-taches]')?.getAttribute('data-bloc-taches')).toBe('ouvert');
     expect(c.querySelector('[data-repli-taches]')?.getAttribute('aria-expanded')).toBe('true');
-    expect(c.querySelector('[data-repli-taches]')?.textContent).toBe('▾Tâches 5');
+    expect(c.querySelector('[data-repli-taches]')?.textContent).toBe('▾RDV / Tâches 5');
     expect(c.querySelector('[data-action="creer-tache"]')).not.toBeNull();
     expect(c.querySelectorAll('.tch-tableau .tch-liste > *').length).toBeGreaterThanOrEqual(5);
     await clic(c.querySelector('[data-repli-taches]'));

@@ -1019,8 +1019,9 @@ export function PleinEcranBoite({
               <li>
                 <button type="button" className="cm-entree" data-raccourci="taches"
                   onClick={() => { onTaches(); setPanneauMobile('contenu'); }}
-                  title="Les tâches, en pleine page">
-                  <span className="cm-nom"><span className="cm-texte">Tâches</span></span>
+                  title="Les rendez-vous et les tâches, en pleine page">
+                  {/* 🔴 Arno (11/11/2026, lot C) — « RDV / Tâches ». */}
+                  <span className="cm-nom"><span className="cm-texte">RDV / Tâches</span></span>
                   {tachesDuJour > 0 && (
                     <span className="cm-pastille-jour" data-pastille-taches aria-label={`${tachesDuJour} tâche${tachesDuJour > 1 ? 's' : ''} aujourd’hui`}>
                       {tachesDuJour}

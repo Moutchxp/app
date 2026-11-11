@@ -80,6 +80,8 @@ async function verifierCollegues(ids: readonly number[], auteur: Auteur): Promis
 const saisieRdv = (rdv: RdvPrevisite, destinataires: readonly number[], note: string): SaisieTache => ({
   objet: OBJET_TACHE_PREVISITE, jour: rdv.jour, heure: rdv.heure, dureeMinutes: rdv.dureeMinutes, note,
   confieeA: destinataires[0], invites: destinataires.slice(1), evenementId: null, rappels: rappelsParDefaut(true),
+  // 🔴 Arno (11/11/2026, lot C) — la pré-visite est un RENDEZ-VOUS (« RDV » dans le module RDV / Tâches).
+  sorte: 'rdv',
 });
 
 export interface ResultatRdv { previsiteId: number; tacheId: number; rdv: RdvPrevisite; ancien: RdvPrevisite | null; occupationIds: number[] }

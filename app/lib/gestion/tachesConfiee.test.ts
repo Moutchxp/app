@@ -54,7 +54,7 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...(a as [string])),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...(a as [string]))),
 }));
-vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, evenementsTacheDisponible: async () => false, agendaTacheDisponible: async () => false, contactsTacheDisponible: async () => false, tachesDisponibles: async () => true }));
+vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, evenementsTacheDisponible: async () => false, agendaTacheDisponible: async () => false, contactsTacheDisponible: async () => false, tachesDisponibles: async () => true, sorteTacheDisponible: async () => true }));
 vi.mock('./comptesGoogleRepo', () => ({ lireDomainesAutorises: async () => 'criterimmo.fr,sansvisavis.com' }));
 
 const { creerTache } = await import('./tachesRepo');
@@ -76,5 +76,20 @@ describe('🔴 le serveur refuse une personne hors règle', () => {
     compteBase = { id: 5, libelle: 'Claire Martin', identifiant: 'c.martin@criterimmo.fr', actif: true, accesGestion: false };
     expect(await creerTache(10, SAISIE, AUTEUR)).toMatchObject({ ok: true, id: 7 });
     expect(appels.find((s) => s.startsWith('INSERT INTO gestion_tache ('))).toBeDefined();
+  });
+});
+
+describe('🔴🔴 Arno (11/11/2026, lot C, 469) — le type « Rendez-vous » / « Tâche » est enregistré', () => {
+  beforeEach(() => { appels.length = 0; compteBase = { id: 5, libelle: 'Claire Martin', identifiant: 'c.martin@criterimmo.fr', actif: true, accesGestion: true }; });
+  it('création d’un rendez-vous : sorte = rdv ; d’une tâche : sorte = tache ; sans type (écran d’avant) : rien d’écrit (défaut « tache »)', async () => {
+    const sorte = () => appels.filter((x) => x.startsWith('UPDATE gestion_tache SET sorte'));
+    await creerTache(10, { ...SAISIE, heure: '10:00', sorte: 'rdv', dureeMinutes: 60 }, AUTEUR);
+    expect(sorte()).toHaveLength(1);
+    appels.length = 0;
+    await creerTache(10, { ...SAISIE, sorte: 'tache' }, AUTEUR);
+    expect(sorte()).toHaveLength(1);
+    appels.length = 0;
+    await creerTache(10, SAISIE, AUTEUR);
+    expect(sorte()).toHaveLength(0);
   });
 });

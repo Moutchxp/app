@@ -78,8 +78,9 @@ export function BoutonTache({ lotId, lotCle, adresse, onEcrire }: {
       <button type="button" className={`svv-btn svv-btn-outline gst-btn${enAttente > 0 ? ' tch-btn-attente' : ''}`}
         data-en-attente={enAttente} onClick={() => { setConfirmation(null); setOuvert(true); }}>
         {enAttente > 0
-          ? <span className="tch-btn-attente-mots"><span>+ Tâche</span><small className="tch-btn-attente-nb">{motEnAttenteBouton(enAttente)}</small></span>
-          : '+ Tâche'}
+          // 🔴 Arno (11/11/2026, lot C) — « + RDV / Tâche ».
+          ? <span className="tch-btn-attente-mots"><span>+ RDV / Tâche</span><small className="tch-btn-attente-nb">{motEnAttenteBouton(enAttente)}</small></span>
+          : '+ RDV / Tâche'}
       </button>
       {confirmation !== null && <span className="tch-confirmation" role="status">✓ {confirmation}</span>}
       {ouvert && (

@@ -99,6 +99,8 @@ describe('🔴 création : choisir des contacts du bien', () => {
       }));
     });
     await calmer();
+    // 🔴 Arno (11/11/2026, lot C) — le choix OBLIGATOIRE en tête de la fenêtre : « Tâche » (le comportement d'avant).
+    await act(async () => { (document.querySelector('[data-sorte="tache"]') as HTMLButtonElement | null)?.click(); });
   };
 
   it('la section est entre « Événement du bien lié » et « Rappels », groupée par famille aux couleurs du bloc PARTIES', async () => {

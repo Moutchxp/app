@@ -34,6 +34,27 @@ import type { AgendaTache } from './agendaTache';
 import type { ContactTache } from './contactsTache';
 
 export type EtatTache = 'a_faire' | 'faite' | 'annulee';
+/** 🔴 Arno (11/11/2026, lot C, migration 469) — le TYPE d'une entrée du module « RDV / Tâches ». Les tâches d'avant : « tache ». */
+export type SorteTache = 'rdv' | 'tache';
+export const MOT_SORTE: Record<SorteTache, string> = { rdv: 'RDV', tache: 'Tâche' };
+/** Les choix rapides de la durée d'un rendez-vous (saisie libre à côté). */
+export const DUREES_RAPIDES_RDV: readonly number[] = [30, 60, 90, 120];
+
+/** « Demande de rendez-vous le 20/11/2026 à 10h30 » — l'objet proposé d'un rendez-vous (modifiable). PUR. */
+export function objetRendezVous(jour: string, heure: string | null): string {
+  const [a, m, j] = (jour ?? '').split('-');
+  const date = a && m && j ? `${j}/${m}/${a}` : 'JJ/MM/AAAA';
+  const h = heure && /^\d{2}:\d{2}$/.test(heure) ? heure.replace(':', 'h') : 'HHhMM';
+  return `Demande de rendez-vous le ${date} à ${h}`;
+}
+
+/** L'heure de fin d'un rendez-vous (« HH:MM »), bornée à 23:59 ; `null` sans heure ou sans durée. PUR. */
+export function heureFinRdv(heure: string | null, dureeMinutes: number | null | undefined): string | null {
+  if (heure === null || !/^\d{2}:\d{2}$/.test(heure) || dureeMinutes === null || dureeMinutes === undefined) return null;
+  const [h, m] = heure.split(':').map(Number);
+  const t = Math.min(h * 60 + m + dureeMinutes, 23 * 60 + 59);
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+}
 export type CouleurTache = 'retard' | 'jour' | 'proche' | 'plus_tard';
 
 /** L'ordre d'affichage d'Arno : rouge, blanc, orange, vert. */
@@ -144,6 +165,8 @@ export interface Tache {
   evenements?: { id: number; reference: string; objet: string; ouvert: boolean }[];
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null`/absent = 1 h. */
   dureeMinutes?: number | null;
+  /** 🔴 Arno (11/11/2026, lot C, 469) — « RDV » ou « Tâche » ; absent sans la 469 (alors « Tâche »). */
+  sorte?: SorteTache;
   /** 🔴 LOT TACHES-AGENDA — la mention « Agenda » (dans l'agenda, à resynchroniser, pas d'agenda Google…) ; `null` = rien. */
   agenda?: AgendaTache | null;
   /** 🔴 LOT FICHE-CARTE-4-BLOCS — la mention « Agenda » de la CARTE, toujours présente (« Pas encore dans l'agenda »…). */
@@ -533,6 +556,11 @@ export interface SaisieTache {
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous, en minutes ; `null` = 1 h ; `undefined` = ne pas y toucher. */
   dureeMinutes?: number | null;
   /**
+   * 🔴 Arno (11/11/2026, lot C, migration 469) — « Rendez-vous » (date, heure de début et DURÉE obligatoires) ou « Tâche » (date seule
+   * obligatoire) ; `undefined` = ne pas y toucher (écran d'avant ce lot, ou geste qui n'en parle pas).
+   */
+  sorte?: SorteTache;
+  /**
    * 🔴 LOT GESTION-INVITATIONS-TACHES — les AUTRES invités (comptes), en plus de « Confiée à » ; `undefined` = ne pas y
    * toucher (écran d'avant ce lot). Chacun reçoit sa propre invitation.
    */
@@ -635,11 +663,12 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     ...('contactsManuels' in corps ? { contactsManuels: lireContactsManuels(corps.contactsManuels) ?? [] } : {}),
     ...('invitesContacts' in corps ? { invitesContacts: lireClesContacts(corps.invitesContacts) ?? [] } : {}),
     ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}),
+    ...(corps.sorte === 'rdv' || corps.sorte === 'tache' ? { sorte: corps.sorte } : {}),
   };
 }
 
 /** Les champs de la fenêtre auxquels un refus peut se rattacher (pour l'afficher À CÔTÉ du champ). */
-export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces' | 'invites' | 'evenements';
+export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces' | 'invites' | 'evenements' | 'duree' | 'sorte';
 
 /** Un refus : le message en français, et le champ concerné (`null` = la tâche entière). */
 export interface RefusSaisie { message: string; champ: ChampTache | null }
@@ -648,7 +677,12 @@ export interface RefusSaisie { message: string; champ: ChampTache | null }
  * CE QUI NE VA PAS DANS UNE SAISIE, et SUR QUEL CHAMP. La même fonction pour la fenêtre (avant l'envoi) et pour les
  * routes (au serveur) : les deux disent donc la même chose, au même endroit. `null` si tout est bon. PUR.
  */
-export function verifierSaisie(s: Pick<SaisieTache, 'objet' | 'jour' | 'heure' | 'note' | 'confieeA'>): RefusSaisie | null {
+export function verifierSaisie(s: Pick<SaisieTache, 'objet' | 'jour' | 'heure' | 'note' | 'confieeA'> & Partial<Pick<SaisieTache, 'sorte' | 'dureeMinutes'>>): RefusSaisie | null {
+  // 🔴 Arno (11/11/2026, lot C) — un RENDEZ-VOUS demande l'heure de début ET la durée (la tâche, la date seule, comme avant).
+  if (s.sorte === 'rdv') {
+    if (s.heure === null || s.heure === undefined || s.heure === '') return { champ: 'heure', message: 'Indiquez l’heure de début du rendez-vous.' };
+    if (s.dureeMinutes === null || s.dureeMinutes === undefined) return { champ: 'duree', message: 'Indiquez la durée du rendez-vous (entre 5 min et 24 h).' };
+  }
   const objet = (s.objet ?? '').trim();
   if (objet === '') return { champ: 'objet', message: 'Indiquez l’objet de la tâche.' };
   if (objet.length > OBJET_MAX) return { champ: 'objet', message: `L’objet dépasse ${OBJET_MAX} caractères.` };

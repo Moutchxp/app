@@ -105,6 +105,8 @@ export async function lireApercuEnvois(corps: Record<string, unknown>): Promise<
 export interface SaisieEcran {
   objet: string; jour: string; heure: string | null; note: string; confieeA: number | null;
   evenementId: number | null; rappels: Rappel[];
+  /** 🔴 Arno (11/11/2026, lot C) — « Rendez-vous » ou « Tâche » ; absent tant qu'aucun n'est choisi (création), ou sans la 469. */
+  sorte?: 'rdv' | 'tache';
   /** 🔴 LOT TACHES-1-BIS — les clés des contacts cochés ; absent ⇒ les contacts ne sont pas touchés. */
   contacts?: string[];
   /** 🔴 Arno (10/11/2026) — les contacts cochés « Envoyer une invitation à ce contact » (décochée par défaut). */
