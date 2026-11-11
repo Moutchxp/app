@@ -330,6 +330,8 @@ export const CSS_PREVISITE = `
 .pvv-etat{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
 .pvv-etat--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 .pvv-etat--programmee{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+.pvv-etat--effectuee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.pvv-etat--refusee{background:color-mix(in srgb, var(--color-svv-urgence-orange) 18%, var(--color-svv-surface));color:var(--color-svv-ink)}
 .pvv-collegues{margin:0;padding-left:18px;font-size:.9rem}
 .pvv-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}
 .pvv-grille .pvs-libelle{white-space:nowrap}

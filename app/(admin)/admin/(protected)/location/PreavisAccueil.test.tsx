@@ -459,3 +459,25 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     expect(ordre()).toEqual(['C', 'A', 'B']);
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026, lot 3) — la frise des étapes dans la ligne dépliée', () => {
+  it('quatre étapes dans l’ordre ; chaque bouton SOUS son étape ; couleurs par statut ; l’étape en cours marquée ; rien de retiré', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'recu', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const frise = container.querySelector('[data-ligne-depliee="C"] [data-frise-preavis]')!;
+    const etapes = [...frise.querySelectorAll('[data-etape]')];
+    expect(etapes.map((e) => e.getAttribute('data-etape'))).toEqual(['preavis', 'previsite', 'edls', 'sortie']);
+    expect(etapes[0].className).toContain('frp-etape--faite');
+    expect(etapes.filter((e) => e.getAttribute('aria-current') === 'step')).toHaveLength(1);
+    const sous = (cle: string, sel: string) => frise.querySelector(`[data-etape="${cle}"] ${sel}`);
+    // Sous leur étape : la pré-visite, l'état des lieux, la sortie (mêmes blocs, mêmes boutons qu'avant).
+    expect(sous('previsite', '[data-bloc-previsite]')).not.toBeNull();
+    expect(sous('previsite', '[data-rdv-previsite]')).not.toBeNull();
+    expect(sous('edls', '[data-bloc-edl], [data-bloc-edls]')).not.toBeNull();
+    expect(sous('sortie', '[data-valider-sortie]')).not.toBeNull();
+    // Les liens d'avant restent.
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-lien-ecran-sortie]')).not.toBeNull();
+  });
+});

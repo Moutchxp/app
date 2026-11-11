@@ -6,6 +6,9 @@ import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun'
 import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
 import { ficheDepuisEncart } from '../../../../lib/location/ficheIntervention';
+import { etapesPreavis } from '../../../../lib/location/frisePreavis';
+
+const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 import { ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
 import { aujourdhuiParisEcran, CSS_PREAVIS, MentionPreavis } from './Preavis';
 import {
@@ -270,9 +273,19 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
   return (
     <div className="pva-depliee" data-ligne-depliee={l.cle}>
       <InfosDuLogement l={l} />
-      {/* 🔴 Arno (10/11/2026) — la pré-visite (migration 464 ; sans elle, rien ici). */}
-      <BlocPrevisite l={l} apres={apres} />
-      {planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
+      {/* 🔴 Arno (11/11/2026, lot 3) — LA FRISE DES ÉTAPES : 1 Préavis reçu → 2 Pré-visite → 3 État des lieux de sortie → 4 Sortie validée ;
+          chaque étape porte ses boutons (les blocs d'avant, inchangés, sous leur étape). Rien n'est retiré. */}
+      <ol className="frp" data-frise-preavis>
+        {etapesPreavis(l, aujourdhuiParis()).map((e) => (
+          <li key={e.cle} className={`frp-etape frp-etape--${e.statut}${e.enCours ? ' frp-etape--en-cours' : ''}`} data-etape={e.cle} data-statut-etape={e.statut}
+            {...(e.enCours ? { 'aria-current': 'step' as const } : {})}>
+            <div className="frp-tete">
+              <span className="frp-numero" aria-hidden="true">{e.statut === 'faite' ? '✓' : e.numero}</span>
+              <span className="frp-titre">{e.numero}. {e.titre}</span>
+              <span className="frp-statut" data-libelle-etape>{e.libelle}{e.enCours ? ' · étape en cours' : ''}</span>
+            </div>
+            {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} />}
+            {e.cle === 'edls' && (planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
       <div className="pva-bloc" data-bloc-edl>
         <label className="pvs-champ">
           <span className="pvs-libelle">Date d’état des lieux de sortie prévue</span>
@@ -292,7 +305,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
         {!ecriture && <MentionReserveLocation />}
         <p className="loc-muet" data-planification-indisponible>Planifier l’état des lieux (tâche, rendez-vous) : la mise à jour de la base (migration 385) reste à appliquer.</p>
       </div>
-      )}
+      ))}
+            {e.cle === 'sortie' && (
       <div className="pva-bloc" data-bloc-sortie-officielle>
         <p className="pvs-libelle" style={{ margin: 0 }}>Date officielle de sortie</p>
         {!gestion ? <p className="sor-gestion-seule-texte" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>
@@ -304,6 +318,10 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
             {!ecriture && <MentionReserveLocation />}
           </>) : <SortieDuPreavis l={l} onAnnuler={() => setSortie(false)} onFait={sortieFaite} />}
       </div>
+            )}
+          </li>
+        ))}
+      </ol>
       <p className="pva-liens">
         {l.locataires.map((x) => (
           <a key={x.occupationId} href={`/admin/location/locataire/${x.locataireId}`} data-lien-fiche={x.locataireId}>
@@ -585,4 +603,19 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pvv-cartouches{align-items:flex-start}
   .pva-depliee{grid-template-columns:1fr}
 }
+.frp{grid-column:1 / -1;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:none;min-width:0}
+@media (max-width:1100px){.frp{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.frp{grid-template-columns:1fr}}
+.frp-etape{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.frp-etape--faite{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
+.frp-etape--refusee{border-color:var(--color-svv-urgence-orange);background:color-mix(in srgb, var(--color-svv-urgence-orange) 14%, var(--color-svv-surface))}
+.frp-etape--en-cours{border-width:3px;border-color:var(--color-svv-ink);box-shadow:0 0 0 3px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
+.frp-tete{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:center}
+.frp-numero{grid-row:span 2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:999px;font-weight:900;
+  background:var(--color-svv-ink);color:var(--color-svv-surface)}
+.frp-etape--faite .frp-numero{background:var(--color-svv-green-ink)}
+.frp-etape--refusee .frp-numero{background:var(--color-svv-urgence-orange)}
+.frp-titre{font-weight:900;color:var(--color-svv-ink)}
+.frp-statut{font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.frp-etape .pva-bloc{border:0;padding:0;background:transparent}
 `;
