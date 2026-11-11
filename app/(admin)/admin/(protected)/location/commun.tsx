@@ -243,8 +243,13 @@ export const CSS_LOCATION_ECRANS = `
 .loc-cases--accueil .loc-case-titre{font-size:1.5rem;line-height:1.25}
 .loc-case-ligne{display:block}
 /* Arno (17/10/2026) — LA ZONE DE RÉSULTATS RÉSERVÉE : toujours là, hauteur FIXE (celle d'une zone à un résultat, mesurée
-   101 px au bureau et 128 px au téléphone avant ce lot) ; les 3 cases ne bougent jamais. Trop de résultats : on défile dedans. */
-.loc-zone-resultats{box-sizing:border-box;height:101px;flex:0 0 auto;overflow-y:auto;overscroll-behavior:contain}
+   101 px au bureau et 128 px au téléphone avant ce lot) ; les 3 cases ne bougent jamais. Trop de résultats : on défile dans
+   le PANNEAU (.loc-panneau), jamais dans l'espace réservé.
+   🔴 Arno (11/11/2026) — L'ESPACE RÉSERVÉ NE CAPTE JAMAIS LA MOLETTE : il n'est qu'une hauteur. Avant, overflow-y:auto +
+   overscroll-behavior:contain en faisaient une zone de défilement VIDE (rien à faire défiler) qui retenait la molette : la
+   page ne défilait plus le pointeur au-dessus de l'espace sous la recherche, ni de celui sous les trois cartes. Ni l'un ni
+   l'autre ne revient ici (épreuve : defilementZonesVides.test.tsx). */
+.loc-zone-resultats{box-sizing:border-box;height:101px;flex:0 0 auto}
 .loc-zone-resultats--vide{border:0;background:transparent;padding:0}
 /* L'EFFET 3D des 3 grosses cases : soulèvement + petit agrandissement + ombre forte et diffuse, ~200 ms ; au survol (souris
    seulement — rien sur un écran tactile) et au focus clavier. Ombre en couleurs du thème : sombre en Clair ; en Sombre, un

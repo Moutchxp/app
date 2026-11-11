@@ -166,12 +166,14 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
  * Le panneau et ses lignes. Couleurs du thème uniquement — celles des pastilles de rôle de la Gestion (`cp-role--…`) :
  * ROUGE propriétaire, VERT locataire ; BLEU syndic, GRIS bien (Arno). Une ligne au bureau (colonnes tronquées, jamais
  * de chevauchement), deux lignes de texte au téléphone.
+ * 🔴 Arno (11/11/2026) : le panneau défile seul quand il a de quoi défiler ; arrivé au bout (ou sans rien à faire défiler), la
+ * molette PASSE à la page — `overscroll-behavior:auto`, jamais `contain`.
  */
 export const CSS_RESULTATS = `
 .loc-vider{flex:0 0 auto;width:40px;height:40px;border:0;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;line-height:1;cursor:pointer}
 .loc-zone-resultats{position:relative;overflow:visible}
 .loc-zone-resultats--ouverte{z-index:30}
-.loc-panneau{position:absolute;top:0;left:0;right:0;box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain;background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:14px;padding:6px;box-shadow:0 18px 40px -16px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
+.loc-panneau{position:absolute;top:0;left:0;right:0;box-sizing:border-box;overflow-y:auto;overscroll-behavior:auto;background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:14px;padding:6px;box-shadow:0 18px 40px -16px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
 .loc-panneau-vide{margin:10px 12px}
 .loc-res{list-style:none;margin:0;padding:0}
 .loc-res-ligne{display:grid;grid-template-columns:9.5rem minmax(0,1.3fr) minmax(0,3.2fr);gap:12px;align-items:center;padding:10px 12px;text-decoration:none;color:var(--color-svv-ink);min-height:44px;box-sizing:border-box}
