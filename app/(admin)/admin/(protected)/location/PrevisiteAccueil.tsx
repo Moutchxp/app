@@ -214,12 +214,15 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
       <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
       {avecDate && (
-        <div className="pva-grille-edls">
-          <label className="pvs-champ"><span className="pvs-libelle">Date de la pré-visite *</span>
+        // 🔴 Arno (11/11/2026, présentation) — les trois champs sur UNE ligne, même hauteur, même largeur ; libellés courts sur une ligne,
+        // l'astérisque collé (espace insécable) ; empilés dans le même ordre sur écran étroit. Une grille PROPRE à la pré-visite (la grille de
+        // l'état des lieux de sortie, partagée, ne change pas).
+        <div className="pvv-grille" data-previsite-champs>
+          <label className="pvs-champ"><span className="pvs-libelle">{'Date\u00a0*'}</span>
             <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(e) => { setJour(e.target.value); setRefus(null); }} data-previsite-jour /></label>
-          <label className="pvs-champ"><span className="pvs-libelle">Heure de début *</span>
+          <label className="pvs-champ"><span className="pvs-libelle">{'Début\u00a0*'}</span>
             <input type="time" value={debut} onChange={(e) => { setDebut(e.target.value); if (!finTouchee) setFin(heureFinProposee(e.target.value)); setRefus(null); }} data-previsite-debut /></label>
-          <label className="pvs-champ"><span className="pvs-libelle">Heure de fin *</span>
+          <label className="pvs-champ"><span className="pvs-libelle">{'Fin\u00a0*'}</span>
             <input type="time" value={fin} onChange={(e) => { setFin(e.target.value); setFinTouchee(true); setRefus(null); }} data-previsite-fin /></label>
         </div>
       )}
@@ -328,7 +331,12 @@ export const CSS_PREVISITE = `
 .pvv-etat--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 .pvv-etat--programmee{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 .pvv-collegues{margin:0;padding-left:18px;font-size:.9rem}
-.pvv-choix{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.pvv-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}
+.pvv-grille .pvs-libelle{white-space:nowrap}
+.pvv-grille .pvs-champ input{max-width:none;width:100%;height:48px;min-width:0}
+@media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}
+.pvv-choix{border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.pvv-choix legend{padding:0;margin:0 0 6px}
 .pvv-case{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}
 .pvv-case input{width:20px;height:20px}
 .pss-boite textarea{width:100%;box-sizing:border-box;font:inherit}

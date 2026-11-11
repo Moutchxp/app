@@ -301,3 +301,25 @@ describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » s’ouvre VISIB
     });
   }
 });
+
+describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « Déplacer » : trois champs alignés, libellés courts', () => {
+  for (const [geste, bouton, ligne] of [['rdv', '[data-rdv-previsite]', 'C'], ['deplacer', '[data-deplacer-previsite]', 'B']] as const) {
+    it(`${geste} : « Date * », « Début * », « Fin * » (astérisque collé), dans la même grille, dans cet ordre ; les destinataires dessous`, async () => {
+      await rendre();
+      await clic(container.querySelector(`[data-ouvrir-preavis="${ligne}"]`));
+      await clic(container.querySelector(bouton));
+      const grille = document.querySelector('[data-previsite-champs]')!;
+      expect(grille.className).toBe('pvv-grille');
+      expect([...grille.querySelectorAll('.pvs-libelle')].map((x) => x.textContent)).toEqual(['Date *', 'Début *', 'Fin *']);
+      expect([...grille.querySelectorAll('input')].map((x) => x.getAttribute('type'))).toEqual(['date', 'time', 'time']);
+      if (geste === 'rdv') expect(grille.compareDocumentPosition(document.querySelector('[data-previsite-destinataires]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  }
+  it('la grille partagée de l’état des lieux de sortie n’est pas touchée', async () => {
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('.pva-grille-edls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px}');
+    const css = readFileSync('app/(admin)/admin/(protected)/location/PrevisiteAccueil.tsx', 'utf8');
+    expect(css).toContain('.pvv-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}');
+    expect(css).toContain('@media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}');
+  });
+});
