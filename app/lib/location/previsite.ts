@@ -341,7 +341,9 @@ export function texteRefusPrevisite(d: { adresse: string; locataires: readonly P
     `Bonjour ${REPERE_NOM_LOCATAIRE},`,
     `À la suite de votre congé, nous vous avons proposé une visite de pré-état des lieux de sortie de votre logement situé ${d.adresse}, et nous vous l’avons vivement recommandée.`,
     'Malgré nos recommandations, aucun rendez-vous de pré-visite n’a pu être fixé.',
-    'Les éventuelles remarques sur l’état du logement vous seront donc faites sur place, le jour de l’état des lieux de sortie. Cela ne vous laissera malheureusement pas le temps d’effectuer les réparations ou les démarches qui vous auraient permis d’éviter une retenue sur le dépôt de garantie.',
+    'Les éventuelles remarques sur l’état du logement vous seront donc faites sur place, le jour de l’état des lieux de sortie.',
+    // 🔴 Arno (11/11/2026) — paragraphe d’Arno, mot pour mot (il remplace l’ancienne phrase sur le manque de temps pour les réparations).
+    'La pré-visite a justement pour but de vous signaler à l’avance d’éventuelles différences avec l’état des lieux d’entrée, hors usure normale liée au temps, afin de vous laisser le temps d’y remédier si vous le souhaitez. Sans cette visite, si des écarts devaient être constatés le jour de la sortie, vous n’auriez plus la possibilité de les corriger au préalable, ce qui pourrait alors donner lieu à une retenue sur le dépôt de garantie. Bien entendu, si votre logement est rendu dans le même état qu’à votre arrivée, aucune retenue ne sera appliquée au titre de son état.',
     'Nous restons à votre disposition pour toute question.',
   ].join('\n\n');
 }

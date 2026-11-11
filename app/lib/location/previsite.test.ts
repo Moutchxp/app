@@ -99,7 +99,15 @@ describe('🔴 Règle 6 — le texte prérempli du refus / de l’absence', () =
     expect(t).not.toContain('Bruno');
     expect(t).toContain('Malgré nos recommandations, aucun rendez-vous de pré-visite n’a pu être fixé.');
     expect(t).toContain('le jour de l’état des lieux de sortie');
-    expect(t).toContain('éviter une retenue sur le dépôt de garantie');
+  });
+  it('🔴 Arno (11/11/2026) — le paragraphe sur la pré-visite, mot pour mot, séparé, juste après « … le jour de l’état des lieux de sortie. » ; l’ancienne phrase a disparu', () => {
+    const paras = t.split('\n\n');
+    const i = paras.indexOf('Les éventuelles remarques sur l’état du logement vous seront donc faites sur place, le jour de l’état des lieux de sortie.');
+    expect(i).toBeGreaterThan(-1);
+    expect(paras[i + 1]).toBe('La pré-visite a justement pour but de vous signaler à l’avance d’éventuelles différences avec l’état des lieux d’entrée, hors usure normale liée au temps, afin de vous laisser le temps d’y remédier si vous le souhaitez. Sans cette visite, si des écarts devaient être constatés le jour de la sortie, vous n’auriez plus la possibilité de les corriger au préalable, ce qui pourrait alors donner lieu à une retenue sur le dépôt de garantie. Bien entendu, si votre logement est rendu dans le même état qu’à votre arrivée, aucune retenue ne sera appliquée au titre de son état.');
+    expect(paras[i + 2]).toBe('Nous restons à votre disposition pour toute question.');
+    expect(t).not.toContain('Cela ne vous laissera malheureusement pas le temps');
+    expect(t).not.toContain("'");                                   // apostrophes typographiques seulement
   });
   it('modifiable : le texte saisi se découpe en paragraphes, puis la mention et la signature suivent', () => {
     const paras = paragraphesDuTexte('Bonjour,\n\nTexte  modifié.\r\n\r\nFin.');
