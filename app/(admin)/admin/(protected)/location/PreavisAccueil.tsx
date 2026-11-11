@@ -3,7 +3,9 @@
 import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
-import { EncartDuLogement, MESSAGE_SORTIE_GESTION } from './SortieLocataires';
+import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
+import { FicheInterventionPreavis } from './FicheInterventionPreavis';
+import { ficheDepuisEncart } from '../../../../lib/location/ficheIntervention';
 import { ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
 import { aujourdhuiParisEcran, CSS_PREAVIS, MentionPreavis } from './Preavis';
 import {
@@ -313,13 +315,18 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
   );
 }
 
-/** L'encart « Le logement » de l'écran de sortie (MÊME composant), avec les coordonnées, et les dates du préavis. */
+/**
+ * 🔴 Arno (11/11/2026, lot 1) — la ligne dépliée commence par la FICHE D'INTERVENTION en trois blocs (locataires, propriétaires, logement et
+ * annexes), lue dans l'encart du logement du bail (le même que l'écran de sortie, enrichi), puis les dates du préavis. Tout ce que l'encart
+ * montrait reste (dans le bloc ③ et ses « autres informations »). Le lien « compléter » mène à la fiche du bien (Location ou Gestion).
+ */
 function InfosDuLogement({ l }: { l: LignePreavisAccueil }) {
   const { base } = useContextePreavis();
   const lu = useLecture<EncartLogement>(`encartBail=${l.occupationId}`, base);
+  const lienBien = base === API_PREAVIS_LOCATION ? `/admin/location/bien/${l.lotId}` : `/admin/gestion?ecran=annuaire&fiche=lot-${l.lotId}`;
   return (
-    <div className="pva-bloc pva-logement" data-infos-logement>
-      {lu.etat.etat === 'ok' ? <EncartDuLogement e={lu.etat.data} coordonnees /> : <EtatLecture etat={lu.etat} />}
+    <div className="pva-logement" data-infos-logement>
+      {lu.etat.etat === 'ok' ? <FicheInterventionPreavis f={ficheDepuisEncart(lu.etat.data)} lienBien={lienBien} /> : <EtatLecture etat={lu.etat} />}
       <p className="pva-dates-preavis" data-dates-preavis>Préavis : recommandé reçu le {dateFrPreavis(l.recuLe)} — fin du préavis le {dateFrPreavis(l.dateMax)}</p>
     </div>
   );

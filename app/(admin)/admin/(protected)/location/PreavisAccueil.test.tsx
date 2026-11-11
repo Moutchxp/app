@@ -308,21 +308,34 @@ describe('la date d’état des lieux est visible sur la fiche et sur l’écran
  * Arno (19/10/2026) — FICHE DÉPLIÉE COMPLÈTE ET « EDLS PLANIFIÉ » (tâche du module de tâches de la Gestion).
  */
 describe('la ligne dépliée : les informations complètes du logement', () => {
-  it('l’encart de l’écran de sortie (même composant) avec les coordonnées, et les dates du préavis ; les champs absents ne s’affichent pas', async () => {
+  it('🔴 Arno (11/11/2026, lot 1) — trois blocs dans cet ordre (locataires, propriétaires, logement et annexes) ; rien de l’encart d’avant n’est perdu ; « non renseigné » avec le lien', async () => {
     await rendre();
     clic('button[data-ouvrir-preavis="C"]');
     await attendre();
     const infos = container.querySelector('[data-ligne-depliee="C"] [data-infos-logement]')!;
-    const encart = infos.querySelector('[data-encart-logement]')!;
-    expect(encart.querySelector('h3')?.textContent).toBe('4 rue Fictive, 92800 Puteaux');
-    for (const cle of ['batiment', 'etage', 'porte', 'acces', 'digicode', 'ascenseur', 'proprietaire']) expect(encart.querySelector(`[data-ligne="${cle}"]`), cle).not.toBeNull();
-    expect(encart.querySelector('[data-ligne="escalier"]')).toBeNull();
-    expect(encart.querySelector('[data-ligne="digicode"] dd')?.textContent).toBe('4521A');
-    expect([...encart.querySelectorAll('[data-lots-du-bail] li')].map((li) => li.textContent)).toEqual(['Appartement T3 · 3e étage · porte G · lot n° 100', 'Parking · sous-sol 1 · place 12']);
-    const coords = encart.querySelector('[data-coordonnees]')!;
-    expect(coords.querySelector('[data-coord-proprietaire]')?.textContent).toContain('06 11 22 33 44');
-    expect(coords.querySelector('[data-coord-locataire="101"]')?.textContent).toContain('alice@exemple.test');
-    expect(coords.querySelector('[data-coord-locataire="102"]')).toBeNull();
+    expect([...infos.querySelectorAll('[data-bloc-fiche]')].map((b) => b.getAttribute('data-bloc-fiche'))).toEqual(['locataires', 'proprietaires', 'logement']);
+    expect([...infos.querySelectorAll('.fip-titre')].map((t) => t.textContent)).toEqual(['① Locataires', '② Propriétaire', '③ Logement et annexes']);
+    // ① les locataires, la date d'entrée mise en avant, leurs coordonnées (celles qui manquent : « non renseigné »).
+    const locs = [...infos.querySelectorAll('[data-fiche-locataire]')];
+    expect(locs.map((x) => x.querySelector('.fip-nom')?.textContent)).toEqual(['BERNARD Alice', 'BERNARD Paul']);
+    expect(locs[0].textContent).toContain('06 55 66 77 88');
+    expect(locs[0].textContent).toContain('alice@exemple.test');
+    expect(locs[1].querySelectorAll('[data-non-renseigne]')).toHaveLength(2);
+    expect(locs[0].querySelector('[data-date-entree]')).not.toBeNull();
+    // ② le propriétaire, son lien et ses coordonnées.
+    const pro = infos.querySelector('[data-fiche-proprietaire]')!;
+    expect(pro.querySelector('[data-lien-proprietaire]')?.textContent).toBe('DUPONT Jean');
+    expect(pro.textContent).toContain('06 11 22 33 44');
+    expect(pro.textContent).toContain('jean@exemple.test');
+    // ③ le logement : adresse, digicode, type, étage, n° de lot, porte, accès ; les lots et l'annexe ; les autres informations d'avant.
+    const log = infos.querySelector('[data-bloc-fiche="logement"]')!;
+    const val = (c: string) => log.querySelector(`[data-ligne-fiche="${c}"] dd`)?.textContent;
+    expect([val('adresse'), val('digicode'), val('type'), val('etage'), val('lot'), val('porte'), val('acces')])
+      .toEqual(['4 rue Fictive, 92800 Puteaux', '4521A', 'Appartement T3', '3e étage', '100', 'G', 'Code au portail']);
+    expect(log.querySelector('[data-lots-concernes]')?.textContent).toBe('2 lots concernés par ce préavis');
+    expect(log.querySelector('[data-annexe]')?.textContent).toBe('Parkingétage : sous-sol 1n° de lot : non renseigné — compléter la fiche du bienn° de place : 12');
+    expect(log.querySelector('[data-annexe] [data-lien-completer]')?.getAttribute('href')).toBe('/admin/location/bien/7');
+    for (const cle of ['batiment', 'ascenseur']) expect(log.querySelector(`[data-autres-infos] [data-ligne="${cle}"]`), cle).not.toBeNull();
     expect(infos.querySelector('[data-dates-preavis]')?.textContent).toBe('Préavis : recommandé reçu le 01/10/2026 — fin du préavis le 01/11/2099');
   });
 });

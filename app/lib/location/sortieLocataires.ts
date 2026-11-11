@@ -307,7 +307,11 @@ export interface EncartLogement {
     proprietaire: { telephones: string[]; emails: string[] } | null;
     locataires: { occupationId: number; locataireId: number; nom: string; telephones: string[]; emails: string[];
       /** Chaque téléphone avec son libellé (« Portable », « Fixe »…) quand il existe. */
-      telephonesDetail?: { valeur: string; libelle: string | null }[] }[];
+      telephonesDetail?: { valeur: string; libelle: string | null }[];
+      /** 🔴 Arno (11/11/2026) — le prénom saisi (s'il l'est) et la date d'entrée dans le logement (AAAA-MM-JJ). */
+      prenom?: string | null; entree?: string | null }[];
+    /** 🔴 Arno (11/11/2026) — TOUS les propriétaires actifs du bien (la fiche, puis ses copropriétaires), chacun avec ses coordonnées. */
+    proprietaires?: { id: number; nom: string; telephones: string[]; emails: string[] }[];
   };
 }
 

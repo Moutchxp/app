@@ -523,8 +523,20 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
     `SELECT l.wippimmo_id AS cle FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id WHERE o.id = $1`, [occupationId]);
   // Arno (19/10/2026) — les coordonnées EN VIGUEUR (ni absentes de l'export, ni archivées) du propriétaire et des locataires.
   const coordVivante = await conditionCoordonneeVivante('c');
+  // 🔴 Arno (11/11/2026) — TOUS les propriétaires actifs : celui de la fiche, puis ses copropriétaires (table des propriétaires d'un lot).
+  const avecCopro = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'proprietaire_id');
+  const { rows: tousPr } = await query<{ id: string; nom: string | null }>(
+    `SELECT p.id::text, p.nom_complet AS nom FROM gestion_annuaire_proprietaire p
+      WHERE p.id IN (SELECT proprietaire_id FROM gestion_annuaire_lot WHERE id = $1 AND proprietaire_id IS NOT NULL
+                     ${avecCopro ? 'UNION SELECT proprietaire_id FROM gestion_annuaire_lot_proprietaire WHERE lot_id = $1 AND jusqu_a IS NULL' : ''})
+        AND p.archive_le IS NULL AND p.supprime_le IS NULL
+      ORDER BY (p.id = (SELECT proprietaire_id FROM gestion_annuaire_lot WHERE id = $1)) DESC NULLS LAST, p.id`, [bail.lotId]).catch(() => ({ rows: [] as { id: string; nom: string | null }[] }));
+  const { rows: prenoms } = await query<{ id: string; prenom: string | null }>(
+    'SELECT id::text, nullif(btrim(prenom), \'\') AS prenom FROM gestion_annuaire_locataire WHERE id = ANY($1::bigint[])',
+    [bail.locataires.map((l) => l.locataireId)]).catch(() => ({ rows: [] as { id: string; prenom: string | null }[] }));
   const sujets: { sujet: 'proprietaire' | 'locataire'; id: number }[] = [
     ...(pr[0] === undefined ? [] : [{ sujet: 'proprietaire' as const, id: Number(pr[0].id) }]),
+    ...tousPr.filter((p) => p.id !== pr[0]?.id).map((p) => ({ sujet: 'proprietaire' as const, id: Number(p.id) })),
     ...bail.locataires.map((l) => ({ sujet: 'locataire' as const, id: l.locataireId })),
   ];
   const { rows: co2 } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string; libelle: string | null }>(
@@ -560,7 +572,12 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
     locataireCle: texte(cle[0]?.cle ?? null), lotCle: lo.wippimmo_id ?? '',
     coordonnees: {
       proprietaire: pr[0] === undefined ? null : coordsDe('proprietaire', Number(pr[0].id)),
-      locataires: bail.locataires.map((l) => ({ occupationId: l.occupationId, locataireId: l.locataireId, nom: l.nom, ...coordsDe('locataire', l.locataireId) })),
+      locataires: bail.locataires.map((l) => ({ occupationId: l.occupationId, locataireId: l.locataireId, nom: l.nom, ...coordsDe('locataire', l.locataireId),
+        prenom: prenoms.find((p) => Number(p.id) === l.locataireId)?.prenom ?? null, entree: l.entree })),
+      proprietaires: (tousPr.length > 0 ? tousPr : pr).map((p) => {
+        const c = coordsDe('proprietaire', Number(p.id));
+        return { id: Number(p.id), nom: p.nom ?? `Propriétaire ${p.id}`, telephones: c.telephones, emails: c.emails };
+      }),
     },
   };
 }
