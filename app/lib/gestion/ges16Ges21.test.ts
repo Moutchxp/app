@@ -150,3 +150,31 @@ describe('🔴🔴 GES-16/21 — le rejeu sur la production (script reaffecter-r
     expect(v.filter((x) => x.garder).map((x) => x.messageId)).toEqual([61171, 61182, 61188, 61277]);
   });
 });
+
+describe('🔴🔴 Arno (11/11/2026) — la règle PAR LE BIEN, rejouée sur l’essai en production de GES-2026-000016', () => {
+  // Les 15 mails de l'essai (.captures/scripts-prod/reaffecter-reponses-suivies-GES16-essai.txt) : leur parent, leurs biens.
+  const ESSAI: [number, number, string[]][] = [
+    [60457, 60422, ['219']], [60763, 60423, ['219']], [60794, 60763, ['219']], [60795, 60763, ['219']], [60876, 60794, ['219']],
+    [60882, 60876, ['219']], [61171, 60882, ['219']], [61178, 60423, ['219']], [61179, 61177, ['155', '219']], [61182, 61178, ['219']],
+    [61188, 61182, ['219']], [61277, 61188, ['219']], [61278, 61179, ['219']], [61371, 61278, []], [61372, 61277, []],
+  ];
+  const suivies = ESSAI.map(([m, parent], i) => ({ affectationId: 900 + i, messageId: m, citations: [], parent }));
+  const biens = new Map(ESSAI.map(([m, , b]) => [m, b] as [number, string[]]));
+  it('seul 61179 (48 bd de la Mission Marchand) est retiré ; l’échange du 25 rue Edith Cavell reste dans GES-16 ; 61278 est signalé', async () => {
+    const { trierParBien } = await import('./repriseReponsesSuivies');
+    const v = trierParBien(suivies, biens, new Set(['219']));
+    expect(v.filter((x) => !x.garder).map((x) => [x.messageId, x.autresBiens])).toEqual([[61179, ['155']]]);
+    expect(v.filter((x) => x.aVerifier).map((x) => x.messageId)).toEqual([61278]);
+    expect(v.filter((x) => x.garder)).toHaveLength(14);
+  });
+  it('un événement dont on ne connaît aucun bien : rien n’est retiré (on ne devine pas)', async () => {
+    const { trierParBien } = await import('./repriseReponsesSuivies');
+    expect(trierParBien(suivies, biens, new Set()).every((x) => x.garder)).toBe(true);
+  });
+  it('le script juge par le bien (plus par le parent) et dit les biens de l’événement', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/scripts/reaffecter-reponses-suivies.ts', 'utf8');
+    expect(src).toMatch(/const verdicts = trierParBien\(/);
+    expect(src).toContain('Biens de ${reference}');
+  });
+});

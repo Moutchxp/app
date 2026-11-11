@@ -53,3 +53,43 @@ export function rejouerReponsesSuivies(
   }
   return out;
 }
+
+/**
+ * ══ 🔴🔴 LA RÈGLE PAR LE BIEN (décision d'Arno du 11/11/2026, après l'essai en production sur GES-2026-000016) ══════════════════════════
+ *
+ * Constaté : l'essai annonçait 15 mails REMIS, presque tous de l'échange « Humidité… 25 rue Edith Cavell » (le locataire, l'agence,
+ * l'artisan) — à leur place dans GES-16. La règle « suivre le parent » les jugeait sur l'AFFECTATION de leur premier mail, et ce premier
+ * mail était rangé dans l'événement AVEC TOUT SON ÉCHANGE (pas mail par mail) : vu « dans son échange », il entraînait toute la chaîne.
+ *
+ * Règle d'Arno : ne retirer QUE les mails qui concernent un AUTRE bien — jamais les échanges du bien de l'événement :
+ *   · un mail rattaché à au moins un bien qui n'est PAS un bien de l'événement → RETIRÉ (ex. 61179, rattaché au 48 bd de la Mission
+ *     Marchand et au 25 rue Edith Cavell) ;
+ *   · un mail rattaché aux seuls biens de l'événement, ou à aucun bien → GARDÉ ;
+ *   · un événement dont on ne connaît aucun bien → rien n'est retiré (on ne devine pas).
+ * Une réponse gardée qui répond à un mail retiré est SIGNALÉE (« à vérifier »), jamais déplacée d'office. PUR.
+ */
+export interface VerdictParBien {
+  affectationId: number;
+  messageId: number;
+  garder: boolean;
+  /** Les biens du mail qui ne sont pas ceux de l'événement (la raison d'un retrait). */
+  autresBiens: string[];
+  /** Gardée, mais elle répond à un mail retiré : à vérifier à la main. */
+  aVerifier: boolean;
+}
+
+export function trierParBien(
+  suivies: readonly (ReponseSuivie & { parent: number | null })[],
+  /** Mail → les clés des biens auxquels il est rattaché (rattachements confirmés). */
+  biensDuMail: ReadonlyMap<number, readonly string[]>,
+  /** Les clés des biens de l'événement. */
+  biensDeLEvenement: ReadonlySet<string>,
+): VerdictParBien[] {
+  const retires = new Set<number>();
+  return suivies.map((r) => {
+    const autres = biensDeLEvenement.size === 0 ? [] : (biensDuMail.get(r.messageId) ?? []).filter((b) => !biensDeLEvenement.has(b));
+    const garder = autres.length === 0;
+    if (!garder) retires.add(r.messageId);
+    return { affectationId: r.affectationId, messageId: r.messageId, garder, autresBiens: autres, aVerifier: garder && r.parent !== null && retires.has(r.parent) };
+  });
+}
