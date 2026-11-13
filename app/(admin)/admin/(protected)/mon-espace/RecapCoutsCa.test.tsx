@@ -148,3 +148,32 @@ describe('🔴 accès : réservé aux comptes qui ont « Les coûts »', () => {
     expect(renderToStaticMarkup(await Page())).toContain('data-recap-chargement');
   });
 });
+
+describe('🔴 CA GESTION : « Coûts de gestion » et « CA net de gestion » (lecture seule, dérivés)', () => {
+  const cellule = (cle: string) => container.querySelector(`[data-cellule-recap="${cle}"]`) as HTMLElement;
+  it('octobre : coûts de gestion = sous-total gestion ; CA net 1 000 − 250 = 750 € en vert, « provisoire » (à compléter) ; aucune modification possible', async () => {
+    await rendre();
+    expect(texte('[data-cellule-recap="ca-couts-gestion-2026-10"]')).toBe(texte('[data-cellule-recap="gestion-total-2026-10"]'));
+    expect(texte('[data-cellule-recap="ca-net-2026-10"]')).toBe(montant(750));
+    expect(cellule('ca-net-2026-10').className).toContain('rcp-positif');
+    expect([cellule('ca-net-2026-10').getAttribute('data-etat-cellule'), cellule('ca-net-2026-10').getAttribute('title')]).toEqual(['provisoire', 'calcul provisoire : données à compléter']);
+    expect(cellule('ca-net-2026-10').className).toContain('rcp-a-completer');
+    expect(container.querySelector('[data-ligne-recap="ca-net"] [data-modifier-recap], [data-ligne-recap="ca-couts-gestion"] [data-modifier-recap]')).toBeNull();
+    // la colonne Total : la somme des mois affichés (septembre importé 18 000 − 250 ; octobre 1 000 − 250)
+    expect(texte('[data-total-recap="ca-net"]')).toBe(montant(18000 - 250 + 1000 - 250));
+  });
+  it('ADHOC d’octobre porté à 3 000 € dans le tableau : coûts de gestion et CA net se relisent — −2 050 € en rouge, signe « − »', async () => {
+    await rendre();
+    await cliquer('[data-modifier-recap="gestion-adhoc-2026-10"]');
+    await taper('[data-editeur-montant]', '3000');
+    await cliquer('[data-editeur-enregistrer]'); await cliquer('[data-recap-valider]');
+    expect(texte('[data-cellule-recap="ca-couts-gestion-2026-10"]')).toBe(montant(3050));
+    expect(texte('[data-cellule-recap="ca-net-2026-10"]')).toBe(`−${montant(2050)}`);
+    expect(cellule('ca-net-2026-10').className).toContain('rcp-negatif');
+  });
+  it('TTC : chaque mode le sien — CA TTC − coûts TTC (1 200 − 300 = 900 €)', async () => {
+    window.localStorage.setItem('trx-affichage-montants', 'ttc');
+    await rendre();
+    expect(texte('[data-cellule-recap="ca-net-2026-10"]')).toBe(montant(900));
+  });
+});

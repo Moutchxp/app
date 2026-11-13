@@ -153,12 +153,18 @@ export function RecapCoutsCa() {
   };
 
   const autre = unite === 'ht' ? 'ttcC' : 'htC';
+  // 🔴 le CA net de gestion : signé (« − » devant un résultat négatif), vert s'il est positif ou nul, rouge s'il est négatif
+  const signe = (c: number): string => (c < 0 ? `−${eur(-c / 100)}` : eur(c / 100));
+  const sens = (c: number): string => (c < 0 ? 'rcp-negatif' : 'rcp-positif');
   const cellule = (l: LigneRecap, c: CelluleRecap, i: number) => {
     const vide = c.m.htC === 0 && c.m.ttcC === 0;
     const enEdition = edition !== null && edition.ligne.cle === l.cle && cleMoisAn(edition.mois) === cleMoisAn(c.mois);
-    const classe = ['rcp-c', c.etat === 'a-completer' ? 'rcp-a-completer' : '', c.etat === 'complet' ? 'rcp-complet' : ''].filter(Boolean).join(' ');
-    const valeur = c.etat === 'a-completer' && vide ? '—' : eur(c.m[k] / 100);
-    const attrs = { 'data-cellule-recap': `${l.cle}-${cleMoisAn(c.mois)}`, 'data-etat-cellule': c.etat, title: `${l.libelle} — ${libelleMois(c.mois)} (${eur(c.m[autre] / 100)} ${unite === 'ht' ? 'TTC' : 'HT'})` };
+    const resultat = l.niveau === 'resultat';
+    const classe = ['rcp-c', c.etat === 'a-completer' || c.etat === 'provisoire' ? 'rcp-a-completer' : '', c.etat === 'complet' ? 'rcp-complet' : '', resultat ? sens(c.m[k]) : ''].filter(Boolean).join(' ');
+    const valeur = resultat ? signe(c.m[k]) : c.etat === 'a-completer' && vide ? '—' : eur(c.m[k] / 100);
+    const attrs = { 'data-cellule-recap': `${l.cle}-${cleMoisAn(c.mois)}`, 'data-etat-cellule': c.etat,
+      title: c.etat === 'provisoire' ? 'calcul provisoire : données à compléter'
+        : `${l.libelle} — ${libelleMois(c.mois)} (${resultat ? signe(c.m[autre]) : eur(c.m[autre] / 100)} ${unite === 'ht' ? 'TTC' : 'HT'})` };
     if (enEdition) return (
       <td key={i} className={`${classe} rcp-edition`} {...attrs}>
         <div className="rcp-editeur" data-editeur-recap>
@@ -222,9 +228,9 @@ export function RecapCoutsCa() {
                 return [
                   nouvelleFamille ? <tr key={`f-${l.famille}`} className={`rcp-famille trx-serie--${COULEUR[l.famille!]}`} data-famille-recap={l.famille!}><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{FAMILLE[l.famille!]}</span></th></tr> : null,
                   <tr key={l.cle} className={`rcp-ligne rcp-ligne--${l.niveau}${l.famille !== null ? ` trx-serie--${COULEUR[l.famille]}` : s.cle === 'ca' ? ' trx-serie--4' : ''}`} data-ligne-recap={l.cle}>
-                    <th scope="row">{l.libelle}{l.niveau === 'info' && <small className="loc-muet"> (pour information, hors totaux)</small>}{l.niveau === 'calcule' && <small className="loc-muet"> (calculé)</small>}</th>
+                    <th scope="row">{l.libelle}{l.niveau === 'info' && <small className="loc-muet"> (pour information, hors totaux)</small>}{l.cle === 'ca-total' && <small className="loc-muet"> (calculé)</small>}</th>
                     {l.cellules.map((c, i) => cellule(l, c, i))}
-                    <td className="rcp-c rcp-total" data-total-recap={l.cle}>{eur(l.total[k] / 100)}</td>
+                    <td className={`rcp-c rcp-total${l.niveau === 'resultat' ? ` ${sens(l.total[k])}` : ''}`} data-total-recap={l.cle}>{l.niveau === 'resultat' ? signe(l.total[k]) : eur(l.total[k] / 100)}</td>
                   </tr>,
                 ];
               })}
@@ -289,6 +295,10 @@ const CSS_RECAP = `
 .rcp-ligne--sous-total th,.rcp-ligne--sous-total td{font-weight:800;background:color-mix(in srgb, var(--trx-serie) 8%, var(--color-svv-surface))}
 .rcp-ligne--total th,.rcp-ligne--total td,.rcp-ligne--calcule th,.rcp-ligne--calcule td{font-weight:800;border-top:2px solid var(--color-svv-line-strong)}
 .rcp-section--ca .rcp-ligne th[scope=row]{border-left-color:var(--trx-serie)}
+/* le CA net de gestion : la ligne de resultat (gras, separateur au-dessus) ; vert si positif ou nul, rouge si negatif */
+.rcp-ligne--resultat th,.rcp-ligne--resultat td{font-weight:800;border-top:3px double var(--color-svv-line-strong)}
+.rcp-table td.rcp-positif{color:var(--color-svv-green)}
+.rcp-table td.rcp-negatif{color:var(--color-svv-red)}
 .rcp-total{border-left:2px solid var(--color-svv-line-strong);font-weight:800}
 .rcp-a-completer{background:color-mix(in srgb, var(--color-svv-amber) 16%, var(--color-svv-surface))}
 .rcp-ok{color:var(--color-svv-green);font-size:.78rem}

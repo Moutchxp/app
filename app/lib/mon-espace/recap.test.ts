@@ -96,3 +96,45 @@ describe('l’état des cellules et la modification', () => {
     expect(lienRecap('macj')).toBe('/admin/mon-espace/recapitulatif?agence=macj');
   });
 });
+
+describe('🔴 Arno (13/11/2026) — CA GESTION : « Coûts de gestion » (repris du sous-total gestion) et « CA net de gestion » (dérivés, rien de stocké)', () => {
+  const t = tableauRecap(entrees());
+  const somme = (l: ReturnType<typeof ligne>) => l.cellules.reduce((x, c) => ({ htC: x.htC + c.m.htC, ttcC: x.ttcC + c.m.ttcC }), { htC: 0, ttcC: 0 });
+  it('sous le CA global, dans cet ordre ; en lecture seule', () => {
+    const ca = t.lignes.filter((l) => l.section === 'ca').map((l) => l.cle);
+    expect(ca).toEqual(['ca-honoraires', 'ca-gli', 'ca-total', 'ca-couts-gestion', 'ca-net']);
+    expect([...ligne(t, 'ca-couts-gestion').cellules, ...ligne(t, 'ca-net').cellules].every((c) => c.modifiable === 'non')).toBe(true);
+    expect(ligne(t, 'ca-net').niveau).toBe('resultat');
+  });
+  it('coûts de gestion = EXACTEMENT le « Sous-total gestion » (chaque mois, HT et TTC) ; total = somme des mois affichés', () => {
+    expect(ligne(t, 'ca-couts-gestion').cellules.map((c) => c.m)).toEqual(ligne(t, 'gestion-total').cellules.map((c) => c.m));
+    expect(ligne(t, 'ca-couts-gestion').total).toEqual(ligne(t, 'gestion-total').total);
+    expect(ligne(t, 'ca-couts-gestion').total).toEqual(somme(ligne(t, 'ca-couts-gestion')));
+  });
+  it('CA net = CA global − coûts de gestion, en HT ET en TTC chacun dans son mode ; octobre : 1 300 − 250 = 1 050 € HT, 1 530 − 300 = 1 230 € TTC', () => {
+    for (let k = 0; k < 12; k++) {
+      const n = ligne(t, 'ca-net').cellules[k].m; const ca = ligne(t, 'ca-total').cellules[k].m; const co = ligne(t, 'ca-couts-gestion').cellules[k].m;
+      expect(n).toEqual({ htC: ca.htC - co.htC, ttcC: ca.ttcC - co.ttcC });
+    }
+    expect(ligne(t, 'ca-net').cellules[i(10)].m).toEqual({ htC: 105000, ttcC: 123000 });
+    expect(ligne(t, 'ca-net').total).toEqual({ htC: ligne(t, 'ca-total').total.htC - ligne(t, 'gestion-total').total.htC, ttcC: ligne(t, 'ca-total').total.ttcC - ligne(t, 'gestion-total').total.ttcC });
+  });
+  it('un résultat négatif reste négatif (des coûts plus hauts que le CA)', () => {
+    const neg = tableauRecap(entrees({ e: { ...E, gestion: [g(2026, 8, { honorairesHt: 100, adhocHt: 500, mongaHt: null })] } }));
+    expect(ligne(neg, 'ca-net').cellules[i(8)].m).toEqual({ htC: 10000 - 50000, ttcC: 12000 - 60000 });
+  });
+  it('« provisoire » : un mois écoulé dont une donnée de la gestion (coût ou CA) est à compléter ; tout coché : neutre ; mois en cours : neutre', () => {
+    expect(ligne(t, 'ca-net').cellules[i(10)].etat).toBe('provisoire');
+    expect(ligne(t, 'ca-net').cellules[i(11)].etat).toBe('neutre');
+    const v = (famille: Validation['famille'], poste: Validation['poste']): Validation => ({ societe: 'criterimmo', famille, poste, annee: 2026, mois: 10 });
+    const tout = tableauRecap(entrees({ validations: [v('gestion', 'salaires'), v('gestion', 'adhoc'), v('gestion', 'monga'), v('gestion', 'autres'), v('gestion', 'honoraires'), v('gestion', 'gli')] }));
+    expect(ligne(tout, 'ca-net').cellules[i(10)].etat).toBe('neutre');
+  });
+  it('MACJ : absentes (pas de section CA) ; FUSION : identiques à CRITERIMMO ; la fenêtre glissante et ‹ › aussi', () => {
+    expect(tableauRecap(entrees({ agence: 'macj' })).lignes.some((l) => l.cle === 'ca-net' || l.cle === 'ca-couts-gestion')).toBe(false);
+    const f = tableauRecap(entrees({ agence: 'tous' }));
+    expect(ligne(f, 'ca-net').cellules.map((c) => c.m)).toEqual(ligne(t, 'ca-net').cellules.map((c) => c.m));
+    const gl = tableauRecap(entrees({ mois: moisDeLaFenetre('glissant', JOUR, -1) }));
+    expect(ligne(gl, 'ca-net').cellules.at(-2)!.m).toEqual(ligne(t, 'ca-net').cellules[i(8)].m); // août 2026 dans les deux fenêtres
+  });
+});

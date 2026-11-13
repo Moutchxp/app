@@ -41,9 +41,10 @@ export const cleMoisAn = (m: MoisAn): string => `${m.annee}-${String(m.mois).pad
 /** Ce qu'un clic sur la cellule permet : rien ; l'édition sur place (un montant du mois) ; la saisie du mois (postes à plusieurs lignes) ; la lecture d'un import. */
 export type EditionRecap = { sorte: 'aucune' } | { sorte: 'lignes'; famille: FamilleCout; poste: 'salaires' | 'autres' }
   | { sorte: 'gestion'; poste: 'adhoc' | 'monga' } | { sorte: 'ca'; poste: PosteCa };
-export type EtatCellule = 'complet' | 'a-completer' | 'neutre';
+/** 🔴 « provisoire » : une ligne de résultat (le CA net de gestion) calculée sur un mois dont une donnée est encore à compléter. */
+export type EtatCellule = 'complet' | 'a-completer' | 'neutre' | 'provisoire';
 export interface CelluleRecap { mois: MoisAn; m: MontantC; etat: EtatCellule; modifiable: 'non' | 'sur-place' | 'saisie-du-mois' | 'importe' }
-export type NiveauLigne = 'poste' | 'info' | 'sous-total' | 'total' | 'calcule';
+export type NiveauLigne = 'poste' | 'info' | 'sous-total' | 'total' | 'calcule' | 'resultat';
 export interface LigneRecap { cle: string; libelle: string; section: 'couts' | 'ca'; famille: FamilleCout | null; niveau: NiveauLigne; edition: EditionRecap;
   cellules: CelluleRecap[]; total: MontantC }
 export interface TableauRecap { mois: MoisAn[]; lignes: LigneRecap[];
@@ -121,6 +122,17 @@ export function tableauRecap(x: EntreesRecap): TableauRecap {
     lCa('honoraires', 'Honoraires de gestion', 'honoraires');
     lCa('gli', 'Honoraires GLI (garantie de loyers impayés)', 'gli');
     ajouter({ cle: 'ca-total', libelle: 'CA global de gestion', section: 'ca', famille: null, niveau: 'calcule', edition: AUCUNE }, (i) => ca[i]?.total ?? RIEN);
+    // ══ 🔴 Arno (13/11/2026) — le résultat de la gestion, DÉRIVÉ (rien n'est stocké) : les coûts de gestion = EXACTEMENT la ligne « Sous-total gestion »
+    // des coûts (même mois, même structure) ; CA net = CA global − coûts de gestion, en HT et en TTC chacun dans son mode. Un mois dont une donnée
+    // de la gestion (coûts ou CA) est « à compléter » : le CA net s'affiche, « provisoire ».
+    const sousTotal = lignes.find((l) => l.cle === 'gestion-total')!;
+    const caTotal = lignes.find((l) => l.cle === 'ca-total')!;
+    ajouter({ cle: 'ca-couts-gestion', libelle: 'Coûts de gestion (repris du sous-total gestion)', section: 'ca', famille: null, niveau: 'calcule', edition: AUCUNE },
+      (i) => sousTotal.cellules[i].m);
+    const aCompleter = (i: number): boolean => lignes.some((l) => (l.famille === 'gestion' || (l.section === 'ca' && l.niveau === 'poste')) && l.cellules[i].etat === 'a-completer');
+    ajouter({ cle: 'ca-net', libelle: 'CA net de gestion', section: 'ca', famille: null, niveau: 'resultat', edition: AUCUNE },
+      (i) => ({ htC: caTotal.cellules[i].m.htC - sousTotal.cellules[i].m.htC, ttcC: caTotal.cellules[i].m.ttcC - sousTotal.cellules[i].m.ttcC }),
+      (m) => ({ etat: aCompleter(ms.findIndex((x) => x.annee === m.annee && x.mois === m.mois)) ? 'provisoire' : 'neutre', modifiable: 'non' }));
   }
   const moisIncomplets = ms.map((_, i) => lignes.some((l) => l.cellules[i].etat === 'a-completer'));
   return { mois: ms, lignes, moisIncomplets };
