@@ -1,9 +1,11 @@
 import type { MontantC } from '../transaction/partAgence';
 import type { EntreesCoutsGlobaux } from '../transaction/coutsGlobal';
 import type { FamilleCout } from '../transaction/coutsSaisis';
-import type { Societe } from '../transaction/modele';
+import { bilanVente, TVA, ventesDuMois, type Societe, type Vente } from '../transaction/modele';
 import type { Agence } from './agence';
 import { avecLocationGestion, caGestionDuPoint, coutsDuPoint, type CoutsDuPoint } from './couts';
+import { coutsVenteDeLaSociete } from '../transaction/grapheGlobal';
+import { coutsGlobaux } from '../transaction/coutsGlobal';
 import { estValide, moisProposes, type MoisAn, type PosteCa, type Validation } from './saisieMois';
 
 /**
@@ -43,9 +45,15 @@ export type EditionRecap = { sorte: 'aucune' } | { sorte: 'lignes'; famille: Fam
   | { sorte: 'gestion'; poste: 'adhoc' | 'monga' } | { sorte: 'ca'; poste: PosteCa };
 /** 🔴 « provisoire » : une ligne de résultat (le CA net de gestion) calculée sur un mois dont une donnée est encore à compléter. */
 export type EtatCellule = 'complet' | 'a-completer' | 'neutre' | 'provisoire';
-export interface CelluleRecap { mois: MoisAn; m: MontantC; etat: EtatCellule; modifiable: 'non' | 'sur-place' | 'saisie-du-mois' | 'importe' }
+/** 🔴 « source » : un CA repris d'ailleurs (le compromis / Suivi CA, la Location), en lecture — l'écran mène à sa source. */
+export interface CelluleRecap { mois: MoisAn; m: MontantC; etat: EtatCellule; modifiable: 'non' | 'sur-place' | 'saisie-du-mois' | 'importe' | 'source';
+  /** 🔴 B (Arno, 13/11/2026) — le CA vente d'une structure qui porte une vente partagée : la part reversée à l'autre structure (déjà retirée du montant)
+   *  et les ventes concernées ; l'écran le mentionne sous le montant. */
+  reverse?: { m: MontantC; vers: Societe; ventes: { libelle: string; htC: number }[] } }
 export type NiveauLigne = 'poste' | 'info' | 'sous-total' | 'total' | 'calcule' | 'resultat';
-export interface LigneRecap { cle: string; libelle: string; section: 'couts' | 'ca'; famille: FamilleCout | null; niveau: NiveauLigne; edition: EditionRecap;
+/** Les sections : les coûts, puis le CA de la vente, de la location et de la gestion (`ca`, la section d'origine). */
+export type SectionRecap = 'couts' | 'ca-vente' | 'ca-location' | 'ca';
+export interface LigneRecap { cle: string; libelle: string; section: SectionRecap; famille: FamilleCout | null; niveau: NiveauLigne; edition: EditionRecap;
   cellules: CelluleRecap[]; total: MontantC }
 export interface TableauRecap { mois: MoisAn[]; lignes: LigneRecap[];
   /** Par mois : au moins une cellule « à compléter » (l'en-tête de la colonne le signale). */
@@ -116,6 +124,32 @@ export function tableauRecap(x: EntreesRecap): TableauRecap {
     poste('gestion', 'total', 'Sous-total gestion', (p) => p.gestion?.total, AUCUNE, 'sous-total');
   }
   ajouter({ cle: 'couts-total', libelle: 'Total des coûts', section: 'couts', famille: null, niveau: 'total', edition: AUCUNE }, (i) => points[i].total);
+  // ══ 🔴 Arno (13/11/2026) — CA VENTE puis CA LOCATION, sur le modèle exact du CA GESTION ; tout est DÉRIVÉ (rien de stocké) ══
+  // Le CA de départ est celui AVANT les reversements : le `ca` des cartes de la structure (`coutsVente` — la fonction même qui donne les commissions,
+  // les apporteurs et les agences extérieures des coûts : CA − ces coûts = le net des cartes, au centime : aucune double déduction) ; FUSION : celui de
+  // la page FUSION. La location : le `ca` du Suivi CA › Location (avant apporteurs, variable, part de gestion…). Ventes « mois à confirmer » : hors
+  // mois, donc hors totaux (la note). Le net : provisoire si un coût de la famille est à compléter ce mois-là.
+  const ligneDe = (cle: string) => lignes.find((l) => l.cle === cle)!;
+  const famillePrete = (f: FamilleCout, i: number): boolean => !lignes.some((l) => l.famille === f && l.cellules[i].etat === 'a-completer');
+  const section = (sec: 'ca-vente' | 'ca-location', pre: string, mot: string, motCouts: string, ca: (m: MoisAn) => MontantC, sousTotal: string, f: FamilleCout,
+    note: (m: MoisAn) => CelluleRecap['reverse'] | undefined = () => undefined) => {
+    ajouter({ cle: `${pre}-ca`, libelle: mot, section: sec, famille: null, niveau: 'poste', edition: AUCUNE }, (i) => ca(ms[i]), (m) => {
+      const r = note(m); return { etat: 'neutre', modifiable: 'source', ...(r === undefined ? {} : { reverse: r }) }; });
+    const st = ligneDe(sousTotal); const c = lignes.at(-1)!;
+    ajouter({ cle: `${pre}-couts`, libelle: motCouts, section: sec, famille: null, niveau: 'calcule', edition: AUCUNE }, (i) => st.cellules[i].m);
+    ajouter({ cle: `${pre}-net`, libelle: `${mot.replace('CA ', 'CA net de ')}`, section: sec, famille: null, niveau: 'resultat', edition: AUCUNE },
+      (i) => ({ htC: c.cellules[i].m.htC - st.cellules[i].m.htC, ttcC: c.cellules[i].m.ttcC - st.cellules[i].m.ttcC }),
+      (m) => ({ etat: famillePrete(f, ms.findIndex((x) => x.annee === m.annee && x.mois === m.mois)) ? 'neutre' : 'provisoire', modifiable: 'non' }));
+  };
+  // 🔴 B (Arno, 13/11/2026) — une vente PARTAGÉE entre nos structures : le CA vente de chacune = SA PART (le CA de sa carte − la part reversée à l'autre,
+  // la règle de répartition : 100 % au total, vases communicants) ; FUSION = la somme des parts = le CA total des ventes, sans double compte
+  section('ca-vente', 'cav', 'CA vente', 'Coûts de vente (repris du sous-total vente)',
+    (m) => { if (agence === 'tous') return coutsGlobaux(e, m.annee, m.mois, true).vente.ca;
+      const ca = coutsVenteDeLaSociete(e, agence, m.annee, m.mois).ca; const r = partReversee(e, agence, m);
+      return r === undefined ? ca : { htC: ca.htC - r.m.htC, ttcC: ca.ttcC - r.m.ttcC }; }, 'vente-total', 'vente',
+    (m) => (agence === 'tous' ? undefined : partReversee(e, agence, m)));
+  if (lg) section('ca-location', 'cal', 'CA location', 'Coûts de location (repris du sous-total location)',
+    (m) => coutsGlobaux(e, m.annee, m.mois, true).location?.ca ?? RIEN, 'location-total', 'location');
   // ── CA GESTION : CRITERIMMO (et FUSION, qui en est le CA) ; jamais MACJ ──
   if (lg) {
     const etatCa = (p: PosteCa, m: MoisAn): EtatCellule => (!x.caGestion || x.validations === null || !moisRevolu(m, jour) ? 'neutre'
@@ -141,6 +175,25 @@ export function tableauRecap(x: EntreesRecap): TableauRecap {
   const moisIncomplets = ms.map((_, i) => lignes.some((l) => l.cellules[i].etat === 'a-completer'));
   return { mois: ms, lignes, moisIncomplets };
 }
+
+/**
+ * 🔴 B — la part qu'une structure REVERSE à l'autre sur les ventes partagées qu'elle porte, un mois donné (HT ; TTC = HT × 1,20, la règle de toute part
+ * facturée entre nos sociétés) ; undefined : aucune. Les mêmes ventes que la carte du mois. PUR.
+ */
+export function partReversee(e: EntreesCoutsGlobaux, s: Societe, m: MoisAn): CelluleRecap['reverse'] | undefined {
+  const ventes = ventesDuMois(e.ventes.map((v) => ({ ...v, double: v.double ?? null })) as Vente[], m.annee, m.mois);
+  const autre: Societe = s === 'criterimmo' ? 'macj' : 'criterimmo';
+  const xs = ventes.map((v) => { const b = bilanVente(v, s); return b.porteuse === s ? { libelle: v.libelle, htC: Math.round(b.verseHt[autre] * 100) } : null; })
+    .filter((x): x is { libelle: string; htC: number } => x !== null && x.htC !== 0);
+  if (xs.length === 0) return undefined;
+  const htC = xs.reduce((t, x) => t + x.htC, 0);
+  return { m: { htC, ttcC: Math.round(htC * TVA) }, vers: autre, ventes: xs };
+}
+
+/** 🔴 La source d'un CA repris : le Suivi CA de la structure au mois (le compromis s'y corrige), ou Suivi CA › Location. PUR. */
+export const lienSourceCa = (section: 'ca-vente' | 'ca-location', agence: Agence, m: MoisAn): string =>
+  section === 'ca-vente' ? `/admin/transaction/${agence === 'tous' ? 'fusion' : agence}?vue=mois&annee=${m.annee}&mois=${m.mois}`
+    : `/admin/transaction/location?vue=mois&annee=${m.annee}&mois=${m.mois}`;
 
 /** Le lien de la saisie du mois (postes à plusieurs lignes) : l'onglet « Coûts et CA », la structure, le mois, la partie. PUR. */
 export const lienSaisieDuMois = (societe: Societe, m: MoisAn, partie: 'couts' | 'ca'): string =>

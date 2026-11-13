@@ -61,7 +61,7 @@ describe('🔴 le tableau', () => {
     await rendre();
     expect(container.querySelectorAll('[data-table-recap] thead th[data-mois-recap]').length).toBe(12);
     expect(texte('[data-table-recap] thead th:last-child')).toBe('Total');
-    expect([...container.querySelectorAll('[data-section-recap]')].map((s) => s.getAttribute('data-section-recap'))).toEqual(['couts', 'ca']);
+    expect([...container.querySelectorAll('[data-section-recap]')].map((s) => s.getAttribute('data-section-recap'))).toEqual(['couts', 'ca-vente', 'ca-location', 'ca']);
     expect([...container.querySelectorAll('[data-famille-recap]')].map((s) => s.getAttribute('data-famille-recap'))).toEqual(['vente', 'location', 'gestion']);
     expect(container.querySelector('[data-mois-recap="2026-10"]')?.getAttribute('data-mois-incomplet')).toBe('oui');
     expect(container.querySelector('[data-mois-recap="2026-11"]')?.getAttribute('data-mois-incomplet')).toBeNull();
@@ -175,5 +175,38 @@ describe('🔴 CA GESTION : « Coûts de gestion » et « CA net de gestion » (
     window.localStorage.setItem('trx-affichage-montants', 'ttc');
     await rendre();
     expect(texte('[data-cellule-recap="ca-net-2026-10"]')).toBe(montant(900));
+  });
+});
+
+describe('🔴 CA VENTE et CA LOCATION (Arno, 13/11/2026) — à l’écran', () => {
+  const cel = (cle: string) => container.querySelector(`[data-cellule-recap="${cle}"]`) as HTMLElement;
+  it('sous le total des coûts : CA vente (sarcelle), CA location (ocre), CA gestion (violet) ; le CA mène à sa source ; trois lignes chacune', async () => {
+    await rendre();
+    expect([...container.querySelectorAll('[data-section-recap]')].map((x) => [x.getAttribute('data-section-recap'), /trx-serie--(\d+)/.exec(x.className)?.[1] ?? null]))
+      .toEqual([['couts', null], ['ca-vente', '6'], ['ca-location', '7'], ['ca', '4']]);
+    expect([...container.querySelectorAll('[data-section-recap="ca-vente"] [data-ligne-recap]')].map((x) => x.getAttribute('data-ligne-recap'))).toEqual(['cav-ca', 'cav-couts', 'cav-net']);
+    expect(container.querySelector('[data-source-recap="cav-ca-2026-06"]')?.getAttribute('href')).toBe('/admin/transaction/criterimmo?vue=mois&annee=2026&mois=6');
+    expect(container.querySelector('[data-source-recap="cal-ca-2026-06"]')?.getAttribute('href')).toBe('/admin/transaction/location?vue=mois&annee=2026&mois=6');
+    expect(texte('[data-cellule-recap="cav-couts-2026-06"]')).toBe(texte('[data-cellule-recap="vente-total-2026-06"]'));
+  });
+  it('🔴 B — mars : la part de CRITERIMMO, et la mention « dont 1 666,70 € reversés à MACJ — vente partagée », la vente en infobulle', async () => {
+    await rendre();
+    expect(texte('[data-reverse-recap="cav-ca-2026-03"]')).toBe(`dont ${montant(1666.7)} reversés à MACJ — vente partagée`);
+    expect(container.querySelector('[data-reverse-recap="cav-ca-2026-03"]')?.getAttribute('title')).toBe(`Ventes partagées : PARTAGÉE (${eur(1666.7)} HT reversés)`);
+    expect(texte('[data-source-recap="cav-ca-2026-03"]')).toBe(montant(1666.69));
+    expect(container.querySelector('[data-reverse-recap="cav-ca-2026-06"]')).toBeNull();
+  });
+  it('le CA net de vente : vert (≥ 0), « provisoire » (un coût de vente à compléter) ; un net négatif : rouge avec « − »', async () => {
+    await rendre();
+    expect(cel('cav-net-2026-06').className).toContain('rcp-positif');
+    expect(cel('cav-net-2026-06').getAttribute('title')).toBe('calcul provisoire : données à compléter');
+    // octobre : aucune vente, ADHOC à 3 000 € → la gestion ; la vente d'octobre : 0 € de CA et 0 € de coûts → 0 € vert
+    expect(texte('[data-cellule-recap="cav-net-2026-10"]')).toBe(montant(0));
+    expect(cel('cal-net-2026-10').className).toMatch(/rcp-(positif|negatif)/);
+  });
+  it('MACJ : la section CA VENTE seule', async () => {
+    await rendre();
+    await cliquer('[data-recap-agence="macj"]');
+    expect([...container.querySelectorAll('[data-section-recap]')].map((x) => x.getAttribute('data-section-recap'))).toEqual(['couts', 'ca-vente']);
   });
 });

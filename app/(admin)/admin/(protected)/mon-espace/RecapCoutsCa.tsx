@@ -5,7 +5,7 @@ import { BoutonAffichage, ecrireAdresse, eur, FournisseurAffichage, MOT_UNITE, p
 import { CSS } from '../transaction/EcransTransaction';
 import { estMontantSaisi, estMontantSaisiTaux, URL_COUTS } from '../../../../lib/mon-espace/couts';
 import { AGENCES, estAgence, LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
-import { cleMoisAn, estPeriodeRecap, libelleFenetre, lienSaisieDuMois, lienSuiviCaGestion, moisAbrege, moisDeLaFenetre, tableauRecap,
+import { cleMoisAn, estPeriodeRecap, libelleFenetre, lienSaisieDuMois, lienSourceCa, lienSuiviCaGestion, moisAbrege, moisDeLaFenetre, tableauRecap, type SectionRecap,
   type CelluleRecap, type LigneRecap, type PeriodeRecap } from '../../../../lib/mon-espace/recap';
 import { libelleMois, type MoisAn, type Validation } from '../../../../lib/mon-espace/saisieMois';
 import { lienRecap } from '../../../../lib/mon-espace/recap';
@@ -184,11 +184,23 @@ export function RecapCoutsCa() {
       data-modifier-recap={`${l.cle}-${cleMoisAn(c.mois)}`}>{contenu}</button></td>;
     if (c.modifiable === 'saisie-du-mois') return <td key={i} className={classe} {...attrs}><a className="rcp-bouton" href={lienSaisieDuMois(agence === 'macj' ? 'macj' : 'criterimmo', c.mois, 'couts')}
       data-saisie-recap={`${l.cle}-${cleMoisAn(c.mois)}`}>{contenu}</a></td>;
+    // 🔴 un CA repris (vente : le compromis / Suivi CA ; location : Suivi CA › Location) : en lecture, le montant mène à sa source
+    if (c.modifiable === 'source' && (l.section === 'ca-vente' || l.section === 'ca-location')) return <td key={i} className={`${classe} rcp-source`} {...attrs}>
+      <a className="rcp-bouton" href={lienSourceCa(l.section, agence, c.mois)} title={l.section === 'ca-vente' ? 'corriger dans le compromis / Suivi CA' : 'corriger dans Suivi CA › Location'}
+        data-source-recap={`${l.cle}-${cleMoisAn(c.mois)}`}>{contenu}</a>
+      {/* 🔴 B (Arno, 13/11/2026) — une vente partagée : la part reversée à l'autre structure (déjà retirée), et les ventes concernées en infobulle */}
+      {c.reverse !== undefined && <small className="rcp-reverse" title={`Ventes partagées : ${c.reverse.ventes.map((v) => `${v.libelle} (${eur(v.htC / 100)} HT reversés)`).join(' ; ')}`}
+        data-reverse-recap={`${l.cle}-${cleMoisAn(c.mois)}`}>dont {eur(c.reverse.m[k] / 100)} reversés à {LIBELLE_AGENCE[c.reverse.vers]} — vente partagée</small>}</td>;
     if (c.modifiable === 'importe') return <td key={i} className={`${classe} rcp-importe`} {...attrs}>{contenu}
       <a className="rcp-corriger" href={lienSuiviCaGestion(c.mois)} data-corriger-recap={`${l.cle}-${cleMoisAn(c.mois)}`}>corriger dans Suivi CA › Gestion</a></td>;
     return <td key={i} className={classe} {...attrs}>{contenu}</td>;
   };
-  const sections: { cle: 'couts' | 'ca'; mot: string }[] = [{ cle: 'couts', mot: 'Coûts' }, ...(t.lignes.some((l) => l.section === 'ca') ? [{ cle: 'ca' as const, mot: 'CA gestion' }] : [])];
+  // 🔴 Arno (13/11/2026) — sous les coûts : CA VENTE, CA LOCATION, puis CA GESTION ; chaque section du CA a sa couleur (la palette du Suivi CA, distincte
+  // des familles de coûts — bleu, vert, rose — et entre elles : sarcelle, ocre, violet)
+  const MOT_SECTION: Record<SectionRecap, string> = { couts: 'Coûts', 'ca-vente': 'CA vente', 'ca-location': 'CA location', ca: 'CA gestion' };
+  const SERIE_SECTION: Partial<Record<SectionRecap, number>> = { 'ca-vente': 6, 'ca-location': 7, ca: 4 };
+  const sections: { cle: SectionRecap; mot: string }[] = (['couts', 'ca-vente', 'ca-location', 'ca'] as const).filter((c) => t.lignes.some((l) => l.section === c))
+    .map((cle) => ({ cle, mot: MOT_SECTION[cle] }));
   const nb = t.mois.length + 2;
   return (
     <FournisseurAffichage value={unite}>
@@ -221,13 +233,13 @@ export function RecapCoutsCa() {
               {moisAbrege(m)}{t.moisIncomplets[i] && <span className="rcp-pastille" aria-label="à compléter"> ●</span>}</th>)}
             <th scope="col" className="rcp-total">Total</th></tr></thead>
           {sections.map((s) => (
-            <tbody key={s.cle} className={`rcp-section rcp-section--${s.cle}${s.cle === 'ca' ? ' trx-serie--4' : ''}`} data-section-recap={s.cle}>
+            <tbody key={s.cle} className={`rcp-section rcp-section--${s.cle}${SERIE_SECTION[s.cle] !== undefined ? ` rcp-section--chiffre trx-serie--${SERIE_SECTION[s.cle]}` : ''}`} data-section-recap={s.cle}>
               <tr className="rcp-section-titre"><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{s.mot}</span></th></tr>
               {t.lignes.filter((l) => l.section === s.cle).map((l, j, xs) => {
                 const nouvelleFamille = l.famille !== null && (j === 0 || xs[j - 1].famille !== l.famille);
                 return [
                   nouvelleFamille ? <tr key={`f-${l.famille}`} className={`rcp-famille trx-serie--${COULEUR[l.famille!]}`} data-famille-recap={l.famille!}><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{FAMILLE[l.famille!]}</span></th></tr> : null,
-                  <tr key={l.cle} className={`rcp-ligne rcp-ligne--${l.niveau}${l.famille !== null ? ` trx-serie--${COULEUR[l.famille]}` : s.cle === 'ca' ? ' trx-serie--4' : ''}`} data-ligne-recap={l.cle}>
+                  <tr key={l.cle} className={`rcp-ligne rcp-ligne--${l.niveau}${l.famille !== null ? ` trx-serie--${COULEUR[l.famille]}` : SERIE_SECTION[s.cle] !== undefined ? ` trx-serie--${SERIE_SECTION[s.cle]}` : ''}`} data-ligne-recap={l.cle}>
                     <th scope="row">{l.libelle}{l.niveau === 'info' && <small className="loc-muet"> (pour information, hors totaux)</small>}{l.cle === 'ca-total' && <small className="loc-muet"> (calculé)</small>}</th>
                     {l.cellules.map((c, i) => cellule(l, c, i))}
                     <td className={`rcp-c rcp-total${l.niveau === 'resultat' ? ` ${sens(l.total[k])}` : ''}`} data-total-recap={l.cle}>{l.niveau === 'resultat' ? signe(l.total[k]) : eur(l.total[k] / 100)}</td>
@@ -285,7 +297,7 @@ const CSS_RECAP = `
 .rcp-table th[scope=row],.rcp-table thead th.rcp-coin{position:sticky;left:0;z-index:1;text-align:left;background:var(--color-svv-surface);min-width:12rem;max-width:18rem;white-space:normal}
 .rcp-table thead th.rcp-coin{z-index:3;background:var(--color-svv-field)}
 .rcp-section-titre th{text-align:left;font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;background:var(--color-svv-ink);color:var(--color-svv-surface)}
-.rcp-section--ca .rcp-section-titre th{background:var(--trx-serie);color:#fff}
+.rcp-section--chiffre .rcp-section-titre th{background:var(--trx-serie);color:#fff}
 /* le titre d'une bande (section, famille) reste lisible quand le tableau defile a l'horizontale : c'est le LIBELLE qui colle a gauche (la bande fait
    toute la largeur, elle ne peut pas coller elle-meme) */
 .rcp-colle{position:sticky;left:8px}
@@ -294,7 +306,7 @@ const CSS_RECAP = `
 .rcp-ligne--info th,.rcp-ligne--info td{color:var(--color-svv-muted);font-style:italic}
 .rcp-ligne--sous-total th,.rcp-ligne--sous-total td{font-weight:800;background:color-mix(in srgb, var(--trx-serie) 8%, var(--color-svv-surface))}
 .rcp-ligne--total th,.rcp-ligne--total td,.rcp-ligne--calcule th,.rcp-ligne--calcule td{font-weight:800;border-top:2px solid var(--color-svv-line-strong)}
-.rcp-section--ca .rcp-ligne th[scope=row]{border-left-color:var(--trx-serie)}
+.rcp-section--chiffre .rcp-ligne th[scope=row]{border-left-color:var(--trx-serie)}
 /* le CA net de gestion : la ligne de resultat (gras, separateur au-dessus) ; vert si positif ou nul, rouge si negatif */
 .rcp-ligne--resultat th,.rcp-ligne--resultat td{font-weight:800;border-top:3px double var(--color-svv-line-strong)}
 .rcp-table td.rcp-positif{color:var(--color-svv-green)}
@@ -307,6 +319,7 @@ const CSS_RECAP = `
 .rcp-bouton{display:block;width:100%;min-height:32px;padding:0;border:0;background:none;font:inherit;color:inherit;text-align:right;cursor:pointer;text-decoration:none}
 .rcp-bouton:hover,.rcp-bouton:focus-visible{text-decoration:underline;outline-offset:2px}
 .rcp-importe{color:var(--color-svv-muted)}
+.rcp-reverse{display:block;font-size:.7rem;white-space:normal;min-width:7rem;color:var(--color-svv-muted);cursor:help}
 .rcp-corriger{display:block;font-size:.7rem;white-space:normal;min-width:7rem}
 .rcp-edition{background:var(--color-svv-field)}
 .rcp-editeur{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:11rem;text-align:left}
