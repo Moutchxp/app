@@ -4,7 +4,7 @@ import { lireDonneesGlobal } from '../../../../../lib/transaction/donneesGlobal'
 import { aujourdhuiParis } from '../../../../../lib/location/suivi/suivi';
 import { lireGesteCout, MOTIF_COUTS } from '../../../../../lib/mon-espace/couts';
 import { ajouterCoutLigne, empreinteCouts, lireValidationsCouts, lireVersionsGestion, modifierCaGestion, modifierCoutLigne, modifierPosteGestion, validerPosteCout, type Issue } from '../../../../../lib/transaction/repo';
-import { caGestionDisponible, coutsSaisisDisponible, mongaDisponible } from '../../../../../lib/admin/schemaDroits';
+import { caGestionDisponible, coutsSaisisDisponible, mongaDisponible, remunerationsDisponible } from '../../../../../lib/admin/schemaDroits';
 import { alertesSaisie, rappelMois } from '../../../../../lib/mon-espace/saisieMois';
 import { estAgence } from '../../../../../lib/mon-espace/agence';
 import { lireProfilsCouts } from '../../../../../lib/admin/fonctionsCompte';
@@ -45,19 +45,20 @@ export async function GET(request: Request): Promise<Response> {
     if (url.searchParams.get('rappel') === '1') {
       const agence = url.searchParams.get('agence');
       if (!estAgence(agence)) return json({ etat: 'refus', motif: 'Structure inconnue.' }, 400);
-      const [validations, versions, monga, saisie, ca] = await Promise.all([lireValidationsCouts(), lireVersionsGestion(), mongaDisponible(), coutsSaisisDisponible(), caGestionDisponible()]);
+      const [validations, versions, monga, saisie, ca, remunerations] = await Promise.all([lireValidationsCouts(), lireVersionsGestion(), mongaDisponible(), coutsSaisisDisponible(), caGestionDisponible(),
+        remunerationsDisponible()]);
       if (validations === null || !saisie) return json({ etat: 'ok', data: { rappel: null, alertes: [] } });
       const jour = aujourdhuiParis(); const m = `${jour.slice(0, 4)}-${jour.slice(5, 7)}`;
       const precedent = (() => { const a = Number(m.slice(0, 4)); const x = Number(m.slice(5, 7)); return x === 1 ? `${a - 1}-12` : `${a}-${String(x - 1).padStart(2, '0')}`; })();
       const societes = agence === 'tous' ? ['criterimmo', 'macj'] as const : [agence];
       const importe = versions[precedent]?.origine === 'import';
-      const rappel = rappelMois(societes, validations, jour, { adhocImporte: importe, monga });
-      const alertes = alertesSaisie(societes, validations, jour, { adhocImporte: importe, monga, ca, honorairesImportes: importe });
+      const rappel = rappelMois(societes, validations, jour, { adhocImporte: importe, monga, remunerations });
+      const alertes = alertesSaisie(societes, validations, jour, { adhocImporte: importe, monga, ca, honorairesImportes: importe, remunerations });
       return json({ etat: 'ok', data: { rappel, alertes } });
     }
-    const [donnees, profils, versionsGestion, saisie, validations, caGestion] = await Promise.all([lireDonneesGlobal(aujourdhuiParis(), { compromis: false }), lireProfilsCouts(),
-      lireVersionsGestion(), coutsSaisisDisponible(), lireValidationsCouts(), caGestionDisponible()]);
-    return json({ etat: 'ok', data: { ...donnees, profils, versionsGestion, saisie, validations, caGestion } });
+    const [donnees, profils, versionsGestion, saisie, validations, caGestion, remunerations] = await Promise.all([lireDonneesGlobal(aujourdhuiParis(), { compromis: false, remunerations: true }), lireProfilsCouts(),
+      lireVersionsGestion(), coutsSaisisDisponible(), lireValidationsCouts(), caGestionDisponible(), remunerationsDisponible()]);
+    return json({ etat: 'ok', data: { ...donnees, profils, versionsGestion, saisie, validations, caGestion, remunerations } });
   } catch (e) {
     console.error('[mon-espace] coûts', e);
     return json({ etat: 'erreur', message: 'Lecture impossible.' }, 500);

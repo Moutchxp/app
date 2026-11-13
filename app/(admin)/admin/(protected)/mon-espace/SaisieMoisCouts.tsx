@@ -31,6 +31,8 @@ export interface DonneesPageSaisie {
   gestionDuMois: (m: MoisAn) => { adhoc: number | null; monga: number | null };
   /** 🔴 « Coûts et CA » (471) — la partie « CA gestion » est-elle disponible (la 471 posée) ; le CA de gestion enregistré d'un mois. */
   caGestion: boolean;
+  /** 🔴 472 — le poste « Rémunérations associés » est-il disponible (la migration 472 posée) ? */
+  remunerations?: boolean;
   caDuMois: (m: MoisAn) => { honoraires: number | null; gli: number | null; tauxHonoraires: number | null; tauxGli: number | null; importe: boolean };
 }
 interface Brouillon { id: number | null; version: number; compte: string; libelle: string; montant: string;
@@ -59,7 +61,7 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale =
   const [societe, setSociete] = useState<Societe>(societeInitiale);
   const cleMois = `${mois.annee}-${String(mois.mois).padStart(2, '0')}`;
   const adhocImporte = d.versionsGestion[cleMois]?.origine === 'import';
-  const postes = postesSaisis(societe, { adhocImporte, monga: d.monga });
+  const postes = postesSaisis(societe, { adhocImporte, monga: d.monga, remunerations: d.remunerations !== false });
   const validations = d.validations ?? [];
   // les brouillons : repris à chaque mois / structure (la clé du composant enfant)
   // 🔴 D24 — l'en-tête collant, sur UNE ligne : mois · structure · (état global, posé par le formulaire) · « Retour aux coûts »
@@ -95,7 +97,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
   const modifiableIci = (l: CoutLigne): boolean => l.prorata === undefined || l.prorata.derniere;
   const principalesDe = (compte: string) => d.profils.find((x) => String(x.id) === compte)?.principales;
   const g = d.gestionDuMois(mois);
-  const [brouillons, setBrouillons] = useState<Record<string, Brouillon[]>>(() => Object.fromEntries(postes.filter((p) => p.poste === 'salaires' || p.poste === 'autres')
+  const [brouillons, setBrouillons] = useState<Record<string, Brouillon[]>>(() => Object.fromEntries(postes.filter((p) => p.poste === 'salaires' || p.poste === 'autres' || p.poste === 'remunerations')
     .map((p) => [cle(p), lignesDe(p).filter(modifiableIci).map((l) => { const montant = ecrireMontant(l.montantSaisiHt ?? l.montantHt); const compte = String(l.compteId ?? ''); const libelle = l.libelle ?? '';
       return { id: l.id, version: l.version, compte, libelle, montant, tva: l.tva === true, retirer: false, initial: `${compte}|${libelle}|${montant}|${l.tva === true}` }; })])));
   const [gestion, setGestion] = useState<Record<'adhoc' | 'monga', string>>({ adhoc: ecrireMontant(g.adhoc), monga: ecrireMontant(g.monga) });
@@ -148,11 +150,12 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
         const m = lireMontant(b.montant);
         if (m === null || !estMontantSaisi(m)) { setMessage({ texte: `${MOT_FAMILLE[p.famille]} — ${p.libelle} : montant invalide (un nombre positif, deux décimales au plus).`, conflit: false }); return; }
         if (p.poste === 'salaires' && b.compte === '') { setMessage({ texte: `${MOT_FAMILLE[p.famille]} — salaires : choisissez le salarié de chaque ligne.`, conflit: false }); return; }
+        if (p.poste === 'remunerations' && b.compte === '') { setMessage({ texte: `${MOT_FAMILLE[p.famille]} — rémunérations associés : choisissez l’associé de chaque ligne.`, conflit: false }); return; }
         if (p.poste === 'autres' && b.libelle.trim() === '') { setMessage({ texte: `${MOT_FAMILLE[p.famille]} — autres : donnez un libellé à chaque ligne.`, conflit: false }); return; }
         if (b.id === null) gestes.push({ action: 'ligne-ajouter', ligne: { societe, famille: p.famille, poste: p.poste, annee: mois.annee, mois: mois.mois,
-          compteId: p.poste === 'salaires' ? Number(b.compte) : null, libelle: p.poste === 'autres' ? b.libelle.trim() : null, montantHt: m, tva: p.poste === 'autres' ? b.tva : false } });
+          compteId: p.poste === 'salaires' || p.poste === 'remunerations' ? Number(b.compte) : null, libelle: p.poste === 'autres' ? b.libelle.trim() : null, montantHt: m, tva: p.poste === 'autres' ? b.tva : false } });
         else if (`${b.compte}|${b.libelle}|${b.montant}|${b.tva}` !== b.initial) gestes.push({ action: 'ligne-modifier', id: b.id, version: b.version, montantHt: m,
-          ...(p.poste === 'salaires' ? { compteId: Number(b.compte) } : { libelle: b.libelle.trim(), tva: b.tva }) });
+          ...(p.poste === 'salaires' || p.poste === 'remunerations' ? { compteId: Number(b.compte) } : { libelle: b.libelle.trim(), tva: b.tva }) });
       }
     }
     // 🔴 471 — le CA de gestion : un geste par ligne modifiée (montant ou taux)
@@ -220,6 +223,8 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
     <label className="mes-saisie-complet" title="Complet pour ce mois (0 compris)"><input type="checkbox" checked={complets[c] === true} disabled={d.validations === null}
       onChange={(e) => setComplets((x) => ({ ...x, [c]: e.target.checked }))} aria-label={`${libelle} : complet pour ce mois`} data-complet={c} /></label>
   );
+  // 🔴 472 — « Rémunérations associés » : les seuls comptes associés (une ligne déjà saisie garde son associé, même s'il ne l'est plus)
+  const associes = d.profils.filter((x) => x.associe === true || (brouillons['vente-remunerations'] ?? []).some((b) => b.compte === String(x.id)));
   const profilsDe = (f: FamilleCout) => ([1, 2, 3] as const).map((gp) => { const xs = profilsPourSalaire(f, d.profils, mois).filter((x) => x.groupe === gp); return xs.length === 0 ? null
     : <optgroup key={gp} label={gp === 1 ? `Fonction ${MOT_FAMILLE[f].toLowerCase()}` : gp === 2 ? 'Location ou gestion' : 'Autres profils'}>
       {xs.map((x) => <option key={x.profil.id} value={x.profil.id}>{x.profil.libelle}</option>)}</optgroup>; });
@@ -250,7 +255,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
                   texte="Cochez quand le poste est entièrement saisi pour ce mois — 0 compris : un poste sans dépense est complet une fois coché." /></span></div>
               {postes.filter((p) => p.famille === f).map((p) => {
                 const c = cle(p);
-                const multi = p.poste === 'salaires' || p.poste === 'autres';
+                const multi = p.poste === 'salaires' || p.poste === 'autres' || p.poste === 'remunerations';
                 return (
                   <div key={c} className="mes-saisie-poste" data-poste-saisie={c}>
                     <div className="mes-saisie-ligne" role="row">
@@ -258,13 +263,16 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
                       <span role="cell">{multi ? <span className="mes-saisie-sous-total" data-sous-total={c}>{eur(sousTotal(c, p))}</span>
                         : <input type="text" inputMode="decimal" value={gestion[p.poste as 'adhoc' | 'monga']} placeholder="vide : non saisi" aria-label={`${p.libelle} HT`}
                           onChange={(e) => setGestion((x) => ({ ...x, [p.poste]: e.target.value }))} data-montant-poste={c} />}</span>
-                      <span role="cell" className="loc-muet mes-saisie-tva">{p.poste === 'autres' ? 'par ligne' : p.poste === 'salaires' ? '—' : '20 %'}</span>
+                      <span role="cell" className="loc-muet mes-saisie-tva">{p.poste === 'autres' ? 'par ligne' : p.poste === 'salaires' || p.poste === 'remunerations' ? '—' : '20 %'}</span>
                       <span role="cell">{caseComplet(c, p.libelle)}</span>
                     </div>
                     {multi && <div className="mes-saisie-sous" role="rowgroup">
                       {(brouillons[c] ?? []).map((b, i) => (
                         <div key={b.id ?? `n${i}`} className={`mes-saisie-sous-ligne${b.retirer ? ' mes-saisie-retiree' : ''}`} role="row" data-brouillon={`${c}-${i}`}>
-                          {p.poste === 'salaires'
+                          {p.poste === 'remunerations'
+                            ? <select value={b.compte} onChange={(e) => changer(c, i, { compte: e.target.value })} aria-label="Associé" disabled={b.retirer} data-profil-brouillon={`${c}-${i}`}>
+                              <option value="">Associé…</option>{associes.map((x) => <option key={x.id} value={x.id}>{x.libelle}</option>)}</select>
+                            : p.poste === 'salaires'
                             ? <select value={b.compte} onChange={(e) => changer(c, i, { compte: e.target.value })} aria-label="Salarié" disabled={b.retirer} data-profil-brouillon={`${c}-${i}`}>
                               <option value="">Salarié…</option>{profilsDe(p.famille)}</select>
                             : <input type="text" value={b.libelle} placeholder="Libellé" maxLength={120} disabled={b.retirer} onChange={(e) => changer(c, i, { libelle: e.target.value })} aria-label="Libellé" data-libelle-brouillon={`${c}-${i}`} />}
@@ -349,7 +357,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
         </span>
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void enregistrer()} data-enregistrer-mois>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
       </div>
-      <p className="loc-muet mes-couts-aide">Montants en euros HT (salaires : chargés, sans TVA ; « Autres » : TVA 20 % ou sans TVA, ligne par ligne ; ADHOC et MONGA : 20 %). Les totaux sont
+      <p className="loc-muet mes-couts-aide">Montants en euros HT (rémunérations des associés : sans TVA ; salaires : chargés, sans TVA ; « Autres » : TVA 20 % ou sans TVA, ligne par ligne ; ADHOC et MONGA : 20 %). Les totaux sont
         ceux déjà enregistrés, comme les tableaux, le Suivi CA et le résultat net.</p>
     </div>
   );

@@ -3,7 +3,8 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { activitePrincipaleDisponible, caGestionDisponible, coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { SQL_EST_ASSOCIE } from '../admin/fonctionsCompteModele';
+import { activitePrincipaleDisponible, caGestionDisponible, remunerationsDisponible, coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   NOMS_MOIS, type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -554,7 +555,7 @@ export const MOTIF_SANS_451 = 'La saisie des coûts sera disponible après la mi
 export const MOTIF_PERIME = 'Ce coût a été modifié entre-temps (par vous dans un autre écran, ou par un collègue) : rechargez, rien n’a été écrit.';
 const versionDe = async (q: RequeteTx, entite: Entite, id: number): Promise<number> =>
   n((await q<{ v: string | null }>('SELECT max(id) AS v FROM transaction_journal WHERE entite = $1 AND entite_id = $2', [entite, id])).rows[0]?.v ?? 0);
-export interface SaisieCoutLigne { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres'; annee: number; mois: number;
+export interface SaisieCoutLigne { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'remunerations'; annee: number; mois: number;
   compteId: number | null; libelle: string | null; montantHt: number;
   /** R2 — « Autres » : la TVA de la ligne (défaut 20 %) ; salaires : toujours sans. */
   tva?: boolean }
@@ -573,8 +574,21 @@ export function motifSalaire(principales: ReadonlyMap<number, readonly VersionPr
   return null;
 }
 /** Ajoute une ligne (un salarié du mois, ou un frais « Autres ») ; journalisée. Un salarié déjà présent ce mois-là : refus (le modifier). */
+/** 🔴 472 — « Rémunérations associés » : la migration, et un compte ASSOCIÉ (la règle de la liste proposée, `SQL_EST_ASSOCIE`). */
+export const MOTIF_SANS_472 = 'Les rémunérations des associés s’enregistreront après la mise à jour de la base (migration 472) : rien n’a été écrit.';
+export const MOTIF_PAS_ASSOCIE = 'Ce compte n’est pas un associé : une rémunération d’associé se rattache à un associé.';
+async function estAssocie(q: typeof query, compteId: number | null): Promise<boolean> {
+  if (compteId === null) return false;
+  const { rows } = await q<{ ok: boolean }>(`SELECT ${SQL_EST_ASSOCIE} AS ok FROM admin_utilisateur u WHERE u.id = $1`, [compteId]);
+  return rows[0]?.ok === true;
+}
 export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await coutsSaisisDisponible())) return { ok: false, motif: MOTIF_SANS_451 };
+  if (l.poste === 'remunerations') {
+    if (!(await remunerationsDisponible())) return { ok: false, motif: MOTIF_SANS_472 };
+    if (l.famille !== 'vente') return { ok: false, motif: 'Les rémunérations des associés sont un coût de la vente.' };
+    if (!(await estAssocie(query, l.compteId))) return { ok: false, motif: MOTIF_PAS_ASSOCIE };
+  }
   // 🔴 D35 (453) — un salaire est rattaché au COLLABORATEUR (une ligne par mois, sans famille enregistrée : elle se calcule de son activité principale)
   const rattache = l.poste === 'salaires' && (await activitePrincipaleDisponible().catch(() => false));
   if (rattache) {
@@ -592,7 +606,7 @@ export async function ajouterCoutLigne(l: SaisieCoutLigne, auteur: AuteurTx): Pr
     const { rows } = await q<{ id: string }>(
       `INSERT INTO transaction_cout_ligne (societe, famille, poste, annee, mois, compte_id, libelle, montant_ht, tva, cree_par_libelle)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [l.societe, rattache ? null : l.famille, l.poste, l.annee, l.mois, l.poste === 'salaires' ? l.compteId : null, l.poste === 'autres' ? l.libelle : null, l.montantHt,
+      [l.societe, rattache ? null : l.famille, l.poste, l.annee, l.mois, l.poste === 'salaires' || l.poste === 'remunerations' ? l.compteId : null, l.poste === 'autres' ? l.libelle : null, l.montantHt,
         l.poste === 'autres' ? l.tva !== false : false, auteur.libelle]);
     const id = n(rows[0].id);
     await journaliser(q, { entite: 'cout_ligne', id, action: 'saisie', avant: null, apres: l, auteur });
@@ -619,8 +633,10 @@ export async function modifierCoutLigne(id: number, version: number, v: { montan
         [x.annee, x.mois, v.compteId, id]);
       if (d.length > 0) return { ok: false, motif: 'Ce salarié a déjà son salaire ce mois-ci : modifiez sa ligne.', conflit: true };
     }
+    // 🔴 472 — une rémunération d'associé changée de compte : le nouveau doit être un associé
+    if (v.retirer !== true && x.poste === 'remunerations' && v.compteId != null && v.compteId !== nOuNull(x.compte_id) && !(await estAssocie(query, v.compteId))) return { ok: false, motif: MOTIF_PAS_ASSOCIE };
     const valeurs: Record<string, unknown> = v.retirer === true ? { retire_le: new Date().toISOString() }
-      : { ...(v.montantHt === undefined ? {} : { montant_ht: v.montantHt }), ...(v.compteId === undefined || rows[0].poste !== 'salaires' ? {} : { compte_id: v.compteId }),
+      : { ...(v.montantHt === undefined ? {} : { montant_ht: v.montantHt }), ...(v.compteId === undefined || (rows[0].poste !== 'salaires' && rows[0].poste !== 'remunerations') ? {} : { compte_id: v.compteId }),
         ...(v.libelle === undefined || rows[0].poste !== 'autres' ? {} : { libelle: v.libelle }), ...(v.tva === undefined || rows[0].poste !== 'autres' ? {} : { tva: v.tva }) };
     const r = await ecrire(q, 'cout_ligne', id, valeurs, true);
     if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
@@ -692,7 +708,7 @@ export async function modifierCaGestion(annee: number, mois: number, poste: 'hon
  * ══ 🔴 « LES COÛTS », LOT 3 (452) — LA VALIDATION D'UN POSTE DU MOIS (« complet », 0 compris) ══════════════════════════════════════════════════════
  * Lue pour l'indicateur « complet / à compléter » et le rappel (C17) ; posée ou retirée par « Saisir les coûts du mois » ; journalisée.
  */
-export interface ValidationCout { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'honoraires' | 'gli'; annee: number; mois: number }
+export interface ValidationCout { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'honoraires' | 'gli' | 'remunerations'; annee: number; mois: number }
 /** 🔴 471 — la nature d'un poste validé : « ca » (honoraires, GLI), sinon « cout ». PUR. */
 export const natureDuPoste = (poste: ValidationCout['poste']): 'cout' | 'ca' => (poste === 'honoraires' || poste === 'gli' ? 'ca' : 'cout');
 export const MOTIF_SANS_452 = 'La validation des postes sera disponible après la mise à jour de la base (migration 452) : les montants sont enregistrés, pas la validation.';
@@ -707,6 +723,7 @@ export async function validerPosteCout(v: ValidationCout, valide: boolean, auteu
   // 🔴 471 — un poste du CA de gestion se valide avec sa nature (« ca »), à CRITERIMMO, une fois la 471 posée
   const ca = natureDuPoste(v.poste) === 'ca';
   if (ca && !(await caGestionDisponible())) return { ok: false, motif: MOTIF_SANS_471 };
+  if (v.poste === 'remunerations' && !(await remunerationsDisponible())) return { ok: false, motif: MOTIF_SANS_472 };
   return withTransaction(async (q) => {
     const { rows } = await q<{ id: string }>(`SELECT id FROM transaction_cout_validation WHERE retire_le IS NULL AND societe = $1 AND famille = $2 AND poste = $3 AND annee = $4 AND mois = $5 FOR UPDATE`,
       [v.societe, v.famille, v.poste, v.annee, v.mois]);

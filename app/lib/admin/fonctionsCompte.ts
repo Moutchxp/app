@@ -9,7 +9,7 @@ import { activitePrincipaleDisponible, fonctionsComptesDisponible } from './sche
 import { fonctionsALaDate, principaleALaDate, type PeriodeFonction, type VersionPrincipale } from './activitePrincipale';
 
 import type { ChangementFonctions, EtatFonctions, Fonction } from './fonctionsCompteModele';
-import { estFonction } from './fonctionsCompteModele';
+import { estFonction, SQL_EST_ASSOCIE } from './fonctionsCompteModele';
 export { estFonction, FONCTIONS, LIBELLE_FONCTION, profilsPourSalaire, type EtatFonctions, type Fonction, type ProfilCout } from './fonctionsCompteModele';
 
 /** Aujourd'hui à Paris (« AAAA-MM-JJ »). */
@@ -57,8 +57,8 @@ export async function lireFonctions(id: number): Promise<EtatFonctions> {
 export async function lireProfilsCouts(): Promise<import('./fonctionsCompteModele').ProfilCout[]> {
   const avec = await fonctionsComptesDisponible();
   const datees = avec && (await activitePrincipaleDisponible());
-  const { rows } = await query<{ id: string; libelle: string; fonctions: Fonction[] | null; periodes: PeriodeFonction[] | null; principales: VersionPrincipale[] | null }>(
-    `SELECT u.id::text, coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) AS libelle,
+  const { rows } = await query<{ id: string; libelle: string; fonctions: Fonction[] | null; periodes: PeriodeFonction[] | null; principales: VersionPrincipale[] | null; associe: boolean }>(
+    `SELECT u.id::text, coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) AS libelle, ${SQL_EST_ASSOCIE} AS associe,
             ${avec ? `(SELECT array_agg(DISTINCT f.fonction ORDER BY f.fonction) FROM admin_compte_fonction f WHERE f.compte_id = u.id AND f.retire_le IS NULL${datees ? ' AND f.jusqua IS NULL' : ''})` : 'NULL::text[]'} AS fonctions,
             ${datees ? `(SELECT coalesce(jsonb_agg(jsonb_build_object('fonction', f.fonction, 'depuis', to_char(f.depuis, 'YYYY-MM-DD'), 'jusqua', to_char(f.jusqua, 'YYYY-MM-DD'))), '[]'::jsonb)
                          FROM admin_compte_fonction f WHERE f.compte_id = u.id AND f.retire_le IS NULL)` : 'NULL::jsonb'} AS periodes,
@@ -67,7 +67,7 @@ export async function lireProfilsCouts(): Promise<import('./fonctionsCompteModel
        FROM admin_utilisateur u
       WHERE u.actif IS TRUE AND coalesce(to_jsonb(u) ->> 'statut', '') <> 'observateur'
       ORDER BY libelle`);
-  return rows.map((r) => ({ id: Number(r.id), libelle: r.libelle, fonctions: r.fonctions ?? [],
+  return rows.map((r) => ({ id: Number(r.id), libelle: r.libelle, fonctions: r.fonctions ?? [], associe: r.associe === true,
     ...(r.periodes === null ? {} : { periodes: r.periodes }), ...(r.principales === null ? {} : { principales: r.principales }) }));
 }
 

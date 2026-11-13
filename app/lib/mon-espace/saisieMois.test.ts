@@ -6,7 +6,7 @@ import { completude, estMoisSaisissable, libelleMois, moisParAnnee, moisProposes
  * janvier → décembre de l'année d'avant), les postes saisis d'une structure (C7), « complet » = validé explicitement (0 compris), le rappel (C17).
  */
 const O = { adhocImporte: false, monga: true };
-const v = (societe: 'criterimmo' | 'macj', famille: 'vente' | 'location' | 'gestion', poste: 'salaires' | 'autres' | 'adhoc' | 'monga', annee = 2026, mois = 10): Validation =>
+const v = (societe: 'criterimmo' | 'macj', famille: 'vente' | 'location' | 'gestion', poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'remunerations', annee = 2026, mois = 10): Validation =>
   ({ societe, famille, poste, annee, mois });
 
 describe('🔴 C16 — le mois proposé et le sélecteur', () => {
@@ -26,11 +26,11 @@ describe('🔴 C16 — le mois proposé et le sélecteur', () => {
 });
 
 describe('🔴 les postes saisis d’une structure (C7)', () => {
-  it('MACJ : la vente seule (salaires, autres)', () => {
-    expect(postesSaisis('macj', O).map((p) => `${p.famille}-${p.poste}`)).toEqual(['vente-salaires', 'vente-autres']);
+  it('MACJ : la vente seule (🔴 472 : rémunérations associés, salaires, autres)', () => {
+    expect(postesSaisis('macj', O).map((p) => `${p.famille}-${p.poste}`)).toEqual(['vente-remunerations', 'vente-salaires', 'vente-autres']);
   });
   it('CRITERIMMO : vente, location, gestion (ADHOC, MONGA) ; ADHOC repris d’un import ou MONGA sans la 446 : pas à saisir ici', () => {
-    expect(postesSaisis('criterimmo', O).map((p) => `${p.famille}-${p.poste}`)).toEqual(['vente-salaires', 'vente-autres', 'location-salaires', 'location-autres',
+    expect(postesSaisis('criterimmo', O).map((p) => `${p.famille}-${p.poste}`)).toEqual(['vente-remunerations', 'vente-salaires', 'vente-autres', 'location-salaires', 'location-autres',
       'gestion-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-autres']);
     expect(postesSaisis('criterimmo', { adhocImporte: true, monga: false }).map((p) => p.poste)).not.toContain('adhoc');
     expect(postesSaisis('criterimmo', { adhocImporte: true, monga: false }).map((p) => p.poste)).not.toContain('monga');
@@ -38,15 +38,15 @@ describe('🔴 les postes saisis d’une structure (C7)', () => {
 });
 
 describe('🔴 « complet / à compléter » : validé explicitement, par poste, par bloc, en tout', () => {
-  it('MACJ octobre : rien de validé → à compléter ; les deux postes → complet ; la validation d’un autre mois ou d’une autre structure ne compte pas', () => {
+  it('MACJ octobre : rien de validé → à compléter ; les trois postes → complet ; la validation d’un autre mois ou d’une autre structure ne compte pas', () => {
     const p = postesSaisis('macj', O);
     expect(completude(p, [], 'macj', { annee: 2026, mois: 10 }).complet).toBe(false);
-    expect(completude(p, [v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')], 'macj', { annee: 2026, mois: 10 })).toMatchObject({ complet: true,
+    expect(completude(p, [v('macj', 'vente', 'remunerations'), v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')], 'macj', { annee: 2026, mois: 10 })).toMatchObject({ complet: true,
       familles: { vente: true, location: null, gestion: null } });
     expect(completude(p, [v('macj', 'vente', 'salaires', 2026, 9), v('criterimmo', 'vente', 'autres')], 'macj', { annee: 2026, mois: 10 }).complet).toBe(false);
   });
   it('CRITERIMMO : un bloc complet, un autre pas', () => {
-    const c = completude(postesSaisis('criterimmo', O), [v('criterimmo', 'vente', 'salaires'), v('criterimmo', 'vente', 'autres')], 'criterimmo', { annee: 2026, mois: 10 });
+    const c = completude(postesSaisis('criterimmo', O), [v('criterimmo', 'vente', 'remunerations'), v('criterimmo', 'vente', 'salaires'), v('criterimmo', 'vente', 'autres')], 'criterimmo', { annee: 2026, mois: 10 });
     expect(c.familles).toEqual({ vente: true, location: false, gestion: false });
     expect(c.complet).toBe(false);
   });
@@ -55,8 +55,9 @@ describe('🔴 « complet / à compléter » : validé explicitement, par poste,
 describe('🔴 C17 — le rappel du mois précédent', () => {
   it('au 03/11/2026 : octobre à compléter → « Coûts d’octobre à saisir » ; tout validé → aucun rappel ; FUSION : les deux structures', () => {
     expect(rappelMois(['macj'], [], '2026-11-03', O)).toEqual({ mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' });
-    expect(rappelMois(['macj'], [v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')], '2026-11-03', O)).toBeNull();
-    expect(rappelMois(['criterimmo', 'macj'], [v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')], '2026-11-03', O)).not.toBeNull();
+    const macj = [v('macj', 'vente', 'remunerations'), v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')];
+    expect(rappelMois(['macj'], macj, '2026-11-03', O)).toBeNull();
+    expect(rappelMois(['criterimmo', 'macj'], macj, '2026-11-03', O)).not.toBeNull();
   });
 });
 
@@ -77,5 +78,18 @@ describe('🔴 Arno (13/11/2026) — le sélecteur « Mois » : tous les mois te
   it('le 1er mois de la saisie pas encore terminé (janvier 2026) : le dernier mois écoulé seul, jamais une liste vide', () => {
     expect(cles(moisSaisissables('2026-01-20'))).toEqual(['2025-12']);
     expect(cles(moisSaisissables('2026-02-01'))).toEqual(['2026-01']);
+  });
+});
+
+describe('🔴 472 — « Rémunérations associés » dans la complétude', () => {
+  it('juste au-dessus des salaires ; non coché : la vente est à compléter (les mois passés repassent « à compléter », c’est voulu) ; 0 € coché : complet', () => {
+    const p = postesSaisis('macj', O);
+    expect(p.map((x) => x.libelle).slice(0, 2)).toEqual(['Rémunérations associés', 'Salaires chargés']);
+    const sans = [v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')];
+    expect(completude(p, sans, 'macj', { annee: 2026, mois: 10 }).familles.vente).toBe(false);
+    expect(completude(p, [...sans, v('macj', 'vente', 'remunerations')], 'macj', { annee: 2026, mois: 10 }).familles.vente).toBe(true);
+  });
+  it('sans la 472 : le poste n’est pas à valider (rien n’y est encore enregistrable)', () => {
+    expect(postesSaisis('macj', { ...O, remunerations: false }).map((x) => x.poste)).toEqual(['salaires', 'autres']);
   });
 });

@@ -17,7 +17,7 @@ import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
 import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
 import { lireDonneesSociete } from '../../../../lib/transaction/donneesSociete';
 import { lireDonneesGlobal } from '../../../../lib/transaction/donneesGlobal';
-import { estAdministrateur } from '../../../../lib/mon-espace/compteRepo';
+import { estAdministrateur, peutVoirCouts } from '../../../../lib/mon-espace/compteRepo';
 
 /**
  * TUILE « TRANSACTION » (Arno, 27/10/2026, migration 433) — la porte de la tuile :
@@ -78,7 +78,8 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: await lireDonneesSociete(brut === 'tous' ? null : brut, aujourdhui) });
     }
     // 🔴 MON ESPACE « Les coûts » (03/11/2026) — la lecture est `lireDonneesGlobal` (la même pour l'onglet « Les coûts »), déplacée telle quelle.
-    if (vue === 'global') return json({ etat: 'ok', data: await lireDonneesGlobal(aujourdhui) });
+    // 🔴 472 — les « Rémunérations associés » : seulement pour un compte qui a « Les coûts » (relu en base) ; pour tout autre, ni lignes ni montants
+    if (vue === 'global') return json({ etat: 'ok', data: await lireDonneesGlobal(aujourdhui, { remunerations: garde.auteurId !== null && (await peutVoirCouts(garde.auteurId)) }) });
     if (vue === 'compromis') {
       // LOT D — les compromis en cours (acte non signé) qui comptent pour la société (une part, ou la société de l'historique), ou pour les deux.
       const societe = url.searchParams.get('societe');

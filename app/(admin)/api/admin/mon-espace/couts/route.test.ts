@@ -13,7 +13,7 @@ vi.mock('../../../../../lib/mon-espace/compteRepo', () => ({ peutVoirCouts: h.vo
 vi.mock('../../../../../lib/transaction/donneesGlobal', () => ({ lireDonneesGlobal: h.lire }));
 vi.mock('../../../../../lib/transaction/repo', () => ({ ajouterCoutLigne: h.ajouter, modifierCoutLigne: h.modifier, modifierPosteGestion: h.gestion, modifierCaGestion: h.caGestion,
   empreinteCouts: h.empreinte, lireVersionsGestion: async () => ({ '2026-10': { version: 7, origine: 'saisie' } }), validerPosteCout: h.valider, lireValidationsCouts: h.validations }));
-vi.mock('../../../../../lib/admin/schemaDroits', () => ({ coutsSaisisDisponible: async () => true, mongaDisponible: async () => true, caGestionDisponible: async () => h.ca() }));
+vi.mock('../../../../../lib/admin/schemaDroits', () => ({ coutsSaisisDisponible: async () => true, mongaDisponible: async () => true, caGestionDisponible: async () => h.ca(), remunerationsDisponible: async () => true }));
 vi.mock('../../../../../lib/location/suivi/suivi', () => ({ aujourdhuiParis: () => '2026-11-03' }));
 vi.mock('../../../../../lib/admin/fonctionsCompte', () => ({ lireProfilsCouts: async () => [{ id: 5, libelle: 'Jean-Baptiste Pons', fonctions: ['location'] }] }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 4, libelle: 'arno' }) }));
@@ -44,14 +44,15 @@ describe('🔴 GET /api/admin/mon-espace/couts', () => {
     const r = await lire();
     expect(r.status).toBe(200);
     expect(r.corps).toEqual({ etat: 'ok', data: { ventes: ['…'], profils: [{ id: 5, libelle: 'Jean-Baptiste Pons', fonctions: ['location'] }],
-      versionsGestion: { '2026-10': { version: 7, origine: 'saisie' } }, saisie: true, validations: [], caGestion: false } });
+      versionsGestion: { '2026-10': { version: 7, origine: 'saisie' } }, saisie: true, validations: [], caGestion: false, remunerations: true } });
     expect(h.voir).toHaveBeenCalledWith(4);
-    expect(h.lire).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), { compromis: false });
+    expect(h.lire).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), { compromis: false, remunerations: true }); // 🔴 472 : route réservée
   });
   it('🔴 lot 3 — ?rappel=1 : le mois précédent (octobre au 03/11/2026) à compléter dans les structures vues ; tout validé : aucun rappel', async () => {
     expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' },
       alertes: [{ partie: 'couts', societe: 'macj', mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' }] } });
-    h.validations.mockResolvedValue([{ societe: 'macj', famille: 'vente', poste: 'salaires', annee: 2026, mois: 10 }, { societe: 'macj', famille: 'vente', poste: 'autres', annee: 2026, mois: 10 }]);
+    h.validations.mockResolvedValue([{ societe: 'macj', famille: 'vente', poste: 'remunerations', annee: 2026, mois: 10 }, { societe: 'macj', famille: 'vente', poste: 'salaires', annee: 2026, mois: 10 },
+      { societe: 'macj', famille: 'vente', poste: 'autres', annee: 2026, mois: 10 }]);
     expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: null, alertes: [] } });
     expect((await lire('?rappel=1&agence=tous')).corps.data).toMatchObject({ rappel: { mot: 'Coûts d’octobre à saisir' } }); // CRITERIMMO reste à compléter
     expect((await lire('?rappel=1&agence=fusion')).status).toBe(400);
@@ -123,7 +124,7 @@ describe('🔴 POST — lot 3 : valider un poste du mois', () => {
 
 describe('🔴 « Coûts et CA » (Arno, 13/11/2026, 471) — l’indicateur unifié et le CA de gestion', () => {
   const OCT = { annee: 2026, mois: 10 };
-  const coutsCriterimmo = ['vente-salaires', 'vente-autres', 'location-salaires', 'location-autres', 'gestion-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-autres']
+  const coutsCriterimmo = ['vente-remunerations', 'vente-salaires', 'vente-autres', 'location-salaires', 'location-autres', 'gestion-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-autres']
     .map((x) => ({ societe: 'criterimmo', famille: x.split('-')[0], poste: x.split('-')[1], ...OCT }));
   it('la 471 posée, CRITERIMMO : coûts ET CA à saisir → deux alertes, chacune avec sa partie, sa structure et son mois', async () => {
     h.ca.mockReturnValue(true);

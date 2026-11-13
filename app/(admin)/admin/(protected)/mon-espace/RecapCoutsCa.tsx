@@ -27,7 +27,7 @@ import { useVerrouDefilement } from '../_composants/verrouDefilement';
  * saisie du mois, au bon mois. En lecture : les totaux, le CA global, et ce qui vient d'un import (corriger dans Suivi CA › Gestion). FUSION se lit.
  * Les données : la route de « Coûts et CA » (403 à qui n'a pas la case « Les coûts » : rien n'est lu).
  */
-type Donnees = { aujourdhui: string; ventes: unknown[]; retrocessions?: unknown[]; statutsNegociateurs: Parameters<typeof resolveurDe>[0]; locationCa?: EntreesCoutsGlobaux['location'];
+type Donnees = { remunerations?: boolean; aujourdhui: string; ventes: unknown[]; retrocessions?: unknown[]; statutsNegociateurs: Parameters<typeof resolveurDe>[0]; locationCa?: EntreesCoutsGlobaux['location'];
   gestion: GestionMois[]; coutsSaisis?: EntreesCoutsGlobaux['saisis']; saisie?: boolean; validations?: Validation[] | null; monga?: boolean; caGestion?: boolean;
   versionsGestion?: Record<string, { version: number; origine: string }> };
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: Donnees } | { etat: 'refus' } | { etat: 'erreur' };
@@ -93,7 +93,7 @@ export function RecapCoutsCa() {
   const jour = d?.aujourdhui ?? new Date().toISOString().slice(0, 10);
   const ms = moisDeLaFenetre(periode, jour, decalage);
   const t = useMemo(() => (eC === null || d === null ? null : tableauRecap({ e: eC, agence, mois: ms, jour, validations: d.validations ?? null,
-    versionsGestion: d.versionsGestion ?? {}, monga: d.monga === true, caGestion: d.caGestion === true })), [eC, d, agence, periode, decalage]); // eslint-disable-line react-hooks/exhaustive-deps
+    versionsGestion: d.versionsGestion ?? {}, monga: d.monga === true, caGestion: d.caGestion === true, remunerations: d.remunerations !== false })), [eC, d, agence, periode, decalage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (lu.etat === 'refus') return <p className="loc-muet" data-recap-refus>Le récapitulatif est réservé aux comptes qui ont la case « Les coûts ».</p>;
   if (lu.etat === 'chargement') return <p className="loc-muet" role="status" data-recap-chargement>Chargement du récapitulatif…</p>;

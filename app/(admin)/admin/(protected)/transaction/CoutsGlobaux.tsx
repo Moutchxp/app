@@ -39,6 +39,10 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
   const k = u === 'ht' ? 'htC' : 'ttcC';
   const enU = (m: MontantC): number => m[k] / 100;
   const avecLoc = e.location !== null;
+  // 🔴 472 — « Rémunérations associés » : une colonne de la vente, juste avant les salaires, SEULEMENT si la donnée en porte (la route ne l'envoie
+  // qu'aux comptes qui ont « Les coûts » : pour les autres, ni colonne, ni montant, ni total qui la contiendrait)
+  const avecRemun = (e.saisis ?? []).some((l) => l.poste === 'remunerations');
+  const nbVente = avecRemun ? 6 : 5;
   const montant = (m: MontantC, donnees: Record<string, string> = {}) => <span className={classeSens('verse', m.htC, m.ttcC)} {...donnees}>{eur(enU(m))}</span>;
   const petit = (t: ReactNode, attr: string) => <small className="loc-muet trx-ligne-bloc" {...{ [attr]: '' }}>{t}</small>;
   const msDe = (r: RangeeCouts) => (r.mois !== null ? [{ annee: r.annee, mois: r.mois }]
@@ -61,6 +65,7 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
       <td data-mot="Apporteurs (vente)" data-cout="vente-apporteurs">{montant(c.vente.apporteurs)}</td>
       <td data-mot="Agences extérieures" data-cout="vente-exterieures">{montant(c.vente.exterieures)}</td>
       {/* 🔴 « Les coûts », lot 2 (03/11/2026) — les coûts saisis dans « Mon espace › Les coûts » (salaires de la vente, « Autres ») */}
+      {avecRemun && <td data-mot="Rémunérations associés (vente)" data-cout="vente-remunerations">{montant(c.saisis.venteRemunerations ?? { htC: 0, ttcC: 0 })}</td>}
       <td data-mot="Salaires chargés (vente)" data-cout="vente-salaires">{montant(c.saisis.venteSalaires)}</td>
       <td data-mot="Autres (vente)" data-cout="vente-autres">{montant(c.saisis.venteAutres)}</td>
       {L === null ? <><td data-mot="Apporteurs (location)">—</td><td data-mot="dont primes de gestion (dans le variable)">—</td><td data-mot="Variable négociateur (primes incluses)">—</td><td data-mot="Salaires chargés (location)">—</td>
@@ -111,15 +116,15 @@ export function TableauCoutsGlobaux({ e, rangees, total, titre, jour, salaires, 
       <div className="trx-couts-defile trx-table-defile" data-defile-couts>
         <table className="tdb-table trx-table-groupes trx-table-couts" data-table-couts={donnee}>
           {/* 🔴 LOT CG3 — les blocs : Vente · Location · Gestion · Total et comparaison (un trait vertical au début de chacun, un fond un bloc sur deux) */}
-          <colgroup><col /></colgroup><colgroup span={5} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={7} className="trx-g" data-bloc-colonnes="location" />
+          <colgroup><col /></colgroup><colgroup span={nbVente} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={7} className="trx-g" data-bloc-colonnes="location" />
           <colgroup span={4} className="trx-g trx-g--fond" data-bloc-colonnes="gestion" /><colgroup span={3} className="trx-g" data-bloc-colonnes="total" />
           <thead>
             <tr><th scope="col" rowSpan={2}>{rangees[0]?.mois === null ? 'Année' : 'Mois'}</th>
-              <th scope="colgroup" colSpan={5} data-groupe-couts="vente">Vente <small className="loc-muet">(CRITERIMMO + MACJ)</small></th>
+              <th scope="colgroup" colSpan={nbVente} data-groupe-couts="vente">Vente <small className="loc-muet">(CRITERIMMO + MACJ)</small></th>
               <th scope="colgroup" colSpan={7} data-groupe-couts="location">Location</th>
               <th scope="colgroup" colSpan={4} data-groupe-couts="gestion">Gestion</th>
               <th scope="colgroup" colSpan={3} data-groupe-couts="total">Total et comparaison</th></tr>
-            <tr><th scope="col">Commissions des négociateurs</th><th scope="col">Apporteurs</th><th scope="col">Agences extérieures</th><th scope="col">Salaires chargés</th><th scope="col">Autres</th>
+            <tr><th scope="col">Commissions des négociateurs</th><th scope="col">Apporteurs</th><th scope="col">Agences extérieures</th>{avecRemun && <th scope="col" data-entete-remunerations>Rémunérations associés</th>}<th scope="col">Salaires chargés</th><th scope="col">Autres</th>
               <th scope="col">Apporteurs</th><th scope="col">dont primes de gestion <small className="loc-muet">(dans le variable)</small></th><th scope="col"><EnteteVariableNegociateur libelle="Variable négociateur (primes incluses)" cible={`couts-${donnee}`} /></th><th scope="col">Salaires chargés</th>
               <th scope="col">Part de gestion versée aux apporteurs</th><th scope="col">Rémunération des collègues apporteurs</th><th scope="col">Autres</th>
               <th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">Salaires chargés</th><th scope="col">Autres</th>

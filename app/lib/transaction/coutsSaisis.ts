@@ -11,7 +11,8 @@ import { repartirSalaire, type VersionPrincipale } from '../admin/activitePrinci
  * défaut, modifiable ; les salaires chargés : jamais de TVA.
  */
 export type FamilleCout = 'vente' | 'location' | 'gestion';
-export type PosteSaisi = 'salaires' | 'autres';
+/** 🔴 472 — `remunerations` : « Rémunérations associés » (vente seulement, par associé, sans TVA). */
+export type PosteSaisi = 'salaires' | 'autres' | 'remunerations';
 export const FAMILLES_COUT: readonly FamilleCout[] = ['vente', 'location', 'gestion'];
 export interface CoutSaisi { societe: Societe; famille: FamilleCout; poste: PosteSaisi; annee: number; mois: number; montantHt: number;
   /** R2 (Arno, 03/11/2026) — la TVA de la ligne : vrai → TTC = HT × 1,20 ; faux → TTC = HT. Salaires : jamais. Absente (ligne d'avant) : faux. */

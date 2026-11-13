@@ -37,7 +37,9 @@ type DonneesCouts = DonneesGlobal & { profils?: ProfilCout[]; versionsGestion?: 
   /** 🔴 Lot 3 (452) — les postes validés (« complet ») ; null : la migration 452 n'est pas appliquée. */
   validations?: Validation[] | null;
   /** 🔴 « Coûts et CA » (471) — la saisie du CA de gestion est-elle disponible. */
-  caGestion?: boolean };
+  caGestion?: boolean;
+  /** 🔴 472 — le poste « Rémunérations associés » est-il disponible ? */
+  remunerations?: boolean };
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: DonneesCouts } | { etat: 'erreur' };
 /** 🔴 C12 (Arno, 03/11/2026) — quatre onglets ; « Vente » par défaut ; le choix est dans l'adresse (`?couts-tableau=`). */
 export type OngletTableau = 'vente' | 'location' | 'gestion' | 'synthese';
@@ -50,6 +52,7 @@ export const AIDE_POSTES_FUTURS: Record<string, string> = {
   'part-gestion': 'Ce que l’agence reverse chaque mois aux apporteurs sur les mandats de gestion qu’ils ont amenés.',
   collegues: 'Ce que touchent les collègues qui apportent des affaires.',
   salaires: 'Les salaires chargés des collaborateurs de la vente, saisis par salarié et par mois.',
+  remunerations: 'Ce que touchent les associés pour la vente, saisi par associé et par mois, sans TVA.',
 };
 
 export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, partieDemandee = 'couts', moisDemande = null, onEcrit }: { agence: Agence; jour: string;
@@ -173,12 +176,14 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, part
   const totalCase = (l: (typeof lignes)[number], m: MontantC, attr: string) => <td className="trx-total" data-cout={attr}>{l.aVenir && m.htC === 0 ? '—' : montant(m)}</td>;
   const tableVente = (
     <table className="tdb-table trx-table-groupes trx-table-couts mes-table-couts" data-table-couts-mon-espace="vente">
-      <colgroup><col /></colgroup><colgroup span={5} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={1} className="trx-g" data-bloc-colonnes="total" />
+      <colgroup><col /></colgroup><colgroup span={6} className="trx-g trx-g--fond" data-bloc-colonnes="vente" /><colgroup span={1} className="trx-g" data-bloc-colonnes="total" />
       <thead><tr><th scope="col">Mois</th><th scope="col">Commissions des négociateurs</th><th scope="col">Apporteurs</th><th scope="col">Agences extérieures</th>
-        {enteteFutur('Salaires chargés', 'vente-salaires')}{enteteFutur('Autres', 'vente-autres')}<th scope="col">Total vente</th></tr></thead>
+        {/* 🔴 472 — « Rémunérations associés », juste avant les salaires chargés */}
+        {enteteFutur('Rémunérations associés', 'vente-remunerations')}{enteteFutur('Salaires chargés', 'vente-salaires')}{enteteFutur('Autres', 'vente-autres')}<th scope="col">Total vente</th></tr></thead>
       <tbody>{lignes.map((l) => ligne(l, <>
         {caseAuto(l, l.p.vente.commissions, 'vente-commissions', 'vente', 'Commissions des négociateurs')}{caseAuto(l, l.p.vente.apporteurs, 'vente-apporteurs', 'vente', 'Apporteurs')}
         {caseAuto(l, l.p.vente.exterieures, 'vente-exterieures', 'vente', 'Agences extérieures')}
+        {caseSaisie(l, l.p.vente.remunerations, 'vente-remunerations', lignesSaisie('vente', 'remunerations'), peutSaisir('vente') && d.remunerations !== false)}
         {caseSaisie(l, l.p.vente.salaires, 'vente-salaires', lignesSaisie('vente', 'salaires'), peutSaisir('vente'))}
         {caseSaisie(l, l.p.vente.autres, 'vente-autres', lignesSaisie('vente', 'autres'), peutSaisir('vente'))}{totalCase(l, l.p.vente.total, 'vente-total')}</>))}</tbody>
     </table>
@@ -245,7 +250,7 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, part
   // 🔴 Lot 3 (C17) — le rappel : le mois précédent a-t-il un poste à compléter (dans les structures vues) ?
   const rappel = d.saisie !== true || d.validations == null ? null
     : rappelMois(agence === 'tous' ? ['criterimmo', 'macj'] : [agence], d.validations, jour,
-      { adhocImporte: d.versionsGestion?.[`${moisProposes(jour)[0].annee}-${String(moisProposes(jour)[0].mois).padStart(2, '0')}`]?.origine === 'import', monga: d.monga === true });
+      { adhocImporte: d.versionsGestion?.[`${moisProposes(jour)[0].annee}-${String(moisProposes(jour)[0].mois).padStart(2, '0')}`]?.origine === 'import', monga: d.monga === true, remunerations: d.remunerations !== false });
   const ecrit = (): void => { setRelu((x) => x + 1); onEcrit?.(); };
   if (saisie && d.saisie === true) {
     const gestionDuMoisPage = (m: { annee: number; mois: number }) => { const g = d.gestion.find((x) => x.annee === m.annee && x.mois === m.mois && x.id > 0);
@@ -257,7 +262,7 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, part
       <div className="mes-couts tdb loc-page" data-couts-mon-espace={agence}>
         <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX + CSS_COUTS_MON_ESPACE + CSS_EDITION_COUTS}</style>
         <SaisieMoisCouts d={{ lignes: d.coutsLignes ?? [], profils: d.profils ?? [], validations: d.validations ?? null, versionsGestion: d.versionsGestion ?? {}, monga: d.monga === true,
-          gestionDuMois: gestionDuMoisPage, caGestion: d.caGestion === true, caDuMois: caDuMoisPage }} eC={eC} jour={jour}
+          gestionDuMois: gestionDuMoisPage, caGestion: d.caGestion === true, caDuMois: caDuMoisPage, remunerations: d.remunerations !== false }} eC={eC} jour={jour}
           societeInitiale={agence === 'tous' || partieDemandee === 'ca' ? 'criterimmo' : agence} partieInitiale={partieDemandee} moisInitial={moisDemande}
           recap={<LienRecapitulatif agence={agence} />} onEcrit={ecrit}
           onRetour={(m) => { setSaisie(false); if (m !== null) setAnnee(m.annee); }} />

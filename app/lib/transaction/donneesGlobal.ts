@@ -16,7 +16,13 @@ import { lireCollaborateursGraphe } from './collaborateursGrapheRepo';
  * « Suivi CA › Location » ; `compromis` (défaut : oui) : les compromis en cours de nos deux sociétés et de chacune (le prévisionnel du CA global ;
  * « Les coûts » n'en a pas besoin).
  */
-export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boolean } = {}): Promise<Record<string, unknown>> {
+/**
+ * 🔴🔴 472 — CONFIDENTIALITÉ DES « RÉMUNÉRATIONS ASSOCIÉS » : elles ne sortent d'ici QUE sur demande expresse (`remunerations: true`), que seules font
+ * les routes réservées aux comptes qui ont « Les coûts » (« Coûts et CA », et le Suivi CA pour ces comptes-là). Par défaut — tout autre lecteur —
+ * leurs lignes ET leurs montants sont retirés AVANT tout calcul : aucun total envoyé ne les contient (rien à retrouver par soustraction).
+ */
+export const sansRemunerations = <T extends { poste: string }>(xs: readonly T[]): T[] => xs.filter((l) => l.poste !== 'remunerations');
+export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boolean; remunerations?: boolean } = {}): Promise<Record<string, unknown>> {
   const disponible = await transactionDisponible();
   // 🔴 LOT CG1 — la location en HT et en TTC (centimes, la règle de la page « Suivi CA › Location »)
   const loc = await lireCaLocationHtTtc().catch(() => null);
@@ -29,7 +35,8 @@ export async function lireDonneesGlobal(aujourdhui: string, o: { compromis?: boo
   const locationCa = await lireLocationCa().catch(() => null);
   // 🔴 « Les coûts », lot 2 (451) — les coûts saisis : salaires de la vente et « Autres » vont dans `coutsGlobaux` (`coutsSaisis`) ; les salaires
   // de la Location et de la Gestion sont déjà dans leurs lectures (`lireSalairesLocation`, `lireGestion`). `coutsLignes` : toutes, pour la saisie.
-  const coutsLignes = await lireCoutsLignes().catch(() => null);
+  const lues = await lireCoutsLignes().catch(() => null);
+  const coutsLignes = lues === null ? null : o.remunerations === true ? lues : sansRemunerations(lues);
   let compromis: Record<string, unknown> = {};
   if (o.compromis !== false) {
     const [ventesC, ventesM] = await Promise.all([lireVentes('criterimmo'), lireVentes('macj')]);

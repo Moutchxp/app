@@ -24,7 +24,9 @@ export interface CoutsGestion { adhoc: MontantC; monga: MontantC;
   /** Les salaires chargés comptés (« Sans salaires » : 0) ; `salairesSaisis` : le montant saisi, compté ou non. */
   salaires: MontantC; salairesSaisis: MontantC; honoraires: MontantC; net: MontantC; moisSalairesSaisis: number }
 /** 🔴 « Les coûts », lot 2 — les coûts saisis comptés (salaires de la vente, « Autres » de chaque famille), les deux structures. */
-export interface CoutsSaisisGlobaux { venteSalaires: MontantC; venteAutres: MontantC; locationAutres: MontantC; gestionAutres: MontantC }
+export interface CoutsSaisisGlobaux { venteSalaires: MontantC; venteAutres: MontantC; locationAutres: MontantC; gestionAutres: MontantC;
+  /** 🔴 472 — « Rémunérations associés » (vente, sans TVA) ; absent d'un objet d'avant : 0. */
+  venteRemunerations?: MontantC }
 export interface CoutsGlobaux { vente: CoutsVente; location: CoutsLocation | null; gestion: CoutsGestion; saisis: CoutsSaisisGlobaux; total: MontantC }
 
 export interface EntreesCoutsGlobaux {
@@ -87,8 +89,9 @@ function coutsDe(e: EntreesCoutsGlobaux, choisir: (vs: Vente[]) => Vente[], ms: 
     net: { htC: g.netC, ttcC: g.netTtcC }, moisSalairesSaisis };
   const s = e.saisis ?? [];
   const saisis: CoutsSaisisGlobaux = { venteSalaires: avecSalaires ? montantSaisi(s, { famille: 'vente', poste: 'salaires', ms }) : RIEN, venteAutres: montantSaisi(s, { famille: 'vente', poste: 'autres', ms }),
-    locationAutres: montantSaisi(s, { famille: 'location', poste: 'autres', ms }), gestionAutres: montantSaisi(s, { famille: 'gestion', poste: 'autres', ms }) };
-  const total = somme([vente.commissions, vente.apporteurs, vente.exterieures, saisis.venteSalaires, saisis.venteAutres,
+    locationAutres: montantSaisi(s, { famille: 'location', poste: 'autres', ms }), gestionAutres: montantSaisi(s, { famille: 'gestion', poste: 'autres', ms }),
+    venteRemunerations: montantSaisi(s, { famille: 'vente', poste: 'remunerations', ms }) };
+  const total = somme([vente.commissions, vente.apporteurs, vente.exterieures, saisis.venteRemunerations ?? RIEN, saisis.venteSalaires, saisis.venteAutres,
     ...(location === null ? [] : [location.apporteurs, location.primesDeduites, location.variableDeduit, location.salaires, location.partGestion, location.collegues, saisis.locationAutres]),
     gestion.adhoc, gestion.monga, gestion.salaires, saisis.gestionAutres]);
   return { vente, location, gestion, saisis, total };

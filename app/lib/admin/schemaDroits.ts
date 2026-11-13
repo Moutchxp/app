@@ -253,6 +253,15 @@ export function coutsValidationDisponible(): Promise<boolean> {
   return memoiser('transaction_cout_validation.poste', () => colonneExiste('transaction_cout_validation', 'poste'));
 }
 
+/** 🔴 « Coûts et CA » (472) — le poste « Rémunérations associés » : la contrainte des lignes de coût l'accepte-t-elle ? (aucune colonne : on lit la contrainte) */
+export function remunerationsDisponible(): Promise<boolean> {
+  return memoiser('transaction_cout_ligne.poste.remunerations', async () => {
+    const { rows } = await query<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'transaction_cout_ligne_poste_check'
+      AND pg_get_constraintdef(oid) LIKE '%remunerations%') AS ok`);
+    return rows[0]?.ok === true;
+  });
+}
+
 /** 🔴 Mon espace « Coûts et CA » (471) — le CA de gestion saisi : honoraires GLI, taux de TVA du mois, validation de nature « ca ». */
 export function caGestionDisponible(): Promise<boolean> {
   return memoiser('transaction_gestion_mois.gli_ht', () => colonneExiste('transaction_gestion_mois', 'gli_ht'));

@@ -89,7 +89,7 @@ describe('l’état des cellules et la modification', () => {
     expect(f.lignes.some((l) => l.section === 'ca')).toBe(true); // FUSION = le CA de CRITERIMMO
     const m = tableauRecap(entrees({ agence: 'macj' }));
     expect(m.lignes.some((l) => l.section === 'ca' || l.famille === 'location' || l.famille === 'gestion')).toBe(false);
-    expect(m.lignes.map((l) => l.cle)).toEqual(['vente-commissions', 'vente-apporteurs', 'vente-exterieures', 'vente-salaires', 'vente-autres', 'vente-total', 'couts-total']);
+    expect(m.lignes.map((l) => l.cle)).toEqual(['vente-commissions', 'vente-apporteurs', 'vente-exterieures', 'vente-remunerations', 'vente-salaires', 'vente-autres', 'vente-total', 'couts-total']);
   });
   it('les adresses : la saisie du mois (structure, mois, partie) ; le récapitulatif suit « Voir »', () => {
     expect(lienSaisieDuMois('criterimmo', { annee: 2026, mois: 3 }, 'couts')).toBe('/admin/mon-espace?espace=criterimmo&onglet=couts&saisie=2026-03&partie=couts');

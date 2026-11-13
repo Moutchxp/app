@@ -22,7 +22,9 @@ export type StructureGraphe = 'criterimmo' | 'macj';
 export type ActiviteGraphe = 'vente' | 'location' | 'gestion';
 export type FamilleGraphe = 'commissions' | 'apporteursVente' | 'exterieures' | 'apporteursLocation' | 'primes' | 'variable' | 'salairesLocation' | 'adhoc' | 'monga' | 'salairesGestion'
   // 🔴 « Les coûts », lot 2 (03/11/2026) — les coûts saisis et les dus du module Location (C19 option A)
-  | 'salairesVente' | 'autresVente' | 'partGestion' | 'collegues' | 'autresLocation' | 'autresGestion';
+  | 'salairesVente' | 'autresVente' | 'partGestion' | 'collegues' | 'autresLocation' | 'autresGestion'
+  // 🔴 472 — « Rémunérations associés » (vente, sans TVA)
+  | 'remunerationsVente';
 export type ComparerGraphe = 'n1' | 'structures' | 'activites' | 'familles' | 'rien';
 
 // 🔴 D33 (Arno, 03/11/2026) — « Résultat net (CA − coûts) » s'appelle « CA net (CA − coûts) » (le même calcul)
@@ -35,6 +37,7 @@ export const FAMILLES_GRAPHE: readonly { cle: FamilleGraphe; mot: string; activi
   { cle: 'primes', mot: 'Primes de gestion', activite: 'location' }, { cle: 'variable', mot: 'Variable négociateur', activite: 'location' },
   { cle: 'salairesLocation', mot: 'Salaires location', activite: 'location' }, { cle: 'adhoc', mot: 'ADHOC', activite: 'gestion' },
   { cle: 'monga', mot: 'MONGA', activite: 'gestion' }, { cle: 'salairesGestion', mot: 'Salaires gestion', activite: 'gestion' },
+  { cle: 'remunerationsVente', mot: 'Rémunérations associés', activite: 'vente' },
   { cle: 'salairesVente', mot: 'Salaires vente', activite: 'vente' }, { cle: 'autresVente', mot: 'Autres vente', activite: 'vente' },
   { cle: 'partGestion', mot: 'Part de gestion versée aux apporteurs', activite: 'location' }, { cle: 'collegues', mot: 'Rémunération des collègues apporteurs', activite: 'location' },
   { cle: 'autresLocation', mot: 'Autres location', activite: 'location' }, { cle: 'autresGestion', mot: 'Autres gestion', activite: 'gestion' },
@@ -79,7 +82,7 @@ export const collaborateursProposes = (cs: CollaborateursGraphe | null | undefin
   a === 'gestion' || cs == null ? [] : cs.comptes.filter((c) => c.fonctions.includes(a) && c.societes.some((s) => structures.includes(s)))
     .sort((x, y) => x.libelle.localeCompare(y.libelle, 'fr'));
 /** Les familles de coûts NON rattachées à une affaire (« coûts généraux ») : jamais réparties par collaborateur. */
-export const FAMILLES_GENERALES: readonly FamilleGraphe[] = ['salairesVente', 'autresVente', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation', 'adhoc', 'monga', 'salairesGestion', 'autresGestion'];
+export const FAMILLES_GENERALES: readonly FamilleGraphe[] = ['remunerationsVente', 'salairesVente', 'autresVente', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation', 'adhoc', 'monga', 'salairesGestion', 'autresGestion'];
 /** Une activité est-elle filtrée par collaborateur (une case décochée, collaborateur proposé ou « Non attribué ») ? PUR. */
 export const activiteFiltree = (f: Pick<FiltresGraphe, 'exclus'>, a: ActiviteGraphe): boolean => f.exclus.some((e) => e.startsWith(`${a}:`));
 
@@ -196,10 +199,11 @@ export function atomesDuPoint(eG: EntreesGlobalUnite, eC: EntreesCoutsGlobaux, a
   ];
   // 🔴 « Les coûts », lot 2 — les coûts saisis de la vente de chaque structure (salaires « Avec salaires » seulement, comme `coutsGlobaux`)
   const ms = mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois }];
-  const saisi = (societe: 'criterimmo' | 'macj', poste: 'salaires' | 'autres', famille: 'vente' | 'location' | 'gestion' = 'vente') => montantSaisi(eC.saisis ?? [], { famille, poste, ms, societe });
+  const saisi = (societe: 'criterimmo' | 'macj', poste: 'salaires' | 'autres' | 'remunerations', famille: 'vente' | 'location' | 'gestion' = 'vente') => montantSaisi(eC.saisis ?? [], { famille, poste, ms, societe });
   for (const [s, x] of [['criterimmo', vc], ['macj', vm]] as const) {
     a.push({ structure: s, activite: 'vente', famille: 'commissions', m: x.commissions }, { structure: s, activite: 'vente', famille: 'apporteursVente', m: x.apporteurs },
       { structure: s, activite: 'vente', famille: 'exterieures', m: x.exterieures },
+      { structure: s, activite: 'vente', famille: 'remunerationsVente', m: saisi(s, 'remunerations') },
       { structure: s, activite: 'vente', famille: 'salairesVente', m: avecSalaires ? saisi(s, 'salaires') : { htC: 0, ttcC: 0 } }, { structure: s, activite: 'vente', famille: 'autresVente', m: saisi(s, 'autres') });
   }
   if (c.location !== null) a.push({ structure: 'criterimmo', activite: 'location', famille: 'apporteursLocation', m: c.location.apporteurs },
@@ -273,7 +277,8 @@ export function seriesDuPoint(atomes: readonly AtomeGraphe[], f: FiltresGraphe, 
     : f.comparer === 'familles' ? FAMILLES_GRAPHE.map((x) => x.cle).filter((c) => f.familles.includes(c)) : ['total'];
   const parCle = new Map<string, MontantC>(ordre.map((c) => [c, RIEN]));
   for (const x of garde) { const c = cleDe(x); if (parCle.has(c)) parCle.set(c, plus(parCle.get(c)!, signe(x, f.mesure))); }
-  const series = [...parCle].filter(([c, m]) => c !== 'inter' || m.htC !== 0 || m.ttcC !== 0)
+  // 🔴 472 — « Rémunérations associés » : une série seulement quand elle porte un montant (un lecteur sans « Les coûts » n'en reçoit jamais : ni série, ni nom)
+  const series = [...parCle].filter(([c, m]) => (c !== 'inter' && c !== 'remunerationsVente') || m.htC !== 0 || m.ttcC !== 0)
     .map(([c, m]) => { const n = nomsCollabs.get(c); return n === undefined ? { cle: c, nom: NOMS[c] ?? c, couleur: COULEURS[c] ?? 1, m } : { cle: c, nom: n.nom, couleur: n.couleur, nuance: n.nuance, m }; });
   return { total, series };
 }

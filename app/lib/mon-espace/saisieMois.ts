@@ -9,7 +9,7 @@ import { NOMS_MOIS } from '../transaction/modele';
  *   · un poste est COMPLET quand sa valeur du mois (0 compris) a été explicitement validée ; un bloc, quand tous ses postes le sont ;
  *   · C17 : le rappel — le mois précédent a-t-il un poste à compléter (dans les structures vues) ?
  */
-export type PosteSaisissable = 'salaires' | 'autres' | 'adhoc' | 'monga';
+export type PosteSaisissable = 'salaires' | 'autres' | 'adhoc' | 'monga' | 'remunerations';
 export interface PosteDuMois { famille: FamilleCout; poste: PosteSaisissable; libelle: string }
 /** 🔴 « Coûts et CA » (471) — les deux postes du CA de gestion (CRITERIMMO). */
 export type PosteCa = 'honoraires' | 'gli';
@@ -33,6 +33,8 @@ export const libelleMois = (m: MoisAn): string => `${NOMS_MOIS[m.mois - 1]} ${m.
  * (il n'avait jamais été demandé). Le 1er mois de la saisie lui-même pas encore terminé (janvier 2026) : le dernier mois écoulé seul. PUR.
  */
 export const DEBUT_SAISIE_COUTS: MoisAn = { annee: 2026, mois: 1 };
+/** 🔴 472 — le libellé du poste, partout le même. */
+export const LIBELLE_REMUNERATIONS = 'Rémunérations associés';
 const rangMois = (m: MoisAn): number => m.annee * 12 + (m.mois - 1);
 export function moisSaisissables(jour: string): MoisAn[] {
   const dernier = moisProposes(jour)[0];
@@ -57,8 +59,11 @@ export const motRappel = (m: MoisAn): string => { const x = motMois(m); return `
  * Les postes saisis d'une structure pour un mois : la vente (salaires, « Autres ») ; CRITERIMMO en plus la location (salaires, « Autres ») et la
  * gestion (salaires, ADHOC sauf repris d'un import, MONGA si la migration 446 est posée, « Autres »). PUR.
  */
-export function postesSaisis(societe: Societe, o: { adhocImporte: boolean; monga: boolean }): PosteDuMois[] {
-  const p: PosteDuMois[] = [{ famille: 'vente', poste: 'salaires', libelle: 'Salaires chargés' }, { famille: 'vente', poste: 'autres', libelle: 'Autres' }];
+export function postesSaisis(societe: Societe, o: { adhocImporte: boolean; monga: boolean;
+  /** 🔴 472 — « Rémunérations associés » (vente), juste au-dessus des salaires ; false : la migration 472 n'est pas posée (le poste ne se valide pas encore). */
+  remunerations?: boolean }): PosteDuMois[] {
+  const p: PosteDuMois[] = [...(o.remunerations === false ? [] : [{ famille: 'vente' as const, poste: 'remunerations' as const, libelle: LIBELLE_REMUNERATIONS }]),
+    { famille: 'vente', poste: 'salaires', libelle: 'Salaires chargés' }, { famille: 'vente', poste: 'autres', libelle: 'Autres' }];
   if (societe !== 'criterimmo') return p;
   p.push({ famille: 'location', poste: 'salaires', libelle: 'Salaires chargés' }, { famille: 'location', poste: 'autres', libelle: 'Autres' },
     { famille: 'gestion', poste: 'salaires', libelle: 'Salaires chargés' });
@@ -106,7 +111,7 @@ export interface AlerteSaisie { partie: 'couts' | 'ca'; societe: Societe; mois: 
  * [] : rien à dire. PUR.
  */
 export function alertesSaisie(societes: readonly Societe[], v: readonly Validation[], jour: string,
-  o: { adhocImporte: boolean; monga: boolean; ca: boolean; honorairesImportes: boolean }): AlerteSaisie[] {
+  o: { adhocImporte: boolean; monga: boolean; ca: boolean; honorairesImportes: boolean; remunerations?: boolean }): AlerteSaisie[] {
   const m = moisProposes(jour)[0];
   const a: AlerteSaisie[] = [];
   const s = societes.find((x) => !completude(postesSaisis(x, o), v, x, m).complet);
@@ -125,7 +130,7 @@ export function lireAlertesSaisie(x: unknown): AlerteSaisie[] {
 }
 
 /** C17 — le mois précédent est-il à compléter dans l'une des structures vues ? null : pas de rappel (rien à dire). PUR. */
-export function rappelMois(societes: readonly Societe[], v: readonly Validation[], jour: string, o: { adhocImporte: boolean; monga: boolean }): { mois: MoisAn; mot: string } | null {
+export function rappelMois(societes: readonly Societe[], v: readonly Validation[], jour: string, o: { adhocImporte: boolean; monga: boolean; remunerations?: boolean }): { mois: MoisAn; mot: string } | null {
   const m = moisProposes(jour)[0];
   const aCompleter = societes.some((s) => !completude(postesSaisis(s, o), v, s, m).complet);
   return aCompleter ? { mois: m, mot: motRappel(m) } : null;

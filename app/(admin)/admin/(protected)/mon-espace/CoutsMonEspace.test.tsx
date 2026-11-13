@@ -162,8 +162,9 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
   });
   it('C13 / C14 — ni « (facture mensuelle) » ni « saisie au lot suivant » ; chaque colonne sans saisie : son titre simple, son picto « i » et sa phrase', async () => {
     await ouvrir('tous'); await cliquer('[data-onglet-mon-espace="couts"]');
-    const attendus: Record<string, string[]> = { vente: ['salaires', 'autres'], location: ['part-gestion', 'collegues', 'autres'], gestion: ['autres'], synthese: [] };
-    const titres: Record<string, string> = { salaires: 'Salaires chargés', autres: 'Autres', 'part-gestion': 'Part de gestion versée aux apporteurs', collegues: 'Rémunération des collègues apporteurs' };
+    const attendus: Record<string, string[]> = { vente: ['remunerations', 'salaires', 'autres'], // 🔴 472
+      location: ['part-gestion', 'collegues', 'autres'], gestion: ['autres'], synthese: [] };
+    const titres: Record<string, string> = { remunerations: 'Rémunérations associés', salaires: 'Salaires chargés', autres: 'Autres', 'part-gestion': 'Part de gestion versée aux apporteurs', collegues: 'Rémunération des collègues apporteurs' };
     for (const o of ['vente', 'location', 'gestion', 'synthese']) {
       await cliquer(`[data-tableau-couts="${o}"]`);
       const rendu = container.querySelector('[data-couts-mon-espace]')!.textContent ?? '';

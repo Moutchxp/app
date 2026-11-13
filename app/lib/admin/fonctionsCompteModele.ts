@@ -20,7 +20,11 @@ export interface EtatFonctions { valeur: Fonction[]; disponible: boolean;
   /** L'état « depuis toujours » (les fonctions et l'activité principale d'avant toute date) et les changements, du plus ancien au plus récent. */
   initial?: { fonctions: Fonction[]; principale: Fonction | null }; historique?: ChangementFonctions[] }
 /** Un profil proposé pour un salaire : actif, non observateur, avec ses fonctions (D35 : ses périodes et son activité principale datées). */
-export interface ProfilCout { id: number; libelle: string; fonctions: Fonction[]; periodes?: PeriodeFonction[]; principales?: VersionPrincipale[] }
+export interface ProfilCout { id: number; libelle: string; fonctions: Fonction[]; periodes?: PeriodeFonction[]; principales?: VersionPrincipale[];
+  /** 🔴 472 — un ASSOCIÉ (« Rémunérations associés ») : le statut « Associé » (439) ; une base sans ce statut : la case « Les coûts » (454). */
+  associe?: boolean }
+/** 🔴 472 — LA règle « est un associé » d'un compte, en SQL (la même pour la liste proposée et pour le contrôle à l'enregistrement). */
+export const SQL_EST_ASSOCIE = `(CASE WHEN to_jsonb(u) ? 'statut' THEN coalesce(to_jsonb(u) ->> 'statut', '') = 'associe' ELSE coalesce((to_jsonb(u) ->> 'perm_couts')::boolean, false) END)`;
 
 /**
  * C9 — L'ORDRE DES PROFILS proposés pour un salaire de la famille `famille` : ceux qui ont CETTE fonction d'abord, puis ceux de la location ou

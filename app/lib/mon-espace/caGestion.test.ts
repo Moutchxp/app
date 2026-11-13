@@ -76,7 +76,7 @@ describe('la partie « CA gestion » : CRITERIMMO seulement ; complète quand ch
 
 describe('l’indicateur unifié de l’accueil (le mois contrôlé : le mois écoulé, comme le rappel d’avant)', () => {
   const o = { adhocImporte: false, monga: true, ca: true, honorairesImportes: false };
-  const coutsCriterimmo: Validation[] = (['vente-salaires', 'vente-autres', 'location-salaires', 'location-autres', 'gestion-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-autres'] as const)
+  const coutsCriterimmo: Validation[] = (['vente-remunerations', 'vente-salaires', 'vente-autres', 'location-salaires', 'location-autres', 'gestion-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-autres'] as const)
     .map((x) => ({ societe: 'criterimmo', famille: x.split('-')[0] as Validation['famille'], poste: x.split('-')[1] as Validation['poste'], ...OCT }));
   const caOk: Validation[] = [{ societe: 'criterimmo', famille: 'gestion', poste: 'honoraires', ...OCT }, { societe: 'criterimmo', famille: 'gestion', poste: 'gli', ...OCT }];
   it('rien de saisi : les deux libellés précis ; coûts complets : le CA seul ; CA complet : les coûts seuls ; tout complet : rien', () => {

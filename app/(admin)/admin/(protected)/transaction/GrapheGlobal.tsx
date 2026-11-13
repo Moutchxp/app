@@ -20,7 +20,7 @@ import { cumuler } from '../../../../lib/transaction/cumul'; // 🔴 LOT 8 — l
 /** 🔴 D25 — les couleurs des familles (celles des séries « Activités entre elles » du graphique : Vente bleu, Location vert, Gestion rose). */
 const COULEURS: Record<string, number> = { vente: 1, location: 3, gestion: 5, location_gestion: 6 };
 /** 🔴 D25 — l'ordre d'affichage des coûts dans la liste d'une famille (celui d'Arno) ; l'appartenance reste celle de `FAMILLES_GRAPHE`. */
-const ORDRE_FAMILLES_COUTS: readonly FamilleGraphe[] = ['commissions', 'apporteursVente', 'exterieures', 'salairesVente', 'autresVente',
+const ORDRE_FAMILLES_COUTS: readonly FamilleGraphe[] = ['commissions', 'apporteursVente', 'exterieures', 'remunerationsVente', 'salairesVente', 'autresVente',
   'apporteursLocation', 'primes', 'variable', 'salairesLocation', 'partGestion', 'collegues', 'autresLocation', 'salairesGestion', 'adhoc', 'monga', 'autresGestion'];
 
 /**
@@ -46,6 +46,9 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
   /** 🔴 D33 — les collaborateurs (le Suivi CA) : leur liste dans chaque bouton d'activité, en « CA brut » et « CA net » ; absents : comme avant. */
   collaborateurs?: CollaborateursGraphe | null;
 }) {
+  // 🔴 472 — « Rémunérations associés » dans la liste des coûts : seulement si la donnée en porte (la route ne l'envoie qu'aux comptes qui ont
+  // « Les coûts ») — un autre lecteur du Suivi CA ne voit ni la case, ni son nom
+  const ordreCouts = ORDRE_FAMILLES_COUTS.filter((c) => c !== 'remunerationsVente' || (eC.saisis ?? []).some((l) => l.poste === 'remunerations'));
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC'; const ka = u === 'ht' ? 'ttcC' : 'htC';
   // le réglage de départ (« Réinitialiser les filtres » y revient) : celui du Suivi CA, ou celui de la page qui accueille le graphique
@@ -310,7 +313,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
               : ACTIVITES_GRAPHE.map((a) => ({ cle: a.cle as string, mot: a.mot, acts: [a.cle] }))).map((g) => {
               const inclus = g.acts.every((a) => f.activites.includes(a));
               const r = raisonGrise(f, { sorte: 'activite', cle: g.acts[0] === 'vente' ? 'vente' : 'location' });
-              const siennes = ORDRE_FAMILLES_COUTS.filter((c) => g.acts.includes(FAMILLES_GRAPHE.find((x) => x.cle === c)!.activite));
+              const siennes = ordreCouts.filter((c) => g.acts.includes(FAMILLES_GRAPHE.find((x) => x.cle === c)!.activite));
               const couts = f.mesure === 'couts';
               // 🔴 D33 — hors « Coûts » : le compteur des collaborateurs cochés de l'activité (« Non attribué » compris)
               const collabs = !couts && collaborateurs !== null ? listeCollabs(g.acts) : null;
@@ -361,7 +364,7 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
         {f.mesure === 'couts' && famOuverte !== null && (() => {
           const acts: ActiviteGraphe[] = famOuverte === 'location_gestion' ? ['location', 'gestion'] : ACTIVITES_GRAPHE.some((a) => a.cle === famOuverte) ? [famOuverte as ActiviteGraphe] : [];
           if (acts.length === 0) return null;
-          const siennes = ORDRE_FAMILLES_COUTS.map((c) => FAMILLES_GRAPHE.find((x) => x.cle === c)!).filter((x) => acts.includes(x.activite));
+          const siennes = ordreCouts.map((c) => FAMILLES_GRAPHE.find((x) => x.cle === c)!).filter((x) => acts.includes(x.activite));
           const autres = f.familles.filter((c) => !siennes.some((x) => x.cle === c));
           return (
             <div id="trx-gf-couts-famille" className={`trx-gf-couts-famille trx-serie--${COULEURS[famOuverte] ?? 1}`} data-liste-couts={famOuverte}>

@@ -11,7 +11,8 @@ const repo = {
 };
 vi.mock('../../../../lib/transaction/repo', () => repo);
 const admin = vi.fn(async (_id: number) => true);
-vi.mock('../../../../lib/mon-espace/compteRepo', () => ({ estAdministrateur: (id: number) => admin(id) })); // 🔴 D38
+const voitCouts = vi.fn(async (_id: number) => false);
+vi.mock('../../../../lib/mon-espace/compteRepo', () => ({ estAdministrateur: (id: number) => admin(id), peutVoirCouts: async (id: number) => voitCouts(id) })); // 🔴 D38 ; 472
 vi.mock('../../../../lib/transaction/locationLue', () => ({ lireCaLocationHtTtc: async () => ({ ht: { '2025-03': 100 }, ttcC: { '2025-03': 12000 } }) })); // 🔴 LOT CG1
 
 const { GET, POST } = await import('./route');

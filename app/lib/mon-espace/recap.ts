@@ -39,7 +39,7 @@ export function libelleFenetre(periode: PeriodeRecap, ms: readonly MoisAn[]): st
 export const cleMoisAn = (m: MoisAn): string => `${m.annee}-${String(m.mois).padStart(2, '0')}`;
 
 /** Ce qu'un clic sur la cellule permet : rien ; l'édition sur place (un montant du mois) ; la saisie du mois (postes à plusieurs lignes) ; la lecture d'un import. */
-export type EditionRecap = { sorte: 'aucune' } | { sorte: 'lignes'; famille: FamilleCout; poste: 'salaires' | 'autres' }
+export type EditionRecap = { sorte: 'aucune' } | { sorte: 'lignes'; famille: FamilleCout; poste: 'salaires' | 'autres' | 'remunerations' }
   | { sorte: 'gestion'; poste: 'adhoc' | 'monga' } | { sorte: 'ca'; poste: PosteCa };
 /** 🔴 « provisoire » : une ligne de résultat (le CA net de gestion) calculée sur un mois dont une donnée est encore à compléter. */
 export type EtatCellule = 'complet' | 'a-completer' | 'neutre' | 'provisoire';
@@ -58,7 +58,9 @@ const AUCUNE: EditionRecap = { sorte: 'aucune' };
 export const moisRevolu = (m: MoisAn, jour: string): boolean => m.annee * 100 + m.mois < Number(jour.slice(0, 4)) * 100 + Number(jour.slice(5, 7));
 
 export interface EntreesRecap { e: EntreesCoutsGlobaux; agence: Agence; mois: readonly MoisAn[]; jour: string; validations: readonly Validation[] | null;
-  versionsGestion: Readonly<Record<string, { version: number; origine: string }>>; monga: boolean; caGestion: boolean }
+  versionsGestion: Readonly<Record<string, { version: number; origine: string }>>; monga: boolean; caGestion: boolean;
+  /** 🔴 472 — le poste « Rémunérations associés » est-il disponible (sinon : lu à 0, sans état ni saisie) ? */
+  remunerations?: boolean }
 
 /** Le tableau récapitulatif d'une structure sur une fenêtre de mois. PUR. */
 export function tableauRecap(x: EntreesRecap): TableauRecap {
@@ -93,6 +95,8 @@ export function tableauRecap(x: EntreesRecap): TableauRecap {
   poste('vente', 'commissions', 'Commissions des négociateurs', (p) => p.vente.commissions, AUCUNE);
   poste('vente', 'apporteurs', 'Apporteurs', (p) => p.vente.apporteurs, AUCUNE);
   poste('vente', 'exterieures', 'Agences extérieures', (p) => p.vente.exterieures, AUCUNE);
+  // 🔴 472 — « Rémunérations associés », juste au-dessus des salaires chargés (la saisie du mois, comme eux)
+  poste('vente', 'remunerations', 'Rémunérations associés', (p) => p.vente.remunerations, x.remunerations === false ? AUCUNE : { sorte: 'lignes', famille: 'vente', poste: 'remunerations' });
   poste('vente', 'salaires', 'Salaires chargés', (p) => p.vente.salaires, { sorte: 'lignes', famille: 'vente', poste: 'salaires' });
   poste('vente', 'autres', 'Autres', (p) => p.vente.autres, { sorte: 'lignes', famille: 'vente', poste: 'autres' });
   poste('vente', 'total', 'Sous-total vente', (p) => p.vente.total, AUCUNE, 'sous-total');

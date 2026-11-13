@@ -18,6 +18,8 @@ import { caGestionDuMoisC } from '../transaction/modele';
  * information, jamais dans un total.
  */
 export interface CoutsVentePoste { commissions: MontantC; apporteurs: MontantC; exterieures: MontantC;
+  /** 🔴 472 — saisi : « Rémunérations associés » (par associé, sans TVA), juste au-dessus des salaires. */
+  remunerations: MontantC;
   /** 🔴 Lot 2 (451) — saisis : salaires chargés (par salarié), « Autres ». */
   salaires: MontantC; autres: MontantC; total: MontantC }
 export interface CoutsLocationPoste {
@@ -57,10 +59,11 @@ export function coutsDuPoint(e: EntreesCoutsGlobaux, agence: Agence, annee: numb
   const v = agence === 'tous' ? c.vente : coutsVenteDeLaSociete(e, agence, annee, mois);
   // les coûts saisis de la vente : ceux de « Coûts globaux » (FUSION), ou ceux de la structure (même fonction, `montantSaisi`)
   const ms = mois === null ? Array.from({ length: 12 }, (_, i) => ({ annee, mois: i + 1 })) : [{ annee, mois }];
-  const sv = agence === 'tous' ? { salaires: c.saisis.venteSalaires, autres: c.saisis.venteAutres }
-    : { salaires: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'salaires', ms, societe: agence }), autres: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'autres', ms, societe: agence }) };
-  const vente: CoutsVentePoste = { commissions: v.commissions, apporteurs: v.apporteurs, exterieures: v.exterieures, salaires: sv.salaires, autres: sv.autres,
-    total: somme([v.commissions, v.apporteurs, v.exterieures, sv.salaires, sv.autres]) };
+  const sv = agence === 'tous' ? { salaires: c.saisis.venteSalaires, autres: c.saisis.venteAutres, remunerations: c.saisis.venteRemunerations ?? RIEN }
+    : { salaires: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'salaires', ms, societe: agence }), autres: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'autres', ms, societe: agence }),
+      remunerations: montantSaisi(e.saisis ?? [], { famille: 'vente', poste: 'remunerations', ms, societe: agence }) };
+  const vente: CoutsVentePoste = { commissions: v.commissions, apporteurs: v.apporteurs, exterieures: v.exterieures, remunerations: sv.remunerations, salaires: sv.salaires, autres: sv.autres,
+    total: somme([v.commissions, v.apporteurs, v.exterieures, sv.remunerations, sv.salaires, sv.autres]) };
   const L = avecLocationGestion(agence) ? c.location : null;
   const location: CoutsLocationPoste | null = L === null ? null : {
     apporteurs: L.apporteurs, primes: L.primesDeduites, variable: variableNegociateur(L.variableDeduit, L.primesDeduites), salaires: L.salaires,
@@ -125,14 +128,14 @@ export const ongletCoutsVisible = (titulaire: { associe?: boolean; couts?: boole
 
 // ══ 🔴 LOT 2 (451) — LA SAISIE : ce que la route accepte (lu et vérifié ici, PUR) ══════════════════════════════════════════════════════════════
 export type GesteCout =
-  | { action: 'ligne-ajouter'; ligne: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres'; annee: number; mois: number;
+  | { action: 'ligne-ajouter'; ligne: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'remunerations'; annee: number; mois: number;
       compteId: number | null; libelle: string | null; montantHt: number; tva: boolean } }
   | { action: 'ligne-modifier'; id: number; version: number; montantHt?: number; compteId?: number; libelle?: string; tva?: boolean }
   | { action: 'ligne-retirer'; id: number; version: number }
   | { action: 'gestion-poste'; annee: number; mois: number; poste: 'adhoc' | 'monga'; montantHt: number | null; version: number }
   /** 🔴 471 — le CA de gestion du mois (CRITERIMMO) : honoraires de gestion ou honoraires GLI, HT et taux de TVA (en %). */
   | { action: 'ca-gestion'; annee: number; mois: number; poste: 'honoraires' | 'gli'; montantHt: number | null; tauxTva: number; version: number }
-  | { action: 'valider'; validation: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'honoraires' | 'gli'; annee: number; mois: number };
+  | { action: 'valider'; validation: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'honoraires' | 'gli' | 'remunerations'; annee: number; mois: number };
       valide: boolean };
 /** Un montant saisi : un nombre ≥ 0, au plus 2 décimales, au plus 10 millions. PUR. */
 export const estMontantSaisi = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x < 1e7 && Math.abs(Math.round(x * 100) - x * 100) < 1e-6;
@@ -149,16 +152,20 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
     if (l.societe !== 'criterimmo' && l.societe !== 'macj') return refus('Structure attendue : CRITERIMMO ou MACJ (FUSION se lit, elle ne se saisit pas).');
     if (l.famille !== 'vente' && l.famille !== 'location' && l.famille !== 'gestion') return refus('Famille inconnue.');
     if (l.famille !== 'vente' && l.societe !== 'criterimmo') return refus('La location et la gestion sont à CRITERIMMO : saisissez-les sur CRITERIMMO.');
-    if (l.poste !== 'salaires' && l.poste !== 'autres') return refus('Poste inconnu.');
+    if (l.poste !== 'salaires' && l.poste !== 'autres' && l.poste !== 'remunerations') return refus('Poste inconnu.');
+    // 🔴 472 — « Rémunérations associés » : un coût de la VENTE, rattaché à un associé, jamais de TVA
+    if (l.poste === 'remunerations' && l.famille !== 'vente') return refus('Les rémunérations des associés sont un coût de la vente.');
     if (!entier(l.annee, 2000, 2100) || !entier(l.mois, 1, 12)) return refus('Mois invalide.');
     if (!estMontantSaisi(l.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
     if (l.poste === 'salaires' && !entier(l.compteId, 1, Number.MAX_SAFE_INTEGER)) return refus('Choisissez le salarié.');
+    if (l.poste === 'remunerations' && !entier(l.compteId, 1, Number.MAX_SAFE_INTEGER)) return refus('Choisissez l’associé.');
     const libelle = typeof l.libelle === 'string' ? l.libelle.trim() : '';
     if (l.poste === 'autres' && (libelle === '' || libelle.length > 120)) return refus('Donnez un libellé (120 caractères au plus).');
     if (l.tva !== undefined && typeof l.tva !== 'boolean') return refus('TVA : 20 % ou sans TVA.');
     if (l.poste === 'salaires' && l.tva === true) return refus('Les salaires chargés n’ont jamais de TVA.');
+    if (l.poste === 'remunerations' && l.tva === true) return refus('Les rémunérations des associés n’ont jamais de TVA.');
     return { ok: true, geste: { action: 'ligne-ajouter', ligne: { societe: l.societe, famille: l.famille, poste: l.poste, annee: l.annee, mois: l.mois,
-      compteId: l.poste === 'salaires' ? l.compteId as number : null, libelle: l.poste === 'autres' ? libelle : null, montantHt: l.montantHt,
+      compteId: l.poste === 'salaires' || l.poste === 'remunerations' ? l.compteId as number : null, libelle: l.poste === 'autres' ? libelle : null, montantHt: l.montantHt,
       // R2 — « Autres » : 20 % par défaut ; salaires : jamais
       tva: l.poste === 'autres' ? l.tva !== false : false } } };
   }
@@ -194,7 +201,8 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
     if (v.societe !== 'criterimmo' && v.societe !== 'macj') return refus('Structure attendue : CRITERIMMO ou MACJ (FUSION se lit, elle ne se saisit pas).');
     if (v.famille !== 'vente' && v.famille !== 'location' && v.famille !== 'gestion') return refus('Famille inconnue.');
     if (v.famille !== 'vente' && v.societe !== 'criterimmo') return refus('La location et la gestion sont à CRITERIMMO : saisissez-les sur CRITERIMMO.');
-    if (v.poste !== 'salaires' && v.poste !== 'autres' && !(v.famille === 'gestion' && (v.poste === 'adhoc' || v.poste === 'monga' || v.poste === 'honoraires' || v.poste === 'gli'))) return refus('Poste inconnu.');
+    if (v.poste !== 'salaires' && v.poste !== 'autres' && !(v.famille === 'gestion' && (v.poste === 'adhoc' || v.poste === 'monga' || v.poste === 'honoraires' || v.poste === 'gli'))
+      && !(v.famille === 'vente' && v.poste === 'remunerations')) return refus('Poste inconnu.');
     if (!entier(v.annee, 2000, 2100) || !entier(v.mois, 1, 12)) return refus('Mois invalide.');
     if (typeof o.valide !== 'boolean') return refus('Valider : oui ou non.');
     return { ok: true, geste: { action: 'valider', validation: { societe: v.societe, famille: v.famille, poste: v.poste as 'salaires', annee: v.annee, mois: v.mois }, valide: o.valide } };

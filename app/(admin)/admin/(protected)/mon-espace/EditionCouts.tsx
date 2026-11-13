@@ -72,7 +72,7 @@ export function PanneauCouts({ cible, annee, societe, d, onFermer, onEcrit }: { 
     setMessage({ texte: r.motif ?? 'Enregistrement impossible.', conflit: r.statut === 409 });
     return false;
   };
-  const titre = cible.sorte === 'lignes' ? `${cible.poste === 'salaires' ? 'Salaires chargés' : 'Autres'} — ${MOT_FAMILLE[cible.famille]}, ${mois}`
+  const titre = cible.sorte === 'lignes' ? `${cible.poste === 'salaires' ? 'Salaires chargés' : cible.poste === 'remunerations' ? 'Rémunérations associés' : 'Autres'} — ${MOT_FAMILLE[cible.famille]}, ${mois}`
     : cible.sorte === 'gestion' ? `${cible.poste === 'adhoc' ? 'ADHOC' : 'MONGA'} — ${mois}` : `${cible.libelle} — ${mois}`;
   return (
     <div className="mes-couts-panneau" role="dialog" aria-labelledby="mes-couts-panneau-titre" data-panneau-couts={cible.sorte}>
@@ -93,9 +93,12 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
   envoi: boolean; envoyer: (c: unknown) => Promise<boolean> }) {
   const siennes = d.lignes.filter((l) => l.societe === societe && l.famille === cible.famille && l.poste === cible.poste && l.annee === annee && l.mois === cible.mois);
   const salaires = cible.poste === 'salaires';
+  // 🔴 472 — « Rémunérations associés » : une ligne par associé (un compte, comme un salaire), jamais de TVA, jamais de libellé
+  const remun = cible.poste === 'remunerations';
+  const parCompte = salaires || remun;
   const ordre = profilsPourSalaire(cible.famille, d.profils, { annee, mois: cible.mois });
   // 🔴 D35 — un salarié a UN salaire par mois (toutes activités et structures) : déjà saisi ailleurs ce mois-là, il n'est plus proposé en ajout
-  const pris = new Set(salaires ? d.lignes.filter((l) => l.poste === 'salaires' && l.annee === annee && l.mois === cible.mois).map((l) => l.compteId) : siennes.map((l) => l.compteId));
+  const pris = new Set(remun ? [] : salaires ? d.lignes.filter((l) => l.poste === 'salaires' && l.annee === annee && l.mois === cible.mois).map((l) => l.compteId) : siennes.map((l) => l.compteId));
   // 🔴 D35 — où va le salaire d'un profil ce mois-là (son activité principale), quand ce n'est pas cette activité
   const ailleurs = (p: ProfilCout): string => {
     if (!salaires || p.principales === undefined) return '';
@@ -112,8 +115,12 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
   const [erreur, setErreur] = useState<string | null>(null);
   const ancien = cible.poste === 'salaires' && cible.famille !== 'vente' && siennes.length === 0
     ? (cible.famille === 'gestion' ? d.gestionDuMois(cible.mois).salaireMensuel : d.salaireMensuelLocation(cible.mois)) : null;
-  const choixProfil = (valeur: string, onChange: (v: string) => void, exclus: Set<number | null>, attr: string) => (
-    <select value={valeur} onChange={(e) => onChange(e.target.value)} aria-label="Salarié" data-choix-profil={attr}>
+  const choixProfil = (valeur: string, onChange: (v: string) => void, exclus: Set<number | null>, attr: string) => (remun
+    ? <select value={valeur} onChange={(e) => onChange(e.target.value)} aria-label="Associé" data-choix-profil={attr}>
+      <option value="">Choisir l’associé…</option>
+      {d.profils.filter((x) => x.associe === true || String(x.id) === valeur).map((x) => <option key={x.id} value={x.id}>{x.libelle}</option>)}
+    </select>
+    : <select value={valeur} onChange={(e) => onChange(e.target.value)} aria-label="Salarié" data-choix-profil={attr}>
       <option value="">Choisir le salarié…</option>
       {([1, 2, 3] as const).map((g) => {
         const xs = ordre.filter((x) => x.groupe === g && (!exclus.has(x.profil.id) || String(x.profil.id) === valeur));
@@ -130,9 +137,10 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
   const ajouter = async (): Promise<void> => {
     const m = verifier(nouveau.montant); if (m === null) return;
     if (salaires && nouveau.compte === '') { setErreur('Choisissez le salarié.'); return; }
-    if (!salaires && nouveau.libelle.trim() === '') { setErreur('Donnez un libellé.'); return; }
+    if (remun && nouveau.compte === '') { setErreur('Choisissez l’associé.'); return; }
+    if (!parCompte && nouveau.libelle.trim() === '') { setErreur('Donnez un libellé.'); return; }
     const ok = await envoyer({ action: 'ligne-ajouter', ligne: { societe, famille: cible.famille, poste: cible.poste, annee, mois: cible.mois,
-      compteId: salaires ? Number(nouveau.compte) : null, libelle: salaires ? null : nouveau.libelle.trim(), montantHt: m, tva: salaires ? false : nouveau.tva } });
+      compteId: parCompte ? Number(nouveau.compte) : null, libelle: parCompte ? null : nouveau.libelle.trim(), montantHt: m, tva: parCompte ? false : nouveau.tva } });
     if (ok) setNouveau({ compte: '', libelle: '', montant: '', tva: true });
   };
   return (
@@ -142,13 +150,13 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
       <ul className="mes-couts-lignes">
         {siennes.map((l) => { const e = editDe(l); const changer = (x: Partial<typeof e>) => setEdits((s) => ({ ...s, [l.id]: { ...e, ...x } })); return (
           <li key={l.id} data-ligne-cout={l.id}>
-            {salaires ? choixProfil(e.compte, (v) => changer({ compte: v }), pris, String(l.id))
+            {parCompte ? choixProfil(e.compte, (v) => changer({ compte: v }), pris, String(l.id))
               : <input type="text" value={e.libelle} onChange={(x) => changer({ libelle: x.target.value })} aria-label="Libellé" maxLength={120} data-libelle-ligne={l.id} />}
             <input type="text" inputMode="decimal" value={e.montant} onChange={(x) => changer({ montant: x.target.value })} aria-label={l.prorata === undefined ? 'Montant HT' : 'Salaire du mois entier HT'} data-montant-ligne={l.id} />
-            {!salaires && choixTva(e.tva, (v) => changer({ tva: v }), String(l.id))}
+            {!parCompte && choixTva(e.tva, (v) => changer({ tva: v }), String(l.id))}
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} data-enregistrer-ligne={l.id} onClick={() => {
               const m = verifier(e.montant); if (m === null) return;
-              void envoyer({ action: 'ligne-modifier', id: l.id, version: l.version, montantHt: m, ...(salaires ? { compteId: Number(e.compte) } : { libelle: e.libelle, tva: e.tva }) });
+              void envoyer({ action: 'ligne-modifier', id: l.id, version: l.version, montantHt: m, ...(parCompte ? { compteId: Number(e.compte) } : { libelle: e.libelle, tva: e.tva }) });
             }}>Enregistrer</button>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} data-retirer-ligne={l.id}
               onClick={() => void envoyer({ action: 'ligne-retirer', id: l.id, version: l.version })}>Retirer</button>
@@ -157,15 +165,15 @@ function EditeurLignes({ cible, annee, societe, d, envoi, envoyer }: { cible: Ex
             {l.sansPrincipale === true && <small className="loc-muet" data-sans-principale={l.id}>Sans activité principale ce mois-ci : compté en vente — posez-la dans Administratif › Comptes.</small>}
           </li>); })}
         <li data-nouvelle-ligne>
-          {salaires ? choixProfil(nouveau.compte, (v) => setNouveau((s) => ({ ...s, compte: v })), pris, 'nouveau')
+          {parCompte ? choixProfil(nouveau.compte, (v) => setNouveau((s) => ({ ...s, compte: v })), pris, 'nouveau')
             : <input type="text" value={nouveau.libelle} placeholder="Libellé (loyer, logiciel…)" onChange={(x) => setNouveau((s) => ({ ...s, libelle: x.target.value }))} aria-label="Libellé" maxLength={120} data-libelle-nouveau />}
           <input type="text" inputMode="decimal" value={nouveau.montant} placeholder="Montant HT" onChange={(x) => setNouveau((s) => ({ ...s, montant: x.target.value }))} aria-label="Montant HT" data-montant-nouveau />
-          {!salaires && choixTva(nouveau.tva, (v) => setNouveau((s) => ({ ...s, tva: v })), 'nouveau')}
+          {!parCompte && choixTva(nouveau.tva, (v) => setNouveau((s) => ({ ...s, tva: v })), 'nouveau')}
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void ajouter()} data-ajouter-ligne>Ajouter</button>
         </li>
       </ul>
       {erreur !== null && <p className="trx-erreur" role="alert" data-erreur-saisie>{erreur}</p>}
-      <p className="loc-muet mes-couts-aide">Montants en euros HT{salaires ? ', chargés (sans TVA) — le salaire du mois entier, porté par l’activité principale du salarié (le mois d’un changement : au prorata des jours)' : ' ; TTC = HT × 1,20 pour une ligne « TVA 20 % », = HT pour une ligne « sans TVA »'}.</p>
+      <p className="loc-muet mes-couts-aide">Montants en euros HT{remun ? ' — sans TVA (HT = TTC), une ligne par associé' : salaires ? ', chargés (sans TVA) — le salaire du mois entier, porté par l’activité principale du salarié (le mois d’un changement : au prorata des jours)' : ' ; TTC = HT × 1,20 pour une ligne « TVA 20 % », = HT pour une ligne « sans TVA »'}.</p>
     </div>
   );
 }
