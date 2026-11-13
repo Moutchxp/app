@@ -532,7 +532,10 @@ describe('🔴 LOT LO1 — la page et la lecture', () => {
     expect([page.includes('<EcranLocationCA />'), page.includes('accesTransaction()'), page.includes('EnConstruction')]).toEqual([true, true, false]);
     const lue = readFileSync('app/lib/transaction/locationLue.ts', 'utf8');
     expect(/INSERT|UPDATE|DELETE/.test(lue)).toBe(false);
-    expect(readFileSync('app/(admin)/api/admin/transaction/route.ts', 'utf8')).toContain("if (vue === 'location') return json({ etat: 'ok', data: { aujourdhui, ...(await lireLocationCa()) } });");
+    // la route LIT le Suivi (aucune écriture) ; 🔴 13/11/2026 : les salaires d'un compte sans « Les coûts » passent par `masquerSalaires`
+    const route = readFileSync('app/(admin)/api/admin/transaction/route.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(route).toContain("if (vue === 'location') { const d = { aujourdhui, ...(await lireLocationCa()) };");
+    expect(route).toContain('masquerSalaires(d as DonneesAvecSalaires, (await lireCoutsLignes()');
   });
 });
 

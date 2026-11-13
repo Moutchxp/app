@@ -1148,17 +1148,19 @@ export function Histogramme({ barres, courante, onChoisir, attribut, legende, ar
   const [survol, setSurvol] = useState<number | null>(null);
   // 🔴 LOT CG12 — une série dont toutes les valeurs valent 0 n'est ni tracée ni dans la légende (N−1 reste dans l'encadré) ; aucune : le message.
   const avecN1 = barres.some((b) => b.n1 !== undefined && b.n1 !== null && b.n1 !== 0);
+  // 🔴 Arno (13/11/2026) — un montant confidentiel (inconnu) n'entre pas dans l'échelle (sa barre n'est pas tracée, sa bulle dit « confidentiel »)
+  const fini = (x: number | null | undefined): number => (x == null || Number.isNaN(x) ? 0 : x);
   const avecCourant = barres.some((b) => b.valeur !== null && b.valeur !== 0);
   // L'échelle est calculée sur TOUTES les barres, défilement ou non.
-  const plusHaut = Math.max(1, ...barres.map((b) => Math.max(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
+  const plusHaut = Math.max(1, ...barres.map((b) => Math.max(fini(b.valeur), avecN1 ? fini(b.n1) : 0)));
   // Un nombre : quatre pas ENTIERS (0, 1, 2… jamais 0,75 bail) ; un montant : l'échelle d'avant.
   // 🔴 Arno (25/10/2026) — une valeur NÉGATIVE (un solde de gestions) : l'axe descend sous 0 et sa barre part de 0 vers le bas. Sans négatif :
   // exactement l'échelle d'avant.
-  const plusBas = Math.min(0, ...barres.map((b) => Math.min(b.valeur ?? 0, avecN1 ? b.n1 ?? 0 : 0)));
+  const plusBas = Math.min(0, ...barres.map((b) => Math.min(fini(b.valeur), avecN1 ? fini(b.n1) : 0)));
   const pasEntier = Math.max(1, Math.ceil((plusHaut - plusBas) / 4));
   const min = entier ? Math.floor(plusBas / pasEntier) * pasEntier : plusBas;
   // 🔴 LOT CU (Arno) — l'axe VIDE (toutes les valeurs à 0) : « 0 € … 1 k€ » au lieu de « 1 € » répété (en nombre : 0, 1, 2… déjà distincts).
-  const max = entier ? min + pasEntier * 4 : barres.every((b) => (b.valeur ?? 0) === 0 && (!avecN1 || (b.n1 ?? 0) === 0)) ? 1000 : plusHaut;
+  const max = entier ? min + pasEntier * 4 : barres.every((b) => (fini(b.valeur)) === 0 && (!avecN1 || (fini(b.n1)) === 0)) ? 1000 : plusHaut;
   const etiquette = (v: number): string => (entier ? Math.round(v).toLocaleString('fr-FR') : eurAxe(v)); // 🔴 LOT CR — en abrégé
   const graduations = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min));
   m.g = margeAxe(graduations.map(etiquette)); // 🔴 LOT CR — la marge de l'axe suit sa plus longue graduation

@@ -7,11 +7,13 @@ import { libellesNegociateurs } from '../../../../lib/transaction/nomNegociateur
 import { lireAnnulation, lireDateActe, lireDossier, lireGestion as lireSaisieGestion, lireModification, lireRetro, lireVente } from '../../../../lib/transaction/saisie';
 import {
   acteSigne, annulerCompromis, annulerGeste, enregistrerCommissionCote, retablirCompromis, attribuer, creerVente, enregistrerDossier, enregistrerGestion, lireJournal, lireNegociateurs,
-  lirePersonnes, lireVentes, modifierVente, rattacherRetro, statutRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs } from '../../../../lib/transaction/repo';
+  lirePersonnes, lireVentes, modifierVente, rattacherRetro, statutRetro, retirerVente, retourCompromis, saisirRetro, transactionDisponible, libellesDePaye, lireStatutsNegociateurs, nomsAffichesNegociateurs, lireCoutsLignes } from '../../../../lib/transaction/repo';
 import { annulationDisponible, interCabinetDisponible, mandatDisponible, prixVenteDisponible, repartitionDisponible, uniteCommissionDisponible, personneTypeDisponible } from '../../../../lib/admin/schemaDroits';
 import { montant } from '../../../../lib/transaction/saisie';
 import { creerApporteur, lireApporteurs, lireComptesInterface } from '../../../../lib/location/suivi/suiviRepo';
 import { lireLocationCa } from '../../../../lib/transaction/locationLue';
+import { masquerSalaires, type DonneesAvecSalaires } from '../../../../lib/transaction/confidentialiteSalaires';
+import type { CoutLigne } from '../../../../lib/transaction/coutsSaisis';
 import { apporteurProfessionnel, aujourdhuiParis, estInterne, libelleApporteur, texteRechercheApporteur } from '../../../../lib/location/suivi/suivi';
 import { estDoublonMandat } from '../../../../lib/transaction/mandatRepo';
 import { MOTIF_DOUBLON_MANDAT } from '../../../../lib/transaction/mandat';
@@ -78,8 +80,14 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: await lireDonneesSociete(brut === 'tous' ? null : brut, aujourdhui) });
     }
     // 🔴 MON ESPACE « Les coûts » (03/11/2026) — la lecture est `lireDonneesGlobal` (la même pour l'onglet « Les coûts »), déplacée telle quelle.
-    // 🔴 472 — les « Rémunérations associés » : seulement pour un compte qui a « Les coûts » (relu en base) ; pour tout autre, ni lignes ni montants
-    if (vue === 'global') return json({ etat: 'ok', data: await lireDonneesGlobal(aujourdhui, { remunerations: garde.auteurId !== null && (await peutVoirCouts(garde.auteurId)) }) });
+    // 🔴 472 / Arno (13/11/2026, option 1) — un compte SANS « Les coûts » (relu en base) : ni rémunérations d'associés, ni salaire individuel (le détail
+    // retiré, les mois d'un seul salarié masqués : `masquerSalaires`) ; un compte « Les coûts » : tout, comme avant
+    const voitCouts = async (): Promise<boolean> => garde.auteurId !== null && (await peutVoirCouts(garde.auteurId));
+    if (vue === 'global') {
+      const voit = await voitCouts();
+      const d = await lireDonneesGlobal(aujourdhui, { remunerations: voit });
+      return json({ etat: 'ok', data: voit ? d : masquerSalaires(d as DonneesAvecSalaires, ((d as DonneesAvecSalaires).coutsLignes ?? []) as CoutLigne[]) });
+    }
     if (vue === 'compromis') {
       // LOT D — les compromis en cours (acte non signé) qui comptent pour la société (une part, ou la société de l'historique), ou pour les deux.
       const societe = url.searchParams.get('societe');
@@ -102,7 +110,10 @@ export async function GET(request: Request): Promise<Response> {
       return json({ etat: 'ok', data: { disponible, aujourdhui, societe, compromis, actesDuMois, annules, statutsNegociateurs, nomsNegociateurs, ...ref } });
     }
     // 🔴 LOT LO1 — « Location » (Suivi Chiffre d'affaires) : les lignes du Suivi du mois de la Location, en lecture seule.
-    if (vue === 'location') return json({ etat: 'ok', data: { aujourdhui, ...(await lireLocationCa()) } });
+    if (vue === 'location') {
+      const d = { aujourdhui, ...(await lireLocationCa()) };
+      return json({ etat: 'ok', data: (await voitCouts()) ? d : masquerSalaires(d as DonneesAvecSalaires, (await lireCoutsLignes().catch(() => null)) ?? []) });
+    }
     if (vue === 'references') return json({ etat: 'ok', data: { disponible, aujourdhui, ...(await references(aujourdhui)) } });
     if (vue === 'journal') {
       const entite = url.searchParams.get('entite') ?? '';

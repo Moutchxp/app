@@ -117,3 +117,24 @@ describe('🔴 Suivi CA › « Coûts globaux » : la colonne seulement quand la
     expect(container.innerHTML).not.toMatch(/Rémunérations associés/);
   });
 });
+
+describe('🔴🔴 la confidentialité des salaires (option 1) — le HTML du Suivi CA pour un compte sans « Les coûts »', () => {
+  it('« Coûts globaux » : le mois d’un seul salarié et son total disent « confidentiel » ; aucun montant individuel dans la page ; le mois exact reste exact', async () => {
+    const { masquerSalaires, rehydraterSalairesMasques } = await import('../../../../lib/transaction/confidentialiteSalaires');
+    const l = (id: number, compteId: number, mois: number, montantHt: number) => ({ id, societe: 'criterimmo' as const, famille: 'vente' as const, poste: 'salaires' as const, annee: 2026, mois,
+      compteId, compteLibelle: `Salarié ${compteId}`, libelle: null, montantHt, version: 1 });
+    const lignes = [l(1, 5, 9, 2100.5), l(2, 8, 9, 1900), l(3, 5, 10, 2222.22)];
+    const vu = rehydraterSalairesMasques(masquerSalaires({ coutsSaisis: lignes.map(({ societe, famille, poste, annee, mois, montantHt }) => ({ societe, famille, poste, annee, mois, montantHt })) }, lignes));
+    await act(async () => {
+      root.render(createElement(TableauCoutsGlobaux, { e: { ...E_COUTS, saisis: vu.coutsSaisis }, rangees: [{ cle: '2026-09', libelle: 'Septembre', annee: 2026, mois: 9 }, { cle: '2026-10', libelle: 'Octobre', annee: 2026, mois: 10 }],
+        total: { cle: '2026', libelle: 'Année 2026', annee: 2026, mois: null }, titre: 'Coûts', jour: '2026-11-03', salaires: true, onSalaires: () => undefined, idTitre: 'essai', donnee: 'essai-couts' }));
+    });
+    await act(async () => { (container.querySelector('[data-bloc="essai-couts"] button[aria-expanded]') as HTMLElement).click(); });
+    const t = (s: string) => container.querySelector(s)?.textContent?.replace(/\s/g, ' ');
+    expect(t('[data-rangee-couts="2026-10"] [data-cout="vente-salaires"]')).toBe('confidentiel');
+    expect(t('[data-rangee-couts="2026-10"] [data-cout="total"]')).toBe('confidentiel');
+    expect(t('[data-rangee-couts="2026-09"] [data-cout="vente-salaires"]')).toBe('4 000,50 €');
+    expect(t('[data-rangee-couts="2026-09"] [data-cout="total"]')).not.toBe('confidentiel');
+    expect(container.innerHTML).not.toMatch(/2 222,22|2 100,50|1 900|Salarié/);
+  });
+});

@@ -8,6 +8,8 @@
 
 /** L'espace insécable de largeur normale (U+00A0). */
 export const ESPACE = '\u00a0';
+/** 🔴 La confidentialité des salaires — le mot écrit à la place d'un montant inconnu (voir `confidentialiteSalaires.ts`). */
+export const MOT_CONFIDENTIEL = 'confidentiel';
 
 /** Un nombre en français, milliers séparés par une espace insécable visible (jamais l'espace fine U+202F). PUR. */
 export const nombreFr = (x: number, options?: Intl.NumberFormatOptions): string => x.toLocaleString('fr-FR', options).replace(/[\u202f\u2009\u00a0 ]/g, ESPACE);
@@ -17,6 +19,8 @@ export const nombreFr = (x: number, options?: Intl.NumberFormatOptions): string 
  * (« 2 708,34 », « 1 000,50 »). L'arrondi au centime est celui de l'affichage (règle du lot AH). PUR.
  */
 export function montantFr(x: number): string {
+  // 🔴 Arno (13/11/2026) — un montant INCONNU (un salaire confidentiel, ou un total qui en dépend) : « confidentiel », jamais « 0 » ni « NaN »
+  if (Number.isNaN(x)) return MOT_CONFIDENTIEL;
   // 🔴 LOT CG1 — un montant nul s'écrit « 0 », jamais « −0 » (−0,004 arrondi au centime : −0, que `toLocaleString` écrit « -0 »)
   const c = centimesAffiches(x);
   const entier = c % 100 === 0;
@@ -27,7 +31,7 @@ export function montantFr(x: number): string {
 export const centimesAffiches = (x: number): number => Math.round((x + Math.sign(x) * Number.EPSILON) * 100) || 0;
 
 /** Un montant en euros : « 7 500 € », « 2 708,34 € ». PUR. */
-export const eur = (x: number): string => `${montantFr(x)}${ESPACE}€`;
+export const eur = (x: number): string => (Number.isNaN(x) ? MOT_CONFIDENTIEL : `${montantFr(x)}${ESPACE}€`);
 
 /** Un pourcentage (jusqu'à `decimales` décimales, 4 par défaut) : « 33,3333 % ». PUR. */
 export const pctFr = (x: number, decimales = 4): string => `${nombreFr(x, { maximumFractionDigits: decimales })}${ESPACE}%`;

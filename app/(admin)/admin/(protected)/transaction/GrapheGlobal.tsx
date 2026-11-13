@@ -176,11 +176,12 @@ export function GrapheGlobal({ eG, eC, jour, annee, annees, salaires, rouges = n
     const hauts: number[] = []; const bas: number[] = [];
     for (let i = 0; i < n; i++) {
       if (!trace(i)) continue;
-      const xs = valeurs.map((s) => s[i]);
+      // 🔴 Arno (13/11/2026) — un montant confidentiel (inconnu) n'entre pas dans l'échelle : il n'a pas de barre, sa bulle dit « confidentiel »
+      const xs = valeurs.map((s) => s[i]).filter((x) => Number.isFinite(x));
       if (f.empile && !f.cumul) { hauts.push(xs.filter((x) => x > 0).reduce((t, x) => t + x, 0)); bas.push(xs.filter((x) => x < 0).reduce((t, x) => t + x, 0)); }
       else { hauts.push(Math.max(0, ...xs)); bas.push(Math.min(0, ...xs)); }
     }
-    if (n1Trace) for (let x = 0; x < n; x++) { const xs = valeursN1.map((s) => s[x]); hauts.push(Math.max(0, ...xs)); bas.push(Math.min(0, ...xs)); }
+    if (n1Trace) for (let x = 0; x < n; x++) { const xs = valeursN1.map((s) => s[x]).filter((v) => Number.isFinite(v)); hauts.push(Math.max(0, ...xs)); bas.push(Math.min(0, ...xs)); }
     const max0 = Math.max(0, ...hauts); const min = Math.min(0, ...bas); const max = max0 === 0 && min === 0 ? 1000 : max0;
     const graduations = [0, 0.25, 0.5, 0.75, 1].map((q) => min + q * (max - min));
     m.g = margeAxe(graduations.map(eurAxe));

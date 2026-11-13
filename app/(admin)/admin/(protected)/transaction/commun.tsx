@@ -2,7 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { autreUnite, LIBELLE_UNITE, type MontantSaisi } from '../../../../lib/transaction/commissions';
-import { centimesAffiches, ESPACE, eur, nombreFr } from '../../../../lib/transaction/format';
+import { centimesAffiches, ESPACE, eur, MOT_CONFIDENTIEL, nombreFr } from '../../../../lib/transaction/format';
+import { rehydraterSalairesMasques, type DonneesAvecSalaires } from '../../../../lib/transaction/confidentialiteSalaires';
 import { TVA } from '../../../../lib/transaction/modele';
 import { CSS_TRIANGLE, CSS_TRIANGLE_BOITE } from '../_composants/TriangleDepliage';
 import { AIDE_VARIABLE_NEGOCIATEUR } from '../../../../lib/transaction/locationCa';
@@ -23,7 +24,8 @@ export function useTransaction<T>(parametres: string): { lu: Lecture<T>; relire:
       .then(async (r) => (r.status === 401 || r.status === 403 ? { etat: 'refus' } : r.json()))
       .then((x: { etat?: string; data?: T; message?: string; motif?: string }) => {
         if (!vivant) return;
-        if (x.etat === 'ok' && x.data !== undefined) setLu({ etat: 'ok', data: x.data });
+        // 🔴 Arno (13/11/2026) — la confidentialité des salaires : un salaire masqué par le serveur redevient une valeur inconnue (« confidentiel »)
+        if (x.etat === 'ok' && x.data !== undefined) setLu({ etat: 'ok', data: rehydraterSalairesMasques(x.data as DonneesAvecSalaires) as T });
         else setLu({ etat: 'erreur', message: x.etat === 'refus' ? 'Accès refusé : droit « Transaction » requis (ou session expirée).' : x.motif ?? x.message ?? 'Lecture impossible.' });
       })
       .catch(() => { if (vivant) setLu({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' }); });
@@ -63,9 +65,9 @@ export const eurUnite = (m: MontantSaisi): string => { const a = autreUnite(m); 
 /** LOT J — un montant avec son unité et, entre parenthèses, son équivalent : « 800,00 € HT (960,00 € TTC) ». */
 export const eurEtEquivalent = (m: MontantSaisi): string => { const a = autreUnite(m); return `${eur(m.montant)}${ESPACE}${LIBELLE_UNITE[m.unite]} (${eur(a.montant)}${ESPACE}${LIBELLE_UNITE[a.unite]})`; };
 const pct = (x: number): string => `${nombreFr(x * 100, { maximumFractionDigits: 1 })}${ESPACE}%`;
-export const signePct = (x: number | null): string => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
+export const signePct = (x: number | null): string => (x === null ? '—' : Number.isNaN(x) ? MOT_CONFIDENTIEL : `${x >= 0 ? '+' : '−'}${pct(Math.abs(x))}`);
 // 🔴 LOT CG1 — le signe d'un écart est celui du montant AFFICHÉ (au centime) : un écart nul s'écrit « +0 € », jamais « −0 € »
-export const ecartEur = (x: number): string => `${centimesAffiches(x) >= 0 ? '+' : '−'}${eur(Math.abs(x))}`;
+export const ecartEur = (x: number): string => (Number.isNaN(x) ? MOT_CONFIDENTIEL : `${centimesAffiches(x) >= 0 ? '+' : '−'}${eur(Math.abs(x))}`);
 
 // ── 🔴 LOT AM (Arno, 29/10/2026) : LE BOUTON « HT | TTC » DE L'ONGLET COMPROMIS ─────────────────────────────────────────────────────────
 //
