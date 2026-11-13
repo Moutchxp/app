@@ -78,10 +78,23 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
   const p = l.previsite ?? null;
   const [geste, setGeste] = useState<Geste | null>(null);
   const [voirCr, setVoirCr] = useState(false);
+  // 🔴 Arno (13/11/2026) — le lien de l'invitation (`?previsite=…&geste=compte-rendu`) ouvre DIRECTEMENT le formulaire du compte rendu, une fois
+  // (le paramètre est retiré de l'adresse : un rechargement ne le rouvre pas) — si le geste est possible ici (rendez-vous commencé, droit d'écrire).
+  const { ecriture } = useContextePreavis();
+  const peutCompteRendu = p !== null && p.rdv !== null && p.rdvPasse && p.statut === 'programmee' && ecriture;
+  useEffect(() => {
+    if (!peutCompteRendu) return;
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('geste') !== 'compte-rendu' || !l.occupationIds.includes(Number(u.searchParams.get('previsite')))) return;
+      u.searchParams.delete('geste');
+      window.history.replaceState(window.history.state, '', `${u.pathname}${u.search}${u.hash}`);
+      setGeste('compte_rendu'); // eslint-disable-line react-hooks/set-state-in-effect
+    } catch { /* sans adresse lisible : rien */ }
+  }, [peutCompteRendu, l.occupationIds]);
   if (p === null) return null;
   const programmee = p.statut === 'programmee' && p.rdv !== null;
   // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : les boutons restent visibles, INACTIFS, avec la mention.
-  const { ecriture } = useContextePreavis();
   const inactif = ecriture ? {} : { disabled: true, title: MENTION_RESERVE_LOCATION, 'aria-disabled': true } as const;
   return (
     <div className="pva-bloc" data-bloc-previsite data-statut-previsite={p.statut}>
@@ -147,9 +160,27 @@ export function mailCollegue(c: { destinataire: string; etat: string }): MailPar
   return { sorte: 'previsite_invitation', objet: null, a: [c.destinataire], cc: [], envoye, motif };
 }
 
+/**
+ * 🔴 Arno (13/11/2026, iPhone) — la ZONE VISIBLE de l'écran : sur Safari iOS, le clavier ne réduit pas la page (`100vh` reste l'écran entier) et
+ * masquait le bouton d'envoi. La fenêtre prend la hauteur réellement visible (`visualViewport`), le bouton collé en bas reste au-dessus du clavier.
+ */
+export function useZoneVisible(): { top: number; height: number } | null {
+  const [z, setZ] = useState<{ top: number; height: number } | null>(null);
+  useEffect(() => {
+    const vv = typeof window === 'undefined' ? undefined : window.visualViewport;
+    if (!vv) return;
+    const lire = (): void => setZ({ top: vv.offsetTop, height: vv.height });
+    lire();
+    vv.addEventListener('resize', lire); vv.addEventListener('scroll', lire);
+    return () => { vv.removeEventListener('resize', lire); vv.removeEventListener('scroll', lire); };
+  }, []);
+  return z;
+}
+
 function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePreavisAccueil; p: PrevisiteAffiche; onFermer: (fait: boolean) => void }) {
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
   useVerrouDefilement();
+  const zone = useZoneVisible();
   const titreId = useId();
   const [etape, setEtape] = useState<Etape>({ etape: 'saisie' });
   const [envoi, setEnvoi] = useState(false);
@@ -335,7 +366,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   }
   const echec = etape.etape === 'resultat' && (etape.motif !== null || etape.mails.some((m) => !m.envoye));
   const boite = (
-    <div className="mis-voile">
+    <div className="mis-voile pvv-voile" style={zone ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined} data-zone-visible={zone ? 'oui' : undefined}>
       <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE}</style>
       <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
@@ -417,7 +448,7 @@ export const CSS_PREVISITE = `
 .pvv-cr-etat{font-weight:800}
 .pvv-cr-etat--envoye{color:var(--color-svv-green-ink)}
 .pvv-cr-etat--echec{color:var(--color-svv-red)}
-.pvv-cr-etat--non_envoye{color:var(--color-svv-muted)}
+.pvv-cr-etat--non_envoye{color:var(--color-svv-red)}
 @media (max-width:600px){.pvv-cr-famille{flex-basis:100%}}
 .pvv-cartouche{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:.82rem;font-weight:800;white-space:nowrap}
 .pvv-cartouche--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
@@ -440,5 +471,13 @@ export const CSS_PREVISITE = `
 .pvv-case{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}
 .pvv-case input{width:20px;height:20px}
 .pss-boite textarea{width:100%;box-sizing:border-box;font:inherit}
+/* iPhone (Arno, 13/11/2026) : la fenetre tient dans la zone visible (clavier ouvert) ; champs pleine largeur en 16 px (Safari ne zoome plus) ;
+   gros boutons ; le bouton d'envoi reste colle en bas, au-dessus du clavier */
+.pvv-voile .mis-boite{max-height:100%}
+@media (max-width:640px){
+  .pss-boite textarea,.pss-boite input[type=text],.pss-boite input[type=date],.pss-boite input[type=time]{font-size:16px;width:100%;max-width:none;min-height:48px}
+  .pss-boite textarea{min-height:40vh}
+  .pss-boite .mis-actions .mis-action{min-height:52px;font-size:1.02rem}
+}
 .pvv-reserve{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-muted)}
 `;

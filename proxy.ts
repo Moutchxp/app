@@ -6,6 +6,8 @@ import { origineAutorisee } from './app/lib/admin/controleOrigine';
 import { ligneJournalEchec } from './app/lib/location/issueEnregistrement';
 import { ecritureRefuseeObservateur } from './app/lib/admin/observateur';
 import { MOTIF_LECTURE_SEULE } from './app/lib/admin/statut';
+// 🔴 Arno (13/11/2026) — la connexion ramène à la page demandée (lien ouvert depuis une autre application : le cookie Strict n'arrive pas)
+import { urlConnexion } from './app/lib/admin/retourConnexion';
 
 /**
  * Garde d'accès de l'interface admin (EX-11..EX-15) + contrôle des PERMISSIONS côté serveur (M3 Lot 2e).
@@ -213,7 +215,7 @@ async function decider(request: NextRequest) {
     if (estApi) {
       return new NextResponse(null, { status: 401 });
     }
-    return NextResponse.redirect(new URL('/admin/login', request.url));
+    return NextResponse.redirect(new URL(urlConnexion(request.nextUrl.pathname + request.nextUrl.search), request.url));
   }
 
   // Session EFFECTIVE (fail-closed sur le rôle, cf. sessionDepuisPayload).
@@ -226,7 +228,7 @@ async function decider(request: NextRequest) {
     if (estApi) {
       return new NextResponse(null, { status: 401 });
     }
-    return NextResponse.redirect(new URL('/admin/login', request.url));
+    return NextResponse.redirect(new URL(urlConnexion(request.nextUrl.pathname + request.nextUrl.search), request.url));
   }
 
   // ═══ RELECTURE DU COMPTE EN BASE (audit points 4 et 5, 15/10/2026) ═══
@@ -243,7 +245,7 @@ async function decider(request: NextRequest) {
   if (!verdict.valide) {
     const refus = estApi
       ? new NextResponse(null, { status: 401 })
-      : NextResponse.redirect(new URL('/admin/login', request.url));
+      : NextResponse.redirect(new URL(urlConnexion(request.nextUrl.pathname + request.nextUrl.search), request.url));
     refus.cookies.set(NOM_COOKIE, '', { path: '/', maxAge: 0 });
     return refus;
   }

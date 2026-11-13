@@ -13,7 +13,7 @@ import { adressesUniques, copiesAvis, prenomNom } from './mailsPreavisSortie';
 import { locatairesAvis, logementDe, mailsAvisDisponibles, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
 import type { LignePreavisAccueil } from './preavis';
 import {
-  NOM_FICHIER_ICS, finDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
+  NOM_FICHIER_ICS, debutDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
   copieInterneLocataires, mailRdvLocataire, paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
   type FaitsPrevisite, type MailPrevisite, type RdvPrevisite, type ReponseDuCollegue,
 } from './previsite';
@@ -173,7 +173,8 @@ export async function avecPrevisites<T extends { disponible: boolean; lignes: Li
     l.previsite = {
       statut: statutPrevisite(faitsDuSuivi(l.recuLe, s), jour), rdv, tacheId: rdv === null ? null : Number(s?.tache_id),
       collegues, tousRefusent: tousRefusent(collegues.map((c) => c.statut)),
-      rdvPasse: rdv !== null && finDuRendezVous(rdv.jour, rdv.heure, rdv.dureeMinutes).getTime() <= maintenant.getTime(),
+      // 🔴 Arno (13/11/2026) — dès le DÉBUT du rendez-vous (le compte rendu se fait pendant la visite)
+      rdvPasse: rdv !== null && debutDuRendezVous(rdv.jour, rdv.heure).getTime() <= maintenant.getTime(),
       alerteEnvoyeeLe: s?.alerte_envoyee_le ?? null,
       compteRendu: s !== null && avecCr.has(s.id),
     };
@@ -183,8 +184,9 @@ export async function avecPrevisites<T extends { disponible: boolean; lignes: Li
 
 // ══ LE LIEN QUI OUVRE LA LIGNE, DÉPLIÉE ═════════════════════════════════════════════════════════════════════════════════
 
-export function lienLignePreavis(occupationId: number): string {
-  return `${adresseApplication().base.replace(/\/+$/, '')}/admin/location?previsite=${occupationId}`;
+export function lienLignePreavis(occupationId: number, o: { compteRendu?: boolean } = {}): string {
+  // 🔴 Arno (13/11/2026) — l'invitation au compte rendu : `&geste=compte-rendu` ouvre directement le formulaire (après connexion, le retour y ramène)
+  return `${adresseApplication().base.replace(/\/+$/, '')}/admin/location?previsite=${occupationId}${o.compteRendu ? '&geste=compte-rendu' : ''}`;
 }
 // ══ LES MAILS AUX LOCATAIRES (confirmation, modification) ═══════════════════════════════════════════════════════════════
 

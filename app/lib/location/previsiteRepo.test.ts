@@ -357,17 +357,38 @@ describe('🔴 Règle 2 — l’alerte du 11e jour : UN mail par adresse, jamais
   });
 });
 
-describe('🔴 Règle 5 — l’invitation au compte rendu, après la fin du rendez-vous, une fois', () => {
-  it('aux collègues qui n’ont pas refusé, avec le lien qui ouvre la ligne', async () => {
+describe('🔴 Règle 5 — l’invitation au compte rendu : 🔴 Arno (13/11/2026) à l’HEURE DE DÉBUT du rendez-vous, une fois', () => {
+  it('aux collègues qui n’ont pas refusé, dès le début (10h00 Paris), avec le lien qui ouvre directement le formulaire ; jamais deux fois', async () => {
     programmee();
     reponses = [{ tache_id: '500', destinataire_id: '4', libelle: 'Claire Test', email: 'claire@exemple.test', statut: 'acceptee', motif: null },
       { tache_id: '500', destinataire_id: '5', libelle: 'Paul Test', email: 'paul@exemple.test', statut: 'refusee', motif: 'x' }];
-    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:30:00Z') })).toEqual({ invitations: 0, echecs: 0 }); // 10h30 Paris : pas fini
-    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T10:05:00Z') })).toEqual({ invitations: 1, echecs: 0 });
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T08:59:00Z') })).toEqual({ invitations: 0, echecs: 0 }); // 9h59 Paris : pas commencé
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:00:00Z') })).toEqual({ invitations: 1, echecs: 0 }); // 10h00 : le début
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ sorte: string; a: string[]; texte: string }[]];
     expect(mails[0]).toMatchObject({ sorte: 'previsite_invitation_cr', a: ['claire@exemple.test'] });
-    expect(mails[0].texte).toContain('http://localhost:3000/admin/location?previsite=11');
-    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T11:00:00Z') })).toEqual({ invitations: 0, echecs: 0 });
+    expect(mails[0].texte).toContain('http://localhost:3000/admin/location?previsite=11&geste=compte-rendu');
+    expect(mails[0].texte).toContain('commence le 12/11/2026 à 10h00');
+    expect(mails[0].texte).toContain('Prenez vos notes pendant la visite et envoyez le compte rendu sur place');
+    expect(mails[0].texte).not.toMatch(/était prévue|terminée/);
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:30:00Z') })).toEqual({ invitations: 0, echecs: 0 }); // déjà partie
+    expect(envoyerSerie).toHaveBeenCalledTimes(1);
+  });
+  it('rendez-vous DÉPLACÉ : l’invitation est remise à faire et suit la nouvelle heure de début', async () => {
+    programmee();
+    reponses = [{ tache_id: '500', destinataire_id: '4', libelle: 'Claire Test', email: 'claire@exemple.test', statut: 'acceptee', motif: null }];
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:00:00Z') })).toEqual({ invitations: 1, echecs: 0 });
+    Object.assign(suivi!, { cr_invitation_le: null, jour: '2026-11-13', heure: '14:30' }); // le déplacement remet la réservation à zéro (SET … cr_invitation_le = NULL)
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-13T13:29:00Z') })).toEqual({ invitations: 0, echecs: 0 }); // 14h29 Paris
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-13T13:30:00Z') })).toEqual({ invitations: 1, echecs: 0 }); // 14h30
+  });
+  it('rendez-vous ANNULÉ (tâche annulée) ou REFUSÉ : rien ne part', async () => {
+    programmee();
+    reponses = [{ tache_id: '500', destinataire_id: '4', libelle: 'Claire Test', email: 'claire@exemple.test', statut: 'acceptee', motif: null }];
+    suivi!.tache_etat = 'annulee';
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:30:00Z') })).toEqual({ invitations: 0, echecs: 0 });
+    suivi!.tache_etat = 'a_faire'; suivi!.refus_le = '2026-11-11T10:00:00Z';
+    expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:30:00Z') })).toEqual({ invitations: 0, echecs: 0 });
+    expect(envoyerSerie).not.toHaveBeenCalled();
   });
 });
 

@@ -4,7 +4,7 @@ import { adressesUniques } from './mailsPreavisSortie';
 import type { LignePreavisAccueil } from './preavis';
 import { preavisEnCours } from './preavisRepo';
 import {
-  MENTION_AUTOMATIQUE, enAlerte, finDuRendezVous, mailPrevisite, objetAlertePrevisite, objetInvitationCompteRendu, paragraphesAlertePrevisite,
+  MENTION_AUTOMATIQUE, debutDuRendezVous, enAlerte, mailPrevisite, objetAlertePrevisite, objetInvitationCompteRendu, paragraphesAlertePrevisite,
   paragraphesInvitationCompteRendu, paragraphesRecapAlertes, objetRecapAlertes, statutPrevisite,
 } from './previsite';
 import {
@@ -95,8 +95,9 @@ export async function passeAlertesPrevisite(
 }
 
 /**
- * L'INVITATION AU COMPTE RENDU, une fois par rendez-vous (un déplacement la remet à faire) : la fin du rendez-vous est passée, ni compte
- * rendu ni refus depuis. À : les collègues destinataires qui n'ont pas refusé (tous, si tous ont refusé), avec le lien qui ouvre la ligne.
+ * L'INVITATION AU COMPTE RENDU, une fois par rendez-vous (un déplacement la remet à faire) : 🔴 Arno (13/11/2026) — dès l'HEURE DE DÉBUT du
+ * rendez-vous (le collègue prend ses notes pendant la visite et envoie le compte rendu devant le locataire), ni compte rendu ni refus depuis ;
+ * tâche annulée (refus, annulation) : rien ne part ; déjà partie : jamais deux fois (réservation `cr_invitation_le`). À : les collègues destinataires qui n'ont pas refusé (tous, si tous ont refusé), avec le lien qui ouvre la ligne.
  */
 export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?: Date } = {}): Promise<{ invitations: number; echecs: number }> {
   const bilan = { invitations: 0, echecs: 0 };
@@ -108,7 +109,7 @@ export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?
         AND t.jour <= (now() AT TIME ZONE 'Europe/Paris')::date`);
   for (const s of rows) {
     const rdv = rdvDuSuivi(s);
-    if (rdv === null || finDuRendezVous(rdv.jour, rdv.heure, rdv.dureeMinutes).getTime() > maintenant.getTime()) continue;
+    if (rdv === null || debutDuRendezVous(rdv.jour, rdv.heure).getTime() > maintenant.getTime()) continue;
     if (statutPrevisite(faitsDuSuivi(s.recu_le, s), rdv.jour) === 'refusee') continue;
     const { rows: pris } = await query<{ id: string }>(
       'UPDATE gestion_location_previsite SET cr_invitation_le = now() WHERE id = $1 AND cr_invitation_le IS NULL RETURNING id::text', [Number(s.id)]);
@@ -121,7 +122,7 @@ export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?
       const a = adressesUniques((gardes.length > 0 ? gardes : reponses).map((r) => r.email));
       if (c === null || a.length === 0) return false;
       const m = mailPrevisite({ sorte: 'previsite_invitation_cr', de: c.expediteur, a, cc: [], objet: objetInvitationCompteRendu(c.adresse, rdv),
-        paragraphes: paragraphesInvitationCompteRendu({ adresse: c.adresse, locataires: c.locataires, rdv, lien: lienLignePreavis(ids[0]) }),
+        paragraphes: paragraphesInvitationCompteRendu({ adresse: c.adresse, locataires: c.locataires, rdv, lien: lienLignePreavis(ids[0], { compteRendu: true }) }),
         qui: { mention: MENTION_AUTOMATIQUE }, signature: c.signature });
       const e = await envoyerSerie([m], c.brute, { lotId: c.lotId, occupationIds: ids, auteur: AUTEUR_AUTOMATIQUE }, deps);
       return e.some((x) => x.envoye);

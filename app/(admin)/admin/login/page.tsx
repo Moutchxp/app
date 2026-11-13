@@ -1,12 +1,29 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { PARAM_RETOUR, retourSur } from '../../../lib/admin/retourConnexion';
+import { allerA } from '../../../lib/admin/naviguer';
+
+/** 🔴 Arno (13/11/2026) — la page à rejoindre après la connexion (`?retour=`, chemin interne seulement), sinon l'accueil de l'admin. */
+function destination(): string {
+  try { return retourSur(new URLSearchParams(window.location.search).get(PARAM_RETOUR)) ?? '/admin'; } catch { return '/admin'; }
+}
 
 export default function AdminLoginPage() {
   const [identifiant, setIdentifiant] = useState('');
   const [password, setPassword] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  // 🔴 Arno (13/11/2026) — un lien ouvert depuis une autre application (Mail sur iPhone) arrive SANS le cookie de session (SameSite=Strict) :
+  // le garde renvoie ici. Cette page, elle, est du même site : la sonde reçoit le cookie. Session valide → retour immédiat à la page demandée,
+  // sans se reconnecter ; sinon, le formulaire, puis le même retour.
+  useEffect(() => {
+    const retour = retourSur(new URLSearchParams(window.location.search).get(PARAM_RETOUR));
+    if (retour === null) return;
+    let vivant = true;
+    void fetch('/api/admin/ping', { cache: 'no-store' }).then((r) => { if (vivant && r.ok) allerA(retour, { remplacer: true }); }).catch(() => {});
+    return () => { vivant = false; };
+  }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -19,7 +36,7 @@ export default function AdminLoginPage() {
         body: JSON.stringify({ identifiant, password }),
       });
       if (res.ok) {
-        window.location.assign('/admin');
+        allerA(destination());
         return;
       }
       // Message générique quel que soit le motif (EX-20).

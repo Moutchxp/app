@@ -22,7 +22,7 @@ describe('proxy — mot de passe oublié de l’administration', () => {
     expect(lireEtatCompte).not.toHaveBeenCalled();
   });
   it('une page voisine reste protégée ; une autre origine est refusée', async () => {
-    expect((await proxy(req('/admin/reinitialiser-autre'))).headers.get('location')).toMatch(/\/admin\/login$/);
+    expect((await proxy(req('/admin/reinitialiser-autre'))).headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
     expect((await proxy(req('/api/admin/reinitialiser/demander', 'POST', 'https://ailleurs.example'))).status).toBe(403);
   });
 });

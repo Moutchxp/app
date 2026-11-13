@@ -1025,3 +1025,41 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
     expect(container.querySelector('[data-ligne-depliee="C"] [data-refus-previsite]')).not.toBeNull();
   });
 });
+
+describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre le formulaire ; « non envoyé » en rouge ; iPhone', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  const programmeeCommencee = () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+  };
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+  it('?previsite=11&geste=compte-rendu : la ligne s’ouvre ET le formulaire « Compte rendu pré-visite » est déjà ouvert ; le paramètre est retiré de l’adresse', async () => {
+    programmeeCommencee();
+    window.history.replaceState(null, '', '/admin/location?previsite=11&geste=compte-rendu');
+    await rendre(true); await attendre(); await attendre();
+    expect(container.querySelector('[data-ligne-depliee="C"]')).not.toBeNull();
+    const f = document.querySelector('[data-fenetre-previsite="saisie"][data-geste-previsite="compte_rendu"]');
+    expect(f).not.toBeNull();
+    expect(f!.querySelector('[data-corps-compte-rendu]')).not.toBeNull();
+    expect(window.location.search).toBe('?previsite=11');
+    act(() => (document.querySelector('[data-annuler-previsite]') as HTMLButtonElement).click());
+  });
+  it('sans « geste » : la ligne s’ouvre seulement (comme avant) ; rendez-vous pas commencé : le formulaire ne s’ouvre pas', async () => {
+    programmeeCommencee();
+    window.history.replaceState(null, '', '/admin/location?previsite=11');
+    await rendre(true); await attendre();
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    act(() => root.unmount()); root = createRoot(container);
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { ...l.previsite!, rdvPasse: false } } : l));
+    window.history.replaceState(null, '', '/admin/location?previsite=11&geste=compte-rendu');
+    await rendre(true); await attendre();
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+  });
+  it('« non envoyé » et « échec » en ROUGE, « envoyé » en vert ; la fenêtre tient dans la zone visible (clavier iPhone), champs en 16 px', async () => {
+    const css = (await import('./PrevisiteAccueil')).CSS_PREVISITE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-cr-etat--non_envoye{color:var(--color-svv-red)}');
+    expect(css).toContain('.pvv-cr-etat--echec{color:var(--color-svv-red)}');
+    expect(css).toContain('.pvv-cr-etat--envoye{color:var(--color-svv-green-ink)}');
+    expect(css).toContain('.pvv-voile .mis-boite{max-height:100%}');
+    expect(css).toContain('font-size:16px;width:100%');
+  });
+});

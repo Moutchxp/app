@@ -136,7 +136,10 @@ describe('le lien d’un mail : sans session, la page de connexion', () => {
   it('le VRAI proxy redirige le chemin de la pièce vers /admin/login quand aucune session n’est présente', async () => {
     const res = await proxy(new NextRequest(new URL(`http://local${cheminPiecePermis('reponse', 42, { telecharger: true })}`)));
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+    // 🔴 Arno (13/11/2026) — la connexion RAMÈNE à la pièce demandée (`?retour=`), comme pour tout lien de mail
+    const l = new URL(res.headers.get('location')!);
+    expect(l.pathname).toBe('/admin/login');
+    expect(l.searchParams.get('retour')).toBe(cheminPiecePermis('reponse', 42, { telecharger: true }));
   });
 
   it('URL absolue sur SVAV_URL_PUBLIQUE (barre finale retirée), repli http://localhost:3000 ; jamais l’endpoint S3', () => {

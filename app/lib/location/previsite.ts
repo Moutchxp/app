@@ -112,7 +112,7 @@ export interface PrevisiteAffiche {
   tacheId: number | null;
   collegues: ReponseDuCollegue[];
   tousRefusent: boolean;
-  /** Le rendez-vous est passé : le bouton « Compte rendu pré-visite » est proposé. */
+  /** 🔴 Arno (13/11/2026) — le rendez-vous a COMMENCÉ (son heure de début est passée) : le bouton « Compte rendu pré-visite » est proposé. */
   rdvPasse: boolean;
   alerteEnvoyeeLe: string | null;
   /** 🔴 Arno (13/11/2026) — un compte rendu a été saisi (au moins un envoi journalisé) : « Voir le compte rendu » ; absent : inconnu. */
@@ -160,6 +160,12 @@ export function quandFr(jour: string, heure: string | null): string {
 }
 
 /** L'instant de FIN du rendez-vous (Paris) : passé, il est temps d'inviter au compte rendu. PUR. */
+/** 🔴 Arno (13/11/2026) — le DÉBUT du rendez-vous (heure de Paris) : l'invitation au compte rendu part à ce moment, le bouton « Compte rendu
+ *  pré-visite » est proposé dès lors (le collègue prend ses notes pendant la visite et envoie le compte rendu sur place). PUR. */
+export function debutDuRendezVous(jour: string, heure: string | null): Date {
+  return finDuRendezVous(jour, heure, 0);
+}
+
 export function finDuRendezVous(jour: string, heure: string | null, dureeMinutes: number | null): Date {
   const [a, m, j] = jour.split('-').map(Number);
   const debut = heure === null ? null : minutesDe(heure.slice(0, 5));
@@ -293,8 +299,8 @@ export function objetInvitationCompteRendu(adresse: string, r: Pick<RdvPrevisite
 export function paragraphesInvitationCompteRendu(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>; lien: string }): string[] {
   return [
     'Bonjour,',
-    `La pré-visite d’état des lieux de sortie du logement situé ${d.adresse} (${noms(d.locataires)}) était prévue ${quandFr(d.rdv.jour, d.rdv.heure)}.`,
-    'Merci d’en faire le compte rendu : le lien ci-dessous ouvre directement la ligne de ce préavis, dépliée, avec le bouton « Compte rendu pré-visite ».',
+    `La pré-visite d’état des lieux de sortie du logement situé ${d.adresse} (${noms(d.locataires)}) commence ${quandFr(d.rdv.jour, d.rdv.heure)}.`,
+    'Prenez vos notes pendant la visite et envoyez le compte rendu sur place, devant le locataire : le lien ci-dessous ouvre directement le formulaire « Compte rendu pré-visite » de ce préavis (après connexion si nécessaire).',
     d.lien,
   ];
 }

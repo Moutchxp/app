@@ -84,7 +84,7 @@ describe('proxy — garde de permissions (e)', () => {
   it('non authentifié sur une page → redirigé vers /admin/login', async () => {
     const res = await proxy(await requete('/admin/curation', null));
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
   });
 
   it('non authentifié sur une API → 401', async () => {
@@ -137,7 +137,7 @@ describe('proxy — enforcement première connexion (M3-4 Lot B)', () => {
   it('ancienne VOIE DE SECOURS (sub=null) : renvoyée à la connexion (page), jamais admise', async () => {
     const res = await proxy(await requete('/admin/pilotage', secours(true)));
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
   });
 
   it('jeton LEGACY (sans doitChanger) : session non cassée, pas de redirection', async () => {
@@ -344,7 +344,7 @@ describe('proxy — allow-list AUTHENTIFIÉ-SEUL (sans permission de module)', (
   it('/admin : NON authentifié → redirection login (l’allow-list n’ouvre PAS aux anonymes)', async () => {
     const res = await proxy(await requete('/admin', null));
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
   });
 
   it('/api/admin/ping : NON authentifié → 401', async () => {
@@ -387,12 +387,12 @@ describe('proxy — module « Gestion » (lot 2) : gardé par perm_gestion, comm
       expect(res.status).not.toBe(307);
       expect(res.status).not.toBe(403);
     }
-    expect((await proxy(await requete('/admin/gestion', secours()))).headers.get('location')).toMatch(/\/admin\/login$/);
+    expect((await proxy(await requete('/admin/gestion', secours()))).headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
     expect((await proxy(await requete('/api/admin/gestion', secours()))).status).toBe(401);
   });
 
   it('NON authentifié → login pour la page, 401 pour l’API (aucune donnée de gestion sans session)', async () => {
-    expect((await proxy(await requete('/admin/gestion', null))).headers.get('location')).toMatch(/\/admin\/login$/);
+    expect((await proxy(await requete('/admin/gestion', null))).headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
     expect((await proxy(await requete('/api/admin/gestion', null))).status).toBe(401);
   });
 
@@ -417,7 +417,7 @@ describe('proxy — la session vit aussi longtemps que le compte le permet (poin
     lireEtatCompte.mockResolvedValue(etatCollab({ actif: false }));
     expect((await proxy(await requete('/api/admin/curation/journal', collabCuration()))).status).toBe(401);
     const page = await proxy(await requete('/admin/curation', collabCuration()));
-    expect(page.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(page.headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
     expect(lireEtatCompte).toHaveBeenCalledWith(3);
   });
 

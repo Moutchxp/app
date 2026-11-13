@@ -21,6 +21,6 @@ describe('proxy — activation par le lien d’invitation', () => {
   });
   it('une page voisine reste protégée', async () => {
     const res = await proxy(req('/admin/activation-autre'));
-    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
   });
 });

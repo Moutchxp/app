@@ -45,7 +45,7 @@ describe('🔴 sans connexion, une route admin protégée reste refusée (contou
       for (const e of ENTETES_INTERNES) {
         const res = await proxy(req(chemin, e));
         expect(res.status, JSON.stringify(e)).toBe(307);
-        expect(res.headers.get('location'), JSON.stringify(e)).toMatch(/\/admin\/login$/);
+        expect(res.headers.get('location'), JSON.stringify(e)).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
       }
     });
   }
@@ -57,5 +57,18 @@ describe('🔴 sans connexion, une route admin protégée reste refusée (contou
   it('un faux cookie de session (jeton non signé) : refusé comme une absence de connexion', async () => {
     const r = new NextRequest(new URL('http://local/api/admin/gestion'), { headers: new Headers({ cookie: `${NOM_COOKIE}=eyJhbGciOiJub25lIn0.eyJzdWIiOjF9.` }) });
     expect((await proxy(r)).status).toBe(401);
+  });
+});
+
+describe('🔴 Arno (13/11/2026) — le lien du mail ouvert sans le cookie (app Mail, SameSite=Strict) : la connexion RAMÈNE au formulaire', () => {
+  it('/admin/location?previsite=11&geste=compte-rendu sans session → /admin/login?retour=<la même page>', async () => {
+    const res = await proxy(new NextRequest(new URL('http://local/admin/location?previsite=11&geste=compte-rendu')));
+    expect(res.status).toBe(307);
+    const l = new URL(res.headers.get('location')!);
+    expect(l.pathname).toBe('/admin/login');
+    expect(l.searchParams.get('retour')).toBe('/admin/location?previsite=11&geste=compte-rendu');
+  });
+  it('l’API reste en 401, sans redirection', async () => {
+    expect((await proxy(new NextRequest(new URL('http://local/api/admin/location?previsiteCompteRendu=11')))).status).toBe(401);
   });
 });

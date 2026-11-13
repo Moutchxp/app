@@ -36,6 +36,6 @@ describe('proxy — ancien lien de réponse à une tâche', () => {
 
   it('« Mes tâches » SANS jeton reste la page protégée d’avant (connexion exigée)', async () => {
     const res = await proxy(req('/admin/taches'));
-    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login(\?retour=[^&]+)?$/);
   });
 });

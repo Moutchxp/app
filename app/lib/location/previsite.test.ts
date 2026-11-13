@@ -160,3 +160,11 @@ describe('★ L’invitation d’agenda (.ics)', () => {
     expect(r.split('\r\n ').join('')).toBe(longue);
   });
 });
+
+describe('🔴 Arno (13/11/2026) — le début du rendez-vous (heure de Paris)', () => {
+  it('debutDuRendezVous : l’heure de début, en heure de Paris (hiver et été)', async () => {
+    const { debutDuRendezVous } = await import('./previsite');
+    expect(debutDuRendezVous('2026-11-13', '13:45').toISOString()).toBe('2026-11-13T12:45:00.000Z');
+    expect(debutDuRendezVous('2026-07-01', '10:00').toISOString()).toBe('2026-07-01T08:00:00.000Z');
+  });
+});
