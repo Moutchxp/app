@@ -4,6 +4,7 @@ import { coutsVenteDeLaSociete } from '../transaction/grapheGlobal';
 import { variableNegociateur } from '../transaction/locationCa';
 import { montantSaisi } from '../transaction/coutsSaisis';
 import type { Agence } from './agence';
+import { caGestionDuMoisC } from '../transaction/modele';
 
 /**
  * ══ 🔴 MON ESPACE — L'ONGLET « LES COÛTS » (Arno, 03/11/2026, lot C1 : LECTURE SEULE) ═══════════════════════════════════════════════════════════
@@ -74,6 +75,19 @@ export function coutsDuPoint(e: EntreesCoutsGlobaux, agence: Agence, annee: numb
   return { vente, location, gestion, total };
 }
 
+/**
+ * ══ 🔴 « COÛTS ET CA » (Arno, 13/11/2026, 471) — LE CA DE GESTION D'UN POINT (un mois, ou l'année) ═════════════════════════════════════════════════
+ * AUCUN CALCUL PROPRE : `caGestionDuMoisC`, la fonction du Suivi CA (honoraires de gestion + honoraires GLI, chacun à son taux). La gestion est à
+ * CRITERIMMO : MACJ n'en a pas (null) ; FUSION = celui de CRITERIMMO. PUR.
+ */
+export interface CaGestionDuPoint { honoraires: MontantC; gli: MontantC; total: MontantC }
+export function caGestionDuPoint(gestion: EntreesCoutsGlobaux['gestion'], agence: Agence, annee: number, mois: number | null): CaGestionDuPoint | null {
+  if (!avecLocationGestion(agence)) return null;
+  const xs = gestion.filter((g) => g.annee === annee && (mois === null || g.mois === mois) && g.id > 0).map((g) => caGestionDuMoisC(g));
+  const s2 = (h: 'honorairesC' | 'gliC' | 'totalC', t: 'honorairesTtcC' | 'gliTtcC' | 'totalTtcC'): MontantC => ({ htC: xs.reduce((a, x) => a + x[h], 0), ttcC: xs.reduce((a, x) => a + x[t], 0) });
+  return { honoraires: s2('honorairesC', 'honorairesTtcC'), gli: s2('gliC', 'gliTtcC'), total: s2('totalC', 'totalTtcC') };
+}
+
 /** Chaque montant de `a` moins celui de `b` (même forme). PUR. */
 function ecart(a: CoutsDuPoint, b: readonly CoutsDuPoint[]): CoutsDuPoint {
   const s = <T extends object>(x: T | null, ys: readonly (T | null)[]): T | null => (x === null ? null
@@ -101,7 +115,7 @@ export function coutsDeLAnnee(e: EntreesCoutsGlobaux, agence: Agence, annee: num
 }
 
 /** Le refus de la route (403) : un compte sans la case « Les coûts » (D37, qui remplace « associé »), ou pas administrateur (« Voir »). */
-export const MOTIF_COUTS = 'L’onglet « Les coûts » est réservé aux comptes qui ont la case « Les coûts » (Administratif › Comptes).';
+export const MOTIF_COUTS = 'L’onglet « Coûts et CA » est réservé aux comptes qui ont la case « Les coûts » (Administratif › Comptes).';
 /** L'adresse de lecture de l'onglet. */
 export const URL_COUTS = '/api/admin/mon-espace/couts';
 /** L'onglet est-il proposé ? 🔴 D37 : la case « Les coûts » (absente d'une réponse d'avant : le statut « Associé », décision C1) ; décision
@@ -116,10 +130,14 @@ export type GesteCout =
   | { action: 'ligne-modifier'; id: number; version: number; montantHt?: number; compteId?: number; libelle?: string; tva?: boolean }
   | { action: 'ligne-retirer'; id: number; version: number }
   | { action: 'gestion-poste'; annee: number; mois: number; poste: 'adhoc' | 'monga'; montantHt: number | null; version: number }
-  | { action: 'valider'; validation: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga'; annee: number; mois: number };
+  /** 🔴 471 — le CA de gestion du mois (CRITERIMMO) : honoraires de gestion ou honoraires GLI, HT et taux de TVA (en %). */
+  | { action: 'ca-gestion'; annee: number; mois: number; poste: 'honoraires' | 'gli'; montantHt: number | null; tauxTva: number; version: number }
+  | { action: 'valider'; validation: { societe: 'criterimmo' | 'macj'; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'honoraires' | 'gli'; annee: number; mois: number };
       valide: boolean };
 /** Un montant saisi : un nombre ≥ 0, au plus 2 décimales, au plus 10 millions. PUR. */
 export const estMontantSaisi = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x < 1e7 && Math.abs(Math.round(x * 100) - x * 100) < 1e-6;
+/** 🔴 471 — un taux de TVA saisi (en %) : un nombre entre 0 et 100, au plus 2 décimales. PUR. */
+export const estMontantSaisiTaux = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 100 && Math.abs(Math.round(x * 100) - x * 100) < 1e-6;
 const entier = (x: unknown, min: number, max: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= min && x <= max;
 /** Le geste demandé, ou le motif du refus (422). C7 : la location et la gestion se saisissent sur CRITERIMMO seulement. PUR. */
 export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok: false; motif: string } {
@@ -162,12 +180,21 @@ export function lireGesteCout(b: unknown): { ok: true; geste: GesteCout } | { ok
     if (!entier(o.version, 0, Number.MAX_SAFE_INTEGER)) return refus('Version manquante : rechargez.');
     return { ok: true, geste: { action: 'gestion-poste', annee: o.annee as number, mois: o.mois as number, poste: o.poste, montantHt: o.montantHt as number | null, version: o.version } };
   }
+  if (o.action === 'ca-gestion') {
+    // 🔴 471 — la gestion est à CRITERIMMO : aucune structure à choisir (MACJ ne fait pas de gestion)
+    if (!moisOk) return refus('Mois invalide.');
+    if (o.poste !== 'honoraires' && o.poste !== 'gli') return refus('Poste inconnu.');
+    if (o.montantHt !== null && !estMontantSaisi(o.montantHt)) return refus('Montant invalide (un nombre positif, deux décimales au plus).');
+    if (!estMontantSaisiTaux(o.tauxTva)) return refus('Taux de TVA invalide (un pourcentage entre 0 et 100, deux décimales au plus).');
+    if (!entier(o.version, 0, Number.MAX_SAFE_INTEGER)) return refus('Version manquante : rechargez.');
+    return { ok: true, geste: { action: 'ca-gestion', annee: o.annee as number, mois: o.mois as number, poste: o.poste, montantHt: o.montantHt as number | null, tauxTva: o.tauxTva as number, version: o.version } };
+  }
   if (o.action === 'valider') {
     const v = (o.validation ?? {}) as Record<string, unknown>;
     if (v.societe !== 'criterimmo' && v.societe !== 'macj') return refus('Structure attendue : CRITERIMMO ou MACJ (FUSION se lit, elle ne se saisit pas).');
     if (v.famille !== 'vente' && v.famille !== 'location' && v.famille !== 'gestion') return refus('Famille inconnue.');
     if (v.famille !== 'vente' && v.societe !== 'criterimmo') return refus('La location et la gestion sont à CRITERIMMO : saisissez-les sur CRITERIMMO.');
-    if (v.poste !== 'salaires' && v.poste !== 'autres' && !(v.famille === 'gestion' && (v.poste === 'adhoc' || v.poste === 'monga'))) return refus('Poste inconnu.');
+    if (v.poste !== 'salaires' && v.poste !== 'autres' && !(v.famille === 'gestion' && (v.poste === 'adhoc' || v.poste === 'monga' || v.poste === 'honoraires' || v.poste === 'gli'))) return refus('Poste inconnu.');
     if (!entier(v.annee, 2000, 2100) || !entier(v.mois, 1, 12)) return refus('Mois invalide.');
     if (typeof o.valide !== 'boolean') return refus('Valider : oui ou non.');
     return { ok: true, geste: { action: 'valider', validation: { societe: v.societe, famille: v.famille, poste: v.poste as 'salaires', annee: v.annee, mois: v.mois }, valide: o.valide } };

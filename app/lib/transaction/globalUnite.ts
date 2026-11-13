@@ -1,5 +1,4 @@
-import { celluleGlobal, previsionnel, TVA, type CelluleGlobal, type EntreesGlobal } from './modele';
-import { honorairesTtcC } from './gestionVue';
+import { aCaGestion, caGestionDuMoisC, celluleGlobal, previsionnel, TVA, type CelluleGlobal, type EntreesGlobal } from './modele';
 import type { TotalCompromisEnCours } from './compromisEnCours';
 import type { Societe } from './modele';
 
@@ -53,8 +52,9 @@ function celluleGlobalTtc(e: EntreesGlobalUnite, annee: number, mois: number | n
   const moisVises = mois === null ? Array.from({ length: 12 }, (_, i) => i + 1) : [mois];
   const location = c.locationHt === null ? null
     : e.locationTtcC == null ? c.locationHt * TVA : moisVises.reduce((t, m) => t + (e.locationTtcC?.[cle(annee, m)] ?? 0), 0) / 100;
-  const gLignes = e.gestion.filter((g) => g.annee === annee && moisVises.includes(g.mois) && g.honorairesHt !== null);
-  const gestion = c.gestionHt === null ? null : gLignes.reduce((t, g) => t + honorairesTtcC(Math.round((g.honorairesHt ?? 0) * 100)), 0) / 100;
+  // 🔴 471 — le CA de gestion TTC : honoraires + GLI, chacun à son taux du mois (`caGestionDuMoisC`, la même fonction que le HT)
+  const gLignes = e.gestion.filter((g) => g.annee === annee && moisVises.includes(g.mois) && aCaGestion(g));
+  const gestion = c.gestionHt === null ? null : gLignes.reduce((t, g) => t + caGestionDuMoisC(g).totalTtcC, 0) / 100;
   const venteCriterimmoHt = c.venteCriterimmoHt * TVA; const venteMacjHt = c.venteMacjHt * TVA;
   const aAttribuerHt = c.aAttribuerHt * TVA; const interCabinetHt = c.interCabinetHt * TVA;
   const criterimmoHt = venteCriterimmoHt + (location ?? 0) + (gestion ?? 0);

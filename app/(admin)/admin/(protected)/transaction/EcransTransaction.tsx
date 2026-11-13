@@ -2114,8 +2114,8 @@ export function EcranGestion() {
   // « L'année » › « Tout » : le tableau « Année par année » d'avant, tel quel
   const deLAnnee = (a: number): GestionMois[] => d.gestion.filter((g) => g.annee === a);
   // 🔴 LOT GE2 — dans l'unité choisie (les montants de chaque mois, convertis au centime, puis additionnés)
-  const somme = (gs: readonly GestionMois[], k: 'honorairesHt' | 'adhocHt' | 'mongaHt' | 'salarieHt' | 'resteHt'): number | null => {
-    const cle = ({ honorairesHt: 'honoraires', adhocHt: 'adhoc', mongaHt: 'monga', salarieHt: 'salarie', resteHt: 'reste' } as const)[k];
+  const somme = (gs: readonly GestionMois[], k: 'honorairesHt' | 'gliHt' | 'adhocHt' | 'mongaHt' | 'salarieHt' | 'resteHt'): number | null => {
+    const cle = ({ honorairesHt: 'honoraires', gliHt: 'gli', adhocHt: 'adhoc', mongaHt: 'monga', salarieHt: 'salarie', resteHt: 'reste' } as const)[k];
     const xs = gs.map((g) => ligneGestionEnUnite(g, unite)[cle]);
     return xs.every((x) => x === null) ? null : xs.reduce<number>((t, x) => t + Math.round((x ?? 0) * 100), 0) / 100;
   };
@@ -2165,14 +2165,14 @@ export function EcranGestion() {
             tableAnnees={enTout ? <section className="tdb-section" aria-labelledby="trx-gestion-annees" data-bloc="gestion-annees">
               <h3 id="trx-gestion-annees">Année par année <small className="loc-muet">({MOT_UNITE[unite]})</small></h3>
         <table className="tdb-table tdb-table--large" data-table-gestion-annees>
-          <thead><tr><th scope="col">Année</th><th scope="col">Mois saisis</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}{avecSalaires ? '' : ' (non comptés)'}</th><th scope="col">Reste{avecSalaires ? '' : ' hors salaires'}</th><th scope="col">Évolution</th></tr></thead>
+          <thead><tr><th scope="col">Année</th><th scope="col">Mois saisis</th><th scope="col">Honoraires</th><th scope="col">Honoraires GLI</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}{avecSalaires ? '' : ' (non comptés)'}</th><th scope="col">Reste{avecSalaires ? '' : ' hors salaires'}</th><th scope="col">Évolution</th></tr></thead>
           <tbody>{annees.map((a, i) => {
             const h = somme(deLAnnee(a), 'honorairesHt');
             const p = i === 0 ? null : somme(deLAnnee(annees[i - 1]), 'honorairesHt');
             return (
               <tr key={a} className={a === choixA.annee ? 'tdb-fort' : undefined} data-annee-gestion={a}>
                 <th scope="row"><button type="button" className="tdb-chiffre" onClick={() => onAnneeSeule(a)}>{a}</button></th>
-                <td data-mot="Mois saisis">{deLAnnee(a).length}</td><td data-mot="Honoraires">{manque(h)}</td><td data-mot="ADHOC">{manque(somme(deLAnnee(a), 'adhocHt'))}</td>
+                <td data-mot="Mois saisis">{deLAnnee(a).length}</td><td data-mot="Honoraires">{manque(h)}</td><td data-mot="Honoraires GLI" data-gestion-gli-annee={a}>{manque(somme(deLAnnee(a), 'gliHt'))}</td><td data-mot="ADHOC">{manque(somme(deLAnnee(a), 'adhocHt'))}</td>
                 <td data-mot="MONGA">{manque(somme(deLAnnee(a), 'mongaHt'))}</td><td data-mot={LIBELLE_SALAIRES} className={avecSalaires ? undefined : 'loc-muet'}>{caseSalairesGestion(somme(deLAnnee(a), 'salarieHt'), aSaisirGestion(d.gestion, douzeMois(a), jour), manque)}</td><td data-mot="Reste">{manque(resteAnnee(deLAnnee(a)))}</td>
                 <td data-mot="Évolution">{h === null || p === null ? '—' : signePct(variation(h, p))}</td>
               </tr>
@@ -2233,7 +2233,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
   const lots = T.lots === null ? 'lots : —' : ms.length === 1 ? `${nombreFr(T.lots)} lots` : `${nombreFr(Math.round(T.lots))} lots en moyenne`;
   const MOT = MOT_UNITE[u]; const AUTRE: UniteGestion = u === 'ht' ? 'ttc' : 'ht';
   /** Une tuile : le grand montant dans l'unité, l'autre unité en petit entre parenthèses (les salariés : « sans TVA »), N−1 dans l'unité. */
-  const tuile = (cle: string, mot: string, m: Exclude<MesureGestion, 'lots'>, couleur: string, lotsEnPlus = false, sous: ReactNode = null) => {
+  const tuile = (cle: string, mot: string, m: Exclude<MesureGestion, 'lots'> | 'honoraires_gestion', couleur: string, lotsEnPlus = false, sous: ReactNode = null) => {
     const c = centimesGestion(T, m, u); const c1 = centimesGestion(T1, m, u);
     // 🔴 LOT LO12 — « Sans salaires » : la tuile des salaires en gris, « non comptés » ; le CA net « hors salaires »
     const gris = m === 'salaries' && !salaires;
@@ -2257,7 +2257,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
   const total = totauxGestion(gestion, lignesTableau, salaires);
   // 🔴 LOT GE2 — le tableau dans l'unité choisie (`ligneGestionEnUnite`) ; ses totaux : la somme de ses lignes, au centime
   const ligneDe = (a: number, k: number) => ligneGestionEnUnite(gestion.find((g) => g.annee === a && g.mois === k) ?? null, u);
-  const somme = (k: 'honoraires' | 'adhoc' | 'monga' | 'salarie' | 'reste', ls: readonly MoisChoisi[] = lignesTableau): number | null => {
+  const somme = (k: 'honoraires' | 'gli' | 'adhoc' | 'monga' | 'salarie' | 'reste', ls: readonly MoisChoisi[] = lignesTableau): number | null => {
     const xs = ls.map((m) => ligneDe(m.annee, m.mois)[k]);
     return xs.every((x) => x === null) ? null : xs.reduce<number>((t, x) => t + Math.round((x ?? 0) * 100), 0) / 100;
   };
@@ -2267,7 +2267,8 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
   const grisS = salaires ? undefined : 'loc-muet';
   return <>
     <ul className={`tdb-tuiles trx-tuiles-alignees trx-tuiles-gestion ${CLASSE_TUILES_CHOIX}`} aria-label={`La gestion — ${libTitre ?? lib}`} title={libTitre}>
-      {tuile('gestion-honoraires', 'Honoraires de gestion', 'honoraires', 'tdb-signe tdb-signe--positif')}
+      {/* 🔴 471 — les honoraires de gestion SEULS (la GLI a sa colonne dans le tableau ; le CA net et le graphique « CA » comptent les deux) */}
+      {tuile('gestion-honoraires', 'Honoraires de gestion', 'honoraires_gestion', 'tdb-signe tdb-signe--positif')}
       {tuile('gestion-adhoc', 'Coût ADHOC', 'adhoc', classeSens('verse', T.adhocC, T.adhocC))}
       {tuile('gestion-monga', 'Coût MONGA', 'monga', classeSens('verse', T.mongaC, T.mongaC))}
       {tuile('gestion-salaries', LIBELLE_SALAIRES, 'salaries', classeSens('verse', T.salariesC, T.salariesC), false, <ChoixSalairesTuile salaires={salaires} onChange={onSalaires} />)}
@@ -2280,7 +2281,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
       <section className="tdb-section" aria-labelledby="trx-gestion-mois" data-bloc="gestion-mois">
         <h3 id="trx-gestion-mois">{titreTableau ?? lib} mois par mois <small className="loc-muet">{u === 'ttc' ? '(TTC, salaires chargés sans TVA ; envoyé en HT chaque mois par le comptable)' : '(HT ; envoyé chaque mois par le comptable)'}</small></h3>
         <table className="tdb-table tdb-table--large" data-table-gestion>
-          <thead><tr><th scope="col">Mois</th><th scope="col">Lots</th><th scope="col">Honoraires</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}{salaires ? '' : ' (non comptés)'}</th><th scope="col">Reste{salaires ? '' : ' hors salaires'}</th>
+          <thead><tr><th scope="col">Mois</th><th scope="col">Lots</th><th scope="col">Honoraires</th><th scope="col">Honoraires GLI</th><th scope="col">ADHOC</th><th scope="col">MONGA</th><th scope="col">{LIBELLE_SALAIRES}{salaires ? '' : ' (non comptés)'}</th><th scope="col">Reste{salaires ? '' : ' hors salaires'}</th>
             <th scope="col">Honoraires {plusieursAnnees ? 'un an plus tôt' : annee - 1}</th><th scope="col">Saisie</th></tr></thead>
           <tbody>
             {lignesTableau.map((m) => {
@@ -2289,7 +2290,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
               return (
                 <tr key={`${m.annee}-${m.mois}`} data-mois-gestion={m.mois} data-annee-mois-gestion={`${m.annee}-${m.mois}`} className={mois !== 0 && m.mois === mois && m.annee === annee ? 'trx-ligne-choisie' : undefined}>
                   <th scope="row">{NOMS_MOIS[m.mois - 1]}{plusieursAnnees ? ` ${m.annee}` : ''}{g?.origine === 'import' && <span className="loc-pastille" title="Repris du fichier importé"> import</span>}</th>
-                  <td data-mot="Lots">{g?.nbLots == null ? '—' : nombreFr(g.nbLots)}</td><td data-mot="Honoraires" data-gestion-honoraires={m.mois}>{manque(l.honoraires)}</td>
+                  <td data-mot="Lots">{g?.nbLots == null ? '—' : nombreFr(g.nbLots)}</td><td data-mot="Honoraires" data-gestion-honoraires={m.mois}>{manque(l.honoraires)}</td><td data-mot="Honoraires GLI" data-gestion-gli={m.mois}>{manque(l.gli)}</td>
                   <td data-mot="ADHOC">{manque(l.adhoc)}</td><td data-mot="MONGA">{manque(l.monga)}</td><td data-mot={LIBELLE_SALAIRES} className={grisS} data-gestion-salaires={`${m.annee}-${m.mois}`}>{caseSalairesGestion(l.salarie, l.salarie === null && moisCommence(m, jour) ? 1 : 0, manque)}</td><td data-mot="Reste" data-gestion-reste={`${m.annee}-${m.mois}`}>{manque(reste(l.reste, l.salarie))}</td>
                   <td data-mot={`Honoraires ${m.annee - 1}`}>{manque(l1.honoraires)}</td>
                   <td data-mot="Saisie"><button type="button" className="trx-bouton-lien" onClick={() => onSaisir(m)} disabled={!disponible} data-saisir-gestion={m.mois}
@@ -2298,7 +2299,7 @@ function VueGestion({ gestion, jour, disponible, onSaisir, u, salaires, onSalair
               );
             })}
             <tr className="tdb-fort trx-ligne-total" data-total-gestion><th scope="row">Total — {titreTableau ?? lib}</th><td data-mot="Lots">—</td>
-              <td data-mot="Honoraires">{manque(somme('honoraires'))}</td><td data-mot="ADHOC">{manque(somme('adhoc'))}</td><td data-mot="MONGA">{manque(somme('monga'))}</td><td data-mot={LIBELLE_SALAIRES} className={grisS}>{caseSalairesGestion(somme('salarie'), aSaisirGestion(gestion, lignesTableau, jour), manque)}</td>
+              <td data-mot="Honoraires">{manque(somme('honoraires'))}</td><td data-mot="Honoraires GLI" data-total-gestion-gli>{manque(somme('gli'))}</td><td data-mot="ADHOC">{manque(somme('adhoc'))}</td><td data-mot="MONGA">{manque(somme('monga'))}</td><td data-mot={LIBELLE_SALAIRES} className={grisS}>{caseSalairesGestion(somme('salarie'), aSaisirGestion(gestion, lignesTableau, jour), manque)}</td>
               <td data-mot="Reste" data-total-gestion-reste>{manque(reste(somme('reste'), somme('salarie')))}</td><td data-mot="Honoraires N−1">{total.nbMois === 0 ? '—' : manque(somme('honoraires', unAnPlusTot(lignesTableau)))}</td><td data-mot="Saisie" /></tr>
           </tbody>
         </table>

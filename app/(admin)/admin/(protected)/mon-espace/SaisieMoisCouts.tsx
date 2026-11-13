@@ -1,10 +1,12 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EnteteAide, eur, MOT_UNITE, useAffichage } from '../transaction/commun';
 import { estMontantSaisi } from '../../../../lib/mon-espace/couts';
 import { coutsDuPoint } from '../../../../lib/mon-espace/couts';
-import { completude, libelleMois, moisProposes, postesSaisis, type MoisAn, type PosteDuMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
+import { completude, completudeCa, libelleMois, moisProposes, postesCaGestion, postesSaisis, type MoisAn, type PosteCa, type PosteDuMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
+import { estMontantSaisiTaux } from '../../../../lib/mon-espace/couts';
+import { caGestionDuMoisC, TAUX_TVA_CA_GESTION_DEFAUT } from '../../../../lib/transaction/modele';
 import { profilsPourSalaire, type ProfilCout } from '../../../../lib/admin/fonctionsCompteModele';
 import { mentionProrata } from '../../../../lib/admin/activitePrincipale';
 import { partDuSalaire, type CoutLigne, type FamilleCout } from '../../../../lib/transaction/coutsSaisis';
@@ -27,6 +29,9 @@ export interface DonneesPageSaisie {
   lignes: readonly CoutLigne[]; profils: readonly ProfilCout[]; validations: readonly Validation[] | null;
   versionsGestion: Readonly<Record<string, { version: number; origine: string }>>; monga: boolean;
   gestionDuMois: (m: MoisAn) => { adhoc: number | null; monga: number | null };
+  /** 🔴 « Coûts et CA » (471) — la partie « CA gestion » est-elle disponible (la 471 posée) ; le CA de gestion enregistré d'un mois. */
+  caGestion: boolean;
+  caDuMois: (m: MoisAn) => { honoraires: number | null; gli: number | null; tauxHonoraires: number | null; tauxGli: number | null; importe: boolean };
 }
 interface Brouillon { id: number | null; version: number; compte: string; libelle: string; montant: string;
   /** R2 — « Autres » : TVA 20 % (défaut) ou sans TVA. */
@@ -35,7 +40,9 @@ const MOT_FAMILLE: Record<FamilleCout, string> = { vente: 'Vente', location: 'Lo
 const ecrireMontant = (x: number | null): string => (x === null ? '' : x.toFixed(2).replace('.', ','));
 const cle = (p: Pick<PosteDuMois, 'famille' | 'poste'>): string => `${p.famille}-${p.poste}`;
 
-export function SaisieMoisCouts({ d, eC, jour, societeInitiale, onRetour, onEcrit }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; jour: string; societeInitiale: Societe;
+export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale = 'couts', onRetour, onEcrit }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; jour: string; societeInitiale: Societe;
+  /** 🔴 « Coûts et CA » — la partie qu'ouvre l'indicateur de l'accueil (« CA gestion d'octobre à saisir » : la partie CA). */
+  partieInitiale?: 'couts' | 'ca';
   onRetour: (m: MoisAn | null) => void; onEcrit: () => void }) {
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC';
@@ -60,16 +67,17 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, onRetour, onEcri
   return (
     <section className="tdb-section mes-saisie-mois" aria-labelledby="mes-saisie-titre" data-saisie-mois={`${societe}-${cleMois}`}>
       <style>{CSS_SAISIE_MOIS}</style>
-      <h3 id="mes-saisie-titre" className="mes-saisie-titre">Saisir les coûts du mois</h3>
-      <FormulaireMois key={`${societe}-${cleMois}`} d={d} eC={eC} mois={mois} societe={societe} postes={postes} validations={validations} k={k} unite={MOT_UNITE[u]} tete={tete}
+      <h3 id="mes-saisie-titre" className="mes-saisie-titre">{societe === 'criterimmo' && d.caGestion ? 'Saisir les coûts et le CA du mois' : 'Saisir les coûts du mois'}</h3>
+      <FormulaireMois key={`${societe}-${cleMois}`} d={d} eC={eC} mois={mois} societe={societe} postes={postes} validations={validations} k={k} unite={MOT_UNITE[u]} tete={tete} partieInitiale={partieInitiale}
         retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRetour(null)} data-retour-couts>Retour aux coûts</button>}
         onFini={() => { onEcrit(); onRetour(mois); }} onEcrit={onEcrit} />
     </section>
   );
 }
 
-function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, tete, retour, onFini, onEcrit }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; mois: MoisAn; societe: Societe;
-  postes: readonly PosteDuMois[]; validations: readonly Validation[]; k: 'htC' | 'ttcC'; unite: string; tete: ReactNode; retour: ReactNode; onFini: () => void; onEcrit: () => void }) {
+function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, tete, retour, onFini, onEcrit, partieInitiale }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; mois: MoisAn; societe: Societe;
+  postes: readonly PosteDuMois[]; validations: readonly Validation[]; k: 'htC' | 'ttcC'; unite: string; tete: ReactNode; retour: ReactNode; onFini: () => void; onEcrit: () => void;
+  partieInitiale: 'couts' | 'ca' }) {
   const lignesDe = (p: PosteDuMois): CoutLigne[] => d.lignes.filter((l) => l.societe === societe && l.famille === p.famille && l.poste === p.poste && l.annee === mois.annee && l.mois === mois.mois);
   // 🔴 D35 — le mois d'un changement d'activité principale, le salaire est dans les deux activités : il se modifie (mois entier) dans la NOUVELLE,
   // l'autre montre sa part (« prorata 15/30 j »), en lecture
@@ -86,7 +94,27 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
   const [envoi, setEnvoi] = useState(false);
   const p0 = useMemo(() => coutsDuPoint(eC, societe, mois.annee, mois.mois), [eC, societe, mois]);
   const vue: Validation[] = postes.filter((p) => complets[cle(p)]).map((p) => ({ societe, famille: p.famille, poste: p.poste, annee: mois.annee, mois: mois.mois }));
-  const etat = completude(postes, vue, societe, mois);
+  const etatCouts = completude(postes, vue, societe, mois);
+  // ── 🔴 « COÛTS ET CA » (471) — la partie « CA gestion » : CRITERIMMO seulement ; les honoraires repris d'un import se lisent (Suivi CA › Gestion) ──
+  const caLu = d.caDuMois(mois);
+  const postesCa = d.caGestion ? postesCaGestion(societe, { honorairesImportes: caLu.importe && caLu.honoraires !== null }) : [];
+  const avecCa = d.caGestion && societe === 'criterimmo';
+  const ecrireTaux = (x: number | null): string => String(x ?? TAUX_TVA_CA_GESTION_DEFAUT).replace('.', ',');
+  const initialCa: Record<PosteCa, { montant: string; taux: string }> = { honoraires: { montant: ecrireMontant(caLu.honoraires), taux: ecrireTaux(caLu.tauxHonoraires) },
+    gli: { montant: ecrireMontant(caLu.gli), taux: ecrireTaux(caLu.tauxGli) } };
+  const [ca, setCa] = useState(initialCa);
+  const [completsCa, setCompletsCa] = useState<Record<PosteCa, boolean>>(() => ({ honoraires: validations.some((v) => v.societe === 'criterimmo' && v.famille === 'gestion' && v.poste === 'honoraires' && v.annee === mois.annee && v.mois === mois.mois),
+    gli: validations.some((v) => v.societe === 'criterimmo' && v.famille === 'gestion' && v.poste === 'gli' && v.annee === mois.annee && v.mois === mois.mois) }));
+  const vueCa: Validation[] = postesCa.filter((p) => completsCa[p.poste]).map((p) => ({ societe, famille: 'gestion', poste: p.poste, annee: mois.annee, mois: mois.mois }));
+  const etatCa = completudeCa(postesCa, vueCa, societe, mois);
+  // le CA du mois TEL QUE TAPÉ (la même fonction que le Suivi CA) ; un montant illisible compte 0 le temps de la frappe (l'enregistrement le refuse)
+  const tauxLu = (x: string): number | null => { const t = lireMontant(x); return t !== null && estMontantSaisiTaux(t) ? t : null; };
+  const caTape = caGestionDuMoisC({ honorairesHt: caLu.importe && postesCa.every((p) => p.poste !== 'honoraires') ? caLu.honoraires : lireMontant(ca.honoraires.montant),
+    gliHt: lireMontant(ca.gli.montant), honorairesTvaTaux: caLu.importe && postesCa.every((p) => p.poste !== 'honoraires') ? caLu.tauxHonoraires : tauxLu(ca.honoraires.taux), gliTvaTaux: tauxLu(ca.gli.taux) });
+  // l'état global (en tête) : les deux parties ; chaque partie a son badge
+  const etat = { ...etatCouts, complet: etatCouts.complet && etatCa.complet !== false };
+  const partieCa = useRef<HTMLElement | null>(null);
+  useEffect(() => { if (partieInitiale === 'ca' && partieCa.current !== null && typeof partieCa.current.scrollIntoView === 'function') partieCa.current.scrollIntoView({ block: 'start' }); }, [partieInitiale]);
   const changer = (c: string, i: number, x: Partial<Brouillon>) => setBrouillons((b) => ({ ...b, [c]: b[c].map((y, j) => (j === i ? { ...y, ...x } : y)) }));
   const ajouterLigne = (c: string) => setBrouillons((b) => ({ ...b, [c]: [...b[c], { id: null, version: 0, compte: '', libelle: '', montant: '', tva: true, retirer: false, initial: '|||' }] }));
 
@@ -116,6 +144,19 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
           ...(p.poste === 'salaires' ? { compteId: Number(b.compte) } : { libelle: b.libelle.trim(), tva: b.tva }) });
       }
     }
+    // 🔴 471 — le CA de gestion : un geste par ligne modifiée (montant ou taux)
+    if (avecCa) for (const p of postesCa) {
+      const v = ca[p.poste];
+      const m = lireMontant(v.montant);
+      if (m !== null && !estMontantSaisi(m)) { setMessage({ texte: `CA gestion — ${p.libelle} : montant invalide (un nombre positif, deux décimales au plus).`, conflit: false }); return; }
+      const t = lireMontant(v.taux);
+      if (t === null || !estMontantSaisiTaux(t)) { setMessage({ texte: `CA gestion — ${p.libelle} : taux de TVA invalide (un pourcentage entre 0 et 100).`, conflit: false }); return; }
+      if (v.montant !== initialCa[p.poste].montant || v.taux !== initialCa[p.poste].taux) gestes.push({ action: 'ca-gestion', annee: mois.annee, mois: mois.mois, poste: p.poste, montantHt: m, tauxTva: t, version: 0 });
+    }
+    if (d.validations !== null && avecCa) for (const p of postesCa) {
+      const avant = validations.some((v) => v.societe === 'criterimmo' && v.famille === 'gestion' && v.poste === p.poste && v.annee === mois.annee && v.mois === mois.mois);
+      if (avant !== completsCa[p.poste]) gestes.push({ action: 'valider', validation: { societe: 'criterimmo', famille: 'gestion', poste: p.poste, annee: mois.annee, mois: mois.mois }, valide: completsCa[p.poste] });
+    }
     if (d.validations !== null) for (const p of postes) {
       const avant = validations.some((v) => v.societe === societe && v.famille === p.famille && v.poste === p.poste && v.annee === mois.annee && v.mois === mois.mois);
       if (avant !== complets[cle(p)]) gestes.push({ action: 'valider', validation: { societe, famille: p.famille, poste: p.poste, annee: mois.annee, mois: mois.mois }, valide: complets[cle(p)] });
@@ -123,8 +164,14 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
     // 2. écrire, geste par geste ; le premier refus arrête tout (ce qui est écrit l'est, journalisé ; le message le dit)
     setEnvoi(true);
     let faits = 0;
-    for (const x of gestes) {
+    // 🔴 471 — ADHOC, MONGA, honoraires et GLI sont sur LA MÊME ligne du mois : chaque geste sur elle part avec la version à jour (celle que rend le
+    // geste précédent), jamais celle de la lecture — sans quoi le deuxième serait refusé comme un conflit
+    let versionMois = d.versionsGestion[`${mois.annee}-${String(mois.mois).padStart(2, '0')}`]?.version ?? 0;
+    for (const x0 of gestes) {
+      const surLigneMois = (x0 as { action?: string }).action === 'gestion-poste' || (x0 as { action?: string }).action === 'ca-gestion';
+      const x = surLigneMois ? { ...(x0 as object), version: versionMois } : x0;
       const r = await posterCout(x);
+      if (r.ok && surLigneMois && typeof r.version === 'number') versionMois = r.version;
       if (!r.ok) {
         setEnvoi(false); if (faits > 0) onEcrit();
         setMessage({ texte: `${r.motif ?? 'Enregistrement impossible.'}${faits > 0 ? ` (${faits} modification${faits > 1 ? 's' : ''} déjà enregistrée${faits > 1 ? 's' : ''})` : ''}`, conflit: r.statut === 409 });
@@ -173,6 +220,10 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
         {retour}
       </div>
       {d.validations === null && <p className="loc-muet mes-saisie-note" data-validation-indisponible>La validation des postes sera disponible après la mise à jour de la base (migration 452).</p>}
+      {/* ══ 🔴 « COÛTS ET CA » (Arno, 13/11/2026) — PARTIE « COÛTS » : exactement l'existant (familles, postes, cases ✓, total), dans son cadre ══ */}
+      <section className="mes-saisie-partie mes-saisie-partie--couts" aria-labelledby="mes-partie-couts" data-partie-saisie="couts">
+      <header className="mes-saisie-partie-tete"><h4 id="mes-partie-couts">Coûts</h4>{pastille(etatCouts.complet, 'partie-couts')}
+        <span className="mes-saisie-total" data-total-partie="couts">{montant(p0.total)}</span></header>
       {familles.map((f) => {
         const calc = auto(f);
         const totalCalc = somme(calc.filter((a) => a.info !== true).map((a) => a.m));
@@ -239,9 +290,52 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
         );
       })}
       {societe !== 'criterimmo' && <p className="loc-muet mes-saisie-note" data-saisie-macj>Location et gestion : {LIBELLE_AGENCE[societe]} : vente seulement.</p>}
+      </section>
+      {/* ══ 🔴 PARTIE « CA GESTION » : CRITERIMMO seulement (MACJ ne fait pas de gestion) — honoraires de gestion, honoraires GLI, le CA global calculé ══ */}
+      {societe === 'criterimmo' && (
+        <section ref={partieCa} className="mes-saisie-partie mes-saisie-partie--ca trx-serie--2" aria-labelledby="mes-partie-ca" data-partie-saisie="ca">
+          <header className="mes-saisie-partie-tete mes-saisie-bande"><h4 id="mes-partie-ca">CA gestion</h4>{avecCa ? pastille(etatCa.complet, 'partie-ca') : null}
+            <span className="mes-saisie-total" data-total-partie="ca">{montant({ htC: caTape.totalC, ttcC: caTape.totalTtcC })}</span></header>
+          {!d.caGestion ? <p className="loc-muet mes-saisie-note" data-ca-indisponible>La saisie du CA de gestion sera disponible après la mise à jour de la base (migration 471).</p> : (
+            <div className="mes-saisie-grille" role="table" aria-label="CA gestion">
+              <div className="mes-saisie-entete" role="row"><span role="columnheader">Ligne</span><span role="columnheader">Montant HT</span><span role="columnheader">TVA</span>
+                <span role="columnheader" className="mes-saisie-entete-complet"><EnteteAide libelle="✓" cible="saisie-complet-ca" etiquette="Ce que veut dire « complet »"
+                  texte="Cochez quand la ligne est entièrement saisie pour ce mois — 0 compris : une ligne à 0 € est complète une fois cochée." /></span></div>
+              {postesCa.every((p) => p.poste !== 'honoraires') && (
+                <div className="mes-saisie-poste" data-ca-importe>
+                  <div className="mes-saisie-ligne" role="row"><span role="cell" className="mes-saisie-nom">Honoraires de gestion <small className="loc-muet">— repris de l’import (Suivi CA › Gestion)</small></span>
+                    <span role="cell" className="mes-saisie-sous-total">{eur(caTape.honorairesC / 100)}</span><span role="cell" className="loc-muet mes-saisie-tva">{ecrireTaux(caLu.tauxHonoraires)} %</span><span role="cell" /></div>
+                </div>)}
+              {postesCa.map((p) => {
+                const c = `ca-${p.poste}`;
+                const ttc = p.poste === 'honoraires' ? caTape.honorairesTtcC : caTape.gliTtcC;
+                return (
+                  <div key={c} className="mes-saisie-poste" data-poste-saisie={c}>
+                    <div className="mes-saisie-ligne" role="row">
+                      <span role="cell" className="mes-saisie-nom">{p.libelle} <small className="loc-muet mes-saisie-ttc" data-ttc-ca={p.poste}>{eur(ttc / 100)} TTC</small></span>
+                      <span role="cell"><input type="text" inputMode="decimal" value={ca[p.poste].montant} placeholder="vide : non saisi" aria-label={`${p.libelle} HT`}
+                        onChange={(e) => setCa((x) => ({ ...x, [p.poste]: { ...x[p.poste], montant: e.target.value } }))} data-montant-ca={p.poste} /></span>
+                      <span role="cell" className="mes-saisie-taux"><input type="text" inputMode="decimal" value={ca[p.poste].taux} aria-label={`${p.libelle} : taux de TVA (%)`}
+                        onChange={(e) => setCa((x) => ({ ...x, [p.poste]: { ...x[p.poste], taux: e.target.value } }))} data-taux-ca={p.poste} /> %</span>
+                      <span role="cell"><label className="mes-saisie-complet" title="Complet pour ce mois (0 compris)"><input type="checkbox" checked={completsCa[p.poste]} disabled={d.validations === null}
+                        onChange={(e) => setCompletsCa((x) => ({ ...x, [p.poste]: e.target.checked }))} aria-label={`${p.libelle} : complet pour ce mois`} data-complet={c} /></label></span>
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="mes-saisie-poste mes-saisie-ca-global" data-ca-global>
+                <div className="mes-saisie-ligne" role="row"><span role="cell" className="mes-saisie-nom">CA global de gestion <small className="loc-muet">(honoraires de gestion + honoraires GLI, calculé)</small></span>
+                  <span role="cell" className="mes-saisie-sous-total" data-ca-global-montant>{montant({ htC: caTape.totalC, ttcC: caTape.totalTtcC })}</span><span role="cell" /><span role="cell" /></div>
+              </div>
+            </div>)}
+        </section>
+      )}
       {message !== null && <p className={message.conflit ? 'loc-alerte loc-alerte--orange' : 'trx-erreur'} role="alert" data-message-saisie={message.conflit ? 'conflit' : 'refus'}>{message.texte}</p>}
       <div className="mes-saisie-pied" data-saisie-pied>
-        <span className="mes-saisie-total-general" data-total-general>Total du mois ({unite}) : <strong>{montant(p0.total)}</strong></span>
+        <span className="mes-saisie-totaux">
+          <span className="mes-saisie-total-general" data-total-general>Total des coûts du mois ({unite}) : <strong>{montant(p0.total)}</strong></span>
+          {societe === 'criterimmo' && <span className="mes-saisie-total-general" data-total-ca-gestion>Total CA gestion du mois ({unite}) : <strong>{montant({ htC: caTape.totalC, ttcC: caTape.totalTtcC })}</strong></span>}
+        </span>
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void enregistrer()} data-enregistrer-mois>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
       </div>
       <p className="loc-muet mes-couts-aide">Montants en euros HT (salaires : chargés, sans TVA ; « Autres » : TVA 20 % ou sans TVA, ligne par ligne ; ADHOC et MONGA : 20 %). Les totaux sont
@@ -297,6 +391,17 @@ const CSS_SAISIE_MOIS = `
 .mes-saisie-pied{position:sticky;bottom:0;z-index:3;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);box-shadow:0 -4px 12px rgba(0,0,0,.08)}
 .mes-saisie-pied .gst-btn{width:auto;min-height:44px;padding:0 1.4rem}
 .mes-saisie-total-general{font-variant-numeric:tabular-nums}
+/* les deux parties : chacune son cadre ; le CA gestion, une couleur de famille distincte des couts (serie 2) */
+.mes-saisie-partie{display:flex;flex-direction:column;gap:12px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:12px}
+.mes-saisie-partie--ca{border-left:6px solid var(--trx-serie);background:color-mix(in srgb, var(--trx-serie) 5%, var(--color-svv-surface));gap:4px}
+.mes-saisie-partie-tete{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.mes-saisie-partie-tete h4{margin:0;font-size:.9rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.mes-saisie-partie--ca .mes-saisie-partie-tete{border-radius:8px}
+.mes-saisie-taux{display:flex;align-items:center;gap:4px;font-size:.85rem}
+.mes-saisie-taux input{max-width:4.2rem;text-align:right}
+.mes-saisie-ttc{display:block;font-weight:500;font-size:.78rem}
+.mes-saisie-ca-global{border-bottom:0;border-top:2px solid var(--color-svv-line-strong)}
+.mes-saisie-totaux{display:flex;flex-direction:column;gap:2px}
 @media (max-width:640px){
   .mes-saisie-tete{gap:6px;padding:6px 8px}
   .mes-saisie-tete .mes-saisie-global{flex:0 0 auto;order:3}
@@ -312,5 +417,7 @@ const CSS_SAISIE_MOIS = `
   .mes-saisie-sous-ligne>:nth-child(4){grid-area:x;justify-self:center}
   .mes-saisie-sous-ligne>.mes-saisie-prorata{grid-area:auto;grid-column:1/-1}
   .mes-saisie-pied .gst-btn{flex:1 1 auto}
+  /* le taux de TVA du CA gestion reste saisissable au telephone : sur la deuxieme rangee de la ligne */
+  .mes-saisie-partie--ca .mes-saisie-ligne>:nth-child(3){display:flex;grid-area:tva}
 }
 `;

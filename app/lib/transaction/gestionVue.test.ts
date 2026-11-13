@@ -37,8 +37,8 @@ describe('🔴 LOT GE1 — la gestion du mois et des périodes', () => {
     expect(valeurGestion(t, 'net', 'ttc')).toBe(centimesGestion(t, 'net', 'ttc') / 100);
     // une ligne du tableau : le reste saisi reçoit la TVA des honoraires moins celle d'ADHOC
     const l = ligneGestionEnUnite({ honorairesHt: 16184.63, adhocHt: 2449, salarieHt: 2688.91, resteHt: 11046.72 }, 'ttc');
-    expect(l).toEqual({ honoraires: 19421.56, adhoc: 2938.8, monga: null, salarie: 2688.91, reste: 13793.85 });
-    expect(ligneGestionEnUnite(null, 'ttc')).toEqual({ honoraires: null, adhoc: null, monga: null, salarie: null, reste: null });
+    expect(l).toEqual({ honoraires: 19421.56, gli: null, adhoc: 2938.8, monga: null, salarie: 2688.91, reste: 13793.85 }); // 471 : aucune GLI saisie
+    expect(ligneGestionEnUnite(null, 'ttc')).toEqual({ honoraires: null, gli: null, adhoc: null, monga: null, salarie: null, reste: null });
   });
   it('🔴 LOT GE3 — MONGA : CA net = honoraires − ADHOC − MONGA − salariés, au centime, HT et TTC (MONGA × TAUX_TVA_MONGA) ; un mois sans MONGA inchangé ; le reste proposé', () => {
     const avec = [...gestion, g(4, 2026, 8, { honorairesHt: 22725, adhocHt: 3206.4, mongaHt: 500.05, salarieHt: 100, resteHt: 18918.55 })];
@@ -50,7 +50,7 @@ describe('🔴 LOT GE1 — la gestion du mois et des périodes', () => {
     expect(moisGestion(avec, 2026, 10).netC).toBe(1618463 - 244900 - 268891);
     expect([valeurGestion(t, 'monga'), valeurGestion(t, 'monga', 'ttc')]).toEqual([500.05, 600.06]);
     // le tableau en TTC : le reste saisi reçoit aussi la TVA de MONGA en moins
-    expect(ligneGestionEnUnite(avec.at(-1)!, 'ttc')).toEqual({ honoraires: 27270, adhoc: 3847.68, monga: 600.06, salarie: 100, reste: 22722.26 }); // 18 918,55 + 4 545 − 641,28 − 100,01
+    expect(ligneGestionEnUnite(avec.at(-1)!, 'ttc')).toEqual({ honoraires: 27270, gli: null, adhoc: 3847.68, monga: 600.06, salarie: 100, reste: 22722.26 }); // 18 918,55 + 4 545 − 641,28 − 100,01
     expect([resteGestionPropose({ honorairesHt: 22725, adhocHt: 3206.4, mongaHt: 500.05, salarieHt: 100 }), resteGestionPropose({ honorairesHt: 100, adhocHt: 10, salarieHt: null })])
       .toEqual([22725 - 3206.4 - 500.05 - 100, 90]);
   });

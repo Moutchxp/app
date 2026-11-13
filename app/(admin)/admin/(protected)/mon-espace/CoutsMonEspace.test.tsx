@@ -73,7 +73,7 @@ describe('🔴 l’onglet « Les coûts » : associés, mode agence', () => {
   });
   it.each(['criterimmo', 'macj', 'tous'] as const)('mode agence %s, un associé : présent, après « Apporteurs »', async (a) => {
     await ouvrir(a);
-    expect(onglet()?.textContent).toBe('Les coûts');
+    expect(onglet()?.textContent).toBe('Coûts et CA'); // 🔴 471 : « Les coûts » devient « Coûts et CA »
     const ids = [...container.querySelectorAll('[data-onglet-mon-espace]')].map((e) => e.getAttribute('data-onglet-mon-espace'));
     expect(ids).toEqual(['apporteurs', 'couts']);
   });
@@ -181,7 +181,9 @@ describe('🔴 les montants = « Coûts globaux », au centime ; l’année choi
       expect([...container.querySelectorAll('[data-poste-futur]')].every((e) => e.textContent === '')).toBe(true);
     }
     await cliquer('[data-tableau-couts="gestion"]');
-    expect([...container.querySelectorAll('[data-table-couts-mon-espace="gestion"] thead th')].map(titre)).toEqual(['Mois', 'Salaires chargés', 'ADHOC', 'MONGA', 'Autres', 'Total gestion']);
+    expect([...container.querySelectorAll('[data-table-couts-mon-espace="gestion"] thead th')].map(titre)).toEqual(['Mois', 'Salaires chargés', 'ADHOC', 'MONGA', 'Autres', 'Total gestion',
+      // 🔴 471 — le CA de gestion, à la suite, dans son propre groupe de colonnes (rien des coûts ne change)
+      'CA — honoraires de gestion', 'CA — honoraires GLI', 'CA global de gestion']);
     expect(AIDE_POSTES_FUTURS.autres).toBe('Frais saisis à la main : loyer, logiciels, portails d’annonces, assurances, comptable, banque, publicité, GLI…');
   });
   it('l’onglet du tableau est dans l’adresse ; « Vente » par défaut (rien dans l’adresse)', async () => {
@@ -323,7 +325,8 @@ describe('🔴 lot 3 — « Saisir les coûts du mois » (C16, C17)', () => {
       const u = String(url); urls.push(u);
       if (u.startsWith(URL_COUTS) && init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); const r = reponses.shift() ?? { status: 200, corps: { etat: 'ok', data: { id: 1 } } };
         return { ok: r.status === 200, status: r.status, json: async () => r.corps }; }
-      if (u.startsWith(`${URL_COUTS}?rappel=1`)) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { rappel: validations === null ? null : { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' } } }) };
+      if (u.startsWith(`${URL_COUTS}?rappel=1`)) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { rappel: validations === null ? null : { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' },
+        alertes: validations === null ? [] : [{ partie: 'couts', societe: 'macj', mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' }] } }) };
       if (u.startsWith(URL_COUTS) && !u.includes('empreinte')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...GLOBAL, saisie: true, coutsLignes: [], profils: PROFILS,
         versionsGestion: {}, monga: true, validations } }) };
       return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
@@ -334,7 +337,7 @@ describe('🔴 lot 3 — « Saisir les coûts du mois » (C16, C17)', () => {
       if (e instanceof HTMLSelectElement) { e.value = valeur; e.dispatchEvent(new Event('change', { bubbles: true })); return; }
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, valeur); e.dispatchEvent(new Event('input', { bubbles: true })); }); await calmer();
   };
-  it('C17 — le rappel à côté de l’onglet ; un clic ouvre la page sur OCTOBRE 2026 (horloge du 03/11/2026), le sélecteur = 6 mois révolus', async () => {
+  it('C17 — le rappel (🔴 471 : l’indicateur unifié, en haut de l’accueil) ; un clic ouvre la page sur OCTOBRE 2026 (horloge du 03/11/2026), le sélecteur = 6 mois révolus', async () => {
     await ouvrir('macj');
     expect(texte('[data-rappel-couts]')).toBe('Coûts d’octobre à saisir');
     await cliquer('[data-rappel-couts]');
@@ -425,13 +428,14 @@ describe('🔴 D23 / D24 (Arno, 03/11/2026) — un seul rappel ; le formulaire d
     const avant = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url); urls.push(u);
-      if (u.startsWith(`${URL_COUTS}?rappel=1`)) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { rappel: { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' } } }) };
+      if (u.startsWith(`${URL_COUTS}?rappel=1`)) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { rappel: { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' },
+        alertes: [{ partie: 'couts', societe: 'criterimmo', mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' }] } }) };
       if (u.startsWith(URL_COUTS) && !u.includes('empreinte') && init?.method !== 'POST') return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { ...GLOBAL, saisie: true,
         coutsLignes: LIGNES, coutsSaisis: [...SAISIS_COUTS, ...LIGNES], profils: [{ id: 3, libelle: 'Bruno', fonctions: ['gestion'] }], versionsGestion: {}, monga: true, validations: [] } }) };
       return (avant as unknown as (u: string, i?: RequestInit) => Promise<unknown>)(url, init);
     }) as unknown as typeof fetch;
   });
-  it('D23 — un seul cartouche (sur la ligne des onglets) ; le bouton « Saisir les coûts du mois » reste', async () => {
+  it('D23 — un seul cartouche (🔴 471 : l’indicateur unifié en haut de l’accueil, plus sur la ligne des onglets) ; le bouton « Saisir les coûts du mois » reste', async () => {
     await ouvrir('criterimmo'); await cliquer('[data-onglet-mon-espace="couts"]');
     expect(container.querySelectorAll('[data-rappel-couts]').length).toBe(1);
     expect(container.querySelector('[data-rappel-tete]')).toBeNull();

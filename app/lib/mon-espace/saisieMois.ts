@@ -11,7 +11,10 @@ import { NOMS_MOIS } from '../transaction/modele';
  */
 export type PosteSaisissable = 'salaires' | 'autres' | 'adhoc' | 'monga';
 export interface PosteDuMois { famille: FamilleCout; poste: PosteSaisissable; libelle: string }
-export interface Validation { societe: Societe; famille: FamilleCout; poste: PosteSaisissable; annee: number; mois: number }
+/** 🔴 « Coûts et CA » (471) — les deux postes du CA de gestion (CRITERIMMO). */
+export type PosteCa = 'honoraires' | 'gli';
+export interface PosteCaDuMois { poste: PosteCa; libelle: string }
+export interface Validation { societe: Societe; famille: FamilleCout; poste: PosteSaisissable | PosteCa; annee: number; mois: number }
 export interface MoisAn { annee: number; mois: number }
 
 /** C16 — les 6 derniers mois révolus, du plus récent (le mois précédent, le mois proposé) au plus ancien. PUR. */
@@ -43,7 +46,7 @@ export function postesSaisis(societe: Societe, o: { adhocImporte: boolean; monga
   return p;
 }
 
-export const estValide = (v: readonly Validation[], societe: Societe, p: Pick<PosteDuMois, 'famille' | 'poste'>, m: MoisAn): boolean =>
+export const estValide = (v: readonly Validation[], societe: Societe, p: { famille: FamilleCout; poste: PosteSaisissable | PosteCa }, m: MoisAn): boolean =>
   v.some((x) => x.societe === societe && x.famille === p.famille && x.poste === p.poste && x.annee === m.annee && x.mois === m.mois);
 
 export interface Completude { postes: { poste: PosteDuMois; complet: boolean }[]; familles: Record<FamilleCout, boolean | null>; complet: boolean }
@@ -52,6 +55,51 @@ export function completude(postes: readonly PosteDuMois[], v: readonly Validatio
   const xs = postes.map((poste) => ({ poste, complet: estValide(v, societe, poste, m) }));
   const fam = (f: FamilleCout): boolean | null => { const ys = xs.filter((x) => x.poste.famille === f); return ys.length === 0 ? null : ys.every((x) => x.complet); };
   return { postes: xs, familles: { vente: fam('vente'), location: fam('location'), gestion: fam('gestion') }, complet: xs.every((x) => x.complet) };
+}
+
+/**
+ * ══ 🔴 « COÛTS ET CA » (Arno, 13/11/2026, 471) — LA PARTIE « CA GESTION » ═════════════════════════════════════════════════════════════════════════
+ * CRITERIMMO seulement (MACJ ne fait pas de gestion ; FUSION ne se saisit pas). Deux lignes : les honoraires de gestion (sauf repris d'un import :
+ * ils se corrigent dans Suivi CA › Gestion, comme ADHOC — complets d'office) et les honoraires GLI. Une ligne est COMPLÈTE quand elle est cochée ✓
+ * (0 € coché volontairement compris) ; la partie, quand toutes ses lignes le sont. PUR.
+ */
+export const LIBELLE_POSTE_CA: Record<PosteCa, string> = { honoraires: 'Honoraires de gestion', gli: 'Honoraires GLI (garantie de loyers impayés)' };
+export function postesCaGestion(societe: Societe, o: { honorairesImportes: boolean }): PosteCaDuMois[] {
+  if (societe !== 'criterimmo') return [];
+  return [...(o.honorairesImportes ? [] : [{ poste: 'honoraires' as const, libelle: LIBELLE_POSTE_CA.honoraires }]), { poste: 'gli', libelle: LIBELLE_POSTE_CA.gli }];
+}
+/** La partie « CA gestion » est-elle complète ? null : pas de partie (MACJ). PUR. */
+export function completudeCa(postes: readonly PosteCaDuMois[], v: readonly Validation[], societe: Societe, m: MoisAn): { postes: { poste: PosteCaDuMois; complet: boolean }[]; complet: boolean | null } {
+  if (societe !== 'criterimmo') return { postes: [], complet: null };
+  const xs = postes.map((poste) => ({ poste, complet: estValide(v, societe, { famille: 'gestion', poste: poste.poste }, m) }));
+  return { postes: xs, complet: xs.every((x) => x.complet) };
+}
+/** « CA gestion d'octobre à saisir ». PUR. */
+export const motRappelCa = (m: MoisAn): string => { const x = motMois(m); return `CA gestion ${/^[aeiouyéèh]/i.test(x) ? 'd’' : 'de '}${x} à saisir`; };
+/** Une alerte de l'accueil : la partie à compléter, sa structure (celle où elle se saisit), le mois, le libellé. */
+export interface AlerteSaisie { partie: 'couts' | 'ca'; societe: Societe; mois: MoisAn; mot: string }
+/**
+ * 🔴 L'INDICATEUR UNIFIÉ DE L'ACCUEIL (remplace le rappel C17, sans rien en perdre) : le mois contrôlé est le même (le mois précédent) ; les coûts sont
+ * à saisir dans l'une des structures vues (la première à compléter : celle qu'ouvre le clic) ; le CA gestion, à CRITERIMMO (si la 471 est posée).
+ * [] : rien à dire. PUR.
+ */
+export function alertesSaisie(societes: readonly Societe[], v: readonly Validation[], jour: string,
+  o: { adhocImporte: boolean; monga: boolean; ca: boolean; honorairesImportes: boolean }): AlerteSaisie[] {
+  const m = moisProposes(jour)[0];
+  const a: AlerteSaisie[] = [];
+  const s = societes.find((x) => !completude(postesSaisis(x, o), v, x, m).complet);
+  if (s !== undefined) a.push({ partie: 'couts', societe: s, mois: m, mot: motRappel(m) });
+  if (o.ca && societes.includes('criterimmo') && completudeCa(postesCaGestion('criterimmo', o), v, 'criterimmo', m).complet === false)
+    a.push({ partie: 'ca', societe: 'criterimmo', mois: m, mot: motRappelCa(m) });
+  return a;
+}
+
+/** Les alertes telles que la route les rend, vérifiées (une réponse inattendue : aucune alerte, jamais une erreur d'écran). PUR. */
+export function lireAlertesSaisie(x: unknown): AlerteSaisie[] {
+  if (!Array.isArray(x)) return [];
+  return x.filter((a): a is AlerteSaisie => typeof a === 'object' && a !== null && ((a as AlerteSaisie).partie === 'couts' || (a as AlerteSaisie).partie === 'ca')
+    && ((a as AlerteSaisie).societe === 'criterimmo' || (a as AlerteSaisie).societe === 'macj') && typeof (a as AlerteSaisie).mot === 'string'
+    && typeof (a as AlerteSaisie).mois?.annee === 'number' && typeof (a as AlerteSaisie).mois?.mois === 'number');
 }
 
 /** C17 — le mois précédent est-il à compléter dans l'une des structures vues ? null : pas de rappel (rien à dire). PUR. */

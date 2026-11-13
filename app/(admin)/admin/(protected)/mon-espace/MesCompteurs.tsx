@@ -22,6 +22,7 @@ import { CartesCompromis, CSS_CARTES_COMPROMIS } from './CartesCompromis';
 import { affairesCompromisAgence, affairesCompromisPerso, cartesCompromis, tableauApporteursCompromis } from '../../../../lib/mon-espace/compromisCartes';
 import { CoutsMonEspace } from './CoutsMonEspace';
 import { ongletCoutsVisible, URL_COUTS } from '../../../../lib/mon-espace/couts';
+import { lireAlertesSaisie, type AlerteSaisie } from '../../../../lib/mon-espace/saisieMois';
 import { OngletsVues, useLigneDesAnnees, useLigneDesMois, vueInitiale } from '../transaction/EcransTransaction';
 import { ecrireAdresse, parametre } from '../transaction/commun';
 import { aujourdhuiParis } from '../../../../lib/location/suivi/suivi';
@@ -100,8 +101,9 @@ type Lu = { etat: 'chargement' } | { etat: 'ok'; data: MesAffaires } | { etat: '
 type Onglet = 'apporteurs' | 'couts';
 
 export const URL_MES_AFFAIRES = '/api/admin/mon-espace/affaires';
-const MOTS_ONGLETS: Record<Onglet, string> = { apporteurs: 'Mes apporteurs', couts: 'Les coûts' };
-const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { apporteurs: 'Apporteurs', couts: 'Les coûts' };
+// 🔴 « Coûts et CA » (Arno, 13/11/2026) — l'onglet « Les coûts » devient « Coûts et CA » (les associés y saisissent aussi le CA de la gestion)
+const MOTS_ONGLETS: Record<Onglet, string> = { apporteurs: 'Mes apporteurs', couts: 'Coûts et CA' };
+const MOTS_ONGLETS_AGENCE: Record<Onglet, string> = { apporteurs: 'Apporteurs', couts: 'Coûts et CA' };
 /** L'onglet d'arrivée : la règle de la Transaction (`vueInitiale`) ; une adresse d'un onglet retiré (« Mes ventes », « Mes statistiques ») → « Mois ». PUR. */
 export const vueDArrivee = (vue: string | null, avecMois: boolean): 'compromis' | 'mois' | 'annee' =>
   (vue === 'ventes' || vue === 'statistiques' || vue === 'mes-ventes' || vue === 'mes-statistiques' ? 'mois' : vueInitiale(vue, avecMois));
@@ -151,10 +153,13 @@ export function MesCompteurs() {
   const [historique, setHistorique] = useState<number | null>(null);
   const [refs, setRefs] = useState<(References & { titulaireId: number; administrateur: boolean }) | null>(null);
   const [motifEdition, setMotifEdition] = useState<string | null>(null);
-  // 🔴 « Les coûts », lot 3 (C17) — le rappel « Coûts d'octobre à saisir » (lu par la route, relu après chaque saisie) ; un clic ouvre la saisie du mois
-  const [rappelCouts, setRappelCouts] = useState<string | null>(null);
+  // 🔴 « Coûts et CA » (Arno, 13/11/2026) — L'INDICATEUR UNIFIÉ de l'accueil (remplace le rappel C17 « Coûts d'octobre à saisir », sans rien en
+  // perdre) : « Coûts d'octobre à saisir », « CA gestion d'octobre à saisir », ou les deux ; lu par la route (403 à qui n'a pas la case « Les coûts »),
+  // relu après chaque saisie ; un clic ouvre « Coûts et CA » sur le bon mois, la bonne structure et la bonne partie
+  const [alertesSaisie, setAlertesSaisie] = useState<AlerteSaisie[]>([]);
   const [rappelRelu, setRappelRelu] = useState(0);
   const [saisieDemandee, setSaisieDemandee] = useState(0);
+  const [partieDemandee, setPartieDemandee] = useState<'couts' | 'ca'>('couts');
   const modifier = async (v: VenteMonEspace, cote: 'entree' | 'sortie' | null = null): Promise<void> => {
     setMotifEdition(null); setEditionCote(cote);
     if (refs !== null) { setEdition(v); return; }
@@ -243,20 +248,27 @@ export function MesCompteurs() {
     const v = data.ventes.find((x) => x.id === lien.venteId);
     if (v !== undefined) void modifier(v, lien.cote);
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 🔴 « Les coûts », lot 3 (C17) — le rappel du mois précédent, pour l'espace vu (associés, mode agence)
-  const agenceRappel = data !== null && ongletCoutsVisible(data.titulaire, data.agence?.cle ?? null) ? data.agence!.cle : null;
+  // 🔴 « Coûts et CA » — l'indicateur, pour les comptes qui ont « Coûts et CA » (la case « Les coûts », administrateurs : la règle de l'onglet) :
+  // en mode agence, les structures vues (comme le rappel d'avant) ; sur mon espace, toutes (le clic ouvre la structure à compléter). Personne
+  // d'autre : aucune lecture, rien à l'écran — et la route le refuse de toute façon (403).
+  const agenceRappel: Agence | null = data !== null && ongletCoutsVisible(data.titulaire, data.agence?.cle ?? 'tous') ? data.agence?.cle ?? 'tous' : null;
   useEffect(() => {
-    if (agenceRappel === null) return; // le rappel n'est montré qu'avec `agenceRappel` (voir le rendu)
+    if (agenceRappel === null) { setAlertesSaisie([]); return; }
     let vivant = true;
     void (async () => {
       try {
         const r = await fetch(`${URL_COUTS}?rappel=1&agence=${agenceRappel}`, { cache: 'no-store' });
-        const j = (await r.json()) as { data?: { rappel?: { mot?: unknown } | null } };
-        if (vivant) setRappelCouts(r.ok && typeof j.data?.rappel?.mot === 'string' ? j.data.rappel.mot : null);
-      } catch { if (vivant) setRappelCouts(null); }
+        const j = (await r.json()) as { data?: { alertes?: unknown } };
+        if (vivant) setAlertesSaisie(r.ok ? lireAlertesSaisie(j.data?.alertes) : []);
+      } catch { if (vivant) setAlertesSaisie([]); }
     })();
     return () => { vivant = false; };
   }, [agenceRappel, lecture, rappelRelu]);
+  /** Un clic sur l'indicateur : la structure où la partie se saisit (depuis mon espace), l'onglet « Coûts et CA », la saisie du mois sur la partie. */
+  const ouvrirAlerte = (a: AlerteSaisie): void => {
+    if (espace === 'moi' || (a.partie === 'ca' && espace === 'macj')) changerEspace(a.societe);
+    setOnglet('couts'); setPartieDemandee(a.partie); setSaisieDemandee((x) => x + 1);
+  };
   // 🔴 LOT 9 — « + Nouvel apporteur » (onglet et formulaire de compromis) : la façon de « Mon espace » (zéro doublon, « L'utiliser »).
   const titulaireId = data?.titulaire.id ?? null;
   const facon = useMemo((): FaconNouvelApporteur => ({
@@ -388,6 +400,14 @@ export function MesCompteurs() {
     <FournisseurNoms value={data.nomsNegociateurs ?? {}}><FournisseurAffichage value={unite}><FournisseurChangerAffichage value={setUnite}><FournisseurConsolide value={agence === null || agence.cle === 'tous'}>
     <div className="mes-compteurs-bloc" data-espace-vu={espace}>
       <style>{CSS}{CSS_MES_COMPTEURS}{CSS_NOUVEAU_COMPROMIS}{CSS_LISTE_PERIODE}{CSS_CARTES_COMPROMIS}</style>
+      {/* 🔴 « Coûts et CA » (Arno, 13/11/2026) — l'indicateur unifié, EN HAUT de l'accueil : seulement pour qui a « Coûts et CA » (sinon rien n'est rendu) */}
+      {agenceRappel !== null && alertesSaisie.length > 0 && (
+        <div className="mes-alertes-saisie" role="status" data-alertes-saisie>
+          <span className="mes-alertes-icone" aria-hidden="true">⚠</span>
+          {alertesSaisie.map((a) => <button key={a.partie} type="button" className="mes-alerte-saisie" onClick={() => ouvrirAlerte(a)} data-alerte-saisie={a.partie}
+            data-rappel-couts={a.partie === 'couts' ? '' : undefined}>{a.mot}</button>)}
+        </div>
+      )}
       {/* L'accueil : « Voir … » à gauche (administrateurs), « + Nouveau compromis » à droite, sur la même ligne (au téléphone : dessous, à droite). */}
       <div className="mes-ligne-espace" data-ligne-espace>
         {selecteur}
@@ -402,8 +422,7 @@ export function MesCompteurs() {
         <OngletsVues vue={vue} onVue={choisirOnglet} apres={[...ongletsEspace.map((o) => (
           <button key={o} type="button" role="tab" id={`mon-espace-onglet-${o}`} aria-selected={onglet === o} aria-controls="mon-espace-listes" className="tdb-onglet mes-onglet"
             onClick={() => setOnglet(o)} data-onglet-mon-espace={o}>{(nomAgence === null ? MOTS_ONGLETS : MOTS_ONGLETS_AGENCE)[o]}</button>
-        )), ...(avecCouts && agenceRappel !== null && rappelCouts !== null ? [<button key="rappel" type="button" className="mes-rappel-couts" onClick={() => { setOnglet('couts'); setSaisieDemandee((x) => x + 1); }}
-          data-rappel-couts>{rappelCouts}</button>] : [])]} />
+        ))]} />
         <div className="mes-compteurs-tete">
           <span className="loc-muet">Montants en</span><BoutonAffichage unite={unite} onChange={setUnite} /></div>
       </div>
@@ -440,8 +459,8 @@ export function MesCompteurs() {
         {vue === 'mois' ? <AccueilMonEspace data={data} ligne={ligneMois} onOuvrir={ouvrir} carte={carte} />
         : vue === 'annee' ? <AnneesMonEspace data={data} ligne={ligneAnnees} annees={anneesDispo ?? []} onOuvrirMois={ouvrirMois} onOuvrirAnnee={ouvrirAnnee} onOuvrir={ouvrir} carte={carte} />
         : onglet === 'apporteurs' ? <MesApporteurs />
-        : onglet === 'couts' && !avecCouts ? <p className="loc-muet mes-vide" data-couts-reserve>« Les coûts » est réservé aux comptes qui ont la case « Les coûts », dans « Voir » : CRITERIMMO, MACJ ou FUSION.</p>
-        : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} saisieDemandee={saisieDemandee}
+        : onglet === 'couts' && !avecCouts ? <p className="loc-muet mes-vide" data-couts-reserve>« Coûts et CA » est réservé aux comptes qui ont la case « Les coûts », dans « Voir » : CRITERIMMO, MACJ ou FUSION.</p>
+        : onglet === 'couts' ? (avecCouts && agence !== null ? <CoutsMonEspace agence={agence.cle} jour={data.aujourdhui} lecture={lecture} saisieDemandee={saisieDemandee} partieDemandee={partieDemandee}
           onEcrit={() => setRappelRelu((x) => x + 1)} /> : null) : (
           <>
           {agence !== null && tousCompromis.length > 0 && (
@@ -500,9 +519,13 @@ const CSS_MES_COMPTEURS = `
 /* sous la barre d'onglets : le même écart que la page d'une structure du Suivi CA (.tdb : 18 px) */
 #mon-espace-listes{margin-top:18px}
 .mes-espaces{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}
-/* 🔴 Les couts, lot 3 (C17) — le rappel, discret, a cote de l onglet */
-.mes-rappel-couts{align-self:center;margin:0 0 4px 4px;padding:2px 10px;min-height:32px;border-radius:999px;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer;
-  background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-amber);white-space:nowrap}
+/* 🔴 Couts et CA (13/11/2026) — l indicateur unifie, en haut de l accueil : notre rouge ; un bouton par partie a saisir */
+.mes-alertes-saisie{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 .75rem;padding:6px 10px;border:1px solid var(--color-svv-red);border-radius:10px;
+  background:color-mix(in srgb, var(--color-svv-red) 7%, var(--color-svv-surface))}
+.mes-alertes-icone{color:var(--color-svv-red);font-size:1.15rem;font-weight:800;line-height:1}
+.mes-alerte-saisie{min-height:36px;padding:2px 12px;border-radius:999px;font:inherit;font-size:.85rem;font-weight:800;cursor:pointer;
+  background:var(--color-svv-red);color:#fff;border:1px solid var(--color-svv-red);white-space:nowrap}
+.mes-alerte-saisie:hover,.mes-alerte-saisie:focus-visible{background:var(--color-svv-red-dark);outline-offset:2px}
 .mes-espaces .trx-unites{flex-wrap:wrap}
 .mes-espaces .trx-unite{min-height:44px}
 .mes-compteurs-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin:0 0 .75rem}

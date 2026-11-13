@@ -7,13 +7,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  *        pour la location ; un compte qui n'est pas associé : 403, rien n'est lu ni écrit.
  */
 const h = vi.hoisted(() => ({ garde: vi.fn(), voir: vi.fn(), lire: vi.fn(), ajouter: vi.fn(), modifier: vi.fn(), gestion: vi.fn(), empreinte: vi.fn(), valider: vi.fn(),
-  validations: vi.fn() }));
+  validations: vi.fn(), ca: vi.fn(), caGestion: vi.fn() }));
 vi.mock('../../../../../lib/mon-espace/garde', () => ({ exigerMonEspace: h.garde }));
 vi.mock('../../../../../lib/mon-espace/compteRepo', () => ({ peutVoirCouts: h.voir }));
 vi.mock('../../../../../lib/transaction/donneesGlobal', () => ({ lireDonneesGlobal: h.lire }));
-vi.mock('../../../../../lib/transaction/repo', () => ({ ajouterCoutLigne: h.ajouter, modifierCoutLigne: h.modifier, modifierPosteGestion: h.gestion,
+vi.mock('../../../../../lib/transaction/repo', () => ({ ajouterCoutLigne: h.ajouter, modifierCoutLigne: h.modifier, modifierPosteGestion: h.gestion, modifierCaGestion: h.caGestion,
   empreinteCouts: h.empreinte, lireVersionsGestion: async () => ({ '2026-10': { version: 7, origine: 'saisie' } }), validerPosteCout: h.valider, lireValidationsCouts: h.validations }));
-vi.mock('../../../../../lib/admin/schemaDroits', () => ({ coutsSaisisDisponible: async () => true, mongaDisponible: async () => true }));
+vi.mock('../../../../../lib/admin/schemaDroits', () => ({ coutsSaisisDisponible: async () => true, mongaDisponible: async () => true, caGestionDisponible: async () => h.ca() }));
 vi.mock('../../../../../lib/location/suivi/suivi', () => ({ aujourdhuiParis: () => '2026-11-03' }));
 vi.mock('../../../../../lib/admin/fonctionsCompte', () => ({ lireProfilsCouts: async () => [{ id: 5, libelle: 'Jean-Baptiste Pons', fonctions: ['location'] }] }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 4, libelle: 'arno' }) }));
@@ -35,6 +35,8 @@ beforeEach(() => {
   h.empreinte.mockReset().mockResolvedValue('99|2026-11-03');
   h.valider.mockReset().mockResolvedValue({ ok: true });
   h.validations.mockReset().mockResolvedValue([]);
+  h.ca.mockReset().mockReturnValue(false);
+  h.caGestion.mockReset().mockResolvedValue({ ok: true, valeur: 12 });
 });
 
 describe('🔴 GET /api/admin/mon-espace/couts', () => {
@@ -42,18 +44,19 @@ describe('🔴 GET /api/admin/mon-espace/couts', () => {
     const r = await lire();
     expect(r.status).toBe(200);
     expect(r.corps).toEqual({ etat: 'ok', data: { ventes: ['…'], profils: [{ id: 5, libelle: 'Jean-Baptiste Pons', fonctions: ['location'] }],
-      versionsGestion: { '2026-10': { version: 7, origine: 'saisie' } }, saisie: true, validations: [] } });
+      versionsGestion: { '2026-10': { version: 7, origine: 'saisie' } }, saisie: true, validations: [], caGestion: false } });
     expect(h.voir).toHaveBeenCalledWith(4);
     expect(h.lire).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), { compromis: false });
   });
   it('🔴 lot 3 — ?rappel=1 : le mois précédent (octobre au 03/11/2026) à compléter dans les structures vues ; tout validé : aucun rappel', async () => {
-    expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' } } });
+    expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: { mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' },
+      alertes: [{ partie: 'couts', societe: 'macj', mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' }] } });
     h.validations.mockResolvedValue([{ societe: 'macj', famille: 'vente', poste: 'salaires', annee: 2026, mois: 10 }, { societe: 'macj', famille: 'vente', poste: 'autres', annee: 2026, mois: 10 }]);
-    expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: null } });
+    expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: null, alertes: [] } });
     expect((await lire('?rappel=1&agence=tous')).corps.data).toMatchObject({ rappel: { mot: 'Coûts d’octobre à saisir' } }); // CRITERIMMO reste à compléter
     expect((await lire('?rappel=1&agence=fusion')).status).toBe(400);
     h.validations.mockResolvedValue(null); // sans la 452 : aucun rappel
-    expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: null } });
+    expect((await lire('?rappel=1&agence=macj')).corps).toEqual({ etat: 'ok', data: { rappel: null, alertes: [] } });
   });
   it('?empreinte=1 : l’empreinte des coûts seule', async () => {
     expect((await lire('?empreinte=1')).corps).toEqual({ etat: 'ok', data: { empreinte: '99|2026-11-03' } });
@@ -115,5 +118,52 @@ describe('🔴 POST — lot 3 : valider un poste du mois', () => {
     h.voir.mockResolvedValue(false);
     expect((await poster({ action: 'valider', validation: V, valide: true })).status).toBe(403);
     expect(h.valider).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('🔴 « Coûts et CA » (Arno, 13/11/2026, 471) — l’indicateur unifié et le CA de gestion', () => {
+  const OCT = { annee: 2026, mois: 10 };
+  const coutsCriterimmo = ['vente-salaires', 'vente-autres', 'location-salaires', 'location-autres', 'gestion-salaires', 'gestion-adhoc', 'gestion-monga', 'gestion-autres']
+    .map((x) => ({ societe: 'criterimmo', famille: x.split('-')[0], poste: x.split('-')[1], ...OCT }));
+  it('la 471 posée, CRITERIMMO : coûts ET CA à saisir → deux alertes, chacune avec sa partie, sa structure et son mois', async () => {
+    h.ca.mockReturnValue(true);
+    const r = await lire('?rappel=1&agence=criterimmo');
+    expect(r.corps.data).toMatchObject({ alertes: [{ partie: 'couts', societe: 'criterimmo', mois: OCT, mot: 'Coûts d’octobre à saisir' },
+      { partie: 'ca', societe: 'criterimmo', mois: OCT, mot: 'CA gestion d’octobre à saisir' }] });
+  });
+  it('coûts complets, CA non : la seule alerte « CA gestion d’octobre à saisir » ; tout coché (0 € compris) : aucune alerte', async () => {
+    h.ca.mockReturnValue(true);
+    h.validations.mockResolvedValue(coutsCriterimmo);
+    expect((await lire('?rappel=1&agence=criterimmo')).corps.data).toMatchObject({ rappel: null, alertes: [{ partie: 'ca', mot: 'CA gestion d’octobre à saisir' }] });
+    h.validations.mockResolvedValue([...coutsCriterimmo, { societe: 'criterimmo', famille: 'gestion', poste: 'honoraires', ...OCT }, { societe: 'criterimmo', famille: 'gestion', poste: 'gli', ...OCT }]);
+    expect((await lire('?rappel=1&agence=criterimmo')).corps.data).toEqual({ rappel: null, alertes: [] });
+  });
+  it('MACJ (pas de gestion) : jamais d’alerte CA ; sans la 471 : aucune alerte CA', async () => {
+    h.ca.mockReturnValue(true);
+    expect(((await lire('?rappel=1&agence=macj')).corps.data as { alertes: { partie: string }[] }).alertes.map((a) => a.partie)).toEqual(['couts']);
+    h.ca.mockReturnValue(false);
+    expect(((await lire('?rappel=1&agence=criterimmo')).corps.data as { alertes: { partie: string }[] }).alertes.map((a) => a.partie)).toEqual(['couts']);
+  });
+  it('🔴 un compte NON associé : 403 sur l’indicateur — aucune alerte dans la réponse, rien n’est lu', async () => {
+    h.voir.mockResolvedValue(false);
+    h.ca.mockReturnValue(true);
+    const r = await lire('?rappel=1&agence=criterimmo');
+    expect(r.status).toBe(403);
+    expect(r.corps.data).toBeUndefined();
+    expect(JSON.stringify(r.corps)).not.toMatch(/à saisir|alertes/);
+    expect(h.validations).not.toHaveBeenCalled();
+  });
+  it('POST ca-gestion : écrit par `modifierCaGestion` (la ligne du Suivi CA › Gestion), rend la nouvelle version ; un taux invalide : 422, rien n’est écrit', async () => {
+    const r = await poster({ action: 'ca-gestion', annee: 2026, mois: 10, poste: 'gli', montantHt: 350.5, tauxTva: 20, version: 7 });
+    expect(r).toEqual({ status: 200, corps: { etat: 'ok', data: { id: null, version: 12 } } });
+    expect(h.caGestion).toHaveBeenCalledWith(2026, 10, 'gli', 350.5, 20, 7, { id: 4, libelle: 'arno' });
+    expect((await poster({ action: 'ca-gestion', annee: 2026, mois: 10, poste: 'gli', montantHt: 1, tauxTva: 150, version: 7 })).status).toBe(422);
+    expect((await poster({ action: 'ca-gestion', annee: 2026, mois: 10, poste: 'adhoc', montantHt: 1, tauxTva: 20, version: 7 })).status).toBe(422);
+    expect(h.caGestion).toHaveBeenCalledTimes(1);
+  });
+  it('POST : un non-associé ne peut pas écrire le CA (403)', async () => {
+    h.voir.mockResolvedValue(false);
+    expect((await poster({ action: 'ca-gestion', annee: 2026, mois: 10, poste: 'honoraires', montantHt: 1, tauxTva: 20, version: 0 })).status).toBe(403);
+    expect(h.caGestion).not.toHaveBeenCalled();
   });
 });

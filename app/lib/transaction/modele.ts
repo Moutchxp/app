@@ -418,6 +418,11 @@ export interface GestionMois {
   adhocHt: number | null;
   /** 🔴 LOT GE3 (446) — le coût MONGA HT du mois ; absent ou null : pas de MONGA (0), ou la migration 446 n'est pas appliquée. */
   mongaHt?: number | null;
+  /** 🔴 Mon espace « Coûts et CA » (471) — les honoraires GLI HT du mois ; absent ou null : non saisis (0), ou la 471 n'est pas appliquée. */
+  gliHt?: number | null;
+  /** 🔴 471 — les taux de TVA du mois, en % ; absent ou null : 20 % (le taux de toujours). */
+  honorairesTvaTaux?: number | null;
+  gliTvaTaux?: number | null;
   salarieHt: number | null;
   resteHt: number | null;
   note: string | null;
@@ -869,8 +874,27 @@ export interface EntreesGlobal {
   ventes: readonly (Pick<Vente, 'societe' | 'statut' | 'annee' | 'mois' | 'honorairesTtc'> & Partial<Pick<Vente, 'id' | 'libelle' | 'double' | 'repartition'>>)[];
   /** Le CA HT de la location par mois (« AAAA-MM » → montant), lu dans le Suivi de la Location ; absent : non lu. */
   location: Readonly<Record<string, number>> | null;
-  gestion: readonly Pick<GestionMois, 'annee' | 'mois' | 'honorairesHt'>[];
+  gestion: readonly Pick<GestionMois, 'annee' | 'mois' | 'honorairesHt' | 'gliHt' | 'honorairesTvaTaux' | 'gliTvaTaux'>[];
 }
+
+/**
+ * ══ 🔴 MON ESPACE « COÛTS ET CA » (Arno, 13/11/2026, 471) — LE CA DE GESTION D'UN MOIS, ÉCRIT UNE SEULE FOIS (PUR) ═══════════════════════════════
+ * CA global de gestion = honoraires de gestion + honoraires GLI. Chacun est saisi en HT avec SON taux de TVA (en %, 20 par défaut : un taux absent
+ * vaut 20 %, le calcul de toujours — l'historique ne bouge pas d'un centime). Chaque montant est arrondi au centime, puis additionné. Le CA global
+ * (HT et TTC), l'écran Gestion du Suivi CA et Mon espace lisent CETTE fonction : jamais un second calcul.
+ */
+export const TAUX_TVA_CA_GESTION_DEFAUT = 20;
+/** Le multiplicateur TTC d'un taux de TVA du mois (en %) ; absent : celui de toujours (× 1,20). PUR. */
+export const multiplicateurTva = (taux: number | null | undefined): number => (taux == null ? TVA : 1 + taux / 100);
+export interface CaGestionMoisC { honorairesC: number; honorairesTtcC: number; gliC: number; gliTtcC: number; totalC: number; totalTtcC: number }
+export function caGestionDuMoisC(g: Pick<GestionMois, 'honorairesHt' | 'gliHt' | 'honorairesTvaTaux' | 'gliTvaTaux'> | null | undefined): CaGestionMoisC {
+  const c = (x: number | null | undefined): number => (x == null ? 0 : Math.round(x * 100));
+  const h = c(g?.honorairesHt); const gl = c(g?.gliHt);
+  const hT = Math.round(h * multiplicateurTva(g?.honorairesTvaTaux)); const glT = Math.round(gl * multiplicateurTva(g?.gliTvaTaux));
+  return { honorairesC: h, honorairesTtcC: hT, gliC: gl, gliTtcC: glT, totalC: h + gl, totalTtcC: hT + glT };
+}
+/** Le mois a-t-il un CA de gestion saisi (honoraires ou GLI) ? PUR. */
+export const aCaGestion = (g: Pick<GestionMois, 'honorairesHt' | 'gliHt'>): boolean => g.honorairesHt !== null || (g.gliHt ?? null) !== null;
 
 const cle = (annee: number, mois: number): string => `${annee}-${String(mois).padStart(2, '0')}`;
 
@@ -886,8 +910,9 @@ export function celluleGlobal(e: EntreesGlobal, annee: number, mois: number | nu
   const interCabinet = ventes.reduce((t, v) => t + bilanVente(v, null).neutraliseHt, 0);
   const moisVises = mois === null ? Array.from({ length: 12 }, (_, i) => i + 1) : [mois];
   const loc = e.location === null ? null : moisVises.reduce((t, m) => t + (e.location?.[cle(annee, m)] ?? 0), 0);
-  const gLignes = e.gestion.filter((g) => g.annee === annee && moisVises.includes(g.mois) && g.honorairesHt !== null);
-  const gestion = gLignes.length === 0 ? null : gLignes.reduce((t, g) => t + (g.honorairesHt ?? 0), 0);
+  // 🔴 471 — le CA de gestion : honoraires + GLI (`caGestionDuMoisC`)
+  const gLignes = e.gestion.filter((g) => g.annee === annee && moisVises.includes(g.mois) && aCaGestion(g));
+  const gestion = gLignes.length === 0 ? null : gLignes.reduce((t, g) => t + caGestionDuMoisC(g).totalC, 0) / 100;
   const venteCriterimmoHt = somme('criterimmo');
   const venteMacjHt = somme('macj');
   const criterimmoHt = venteCriterimmoHt + (loc ?? 0) + (gestion ?? 0);

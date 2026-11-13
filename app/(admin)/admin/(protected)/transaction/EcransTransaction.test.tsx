@@ -541,7 +541,7 @@ describe('🔴 LOT GE3 — « Gestion » : le coût MONGA (entre ADHOC et Salari
     await ouvrirG('/?vue=mois&annee=2025&mois=3');
     expect([valeur('gestion-monga'), valeur('gestion-net'), container.querySelector('[data-tuile-valeur="gestion-monga"]')!.className]).toEqual([0, 1618463 - 244900 - 268891, expect.stringContaining('trx-cout-nul')]);
     expect([...container.querySelectorAll('[data-tuile]')].map((x) => x.getAttribute('data-tuile'))).toEqual(['gestion-honoraires', 'gestion-adhoc', 'gestion-monga', 'gestion-salaries', 'gestion-net']);
-    expect([...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent).slice(2, 7)).toEqual(['Honoraires', 'ADHOC', 'MONGA', 'Salaires chargés', 'Reste']); // 🔴 LOT GE5
+    expect([...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent).slice(2, 8)).toEqual(['Honoraires', 'Honoraires GLI', 'ADHOC', 'MONGA', 'Salaires chargés', 'Reste']); // 🔴 LOT GE5 ; 471 : la GLI après les honoraires
     expect([texte('[data-mois-gestion="3"] [data-mot="MONGA"]'), texte('[data-mois-gestion="3"] [data-mot="Reste"]')]).toEqual(['—', '11 046,72 €']);
     expect([...container.querySelectorAll('[data-mesure-bouton]')].map((x) => x.textContent).slice(3, 6)).toEqual(['ADHOC', 'MONGA', 'Salaires']); // 🔴 LOT GE4 : la ligne des coûts
     const { CSS_TRANSACTION } = await import('./commun');
@@ -583,8 +583,8 @@ describe('🔴 LOT GE3 — « Gestion » : le coût MONGA (entre ADHOC et Salari
     await cliquer('[data-decouper="annee"]');
     expect(valeur('gestion-monga')).toBe(11050);
     await cliquer('[data-vue="annee"]'); await cliquer('[data-decouper-annees="tout"]');
-    expect([texte('[data-annee-gestion="2025"] [data-mot="MONGA"]'), [...container.querySelectorAll('[data-table-gestion-annees] thead th')].map((x) => x.textContent).slice(2, 7)])
-      .toEqual(['110,50 €', ['Honoraires', 'ADHOC', 'MONGA', 'Salaires chargés', 'Reste']]); // 🔴 LOT GE5
+    expect([texte('[data-annee-gestion="2025"] [data-mot="MONGA"]'), [...container.querySelectorAll('[data-table-gestion-annees] thead th')].map((x) => x.textContent).slice(2, 8)])
+      .toEqual(['110,50 €', ['Honoraires', 'Honoraires GLI', 'ADHOC', 'MONGA', 'Salaires chargés', 'Reste']]); // 🔴 LOT GE5 ; 471 : la GLI
     // sans la 446 : le champ est grisé, son motif dit
     act(() => { root.unmount(); }); root = createRoot(container);
     delete (donneesGlobal as { monga?: boolean }).monga;
@@ -681,7 +681,7 @@ describe('🔴 LOT LO12 — « Gestion » : avec / sans salaires', () => {
         expect([sans.net - avec.net, sans.reste - avec.reste, sans.total - avec.total]).toEqual([268891, 268891, 268891]);
         expect([titreSansChoix('[data-tuile="gestion-salaries"] .tdb-tuile-mot'), valeur('gestion-salaries'), container.querySelector('[data-tuile-valeur="gestion-salaries"]')!.className]).toEqual(['Salaires chargés — non comptés — mars 2025', 268891, expect.stringContaining('loc-muet')]);
         expect(texte('[data-tuile="gestion-net"] .tdb-tuile-mot')).toBe(`CA net hors salaires ${u.toUpperCase()} — mars 2025`);
-        expect([container.querySelector('[data-gestion-salaires="2025-3"]')!.className, [...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent).slice(5, 7)])
+        expect([container.querySelector('[data-gestion-salaires="2025-3"]')!.className, [...container.querySelectorAll('[data-table-gestion] thead th')].map((x) => x.textContent).slice(6, 8)])
           .toEqual(['loc-muet', ['Salaires chargés (non comptés)', 'Reste hors salaires']]);
         expect(texte('[data-bloc="histogramme-mois"] [data-histo-detail] [data-bulle-bloc="courant"]')).toContain('CA net hors salaires');
         expect([new URLSearchParams(window.location.search).get('salaires'), window.localStorage.getItem('trx-fusion-salaires')]).toEqual(['sans', 'sans']);

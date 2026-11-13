@@ -3,7 +3,7 @@
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { activitePrincipaleDisponible, coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
+import { activitePrincipaleDisponible, caGestionDisponible, coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   NOMS_MOIS, type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
 import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
@@ -353,12 +353,15 @@ export async function lireARattacher(societe: Societe | null): Promise<CaARattac
 
 export async function lireGestion(): Promise<GestionMois[]> {
   // 🔴 LOT GE3 — le coût MONGA (446) : lu seulement quand la colonne existe ; sans elle, null (0).
-  const avecMonga = await mongaDisponible();
+  const [avecMonga, avecCa] = await Promise.all([mongaDisponible(), caGestionDisponible()]);
+  // 🔴 Mon espace « Coûts et CA » (471) — les honoraires GLI et les taux de TVA du mois : lus seulement quand les colonnes existent
+  const ca = avecCa ? 'gli_ht, honoraires_tva_taux, gli_tva_taux' : 'NULL::numeric AS gli_ht, NULL::numeric AS honoraires_tva_taux, NULL::numeric AS gli_tva_taux';
   const { rows } = await query<Record<string, unknown>>(
-    `SELECT id, annee, mois, nb_lots, honoraires_ht, adhoc_ht, ${avecMonga ? 'monga_ht' : 'NULL::numeric AS monga_ht'}, salarie_ht, reste_ht, note, origine
+    `SELECT id, annee, mois, nb_lots, honoraires_ht, adhoc_ht, ${avecMonga ? 'monga_ht' : 'NULL::numeric AS monga_ht'}, salarie_ht, reste_ht, note, origine, ${ca}
        FROM transaction_gestion_mois WHERE retire_le IS NULL ORDER BY annee, mois`);
   const lus: GestionMois[] = rows.map((r) => ({ id: n(r.id), annee: n(r.annee), mois: n(r.mois), nbLots: nOuNull(r.nb_lots), honorairesHt: nOuNull(r.honoraires_ht),
-    adhocHt: nOuNull(r.adhoc_ht), mongaHt: nOuNull(r.monga_ht), salarieHt: nOuNull(r.salarie_ht), resteHt: nOuNull(r.reste_ht), note: t(r.note), origine: r.origine as GestionMois['origine'] }));
+    adhocHt: nOuNull(r.adhoc_ht), mongaHt: nOuNull(r.monga_ht), salarieHt: nOuNull(r.salarie_ht), resteHt: nOuNull(r.reste_ht), note: t(r.note), origine: r.origine as GestionMois['origine'],
+    gliHt: nOuNull(r.gli_ht), honorairesTvaTaux: nOuNull(r.honoraires_tva_taux), gliTvaTaux: nOuNull(r.gli_tva_taux) }));
   // 🔴 « Les coûts », lot 2 (451) — les salaires de la Gestion saisis PAR SALARIÉ : un mois qui en a prend leur somme (jamais en plus du montant
   // mensuel d'avant) ; un mois sans ligne de gestion en reçoit une, avec ses seuls salaires (id négatif : aucune ligne en base).
   const parMois = salairesParMois(await lireCoutsSaisisPourPages(), 'gestion');
@@ -498,7 +501,9 @@ async function colonnesDe(entite: Entite): Promise<readonly string[]> {
   // 🔴 LOT BJ — type, civilité, prénom d'une fiche (443) : lus et écrits SEULEMENT quand la migration est appliquée.
   if (entite === 'personne') return (await personneTypeDisponible()) ? [...c, 'type', 'civilite', 'prenom'] : c;
   // 🔴 LOT GE3 — le coût MONGA (446) : lu et écrit SEULEMENT quand la colonne existe.
-  if (entite === 'gestion_mois') return (await mongaDisponible()) ? [...c, 'monga_ht'] : c;
+  // 🔴 Mon espace « Coûts et CA » (471) — les honoraires GLI et les taux de TVA du mois : lus et écrits SEULEMENT quand les colonnes existent.
+  if (entite === 'gestion_mois') return [...c, ...((await mongaDisponible()) ? ['monga_ht'] : []),
+    ...((await caGestionDisponible()) ? ['gli_ht', 'honoraires_tva_taux', 'gli_tva_taux'] : [])];
   if (entite !== 'vente') return c;
   // LOT E — le prix de vente (435) : lu et écrit SEULEMENT quand la colonne existe.
   return [...c, ...((await repartitionDisponible()) ? COLONNES_VENTE_434 : []), ...((await prixVenteDisponible()) ? ['prix_vente'] : []),
@@ -628,7 +633,7 @@ export async function modifierCoutLigne(id: number, version: number, v: { montan
  * ADHOC ou la facture MONGA d'un mois : la colonne de `transaction_gestion_mois` (la Gestion du Suivi CA, la même ligne), seule, journalisée.
  * Garde de version : le dernier n° du journal de la ligne (0 si le mois n'en a pas encore). ADHOC repris d'un import : non modifiable ici.
  */
-export async function modifierPosteGestion(annee: number, mois: number, poste: 'adhoc' | 'monga', montantHt: number | null, version: number, auteur: AuteurTx): Promise<Issue> {
+export async function modifierPosteGestion(annee: number, mois: number, poste: 'adhoc' | 'monga', montantHt: number | null, version: number, auteur: AuteurTx): Promise<Issue<number>> {
   if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
   if (poste === 'monga' && !(await mongaDisponible())) return { ok: false, motif: 'Le coût MONGA s’enregistrera après la mise à jour de la base (migration 446) : rien n’a été écrit.' };
   const colonne = poste === 'adhoc' ? 'adhoc_ht' : 'monga_ht';
@@ -639,7 +644,7 @@ export async function modifierPosteGestion(annee: number, mois: number, poste: '
       const { rows: c } = await q<{ id: string }>(
         `INSERT INTO transaction_gestion_mois (annee, mois, ${colonne}, origine, cree_par_libelle) VALUES ($1, $2, $3, 'saisie', $4) RETURNING id`, [annee, mois, montantHt, auteur.libelle]);
       await journaliser(q, { entite: 'gestion_mois', id: n(c[0].id), action: 'saisie', avant: null, apres: { annee, mois, [colonne]: montantHt }, auteur });
-      return { ok: true };
+      return { ok: true, valeur: await versionDe(q, 'gestion_mois', n(c[0].id)) };
     }
     const id = n(rows[0].id);
     if (poste === 'adhoc' && rows[0].origine === 'import') return { ok: false, motif: 'ADHOC de ce mois vient de l’import du fichier : il se corrige dans Suivi CA › Gestion.' };
@@ -647,14 +652,49 @@ export async function modifierPosteGestion(annee: number, mois: number, poste: '
     const r = await ecrire(q, 'gestion_mois', id, { [colonne]: montantHt }, true);
     if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
     await journaliser(q, { entite: 'gestion_mois', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
-    return { ok: true };
+    // 🔴 471 — la nouvelle version de la ligne du mois : le geste suivant du même formulaire sur cette ligne la reprend (jamais un faux conflit)
+    return { ok: true, valeur: await versionDe(q, 'gestion_mois', id) };
   });
 }
+/**
+ * ══ 🔴 « COÛTS ET CA » (Arno, 13/11/2026, 471) — LE CA DE GESTION D'UN MOIS ══════════════════════════════════════════════════════════════════════════
+ * UNE SEULE COMPTABILITÉ : les honoraires de gestion sont `transaction_gestion_mois.honoraires_ht` (la ligne du Suivi CA › Gestion), les honoraires GLI
+ * `gli_ht`, sur LA MÊME ligne du mois ; chacun avec son taux de TVA (en %). La colonne du poste et son taux, seuls, journalisés ; garde de version (le
+ * dernier n° du journal de la ligne, 0 si le mois n'en a pas). Honoraires repris d'un import : non modifiables ici (Suivi CA › Gestion).
+ */
+export const MOTIF_SANS_471 = 'Le CA de gestion s’enregistrera après la mise à jour de la base (migration 471) : rien n’a été écrit.';
+export async function modifierCaGestion(annee: number, mois: number, poste: 'honoraires' | 'gli', montantHt: number | null, tauxTva: number, version: number, auteur: AuteurTx): Promise<Issue<number>> {
+  if (!(await transactionDisponible())) return { ok: false, motif: MOTIF_SANS_MIGRATION };
+  if (!(await caGestionDisponible())) return { ok: false, motif: MOTIF_SANS_471 };
+  const [colonne, colonneTaux] = poste === 'honoraires' ? ['honoraires_ht', 'honoraires_tva_taux'] : ['gli_ht', 'gli_tva_taux'];
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: string; origine: string }>('SELECT id, origine FROM transaction_gestion_mois WHERE annee = $1 AND mois = $2 AND retire_le IS NULL FOR UPDATE', [annee, mois]);
+    if (rows.length === 0) {
+      if (version !== 0) return { ok: false, motif: MOTIF_PERIME, conflit: true };
+      const { rows: c } = await q<{ id: string }>(
+        `INSERT INTO transaction_gestion_mois (annee, mois, ${colonne}, ${colonneTaux}, origine, cree_par_libelle) VALUES ($1, $2, $3, $4, 'saisie', $5) RETURNING id`,
+        [annee, mois, montantHt, tauxTva, auteur.libelle]);
+      await journaliser(q, { entite: 'gestion_mois', id: n(c[0].id), action: 'saisie', avant: null, apres: { annee, mois, [colonne]: montantHt, [colonneTaux]: tauxTva }, auteur });
+      return { ok: true, valeur: await versionDe(q, 'gestion_mois', n(c[0].id)) };
+    }
+    const id = n(rows[0].id);
+    if (poste === 'honoraires' && rows[0].origine === 'import') return { ok: false, motif: 'Les honoraires de gestion de ce mois viennent de l’import du fichier : ils se corrigent dans Suivi CA › Gestion.' };
+    if ((await versionDe(q, 'gestion_mois', id)) !== version) return { ok: false, motif: MOTIF_PERIME, conflit: true };
+    const r = await ecrire(q, 'gestion_mois', id, { [colonne]: montantHt, [colonneTaux]: tauxTva }, true);
+    if (r === null || Object.keys(r.apres).length === 0) return { ok: false, motif: 'Rien n’a changé.' };
+    await journaliser(q, { entite: 'gestion_mois', id, action: 'modification', avant: r.avant, apres: r.apres, auteur });
+    // 🔴 471 — la nouvelle version de la ligne du mois : le geste suivant du même formulaire sur cette ligne la reprend (jamais un faux conflit)
+    return { ok: true, valeur: await versionDe(q, 'gestion_mois', id) };
+  });
+}
+
 /**
  * ══ 🔴 « LES COÛTS », LOT 3 (452) — LA VALIDATION D'UN POSTE DU MOIS (« complet », 0 compris) ══════════════════════════════════════════════════════
  * Lue pour l'indicateur « complet / à compléter » et le rappel (C17) ; posée ou retirée par « Saisir les coûts du mois » ; journalisée.
  */
-export interface ValidationCout { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga'; annee: number; mois: number }
+export interface ValidationCout { societe: Societe; famille: 'vente' | 'location' | 'gestion'; poste: 'salaires' | 'autres' | 'adhoc' | 'monga' | 'honoraires' | 'gli'; annee: number; mois: number }
+/** 🔴 471 — la nature d'un poste validé : « ca » (honoraires, GLI), sinon « cout ». PUR. */
+export const natureDuPoste = (poste: ValidationCout['poste']): 'cout' | 'ca' => (poste === 'honoraires' || poste === 'gli' ? 'ca' : 'cout');
 export const MOTIF_SANS_452 = 'La validation des postes sera disponible après la mise à jour de la base (migration 452) : les montants sont enregistrés, pas la validation.';
 export async function lireValidationsCouts(): Promise<ValidationCout[] | null> {
   if (!(await coutsValidationDisponible())) return null;
@@ -664,12 +704,18 @@ export async function lireValidationsCouts(): Promise<ValidationCout[] | null> {
 /** Valide (ou dévalide) un poste du mois ; rien n'est écrit si l'état est déjà celui demandé. Journalisé. */
 export async function validerPosteCout(v: ValidationCout, valide: boolean, auteur: AuteurTx): Promise<Issue> {
   if (!(await coutsValidationDisponible())) return { ok: false, motif: MOTIF_SANS_452 };
+  // 🔴 471 — un poste du CA de gestion se valide avec sa nature (« ca »), à CRITERIMMO, une fois la 471 posée
+  const ca = natureDuPoste(v.poste) === 'ca';
+  if (ca && !(await caGestionDisponible())) return { ok: false, motif: MOTIF_SANS_471 };
   return withTransaction(async (q) => {
     const { rows } = await q<{ id: string }>(`SELECT id FROM transaction_cout_validation WHERE retire_le IS NULL AND societe = $1 AND famille = $2 AND poste = $3 AND annee = $4 AND mois = $5 FOR UPDATE`,
       [v.societe, v.famille, v.poste, v.annee, v.mois]);
     if (valide && rows.length === 0) {
-      const { rows: c } = await q<{ id: string }>(`INSERT INTO transaction_cout_validation (societe, famille, poste, annee, mois, valide_par_libelle) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [v.societe, v.famille, v.poste, v.annee, v.mois, auteur.libelle]);
+      const { rows: c } = ca
+        ? await q<{ id: string }>(`INSERT INTO transaction_cout_validation (societe, famille, poste, annee, mois, valide_par_libelle, nature) VALUES ($1, $2, $3, $4, $5, $6, 'ca') RETURNING id`,
+          [v.societe, v.famille, v.poste, v.annee, v.mois, auteur.libelle])
+        : await q<{ id: string }>(`INSERT INTO transaction_cout_validation (societe, famille, poste, annee, mois, valide_par_libelle) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [v.societe, v.famille, v.poste, v.annee, v.mois, auteur.libelle]);
       await journaliser(q, { entite: 'cout_validation', id: n(c[0].id), action: 'validation', avant: null, apres: v, auteur });
     } else if (!valide && rows.length > 0) {
       const id = n(rows[0].id);

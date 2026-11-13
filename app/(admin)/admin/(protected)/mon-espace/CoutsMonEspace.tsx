@@ -21,7 +21,7 @@ import type { EntreesCoutsGlobaux } from '../../../../lib/transaction/coutsGloba
 import type { EntreesGlobalUnite } from '../../../../lib/transaction/globalUnite';
 import type { StructureGraphe } from '../../../../lib/transaction/grapheGlobal';
 import { LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
-import { avecLocationGestion, coutsDeLAnnee, URL_COUTS, type CoutsDuPoint } from '../../../../lib/mon-espace/couts';
+import { avecLocationGestion, caGestionDuPoint, coutsDeLAnnee, URL_COUTS, type CoutsDuPoint } from '../../../../lib/mon-espace/couts';
 
 /**
  * ══ 🔴 MON ESPACE — L'ONGLET « LES COÛTS » (Arno, 03/11/2026, lot C1 : LECTURE SEULE) ═════════════════════════════════════════════════════════════
@@ -34,7 +34,9 @@ import { avecLocationGestion, coutsDeLAnnee, URL_COUTS, type CoutsDuPoint } from
 /** 🔴 Lot 2 — ce que la route ajoute pour la saisie : les profils (et leurs fonctions), la version de chaque mois de la Gestion, la 451 appliquée. */
 type DonneesCouts = DonneesGlobal & { profils?: ProfilCout[]; versionsGestion?: Record<string, { version: number; origine: string }>; saisie?: boolean;
   /** 🔴 Lot 3 (452) — les postes validés (« complet ») ; null : la migration 452 n'est pas appliquée. */
-  validations?: Validation[] | null };
+  validations?: Validation[] | null;
+  /** 🔴 « Coûts et CA » (471) — la saisie du CA de gestion est-elle disponible. */
+  caGestion?: boolean };
 type Lu = { etat: 'chargement' } | { etat: 'ok'; data: DonneesCouts } | { etat: 'erreur' };
 /** 🔴 C12 (Arno, 03/11/2026) — quatre onglets ; « Vente » par défaut ; le choix est dans l'adresse (`?couts-tableau=`). */
 export type OngletTableau = 'vente' | 'location' | 'gestion' | 'synthese';
@@ -49,7 +51,9 @@ export const AIDE_POSTES_FUTURS: Record<string, string> = {
   salaires: 'Les salaires chargés des collaborateurs de la vente, saisis par salarié et par mois.',
 };
 
-export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, onEcrit }: { agence: Agence; jour: string;
+export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, partieDemandee = 'couts', onEcrit }: { agence: Agence; jour: string;
+  /** 🔴 « Coûts et CA » — la partie qu'ouvre l'indicateur de l'accueil. */
+  partieDemandee?: 'couts' | 'ca';
   /** Le compteur de relecture de « Mon espace » (rafraîchissement, gestes) : « Les coûts » se relit avec lui. */
   lecture: number;
   /** 🔴 Lot 3 (C17) — un clic sur le rappel de l'onglet ouvre directement « Saisir les coûts du mois » (un compteur : chaque clic compte). */
@@ -204,16 +208,23 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, onEc
     </table>
   );
   const entetesGestion = [<th key="s" scope="col">Salaires chargés</th>, <th key="a" scope="col">ADHOC</th>,
-    <th key="m" scope="col">MONGA</th>, enteteFutur('Autres', 'gestion-autres'), <th key="t" scope="col">Total gestion</th>];
+    <th key="m" scope="col">MONGA</th>, enteteFutur('Autres', 'gestion-autres'), <th key="t" scope="col">Total gestion</th>,
+    // 🔴 « Coûts et CA » (471) — le CA de gestion, à la suite (jamais mêlé aux coûts : son propre groupe de colonnes)
+    <th key="ch" scope="col" data-entete-ca="honoraires">CA — honoraires de gestion</th>, <th key="cg" scope="col" data-entete-ca="gli">CA — honoraires GLI</th>,
+    <th key="ct" scope="col" data-entete-ca="total">CA global de gestion</th>];
+  const caDeLaLigne = (l: (typeof lignes)[number]) => caGestionDuPoint(d.gestion, agence, annee, l.cle === 'annee' ? null : /^\d+$/.test(l.cle) ? Number(l.cle) : -1);
   const tableGestion = !lg ? macj('gestion', entetesGestion) : (
     <table className="tdb-table trx-table-groupes trx-table-couts mes-table-couts" data-table-couts-mon-espace="gestion">
       <colgroup><col /></colgroup><colgroup span={4} className="trx-g trx-g--fond" data-bloc-colonnes="gestion" /><colgroup span={1} className="trx-g" data-bloc-colonnes="total" />
+      <colgroup span={3} className="trx-g" data-bloc-colonnes="ca-gestion" />
       <thead><tr><th scope="col">Mois</th>{entetesGestion}</tr></thead>
-      <tbody>{lignes.map((l) => { const G = l.p.gestion; return ligne(l, G === null ? <td colSpan={5} /> : <>
+      <tbody>{lignes.map((l) => { const G = l.p.gestion; const CA = caDeLaLigne(l); return ligne(l, G === null ? <td colSpan={8} /> : <>
         {caseSaisie(l, G.salaires, 'gestion-salaires', lignesSaisie('gestion', 'salaires'), peutSaisir('gestion'))}
         {caseSaisie(l, G.adhoc, 'gestion-adhoc', (mois) => ({ sorte: 'gestion', poste: 'adhoc', mois }), peutSaisir('gestion') && moisDe(l) !== null && d.versionsGestion?.[cleMois(moisDe(l)!)]?.origine !== 'import')}
         {caseSaisie(l, G.monga, 'gestion-monga', (mois) => ({ sorte: 'gestion', poste: 'monga', mois }), peutSaisir('gestion') && d.monga === true)}
-        {caseSaisie(l, G.autres, 'gestion-autres', lignesSaisie('gestion', 'autres'), peutSaisir('gestion'))}{totalCase(l, G.total, 'gestion-total')}</>); })}</tbody>
+        {caseSaisie(l, G.autres, 'gestion-autres', lignesSaisie('gestion', 'autres'), peutSaisir('gestion'))}{totalCase(l, G.total, 'gestion-total')}
+        {CA === null ? <><td /><td /><td /></> : <><td data-ca-gestion="honoraires">{eur(CA.honoraires[k] / 100)}</td><td data-ca-gestion="gli">{eur(CA.gli[k] / 100)}</td>
+          <td className="trx-total" data-ca-gestion="total">{l.aVenir && CA.total.htC === 0 ? '—' : eur(CA.total[k] / 100)}</td></>}</>); })}</tbody>
     </table>
   );
   // 🔴 C12 — la synthèse : les MÊMES totaux que les onglets Location et Gestion (`total` de chaque famille), et leur somme ; rien d'autre
@@ -236,11 +247,15 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, onEc
   if (saisie && d.saisie === true) {
     const gestionDuMoisPage = (m: { annee: number; mois: number }) => { const g = d.gestion.find((x) => x.annee === m.annee && x.mois === m.mois && x.id > 0);
       return { adhoc: g?.adhocHt ?? null, monga: g?.mongaHt ?? null }; };
+    // 🔴 471 — le CA de gestion enregistré du mois (la même ligne que le Suivi CA › Gestion)
+    const caDuMoisPage = (m: { annee: number; mois: number }) => { const g = d.gestion.find((x) => x.annee === m.annee && x.mois === m.mois && x.id > 0);
+      return { honoraires: g?.honorairesHt ?? null, gli: g?.gliHt ?? null, tauxHonoraires: g?.honorairesTvaTaux ?? null, tauxGli: g?.gliTvaTaux ?? null, importe: g?.origine === 'import' }; };
     return (
       <div className="mes-couts tdb loc-page" data-couts-mon-espace={agence}>
         <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX + CSS_COUTS_MON_ESPACE + CSS_EDITION_COUTS}</style>
         <SaisieMoisCouts d={{ lignes: d.coutsLignes ?? [], profils: d.profils ?? [], validations: d.validations ?? null, versionsGestion: d.versionsGestion ?? {}, monga: d.monga === true,
-          gestionDuMois: gestionDuMoisPage }} eC={eC} jour={jour} societeInitiale={agence === 'tous' ? 'criterimmo' : agence} onEcrit={ecrit}
+          gestionDuMois: gestionDuMoisPage, caGestion: d.caGestion === true, caDuMois: caDuMoisPage }} eC={eC} jour={jour}
+          societeInitiale={agence === 'tous' || partieDemandee === 'ca' ? 'criterimmo' : agence} partieInitiale={partieDemandee} onEcrit={ecrit}
           onRetour={(m) => { setSaisie(false); if (m !== null) setAnnee(m.annee); }} />
       </div>
     );

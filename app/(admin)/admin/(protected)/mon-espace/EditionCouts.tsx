@@ -46,11 +46,14 @@ export function lireMontant(texte: string): number | null {
 const ecrireMontant = (x: number | null): string => (x === null ? '' : x.toFixed(2).replace('.', ','));
 
 /** Envoie une saisie ; rend le statut et le motif (409 : la ligne a changé entre-temps). */
-export async function posterCout(corps: unknown): Promise<{ ok: boolean; statut: number; motif: string | null }> {
+export async function posterCout(corps: unknown): Promise<{ ok: boolean; statut: number; motif: string | null;
+  /** 🔴 471 — la nouvelle version de la ligne de gestion du mois, après une écriture sur elle (ADHOC, MONGA, honoraires, GLI). */
+  version?: number | null }> {
   try {
     const r = await fetch(URL_COUTS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-    const j = (await r.json().catch(() => ({}))) as { motif?: string; message?: string };
-    return { ok: r.ok, statut: r.status, motif: r.ok ? null : j.motif ?? j.message ?? 'Enregistrement impossible.' };
+    const j = (await r.json().catch(() => ({}))) as { motif?: string; message?: string; data?: { version?: unknown } };
+    return { ok: r.ok, statut: r.status, motif: r.ok ? null : j.motif ?? j.message ?? 'Enregistrement impossible.',
+      ...(typeof j.data?.version === 'number' ? { version: j.data.version } : {}) };
   } catch { return { ok: false, statut: 0, motif: 'Réseau indisponible : rien n’a été écrit.' }; }
 }
 

@@ -1,4 +1,4 @@
-import { TVA, type GestionMois } from './modele';
+import { caGestionDuMoisC, multiplicateurTva, TVA, type GestionMois } from './modele';
 import { nbMoisSalairesASaisir, type MoisChoisi } from './periodeMois';
 
 /**
@@ -35,10 +35,13 @@ const enTtcC = (htC: number, taux: number): number => Math.round(htC * taux);
 export const honorairesTtcC = (htC: number): number => enTtcC(htC, TAUX_TVA_HONORAIRES);
 
 export interface MoisGestionVu { annee: number; mois: number; saisi: boolean;
-  /** Centimes HT. */
+  /** Centimes HT. 🔴 471 — `honorairesC` est le CA GLOBAL de gestion (honoraires de gestion + honoraires GLI), celui que comptent le CA net, le CA
+   *  global et la fusion ; ses deux parts : `honorairesGestionC` et `gliC`. */
   honorairesC: number; adhocC: number; mongaC: number; salariesC: number; netC: number; lots: number | null; ligne: GestionMois | null;
   /** 🔴 LOT GE2 — les mêmes en TTC (centimes) ; les salariés : sans TVA. */
-  honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number }
+  honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number;
+  /** 🔴 471 — les deux parts du CA de gestion (HT et TTC, chacune à son taux). */
+  honorairesGestionC: number; honorairesGestionTtcC: number; gliC: number; gliTtcC: number }
 const c = (x: number | null | undefined): number => (x == null ? 0 : Math.round(x * 100));
 
 /**
@@ -47,15 +50,20 @@ const c = (x: number | null | undefined): number => (x == null ? 0 : Math.round(
  */
 export function moisGestion(gestion: readonly GestionMois[], annee: number, mois: number, salaires = true): MoisGestionVu {
   const g = gestion.find((x) => x.annee === annee && x.mois === mois) ?? null;
-  const [h, a, m, s] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt)];
-  const [hT, aT, mT] = [honorairesTtcC(h), enTtcC(a, TAUX_TVA_ADHOC), enTtcC(m, TAUX_TVA_MONGA)];
+  // 🔴 471 — le CA de gestion du mois : honoraires + GLI, chacun à son taux (`caGestionDuMoisC`) ; sans GLI ni taux saisi : inchangé au centime
+  const ca = caGestionDuMoisC(g);
+  const [h, a, m, s] = [ca.totalC, c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt)];
+  const [hT, aT, mT] = [ca.totalTtcC, enTtcC(a, TAUX_TVA_ADHOC), enTtcC(m, TAUX_TVA_MONGA)];
   // 🔴 LOT GE3 — CA net = honoraires − ADHOC − MONGA − salariés (un mois sans MONGA : inchangé au centime)
   const sD = salaires ? s : 0;
   return { annee, mois, saisi: g !== null, honorairesC: h, adhocC: a, mongaC: m, salariesC: s, netC: h - a - m - sD, lots: g?.nbLots ?? null, ligne: g,
-    honorairesTtcC: hT, adhocTtcC: aT, mongaTtcC: mT, netTtcC: hT - aT - mT - sD };
+    honorairesTtcC: hT, adhocTtcC: aT, mongaTtcC: mT, netTtcC: hT - aT - mT - sD,
+    honorairesGestionC: ca.honorairesC, honorairesGestionTtcC: ca.honorairesTtcC, gliC: ca.gliC, gliTtcC: ca.gliTtcC };
 }
 
 export interface TotauxGestion { honorairesC: number; adhocC: number; mongaC: number; salariesC: number; netC: number; honorairesTtcC: number; adhocTtcC: number; mongaTtcC: number; netTtcC: number;
+  /** 🔴 471 — les deux parts du CA de gestion (`honorairesC` = leur somme) ; absentes d'un total d'avant : honoraires = le CA, GLI = 0. */
+  honorairesGestionC?: number; honorairesGestionTtcC?: number; gliC?: number; gliTtcC?: number;
   /** Les lots : ceux du mois (un seul mois), sinon la moyenne des mois qui en ont ; null : aucun. */
   lots: number | null; nbMois: number; nbSaisis: number }
 /** Les totaux des mois choisis (la somme de leurs mois, au centime) ; `salaires` : voir `moisGestion`. PUR. */
@@ -65,12 +73,17 @@ export function totauxGestion(gestion: readonly GestionMois[], ms: readonly Mois
   const somme = (k: 'honorairesC' | 'adhocC' | 'mongaC' | 'salariesC' | 'netC' | 'honorairesTtcC' | 'adhocTtcC' | 'mongaTtcC' | 'netTtcC'): number => vus.reduce((t, v) => t + v[k], 0);
   return { honorairesC: somme('honorairesC'), adhocC: somme('adhocC'), mongaC: somme('mongaC'), salariesC: somme('salariesC'), netC: somme('netC'),
     honorairesTtcC: somme('honorairesTtcC'), adhocTtcC: somme('adhocTtcC'), mongaTtcC: somme('mongaTtcC'), netTtcC: somme('netTtcC'),
+    honorairesGestionC: vus.reduce((t, v) => t + v.honorairesGestionC, 0), honorairesGestionTtcC: vus.reduce((t, v) => t + v.honorairesGestionTtcC, 0),
+    gliC: vus.reduce((t, v) => t + v.gliC, 0), gliTtcC: vus.reduce((t, v) => t + v.gliTtcC, 0),
     lots: avecLots.length === 0 ? null : avecLots.reduce((t, x) => t + x, 0) / avecLots.length, nbMois: vus.length, nbSaisis: vus.filter((v) => v.saisi).length };
 }
 
 /** Le montant d'une mesure en centimes, dans l'unité (les salariés : sans TVA). PUR. */
-export function centimesGestion(t: Omit<TotauxGestion, 'lots' | 'nbMois' | 'nbSaisis'>, m: Exclude<MesureGestion, 'lots'>, u: UniteGestion = 'ht'): number {
+export function centimesGestion(t: Omit<TotauxGestion, 'lots' | 'nbMois' | 'nbSaisis'>, m: Exclude<MesureGestion, 'lots'> | 'honoraires_gestion' | 'gli', u: UniteGestion = 'ht'): number {
   if (m === 'salaries') return t.salariesC;
+  // 🔴 471 — les deux parts du CA de gestion (la tuile « Honoraires de gestion » : les honoraires seuls, comme toujours)
+  if (m === 'honoraires_gestion') return u === 'ttc' ? t.honorairesGestionTtcC ?? t.honorairesTtcC : t.honorairesGestionC ?? t.honorairesC;
+  if (m === 'gli') return u === 'ttc' ? t.gliTtcC ?? 0 : t.gliC ?? 0;
   if (u === 'ttc') return m === 'honoraires' ? t.honorairesTtcC : m === 'adhoc' ? t.adhocTtcC : m === 'monga' ? t.mongaTtcC : t.netTtcC;
   return m === 'honoraires' ? t.honorairesC : m === 'adhoc' ? t.adhocC : m === 'monga' ? t.mongaC : t.netC;
 }
@@ -84,15 +97,17 @@ export function valeurGestion(t: TotauxGestion, m: MesureGestion, u: UniteGestio
  * montant du comptable, tel quel en HT) reçoit en TTC la TVA des honoraires moins celle d'ADHOC — soit honoraires TTC − ADHOC TTC − salarié quand le
  * reste saisi suit la règle. PUR.
  */
-export function ligneGestionEnUnite(g: Pick<GestionMois, 'honorairesHt' | 'adhocHt' | 'mongaHt' | 'salarieHt' | 'resteHt'> | null, u: UniteGestion):
-  { honoraires: number | null; adhoc: number | null; monga: number | null; salarie: number | null; reste: number | null } {
+export function ligneGestionEnUnite(g: (Pick<GestionMois, 'honorairesHt' | 'adhocHt' | 'mongaHt' | 'salarieHt' | 'resteHt'> & Partial<Pick<GestionMois, 'gliHt' | 'honorairesTvaTaux' | 'gliTvaTaux'>>) | null, u: UniteGestion):
+  { honoraires: number | null; gli: number | null; adhoc: number | null; monga: number | null; salarie: number | null; reste: number | null } {
   const c = (x: number | null | undefined): number | null => (x == null ? null : Math.round(x * 100));
-  const [h, a, m, s, r] = [c(g?.honorairesHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt), c(g?.resteHt)];
+  const [h, gl, a, m, s, r] = [c(g?.honorairesHt), c(g?.gliHt), c(g?.adhocHt), c(g?.mongaHt), c(g?.salarieHt), c(g?.resteHt)];
   const e = (x: number | null): number | null => (x === null ? null : x / 100);
-  if (u === 'ht') return { honoraires: e(h), adhoc: e(a), monga: e(m), salarie: e(s), reste: e(r) };
-  const hT = h === null ? null : enTtcC(h, TAUX_TVA_HONORAIRES); const aT = a === null ? null : enTtcC(a, TAUX_TVA_ADHOC); const mT = m === null ? null : enTtcC(m, TAUX_TVA_MONGA);
+  if (u === 'ht') return { honoraires: e(h), gli: e(gl), adhoc: e(a), monga: e(m), salarie: e(s), reste: e(r) };
+  // 🔴 471 — honoraires et GLI : chacun à son taux du mois (20 % par défaut)
+  const hT = h === null ? null : enTtcC(h, multiplicateurTva(g?.honorairesTvaTaux)); const glT = gl === null ? null : enTtcC(gl, multiplicateurTva(g?.gliTvaTaux));
+  const aT = a === null ? null : enTtcC(a, TAUX_TVA_ADHOC); const mT = m === null ? null : enTtcC(m, TAUX_TVA_MONGA);
   const tvaH = h === null || hT === null ? 0 : hT - h; const tvaA = a === null || aT === null ? 0 : aT - a; const tvaM = m === null || mT === null ? 0 : mT - m;
-  return { honoraires: e(hT), adhoc: e(aT), monga: e(mT), salarie: e(s), reste: r === null ? null : e(r + tvaH - tvaA - tvaM) };
+  return { honoraires: e(hT), gli: e(glT), adhoc: e(aT), monga: e(mT), salarie: e(s), reste: r === null ? null : e(r + tvaH - tvaA - tvaM) };
 }
 
 /** Les années de la gestion (et l'année en cours), croissantes. PUR. */

@@ -252,3 +252,8 @@ export function activitePrincipaleDisponible(): Promise<boolean> {
 export function coutsValidationDisponible(): Promise<boolean> {
   return memoiser('transaction_cout_validation.poste', () => colonneExiste('transaction_cout_validation', 'poste'));
 }
+
+/** 🔴 Mon espace « Coûts et CA » (471) — le CA de gestion saisi : honoraires GLI, taux de TVA du mois, validation de nature « ca ». */
+export function caGestionDisponible(): Promise<boolean> {
+  return memoiser('transaction_gestion_mois.gli_ht', () => colonneExiste('transaction_gestion_mois', 'gli_ht'));
+}
