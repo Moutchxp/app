@@ -521,7 +521,7 @@ export const CSS_FILE_A_TRIER = `
    ⚠️ NE PAS ECRIRE ICI LE NOM DE LA CONSTANTE PRECEDE D'UN DOLLAR-ACCOLADE : ce commentaire vit DANS un litteral
    de gabarit, et la constante serait INTERPOLEE — la feuille entiere se retrouverait a l'interieur d'un
    commentaire CSS, en double. Piege rencontre a l'ecriture de ce lot. */
-.fat-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);
+.fat-sr{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);
   white-space:nowrap;border:0}
 
 ${CSS_BARRE_PAGES}

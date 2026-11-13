@@ -144,7 +144,12 @@ export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms:
 }
 
 const CSS = `
-.svv-adm-shell{min-height:100dvh;display:flex;flex-direction:column}
+/* 🔴 Arno (13/11/2026) — LA PAGE NE DEFILE JAMAIS AU-DELA DE SON CONTENU. La coquille remplit la hauteur de la fenetre
+   QUI RESTE sous les bandeaux du haut (RECETTE, mode reel), au lieu d'y AJOUTER une hauteur de fenetre entiere : avant,
+   min-height:100dvh sous un bandeau de 38 px donnait 38 px de page vide a faire defiler sur toute page courte.
+   En production (aucun bandeau), le rendu est identique. Epreuve : hauteurPageAdmin.test.tsx. */
+.svv-adm-root:has(> .svv-adm-shell){display:flex;flex-direction:column;min-height:100dvh}
+.svv-adm-shell{flex:1 0 auto;display:flex;flex-direction:column}
 .svv-adm-content{flex:1;display:flex;flex-direction:column;min-width:0}
 .svv-adm-bandeau{border-bottom:1px solid var(--color-svv-line);padding:.6rem 1rem;font-size:.8rem;color:var(--color-svv-muted);background:var(--color-svv-field)}
 /* ══ 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — LA LARGEUR DES PAGES D'ADMINISTRATION, ECRITE UNE SEULE FOIS ═══════════════
@@ -233,7 +238,9 @@ const CSS = `
 
 @media (min-width:768px){
   .svv-adm-shell{flex-direction:row}
-  .svv-adm-sidebar{width:240px;flex:0 0 240px;border-right:1px solid var(--color-svv-line);border-bottom:0;height:100dvh;position:sticky;top:0;display:flex;flex-direction:column}
+  /* 🔴 Arno (13/11/2026) : max-height, plus height — la colonne colle en haut et ne depasse jamais la fenetre, mais une hauteur
+     d'ecran FIXE sous le bandeau RECETTE faisait defiler 38 px de vide sur toute page courte. */
+  .svv-adm-sidebar{width:240px;flex:0 0 240px;border-right:1px solid var(--color-svv-line);border-bottom:0;max-height:100dvh;position:sticky;top:0;display:flex;flex-direction:column}
   .svv-adm-burger{display:none}
   .svv-adm-nav{display:flex !important}
   /* La colonne du mode prend la hauteur libre et défile SEULE ; déconnexion et thème restent collés en bas. */

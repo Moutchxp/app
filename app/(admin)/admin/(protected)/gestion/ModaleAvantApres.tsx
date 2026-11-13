@@ -161,7 +161,7 @@ export const CSS_MODALE_AVANT_APRES = `
 /* Ajoute : un « + » vert devant la ligne. */
 .maa-plus{flex:0 0 auto;width:12px;text-align:center;font-weight:700;color:var(--color-svv-green-ink)}
 .maa-bien--ajoute .maa-ligne{font-weight:600}
-.maa-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.maa-sr{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .maa-qui{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
 .maa-complement{margin:0;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .maa-phrase{margin:0;font-size:.85rem;color:var(--color-svv-ink)}

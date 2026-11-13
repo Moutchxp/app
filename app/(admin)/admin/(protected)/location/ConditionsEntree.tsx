@@ -619,7 +619,7 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + CSS_INDICES + `
 .loc-intitule{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:clip;line-height:1.3}
 .loc-champ-tete .svv-pil-ib{flex:0 0 auto}
 .loc-champ-tete .svv-pil-ib-btn{margin:-11px -11px -11px -8px}
-.loc-invisible{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.loc-invisible{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* « € » en suffixe dans la case : gris, non sélectionnable, ne prend jamais le clic (la saisie passe dessous). */
 .loc-case-euros{position:relative;display:block;min-width:0}
 .loc-case-euros input{width:100%;box-sizing:border-box;padding-right:2.2em}

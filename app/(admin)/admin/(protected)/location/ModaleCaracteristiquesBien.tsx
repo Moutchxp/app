@@ -59,5 +59,5 @@ export const CSS_MODALE_CARACTERISTIQUES = `
 .mcb-voile{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .mcb-fenetre{position:relative;width:min(1240px,100%);height:100%;overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;padding:20px 16px 0;border-radius:22px;background:var(--color-svv-bg);box-shadow:0 30px 80px -30px color-mix(in srgb, var(--color-svv-ink) 50%, transparent)}
 @media (max-width:640px){ .mcb-voile{padding:0} .mcb-fenetre{border-radius:0;padding:12px 0 0} }
-.mcb-titre-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;margin:-1px;padding:0;border:0}
+.mcb-titre-cache{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;margin:-1px;padding:0;border:0}
 `;

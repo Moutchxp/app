@@ -647,7 +647,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-etape--faite .frp-numero{background:var(--color-svv-green-ink)}
 .frp-etape--refusee .frp-numero{background:var(--color-svv-urgence-orange)}
 .frp-titre{font-weight:900;color:var(--color-svv-ink);line-height:22px;padding-top:3px}
-.frp-lu{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.frp-lu{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .frp-statut{grid-column:2;font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere;display:flex;flex-direction:column}
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
 .frp-etape > .pva-bloc{grid-row:2 / span 2;display:grid;grid-template-rows:subgrid;row-gap:8px;min-width:0;margin:0}

@@ -542,7 +542,7 @@ export const CSS_PIECES_BROUILLON = `
 .pjb-ajouter:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pjb-ajouter:disabled{opacity:.55;cursor:default}
 /* Le champ natif est masqué mais JAMAIS retiré du DOM : c'est lui qui ouvre le sélecteur du système. */
-.pjb-champ{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.pjb-champ{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none}
 /* 🔴 LOT EDITEUR-PJ — le Drive et le lien, venus de la barre du bas. MÊME HAUTEUR que « Joindre un fichier »
    (44 px) pour que la rangée s'aligne : c'etait la demande, et une icone plus petite se rate au doigt. */
 .pjb-outil{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;

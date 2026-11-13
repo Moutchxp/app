@@ -92,7 +92,7 @@ export const CSS_ECRAN_SYNDICS = `
 .esy-alerte{padding:8px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-size:.85rem}
 .esy-recherche input{width:100%;min-height:44px;padding:8px 12px;border-radius:10px;border:1px solid var(--color-svv-line-strong);
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:16px}
-.esy-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.esy-sr{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .esy-discret{color:var(--color-svv-muted);font-size:.85rem}
 .esy-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.4rem}
 .esy-ligne{width:100%;min-height:44px;display:flex;flex-wrap:wrap;align-items:baseline;gap:.3rem 1rem;text-align:left;cursor:pointer;

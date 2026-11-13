@@ -2376,7 +2376,7 @@ ${CSS_BOUTON_ROND}
 /* La pastille DOUBLE un mot lu par les lecteurs d'écran : une forme seule n'informe pas qui ne la voit pas. */
 .bte-pastille{position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;
   background:var(--color-svv-red);border:1px solid var(--color-svv-surface)}
-.bte-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);
+.bte-sr{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);
   white-space:nowrap;border:0}
 .bte-avancee{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line);
   border-radius:.6rem;background:var(--color-svv-field)}
@@ -2449,7 +2449,7 @@ ${CSS_BARRE_PAGES}
 /* La phrase que seul un lecteur d'ecran entend : le squelette, lui, porte aria-hidden.
    (Aucun accent grave : ce commentaire vit DANS un litteral de gabarit — piege qui s'est referme trois fois
     pendant ces lots.) */
-.bte-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);
+.bte-sr{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);
   white-space:nowrap;border:0}
 
 ${CSS_MENU_LIGNE}

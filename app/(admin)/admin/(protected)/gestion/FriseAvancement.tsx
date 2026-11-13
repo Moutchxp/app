@@ -3121,7 +3121,7 @@ ${CSS_ZONES_POINTS}
 .fav-montant-champ{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 0}
 .fav-unite{font-size:.82rem;color:var(--color-svv-muted)}
 
-.fav-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+.fav-sr{position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
 
 /* Ecran etroit : la frise DEFILE, rien ne se superpose et rien ne se replie (Arno). Les bulles et les

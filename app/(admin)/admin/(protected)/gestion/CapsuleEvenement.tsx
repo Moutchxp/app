@@ -64,6 +64,6 @@ export const CSS_CAPSULE_EVENEMENT = `
 .cev--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red-soft)}
 .cev--non-precisee{background:var(--color-svv-amber-soft);color:var(--color-svv-amber);border-color:var(--color-svv-amber-soft)}
 .cev--clos{background:var(--color-svv-field);color:var(--color-svv-muted);border-color:var(--color-svv-line)}
-.cev-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);
+.cev-sr{position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);
   white-space:nowrap;border:0}
 `;

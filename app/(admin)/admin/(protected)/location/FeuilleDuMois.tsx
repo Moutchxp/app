@@ -1039,7 +1039,7 @@ export const CSS_FEUILLE_MOIS = `${CSS_BULLE_ANNEXES}${CSS_SUPPRIMER_LOCATION}
 .fdm-table td[data-mot*="HT"],.fdm-table td[data-mot^="Hono"],.fdm-table td[data-mot^="Prime"],.fdm-table td[data-mot^="CA "],.fdm-table td[data-mot*="/ "]{white-space:nowrap}
 .fdm-table .loc-pastille{margin-left:6px}
 .fdm-historique th[scope=row]{color:var(--color-svv-muted)}
-.fdm-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fdm-cache{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .fdm-modifier{min-height:44px;padding:0 12px;font-size:.82rem}
 .fdm-orange{color:var(--color-svv-amber);font-weight:800}
 .fdm-ecart{margin:6px 0 0;font-size:.8rem;color:var(--color-svv-muted);border-left:3px solid var(--color-svv-amber);padding-left:8px}

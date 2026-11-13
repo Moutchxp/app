@@ -334,7 +334,7 @@ export const CSS_ENVOI = `
 .eam-discret{appearance:none;border:0;background:none;padding:0 2px;min-height:44px;font:inherit;font-size:.74rem;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:left;overflow-wrap:anywhere}
 .eam-discret:hover{color:var(--color-svv-red)}
 .eam-discret:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px;border-radius:4px}
-.eam-invisible{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.eam-invisible{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .eam-gros:focus-visible,.eam-envoyer:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px}
 .eam-fiche{display:flex;flex-direction:column;gap:14px;margin-bottom:14px}
 .eam-fiche-bail + .eam-fiche-bail{border-top:1px solid var(--color-svv-line);padding-top:14px}

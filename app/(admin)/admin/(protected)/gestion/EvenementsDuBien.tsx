@@ -595,6 +595,6 @@ const CSS_EVENEMENTS_DU_BIEN = `
 .evb-monga{display:inline-block;margin-left:.35rem;padding:1px 7px;border-radius:999px;
   font-size:.68rem;font-weight:700;letter-spacing:.04em;
   color:var(--color-svv-bg);background:var(--color-svv-green)}
-.evb-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+.evb-sr{position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
 `;
