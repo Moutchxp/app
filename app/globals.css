@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Détection automatique des sources de Tailwind : jamais les dossiers de DONNÉES. En production, `data` est un lien symbolique vers
+   `shared/data`, hors du projet : le parcourir fait refuser le build par Turbopack (Next 16.4 : « webpack loader path … is outside configured
+   roots »). Aucun de ces dossiers ne contient de classe Tailwind. */
+@source not "../data";
+@source not "../.captures";
+@source not "../sauvegardes";
+@source not "../.minio";
+
 :root {
   --background: #ffffff;
   --foreground: #16202c;
