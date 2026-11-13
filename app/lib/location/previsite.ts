@@ -115,6 +115,8 @@ export interface PrevisiteAffiche {
   /** Le rendez-vous est passé : le bouton « Compte rendu pré-visite » est proposé. */
   rdvPasse: boolean;
   alerteEnvoyeeLe: string | null;
+  /** 🔴 Arno (13/11/2026) — un compte rendu a été saisi (au moins un envoi journalisé) : « Voir le compte rendu » ; absent : inconnu. */
+  compteRendu?: boolean;
 }
 
 /** Tous les collègues invités ont refusé (au moins un invité). PUR. */

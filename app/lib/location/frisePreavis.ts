@@ -41,3 +41,18 @@ export function etapesPreavis(l: LignePreavisAccueil, aujourdhui: string,
   const courante = etapes.find((e) => e.statut === 'a_faire' || e.statut === 'programmee')?.cle ?? null;
   return etapes.map((e) => ({ ...e, lignes: e.lignes ?? [e.libelle], enCours: e.cle === courante }));
 }
+
+/**
+ * 🔴 Arno (13/11/2026) — LES LIGNES SOUS LE TITRE D'UNE ÉTAPE, SANS DOUBLON : quand la case montre déjà le CARTOUCHE du rendez-vous (pré-visite
+ * programmée ou effectuée avec sa date ; état des lieux de sortie fixé, non refusé, dans la planification), la ligne grise le répétait mot pour
+ * mot : elle disparaît (accord d'Arno), et seule l'indication « étape en cours » reste, si l'étape est la courante. Sans cartouche (« À
+ * programmer », « À planifier », refus) : les lignes telles quelles. PUR.
+ */
+export function lignesSousTitre(e: EtapePreavis, l: LignePreavisAccueil, o: { planification: boolean }): string[] {
+  const p = l.previsite ?? null;
+  const cartouche = (e.cle === 'previsite' && p !== null && p.rdv !== null && (p.statut === 'programmee' || p.statut === 'effectuee'))
+    || (e.cle === 'edls' && o.planification && l.edls != null && l.edls.statut !== 'refusee');
+  if (cartouche) return e.enCours ? [ETAPE_EN_COURS] : [];
+  return e.lignes.map((x, i) => (i === e.lignes.length - 1 && e.enCours ? `${x} · ${ETAPE_EN_COURS}` : x));
+}
+export const ETAPE_EN_COURS = 'étape en cours';

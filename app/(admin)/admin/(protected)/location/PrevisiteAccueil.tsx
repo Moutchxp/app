@@ -18,6 +18,7 @@ import {
   ALERTE_TOUS_REFUSENT, CARTOUCHE_ALERTE, LIBELLE_STATUT_PREVISITE, creneauFr, objetCompteRendu, pastillesPrevisite, verifierRdvPrevisite,
   type PrevisiteAffiche, type StatutPrevisite,
 } from '../../../../lib/location/previsite';
+import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
  * ══ 🔴🔴 LA PRÉ-VISITE SUR LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 10/11/2026) ════════════════════════════════════════════════════
@@ -76,6 +77,7 @@ export function MentionReserveLocation() {
 export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () => void }) {
   const p = l.previsite ?? null;
   const [geste, setGeste] = useState<Geste | null>(null);
+  const [voirCr, setVoirCr] = useState(false);
   if (p === null) return null;
   const programmee = p.statut === 'programmee' && p.rdv !== null;
   // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : les boutons restent visibles, INACTIFS, avec la mention.
@@ -108,7 +110,17 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
           <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
       </div>
       {!ecriture && <MentionReserveLocation />}
+      {/* 🔴 Arno (13/11/2026) — la pré-visite effectuée : « Voir le compte rendu » (lecture seule, ouvert à tout compte Location) ; aucun compte rendu
+          saisi : le bouton le dit, inactif (pas de nouvelle saisie). */}
+      {p.statut === 'effectuee' && (
+        <div className="loc-boutons pvv-voir-cr" style={{ justifyContent: 'flex-start' }}>
+          {p.compteRendu === false
+            ? <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" disabled aria-disabled="true" data-voir-compte-rendu="aucun">{AUCUN_CR}</button>
+            : <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" onClick={() => setVoirCr(true)} data-voir-compte-rendu="oui">Voir le compte rendu</button>}
+        </div>
+      )}
       </div>
+      {voirCr && <FenetreCompteRendu l={l} onFermer={() => setVoirCr(false)} />}
       {geste !== null && ecriture && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
     </div>
   );
@@ -334,8 +346,79 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
 }
 
+/**
+ * 🔴 Arno (13/11/2026) — LE COMPTE RENDU DE PRÉ-VISITE, EN LECTURE : le texte tel qu'enregistré, qui l'a saisi et quand, les pièces jointes, et
+ * l'envoi par mail (chaque destinataire : nom, famille, date et heure, état). Rien n'est modifié en l'ouvrant ; aucune adresse de client.
+ */
+function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer: () => void }) {
+  useVerrouDefilement();
+  const titreId = useId();
+  const lu = useLecture<CompteRenduAffiche>(`previsiteCompteRendu=${l.occupationIds.join(',')}`);
+  useEffect(() => {
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [onFermer]);
+  const cr = lu.etat.etat === 'ok' ? lu.etat.data : null;
+  const boite = (
+    <div className="mis-voile">
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_PREVISITE}</style>
+      <div className="mis-boite pss-boite pss-boite-recap" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu>
+        <h2 id={titreId} className="mis-titre">Compte rendu de pré-visite</h2>
+        <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
+        {cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
+          <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
+          {cr.objet && <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-cr-objet>{cr.objet}</span></p>}
+          <pre className="pvv-cr-texte" data-cr-texte>{cr.texte}</pre>
+          {cr.pieces.length > 0 && (
+            <div className="pvv-cr-bloc" data-cr-pieces><p className="pss-sous-titre">Pièces jointes</p>
+              <ul className="pvv-cr-liste">{cr.pieces.map((x) => (
+                <li key={x.id}><a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
+                  {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
+            </div>)}
+          <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
+            {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}
+            {cr.destinataires.length > 0 && (
+              <ul className="pvv-cr-liste">{cr.destinataires.map((d, i) => (
+                <li key={`${i}-${d.nom}`} className={`pvv-cr-dest pvv-cr-dest--${d.famille}`} data-cr-destinataire={d.famille} data-cr-etat={d.etat}>
+                  <span className="pvv-cr-famille"><span aria-hidden="true" className="pvv-cr-pastille" />{LIBELLE_FAMILLE_CR[d.famille]}</span>
+                  <strong className="pvv-cr-nom">{d.nom}</strong>
+                  <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
+                  <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
+                </li>))}</ul>)}
+          </div>
+        </>}
+        <div className="mis-actions">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={onFermer} data-fermer-compte-rendu>Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+  return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
+}
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_PREVISITE = `
+.pvv-voir-cr{margin-top:8px}
+.pvv-petit{min-height:40px;width:auto;padding:0 .9rem;font-size:.88rem}
+.pvv-cr-qui{margin:0;font-weight:700}
+.pvv-cr-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}
+.pvv-cr-bloc{display:flex;flex-direction:column;gap:6px}
+.pvv-cr-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.pvv-cr-dest{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:6px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.pvv-cr-dest--locataire{border-left-color:var(--color-svv-green)}
+.pvv-cr-dest--proprietaire{border-left-color:var(--color-svv-red)}
+.pvv-cr-famille{flex:0 0 7.5rem;display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
+.pvv-cr-pastille{display:inline-block;width:10px;height:10px;border-radius:999px;background:var(--color-svv-line-strong)}
+.pvv-cr-dest--locataire .pvv-cr-pastille{background:var(--color-svv-green)}
+.pvv-cr-dest--proprietaire .pvv-cr-pastille{background:var(--color-svv-red)}
+.pvv-cr-nom{flex:1 1 10rem;min-width:8rem;overflow-wrap:break-word}
+.pvv-cr-quand{font-size:.86rem;color:var(--color-svv-muted);white-space:nowrap}
+.pvv-cr-etat{font-weight:800}
+.pvv-cr-etat--envoye{color:var(--color-svv-green-ink)}
+.pvv-cr-etat--echec{color:var(--color-svv-red)}
+.pvv-cr-etat--non_envoye{color:var(--color-svv-muted)}
+@media (max-width:600px){.pvv-cr-famille{flex-basis:100%}}
 .pvv-cartouche{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:.82rem;font-weight:800;white-space:nowrap}
 .pvv-cartouche--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 .pvv-cartouche--refus{background:var(--color-svv-red);color:var(--color-svv-surface)}
@@ -343,7 +426,8 @@ export const CSS_PREVISITE = `
 .pvv-pastille--alerte{border-color:var(--color-svv-urgence-orange)}
 .pvv-etat{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
 .pvv-etat--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
-.pvv-etat--programmee{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+/* Arno (13/11/2026) : un rendez-vous fixe est VERT, comme la pre-visite effectuee */
+.pvv-etat--programmee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pvv-etat--effectuee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pvv-etat--refusee{background:color-mix(in srgb, var(--color-svv-urgence-orange) 18%, var(--color-svv-surface));color:var(--color-svv-ink)}
 .pvv-collegues{margin:0;padding-left:18px;font-size:.9rem}

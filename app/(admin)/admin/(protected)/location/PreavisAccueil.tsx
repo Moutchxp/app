@@ -7,7 +7,7 @@ import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun'
 import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
 import { ficheDepuisEncart } from '../../../../lib/location/ficheIntervention';
-import { etapesPreavis } from '../../../../lib/location/frisePreavis';
+import { etapesPreavis, lignesSousTitre } from '../../../../lib/location/frisePreavis';
 
 const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 import type { FinParcours } from './ParcoursPreavisSortie';
@@ -297,8 +297,9 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
               <span className="frp-numero" aria-hidden="true" data-pastille-etape>{e.statut === 'faite' ? '✓' : e.numero}</span>
               <span className="frp-titre"><span className="frp-lu">Étape {e.numero} : </span>{e.titre}</span>
               {/* 🔴 Arno (11/11/2026) — une ligne par information (« Préavis reçu » : la réception, puis la fin du préavis). */}
-              <span className="frp-statut" data-libelle-etape>{e.lignes.map((x, i) => (
-                <span key={i} className="frp-ligne" data-ligne-etape>{x}{i === e.lignes.length - 1 && e.enCours ? ' · étape en cours' : ''}</span>))}</span>
+              {/* 🔴 Arno (13/11/2026) — sans doublon : quand la case montre le cartouche du rendez-vous, la ligne qui le répétait disparaît ; « étape en cours » reste. */}
+              <span className="frp-statut" data-libelle-etape>{lignesSousTitre(e, l, { planification }).map((x, i) => (
+                <span key={i} className="frp-ligne" data-ligne-etape>{x}</span>))}</span>
             </div>
             {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} />}
             {e.cle === 'edls' && (planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
@@ -616,7 +617,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-bloc{display:flex;flex-direction:column;gap:8px;min-width:0}
 .pva-logement{grid-column:1 / -1}
 .pva-dates-preavis{margin:0;font-weight:600;color:var(--color-svv-ink)}
-.pva-edls{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-blue-soft);color:var(--color-svv-blue);font-weight:700;overflow-wrap:anywhere}
+/* 🔴 Arno (13/11/2026) — un rendez-vous FIXE : vert (le vert de la pre-visite effectuee), texte vert fonce ; le refus reste orange */
+.pva-edls{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700;overflow-wrap:anywhere}
 .pva-edls--refus{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 .pva-grille-edls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px}
 .pva-form-edls input,.pva-form-edls select,.pva-form-edls textarea,[data-formulaire-reattribuer] select{min-height:44px;box-sizing:border-box;width:100%;max-width:100%}

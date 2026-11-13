@@ -1,4 +1,5 @@
 import 'server-only';
+import { lireCompteRenduPrevisite } from '../../../../lib/location/compteRenduPrevisiteRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
 import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arbreStatutDriveRepo';
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
@@ -143,6 +144,11 @@ export async function GET(request: Request): Promise<Response> {
     if (p('previsiteRefus') !== null) {
       const ids = (p('previsiteRefus') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
       return Response.json(ids.length === 0 ? { etat: 'inconnu' } : await texteRefusPropose(ids, await auteurDeLaRequete(request)), { headers: ENTETES });
+    }
+    // 🔴 Arno (13/11/2026) — « Voir le compte rendu » de la pré-visite : texte, pièces, envois par destinataire (noms, jamais d'adresse de client) — LECTURE SEULE.
+    if (p('previsiteCompteRendu') !== null) {
+      const ids = (p('previsiteCompteRendu') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
+      return Response.json(ids.length === 0 ? { etat: 'inconnu' } : await lireCompteRenduPrevisite(ids), { headers: ENTETES });
     }
     // Arno (20/10/2026) — le bloc « Conditions d'entrée » : la migration 391 est-elle là ? (sinon l'écran le dit, et crée comme avant)
     if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });

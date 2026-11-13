@@ -10,7 +10,7 @@ import { destinatairesSortie, encartDuBail } from './sortieLocatairesRepo';
 import { ficheDepuisEncart, texteMission } from './ficheIntervention';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { adressesUniques, copiesAvis, prenomNom } from './mailsPreavisSortie';
-import { locatairesAvis, logementDe, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
+import { locatairesAvis, logementDe, mailsAvisDisponibles, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
 import type { LignePreavisAccueil } from './preavis';
 import {
   NOM_FICHIER_ICS, finDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
@@ -157,6 +157,15 @@ export async function avecPrevisites<T extends { disponible: boolean; lignes: Li
       WHERE s.clos_le IS NULL AND s.occupation_ids && $1::bigint[]`, [r.lignes.flatMap((l) => l.occupationIds)]);
   const reponses = await reponsesDesTaches(rows.filter((s) => s.tache_id !== null && s.tache_etat !== 'annulee').map((s) => Number(s.tache_id)));
   const jour = await aujourdhui();
+  // 🔴 Arno (13/11/2026) — les suivis dont un compte rendu a été saisi (journal 457 : un envoi du compte rendu, mêmes occupations, depuis le suivi)
+  const avecCr = new Set<string>();
+  if (rows.length > 0 && await mailsAvisDisponibles().catch(() => false)) {
+    const cr = await query<{ id: string }>(
+      `SELECT s.id::text FROM gestion_location_previsite s
+        WHERE s.id = ANY($1::bigint[]) AND EXISTS (SELECT 1 FROM gestion_location_mail_avis m WHERE m.sorte = 'previsite_compte_rendu' AND m.lot_id = s.lot_id
+          AND m.occupation_ids && s.occupation_ids AND m.envoye_le >= s.cree_le)`, [rows.map((x) => Number(x.id))]);
+    for (const x of cr.rows) avecCr.add(x.id);
+  }
   for (const l of r.lignes) {
     const s = rows.find((x) => x.recu_le === l.recuLe && x.occupation_ids.some((id) => l.occupationIds.includes(Number(id)))) ?? null;
     const rdv = rdvDuSuivi(s);
@@ -166,6 +175,7 @@ export async function avecPrevisites<T extends { disponible: boolean; lignes: Li
       collegues, tousRefusent: tousRefusent(collegues.map((c) => c.statut)),
       rdvPasse: rdv !== null && finDuRendezVous(rdv.jour, rdv.heure, rdv.dureeMinutes).getTime() <= maintenant.getTime(),
       alerteEnvoyeeLe: s?.alerte_envoyee_le ?? null,
+      compteRendu: s !== null && avecCr.has(s.id),
     };
   }
   return { ...r, previsite: true };
