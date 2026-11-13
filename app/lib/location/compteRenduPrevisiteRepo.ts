@@ -6,6 +6,8 @@ import { locatairesAvis, mailsAvisDisponibles, piecesDuMailDisponible } from './
 import { metaPieces } from './piecesSortieRepo';
 import { lireGroupe, previsiteDisponible, suiviOuvert } from './previsiteBase';
 import { compteRenduAffiche, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr } from './compteRenduPrevisite';
+import { ACTION_JOURNAL_VOCAUX, idsDeTrace } from './vocauxCompteRendu';
+import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
 
 /**
  * ══ 🔴 Arno (13/11/2026) — LE COMPTE RENDU DE PRÉ-VISITE D'UN PRÉAVIS, EN LECTURE SEULE ═══════════════════════════════════════════════════════
@@ -35,7 +37,14 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
     erreur: r.erreur, envoyeLe: r.envoye_le, auteur: r.auteur_libelle, pieceIds: (r.piece_ids ?? []).map(Number) }));
   const pieceIds = [...new Set(envois.flatMap((e) => e.pieceIds))];
   const pieces = (await metaPieces(pieceIds, ids)).map((p) => ({ id: p.id, nom: p.nom, taille: p.taille }));
-  return { etat: 'ok', data: compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces) };
+  // 🔴 lot C — les vocaux rattachés à CE compte rendu (journal), bornés aux occupations du préavis
+  const traces = await query<{ v: string | null }>(
+    `SELECT j.valeur_apres AS v FROM gestion_journal j JOIN gestion_location_previsite s ON s.id = $3
+      WHERE j.entite = 'annuaire' AND j.action = $1 AND j.entite_id = ANY($2::bigint[]) AND j.survenu_le >= s.cree_le ORDER BY j.id`,
+    [ACTION_JOURNAL_VOCAUX, g.g.lignes.map((x) => Number(x.locataire_id)), Number(s.id)]);
+  const idsVocaux = [...new Set(traces.rows.flatMap((x) => idsDeTrace(x.v)))];
+  const vocaux = (await vocauxDesOccupations(idsVocaux, ids)).map((v) => ({ id: v.id, nom: v.nom, taille: v.taille }));
+  return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux } };
 }
 
 const vide = (): AnnuaireCr => ({ locataires: [], proprietaires: [], internes: [], domainesAgence: [] });

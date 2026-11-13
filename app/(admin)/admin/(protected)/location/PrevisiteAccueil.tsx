@@ -1,7 +1,7 @@
 'use client';
 
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
@@ -20,6 +20,7 @@ import {
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
 import { convertirPhoto, enBase64 } from '../../../../lib/location/photoEcran';
+import { dureeFr, insererTranscription, MENTION_TRANSCRIT, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -208,6 +209,13 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const [rangSansLegende, setRangSansLegende] = useState<number | null>(null);
   const photosPretes = photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende }));
   const photosEnCours = photos.some((x) => x.etat === 'envoi');
+  /** 🔴 Arno (13/11/2026, lot C) — les vocaux (INTERNES, jamais envoyés) ; le curseur du compte rendu, où s'insère la transcription. */
+  const [vocaux, setVocaux] = useState<VocalSaisi[]>([]);
+  const [enregistrement, setEnregistrement] = useState(false);
+  const curseur = useRef<number | null>(null);
+  const vocauxPrets = vocaux.filter((v) => v.id !== null).map((v) => v.id as number);
+  const vocauxEnCours = enregistrement || vocaux.some((v) => v.etat === 'depot');
+  const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); curseur.current = r.curseur; return r.texte; });
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
     if (geste !== 'compte_rendu') return true;
@@ -270,7 +278,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
     const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '',
-      ...(geste === 'compte_rendu' ? { photos: photosPretes } : {}),
+      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
@@ -323,7 +331,12 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       {geste === 'compte_rendu' && rdvActuel && <>
         <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
         <label className="pvs-champ"><span className="pvs-libelle">Compte rendu *</span>
-          <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={10} data-corps-compte-rendu /></label>
+          <textarea value={corps} onChange={(e) => { setCorps(e.target.value); curseur.current = e.target.selectionStart; }} rows={10}
+            // le curseur est noté à chaque geste, et surtout à la sortie du champ (le toucher de « Enregistrer un vocal ») : la transcription s'y insère
+            onSelect={(e) => { curseur.current = (e.target as HTMLTextAreaElement).selectionStart; }} onBlur={(e) => { curseur.current = e.target.selectionStart; }}
+            onKeyUp={(e) => { curseur.current = (e.target as HTMLTextAreaElement).selectionStart; }} onClick={(e) => { curseur.current = (e.target as HTMLTextAreaElement).selectionStart; }}
+            data-corps-compte-rendu /></label>
+        <VocauxDuCompteRendu vocaux={vocaux} onChange={setVocaux} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onEnregistrement={setEnregistrement} />
         <PhotosDuCompteRendu photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
         <label className="pvv-case"><input type="checkbox" checked={aussiLocataires} onChange={(e) => setAussiLocataires(e.target.checked)} data-aussi-locataires />
           <span>Envoyer aussi aux locataires</span></label>
@@ -341,7 +354,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => onFermer(false)} disabled={envoi} data-annuler-previsite>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk || photosEnCours} data-recap-previsite>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk || photosEnCours || vocauxEnCours} data-recap-previsite>
           {envoi ? 'Préparation…' : 'Voir le récapitulatif'}</button>
       </div>
     </>;
@@ -373,6 +386,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
           </li>))}</ul>
       </>}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
+      {geste === 'compte_rendu' && vocauxPrets.length > 0 && <p className="mis-note pss-note-neutre" data-vocaux-internes>🎙 {vocauxPrets.length === 1 ? '1 vocal reste' : `${vocauxPrets.length} vocaux restent`} INTERNE{vocauxPrets.length > 1 ? 'S' : ''} : écoutable{vocauxPrets.length > 1 ? 's' : ''} dans « Voir le compte rendu », jamais envoyé{vocauxPrets.length > 1 ? 's' : ''} (ni aux locataires, ni au propriétaire, ni en pièce jointe).</p>}
       <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
@@ -402,6 +416,106 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     </div>
   );
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
+}
+
+/** Un vocal du formulaire : sa réécoute (sur l'appareil), sa pièce déposée (`id`), sa transcription. */
+interface VocalSaisi { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'ok' | 'erreur'; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null }
+
+/** Le type d'enregistrement que ce navigateur sait produire : Safari iOS → audio/mp4 (AAC) ; Chrome / Firefox → webm / ogg. */
+function typeEnregistrement(): string | undefined {
+  const MR = (globalThis as { MediaRecorder?: { isTypeSupported?: (t: string) => boolean } }).MediaRecorder;
+  return ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((t) => MR?.isTypeSupported?.(t) === true);
+}
+
+/**
+ * 🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » : le micro du téléphone (MediaRecorder ; Safari iOS : mp4/aac), la durée affichée,
+ * Pause / Reprendre / Arrêter (10 minutes au plus : arrêt de lui-même), réécoute, suppression, plusieurs vocaux. À l'arrêt : déposé (INTERNE),
+ * puis TRANSCRIT par Mistral — le texte s'insère dans le compte rendu À L'ENDROIT DU CURSEUR, modifiable, avec « (transcrit d'un vocal) ».
+ * Un échec de transcription : message clair, le vocal reste joint, « Réessayer ».
+ */
+function VocauxDuCompteRendu({ vocaux, onChange, occupationIds, onTranscrit, onEnregistrement }: { vocaux: VocalSaisi[]; onChange: (f: (x: VocalSaisi[]) => VocalSaisi[]) => void;
+  occupationIds: readonly number[]; onTranscrit: (texte: string) => void; onEnregistrement: (en: boolean) => void }) {
+  const [etat, setEtat] = useState<'repos' | 'enregistre' | 'pause'>('repos');
+  const [duree, setDuree] = useState(0);
+  const [refusMicro, setRefusMicro] = useState<string | null>(null);
+  const rec = useRef<{ r: MediaRecorder; flux: MediaStream; morceaux: Blob[]; cumul: number; depuis: number | null; type: string } | null>(null);
+  const maj = (cle: string, f: (x: VocalSaisi) => VocalSaisi) => onChange((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
+  const ecoule = (): number => { const x = rec.current; return x === null ? 0 : (x.cumul + (x.depuis === null ? 0 : Date.now() - x.depuis)) / 1000; };
+  useEffect(() => {
+    if (etat !== 'enregistre') return;
+    const t = setInterval(() => { const s = ecoule(); setDuree(s); if (s >= VOCAL_DUREE_MAX_S) arreter(); }, 250);
+    return () => clearInterval(t);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { rec.current?.flux.getTracks().forEach((t) => t.stop()); }, []);
+  const transcrire = async (cle: string, id: number): Promise<void> => {
+    maj(cle, (x) => ({ ...x, transcription: 'en_cours', motif: null }));
+    const r = await envoyer({ action: 'transcrire-vocal', occupationIds: [...occupationIds], pieceId: id }, { propre: true });
+    const d = r.data as { ok?: boolean; texte?: string; motif?: string } | undefined;
+    if (r.motif === null && d?.ok === true && typeof d.texte === 'string') { onTranscrit(d.texte); maj(cle, (x) => ({ ...x, transcription: 'ok' })); return; }
+    maj(cle, (x) => ({ ...x, transcription: 'echec', motif: d?.motif ?? r.motif ?? 'La transcription a échoué : le vocal reste joint au compte rendu.' }));
+  };
+  const deposer = async (blob: Blob, type: string, dureeS: number): Promise<void> => {
+    const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    onChange((xs) => [...xs, { cle, id: null, url: URL.createObjectURL(blob), dureeS, etat: 'depot', transcription: null, motif: null }]);
+    const deja = await new Promise<number[]>((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
+    const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees: await enBase64(blob), typeMime: type, dureeS, dejaIds: deja }, { propre: true });
+    const id = (r.data as { id?: number } | undefined)?.id;
+    if (r.motif !== null || typeof id !== 'number') { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: r.motif ?? 'Le vocal n’a pas pu être déposé.' })); return; }
+    maj(cle, (x) => ({ ...x, id, etat: 'ok' }));
+    await transcrire(cle, id);
+  };
+  const demarrer = async (): Promise<void> => {
+    setRefusMicro(null);
+    try {
+      const flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const voulu = typeEnregistrement();
+      const r = new MediaRecorder(flux, voulu ? { mimeType: voulu } : undefined);
+      const x = { r, flux, morceaux: [] as Blob[], cumul: 0, depuis: Date.now() as number | null, type: r.mimeType || voulu || 'audio/mp4' };
+      r.ondataavailable = (e) => { if (e.data && e.data.size > 0) x.morceaux.push(e.data); };
+      r.onstop = () => {
+        flux.getTracks().forEach((t) => t.stop());
+        const dureeS = Math.min(ecoule(), VOCAL_DUREE_MAX_S); x.depuis = null;
+        const blob = new Blob(x.morceaux, { type: x.type });
+        rec.current = null; setEtat('repos'); setDuree(0); onEnregistrement(false);
+        if (blob.size > 0) void deposer(blob, x.type, dureeS);
+      };
+      rec.current = x; r.start(1000); setEtat('enregistre'); setDuree(0); onEnregistrement(true);
+    } catch {
+      setRefusMicro('Le micro est inaccessible : autorisez-le pour ce site (Réglages › Safari › Micro sur iPhone), puis réessayez.');
+    }
+  };
+  const pause = (): void => { const x = rec.current; if (!x) return; x.r.pause(); x.cumul += x.depuis === null ? 0 : Date.now() - x.depuis; x.depuis = null; setEtat('pause'); };
+  const reprendre = (): void => { const x = rec.current; if (!x) return; x.r.resume(); x.depuis = Date.now(); setEtat('enregistre'); };
+  function arreter(): void { const x = rec.current; if (!x) return; if (x.depuis !== null) { x.cumul += Date.now() - x.depuis; x.depuis = null; } x.r.stop(); }
+  const retirer = (cle: string) => { const v = vocaux.find((x) => x.cle === cle); if (v?.url) URL.revokeObjectURL(v.url); onChange((xs) => xs.filter((x) => x.cle !== cle)); };
+  return (
+    <fieldset className="pvv-photos pvv-vocaux" data-vocaux-compte-rendu>
+      <legend className="pvs-libelle">Vocaux <span className="loc-muet">(internes : jamais envoyés)</span></legend>
+      <div className="pvv-photos-boutons">
+        {etat === 'repos' ? <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={() => { void demarrer(); }} data-enregistrer-vocal>🎙 Enregistrer un vocal</button> : <>
+          <span className="pvv-vocal-duree" role="timer" aria-live="off" data-vocal-duree>{etat === 'pause' ? '⏸' : '●'} {dureeFr(duree)} / {dureeFr(VOCAL_DUREE_MAX_S)}</span>
+          {etat === 'enregistre' ? <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={pause} data-vocal-pause>Pause</button>
+            : <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={reprendre} data-vocal-reprendre>Reprendre</button>}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn pvv-photo-ajout" onClick={arreter} data-vocal-arreter>Arrêter</button>
+        </>}
+      </div>
+      {refusMicro !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{refusMicro}</p>}
+      {vocaux.length > 0 && <ol className="pvv-photos-liste">{vocaux.map((v, i) => (
+        <li key={v.cle} className={`pvv-photo${v.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-vocal={i + 1} data-vocal-etat={v.etat} data-vocal-transcription={v.transcription ?? undefined}>
+          <div className="pvv-photo-tete">
+            <strong>Vocal {i + 1} <span className="loc-muet">({dureeFr(v.dureeS)})</span></strong>
+            <button type="button" className="pvv-mini" onClick={() => retirer(v.cle)} aria-label={`Supprimer le vocal ${i + 1}`} data-vocal-supprimer>Supprimer</button>
+          </div>
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <audio className="pvv-audio" controls preload="metadata" src={v.url} data-vocal-ecoute />
+          {v.etat === 'depot' && <span className="loc-muet" role="status">Enregistrement…</span>}
+          {v.transcription === 'en_cours' && <span className="loc-muet" role="status" data-vocal-transcription-en-cours>Transcription en cours…</span>}
+          {v.transcription === 'ok' && <span className="loc-muet" data-vocal-transcrit>Texte inséré dans le compte rendu {MENTION_TRANSCRIT} — modifiable.</span>}
+          {v.motif !== null && <span className="pvv-photo-motif" role="alert" data-vocal-motif>{v.motif}</span>}
+          {v.transcription === 'echec' && v.id !== null && <button type="button" className="pvv-mini" onClick={() => { void transcrire(v.cle, v.id as number); }} data-vocal-retranscrire>Réessayer la transcription</button>}
+        </li>))}</ol>}
+    </fieldset>
+  );
 }
 
 /** Une photo du formulaire : son aperçu (sur l'appareil), sa pièce déposée (`id`), sa légende. */
@@ -510,6 +624,13 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
                 <li key={x.id}><a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
                   {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
             </div>)}
+          {(cr.vocaux ?? []).length > 0 && (
+            <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux <span className="loc-muet">(internes — jamais envoyés)</span></p>
+              <ol className="pvv-cr-liste">{(cr.vocaux ?? []).map((v, i) => (
+                <li key={v.id} data-cr-vocal={i + 1}><span className="pvv-cr-legende">Vocal {i + 1}</span>
+                  {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                  <audio className="pvv-audio" controls preload="none" src={`/api/admin/location/pieces-sortie?piece=${v.id}`} /></li>))}</ol>
+            </div>)}
           <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
             {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}
             {cr.destinataires.length > 0 && (
@@ -553,6 +674,8 @@ export const CSS_PREVISITE = `
 .pvv-cr-photos{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
 .pvv-cr-photos li{display:flex;flex-direction:column;gap:4px}
 .pvv-cr-legende{font-weight:700;overflow-wrap:anywhere}
+.pvv-audio{width:100%;max-width:420px;min-height:40px}
+.pvv-vocal-duree{display:inline-flex;align-items:center;min-height:48px;padding:0 12px;border-radius:12px;background:color-mix(in srgb, var(--color-svv-red) 10%, var(--color-svv-surface));color:var(--color-svv-red);font-weight:800;font-variant-numeric:tabular-nums}
 .pvv-petit{min-height:40px;width:auto;padding:0 .9rem;font-size:.88rem}
 .pvv-cr-qui{margin:0;font-weight:700}
 .pvv-cr-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}

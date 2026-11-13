@@ -1152,7 +1152,8 @@ describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le text
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 }, tacheId: 9, collegues: [],
       tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
     const CR = { texte: 'Logement propre.\n\nPhotos\n\nPhoto 1 — Joint douche\nPhoto 2 — Rayure parquet chambre\n\nMail envoyé par Arno', objet: 'CR', saisiPar: 'Arno', saisiLe: '2026-11-13T15:13:00Z',
-      pieces: [{ id: 72, nom: 'photo-previsite.jpg', taille: 300000 }, { id: 71, nom: 'photo-previsite.jpg', taille: 280000 }], aucunEnvoi: false, destinataires: [] };
+      pieces: [{ id: 72, nom: 'photo-previsite.jpg', taille: 300000 }, { id: 71, nom: 'photo-previsite.jpg', taille: 280000 }], aucunEnvoi: false, destinataires: [],
+      vocaux: [{ id: 81, nom: 'Vocal-1.m4a', taille: 90000 }] };
     const avant = global.fetch;
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
@@ -1162,6 +1163,106 @@ describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le text
     expect([...f.querySelectorAll('[data-cr-photo]')].map((x) => [x.querySelector('img')!.getAttribute('src'), x.querySelector('[data-cr-legende]')!.textContent]))
       .toEqual([['/api/admin/location/pieces-sortie?piece=72', 'Photo 1 — Joint douche'], ['/api/admin/location/pieces-sortie?piece=71', 'Photo 2 — Rayure parquet chambre']]);
     expect(f.querySelector('[data-cr-pieces]')).toBeNull();
+    // 🔴 lot C — les vocaux : écoutables ici, dits internes
+    expect(f.querySelector('[data-cr-vocaux]')!.textContent).toContain('internes — jamais envoyés');
+    expect(f.querySelector('[data-cr-vocal="1"] audio')!.getAttribute('src')).toBe('/api/admin/location/pieces-sortie?piece=81');
     act(() => (f.querySelector('[data-fermer-compte-rendu]') as HTMLButtonElement).click());
+  });
+});
+
+describe('🔴🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » dans le compte rendu', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let appelsVocal: Record<string, unknown>[] = []; let transcription: { ok: boolean; texte?: string; motif?: string } = { ok: true, texte: 'Le parquet est rayé.' };
+  class FauxEnregistreur {
+    static isTypeSupported = (t: string) => t === 'audio/mp4';
+    static dernier: FauxEnregistreur | null = null;
+    mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
+    constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; FauxEnregistreur.dernier = this; }
+    start() { this.state = 'recording'; }
+    pause() { this.state = 'paused'; }
+    resume() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+  }
+  beforeEach(() => {
+    appelsVocal = []; transcription = { ok: true, texte: 'Le parquet est rayé.' };
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:vocal'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'vocal-compte-rendu') { appelsVocal.push(c); return ok({ id: 81, nom: 'Vocal-1.m4a', taille: 3 }); }
+        if (c.action === 'transcrire-vocal') { appelsVocal.push(c); return ok(transcription); }
+        if (c.action === 'apercu-compte-rendu-previsite') { appelsVocal.push(c); return ok({ mails: [], sansEmail: [] }); }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const clicDoc = (sel: string): void => act(() => (document.querySelector(sel) as HTMLButtonElement).click());
+  const ouvrirCr = async (texte: string, curseur: number) => {
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
+    const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, texte); t.dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => { t.focus(); t.setSelectionRange(curseur, curseur); t.blur(); }); // le toucher de « Enregistrer un vocal » fait sortir du champ
+  };
+  const enregistrer = async () => {
+    await act(async () => { (document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement).click(); });
+    await attendre();
+  };
+  it('enregistrer → durée affichée, Pause / Reprendre, Arrêter → déposé puis TRANSCRIT : le texte s’insère AU CURSEUR avec « (transcrit d’un vocal) », modifiable', async () => {
+    await ouvrirCr('Entrée propre.\nCuisine à nettoyer.', 15);
+    await enregistrer();
+    expect(document.querySelector('[data-vocal-duree]')!.textContent).toMatch(/^● 00:0\d \/ 10:00$/);
+    expect(FauxEnregistreur.dernier!.mimeType).toBe('audio/mp4');
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true); // pas d'envoi pendant l'enregistrement
+    clicDoc('[data-vocal-pause]');
+    expect(document.querySelector('[data-vocal-duree]')!.textContent).toMatch(/^⏸/);
+    clicDoc('[data-vocal-reprendre]');
+    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
+    for (let k = 0; k < 6; k++) await attendre();
+    expect(appelsVocal.map((c) => c.action)).toEqual(['vocal-compte-rendu', 'transcrire-vocal']);
+    expect(appelsVocal[0]).toMatchObject({ typeMime: 'audio/mp4', occupationIds: [11, 12] });
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Entrée propre.\nLe parquet est rayé. (transcrit d’un vocal)\nCuisine à nettoyer.');
+    expect(document.querySelector('[data-vocal="1"] [data-vocal-ecoute]')).not.toBeNull();
+    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-transcription')).toBe('ok');
+  });
+  it('🔴 transcription en ÉCHEC : message clair, le vocal RESTE joint (réécoute), « Réessayer » ; rien n’est perdu du texte', async () => {
+    transcription = { ok: false, motif: 'La transcription a échoué : le vocal reste joint au compte rendu (réécoutez-le, réessayez, ou tapez le texte).' };
+    await ouvrirCr('Mon texte.', 10);
+    await enregistrer();
+    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
+    for (let k = 0; k < 6; k++) await attendre();
+    expect(document.querySelector('[data-vocal-motif]')!.textContent).toContain('le vocal reste joint');
+    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-etat')).toBe('ok');
+    expect(document.querySelector('[data-vocal="1"] [data-vocal-ecoute]')).not.toBeNull();
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Mon texte.');
+    transcription = { ok: true, texte: 'Deuxième essai.' };
+    await act(async () => { (document.querySelector('[data-vocal-retranscrire]') as HTMLButtonElement).click(); });
+    for (let k = 0; k < 4; k++) await attendre();
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Mon texte.\nDeuxième essai. (transcrit d’un vocal)');
+  });
+  it('🔴 le vocal reste INTERNE : l’aperçu reçoit les photos, PAS les vocaux (ils ne partent qu’avec l’envoi, comme rattachement interne)', async () => {
+    await ouvrirCr('CR.', 3);
+    await enregistrer();
+    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
+    for (let k = 0; k < 6; k++) await attendre();
+    clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
+    const apercu = appelsVocal.find((c) => c.action === 'apercu-compte-rendu-previsite')!;
+    expect(apercu.vocaux).toBeUndefined();
+    expect(document.querySelector('[data-vocaux-internes]')!.textContent).toContain('jamais envoyé (ni aux locataires, ni au propriétaire, ni en pièce jointe)');
+  });
+  it('supprimer un vocal ; micro refusé : message clair', async () => {
+    await ouvrirCr('CR.', 3);
+    await enregistrer();
+    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
+    for (let k = 0; k < 6; k++) await attendre();
+    clicDoc('[data-vocal="1"] [data-vocal-supprimer]');
+    expect(document.querySelector('[data-vocal]')).toBeNull();
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => { throw new Error('refus'); } } });
+    await enregistrer();
+    expect(document.querySelector('[data-vocal-micro]')!.textContent).toContain('Le micro est inaccessible');
   });
 });

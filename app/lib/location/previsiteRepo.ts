@@ -11,6 +11,8 @@ import { envoyerSerie, mailsAvisDisponibles, refusRetouches, type DepsAvis, type
 import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
+import { ACTION_JOURNAL_VOCAUX, traceVocaux, VOCAUX_MAX } from './vocauxCompteRendu';
+import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
@@ -347,9 +349,14 @@ export async function apercuCompteRendu(d: { occupationIds: readonly number[]; c
 }
 
 /** ENVOIE le compte rendu ; dès qu'il est parti, le préavis passe en « Pré-visite effectuée » (et la tâche est faite). */
-export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[] }, auteur: Auteur, deps: DepsAvis = {}):
+export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
+  /** 🔴 Arno (13/11/2026, lot C) — les vocaux : rattachés au compte rendu (journal), 🔴 JAMAIS joints à un mail. */
+  vocaux?: readonly number[] }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null }>> {
   const ids = [...new Set(d.occupationIds)];
+  const vocauxVoulus = [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX);
+  const vocaux = vocauxVoulus.length === 0 ? [] : await vocauxDesOccupations(vocauxVoulus, ids);
+  if (vocaux.length !== vocauxVoulus.length) return { etat: 'refus', motif: 'Un vocal est introuvable pour ce préavis : retirez-le puis enregistrez-le de nouveau.', champ: 'vocaux' };
   const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true });
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
@@ -360,6 +367,9 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
     await q('UPDATE gestion_location_previsite SET effectuee_le = now(), effectuee_par_libelle = $2 WHERE id = $1 AND effectuee_le IS NULL', [Number(r.data.s.id), auteur.libelle]);
     await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mails[0].objet,
       `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
+    // 🔴 lot C — les vocaux du compte rendu, INTERNES : rattachés ici (« Voir le compte rendu » les relit), aucun n'est parti
+    if (vocaux.length > 0) await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_VOCAUX, null, traceVocaux(vocaux.map((v) => v.id)),
+      `${vocaux.length} vocal(aux) interne(s) du compte rendu de pré-visite — jamais envoyé(s)`, auteur);
   });
   if (r.data.s.tache_etat === 'a_faire') await marquerFaite(Number(r.data.s.tache_id), auteur).catch(() => null);
   return { etat: 'ok', data: { envois, statut: 'effectuee' } };

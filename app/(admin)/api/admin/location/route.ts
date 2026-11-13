@@ -1,4 +1,5 @@
 import 'server-only';
+import { deposerVocal, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
 import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location/photosCompteRenduRepo';
 import { lireCompteRenduPrevisite } from '../../../../lib/location/compteRenduPrevisiteRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
@@ -695,11 +696,19 @@ export async function POST(request: Request): Promise<Response> {
       case 'apercu-compte-rendu-previsite':
         return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos) }, auteur));
       case 'compte-rendu-previsite':
-        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos) }, auteur));
+        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsOccupations(corps.vocaux) }, auteur));
       // 🔴 Arno (13/11/2026, lot B) — UNE photo du compte rendu : préparée au serveur (format lu dans les octets, réduite, métadonnées et GPS retirés),
       // puis déposée comme les pièces de « Valider la sortie » (stockage objet, jamais le Drive). Rien n'est envoyé.
       case 'photo-compte-rendu':
         return repondre(await deposerPhotoCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), dejaIds: idsOccupations(corps.dejaIds) }, auteur));
+      // 🔴 Arno (13/11/2026, lot C) — UN vocal du compte rendu (déposé comme les photos, INTERNE), puis sa transcription par Mistral. Rien n'est envoyé.
+      case 'vocal-compte-rendu':
+        return repondre(await deposerVocal({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime),
+          dureeS: typeof corps.dureeS === 'number' && Number.isFinite(corps.dureeS) ? corps.dureeS : null, dejaIds: idsOccupations(corps.dejaIds) }, auteur));
+      case 'transcrire-vocal': {
+        const piece = identifiant(corps.pieceId);
+        return repondre(piece === null ? { etat: 'refus', motif: 'Demande incomplète.' } : await transcrirePieceVocale({ occupationIds: idsOccupations(corps.occupationIds), pieceId: piece }));
+      }
       case 'apercu-refus-previsite':
         return repondre(await apercuRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur));
       case 'refus-previsite': {

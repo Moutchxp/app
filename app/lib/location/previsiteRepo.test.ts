@@ -80,6 +80,11 @@ vi.mock('../db/client', () => ({
   withTransaction: async (fn: (q: (sql: string, params?: unknown[]) => Promise<unknown>) => Promise<unknown>) => fn((sql, params) => query(sql, params ?? [])),
 }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
+// 🔴 Arno (13/11/2026, lot C) — les vocaux déposés (pièces audio) : simulés
+const vocauxSim = vi.hoisted(() => ({ ids: new Set<number>() }));
+vi.mock('./vocauxCompteRenduRepo', () => ({
+  vocauxDesOccupations: async (ids: readonly number[]) => ids.filter((i) => vocauxSim.ids.has(i)).map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: 90000, cle: `k${id}` })),
+}));
 // 🔴 Arno (13/11/2026, lot B) — les photos déposées (pièces de la sortie) : simulées, rien n'est lu du stockage
 const photosSim = vi.hoisted(() => ({ pieces: new Map<number, { nom: string; taille: number }>() }));
 vi.mock('./piecesSortieRepo', () => ({
@@ -659,5 +664,33 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — le compte rendu AVEC PHOTOS : l�
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; pieces?: unknown[] }[]];
     expect(mails[0].texte).not.toContain('Photos');
     expect(mails[0].pieces).toBeUndefined();
+  });
+});
+
+
+describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INTERNES, jamais envoyés', () => {
+  beforeEach(() => { vocauxSim.ids = new Set([81, 82]); });
+  it('rattachés au compte rendu (journal), 🔴 AUCUN mail ne porte d’audio (ni l’interne, ni ceux des locataires)', async () => {
+    programmee();
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82] }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: 'effectuee' } });
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ pieces?: { nom: string; typeMime: string }[]; texte: string; html: string }[]];
+    for (const m of mails) {
+      expect((m.pieces ?? []).filter((x) => /audio|m4a/.test(`${x.typeMime} ${x.nom}`))).toEqual([]);
+      expect(`${m.texte} ${m.html}`).not.toMatch(/Vocal-8|\.m4a/);
+    }
+    const trace = journal().filter((a) => a.params[1] === 'location_previsite_vocaux');
+    expect(trace.map((a) => a.params[0])).toEqual([101, 102]); // le journal de chaque locataire du préavis
+    expect(trace[0].params[3]).toBe('ids:81,82');
+  });
+  it('un vocal d’un autre préavis (ou forgé) : refus, rien ne part', async () => {
+    programmee();
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, vocaux: [99] }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'vocaux' });
+    expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  it('envoi en échec : aucun vocal rattaché (rien n’est marqué)', async () => {
+    programmee(); echecEnvoi = true;
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, vocaux: [81] }, AUTEUR);
+    expect(journal().filter((a) => a.params[1] === 'location_previsite_vocaux')).toEqual([]);
   });
 });

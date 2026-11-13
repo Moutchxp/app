@@ -17,6 +17,8 @@ export interface CompteRenduAffiche {
   pieces: PieceCr[]; destinataires: DestinataireCr[];
   /** Aucun mail n'est parti (aucun envoi réussi). */
   aucunEnvoi: boolean;
+  /** 🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INTERNES, écoutables ici, jamais envoyés. */
+  vocaux?: PieceCr[];
 }
 
 /** Une ligne du journal des envois (sorte `previsite_compte_rendu`). */
