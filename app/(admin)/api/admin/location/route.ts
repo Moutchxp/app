@@ -1,4 +1,5 @@
 import 'server-only';
+import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location/photosCompteRenduRepo';
 import { lireCompteRenduPrevisite } from '../../../../lib/location/compteRenduPrevisiteRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
 import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arbreStatutDriveRepo';
@@ -692,9 +693,13 @@ export async function POST(request: Request): Promise<Response> {
         return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
       }
       case 'apercu-compte-rendu-previsite':
-        return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true }, auteur));
+        return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos) }, auteur));
       case 'compte-rendu-previsite':
-        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true }, auteur));
+        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos) }, auteur));
+      // 🔴 Arno (13/11/2026, lot B) — UNE photo du compte rendu : préparée au serveur (format lu dans les octets, réduite, métadonnées et GPS retirés),
+      // puis déposée comme les pièces de « Valider la sortie » (stockage objet, jamais le Drive). Rien n'est envoyé.
+      case 'photo-compte-rendu':
+        return repondre(await deposerPhotoCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), dejaIds: idsOccupations(corps.dejaIds) }, auteur));
       case 'apercu-refus-previsite':
         return repondre(await apercuRefus({ occupationIds: idsOccupations(corps.occupationIds), texte: texte(corps.texte) }, auteur));
       case 'refus-previsite': {

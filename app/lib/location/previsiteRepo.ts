@@ -9,6 +9,8 @@ import { colonneExisteMemo } from './sondeLocation';
 import { adressesUniques } from './mailsPreavisSortie';
 import { envoyerSerie, mailsAvisDisponibles, refusRetouches, type DepsAvis, type EnvoiAvis } from './mailsPreavisSortieRepo';
 import type { Retouches } from './texteModifiable';
+import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
+import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
@@ -291,12 +293,30 @@ export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Aut
 
 // ══ LE COMPTE RENDU ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocataires: boolean, auteur: Auteur, deps: DepsAvis):
-  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[] }>> {
+async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocataires: boolean, auteur: Auteur, deps: DepsAvis,
+  /** 🔴 Arno (13/11/2026, lot B) — les photos (pièces déjà déposées), légende obligatoire ; `octets` : seulement pour l'envoi. */
+  photos: readonly PhotoCompteRendu[] = [], o: { octets?: boolean } = {}):
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
   if (texte === '') return { etat: 'refus', motif: 'Écrivez le compte rendu.', champ: 'corps' };
   if (texte.length > CORPS_MAX) return { etat: 'refus', motif: `Le compte rendu dépasse ${CORPS_MAX} caractères.`, champ: 'corps' };
+  const refusP = refusPhotos(photos);
+  if (refusP !== null) return { etat: 'refus', motif: refusP.motif, champ: 'photos' };
+  // Les pièces : celles de CES occupations seulement ; à l'envoi, leurs octets relus et vérifiés (empreinte), renommées « Photo-1-légende.jpg ».
+  const nomsPhotos = photos.map((p, i) => nomFichierPhoto(i, p.legende));
+  let piecesPhotos: NonNullable<MailPrevisite['pieces']> = [];
+  if (photos.length > 0) {
+    if (o.octets) {
+      const lues = await piecesPourEnvoi(photos.map((p) => p.id), ids);
+      if (!lues.ok) return { etat: 'refus', motif: lues.motif, champ: 'photos' };
+      piecesPhotos = lues.pieces.map((x, i) => ({ ...x, nom: nomsPhotos[i], typeMime: 'image/jpeg' }));
+    } else {
+      const meta = await metaPieces(photos.map((p) => p.id), ids);
+      if (meta.length !== photos.length) return { etat: 'refus', motif: 'Une photo est introuvable pour ce préavis : retirez-la puis ajoutez-la de nouveau.', champ: 'photos' };
+    }
+  }
+  const avecPhotos = (m: MailPrevisite): MailPrevisite => (piecesPhotos.length > 0 ? { ...m, pieces: piecesPhotos } : m);
   const lu = await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
     return g.ok ? { ok: true as const, g: g.g, s: await suiviOuvert(q, g.g.cle) } : g;
@@ -309,25 +329,28 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const internes = await collaborateursInternes();
   /* 🔴 Arno (10/11/2026, confidentialité) — les collaborateurs : UN mail interne (complet, « Mail envoyé par … ») ; « Envoyer aussi aux
      locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, avec « Mail envoyé par … » (l'expéditeur de l'agence) — jamais les adresses des autres collaborateurs. */
-  const interne = mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
-    paragraphes: paragraphesDuTexte(texte), qui: c.qui, signature: c.signature });
+  // 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos » (chaque photo numérotée, sa légende) ; les photos en pièces jointes
+  const photosP = paragraphesPhotos(photos);
+  const interne = avecPhotos(mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
+    paragraphes: [...paragraphesDuTexte(texte), ...photosP], qui: c.qui, signature: c.signature }));
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
-    paragraphesDe: (l) => paragraphesDuTexte(personnaliserTexte(texte, l)), qui: c.qui, signature: c.signature }) : [];
-  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [] } };
+    paragraphesDe: (l) => [...paragraphesDuTexte(personnaliserTexte(texte, l)), ...photosP], qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos } };
 }
 
-export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean }, auteur: Auteur, deps: DepsAvis = {}):
+export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[] }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
-  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps);
+  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? []);
   if (r.etat !== 'ok') return r;
-  return { etat: 'ok', data: { mails: r.data.mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte })), sansEmail: r.data.sansEmail } };
+  const piece = r.data.nomsPhotos.length > 0 ? r.data.nomsPhotos.join(', ') : null;
+  return { etat: 'ok', data: { mails: r.data.mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(piece ? { piece } : {}) })), sansEmail: r.data.sansEmail } };
 }
 
 /** ENVOIE le compte rendu ; dès qu'il est parti, le préavis passe en « Pré-visite effectuée » (et la tâche est faite). */
-export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean }, auteur: Auteur, deps: DepsAvis = {}):
+export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[] }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null }>> {
   const ids = [...new Set(d.occupationIds)];
-  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps);
+  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true });
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
   if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };

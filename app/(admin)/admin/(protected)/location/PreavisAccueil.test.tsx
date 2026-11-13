@@ -11,6 +11,11 @@ import { EcranSortieLocataire } from './SortieLocataires';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
 import type { BailLogement, EncartLogement } from '../../../../lib/location/sortieLocataires';
 import type { LignePreavisAccueil } from '../../../../lib/location/preavis';
+// 🔴 Arno (13/11/2026, lot B) — la conversion de la photo (navigateur) est simulée : jsdom ne décode aucune image
+vi.mock('../../../../lib/location/photoEcran', () => ({
+  convertirPhoto: async (f: File) => ({ ok: true, blob: new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), nom: f.name.replace(/\.[^.]+$/, '.jpg'), largeur: 1600, hauteur: 1200 }),
+  enBase64: async () => '/9j/',
+}));
 
 /**
  * ACCUEIL LOCATION — LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 18/10/2026). Les VRAIS composants, routes simulées : rien ne
@@ -1061,5 +1066,102 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     expect(css).toContain('.pvv-cr-etat--envoye{color:var(--color-svv-green-ink)}');
     expect(css).toContain('.pvv-voile .mis-boite{max-height:100%}');
     expect(css).toContain('font-size:16px;width:100%');
+  });
+});
+
+
+describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Compte rendu pré-visite »', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let deposees: Record<string, unknown>[] = []; let apercus: Record<string, unknown>[] = [];
+  beforeEach(() => {
+    deposees = []; apercus = []; let n = 70;
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:apercu'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'photo-compte-rendu') { deposees.push(c); n += 1; return ok({ id: n, nom: 'photo-previsite.jpg', taille: 300000 }); }
+        if (c.action === 'apercu-compte-rendu-previsite') { apercus.push(c); return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['x@agence.test'], cc: [], texte: 'T', piece: 'Photo-1-joint-douche.jpg, Photo-2-rayure-parquet-chambre.jpg' }], sansEmail: [] }); }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const clicDoc = (sel: string): void => act(() => (document.querySelector(sel) as HTMLButtonElement).click());
+  const ouvrirCr = async () => {
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
+    const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Logement propre.'); t.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const ajouter = async (sel: string, noms: string[]) => {
+    const input = document.querySelector(sel) as HTMLInputElement;
+    const fichiers = noms.map((n) => new File([new Uint8Array([1, 2, 3])], n, { type: n.endsWith('.HEIC') ? 'image/heic' : 'image/jpeg' }));
+    Object.defineProperty(input, 'files', { value: fichiers, configurable: true });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    for (let k = 0; k < 4; k++) await attendre();
+  };
+  const legender = (i: number, v: string) => act(() => {
+    const e = document.querySelectorAll('[data-photo-legende]')[i] as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  it('« Ajouter une photo » ouvre l’appareil photo (capture=environment) ; « Photothèque » sans capture ; plusieurs à la fois ; images seulement', async () => {
+    await ouvrirCr();
+    const cam = document.querySelector('[data-photo-camera]') as HTMLInputElement;
+    const gal = document.querySelector('[data-photo-galerie]') as HTMLInputElement;
+    expect([cam.accept, cam.getAttribute('capture'), cam.multiple]).toEqual(['image/*', 'environment', true]);
+    expect([gal.accept, gal.getAttribute('capture'), gal.multiple]).toEqual(['image/*', null, true]);
+    expect(document.querySelector('[data-ajouter-photo]')!.textContent).toBe('Ajouter une photo');
+  });
+  it('🔴 LÉGENDE OBLIGATOIRE : une photo sans légende → message clair, la photo en ROUGE, rien n’est envoyé ; légendée → l’aperçu part, dans l’ordre choisi', async () => {
+    await ouvrirCr();
+    await ajouter('[data-photo-camera]', ['IMG_1.HEIC', 'IMG_2.jpg']);
+    expect(deposees.map((d) => d.occupationIds)).toEqual([[11, 12], [11, 12]]);
+    expect(deposees[1].dejaIds).toEqual([71]);
+    expect([...document.querySelectorAll('[data-photo]')].map((x) => x.getAttribute('data-photo-etat'))).toEqual(['ok', 'ok']);
+    legender(0, 'Rayure parquet chambre');
+    clicDoc('[data-recap-previsite]'); await attendre();
+    expect(document.querySelector('[data-previsite-refus]')!.textContent).toBe('La photo 2 n’a pas de légende : chaque photo doit être légendée avant l’envoi.');
+    expect(document.querySelector('[data-photo="2"]')!.getAttribute('data-photo-sans-legende')).toBe('oui');
+    expect(document.querySelector('[data-photo="2"]')!.className).toContain('pvv-photo--erreur');
+    expect(document.querySelector('[data-photo="2"] [data-photo-legende-requise]')!.textContent).toBe('Légende obligatoire avant l’envoi.');
+    expect(document.querySelector('[data-photo="1"]')!.getAttribute('data-photo-sans-legende')).toBeNull();
+    expect(apercus).toEqual([]);
+    legender(1, 'Joint douche');
+    clicDoc('[data-photo="1"] [data-photo-descendre]'); // la 1re descend : Joint douche passe en photo 1
+    clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
+    expect(apercus).toHaveLength(1);
+    expect(apercus[0].photos).toEqual([{ id: 72, legende: 'Joint douche' }, { id: 71, legende: 'Rayure parquet chambre' }]);
+    // le récapitulatif : « Pièces jointes » (jamais « invitation d’agenda » pour des photos)
+    expect(document.querySelector('[data-pieces-prevues]')!.textContent).toBe('Photo-1-joint-douche.jpg, Photo-2-rayure-parquet-chambre.jpg');
+    expect(document.querySelector('[data-fenetre-previsite="recap"]')!.textContent).not.toContain('invitation d’agenda');
+  });
+  it('supprimer une photo avant l’envoi : elle ne part pas', async () => {
+    await ouvrirCr();
+    await ajouter('[data-photo-galerie]', ['a.jpg', 'b.jpg']);
+    legender(0, 'A'); legender(1, 'B');
+    clicDoc('[data-photo="1"] [data-photo-supprimer]');
+    expect(document.querySelectorAll('[data-photo]')).toHaveLength(1);
+    clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
+    expect(apercus[0].photos).toEqual([{ id: 72, legende: 'B' }]);
+  });
+});
+
+describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le texte, puis « Photos », chaque photo numérotée avec sa légende', () => {
+  it('le texte sans la liste ; les photos (vignette + « Photo N — légende ») ; les autres pièces à part', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 }, tacheId: 9, collegues: [],
+      tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const CR = { texte: 'Logement propre.\n\nPhotos\n\nPhoto 1 — Joint douche\nPhoto 2 — Rayure parquet chambre\n\nMail envoyé par Arno', objet: 'CR', saisiPar: 'Arno', saisiLe: '2026-11-13T15:13:00Z',
+      pieces: [{ id: 72, nom: 'photo-previsite.jpg', taille: 300000 }, { id: 71, nom: 'photo-previsite.jpg', taille: 280000 }], aucunEnvoi: false, destinataires: [] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu]')!;
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.\n\nMail envoyé par Arno');
+    expect([...f.querySelectorAll('[data-cr-photo]')].map((x) => [x.querySelector('img')!.getAttribute('src'), x.querySelector('[data-cr-legende]')!.textContent]))
+      .toEqual([['/api/admin/location/pieces-sortie?piece=72', 'Photo 1 — Joint douche'], ['/api/admin/location/pieces-sortie?piece=71', 'Photo 2 — Rayure parquet chambre']]);
+    expect(f.querySelector('[data-cr-pieces]')).toBeNull();
+    act(() => (f.querySelector('[data-fermer-compte-rendu]') as HTMLButtonElement).click());
   });
 });

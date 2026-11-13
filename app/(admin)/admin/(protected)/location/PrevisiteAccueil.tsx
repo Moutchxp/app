@@ -18,6 +18,8 @@ import {
   ALERTE_TOUS_REFUSENT, CARTOUCHE_ALERTE, LIBELLE_STATUT_PREVISITE, creneauFr, objetCompteRendu, pastillesPrevisite, verifierRdvPrevisite,
   type PrevisiteAffiche, type StatutPrevisite,
 } from '../../../../lib/location/previsite';
+import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
+import { convertirPhoto, enBase64 } from '../../../../lib/location/photoEcran';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -201,6 +203,26 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const [choisis, setChoisis] = useState<number[] | null>(null);
   const [corps, setCorps] = useState('');
   const [aussiLocataires, setAussiLocataires] = useState(false);
+  /** 🔴 Arno (13/11/2026, lot B) — les photos du compte rendu (déposées à l'ajout), légende obligatoire, dans l'ordre choisi. */
+  const [photos, setPhotos] = useState<PhotoSaisie[]>([]);
+  const [rangSansLegende, setRangSansLegende] = useState<number | null>(null);
+  const photosPretes = photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende }));
+  const photosEnCours = photos.some((x) => x.etat === 'envoi');
+  /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
+  const verifierPhotos = (): boolean => {
+    if (geste !== 'compte_rendu') return true;
+    const echec = photos.findIndex((x) => x.etat === 'erreur');
+    if (echec >= 0) { setRangSansLegende(echec); setRefus(`La photo ${echec + 1} n’a pas pu être déposée : retirez-la (ou ajoutez-la de nouveau).`); return false; }
+    const r = refusPhotos(photos);
+    setRangSansLegende(r === null ? null : r.rang);
+    if (r !== null) {
+      setRefus(r.motif);
+      // la photo concernée, à l'écran (au-dessus des boutons collés en bas), le curseur dans sa légende
+      setTimeout(() => { try { const li = document.querySelector(`[data-photo="${r.rang + 1}"]`); li?.scrollIntoView({ block: 'center' }); (li?.querySelector('[data-photo-legende]') as HTMLInputElement | null)?.focus(); } catch { /* rien */ } }, 0);
+      return false;
+    }
+    return true;
+  };
   const [texteRefus, setTexteRefus] = useState<string | null>(null);
   const collegues = useLecture<Collegue[]>(avecCollegues ? 'previsiteCollegues=1' : null);
   const propose = useLecture<{ texte: string; objet: string; sansEmail: string[] }>(geste === 'refus' ? `previsiteRefus=${l.occupationIds.join(',')}` : null);
@@ -226,8 +248,9 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const rdvActuel = p.rdv;
 
   const voirRecap = async (rt: Retouches = {}): Promise<void> => {
+    if (!verifierPhotos()) return;
     setEnvoi(true); setRefus(null);
-    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires }
+    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires, photos: photosPretes }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
           : { action: 'apercu-previsite', ...corpsCommun, jour, debut, fin, destinataires: dest, deplacer: deplacement, retouches: rt }, { propre: true });
@@ -242,10 +265,12 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   };
 
   const confirmer = async (): Promise<void> => {
+    if (!verifierPhotos()) return;
     setEnvoi(true); setRefus(null);
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
     const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '',
+      ...(geste === 'compte_rendu' ? { photos: photosPretes } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
@@ -299,6 +324,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
         <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
         <label className="pvs-champ"><span className="pvs-libelle">Compte rendu *</span>
           <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={10} data-corps-compte-rendu /></label>
+        <PhotosDuCompteRendu photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
         <label className="pvv-case"><input type="checkbox" checked={aussiLocataires} onChange={(e) => setAussiLocataires(e.target.checked)} data-aussi-locataires />
           <span>Envoyer aussi aux locataires</span></label>
         <p className="loc-muet">Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location. Avec la case cochée, chaque locataire reçoit en plus SON propre mail (seul destinataire, sans copie visible).</p>
@@ -315,7 +341,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => onFermer(false)} disabled={envoi} data-annuler-previsite>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk} data-recap-previsite>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk || photosEnCours} data-recap-previsite>
           {envoi ? 'Préparation…' : 'Voir le récapitulatif'}</button>
       </div>
     </>;
@@ -330,7 +356,8 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
             <p className="cev-mail-titre">{libelleMail(m)}</p>
             <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataires</dt><dd data-a>{m.a.join(', ') || '—'}</dd>
               <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd>
-              {m.piece && <><dt>Pièce jointe</dt><dd>{m.piece} (invitation d’agenda)</dd></>}</dl>
+              {m.piece && (/\.ics$/i.test(m.piece) ? <><dt>Pièce jointe</dt><dd>{m.piece} (invitation d’agenda)</dd></>
+                : <><dt>Pièces jointes</dt><dd data-pieces-prevues>{m.piece}</dd></>)}</dl>
             <TexteDuMail key={m.texte} texte={m.texte} ouvert />
             {/* 🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirmation / la modification aux locataires ; « Texte modifié ». */}
             {m.edition !== undefined && (
@@ -377,6 +404,72 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
 }
 
+/** Une photo du formulaire : son aperçu (sur l'appareil), sa pièce déposée (`id`), sa légende. */
+interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'ok' | 'erreur'; motif: string | null }
+
+/**
+ * 🔴 Arno (13/11/2026, lot B) — « Photos » du compte rendu : « Ajouter une photo » ouvre l'APPAREIL PHOTO de l'iPhone (capture), « Photothèque »
+ * choisit des photos existantes ; plusieurs à la fois. Chaque photo est convertie sur l'appareil (HEIC → JPEG, ~1 600 px, ~500 Ko, sans GPS),
+ * puis déposée (préparée de nouveau au serveur). LÉGENDE OBLIGATOIRE juste sous la vignette ; supprimer, monter, descendre avant l'envoi.
+ */
+function PhotosDuCompteRendu({ photos, onChange, occupationIds, rangSansLegende }: { photos: PhotoSaisie[];
+  onChange: (f: (x: PhotoSaisie[]) => PhotoSaisie[]) => void; occupationIds: readonly number[]; rangSansLegende: number | null }) {
+  const camera = useId(); const galerie = useId();
+  // Toujours des mises à jour FONCTIONNELLES : une légende tapée pendant qu'une photo se prépare n'est jamais écrasée.
+  const maj = (cle: string, f: (x: PhotoSaisie) => PhotoSaisie) => onChange((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
+  const dejaDeposees = (): Promise<number[]> => new Promise((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
+  const ajouter = async (liste: FileList | null): Promise<void> => {
+    const fichiers = [...(liste ?? [])];
+    for (const f of fichiers) {
+      const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      onChange((xs) => [...xs, { cle, id: null, apercu: '', legende: '', etat: 'envoi', motif: null }]);
+      const c = await convertirPhoto(f);
+      if (!c.ok) { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: c.motif })); continue; }
+      const apercu = URL.createObjectURL(c.blob);
+      maj(cle, (x) => ({ ...x, apercu }));
+      const deja = await dejaDeposees();
+      const r = await envoyer({ action: 'photo-compte-rendu', occupationIds: [...occupationIds], donnees: await enBase64(c.blob), dejaIds: deja }, { propre: true });
+      const id = (r.data as { id?: number } | undefined)?.id;
+      maj(cle, (x) => (r.motif === null && typeof id === 'number' ? { ...x, id, etat: 'ok' } : { ...x, etat: 'erreur', motif: r.motif ?? 'La photo n’a pas pu être déposée.' }));
+    }
+  };
+  const deplacer = (i: number, d: -1 | 1) => onChange((xs) => { const x = [...xs]; const j = i + d; if (j < 0 || j >= x.length) return xs; [x[i], x[j]] = [x[j], x[i]]; return x; });
+  const retirer = (cle: string) => { const p = photos.find((x) => x.cle === cle); if (p?.apercu) URL.revokeObjectURL(p.apercu); onChange((xs) => xs.filter((x) => x.cle !== cle)); };
+  return (
+    <fieldset className="pvv-photos" data-photos-compte-rendu>
+      <legend className="pvs-libelle">Photos</legend>
+      <div className="pvv-photos-boutons">
+        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={camera} data-ajouter-photo>Ajouter une photo</label>
+        <input id={camera} className="pvv-fichier" type="file" accept="image/*" capture="environment" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-camera />
+        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={galerie} data-photo-galerie-bouton>Photothèque</label>
+        <input id={galerie} className="pvv-fichier" type="file" accept="image/*" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-galerie />
+      </div>
+      {photos.length > 0 && <ol className="pvv-photos-liste">{photos.map((x, i) => {
+        const sansLegende = rangSansLegende === i || (rangSansLegende !== null && x.legende.trim() === '');
+        return (
+          <li key={x.cle} className={`pvv-photo${sansLegende ? ' pvv-photo--erreur' : ''}${x.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-photo={i + 1} data-photo-etat={x.etat}
+            data-photo-sans-legende={sansLegende ? 'oui' : undefined}>
+            <div className="pvv-photo-tete">
+              <strong>Photo {i + 1}</strong>
+              <span className="pvv-photo-gestes">
+                <button type="button" className="pvv-mini" onClick={() => deplacer(i, -1)} disabled={i === 0} aria-label={`Monter la photo ${i + 1}`} data-photo-monter>↑</button>
+                <button type="button" className="pvv-mini" onClick={() => deplacer(i, 1)} disabled={i === photos.length - 1} aria-label={`Descendre la photo ${i + 1}`} data-photo-descendre>↓</button>
+                <button type="button" className="pvv-mini" onClick={() => retirer(x.cle)} aria-label={`Supprimer la photo ${i + 1}`} data-photo-supprimer>Supprimer</button>
+              </span>
+            </div>
+            {x.apercu ? <img className="pvv-vignette" src={x.apercu} alt={x.legende ? lignePhoto(i, x.legende) : `Photo ${i + 1}`} /> : <span className="pvv-vignette pvv-vignette--vide" />}
+            {x.etat === 'envoi' && <span className="loc-muet" role="status">Préparation…</span>}
+            {x.etat === 'erreur' && <span className="pvv-photo-motif" role="alert">{x.motif}</span>}
+            <label className="pvs-champ"><span className="pvs-libelle">{`Légende de la photo ${i + 1} *`}</span>
+              <input type="text" value={x.legende} maxLength={200} placeholder="ex. Rayure parquet chambre" aria-invalid={sansLegende}
+                onChange={(e) => { const v = e.target.value; maj(x.cle, (y) => ({ ...y, legende: v })); }} data-photo-legende /></label>
+            {sansLegende && x.etat !== 'erreur' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
+          </li>);
+      })}</ol>}
+    </fieldset>
+  );
+}
+
 /**
  * 🔴 Arno (13/11/2026) — LE COMPTE RENDU DE PRÉ-VISITE, EN LECTURE : le texte tel qu'enregistré, qui l'a saisi et quand, les pièces jointes, et
  * l'envoi par mail (chaque destinataire : nom, famille, date et heure, état). Rien n'est modifié en l'ouvrant ; aucune adresse de client.
@@ -400,10 +493,20 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
         {cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
           <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
           {cr.objet && <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-cr-objet>{cr.objet}</span></p>}
-          <pre className="pvv-cr-texte" data-cr-texte>{cr.texte}</pre>
-          {cr.pieces.length > 0 && (
+          <pre className="pvv-cr-texte" data-cr-texte>{texteSansPhotos(cr.texte)}</pre>
+          {/* 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos », chaque photo numérotée, sa légende juste en dessous */}
+          {(() => { const legendes = legendesDuTexte(cr.texte); const photos = cr.pieces.slice(0, legendes.length);
+            return photos.length === 0 ? null : (
+              <div className="pvv-cr-bloc" data-cr-photos><p className="pss-sous-titre">Photos</p>
+                <ol className="pvv-cr-photos">{photos.map((x, i) => (
+                  <li key={x.id} data-cr-photo={i + 1}>
+                    <a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} target="_blank" rel="noopener noreferrer"><img className="pvv-vignette" src={`/api/admin/location/pieces-sortie?piece=${x.id}`} alt={lignePhoto(i, legendes[i])} loading="lazy" /></a>
+                    <span className="pvv-cr-legende" data-cr-legende>{lignePhoto(i, legendes[i])}</span>
+                  </li>))}</ol>
+              </div>); })()}
+          {cr.pieces.length > legendesDuTexte(cr.texte).length && (
             <div className="pvv-cr-bloc" data-cr-pieces><p className="pss-sous-titre">Pièces jointes</p>
-              <ul className="pvv-cr-liste">{cr.pieces.map((x) => (
+              <ul className="pvv-cr-liste">{cr.pieces.slice(legendesDuTexte(cr.texte).length).map((x) => (
                 <li key={x.id}><a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
                   {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
             </div>)}
@@ -431,6 +534,25 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_PREVISITE = `
 .pvv-voir-cr{margin-top:8px}
+.pvv-photos{position:relative;border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+.pvv-photos legend{padding:0;margin:0 0 6px}
+.pvv-photos-boutons{display:flex;flex-wrap:wrap;gap:8px}
+.pvv-photo-ajout{width:auto;min-height:48px;padding:0 1rem;display:inline-flex;align-items:center;cursor:pointer}
+.pvv-fichier{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none}
+.pvv-photos-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.pvv-photo{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;border:2px solid var(--color-svv-line);background:var(--color-svv-surface)}
+.pvv-photo--erreur,.pvv-photo--echec{border-color:var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 6%, var(--color-svv-surface))}
+.pvv-photo--erreur .pvs-libelle{color:var(--color-svv-red)}
+.pvv-photo-tete{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pvv-photo-gestes{display:inline-flex;gap:6px}
+.pvv-mini{min-width:44px;min-height:44px;padding:0 10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
+.pvv-mini:disabled{opacity:.4;cursor:default}
+.pvv-vignette{display:block;width:100%;max-width:320px;max-height:240px;object-fit:contain;border-radius:8px;background:var(--color-svv-field)}
+.pvv-vignette--vide{height:120px}
+.pvv-photo-motif{color:var(--color-svv-red);font-weight:700}
+.pvv-cr-photos{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.pvv-cr-photos li{display:flex;flex-direction:column;gap:4px}
+.pvv-cr-legende{font-weight:700;overflow-wrap:anywhere}
 .pvv-petit{min-height:40px;width:auto;padding:0 .9rem;font-size:.88rem}
 .pvv-cr-qui{margin:0;font-weight:700}
 .pvv-cr-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}

@@ -80,6 +80,14 @@ vi.mock('../db/client', () => ({
   withTransaction: async (fn: (q: (sql: string, params?: unknown[]) => Promise<unknown>) => Promise<unknown>) => fn((sql, params) => query(sql, params ?? [])),
 }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
+// 🔴 Arno (13/11/2026, lot B) — les photos déposées (pièces de la sortie) : simulées, rien n'est lu du stockage
+const photosSim = vi.hoisted(() => ({ pieces: new Map<number, { nom: string; taille: number }>() }));
+vi.mock('./piecesSortieRepo', () => ({
+  metaPieces: async (ids: readonly number[]) => ids.filter((i) => photosSim.pieces.has(i)).map((id) => ({ id, nom: photosSim.pieces.get(id)!.nom, typeMime: 'image/jpeg', taille: photosSim.pieces.get(id)!.taille, provenance: 'ordinateur' })),
+  piecesPourEnvoi: async (ids: readonly number[]) => (ids.every((i) => photosSim.pieces.has(i))
+    ? { ok: true, pieces: ids.map((id) => ({ id, nom: photosSim.pieces.get(id)!.nom, typeMime: 'image/jpeg', taille: photosSim.pieces.get(id)!.taille, octets: new Uint8Array([0xff, 0xd8, 0xff]) })) }
+    : { ok: false, motif: 'Une pièce jointe est introuvable pour ce préavis : retirez-la puis ajoutez-la de nouveau.' }),
+}));
 let lignesEnCours: unknown[] = [];
 vi.mock('./preavisRepo', () => ({ preavisEnCours: async () => ({ disponible: true, etatDesLieux: true, planification: true, lignes: lignesEnCours }) }));
 vi.mock('../gestion/schema', () => ({ tachesDisponibles: async () => true }));
@@ -134,7 +142,7 @@ vi.mock('./mailsPreavisSortieRepo', () => ({
 
 import {
   deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite, envoyerRefus, passeAlertesPrevisite, passeInvitationsCompteRendu,
-  programmerPrevisite, reaffecterPrevisite, apercuRdvPrevisite, avecPrevisites, passePrevisite, apercuRefus,
+  programmerPrevisite, reaffecterPrevisite, apercuRdvPrevisite, avecPrevisites, passePrevisite, apercuRefus, apercuCompteRendu,
 } from './previsiteRepo';
 import type { LignePreavisAccueil } from './preavis';
 
@@ -615,5 +623,41 @@ describe('🔴 Arno (11/11/2026, lot C) — la pré-visite est un « Rendez-vous
   it('la tâche créée (et modifiée) porte sorte = rdv', async () => {
     await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [4] }, AUTEUR);
     expect((creerTache.mock.calls[0] as [number, { sorte?: string }])[1].sorte).toBe('rdv');
+  });
+});
+
+
+describe('🔴🔴 Arno (13/11/2026, lot B) — le compte rendu AVEC PHOTOS : légende obligatoire, structure, pièces jointes « Photo-1-légende.jpg »', () => {
+  beforeEach(() => { photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }], [72, { nom: 'photo-previsite.jpg', taille: 280_000 }]]); });
+  it('une photo sans légende : refus clair, RIEN ne part (ni aperçu, ni envoi)', async () => {
+    programmee();
+    const photos = [{ id: 71, legende: 'Rayure parquet chambre' }, { id: 72, legende: ' ' }];
+    expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, photos }, AUTEUR)).toEqual({ etat: 'refus', champ: 'photos',
+      motif: 'La photo 2 n’a pas de légende : chaque photo doit être légendée avant l’envoi.' });
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, photos }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'photos' });
+    expect(envoyerSerie).not.toHaveBeenCalled();
+    expect(suivi?.effectuee_le).toBeNull();
+  });
+  it('le texte, puis « Photos » (numérotées, légende) ; chaque photo en pièce jointe « Photo-N-légende.jpg », dans l’ordre choisi ; aux locataires aussi', async () => {
+    programmee();
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'Logement propre.', aussiLocataires: true, photos: [{ id: 72, legende: 'Joint de la douche' }, { id: 71, legende: 'Rayure parquet chambre' }] }, AUTEUR);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; pieces?: { id: number; nom: string }[] }[]];
+    expect(mails[0].texte).toBe('Logement propre.\n\nPhotos\n\nPhoto 1 — Joint de la douche\nPhoto 2 — Rayure parquet chambre\n\nMail envoyé par Arno TEST (arno@exemple.test)');
+    for (const m of mails) expect(m.pieces?.map((x) => [x.id, x.nom])).toEqual([[72, 'Photo-1-joint-de-la-douche.jpg'], [71, 'Photo-2-rayure-parquet-chambre.jpg']]);
+    expect(mails).toHaveLength(3); // l'interne + un par locataire
+  });
+  it('l’aperçu annonce les pièces jointes ; une photo introuvable pour ce préavis : refus, rien ne part', async () => {
+    programmee();
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, photos: [{ id: 71, legende: 'Rayure' }] }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { mails: [{ piece: 'Photo-1-rayure.jpg' }] } });
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, photos: [{ id: 99, legende: 'Autre bail' }] }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'photos' });
+    expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  it('sans photo : le compte rendu d’avant, inchangé (aucune section, aucune pièce)', async () => {
+    programmee();
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false }, AUTEUR);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; pieces?: unknown[] }[]];
+    expect(mails[0].texte).not.toContain('Photos');
+    expect(mails[0].pieces).toBeUndefined();
   });
 });

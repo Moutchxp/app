@@ -402,6 +402,8 @@ export interface MailPrevisite {
   de: string; a: string[]; cc: string[]; objet: string; texte: string; html: string;
   /** L'invitation d'agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;
+  /** 🔴 Arno (13/11/2026, lot B) — les photos du compte rendu, en pièces jointes (« Photo-1-légende.jpg ») ; octets relus au moment de l'envoi. */
+  pieces?: readonly { id: number; nom: string; typeMime: string; taille: number; octets?: Uint8Array }[];
   /** 🔴 Arno (10/11/2026, texte modifiable) — le texte PROPOSÉ quand il a été modifié ; ce que l'éditeur montre. */
   texteOrigine?: string | null;
   edition?: EditionMail;
