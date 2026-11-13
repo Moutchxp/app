@@ -293,7 +293,7 @@ function FormulaireMois({ d, eC, mois, societe, postes, validations, k, unite, t
       </section>
       {/* ══ 🔴 PARTIE « CA GESTION » : CRITERIMMO seulement (MACJ ne fait pas de gestion) — honoraires de gestion, honoraires GLI, le CA global calculé ══ */}
       {societe === 'criterimmo' && (
-        <section ref={partieCa} className="mes-saisie-partie mes-saisie-partie--ca trx-serie--2" aria-labelledby="mes-partie-ca" data-partie-saisie="ca">
+        <section ref={partieCa} className="mes-saisie-partie mes-saisie-partie--ca trx-serie--4" aria-labelledby="mes-partie-ca" data-partie-saisie="ca">
           <header className="mes-saisie-partie-tete mes-saisie-bande"><h4 id="mes-partie-ca">CA gestion</h4>{avecCa ? pastille(etatCa.complet, 'partie-ca') : null}
             <span className="mes-saisie-total" data-total-partie="ca">{montant({ htC: caTape.totalC, ttcC: caTape.totalTtcC })}</span></header>
           {!d.caGestion ? <p className="loc-muet mes-saisie-note" data-ca-indisponible>La saisie du CA de gestion sera disponible après la mise à jour de la base (migration 471).</p> : (
@@ -391,7 +391,7 @@ const CSS_SAISIE_MOIS = `
 .mes-saisie-pied{position:sticky;bottom:0;z-index:3;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);box-shadow:0 -4px 12px rgba(0,0,0,.08)}
 .mes-saisie-pied .gst-btn{width:auto;min-height:44px;padding:0 1.4rem}
 .mes-saisie-total-general{font-variant-numeric:tabular-nums}
-/* les deux parties : chacune son cadre ; le CA gestion, une couleur de famille distincte des couts (serie 2) */
+/* les deux parties : chacune son cadre ; le CA gestion, une couleur de famille distincte des couts (serie 4, violet : ni le bleu de la vente, ni le vert de la location, ni le rose de la gestion, ni notre rouge) */
 .mes-saisie-partie{display:flex;flex-direction:column;gap:12px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:12px}
 .mes-saisie-partie--ca{border-left:6px solid var(--trx-serie);background:color-mix(in srgb, var(--trx-serie) 5%, var(--color-svv-surface));gap:4px}
 .mes-saisie-partie-tete{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
