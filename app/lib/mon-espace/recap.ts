@@ -123,7 +123,11 @@ export function tableauRecap(x: EntreesRecap): TableauRecap {
     poste('gestion', 'autres', 'Autres', (p) => p.gestion?.autres, { sorte: 'lignes', famille: 'gestion', poste: 'autres' });
     poste('gestion', 'total', 'Sous-total gestion', (p) => p.gestion?.total, AUCUNE, 'sous-total');
   }
-  ajouter({ cle: 'couts-total', libelle: 'Total des coûts', section: 'couts', famille: null, niveau: 'total', edition: AUCUNE }, (i) => points[i].total);
+  // 🔴 Arno (13/11/2026) — le TOTAL DES COÛTS : un bandeau de résultat (comme le CA NET TOTAL) ; montants inchangés (`coutsDuPoint`) ; provisoire si un
+  // poste de coût du mois est à compléter
+  ajouter({ cle: 'couts-total', libelle: lg ? 'TOTAL DES COÛTS (vente + location + gestion)' : 'TOTAL DES COÛTS (vente)', section: 'couts', famille: null, niveau: 'total', edition: AUCUNE },
+    (i) => points[i].total, (m) => { const i = ms.findIndex((y) => y.annee === m.annee && y.mois === m.mois);
+      return { etat: lignes.some((l) => l.section === 'couts' && l.cellules[i].etat === 'a-completer') ? 'provisoire' : 'neutre', modifiable: 'non' }; });
   // ══ 🔴 Arno (13/11/2026) — CA VENTE puis CA LOCATION, sur le modèle exact du CA GESTION ; tout est DÉRIVÉ (rien de stocké) ══
   // Le CA de départ est celui AVANT les reversements : le `ca` des cartes de la structure (`coutsVente` — la fonction même qui donne les commissions,
   // les apporteurs et les agences extérieures des coûts : CA − ces coûts = le net des cartes, au centime : aucune double déduction) ; FUSION : celui de

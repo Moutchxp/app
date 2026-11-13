@@ -227,6 +227,25 @@ describe('🔴 CA VENTE et CA LOCATION (Arno, 13/11/2026) — à l’écran', ()
     await cliquer('[data-recap-agence="macj"]');
     expect(texte('[data-ligne-recap="total-net"] th')).toBe('CA NET TOTAL (vente)');
   });
+  it('🔴 la séparation COÛTS / CA : partie « Coûts », bandeau TOTAL DES COÛTS (espace au-dessus), espace net, partie « Chiffre d’affaires », puis CA VENTE ; montants du total inchangés', async () => {
+    await rendre();
+    const ordre = [...container.querySelectorAll('[data-partie-recap], [data-bandeau-recap], [data-section-recap="ca-vente"] .rcp-section-titre, .rcp-espace')]
+      .map((x) => x.getAttribute('data-partie-recap') ? `partie:${x.getAttribute('data-partie-recap')}` : x.getAttribute('data-bandeau-recap') ? `bandeau:${x.getAttribute('data-bandeau-recap')}`
+        : x.classList.contains('rcp-espace') ? (x.classList.contains('rcp-espace--partie') ? 'espace-partie' : 'espace') : 'titre:ca-vente');
+    expect(ordre).toEqual(['partie:couts', 'espace', 'bandeau:couts', 'espace-partie', 'partie:ca', 'titre:ca-vente', 'espace', 'bandeau:ca']);
+    expect(texte('[data-partie-recap="couts"]')).toBe('Coûts');
+    expect(texte('[data-partie-recap="ca"]')).toBe('Chiffre d’affaires');
+    expect(texte('[data-ligne-recap="couts-total"] th')).toBe('TOTAL DES COÛTS (vente + location + gestion)');
+    expect(container.querySelector('[data-ligne-recap="couts-total"]')?.className).toContain('rcp-bandeau--couts');
+    expect(container.querySelector('[data-ligne-recap="total-net"]')?.className).toContain('rcp-bandeau--ca');
+    // les montants : ceux de « Coûts et CA » du mois, comme avant
+    for (const mo of [3, 6, 10]) expect(texte(`[data-cellule-recap="couts-total-2026-${String(mo).padStart(2, '0')}"]`))
+      .toBe(montant(coutsDuPoint({ ...E_COUTS, gestion }, 'criterimmo', 2026, mo).total.htC / 100));
+    expect(cel('couts-total-2026-10').getAttribute('title')).toBe('calcul provisoire : données à compléter');
+    await cliquer('[data-recap-agence="macj"]');
+    expect(texte('[data-ligne-recap="couts-total"] th')).toBe('TOTAL DES COÛTS (vente)');
+    expect(container.querySelector('[data-partie-recap="ca"]')).not.toBeNull();
+  });
   it('MACJ : la section CA VENTE seule', async () => {
     await rendre();
     await cliquer('[data-recap-agence="macj"]');

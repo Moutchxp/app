@@ -234,14 +234,21 @@ export function RecapCoutsCa() {
             <th scope="col" className="rcp-total">Total</th></tr></thead>
           {sections.map((s) => (
             <tbody key={s.cle} className={`rcp-section rcp-section--${s.cle}${SERIE_SECTION[s.cle] !== undefined ? ` rcp-section--chiffre trx-serie--${SERIE_SECTION[s.cle]}` : ''}`} data-section-recap={s.cle}>
+              {/* 🔴 Arno (13/11/2026) — deux PARTIES, de même niveau : « COÛTS » (en tête), puis, après le bandeau TOTAL DES COÛTS et un espace net,
+                  « CHIFFRE D'AFFAIRES » (avant la première section de CA) */}
+              {s.cle === 'ca-vente' && <tr className="rcp-espace rcp-espace--partie" aria-hidden="true"><td colSpan={nb} /></tr>}
+              {s.cle === 'ca-vente' && <tr className="rcp-partie" data-partie-recap="ca"><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">Chiffre d’affaires</span></th></tr>}
               {/* 🔴 le CA NET TOTAL : un bandeau à part (un espace au-dessus, puis la ligne elle-même, qui porte son titre) — pas de bande de titre */}
               {s.cle === 'total' ? <tr className="rcp-espace" aria-hidden="true"><td colSpan={nb} /></tr>
+                : s.cle === 'couts' ? <tr className="rcp-partie" data-partie-recap="couts"><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{s.mot}</span></th></tr>
                 : <tr className="rcp-section-titre"><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{s.mot}</span></th></tr>}
               {t.lignes.filter((l) => l.section === s.cle).map((l, j, xs) => {
                 const nouvelleFamille = l.famille !== null && (j === 0 || xs[j - 1].famille !== l.famille);
+                const bandeau = l.cle === 'couts-total' ? 'couts' : l.cle === 'total-net' ? 'ca' : null;
                 return [
+                  bandeau === 'couts' ? <tr key="espace-couts" className="rcp-espace" aria-hidden="true"><td colSpan={nb} /></tr> : null,
                   nouvelleFamille ? <tr key={`f-${l.famille}`} className={`rcp-famille trx-serie--${COULEUR[l.famille!]}`} data-famille-recap={l.famille!}><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{FAMILLE[l.famille!]}</span></th></tr> : null,
-                  <tr key={l.cle} className={`rcp-ligne rcp-ligne--${l.niveau}${l.famille !== null ? ` trx-serie--${COULEUR[l.famille]}` : SERIE_SECTION[s.cle] !== undefined ? ` trx-serie--${SERIE_SECTION[s.cle]}` : ''}`} data-ligne-recap={l.cle}>
+                  <tr key={l.cle} data-bandeau-recap={bandeau ?? undefined} className={`rcp-ligne rcp-ligne--${l.niveau}${bandeau !== null ? ` rcp-bandeau rcp-bandeau--${bandeau}` : ''}${l.famille !== null ? ` trx-serie--${COULEUR[l.famille]}` : SERIE_SECTION[s.cle] !== undefined ? ` trx-serie--${SERIE_SECTION[s.cle]}` : ''}`} data-ligne-recap={l.cle}>
                     <th scope="row">{l.libelle}{l.niveau === 'info' && <small className="loc-muet"> (pour information, hors totaux)</small>}{l.cle === 'ca-total' && <small className="loc-muet"> (calculé)</small>}</th>
                     {l.cellules.map((c, i) => cellule(l, c, i))}
                     <td className={`rcp-c rcp-total${l.niveau === 'resultat' ? ` ${sens(l.total[k])}` : ''}`} data-total-recap={l.cle}>{l.niveau === 'resultat' ? signe(l.total[k]) : eur(l.total[k] / 100)}</td>
@@ -309,12 +316,17 @@ const CSS_RECAP = `
 .rcp-ligne--sous-total th,.rcp-ligne--sous-total td{font-weight:800;background:color-mix(in srgb, var(--trx-serie) 8%, var(--color-svv-surface))}
 .rcp-ligne--total th,.rcp-ligne--total td,.rcp-ligne--calcule th,.rcp-ligne--calcule td{font-weight:800;border-top:2px solid var(--color-svv-line-strong)}
 .rcp-section--chiffre .rcp-ligne th[scope=row]{border-left-color:var(--trx-serie)}
-/* le CA NET TOTAL : un bandeau a part, neutre fonce (ni sarcelle, ni ocre, ni violet, ni une famille de couts) ; gras et plus grand ; la premiere
-   colonne colle comme le reste ; le provisoire garde son fond orange */
+/* les BANDEAUX de resultat : TOTAL DES COUTS (brique sombre, propre aux couts) et CA NET TOTAL (neutre fonce) ; ni sarcelle, ni ocre, ni violet, ni une
+   famille de couts ; un espace au-dessus, traits epais, gras et plus grand ; la premiere colonne colle comme le reste ; le provisoire garde son fond orange */
+.rcp-bandeau--ca{--rcp-bandeau:var(--color-svv-ink)}
+.rcp-bandeau--couts{--rcp-bandeau:color-mix(in srgb, var(--color-svv-red) 58%, #1a0505)}
 .rcp-espace td{height:18px;padding:0;border:0;background:transparent}
-.rcp-section--total .rcp-ligne--resultat th,.rcp-section--total .rcp-ligne--resultat td{font-size:1rem;font-weight:900;padding-top:10px;padding-bottom:10px;border-top:4px solid var(--color-svv-ink);border-bottom:4px solid var(--color-svv-ink);background:color-mix(in srgb, var(--color-svv-ink) 8%, var(--color-svv-surface))}
-.rcp-table .rcp-section--total .rcp-ligne--resultat th[scope=row]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-left:4px solid var(--color-svv-ink);white-space:normal}
-.rcp-table .rcp-section--total .rcp-ligne--resultat td.rcp-a-completer{background:color-mix(in srgb, var(--color-svv-amber) 22%, var(--color-svv-surface))}
+.rcp-espace--partie td{height:24px}
+.rcp-table .rcp-bandeau th,.rcp-table .rcp-bandeau td{font-size:1rem;font-weight:900;padding-top:10px;padding-bottom:10px;border-top:4px solid var(--rcp-bandeau);border-bottom:4px solid var(--rcp-bandeau);background:color-mix(in srgb, var(--rcp-bandeau) 8%, var(--color-svv-surface))}
+.rcp-table .rcp-bandeau th[scope=row]{background:var(--rcp-bandeau);color:#fff;border-left:4px solid var(--rcp-bandeau);white-space:normal}
+.rcp-table .rcp-bandeau td.rcp-a-completer{background:color-mix(in srgb, var(--color-svv-amber) 22%, var(--color-svv-surface))}
+/* les deux PARTIES du tableau (COUTS, CHIFFRE D'AFFAIRES), de meme niveau : au-dessus des sections et des familles */
+.rcp-partie th{text-align:left;font-size:1.02rem;font-weight:900;text-transform:uppercase;letter-spacing:.12em;padding-top:10px;padding-bottom:10px;background:var(--color-svv-field);color:var(--color-svv-ink);border-top:3px solid var(--color-svv-ink);border-bottom:3px solid var(--color-svv-ink)}
 /* le CA net de gestion : la ligne de resultat (gras, separateur au-dessus) ; vert si positif ou nul, rouge si negatif */
 .rcp-ligne--resultat th,.rcp-ligne--resultat td{font-weight:800;border-top:3px double var(--color-svv-line-strong)}
 .rcp-table td.rcp-positif{color:var(--color-svv-green)}

@@ -56,6 +56,32 @@ describe('le calcul : la somme des CA net affichés', () => {
   });
 });
 
+describe('🔴 le TOTAL DES COÛTS en bandeau (Arno, 13/11/2026) : montants inchangés, état provisoire, libellé selon la structure', () => {
+  it('chaque mois = le total de « Coûts et CA » (vente + location + gestion), comme avant ; Total = la somme des mois ; HT et TTC', () => {
+    for (const tt of [t, m, f]) for (let k = 0; k < 12; k++) {
+      const st = ['vente-total', 'location-total', 'gestion-total'].map((c) => tt.lignes.find((l) => l.cle === c)).filter((l) => l !== undefined);
+      for (const u of ['htC', 'ttcC'] as const) expect(ligne(tt, 'couts-total').cellules[k].m[u]).toBe(st.reduce((s, l) => s + l!.cellules[k].m[u], 0));
+    }
+    expect(ligne(t, 'couts-total').total.htC).toBe(ligne(t, 'couts-total').cellules.reduce((s, c) => s + c.m.htC, 0));
+  });
+  it('libellés ; provisoire dès qu’un poste de coût du mois est à compléter ; le mois en cours : neutre ; en lecture', () => {
+    expect([ligne(t, 'couts-total').libelle, ligne(m, 'couts-total').libelle, ligne(f, 'couts-total').libelle])
+      .toEqual(['TOTAL DES COÛTS (vente + location + gestion)', 'TOTAL DES COÛTS (vente)', 'TOTAL DES COÛTS (vente + location + gestion)']);
+    for (let k = 0; k < 12; k++) {
+      const un = t.lignes.some((l) => l.section === 'couts' && l.cle !== 'couts-total' && l.cellules[k].etat === 'a-completer');
+      expect(ligne(t, 'couts-total').cellules[k].etat).toBe(un ? 'provisoire' : 'neutre');
+    }
+    expect(ligne(t, 'couts-total').cellules[9].etat).toBe('provisoire');
+    expect(ligne(t, 'couts-total').cellules[10].etat).toBe('neutre');
+    expect(ligne(t, 'couts-total').cellules.every((c) => c.modifiable === 'non')).toBe(true);
+  });
+  it('un salaire masqué (option 1) : le total des coûts du mois et de l’année est confidentiel', () => {
+    const c = tableauRecap(entrees({ e: { ...E_COUTS, saisis: [...(E_COUTS.saisis ?? []), { societe: 'criterimmo', famille: 'vente', poste: 'salaires', annee: 2026, mois: 10, montantHt: Number.NaN }] } }));
+    expect([estConfidentiel(ligne(c, 'couts-total').cellules[9].m.htC), estConfidentiel(ligne(c, 'couts-total').total.ttcC)]).toEqual([true, true]);
+    expect(ligne(c, 'couts-total').cellules[2].m).toEqual(ligne(t, 'couts-total').cellules[2].m);
+  });
+});
+
 describe('provisoire et confidentiel', () => {
   it('provisoire dès qu’un des trois CA net l’est ; neutre quand aucun ne l’est', () => {
     for (let k = 0; k < 12; k++) {
