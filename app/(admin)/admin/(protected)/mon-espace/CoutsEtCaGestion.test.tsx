@@ -26,12 +26,13 @@ const perso = (associe: boolean) => ({ disponible: true, aujourdhui: JOUR, titul
 const DONNEES = { disponible: true, aujourdhui: JOUR, ventes: VENTES_COUTS, gestion: [], location: {}, locationTtcC: {}, retrocessions: RETROS_COUTS, statutsNegociateurs: {},
   locationCa: { lignes: LIGNES_LOCATION_COUTS, retrocessions: [], salaires: SALAIRES_LOCATION_COUTS, dus: DUS_COUTS }, coutsSaisis: SAISIS_COUTS, coutsLignes: [],
   saisie: true, profils: [], versionsGestion: { '2026-10': { version: 7, origine: 'saisie' } }, monga: true, validations: [], caGestion: true };
-const ALERTES = [{ partie: 'couts', societe: 'criterimmo', mois: OCT, mot: 'Coûts d’octobre à saisir' }, { partie: 'ca', societe: 'criterimmo', mois: OCT, mot: 'CA gestion d’octobre à saisir' }];
+const ALERTES: unknown[] = [{ partie: 'couts', societe: 'criterimmo', mois: OCT, mot: 'Coûts d’octobre à saisir' }, { partie: 'ca', societe: 'criterimmo', mois: OCT, mot: 'CA gestion d’octobre à saisir' }];
 let associe: boolean; let urls: string[]; let posts: Record<string, unknown>[]; let version: number;
 let container: HTMLDivElement; let root: Root;
 beforeEach(() => {
   window.history.replaceState(null, '', '/');
   associe = true; urls = []; posts = []; version = 7;
+  ALERTES.splice(0, ALERTES.length, { partie: 'couts', societe: 'criterimmo', mois: OCT, mot: 'Coûts d’octobre à saisir' }, { partie: 'ca', societe: 'criterimmo', mois: OCT, mot: 'CA gestion d’octobre à saisir' });
   try { window.localStorage.setItem('trx-affichage-montants', 'ht'); } catch { /* sans stockage */ }
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -96,7 +97,21 @@ describe('🔴 l’indicateur unifié, en haut de l’accueil de « Mon espace �
       expect(container.querySelector('[data-alertes-saisie]')).toBeNull();
       expect(container.innerHTML).not.toMatch(/à saisir/);
       expect(container.querySelector('[data-onglet-mon-espace="couts"]')).toBeNull();
+      expect(container.querySelector('[data-lien-recap]')).toBeNull(); // 🔴 le récapitulatif non plus
     }
+  });
+  it('🔴 Récapitulatif : le lien à côté de l’indicateur — et encore là quand tout est complet (aucune alerte)', async () => {
+    await ouvrir(null);
+    expect(container.querySelector('[data-tete-couts] [data-lien-recap]')?.getAttribute('href')).toBe('/admin/mon-espace/recapitulatif?agence=criterimmo');
+    ALERTES.length = 0;
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir('macj');
+    expect(container.querySelector('[data-alertes-saisie]')).toBeNull();
+    expect(container.querySelector('[data-tete-couts] [data-lien-recap]')?.getAttribute('href')).toBe('/admin/mon-espace/recapitulatif?agence=macj');
+    await cliquer('[data-onglet-mon-espace="couts"]');
+    expect(container.querySelector('[data-bouton-saisie] [data-lien-recap]')).not.toBeNull(); // dans l'onglet, à côté de « Saisir les coûts du mois »
+    await cliquer('[data-ouvrir-saisie]');
+    expect(container.querySelector('[data-saisie-tete] [data-lien-recap]')).not.toBeNull(); // dans la saisie, à côté de « Retour aux coûts »
   });
 });
 
@@ -150,5 +165,14 @@ describe('🔴 « Coûts et CA » : la saisie du mois en deux parties', () => {
     expect(container.querySelector('[data-total-ca-gestion]')).toBeNull();
     await cliquer('[data-structure="criterimmo"]');
     expect(container.querySelector('[data-partie-saisie="ca"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 Récapitulatif → la saisie du mois (salaires chargés, « Autres »)', () => {
+  it('?espace=criterimmo&onglet=couts&saisie=2026-03 : la saisie s’ouvre sur MARS 2026 (ajouté au sélecteur, les 6 mois proposés restent)', async () => {
+    window.history.replaceState(null, '', '/?espace=criterimmo&onglet=couts&saisie=2026-03&partie=couts');
+    await ouvrir(null);
+    expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('criterimmo-2026-03');
+    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Mars 2026', 'Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026']);
   });
 });

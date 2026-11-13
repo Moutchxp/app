@@ -40,14 +40,19 @@ const MOT_FAMILLE: Record<FamilleCout, string> = { vente: 'Vente', location: 'Lo
 const ecrireMontant = (x: number | null): string => (x === null ? '' : x.toFixed(2).replace('.', ','));
 const cle = (p: Pick<PosteDuMois, 'famille' | 'poste'>): string => `${p.famille}-${p.poste}`;
 
-export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale = 'couts', onRetour, onEcrit }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; jour: string; societeInitiale: Societe;
+export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale = 'couts', moisInitial = null, recap = null, onRetour, onEcrit }: { d: DonneesPageSaisie; eC: EntreesCoutsGlobaux; jour: string; societeInitiale: Societe;
+  /** 🔴 Récapitulatif — le mois demandé (une cellule du récapitulatif) ; hors des 6 mois proposés, il s'ajoute au sélecteur (rien n'en est retiré). */
+  moisInitial?: MoisAn | null;
+  /** 🔴 Récapitulatif — le lien, en tête à côté de « Retour aux coûts ». */
+  recap?: ReactNode;
   /** 🔴 « Coûts et CA » — la partie qu'ouvre l'indicateur de l'accueil (« CA gestion d'octobre à saisir » : la partie CA). */
   partieInitiale?: 'couts' | 'ca';
   onRetour: (m: MoisAn | null) => void; onEcrit: () => void }) {
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC';
-  const choix = moisProposes(jour);
-  const [mois, setMois] = useState<MoisAn>(choix[0]);
+  const proposes = moisProposes(jour);
+  const choix = moisInitial === null || proposes.some((m) => m.annee === moisInitial.annee && m.mois === moisInitial.mois) ? proposes : [moisInitial, ...proposes];
+  const [mois, setMois] = useState<MoisAn>(moisInitial ?? proposes[0]);
   const [societe, setSociete] = useState<Societe>(societeInitiale);
   const cleMois = `${mois.annee}-${String(mois.mois).padStart(2, '0')}`;
   const adhocImporte = d.versionsGestion[cleMois]?.origine === 'import';
@@ -69,7 +74,7 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale =
       <style>{CSS_SAISIE_MOIS}</style>
       <h3 id="mes-saisie-titre" className="mes-saisie-titre">{societe === 'criterimmo' && d.caGestion ? 'Saisir les coûts et le CA du mois' : 'Saisir les coûts du mois'}</h3>
       <FormulaireMois key={`${societe}-${cleMois}`} d={d} eC={eC} mois={mois} societe={societe} postes={postes} validations={validations} k={k} unite={MOT_UNITE[u]} tete={tete} partieInitiale={partieInitiale}
-        retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRetour(null)} data-retour-couts>Retour aux coûts</button>}
+        retour={<>{recap}<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRetour(null)} data-retour-couts>Retour aux coûts</button></>}
         onFini={() => { onEcrit(); onRetour(mois); }} onEcrit={onEcrit} />
     </section>
   );

@@ -8,6 +8,7 @@ import { ventesDuMois } from '../../../../lib/transaction/modele';
 import { venteDansSociete } from '../../../../lib/transaction/interCabinet';
 import { PERIODE_MON_ESPACE_MS } from '../../../../lib/mon-espace/rafraichir';
 import { SaisieMoisCouts } from './SaisieMoisCouts';
+import { LienRecapitulatif } from './RecapCoutsCa';
 import { moisProposes, rappelMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
 import { classeSens, ecrireAdresse, EnteteAide, ESPACE, eur, MOT_UNITE, parametre, signePct, useAffichage } from '../transaction/commun';
 import { anneeAvecDonnees, anneesDuGlobal, LigneDesAnnees, moisRougesDeLAnnee, type DonneesGlobal } from '../transaction/EcransTransaction';
@@ -51,7 +52,9 @@ export const AIDE_POSTES_FUTURS: Record<string, string> = {
   salaires: 'Les salaires chargés des collaborateurs de la vente, saisis par salarié et par mois.',
 };
 
-export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, partieDemandee = 'couts', onEcrit }: { agence: Agence; jour: string;
+export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, partieDemandee = 'couts', moisDemande = null, onEcrit }: { agence: Agence; jour: string;
+  /** 🔴 Récapitulatif — le mois que la saisie doit ouvrir (une cellule du récapitulatif, l'indicateur) ; null : le mois précédent. */
+  moisDemande?: { annee: number; mois: number } | null;
   /** 🔴 « Coûts et CA » — la partie qu'ouvre l'indicateur de l'accueil. */
   partieDemandee?: 'couts' | 'ca';
   /** Le compteur de relecture de « Mon espace » (rafraîchissement, gestes) : « Les coûts » se relit avec lui. */
@@ -255,7 +258,8 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, part
         <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX + CSS_COUTS_MON_ESPACE + CSS_EDITION_COUTS}</style>
         <SaisieMoisCouts d={{ lignes: d.coutsLignes ?? [], profils: d.profils ?? [], validations: d.validations ?? null, versionsGestion: d.versionsGestion ?? {}, monga: d.monga === true,
           gestionDuMois: gestionDuMoisPage, caGestion: d.caGestion === true, caDuMois: caDuMoisPage }} eC={eC} jour={jour}
-          societeInitiale={agence === 'tous' || partieDemandee === 'ca' ? 'criterimmo' : agence} partieInitiale={partieDemandee} onEcrit={ecrit}
+          societeInitiale={agence === 'tous' || partieDemandee === 'ca' ? 'criterimmo' : agence} partieInitiale={partieDemandee} moisInitial={moisDemande}
+          recap={<LienRecapitulatif agence={agence} />} onEcrit={ecrit}
           onRetour={(m) => { setSaisie(false); if (m !== null) setAnnee(m.annee); }} />
       </div>
     );
@@ -271,10 +275,12 @@ export function CoutsMonEspace({ agence, jour, lecture, saisieDemandee = 0, part
     <div className="mes-couts tdb loc-page" data-transaction={agence} data-couts-mon-espace={agence}>
       <style>{CSS_TABLES_GROUPES + CSS_COUTS_GLOBAUX + CSS_COUTS_MON_ESPACE + CSS_EDITION_COUTS}</style>
       {/* 🔴 Lot 3 (C17) — le bouton « Saisir les coûts du mois » ; tant que le mois précédent est à compléter, il le dit */}
-      {d.saisie === true && <div className="mes-couts-saisir" data-bouton-saisie>
-        <button type="button" className={`svv-btn ${rappel !== null ? 'svv-btn-primary' : 'svv-btn-outline'} gst-btn`} onClick={() => setSaisie(true)} data-ouvrir-saisie>Saisir les coûts du mois</button>
+      {/* 🔴 Récapitulatif (13/11/2026) — à côté du bouton de saisie, en haut à droite (le bouton reste tel quel) */}
+      <div className="mes-couts-saisir" data-bouton-saisie={d.saisie === true ? '' : undefined}>
+        <LienRecapitulatif agence={agence} />
+        {d.saisie === true && <button type="button" className={`svv-btn ${rappel !== null ? 'svv-btn-primary' : 'svv-btn-outline'} gst-btn`} onClick={() => setSaisie(true)} data-ouvrir-saisie>Saisir les coûts du mois</button>}
         {/* 🔴 D23 (accord d'Arno, 03/11/2026) — un seul cartouche à l'écran : celui de la ligne des onglets ; ici, le bouton seul (en couleur tant que le mois est à saisir) */}
-      </div>}
+      </div>
       <LigneDesAnnees annees={annees} decoupage="annee" annee={annee} choisies={[annee]} onAnnee={setAnnee} onDecoupage={() => {}} uneSeule />
       <ul className="tdb-tuiles trx-tuiles-alignees" aria-label={`Les coûts ${annee} — ${nom}`} data-tuiles-couts>
         {/* 🔴 D22 (Arno, 03/11/2026) — l'ordre : Vente | Location | Gestion | Coûts totaux (le total tout à droite) */}

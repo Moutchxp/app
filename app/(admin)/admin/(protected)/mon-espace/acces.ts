@@ -2,6 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload, type SessionAdmin } from '../../../../lib/admin/session';
 import { trouverCompteParId } from '../../../../lib/admin/comptes';
+import { peutVoirCouts } from '../../../../lib/mon-espace/compteRepo';
 
 /**
  * TUILE « MON ESPACE » (Arno, 02/11/2026, lot 1 de docs/PLAN_MON_ESPACE.md) — qui entre dans sa page. `proxy.ts` refuse déjà
@@ -25,6 +26,20 @@ export async function accesMonEspace(): Promise<AccesMonEspace> {
   const compte = session?.perms.mon_espace === true && session.sub !== null ? await trouverCompteParId(session.sub) : null;
   return decisionMonEspace(session, compte?.prenom ?? null);
 }
+
+/**
+ * 🔴 « Coûts et CA » — LE RÉCAPITULATIF (Arno, 13/11/2026) : les MÊMES comptes que l'onglet (le droit « Mon espace », puis la case « Les coûts » et
+ * administrateur, relus en base — `peutVoirCouts`, la garde de la route). Pour tout autre compte, la page ne rend que le refus : ni le tableau, ni ses
+ * données (la route, elle, répond 403).
+ */
+export async function accesRecapCouts(): Promise<boolean> {
+  const jeton = (await cookies()).get(NOM_COOKIE)?.value;
+  const payload = jeton ? await verifierJeton(jeton) : null;
+  const session = payload ? sessionDepuisPayload(payload) : null;
+  if (session?.perms.mon_espace !== true || session.sub === null) return false;
+  return peutVoirCouts(session.sub);
+}
+export const REFUS_RECAP_COUTS = 'Le récapitulatif des coûts et du CA est réservé aux comptes qui ont la case « Les coûts » (Administratif › Comptes).';
 
 export const REFUS_MON_ESPACE = 'Cet espace est réservé aux comptes disposant du droit « Mon espace ».';
 

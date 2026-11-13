@@ -35,6 +35,8 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'location/syndic/[id]': [RETOUR_LOCATION, { fichier: `${L}/syndic/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   // 🔴 Arno (10/11/2026) — le module « Préavis » en pleine page.
   'location/preavis': [RETOUR_LOCATION, { fichier: `${L}/preavis/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
+  // 🔴 Arno (13/11/2026) — le récapitulatif des coûts et du CA gestion : « ← Retour » vers la page d'origine (Mon espace par défaut)
+  'mon-espace/recapitulatif': [{ fichier: 'app/(admin)/admin/(protected)/mon-espace/recapitulatif/page.tsx', lien: '<LienRetour href="/admin/mon-espace" />' }],
   'location/clients': [{ fichier: `${L}/ClientsEtBiens.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
   'location/honoraires': [{ fichier: `${L}/honoraires/HonorairesGestion.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
   'location/locataires': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
