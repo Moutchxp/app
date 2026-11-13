@@ -61,7 +61,7 @@ describe('🔴 le tableau', () => {
     await rendre();
     expect(container.querySelectorAll('[data-table-recap] thead th[data-mois-recap]').length).toBe(12);
     expect(texte('[data-table-recap] thead th:last-child')).toBe('Total');
-    expect([...container.querySelectorAll('[data-section-recap]')].map((s) => s.getAttribute('data-section-recap'))).toEqual(['couts', 'ca-vente', 'ca-location', 'ca']);
+    expect([...container.querySelectorAll('[data-section-recap]')].map((s) => s.getAttribute('data-section-recap'))).toEqual(['couts', 'ca-vente', 'ca-location', 'ca', 'total']);
     expect([...container.querySelectorAll('[data-famille-recap]')].map((s) => s.getAttribute('data-famille-recap'))).toEqual(['vente', 'location', 'gestion']);
     expect(container.querySelector('[data-mois-recap="2026-10"]')?.getAttribute('data-mois-incomplet')).toBe('oui');
     expect(container.querySelector('[data-mois-recap="2026-11"]')?.getAttribute('data-mois-incomplet')).toBeNull();
@@ -143,7 +143,7 @@ describe('🔴 accès : réservé aux comptes qui ont « Les coûts »', () => {
     acces.autorise = false;
     const html = renderToStaticMarkup(await Page());
     expect(html).toContain('data-recap-refuse');
-    expect(html).not.toMatch(/data-recap-couts-ca|data-recap-chargement|Récapitulatif des coûts et du CA gestion —/);
+    expect(html).not.toMatch(/data-recap-couts-ca|data-recap-chargement|Récapitulatif des coûts et du CA —/);
     acces.autorise = true;
     expect(renderToStaticMarkup(await Page())).toContain('data-recap-chargement');
   });
@@ -183,7 +183,7 @@ describe('🔴 CA VENTE et CA LOCATION (Arno, 13/11/2026) — à l’écran', ()
   it('sous le total des coûts : CA vente (sarcelle), CA location (ocre), CA gestion (violet) ; le CA mène à sa source ; trois lignes chacune', async () => {
     await rendre();
     expect([...container.querySelectorAll('[data-section-recap]')].map((x) => [x.getAttribute('data-section-recap'), /trx-serie--(\d+)/.exec(x.className)?.[1] ?? null]))
-      .toEqual([['couts', null], ['ca-vente', '6'], ['ca-location', '7'], ['ca', '4']]);
+      .toEqual([['couts', null], ['ca-vente', '6'], ['ca-location', '7'], ['ca', '4'], ['total', null]]); // le CA NET TOTAL : neutre, aucune série de couleur
     expect([...container.querySelectorAll('[data-section-recap="ca-vente"] [data-ligne-recap]')].map((x) => x.getAttribute('data-ligne-recap'))).toEqual(['cav-ca', 'cav-couts', 'cav-net']);
     expect(container.querySelector('[data-source-recap="cav-ca-2026-06"]')?.getAttribute('href')).toBe('/admin/transaction/criterimmo?vue=mois&annee=2026&mois=6');
     expect(container.querySelector('[data-source-recap="cal-ca-2026-06"]')?.getAttribute('href')).toBe('/admin/transaction/location?vue=mois&annee=2026&mois=6');
@@ -204,9 +204,32 @@ describe('🔴 CA VENTE et CA LOCATION (Arno, 13/11/2026) — à l’écran', ()
     expect(texte('[data-cellule-recap="cav-net-2026-10"]')).toBe(montant(0));
     expect(cel('cal-net-2026-10').className).toMatch(/rcp-(positif|negatif)/);
   });
+  it('🔴 le CA NET TOTAL : tout en bas, un bandeau à part (espace au-dessus), la somme des trois CA net ; vert ≥ 0, rouge avec « − » < 0 ; provisoire : l’infobulle', async () => {
+    await rendre();
+    expect(texte('.rcp-titre')).toBe('Récapitulatif des coûts et du CA — CRITERIMMO');
+    const sections = [...container.querySelectorAll('[data-section-recap]')];
+    const bas = sections.at(-1)!;
+    expect(bas.getAttribute('data-section-recap')).toBe('total');
+    expect(bas.querySelector('.rcp-espace')).not.toBeNull();
+    expect(bas.querySelector('.rcp-section-titre')).toBeNull();
+    expect(texte('[data-ligne-recap="total-net"] th')).toBe('CA NET TOTAL (vente + location + gestion)');
+    const centimes = (sel: string) => { const s = texte(sel); const v = Number(s.replace(/[^\d,]/g, '').replace(',', '.')); return (s.includes('−') ? -v : v); };
+    for (const mo of ['2026-03', '2026-06', '2026-10']) {
+      const somme = ['cav-net', 'cal-net', 'ca-net'].reduce((x, c) => x + centimes(`[data-cellule-recap="${c}-${mo}"]`), 0);
+      expect(centimes(`[data-cellule-recap="total-net-${mo}"]`)).toBeCloseTo(somme, 2);
+      const classe = cel(`total-net-${mo}`).className;
+      expect(classe).toContain(centimes(`[data-cellule-recap="total-net-${mo}"]`) < 0 ? 'rcp-negatif' : 'rcp-positif');
+      if (centimes(`[data-cellule-recap="total-net-${mo}"]`) < 0) expect(texte(`[data-cellule-recap="total-net-${mo}"]`)).toMatch(/^−/);
+    }
+    expect(cel('total-net-2026-10').getAttribute('title')).toBe('calcul provisoire : données à compléter');
+    expect(cel('total-net-2026-10').className).toContain('rcp-a-completer');
+    expect(container.querySelector('[data-total-recap="total-net"]')).not.toBeNull();
+    await cliquer('[data-recap-agence="macj"]');
+    expect(texte('[data-ligne-recap="total-net"] th')).toBe('CA NET TOTAL (vente)');
+  });
   it('MACJ : la section CA VENTE seule', async () => {
     await rendre();
     await cliquer('[data-recap-agence="macj"]');
-    expect([...container.querySelectorAll('[data-section-recap]')].map((x) => x.getAttribute('data-section-recap'))).toEqual(['couts', 'ca-vente']);
+    expect([...container.querySelectorAll('[data-section-recap]')].map((x) => x.getAttribute('data-section-recap'))).toEqual(['couts', 'ca-vente', 'total']);
   });
 });

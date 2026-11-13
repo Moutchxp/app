@@ -21,7 +21,7 @@ const somme = (l: ReturnType<typeof ligne>) => l.cellules.reduce((x, c) => ({ ht
 describe('l’ordre et la forme des sections', () => {
   it('sous « Total des coûts » : CA VENTE, CA LOCATION, puis CA GESTION (inchangée) ; trois lignes chacune, en lecture', () => {
     const sections = [...new Set(t.lignes.map((l) => l.section))];
-    expect(sections).toEqual(['couts', 'ca-vente', 'ca-location', 'ca']);
+    expect(sections).toEqual(['couts', 'ca-vente', 'ca-location', 'ca', 'total']);
     expect(t.lignes.filter((l) => l.section === 'ca-vente').map((l) => [l.cle, l.libelle])).toEqual([['cav-ca', 'CA vente'],
       ['cav-couts', 'Coûts de vente (repris du sous-total vente)'], ['cav-net', 'CA net de vente']]);
     expect(t.lignes.filter((l) => l.section === 'ca-location').map((l) => l.libelle)).toEqual(['CA location', 'Coûts de location (repris du sous-total location)', 'CA net de location']);
@@ -84,7 +84,7 @@ describe('les montants, mois par mois et en total, HT et TTC', () => {
 describe('les structures et les périodes', () => {
   it('MACJ : CA VENTE seule ; FUSION = CRITERIMMO + MACJ (lecture) ; 12 mois glissants et ‹ ›', () => {
     const m = tableauRecap(entrees({ agence: 'macj' }));
-    expect([...new Set(m.lignes.map((l) => l.section))]).toEqual(['couts', 'ca-vente']);
+    expect([...new Set(m.lignes.map((l) => l.section))]).toEqual(['couts', 'ca-vente', 'total']);
     const f = tableauRecap(entrees({ agence: 'tous' }));
     for (let k = 0; k < 12; k++) expect(ligne(f, 'cav-ca').cellules[k].m.htC).toBe(ligne(t, 'cav-ca').cellules[k].m.htC + ligne(m, 'cav-ca').cellules[k].m.htC); // B : la somme des parts
     expect(ligne(f, 'cal-ca').cellules.map((c) => c.m)).toEqual(ligne(t, 'cal-ca').cellules.map((c) => c.m));

@@ -90,7 +90,7 @@ describe('l’état des cellules et la modification', () => {
     const m = tableauRecap(entrees({ agence: 'macj' }));
     expect(m.lignes.some((l) => l.section === 'ca' || l.famille === 'location' || l.famille === 'gestion')).toBe(false);
     expect(m.lignes.map((l) => l.cle)).toEqual(['vente-commissions', 'vente-apporteurs', 'vente-exterieures', 'vente-remunerations', 'vente-salaires', 'vente-autres', 'vente-total', 'couts-total',
-      'cav-ca', 'cav-couts', 'cav-net']); // 🔴 MACJ : la section CA VENTE seule
+      'cav-ca', 'cav-couts', 'cav-net', 'total-net']); // 🔴 MACJ : la section CA VENTE seule (puis le CA NET TOTAL de la vente)
   });
   it('les adresses : la saisie du mois (structure, mois, partie) ; le récapitulatif suit « Voir »', () => {
     expect(lienSaisieDuMois('criterimmo', { annee: 2026, mois: 3 }, 'couts')).toBe('/admin/mon-espace?espace=criterimmo&onglet=couts&saisie=2026-03&partie=couts');

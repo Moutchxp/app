@@ -197,16 +197,16 @@ export function RecapCoutsCa() {
   };
   // 🔴 Arno (13/11/2026) — sous les coûts : CA VENTE, CA LOCATION, puis CA GESTION ; chaque section du CA a sa couleur (la palette du Suivi CA, distincte
   // des familles de coûts — bleu, vert, rose — et entre elles : sarcelle, ocre, violet)
-  const MOT_SECTION: Record<SectionRecap, string> = { couts: 'Coûts', 'ca-vente': 'CA vente', 'ca-location': 'CA location', ca: 'CA gestion' };
+  const MOT_SECTION: Record<SectionRecap, string> = { couts: 'Coûts', 'ca-vente': 'CA vente', 'ca-location': 'CA location', ca: 'CA gestion', total: 'CA net total' };
   const SERIE_SECTION: Partial<Record<SectionRecap, number>> = { 'ca-vente': 6, 'ca-location': 7, ca: 4 };
-  const sections: { cle: SectionRecap; mot: string }[] = (['couts', 'ca-vente', 'ca-location', 'ca'] as const).filter((c) => t.lignes.some((l) => l.section === c))
+  const sections: { cle: SectionRecap; mot: string }[] = (['couts', 'ca-vente', 'ca-location', 'ca', 'total'] as const).filter((c) => t.lignes.some((l) => l.section === c))
     .map((cle) => ({ cle, mot: MOT_SECTION[cle] }));
   const nb = t.mois.length + 2;
   return (
     <FournisseurAffichage value={unite}>
     <div className="rcp tdb loc-page" data-recap-couts-ca={agence} data-transaction={agence}>
       <style>{CSS}{CSS_RECAP}{CSS_LIEN_RECAP}</style>
-      <h2 className="rcp-titre">Récapitulatif des coûts et du CA gestion — {LIBELLE_AGENCE[agence]}</h2>
+      <h2 className="rcp-titre">Récapitulatif des coûts et du CA — {LIBELLE_AGENCE[agence]}</h2>
       <div className="rcp-outils" data-recap-outils>
         <div className="trx-unites" role="group" aria-label="Voir" data-recap-voir>
           {AGENCES.map((a) => <button key={a} type="button" className="trx-unite" aria-pressed={agence === a} onClick={() => { setAgence(a); setEdition(null); }} data-recap-agence={a}>{LIBELLE_AGENCE[a]}</button>)}
@@ -234,7 +234,9 @@ export function RecapCoutsCa() {
             <th scope="col" className="rcp-total">Total</th></tr></thead>
           {sections.map((s) => (
             <tbody key={s.cle} className={`rcp-section rcp-section--${s.cle}${SERIE_SECTION[s.cle] !== undefined ? ` rcp-section--chiffre trx-serie--${SERIE_SECTION[s.cle]}` : ''}`} data-section-recap={s.cle}>
-              <tr className="rcp-section-titre"><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{s.mot}</span></th></tr>
+              {/* 🔴 le CA NET TOTAL : un bandeau à part (un espace au-dessus, puis la ligne elle-même, qui porte son titre) — pas de bande de titre */}
+              {s.cle === 'total' ? <tr className="rcp-espace" aria-hidden="true"><td colSpan={nb} /></tr>
+                : <tr className="rcp-section-titre"><th scope="rowgroup" colSpan={nb}><span className="rcp-colle">{s.mot}</span></th></tr>}
               {t.lignes.filter((l) => l.section === s.cle).map((l, j, xs) => {
                 const nouvelleFamille = l.famille !== null && (j === 0 || xs[j - 1].famille !== l.famille);
                 return [
@@ -307,6 +309,12 @@ const CSS_RECAP = `
 .rcp-ligne--sous-total th,.rcp-ligne--sous-total td{font-weight:800;background:color-mix(in srgb, var(--trx-serie) 8%, var(--color-svv-surface))}
 .rcp-ligne--total th,.rcp-ligne--total td,.rcp-ligne--calcule th,.rcp-ligne--calcule td{font-weight:800;border-top:2px solid var(--color-svv-line-strong)}
 .rcp-section--chiffre .rcp-ligne th[scope=row]{border-left-color:var(--trx-serie)}
+/* le CA NET TOTAL : un bandeau a part, neutre fonce (ni sarcelle, ni ocre, ni violet, ni une famille de couts) ; gras et plus grand ; la premiere
+   colonne colle comme le reste ; le provisoire garde son fond orange */
+.rcp-espace td{height:18px;padding:0;border:0;background:transparent}
+.rcp-section--total .rcp-ligne--resultat th,.rcp-section--total .rcp-ligne--resultat td{font-size:1rem;font-weight:900;padding-top:10px;padding-bottom:10px;border-top:4px solid var(--color-svv-ink);border-bottom:4px solid var(--color-svv-ink);background:color-mix(in srgb, var(--color-svv-ink) 8%, var(--color-svv-surface))}
+.rcp-table .rcp-section--total .rcp-ligne--resultat th[scope=row]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-left:4px solid var(--color-svv-ink);white-space:normal}
+.rcp-table .rcp-section--total .rcp-ligne--resultat td.rcp-a-completer{background:color-mix(in srgb, var(--color-svv-amber) 22%, var(--color-svv-surface))}
 /* le CA net de gestion : la ligne de resultat (gras, separateur au-dessus) ; vert si positif ou nul, rouge si negatif */
 .rcp-ligne--resultat th,.rcp-ligne--resultat td{font-weight:800;border-top:3px double var(--color-svv-line-strong)}
 .rcp-table td.rcp-positif{color:var(--color-svv-green)}

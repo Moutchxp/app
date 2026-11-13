@@ -51,8 +51,8 @@ export interface CelluleRecap { mois: MoisAn; m: MontantC; etat: EtatCellule; mo
    *  et les ventes concernées ; l'écran le mentionne sous le montant. */
   reverse?: { m: MontantC; vers: Societe; ventes: { libelle: string; htC: number }[] } }
 export type NiveauLigne = 'poste' | 'info' | 'sous-total' | 'total' | 'calcule' | 'resultat';
-/** Les sections : les coûts, puis le CA de la vente, de la location et de la gestion (`ca`, la section d'origine). */
-export type SectionRecap = 'couts' | 'ca-vente' | 'ca-location' | 'ca';
+/** Les sections : les coûts, puis le CA de la vente, de la location et de la gestion (`ca`, la section d'origine), puis le CA NET TOTAL (`total`). */
+export type SectionRecap = 'couts' | 'ca-vente' | 'ca-location' | 'ca' | 'total';
 export interface LigneRecap { cle: string; libelle: string; section: SectionRecap; famille: FamilleCout | null; niveau: NiveauLigne; edition: EditionRecap;
   cellules: CelluleRecap[]; total: MontantC }
 export interface TableauRecap { mois: MoisAn[]; lignes: LigneRecap[];
@@ -172,6 +172,13 @@ export function tableauRecap(x: EntreesRecap): TableauRecap {
       (i) => ({ htC: caTotal.cellules[i].m.htC - sousTotal.cellules[i].m.htC, ttcC: caTotal.cellules[i].m.ttcC - sousTotal.cellules[i].m.ttcC }),
       (m) => ({ etat: aCompleter(ms.findIndex((x) => x.annee === m.annee && x.mois === m.mois)) ? 'provisoire' : 'neutre', modifiable: 'non' }));
   }
+  // ══ 🔴 Arno (13/11/2026) — tout en bas, le CA NET TOTAL : la SOMME des lignes « CA net » affichées au-dessus (vente + location + gestion ; MACJ : la
+  // vente seule), mois par mois — rien de nouveau, tout dérivé ; provisoire si l'un d'eux l'est ; un CA net « confidentiel » (NaN) le rend confidentiel
+  const nets = ['cav-net', 'cal-net', 'ca-net'].map((c) => lignes.find((l) => l.cle === c)).filter((l): l is LigneRecap => l !== undefined);
+  ajouter({ cle: 'total-net', libelle: lg ? 'CA NET TOTAL (vente + location + gestion)' : 'CA NET TOTAL (vente)', section: 'total', famille: null, niveau: 'resultat', edition: AUCUNE },
+    (i) => nets.reduce((t, l) => plus(t, l.cellules[i].m), RIEN),
+    (m) => { const i = ms.findIndex((y) => y.annee === m.annee && y.mois === m.mois);
+      return { etat: nets.some((l) => l.cellules[i].etat === 'provisoire') ? 'provisoire' : 'neutre', modifiable: 'non' }; });
   const moisIncomplets = ms.map((_, i) => lignes.some((l) => l.cellules[i].etat === 'a-completer'));
   return { mois: ms, lignes, moisIncomplets };
 }
