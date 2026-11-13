@@ -26,6 +26,28 @@ export function moisProposes(jour: string): MoisAn[] {
   });
 }
 export const libelleMois = (m: MoisAn): string => `${NOMS_MOIS[m.mois - 1]} ${m.annee}`;
+
+/**
+ * 🔴 Arno (13/11/2026) — LE SÉLECTEUR « MOIS » DE LA SAISIE : TOUS les mois TERMINÉS depuis le début de la saisie des coûts (janvier 2026) jusqu'au
+ * dernier mois écoulé inclus — le mois en cours n'y est pas tant qu'il n'est pas fini ; du plus récent au plus ancien. Plus aucun plafond de 6 mois
+ * (il n'avait jamais été demandé). Le 1er mois de la saisie lui-même pas encore terminé (janvier 2026) : le dernier mois écoulé seul. PUR.
+ */
+export const DEBUT_SAISIE_COUTS: MoisAn = { annee: 2026, mois: 1 };
+const rangMois = (m: MoisAn): number => m.annee * 12 + (m.mois - 1);
+export function moisSaisissables(jour: string): MoisAn[] {
+  const dernier = moisProposes(jour)[0];
+  const n = rangMois(dernier) - rangMois(DEBUT_SAISIE_COUTS) + 1;
+  if (n <= 0) return [dernier];
+  return Array.from({ length: n }, (_, i) => { const r = rangMois(dernier) - i; return { annee: Math.floor(r / 12), mois: (r % 12) + 1 }; });
+}
+/** Le mois est-il dans la liste du sélecteur ? PUR. */
+export const estMoisSaisissable = (m: MoisAn, jour: string): boolean => moisSaisissables(jour).some((x) => x.annee === m.annee && x.mois === m.mois);
+/** Les mois regroupés par année, dans l'ordre de la liste (l'année la plus récente d'abord). PUR. */
+export function moisParAnnee(ms: readonly MoisAn[]): { annee: number; mois: MoisAn[] }[] {
+  const g: { annee: number; mois: MoisAn[] }[] = [];
+  for (const m of ms) { const d = g.at(-1); if (d !== undefined && d.annee === m.annee) d.mois.push(m); else g.push({ annee: m.annee, mois: [m] }); }
+  return g;
+}
 /** « octobre » (pour « Coûts d'octobre à saisir »). PUR. */
 export const motMois = (m: MoisAn): string => NOMS_MOIS[m.mois - 1].toLowerCase();
 /** « Coûts d'octobre à saisir » / « Coûts de mai à saisir ». PUR. */

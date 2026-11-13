@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completude, libelleMois, moisProposes, motRappel, postesSaisis, rappelMois, type Validation } from './saisieMois';
+import { completude, estMoisSaisissable, libelleMois, moisParAnnee, moisProposes, moisSaisissables, motRappel, postesSaisis, rappelMois, type Validation } from './saisieMois';
 
 /**
  * 🔴 « LES COÛTS », LOT 3 (Arno, 03/11/2026) — « Saisir les coûts du mois » : C16 (le mois précédent par défaut, les 6 derniers mois révolus,
@@ -57,5 +57,25 @@ describe('🔴 C17 — le rappel du mois précédent', () => {
     expect(rappelMois(['macj'], [], '2026-11-03', O)).toEqual({ mois: { annee: 2026, mois: 10 }, mot: 'Coûts d’octobre à saisir' });
     expect(rappelMois(['macj'], [v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')], '2026-11-03', O)).toBeNull();
     expect(rappelMois(['criterimmo', 'macj'], [v('macj', 'vente', 'salaires'), v('macj', 'vente', 'autres')], '2026-11-03', O)).not.toBeNull();
+  });
+});
+
+describe('🔴 Arno (13/11/2026) — le sélecteur « Mois » : tous les mois terminés depuis janvier 2026 (plus de plafond de 6 mois)', () => {
+  const cles = (ms: readonly { annee: number; mois: number }[]) => ms.map((m) => `${m.annee}-${String(m.mois).padStart(2, '0')}`);
+  it('13/11/2026 : octobre → janvier 2026 (10 mois), le mois en cours (novembre) absent, du plus récent au plus ancien', () => {
+    expect(cles(moisSaisissables('2026-11-13'))).toEqual(['2026-10', '2026-09', '2026-08', '2026-07', '2026-06', '2026-05', '2026-04', '2026-03', '2026-02', '2026-01']);
+    expect(estMoisSaisissable({ annee: 2026, mois: 11 }, '2026-11-13')).toBe(false);
+    expect(estMoisSaisissable({ annee: 2025, mois: 12 }, '2026-11-13')).toBe(false);
+    expect(estMoisSaisissable({ annee: 2026, mois: 1 }, '2026-11-13')).toBe(true);
+  });
+  it('date simulée en 2027 (05/03/2027) : février 2027 → janvier 2026, regroupés « 2027 » puis « 2026 »', () => {
+    const ms = moisSaisissables('2027-03-05');
+    expect([ms.length, cles(ms)[0], cles(ms).at(-1)]).toEqual([14, '2027-02', '2026-01']);
+    expect(moisParAnnee(ms).map((g) => [g.annee, g.mois.length])).toEqual([[2027, 2], [2026, 12]]);
+    expect(cles(moisParAnnee(ms)[1].mois).slice(0, 2)).toEqual(['2026-12', '2026-11']);
+  });
+  it('le 1er mois de la saisie pas encore terminé (janvier 2026) : le dernier mois écoulé seul, jamais une liste vide', () => {
+    expect(cles(moisSaisissables('2026-01-20'))).toEqual(['2025-12']);
+    expect(cles(moisSaisissables('2026-02-01'))).toEqual(['2026-01']);
   });
 });

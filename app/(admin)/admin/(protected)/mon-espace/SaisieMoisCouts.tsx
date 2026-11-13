@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EnteteAide, eur, MOT_UNITE, useAffichage } from '../transaction/commun';
 import { estMontantSaisi } from '../../../../lib/mon-espace/couts';
 import { coutsDuPoint } from '../../../../lib/mon-espace/couts';
-import { completude, completudeCa, libelleMois, moisProposes, postesCaGestion, postesSaisis, type MoisAn, type PosteCa, type PosteDuMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
+import { completude, completudeCa, libelleMois, moisParAnnee, moisSaisissables, postesCaGestion, postesSaisis, type MoisAn, type PosteCa, type PosteDuMois, type Validation } from '../../../../lib/mon-espace/saisieMois';
 import { estMontantSaisiTaux } from '../../../../lib/mon-espace/couts';
 import { caGestionDuMoisC, TAUX_TVA_CA_GESTION_DEFAUT } from '../../../../lib/transaction/modele';
 import { profilsPourSalaire, type ProfilCout } from '../../../../lib/admin/fonctionsCompteModele';
@@ -50,9 +50,12 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale =
   onRetour: (m: MoisAn | null) => void; onEcrit: () => void }) {
   const u = useAffichage();
   const k = u === 'ht' ? 'htC' : 'ttcC';
-  const proposes = moisProposes(jour);
-  const choix = moisInitial === null || proposes.some((m) => m.annee === moisInitial.annee && m.mois === moisInitial.mois) ? proposes : [moisInitial, ...proposes];
-  const [mois, setMois] = useState<MoisAn>(moisInitial ?? proposes[0]);
+  // 🔴 Arno (13/11/2026) — tous les mois TERMINÉS depuis janvier 2026, du plus récent au plus ancien (plus de plafond de 6 mois) ; un mois demandé hors de
+  // cette liste (pas encore terminé, ou avant janvier 2026) : le dernier mois écoulé, et une phrase discrète le dit
+  const choix = moisSaisissables(jour);
+  const demandeRetenue = moisInitial !== null && choix.some((m) => m.annee === moisInitial.annee && m.mois === moisInitial.mois);
+  const horsPlage = moisInitial !== null && !demandeRetenue ? moisInitial : null;
+  const [mois, setMois] = useState<MoisAn>(demandeRetenue ? moisInitial : choix[0]);
   const [societe, setSociete] = useState<Societe>(societeInitiale);
   const cleMois = `${mois.annee}-${String(mois.mois).padStart(2, '0')}`;
   const adhocImporte = d.versionsGestion[cleMois]?.origine === 'import';
@@ -63,7 +66,8 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale =
   const tete = <>
     <label className="mes-saisie-champ"><span>Mois</span>
       <select value={cleMois} onChange={(e) => { const [a, m] = e.target.value.split('-').map(Number); setMois({ annee: a, mois: m }); }} data-choix-mois>
-        {choix.map((m) => { const v = `${m.annee}-${String(m.mois).padStart(2, '0')}`; return <option key={v} value={v}>{libelleMois(m)}</option>; })}
+        {moisParAnnee(choix).map((g) => <optgroup key={g.annee} label={String(g.annee)} data-groupe-annee={g.annee}>
+          {g.mois.map((m) => { const v = `${m.annee}-${String(m.mois).padStart(2, '0')}`; return <option key={v} value={v}>{libelleMois(m)}</option>; })}</optgroup>)}
       </select></label>
     <div className="trx-unites mes-saisie-structures" role="group" aria-label="Structure" data-choix-structure>
       {(['criterimmo', 'macj'] as const).map((s) => <button key={s} type="button" className="trx-unite" aria-pressed={societe === s} onClick={() => setSociete(s)} data-structure={s}>{LIBELLE_AGENCE[s]}</button>)}
@@ -72,6 +76,8 @@ export function SaisieMoisCouts({ d, eC, jour, societeInitiale, partieInitiale =
   return (
     <section className="tdb-section mes-saisie-mois" aria-labelledby="mes-saisie-titre" data-saisie-mois={`${societe}-${cleMois}`}>
       <style>{CSS_SAISIE_MOIS}</style>
+      {horsPlage !== null && <p className="loc-muet mes-saisie-note" role="status" data-mois-hors-plage>{libelleMois(horsPlage)} ne se saisit pas ici (la saisie va de janvier 2026
+        au dernier mois terminé) : voici {libelleMois(choix[0])}.</p>}
       <h3 id="mes-saisie-titre" className="mes-saisie-titre">{societe === 'criterimmo' && d.caGestion ? 'Saisir les coûts et le CA du mois' : 'Saisir les coûts du mois'}</h3>
       <FormulaireMois key={`${societe}-${cleMois}`} d={d} eC={eC} mois={mois} societe={societe} postes={postes} validations={validations} k={k} unite={MOT_UNITE[u]} tete={tete} partieInitiale={partieInitiale}
         retour={<>{recap}<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRetour(null)} data-retour-couts>Retour aux coûts</button></>}

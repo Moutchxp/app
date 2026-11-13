@@ -342,7 +342,8 @@ describe('🔴 lot 3 — « Saisir les coûts du mois » (C16, C17)', () => {
     expect(texte('[data-rappel-couts]')).toBe('Coûts d’octobre à saisir');
     await cliquer('[data-rappel-couts]');
     expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('macj-2026-10');
-    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026']);
+    // 🔴 Arno (13/11/2026) — plus de plafond de 6 mois : tous les mois terminés depuis janvier 2026
+    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026', 'Avril 2026', 'Mars 2026', 'Février 2026', 'Janvier 2026']);
     // MACJ : le bloc Vente seul ; « à compléter »
     expect([...container.querySelectorAll('[data-bloc-saisie]')].map((b) => b.getAttribute('data-bloc-saisie'))).toEqual(['vente']);
     expect(texte('[data-etat-saisie="global"]')).toBe('à compléter');

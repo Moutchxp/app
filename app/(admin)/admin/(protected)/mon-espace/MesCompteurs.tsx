@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { BoutonAffichage, FournisseurAffichage, FournisseurChangerAffichage, FournisseurConsolide, FournisseurNoms, useAffichageRetenu } from '../transaction/commun';
 import { AGENCES, caAgence, estAgence, LIBELLE_AGENCE, type Agence } from '../../../../lib/mon-espace/agence';
 import { LIBELLE_TRI_LISTE, TRI_LISTE_DEFAUT, TRIS_LISTE, trierListe, type TriListe } from '../../../../lib/transaction/listeCartes';
@@ -125,16 +126,24 @@ export function MesCompteurs() {
   // Les onglets : « Compromis | Mois | Année(s) » du Suivi CA (`vue`, l'adresse ?vue= comme la Transaction), puis à la suite « Mes compromis en
   // cours | Mes ventes | Mes statistiques | Mes apporteurs » (`onglet`) ; un seul des deux est choisi à la fois.
   const jourEcran = aujourdhuiParis();
-  const avecMois = parametre('mois') !== null || parametre('periode') !== null || parametre('vue-mois') !== null;
+  // 🔴 Arno (13/11/2026) — L'ADRESSE LUE PAR NEXT (useSearchParams), jamais par window.location au premier rendu : le serveur rend la page avec la MÊME
+  // adresse que le navigateur (avant : le serveur, qui n'a pas window, croyait « Mon espace » quand l'adresse disait ?espace=macj — « Chargement de
+  // vos affaires… » contre « Chargement de MACJ… » : « Hydration failed »). Hors de Next (épreuves), l'adresse du document, comme avant.
+  const adresse = useSearchParams();
+  const lire = (nom: string): string | null => (adresse !== null ? adresse.get(nom) : parametre(nom));
+  const avecMois = lire('mois') !== null || lire('periode') !== null || lire('vue-mois') !== null;
   // 🔴 R3 (03/11/2026) — le lien « Saisir dans Les coûts » du Suivi CA : `?espace=criterimmo&onglet=couts` ouvre directement l'onglet, sur la structure
-  const ongletDemande = parametre('onglet') === 'couts' ? 'couts' as const : null;
-  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => (ongletDemande !== null ? null : vueDArrivee(parametre('vue'), avecMois)));
+  // 🔴 Arno (13/11/2026) — `?saisie=AAAA-MM` SEUL (l'adresse qui reste après un passage par le récapitulatif) ouvre aussi « Coûts et CA », sur CRITERIMMO
+  // si l'adresse ne dit pas la structure
+  const saisieSeule = /^\d{4}-\d{2}$/.test(lire('saisie') ?? '');
+  const ongletDemande = lire('onglet') === 'couts' || saisieSeule ? 'couts' as const : null;
+  const [vue, setVueEtat] = useState<'compromis' | 'mois' | 'annee' | null>(() => (ongletDemande !== null ? null : vueDArrivee(lire('vue'), avecMois)));
   const [onglet, setOngletEtat] = useState<Onglet | null>(ongletDemande);
   const choisirVue = (v: 'compromis' | 'mois' | 'annee'): void => { setVueEtat(v); setOngletEtat(null); };
   const setOnglet = (o: Onglet): void => { setOngletEtat(o); setVueEtat(null); };
   const ligneMois = useLigneDesMois(jourEcran);
   // 🔴 LOT 10 — l'espace vu (le mien, ou une structure : administrateurs) ; tri et filtre « Négociateur » des compromis de la structure.
-  const espaceDemande: Espace = estAgence(parametre('espace')) ? parametre('espace') as Agence : 'moi';
+  const espaceDemande: Espace = estAgence(lire('espace')) ? lire('espace') as Agence : saisieSeule ? 'criterimmo' : 'moi';
   const [espace, setEspace] = useState<Espace>(espaceDemande);
   const espaceVu = useRef<Espace>(espaceDemande);
   // l'adresse ne garde pas la demande (un rechargement repart de l'écran normal)
@@ -161,10 +170,10 @@ export function MesCompteurs() {
   const [rappelRelu, setRappelRelu] = useState(0);
   // 🔴 Récapitulatif (13/11/2026) — une cellule « Salaires chargés » ou « Autres » du récapitulatif ouvre la saisie de SON mois :
   // `?onglet=couts&saisie=AAAA-MM&partie=couts|ca` (avec `espace=`) ouvre directement la saisie du mois sur ce mois et cette partie
-  const saisieDeLAdresse = ((): MoisAn | null => { const x = parametre('saisie'); return x !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(x) ? { annee: Number(x.slice(0, 4)), mois: Number(x.slice(5, 7)) } : null; })();
+  const saisieDeLAdresse = ((): MoisAn | null => { const x = lire('saisie'); return x !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(x) ? { annee: Number(x.slice(0, 4)), mois: Number(x.slice(5, 7)) } : null; })();
   const [saisieDemandee, setSaisieDemandee] = useState(ongletDemande !== null && saisieDeLAdresse !== null ? 1 : 0);
   const [moisDemande, setMoisDemande] = useState<MoisAn | null>(ongletDemande !== null ? saisieDeLAdresse : null);
-  const [partieDemandee, setPartieDemandee] = useState<'couts' | 'ca'>(parametre('partie') === 'ca' ? 'ca' : 'couts');
+  const [partieDemandee, setPartieDemandee] = useState<'couts' | 'ca'>(lire('partie') === 'ca' ? 'ca' : 'couts');
   const modifier = async (v: VenteMonEspace, cote: 'entree' | 'sortie' | null = null): Promise<void> => {
     setMotifEdition(null); setEditionCote(cote);
     if (refs !== null) { setEdition(v); return; }
@@ -290,7 +299,7 @@ export function MesCompteurs() {
   const compteAnnee = (a: number): boolean => data !== null && (agence !== null
     ? listeDesAnnees(data.ventes, [a], 'vendu', data.aujourdhui).length > 0 || (data.retrocessions ?? []).some((r) => r.annee === a)
     : (data.statistiques?.annees ?? []).some((x) => x.annee === a && (x.nb.some((n) => n > 0) || x.aConfirmerNb > 0)));
-  const ligneAnnees = useLigneDesAnnees(jourEcran, anneesDispo, vueInitiale(parametre('vue'), false) === 'annee', compteAnnee);
+  const ligneAnnees = useLigneDesAnnees(jourEcran, anneesDispo, vueInitiale(lire('vue'), false) === 'annee', compteAnnee);
   // L'adresse, comme la Transaction : ?vue=mois (son mois, sa période) / ?vue=annee (ses années) ; « Compromis » et les onglets « Mes … » : rien.
   const { annee: anM, mois: moM, decoupage: decM, periodeTexte } = ligneMois;
   const { choixA, cleChoixA } = ligneAnnees;

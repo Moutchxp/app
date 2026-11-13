@@ -169,10 +169,35 @@ describe('🔴 « Coûts et CA » : la saisie du mois en deux parties', () => {
 });
 
 describe('🔴 Récapitulatif → la saisie du mois (salaires chargés, « Autres »)', () => {
-  it('?espace=criterimmo&onglet=couts&saisie=2026-03 : la saisie s’ouvre sur MARS 2026 (ajouté au sélecteur, les 6 mois proposés restent)', async () => {
+  it('?espace=criterimmo&onglet=couts&saisie=2026-03 : la saisie s’ouvre sur MARS 2026, dans la liste de tous les mois terminés', async () => {
     window.history.replaceState(null, '', '/?espace=criterimmo&onglet=couts&saisie=2026-03&partie=couts');
     await ouvrir(null);
     expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('criterimmo-2026-03');
-    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Mars 2026', 'Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026']);
+    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026', 'Avril 2026', 'Mars 2026', 'Février 2026', 'Janvier 2026']);
+    expect((container.querySelector('[data-choix-mois]') as HTMLSelectElement).value).toBe('2026-03');
+    expect(container.querySelector('[data-mois-hors-plage]')).toBeNull();
+  });
+  it.each([['2025-06', 'Juin 2025'], ['2026-11', 'Novembre 2026'], ['2027-02', 'Février 2027']])('?saisie=%s (hors de la plage) : le dernier mois écoulé (octobre 2026) et une phrase discrète — aucune erreur', async (cle, mot) => {
+    window.history.replaceState(null, '', `/?espace=criterimmo&onglet=couts&saisie=${cle}&partie=couts`);
+    await ouvrir(null);
+    expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('criterimmo-2026-10');
+    expect(texte('[data-mois-hors-plage]')).toBe(`${mot} ne se saisit pas ici (la saisie va de janvier 2026 au dernier mois terminé) : voici Octobre 2026.`);
+    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).not.toContain(mot);
+  });
+  it('MACJ : la même liste (janvier → octobre 2026), groupée sous « 2026 »', async () => {
+    window.history.replaceState(null, '', '/?espace=macj&onglet=couts&saisie=2026-01&partie=couts');
+    await ouvrir(null);
+    expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('macj-2026-01');
+    expect([...container.querySelectorAll('[data-choix-mois] optgroup')].map((g) => g.getAttribute('label'))).toEqual(['2026']);
+    expect([...container.querySelectorAll('[data-choix-mois] option')].map((o) => o.textContent)).toEqual(['Octobre 2026', 'Septembre 2026', 'Août 2026', 'Juillet 2026', 'Juin 2026', 'Mai 2026', 'Avril 2026', 'Mars 2026', 'Février 2026', 'Janvier 2026']);
+  });
+});
+
+describe('🔴 ?saisie= seul (l’adresse qui reste après un passage par le récapitulatif)', () => {
+  it('?saisie=2026-01&partie=couts : « Coûts et CA » s’ouvre sur CRITERIMMO, saisie de JANVIER 2026, la liste janvier → octobre 2026', async () => {
+    window.history.replaceState(null, '', '/?saisie=2026-01&partie=couts');
+    await ouvrir(null);
+    expect(container.querySelector('[data-saisie-mois]')?.getAttribute('data-saisie-mois')).toBe('criterimmo-2026-01');
+    expect([...container.querySelectorAll('[data-choix-mois] option')].length).toBe(10);
   });
 });
