@@ -12,7 +12,10 @@ import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
 import type { BailLogement, EncartLogement } from '../../../../lib/location/sortieLocataires';
 import type { LignePreavisAccueil } from '../../../../lib/location/preavis';
 // 🔴 Arno (13/11/2026, lot B) — la conversion de la photo (navigateur) est simulée : jsdom ne décode aucune image
-vi.mock('../../../../lib/location/photoEcran', () => ({
+// 🔴 Arno (14/11/2026, iPhone) — les chargements des deux modules sont COMPTÉS : ils ne se chargent qu'au toucher, jamais à l'ouverture
+const charges = vi.hoisted(() => ({ photo: 0, vocal: 0 }));
+vi.mock('../../../../lib/location/enregistreurVocal', async (orig) => { charges.vocal += 1; return await orig(); });
+vi.mock('../../../../lib/location/photoEcran', () => (charges.photo += 1, {
   convertirPhoto: async (f: File) => ({ ok: true, blob: new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), nom: f.name.replace(/\.[^.]+$/, '.jpg'), largeur: 1600, hauteur: 1200 }),
   enBase64: async () => '/9j/',
 }));
@@ -1099,8 +1102,17 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     const fichiers = noms.map((n) => new File([new Uint8Array([1, 2, 3])], n, { type: n.endsWith('.HEIC') ? 'image/heic' : 'image/jpeg' }));
     Object.defineProperty(input, 'files', { value: fichiers, configurable: true });
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    // la conversion se charge au toucher (import dynamique) : on attend que chaque photo soit déposée ou refusée
+    for (let k = 0; k < 60 && document.querySelector('[data-photo-etat="envoi"]'); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
     for (let k = 0; k < 4; k++) await attendre();
   };
+  it('🔴 iPhone (14/11/2026) — la conversion des photos ne se charge qu’AU TOUCHER, jamais à l’ouverture du formulaire', async () => {
+    await ouvrirCr();
+    expect(document.querySelector('[data-photo-camera]')).not.toBeNull();
+    expect(charges.photo).toBe(0); // premier essai du fichier qui touche une photo
+    await ajouter('[data-photo-camera]', ['IMG_1.jpg']);
+    expect(charges.photo).toBe(1);
+  });
   const legender = (i: number, v: string) => act(() => {
     const e = document.querySelectorAll('[data-photo-legende]')[i] as HTMLInputElement;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1210,8 +1222,18 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » dans 
   };
   const enregistrer = async () => {
     await act(async () => { (document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement).click(); });
+    // l'enregistreur se charge au toucher (import dynamique) : on attend qu'il réponde
+    for (let k = 0; k < 40 && !document.querySelector('[data-vocal-duree], [data-vocal-micro]'); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
     await attendre();
   };
+  it('🔴 iPhone (14/11/2026) — l’enregistreur ne se charge qu’AU TOUCHER, jamais à l’ouverture du formulaire', async () => {
+        await ouvrirCr('CR.', 3);
+    expect(document.querySelector('[data-corps-compte-rendu]')).not.toBeNull();
+    expect(charges.vocal).toBe(0); // premier essai du fichier qui touche « Enregistrer un vocal »
+    await enregistrer();
+    expect(charges.vocal).toBe(1);
+    expect(document.querySelector('[data-vocal-duree]')).not.toBeNull();
+  });
   it('enregistrer → durée affichée, Pause / Reprendre, Arrêter → déposé puis TRANSCRIT : le texte s’insère AU CURSEUR avec « (transcrit d’un vocal) », modifiable', async () => {
     await ouvrirCr('Entrée propre.\nCuisine à nettoyer.', 15);
     await enregistrer();
@@ -1264,5 +1286,14 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » dans 
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => { throw new Error('refus'); } } });
     await enregistrer();
     expect(document.querySelector('[data-vocal-micro]')!.textContent).toContain('Le micro est inaccessible');
+  });
+  it('🔴 iPhone (14/11/2026) — appareil SANS MediaRecorder : message clair, aucun plantage, le formulaire reste utilisable', async () => {
+    delete (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder;
+    await ouvrirCr('CR.', 3);
+    await enregistrer();
+    expect(document.querySelector('[data-vocal-micro]')!.textContent).toContain('n’est pas disponible sur cet appareil');
+    expect(document.querySelector('[data-vocal-duree]')).toBeNull();
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('CR.');
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -19,7 +19,10 @@ import {
   type PrevisiteAffiche, type StatutPrevisite,
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
-import { convertirPhoto, enBase64 } from '../../../../lib/location/photoEcran';
+// 🔴 Arno (14/11/2026, iPhone) — la conversion des photos et l'enregistreur de vocaux se chargent AU TOUCHER (import dynamique), jamais à
+// l'ouverture du formulaire ; un appareil qui ne sait pas faire : un message clair, jamais un plantage.
+const modulePhoto = () => import('../../../../lib/location/photoEcran');
+const moduleVocal = () => import('../../../../lib/location/enregistreurVocal');
 import { dureeFr, insererTranscription, MENTION_TRANSCRIT, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
@@ -172,10 +175,20 @@ export function useZoneVisible(): { top: number; height: number } | null {
   useEffect(() => {
     const vv = typeof window === 'undefined' ? undefined : window.visualViewport;
     if (!vv) return;
-    const lire = (): void => setZ({ top: vv.offsetTop, height: vv.height });
+    // 🔴 Arno (14/11/2026, iPhone) — au plus UNE lecture par image, et un rendu SEULEMENT si la zone a bougé d'au moins un pixel : le
+    // déplacement de la fenêtre ne peut pas relancer à l'infini le défilement de l'écran (et l'inverse) — jamais de boucle qui fige la page.
+    let image: number | null = null;
+    const lire = (): void => {
+      image = null;
+      setZ((avant) => (avant !== null && Math.abs(avant.top - vv.offsetTop) < 1 && Math.abs(avant.height - vv.height) < 1 ? avant : { top: vv.offsetTop, height: vv.height }));
+    };
+    const planifier = (): void => { if (image === null) image = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(lire) : (lire(), null); };
     lire();
-    vv.addEventListener('resize', lire); vv.addEventListener('scroll', lire);
-    return () => { vv.removeEventListener('resize', lire); vv.removeEventListener('scroll', lire); };
+    vv.addEventListener('resize', planifier); vv.addEventListener('scroll', planifier);
+    return () => {
+      vv.removeEventListener('resize', planifier); vv.removeEventListener('scroll', planifier);
+      if (image !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(image);
+    };
   }, []);
   return z;
 }
@@ -421,12 +434,6 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
 /** Un vocal du formulaire : sa réécoute (sur l'appareil), sa pièce déposée (`id`), sa transcription. */
 interface VocalSaisi { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'ok' | 'erreur'; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null }
 
-/** Le type d'enregistrement que ce navigateur sait produire : Safari iOS → audio/mp4 (AAC) ; Chrome / Firefox → webm / ogg. */
-function typeEnregistrement(): string | undefined {
-  const MR = (globalThis as { MediaRecorder?: { isTypeSupported?: (t: string) => boolean } }).MediaRecorder;
-  return ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((t) => MR?.isTypeSupported?.(t) === true);
-}
-
 /**
  * 🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » : le micro du téléphone (MediaRecorder ; Safari iOS : mp4/aac), la durée affichée,
  * Pause / Reprendre / Arrêter (10 minutes au plus : arrêt de lui-même), réécoute, suppression, plusieurs vocaux. À l'arrêt : déposé (INTERNE),
@@ -458,7 +465,9 @@ function VocauxDuCompteRendu({ vocaux, onChange, occupationIds, onTranscrit, onE
     const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     onChange((xs) => [...xs, { cle, id: null, url: URL.createObjectURL(blob), dureeS, etat: 'depot', transcription: null, motif: null }]);
     const deja = await new Promise<number[]>((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
-    const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees: await enBase64(blob), typeMime: type, dureeS, dejaIds: deja }, { propre: true });
+    let donnees: string;
+    try { donnees = await (await modulePhoto()).enBase64(blob); } catch { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: 'Le vocal n’a pas pu être préparé sur cet appareil.' })); return; }
+    const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type, dureeS, dejaIds: deja }, { propre: true });
     const id = (r.data as { id?: number } | undefined)?.id;
     if (r.motif !== null || typeof id !== 'number') { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: r.motif ?? 'Le vocal n’a pas pu être déposé.' })); return; }
     maj(cle, (x) => ({ ...x, id, etat: 'ok' }));
@@ -467,10 +476,10 @@ function VocauxDuCompteRendu({ vocaux, onChange, occupationIds, onTranscrit, onE
   const demarrer = async (): Promise<void> => {
     setRefusMicro(null);
     try {
-      const flux = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const voulu = typeEnregistrement();
-      const r = new MediaRecorder(flux, voulu ? { mimeType: voulu } : undefined);
-      const x = { r, flux, morceaux: [] as Blob[], cumul: 0, depuis: Date.now() as number | null, type: r.mimeType || voulu || 'audio/mp4' };
+      const o = await (await moduleVocal()).ouvrirEnregistreur();
+      if (!o.ok) { setRefusMicro(o.motif); return; }
+      const { r, flux } = o;
+      const x = { r, flux, morceaux: [] as Blob[], cumul: 0, depuis: Date.now() as number | null, type: o.type };
       r.ondataavailable = (e) => { if (e.data && e.data.size > 0) x.morceaux.push(e.data); };
       r.onstop = () => {
         flux.getTracks().forEach((t) => t.stop());
@@ -481,7 +490,7 @@ function VocauxDuCompteRendu({ vocaux, onChange, occupationIds, onTranscrit, onE
       };
       rec.current = x; r.start(1000); setEtat('enregistre'); setDuree(0); onEnregistrement(true);
     } catch {
-      setRefusMicro('Le micro est inaccessible : autorisez-le pour ce site (Réglages › Safari › Micro sur iPhone), puis réessayez.');
+      setRefusMicro('L’enregistrement n’a pas pu démarrer sur cet appareil. Écrivez le compte rendu, ou ajoutez des photos.');
     }
   };
   const pause = (): void => { const x = rec.current; if (!x) return; x.r.pause(); x.cumul += x.depuis === null ? 0 : Date.now() - x.depuis; x.depuis = null; setEtat('pause'); };
@@ -537,12 +546,17 @@ function PhotosDuCompteRendu({ photos, onChange, occupationIds, rangSansLegende 
     for (const f of fichiers) {
       const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       onChange((xs) => [...xs, { cle, id: null, apercu: '', legende: '', etat: 'envoi', motif: null }]);
-      const c = await convertirPhoto(f);
-      if (!c.ok) { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: c.motif })); continue; }
+      let c: Awaited<ReturnType<Awaited<ReturnType<typeof modulePhoto>>['convertirPhoto']>>; let donnees = '';
+      try {
+        const m = await modulePhoto();
+        c = await m.convertirPhoto(f);
+        if (c.ok) donnees = await m.enBase64(c.blob);
+      } catch { c = { ok: false, motif: `« ${f.name} » : la photo n’a pas pu être préparée sur cet appareil.` }; }
+      if (!c.ok) { const motif = c.motif; maj(cle, (x) => ({ ...x, etat: 'erreur', motif })); continue; }
       const apercu = URL.createObjectURL(c.blob);
       maj(cle, (x) => ({ ...x, apercu }));
       const deja = await dejaDeposees();
-      const r = await envoyer({ action: 'photo-compte-rendu', occupationIds: [...occupationIds], donnees: await enBase64(c.blob), dejaIds: deja }, { propre: true });
+      const r = await envoyer({ action: 'photo-compte-rendu', occupationIds: [...occupationIds], donnees, dejaIds: deja }, { propre: true });
       const id = (r.data as { id?: number } | undefined)?.id;
       maj(cle, (x) => (r.motif === null && typeof id === 'number' ? { ...x, id, etat: 'ok' } : { ...x, etat: 'erreur', motif: r.motif ?? 'La photo n’a pas pu être déposée.' }));
     }

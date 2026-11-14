@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { PARAM_RETOUR, retourSur } from '../../../lib/admin/retourConnexion';
+import { decisionRetour, MESSAGE_CONNEXION_RETOUR, MESSAGE_REPRISE, PARAM_RETOUR, retourSur, sansReprise } from '../../../lib/admin/retourConnexion';
 import { allerA } from '../../../lib/admin/naviguer';
 
 /** 🔴 Arno (13/11/2026) — la page à rejoindre après la connexion (`?retour=`, chemin interne seulement), sinon l'accueil de l'admin. */
 function destination(): string {
-  try { return retourSur(new URLSearchParams(window.location.search).get(PARAM_RETOUR)) ?? '/admin'; } catch { return '/admin'; }
+  try { const r = retourSur(new URLSearchParams(window.location.search).get(PARAM_RETOUR)); return r === null ? '/admin' : sansReprise(r); } catch { return '/admin'; }
 }
 
 export default function AdminLoginPage() {
@@ -17,11 +17,21 @@ export default function AdminLoginPage() {
   // 🔴 Arno (13/11/2026) — un lien ouvert depuis une autre application (Mail sur iPhone) arrive SANS le cookie de session (SameSite=Strict) :
   // le garde renvoie ici. Cette page, elle, est du même site : la sonde reçoit le cookie. Session valide → retour immédiat à la page demandée,
   // sans se reconnecter ; sinon, le formulaire, puis le même retour.
+  // 🔴 Arno (14/11/2026) — UNE SEULE FOIS : le retour automatique porte `reprise=1` ; revenu ici avec cette marque (WebKit n'a pas transmis le
+  // cookie à la navigation automatique), on ne repart plus de soi-même : message et bouton « Ouvrir la page demandée » (un toucher).
+  const [retour, setRetour] = useState<{ etat: 'former' | 'proposer'; vers: string } | null>(null);
   useEffect(() => {
-    const retour = retourSur(new URLSearchParams(window.location.search).get(PARAM_RETOUR));
-    if (retour === null) return;
+    let r: string | null = null;
+    try { r = retourSur(new URLSearchParams(window.location.search).get(PARAM_RETOUR)); } catch { r = null; }
+    if (r === null) return;
+    const demande = r;
     let vivant = true;
-    void fetch('/api/admin/ping', { cache: 'no-store' }).then((r) => { if (vivant && r.ok) allerA(retour, { remplacer: true }); }).catch(() => {});
+    void fetch('/api/admin/ping', { cache: 'no-store' }).then((x) => x.ok).catch(() => false).then((ok) => {
+      if (!vivant) return;
+      const d = decisionRetour(demande, ok);
+      if (d.geste === 'aller') { allerA(d.vers, { remplacer: true }); return; }
+      setRetour(d.geste === 'proposer' ? { etat: 'proposer', vers: d.vers } : { etat: 'former', vers: sansReprise(demande) });
+    });
     return () => { vivant = false; };
   }, []);
 
@@ -65,6 +75,16 @@ export default function AdminLoginPage() {
         <p style={{ fontSize: '.85rem', color: 'var(--color-svv-muted)', margin: '0 0 16px' }}>
           Accès réservé — Sans Vis-à-Vis®
         </p>
+
+        {retour?.etat === 'proposer' && (
+          <div role="status" style={{ margin: '0 0 16px' }} data-retour-propose>
+            <p style={{ fontSize: '.9rem', color: 'var(--color-svv-ink)', margin: '0 0 10px' }}>{MESSAGE_REPRISE}</p>
+            <a href={retour.vers} className="svv-btn svv-btn-primary" style={{ minHeight: 44, textDecoration: 'none' }} data-ouvrir-page-demandee>Ouvrir la page demandée</a>
+          </div>
+        )}
+        {retour?.etat === 'former' && (
+          <p role="status" style={{ fontSize: '.85rem', color: 'var(--color-svv-ink)', margin: '0 0 12px' }} data-retour-connexion>{MESSAGE_CONNEXION_RETOUR}</p>
+        )}
 
         <form onSubmit={onSubmit}>
           <label htmlFor="admin-identifiant" className="svv-label" style={{ display: 'block', marginBottom: 6 }}>

@@ -68,7 +68,27 @@ describe('🔴 le retour à la page demandée', () => {
     ping = 200;
     rendre(); await attendre();
     expect(appels).toEqual(['GET /api/admin/ping']);
-    expect(nav.allerA).toHaveBeenCalledWith(RETOUR, { remplacer: true });
+    expect(nav.allerA).toHaveBeenCalledWith(`${RETOUR}&reprise=1`, { remplacer: true });
+  });
+  it('🔴 iPhone (14/11/2026) — JAMAIS DE BOUCLE : revenu avec la marque `reprise=1`, la page ne repart PAS d’elle-même ; message et bouton', async () => {
+    ping = 200;
+    window.history.replaceState(null, '', `/admin/login?retour=${encodeURIComponent(`${RETOUR}&reprise=1`)}`);
+    const page = rendre(); await attendre();
+    expect(appels).toEqual(['GET /api/admin/ping']);
+    expect(nav.allerA).not.toHaveBeenCalled();
+    expect(page.querySelector('[data-retour-propose]')!.textContent).toContain('Votre session est ouverte');
+    // le bouton (un TOUCHER : le navigateur transmet la connexion) mène à la page demandée, SANS la marque
+    expect(page.querySelector<HTMLAnchorElement>('[data-ouvrir-page-demandee]')!.getAttribute('href')).toBe(RETOUR);
+    // le formulaire reste là ; la connexion mène aussi à la page, sans la marque
+    expect(page.querySelector('form')).not.toBeNull();
+    await act(async () => { page.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    await attendre();
+    expect(nav.allerA).toHaveBeenCalledWith(RETOUR);
+  });
+  it('pas de session avec un retour : le formulaire, avec « Connectez-vous pour ouvrir la page demandée »', async () => {
+    const page = rendre(); await attendre();
+    expect(page.querySelector('[data-retour-connexion]')!.textContent).toBe('Connectez-vous pour ouvrir la page demandée.');
+    expect(page.querySelector('[data-retour-propose]')).toBeNull();
   });
   it('pas de session : le formulaire ; après la connexion, retour EXACT à la page demandée', async () => {
     const page = rendre(); await attendre();

@@ -14,6 +14,7 @@ import { Sidebar } from './Sidebar';
 import { ContenuTuile } from './ContenuTuile';
 import { RevocationWatcher } from './RevocationWatcher';
 import { SuiviNavigationRetour } from './_composants/NavigationRetour';
+import { EffacerReprise } from './_composants/EffacerReprise';
 import { RoueParametresLocation } from './location/ParametresLocation';
 import { ModeObservateur } from './ModeObservateur';
 import { statutDuCompte } from '../../../lib/admin/statutCompte';
@@ -52,6 +53,8 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
       <RevocationWatcher />
       {/* 🔴 Arno (11/11/2026) — le « ← Retour » vers la page d'origine, dans toute l'application : le suivi, monté une fois. */}
       <SuiviNavigationRetour />
+      {/* 🔴 Arno (14/11/2026) — la marque du retour automatique de la connexion (`reprise=1`) est retirée de l'adresse une fois arrivé. */}
+      <EffacerReprise />
       <Sidebar role={session.role} perms={session.perms} ordreModules={ordreModules} />
       <div className="svv-adm-content">
         <div className="svv-adm-bandeau" style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
