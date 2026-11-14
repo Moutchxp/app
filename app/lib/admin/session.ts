@@ -57,6 +57,16 @@ export const TTL_SECONDES = 8 * 3600;
  * `secure` dépend de l'environnement (HTTPS en prod uniquement).
  * `path:'/'` OBLIGATOIRE pour que le cookie soit envoyé sur tout le périmètre admin/api.
  */
+/**
+ * 🔴 Arno (15/11/2026) — le cookie est `Secure` en production, ET dès que la requête arrive en https (recette publiée par un tunnel
+ * https : `x-forwarded-proto: https`). PUR.
+ */
+export function cookieSecurise(entetes: Headers | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
+  if (env.NODE_ENV === 'production') return true;
+  const proto = (entetes?.get('x-forwarded-proto') ?? '').split(',')[0].trim().toLowerCase();
+  return proto === 'https';
+}
+
 export function optionsCookie(prod: boolean) {
   return {
     httpOnly: true,

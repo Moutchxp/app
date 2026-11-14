@@ -2,7 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { verifier, hacher } from '../../../../../lib/admin/motDePasse';
 import { trouverCompteParId, changerMotDePasseSelf, permsDuCompte, capaciteModifPermis } from '../../../../../lib/admin/comptes';
-import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload } from '../../../../../lib/admin/session';
+import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload, cookieSecurise } from '../../../../../lib/admin/session';
 import { LONGUEUR_MIN_MOT_DE_PASSE } from '../../../../../lib/admin/politiqueMdp';
 import { empreinteMotDePasse, lireEtatCompte } from '../../../../../lib/admin/etatSession';
 
@@ -84,6 +84,6 @@ export async function POST(request: Request) {
     empreinteMdp: empreinteMotDePasse(nouveauHash),
     versionSession: (await lireEtatCompte(compte.id).catch(() => null))?.versionSession ?? undefined,
   });
-  (await cookies()).set(NOM_COOKIE, jetonFrais, optionsCookie(process.env.NODE_ENV === 'production'));
+  (await cookies()).set(NOM_COOKIE, jetonFrais, optionsCookie(cookieSecurise(request.headers)));
   return Response.json({ ok: true });
 }

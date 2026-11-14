@@ -24,6 +24,7 @@ vi.mock('../../../../lib/admin/comptes', () => ({
 vi.mock('../../../../lib/admin/session', () => ({
   NOM_COOKIE: 'svv_admin_session',
   optionsCookie: () => ({}),
+  cookieSecurise: () => false,
   signerJeton: vi.fn(async () => 'jeton'),
   permsToutes: () => ({}),
   verifierJeton: vi.fn(async () => null),

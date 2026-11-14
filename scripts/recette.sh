@@ -13,7 +13,21 @@ cd "$(dirname "$0")/.."
 BASE=svav_recette
 [[ "${1:-}" == "--base-mac" ]] && BASE=""
 
+# 🔴 Arno (15/11/2026) — RÉGLAGES DE RECETTE FOURNIS À L'APPEL (jamais écrits dans un fichier) : gardés tels quels même si .env en dit autre chose.
+#   RECETTE_URL_PUBLIQUE=https://<nom>.trycloudflare.com → adresse des liens des mails (GESTION_URL_APPLICATION, la même variable qu'en
+#                                                          production) et nom d'hôte admis par le serveur de développement (RECETTE_ORIGINES_DEV) ;
+#   RECETTE_ENVOI_REEL_VERS=<adresse>                    → l'exception d'envoi réel (cf. app/lib/recette/garde.ts), base svav_recette seulement.
+APPEL_URL_PUBLIQUE="${RECETTE_URL_PUBLIQUE:-}"; APPEL_ENVOI_REEL="${RECETTE_ENVOI_REEL_VERS:-}"
 set -a; . ./.env; [[ -f .env.local ]] && . ./.env.local; set +a
+RECETTE_ENVOI_REEL_VERS="$APPEL_ENVOI_REEL"
+if [[ -n "$APPEL_URL_PUBLIQUE" ]]; then
+  if [[ ! "$APPEL_URL_PUBLIQUE" =~ ^https://[a-z0-9-]+\.trycloudflare\.com/?$ ]]; then
+    echo "⛔ RECETTE_URL_PUBLIQUE doit être une adresse https://<nom>.trycloudflare.com : rien n'est lancé."; exit 1
+  fi
+  GESTION_URL_APPLICATION="${APPEL_URL_PUBLIQUE%/}"
+  RECETTE_ORIGINES_DEV="$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$APPEL_URL_PUBLIQUE")"
+  echo "▶ RECETTE publiée : ${GESTION_URL_APPLICATION} (liens des mails de recette)"
+fi
 if [[ -n "$BASE" ]]; then
   DATABASE_URL=$(BASE="$BASE" node -e 'const u = new URL(process.env.DATABASE_URL); u.pathname = "/" + process.env.BASE; console.log(u.toString())')
 fi
@@ -23,5 +37,6 @@ if ! psql "$DATABASE_URL" -X -At -c 'select 1' >/dev/null 2>&1; then
   exit 1
 fi
 echo "▶ RECETTE — base : $(psql "$DATABASE_URL" -X -At -c 'select current_database()') — aucun envoi réel."
-export DATABASE_URL SVAV_RECETTE=1 NEXT_TURBO=0
+export DATABASE_URL SVAV_RECETTE=1 NEXT_TURBO=0 RECETTE_ENVOI_REEL_VERS
+[[ -n "$APPEL_URL_PUBLIQUE" ]] && export GESTION_URL_APPLICATION RECETTE_ORIGINES_DEV
 exec node_modules/.bin/next dev

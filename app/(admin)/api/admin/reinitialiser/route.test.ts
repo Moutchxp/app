@@ -12,7 +12,7 @@ vi.mock('../../../../lib/admin/comptes', () => comptes);
 vi.mock('../../../../lib/admin/ouvertureSession', () => ({ sessionPourCompte: async (c: { id: number }) => ({ sub: c.id }) }));
 const pose = vi.hoisted(() => ({ cookies: [] as { nom: string; valeur: string }[] }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ set: (nom: string, valeur: string) => { pose.cookies.push({ nom, valeur }); } }) }));
-vi.mock('../../../../lib/admin/session', () => ({ NOM_COOKIE: 'svv_admin', optionsCookie: () => ({}), signerJeton: async (s: { sub: number }) => `JWS-${s.sub}` }));
+vi.mock('../../../../lib/admin/session', () => ({ cookieSecurise: () => false, NOM_COOKIE: 'svv_admin', optionsCookie: () => ({}), signerJeton: async (s: { sub: number }) => `JWS-${s.sub}` }));
 
 const { POST: demander } = await import('./demander/route');
 const { GET, POST } = await import('./route');

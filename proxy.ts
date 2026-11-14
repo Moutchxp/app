@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { droitsDifferents, NOM_COOKIE, optionsCookie, reemettreJeton, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
+import { cookieSecurise, droitsDifferents, NOM_COOKIE, optionsCookie, reemettreJeton, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
 import { lireEtatCompte, verdictSession, type EtatCompte } from './app/lib/admin/etatSession';
 import { origineAutorisee } from './app/lib/admin/controleOrigine';
 import { ligneJournalEchec } from './app/lib/location/issueEnregistrement';
@@ -266,7 +266,7 @@ async function decider(request: NextRequest) {
   const avecJeton = <T extends NextResponse>(res: T): T => {
     if (jetonFrais !== null) {
       const reste = typeof payload.exp === 'number' ? Math.max(0, payload.exp - Math.floor(Date.now() / 1000)) : undefined;
-      res.cookies.set(NOM_COOKIE, jetonFrais, { ...optionsCookie(process.env.NODE_ENV === 'production'), ...(reste === undefined ? {} : { maxAge: reste }) });
+      res.cookies.set(NOM_COOKIE, jetonFrais, { ...optionsCookie(cookieSecurise(request.headers)), ...(reste === undefined ? {} : { maxAge: reste }) });
     }
     return res;
   };

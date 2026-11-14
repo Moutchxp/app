@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { verifier } from '../../../../lib/admin/motDePasse';
 import { trouverCompte, marquerConnexion } from '../../../../lib/admin/comptes';
 import { sessionPourCompte } from '../../../../lib/admin/ouvertureSession';
-import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload, type SessionAdmin } from '../../../../lib/admin/session';
+import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload, type SessionAdmin , cookieSecurise } from '../../../../lib/admin/session';
 import { verifierThrottle, noterEchec, noterSucces, cleThrottleIp, verifierThrottleIp, noterEchecIp } from '../../../../lib/auth/antiBruteforce';
 import { revoquerSessions } from '../../../../lib/admin/etatSession';
 import { journaliserConnexion, purgerJournalConnexions, type ResultatConnexion } from '../../../../lib/auth/journalConnexion';
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
   await journal('succes', compte.id);
   await purgerJournalConnexions(); // conservation 12 mois (réglable) : les lignes plus anciennes sont effacées
   const jeton = await signerJeton(session);
-  (await cookies()).set(NOM_COOKIE, jeton, optionsCookie(process.env.NODE_ENV === 'production'));
+  (await cookies()).set(NOM_COOKIE, jeton, optionsCookie(cookieSecurise(request.headers)));
   return Response.json({ ok: true });
 }
 

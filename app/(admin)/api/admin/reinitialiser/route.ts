@@ -4,7 +4,7 @@ import { lireLienReinitialisation, reinitialiserParLien } from '../../../../lib/
 import { MESSAGE_LIEN_INVALIDE } from '../../../../lib/admin/reinitialisation';
 import { marquerConnexion, trouverCompteParId } from '../../../../lib/admin/comptes';
 import { sessionPourCompte } from '../../../../lib/admin/ouvertureSession';
-import { NOM_COOKIE, optionsCookie, signerJeton } from '../../../../lib/admin/session';
+import { NOM_COOKIE, optionsCookie, signerJeton, cookieSecurise } from '../../../../lib/admin/session';
 
 /**
  * « MOT DE PASSE OUBLIÉ » DE L'ADMINISTRATION — LE LIEN (Arno, 24/10/2026, migration 416). PUBLIQUE (whitelist du proxy) : le
@@ -36,7 +36,7 @@ export async function POST(request: Request): Promise<Response> {
   if (compte !== null && compte.actif) {
     await marquerConnexion(compte.id);
     const jeton = await signerJeton(await sessionPourCompte(compte));
-    (await cookies()).set(NOM_COOKIE, jeton, optionsCookie(process.env.NODE_ENV === 'production'));
+    (await cookies()).set(NOM_COOKIE, jeton, optionsCookie(cookieSecurise(request.headers)));
     return json({ ok: true, connecte: true });
   }
   return json({ ok: true, connecte: false });

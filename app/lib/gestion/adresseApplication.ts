@@ -14,6 +14,8 @@
  *
  * PUR : aucune base, aucun réseau.
  */
+import { etatRecette } from '../recette/modeEtat';
+
 export const VARIABLE_URL_APPLICATION = 'GESTION_URL_APPLICATION';
 export const URL_LOCALE = 'http://localhost:3000';
 export const MENTION_LIEN_LOCAL = '(lien valable sur l’ordinateur où tourne l’application)';
@@ -35,7 +37,10 @@ export function adresseApplication(env: Record<string, string | undefined> = pro
   if (brut !== '') {
     try {
       const u = new URL(brut);
-      if ((u.protocol === 'https:' || u.protocol === 'http:') && !estTunnelTemporaire(u.hostname)) {
+      // 🔴 Arno (15/11/2026) — EN RECETTE seulement, un tunnel https temporaire (test sur iPhone) est accepté : les liens des mails de
+      // recette mènent à la recette publiée ; hors recette, un tunnel reste refusé (liens locaux, comme avant).
+      const tunnelPermis = estTunnelTemporaire(u.hostname) && u.protocol === 'https:' && etatRecette(env).actif;
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && (!estTunnelTemporaire(u.hostname) || tunnelPermis)) {
         return { base: `${u.origin}${u.pathname}`.replace(/\/+$/, ''), locale: LOCAL.test(u.hostname) };
       }
     } catch { /* adresse mal formée : repli local */ }
