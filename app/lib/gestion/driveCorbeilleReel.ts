@@ -1,4 +1,5 @@
 import type { DepsGoogle, Resultat } from './google';
+import { fetchSortant } from '../recette/garde';
 
 /**
  * ══ 🔴🔴 LOT DRIVE-MENU-SUPPRIMER-DUPLIQUER-LOUPE — LA SEULE ÉCRITURE QUI MET À LA CORBEILLE. IMPUR (Google) ════
@@ -72,7 +73,7 @@ export async function basculerCorbeille(
   const quoi = o.versLaCorbeille ? 'cette mise à la corbeille' : 'cette restauration';
   let res: Response;
   try {
-    res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(o.id)}?${p}`, {
+    res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(o.id)}?${p}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ trashed: o.versLaCorbeille }),

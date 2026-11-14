@@ -1,3 +1,4 @@
+import { MOTIF_REFUS_SORTIE, sortieSmtp } from '../recette/gardeSortie';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { ENTETE_AUTO_EMISSION, VALEUR_AUTO_EMISSION } from './enteteAuto';
@@ -87,6 +88,8 @@ export function obtenirTransporteur(compte: CompteSmtp): Transporter {
   // MODE RECETTE (lot RECETTE-MAC) : AUCUN mail réel. Le message est fabriqué (jsonTransport, zéro octet sur le réseau)
   // puis déposé dans la boîte de test ; l'appelant reçoit une réponse « acceptée » comme d'un vrai serveur.
   if (modeRecette()) return transporteurRecette();
+  // 🔴 Arno (15/11/2026) — ni la production ni la recette (Mac en `npm run dev`, base de recette sans le mode) : RIEN ne part, refus journalisé.
+  if (sortieSmtp() === 'refus') return transporteurRefuse();
   const cle = `${compte.host}:${compte.port}:${compte.user}`;
   const existant = cache.get(cle);
   if (existant) return existant;
@@ -98,6 +101,16 @@ export function obtenirTransporteur(compte: CompteSmtp): Transporter {
   });
   cache.set(cle, transporteur);
   return transporteur;
+}
+
+/** Transporteur REFUSÉ (ni production, ni recette) : rien ne part ; le refus est écrit au journal (objet seul, jamais un destinataire). */
+function transporteurRefuse(): Transporter {
+  const sendMail = (async (message: Parameters<Transporter['sendMail']>[0]) => {
+    console.error(`[GARDE] ${MOTIF_REFUS_SORTIE} — smtp « ${String((message as { subject?: unknown }).subject ?? '')} »`);
+    try { deposerDansBoite({ canal: 'smtp', issue: 'refuse', a: null, objet: String((message as { subject?: unknown }).subject ?? '') || null }); } catch { /* rien */ }
+    throw new Error(MOTIF_REFUS_SORTIE);
+  }) as unknown as Transporter['sendMail'];
+  return { sendMail, verify: async () => { throw new Error(MOTIF_REFUS_SORTIE); }, close: () => {} } as unknown as Transporter;
 }
 
 /** Transporteur de RECETTE : même interface, rien ne part ; chaque message va dans la boîte de test. */

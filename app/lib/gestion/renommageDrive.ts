@@ -1,4 +1,5 @@
 import { trierCopiesARenommer, type CopieDrive, type RefusRenommage } from './nomUsagePiece';
+import { fetchSortant } from '../recette/garde';
 
 /**
  * ══ 🔴🔴 LOT NOM-UNIQUE-DES-PIECES — LE SEUL MODULE QUI SAIT RENOMMER DANS GOOGLE DRIVE ══════════════════════
@@ -55,7 +56,7 @@ export async function renommerFichierDrive(
 
   const url = `${API_FICHIERS}/${encodeURIComponent(id)}`
     + '?supportsAllDrives=true&fields=id%2Cname';
-  const res = await deps.fetch(url, {
+  const res = await fetchSortant(deps.fetch)(url, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${o.accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: nom }),

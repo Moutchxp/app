@@ -430,7 +430,9 @@ describe('garanties STATIQUES — aucun envoi ne peut partir d’ailleurs', () =
       .split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l.trim())).join('\n');
     // Le SEUL `fetch` du fichier est `deps.fetch` — jamais le global.
     expect(/(?<!deps\.)\bfetch\(/.test(code)).toBe(false);
-    expect(code.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+    // 🔴 (15/11/2026) — un SEUL import permis : la garde des effets réels (recette : simulé ; hors production : refusé), au plus bas niveau
+    expect(code.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual(["import { fetchSortant } from '../recette/garde';"]);
+    expect(code).toContain('fetchSortant(deps.fetch)(ENDPOINT_GMAIL_ENVOI');
   });
 });
 

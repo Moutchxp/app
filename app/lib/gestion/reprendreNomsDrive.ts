@@ -1,4 +1,5 @@
 import { jetonPourSubject } from './driveDelegue';
+import { fetchSortant } from '../recette/garde';
 import { estDisparition } from './copieDisparue';
 import type { NomVuDansDrive } from './nomUsagePiece';
 import {
@@ -95,7 +96,7 @@ export async function lireNomsDrive(
   for (const id of propres) {
     const p = new URLSearchParams({ fields: 'id,name,modifiedTime', supportsAllDrives: 'true' });
     try {
-      const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, {
+      const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!res.ok) {

@@ -1,4 +1,5 @@
 import type { DepsGoogle, Resultat } from './google';
+import { fetchSortant } from '../recette/garde';
 
 /**
  * LOT DRIVE-DEPLACER — LES DEUX SEULES ÉCRITURES DE CE LOT : DÉPLACER, ET COPIER. IMPUR (Google).
@@ -87,7 +88,7 @@ export async function deplacerVers(
   });
   let res: Response;
   try {
-    res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(o.id)}?${p}`, {
+    res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(o.id)}?${p}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: '{}',
@@ -153,7 +154,7 @@ export async function copierFichier(
   });
   let res: Response;
   try {
-    res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(o.id)}/copy?${p}`, {
+    res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(o.id)}/copy?${p}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -209,7 +210,7 @@ export async function creerDossierPourCopie(
   const p = new URLSearchParams({ fields: 'id,name,parents', ...PARTAGES });
   let res: Response;
   try {
-    res = await deps.fetch(`${API_FICHIERS}?${p}`, {
+    res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({

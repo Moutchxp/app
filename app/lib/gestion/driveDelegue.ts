@@ -9,6 +9,7 @@
  * d'erreur. Ce module ne rend qu'un jeton d'accès (qui, lui, ne quitte pas non plus le serveur) ou un motif en
  * français.
  */
+import { fetchSortant } from '../recette/garde';
 import {
   construireAssertion, corpsEchange, lireCleService, motifRefus, ENDPOINT_TOKEN, SCOPE_DRIVE,
 } from './compteService';
@@ -66,7 +67,7 @@ export async function jetonPourSubject(
   }
 
   try {
-    const res = await deps.fetch(ENDPOINT_TOKEN, {
+    const res = await fetchSortant(deps.fetch)(ENDPOINT_TOKEN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: corpsEchange(construireAssertion({ cle, subject: adresse, scope: SCOPE_DRIVE, maintenant })),

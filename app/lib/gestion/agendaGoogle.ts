@@ -23,6 +23,7 @@
  *
  * Sans base. Le `fetch` et le jeton sont injectés : sous les tests, c'est le FAUX Google (`agendaFauxGoogle.ts`).
  */
+import { fetchSortant } from '../recette/garde';
 import { CLE_MARQUE, CLE_TACHE, estNotreEvenement, MARQUE_APPLICATION, type EvenementGoogle } from './agendaTache';
 
 export const BASE_AGENDA = 'https://www.googleapis.com/calendar/v3/calendars/';
@@ -79,7 +80,8 @@ export function fetchAgendaGarde(base: typeof fetch = fetch): typeof fetch {
     if (typeof init?.body === 'string') { try { corps = JSON.parse(init.body); } catch { corps = null; } }
     const refus = refusAppelAgenda(url, methode, corps);
     if (refus !== null) throw new AppelAgendaRefuse(refus);
-    return base(entree, init);
+    // 🔴 Arno (15/11/2026) — et la garde des effets réels (recette : simulé ; hors production : refusé), relue à chaque appel
+    return fetchSortant(base)(entree, init);
   }) as typeof fetch;
 }
 

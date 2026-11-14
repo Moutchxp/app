@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { fetchSortant } from '../recette/garde';
 import { chaineParents, echapperQ, MIME_DOSSIER, motifHttp } from './drive';
 import { deplacerVers } from './driveMouvement';
 import { porteLeNomProtege } from './driveGardeFou';
@@ -139,7 +140,7 @@ async function jetonOk(deps: DepsArbre): Promise<string | { motif: string }> {
 
 async function enfants(deps: DepsArbre, jeton: string, parentId: string): Promise<{ id: string; nom: string; cle: string | null }[] | null> {
   const q = `'${echapperQ(parentId)}' in parents and trashed = false and mimeType = '${MIME_DOSSIER}'`;
-  const r = await deps.fetch(`${API_FICHIERS}?q=${encodeURIComponent(q)}&fields=${encodeURIComponent('files(id,name,appProperties)')}&pageSize=1000&${PARTAGES}`,
+  const r = await fetchSortant(deps.fetch)(`${API_FICHIERS}?q=${encodeURIComponent(q)}&fields=${encodeURIComponent('files(id,name,appProperties)')}&pageSize=1000&${PARTAGES}`,
     { headers: { Authorization: `Bearer ${jeton}` } }).catch(() => null);
   if (r === null || !r.ok) return null;
   const j = (await r.json().catch(() => null)) as { files?: { id: string; name: string; appProperties?: Record<string, string> }[] } | null;
@@ -147,7 +148,7 @@ async function enfants(deps: DepsArbre, jeton: string, parentId: string): Promis
 }
 
 async function creerDossierEtiquete(deps: DepsArbre, jeton: string, o: { parentId: string; nom: string; cle: string }): Promise<{ id: string } | { motif: string }> {
-  const r = await deps.fetch(`${API_FICHIERS}?fields=id%2Cname&${PARTAGES}`, {
+  const r = await fetchSortant(deps.fetch)(`${API_FICHIERS}?fields=id%2Cname&${PARTAGES}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json; charset=UTF-8' },
     body: JSON.stringify({ name: o.nom, mimeType: MIME_DOSSIER, parents: [o.parentId], appProperties: { [ETIQUETTE_ARBO]: o.cle } }),
@@ -226,7 +227,7 @@ export async function diagnosticRacineLocationSeule(deps: DepsArbre = DEPS_PAR_D
 
 /** Le nom d'un Drive partagé (« GESTION LOCATIVE »), ou `null` s'il n'a pas pu être lu. Lecture seule. */
 async function nomDrivePartage(deps: DepsArbre, jeton: string, id: string): Promise<string | null> {
-  const r = await deps.fetch(`https://www.googleapis.com/drive/v3/drives/${encodeURIComponent(id)}?fields=name`, { headers: { Authorization: `Bearer ${jeton}` } }).catch(() => null);
+  const r = await fetchSortant(deps.fetch)(`https://www.googleapis.com/drive/v3/drives/${encodeURIComponent(id)}?fields=name`, { headers: { Authorization: `Bearer ${jeton}` } }).catch(() => null);
   if (r === null || !r.ok) return null;
   const j = (await r.json().catch(() => null)) as { name?: string } | null;
   return typeof j?.name === 'string' && j.name.trim() !== '' ? j.name : null;

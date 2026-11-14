@@ -24,6 +24,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query } from '../db/client';
+import { fetchSortant } from '../recette/garde';
 import { MIME_DOSSIER, MIME_RACCOURCI } from './drive';
 import {
   nettoyerNom, porteLeNomProtege, verifierCopieDepuisScannes, verifierCreationRacine, verifierDestinationCopie,
@@ -81,7 +82,7 @@ async function appeler(
   for (let essai = 0; essai <= REESSAIS_MAX; essai += 1) {
     let reponse: Response;
     try {
-      reponse = await deps.fetch(url, init);
+      reponse = await fetchSortant(deps.fetch)(url, init);
     } catch (e) {
       return { ok: false, motif: `Drive injoignable : ${(e as Error).message}` };
     }

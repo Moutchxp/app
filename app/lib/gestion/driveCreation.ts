@@ -1,4 +1,5 @@
 import { MIME_DOSSIER, echapperQ, motifHttp } from './drive';
+import { fetchSortant } from '../recette/garde';
 import type { DepsGoogle, Resultat } from './google';
 
 /**
@@ -51,7 +52,7 @@ export async function creerDossier(
   accessToken: string, o: { parentId: string; nom: string }, deps: DepsGoogle,
 ): Promise<Resultat<DossierCree>> {
   const p = new URLSearchParams({ fields: 'id,name,webViewLink', ...PARTAGES });
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, {
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json; charset=UTF-8' },
     body: JSON.stringify({ name: o.nom, mimeType: MIME_DOSSIER, parents: [o.parentId] }),
@@ -84,7 +85,7 @@ export async function voisinsDuNom(
     orderBy: 'name',
     ...PARTAGES,
   });
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la vérification du nom dans ce dossier') };
   const j = (await res.json().catch(() => ({}))) as { files?: { id?: string; name?: string; mimeType?: string }[] };
   return {

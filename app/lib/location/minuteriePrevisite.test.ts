@@ -21,7 +21,7 @@ vi.mock('../gestion/googleJeton', async (orig) => ({ ...(await orig<typeof impor
 
 import { demarrerMinuteriePrevisite, INTERVALLE_PREVISITE_MS, oublierMinuteriePrevisite, PREMIERE_PASSE_MS } from './minuteriePrevisite';
 import { demarrerServeurNode } from '../recette/demarrageNode';
-import { installerVerrouRecette, verrouRecettePose } from '../recette/installer';
+import { installerVerrouRecette, retirerVerrouRecette, verrouRecettePose } from '../recette/installer';
 import { transportReel } from '../gestion/envoiDemandeTache';
 import { mailPrevisite, MENTION_AUTOMATIQUE } from './previsite';
 
@@ -30,8 +30,8 @@ const drapeaux = globalThis as unknown as Record<symbol, boolean | undefined>;
 const fetchOrigine = globalThis.fetch;
 const DEV = { NODE_ENV: 'development' };
 
-beforeEach(() => { oublierMinuteriePrevisite(); delete drapeaux[POSE]; depots.length = 0; vi.spyOn(console, 'warn').mockImplementation(() => {}); vi.spyOn(console, 'error').mockImplementation(() => {}); });
-afterEach(() => { oublierMinuteriePrevisite(); delete drapeaux[POSE]; globalThis.fetch = fetchOrigine; vi.restoreAllMocks(); });
+beforeEach(() => { oublierMinuteriePrevisite(); retirerVerrouRecette(); delete drapeaux[POSE]; depots.length = 0; vi.spyOn(console, 'warn').mockImplementation(() => {}); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+afterEach(() => { oublierMinuteriePrevisite(); retirerVerrouRecette(); delete drapeaux[POSE]; globalThis.fetch = fetchOrigine; vi.restoreAllMocks(); });
 
 const montage = () => {
   const appels: { f: () => void; ms: number; sorte: string }[] = [];

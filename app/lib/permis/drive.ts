@@ -7,6 +7,7 @@
  * du jeton OAuth, métadonnées, contenu) sous garde de taille/whitelist/plafonds. La fonctionnalité est active SSI les trois
  * variables d'environnement sont présentes (`lireConfigDrive`).
  */
+import { fetchSortant } from '../recette/garde';
 
 // ── Constantes (endpoints + portée + plafonds) ────────────────────────────────
 export const ENDPOINT_TOKEN = 'https://oauth2.googleapis.com/token';
@@ -62,7 +63,7 @@ export async function rafraichirJeton(config: ConfigDrive, deps: DepsDrive): Pro
     client_id: config.clientId, client_secret: config.clientSecret,
     refresh_token: config.refreshToken, grant_type: 'refresh_token',
   });
-  const res = await deps.fetch(ENDPOINT_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const res = await fetchSortant(deps.fetch)(ENDPOINT_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (!res.ok) throw new Error(`jeton refusé (HTTP ${res.status})`);
   const j = (await res.json()) as { access_token?: string };
   if (!j.access_token) throw new Error('réponse jeton sans access_token');
@@ -72,7 +73,7 @@ export async function rafraichirJeton(config: ConfigDrive, deps: DepsDrive): Pro
 /** Métadonnées d'un fichier : id, name, mimeType, size. 403/404 → « inaccessible » (motif distinguable, jamais opaque). */
 export async function metadonnees(id: string, token: string, deps: DepsDrive): Promise<ResultatMeta> {
   const url = `${ENDPOINT_FICHIERS}/${encodeURIComponent(id)}?fields=id,name,mimeType,size`;
-  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 403 || res.status === 404) return { ok: false, motif: `fichier inaccessible (HTTP ${res.status})` };
   if (!res.ok) return { ok: false, motif: `métadonnées indisponibles (HTTP ${res.status})` };
   const j = (await res.json()) as { id?: string; name?: string; mimeType?: string; size?: string };
@@ -82,7 +83,7 @@ export async function metadonnees(id: string, token: string, deps: DepsDrive): P
 /** Contenu binaire (alt=media). 403/404 → « inaccessible ». Renvoie un Buffer (jamais parsé/ouvert ici). */
 export async function telechargerContenu(id: string, token: string, deps: DepsDrive): Promise<ResultatContenu> {
   const url = `${ENDPOINT_FICHIERS}/${encodeURIComponent(id)}?alt=media`;
-  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 403 || res.status === 404) return { ok: false, motif: `fichier inaccessible (HTTP ${res.status})` };
   if (!res.ok) return { ok: false, motif: `téléchargement impossible (HTTP ${res.status})` };
   return { ok: true, contenu: Buffer.from(await res.arrayBuffer()) };

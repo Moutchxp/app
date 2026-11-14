@@ -22,6 +22,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { createHash } from 'node:crypto';
+import { fetchSortant } from '../recette/garde';
 
 const API = 'https://www.googleapis.com/drive/v3';
 
@@ -47,7 +48,7 @@ export async function lireContenuDrive(
   const id = (driveFileId ?? '').trim();
   if (id === '') return { ok: false, motif: 'aucun identifiant de fichier Drive' };
 
-  const res = await deps.fetch(
+  const res = await fetchSortant(deps.fetch)(
     `${API}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`,
     { method: 'GET', headers: { Authorization: `Bearer ${jeton}` } });
 

@@ -16,6 +16,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { createHash } from 'node:crypto';
+import { fetchSortant } from '../recette/garde';
 import { query } from '../db/client';
 import { recuperer } from '../stockage';
 import { copiePiecesDisponible } from './schema';
@@ -111,7 +112,7 @@ export async function copierPiece(
     const pied = `\r\n--${frontiere}--\r\n`;
     const corps = Buffer.concat([Buffer.from(tete, 'utf8'), Buffer.from(o.octets), Buffer.from(pied, 'utf8')]);
 
-    const res = await deps.fetch(
+    const res = await fetchSortant(deps.fetch)(
       `${API_TELEVERSEMENT}?uploadType=multipart&supportsAllDrives=true&fields=${champs}`,
       {
         method: 'POST',
@@ -129,7 +130,7 @@ export async function copierPiece(
   });
 
   // ── ① Ouvrir la session. Les métadonnées partent ICI, et nulle part ailleurs. ──
-  const ouverture = await deps.fetch(`${API_TELEVERSEMENT}?${p}`, {
+  const ouverture = await fetchSortant(deps.fetch)(`${API_TELEVERSEMENT}?${p}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${jeton}`,
@@ -150,14 +151,14 @@ export async function copierPiece(
   let corpsFinal: Record<string, unknown> | null = null;
 
   if (total === 0) {
-    const res = await deps.fetch(session, { method: 'PUT', headers: { 'Content-Range': 'bytes */0' }, body: tampon(new Uint8Array(0)) });
+    const res = await fetchSortant(deps.fetch)(session, { method: 'PUT', headers: { 'Content-Range': 'bytes */0' }, body: tampon(new Uint8Array(0)) });
     if (!res.ok) return { ok: false, refuse: false, code: res.status, motif: await motif(res, 'le dépôt') };
     corpsFinal = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   } else {
     let debut = 0;
     for (let garde = 0; debut < total && garde < 10_000; garde += 1) {
       const fin = Math.min(debut + MORCEAU_OCTETS, total);
-      const res = await deps.fetch(session, {
+      const res = await fetchSortant(deps.fetch)(session, {
         method: 'PUT',
         headers: { 'Content-Range': `bytes ${debut}-${fin - 1}/${total}` },
         body: tampon(o.octets.subarray(debut, fin)),
@@ -219,7 +220,7 @@ export async function corbeillerFichier(
       { operation: 'supprimer', parentDriveId: o.parentDriveId, cibleDriveId: o.driveFileId }, verdict, 'copie automatique');
     return { ok: false, motif: verdict.motif };
   }
-  const res = await deps.fetch(`${API}/files/${o.driveFileId}?supportsAllDrives=true`, {
+  const res = await fetchSortant(deps.fetch)(`${API}/files/${o.driveFileId}?supportsAllDrives=true`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ trashed: true }),
@@ -247,7 +248,7 @@ export async function dossierPeriode(
     return { ok: false, refuse: true, motif: verdict.motif };
   }
 
-  const res = await deps.fetch(`${API}/files?supportsAllDrives=true&fields=id,name`, {
+  const res = await fetchSortant(deps.fetch)(`${API}/files?supportsAllDrives=true&fields=id,name`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: nettoyerNom(o.nom), mimeType: MIME_DOSSIER, parents: [o.parentDriveId] }),
@@ -323,7 +324,7 @@ async function appelerAvecReessai(
   for (let essai = 0; essai <= 5; essai += 1) {
     let reponse: Response;
     try {
-      reponse = await deps.fetch(url, init);
+      reponse = await fetchSortant(deps.fetch)(url, init);
     } catch (e) {
       if (essai === 5) return { ok: false, motif: `Drive injoignable après 6 essais : ${(e as Error).message}` };
       await attendre(attente);
@@ -431,7 +432,7 @@ export async function deplacerFichier(
   const corps: Record<string, unknown> = {};
   if (o.proprietes !== undefined) corps.appProperties = bornerProprietes(o.proprietes);
 
-  const res = await deps.fetch(`${API}/files/${o.driveFileId}?${p}`, {
+  const res = await fetchSortant(deps.fetch)(`${API}/files/${o.driveFileId}?${p}`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(corps),
@@ -465,7 +466,7 @@ export async function relireFichier(
 ): Promise<{ ok: true; parents: string[]; md5: string | null; taille: number | null; nom: string } | { ok: false; motif: string }> {
   let res: Response;
   try {
-    res = await deps.fetch(
+    res = await fetchSortant(deps.fetch)(
       `${API}/files/${driveFileId}?supportsAllDrives=true&fields=id,name,parents,md5Checksum,size,trashed`,
       { headers: { Authorization: `Bearer ${jeton}` } });
   } catch (e) {

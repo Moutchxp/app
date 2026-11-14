@@ -22,6 +22,7 @@
  * Sur le patron de `google.ts` : aucune dépendance npm, `fetch` INJECTÉ → tout s'éprouve sans réseau.
  */
 import type { DepsGoogle, Resultat } from './google';
+import { fetchSortant } from '../recette/garde';
 
 const API_FICHIERS = 'https://www.googleapis.com/drive/v3/files';
 const API_TELEVERSEMENT = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -149,7 +150,7 @@ export async function listerDossiers(
   // `corpora=drive` + `driveId` : sans ce couple, l'API cherche dans Mon Drive et rend une liste VIDE pour un
   //   dossier d'équipe — une panne silencieuse, la pire sorte.
   if (o.driveId) { p.set('driveId', o.driveId); p.set('corpora', 'drive'); }
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du dossier') };
   return { ok: true, valeur: versDossiers(await res.json().catch(() => ({}))) };
 }
@@ -174,7 +175,7 @@ export async function chercherDossiers(
     corpora: 'allDrives',
     ...PARTAGES,
   });
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la recherche de dossiers') };
   return { ok: true, valeur: versDossiers(await res.json().catch(() => ({}))) };
 }
@@ -196,7 +197,7 @@ export async function listerPartagesAvecMoi(
     orderBy: 'name',
     ...PARTAGES,
   });
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture des dossiers partagés avec vous') };
   return { ok: true, valeur: versDossiers(await res.json().catch(() => ({}))) };
 }
@@ -207,7 +208,7 @@ export async function listerPartagesAvecMoi(
  * l'identifiant — la racine d'un Drive partagé a pour identifiant celui du Drive lui-même.
  */
 export async function listerDrivesAvecId(accessToken: string, deps: DepsGoogle): Promise<Resultat<DossierDrive[]>> {
-  const res = await deps.fetch(`${ENDPOINT_DRIVES}?pageSize=100&fields=drives(id,name)`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_DRIVES}?pageSize=100&fields=drives(id,name)`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture des Drive partagés') };
@@ -244,7 +245,7 @@ export type LecteurDossier = (id: string) => Promise<Resultat<DossierDetail>>;
 
 export async function lireDossier(accessToken: string, id: string, deps: DepsGoogle): Promise<Resultat<DossierDetail>> {
   const p = new URLSearchParams({ fields: 'id,name,parents,driveId,mimeType,trashed', ...PARTAGES });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, {
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return { ok: false, motif: 'Ce dossier n’existe plus dans le Drive.' };
@@ -395,7 +396,7 @@ export async function deposerFichier(
   const p = new URLSearchParams({ uploadType: 'resumable', fields: CHAMPS_DEPOT, ...PARTAGES });
 
   // ── ① Ouvrir la session. Les métadonnées (nom, parent) partent ici, et NULLE PART ailleurs. ──
-  const ouverture = await deps.fetch(`${API_TELEVERSEMENT}?${p}`, {
+  const ouverture = await fetchSortant(deps.fetch)(`${API_TELEVERSEMENT}?${p}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -413,7 +414,7 @@ export async function deposerFichier(
   const total = o.octets.byteLength;
   if (total === 0) {
     // Un fichier vide n'a pas de morceau : on clôt la session avec un corps vide, sinon elle resterait ouverte.
-    const res = await deps.fetch(session, { method: 'PUT', headers: { 'Content-Range': 'bytes */0' }, body: corps(new Uint8Array(0)) });
+    const res = await fetchSortant(deps.fetch)(session, { method: 'PUT', headers: { 'Content-Range': 'bytes */0' }, body: corps(new Uint8Array(0)) });
     return res.ok ? { ok: true, valeur: versFichier(await res.json().catch(() => ({}))) }
       : { ok: false, motif: motifHttp(res.status, 'le dépôt dans le Drive') };
   }
@@ -421,7 +422,7 @@ export async function deposerFichier(
   let debut = 0;
   for (let garde = 0; debut < total && garde < 10_000; garde += 1) {
     const fin = Math.min(debut + MORCEAU_OCTETS, total);
-    const res = await deps.fetch(session, {
+    const res = await fetchSortant(deps.fetch)(session, {
       method: 'PUT',
       headers: { 'Content-Range': `bytes ${debut}-${fin - 1}/${total}`, 'Content-Length': String(fin - debut) },
       body: corps(o.octets.subarray(debut, fin)),
@@ -512,7 +513,7 @@ Content-Type: ${o.typeMime}
   charge.set(pied, tete.byteLength + o.octets.byteLength);
 
   const p = new URLSearchParams({ uploadType: 'multipart', fields: CHAMPS_DEPOT, ...PARTAGES });
-  const res = await deps.fetch(`${API_TELEVERSEMENT}?${p}`, {
+  const res = await fetchSortant(deps.fetch)(`${API_TELEVERSEMENT}?${p}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -696,7 +697,7 @@ export async function listerContenu(
     });
     if (o.driveId) { p.set('driveId', o.driveId); p.set('corpora', 'drive'); }
     if (jeton !== null) p.set('pageToken', jeton);
-    const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du dossier') };
     const j = await res.json().catch(() => ({}));
     fichiers.push(...versFichiers(j));
@@ -739,7 +740,7 @@ export async function chercherFichiers(
     corpora: 'allDrives',
     ...PARTAGES,
   });
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la recherche de fichiers') };
   return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
 }
@@ -794,7 +795,7 @@ export async function listerCorbeille(
     ...PARTAGES,
   });
   if ((o.pageToken ?? '') !== '') p.set('pageToken', o.pageToken as string);
-  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de la corbeille') };
   const b = await res.json().catch(() => ({})) as {
     nextPageToken?: string;
@@ -843,7 +844,7 @@ export async function lireEntreeCorbeille(
     fields: 'id,name,parents,trashedTime,size,mimeType,driveId,explicitlyTrashed,trashed',
     ...PARTAGES,
   });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
     { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce fichier de la corbeille') };
   const b = await res.json().catch(() => ({})) as {
@@ -938,7 +939,7 @@ export async function lireMetadonnees(
     fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink,driveId,md5Checksum',
     ...PARTAGES,
   });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
     { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du fichier') };
   const b = await res.json().catch(() => ({})) as {
@@ -1018,7 +1019,7 @@ export async function exporterEnPdf(
   accessToken: string, id: string, deps: DepsGoogle, tailleMax: number,
 ): Promise<Resultat<Buffer>> {
   const p = new URLSearchParams({ mimeType: 'application/pdf', ...PARTAGES });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
     { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce document Google') };
   const octets = Buffer.from(await res.arrayBuffer());
@@ -1090,7 +1091,7 @@ export async function ouvrirFluxFichier(
   const entetes: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
   const demande = (intervalle ?? '').trim();
   if (demande !== '') entetes.Range = demande;
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, { headers: entetes });
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, { headers: entetes });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'le téléchargement du fichier') };
   const longueur = Number(res.headers.get('content-length') ?? '');
   return {
@@ -1117,7 +1118,7 @@ export async function ouvrirFluxExportPdf(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<FluxDrive>> {
   const p = new URLSearchParams({ mimeType: 'application/pdf', ...PARTAGES });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
     { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce document Google') };
   /**
@@ -1147,7 +1148,7 @@ export async function ouvrirFluxVignette(
   lienVignette: string, deps: DepsGoogle, largeur = 1000,
 ): Promise<Resultat<FluxDrive>> {
   const adresse = lienVignette.replace(/=s\d+(-c)?$/, `=s${largeur}`);
-  const res = await deps.fetch(adresse);
+  const res = await fetchSortant(deps.fetch)(adresse);
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de la vignette') };
   return {
     ok: true,
@@ -1173,7 +1174,7 @@ export async function lireContenuFichier(
   accessToken: string, id: string, deps: DepsGoogle, tailleMax: number,
 ): Promise<Resultat<Buffer>> {
   const p = new URLSearchParams({ alt: 'media', ...PARTAGES });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+  const res = await fetchSortant(deps.fetch)(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
     { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'le téléchargement du fichier') };
   const octets = Buffer.from(await res.arrayBuffer());
@@ -1202,7 +1203,7 @@ export async function lireContenuFichier(
 export async function nomDuDrive(
   accessToken: string, driveId: string, deps: DepsGoogle,
 ): Promise<string | null> {
-  const res = await deps.fetch(`${ENDPOINT_DRIVES}/${encodeURIComponent(driveId)}?fields=name`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_DRIVES}/${encodeURIComponent(driveId)}?fields=name`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return null;

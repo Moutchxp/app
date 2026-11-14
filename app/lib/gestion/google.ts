@@ -20,6 +20,7 @@
  * 🔴 UN JETON NE S'AFFICHE ET NE SE JOURNALISE JAMAIS. Aucune fonction de ce fichier ne rend un jeton en clair dans un
  * message destiné à l'écran : `masquerJeton` est là pour ça, et un test vérifie qu'aucun CLI n'imprime la valeur.
  */
+import { fetchSortant } from '../recette/garde';
 
 /** Le compte, et lui seul. Autoriser un autre compte donnerait une application qui écrit au nom de quelqu'un d'autre. */
 export const COMPTE_GESTION = 'gestion@criterimmo.fr';
@@ -201,7 +202,7 @@ export async function echangerCode(
     code: o.code, client_id: o.identifiants.clientId, client_secret: o.identifiants.clientSecret,
     redirect_uri: o.redirectUri, grant_type: 'authorization_code',
   });
-  const res = await deps.fetch(ENDPOINT_TOKEN, {
+  const res = await fetchSortant(deps.fetch)(ENDPOINT_TOKEN, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
   });
   const j = (await res.json().catch(() => ({}))) as
@@ -228,7 +229,7 @@ export async function rafraichirJeton(
     client_id: o.identifiants.clientId, client_secret: o.identifiants.clientSecret,
     refresh_token: o.refreshToken, grant_type: 'refresh_token',
   });
-  const res = await deps.fetch(ENDPOINT_TOKEN, {
+  const res = await fetchSortant(deps.fetch)(ENDPOINT_TOKEN, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
   });
   const j = (await res.json().catch(() => ({}))) as { access_token?: string; error?: string };
@@ -246,7 +247,7 @@ export interface CompteGoogle { email: string; nom: string | null }
  * une adresse personnelle au lieu de la boîte de gestion.
  */
 export async function lireCompte(accessToken: string, deps: DepsGoogle): Promise<Resultat<CompteGoogle>> {
-  const res = await deps.fetch(`${ENDPOINT_DRIVE_ABOUT}?fields=user(emailAddress,displayName)`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_DRIVE_ABOUT}?fields=user(emailAddress,displayName)`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return { ok: false, motif: `Compte illisible (HTTP ${res.status}) — la portée Drive est-elle bien accordée ?` };
@@ -260,7 +261,7 @@ export interface SignatureGmail { adresse: string; parDefaut: boolean; signature
 
 /** Les signatures configurées dans Gmail (`sendAs`). LECTURE SEULE — portée `gmail.settings.basic`. */
 export async function lireSignatures(accessToken: string, deps: DepsGoogle): Promise<Resultat<SignatureGmail[]>> {
-  const res = await deps.fetch(ENDPOINT_GMAIL_SENDAS, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(ENDPOINT_GMAIL_SENDAS, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
     return { ok: false, motif: `Signatures illisibles (HTTP ${res.status}) — la portée « paramètres Gmail » est-elle bien accordée ?` };
   }
@@ -281,7 +282,7 @@ export async function lireSignatures(accessToken: string, deps: DepsGoogle): Pro
  * est atteignable suffit à confirmer l'accès, et lister son contenu ferait défiler des noms de locataires pour rien.
  */
 export async function listerDrivesPartages(accessToken: string, deps: DepsGoogle): Promise<Resultat<string[]>> {
-  const res = await deps.fetch(`${ENDPOINT_DRIVE_PARTAGES}?pageSize=100&fields=drives(name)`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_DRIVE_PARTAGES}?pageSize=100&fields=drives(name)`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return { ok: false, motif: `Drive partagés illisibles (HTTP ${res.status}).` };
@@ -337,7 +338,7 @@ export async function chercherParMessageId(
    * lit que son identifiant de fil. On cesse simplement d'ignorer deux dossiers de cette même boîte.
    */
   const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent(`in:anywhere rfc822msgid:${nu}`)}&maxResults=1`;
-  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: `Recherche Gmail impossible (HTTP ${res.status}).` };
   const j = (await res.json().catch(() => ({}))) as { messages?: { id?: string; threadId?: string }[] };
   const trouve = j.messages?.[0];
@@ -364,7 +365,7 @@ export async function listerNonLus(
 ): Promise<Resultat<{ messages: { id: string; threadId: string }[]; complet: boolean }>> {
   const max = Math.min(Math.max(1, plafond), 500);
   const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent('is:unread')}&maxResults=${max}`;
-  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: `Lecture des non-lus impossible (HTTP ${res.status}).` };
   const j = (await res.json().catch(() => ({}))) as {
     messages?: { id?: string; threadId?: string }[]; nextPageToken?: string;
@@ -387,7 +388,7 @@ export async function lireEnteteGmail(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<{ id: string; threadId: string; messageIdRfc: string | null }>> {
   const url = `${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Message-Id`;
-  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
   if (!res.ok) return { ok: false, motif: `Lecture Gmail impossible (HTTP ${res.status}).` };
   const j = (await res.json().catch(() => ({}))) as {
@@ -436,7 +437,7 @@ export async function corbeilleGmail(
   accessToken: string, id: string, aLaCorbeille: boolean, deps: DepsGoogle,
 ): Promise<Resultat<{ id: string }>> {
   const verbe = aLaCorbeille ? 'trash' : 'untrash';
-  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}/${verbe}`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}/${verbe}`, {
     method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
@@ -490,7 +491,7 @@ export const MENTION_DROIT_SUPPRESSION =
 export async function supprimerDefinitivementGmail(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<{ id: string }> & { droitManquant?: boolean }> {
-  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}`, {
     method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
   });
   // 204 : Gmail ne rend AUCUN corps sur une suppression réussie. 404 : il n'y est plus — le résultat voulu est atteint.
@@ -561,7 +562,7 @@ async function listerParRequeteGmail(
   for (let i = 0; i < pagesMax; i++) {
     const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent(q)}&maxResults=500`
       + (page === undefined ? '' : `&pageToken=${encodeURIComponent(page)}`);
-    const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) return { ok: false, motif: `Lecture de ${quoi} impossible (HTTP ${res.status}).` };
     const j = (await res.json().catch(() => ({}))) as {
       messages?: { id?: string }[]; nextPageToken?: string;
@@ -589,7 +590,7 @@ export function normaliserMessageId(brut: string | null | undefined): string | n
 export async function modifierLibellesFil(
   accessToken: string, threadId: string, o: { ajouter?: readonly string[]; retirer?: readonly string[] }, deps: DepsGoogle,
 ): Promise<Resultat<{ id: string }>> {
-  const res = await deps.fetch(`${ENDPOINT_GMAIL_FILS}/${encodeURIComponent(threadId)}/modify`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_GMAIL_FILS}/${encodeURIComponent(threadId)}/modify`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ addLabelIds: o.ajouter ?? [], removeLabelIds: o.retirer ?? [] }),
@@ -611,7 +612,7 @@ export async function lireMessageGmail(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<MessageGmail>> {
   const url = `${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Message-Id`;
-  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
   if (!res.ok) return { ok: false, motif: `Lecture Gmail impossible (HTTP ${res.status}).` };
   const j = (await res.json().catch(() => ({}))) as { id?: string; threadId?: string; labelIds?: string[] };
@@ -629,7 +630,7 @@ export async function lireMessageGmail(
 export async function modifierLibelles(
   accessToken: string, id: string, o: { ajouter?: readonly string[]; retirer?: readonly string[] }, deps: DepsGoogle,
 ): Promise<Resultat<MessageGmail>> {
-  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}/modify`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}/modify`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ addLabelIds: o.ajouter ?? [], removeLabelIds: o.retirer ?? [] }),
@@ -660,7 +661,7 @@ export async function modifierLibelles(
 export async function lireOriginalGmailOctets(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<Buffer>> {
-  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=raw`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=raw`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
@@ -673,7 +674,7 @@ export async function lireOriginalGmailOctets(
 export async function lireOriginalGmail(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<string>> {
-  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=raw`, {
+  const res = await fetchSortant(deps.fetch)(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=raw`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
@@ -697,7 +698,7 @@ export async function lireOriginalGmail(
 export async function creerFiltreBlocage(
   accessToken: string, adresse: string, deps: DepsGoogle,
 ): Promise<Resultat<string>> {
-  const res = await deps.fetch(ENDPOINT_GMAIL_FILTRES, {
+  const res = await fetchSortant(deps.fetch)(ENDPOINT_GMAIL_FILTRES, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({

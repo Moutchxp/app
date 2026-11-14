@@ -18,6 +18,8 @@ export interface DependancesDemarrage {
   sortir: (code: number) => void;
   /** 🔴 Arno (10/11/2026) — la minuterie de la pré-visite (épreuves : un espion) ; absente : la vraie. */
   minuterie?: (d: { env: Record<string, string | undefined> }) => boolean;
+  /** 🔴 Arno (15/11/2026) — l'auto-contrôle de la recette (épreuves : un faux) ; absent : le vrai. */
+  autoControle?: (env: Record<string, string | undefined>, nomMachine: string) => Promise<{ ok: true } | { ok: false; motif: string }>;
 }
 
 const PROCESSUS: DependancesDemarrage = { env: process.env, nomMachine: hostname, sortir: (code) => process.exit(code) };
@@ -32,12 +34,27 @@ export async function demarrerServeurNode(deps: DependancesDemarrage = PROCESSUS
   }
   try {
     const { etatRecette } = await import('./mode');
+    const { politiqueSortie } = await import('./gardeSortie');
     const etat = etatRecette(env, deps.nomMachine());
-    if (etat.actif) {
+    const politique = politiqueSortie(env, deps.nomMachine(), { demarrage: true });
+    if (politique === 'recette') {
+      const { autoControleRecette, installerVerrouRecette } = await import('./installer');
+      installerVerrouRecette('recette');
+      // 🔴 Arno (15/11/2026) — L'AUTO-CONTRÔLE : le verrou tient-il, y compris après la remise à zéro du `fetch` par Next ? Sinon : ARRÊT.
+      const controle = await (deps.autoControle ?? autoControleRecette)(env, deps.nomMachine());
+      if (!controle.ok) {
+        console.error(`\x1b[41m\x1b[37m RECETTE ARRÊTÉE \x1b[0m l’interception des mails, de l’agenda et du Drive n’est pas active (${controle.motif}) : le serveur s’arrête, rien n’est envoyé.`);
+        deps.sortir(1); return;
+      }
+      console.warn('\x1b[43m\x1b[30m RECETTE — aucun envoi réel \x1b[0m mails, agenda et Drive interceptés (auto-contrôle réussi) ; boîte de test : /admin/recette');
+    } else if (politique === 'refus') {
+      // 🔴 Arno (15/11/2026) — ni la production, ni la recette (un Mac en `npm run dev`, une base de recette sans le mode) : AUCUNE écriture
+      // réelle (Gmail, agenda, Drive, SMTP) — refusée et journalisée. Jamais l'inverse.
       const { installerVerrouRecette } = await import('./installer');
-      installerVerrouRecette();
-      console.warn('\x1b[43m\x1b[30m RECETTE — aucun envoi réel \x1b[0m mails, agenda et Drive interceptés ; boîte de test : /admin/recette');
-    } else if (etat.demande) {
+      installerVerrouRecette('refus');
+      console.error('\x1b[41m\x1b[37m ÉCRITURES RÉELLES REFUSÉES \x1b[0m ce serveur n’est ni la production ni en mode recette : aucun mail, agenda ni Drive réel ne part.');
+    }
+    if (!etat.actif && etat.demande) {
       console.error(`\x1b[41m\x1b[37m MODE RECETTE REFUSÉ \x1b[0m (${etat.refus}) — le serveur fonctionne en mode normal.`);
     }
   } catch (e) {

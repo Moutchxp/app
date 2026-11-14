@@ -248,7 +248,8 @@ describe('garanties STATIQUES', () => {
     // Le paquet npm `googleapis` — pas les adresses `*.googleapis.com`, qui sont les points d'entrée de l'API.
     expect(/from '[^']*googleapis'|require\('[^']*googleapis'\)/.test(src)).toBe(false);
     expect(JSON.parse(readFileSync('package.json', 'utf8')).dependencies).not.toHaveProperty('googleapis');
-    expect(src.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+    // 🔴 (15/11/2026) — un SEUL import permis : la garde des effets réels, au plus bas niveau de chaque appel
+    expect(src.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual(["import { fetchSortant } from '../recette/garde';"]);
   });
 
   it('🔴 le rangement du jeton touche au DISQUE : aucun composant du navigateur ne doit l’atteindre', async () => {

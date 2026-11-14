@@ -9,7 +9,7 @@ vi.mock('./boite', async (orig) => ({ ...(await orig<typeof import('./boite')>()
 
 import { etatRecette, modeRecette } from './mode';
 import { decisionRecette, resumerRfc822 } from './interception';
-import { installerVerrouRecette, verrouRecettePose } from './installer';
+import { installerVerrouRecette, retirerVerrouRecette, verrouRecettePose } from './installer';
 import { obtenirTransporteur } from '../email';
 
 const b64url = (s: string) => Buffer.from(s).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -71,7 +71,7 @@ describe('ce qui est intercepté', () => {
 describe('le verrou réseau et le SMTP', () => {
   const avant = { fetch: globalThis.fetch, env: { ...process.env } };
   beforeEach(() => { depots.length = 0; messagesEntiers.length = 0; });
-  afterEach(() => { globalThis.fetch = avant.fetch; process.env = { ...avant.env }; });
+  afterEach(() => { retirerVerrouRecette(); globalThis.fetch = avant.fetch; process.env = { ...avant.env }; });
 
   it('posé : les lectures vont au vrai fetch ; un envoi Gmail NE l’atteint PAS et va dans la boîte de test', async () => {
     const base = vi.fn(async () => new Response('{"ok":1}', { status: 200 }));

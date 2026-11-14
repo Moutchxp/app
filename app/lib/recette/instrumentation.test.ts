@@ -12,9 +12,11 @@ import path from 'node:path';
  *    module is loaded » dans le terminal de `npm run recette`.
  * Aucun accès réseau : le `fetch` global est un faux, restauré après chaque test.
  */
+// 🔴 (15/11/2026) — la boîte de test est simulée : une épreuve n'écrit JAMAIS dans la vraie boîte `.recette/boite`
+vi.mock('./boite', async (orig) => ({ ...(await orig<typeof import('./boite')>()), deposerDansBoite: () => {} }));
 import { register } from '../../../instrumentation';
 import { demarrerServeurNode } from './demarrageNode';
-import { verrouRecettePose } from './installer';
+import { retirerVerrouRecette, verrouRecettePose } from './installer';
 
 const POSE = Symbol.for('svav.recette.verrouPose');
 const MARQUE = Symbol.for('svav.recette.fetch');
@@ -27,6 +29,7 @@ function enveloppe(): boolean {
 }
 
 beforeEach(() => {
+  retirerVerrouRecette();
   delete drapeaux[POSE];
   globalThis.fetch = (async () => new Response('faux')) as typeof fetch;
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -35,6 +38,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  retirerVerrouRecette();
   delete drapeaux[POSE];
   globalThis.fetch = fetchOrigine;
 });
@@ -51,7 +55,8 @@ describe('register() : le verrou est posé en recette, et seulement là', () => 
 
   it('production (NODE_ENV=production) même avec SVAV_RECETTE=1 → aucun verrou, refus écrit', async () => {
     vi.stubEnv('NEXT_RUNTIME', 'nodejs');
-    for (const [k, v] of Object.entries({ ...MAC, NODE_ENV: 'production' })) vi.stubEnv(k, v);
+    // la production : son adresse publique est celle de la production
+    for (const [k, v] of Object.entries({ ...MAC, NODE_ENV: 'production', GESTION_URL_APPLICATION: 'https://authentification.sansvisavis.com' })) vi.stubEnv(k, v);
     await register();
     expect(verrouRecettePose()).toBe(false);
     expect(enveloppe()).toBe(false);
@@ -62,10 +67,23 @@ describe('register() : le verrou est posé en recette, et seulement là', () => 
     vi.stubEnv('NEXT_RUNTIME', 'nodejs');
     vi.stubEnv('SVAV_RECETTE', '');
     vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('GESTION_URL_APPLICATION', 'https://authentification.sansvisavis.com');
     await register();
     expect(verrouRecettePose()).toBe(false);
     expect(enveloppe()).toBe(false);
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('🔴 (15/11/2026) ni production ni recette (Mac en `npm run dev`, base de recette sans le mode) → écritures REFUSÉES, verrou posé, dit en rouge', async () => {
+    vi.stubEnv('NEXT_RUNTIME', 'nodejs');
+    vi.stubEnv('SVAV_RECETTE', '');
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('DATABASE_URL', 'postgres://localhost/svav_recette');
+    await register();
+    expect(enveloppe()).toBe(true);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('ÉCRITURES RÉELLES REFUSÉES'));
+    const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', body: '{}' });
+    expect(r.status).toBe(403);
   });
 
   it('runtime Edge → rien n’est chargé ni posé', async () => {
@@ -82,6 +100,7 @@ describe('demarrerServeurNode : mêmes refus, même arrêt si le verrou ne peut 
     const sortir = vi.fn();
     await demarrerServeurNode({ env: MAC, nomMachine: () => 'svav-prod', sortir });
     expect(verrouRecettePose()).toBe(false);
+    expect(enveloppe()).toBe(false);
     expect(sortir).not.toHaveBeenCalled();
   });
 

@@ -13,6 +13,7 @@
  * 🔒 Jetons en mémoire du processus seulement ; un refus n'est jamais mémorisé.
  */
 import { construireAssertion, corpsEchange, ENDPOINT_TOKEN, lireCleService } from './compteService';
+import { fetchSortant } from '../recette/garde';
 
 export const SCOPE_AGENDA = 'https://www.googleapis.com/auth/calendar.events';
 
@@ -45,7 +46,7 @@ export async function jetonAgendaPour(
   const cle = lireCleService();
   if (cle === null) return { ok: false, motif: 'Le compte de service Google n’est pas configuré sur ce poste.' };
   try {
-    const res = await deps.fetch(ENDPOINT_TOKEN, {
+    const res = await fetchSortant(deps.fetch)(ENDPOINT_TOKEN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: corpsEchange(construireAssertion({ cle, subject: sujet, scope: SCOPE_AGENDA, maintenant })),

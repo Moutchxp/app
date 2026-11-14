@@ -34,6 +34,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { PRODUCTION_INTERDITE } from './classement';
+import { fetchSortant } from '../recette/garde';
 import { verifierEcriture, type IndexArbre } from './driveGardeFou';
 
 const API = 'https://www.googleapis.com/drive/v3';
@@ -159,7 +160,7 @@ export async function deplacerDansDossier(
 
   let res: Response;
   try {
-    res = await deps.fetch(u.toString(), {
+    res = await fetchSortant(deps.fetch)(u.toString(), {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${o.accessToken}`, 'Content-Type': 'application/json' },
       // Corps VIDE : tout est dans les paramètres. On ne touche ni au nom, ni au contenu, ni aux droits.
@@ -216,7 +217,7 @@ export async function poserRaccourci(
 
   let res: Response;
   try {
-    res = await deps.fetch(`${API}/files?supportsAllDrives=true&fields=id`, {
+    res = await fetchSortant(deps.fetch)(`${API}/files?supportsAllDrives=true&fields=id`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${o.accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({

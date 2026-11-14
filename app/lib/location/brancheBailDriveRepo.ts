@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { fetchSortant } from '../recette/garde';
 import { query } from '../db/client';
 import { chaineParents, echapperQ, MIME_DOSSIER, motifHttp } from '../gestion/drive';
 import { ETIQUETTE_ARBO, nomAdresse, nomBienArbo, normaliser, type LotArbo } from '../gestion/arborescenceDrive';
@@ -70,7 +71,7 @@ async function jetonOk(deps: DepsBrancheBail): Promise<string | { motif: string 
 }
 
 async function lireJson<T>(deps: DepsBrancheBail, jeton: string, url: string): Promise<T | null> {
-  const r = await deps.fetch(url, { headers: { Authorization: `Bearer ${jeton}` } });
+  const r = await fetchSortant(deps.fetch)(url, { headers: { Authorization: `Bearer ${jeton}` } });
   return r.ok ? (await r.json().catch(() => null)) as T | null : null;
 }
 
@@ -84,7 +85,7 @@ async function enfants(deps: DepsBrancheBail, jeton: string, parentId: string): 
 
 /** Créer UN dossier étiqueté (sa clé), sous un parent. La seule écriture de création de ce module. */
 async function creerDossierEtiquete(deps: DepsBrancheBail, jeton: string, o: { parentId: string; nom: string; cle: string }): Promise<{ id: string } | { motif: string }> {
-  const r = await deps.fetch(`${API_FICHIERS}?fields=id%2Cname&${PARTAGES}`, {
+  const r = await fetchSortant(deps.fetch)(`${API_FICHIERS}?fields=id%2Cname&${PARTAGES}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json; charset=UTF-8' },
     body: JSON.stringify({ name: o.nom, mimeType: MIME_DOSSIER, parents: [o.parentId], appProperties: { [ETIQUETTE_ARBO]: o.cle } }),
