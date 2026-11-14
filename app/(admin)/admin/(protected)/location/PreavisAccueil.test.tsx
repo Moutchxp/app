@@ -1297,3 +1297,68 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » dans 
     expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe('🔴🔴 Arno (14/11/2026, 473) — le PRÉAVIS DE TEST à l’écran', () => {
+  let preavisTest: { administrateur: boolean; disponible: boolean } | undefined;
+  beforeEach(() => {
+    preavisTest = { administrateur: true, disponible: true };
+    lignes = [...LIGNES.map((l) => ({ ...l })), ligne('T', { adresse: '1 rue du Préavis de Test (FICTIF)', occupationId: 5000, occupationIds: [5000], lotId: 900,
+      locataires: [{ occupationId: 5000, locataireId: 70, nom: 'TEST' }], test: true, testId: 3,
+      previsite: { statut: 'alerte', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } })];
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method !== 'POST' && String(u).includes('preavisEnCours=1')) return ok({ disponible: true, etatDesLieux: true, planification, previsite: true, lignes, preavisTest });
+      if (init?.method !== 'POST' && String(u).includes('previsiteCollegues=1')) return ok([{ id: 1, libelle: 'Moi (Arno)' }, { id: 4, libelle: 'Claire Test' }]);
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        posts.push(c);
+        if (c.action === 'supprimer-preavis-test') lignes = lignes.filter((l) => l.testId !== c.testId);
+        return ok({ testId: 3 });
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  it('badge « TEST » sur la ligne ; le test n’entre ni dans le nombre ni dans les pastilles de statut', async () => {
+    await rendre(false);
+    expect(container.querySelector('[data-ligne-preavis="T"] [data-badge-test]')!.textContent).toBe('TEST');
+    expect(container.querySelector('[data-nombre-preavis]')!.textContent).toBe('3');
+    expect(container.querySelector('[data-ligne-preavis="A"] [data-badge-test]')).toBeNull();
+    expect(container.querySelector('[data-compteur-previsite="alerte"]')?.textContent ?? '0').toBe('0');
+  });
+  it('« Préavis de test » : discret, réservé aux administrateurs ; l’explication, puis « Créer le préavis de test »', async () => {
+    await rendre(false);
+    clic('[data-ouvrir-preavis-test]');
+    expect(container.querySelector('[data-panneau-preavis-test]')!.textContent).toContain('ne partent qu’à votre adresse');
+    await act(async () => { (container.querySelector('[data-creer-preavis-test]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(posts.at(-1)).toEqual({ action: 'creer-preavis-test' });
+    expect(container.querySelector('[data-preavis-bilan]')!.textContent).toContain('Préavis de test créé');
+  });
+  it('un compte non administrateur ne voit pas le bouton', async () => {
+    preavisTest = { administrateur: false, disponible: false };
+    await rendre(false);
+    expect(container.querySelector('[data-ouvrir-preavis-test]')).toBeNull();
+  });
+  it('dépliée : le bandeau « Préavis de test » ; « Supprimer ce préavis de test » demande confirmation DANS la page, puis la ligne disparaît', async () => {
+    await rendre(false);
+    clic('button[data-ouvrir-preavis="T"]'); await attendre();
+    expect(container.querySelector('[data-bandeau-preavis-test]')!.textContent).toContain('tous ses mails ne partent qu’à votre adresse');
+    clic('[data-supprimer-preavis-test]');
+    expect(posts.some((p) => p.action === 'supprimer-preavis-test')).toBe(false);
+    await act(async () => { (container.querySelector('[data-confirmer-suppression-test]') as HTMLButtonElement).click(); });
+    for (let k = 0; k < 4; k++) await attendre();
+    expect(posts.find((p) => p.action === 'supprimer-preavis-test')).toEqual({ action: 'supprimer-preavis-test', testId: 3 });
+    expect(container.querySelector('[data-ligne-preavis="T"]')).toBeNull();
+  });
+  it('RDV pré-visite d’un test : « Dans 2 minutes » remplit le créneau ; seul « vous » est proposé (jamais un collègue)', async () => {
+    await rendre(false);
+    clic('button[data-ouvrir-preavis="T"]'); await attendre();
+    clic('[data-ligne-depliee="T"] [data-rdv-previsite]'); await attendre(); await attendre();
+    act(() => (document.querySelector('[data-previsite-deux-minutes]') as HTMLButtonElement).click());
+    expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect((document.querySelector('[data-previsite-debut]') as HTMLInputElement).value).toMatch(/^\d{2}:\d{2}$/);
+    const choix = document.querySelector('[data-previsite-destinataires]')!.textContent ?? '';
+    expect(choix).toContain('Moi (Arno)');
+    expect(choix).not.toContain('Claire Test');
+  });
+});

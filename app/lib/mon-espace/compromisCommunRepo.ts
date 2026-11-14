@@ -13,7 +13,7 @@ import type { DossierSaisie } from '../transaction/saisie';
 import { LIBELLE_SOCIETE } from '../transaction/modele';
 import { chargerConfigGestion } from '../gestion/config';
 import { fabriquerMessageId } from '../gestion/envoiGmail';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 import { adresseApplication } from '../gestion/adresseApplication';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { clientsRenseignes, collaborateursAPrevenir, cotesDuCompte, lienCompromis, lignePartage, mailCommun, MOT_COTE, type CoteVente, type PartPartage } from './compromisCommun';
@@ -127,7 +127,7 @@ export async function apresCreationCompromis(venteId: number, s: DossierSaisie, 
     try {
       const domaine = config.adresseGestion.split('@')[1] ?? 'criterimmo.fr';
       const messageId = fabriquerMessageId(domaine, randomBytes(12).toString('hex'), new Date());
-      const r = await (deps.transport ?? transportParDefaut()).envoyer({ de: config.adresseGestion, deNom: 'Mon espace', a: [email], cc: [], cci: [], objet: m.objet,
+      const r = await avecVerrouTest(deps.transport ?? transportParDefaut()).envoyer({ de: config.adresseGestion, deNom: 'Mon espace', a: [email], cc: [], cci: [], objet: m.objet,
         corps: m.texte, corpsHtml: m.html, messageId });
       await journaliser({ venteId, compteId: id, destinataire: email, objet: m.objet, texte: m.texte, html: m.html, variante, statut: r.ok ? 'envoye' : 'echec',
         erreur: r.ok ? null : r.motif, messageId: r.ok ? messageId : null, auteur });

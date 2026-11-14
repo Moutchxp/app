@@ -1,3 +1,5 @@
+import { avecPerimetreTest } from './perimetreTest';
+import { perimetreDuGeste } from './preavisTestRepo';
 import { query, withTransaction } from '../db/client';
 import { envoyerSerie, mailsAvisDisponibles, type DepsAvis } from './mailsPreavisSortieRepo';
 import { adressesUniques } from './mailsPreavisSortie';
@@ -114,7 +116,9 @@ export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?
     const { rows: pris } = await query<{ id: string }>(
       'UPDATE gestion_location_previsite SET cr_invitation_le = now() WHERE id = $1 AND cr_invitation_le IS NULL RETURNING id::text', [Number(s.id)]);
     if (pris.length === 0) continue;
-    const ok = await (async () => {
+    // 🔴 Arno (14/11/2026, 473) — un préavis de TEST : l'invitation part DANS son périmètre (au créateur du test, et à lui seul) ; un mélange : rien.
+    const perimetre = await perimetreDuGeste({ occupationIds: s.occupation_ids.map(Number) }).catch(() => ({ ok: false as const, motif: 'périmètre illisible' }));
+    const ok = !perimetre.ok ? false : await avecPerimetreTest(perimetre.perimetre, async () => {
       const ids = s.occupation_ids.map(Number);
       const c = await contexte(ids, AUTEUR_AUTOMATIQUE, deps);
       const reponses = (await reponsesDesTaches([Number(s.tache_id)])).get(Number(s.tache_id)) ?? [];
@@ -126,7 +130,7 @@ export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?
         qui: { mention: MENTION_AUTOMATIQUE }, signature: c.signature });
       const e = await envoyerSerie([m], c.brute, { lotId: c.lotId, occupationIds: ids, auteur: AUTEUR_AUTOMATIQUE }, deps);
       return e.some((x) => x.envoye);
-    })().catch(() => false);
+    }).catch(() => false);
     if (ok) bilan.invitations += 1;
     else {
       bilan.echecs += 1;

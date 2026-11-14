@@ -8,7 +8,7 @@ import {
   acceptationInitiale, erreurMotif, verdictLien,
   type AcceptationTache, type EtatMail, type StatutAcceptation, type TacheRecue, type VerdictLien,
 } from './acceptationTache';
-import { transportParDefaut, type TransportDemande } from './envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from './envoiDemandeTache';
 import { peutRecevoirUneTache } from './taches';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
@@ -158,7 +158,7 @@ export async function envoyerDemande(
   // 🔴 RÉGLAGE DÉSACTIVÉ (défaut) : RIEN NE PART, jamais. La demande existe et le dit (« envoi désactivé »).
   if (!reglage.envoiMail) return marquer('desactive');
   // Réglage activé : le transport réel — sauf sous les tests, où il est TOUJOURS factice (`transportParDefaut`).
-  const t = transport ?? transportParDefaut();
+  const t = avecVerrouTest(transport ?? transportParDefaut());
   /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — le mail structuré par sections (`mailTache.ts`), ses pièces jointes ou
      leurs liens signés ; la MÊME adresse de base que l'agenda (jamais un tunnel temporaire ; défaut localhost). */
   const config = await chargerConfigGestion();
@@ -202,7 +202,7 @@ export async function envoyerRecapitulatif(
       await tracer(query, Number(d.tache_id), null, { recapitulatif: d.destinataire_libelle, etat: 'echec', erreur: m.motif }, auteur, d.destinataire_libelle);
       return 'echec';
     }
-    const r = await (transport ?? transportParDefaut()).envoyer(m.m.message);
+    const r = await avecVerrouTest(transport ?? transportParDefaut()).envoyer(m.m.message);
     await journaliserMailTachePrevisite(demandeId, 'previsite_reponse', m.m.message, r); // 🔴 pré-visite seulement (sinon : rien)
     const etat: EtatMail = !r.ok ? 'echec' : r.factice ? 'factice' : 'envoye';
     await tracer(query, Number(d.tache_id), null,
@@ -249,7 +249,7 @@ export async function envoyerConfirmationAcceptation(
       demandeId, sorte: 'confirmation', de: config.adresseGestion, a, lecteur, maintenant, dureeLienJours: reglage.dureeLienJours,
     });
     if (!m.ok) { await trace('echec', m.motif); return 'echec'; }
-    const r = await (transport ?? transportParDefaut()).envoyer(m.m.message);
+    const r = await avecVerrouTest(transport ?? transportParDefaut()).envoyer(m.m.message);
     await journaliserMailTachePrevisite(demandeId, 'previsite_reponse', m.m.message, r); // 🔴 pré-visite seulement (sinon : rien)
     const etat: EtatMail = !r.ok ? 'echec' : r.factice ? 'factice' : 'envoye';
     await trace(etat, r.ok ? undefined : r.motif);

@@ -95,8 +95,9 @@ export function pastillesPrevisite(statuts: readonly StatutPrevisite[]): { statu
  * 🔴 Arno (10/11/2026) — les préavis EN ALERTE : statut « Alerte préavis » + « Personne n'a accepté la pré-visite ». LE nombre unique de la
  * pastille du menu de la Gestion ET du repère rouge du bloc replié (0 : ni pastille, ni repère). PUR.
  */
-export function compterPreavisEnAlerte(lignes: readonly { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean } | null }[]): number {
-  return lignes.filter((l) => l.previsite?.statut === 'alerte' || (l.previsite?.statut === 'programmee' && l.previsite.tousRefusent === true)).length;
+export function compterPreavisEnAlerte(lignes: readonly { previsite?: { statut: StatutPrevisite; tousRefusent?: boolean } | null; test?: boolean }[]): number {
+  // 🔴 Arno (14/11/2026, 473) — un préavis de TEST n'entre dans aucun compteur
+  return lignes.filter((l) => l.test !== true).filter((l) => l.previsite?.statut === 'alerte' || (l.previsite?.statut === 'programmee' && l.previsite.tousRefusent === true)).length;
 }
 
 /** Le statut de la réponse d'un collègue invité (le module de tâches). */

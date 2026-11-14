@@ -30,6 +30,8 @@ import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, Men
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
+import { BandeauPreavisTest, CreerPreavisTest, CSS_PREAVIS_TEST } from './PreavisTest';
+import { BADGE_TEST, horsTest } from '../../../../lib/location/preavisTest';
 
 /**
  * ══ 🔴🔴 ACCUEIL LOCATION — LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 18/10/2026) ═════════════════════════════════════════
@@ -64,7 +66,9 @@ function memoriserTri(t: TriPreavis, cle: string = CLE_TRI): void {
 
 interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: boolean; lignes: LignePreavisAccueil[];
   /** 🔴 Arno (10/11/2026) — la pré-visite est-elle installée (migration 464) ? */
-  previsite?: boolean }
+  previsite?: boolean;
+  /** 🔴 Arno (14/11/2026, 473) — le bouton « Préavis de test » : compte administrateur, table 473 installée. */
+  preavisTest?: { administrateur: boolean; disponible: boolean } }
 
 /**
  * ══ 🔴🔴 Arno (10/11/2026) — LE MÊME BLOC DANS LA GESTION, ET EN PLEINE PAGE ══════════════════════════════════════════════════════════
@@ -132,6 +136,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const lignes = plein ? chercherPreavis(filtrees, recherche) : filtrees;
   // 🔴 Arno (10/11/2026) — le repère rouge du bloc replié : LA fonction de la pastille du menu, sur les mêmes lignes que l'intérieur.
   const alertes = compterPreavisEnAlerte(lignes);
+  // 🔴 Arno (14/11/2026, 473) — les préavis de TEST (les vôtres seulement) n'entrent dans aucun compteur ni pastille
+  const nombre = horsTest(lignes).length;
   // 🔴 Arno (10/11/2026) — `?previsite=<occupation>` (lien des mails d'alerte et d'invitation au compte rendu) : la ligne s'ouvre, dépliée.
   const [cible, setCible] = useState<number | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -155,16 +161,16 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
     <ContextePreavis.Provider value={contexte}>
     <section className={`pva${deplie ? '' : ' blr-bloc'}`} aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>
       {/* Les styles de la Location viennent AVEC le bloc : il s'affiche à l'identique sous les Tâches de la Gestion et en pleine page. */}
-      <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE + (repliable ? CSS_BLOC_REPLIE : '')}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_PREAVIS + CSS_PREAVIS_ACCUEIL + CSS_PREVISITE + CSS_PREAVIS_TEST + (repliable ? CSS_BLOC_REPLIE : '')}</style>
       <div className="pva-entete">
         <h2 className={`pva-titre${deplie ? '' : ' blr-titre'}`}>
           {repliable ? (
             <button type="button" className={`pva-repli${deplie ? '' : ' blr-repli'}`} aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)} data-repli-preavis>
               <span aria-hidden="true" className={`pva-fleche${deplie ? '' : ' blr-fleche'}`}>{ouvert ? '▾' : '▸'}</span>
-              {ouvert ? <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></>
-                : <>Préavis · <span data-total-preavis>{lignes.length}</span></>}
+              {ouvert ? <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{nombre}</span></>
+                : <>Préavis · <span data-total-preavis>{nombre}</span></>}
             </button>
-          ) : <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{lignes.length}</span></>}
+          ) : <>Locataires en préavis <span className="loc-pastille" data-nombre-preavis>{nombre}</span></>}
           {repliable && !ouvert && alertes > 0 && <span className="pva-alertes blr-alerte" data-alertes-preavis>● {alertes} en alerte</span>}
         </h2>
         {/* 🔴 Arno (10/11/2026) — « Ouvrir en pleine page » (bloc de la Location, bloc sous les Tâches de la Gestion). */}
@@ -213,7 +219,9 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               </div>
             </>}
           </div>
-          {d!.previsite === true && <PastillesPrevisite lignes={toutes} filtre={filtre} onChange={setFiltre} />}
+          {d!.previsite === true && <PastillesPrevisite lignes={horsTest(toutes)} filtre={filtre} onChange={setFiltre} />}
+          {/* 🔴 Arno (14/11/2026, 473) — « Préavis de test » : discret, réservé aux administrateurs (écran Location seulement). */}
+          {lecture === 'location' && d!.preavisTest?.administrateur === true && <CreerPreavisTest disponible={d!.preavisTest.disponible} apres={(m) => { setBilan(m); apresGeste(); }} />}
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}
           {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>{toutes.length > 0 ? 'Aucun préavis avec ce statut' : 'Aucun locataire en préavis'}</p> : (
             <ul className="pva-liste">
@@ -227,7 +235,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
                     <div className="pva-ligne">
                       <div className="pva-textes">
-                        <span className="pva-noms" title={noms}>{noms}</span>
+                        <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
                         <span className="pva-detail" title={detail}>{detail}</span>
                       </div>
                       {/* L'alerte « Préavis échu » garde la priorité ; sinon « EDLS planifié » (bleu), sinon « en préavis ». */}
@@ -284,6 +292,7 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
   const premier = l.locataires[0];
   return (
     <div className="pva-depliee" data-ligne-depliee={l.cle}>
+      {l.test && <BandeauPreavisTest l={l} apres={apres} />}
       <InfosDuLogement l={l} />
       {/* 🔴 Arno (11/11/2026, lot 3) — LA FRISE DES ÉTAPES : 1 Préavis reçu → 2 Pré-visite → 3 État des lieux de sortie → 4 Sortie validée ;
           chaque étape porte ses boutons (les blocs d'avant, inchangés, sous leur étape). Rien n'est retiré. */}

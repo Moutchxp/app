@@ -4,7 +4,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { ecrireDateSortie } from './dateSortieOccupation';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 import { messageIdDemande } from '../gestion/acceptationTache';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
@@ -427,7 +427,7 @@ export async function notifierSortie(
     } else {
       const config = await chargerConfigGestion();
       const domaine = config.adresseGestion.split('@')[1] ?? 'criterimmo.fr';
-      const r = await (deps.transport ?? transportParDefaut()).envoyer({
+      const r = await avecVerrouTest(deps.transport ?? transportParDefaut()).envoyer({
         de: config.adresseGestion, deNom: 'Gestion', a: destinataires, cc: [], cci: [], objet,
         corps: texteMailSortie(d), corpsHtml: htmlMailSortie(d), messageId: messageIdDemande(domaine, randomBytes(12).toString('hex')),
       });

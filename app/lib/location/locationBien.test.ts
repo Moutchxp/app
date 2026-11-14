@@ -43,7 +43,8 @@ describe('🔴 gardes de la tuile Location', () => {
   const norm = (f: string): string => readFileSync(f, 'utf8').replace(/\s+/g, ' ');
   it('la route relit le droit Location à chaque appel (GET et POST) et n’offre aucune suppression', () => {
     const route = norm('app/(admin)/api/admin/location/route.ts');
-    expect(route.match(/await exigerLocation\(request\)/g)).toHaveLength(2);
+    // GET, POST (🔴 14/11/2026 : avant de lire le corps pour le périmètre d'un préavis de test) et le traitement du POST
+    expect(route.match(/await exigerLocation\(request\)/g)).toHaveLength(3);
     expect(route).not.toMatch(/supprimerPersonne|DELETE/);
   });
   it('le dépôt n’efface rien et ne touche jamais l’adresse d’un bien importé', () => {

@@ -168,6 +168,9 @@ export interface LignePreavisAccueil {
   edls?: EdlsAffiche | null;
   /** 🔴 Arno (10/11/2026, migration 464) — la pré-visite de ce préavis (statut, rendez-vous, collègues) ; absente sans la 464. */
   previsite?: PrevisiteAffiche | null;
+  /** 🔴 Arno (14/11/2026, 473) — un PRÉAVIS DE TEST (badge « TEST », hors compteurs) et son numéro ; absent = un vrai préavis. */
+  test?: boolean;
+  testId?: number;
 }
 
 /** 🔴 Arno (10/11/2026) — + le statut de pré-visite (ordre d'Arno), la date du rendez-vous de pré-visite et la date de réception (pleine page). */

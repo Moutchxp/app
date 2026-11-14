@@ -26,7 +26,7 @@ vi.mock('../db/client', () => ({
 vi.mock('./config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@criterimmo.fr' }) }));
 
 const { poserDemande, envoyerDemande, empreinteJeton } = await import('./acceptationRepo');
-const { ENVOIS_FACTICES, transportParDefaut, transportFactice } = await import('./envoiDemandeTache');
+const { ENVOIS_FACTICES, transportDeBase, transportParDefaut, transportFactice } = await import('./envoiDemandeTache');
 const q = (...a: unknown[]) => queryMock(...(a as [string, unknown[]]));
 const ARNO = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 
@@ -50,8 +50,13 @@ describe('🔴 la demande', () => {
 });
 
 describe('🔴 le mail : aucun vrai envoi', () => {
-  it('sous les tests, le transport par défaut est FACTICE', () => {
-    expect(transportParDefaut()).toBe(transportFactice);
+  it('sous les tests, le transport par défaut est FACTICE', async () => {
+    expect(transportDeBase()).toBe(transportFactice);
+    // 🔴 (14/11/2026, 473) — derrière le verrou des préavis de test : un envoi arrive au factice
+    const avant = ENVOIS_FACTICES.length;
+    await transportParDefaut().envoyer({ de: 'g@x.fr', deNom: 'G', a: ['a@x.fr'], cc: [], cci: [], objet: 'o', corps: 'c', messageId: '<m@x>' });
+    expect(ENVOIS_FACTICES.length).toBe(avant + 1);
+    ENVOIS_FACTICES.length = avant;
   });
   it('réglage désactivé (défaut) : rien n’est préparé ni envoyé, la demande dit « désactivé »', async () => {
     expect(await envoyerDemande(41, 'JETON')).toBe('desactive');

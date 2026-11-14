@@ -1,3 +1,4 @@
+import { sqlHorsTest } from '../preavisTestSonde';
 import 'server-only';
 import { query } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
@@ -402,8 +403,10 @@ export async function lireEcartsFichier(debut: string, fin: string): Promise<Eca
 export async function preavisParMois(annees: readonly number[]): Promise<Record<string, number>> {
   if (!(await colonneExisteMemo('gestion_location_preavis', 'recu_le'))) return {};
   const { rows } = await query<{ mois: string; nb: string }>(
-    `SELECT to_char(recu_le, 'YYYY-MM') AS mois, count(*) AS nb FROM gestion_location_preavis
-      WHERE annule_le IS NULL AND remplace_le IS NULL AND extract(year FROM recu_le)::int = ANY($1::int[]) GROUP BY 1`, [[...annees]]);
+    `SELECT to_char(recu_le, 'YYYY-MM') AS mois, count(*) AS nb FROM gestion_location_preavis p
+      WHERE annule_le IS NULL AND remplace_le IS NULL AND extract(year FROM recu_le)::int = ANY($1::int[])
+        -- 🔴 Arno (14/11/2026, 473) — jamais un préavis de TEST dans les analyses
+        AND ${await sqlHorsTest('(SELECT o.lot_id FROM gestion_annuaire_occupation o WHERE o.id = p.occupation_id)')} GROUP BY 1`, [[...annees]]);
   return Object.fromEntries(rows.map((r) => [r.mois, n(r.nb)]));
 }
 

@@ -1,3 +1,4 @@
+import { dansLePerimetreDuTest } from '../../../../../lib/location/perimetreRequete';
 import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
@@ -49,7 +50,7 @@ export async function GET(request: Request): Promise<Response> {
     { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function postTaches(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
   if (!await tachesDisponibles()) {
@@ -98,4 +99,11 @@ export async function POST(request: Request): Promise<Response> {
     collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail, ...(sortie.objet ? { objet: sortie.objet } : {}) }],
     message: `${enAttente ? `Tâche créée, en attente d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' — demande envoyée par mail' : ''}.` : 'Tâche créée.'}${agenda}`,
   });
+}
+
+/** 🔴🔴 Arno (14/11/2026, 473) — une tâche sur le bien d'un préavis de test : dans son PÉRIMÈTRE (mails et agenda du seul créateur du test). */
+export async function POST(request: Request): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  return dansLePerimetreDuTest(request, () => postTaches(request));
 }

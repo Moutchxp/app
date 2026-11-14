@@ -1,3 +1,4 @@
+import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreRequete';
 import 'server-only';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS } from '../../../../../../lib/location/texteModifiable';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
@@ -137,7 +138,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function postAnnuaireLocation(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
   const auteur = await auteurDeLaRequete(request);
@@ -301,4 +302,11 @@ export async function POST(request: Request): Promise<Response> {
     console.error('[api/admin/gestion/annuaire/location] écriture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503 });
   }
+}
+
+/** 🔴🔴 Arno (14/11/2026, 473) — dans le PÉRIMÈTRE du préavis de test touché (mails au seul créateur) ; un test mêlé à de vrais biens : refus. */
+export async function POST(request: Request): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  return dansLePerimetreDuTest(request, () => postAnnuaireLocation(request));
 }

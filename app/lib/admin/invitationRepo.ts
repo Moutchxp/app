@@ -11,7 +11,7 @@ import {
 import { adresseApplication } from '../gestion/adresseApplication';
 import { chargerConfigGestion } from '../gestion/config';
 import { horodatageLisible } from '../gestion/taches';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 
 /**
  * ══ 🔴🔴 LOT GESTION-INVITATION-ADMIN (16/10/2026) — LE DÉPÔT DES INVITATIONS (migration 363) ═════════════════════════
@@ -97,7 +97,7 @@ export async function envoyerInvitation(utilisateurId: number, auteurId: number 
       prenom: c.prenom, identifiant: c.identifiant, invitant, lien: lienActivation(base, pose.jeton),
       expireLe: horodatageLisible(iso(pose.expireLe) ?? ''),
     });
-    const r = await (o.transport ?? transportParDefaut(env)).envoyer({
+    const r = await avecVerrouTest(o.transport ?? transportParDefaut(env)).envoyer({
       de, deNom: 'Sans Vis-à-Vis — Gestion', a: [c.identifiant], cc: [], cci: [], objet: OBJET_INVITATION,
       corps: corps.texte, corpsHtml: corps.html, messageId: messageIdInvitation(de.split('@')[1] ?? '', randomBytes(12).toString('hex')),
     });

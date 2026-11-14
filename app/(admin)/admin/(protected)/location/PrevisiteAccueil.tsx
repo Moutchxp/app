@@ -19,6 +19,7 @@ import {
   type PrevisiteAffiche, type StatutPrevisite,
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
+import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (14/11/2026, iPhone) — la conversion des photos et l'enregistreur de vocaux se chargent AU TOUCHER (import dynamique), jamais à
 // l'ouverture du formulaire ; un appareil qui ne sait pas faire : un message clair, jamais un plantage.
 const modulePhoto = () => import('../../../../lib/location/photoEcran');
@@ -247,7 +248,8 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const [texteRefus, setTexteRefus] = useState<string | null>(null);
   const collegues = useLecture<Collegue[]>(avecCollegues ? 'previsiteCollegues=1' : null);
   const propose = useLecture<{ texte: string; objet: string; sansEmail: string[] }>(geste === 'refus' ? `previsiteRefus=${l.occupationIds.join(',')}` : null);
-  const liste = useMemo(() => (collegues.etat.etat === 'ok' && Array.isArray(collegues.etat.data) ? collegues.etat.data : []), [collegues.etat]);
+  // 🔴 Arno (14/11/2026, 473) — un préavis de TEST ne se confie qu'à vous (en tête de liste) : jamais un collègue (le serveur le refuse aussi).
+  const liste = useMemo(() => { const x = collegues.etat.etat === 'ok' && Array.isArray(collegues.etat.data) ? collegues.etat.data : []; return l.test ? x.slice(0, 1) : x; }, [collegues.etat, l.test]);
   // Par défaut : le compte connecté (en tête de liste) — sauf pour réaffecter, où l'on choisit.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (choisis === null && liste.length > 0) setChoisis(geste === 'rdv' ? [liste[0].id] : []); }, [choisis, liste, geste]);
@@ -325,6 +327,13 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
             <input type="time" value={debut} onChange={(e) => { setDebut(e.target.value); if (!finTouchee) setFin(heureFinProposee(e.target.value)); setRefus(null); }} data-previsite-debut /></label>
           <label className="pvs-champ"><span className="pvs-libelle">{'Fin\u00a0*'}</span>
             <input type="time" value={fin} onChange={(e) => { setFin(e.target.value); setFinTouchee(true); setRefus(null); }} data-previsite-fin /></label>
+        </div>
+      )}
+      {avecDate && l.test && (
+        <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" data-previsite-deux-minutes
+            onClick={() => { const r = rdvDansDeuxMinutes(); setJour(r.jour); setDebut(r.debut); setFin(r.fin); setFinTouchee(true); setRefus(null); }}>Dans 2 minutes</button>
+          <span className="loc-muet" data-previsite-test-note>Préavis de test : l’invitation de début de pré-visite part à l’heure de début, à vous seul.</span>
         </div>
       )}
       {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification.</p>}

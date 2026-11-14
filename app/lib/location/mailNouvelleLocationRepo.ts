@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 import { fabriquerMessageId } from '../gestion/envoiGmail';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
@@ -415,7 +415,7 @@ export async function envoyerNouvelleLocation(bailId: number, brut: unknown, aut
     expediteur = d.expediteur;
     const domaine = expediteur.split('@')[1] ?? 'criterimmo.fr';
     const messageId = fabriquerMessageId(domaine, randomBytes(12).toString('hex'), new Date());
-    const r = await (deps.transport ?? transportParDefaut()).envoyer({
+    const r = await avecVerrouTest(deps.transport ?? transportParDefaut()).envoyer({
       de: expediteur, deNom: 'Gestion', a: v.liste.map((x) => x.adresse), cc: [], cci: [], objet,
       corps: texteNouvelleLocation(d), corpsHtml: htmlNouvelleLocation(d), messageId,
     });

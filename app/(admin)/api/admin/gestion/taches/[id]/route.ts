@@ -1,3 +1,4 @@
+import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreRequete';
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
@@ -71,7 +72,7 @@ const MESSAGES: Record<string, string> = {
   ajouterPieces: 'Pièce(s) jointe(s) ajoutée(s).', retirerPiece: 'Pièce jointe retirée de la tâche (le fichier du Drive n’est pas touché).',
 };
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
+async function patchTache(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
   if (!await tachesDisponibles()) {
@@ -196,4 +197,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const agenda = await synchroniserApresGeste(issue.id);
   return Response.json({ etat: 'ok', id: issue.id, exterieurs,
     collaborateurs: mail === null ? [] : [{ destinataire: issue.demande?.destinataireLibelle ?? '', etat: mail, ...(sortie.objet ? { objet: sortie.objet } : {}) }], message: `${MESSAGES[geste]}${suite}${agenda}` });
+}
+
+/** 🔴🔴 Arno (14/11/2026, 473) — un geste sur la tâche d'un préavis de test : dans son PÉRIMÈTRE (mails et agenda du seul créateur du test). */
+export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  const brut = (await ctx.params).id;
+  const tacheId = /^\d{1,15}$/.test(brut) ? Number(brut) : null;
+  return dansLePerimetreDuTest(request, () => patchTache(request, ctx), { tacheId });
 }

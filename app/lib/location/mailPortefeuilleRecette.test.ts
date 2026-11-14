@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dedoublonner } from './mailPortefeuilleRepo';
-import { transportFactice, transportParDefaut, transportReel } from '../gestion/envoiDemandeTache';
+import { transportDeBase, transportFactice, transportParDefaut, transportReel } from '../gestion/envoiDemandeTache';
 import { decisionRecette } from '../recette/interception';
 
 /**
@@ -18,8 +18,10 @@ describe('mail de portefeuille : destinataires et verrou de la recette', () => {
   });
 
   it('sous les tests : toujours le transport factice ; ailleurs : le transport réel (API Gmail)', () => {
-    expect(transportParDefaut({ VITEST: 'true' })).toBe(transportFactice);
-    expect(transportParDefaut({ NODE_ENV: 'development' })).toBe(transportReel);
+    expect(transportDeBase({ VITEST: 'true' })).toBe(transportFactice);
+    expect(transportDeBase({ NODE_ENV: 'development' })).toBe(transportReel);
+    // 🔴 (14/11/2026, 473) — le transport de l'application est celui de base derrière le verrou des préavis de test
+    expect(transportParDefaut({ VITEST: 'true' })).not.toBe(transportReel);
   });
 
   it('en recette, un envoi par l’API Gmail est intercepté (simulé, rangé dans la boîte de test) — aucun envoi réel', () => {

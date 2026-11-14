@@ -4,6 +4,7 @@
  * les routes continuent de passer par `agendaSynchroRepo.ts`, qui porte la garde et réexporte ce module.
  * Aucun de ses imports ne porte `server-only`.
  */
+import { perimetreCourant } from '../location/perimetreTest';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { acceptationTacheDisponible, agendaTacheDisponible, creneauTacheDisponible, invitesTacheDisponible, sorteTacheDisponible } from './schema';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
@@ -75,8 +76,27 @@ export function fauxGoogleDesTests(): FauxGoogle {
 }
 
 export function porteParDefaut(env: Record<string, string | undefined> = process.env): PorteAgenda {
-  if (env.VITEST || env.NODE_ENV === 'test') return creerPorteAgenda({ jeton: jetonFactice, fetch: fauxGoogleDesTests().fetch });
-  return creerPorteAgenda({ jeton: (a) => jetonAgendaPour(a, { fetch }), fetch });
+  if (env.VITEST || env.NODE_ENV === 'test') return avecVerrouAgendaTest(creerPorteAgenda({ jeton: jetonFactice, fetch: fauxGoogleDesTests().fetch }));
+  return avecVerrouAgendaTest(creerPorteAgenda({ jeton: (a) => jetonAgendaPour(a, { fetch }), fetch }));
+}
+
+/**
+ * 🔴🔴 Arno (14/11/2026) — PRÉAVIS DE TEST : dans son périmètre (`perimetreTest.ts`), l'agenda Google n'est écrit QUE dans l'agenda du créateur
+ * du test ; tout autre agenda est refusé (jamais d'agenda partagé hors de ce compte). Hors périmètre : la porte telle quelle.
+ */
+export function avecVerrouAgendaTest(p: PorteAgenda): PorteAgenda {
+  const refus = (agenda: string): { ok: false; sorte: 'echec'; motif: string } | null => {
+    const t = perimetreCourant();
+    return t !== null && agenda.trim().toLowerCase() !== t.createurEmail.trim().toLowerCase()
+      ? { ok: false, sorte: 'echec', motif: 'Préavis de test : seul l’agenda du créateur du test peut être écrit.' } : null;
+  };
+  return {
+    creer: async (a, t, e) => refus(a) ?? p.creer(a, t, e),
+    modifier: async (a, id, t, e) => refus(a) ?? p.modifier(a, id, t, e),
+    supprimer: async (a, id, t) => refus(a) ?? p.supprimer(a, id, t),
+    chercher: (a, t) => p.chercher(a, t),
+    listerNotres: (a) => p.listerNotres(a),
+  };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

@@ -11,7 +11,7 @@ import {
 } from './reinitialisation';
 import { adresseApplication } from '../gestion/adresseApplication';
 import { chargerConfigGestion } from '../gestion/config';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 
 /**
  * ══ 🔴🔴 « MOT DE PASSE OUBLIÉ » DE L'ADMINISTRATION (Arno, 24/10/2026, migration 416) — LE DÉPÔT ═════════════════════════════
@@ -101,7 +101,7 @@ export async function demanderReinitialisation(adresseBrute: unknown, o: {
     try {
       const de = (await chargerConfigGestion()).adresseGestion;
       const corps = corpsReinitialisation({ prenom: compte.prenom ?? '', identifiant: compte.identifiant, lien: lienReinitialisation(base, pose.jeton) });
-      const r = await (o.transport ?? transportParDefaut(env)).envoyer({
+      const r = await avecVerrouTest(o.transport ?? transportParDefaut(env)).envoyer({
         de, deNom: 'Sans Vis-à-Vis — Gestion', a: [compte.identifiant], cc: [], cci: [], objet: OBJET_REINITIALISATION,
         corps: corps.texte, corpsHtml: corps.html, messageId: messageIdReinitialisation(de.split('@')[1] ?? '', randomBytes(12).toString('hex')),
       });

@@ -1,3 +1,4 @@
+import { sqlHorsTest } from './preavisTestSonde';
 import { query } from '../db/client';
 import { colonneExisteMemo } from './sondeLocation';
 
@@ -19,6 +20,7 @@ export async function locatairesEnPreavis(
        JOIN gestion_annuaire_occupation o ON o.id = p.occupation_id
       WHERE p.remplace_le IS NULL AND p.annule_le IS NULL AND o.sortie IS NULL
         AND o.locataire_id = ANY($1::bigint[]) AND ($2::bigint IS NULL OR o.lot_id = $2::bigint)
+        AND ${await sqlHorsTest('o.lot_id')}
       GROUP BY o.locataire_id`, [ids, o.lotId ?? null]);
   const m: Record<string, string> = {};
   for (const r of rows) m[r.locataire_id] = r.date_max;

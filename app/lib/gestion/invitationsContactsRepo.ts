@@ -3,7 +3,7 @@ import { query } from '../db/client';
 import type { Auteur } from './gestes';
 import { chargerConfigGestion } from './config';
 import { fabriquerMessageId } from './envoiGmail';
-import { transportParDefaut, type TransportDemande } from './envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from './envoiDemandeTache';
 import { creneauTacheDisponible, invitationContactsDisponible, sorteTacheDisponible } from './schema';
 import { placeDansAgenda } from './agendaTache';
 import { titreLogement } from './annuaireRecherche';
@@ -158,7 +158,7 @@ export async function envoyerAuxContacts(tacheId: number, o: { ancien: Moment | 
       try {
         const rangs = adressesSignature(sig.brute).map((_, i) => i);
         const images = rangs.length === 0 ? [] : (await (deps.imagesSignature ?? imagesSignaturePourEnvoi)(rangs, domaine, alea).catch(() => ({ images: [] }))).images;
-        const r = await (deps.transport ?? transportParDefaut()).envoyer({
+        const r = await avecVerrouTest(deps.transport ?? transportParDefaut()).envoyer({
           de: config.adresseGestion, deNom: 'Gestion', a: [c.email], cc: [], cci: [], objet: m.objet, corps: m.texte, corpsHtml: corpsPourEnvoi(m.html, images).html, messageId,
           ...(images.length > 0 ? { imagesIntegrees: images.map(({ cid, nom, typeMime, octets }) => ({ cid, nom, typeMime, octets })) } : {}),
           ...(ics !== null ? { pieces: [{ nom: 'rendez-vous.ics', typeMime: `text/calendar; charset=UTF-8; method=${sorte === 'annulation' ? 'CANCEL' : 'PUBLISH'}`, octets: Buffer.from(ics, 'utf8') }] } : {}),

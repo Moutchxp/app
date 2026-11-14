@@ -1,10 +1,11 @@
+import { filtrerPourTest, perimetreCourant } from './perimetreTest';
 import { randomBytes } from 'node:crypto';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { fabriquerMessageId } from '../gestion/envoiGmail';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 import { htmlVersTexte } from '../gestion/htmlMail';
 import { adressesSignature, corpsPourEnvoi, signaturePourEcran, type ImageSignature } from '../gestion/signatureImages';
 import { imagesSignaturePourEnvoi, signatureHtmlDeGestion } from '../gestion/signatureImagesReel';
@@ -206,7 +207,19 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
     /** 🔴 Arno (11/11/2026, 467) — les propriétaires que ces mails concernent (historique du propriétaire). */
     proprietaireIds?: readonly number[] }, deps: DepsAvis): Promise<EnvoiAvis[]> {
   const issues: EnvoiAvis[] = [];
-  for (const m of mails) {
+  for (const m0 of mails) {
+    // 🔴 Arno (14/11/2026, 473) — PRÉAVIS DE TEST : le mail est ramené AVANT l'envoi à ce qui peut partir (le seul créateur, « [TEST] ») ; le
+    // journal et l'historique disent donc ce qui est VRAIMENT parti. Plus personne : rien ne part, l'échec est dit et journalisé.
+    const p = perimetreCourant();
+    const f = p === null ? null : filtrerPourTest({ ...m0, cci: [] as string[] }, p);
+    if (f !== null && !f.ok) {
+      for (const cible of [o, ...(o.autres ?? [])]) {
+        await journaliserAvis(m0, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: 'echec', erreur: f.motif, messageId: null });
+      }
+      issues.push({ sorte: m0.sorte, objet: m0.objet, a: m0.a, cc: m0.cc, texte: m0.texte, envoye: false, motif: f.motif });
+      continue;
+    }
+    const m = f === null ? m0 : { ...m0, a: f.message.a, cc: f.message.cc, objet: f.message.objet };
     const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte };
     try {
       const domaine = m.de.split('@')[1] ?? 'criterimmo.fr';
@@ -215,7 +228,7 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
       const rangs = adressesSignature(brute).map((_, i) => i);
       const images = rangs.length === 0 ? [] : (await (deps.imagesSignature ?? imagesSignaturePourEnvoi)(rangs, domaine, alea).catch(() => ({ images: [] }))).images;
       const html = corpsPourEnvoi(m.html, images).html;
-      const r = await (deps.transport ?? transportParDefaut()).envoyer({
+      const r = await avecVerrouTest(deps.transport ?? transportParDefaut()).envoyer({
         de: m.de, deNom: 'Gestion', a: m.a, cc: m.cc, cci: [], objet: m.objet, corps: m.texte, corpsHtml: html, messageId,
         ...(images.length > 0 ? { imagesIntegrees: images.map(({ cid, nom, typeMime, octets }) => ({ cid, nom, typeMime, octets })) } : {}),
         // 🔴 Arno (10/11/2026, pré-visite) — l'invitation d'agenda jointe ; aucun autre mail n'en porte (rien ne change pour eux).

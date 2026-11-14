@@ -1,3 +1,4 @@
+import { sqlHorsTest } from '../location/preavisTestSonde';
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { query, withTransaction, type RequeteTx } from '../db/client';
@@ -262,12 +263,14 @@ export const OUVERTES_MAX = 1000;
  */
 export async function listerTaches(lotId: number | null): Promise<{ taches: Tache[]; tronque: boolean }> {
   const SQL = sqlTache(await contactsTacheDisponible(), await piecesTacheDisponible(), await acceptationTacheDisponible());
+  // 🔴 Arno (14/11/2026, 473) — le récapitulatif GÉNÉRAL (tâches de tous) ne montre jamais celles d'un préavis de TEST (son créateur les a dans « Mes tâches »)
+  const horsTest = lotId === null ? ` AND (t.lot_id IS NULL OR ${await sqlHorsTest('t.lot_id')})` : '';
   const [o, t] = await Promise.all([
     query<LigneTache>(
-      `${SQL} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
+      `${SQL} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)${horsTest}
         ORDER BY t.jour, t.heure NULLS FIRST, t.id LIMIT ${OUVERTES_MAX + 1}`, [lotId]),
     query<LigneTache>(
-      `${SQL} WHERE t.etat <> 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
+      `${SQL} WHERE t.etat <> 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)${horsTest}
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;

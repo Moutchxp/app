@@ -3,7 +3,7 @@ import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
 import { adresseApplication } from '../gestion/adresseApplication';
-import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
+import { avecVerrouTest, transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
 import { messageIdDemande } from '../gestion/acceptationTache';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { honorairesMensuels, tvaEnVigueur, type BaseHonoraires } from '../gestion/honorairesGestion';
@@ -245,7 +245,7 @@ export async function notifierPortefeuille(
     } else {
       const config = await chargerConfigGestion();
       const domaine = config.adresseGestion.split('@')[1] ?? 'criterimmo.fr';
-      const r = await (deps.transport ?? transportParDefaut()).envoyer({
+      const r = await avecVerrouTest(deps.transport ?? transportParDefaut()).envoyer({
         de: config.adresseGestion, deNom: 'Gestion', a: destinataires, cc: [], cci: [], objet,
         corps: texteMail(donnees), corpsHtml: htmlMail(donnees), messageId: messageIdDemande(domaine, randomBytes(12).toString('hex')),
       });

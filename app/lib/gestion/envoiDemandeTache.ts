@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { construireRfc822, envoyerViaGmail, type MessageAEnvoyer } from './envoiGmail';
 import { lireIdentifiants, rafraichirJeton } from './google';
 import { lireJeton } from './googleJeton';
+import { filtrerPourTest, perimetreCourant } from '../location/perimetreTest';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE TRANSPORT DU MAIL DE DEMANDE ═════════════════════════════════════════════════
@@ -37,7 +38,29 @@ export const transportReel: TransportDemande = {
   },
 };
 
+/**
+ * 🔴🔴 Arno (14/11/2026) — LE VERROU DES PRÉAVIS DE TEST, AU DERNIER POINT AVANT LE RÉSEAU : dans le périmètre d'un test (`perimetreTest.ts`),
+ * le message ne part QU'À l'adresse du créateur du test (tout autre destinataire est retiré ; plus personne : rien ne part), objet « [TEST] ».
+ * Hors périmètre : le message est transmis tel quel.
+ */
+export function avecVerrouTest(t: TransportDemande): TransportDemande {
+  return {
+    async envoyer(m) {
+      const p = perimetreCourant();
+      if (p === null) return t.envoyer(m);
+      const f = filtrerPourTest(m, p);
+      if (!f.ok) return { ok: false, motif: f.motif };
+      return t.envoyer(f.message);
+    },
+  };
+}
+
 /** Sous les tests, TOUJOURS factice. Ailleurs, le transport réel (que le réglage autorise ou non à utiliser). */
-export function transportParDefaut(env: Record<string, string | undefined> = process.env): TransportDemande {
+export function transportDeBase(env: Record<string, string | undefined> = process.env): TransportDemande {
   return env.VITEST || env.NODE_ENV === 'test' ? transportFactice : transportReel;
+}
+
+/** Le transport de l'application : celui de base, TOUJOURS derrière le verrou des préavis de test. */
+export function transportParDefaut(env: Record<string, string | undefined> = process.env): TransportDemande {
+  return avecVerrouTest(transportDeBase(env));
 }

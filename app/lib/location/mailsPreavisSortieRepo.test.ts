@@ -539,3 +539,25 @@ describe('🔴 Arno (11/11/2026, 468) — les pièces jointes partent avec le ma
     expect(envoyes).toHaveLength(1);
   });
 });
+
+describe('🔴🔴 Arno (14/11/2026, 473) — PRÉAVIS DE TEST : dans son périmètre, AUCUN mail du préavis ne part ailleurs qu’à l’adresse du créateur', () => {
+  it('locataires, partenaires (ADHOC…), gestion@ : retirés ; un mail sans le créateur ne part pas ; objet « [TEST] » ; même avec un transport injecté', async () => {
+    const { avecPerimetreTest } = await import('./perimetreTest');
+    const createur = 'a.jorel@sansvisavis.com';
+    const r = await avecPerimetreTest({ testId: 1, createurEmail: createur }, () => envoyerMailsPreavis(DEMANDE, AUTEUR, deps, true));
+    expect(r.etat).toBe('ok');
+    expect(envoyes.length).toBeGreaterThan(0);
+    for (const m of envoyes) {
+      expect([...m.a, ...m.cc, ...m.cci].map((x) => x.toLowerCase())).toEqual([createur]);
+      expect(m.objet.startsWith('[TEST] ')).toBe(true);
+    }
+    // les accusés aux (vrais) locataires de cette épreuve n'avaient pas le créateur : ils ne sont PAS partis, l'échec est dit et journalisé
+    expect(envoyes.some((m) => /alice|paul/i.test([...m.a, ...m.cc].join(' ')))).toBe(false);
+    expect(r.etat === 'ok' && r.envois.filter((e) => !e.envoye).every((e) => /créateur du test/.test(e.motif ?? ''))).toBe(true);
+    expect(r.etat === 'ok' && r.envois.some((e) => !e.envoye)).toBe(true);
+    // le journal dit ce qui est VRAIMENT parti : aucun destinataire autre que le créateur sur une ligne « envoyé »
+    for (const e of journalAvis().filter((x) => x.params[9] === 'envoye')) {
+      expect([...(e.params[4] as string[]), ...(e.params[5] as string[])].map((x) => x.toLowerCase())).toEqual([createur]);
+    }
+  });
+});

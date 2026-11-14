@@ -9,6 +9,7 @@ import {
   type PreavisAffiche, type RegleZoneTendue,
 } from './preavis';
 import { edlsDesOccupations, edlsDisponible } from './edlsRepo';
+import { testDisponible } from './preavisTestSonde';
 
 /**
  * ══ 🔴🔴 LE PRÉAVIS DU LOCATAIRE (Arno, 18/10/2026). IMPUR (base). ═════════════════════════════════════════════════════
@@ -221,29 +222,43 @@ export async function annulerPreavis(d: { preavisId: number }, auteur: Auteur): 
  * Les préavis EN COURS (ouverts, occupation sans sortie), une ligne par préavis : les locataires d'un même bail reçus
  * ensemble avec la même fin (même lot, même entrée, même réception, même date maximale). Sans la migration 383 : aucun.
  */
-export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLieux: boolean; planification: boolean; lignes: LignePreavisAccueil[] }> {
+export async function preavisEnCours(
+  /**
+   * 🔴 Arno (14/11/2026, 473) — LES PRÉAVIS DE TEST : `aucun` (défaut : compteurs, pastilles, alertes, listes des autres, Gestion) ;
+   * `{ visiteur }` : ceux de CE compte seulement (son accueil et sa pleine page, badge « TEST ») ; `tous` : tous les tests actifs (l'invitation
+   * de début de pré-visite, dans le périmètre de chaque test). Un test supprimé (masqué) n'apparaît jamais.
+   */
+  o: { tests?: 'aucun' | 'tous' | { visiteur: number | null } } = {},
+): Promise<{ disponible: boolean; etatDesLieux: boolean; planification: boolean; lignes: LignePreavisAccueil[] }> {
   if (!(await preavisDisponible())) return { disponible: false, etatDesLieux: false, planification: false, lignes: [] };
   const avecEdl = await etatDesLieuxDisponible();
   // Arno (20/10/2026, 393) : « même bail » se lit par bail_id ; sans la 393, par « même lot + même date d'entrée ».
   const avecBail = await bailDisponible();
+  const avecTest = await testDisponible();
+  const choixTests = o.tests ?? 'aucun';
+  const visiteur = typeof choixTests === 'object' ? choixTests.visiteur : null;
+  const filtreTest = !avecTest ? '' : choixTests === 'aucun' || (typeof choixTests === 'object' && visiteur === null) ? ' AND t.id IS NULL'
+    : choixTests === 'tous' ? ' AND (t.id IS NULL OR t.supprime_le IS NULL)' : ' AND (t.id IS NULL OR (t.supprime_le IS NULL AND t.createur_id = $1))';
   const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; lot_id: string; entree: string | null; recu_le: string;
-    date_max: string; adresse: string | null; edl: string | null; bail_id: string | null }>(
+    date_max: string; adresse: string | null; edl: string | null; bail_id: string | null; test_id: string | null }>(
     `SELECT p.occupation_id::text, o.locataire_id::text, l.nom, o.lot_id::text, o.entree::text, p.recu_le::text, p.date_max::text,
             ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS adresse,
-            ${avecEdl ? 'o.etat_des_lieux_prevu_le::text' : 'NULL::text'} AS edl
+            ${avecEdl ? 'o.etat_des_lieux_prevu_le::text' : 'NULL::text'} AS edl, ${avecTest ? 't.id::text' : 'NULL::text'} AS test_id
        FROM gestion_location_preavis p
        JOIN gestion_annuaire_occupation o ON o.id = p.occupation_id
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
        JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
-      WHERE p.remplace_le IS NULL AND p.annule_le IS NULL AND o.sortie IS NULL
-      ORDER BY p.date_max, o.lot_id, l.nom_normalise, o.id`);
+       ${avecTest ? 'LEFT JOIN gestion_location_preavis_test t ON t.lot_id = o.lot_id' : ''}
+      WHERE p.remplace_le IS NULL AND p.annule_le IS NULL AND o.sortie IS NULL${filtreTest}
+      ORDER BY p.date_max, o.lot_id, l.nom_normalise, o.id`, filtreTest.includes('$1') ? [visiteur] : []);
   const groupes = new Map<string, LignePreavisAccueil>();
   for (const r of rows) {
     const cle = `${r.bail_id !== null ? `bail:${r.bail_id}` : `${r.lot_id}|${r.entree ?? ''}`}|${r.recu_le}|${r.date_max}`;
     const g = groupes.get(cle) ?? {
       cle, lotId: Number(r.lot_id), adresse: r.adresse, occupationId: Number(r.occupation_id), occupationIds: [], locataires: [],
       recuLe: r.recu_le, dateMax: r.date_max, etatDesLieuxLe: r.edl,
+      ...(r.test_id ? { test: true, testId: Number(r.test_id) } : {}),
     };
     g.occupationIds.push(Number(r.occupation_id));
     g.locataires.push({ occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom });

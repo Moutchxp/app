@@ -1,3 +1,4 @@
+import { dansLePerimetreDuTest } from '../../../../lib/location/perimetreRequete';
 import 'server-only';
 import { deposerVocal, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
 import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location/photosCompteRenduRepo';
@@ -45,6 +46,10 @@ import {
 import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, envoyerMailsSortie, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, logementDe, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
+import { perimetreCourant } from '../../../../lib/location/perimetreTest';
+import { creerPreavisTest, supprimerPreavisTest, testDisponible } from '../../../../lib/location/preavisTestRepo';
+import { planifierInvitationTest } from '../../../../lib/location/preavisTestInvitation';
+import { exigerAdministrateur } from '../../../../lib/admin/garde';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
 import { planifierBail } from '../../../../lib/location/regroupement';
 import { conditionsEntreeDisponible, schemaConditionsEntree } from '../../../../lib/location/conditionsEntreeRepo';
@@ -137,7 +142,13 @@ export async function GET(request: Request): Promise<Response> {
     }
     // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
     // 🔴 Arno (10/11/2026, 464) — avec le statut de pré-visite de chaque ligne (sans la 464 : les lignes telles quelles).
-    if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await avecPrevisites(await preavisEnCours()) }, { headers: ENTETES });
+    // 🔴 Arno (14/11/2026, 473) — + les préavis de TEST de la personne connectée (badge « TEST »), jamais ceux des autres.
+    if (p('preavisEnCours') !== null) {
+      const moi = await auteurDeLaRequete(request);
+      const lignes = await avecPrevisites(await preavisEnCours({ tests: { visiteur: moi.id } }));
+      const administrateur = !('refus' in (await exigerAdministrateur(request)));
+      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() } } }, { headers: ENTETES });
+    }
     // 🔴 Arno (10/11/2026) — les collègues destinataires d'une pré-visite (accès Gestion et/ou Location, Workspace ; moi en tête) — LECTURE SEULE.
     if (p('previsiteCollegues') !== null) {
       return Response.json({ etat: 'ok', data: await collegesPrevisite((await auteurDeLaRequete(request)).id) }, { headers: ENTETES });
@@ -332,7 +343,7 @@ function journaliserEchec(compte: string, action: string, ecranDemande: unknown,
   console.warn(ligneJournalEchec({ compte, ecran, action: action || '—', cause, raison }));
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function postLocation(request: Request): Promise<Response> {
   const garde = await exigerLocation(request);
   if ('refus' in garde) {
     // Le refus de la garde (droit « Location » absent, compte inactif, session expirée) : journalisé pour les créations.
@@ -369,8 +380,26 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(x, { headers: ENTETES });
   };
   const incomplet = (): Response => Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
+  // 🔴 Arno (14/11/2026, 473) — dans un préavis de TEST, la pré-visite et l'état des lieux ne se confient qu'à son créateur (vous) : jamais un collègue.
+  const test = perimetreCourant();
+  const refusTest = (motif: string): Response => Response.json({ etat: 'refus', motif }, { status: 403, headers: ENTETES });
+  const seulementMoi = (xs: readonly (number | null)[]): boolean => xs.length > 0 && xs.every((x) => x !== null && x === auteur.id);
   try {
     switch (action) {
+      // ══ 🔴🔴 LE PRÉAVIS DE TEST (Arno, 14/11/2026, 473) — RÉSERVÉ AUX ADMINISTRATEURS (rôle relu en base). Bien et locataire fictifs, mails au
+      //    seul créateur ; « Supprimer » annule et MASQUE (rien n'est effacé).
+      case 'creer-preavis-test': {
+        const admin = await exigerAdministrateur(request);
+        if ('refus' in admin) return admin.refus;
+        return repondre(await creerPreavisTest(auteur));
+      }
+      case 'supprimer-preavis-test': {
+        const admin = await exigerAdministrateur(request);
+        if ('refus' in admin) return admin.refus;
+        const testId = identifiant(corps.testId);
+        if (testId === null) return incomplet();
+        return repondre(await supprimerPreavisTest(testId, auteur));
+      }
       case 'modifier':
         if (sujet === null || id === null) return incomplet();
         return repondre(await modifierPersonne(sujet, id, (corps.champs ?? {}) as Parameters<typeof modifierPersonne>[2], auteur));
@@ -644,6 +673,7 @@ export async function POST(request: Request): Promise<Response> {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
         const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
         const confieA = identifiant(corps.confieA);
+        if (test !== null && !seulementMoi([confieA])) return refusTest('Préavis de test : l’état des lieux ne se confie qu’à vous (créateur du test).');
         const r = action === 'planifier-edls'
           ? await planifierEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA, commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null }, auteur)
           : action === 'deplacer-edls'
@@ -674,6 +704,9 @@ export async function POST(request: Request): Promise<Response> {
       case 'deplacer-previsite':
       case 'reaffecter-previsite': {
         const occs = idsOccupations(corps.occupationIds);
+        if (test !== null && action !== 'deplacer-previsite' && !seulementMoi(idsOccupations(corps.destinataires))) {
+          return refusTest('Préavis de test : la pré-visite ne se confie qu’à vous (créateur du test) — jamais à un collègue.');
+        }
         // 🔴 Arno (10/11/2026) — le texte modifié du mail aux locataires : lu, puis CONTRÔLÉ (même code que l'aperçu) AVANT d'écrire le rendez-vous.
         const rtP = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREVISITE);
         if (!rtP.ok) return Response.json({ etat: 'refus', motif: rtP.motif }, { status: 400, headers: ENTETES });
@@ -691,6 +724,8 @@ export async function POST(request: Request): Promise<Response> {
         const collegues = await envoyerAuxInvites(request, r.demandes);
         const agenda = await synchroniserApresGeste(r.data.tacheId);
         const locataires = action === 'reaffecter-previsite' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur, {}, rtP.retouches);
+        // 🔴 Arno (14/11/2026, 473) — préavis de TEST : l'invitation de début de pré-visite part À L'HEURE DE DÉBUT (sans attendre la minuterie).
+        if (test !== null && action !== 'reaffecter-previsite' && r.data.rdv) planifierInvitationTest(r.data.rdv);
         return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
       }
       case 'apercu-compte-rendu-previsite':
@@ -736,4 +771,14 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(
       { etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503 });
   }
+}
+
+/**
+ * 🔴🔴 Arno (14/11/2026, 473) — toute écriture de la Location s'exécute dans le PÉRIMÈTRE du préavis de test qu'elle touche (mails au seul
+ * créateur du test, agenda du seul créateur) ; un test mêlé à de vrais biens : refus. Les droits sont vérifiés avant (garde), puis dans la route.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const garde = await exigerLocation(request);
+  if ('refus' in garde) return postLocation(request);
+  return dansLePerimetreDuTest(request, () => postLocation(request));
 }
