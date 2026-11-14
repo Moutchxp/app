@@ -1,4 +1,5 @@
-import { MOTIF_REFUS_SORTIE, sortieSmtp } from '../recette/gardeSortie';
+import { envoiReelPermis, etatEnvoiReel, MOTIF_REFUS_SORTIE, sortieSmtp } from '../recette/gardeSortie';
+import { hostname } from 'node:os';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { ENTETE_AUTO_EMISSION, VALEUR_AUTO_EMISSION } from './enteteAuto';
@@ -87,7 +88,7 @@ const cache = new Map<string, Transporter>();
 export function obtenirTransporteur(compte: CompteSmtp): Transporter {
   // MODE RECETTE (lot RECETTE-MAC) : AUCUN mail réel. Le message est fabriqué (jsonTransport, zéro octet sur le réseau)
   // puis déposé dans la boîte de test ; l'appelant reçoit une réponse « acceptée » comme d'un vrai serveur.
-  if (modeRecette()) return transporteurRecette();
+  if (modeRecette()) return transporteurRecette(compte);
   // 🔴 Arno (15/11/2026) — ni la production ni la recette (Mac en `npm run dev`, base de recette sans le mode) : RIEN ne part, refus journalisé.
   if (sortieSmtp() === 'refus') return transporteurRefuse();
   const cle = `${compte.host}:${compte.port}:${compte.user}`;
@@ -114,10 +115,19 @@ function transporteurRefuse(): Transporter {
 }
 
 /** Transporteur de RECETTE : même interface, rien ne part ; chaque message va dans la boîte de test. */
-function transporteurRecette(): Transporter {
+function transporteurRecette(compte?: CompteSmtp): Transporter {
   const json = nodemailer.createTransport({ jsonTransport: true });
   const sendMail = (async (message: Parameters<Transporter['sendMail']>[0]) => {
     const info = await json.sendMail(message);
+    // 🔴 Arno (15/11/2026) — l'exception d'envoi réel (`RECETTE_ENVOI_REEL_VERS`, base svav_recette) : TOUS les destinataires de l'enveloppe
+    // (À, Cc, Cci) sont l'adresse permise → le vrai serveur ; sinon, intercepté EN ENTIER, comme toujours.
+    const enveloppe = ((info as { envelope?: { to?: string[] } }).envelope?.to ?? []).map((x) => String(x).toLowerCase());
+    const permis = etatEnvoiReel(process.env, hostname());
+    if (compte && envoiReelPermis(enveloppe, permis)) {
+      const reel = await nodemailer.createTransport({ host: compte.host, port: compte.port, secure: compte.port === 465, auth: { user: compte.user, pass: compte.pass } }).sendMail(message);
+      deposerDansBoite({ canal: 'smtp', issue: 'envoye_reel', a: permis.actif ? permis.adresse : null, objet: String((message as { subject?: unknown }).subject ?? '') || null });
+      return reel;
+    }
     let m: { to?: { address?: string }[]; cc?: { address?: string }[]; subject?: string; text?: string; attachments?: { filename?: string }[] } = {};
     try { m = JSON.parse(String((info as { message?: unknown }).message ?? '{}')); } catch { /* aperçu indisponible */ }
     const adresses = [...(m.to ?? []), ...(m.cc ?? [])].map((x) => x.address).filter(Boolean) as string[];

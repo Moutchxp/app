@@ -47,6 +47,11 @@ export async function demarrerServeurNode(deps: DependancesDemarrage = PROCESSUS
         deps.sortir(1); return;
       }
       console.warn('\x1b[43m\x1b[30m RECETTE — aucun envoi réel \x1b[0m mails, agenda et Drive interceptés (auto-contrôle réussi) ; boîte de test : /admin/recette');
+      // 🔴 Arno (15/11/2026) — l'exception d'envoi réel de la recette, dite au démarrage (permise ou refusée, jamais en silence)
+      const { etatEnvoiReel } = await import('./gardeSortie');
+      const reel = etatEnvoiReel(env, deps.nomMachine());
+      if (reel.actif) console.warn(`\x1b[41m\x1b[37m RECETTE — ENVOIS RÉELS AUTORISÉS \x1b[0m vers ${reel.adresse} SEULEMENT (tout autre mail, l’agenda et le Drive restent interceptés)`);
+      else if (reel.demande) console.error(`\x1b[41m\x1b[37m ENVOI RÉEL REFUSÉ \x1b[0m RECETTE_ENVOI_REEL_VERS ignorée (${reel.refus}) : tout reste intercepté.`);
     } else if (politique === 'refus') {
       // 🔴 Arno (15/11/2026) — ni la production, ni la recette (un Mac en `npm run dev`, une base de recette sans le mode) : AUCUNE écriture
       // réelle (Gmail, agenda, Drive, SMTP) — refusée et journalisée. Jamais l'inverse.

@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { THEME_DEFAUT } from '../lib/admin/theme';
 import { modeRecette, modeReelLocal, TEXTE_MODE_REEL } from '../lib/recette/mode';
+import { etatEnvoiReel } from '../lib/recette/gardeSortie';
+import { hostname } from 'node:os';
 
 /** L'interface admin ne doit jamais être indexée (EX-1, isolation du public). */
 export const metadata: Metadata = {
@@ -20,17 +22,22 @@ export default function AdminGroupLayout({ children }: { children: React.ReactNo
     <div className="svv-adm-root" data-theme={THEME_DEFAUT} suppressHydrationWarning>
       {/* MODE RECETTE (lot RECETTE-MAC) : bandeau sur TOUTES les pages de l'admin locale, connexion comprise. Jamais en
           production (`modeRecette()` y est toujours faux, cf. app/lib/recette/mode.ts). */}
-      {modeRecette() && (
+      {modeRecette() && (() => {
+        // 🔴 Arno (15/11/2026) — l'exception d'envoi réel (`RECETTE_ENVOI_REEL_VERS`) : le bandeau passe au ROUGE et nomme l'adresse permise.
+        const reel = etatEnvoiReel(process.env, hostname());
+        return (
         <div
           id="bandeau-recette"
           role="status"
-          style={{ background: 'var(--color-svv-ink)', color: '#fff', padding: '.5rem 1rem', textAlign: 'center', fontWeight: 800, fontSize: '.9rem', letterSpacing: '.02em' }}
+          data-envoi-reel={reel.actif ? reel.adresse : undefined}
+          style={{ background: reel.actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)', color: '#fff', padding: '.5rem 1rem', textAlign: 'center', fontWeight: 800, fontSize: '.9rem', letterSpacing: '.02em' }}
         >
-          RECETTE — aucun envoi réel
-          <span style={{ fontWeight: 400 }}> · mails, agenda et Drive interceptés · </span>
+          {reel.actif ? `RECETTE — envois réels autorisés vers ${reel.adresse}` : 'RECETTE — aucun envoi réel'}
+          <span style={{ fontWeight: 400 }}>{reel.actif ? ' · tout autre mail, l’agenda et le Drive interceptés · ' : ' · mails, agenda et Drive interceptés · '}</span>
           <a href="/admin/recette" style={{ color: '#fff', textDecoration: 'underline' }}>boîte de test</a>
         </div>
-      )}
+        );
+      })()}
       {/* 🔴 Arno (11/11/2026) — HORS mode recette sur une machine qui n'est pas la production (le Mac) : un bandeau ROUGE, sur TOUTES les
           pages de l'admin, connexion comprise. Jamais en production (`modeReelLocal()` y est toujours faux, cf. app/lib/recette/mode.ts). */}
       {modeReelLocal() && (

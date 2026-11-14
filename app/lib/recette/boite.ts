@@ -12,7 +12,8 @@ import path from 'node:path';
 export interface EntreeBoite {
   quand: string;
   canal: 'smtp' | 'gmail_envoi' | 'gmail_ecriture' | 'agenda' | 'drive' | 'google_lot';
-  issue: 'intercepte' | 'simule' | 'refuse';
+  /** 🔴 `envoye_reel` (15/11/2026) : parti pour de vrai au titre de l'exception `RECETTE_ENVOI_REEL_VERS` (tous les destinataires = l'adresse permise). */
+  issue: 'intercepte' | 'simule' | 'refuse' | 'envoye_reel';
   a?: string | null;
   objet?: string | null;
   apercu?: string | null;

@@ -19,6 +19,7 @@ const { creerPorteAgenda } = await import('../gestion/agendaGoogle');
 const { creerDossier } = await import('../gestion/driveCreation');
 const { obtenirTransporteur } = await import('../email');
 const { demarrerServeurNode } = await import('./demarrageNode');
+const { etatEnvoiReel, destinatairesDuMessage, envoiReelPermis } = await import('./garde');
 const { CLE_MARQUE, CLE_TACHE, MARQUE_APPLICATION } = await import('../gestion/agendaTache');
 /** Un événement de tâche tel que l'application le pose (marque privée + numéro de tâche). */
 const evenement = (tacheId: number) => ({ summary: 'Pré-visite', start: { dateTime: '2026-11-15T10:00:00+01:00' }, end: { dateTime: '2026-11-15T10:15:00+01:00' },
@@ -161,5 +162,79 @@ describe('🔴 3. l’auto-contrôle de démarrage', () => {
     expect(sortir).not.toHaveBeenCalled();
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('auto-contrôle réussi'));
     expect(reseau).toEqual([]);
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026) — l’exception d’envoi réel de la recette : RECETTE_ENVOI_REEL_VERS', () => {
+  const MOI = 'a.jorel@sansvisavis.com';
+  const AVEC = { ...RECETTE, RECETTE_ENVOI_REEL_VERS: MOI };
+  const raw = (entetes: string) => JSON.stringify({ raw: Buffer.from(`${entetes}\r\nSubject: [TEST] Essai\r\n\r\ncorps`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_') });
+  const envoyer = () => fetchSortant(faux);
+  const URL_ENVOI = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send';
+
+  it('désactivée par défaut ; refusée si la base n’est pas svav_recette, hors mode recette, ou adresse illisible', () => {
+    expect(etatEnvoiReel(RECETTE)).toEqual({ actif: false, demande: false });
+    expect(etatEnvoiReel(AVEC)).toEqual({ actif: true, adresse: MOI });
+    expect(etatEnvoiReel({ ...AVEC, DATABASE_URL: 'postgres://u@localhost/sansvisavis' })).toMatchObject({ actif: false, refus: 'la base n’est pas svav_recette' });
+    expect(etatEnvoiReel({ ...AVEC, DATABASE_URL: 'postgres://u@localhost/svav_test_gestion' })).toMatchObject({ actif: false });
+    expect(etatEnvoiReel({ ...AVEC, SVAV_RECETTE: '' })).toMatchObject({ actif: false, refus: 'le mode recette n’est pas actif' });
+    expect(etatEnvoiReel({ ...AVEC, RECETTE_ENVOI_REEL_VERS: 'pas-une-adresse' })).toMatchObject({ actif: false, refus: 'adresse illisible' });
+  });
+  it('destinataires : À, Cc, Cci (et en-têtes repliés) ; illisible → null (le doute intercepte)', () => {
+    expect(destinatairesDuMessage('To: "Arno" <A.Jorel@sansvisavis.com>\r\nCc: x@y.fr,\r\n z@w.fr\r\nBcc: b@c.fr\r\n\r\ncorps')).toEqual([MOI, 'x@y.fr', 'z@w.fr', 'b@c.fr']);
+    expect(destinatairesDuMessage('To: groupe: a@b.fr;\r\n\r\nc')).toBeNull();
+    expect(destinatairesDuMessage('To: sans-arobase\r\n\r\nc')).toBeNull();
+    expect(envoiReelPermis([], { actif: true, adresse: MOI })).toBe(false);
+  });
+  it('🔴 TOUS les destinataires = l’adresse permise : le mail part pour de vrai (une trace « envoyé pour de vrai » dans la boîte)', async () => {
+    poserEnv(AVEC);
+    await envoyer()(URL_ENVOI, { method: 'POST', body: raw(`To: ${MOI}`) });
+    expect(reseau).toEqual([`POST ${URL_ENVOI}`]);
+    expect(depots).toEqual([expect.objectContaining({ canal: 'gmail_envoi', issue: 'envoye_reel', a: MOI, objet: '[TEST] Essai' })]);
+  });
+  it('🔴 un SEUL autre destinataire (À, Cc ou Cci) : intercepté EN ENTIER — aucun envoi partiel', async () => {
+    poserEnv(AVEC);
+    for (const e of [`To: ${MOI}, collegue@sansvisavis.com`, `To: ${MOI}\r\nCc: gestion@criterimmo.fr`, `To: ${MOI}\r\nBcc: client@exemple.fr`, 'To: collegue@sansvisavis.com',
+      `To: ${MOI}.pirate.fr`, `To: x${MOI}`]) {
+      const r = await envoyer()(URL_ENVOI, { method: 'POST', body: raw(e) });
+      expect(((await r.json()) as { id: string }).id).toMatch(/^recette-/);
+    }
+    expect(reseau).toEqual([]);
+    expect(depots.every((d) => d.issue === 'intercepte')).toBe(true);
+  });
+  it('🔴 l’agenda et le Drive restent TOUJOURS interceptés, même vers l’adresse permise', async () => {
+    poserEnv(AVEC);
+    await envoyer()('https://www.googleapis.com/calendar/v3/calendars/a.jorel%40sansvisavis.com/events', { method: 'POST', body: JSON.stringify({ attendees: [{ email: MOI }] }) });
+    await envoyer()('https://www.googleapis.com/drive/v3/files', { method: 'POST', body: '{}' });
+    expect(reseau).toEqual([]);
+  });
+  it('base qui n’est pas svav_recette : l’exception est ignorée, tout reste intercepté', async () => {
+    poserEnv({ ...AVEC, DATABASE_URL: 'postgres://u@localhost/svav_recette_copie' });
+    await envoyer()(URL_ENVOI, { method: 'POST', body: raw(`To: ${MOI}`) });
+    expect(reseau).toEqual([]);
+  });
+  it('le fetch GLOBAL (accesseur de la recette) applique la même exception', async () => {
+    poserEnv(AVEC);
+    globalThis.fetch = faux;
+    installerVerrouRecette('recette');
+    await fetch(URL_ENVOI, { method: 'POST', body: raw(`To: ${MOI}`) });
+    await fetch(URL_ENVOI, { method: 'POST', body: raw(`To: ${MOI}\r\nCc: autre@sansvisavis.com`) });
+    expect(reseau).toEqual([`POST ${URL_ENVOI}`]);
+  });
+  it('SMTP : la même règle — un autre destinataire dans l’enveloppe : intercepté', async () => {
+    poserEnv(AVEC);
+    const info = await obtenirTransporteur({ host: '127.0.0.1', port: 9, user: 'u', pass: 'p' }).sendMail({ from: 'a@b.fr', to: MOI, cc: 'autre@exemple.fr', subject: 'S', text: 't' });
+    expect(String(info.response)).toContain('RECETTE');
+    expect(depots).toEqual([expect.objectContaining({ canal: 'smtp', issue: 'intercepte' })]);
+  });
+});
+
+describe('🔴 le bandeau RECETTE nomme l’exception', () => {
+  it('rouge, « envois réels autorisés vers … » quand elle est active ; sinon inchangé', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('app/(admin)/layout.tsx', 'utf8');
+    expect(src).toContain('`RECETTE — envois réels autorisés vers ${reel.adresse}`');
+    expect(src).toContain("background: reel.actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)'");
+    expect(src).toContain("'RECETTE — aucun envoi réel'");
   });
 });

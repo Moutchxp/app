@@ -23,7 +23,7 @@
  * ⚠️ AUCUN MODULE NODE ICI (ni `pg`, ni `fs`, ni `os`) : des modules partagés avec le navigateur l'importent (`drive.ts`…). Le disque
  * (boîte de test) et le nom de la machine sont BRANCHÉS par `gardeSortie.ts`, côté serveur.
  */
-import { decisionRecette, type Decision } from './interception';
+import { decisionRecette, decoderMime, type Decision } from './interception';
 import { etatRecette, HOTE_PRODUCTION, MACHINE_PRODUCTION } from './modeEtat';
 
 export type PolitiqueSortie = 'recette' | 'production' | 'epreuve' | 'refus';
@@ -40,7 +40,7 @@ export function requeteLisible(url: string, methode: string): string {
  * Absents (un module chargé ailleurs), la garde décide QUAND MÊME — elle ne dépose simplement rien. Rangés sur `globalThis` : ils
  * survivent aux rechargements à chaud du code.
  */
-export interface BranchementsGarde { nomMachine: () => string; deposer: Deposer; trace: (e: { canal: string; issue: 'refuse'; requete: string }) => void }
+export interface BranchementsGarde { nomMachine: () => string; deposer: Deposer; trace: (e: { canal: string; issue: 'refuse' | 'envoye_reel'; requete: string; a?: string | null; objet?: string | null }) => void }
 const CLE_BRANCHEMENTS = Symbol.for('svav.garde.branchements');
 export const branchementsGarde = (): BranchementsGarde | null => (globalThis as unknown as Record<symbol, BranchementsGarde | undefined>)[CLE_BRANCHEMENTS] ?? null;
 export function brancherGarde(b: BranchementsGarde): void { (globalThis as unknown as Record<symbol, BranchementsGarde | undefined>)[CLE_BRANCHEMENTS] = b; }
@@ -113,11 +113,22 @@ function deposerParDefaut(url: string, methode: string, d: Exclude<Decision, { a
  * Applique la décision à UNE requête : `null` = la laisser partir ; sinon la réponse simulée ou le refus (déposé dans la boîte en recette,
  * écrit au journal en refus). Ne lève jamais.
  */
-export function intercepter(entree: RequestInfo | URL, init: RequestInit | undefined, politique: PolitiqueSortie, deposer: Deposer = deposerParDefaut): Response | null {
+export function intercepter(entree: RequestInfo | URL, init: RequestInit | undefined, politique: PolitiqueSortie, deposer: Deposer = deposerParDefaut,
+  env: Record<string, string | undefined> = process.env): Response | null {
   const url = urlDe(entree);
   const methode = methodeDe(entree, init);
   const d = decisionSortie(url, methode, politique, idAleatoire().slice(0, 12));
   if (d.action === 'laisser') return null;
+  // 🔴 l'exception d'envoi réel de la recette : un ENVOI Gmail (jamais l'agenda, jamais le Drive) dont TOUS les destinataires sont l'adresse permise
+  if (politique === 'recette' && d.canal === 'gmail_envoi' && !estAutoControle(init)) {
+    const e = etatEnvoiReel(env, branchementsGarde()?.nomMachine() ?? '');
+    const message = messageDuCorps(lireCorpsTexte(init));
+    if (e.actif && envoiReelPermis(destinatairesDuMessage(message), e)) {
+      const sujet = /^subject:\s*(.*)$/im.exec((message ?? '').split(/\r?\n\r?\n/)[0]?.replace(/\r?\n[ \t]+/g, ' ') ?? '')?.[1] ?? null;
+      try { branchementsGarde()?.trace({ canal: 'gmail_envoi', issue: 'envoye_reel', requete: requeteLisible(url, methode), a: e.adresse, objet: decoderMime(sujet) }); } catch { /* rien */ }
+      return null;
+    }
+  }
   if (!estAutoControle(init)) {
     try {
       if (politique === 'recette') deposer(url, methode, d, lireCorpsTexte(init));
@@ -129,6 +140,61 @@ export function intercepter(entree: RequestInfo | URL, init: RequestInit | undef
   }
   return d.corps === null ? new Response(null, { status: d.statut })
     : new Response(JSON.stringify(d.corps), { status: d.statut, headers: { 'Content-Type': 'application/json' } });
+}
+
+/* ══ 🔴 Arno (15/11/2026) — L'EXCEPTION D'ENVOI RÉEL DE LA RECETTE (test iPhone) ═════════════════════════════════════════════════════════
+ * `RECETTE_ENVOI_REEL_VERS=<adresse>` (désactivée par défaut) : en recette, et SEULEMENT sur la base `svav_recette`, un mail dont TOUS les
+ * destinataires (À, Cc, Cci) sont EXACTEMENT cette adresse part pour de vrai. Un seul autre destinataire, un destinataire illisible, aucun
+ * destinataire : le mail reste intercepté EN ENTIER (jamais d'envoi partiel). L'agenda et le Drive restent TOUJOURS interceptés. */
+export const VARIABLE_ENVOI_REEL = 'RECETTE_ENVOI_REEL_VERS';
+const ADRESSE = /^[^@\s<>,;"]+@[^@\s<>,;"]+\.[^@\s<>,;"]+$/;
+
+export type EtatEnvoiReel = { actif: false; demande: false } | { actif: false; demande: true; refus: string } | { actif: true; adresse: string };
+
+/** L'exception est-elle demandée, et permise ici ? PUR. */
+export function etatEnvoiReel(env: Record<string, string | undefined>, nomMachine = ''): EtatEnvoiReel {
+  const brut = (env[VARIABLE_ENVOI_REEL] ?? '').trim();
+  if (brut === '') return { actif: false, demande: false };
+  if (!ADRESSE.test(brut)) return { actif: false, demande: true, refus: 'adresse illisible' };
+  if (nomDeBase(env.DATABASE_URL) !== 'svav_recette') return { actif: false, demande: true, refus: 'la base n’est pas svav_recette' };
+  if (!etatRecette(env, nomMachine).actif) return { actif: false, demande: true, refus: 'le mode recette n’est pas actif' };
+  return { actif: true, adresse: brut.toLowerCase() };
+}
+
+/** Le message RFC 822 d'un envoi Gmail (`{"raw": …}` en base64url, ou le message brut d'un /upload/). `null` : illisible. PUR. */
+export function messageDuCorps(corps: string | null): string | null {
+  if (!corps) return null;
+  const b64 = (raw: string): string | null => { try { return Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { return null; } };
+  try {
+    const j = JSON.parse(corps) as { raw?: unknown; message?: { raw?: unknown } };
+    const raw = typeof j.raw === 'string' ? j.raw : typeof j.message?.raw === 'string' ? j.message.raw : null;
+    return raw === null ? null : b64(raw);
+  } catch { return corps; }
+}
+
+/**
+ * TOUS les destinataires d'un message RFC 822 (À, Cc, Cci), en minuscules ; `null` si un en-tête de destinataires est illisible (groupe,
+ * adresse sans @…) : dans le doute, le mail reste intercepté. PUR.
+ */
+export function destinatairesDuMessage(message: string | null): string[] | null {
+  if (message === null) return null;
+  const entetes = (message.split(/\r?\n\r?\n/)[0] ?? '').replace(/\r?\n[ \t]+/g, ' ');
+  const tous: string[] = [];
+  for (const ligne of entetes.split(/\r?\n/)) {
+    const m = /^(to|cc|bcc|resent-to|resent-cc|resent-bcc)\s*:\s*(.*)$/i.exec(ligne);
+    if (!m) continue;
+    for (const morceau of m[2].split(',').map((x) => x.trim()).filter(Boolean)) {
+      const a = (/<([^<>]+)>\s*$/.exec(morceau)?.[1] ?? morceau).trim().toLowerCase();
+      if (!ADRESSE.test(a) || /[:;]/.test(morceau.replace(/<[^<>]*>/, ''))) return null;
+      tous.push(a);
+    }
+  }
+  return tous;
+}
+
+/** Ce mail peut-il partir pour de vrai au titre de l'exception ? Oui SEULEMENT si tous ses destinataires sont l'adresse permise. PUR. */
+export function envoiReelPermis(destinataires: readonly string[] | null, e: EtatEnvoiReel): boolean {
+  return e.actif && destinataires !== null && destinataires.length > 0 && destinataires.every((x) => x.trim().toLowerCase() === e.adresse);
 }
 
 const MARQUE_SORTANT = Symbol.for('svav.garde.fetchSortant');

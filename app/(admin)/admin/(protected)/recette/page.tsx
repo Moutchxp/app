@@ -20,6 +20,7 @@ const ISSUE: Record<EntreeBoite['issue'], string> = {
   intercepte: 'intercepté, rien n’est parti',
   simule: 'non effectué (réponse simulée)',
   refuse: 'refusé (lecture seule)',
+  envoye_reel: 'ENVOYÉ POUR DE VRAI (exception : seul destinataire = l’adresse permise)',
 };
 
 /**
