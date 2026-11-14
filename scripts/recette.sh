@@ -36,7 +36,11 @@ if ! psql "$DATABASE_URL" -X -At -c 'select 1' >/dev/null 2>&1; then
   [[ -n "$BASE" ]] && echo "   Créez-la d'abord (copie des données de Gestion du serveur), ou lancez « npm run recette -- --base-mac »."
   exit 1
 fi
-echo "▶ RECETTE — base : $(psql "$DATABASE_URL" -X -At -c 'select current_database()') — aucun envoi réel."
+if [[ -n "$RECETTE_ENVOI_REEL_VERS" ]]; then
+  echo "▶ RECETTE — base : $(psql "$DATABASE_URL" -X -At -c 'select current_database()') — envois réels demandés vers ${RECETTE_ENVOI_REEL_VERS} SEULEMENT (contrôlé au démarrage du serveur)."
+else
+  echo "▶ RECETTE — base : $(psql "$DATABASE_URL" -X -At -c 'select current_database()') — aucun envoi réel."
+fi
 export DATABASE_URL SVAV_RECETTE=1 NEXT_TURBO=0 RECETTE_ENVOI_REEL_VERS
 [[ -n "$APPEL_URL_PUBLIQUE" ]] && export GESTION_URL_APPLICATION RECETTE_ORIGINES_DEV
 exec node_modules/.bin/next dev

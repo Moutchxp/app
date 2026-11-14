@@ -213,6 +213,14 @@ describe('🔴🔴 Arno (15/11/2026) — l’exception d’envoi réel de la rec
     await envoyer()(URL_ENVOI, { method: 'POST', body: raw(`To: ${MOI}`) });
     expect(reseau).toEqual([]);
   });
+  it('couches empilées (fonction d’envoi + fetch global) : UN seul envoi, UNE seule trace', async () => {
+    poserEnv(AVEC);
+    globalThis.fetch = faux;
+    installerVerrouRecette('recette');
+    await fetchSortant(globalThis.fetch)(URL_ENVOI, { method: 'POST', body: raw(`To: ${MOI}`) });
+    expect(reseau).toEqual([`POST ${URL_ENVOI}`]);
+    expect(depots.filter((d) => d.issue === 'envoye_reel')).toHaveLength(1);
+  });
   it('le fetch GLOBAL (accesseur de la recette) applique la même exception', async () => {
     poserEnv(AVEC);
     globalThis.fetch = faux;

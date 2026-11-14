@@ -125,7 +125,13 @@ export function intercepter(entree: RequestInfo | URL, init: RequestInit | undef
     const message = messageDuCorps(lireCorpsTexte(init));
     if (e.actif && envoiReelPermis(destinatairesDuMessage(message), e)) {
       const sujet = /^subject:\s*(.*)$/im.exec((message ?? '').split(/\r?\n\r?\n/)[0]?.replace(/\r?\n[ \t]+/g, ' ') ?? '')?.[1] ?? null;
-      try { branchementsGarde()?.trace({ canal: 'gmail_envoi', issue: 'envoye_reel', requete: requeteLisible(url, methode), a: e.adresse, objet: decoderMime(sujet) }); } catch { /* rien */ }
+      // UNE trace par envoi : les couches de la garde sont empilées (fonction d'envoi, fetch global, enveloppe de Next) et reçoivent la même
+      // requête ; la première la marque, les suivantes la laissent passer sans la retracer.
+      const marquee = init !== undefined && (init as Record<symbol, unknown>)[TRACE_ENVOI_REEL] === true;
+      if (!marquee) {
+        try { branchementsGarde()?.trace({ canal: 'gmail_envoi', issue: 'envoye_reel', requete: requeteLisible(url, methode), a: e.adresse, objet: decoderMime(sujet) }); } catch { /* rien */ }
+        if (init !== undefined) { try { Object.defineProperty(init, TRACE_ENVOI_REEL, { value: true, enumerable: false }); } catch { /* objet figé : rien */ } }
+      }
       return null;
     }
   }
@@ -147,6 +153,7 @@ export function intercepter(entree: RequestInfo | URL, init: RequestInit | undef
  * destinataires (À, Cc, Cci) sont EXACTEMENT cette adresse part pour de vrai. Un seul autre destinataire, un destinataire illisible, aucun
  * destinataire : le mail reste intercepté EN ENTIER (jamais d'envoi partiel). L'agenda et le Drive restent TOUJOURS interceptés. */
 export const VARIABLE_ENVOI_REEL = 'RECETTE_ENVOI_REEL_VERS';
+const TRACE_ENVOI_REEL = Symbol.for('svav.garde.envoiReelTrace');
 const ADRESSE = /^[^@\s<>,;"]+@[^@\s<>,;"]+\.[^@\s<>,;"]+$/;
 
 export type EtatEnvoiReel = { actif: false; demande: false } | { actif: false; demande: true; refus: string } | { actif: true; adresse: string };
