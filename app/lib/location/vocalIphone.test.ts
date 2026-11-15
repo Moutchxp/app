@@ -125,3 +125,14 @@ describe('🔴 le message d’une écriture qui échoue dit la vraie panne', asy
     expect(MOTIF_ERREUR_SERVEUR).toContain('la base n’est pas en cause');
   });
 });
+
+describe('🔴 (11e retour) « Saisi par » : prénom et NOM, jamais l’adresse', async () => {
+  const { nomSaisisseur } = await import('./compteRenduPrevisite');
+  it('une adresse connue des comptes : « Arnaud JOREL » ; inconnue ou déjà un nom : telle quelle', () => {
+    const comptes = [{ identifiant: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nom: 'Jorel' }];
+    expect(nomSaisisseur('A.Jorel@sansvisavis.com', comptes)).toBe('Arnaud JOREL');
+    expect(nomSaisisseur('autre@exemple.test', comptes)).toBe('autre@exemple.test');
+    expect(nomSaisisseur('Arnaud JOREL', [])).toBe('Arnaud JOREL');
+    expect(nomSaisisseur(null, comptes)).toBeNull();
+  });
+});

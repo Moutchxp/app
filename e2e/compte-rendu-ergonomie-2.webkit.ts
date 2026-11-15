@@ -174,7 +174,9 @@ test('« Voir le compte rendu » : chaque vocal dit s’il est parti aux locatai
   const voir = page.locator('[data-voir-compte-rendu="oui"]').first();
   await expect(voir).toBeVisible({ timeout: 30_000 });
   await voir.tap();
-  await expect(page.locator('[data-cr-vocal-etat]')).toHaveText(['Cuisine — ENVOYÉ aux locataires', 'Salon — NON envoyé (interne)']);
+  // 🔴 (11e retour) le titre une fois (data-cr-vocal-nom), le statut en étiquette
+  await expect(page.locator('[data-cr-vocal-nom]')).toHaveText(['Cuisine', 'Salon']);
+  await expect(page.locator('[data-cr-vocal-etat]')).toHaveText(['ENVOYÉ aux locataires', 'NON envoyé (interne)']);
   await page.locator('[data-cr-vocaux]').scrollIntoViewIfNeeded();
   await capturer(page, '07-voir-compte-rendu-vocaux');
 });

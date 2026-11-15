@@ -5,7 +5,7 @@ import { ficheDepuisEncart } from './ficheIntervention';
 import { locatairesAvis, mailsAvisDisponibles, piecesDuMailDisponible } from './mailsPreavisSortieRepo';
 import { metaPieces } from './piecesSortieRepo';
 import { lireGroupe, previsiteDisponible, suiviOuvert } from './previsiteBase';
-import { compteRenduAffiche, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr, type PieceCr } from './compteRenduPrevisite';
+import { compteRenduAffiche, nomSaisisseur, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr, type PieceCr } from './compteRenduPrevisite';
 import { ACTION_JOURNAL_VOCAUX, fichiersDeTrace } from './vocauxCompteRendu';
 import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { brouillonDisponible } from './brouillonCompteRenduRepo';
@@ -62,7 +62,11 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
   const parId = new Map(vocaux.map((v) => [v.id, durees.has(v.id) ? { ...v, dureeS: durees.get(v.id) } : v]));
   const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined), locataires: f.locataires === true }))
     .filter((f) => f.prises.length > 0);
-  return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux, fichiersVocaux, presences } };
+  const affiche = compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces);
+  // 🔴 (11e retour) « Saisi par » : prénom et NOM du collaborateur, jamais son adresse
+  const comptes = affiche.saisiPar !== null && affiche.saisiPar.includes('@')
+    ? (await query<{ identifiant: string; prenom: string | null; nom: string | null }>(`SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE lower(identifiant) = lower($1)`, [affiche.saisiPar])).rows : [];
+  return { etat: 'ok', data: { ...affiche, saisiPar: nomSaisisseur(affiche.saisiPar, comptes), vocaux, fichiersVocaux, presences } };
 }
 
 const vide = (): AnnuaireCr => ({ locataires: [], proprietaires: [], internes: [], domainesAgence: [] });

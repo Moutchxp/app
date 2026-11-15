@@ -1045,9 +1045,10 @@ export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: stri
       const cle = `cr-f${i}`;
       return (
         <li key={cle} className="pvv-fichier-vocal" data-cr-vocal={i + 1} data-cr-vocal-prises={f.prises.length}>
-          <div className="pvv-photo-tete"><strong className="pvv-cr-legende" data-cr-vocal-nom>{f.nom}</strong>
+          {/* 🔴 Arno (15/11/2026, 11e retour) — le titre UNE fois, le statut en étiquette (vert : envoyé aux locataires ; gris : interne) */}
+          <div className="pvv-photo-tete pvv-cr-vocal-tete"><strong className="pvv-cr-legende" data-cr-vocal-nom>{f.nom}</strong>
             <span className="loc-muet">{f.prises.length} prise{f.prises.length > 1 ? 's' : ''}</span></div>
-          <p className={`pvv-vocal-etat${f.locataires ? ' pvv-vocal-etat--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{f.nom} — {etatVocalLocataires(f.locataires === true)}</p>
+          <span className={`pvv-cr-vocal-statut${f.locataires ? ' pvv-cr-vocal-statut--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{etatVocalLocataires(f.locataires === true)}</span>
           <div className="pvv-photo-gestes pvv-vocal-gestes">
             <BoutonEcouter cle={cle} pistes={f.prises.map((p) => ({ url: url(p.id), dureeS: p.dureeS ?? 0 }))} classe="pvv-mini" texte attributs={{ 'data-cr-vocal-ecouter': '' }} />
           </div>
@@ -1262,6 +1263,11 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-interrupteur input:focus-visible + .pvv-interrupteur-piste{outline:2px solid var(--color-svv-ink);outline-offset:2px}
 .pvv-vocal-etat{margin:0;font-weight:900;color:var(--color-svv-red)}
 .pvv-vocal-etat--envoye{color:var(--color-svv-green-ink)}
+/* Arno (15/11/2026, 11e retour) : le statut d'un vocal de la consultation, en etiquette (vert : envoye aux locataires ; gris : interne) */
+.pvv-cr-vocal-statut{align-self:flex-start;display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:.8rem;font-weight:900;letter-spacing:.04em;background:var(--color-svv-gray);color:var(--color-svv-surface)}
+.pvv-cr-vocal-statut--envoye{background:var(--color-svv-green-ink)}
+.pvv-cr-fichiers .pvv-prises{max-height:none;overflow:visible}
+.pvv-cr-fichiers .pvv-mini{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .pvv-titre-ligne{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .pvv-theme{display:none;flex:0 0 auto;min-width:40px;min-height:40px;border-radius:999px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;cursor:pointer}
 @media (max-width:640px){.pvv-theme{display:inline-flex;align-items:center;justify-content:center}}

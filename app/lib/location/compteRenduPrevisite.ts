@@ -99,6 +99,19 @@ export function compteRenduAffiche(envois: readonly EnvoiJournalCr[], a: Annuair
   };
 }
 
+/**
+ * 🔴 Arno (15/11/2026, 11e retour) — « Saisi par » : le PRÉNOM et le NOM du collaborateur (« Arnaud JOREL »), jamais son adresse. Un libellé
+ * qui est une adresse connue des comptes de l'agence est remplacé ; inconnu : tel quel. PUR.
+ */
+export function nomSaisisseur(libelle: string | null, comptes: readonly { identifiant: string; prenom: string | null; nom: string | null }[]): string | null {
+  if (libelle === null) return null;
+  const x = libelle.trim().toLowerCase();
+  const c = comptes.find((k) => k.identifiant.trim().toLowerCase() === x);
+  if (!c) return libelle;
+  const nom = [(c.prenom ?? '').trim(), (c.nom ?? '').trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
+  return nom === '' ? libelle : nom;
+}
+
 /** « le 13/11/2026 à 13h52 » (heure de Paris). PUR. */
 export function quandFr(iso: string): string {
   const d = new Date(iso);

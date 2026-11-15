@@ -1363,7 +1363,8 @@ describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le text
     // 🔴 lot C — les vocaux : écoutables ici ; 🔴 (accord d'Arno, 15/11/2026) l'intitulé est « Vocaux » tout court, chaque vocal porte son statut
     expect(f.querySelector('[data-cr-vocaux] .pss-sous-titre')!.textContent).toBe('Vocaux');
     expect(f.querySelector('[data-cr-vocaux]')!.textContent).not.toContain('jamais envoy');
-    expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-etat]')!.textContent).toBe('Vocal 1 — NON envoyé (interne)');
+    // 🔴 (11e retour) le titre une fois, le statut en étiquette
+    expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-etat]')!.textContent).toBe('NON envoyé (interne)');
     // 🔴 (15/11/2026) — en fichiers vocaux (une ancienne trace : un fichier par vocal), lecture seule
     expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-nom]')!.textContent).toBe('Vocal 1');
     expect(f.querySelector('[data-cr-vocal="1"]')!.getAttribute('data-cr-vocal-prises')).toBe('1');
@@ -1851,7 +1852,7 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
     clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
     expect([...document.querySelectorAll('[data-cr-vocal-etat]')].map((x) => [x.getAttribute('data-cr-vocal-etat'), x.textContent])).toEqual([
-      ['envoye', 'Cuisine — ENVOYÉ aux locataires'], ['interne', 'Salon — NON envoyé (interne)']]);
+      ['envoye', 'ENVOYÉ aux locataires'], ['interne', 'NON envoyé (interne)']]);
   });
 
   it('🔴 fond OPAQUE sur toute la hauteur : une PAGE (rien dessous), la page elle-même et la racine opaques ; la marge du bas suit le clavier (zone visible)', async () => {
@@ -2731,7 +2732,7 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice (locataire)', 'Madame Léa Martin — note interne : mère du locataire']);
     expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Salon propre.');
     expect(f.querySelector('[data-cr-legende]')!.textContent).toBe('Photo 1 — Rayure parquet');
-    expect([...f.querySelectorAll('[data-cr-vocal-etat]')].map((x) => x.textContent)).toEqual(['Cuisine — ENVOYÉ aux locataires', 'Salon — NON envoyé (interne)']);
+    expect([...f.querySelectorAll('[data-cr-vocal-etat]')].map((x) => x.textContent)).toEqual(['ENVOYÉ aux locataires', 'NON envoyé (interne)']);
     expect(f.querySelectorAll('[data-cr-vocal-ecouter]')).toHaveLength(2);
     expect(f.querySelector('[data-cr-pas-envoye]')!.textContent).toBe('Rien n’est encore envoyé.');
     // la vignette s'agrandit, puis se referme
@@ -2767,6 +2768,38 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     // fermer la fenêtre arrête la lecture
     act(() => (f.querySelector('[data-fermer-compte-rendu]') as HTMLButtonElement).click());
     expect((await import('./lecteurVocal')).etatLecture().cle).toBeNull();
+  });
+  it('🔴🔴 (11e retour) la consultation : plein écran au téléphone (une seule zone qui défile, fond opaque), aucun bloc écrasé, texte ENTIER, titre de vocal une seule fois, « ← Fermer » en haut, nom du saisisseur', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const TEXTE = 'Compte rendu de la pré-visite du 15/11/2026 — 1 rue du Préavis de Test\n\nEn présence de TEST.\n\n- Logement propre.\n- Rayure du parquet de la chambre\n- Joint de la douche à refaire';
+    const CR = { texte: TEXTE, objet: 'Objet', saisiPar: 'Arnaud JOREL', saisiLe: '2026-11-15T15:49:00Z', pieces: [], aucunEnvoi: false, presences: null, destinataires: [],
+      vocaux: [{ id: 81, nom: 'a', taille: 3 }], fichiersVocaux: [{ nom: 'Vocal pour locataire', prises: [{ id: 81, nom: 'a', taille: 3, dureeS: 4 }, { id: 82, nom: 'b', taille: 3, dureeS: 4 }, { id: 83, nom: 'c', taille: 3, dureeS: 4 }], locataires: true }] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
+    expect(f.className).toContain('pvv-boite-consultation');
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe(TEXTE); // en entier, retours à la ligne et tirets compris
+    expect(f.querySelector('[data-cr-saisi]')!.textContent).toBe('Saisi par Arnaud JOREL le 15/11/2026 à 16h49');
+    // le titre du vocal une seule fois ; le statut en étiquette ; les trois prises
+    const v = f.querySelector('[data-cr-vocal="1"]')!;
+    expect(v.textContent!.split('Vocal pour locataire').length - 1).toBe(1);
+    expect(v.querySelector('[data-cr-vocal-etat]')!.className).toBe('pvv-cr-vocal-statut pvv-cr-vocal-statut--envoye');
+    expect(v.querySelectorAll('[data-cr-prise]')).toHaveLength(3);
+    // « ← Fermer » en haut, « Fermer » en FIN de contenu (après la liste des prises)
+    const haut = f.querySelector('[data-fermer-haut]')!; const bas = f.querySelector('[data-fermer-compte-rendu]')!;
+    expect(haut.compareDocumentPosition(f.querySelector('[data-cr-texte]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(v.compareDocumentPosition(bas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-boite-consultation > *{flex-shrink:0}');
+    expect(css).toContain('.pvv-boite-consultation .mis-actions{position:static;margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--color-svv-line);background:transparent}');
+    expect(css).toContain('.pvv-boite-consultation .pvv-cr-texte{max-height:none;overflow:visible}');
+    expect(css).toContain('.pvv-voile-consultation{inset:0;padding:0;align-items:stretch;justify-content:stretch;display:block;overflow-y:auto');
+    expect(css).toContain('.pvv-voile-consultation .mis-boite{width:100%;max-height:none;min-height:100%;overflow:visible;border:0;border-radius:0;box-shadow:none');
+    act(() => (haut as HTMLButtonElement).click());
+    expect(document.querySelector('[data-fenetre-compte-rendu]')).toBeNull();
+    global.fetch = avant;
   });
   it('la page n’est jamais blanche : « Restauration du brouillon… » visible tant qu’il tarde ; repeinte d’elle-même quand le contenu arrive et au retour de l’arrière-plan', async () => {
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => setTimeout(() => cb(0), 0) as unknown as number);

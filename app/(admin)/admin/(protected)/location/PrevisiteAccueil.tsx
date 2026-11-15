@@ -648,6 +648,7 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
   const lu = useLecture<CompteRenduAffiche>(mode === 'envoye' ? `previsiteCompteRendu=${l.occupationIds.join(',')}` : null);
   const luB = useLecture<{ brouillon: ContenuBrouillon | null; enregistreLe: string | null }>(mode === 'brouillon' ? `previsiteBrouillon=${l.occupationIds.join(',')}` : null);
   const [agrandie, setAgrandie] = useState<{ url: string; legende: string } | null>(null);
+  const zone = useZoneVisible();
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { if (agrandie !== null) setAgrandie(null); else onFermer(); } };
     window.addEventListener('keydown', clavier);
@@ -734,10 +735,14 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
       </div>
     </>;
   }
+  /* 🔴🔴 Arno (15/11/2026, 11e retour) — au téléphone : PLEIN ÉCRAN, fond opaque jusqu'en bas, hauteur de la ZONE VISIBLE, rien de la
+     Location derrière, UN SEUL défilement (aucun bloc à hauteur fixe ni à défilement propre) ; « ← Fermer » toujours accessible en haut,
+     « Fermer » du bas en fin de contenu, jamais par-dessus. À l'ordinateur : la fenêtre centrée, sans bloc tronqué. */
   const boite = (
-    <div className="mis-voile pvv-voile-consultation">
+    <div className="mis-voile pvv-voile-consultation" style={zone ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined} data-zone-visible={zone ? 'oui' : undefined}>
       <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_PREVISITE + CSS_COMPTE_RENDU_SAISIE}</style>
-      <div className="mis-boite pss-boite pss-boite-recap" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu={mode}>
+      <div className="mis-boite pss-boite pss-boite-recap pvv-boite-consultation" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu={mode}>
+        <div className="pvv-cr-barre"><button type="button" className="pvv-cr-fermer-haut" onClick={onFermer} aria-label="Fermer le compte rendu" data-fermer-haut>← Fermer</button></div>
         <h2 id={titreId} className="mis-titre">Compte rendu de pré-visite</h2>
         <p className="loc-muet pss-rien" data-cr-adresse>{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
         {corps}
@@ -773,7 +778,18 @@ export const CSS_PREVISITE = `
 /* Arno (15/11/2026, 9e retour) : la fenetre du compte rendu, CENTREE (aussi au telephone), son contenu defile dedans */
 .pvv-voile-consultation{align-items:center;padding:12px}
 .pvv-voile-consultation .mis-boite{width:min(640px,100%);max-height:calc(100dvh - 24px);border-radius:18px}
-@media (max-width:640px){.pvv-voile-consultation{align-items:center;padding:10px}.pvv-voile-consultation .mis-boite{max-height:calc(100dvh - 20px);border-radius:16px;padding:16px 14px}}
+/* Arno (15/11/2026, 11e retour) : aucun bloc ecrase ni tronque (la boite est une colonne qui defile : ses enfants ne retrecissent jamais) ;
+   le texte du compte rendu en entier, sans hauteur maximale ni defilement propre */
+.pvv-boite-consultation > *{flex-shrink:0}
+.pvv-boite-consultation .pvv-cr-texte{max-height:none;overflow:visible}
+/* le « Fermer » du bas : en FIN de contenu, jamais colle par-dessus les prises (la barre des fenetres de parcours est collante) */
+.pvv-boite-consultation .mis-actions{position:static;margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--color-svv-line);background:transparent}
+.pvv-cr-barre{position:sticky;top:0;z-index:2;display:flex;justify-content:flex-start;margin:-6px 0 0;padding:6px 0;background:var(--color-svv-surface)}
+.pvv-cr-fermer-haut{min-height:44px;padding:0 6px;border:0;background:none;color:var(--color-svv-ink);font:inherit;font-weight:800;cursor:pointer}
+@media (max-width:640px){
+  .pvv-voile-consultation{inset:0;padding:0;align-items:stretch;justify-content:stretch;display:block;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--color-svv-surface);box-shadow:0 0 0 100vmax var(--color-svv-surface);z-index:200}
+  .pvv-voile-consultation .mis-boite{width:100%;max-height:none;min-height:100%;overflow:visible;border:0;border-radius:0;box-shadow:none;padding:6px 16px calc(20px + env(safe-area-inset-bottom))}
+}
 .pvv-cr-brouillon{margin:0;padding:8px 12px;border-radius:10px;border:1px dashed var(--color-svv-line-strong);background:var(--color-svv-field);font-weight:800}
 .pvv-cr-note{color:var(--color-svv-muted)}
 .pvv-cr-vignette{display:block;padding:0;margin:0;border:0;background:none;cursor:zoom-in;border-radius:8px;min-height:44px}
