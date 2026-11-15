@@ -2121,3 +2121,103 @@ describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en 
     expect(document.querySelectorAll('[data-photo]')).toHaveLength(1);
   });
 });
+
+describe('🔴🔴 Arno (15/11/2026, 6e retour) — SAUVEGARDE AUTOMATIQUE du compte rendu : rien ne se perd', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let brouillonServeur: unknown = null; let ecritures: Record<string, unknown>[] = []; let reseau = true; let photosDeposees = 0;
+  beforeEach(async () => {
+    (await import('../../../../lib/location/fileAttenteLocale')).oublierMemoireLocale();
+    brouillonServeur = null; ecritures = []; reseau = true; photosDeposees = 0;
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:apercu'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (!init?.method && String(u).includes('previsiteBrouillon=')) return ok({ brouillon: brouillonServeur, enregistreLe: brouillonServeur ? '2026-11-15T13:05:00.000Z' : null });
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'brouillon-previsite' || c.action === 'effacer-brouillon-previsite') { ecritures.push({ ...c, keepalive: init.keepalive === true, propre: (init.headers as Record<string, string>)['x-svav-confirmation'] }); return ok({ enregistreLe: '2026-11-15T13:06:00.000Z', efface: true }); }
+        if (c.action === 'photo-compte-rendu') {
+          if (!reseau) throw new TypeError('Failed to fetch');
+          photosDeposees += 1; return ok({ id: 70 + photosDeposees, nom: 'p.jpg', taille: 3 });
+        }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const patienter = async (cond: () => boolean, ms = 3000) => { const fin = Date.now() + ms; while (!cond() && Date.now() < fin) await act(async () => { await new Promise((r) => setTimeout(r, 20)); }); await attendre(); };
+  const ouvrir = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); await patienter(() => document.querySelector('[data-corps-compte-rendu]') !== null); };
+  const zone = () => document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+  const taper = (v: string) => act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(zone(), v); zone().dispatchEvent(new Event('input', { bubbles: true })); });
+
+  it('à la réouverture : le brouillon du serveur est RESTAURÉ tel quel (texte, présences, personnes, photos, vocaux, bouton d’envoi), avec « Brouillon restauré — enregistré à 14h05 »', async () => {
+    brouillonServeur = { corps: 'Salon propre.', presents: [11], aussiLocataires: false,
+      ajoutees: [{ cle: 'p1', civilite: 'Madame', nom: 'Martin', prenom: 'Léa', present: true, note: 'mère du locataire' }],
+      photos: [{ id: 71, legende: 'Rayure parquet' }], fichiers: [{ cle: 'f1', nom: 'Cuisine', locataires: true, prises: [{ id: 81, dureeS: 4 }] }] };
+    await ouvrir();
+    await patienter(() => zone().value === 'Salon propre.');
+    expect(zone().value).toBe('Salon propre.');
+    expect(document.querySelector('[data-brouillon-restaure]')!.textContent).toBe('Brouillon restauré — enregistré à 14h05');
+    expect((document.querySelector('[data-presence-locataire="11"]') as HTMLInputElement).checked).toBe(true);
+    expect(document.querySelector('[data-personne-ajoutee] [data-personne-note]')!.getAttribute('value') ?? (document.querySelector('[data-personne-ajoutee] [data-personne-note]') as HTMLInputElement).value).toBe('mère du locataire');
+    expect((document.querySelector('[data-photo="1"] [data-photo-legende]') as HTMLInputElement).value).toBe('Rayure parquet');
+    expect(document.querySelector('[data-photo="1"] img')!.getAttribute('src')).toBe('/api/admin/location/pieces-sortie?piece=71');
+    expect((document.querySelector('[data-vocal="1"] [data-vocal-nom]') as HTMLInputElement).value).toBe('Cuisine');
+    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-prises')).toBe('1');
+    expect(document.querySelector('[data-vocal="1"] [data-vocal-locataires]')!.getAttribute('data-vocal-locataires')).toBe('oui');
+    expect(document.querySelector('[data-aussi-locataires]')!.getAttribute('aria-pressed')).toBe('false');
+  });
+  it('chaque modification est ENREGISTRÉE seule (court délai) ; le passage en ARRIÈRE-PLAN enregistre tout de suite (keepalive) ; l’indicateur le dit', async () => {
+    await ouvrir();
+    taper('Cuisine sale');
+    await patienter(() => ecritures.length > 0);
+    // une sauvegarde ne s'annonce jamais (aucune fenêtre « Modification enregistrée ») : en-tête « propre »
+    expect(ecritures[0]).toMatchObject({ action: 'brouillon-previsite', occupationIds: [11, 12], contenu: { corps: 'Cuisine sale' }, propre: 'propre' });
+    await patienter(() => document.querySelector('[data-sauvegarde]')?.getAttribute('data-sauvegarde') === 'enregistre');
+    expect(document.querySelector('[data-sauvegarde]')!.textContent).toBe('Enregistré');
+    taper('Cuisine sale, four à nettoyer');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await patienter(() => ecritures.length > 1, 500);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    expect(ecritures[1]).toMatchObject({ contenu: { corps: 'Cuisine sale, four à nettoyer' }, keepalive: true });
+  });
+  it('« Annuler » garde le brouillon ; « Effacer le brouillon » (confirmé) le marque effacé et vide le formulaire ; rien n’est envoyé', async () => {
+    brouillonServeur = { corps: 'Salon propre.', presents: [], ajoutees: [], photos: [], fichiers: [], aussiLocataires: true };
+    await ouvrir();
+    await patienter(() => zone().value === 'Salon propre.');
+    act(() => (document.querySelector('[data-effacer-brouillon]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-effacer-brouillon-non]') as HTMLButtonElement).click());
+    expect(zone().value).toBe('Salon propre.');
+    act(() => (document.querySelector('[data-effacer-brouillon]') as HTMLButtonElement).click());
+    await act(async () => { (document.querySelector('[data-effacer-brouillon-oui]') as HTMLButtonElement).click(); });
+    await patienter(() => zone().value === '');
+    expect(zone().value).toBe('');
+    expect(ecritures.some((e) => e.action === 'effacer-brouillon-previsite')).toBe(true);
+    expect(posts.some((c) => String(c.action).startsWith('compte-rendu') || String(c.action).startsWith('apercu'))).toBe(false);
+  });
+  it('réseau coupé : la photo reste dans le téléphone (« en attente du réseau »), puis part TOUTE SEULE au retour du réseau', async () => {
+    await ouvrir();
+    reseau = false;
+    const input = document.querySelector('[data-photo-galerie]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File([new Uint8Array([1])], 'a.jpg', { type: 'image/jpeg' })], configurable: true });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await patienter(() => document.querySelector('[data-photo-etat="attente"]') !== null);
+    expect(document.querySelector('[data-photo-attente]')!.textContent).toContain('En attente du réseau');
+    const file = await (await import('../../../../lib/location/fileAttenteLocale')).listerAttente('11,12');
+    expect(file.map((e) => e.sorte)).toEqual(['photo']);
+    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
+    reseau = true;
+    act(() => { window.dispatchEvent(new Event('online')); });
+    await patienter(() => document.querySelector('[data-photo-etat="ok"]') !== null);
+    expect(photosDeposees).toBe(1);
+    expect(await (await import('../../../../lib/location/fileAttenteLocale')).listerAttente('11,12')).toEqual([]);
+  });
+  it('page rechargée pendant la coupure : la photo gardée dans le téléphone REVIENT dans le formulaire et repart', async () => {
+    const f = await import('../../../../lib/location/fileAttenteLocale');
+    await f.mettreEnAttente('11,12', { cle: 'k1', sorte: 'photo', blob: new Blob([new Uint8Array([1])], { type: 'image/jpeg' }), type: 'image/jpeg', legende: 'Joint douche', creeLe: '2026-11-15T13:00:00Z' });
+    await ouvrir();
+    await patienter(() => document.querySelector('[data-photo-etat="ok"]') !== null);
+    expect((document.querySelector('[data-photo="1"] [data-photo-legende]') as HTMLInputElement).value).toBe('Joint douche');
+    expect(photosDeposees).toBe(1);
+  });
+});

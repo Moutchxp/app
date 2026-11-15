@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as KeyboardEventReact, type PointerEvent as PointerEventReact } from 'react';
 import { envoyer, useLecture } from './commun';
+import { erreurReseau, groupeDe, listerAttente, mettreEnAttente, retirerAttente } from '../../../../lib/location/fileAttenteLocale';
 import { useContextePreavis } from './preavisSynchro';
 import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
 import { aUnEmail } from '../../../../lib/location/emailLocataireRequis';
@@ -359,7 +360,26 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
 /* ══ BLOC PHOTOS ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Une photo du formulaire : son aperçu (sur l'appareil), sa pièce déposée (`id`), sa légende. */
-export interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'ok' | 'erreur'; motif: string | null }
+/** 🔴 Arno (15/11/2026) — `attente` : pas encore déposée (réseau coupé) ; gardée dans le téléphone, renvoyée automatiquement. */
+export interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'attente' | 'ok' | 'erreur'; motif: string | null }
+export const MOTIF_ATTENTE_PHOTO = 'En attente du réseau — gardée sur cet appareil, envoyée automatiquement au retour du réseau.';
+export const MOTIF_ATTENTE_PRISE = 'En attente du réseau — gardée sur cet appareil, enregistrée automatiquement au retour du réseau.';
+const RELANCE_MS = 15_000;
+/** Le retour du réseau et une relance régulière tant que quelque chose attend. */
+function useRelance(enAttente: boolean, relancer: () => void): void {
+  const f = useRef(relancer);
+  useEffect(() => { f.current = relancer; }, [relancer]);
+  useEffect(() => {
+    const auRetour = (): void => f.current();
+    window.addEventListener('online', auRetour);
+    return () => window.removeEventListener('online', auRetour);
+  }, []);
+  useEffect(() => {
+    if (!enAttente) return;
+    const t = setInterval(() => f.current(), RELANCE_MS);
+    return () => clearInterval(t);
+  }, [enAttente]);
+}
 export type VuePhotos = 'carrousel' | 'liste';
 export const CLE_VUE_PHOTOS = 'svav.compteRendu.photos.vue';
 /** 🔴 Arno (15/11/2026) — « Carrousel » par défaut ; le choix de l'utilisateur, mémorisé sur l'appareil, l'emporte ensuite. */
@@ -389,28 +409,69 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
   useEffect(() => () => { if (reglage.current) clearTimeout(reglage.current); }, []);
   const maj = (cle: string, f: (x: PhotoSaisie) => PhotoSaisie) => onChange((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
   const dejaDeposees = (): Promise<number[]> => new Promise((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
+  // 🔴 Arno (15/11/2026) — chaque photo est gardée DANS LE TÉLÉPHONE avant d'être déposée, et le reste tant que le serveur n'a pas confirmé ;
+  // réseau coupé : « en attente », renvoyée automatiquement (retour du réseau, relance régulière, réouverture de la page).
+  const groupe = groupeDe(occupationIds);
+  const blobs = useRef(new Map<string, Blob>());
+  const encours = useRef(new Set<string>());
+  const photosRef = useRef(photos);
+  useEffect(() => { photosRef.current = photos; }, [photos]);
+  const deposer = async (cle: string): Promise<void> => {
+    const blob = blobs.current.get(cle);
+    if (!blob || encours.current.has(cle)) return;
+    encours.current.add(cle);
+    try {
+      let donnees = '';
+      try { donnees = await (await modulePhoto()).enBase64(blob); } catch { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: 'La photo n’a pas pu être préparée sur cet appareil.' })); return; }
+      maj(cle, (x) => ({ ...x, etat: 'envoi', motif: null }));
+      const deja = await dejaDeposees();
+      const r = await envoyer({ action: 'photo-compte-rendu', occupationIds: [...occupationIds], donnees, dejaIds: deja }, { propre: true });
+      const id = (r.data as { id?: number } | undefined)?.id;
+      if (r.motif === null && typeof id === 'number') { maj(cle, (x) => ({ ...x, id, etat: 'ok', motif: null })); await retirerAttente(groupe, cle); blobs.current.delete(cle); return; }
+      if (erreurReseau(r)) { maj(cle, (x) => ({ ...x, etat: 'attente', motif: MOTIF_ATTENTE_PHOTO })); return; }
+      await retirerAttente(groupe, cle); blobs.current.delete(cle);
+      maj(cle, (x) => ({ ...x, etat: 'erreur', motif: r.motif ?? 'La photo n’a pas pu être déposée.' }));
+    } finally { encours.current.delete(cle); }
+  };
+  const relancer = useCallback((): void => {
+    for (const x of photosRef.current) if (x.etat === 'attente' && x.id === null) void deposer(x.cle);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // à l'ouverture : les photos restées dans le téléphone (page rechargée, réseau coupé) reviennent dans le formulaire, puis repartent
+  useEffect(() => {
+    let vivant = true;
+    void listerAttente(groupe).then((xs) => {
+      if (!vivant) return;
+      const lp = xs.filter((e) => e.sorte === 'photo');
+      if (lp.length === 0) return;
+      for (const e of lp) blobs.current.set(e.cle, e.blob);
+      onChange((cur) => {
+        const out = cur.map((x) => { const e = lp.find((y) => y.cle === x.cle); return e && x.id === null ? { ...x, apercu: x.apercu || URL.createObjectURL(e.blob), etat: 'attente' as const, motif: MOTIF_ATTENTE_PHOTO } : x; });
+        for (const e of lp) if (!out.some((x) => x.cle === e.cle)) out.push({ cle: e.cle, id: null, apercu: URL.createObjectURL(e.blob), legende: e.legende ?? '', etat: 'attente', motif: MOTIF_ATTENTE_PHOTO });
+        return out;
+      });
+      setTimeout(() => relancer(), 0);
+    });
+    return () => { vivant = false; };
+  }, [groupe]); // eslint-disable-line react-hooks/exhaustive-deps
+  useRelance(photos.some((x) => x.etat === 'attente'), relancer);
   const ajouter = async (liste: FileList | null): Promise<void> => {
     for (const f of [...(liste ?? [])]) {
       const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       onChange((xs) => [...xs, { cle, id: null, apercu: '', legende: '', etat: 'envoi', motif: null }]);
-      let c: Awaited<ReturnType<Awaited<ReturnType<typeof modulePhoto>>['convertirPhoto']>>; let donnees = '';
-      try {
-        const m = await modulePhoto();
-        c = await m.convertirPhoto(f);
-        if (c.ok) donnees = await m.enBase64(c.blob);
-      } catch { c = { ok: false, motif: `« ${f.name} » : la photo n’a pas pu être préparée sur cet appareil.` }; }
+      let c: Awaited<ReturnType<Awaited<ReturnType<typeof modulePhoto>>['convertirPhoto']>>;
+      try { c = await (await modulePhoto()).convertirPhoto(f); } catch { c = { ok: false, motif: `« ${f.name} » : la photo n’a pas pu être préparée sur cet appareil.` }; }
       if (!c.ok) { const motif = c.motif; maj(cle, (x) => ({ ...x, etat: 'erreur', motif })); continue; }
       const apercu = URL.createObjectURL(c.blob);
       maj(cle, (x) => ({ ...x, apercu }));
-      const deja = await dejaDeposees();
-      const r = await envoyer({ action: 'photo-compte-rendu', occupationIds: [...occupationIds], donnees, dejaIds: deja }, { propre: true });
-      const id = (r.data as { id?: number } | undefined)?.id;
-      maj(cle, (x) => (r.motif === null && typeof id === 'number' ? { ...x, id, etat: 'ok' } : { ...x, etat: 'erreur', motif: r.motif ?? 'La photo n’a pas pu être déposée.' }));
+      blobs.current.set(cle, c.blob);
+      await mettreEnAttente(groupe, { cle, sorte: 'photo', blob: c.blob, type: c.blob.type || 'image/jpeg', creeLe: new Date().toISOString() });
+      await deposer(cle);
     }
   };
   const deplacer = (i: number, d: -1 | 1) => onChange((xs) => { const x = [...xs]; const j = i + d; if (j < 0 || j >= x.length) return xs; [x[i], x[j]] = [x[j], x[i]]; return x; });
   const retirer = (cle: string) => {
     const p = photos.find((x) => x.cle === cle); if (p?.apercu) URL.revokeObjectURL(p.apercu);
+    blobs.current.delete(cle); void retirerAttente(groupe, cle);
     onChange((xs) => xs.filter((x) => x.cle !== cle)); setAConfirmer(null);
   };
   const aller = (i: number): void => {
@@ -489,9 +550,16 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
                     attributs={{ 'data-photo-confirmer': '' }} attributsOui={{ 'data-photo-supprimer-oui': '' }} attributsNon={{ 'data-photo-supprimer-non': '' }} />)}
                 {x.apercu ? <img className="pvv-vignette" src={x.apercu} alt={x.legende ? lignePhoto(i, x.legende) : `Photo ${i + 1}`} /> : <span className="pvv-vignette pvv-vignette--vide" />}
                 {x.etat === 'envoi' && <span className="loc-muet" role="status">Préparation…</span>}
+                {x.etat === 'attente' && <span className="pvv-attente" role="status" data-photo-attente>{x.motif}</span>}
                 {x.etat === 'erreur' && <span className="pvv-photo-motif" role="alert">{x.motif}</span>}
                 <ChampLegende rang={i + 1} valeur={x.legende} invalide={sansLegende} occupationIds={occupationIds}
-                  onChange={(f) => maj(x.cle, (y) => ({ ...y, legende: f(y.legende) }))} onOccupe={(o) => occuper(x.cle, o)} />
+                  onChange={(f) => maj(x.cle, (y) => {
+                    const legende = f(y.legende);
+                    // une photo pas encore déposée : sa légende est gardée avec elle dans le téléphone
+                    const b = blobs.current.get(y.cle);
+                    if (y.id === null && b) void mettreEnAttente(groupe, { cle: y.cle, sorte: 'photo', blob: b, type: b.type || 'image/jpeg', legende, creeLe: new Date().toISOString() });
+                    return { ...y, legende };
+                  })} onOccupe={(o) => occuper(x.cle, o)} />
                 {sansLegende && x.etat !== 'erreur' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
               </li>);
           })}
@@ -504,7 +572,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
 /* ══ BLOC DICTAPHONE ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Une prise du dictaphone : sa réécoute (sur l'appareil) et sa pièce déposée (`id`, interne). */
-export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'ok' | 'erreur'; motif: string | null }
+export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'attente' | 'ok' | 'erreur'; motif: string | null }
 /** Un fichier vocal : un nom (renommable) et ses prises, dans l'ordre. */
 export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[]; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null;
   /** 🔴 Arno (15/11/2026) — « Envoyé aux locataires » : défaut NON (le fichier reste interne). */
@@ -545,14 +613,54 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   const cleCourante = courant !== null && fichiers.some((f) => f.cle === courant) ? courant : (fichiers[fichiers.length - 1]?.cle ?? null);
   const majFichier = (cle: string, f: (x: FichierVocal) => FichierVocal) => setFichiers((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
   const majPrise = (fc: string, pc: string, f: (x: PriseVocale) => PriseVocale) => majFichier(fc, (x) => ({ ...x, prises: x.prises.map((p) => (p.cle === pc ? f(p) : p)) }));
+  // 🔴 Arno (15/11/2026) — chaque prise est gardée DANS LE TÉLÉPHONE avant d'être déposée, et le reste tant que le serveur n'a pas confirmé ;
+  // réseau coupé : « en attente », renvoyée automatiquement (retour du réseau, relance régulière, réouverture de la page).
+  const groupe = groupeDe(occupationIds);
+  const enAttente = useRef(new Map<string, { fc: string; blob: Blob; type: string; dureeS: number }>());
+  const encours = useRef(new Set<string>());
   const deposer = async (fc: string, pc: string, blob: Blob, type: string, dureeS: number): Promise<void> => {
-    const deja = await new Promise<number[]>((ok) => setFichiers((xs) => { ok(xs.flatMap((x) => x.prises).filter((p) => p.id !== null).map((p) => p.id as number)); return xs; }));
-    let donnees: string;
-    try { donnees = await (await modulePhoto()).enBase64(blob); } catch { majPrise(fc, pc, (p) => ({ ...p, etat: 'erreur', motif: 'La prise n’a pas pu être préparée sur cet appareil.' })); return; }
-    const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type, dureeS, dejaIds: deja }, { propre: true });
-    const id = (r.data as { id?: number } | undefined)?.id;
-    majPrise(fc, pc, (p) => (r.motif === null && typeof id === 'number' ? { ...p, id, etat: 'ok' } : { ...p, etat: 'erreur', motif: r.motif ?? 'La prise n’a pas pu être enregistrée.' }));
+    if (encours.current.has(pc)) return;
+    encours.current.add(pc);
+    try {
+      majPrise(fc, pc, (p) => ({ ...p, etat: 'depot', motif: null }));
+      const deja = await new Promise<number[]>((ok) => setFichiers((xs) => { ok(xs.flatMap((x) => x.prises).filter((p) => p.id !== null).map((p) => p.id as number)); return xs; }));
+      let donnees: string;
+      try { donnees = await (await modulePhoto()).enBase64(blob); } catch { majPrise(fc, pc, (p) => ({ ...p, etat: 'erreur', motif: 'La prise n’a pas pu être préparée sur cet appareil.' })); return; }
+      const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type, dureeS, dejaIds: deja }, { propre: true });
+      const id = (r.data as { id?: number } | undefined)?.id;
+      if (r.motif === null && typeof id === 'number') { majPrise(fc, pc, (p) => ({ ...p, id, etat: 'ok', motif: null })); enAttente.current.delete(pc); await retirerAttente(groupe, pc); return; }
+      if (erreurReseau(r)) { majPrise(fc, pc, (p) => ({ ...p, etat: 'attente', motif: MOTIF_ATTENTE_PRISE })); return; }
+      enAttente.current.delete(pc); await retirerAttente(groupe, pc);
+      majPrise(fc, pc, (p) => ({ ...p, etat: 'erreur', motif: r.motif ?? 'La prise n’a pas pu être enregistrée.' }));
+    } finally { encours.current.delete(pc); }
   };
+  const relancer = useCallback((): void => {
+    for (const [pc, e] of enAttente.current) void deposer(e.fc, pc, e.blob, e.type, e.dureeS);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // à l'ouverture : les prises restées dans le téléphone reviennent dans leur fichier vocal, puis repartent
+  useEffect(() => {
+    let vivant = true;
+    void listerAttente(groupe).then((xs) => {
+      if (!vivant) return;
+      const lp = xs.filter((e) => e.sorte === 'prise' && e.fichierCle);
+      if (lp.length === 0) return;
+      for (const e of lp) enAttente.current.set(e.cle, { fc: e.fichierCle as string, blob: e.blob, type: e.type, dureeS: e.dureeS ?? 0 });
+      setFichiers((cur) => {
+        const out = cur.map((f) => ({ ...f, prises: [...f.prises] }));
+        for (const e of lp) {
+          let f = out.find((x) => x.cle === e.fichierCle);
+          if (!f) { f = { ...fichierVide(out.length), cle: e.fichierCle as string, nom: e.fichierNom || `Vocal ${out.length + 1}` }; out.push(f); }
+          const deja = f.prises.find((p) => p.cle === e.cle);
+          if (deja) { if (deja.id === null) Object.assign(deja, { url: deja.url || URL.createObjectURL(e.blob), etat: 'attente', motif: MOTIF_ATTENTE_PRISE }); }
+          else f.prises.push({ cle: e.cle, id: null, url: URL.createObjectURL(e.blob), dureeS: e.dureeS ?? 0, etat: 'attente', motif: MOTIF_ATTENTE_PRISE });
+        }
+        return out;
+      });
+      setTimeout(() => relancer(), 0);
+    });
+    return () => { vivant = false; };
+  }, [groupe]); // eslint-disable-line react-hooks/exhaustive-deps
+  useRelance(fichiers.some((f) => f.prises.some((p) => p.etat === 'attente')), relancer);
   const prise = useEnregistrementMaintenu((blob, type, dureeMs) => {
     const dureeS = Math.min(dureeMs / 1000, VOCAL_DUREE_MAX_S);
     const pc = nouvelleCle(); const url = URL.createObjectURL(blob);
@@ -560,20 +668,23 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
     if (fc === null) { const f = fichierVide(0); fc = f.cle; setFichiers((xs) => [...xs, f]); setCourant(f.cle); }
     const cible = fc;
     setFichiers((xs) => xs.map((x) => (x.cle === cible ? { ...x, prises: [...x.prises, { cle: pc, id: null, url, dureeS, etat: 'depot', motif: null }] } : x)));
-    void deposer(cible, pc, blob, type, dureeS);
+    enAttente.current.set(pc, { fc: cible, blob, type, dureeS });
+    const nom = fichiers.find((x) => x.cle === cible)?.nom ?? `Vocal ${fichiers.length + 1}`;
+    void mettreEnAttente(groupe, { cle: pc, sorte: 'prise', blob, type, fichierCle: cible, fichierNom: nom, dureeS, creeLe: new Date().toISOString() })
+      .then(() => deposer(cible, pc, blob, type, dureeS));
   });
-  const enCours = prise.etat !== 'repos' || fichiers.some((f) => f.transcription === 'en_cours' || f.prises.some((p) => p.etat === 'depot'));
+  const enCours = prise.etat !== 'repos' || fichiers.some((f) => f.transcription === 'en_cours' || f.prises.some((p) => p.etat === 'depot' || p.etat === 'attente'));
   useEffect(() => { onOccupe(enCours); }, [enCours, onOccupe]);
   const nouveau = (): void => { const f = fichierVide(fichiers.length); setFichiers((xs) => [...xs, f]); setCourant(f.cle); };
   const supprimerFichier = (fc: string): void => {
     const f = fichiers.find((x) => x.cle === fc);
-    f?.prises.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } });
+    f?.prises.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } enAttente.current.delete(p.cle); void retirerAttente(groupe, p.cle); });
     if (lecteur.jouant !== null) lecteur.arreter();
     setFichiers((xs) => xs.filter((x) => x.cle !== fc)); setAConfirmer(null);
   };
   const supprimerPrise = (fc: string, pc: string): void => {
     const p = fichiers.find((x) => x.cle === fc)?.prises.find((y) => y.cle === pc);
-    if (p) { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } }
+    if (p) { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } enAttente.current.delete(pc); void retirerAttente(groupe, pc); }
     if (lecteur.jouant !== null) lecteur.arreter();
     majFichier(fc, (x) => ({ ...x, prises: x.prises.filter((y) => y.cle !== pc) })); setAConfirmer(null);
   };
@@ -643,6 +754,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
               <li key={p.cle} className={`pvv-prise${p.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-prise={k + 1} data-prise-etat={p.etat}>
                 <span>Prise {k + 1} <span className="loc-muet">({dureeFr(p.dureeS)})</span></span>
                 {p.etat === 'depot' && <span className="loc-muet" role="status">Enregistrement…</span>}
+                {p.etat === 'attente' && <span className="pvv-attente" role="status" data-prise-attente>{p.motif}</span>}
                 <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} aria-label={lecteur.jouant === p.cle ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`} data-prise-ecouter><Icone nom={lecteur.jouant === p.cle ? 'pause' : 'lecture'} /></button>
                 <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: p.cle })} aria-label={`Supprimer la prise ${k + 1}`} data-prise-supprimer><Icone nom="corbeille" /></button>
                 {aConfirmer?.fichier === f.cle && aConfirmer.prise === p.cle && (
@@ -784,6 +896,13 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-chrono{font-variant-numeric:tabular-nums}
 .pvv-statut{margin:0;font-style:italic}
 .pvv-segments{display:inline-flex;gap:10px;flex-wrap:wrap}
+.pvv-sauvegarde{align-self:flex-start;margin:0;padding:3px 10px;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:.82rem;font-weight:800}
+.pvv-sauvegarde--enregistre{color:var(--color-svv-green-ink)}
+.pvv-sauvegarde--hors_ligne,.pvv-sauvegarde--echec{color:var(--color-svv-ink);background:color-mix(in srgb, var(--color-svv-urgence-orange) 18%, var(--color-svv-surface))}
+.pvv-restaure{margin:0;padding:8px 10px;border-radius:10px;border-left:4px solid var(--color-svv-green-ink);background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700}
+.pvv-effacer-ligne{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.pvv-effacer-brouillon{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.pvv-attente{display:block;padding:6px 10px;border-radius:10px;border:1px dashed var(--color-svv-urgence-orange);color:var(--color-svv-ink);font-weight:700;font-size:.9rem}
 /* Arno (15/11/2026) : un CHOIX est un vrai bouton — liseré gris, fond de carte, 44 px ; l'actif en plein rouge (accent), texte gras */
 .pvv-choix{box-sizing:border-box;min-height:44px;min-width:44px;padding:0 16px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.95rem;font-weight:700;line-height:1.2;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
 .pvv-choix:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}

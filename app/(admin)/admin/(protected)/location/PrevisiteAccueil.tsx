@@ -22,12 +22,14 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, Confirmation, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
+import { IndicateurSauvegarde, useBrouillonCompteRendu } from './BrouillonCompteRendu';
+import type { ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -262,7 +264,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [photos, setPhotos] = useState<PhotoSaisie[]>([]);
   const [rangSansLegende, setRangSansLegende] = useState<number | null>(null);
   const photosPretes = photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende }));
-  const photosEnCours = photos.some((x) => x.etat === 'envoi');
+  // une photo en attente du réseau n'est pas encore sur le serveur : le récapitulatif attend qu'elle y soit
+  const photosEnCours = photos.some((x) => x.etat === 'envoi' || x.etat === 'attente');
   /** 🔴 Arno (15/11/2026) — le DICTAPHONE : des fichiers vocaux (INTERNES, jamais envoyés), chacun ses prises ; le curseur du texte, où
    *  s'insèrent la dictée et la transcription d'un fichier. */
   const [fichiers, setFichiers] = useState<FichierVocal[]>([]);
@@ -285,6 +288,33 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const envoiVocaux = vocauxPourEnvoi(fichiers);
   const vocauxPrets = envoiVocaux.vocaux;
   const vocauxEnCours = dictaphoneOccupe || dicteeOccupee || legendeOccupee;
+  /* 🔴🔴 Arno (15/11/2026, 6e retour) — LA SAUVEGARDE AUTOMATIQUE : le contenu du formulaire (les photos et prises DÉJÀ déposées, par leur
+     numéro de pièce), enregistré tout seul ; restauré à la réouverture. Les photos et prises pas encore déposées vivent dans le téléphone. */
+  const urlPiece = (id: number): string => `/api/admin/location/pieces-sortie?piece=${id}`;
+  const contenuBrouillon: ContenuBrouillon = {
+    corps, presents, ajoutees: ajoutees.map((a) => ({ cle: a.cle, civilite: a.civilite, nom: a.nom, prenom: a.prenom, present: a.present, note: a.note })),
+    photos: photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende })),
+    fichiers: fichiers.map((f) => ({ cle: f.cle, nom: f.nom, locataires: f.locataires === true, prises: f.prises.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, dureeS: x.dureeS })) })),
+    aussiLocataires,
+  };
+  const appliquerBrouillon = useCallback((c: ContenuBrouillon): void => {
+    setCorps(c.corps); setPresents(c.presents.filter((x) => l.occupationIds.includes(x))); setAjoutees(c.ajoutees.map((a) => ({ ...a })));
+    setAussiLocataires(c.aussiLocataires);
+    // les pièces DÉPOSÉES viennent du brouillon ; celles qui attendent encore dans le téléphone (remises par la file locale) sont gardées
+    setPhotos((xs) => [...c.photos.map((x): PhotoSaisie => { const deja = xs.find((y) => y.id === x.id);
+      return { cle: deja?.cle ?? `b${x.id}`, id: x.id, apercu: deja?.apercu ?? urlPiece(x.id), legende: x.legende, etat: 'ok', motif: null }; }), ...xs.filter((y) => y.id === null)]);
+    setFichiers((xs) => {
+      const out: FichierVocal[] = c.fichiers.map((f) => {
+        const deja = xs.find((y) => y.cle === f.cle);
+        return { cle: f.cle, nom: f.nom, locataires: f.locataires, transcription: null, motif: null,
+          prises: [...f.prises.map((x) => ({ cle: `b${x.id}`, id: x.id, url: urlPiece(x.id), dureeS: x.dureeS, etat: 'ok' as const, motif: null })), ...(deja ? deja.prises.filter((y) => y.id === null) : [])] };
+      });
+      for (const y of xs) if (!out.some((f) => f.cle === y.cle) && y.prises.some((x) => x.id === null)) out.push(y);
+      return out;
+    });
+  }, [l.occupationIds]);
+  const brouillon = useBrouillonCompteRendu({ actif: geste === 'compte_rendu' && resultatInitial === undefined, occupationIds: l.occupationIds, contenu: contenuBrouillon, appliquer: appliquerBrouillon });
+  const [effacerBrouillon, setEffacerBrouillon] = useState(false);
   const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); const x = appliquerTirets(r.texte, r.curseur); curseur.current = x.curseur; return x.texte; });
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
@@ -373,6 +403,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     if (typeof d.tacheAnnulee === 'number') lignes.push(['Rendez-vous', 'annulé — la tâche des collègues est annulée']);
     if (d.agenda) lignes.push(['Agenda', d.agenda]);
     const motif = mails.length === 0 ? 'Aucun mail n’est parti pour cette opération.' : null;
+    // 🔴 Arno (15/11/2026) — le compte rendu est parti : le brouillon n'a plus lieu d'être (le serveur l'a marqué « envoyé ») ; le téléphone est vidé
+    if (geste === 'compte_rendu' && d.statut === 'effectuee') await brouillon.terminer();
     // 🔴 Arno (15/11/2026) — la page du compte rendu : retour à la Location, qui affiche ce résultat (la fenêtre habituelle)
     if (page) { noterResultatCompteRendu(l.occupationIds, { mails, lignes, motif }); onFermer(true); return; }
     setEtape({ etape: 'resultat', mails, lignes, motif });
@@ -384,6 +416,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       {geste === 'compte_rendu' ? <>
         {/* 🔴 Arno (15/11/2026) — le titre, et sur téléphone le petit bouton clair / sombre à droite ; sous l'adresse, chaque locataire et sa date d'entrée */}
         <div className="pvv-titre-ligne"><h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2><BoutonTheme /></div>
+        <IndicateurSauvegarde b={brouillon} />
         <p className="loc-muet pss-rien" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
       </> : <>
         <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
@@ -443,6 +476,15 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       <BlocageEmailLocataires e={emails} />
       {verdict !== null && !verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-previsite-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
+      {/* 🔴 Arno (15/11/2026) — « Annuler » garde le brouillon ; « Effacer le brouillon » (confirmé) le supprime */}
+      {geste === 'compte_rendu' && (
+        <div className="pvv-effacer-ligne">
+          <button type="button" className="pvv-choix pvv-effacer-brouillon" onClick={() => setEffacerBrouillon(true)} disabled={envoi} data-effacer-brouillon>Effacer le brouillon</button>
+          {effacerBrouillon && (
+            <Confirmation question="Effacer le brouillon ? Le texte, les présences, les photos et les vocaux saisis seront retirés du formulaire." action="Effacer"
+              onGarder={() => setEffacerBrouillon(false)} onConfirmer={() => { setEffacerBrouillon(false); void brouillon.effacer(); }}
+              attributs={{ 'data-effacer-brouillon-confirmer': '' }} attributsOui={{ 'data-effacer-brouillon-oui': '' }} attributsNon={{ 'data-effacer-brouillon-non': '' }} />)}
+        </div>)}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => onFermer(false)} disabled={envoi} data-annuler-previsite>Annuler</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk || photosEnCours || vocauxEnCours} data-recap-previsite>

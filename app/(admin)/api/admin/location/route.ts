@@ -3,6 +3,7 @@ import 'server-only';
 import { deposerVocal, dicterCompteRendu, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
 import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location/photosCompteRenduRepo';
 import { lireCompteRenduPrevisite } from '../../../../lib/location/compteRenduPrevisiteRepo';
+import { ecrireBrouillon, effacerBrouillon, lireBrouillon } from '../../../../lib/location/brouillonCompteRenduRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
 import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arbreStatutDriveRepo';
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
@@ -170,6 +171,11 @@ export async function GET(request: Request): Promise<Response> {
     if (p('previsiteCompteRendu') !== null) {
       const ids = (p('previsiteCompteRendu') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
       return Response.json(ids.length === 0 ? { etat: 'inconnu' } : await lireCompteRenduPrevisite(ids), { headers: ENTETES });
+    }
+    // 🔴 Arno (15/11/2026) — le BROUILLON du compte rendu de pré-visite (474) : texte, présences, photos et légendes, vocaux, envoi aux locataires — LECTURE SEULE.
+    if (p('previsiteBrouillon') !== null) {
+      const ids = (p('previsiteBrouillon') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
+      return Response.json(ids.length === 0 ? { etat: 'inconnu' } : await lireBrouillon(ids), { headers: ENTETES });
     }
     // Arno (20/10/2026) — le bloc « Conditions d'entrée » : la migration 391 est-elle là ? (sinon l'écran le dit, et crée comme avant)
     if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });
@@ -739,6 +745,12 @@ async function postLocation(request: Request): Promise<Response> {
       case 'apercu-compte-rendu-previsite':
         return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos),
           vocaux: idsPrises(corps.vocaux), fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences) }, auteur));
+      // 🔴 Arno (15/11/2026) — le BROUILLON du compte rendu (474) : enregistré tout seul par le formulaire ; « Effacer le brouillon » le marque
+      // effacé (rien n'est supprimé, aucune pièce n'est touchée). Rien n'est envoyé à qui que ce soit.
+      case 'brouillon-previsite':
+        return repondre(await ecrireBrouillon(idsOccupations(corps.occupationIds), corps.contenu, auteur));
+      case 'effacer-brouillon-previsite':
+        return repondre(await effacerBrouillon(idsOccupations(corps.occupationIds), auteur));
       case 'compte-rendu-previsite':
         return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsPrises(corps.vocaux),
           fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences) }, auteur));

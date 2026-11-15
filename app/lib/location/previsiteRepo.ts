@@ -20,6 +20,7 @@ export interface PresencesCr { occupations: readonly number[]; personnes: readon
 export const ACTION_JOURNAL_PRESENCES = 'location_previsite_presences';
 import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace } from './vocauxCompteRendu';
 import { prisesPourEnvoi, vocauxDesOccupations } from './vocauxCompteRenduRepo';
+import { effacerBrouillon } from './brouillonCompteRenduRepo';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
@@ -443,6 +444,8 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
       `${vocaux.length} vocal(aux) interne(s) du compte rendu de pré-visite — jamais envoyé(s)`, auteur);
   });
   if (r.data.s.tache_etat === 'a_faire') await marquerFaite(Number(r.data.s.tache_id), auteur).catch(() => null);
+  // 🔴 Arno (15/11/2026) — le compte rendu est parti : son brouillon est marqué « envoyé » (rien n'est supprimé)
+  await effacerBrouillon(ids, auteur, 'envoye').catch(() => null);
   return { etat: 'ok', data: { envois, statut: 'effectuee' } };
 }
 
