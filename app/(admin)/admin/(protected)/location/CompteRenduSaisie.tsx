@@ -1,7 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as KeyboardEventReact, type PointerEvent as PointerEventReact } from 'react';
-import { envoyer } from './commun';
+import { envoyer, useLecture } from './commun';
+import { useContextePreavis } from './preavisSynchro';
+import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
+import { aUnEmail } from '../../../../lib/location/emailLocataireRequis';
+import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 import { Icone } from './IconesCompteRendu';
 import { lignePhoto } from '../../../../lib/location/photosCompteRendu';
 import { dureeFr, etatVocalLocataires, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
@@ -623,8 +627,53 @@ export function vocauxPourEnvoi(fichiers: readonly FichierVocal[]): { vocaux: nu
 /** L'insertion d'une transcription de fichier vocal (avec la mention) : réexportée pour l'écran. */
 export { insererTranscription };
 
+/* ══ 🔴 Arno (15/11/2026) — L'ENVOI DU COMPTE RENDU AUX LOCATAIRES : un GROS bouton bascule pleine largeur (remplace la case « Envoyer aussi
+ * aux locataires », accord d'Arno), ACTIVÉ PAR DÉFAUT. Activé : plein ROUGE, « Compte rendu envoyé aux locataires » avec une coche, et dessous
+ * le ou les locataires qui le recevront ; désactivé : contour seul, « Compte rendu NON envoyé aux locataires (interne uniquement) ». Un appui
+ * bascule ; aria-pressed suit l'état ; le texte d'aide aussi. */
+export const LIBELLE_ENVOI_LOCATAIRES_OUI = 'Compte rendu envoyé aux locataires';
+export const LIBELLE_ENVOI_LOCATAIRES_NON = 'Compte rendu NON envoyé aux locataires (interne uniquement)';
+export const AIDE_ENVOI_LOCATAIRES_OUI = 'Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location ; chaque locataire reçoit en plus SON propre mail (seul destinataire, sans copie visible).';
+export const AIDE_ENVOI_LOCATAIRES_NON = 'Envoyé seulement aux collaborateurs ayant accès à Gestion et/ou Location : aucun locataire ne le reçoit.';
+
+/** Qui recevra le compte rendu : les locataires du préavis avec une adresse e-mail ; ceux qui n'en ont pas sont dits à part. PUR. */
+export function destinatairesLocataires(locs: readonly { occupationId: number; nom: string; prenom?: string | null; emails: readonly string[] }[], occupationIds: readonly number[]):
+  { recoivent: string[]; sansEmail: string[] } {
+  const ici = locs.filter((x) => occupationIds.includes(x.occupationId));
+  const nom = (x: (typeof ici)[number]) => prenomNom({ nom: x.nom, prenom: x.prenom ?? null });
+  return { recoivent: ici.filter((x) => aUnEmail(x.emails)).map(nom), sansEmail: ici.filter((x) => !aUnEmail(x.emails)).map(nom) };
+}
+
+export function BoutonEnvoiLocataires({ actif, onBasculer, occupationId, occupationIds, nomsConnus }: {
+  actif: boolean; onBasculer: () => void; occupationId: number; occupationIds: readonly number[];
+  /** les noms des locataires du préavis, montrés tant que leurs adresses ne sont pas lues */
+  nomsConnus: readonly string[];
+}) {
+  const { base } = useContextePreavis();
+  const lu = useLecture<EncartLogement>(`encartBail=${occupationId}`, base);
+  const d = lu.etat.etat === 'ok' ? destinatairesLocataires(lu.etat.data.coordonnees?.locataires ?? [], occupationIds) : null;
+  const recoivent = d === null ? [...nomsConnus] : d.recoivent;
+  return (
+    <div className="pvv-envoi-loc" data-bloc-envoi-locataires>
+      <button type="button" className={`svv-btn pvv-gros pvv-envoi-loc-bouton${actif ? ' svv-btn-primary pvv-envoi-loc--oui' : ' svv-btn-outline'}`} aria-pressed={actif}
+        onClick={onBasculer} data-aussi-locataires={actif ? 'oui' : 'non'}>
+        {actif ? <><Icone nom="coche" /> {LIBELLE_ENVOI_LOCATAIRES_OUI}</> : LIBELLE_ENVOI_LOCATAIRES_NON}
+      </button>
+      {actif && (recoivent.length > 0
+        ? <p className="pvv-envoi-loc-noms" data-envoi-locataires-noms>Le recevra{recoivent.length > 1 ? 'nt' : ''} : {recoivent.join(', ')}</p>
+        : <p className="pvv-envoi-loc-noms" data-envoi-locataires-noms>Aucun locataire avec une adresse e-mail : seuls les collaborateurs le recevront.</p>)}
+      {actif && d !== null && d.sansEmail.length > 0 && <p className="loc-muet" data-envoi-locataires-sans-email>Sans adresse e-mail, ne le recevra pas : {d.sansEmail.join(', ')}</p>}
+      <p className="loc-muet" data-aide-envoi-locataires>{actif ? AIDE_ENVOI_LOCATAIRES_OUI : AIDE_ENVOI_LOCATAIRES_NON}</p>
+    </div>
+  );
+}
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme seulement. */
 export const CSS_COMPTE_RENDU_SAISIE = `
+.pvv-envoi-loc{display:flex;flex-direction:column;gap:6px}
+.pvv-envoi-loc--oui.svv-btn,.pvv-envoi-loc--oui{background:var(--color-svv-red);color:var(--color-svv-surface);border:2px solid var(--color-svv-red)}
+.pvv-envoi-loc-bouton.svv-btn-outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border:2px solid var(--color-svv-line-strong)}
+.pvv-envoi-loc-noms{margin:0;font-weight:800;overflow-wrap:anywhere}
 .pvv-bloc{border:1px solid var(--color-svv-line);border-radius:14px;padding:12px;margin:14px 0 0;display:flex;flex-direction:column;gap:10px;min-width:0}
 .pvv-bloc--texte{background:color-mix(in srgb, var(--color-svv-green) 5%, var(--color-svv-surface))}
 .pvv-bloc--photos{background:color-mix(in srgb, var(--color-svv-ink) 4%, var(--color-svv-surface))}

@@ -190,13 +190,13 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
   });
 });
 
-describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vous ; objet prérempli ; case décochée', () => {
+describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vous ; objet prérempli ; envoi aux locataires (bouton bascule, activé par défaut)', () => {
   it('pas de bouton avant la fin du rendez-vous', async () => {
     await rendre();
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
     expect(container.querySelector('[data-compte-rendu-previsite]')).toBeNull();
   });
-  it('le rendez-vous passé : le bouton ; l’objet mot pour mot ; « Envoyer aussi aux locataires » décochée ; le statut au résultat', async () => {
+  it('le rendez-vous passé : le bouton ; l’objet mot pour mot ; envoi aux locataires ACTIVÉ par défaut (15/11/2026), désactivable ; le statut au résultat', async () => {
     lignes[1].previsite = { ...lignes[1].previsite!, rdvPasse: true };
     reponsePost = (c) => (String(c.action).startsWith('apercu') ? { mails: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], texte: 'En présence de Bob PROGRAMME.\n\nTout va bien.' }], sansEmail: [], phrase: 'En présence de Bob PROGRAMME.' }
       : { envois: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], envoye: true, motif: null }], statut: 'effectuee' });
@@ -209,7 +209,10 @@ describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vo
     act(() => root.unmount()); root = createRoot(container);
     await act(async () => { root.render(createElement(PageCompteRendu, { occupationId: 31 })); }); await attendre();
     expect(document.querySelector('[data-objet-compte-rendu]')?.textContent).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 20/11/2026 à 10h00');
-    expect((document.querySelector('[data-aussi-locataires]') as HTMLInputElement).checked).toBe(false);
+    expect(document.querySelector('[data-objet-ligne]')?.textContent).toBe('Objet : Compte rendu de pré-visite d’état des lieux de sortie effectuée le 20/11/2026 à 10h00');
+    expect(document.querySelector('[data-aussi-locataires]')?.getAttribute('aria-pressed')).toBe('true');
+    await clic(document.querySelector('[data-aussi-locataires]'));
+    expect(document.querySelector('[data-aussi-locataires]')?.getAttribute('aria-pressed')).toBe('false');
     expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
     saisir(document.querySelector('[data-corps-compte-rendu]'), 'Tout va bien.');
     // 🔴 Arno (15/11/2026) — la présence est obligatoire : on coche le premier locataire

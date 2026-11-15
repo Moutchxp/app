@@ -1750,7 +1750,8 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     expect(document.querySelector('[data-vocal="1"] [data-vocal-locataires]')!.textContent).toBe('Non envoyé aux locataires');
     act(() => (document.querySelector('[data-vocal="2"] [data-vocal-locataires-case]') as HTMLInputElement).click());
     expect(document.querySelector('[data-vocal="2"] [data-vocal-locataires]')!.textContent).toBe('Envoyé aux locataires');
-    act(() => (document.querySelector('[data-aussi-locataires]') as HTMLInputElement).click());
+    // 🔴 (15/11/2026) — l'envoi aux locataires est ACTIVÉ par défaut : rien à toucher
+    expect(document.querySelector('[data-aussi-locataires]')!.getAttribute('aria-pressed')).toBe('true');
     cocherPresence(); act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
     const apercu = appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!;
     expect(apercu.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [91], locataires: false }, { nom: 'Vocal 2', ids: [92], locataires: true }]);
@@ -1760,14 +1761,44 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     expect(appels.find((c) => c.action === 'compte-rendu-previsite')!.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [91], locataires: false }, { nom: 'Vocal 2', ids: [92], locataires: true }]);
   });
 
-  it('vocal coché mais « Envoyer aussi aux locataires » décoché : le récapitulatif dit NON envoyé, et pourquoi', async () => {
+  it('🔴 (15/11/2026) « Objet : … » (deux-points, espace) ; le GROS bouton d’envoi aux locataires : activé par défaut (plein rouge, coche, noms), un appui le désactive (contour, « interne uniquement »), l’aide suit', async () => {
+    await ouvrirCr();
+    expect(document.querySelector('[data-objet-ligne]')!.textContent).toMatch(/^Objet : Compte rendu de pré-visite/);
+    const b = document.querySelector('[data-aussi-locataires]') as HTMLButtonElement;
+    expect(b.tagName).toBe('BUTTON');
+    expect(document.querySelector('input[type="checkbox"][data-aussi-locataires]')).toBeNull();
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    expect(b.className).toContain('svv-btn-primary'); expect(b.className).toContain('pvv-gros'); expect(b.className).toContain('pvv-envoi-loc--oui');
+    expect(b.textContent).toBe(' Compte rendu envoyé aux locataires');
+    expect(b.querySelector('svg')).not.toBeNull(); // la coche dessinée
+    expect(document.querySelector('[data-envoi-locataires-noms]')!.textContent).toMatch(/^Le recevra/);
+    expect(document.querySelector('[data-aide-envoi-locataires]')!.textContent).toContain('chaque locataire reçoit en plus SON propre mail');
+    act(() => b.click());
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+    expect(b.className).toContain('svv-btn-outline'); expect(b.className).not.toContain('svv-btn-primary');
+    expect(b.textContent).toBe('Compte rendu NON envoyé aux locataires (interne uniquement)');
+    expect(document.querySelector('[data-envoi-locataires-noms]')).toBeNull();
+    expect(document.querySelector('[data-aide-envoi-locataires]')!.textContent).toContain('aucun locataire ne le reçoit');
+    act(() => b.click());
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-envoi-loc--oui.svv-btn,.pvv-envoi-loc--oui{background:var(--color-svv-red);color:var(--color-svv-surface)');
+  });
+  it('🔴 (15/11/2026) qui recevra le compte rendu : les locataires du préavis AVEC une adresse ; les autres dits à part', async () => {
+    const { destinatairesLocataires } = await import('./CompteRenduSaisie');
+    expect(destinatairesLocataires([{ occupationId: 11, nom: 'MAGNANI', prenom: 'Monia', emails: ['m@exemple.test'] }, { occupationId: 12, nom: 'BERNARD', prenom: 'Paul', emails: [] },
+      { occupationId: 99, nom: 'AUTRE', prenom: null, emails: ['x@exemple.test'] }], [11, 12])).toEqual({ recoivent: ['Monia MAGNANI'], sansEmail: ['Paul BERNARD'] });
+  });
+  it('vocal marqué « Envoyé aux locataires » mais envoi aux locataires DÉSACTIVÉ : le récapitulatif dit NON envoyé, et pourquoi ; rien ne part aux locataires', async () => {
     await ouvrirCr();
     taper('CR.');
     await maintenir('[data-enregistrer-vocal]', 1500);
     await patienter(() => document.querySelectorAll('[data-prise-etat="ok"]').length === 1);
     act(() => (document.querySelector('[data-vocal-locataires-case]') as HTMLInputElement).click());
+    act(() => (document.querySelector('[data-aussi-locataires]') as HTMLButtonElement).click()); // désactivé
     cocherPresence(); act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
-    expect(document.querySelector('[data-recap-vocal]')!.textContent).toBe('Vocal 1 — NON envoyé (interne) — cochez « Envoyer aussi aux locataires » pour l’envoyer');
+    expect(document.querySelector('[data-recap-vocal]')!.textContent).toBe('Vocal 1 — NON envoyé (interne) — l’envoi aux locataires est désactivé : activez « Compte rendu envoyé aux locataires » pour le joindre');
+    expect(appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!.aussiLocataires).toBe(false);
   });
 
   it('« Voir le compte rendu » : chaque vocal dit s’il est parti aux locataires', async () => {

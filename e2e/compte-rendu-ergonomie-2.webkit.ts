@@ -143,7 +143,7 @@ test('vocal « Envoyé aux locataires » : non par défaut ; l’aperçu le reç
   await expect(page.locator('[data-vocal="2"] [data-vocal-locataires]')).toHaveText('Envoyé aux locataires');
   await page.locator('[data-vocal="2"]').scrollIntoViewIfNeeded();
   await capturer(page, '05-vocal-interrupteur');
-  await page.locator('[data-aussi-locataires]').check();
+  await expect(page.locator('[data-aussi-locataires]')).toHaveAttribute('aria-pressed', 'true'); // 🔴 (15/11/2026) activé par défaut
   await page.locator('[data-presence-locataire]').first().check(); // 🔴 (15/11/2026) la présence est obligatoire
   await page.locator('[data-recap-previsite]').tap();
   await expect(page.locator('[data-recap-vocal]')).toHaveText(['Vocal 1 — NON envoyé (interne)', 'Vocal 2 — ENVOYÉ aux locataires']);

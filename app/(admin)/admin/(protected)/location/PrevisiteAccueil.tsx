@@ -22,7 +22,7 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonTheme, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
@@ -256,7 +256,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [finTouchee, setFinTouchee] = useState(deplacement);
   const [choisis, setChoisis] = useState<number[] | null>(null);
   const [corps, setCorps] = useState('');
-  const [aussiLocataires, setAussiLocataires] = useState(false);
+  // 🔴 Arno (15/11/2026) — l'envoi aux locataires est ACTIVÉ PAR DÉFAUT (gros bouton bascule)
+  const [aussiLocataires, setAussiLocataires] = useState(true);
   /** 🔴 Arno (13/11/2026, lot B) — les photos du compte rendu (déposées à l'ajout), légende obligatoire, dans l'ordre choisi. */
   const [photos, setPhotos] = useState<PhotoSaisie[]>([]);
   const [rangSansLegende, setRangSansLegende] = useState<number | null>(null);
@@ -421,18 +422,17 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         </fieldset>
       )}
       {geste === 'compte_rendu' && rdvActuel && <>
-        <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
+        <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
         {/* 🔴 Arno (15/11/2026) — TROIS BLOCS, dans cet ordre : TEXTE (dictée maintenue, clavier), PHOTOS, DICTAPHONE (fichiers vocaux internes) */}
         <BlocPresence locataires={l.locataires} presents={presents} setPresents={setPresents} ajoutees={ajoutees} setAjoutees={setAjoutees} erreur={refusPresence} dateFr={dateFrPreavis} />
         <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
         <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
         <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe} />
-        <label className="pvv-case"><input type="checkbox" checked={aussiLocataires} onChange={(e) => setAussiLocataires(e.target.checked)} data-aussi-locataires />
-          <span>Envoyer aussi aux locataires</span></label>
-        <p className="loc-muet">Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location. Avec la case cochée, chaque locataire reçoit en plus SON propre mail (seul destinataire, sans copie visible).</p>
+        <BoutonEnvoiLocataires actif={aussiLocataires} onBasculer={() => setAussiLocataires((v) => !v)} occupationId={l.occupationId} occupationIds={l.occupationIds}
+          nomsConnus={l.locataires.map((x) => x.nom)} />
       </>}
       {geste === 'refus' && (propose.etat.etat !== 'ok' ? <EtatLecture etat={propose.etat} /> : <>
-        <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span>{propose.etat.data.objet}</span></p>
+        <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span>{propose.etat.data.objet}</span></p>
         <label className="pvs-champ"><span className="pvs-libelle">Texte du mail (modifiable) *</span>
           <textarea value={texteRefus ?? ''} onChange={(e) => setTexteRefus(e.target.value)} rows={14} data-texte-refus /></label>
         <p className="loc-muet" data-refus-confidentialite>Chaque locataire reçoit SON mail (seul destinataire, sans copie visible) : « [nom du locataire] » y est remplacé par son nom. Les collaborateurs ayant accès à Gestion et/ou Location reçoivent une copie interne séparée.</p>
@@ -490,7 +490,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <ul className="pvv-recap-vocaux" data-recap-vocaux>{envoiVocaux.fichiersVocaux.map((f, i) => {
           const envoye = f.locataires && aussiLocataires;
           return <li key={`${i}-${f.nom}`} className={`pvv-vocal-etat${envoye ? ' pvv-vocal-etat--envoye' : ''}`} data-recap-vocal={envoye ? 'envoye' : 'interne'}>
-            {f.nom} — {etatVocalLocataires(envoye)}{f.locataires && !aussiLocataires ? ' — cochez « Envoyer aussi aux locataires » pour l’envoyer' : ''}</li>;
+            {f.nom} — {etatVocalLocataires(envoye)}{f.locataires && !aussiLocataires ? ' — l’envoi aux locataires est désactivé : activez « Compte rendu envoyé aux locataires » pour le joindre' : ''}</li>;
         })}</ul>)}
       <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
@@ -563,7 +563,7 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
         <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
         {cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
           <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
-          {cr.objet && <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-cr-objet>{cr.objet}</span></p>}
+          {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
           <pre className="pvv-cr-texte" data-cr-texte>{texteSansPhotos(cr.texte)}</pre>
           {/* 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos », chaque photo numérotée, sa légende juste en dessous */}
           {(() => { const legendes = legendesDuTexte(cr.texte); const photos = cr.pieces.slice(0, legendes.length);
@@ -687,6 +687,8 @@ export const CSS_PREVISITE = `
   .pss-boite .mis-actions .mis-action{min-height:52px;font-size:1.02rem}
 }
 .pvv-reserve{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-muted)}
+/* Arno (15/11/2026) : « Objet : … » — le libelle, deux-points, une espace, puis le texte (plus jamais colles) */
+.pvv-objet{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
 .pvv-lien-cr{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 `;
 

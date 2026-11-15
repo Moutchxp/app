@@ -3,7 +3,7 @@
  * grille 24, trait `currentColor` de 1,8, extrémités arrondies, AUCUN emoji. L'icône ne porte jamais l'information seule : le mot est écrit à
  * côté, ou le bouton porte un `aria-label` (`aria-hidden` sur le dessin).
  */
-export type NomIcone = 'micro' | 'clavier' | 'appareil' | 'images' | 'plus' | 'lecture' | 'pause' | 'corbeille' | 'texte' | 'entree' | 'soleil' | 'lune' | 'personne' | 'cible' | 'haut' | 'bas' | 'gauche' | 'droite';
+export type NomIcone = 'micro' | 'clavier' | 'appareil' | 'images' | 'plus' | 'lecture' | 'pause' | 'corbeille' | 'texte' | 'entree' | 'soleil' | 'lune' | 'personne' | 'cible' | 'haut' | 'bas' | 'gauche' | 'droite' | 'coche';
 
 export function Icone({ nom, taille = 20 }: { nom: NomIcone; taille?: number }) {
   const commun = { viewBox: '0 0 24 24', width: taille, height: taille, 'aria-hidden': true as const, focusable: false as const, className: 'pvv-icone',
@@ -27,5 +27,6 @@ export function Icone({ nom, taille = 20 }: { nom: NomIcone; taille?: number }) 
     case 'bas': return <svg {...commun}><path d="M12 5v14" /><path d="M6 13l6 6 6-6" /></svg>;
     case 'gauche': return <svg {...commun}><path d="M15 6l-6 6 6 6" /></svg>;
     case 'droite': return <svg {...commun}><path d="M9 6l6 6-6 6" /></svg>;
+    case 'coche': return <svg {...commun}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
   }
 }

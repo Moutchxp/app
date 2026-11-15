@@ -31,7 +31,7 @@ async function jusquAuRecap(page: Page, theme: 'light' | 'dark'): Promise<string
   await page.locator('[data-personne-note-modale]').fill('mère du locataire');
   await page.locator('[data-personne-ajouter]').click();
   await page.locator('[data-corps-compte-rendu]').fill('Logement propre.');
-  await page.locator('[data-aussi-locataires]').check();
+  await expect(page.locator('[data-aussi-locataires]')).toHaveAttribute('aria-pressed', 'true'); // 🔴 (15/11/2026) activé par défaut
   await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
   await page.locator('[data-recap-previsite]').click();
   await expect(page.locator('[data-fenetre-previsite="recap"]')).toBeVisible({ timeout: 20_000 });

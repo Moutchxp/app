@@ -86,7 +86,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.locator('[data-bloc-presence]').scrollIntoViewIfNeeded();
     await capturer(page, `${theme}-06-presence-note`);
     await page.locator('[data-corps-compte-rendu]').fill('Logement propre.');
-    await page.locator('[data-aussi-locataires]').check();
+    await expect(page.locator('[data-aussi-locataires]')).toHaveAttribute('aria-pressed', 'true'); // 🔴 (15/11/2026) activé par défaut
     await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
     await page.locator('[data-recap-previsite]').tap();
     const mails = page.locator('[data-mail-prevu="previsite_compte_rendu"]');
