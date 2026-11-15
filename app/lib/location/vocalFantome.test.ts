@@ -70,3 +70,14 @@ describe('à l’envoi', () => {
     expect(await prisesPourEnvoi([81], [11], async () => bon)).toMatchObject({ ok: true, prises: [{ id: 81, taille: 200 }] });
   });
 });
+
+describe('🔴🔴 (15/11/2026, bug de l’envoi final) — les prises de taille réelle se relisent pour l’envoi', () => {
+  it('trois prises M4A de 126 Ko, 77 Ko et 63 Ko (les tailles du brouillon qui échouait) : relues, vérifiées, prêtes à joindre', async () => {
+    const prise = (n: number): Buffer => { const b = Buffer.alloc(n); b.writeUInt32BE(28, 0); b.write('ftypM4A ', 4, 'latin1'); b.writeUInt32BE(n - 28, 28); b.write('mdat', 32, 'latin1'); return b; };
+    const octets = new Map([[30, prise(126_642)], [31, prise(77_158)], [32, prise(63_442)]]);
+    lignes = [...octets].map(([id, b]) => ({ id: String(id), nom: `Vocal-${id}.m4a`, type_mime: 'audio/mp4', taille_octets: String(b.byteLength), cle_stockage: `k${id}`, empreinte_sha256: sha(b) }));
+    const r = await prisesPourEnvoi([30, 31, 32], [11], async (cle) => octets.get(Number(cle.slice(1)))!);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.prises.map((p) => p.octets.byteLength)).toEqual([126_642, 77_158, 63_442]);
+  });
+});

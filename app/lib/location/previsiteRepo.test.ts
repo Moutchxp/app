@@ -81,11 +81,11 @@ vi.mock('../db/client', () => ({
 }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 // 🔴 Arno (13/11/2026, lot C) — les vocaux déposés (pièces audio) : simulés
-const vocauxSim = vi.hoisted(() => ({ ids: new Set<number>(), taille: 90000 }));
+const vocauxSim = vi.hoisted(() => ({ ids: new Set<number>(), taille: 90000, lecturePlante: false }));
 vi.mock('./vocauxCompteRenduRepo', () => ({
   vocauxDesOccupations: async (ids: readonly number[]) => ids.filter((i) => vocauxSim.ids.has(i)).map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: vocauxSim.taille, cle: `k${id}` })),
   // 🔴 (15/11/2026) — les prises d'un vocal envoyé aux locataires, relues pour l'envoi : simulées (rien n'est lu du stockage)
-  prisesPourEnvoi: async (ids: readonly number[]) => ({ ok: true, prises: ids.map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: vocauxSim.taille, octets: new Uint8Array([1, 2, 3]) })) }),
+  prisesPourEnvoi: async (ids: readonly number[]) => { if (vocauxSim.lecturePlante) throw new RangeError('Maximum call stack size exceeded'); return { ok: true, prises: ids.map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: vocauxSim.taille, octets: new Uint8Array([1, 2, 3]) })) }; },
 }));
 // 🔴 Arno (13/11/2026, lot B) — les photos déposées (pièces de la sortie) : simulées, rien n'est lu du stockage
 const photosSim = vi.hoisted(() => ({ pieces: new Map<number, { nom: string; taille: number }>() }));
@@ -703,6 +703,34 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INT
     expect(r).toMatchObject({ etat: 'refus', champ: 'vocaux' });
     expect((r as { motif: string }).motif).toContain('décochez « Envoyé aux locataires »');
     expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  // 🔴🔴 (15/11/2026, bug de l'envoi final) — chaque panne est DITE ; tout ou rien : ni marque « effectuée », ni journal, ni brouillon effacé
+  it('les pièces jointes ne se préparent pas (ex. le débordement de pile constaté le 15/11) : « pièces jointes … », rien ne part, rien n’est marqué', async () => {
+    programmee(); vocauxSim.lecturePlante = true;
+    try {
+      const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82], fichiersVocaux: [{ nom: 'Cuisine', ids: [81, 82], locataires: true }] }, AUTEUR);
+      const { MOTIF_PIECES_ILLISIBLES } = await import('./previsiteRepo');
+      expect(r).toEqual({ etat: 'refus', motif: MOTIF_PIECES_ILLISIBLES, champ: 'vocaux' });
+      expect(envoyerSerie).not.toHaveBeenCalled();
+      expect(journal()).toEqual([]);
+      expect(appels.some((a) => /UPDATE gestion_location_previsite (SET|\b)/.test(a.sql) || a.sql.includes('gestion_location_previsite_brouillon SET efface_le'))).toBe(false);
+    } finally { vocauxSim.lecturePlante = false; }
+  });
+  it('l’envoi est interrompu par une erreur : « Envoi du mail interrompu … », rien n’est marqué envoyé, le brouillon reste intact', async () => {
+    programmee(); envoyerSerie.mockRejectedValueOnce(new Error('connexion SMTP perdue'));
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82, 83],
+      fichiersVocaux: [{ nom: 'Vocal pour locataire', ids: [81, 82], locataires: true }, { nom: 'Vocal pour agence', ids: [83] }] }, AUTEUR);
+    const { MOTIF_ENVOI_INTERROMPU } = await import('./previsiteRepo');
+    expect(r).toEqual({ etat: 'refus', motif: MOTIF_ENVOI_INTERROMPU });
+    expect(appels.some((a) => a.sql.includes('effectuee_le = now()') || a.sql.includes('gestion_location_previsite_brouillon SET efface_le'))).toBe(false);
+  });
+  it('le cas d’Arno (2 photos, un vocal de 3 prises ENVOYÉ aux locataires, un vocal interne) : tout part, puis le compte rendu est marqué et son brouillon marqué « envoyé »', async () => {
+    programmee(); vocauxSim.ids.add(84);
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82, 83, 84],
+      fichiersVocaux: [{ nom: 'Vocal pour locataire', ids: [81, 82, 83], locataires: true }, { nom: 'Vocal pour agence', ids: [84] }] }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: 'effectuee' } });
+    expect(envoyerSerie).toHaveBeenCalledTimes(1);
+    expect(journal().filter((a) => a.params[1] === 'location_previsite_vocaux')[0].params[4]).toBe('4 prises vocales du compte rendu de pré-visite — 3 envoyées aux locataires, 1 interne — occupation 11');
   });
   it('l’aperçu montre les pièces jointes des vocaux envoyés aux locataires', async () => {
     programmee();

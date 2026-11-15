@@ -86,3 +86,42 @@ describe('le libellé du journal des vocaux (plus jamais « jamais envoyé(s) »
     expect(libelleJournalVocaux(1, 1)).toBe('1 prise vocale du compte rendu de pré-visite — 1 envoyée aux locataires');
   });
 });
+
+/** un M4A comme ceux de l'iPhone : « ftyp », « moov », puis une boîte « mdat » de `donnees` octets (taille réelle d'une prise) */
+function m4a(donnees: number, o: { fragmente?: boolean; tailleEtendue?: boolean; mdatVide?: boolean } = {}): Uint8Array {
+  const boites: Uint8Array[] = [];
+  const boite = (type: string, n: number, etendue = false): Uint8Array => {
+    const entete = etendue ? 16 : 8; const b = new Uint8Array(entete + n); const v = new DataView(b.buffer);
+    if (etendue) { v.setUint32(0, 1); v.setBigUint64(8, BigInt(entete + n)); } else v.setUint32(0, entete + n);
+    for (let k = 0; k < 4; k++) b[4 + k] = type.charCodeAt(k);
+    for (let k = entete; k < b.length; k++) b[k] = (k * 31) & 0xff;
+    return b;
+  };
+  boites.push(boite('ftyp', 20), boite('moov', 400));
+  if (o.fragmente) boites.push(boite('moof', 64));
+  boites.push(boite('mdat', o.mdatVide ? 0 : donnees, o.tailleEtendue));
+  const t = new Uint8Array(boites.reduce((n, b) => n + b.length, 0)); let i = 0; for (const b of boites) { t.set(b, i); i += b.length; }
+  return t;
+}
+describe('🔴🔴 (15/11/2026, bug de l’envoi final) — la vérification d’un son ne déborde JAMAIS, quelle que soit sa taille', () => {
+  it('les tailles réelles des prises de l’iPhone (126 Ko — celle qui faisait tomber l’envoi —, 2 Mo, 14 Mo) : acceptées, sans débordement', () => {
+    for (const n of [126_642, 2 * 1024 * 1024, 14 * 1024 * 1024]) expect(refusContenuAudio(m4a(n))).toBeNull();
+  });
+  it('MP4 fragmenté (« moof »), taille sur 64 bits : acceptés ; aucune donnée (« mdat » vide) : refusé', () => {
+    expect(refusContenuAudio(m4a(5000, { fragmente: true, mdatVide: true }))).toBeNull();
+    expect(refusContenuAudio(m4a(5000, { tailleEtendue: true }))).toBeNull();
+    expect(refusContenuAudio(m4a(5000, { mdatVide: true }))).toBe('L’enregistrement ne contient aucun son : réenregistrez la prise.');
+  });
+});
+
+describe('🔴 le message d’une écriture qui échoue dit la vraie panne', async () => {
+  const { erreurDeLaBase, messageEcritureImpossible, MOTIF_BASE_INJOIGNABLE, MOTIF_ERREUR_SERVEUR } = await import('./erreurEcriture');
+  it('la base (code SQLSTATE, connexion, délai) : « la base n’a pas répondu » ; tout le reste : « erreur inattendue du serveur »', () => {
+    expect(erreurDeLaBase(Object.assign(new Error('relation absente'), { code: '42P01' }))).toBe(true);
+    expect(erreurDeLaBase(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe(true);
+    expect(erreurDeLaBase(new Error('Connection terminated unexpectedly'))).toBe(true);
+    expect(messageEcritureImpossible(new RangeError('Maximum call stack size exceeded'))).toBe(MOTIF_ERREUR_SERVEUR);
+    expect(messageEcritureImpossible(Object.assign(new Error('x'), { code: '57014' }))).toBe(MOTIF_BASE_INJOIGNABLE);
+    expect(MOTIF_ERREUR_SERVEUR).toContain('la base n’est pas en cause');
+  });
+});

@@ -1,4 +1,5 @@
 import { dansLePerimetreDuTest } from '../../../../lib/location/perimetreRequete';
+import { messageEcritureImpossible } from '../../../../lib/location/erreurEcriture';
 import 'server-only';
 import { deposerVocal, dicterCompteRendu, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
 import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location/photosCompteRenduRepo';
@@ -803,8 +804,9 @@ async function postLocation(request: Request): Promise<Response> {
   } catch (e) {
     console.error('[api/admin/location] écriture impossible', e);
     if (estCreation(action)) journaliserEchec(auteur.libelle, action, corps.ecran, 'technique', (e as Error)?.message ?? 'erreur inattendue');
-    return Response.json(
-      { etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503 });
+    // 🔴 (15/11/2026) le message dit la VRAIE panne : « la base n'a pas répondu » seulement si c'est la base
+    // (le statut reste 503 : la page le lit comme une panne technique, comme avant)
+    return Response.json({ etat: 'erreur', message: messageEcritureImpossible(e) }, { status: 503 });
   }
 }
 

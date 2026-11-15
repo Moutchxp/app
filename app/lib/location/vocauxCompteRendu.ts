@@ -43,14 +43,43 @@ export const AUDIO_MIN_OCTETS = 64;
 export function refusContenuAudio(o: Uint8Array): string | null {
   if (o.byteLength === 0) return 'L’enregistrement est vide.';
   if (o.byteLength < AUDIO_MIN_OCTETS) return 'L’enregistrement est vide ou incomplet : réenregistrez la prise.';
-  const asc = (i: number, n: number): string => String.fromCharCode(...o.subarray(i, i + n));
-  const contient = (mot: string): boolean => { const t = asc(0, Math.min(o.byteLength, 4 * 1024 * 1024)); return t.includes(mot); };
-  if (asc(4, 4) === 'ftyp') return contient('mdat') || contient('moof') ? null : 'L’enregistrement ne contient aucun son : réenregistrez la prise.';
+  // 🔴🔴 (15/11/2026, bug de l'envoi final) — JAMAIS « String.fromCharCode(...octets) » sur un fichier entier : l'étalement de centaines de
+  // milliers d'octets dépassait la pile (RangeError) dès qu'une vraie prise M4A de l'iPhone dépassait ~100 Ko, et l'envoi tombait en
+  // « la base n'a pas répondu ». Les mots sont lus octet par octet, sur 4 octets seulement.
+  const mot = (i: number): string => (i + 4 <= o.byteLength ? String.fromCharCode(o[i], o[i + 1], o[i + 2], o[i + 3]) : '');
+  if (mot(4) === 'ftyp') return donneesMp4(o) ? null : 'L’enregistrement ne contient aucun son : réenregistrez la prise.';
   if (o[0] === 0x1a && o[1] === 0x45 && o[2] === 0xdf && o[3] === 0xa3) return null; // WebM / Matroska
-  if (asc(0, 4) === 'OggS') return null;
-  if (asc(0, 4) === 'RIFF' && asc(8, 4) === 'WAVE') return null;
-  if (asc(0, 3) === 'ID3' || (o[0] === 0xff && (o[1] & 0xe0) === 0xe0)) return null; // MP3 ou AAC (ADTS)
+  if (mot(0) === 'OggS') return null;
+  if (mot(0) === 'RIFF' && mot(8) === 'WAVE') return null;
+  if (String.fromCharCode(o[0], o[1], o[2]) === 'ID3' || (o[0] === 0xff && (o[1] & 0xe0) === 0xe0)) return null; // MP3 ou AAC (ADTS)
   return 'Ce fichier n’est pas un enregistrement audio lisible : réenregistrez la prise.';
+}
+
+/**
+ * Un MP4 / M4A porte-t-il des DONNÉES (une boîte « mdat » non vide, ou des fragments « moof ») ? Parcours des boîtes de premier niveau
+ * (taille sur 4 octets, 64 bits si 1, « jusqu'à la fin » si 0) ; aucune boîte de données reconnue : recherche octet par octet. Sans pile, sans copie. PUR.
+ */
+function donneesMp4(o: Uint8Array): boolean {
+  const v = new DataView(o.buffer, o.byteOffset, o.byteLength);
+  let i = 0; let mdatVide = false;
+  while (i + 8 <= o.byteLength) {
+    let taille = v.getUint32(i);
+    const type = String.fromCharCode(o[i + 4], o[i + 5], o[i + 6], o[i + 7]);
+    let entete = 8;
+    if (taille === 1) { if (i + 16 > o.byteLength) break; taille = Number(v.getBigUint64(i + 8)); entete = 16; }
+    else if (taille === 0) taille = o.byteLength - i;
+    if (taille < entete) break;
+    if (type === 'moof') return true;
+    if (type === 'mdat') { if (taille > entete && i + entete < o.byteLength) return true; mdatVide = true; }
+    i += taille;
+  }
+  if (mdatVide) return false; // une boîte de données bien formée, mais VIDE : aucun son
+  // aucune boîte de données reconnue (structure inhabituelle) : les quatre lettres n'importe où, octet par octet — jamais refuser un vrai son
+  for (let k = 0; k + 4 <= o.byteLength; k++) {
+    const a = o[k], b = o[k + 1], c = o[k + 2], d = o[k + 3];
+    if (a === 0x6d && ((b === 0x64 && c === 0x61 && d === 0x74) || (b === 0x6f && c === 0x6f && d === 0x66))) return true; // mdat, moof
+  }
+  return false;
 }
 
 /** Le texte transcrit, inséré À L'ENDROIT DU CURSEUR (ligne à part, mention discrète) ; rend aussi la nouvelle position du curseur. PUR. */

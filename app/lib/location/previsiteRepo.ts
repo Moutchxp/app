@@ -441,6 +441,10 @@ export async function apercuCompteRendu(d: { occupationIds: readonly number[]; c
   return { etat: 'ok', data: { mails, sansEmail: r.data.sansEmail, phrase: r.data.phrase, presence: r.data.presence, notesInternes } };
 }
 
+/** 🔴 (15/11/2026) les pannes de l'envoi final, dites telles qu'elles sont. */
+export const MOTIF_PIECES_ILLISIBLES = 'Les pièces jointes du compte rendu n’ont pas pu être préparées (photo ou prise vocale illisible) : rien n’est parti, le brouillon reste intact.';
+export const MOTIF_ENVOI_INTERROMPU = 'Envoi du mail interrompu par une erreur du serveur : le compte rendu n’est pas marqué envoyé et le brouillon reste intact. Vérifiez la boîte d’envoi avant de réessayer.';
+
 /** ENVOIE le compte rendu ; dès qu'il est parti, le préavis passe en « Pré-visite effectuée » (et la tâche est faite). */
 export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
   /** 🔴 Arno (13/11/2026, lot C) — les vocaux : rattachés au compte rendu (journal), 🔴 JAMAIS joints à un mail. */
@@ -453,11 +457,18 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
   const vocaux = vocauxVoulus.length === 0 ? [] : await vocauxDesOccupations(vocauxVoulus, ids);
   if (vocaux.length !== vocauxVoulus.length) return { etat: 'refus', motif: 'Un vocal est introuvable pour ce préavis : retirez-le puis enregistrez-le de nouveau.', champ: 'vocaux' };
   const fichiers = d.fichiersVocaux === undefined ? undefined : fichiersVocauxRecus(d.fichiersVocaux, vocaux.map((v) => v.id));
-  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? [], d.presences);
+  /* 🔴🔴 Arno (15/11/2026, bug de l'envoi final) — chaque étape dit SA panne (jamais « la base n'a pas répondu » pour autre chose) ; tout ou
+     rien : tant qu'aucun mail n'est parti, rien n'est marqué et le brouillon reste intact. Aucune opération lente n'est dans une transaction :
+     la lecture des pièces et la construction des mails (ici), l'envoi (envoyerSerie) se font AVANT, la transaction n'écrit que le journal. */
+  let r: Awaited<ReturnType<typeof mailCompteRendu>>;
+  try { r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? [], d.presences); }
+  catch (e) { console.error('[compte rendu] préparation des pièces jointes', e); return { etat: 'refus', motif: MOTIF_PIECES_ILLISIBLES, champ: 'vocaux' }; }
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
   if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };
-  const envois = await envoyerSerie(r.data.mails, r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
+  let envois: EnvoiAvis[];
+  try { envois = await envoyerSerie(r.data.mails, r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps); }
+  catch (e) { console.error('[compte rendu] envoi', e); return { etat: 'refus', motif: MOTIF_ENVOI_INTERROMPU }; }
   if (!envois.some((e) => e.envoye)) return { etat: 'ok', data: { envois, statut: null } };
   await withTransaction(async (q) => {
     await q('UPDATE gestion_location_previsite SET effectuee_le = now(), effectuee_par_libelle = $2 WHERE id = $1 AND effectuee_le IS NULL', [Number(r.data.s.id), auteur.libelle]);
