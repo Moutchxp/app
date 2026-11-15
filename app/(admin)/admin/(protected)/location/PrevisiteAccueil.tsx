@@ -1,7 +1,7 @@
 'use client';
 
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
@@ -20,11 +20,10 @@ import {
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
-// 🔴 Arno (14/11/2026, iPhone) — la conversion des photos et l'enregistreur de vocaux se chargent AU TOUCHER (import dynamique), jamais à
-// l'ouverture du formulaire ; un appareil qui ne sait pas faire : un message clair, jamais un plantage.
-const modulePhoto = () => import('../../../../lib/location/photoEcran');
-const moduleVocal = () => import('../../../../lib/location/enregistreurVocal');
-import { dureeFr, insererTranscription, MENTION_TRANSCRIT, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
+// 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
+// enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
+import { BlocDictaphone, BlocPhotos, BlocTexte, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -223,12 +222,17 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const [rangSansLegende, setRangSansLegende] = useState<number | null>(null);
   const photosPretes = photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende }));
   const photosEnCours = photos.some((x) => x.etat === 'envoi');
-  /** 🔴 Arno (13/11/2026, lot C) — les vocaux (INTERNES, jamais envoyés) ; le curseur du compte rendu, où s'insère la transcription. */
-  const [vocaux, setVocaux] = useState<VocalSaisi[]>([]);
-  const [enregistrement, setEnregistrement] = useState(false);
+  /** 🔴 Arno (15/11/2026) — le DICTAPHONE : des fichiers vocaux (INTERNES, jamais envoyés), chacun ses prises ; le curseur du texte, où
+   *  s'insèrent la dictée et la transcription d'un fichier. */
+  const [fichiers, setFichiers] = useState<FichierVocal[]>([]);
+  const [dictaphoneOccupe, setDictaphoneOccupe] = useState(false);
+  const [dicteeOccupee, setDicteeOccupee] = useState(false);
   const curseur = useRef<number | null>(null);
-  const vocauxPrets = vocaux.filter((v) => v.id !== null).map((v) => v.id as number);
-  const vocauxEnCours = enregistrement || vocaux.some((v) => v.etat === 'depot');
+  const lireCurseur = useCallback((): number | null => curseur.current, []);
+  const noterCurseur = useCallback((n: number | null): void => { curseur.current = n; }, []);
+  const envoiVocaux = vocauxPourEnvoi(fichiers);
+  const vocauxPrets = envoiVocaux.vocaux;
+  const vocauxEnCours = dictaphoneOccupe || dicteeOccupee;
   const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); curseur.current = r.curseur; return r.texte; });
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
@@ -293,7 +297,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
     const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '',
-      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets } : {}),
+      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
@@ -352,14 +356,10 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       )}
       {geste === 'compte_rendu' && rdvActuel && <>
         <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
-        <label className="pvs-champ"><span className="pvs-libelle">Compte rendu *</span>
-          <textarea value={corps} onChange={(e) => { setCorps(e.target.value); curseur.current = e.target.selectionStart; }} rows={10}
-            // le curseur est noté à chaque geste, et surtout à la sortie du champ (le toucher de « Enregistrer un vocal ») : la transcription s'y insère
-            onSelect={(e) => { curseur.current = (e.target as HTMLTextAreaElement).selectionStart; }} onBlur={(e) => { curseur.current = e.target.selectionStart; }}
-            onKeyUp={(e) => { curseur.current = (e.target as HTMLTextAreaElement).selectionStart; }} onClick={(e) => { curseur.current = (e.target as HTMLTextAreaElement).selectionStart; }}
-            data-corps-compte-rendu /></label>
-        <VocauxDuCompteRendu vocaux={vocaux} onChange={setVocaux} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onEnregistrement={setEnregistrement} />
-        <PhotosDuCompteRendu photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
+        {/* 🔴 Arno (15/11/2026) — TROIS BLOCS, dans cet ordre : TEXTE (dictée maintenue, clavier), PHOTOS, DICTAPHONE (fichiers vocaux internes) */}
+        <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
+        <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
+        <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe} />
         <label className="pvv-case"><input type="checkbox" checked={aussiLocataires} onChange={(e) => setAussiLocataires(e.target.checked)} data-aussi-locataires />
           <span>Envoyer aussi aux locataires</span></label>
         <p className="loc-muet">Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location. Avec la case cochée, chaque locataire reçoit en plus SON propre mail (seul destinataire, sans copie visible).</p>
@@ -408,7 +408,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
           </li>))}</ul>
       </>}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
-      {geste === 'compte_rendu' && vocauxPrets.length > 0 && <p className="mis-note pss-note-neutre" data-vocaux-internes>🎙 {vocauxPrets.length === 1 ? '1 vocal reste' : `${vocauxPrets.length} vocaux restent`} INTERNE{vocauxPrets.length > 1 ? 'S' : ''} : écoutable{vocauxPrets.length > 1 ? 's' : ''} dans « Voir le compte rendu », jamais envoyé{vocauxPrets.length > 1 ? 's' : ''} (ni aux locataires, ni au propriétaire, ni en pièce jointe).</p>}
+      {geste === 'compte_rendu' && vocauxPrets.length > 0 && <p className="mis-note pss-note-neutre" data-vocaux-internes>🎙 {envoiVocaux.fichiersVocaux.length === 1 ? '1 fichier vocal reste' : `${envoiVocaux.fichiersVocaux.length} fichiers vocaux restent`} INTERNE{envoiVocaux.fichiersVocaux.length > 1 ? 'S' : ''} ({vocauxPrets.length} prise{vocauxPrets.length > 1 ? 's' : ''}) : écoutable{envoiVocaux.fichiersVocaux.length > 1 ? 's' : ''} dans « Voir le compte rendu », jamais envoyé{envoiVocaux.fichiersVocaux.length > 1 ? 's' : ''} (ni aux locataires, ni au propriétaire, ni en pièce jointe).</p>}
       <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
@@ -428,183 +428,18 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     </>;
   }
   const echec = etape.etape === 'resultat' && (etape.motif !== null || etape.mails.some((m) => !m.envoye));
+  // 🔴 Arno (15/11/2026) — le formulaire du compte rendu (saisie) : fond opaque, boutons en fin de formulaire (classes propres : les autres fenêtres ne changent pas)
+  const saisieCr = geste === 'compte_rendu' && etape.etape === 'saisie';
   const boite = (
-    <div className="mis-voile pvv-voile" style={zone ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined} data-zone-visible={zone ? 'oui' : undefined}>
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE}</style>
-      <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
+    <div className={`mis-voile pvv-voile${saisieCr ? ' pvv-voile-cr' : ''}`} style={zone ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined} data-zone-visible={zone ? 'oui' : undefined}>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_COMPTE_RENDU_SAISIE}</style>
+      <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}${saisieCr ? ' pvv-boite-cr' : ''}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
         {contenu}
       </div>
     </div>
   );
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
-}
-
-/** Un vocal du formulaire : sa réécoute (sur l'appareil), sa pièce déposée (`id`), sa transcription. */
-interface VocalSaisi { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'ok' | 'erreur'; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null }
-
-/**
- * 🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » : le micro du téléphone (MediaRecorder ; Safari iOS : mp4/aac), la durée affichée,
- * Pause / Reprendre / Arrêter (10 minutes au plus : arrêt de lui-même), réécoute, suppression, plusieurs vocaux. À l'arrêt : déposé (INTERNE),
- * puis TRANSCRIT par Mistral — le texte s'insère dans le compte rendu À L'ENDROIT DU CURSEUR, modifiable, avec « (transcrit d'un vocal) ».
- * Un échec de transcription : message clair, le vocal reste joint, « Réessayer ».
- */
-function VocauxDuCompteRendu({ vocaux, onChange, occupationIds, onTranscrit, onEnregistrement }: { vocaux: VocalSaisi[]; onChange: (f: (x: VocalSaisi[]) => VocalSaisi[]) => void;
-  occupationIds: readonly number[]; onTranscrit: (texte: string) => void; onEnregistrement: (en: boolean) => void }) {
-  const [etat, setEtat] = useState<'repos' | 'enregistre' | 'pause'>('repos');
-  const [duree, setDuree] = useState(0);
-  const [refusMicro, setRefusMicro] = useState<string | null>(null);
-  const rec = useRef<{ r: MediaRecorder; flux: MediaStream; morceaux: Blob[]; cumul: number; depuis: number | null; type: string } | null>(null);
-  const maj = (cle: string, f: (x: VocalSaisi) => VocalSaisi) => onChange((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
-  const ecoule = (): number => { const x = rec.current; return x === null ? 0 : (x.cumul + (x.depuis === null ? 0 : Date.now() - x.depuis)) / 1000; };
-  useEffect(() => {
-    if (etat !== 'enregistre') return;
-    const t = setInterval(() => { const s = ecoule(); setDuree(s); if (s >= VOCAL_DUREE_MAX_S) arreter(); }, 250);
-    return () => clearInterval(t);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { rec.current?.flux.getTracks().forEach((t) => t.stop()); }, []);
-  const transcrire = async (cle: string, id: number): Promise<void> => {
-    maj(cle, (x) => ({ ...x, transcription: 'en_cours', motif: null }));
-    const r = await envoyer({ action: 'transcrire-vocal', occupationIds: [...occupationIds], pieceId: id }, { propre: true });
-    const d = r.data as { ok?: boolean; texte?: string; motif?: string } | undefined;
-    if (r.motif === null && d?.ok === true && typeof d.texte === 'string') { onTranscrit(d.texte); maj(cle, (x) => ({ ...x, transcription: 'ok' })); return; }
-    maj(cle, (x) => ({ ...x, transcription: 'echec', motif: d?.motif ?? r.motif ?? 'La transcription a échoué : le vocal reste joint au compte rendu.' }));
-  };
-  const deposer = async (blob: Blob, type: string, dureeS: number): Promise<void> => {
-    const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    onChange((xs) => [...xs, { cle, id: null, url: URL.createObjectURL(blob), dureeS, etat: 'depot', transcription: null, motif: null }]);
-    const deja = await new Promise<number[]>((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
-    let donnees: string;
-    try { donnees = await (await modulePhoto()).enBase64(blob); } catch { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: 'Le vocal n’a pas pu être préparé sur cet appareil.' })); return; }
-    const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type, dureeS, dejaIds: deja }, { propre: true });
-    const id = (r.data as { id?: number } | undefined)?.id;
-    if (r.motif !== null || typeof id !== 'number') { maj(cle, (x) => ({ ...x, etat: 'erreur', motif: r.motif ?? 'Le vocal n’a pas pu être déposé.' })); return; }
-    maj(cle, (x) => ({ ...x, id, etat: 'ok' }));
-    await transcrire(cle, id);
-  };
-  const demarrer = async (): Promise<void> => {
-    setRefusMicro(null);
-    try {
-      const o = await (await moduleVocal()).ouvrirEnregistreur();
-      if (!o.ok) { setRefusMicro(o.motif); return; }
-      const { r, flux } = o;
-      const x = { r, flux, morceaux: [] as Blob[], cumul: 0, depuis: Date.now() as number | null, type: o.type };
-      r.ondataavailable = (e) => { if (e.data && e.data.size > 0) x.morceaux.push(e.data); };
-      r.onstop = () => {
-        flux.getTracks().forEach((t) => t.stop());
-        const dureeS = Math.min(ecoule(), VOCAL_DUREE_MAX_S); x.depuis = null;
-        const blob = new Blob(x.morceaux, { type: x.type });
-        rec.current = null; setEtat('repos'); setDuree(0); onEnregistrement(false);
-        if (blob.size > 0) void deposer(blob, x.type, dureeS);
-      };
-      rec.current = x; r.start(1000); setEtat('enregistre'); setDuree(0); onEnregistrement(true);
-    } catch {
-      setRefusMicro('L’enregistrement n’a pas pu démarrer sur cet appareil. Écrivez le compte rendu, ou ajoutez des photos.');
-    }
-  };
-  const pause = (): void => { const x = rec.current; if (!x) return; x.r.pause(); x.cumul += x.depuis === null ? 0 : Date.now() - x.depuis; x.depuis = null; setEtat('pause'); };
-  const reprendre = (): void => { const x = rec.current; if (!x) return; x.r.resume(); x.depuis = Date.now(); setEtat('enregistre'); };
-  function arreter(): void { const x = rec.current; if (!x) return; if (x.depuis !== null) { x.cumul += Date.now() - x.depuis; x.depuis = null; } x.r.stop(); }
-  const retirer = (cle: string) => { const v = vocaux.find((x) => x.cle === cle); if (v?.url) URL.revokeObjectURL(v.url); onChange((xs) => xs.filter((x) => x.cle !== cle)); };
-  return (
-    <fieldset className="pvv-photos pvv-vocaux" data-vocaux-compte-rendu>
-      <legend className="pvs-libelle">Vocaux <span className="loc-muet">(internes : jamais envoyés)</span></legend>
-      <div className="pvv-photos-boutons">
-        {etat === 'repos' ? <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={() => { void demarrer(); }} data-enregistrer-vocal>🎙 Enregistrer un vocal</button> : <>
-          <span className="pvv-vocal-duree" role="timer" aria-live="off" data-vocal-duree>{etat === 'pause' ? '⏸' : '●'} {dureeFr(duree)} / {dureeFr(VOCAL_DUREE_MAX_S)}</span>
-          {etat === 'enregistre' ? <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={pause} data-vocal-pause>Pause</button>
-            : <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={reprendre} data-vocal-reprendre>Reprendre</button>}
-          <button type="button" className="svv-btn svv-btn-primary gst-btn pvv-photo-ajout" onClick={arreter} data-vocal-arreter>Arrêter</button>
-        </>}
-      </div>
-      {refusMicro !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{refusMicro}</p>}
-      {vocaux.length > 0 && <ol className="pvv-photos-liste">{vocaux.map((v, i) => (
-        <li key={v.cle} className={`pvv-photo${v.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-vocal={i + 1} data-vocal-etat={v.etat} data-vocal-transcription={v.transcription ?? undefined}>
-          <div className="pvv-photo-tete">
-            <strong>Vocal {i + 1} <span className="loc-muet">({dureeFr(v.dureeS)})</span></strong>
-            <button type="button" className="pvv-mini" onClick={() => retirer(v.cle)} aria-label={`Supprimer le vocal ${i + 1}`} data-vocal-supprimer>Supprimer</button>
-          </div>
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio className="pvv-audio" controls preload="metadata" src={v.url} data-vocal-ecoute />
-          {v.etat === 'depot' && <span className="loc-muet" role="status">Enregistrement…</span>}
-          {v.transcription === 'en_cours' && <span className="loc-muet" role="status" data-vocal-transcription-en-cours>Transcription en cours…</span>}
-          {v.transcription === 'ok' && <span className="loc-muet" data-vocal-transcrit>Texte inséré dans le compte rendu {MENTION_TRANSCRIT} — modifiable.</span>}
-          {v.motif !== null && <span className="pvv-photo-motif" role="alert" data-vocal-motif>{v.motif}</span>}
-          {v.transcription === 'echec' && v.id !== null && <button type="button" className="pvv-mini" onClick={() => { void transcrire(v.cle, v.id as number); }} data-vocal-retranscrire>Réessayer la transcription</button>}
-        </li>))}</ol>}
-    </fieldset>
-  );
-}
-
-/** Une photo du formulaire : son aperçu (sur l'appareil), sa pièce déposée (`id`), sa légende. */
-interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'ok' | 'erreur'; motif: string | null }
-
-/**
- * 🔴 Arno (13/11/2026, lot B) — « Photos » du compte rendu : « Ajouter une photo » ouvre l'APPAREIL PHOTO de l'iPhone (capture), « Photothèque »
- * choisit des photos existantes ; plusieurs à la fois. Chaque photo est convertie sur l'appareil (HEIC → JPEG, ~1 600 px, ~500 Ko, sans GPS),
- * puis déposée (préparée de nouveau au serveur). LÉGENDE OBLIGATOIRE juste sous la vignette ; supprimer, monter, descendre avant l'envoi.
- */
-function PhotosDuCompteRendu({ photos, onChange, occupationIds, rangSansLegende }: { photos: PhotoSaisie[];
-  onChange: (f: (x: PhotoSaisie[]) => PhotoSaisie[]) => void; occupationIds: readonly number[]; rangSansLegende: number | null }) {
-  const camera = useId(); const galerie = useId();
-  // Toujours des mises à jour FONCTIONNELLES : une légende tapée pendant qu'une photo se prépare n'est jamais écrasée.
-  const maj = (cle: string, f: (x: PhotoSaisie) => PhotoSaisie) => onChange((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
-  const dejaDeposees = (): Promise<number[]> => new Promise((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
-  const ajouter = async (liste: FileList | null): Promise<void> => {
-    const fichiers = [...(liste ?? [])];
-    for (const f of fichiers) {
-      const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      onChange((xs) => [...xs, { cle, id: null, apercu: '', legende: '', etat: 'envoi', motif: null }]);
-      let c: Awaited<ReturnType<Awaited<ReturnType<typeof modulePhoto>>['convertirPhoto']>>; let donnees = '';
-      try {
-        const m = await modulePhoto();
-        c = await m.convertirPhoto(f);
-        if (c.ok) donnees = await m.enBase64(c.blob);
-      } catch { c = { ok: false, motif: `« ${f.name} » : la photo n’a pas pu être préparée sur cet appareil.` }; }
-      if (!c.ok) { const motif = c.motif; maj(cle, (x) => ({ ...x, etat: 'erreur', motif })); continue; }
-      const apercu = URL.createObjectURL(c.blob);
-      maj(cle, (x) => ({ ...x, apercu }));
-      const deja = await dejaDeposees();
-      const r = await envoyer({ action: 'photo-compte-rendu', occupationIds: [...occupationIds], donnees, dejaIds: deja }, { propre: true });
-      const id = (r.data as { id?: number } | undefined)?.id;
-      maj(cle, (x) => (r.motif === null && typeof id === 'number' ? { ...x, id, etat: 'ok' } : { ...x, etat: 'erreur', motif: r.motif ?? 'La photo n’a pas pu être déposée.' }));
-    }
-  };
-  const deplacer = (i: number, d: -1 | 1) => onChange((xs) => { const x = [...xs]; const j = i + d; if (j < 0 || j >= x.length) return xs; [x[i], x[j]] = [x[j], x[i]]; return x; });
-  const retirer = (cle: string) => { const p = photos.find((x) => x.cle === cle); if (p?.apercu) URL.revokeObjectURL(p.apercu); onChange((xs) => xs.filter((x) => x.cle !== cle)); };
-  return (
-    <fieldset className="pvv-photos" data-photos-compte-rendu>
-      <legend className="pvs-libelle">Photos</legend>
-      <div className="pvv-photos-boutons">
-        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={camera} data-ajouter-photo>Ajouter une photo</label>
-        <input id={camera} className="pvv-fichier" type="file" accept="image/*" capture="environment" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-camera />
-        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={galerie} data-photo-galerie-bouton>Photothèque</label>
-        <input id={galerie} className="pvv-fichier" type="file" accept="image/*" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-galerie />
-      </div>
-      {photos.length > 0 && <ol className="pvv-photos-liste">{photos.map((x, i) => {
-        const sansLegende = rangSansLegende === i || (rangSansLegende !== null && x.legende.trim() === '');
-        return (
-          <li key={x.cle} className={`pvv-photo${sansLegende ? ' pvv-photo--erreur' : ''}${x.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-photo={i + 1} data-photo-etat={x.etat}
-            data-photo-sans-legende={sansLegende ? 'oui' : undefined}>
-            <div className="pvv-photo-tete">
-              <strong>Photo {i + 1}</strong>
-              <span className="pvv-photo-gestes">
-                <button type="button" className="pvv-mini" onClick={() => deplacer(i, -1)} disabled={i === 0} aria-label={`Monter la photo ${i + 1}`} data-photo-monter>↑</button>
-                <button type="button" className="pvv-mini" onClick={() => deplacer(i, 1)} disabled={i === photos.length - 1} aria-label={`Descendre la photo ${i + 1}`} data-photo-descendre>↓</button>
-                <button type="button" className="pvv-mini" onClick={() => retirer(x.cle)} aria-label={`Supprimer la photo ${i + 1}`} data-photo-supprimer>Supprimer</button>
-              </span>
-            </div>
-            {x.apercu ? <img className="pvv-vignette" src={x.apercu} alt={x.legende ? lignePhoto(i, x.legende) : `Photo ${i + 1}`} /> : <span className="pvv-vignette pvv-vignette--vide" />}
-            {x.etat === 'envoi' && <span className="loc-muet" role="status">Préparation…</span>}
-            {x.etat === 'erreur' && <span className="pvv-photo-motif" role="alert">{x.motif}</span>}
-            <label className="pvs-champ"><span className="pvs-libelle">{`Légende de la photo ${i + 1} *`}</span>
-              <input type="text" value={x.legende} maxLength={200} placeholder="ex. Rayure parquet chambre" aria-invalid={sansLegende}
-                onChange={(e) => { const v = e.target.value; maj(x.cle, (y) => ({ ...y, legende: v })); }} data-photo-legende /></label>
-            {sansLegende && x.etat !== 'erreur' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
-          </li>);
-      })}</ol>}
-    </fieldset>
-  );
 }
 
 /**
@@ -623,7 +458,7 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
   const cr = lu.etat.etat === 'ok' ? lu.etat.data : null;
   const boite = (
     <div className="mis-voile">
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_PREVISITE}</style>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_PREVISITE + CSS_COMPTE_RENDU_SAISIE}</style>
       <div className="mis-boite pss-boite pss-boite-recap" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu>
         <h2 id={titreId} className="mis-titre">Compte rendu de pré-visite</h2>
         <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
@@ -649,10 +484,9 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
             </div>)}
           {(cr.vocaux ?? []).length > 0 && (
             <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux <span className="loc-muet">(internes — jamais envoyés)</span></p>
-              <ol className="pvv-cr-liste">{(cr.vocaux ?? []).map((v, i) => (
-                <li key={v.id} data-cr-vocal={i + 1}><span className="pvv-cr-legende">Vocal {i + 1}</span>
-                  {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                  <audio className="pvv-audio" controls preload="none" src={`/api/admin/location/pieces-sortie?piece=${v.id}`} /></li>))}</ol>
+              {/* 🔴 Arno (15/11/2026) — les fichiers vocaux du dictaphone, leurs prises, réécoute enchaînée ; LECTURE SEULE */}
+              <LectureFichiersVocaux fichiers={(cr.fichiersVocaux ?? []).length > 0 ? cr.fichiersVocaux ?? [] : (cr.vocaux ?? []).map((v, i) => ({ nom: `Vocal ${i + 1}`, prises: [v] }))}
+                url={(id) => `/api/admin/location/pieces-sortie?piece=${id}`} />
             </div>)}
           <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
             {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}

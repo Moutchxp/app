@@ -6,7 +6,10 @@
  */
 export const VOCAL_DUREE_MAX_S = 10 * 60;
 export const VOCAL_MAX_OCTETS = 15 * 1024 * 1024;
-export const VOCAUX_MAX = 10;
+/** 🔴 Arno (15/11/2026) — une PRISE = une pièce audio ; plusieurs prises par fichier vocal, plusieurs fichiers : 40 prises au plus par compte rendu. */
+export const VOCAUX_MAX = 40;
+/** 🔴 Arno (15/11/2026) — une prise (ou une dictée) de moins d'une demi-seconde est ignorée (appui trop bref). */
+export const PRISE_MIN_MS = 500;
 export const MENTION_TRANSCRIT = '(transcrit d’un vocal)';
 export const ACTION_JOURNAL_VOCAUX = 'location_previsite_vocaux';
 
@@ -45,6 +48,56 @@ export function insererTranscription(corps: string, curseur: number | null, tran
 export const dureeFr = (s: number): string => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
 
 /** La trace des vocaux d'un compte rendu, dans le journal (« ids:12,13 »), et sa relecture. PUR. */
-export const traceVocaux = (ids: readonly number[]): string => `ids:${ids.join(',')}`;
-export const idsDeTrace = (x: string | null | undefined): number[] =>
-  /^ids:[\d,]*$/.test(x ?? '') ? (x as string).slice(4).split(',').map(Number).filter((n) => Number.isSafeInteger(n) && n > 0) : [];
+/**
+ * 🔴 Arno (15/11/2026) — LES FICHIERS VOCAUX du dictaphone : un nom (« Vocal 1 », renommable) et ses PRISES dans l'ordre. Rangés au journal à
+ * l'envoi (`json:{"fichiers":[…]}`) ; l'ancienne trace (`ids:1,2`) reste lue : chaque vocal y est un fichier d'une prise.
+ */
+export interface FichierVocalTrace { nom: string; ids: number[] }
+export const NOM_FICHIER_MAX = 60;
+const idValide = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
+/** Un nom de fichier vocal propre (un seul espace, 60 caractères au plus), ou le nom par défaut. PUR. */
+export const nomFichierVocal = (brut: unknown, rang: number): string => {
+  const x = typeof brut === 'string' ? brut.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, NOM_FICHIER_MAX) : '';
+  return x === '' ? `Vocal ${rang + 1}` : x;
+};
+export function traceVocaux(ids: readonly number[], fichiers?: readonly FichierVocalTrace[]): string {
+  if (!fichiers || fichiers.length === 0) return `ids:${ids.join(',')}`;
+  return `json:${JSON.stringify({ fichiers: fichiers.map((f, i) => ({ nom: nomFichierVocal(f.nom, i), ids: f.ids.filter(idValide) })) })}`;
+}
+/** Les fichiers vocaux d'une trace du journal (ancienne trace : un fichier par vocal). PUR. */
+export function fichiersDeTrace(x: string | null | undefined): FichierVocalTrace[] {
+  if (typeof x !== 'string') return [];
+  if (/^ids:[\d,]*$/.test(x)) return x.slice(4).split(',').map(Number).filter(idValide).map((id, i) => ({ nom: `Vocal ${i + 1}`, ids: [id] }));
+  if (!x.startsWith('json:')) return [];
+  try {
+    const j = JSON.parse(x.slice(5)) as { fichiers?: { nom?: unknown; ids?: unknown }[] };
+    return (Array.isArray(j.fichiers) ? j.fichiers : []).map((f, i) => ({ nom: nomFichierVocal(f.nom, i), ids: (Array.isArray(f.ids) ? f.ids : []).filter(idValide) }))
+      .filter((f) => f.ids.length > 0);
+  } catch { return []; }
+}
+export const idsDeTrace = (x: string | null | undefined): number[] => fichiersDeTrace(x).flatMap((f) => f.ids);
+
+/**
+ * Les fichiers vocaux reçus par la route (nom, prises), BORNÉS aux prises connues du compte rendu : une prise inconnue est écartée, une prise
+ * ne compte qu'une fois, un fichier vide disparaît ; les prises connues hors de tout fichier forment chacune un fichier. PUR.
+ */
+export function fichiersVocauxRecus(brut: unknown, prises: readonly number[]): FichierVocalTrace[] {
+  const connues = new Set(prises); const vues = new Set<number>();
+  const liste = (Array.isArray(brut) ? brut : []).slice(0, VOCAUX_MAX).map((f, i) => {
+    const o = (f ?? {}) as { nom?: unknown; ids?: unknown };
+    const ids = (Array.isArray(o.ids) ? o.ids : []).map((n) => (typeof n === 'string' ? Number(n) : n)).filter((n): n is number => idValide(n) && connues.has(n) && !vues.has(n) && (vues.add(n), true));
+    return { nom: nomFichierVocal(o.nom, i), ids };
+  }).filter((f) => f.ids.length > 0);
+  for (const id of prises) if (!vues.has(id)) liste.push({ nom: `Vocal ${liste.length + 1}`, ids: [id] });
+  return liste;
+}
+
+/** 🔴 Arno (15/11/2026) — LA DICTÉE : le texte dicté s'insère À L'ENDROIT DU CURSEUR (ou à la fin), comme s'il avait été tapé — sans mention. PUR. */
+export function insererDictee(corps: string, curseur: number | null, dicte: string): { texte: string; curseur: number } {
+  const t = dicte.replace(/\s+/g, ' ').trim();
+  if (t === '') return { texte: corps, curseur: curseur ?? corps.length };
+  const p = curseur === null || curseur < 0 || curseur > corps.length ? corps.length : curseur;
+  const avant = corps.slice(0, p); const apres = corps.slice(p);
+  const bloc = `${avant !== '' && !/\s$/.test(avant) ? ' ' : ''}${t}${apres !== '' && !/^\s/.test(apres) ? ' ' : ''}`;
+  return { texte: `${avant}${bloc}${apres}`, curseur: avant.length + bloc.length };
+}

@@ -11,7 +11,7 @@ import { envoyerSerie, mailsAvisDisponibles, refusRetouches, type DepsAvis, type
 import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
-import { ACTION_JOURNAL_VOCAUX, traceVocaux, VOCAUX_MAX } from './vocauxCompteRendu';
+import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, traceVocaux, VOCAUX_MAX } from './vocauxCompteRendu';
 import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
@@ -351,7 +351,9 @@ export async function apercuCompteRendu(d: { occupationIds: readonly number[]; c
 /** ENVOIE le compte rendu ; dès qu'il est parti, le préavis passe en « Pré-visite effectuée » (et la tâche est faite). */
 export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
   /** 🔴 Arno (13/11/2026, lot C) — les vocaux : rattachés au compte rendu (journal), 🔴 JAMAIS joints à un mail. */
-  vocaux?: readonly number[] }, auteur: Auteur, deps: DepsAvis = {}):
+  vocaux?: readonly number[];
+  /** 🔴 Arno (15/11/2026) — les FICHIERS VOCAUX du dictaphone (nom, prises dans l'ordre) : rangés au journal, relus groupés dans « Voir le compte rendu ». */
+  fichiersVocaux?: unknown }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null }>> {
   const ids = [...new Set(d.occupationIds)];
   const vocauxVoulus = [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX);
@@ -368,7 +370,8 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
     await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mails[0].objet,
       `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
     // 🔴 lot C — les vocaux du compte rendu, INTERNES : rattachés ici (« Voir le compte rendu » les relit), aucun n'est parti
-    if (vocaux.length > 0) await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_VOCAUX, null, traceVocaux(vocaux.map((v) => v.id)),
+    if (vocaux.length > 0) await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_VOCAUX, null,
+      traceVocaux(vocaux.map((v) => v.id), d.fichiersVocaux === undefined ? undefined : fichiersVocauxRecus(d.fichiersVocaux, vocaux.map((v) => v.id))),
       `${vocaux.length} vocal(aux) interne(s) du compte rendu de pré-visite — jamais envoyé(s)`, auteur);
   });
   if (r.data.s.tache_etat === 'a_faire') await marquerFaite(Number(r.data.s.tache_id), auteur).catch(() => null);

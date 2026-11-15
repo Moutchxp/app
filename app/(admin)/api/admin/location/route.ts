@@ -1,6 +1,6 @@
 import { dansLePerimetreDuTest } from '../../../../lib/location/perimetreRequete';
 import 'server-only';
-import { deposerVocal, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
+import { deposerVocal, dicterCompteRendu, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
 import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location/photosCompteRenduRepo';
 import { lireCompteRenduPrevisite } from '../../../../lib/location/compteRenduPrevisiteRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
@@ -731,7 +731,8 @@ async function postLocation(request: Request): Promise<Response> {
       case 'apercu-compte-rendu-previsite':
         return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos) }, auteur));
       case 'compte-rendu-previsite':
-        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsOccupations(corps.vocaux) }, auteur));
+        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsOccupations(corps.vocaux),
+          fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined }, auteur));
       // 🔴 Arno (13/11/2026, lot B) — UNE photo du compte rendu : préparée au serveur (format lu dans les octets, réduite, métadonnées et GPS retirés),
       // puis déposée comme les pièces de « Valider la sortie » (stockage objet, jamais le Drive). Rien n'est envoyé.
       case 'photo-compte-rendu':
@@ -740,6 +741,9 @@ async function postLocation(request: Request): Promise<Response> {
       case 'vocal-compte-rendu':
         return repondre(await deposerVocal({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime),
           dureeS: typeof corps.dureeS === 'number' && Number.isFinite(corps.dureeS) ? corps.dureeS : null, dejaIds: idsOccupations(corps.dejaIds) }, auteur));
+      // 🔴 Arno (15/11/2026) — LA DICTÉE (« Maintenir pour dicter ») : transcrite par Mistral, RIEN n'est gardé (ni fichier, ni pièce).
+      case 'dicter-compte-rendu':
+        return repondre(await dicterCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime) }));
       case 'transcrire-vocal': {
         const piece = identifiant(corps.pieceId);
         return repondre(piece === null ? { etat: 'refus', motif: 'Demande incomplète.' } : await transcrirePieceVocale({ occupationIds: idsOccupations(corps.occupationIds), pieceId: piece }));

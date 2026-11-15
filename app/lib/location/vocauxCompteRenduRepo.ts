@@ -16,7 +16,7 @@ export async function deposerVocal(d: { occupationIds: readonly number[]; donnee
   Promise<{ etat: 'ok'; data: { id: number; nom: string; taille: number } } | { etat: 'refus'; motif: string }> {
   if (!(await piecesSortieDisponibles())) return { etat: 'refus', motif: MOTIF_SANS_468 };
   if (d.occupationIds.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
-  if (d.dejaIds.length >= VOCAUX_MAX) return { etat: 'refus', motif: `Au plus ${VOCAUX_MAX} vocaux par compte rendu.` };
+  if (d.dejaIds.length >= VOCAUX_MAX) return { etat: 'refus', motif: `Au plus ${VOCAUX_MAX} prises vocales par compte rendu.` };
   const base64 = d.donnees.replace(/^data:[^,]*,/, '');
   if (base64 === '' || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return { etat: 'refus', motif: 'L’enregistrement est illisible.' };
   const octets = Buffer.from(base64, 'base64');
@@ -33,6 +33,23 @@ export async function deposerVocal(d: { occupationIds: readonly number[]; donnee
      VALUES ($1, 'ordinateur', $2, $3, $4, $5, $6, NULL, $7, $8) RETURNING id::text`,
     [occ, nom, type, octets.byteLength, depot.cle, depot.empreinte, auteur.id, auteur.libelle]);
   return { etat: 'ok', data: { id: Number(rows[0].id), nom, taille: octets.byteLength } };
+}
+
+/**
+ * 🔴 Arno (15/11/2026) — LA DICTÉE du compte rendu : l'audio reçu est TRANSCRIT (Mistral, même service que les vocaux) puis OUBLIÉ — rien
+ * n'est déposé ni gardé. Borné à un bail existant du préavis ; mêmes contrôles qu'un vocal (type audio, taille).
+ */
+export async function dicterCompteRendu(d: { occupationIds: readonly number[]; donnees: string; typeMime: string },
+  deps: { transcrire?: typeof transcrireVocal } = {}): Promise<{ etat: 'ok'; data: IssueTranscription } | { etat: 'refus'; motif: string }> {
+  if (d.occupationIds.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  const base64 = d.donnees.replace(/^data:[^,]*,/, '');
+  if (base64 === '' || !/^[A-Za-z0-9+/=\s]+$/.test(base64)) return { etat: 'refus', motif: 'La dictée est illisible.' };
+  const octets = Buffer.from(base64, 'base64');
+  const refus = refusVocal({ typeMime: d.typeMime, taille: octets.byteLength, dureeS: null });
+  if (refus !== null) return { etat: 'refus', motif: refus };
+  if ((await lireBail(d.occupationIds[0])) === null) return { etat: 'refus', motif: 'Ce bail n’existe plus : rechargez la page.' };
+  const type = typeAudio(d.typeMime) as string;
+  return { etat: 'ok', data: await (deps.transcrire ?? transcrireVocal)(new Uint8Array(octets), type, nomVocal(0, type)) };
 }
 
 /** Les vocaux (pièces AUDIO de CES occupations) ; un identifiant forgé ou d'un autre bail n'est jamais rendu. */

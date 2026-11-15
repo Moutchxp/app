@@ -5,8 +5,8 @@ import { ficheDepuisEncart } from './ficheIntervention';
 import { locatairesAvis, mailsAvisDisponibles, piecesDuMailDisponible } from './mailsPreavisSortieRepo';
 import { metaPieces } from './piecesSortieRepo';
 import { lireGroupe, previsiteDisponible, suiviOuvert } from './previsiteBase';
-import { compteRenduAffiche, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr } from './compteRenduPrevisite';
-import { ACTION_JOURNAL_VOCAUX, idsDeTrace } from './vocauxCompteRendu';
+import { compteRenduAffiche, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr, type PieceCr } from './compteRenduPrevisite';
+import { ACTION_JOURNAL_VOCAUX, fichiersDeTrace } from './vocauxCompteRendu';
 import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
 
 /**
@@ -42,9 +42,13 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
     `SELECT j.valeur_apres AS v FROM gestion_journal j JOIN gestion_location_previsite s ON s.id = $3
       WHERE j.entite = 'annuaire' AND j.action = $1 AND j.entite_id = ANY($2::bigint[]) AND j.survenu_le >= s.cree_le ORDER BY j.id`,
     [ACTION_JOURNAL_VOCAUX, g.g.lignes.map((x) => Number(x.locataire_id)), Number(s.id)]);
-  const idsVocaux = [...new Set(traces.rows.flatMap((x) => idsDeTrace(x.v)))];
+  // 🔴 Arno (15/11/2026) — les FICHIERS VOCAUX (nom, prises dans l'ordre) ; une prise introuvable ou d'un autre bail n'est jamais rendue
+  const fichiersTrace = traces.rows.flatMap((x) => fichiersDeTrace(x.v));
+  const idsVocaux = [...new Set(fichiersTrace.flatMap((f) => f.ids))];
   const vocaux = (await vocauxDesOccupations(idsVocaux, ids)).map((v) => ({ id: v.id, nom: v.nom, taille: v.taille }));
-  return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux } };
+  const parId = new Map(vocaux.map((v) => [v.id, v]));
+  const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined) })).filter((f) => f.prises.length > 0);
+  return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux, fichiersVocaux } };
 }
 
 const vide = (): AnnuaireCr => ({ locataires: [], proprietaires: [], internes: [], domainesAgence: [] });

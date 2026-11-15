@@ -683,6 +683,13 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INT
     expect(trace.map((a) => a.params[0])).toEqual([101, 102]); // le journal de chaque locataire du préavis
     expect(trace[0].params[3]).toBe('ids:81,82');
   });
+  it('🔴 (15/11/2026) les FICHIERS vocaux du dictaphone (nom, prises dans l’ordre) sont rangés au journal ; une prise inconnue y est écartée', async () => {
+    programmee();
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, vocaux: [81, 82],
+      fichiersVocaux: [{ nom: 'Cuisine', ids: [82, 81, 99] }] }, AUTEUR);
+    const trace = journal().filter((a) => a.params[1] === 'location_previsite_vocaux');
+    expect(trace[0].params[3]).toBe('json:{"fichiers":[{"nom":"Cuisine","ids":[82,81]}]}');
+  });
   it('un vocal d’un autre préavis (ou forgé) : refus, rien ne part', async () => {
     programmee();
     expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, vocaux: [99] }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'vocaux' });

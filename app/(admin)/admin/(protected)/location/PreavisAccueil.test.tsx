@@ -1123,7 +1123,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     const gal = document.querySelector('[data-photo-galerie]') as HTMLInputElement;
     expect([cam.accept, cam.getAttribute('capture'), cam.multiple]).toEqual(['image/*', 'environment', true]);
     expect([gal.accept, gal.getAttribute('capture'), gal.multiple]).toEqual(['image/*', null, true]);
-    expect(document.querySelector('[data-ajouter-photo]')!.textContent).toBe('Ajouter une photo');
+    expect(document.querySelector('[data-ajouter-photo]')!.textContent).toContain('Ajouter une photo');
   });
   it('🔴 LÉGENDE OBLIGATOIRE : une photo sans légende → message clair, la photo en ROUGE, rien n’est envoyé ; légendée → l’aperçu part, dans l’ordre choisi', async () => {
     await ouvrirCr();
@@ -1152,7 +1152,13 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     await ouvrirCr();
     await ajouter('[data-photo-galerie]', ['a.jpg', 'b.jpg']);
     legender(0, 'A'); legender(1, 'B');
+    // 🔴 Arno (15/11/2026) — supprimer DEMANDE CONFIRMATION (« Garder » : rien ne bouge)
     clicDoc('[data-photo="1"] [data-photo-supprimer]');
+    expect(document.querySelector('[data-photo="1"] [data-photo-confirmer]')!.textContent).toContain('Supprimer la photo 1 ?');
+    clicDoc('[data-photo="1"] [data-photo-supprimer-non]');
+    expect(document.querySelectorAll('[data-photo]')).toHaveLength(2);
+    clicDoc('[data-photo="1"] [data-photo-supprimer]');
+    clicDoc('[data-photo="1"] [data-photo-supprimer-oui]');
     expect(document.querySelectorAll('[data-photo]')).toHaveLength(1);
     clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
     expect(apercus[0].photos).toEqual([{ id: 72, legende: 'B' }]);
@@ -1177,27 +1183,32 @@ describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le text
     expect(f.querySelector('[data-cr-pieces]')).toBeNull();
     // 🔴 lot C — les vocaux : écoutables ici, dits internes
     expect(f.querySelector('[data-cr-vocaux]')!.textContent).toContain('internes — jamais envoyés');
-    expect(f.querySelector('[data-cr-vocal="1"] audio')!.getAttribute('src')).toBe('/api/admin/location/pieces-sortie?piece=81');
+    // 🔴 (15/11/2026) — en fichiers vocaux (une ancienne trace : un fichier par vocal), lecture seule
+    expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-nom]')!.textContent).toBe('Vocal 1');
+    expect(f.querySelector('[data-cr-vocal="1"]')!.getAttribute('data-cr-vocal-prises')).toBe('1');
+    expect(f.querySelector('[data-cr-vocal="1"] input, [data-cr-vocal="1"] [data-vocal-supprimer]')).toBeNull();
     act(() => (f.querySelector('[data-fermer-compte-rendu]') as HTMLButtonElement).click());
   });
 });
 
-describe('🔴🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » dans le compte rendu', () => {
+describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visite » sur mobile : TEXTE (dictée, clavier), PHOTOS, DICTAPHONE', () => {
   const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
-  let appelsVocal: Record<string, unknown>[] = []; let transcription: { ok: boolean; texte?: string; motif?: string } = { ok: true, texte: 'Le parquet est rayé.' };
+  let appels: Record<string, unknown>[] = []; let transcription: { ok: boolean; texte?: string; motif?: string } = { ok: true, texte: 'Le parquet est rayé.' };
+  let dictee: { ok: boolean; texte?: string; motif?: string } = { ok: true, texte: 'Cuisine propre' };
+  let horloge = 1_000_000; let idSuivant = 80;
   class FauxEnregistreur {
     static isTypeSupported = (t: string) => t === 'audio/mp4';
     static dernier: FauxEnregistreur | null = null;
     mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
     constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; FauxEnregistreur.dernier = this; }
     start() { this.state = 'recording'; }
-    pause() { this.state = 'paused'; }
-    resume() { this.state = 'recording'; }
     stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
   }
   beforeEach(() => {
-    appelsVocal = []; transcription = { ok: true, texte: 'Le parquet est rayé.' };
-    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:vocal'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    appels = []; transcription = { ok: true, texte: 'Le parquet est rayé.' }; dictee = { ok: true, texte: 'Cuisine propre' }; horloge = 1_000_000; idSuivant = 80;
+    vi.spyOn(Date, 'now').mockImplementation(() => horloge);
+    try { window.localStorage.removeItem('svav.compteRendu.photos.vue'); } catch { /* sans stockage */ }
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => `blob:vocal-${Math.random()}`; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
     (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
@@ -1205,96 +1216,186 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — « Enregistrer un vocal » dans 
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
       if (init?.method === 'POST') {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
-        if (c.action === 'vocal-compte-rendu') { appelsVocal.push(c); return ok({ id: 81, nom: 'Vocal-1.m4a', taille: 3 }); }
-        if (c.action === 'transcrire-vocal') { appelsVocal.push(c); return ok(transcription); }
-        if (c.action === 'apercu-compte-rendu-previsite') { appelsVocal.push(c); return ok({ mails: [], sansEmail: [] }); }
+        if (c.action === 'vocal-compte-rendu') { appels.push(c); idSuivant += 1; return ok({ id: idSuivant, nom: 'Vocal.m4a', taille: 3 }); }
+        if (c.action === 'transcrire-vocal') { appels.push(c); return ok(transcription); }
+        if (c.action === 'dicter-compte-rendu') { appels.push(c); return ok(dictee); }
+        if (c.action === 'apercu-compte-rendu-previsite' || c.action === 'compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [] }); }
       }
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
   });
+  afterEach(() => { vi.restoreAllMocks(); });
   const clicDoc = (sel: string): void => act(() => (document.querySelector(sel) as HTMLButtonElement).click());
-  const ouvrirCr = async (texte: string, curseur: number) => {
+  const ouvrirCr = async (texte = '', curseur = 0) => {
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
     clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
     const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
-    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, texte); t.dispatchEvent(new Event('input', { bubbles: true })); });
-    act(() => { t.focus(); t.setSelectionRange(curseur, curseur); t.blur(); }); // le toucher de « Enregistrer un vocal » fait sortir du champ
+    if (texte !== '') act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, texte); t.dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => { t.focus(); t.setSelectionRange(curseur, curseur); t.blur(); }); // le toucher d'un bouton fait sortir du champ
   };
-  const enregistrer = async () => {
-    await act(async () => { (document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement).click(); });
-    // l'enregistreur se charge au toucher (import dynamique) : on attend qu'il réponde
-    for (let k = 0; k < 40 && !document.querySelector('[data-vocal-duree], [data-vocal-micro]'); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+  const patienter = async (cond: () => boolean) => { for (let k = 0; k < 60 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
+  /** L'APPUI LONG : le doigt se pose (pointerdown), reste `ms`, se relève (pointerup) — ou SORT du bouton (pointerleave). */
+  const maintenir = async (sel: string, ms: number, fin: 'pointerup' | 'pointerleave' = 'pointerup') => {
+    const b = document.querySelector(sel) as HTMLButtonElement;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    // l'enregistrement a démarré (chronomètre), ou l'appareil a refusé (message, bouton relâché)
+    await patienter(() => b.querySelector('[data-maintien-duree]') !== null || (b.getAttribute('aria-pressed') === 'false' && document.querySelector('[data-vocal-micro], [data-dictee-message]') !== null));
+    horloge += ms;
+    // le doigt qui SORT du bouton : le navigateur émet « pointerout » (React en tire onPointerLeave)
+    await act(async () => { b.dispatchEvent(fin === 'pointerup' ? new MouseEvent('pointerup', { bubbles: true, cancelable: true })
+      : new MouseEvent('pointerout', { bubbles: true, cancelable: true, relatedTarget: document.body })); });
     await attendre();
   };
-  it('🔴 iPhone (14/11/2026) — l’enregistreur ne se charge qu’AU TOUCHER, jamais à l’ouverture du formulaire', async () => {
-        await ouvrirCr('CR.', 3);
-    expect(document.querySelector('[data-corps-compte-rendu]')).not.toBeNull();
-    expect(charges.vocal).toBe(0); // premier essai du fichier qui touche « Enregistrer un vocal »
-    await enregistrer();
-    expect(charges.vocal).toBe(1);
-    expect(document.querySelector('[data-vocal-duree]')).not.toBeNull();
+
+  it('TROIS BLOCS, dans cet ordre : Texte, Photos, Dictaphone ; boutons « Annuler » / « Voir le récapitulatif » EN FIN de formulaire (non collés) ; fond opaque', async () => {
+    await ouvrirCr();
+    const boite = document.querySelector('[data-fenetre-previsite="saisie"]')!;
+    expect([...boite.querySelectorAll('[data-bloc-texte], [data-photos-compte-rendu], [data-vocaux-compte-rendu]')].map((x) => x.querySelector('h3')!.textContent!.split(' ')[0]))
+      .toEqual(['Texte', 'Photos', 'Dictaphone']);
+    expect(boite.className).toContain('pvv-boite-cr');
+    expect(boite.closest('.mis-voile')!.className).toContain('pvv-voile-cr');
+    const actions = boite.querySelector('.mis-actions')!;
+    expect(boite.lastElementChild).toBe(actions);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-boite-cr .mis-actions{position:static');
+    expect(css).toContain('.pvv-voile-cr{background:var(--color-svv-surface)');
   });
-  it('enregistrer → durée affichée, Pause / Reprendre, Arrêter → déposé puis TRANSCRIT : le texte s’insère AU CURSEUR avec « (transcrit d’un vocal) », modifiable', async () => {
-    await ouvrirCr('Entrée propre.\nCuisine à nettoyer.', 15);
-    await enregistrer();
-    expect(document.querySelector('[data-vocal-duree]')!.textContent).toMatch(/^● 00:0\d \/ 10:00$/);
-    expect(FauxEnregistreur.dernier!.mimeType).toBe('audio/mp4');
-    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true); // pas d'envoi pendant l'enregistrement
-    clicDoc('[data-vocal-pause]');
-    expect(document.querySelector('[data-vocal-duree]')!.textContent).toMatch(/^⏸/);
-    clicDoc('[data-vocal-reprendre]');
-    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
-    for (let k = 0; k < 6; k++) await attendre();
-    expect(appelsVocal.map((c) => c.action)).toEqual(['vocal-compte-rendu', 'transcrire-vocal']);
-    expect(appelsVocal[0]).toMatchObject({ typeMime: 'audio/mp4', occupationIds: [11, 12] });
-    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Entrée propre.\nLe parquet est rayé. (transcrit d’un vocal)\nCuisine à nettoyer.');
-    expect(document.querySelector('[data-vocal="1"] [data-vocal-ecoute]')).not.toBeNull();
-    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-transcription')).toBe('ok');
+
+  it('🔴 « Maintenir pour dicter » : enregistre TANT QUE le doigt est posé, puis transcrit ; le texte s’insère AU CURSEUR (sans mention) ; aucun fichier gardé ; « Clavier » ouvre la saisie', async () => {
+    await ouvrirCr('Entrée propre. Salon rayé.', 15);
+    const btn = document.querySelector('[data-dicter]') as HTMLButtonElement;
+    expect(btn.getAttribute('style') ?? '').not.toContain('display:none');
+    await act(async () => { btn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => btn.getAttribute('aria-pressed') === 'true' && btn.className.includes('pvv-maintien--actif') && btn.textContent!.includes('Dictée'));
+    expect(btn.className).toContain('pvv-maintien--actif');
+    expect(document.activeElement).not.toBe(document.querySelector('[data-corps-compte-rendu]')); // le clavier ne s'ouvre pas
+    horloge += 2000;
+    await act(async () => { btn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+    await patienter(() => appels.some((c) => c.action === 'dicter-compte-rendu'));
+    await patienter(() => (document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value.includes('Cuisine'));
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Entrée propre. Cuisine propre Salon rayé.');
+    expect(appels.filter((c) => c.action === 'vocal-compte-rendu')).toEqual([]); // la dictée ne dépose rien
+    expect(appels.find((c) => c.action === 'dicter-compte-rendu')).toMatchObject({ typeMime: 'audio/mp4', occupationIds: [11, 12] });
+    clicDoc('[data-clavier]');
+    expect(document.activeElement).toBe(document.querySelector('[data-corps-compte-rendu]'));
   });
-  it('🔴 transcription en ÉCHEC : message clair, le vocal RESTE joint (réécoute), « Réessayer » ; rien n’est perdu du texte', async () => {
-    transcription = { ok: false, motif: 'La transcription a échoué : le vocal reste joint au compte rendu (réécoutez-le, réessayez, ou tapez le texte).' };
+
+  it('dictée : un appui de moins d’une demi-seconde est ignoré ; le doigt qui SORT du bouton arrête normalement ; un échec de transcription : message, texte intact', async () => {
     await ouvrirCr('Mon texte.', 10);
-    await enregistrer();
-    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
-    for (let k = 0; k < 6; k++) await attendre();
-    expect(document.querySelector('[data-vocal-motif]')!.textContent).toContain('le vocal reste joint');
-    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-etat')).toBe('ok');
-    expect(document.querySelector('[data-vocal="1"] [data-vocal-ecoute]')).not.toBeNull();
+    await maintenir('[data-dicter]', 300);
+    expect(document.querySelector('[data-dictee-message]')!.textContent).toContain('Appui trop bref');
+    expect(appels.some((c) => c.action === 'dicter-compte-rendu')).toBe(false);
+    dictee = { ok: false, motif: 'La transcription a échoué.' };
+    await maintenir('[data-dicter]', 1500, 'pointerleave');
+    await patienter(() => document.querySelector('[data-dictee-motif]') !== null);
+    expect(document.querySelector('[data-dictee-motif]')!.textContent).toBe('La transcription a échoué.');
     expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Mon texte.');
-    transcription = { ok: true, texte: 'Deuxième essai.' };
-    await act(async () => { (document.querySelector('[data-vocal-retranscrire]') as HTMLButtonElement).click(); });
-    for (let k = 0; k < 4; k++) await attendre();
-    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Mon texte.\nDeuxième essai. (transcrit d’un vocal)');
   });
-  it('🔴 le vocal reste INTERNE : l’aperçu reçoit les photos, PAS les vocaux (ils ne partent qu’avec l’envoi, comme rattachement interne)', async () => {
-    await ouvrirCr('CR.', 3);
-    await enregistrer();
-    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
-    for (let k = 0; k < 6; k++) await attendre();
+
+  it('🔴 DICTAPHONE : plusieurs PRISES dans le même fichier ; « Nouveau fichier vocal » ; renommer ; supprimer une prise et un fichier (confirmés) ; transcription À LA DEMANDE seulement', async () => {
+    await ouvrirCr('Début.', 6);
+    await maintenir('[data-enregistrer-vocal]', 2000);
+    await maintenir('[data-enregistrer-vocal]', 3000);
+    await patienter(() => document.querySelectorAll('[data-vocal="1"] [data-prise-etat="ok"]').length === 2);
+    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-prises')).toBe('2');
+    expect(document.querySelector('[data-vocal="1"] [data-vocal-resume]')!.textContent).toBe('2 prises · 00:05');
+    expect(appels.filter((c) => c.action === 'transcrire-vocal')).toEqual([]); // plus automatique
+    clicDoc('[data-nouveau-vocal]');
+    await maintenir('[data-enregistrer-vocal]', 1000);
+    await patienter(() => document.querySelectorAll('[data-vocal="2"] [data-prise-etat="ok"]').length === 1);
+    expect([...document.querySelectorAll('[data-vocal]')].map((x) => x.getAttribute('data-vocal-prises'))).toEqual(['2', '1']);
+    const nom = document.querySelector('[data-vocal="2"] [data-vocal-nom]') as HTMLInputElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nom, 'Salle de bain'); nom.dispatchEvent(new Event('input', { bubbles: true })); });
+    // supprimer une prise : confirmée
+    clicDoc('[data-vocal="1"] [data-prise="1"] [data-prise-supprimer]');
+    clicDoc('[data-vocal="1"] [data-prise="1"] [data-prise-supprimer-oui]');
+    expect(document.querySelector('[data-vocal="1"]')!.getAttribute('data-vocal-prises')).toBe('1');
+    // transcrire le fichier 1, à la demande : inséré au curseur, avec la mention
+    clicDoc('[data-vocal="1"] [data-vocal-transcrire]');
+    await patienter(() => (document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value.includes('parquet'));
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Début.\nLe parquet est rayé. (transcrit d’un vocal)');
+    // envoi : les prises restantes, groupées par fichier, avec les noms
     clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
-    const apercu = appelsVocal.find((c) => c.action === 'apercu-compte-rendu-previsite')!;
-    expect(apercu.vocaux).toBeUndefined();
-    expect(document.querySelector('[data-vocaux-internes]')!.textContent).toContain('jamais envoyé (ni aux locataires, ni au propriétaire, ni en pièce jointe)');
+    expect(appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!.vocaux).toBeUndefined(); // l'aperçu ne reçoit aucun vocal
+    clicDoc('[data-confirmer-previsite]'); await attendre(); await attendre();
+    const envoi = appels.find((c) => c.action === 'compte-rendu-previsite')!;
+    expect(envoi.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [82] }, { nom: 'Salle de bain', ids: [83] }]);
+    expect(envoi.vocaux).toEqual([82, 83]);
   });
-  it('supprimer un vocal ; micro refusé : message clair', async () => {
-    await ouvrirCr('CR.', 3);
-    await enregistrer();
-    await act(async () => { (document.querySelector('[data-vocal-arreter]') as HTMLButtonElement).click(); });
-    for (let k = 0; k < 6; k++) await attendre();
+
+  it('supprimer un fichier vocal : confirmation, puis plus rien ; « Garder » ne touche à rien', async () => {
+    await ouvrirCr();
+    await maintenir('[data-enregistrer-vocal]', 1200);
+    await patienter(() => document.querySelector('[data-vocal="1"] [data-prise-etat="ok"]') !== null);
     clicDoc('[data-vocal="1"] [data-vocal-supprimer]');
+    expect(document.querySelector('[data-vocal-confirmer]')!.textContent).toContain('Supprimer « Vocal 1 » et ses 1 prise ?');
+    clicDoc('[data-vocal-supprimer-non]');
+    expect(document.querySelector('[data-vocal="1"]')).not.toBeNull();
+    clicDoc('[data-vocal="1"] [data-vocal-supprimer]'); clicDoc('[data-vocal-supprimer-oui]');
     expect(document.querySelector('[data-vocal]')).toBeNull();
-    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => { throw new Error('refus'); } } });
-    await enregistrer();
-    expect(document.querySelector('[data-vocal-micro]')!.textContent).toContain('Le micro est inaccessible');
   });
-  it('🔴 iPhone (14/11/2026) — appareil SANS MediaRecorder : message clair, aucun plantage, le formulaire reste utilisable', async () => {
-    delete (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder;
+
+  it('🔴 iPhone — l’enregistreur ne se charge qu’AU TOUCHER ; micro refusé ou appareil sans MediaRecorder : message clair, aucun plantage', async () => {
+    const avant = charges.vocal;
     await ouvrirCr('CR.', 3);
-    await enregistrer();
-    expect(document.querySelector('[data-vocal-micro]')!.textContent).toContain('n’est pas disponible sur cet appareil');
-    expect(document.querySelector('[data-vocal-duree]')).toBeNull();
+    expect(charges.vocal).toBe(avant);
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => { throw new Error('refus'); } } });
+    await maintenir('[data-enregistrer-vocal]', 1000);
+    expect(document.querySelector('[data-vocal-micro]')!.textContent).toContain('Le micro est inaccessible');
+    delete (globalThis as unknown as { MediaRecorder?: unknown }).MediaRecorder;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [] }) } });
+    await maintenir('[data-dicter]', 1000);
+    expect(document.querySelector('[data-dictee-message]')!.textContent).toContain('n’est pas disponible sur cet appareil');
     expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('CR.');
-    expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('🔴 Arno (15/11/2026) — PHOTOS : Carrousel / Liste, choix mémorisé sur l’appareil ; légende toujours modifiable', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  beforeEach(() => {
+    try { window.localStorage.removeItem('svav.compteRendu.photos.vue'); } catch { /* sans stockage */ }
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:apercu'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    let n = 70;
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST' && (JSON.parse(String(init.body)) as { action?: string }).action === 'photo-compte-rendu') { n += 1; return ok({ id: n, nom: 'p.jpg', taille: 3 }); }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const ouvrir = async () => {
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
+    const input = document.querySelector('[data-photo-galerie]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: ['a.jpg', 'b.jpg', 'c.jpg'].map((x) => new File([new Uint8Array([1])], x, { type: 'image/jpeg' })), configurable: true });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    for (let k = 0; k < 60 && document.querySelector('[data-photo-etat="envoi"]'); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+  };
+  it('Liste par défaut ; Carrousel : défilement horizontal, une photo à la fois, indicateur 1/n et ‹ › ; le choix est MÉMORISÉ', async () => {
+    await ouvrir();
+    const bloc = () => document.querySelector('[data-photos-compte-rendu]')!;
+    expect(bloc().getAttribute('data-vue-photos')).toBe('liste');
+    act(() => (document.querySelector('[data-vue-carrousel]') as HTMLButtonElement).click());
+    expect(bloc().getAttribute('data-vue-photos')).toBe('carrousel');
+    expect(bloc().querySelector('.pvv-carrousel')).not.toBeNull();
+    expect(document.querySelector('[data-carrousel-indicateur]')!.textContent).toBe('1/3');
+    act(() => (document.querySelector('[data-carrousel-suivante]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-carrousel-indicateur]')!.textContent).toBe('2/3');
+    expect(window.localStorage.getItem('svav.compteRendu.photos.vue')).toBe('carrousel');
+    act(() => (document.querySelector('[data-vue-liste]') as HTMLButtonElement).click());
+    expect(window.localStorage.getItem('svav.compteRendu.photos.vue')).toBe('liste');
+    expect(bloc().querySelector('.pvv-carrousel')).toBeNull();
+  });
+  it('la légende reste MODIFIABLE à tout moment, dans les deux affichages', async () => {
+    window.localStorage.setItem('svav.compteRendu.photos.vue', 'carrousel');
+    await ouvrir();
+    expect(document.querySelector('[data-photos-compte-rendu]')!.getAttribute('data-vue-photos')).toBe('carrousel');
+    const champs = [...document.querySelectorAll('[data-photo-legende]')] as HTMLInputElement[];
+    expect(champs).toHaveLength(3);
+    expect(champs.every((c) => !c.disabled && !c.readOnly)).toBe(true);
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champs[1], 'Joint douche'); champs[1].dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => (document.querySelector('[data-vue-liste]') as HTMLButtonElement).click());
+    expect((document.querySelectorAll('[data-photo-legende]')[1] as HTMLInputElement).value).toBe('Joint douche');
   });
 });
 

@@ -19,6 +19,8 @@ export interface CompteRenduAffiche {
   aucunEnvoi: boolean;
   /** 🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INTERNES, écoutables ici, jamais envoyés. */
   vocaux?: PieceCr[];
+  /** 🔴 Arno (15/11/2026) — les FICHIERS VOCAUX du dictaphone (nom, prises dans l'ordre), en lecture seule. */
+  fichiersVocaux?: { nom: string; prises: PieceCr[] }[];
 }
 
 /** Une ligne du journal des envois (sorte `previsite_compte_rendu`). */
