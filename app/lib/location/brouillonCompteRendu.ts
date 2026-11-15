@@ -6,8 +6,12 @@
  * Jamais un fichier : des numéros de pièces du stockage objet. PUR, sans import : lu par l'écran comme par le serveur.
  */
 export interface PersonneBrouillon { cle: string; civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string; present: boolean; note: string }
-export interface PhotoBrouillon { id: number; legende: string }
-export interface PriseBrouillon { id: number; dureeS: number }
+/* 🔴🔴 Arno (15/11/2026, 9e retour) — JAMAIS DE VOCAL NI DE PHOTO FANTÔME : le brouillon référence AUSSI les prises et les photos pas encore
+   confirmées par le serveur (`id` absent, `cle` de l'appareil). À la réouverture, celle qu'on ne retrouve ni sur le serveur ni dans le
+   téléphone est signalée « vide ou perdue » (en rouge, bloquante) au lieu de disparaître en silence. `perdue` : posé par le serveur quand la
+   pièce référencée n'existe plus. */
+export interface PhotoBrouillon { id?: number; cle?: string; legende: string; perdue?: boolean }
+export interface PriseBrouillon { id?: number; cle?: string; dureeS: number; perdue?: boolean }
 export interface FichierBrouillon { cle: string; nom: string; locataires: boolean; prises: PriseBrouillon[] }
 export interface ContenuBrouillon {
   corps: string; presents: number[]; ajoutees: PersonneBrouillon[]; photos: PhotoBrouillon[]; fichiers: FichierBrouillon[]; aussiLocataires: boolean;
@@ -36,19 +40,20 @@ export function nettoyerBrouillon(brut: unknown): ContenuBrouillon {
   });
   const vus = new Set<number>();
   const photos = tableau(o.photos).slice(0, PHOTOS_MAX).flatMap((x): PhotoBrouillon[] => {
-    const p = (x ?? {}) as Record<string, unknown>; const id = entier(p.id);
-    if (id === null || vus.has(id)) return [];
+    const p = (x ?? {}) as Record<string, unknown>; const id = entier(p.id); const cle = ligne(p.cle, 80);
+    if (id === null) return cle === '' ? [] : [{ cle, legende: ligne(p.legende, 200) }]; // pas encore confirmée : référencée par sa clé
+    if (vus.has(id)) return [];
     vus.add(id); return [{ id, legende: ligne(p.legende, 200) }];
   });
   let prisesVues = 0;
   const fichiers = tableau(o.fichiers).slice(0, FICHIERS_MAX).map((x, i): FichierBrouillon => {
     const f = (x ?? {}) as Record<string, unknown>;
     const prises = tableau(f.prises).flatMap((y): PriseBrouillon[] => {
-      const p = (y ?? {}) as Record<string, unknown>; const id = entier(p.id);
-      if (id === null || prisesVues >= PRISES_MAX) return [];
+      const p = (y ?? {}) as Record<string, unknown>; const id = entier(p.id); const cle = ligne(p.cle, 80);
+      if ((id === null && cle === '') || prisesVues >= PRISES_MAX) return [];
       prisesVues += 1;
       const d = typeof p.dureeS === 'number' && Number.isFinite(p.dureeS) && p.dureeS >= 0 ? Math.min(p.dureeS, 3600) : 0;
-      return [{ id, dureeS: d }];
+      return [id !== null ? { id, dureeS: d } : { cle, dureeS: d }]; // pas encore confirmée : référencée par sa clé
     });
     return { cle: ligne(f.cle, 60) || `f${i}`, nom: ligne(f.nom, 60), locataires: f.locataires === true, prises };
   });

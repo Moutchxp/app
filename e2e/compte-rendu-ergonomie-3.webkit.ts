@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { brouillonPropreAvantChaqueEpreuve } from './brouillonPropre';
 
 /**
  * 🔴 Arno (15/11/2026, 3e retour du test iPhone) — WebKit, profil iPhone 15, contre la RECETTE, en clair ET en sombre. Micro, transcription et
@@ -11,6 +12,7 @@ const OCC = process.env.E2E_OCCUPATION ?? '';
 const JETON = process.env.E2E_JETON_FICHIER ? readFileSync(process.env.E2E_JETON_FICHIER, 'utf8').trim() : '';
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 test.skip(OCC === '' || JETON === '', 'E2E_OCCUPATION et E2E_JETON_FICHIER requis (recette)');
+brouillonPropreAvantChaqueEpreuve();
 const capturer = async (page: Page, nom: string) => { if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/${nom}.png` }); };
 
 async function preparer(page: Page, theme: 'light' | 'dark'): Promise<Record<string, unknown>[]> {
@@ -49,6 +51,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('[data-presence-locataire]').first()).not.toBeChecked();
     await page.locator('[data-corps-compte-rendu]').fill('Logement propre.');
     await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
+    await expect(page.locator('[data-blocage-envoi]')).toHaveCount(0, { timeout: 15_000 }); // 🔴 (9e retour) le récapitulatif attend « Sauvegardée »
     await page.locator('[data-recap-previsite]').tap();
     await expect(page.locator('[data-presence-motif]')).toHaveText('Cochez au moins une personne présente à la pré-visite.');
     await expect(page.locator('[data-bloc-presence]')).toHaveAttribute('data-presence-erreur', 'oui');
@@ -66,6 +69,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.locator('[data-bloc-presence]').scrollIntoViewIfNeeded();
     await capturer(page, `${theme}-03-presence-cochee`);
     await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
+    await expect(page.locator('[data-blocage-envoi]')).toHaveCount(0, { timeout: 15_000 }); // 🔴 (9e retour) le récapitulatif attend « Sauvegardée »
     await page.locator('[data-recap-previsite]').tap();
     await expect(page.locator('[data-fenetre-previsite="recap"]')).toContainText('En présence de', { timeout: 20_000 });
     await expect(page.locator('[data-fenetre-previsite="recap"]')).toContainText('et de Mme Léa Martin.');

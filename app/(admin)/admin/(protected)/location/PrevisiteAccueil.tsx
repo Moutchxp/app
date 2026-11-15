@@ -22,14 +22,14 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, Confirmation, LignesVocauxRecap, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, Confirmation, LignesVocauxRecap, MOTIF_PHOTO_PERDUE, MOTIF_PRISE_PERDUE, motifPiecesBloquantes, piecesBloquantes, type PriseVocale, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
 import { CartoucheSauvegarde, CSS_CARTOUCHE_SAUVEGARDE, useBrouillonCompteRendu } from './BrouillonCompteRendu';
-import type { ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
+import { BROUILLON_VIDE, type ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -266,13 +266,15 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [photos, setPhotos] = useState<PhotoSaisie[]>([]);
   const [rangSansLegende, setRangSansLegende] = useState<number | null>(null);
   const photosPretes = photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende }));
-  // une photo en attente du réseau n'est pas encore sur le serveur : le récapitulatif attend qu'elle y soit
-  const photosEnCours = photos.some((x) => x.etat === 'envoi' || x.etat === 'attente');
   /** 🔴 Arno (15/11/2026) — le DICTAPHONE : des fichiers vocaux (INTERNES, jamais envoyés), chacun ses prises ; le curseur du texte, où
    *  s'insèrent la dictée et la transcription d'un fichier. */
   const [fichiers, setFichiers] = useState<FichierVocal[]>([]);
   /** 🔴 Arno (15/11/2026, 8e retour) — le fichier vocal ACTIF (destination des prochaines prises), mémorisé dans le brouillon */
   const [fichierActif, setFichierActif] = useState<string | null>(null);
+  /* 🔴🔴 Arno (15/11/2026, 9e retour) — une photo ou une prise pas encore CONFIRMÉE par le serveur, ou vide ou perdue, bloque le récapitulatif
+     et l'envoi : le refus la NOMME (le bouton n'est plus grisé sans explication). */
+  const bloquantes = piecesBloquantes(photos, fichiers);
+  const motifBloquantes = geste === 'compte_rendu' ? motifPiecesBloquantes(bloquantes) : null;
   /** 🔴 Arno (15/11/2026) — la présence : locataires cochés (occupations), personnes ajoutées ; au moins une pour voir le récapitulatif. */
   const [presents, setPresents] = useState<number[]>([]);
   const [ajoutees, setAjoutees] = useState<PersonneAjouteeSaisie[]>([]);
@@ -298,24 +300,44 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const contenuBrouillon: ContenuBrouillon = {
     // 🔴 (6e retour) le tiret orphelin d'une ligne restée vide n'est pas enregistré
     corps: sansTiretsOrphelins(corps), presents, ajoutees: ajoutees.map((a) => ({ cle: a.cle, civilite: a.civilite, nom: a.nom, prenom: a.prenom, present: a.present, note: a.note })),
-    photos: photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende })),
-    fichiers: fichiers.map((f) => ({ cle: f.cle, nom: f.nom, locataires: f.locataires === true, prises: f.prises.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, dureeS: x.dureeS })) })),
+    // 🔴🔴 (9e retour) les photos et prises PAS ENCORE confirmées sont référencées aussi (par leur clé) : à la réouverture, celle qu'on ne
+    // retrouve nulle part est signalée « vide ou perdue » au lieu de disparaître ; une pièce perdue reste référencée telle quelle
+    photos: photos.filter((x) => x.etat !== 'erreur').map((x) => (x.id !== null ? { id: x.id, legende: x.legende } : { cle: x.cle, legende: x.legende })),
+    fichiers: fichiers.map((f) => ({ cle: f.cle, nom: f.nom, locataires: f.locataires === true,
+      prises: f.prises.filter((x) => x.etat !== 'erreur').map((x) => (x.id !== null ? { id: x.id, dureeS: x.dureeS } : { cle: x.cle, dureeS: x.dureeS })) })),
     aussiLocataires, fichierActif,
   };
   const appliquerBrouillon = useCallback((c: ContenuBrouillon): void => {
     setCorps(c.corps); setPresents(c.presents.filter((x) => l.occupationIds.includes(x))); setAjoutees(c.ajoutees.map((a) => ({ ...a })));
     setAussiLocataires(c.aussiLocataires);
     setFichierActif(c.fichierActif);
-    // les pièces DÉPOSÉES viennent du brouillon ; celles qui attendent encore dans le téléphone (remises par la file locale) sont gardées
-    setPhotos((xs) => [...c.photos.map((x): PhotoSaisie => { const deja = xs.find((y) => y.id === x.id);
-      return { cle: deja?.cle ?? `b${x.id}`, id: x.id, apercu: deja?.apercu ?? urlPiece(x.id), legende: x.legende, etat: 'ok', motif: null }; }), ...xs.filter((y) => y.id === null)]);
+    // « Effacer le brouillon » : le formulaire est vidé, pièces en attente comprises (le téléphone vient d'être vidé)
+    if (c === BROUILLON_VIDE) { setPhotos([]); setFichiers([]); return; }
+    /** une pièce qui attend VRAIMENT dans le téléphone (pas une pièce perdue ou refusée) */
+    const enAttenteLocale = (e: PhotoSaisie['etat'] | PriseVocale['etat']): boolean => e === 'envoi' || e === 'depot' || e === 'attente';
+    // les pièces DÉPOSÉES viennent du brouillon ; celles qui attendent encore dans le téléphone (remises par la file locale) gardent leur état ;
+    // 🔴🔴 (9e retour) une pièce référencée qu'on ne retrouve NULLE PART revient « vide ou perdue » (rouge, bloquante) — jamais en silence
+    setPhotos((xs) => {
+      const out = c.photos.map((x): PhotoSaisie => {
+        if (x.id !== undefined) { const deja = xs.find((y) => y.id === x.id); return { cle: deja?.cle ?? `b${x.id}`, id: x.id, apercu: deja?.apercu ?? urlPiece(x.id), legende: x.legende, etat: 'ok', motif: null }; }
+        const deja = x.perdue ? undefined : xs.find((y) => y.cle === x.cle && enAttenteLocale(y.etat));
+        return deja ? { ...deja, legende: deja.legende || x.legende } : { cle: x.cle ?? `p${Math.random().toString(36).slice(2)}`, id: null, apercu: '', legende: x.legende, etat: 'perdue', motif: MOTIF_PHOTO_PERDUE };
+      });
+      for (const y of xs) if (y.id === null && enAttenteLocale(y.etat) && !out.some((z) => z.cle === y.cle)) out.push(y);
+      return out;
+    });
     setFichiers((xs) => {
       const out: FichierVocal[] = c.fichiers.map((f) => {
         const deja = xs.find((y) => y.cle === f.cle);
-        return { cle: f.cle, nom: f.nom, locataires: f.locataires, transcription: null, motif: null,
-          prises: [...f.prises.map((x) => ({ cle: `b${x.id}`, id: x.id, url: urlPiece(x.id), dureeS: x.dureeS, etat: 'ok' as const, motif: null })), ...(deja ? deja.prises.filter((y) => y.id === null) : [])] };
+        const prises: PriseVocale[] = f.prises.map((x): PriseVocale => {
+          if (x.id !== undefined) return { cle: `b${x.id}`, id: x.id, url: urlPiece(x.id), dureeS: x.dureeS, etat: 'ok', motif: null };
+          const local = x.perdue ? undefined : deja?.prises.find((y) => y.cle === x.cle && enAttenteLocale(y.etat));
+          return local ?? { cle: x.cle ?? `p${Math.random().toString(36).slice(2)}`, id: null, url: '', dureeS: x.dureeS, etat: 'perdue', motif: MOTIF_PRISE_PERDUE };
+        });
+        for (const y of deja?.prises ?? []) if (y.id === null && enAttenteLocale(y.etat) && !prises.some((z) => z.cle === y.cle)) prises.push(y);
+        return { cle: f.cle, nom: f.nom, locataires: f.locataires, transcription: null, motif: null, prises };
       });
-      for (const y of xs) if (!out.some((f) => f.cle === y.cle) && y.prises.some((x) => x.id === null)) out.push(y);
+      for (const y of xs) if (!out.some((f) => f.cle === y.cle) && y.prises.some((x) => x.id === null && enAttenteLocale(x.etat))) out.push({ ...y, prises: y.prises.filter((x) => x.id !== null || enAttenteLocale(x.etat)) });
       return out;
     });
   }, [l.occupationIds]);
@@ -330,6 +352,11 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
     if (geste !== 'compte_rendu') return true;
+    if (motifBloquantes !== null) {
+      setRefus(motifBloquantes);
+      setTimeout(() => { try { document.querySelector('[data-photo-etat="perdue"],[data-photo-etat="erreur"],[data-prise-etat="perdue"],[data-prise-etat="erreur"],[data-photo-etat="attente"],[data-prise-etat="attente"],[data-prise-etat="depot"],[data-photo-etat="envoi"]')?.scrollIntoView({ block: 'center' }); } catch { /* rien */ } }, 0);
+      return false;
+    }
     const echec = photos.findIndex((x) => x.etat === 'erreur');
     if (echec >= 0) { setRangSansLegende(echec); setRefus(`La photo ${echec + 1} n’a pas pu être déposée : retirez-la (ou ajoutez-la de nouveau).`); return false; }
     const r = refusPhotos(photos);
@@ -488,6 +515,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       <BlocageEmailLocataires e={emails} />
       {verdict !== null && !verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-previsite-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
+      {/* 🔴🔴 (9e retour) tant qu'une pièce n'est pas sauvegardée (ou est perdue), c'est dit en permanence au-dessus des boutons */}
+      {motifBloquantes !== null && refus !== motifBloquantes && <p className={bloquantes.perdues.length > 0 ? 'cev-alerte' : 'loc-muet'} role="status" data-blocage-envoi={bloquantes.perdues.length > 0 ? 'perdue' : 'en_cours'}>{motifBloquantes}</p>}
       {/* 🔴 Arno (15/11/2026) — « Annuler » garde le brouillon ; « Effacer le brouillon » (confirmé) le supprime */}
       {geste === 'compte_rendu' && (
         <div className="pvv-effacer-ligne">
@@ -499,7 +528,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         </div>)}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => onFermer(false)} disabled={envoi} data-annuler-previsite>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk || photosEnCours || vocauxEnCours} data-recap-previsite>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void voirRecap({}); }} disabled={envoi || !saisieOk || vocauxEnCours} data-recap-previsite>
           {envoi ? 'Préparation…' : 'Voir le récapitulatif'}</button>
       </div>
     </>;

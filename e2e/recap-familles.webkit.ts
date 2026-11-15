@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { brouillonPropreAvantChaqueEpreuve } from './brouillonPropre';
 
 /**
  * 🔴 Arno (15/11/2026) — LE RÉCAPITULATIF DU COMPTE RENDU, PAR FAMILLE DE MAIL. WebKit contre la RECETTE, préavis de TEST, au format iPhone ET
@@ -12,6 +13,7 @@ const OCC = process.env.E2E_OCCUPATION ?? '';
 const JETON = process.env.E2E_JETON_FICHIER ? readFileSync(process.env.E2E_JETON_FICHIER, 'utf8').trim() : '';
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 test.skip(OCC === '' || JETON === '', 'E2E_OCCUPATION et E2E_JETON_FICHIER requis (recette)');
+brouillonPropreAvantChaqueEpreuve();
 const capturer = async (page: Page, nom: string) => { if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/${nom}.png`, fullPage: true }); };
 
 async function jusquAuRecap(page: Page, theme: 'light' | 'dark'): Promise<string[]> {
@@ -33,6 +35,7 @@ async function jusquAuRecap(page: Page, theme: 'light' | 'dark'): Promise<string
   await page.locator('[data-corps-compte-rendu]').fill('Logement propre.');
   await expect(page.locator('[data-aussi-locataires]')).toHaveAttribute('aria-pressed', 'true'); // 🔴 (15/11/2026) activé par défaut
   await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
+  await expect(page.locator('[data-blocage-envoi]')).toHaveCount(0, { timeout: 15_000 }); // 🔴 (9e retour) le récapitulatif attend « Sauvegardée »
   await page.locator('[data-recap-previsite]').click();
   await expect(page.locator('[data-fenetre-previsite="recap"]')).toBeVisible({ timeout: 20_000 });
   return erreurs;

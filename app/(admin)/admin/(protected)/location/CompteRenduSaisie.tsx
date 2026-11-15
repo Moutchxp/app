@@ -27,6 +27,7 @@ const moduleVocal = () => import('../../../../lib/location/enregistreurVocal');
 
 export type EtatMaintien = 'repos' | 'demarrage' | 'enregistre';
 export const MESSAGE_APPUI_BREF = 'Appui trop bref : maintenez le bouton appuyé pendant que vous parlez.';
+export const MESSAGE_PRISE_VIDE = 'L’enregistrement est vide : rien n’a été capté. Réessayez en maintenant le bouton pendant que vous parlez.';
 export const MESSAGE_MICRO_PRET = 'Micro autorisé : maintenez de nouveau le bouton appuyé pendant que vous parlez.';
 
 /** Enregistre TANT QUE le bouton est maintenu ; au relâchement, rend la prise (≥ 0,5 s) à `onPrise`. Ne lève jamais. */
@@ -36,7 +37,7 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
   const [dureeMs, setDureeMs] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const voulu = useRef(false);
-  const rec = useRef<{ r: MediaRecorder; flux: MediaStream; morceaux: Blob[]; debut: number; type: string } | null>(null);
+  const rec = useRef<{ r: MediaRecorder; flux: MediaStream; morceaux: Blob[]; debut: number; type: string; livre: boolean } | null>(null);
   const priseRef = useRef(onPrise);
   useEffect(() => { priseRef.current = onPrise; }, [onPrise]);
   const relacher = useCallback((): void => {
@@ -54,15 +55,18 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
       // relâché pendant la demande d'autorisation du micro (première fois) : on ne garde rien, on dit de recommencer
       // le micro reste ouvert (gardé tant que la page est visible) ; rien n'a été enregistré
       if (!voulu.current) { setEtat('repos'); setMessage(MESSAGE_MICRO_PRET); return; }
-      const x = { r: o.r, flux: o.flux, morceaux: [] as Blob[], debut: Date.now(), type: o.type };
+      const x = { r: o.r, flux: o.flux, morceaux: [] as Blob[], debut: Date.now(), type: o.type, livre: false };
       o.r.ondataavailable = (e) => { if (e.data && e.data.size > 0) x.morceaux.push(e.data); };
       o.r.onstop = () => {
         // 🔴 (7e retour) le micro n'est PAS refermé : il est gardé pour l'appui suivant (relâché en arrière-plan)
         const ms = Date.now() - x.debut;
         rec.current = null; setEtat('repos'); setDureeMs(0);
+        if (x.livre) return; // déjà finalisée au passage en arrière-plan
         if (ms < PRISE_MIN_MS) { setMessage(MESSAGE_APPUI_BREF); return; }
         const blob = new Blob(x.morceaux, { type: x.type });
-        if (blob.size > 0) priseRef.current(blob, x.type, ms);
+        // 🔴 (9e retour) une prise SANS contenu n'est jamais gardée ni oubliée en silence : c'est dit
+        if (blob.size === 0) { setMessage(MESSAGE_PRISE_VIDE); return; }
+        priseRef.current(blob, x.type, ms);
       };
       rec.current = x;
       try { o.r.start(250); } catch { rec.current = null; setEtat('repos'); setMessage('L’enregistrement n’a pas pu démarrer sur cet appareil.'); return; }
@@ -77,6 +81,25 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
       if (ms >= VOCAL_DUREE_MAX_S * 1000) relacher();
     }, 200);
     return () => clearInterval(t);
+  }, [etat, relacher]);
+  /* 🔴🔴 Arno (15/11/2026, 9e retour) — MISE EN VEILLE OU FERMETURE PENDANT UNE PRISE : la page va être suspendue, la fin normale de
+     l'enregistrement (onstop) risque de ne jamais arriver. La prise est FINALISÉE TOUT DE SUITE avec ce qui a déjà été capté (morceaux livrés
+     toutes les 250 ms) et remise aussitôt (le formulaire l'écrit d'abord dans le téléphone) ; la fin normale est alors ignorée. */
+  useEffect(() => {
+    if (etat === 'repos') return;
+    const urgence = (e: Event): void => {
+      if (e.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
+      const x = rec.current;
+      if (x === null || x.livre) { relacher(); return; }
+      try { x.r.requestData(); } catch { /* rien */ }
+      const ms = Date.now() - x.debut;
+      const blob = new Blob(x.morceaux, { type: x.type });
+      if (ms >= PRISE_MIN_MS && blob.size > 0) { x.livre = true; priseRef.current(blob, x.type, ms); }
+      relacher();
+    };
+    document.addEventListener('visibilitychange', urgence, true);
+    window.addEventListener('pagehide', urgence, true);
+    return () => { document.removeEventListener('visibilitychange', urgence, true); window.removeEventListener('pagehide', urgence, true); };
   }, [etat, relacher]);
   useEffect(() => () => { voulu.current = false; const x = rec.current; if (x) { try { x.r.stop(); } catch { /* rien */ } } }, []);
   return { etat, dureeMs, message, appuyer, relacher, effacerMessage: () => setMessage(null) };
@@ -457,7 +480,48 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
 
 /** Une photo du formulaire : son aperçu (sur l'appareil), sa pièce déposée (`id`), sa légende. */
 /** 🔴 Arno (15/11/2026) — `attente` : pas encore déposée (réseau coupé) ; gardée dans le téléphone, renvoyée automatiquement. */
-export interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'attente' | 'ok' | 'erreur'; motif: string | null }
+export interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'attente' | 'ok' | 'erreur' | 'perdue'; motif: string | null }
+/** 🔴🔴 Arno (15/11/2026, 9e retour) — une pièce référencée qu'on ne retrouve ni sur le serveur ni dans le téléphone : signalée, ROUGE, bloquante. */
+export const MOTIF_PHOTO_PERDUE = 'Photo vide ou perdue — à reprendre (supprimez-la, puis ajoutez-la de nouveau).';
+export const MOTIF_PRISE_PERDUE = 'Le son de cette prise n’a pas été retrouvé : supprimez-la, puis réenregistrez-la.';
+/** 🔴🔴 (9e retour) — l'état visible d'une pièce : en cours (gris), sauvegardée (discret), vide ou perdue (ROUGE). PUR. */
+export type StatutPiece = 'en_cours' | 'sauvegardee' | 'perdue';
+export const statutPiece = (etat: PhotoSaisie['etat'] | PriseVocale['etat']): StatutPiece =>
+  (etat === 'ok' ? 'sauvegardee' : etat === 'erreur' || etat === 'perdue' ? 'perdue' : 'en_cours');
+export const STATUT_PIECE: Record<StatutPiece, { libelle: string; classe: string }> = {
+  en_cours: { libelle: 'Sauvegarde en cours…', classe: 'loc-muet pvv-statut-piece' },
+  sauvegardee: { libelle: 'Sauvegardée', classe: 'loc-muet pvv-statut-piece pvv-statut-piece--ok' },
+  perdue: { libelle: 'Vide ou perdue — à réenregistrer', classe: 'pvv-statut-piece pvv-statut-piece--perdue' },
+};
+/**
+ * 🔴🔴 Arno (15/11/2026, 9e retour) — CE QUI EMPÊCHE LE RÉCAPITULATIF ET L'ENVOI : chaque photo ou prise pas encore confirmée par le serveur,
+ * ou vide ou perdue, NOMMÉE (« Photo 2 », « Prise 3 de « Salle de bain » »). Liste vide : rien ne bloque. PUR.
+ */
+export function piecesBloquantes(photos: readonly Pick<PhotoSaisie, 'etat'>[], fichiers: readonly Pick<FichierVocal, 'nom' | 'prises'>[]): { enCours: string[]; perdues: string[] } {
+  const enCours: string[] = []; const perdues: string[] = [];
+  photos.forEach((x, i) => { const s = statutPiece(x.etat); if (s === 'en_cours') enCours.push(`Photo ${i + 1}`); else if (s === 'perdue') perdues.push(`Photo ${i + 1}`); });
+  fichiers.forEach((f, i) => f.prises.forEach((p, k) => {
+    const n = `Prise ${k + 1} de « ${f.nom.trim() || `Vocal ${i + 1}`} »`;
+    const s = statutPiece(p.etat); if (s === 'en_cours') enCours.push(n); else if (s === 'perdue') perdues.push(n);
+  }));
+  return { enCours, perdues };
+}
+const listeFr = (xs: readonly string[]): string => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} et ${xs[xs.length - 1]}`);
+/** Le message du refus, ou null. PUR. */
+export function motifPiecesBloquantes(b: { enCours: string[]; perdues: string[] }): string | null {
+  const m: string[] = [];
+  if (b.perdues.length > 0) m.push(`${listeFr(b.perdues)} : vide${b.perdues.length > 1 ? 's' : ''} ou perdue${b.perdues.length > 1 ? 's' : ''} — supprimez-l${b.perdues.length > 1 ? 'es' : 'a'} (et refaites-l${b.perdues.length > 1 ? 'es' : 'a'}) avant d’envoyer.`);
+  if (b.enCours.length > 0) m.push(`${listeFr(b.enCours)} : sauvegarde en cours — attendez « Sauvegardée ».`);
+  return m.length === 0 ? null : m.join(' ');
+}
+/** L'empreinte SHA-256 (hexadécimal) d'un enregistrement, ou null si l'appareil ne sait pas la calculer (page hors HTTPS). */
+export async function empreinteSha256(b: Blob): Promise<string | null> {
+  try {
+    const s = globalThis.crypto?.subtle; if (!s) return null;
+    const h = new Uint8Array(await s.digest('SHA-256', await b.arrayBuffer()));
+    return [...h].map((x) => x.toString(16).padStart(2, '0')).join('');
+  } catch { return null; }
+}
 export const MOTIF_ATTENTE_PHOTO = 'En attente du réseau — gardée sur cet appareil, envoyée automatiquement au retour du réseau.';
 export const MOTIF_ATTENTE_PRISE = 'En attente du réseau — gardée sur cet appareil, enregistrée automatiquement au retour du réseau.';
 const RELANCE_MS = 15_000;
@@ -629,7 +693,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
           {photos.map((x, i) => {
             const sansLegende = rangSansLegende === i || (rangSansLegende !== null && x.legende.trim() === '');
             return (
-              <li key={x.cle} className={`pvv-photo${sansLegende ? ' pvv-photo--erreur' : ''}${x.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-photo={i + 1} data-photo-etat={x.etat}
+              <li key={x.cle} className={`pvv-photo${sansLegende ? ' pvv-photo--erreur' : ''}${x.etat === 'erreur' || x.etat === 'perdue' ? ' pvv-photo--echec' : ''}`} data-photo={i + 1} data-photo-etat={x.etat}
                 data-photo-sans-legende={sansLegende ? 'oui' : undefined}
                 // carrousel : toucher une légende amène SA photo entière à l'écran (jamais deux moitiés)
                 onFocus={vue === 'carrousel' ? () => { if (i !== rang) aller(i); else setTimeout(() => aller(i), 60); } : undefined}>
@@ -647,7 +711,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
                 {x.apercu ? <img className="pvv-vignette" src={x.apercu} alt={x.legende ? lignePhoto(i, x.legende) : `Photo ${i + 1}`} /> : <span className="pvv-vignette pvv-vignette--vide" />}
                 {x.etat === 'envoi' && <span className="loc-muet" role="status">Préparation…</span>}
                 {x.etat === 'attente' && <span className="pvv-attente" role="status" data-photo-attente>{x.motif}</span>}
-                {x.etat === 'erreur' && <span className="pvv-photo-motif" role="alert">{x.motif}</span>}
+                {(x.etat === 'erreur' || x.etat === 'perdue') && <span className="pvv-photo-motif" role="alert" data-photo-perdue={x.etat === 'perdue' ? '' : undefined}>{x.motif}</span>}
                 <ChampLegende rang={i + 1} valeur={x.legende} invalide={sansLegende} occupationIds={occupationIds}
                   onChange={(f) => maj(x.cle, (y) => {
                     const legende = f(y.legende);
@@ -656,7 +720,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
                     if (y.id === null && b) void mettreEnAttente(groupe, { cle: y.cle, sorte: 'photo', blob: b, type: b.type || 'image/jpeg', legende, creeLe: new Date().toISOString() });
                     return { ...y, legende };
                   })} onOccupe={(o) => occuper(x.cle, o)} />
-                {sansLegende && x.etat !== 'erreur' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
+                {sansLegende && x.etat !== 'erreur' && x.etat !== 'perdue' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
               </li>);
           })}
         </ol>
@@ -668,7 +732,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
 /* ══ BLOC DICTAPHONE ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Une prise du dictaphone : sa réécoute (sur l'appareil) et sa pièce déposée (`id`, interne). */
-export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'attente' | 'ok' | 'erreur'; motif: string | null }
+export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'attente' | 'ok' | 'erreur' | 'perdue'; motif: string | null }
 /** Un fichier vocal : un nom (renommable) et ses prises, dans l'ordre. */
 export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[]; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null;
   /** 🔴 Arno (15/11/2026) — « Envoyé aux locataires » : défaut NON (le fichier reste interne). */
@@ -724,8 +788,14 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
       const deja = await new Promise<number[]>((ok) => setFichiers((xs) => { ok(xs.flatMap((x) => x.prises).filter((p) => p.id !== null).map((p) => p.id as number)); return xs; }));
       let donnees: string;
       try { donnees = await (await modulePhoto()).enBase64(blob); } catch { majPrise(fc, pc, (p) => ({ ...p, etat: 'erreur', motif: 'La prise n’a pas pu être préparée sur cet appareil.' })); return; }
-      const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type, dureeS, dejaIds: deja }, { propre: true });
+      // 🔴🔴 (9e retour) l'empreinte des octets : le serveur refuse ce qui n'est pas arrivé tel quel ; « Sauvegardée » seulement si elle concorde
+      const local = await empreinteSha256(blob);
+      const r = await envoyer({ action: 'vocal-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type, dureeS, dejaIds: deja, ...(local ? { empreinte: local } : {}) }, { propre: true });
       const id = (r.data as { id?: number } | undefined)?.id;
+      const recue = (r.data as { empreinte?: string } | undefined)?.empreinte;
+      if (r.motif === null && typeof id === 'number' && local !== null && typeof recue === 'string' && recue !== local) {
+        majPrise(fc, pc, (p) => ({ ...p, etat: 'attente', motif: MOTIF_ATTENTE_PRISE })); return; // gardée dans le téléphone, renvoyée
+      }
       if (r.motif === null && typeof id === 'number') { majPrise(fc, pc, (p) => ({ ...p, id, etat: 'ok', motif: null })); enAttente.current.delete(pc); await retirerAttente(groupe, pc); return; }
       if (erreurReseau(r)) { majPrise(fc, pc, (p) => ({ ...p, etat: 'attente', motif: MOTIF_ATTENTE_PRISE })); return; }
       enAttente.current.delete(pc); await retirerAttente(groupe, pc);
@@ -776,7 +846,8 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
     if (o === s.has(cle)) return s;
     const n = new Set(s); if (o) n.add(cle); else n.delete(cle); return n;
   }), []);
-  const enCours = prise.etat !== 'repos' || titresOccupes.size > 0 || fichiers.some((f) => f.transcription === 'en_cours' || f.prises.some((p) => p.etat === 'depot' || p.etat === 'attente'));
+  // 🔴 (9e retour) une prise en cours de sauvegarde ou perdue ne grise plus le bouton : « Voir le récapitulatif » dit laquelle bloque
+  const enCours = prise.etat !== 'repos' || titresOccupes.size > 0 || fichiers.some((f) => f.transcription === 'en_cours');
   useEffect(() => { onOccupe(enCours); }, [enCours, onOccupe]);
   // 🔴 (8e retour) « Nouveau fichier vocal » : créé, rendu actif, et l'écran défile jusqu'au gros bouton
   const nouveau = (): void => {
@@ -845,7 +916,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
       </div>
       {prise.message !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{prise.message}</p>}
       {fichiers.length > 0 && <ol className="pvv-fichiers">{fichiers.map((f, i) => {
-        const urls = f.prises.map((p) => p.url);
+        const urls = f.prises.filter((p) => p.url !== '').map((p) => p.url);
         const jouant = lecteur.jouant === f.cle;
         const estCourant = f.cle === cleCourante;
         return (
@@ -882,16 +953,17 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
             {f.transcription === 'ok' && <span className="loc-muet" data-vocal-transcrit>Texte inséré dans le compte rendu {MENTION_TRANSCRIT} — modifiable.</span>}
             {f.motif !== null && <span className="pvv-photo-motif" role="alert" data-vocal-motif>{f.motif}</span>}
             {f.prises.length > 0 && <ol className="pvv-prises">{f.prises.map((p, k) => (
-              <li key={p.cle} className={`pvv-prise${p.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-prise={k + 1} data-prise-etat={p.etat}>
+              <li key={p.cle} className={`pvv-prise${p.etat === 'erreur' || p.etat === 'perdue' ? ' pvv-photo--echec pvv-prise--perdue' : ''}`} data-prise={k + 1} data-prise-etat={p.etat}>
                 <span>Prise {k + 1} <span className="loc-muet">({dureeFr(p.dureeS)})</span></span>
-                {p.etat === 'depot' && <span className="loc-muet" role="status">Enregistrement…</span>}
+                {/* 🔴🔴 Arno (15/11/2026, 9e retour) — l'état de CHAQUE prise, toujours dit : « Sauvegardée » seulement après la vérification du serveur */}
+                <span className={STATUT_PIECE[statutPiece(p.etat)].classe} role={statutPiece(p.etat) === 'perdue' ? 'alert' : 'status'} data-prise-statut={statutPiece(p.etat)}>{STATUT_PIECE[statutPiece(p.etat)].libelle}</span>
                 {p.etat === 'attente' && <span className="pvv-attente" role="status" data-prise-attente>{p.motif}</span>}
-                <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} aria-label={lecteur.jouant === p.cle ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`} data-prise-ecouter><Icone nom={lecteur.jouant === p.cle ? 'pause' : 'lecture'} /></button>
+                <button type="button" className="pvv-mini" disabled={p.url === ''} onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} aria-label={lecteur.jouant === p.cle ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`} data-prise-ecouter><Icone nom={lecteur.jouant === p.cle ? 'pause' : 'lecture'} /></button>
                 <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: p.cle })} aria-label={`Supprimer la prise ${k + 1}`} data-prise-supprimer><Icone nom="corbeille" /></button>
                 {aConfirmer?.fichier === f.cle && aConfirmer.prise === p.cle && (
                   <Confirmation question={`Supprimer la prise ${k + 1} ?`} action="Supprimer" onConfirmer={() => supprimerPrise(f.cle, p.cle)} onGarder={() => setAConfirmer(null)}
                     attributs={{ 'data-prise-confirmer': '' }} attributsOui={{ 'data-prise-supprimer-oui': '' }} attributsNon={{ 'data-prise-supprimer-non': '' }} />)}
-                {p.motif !== null && <span className="pvv-photo-motif" role="alert">{p.motif}</span>}
+                {p.motif !== null && p.etat !== 'attente' && <span className="pvv-photo-motif" role="alert" data-prise-motif>{p.motif}</span>}
               </li>))}</ol>}
           </li>);
       })}</ol>}
@@ -1122,6 +1194,9 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-vocal-gestes{flex-wrap:wrap}
 .pvv-prises{margin:0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:6px}
 .pvv-prise{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:var(--color-svv-field)}
+.pvv-statut-piece{font-size:.85rem}
+.pvv-statut-piece--perdue{color:var(--color-svv-red);font-weight:800}
+.pvv-prise--perdue{border:2px solid var(--color-svv-red)}
 .pvv-entree{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0}
 .pvv-clavier--ouvert{box-shadow:inset 0 0 0 2px var(--color-svv-surface)}
 .pvv-interrupteur{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-weight:800;cursor:pointer;color:var(--color-svv-muted)}

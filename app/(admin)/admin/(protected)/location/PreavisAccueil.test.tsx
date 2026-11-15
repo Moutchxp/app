@@ -2410,10 +2410,13 @@ describe('🔴🔴 Arno (15/11/2026, 8e retour) — Dictaphone : la DESTINATION 
     constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; }
     start() { this.state = 'recording'; }
     stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+    requestData() { this.ondataavailable?.({ data: new Blob([new Uint8Array([4, 5, 6])], { type: 'audio/mp4' }) }); }
   }
+  /** 🔴 (9e retour) un dépôt de prise retenu : la prise reste « Sauvegarde en cours… » tant qu'on ne le libère pas */
+  let depotRetenu: Promise<void> | null = null;
   beforeEach(async () => {
     (await import('../../../../lib/location/fileAttenteLocale')).oublierMemoireLocale();
-    horloge = 1_000_000; id = 500; dictee = { ok: true, texte: 'salle de bain.' }; brouillonServeur = null;
+    horloge = 1_000_000; id = 500; dictee = { ok: true, texte: 'salle de bain.' }; brouillonServeur = null; depotRetenu = null;
     vi.spyOn(Date, 'now').mockImplementation(() => horloge);
     (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => `blob:v-${Math.random()}`; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
     (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
@@ -2424,7 +2427,7 @@ describe('🔴🔴 Arno (15/11/2026, 8e retour) — Dictaphone : la DESTINATION 
       if (!init?.method && String(u).includes('previsiteBrouillon=')) return ok({ brouillon: brouillonServeur, enregistreLe: brouillonServeur ? '2026-11-15T13:05:00.000Z' : null });
       if (init?.method === 'POST') {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
-        if (c.action === 'vocal-compte-rendu') { id += 1; return ok({ id, nom: 'v.m4a', taille: 3 }); }
+        if (c.action === 'vocal-compte-rendu') { if (depotRetenu) await depotRetenu; id += 1; return ok({ id, nom: 'v.m4a', taille: 3 }); }
         if (c.action === 'dicter-compte-rendu') return ok(dictee);
         if (c.action === 'brouillon-previsite') return ok({ enregistreLe: '2026-11-15T13:06:00.000Z' });
       }
@@ -2503,5 +2506,103 @@ describe('🔴🔴 Arno (15/11/2026, 8e retour) — Dictaphone : la DESTINATION 
     await patienter(() => document.querySelectorAll('[data-pastille-vocal]').length === 2);
     expect(pastilles()).toEqual([['Cuisine', 'true'], ['Salle de bain', 'false']]);
     expect(sous()).toBe('Maintenir pour enregistrer dans « Cuisine »');
+  });
+
+  /* ══ 🔴🔴 Arno (15/11/2026, 9e retour) — JAMAIS DE VOCAL FANTÔME ══ */
+  const statut = (f: number, k: number) => document.querySelector(`[data-vocal="${f}"] [data-prise="${k}"] [data-prise-statut]`);
+  const refus = () => document.querySelector('[data-previsite-refus]')?.textContent ?? '';
+  const recap = () => document.querySelector('[data-recap-previsite]') as HTMLButtonElement;
+  it('chaque prise dit son état : « Sauvegarde en cours… » (gris) tant que le serveur n’a pas confirmé, puis « Sauvegardée »', async () => {
+    let liberer: () => void = () => {}; depotRetenu = new Promise<void>((r) => { liberer = r; });
+    await ouvrir();
+    await maintenir(rond(), 900);
+    await patienter(() => statut(1, 1) !== null);
+    expect([statut(1, 1)!.getAttribute('data-prise-statut'), statut(1, 1)!.textContent, statut(1, 1)!.className]).toEqual(['en_cours', 'Sauvegarde en cours…', 'loc-muet pvv-statut-piece']);
+    liberer(); depotRetenu = null;
+    await patienter(() => statut(1, 1)!.getAttribute('data-prise-statut') === 'sauvegardee');
+    expect(statut(1, 1)!.textContent).toBe('Sauvegardée');
+  });
+  it('une prise en cours de sauvegarde BLOQUE le récapitulatif, et le refus la NOMME (le bouton n’est pas grisé sans explication)', async () => {
+    brouillonServeur = { corps: 'CR', presents: [11], ajoutees: [], photos: [], aussiLocataires: true, fichiers: [] };
+    let liberer: () => void = () => {}; depotRetenu = new Promise<void>((r) => { liberer = r; });
+    await ouvrir();
+    await patienter(() => (document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value === 'CR');
+    await maintenir(rond(), 900);
+    await patienter(() => statut(1, 1) !== null);
+    expect(document.querySelector('[data-blocage-envoi]')!.textContent).toBe('Prise 1 de « Vocal 1 » : sauvegarde en cours — attendez « Sauvegardée ».');
+    expect(recap().disabled).toBe(false);
+    const avant = posts.length;
+    await act(async () => { recap().click(); });
+    await attendre();
+    expect(refus()).toBe('Prise 1 de « Vocal 1 » : sauvegarde en cours — attendez « Sauvegardée ».');
+    expect(posts.slice(avant).some((c) => String(c.action).startsWith('apercu'))).toBe(false);
+    liberer(); depotRetenu = null;
+    await patienter(() => document.querySelector('[data-blocage-envoi]') === null);
+    expect(document.querySelector('[data-blocage-envoi]')).toBeNull();
+  });
+  it('à la réouverture, une prise ou une photo référencée qu’on ne retrouve NULLE PART revient ROUGE « Vide ou perdue — à réenregistrer », bloque l’envoi et se supprime', async () => {
+    brouillonServeur = { corps: 'CR', presents: [11], ajoutees: [], aussiLocataires: true,
+      photos: [{ cle: 'perdue-72', legende: 'Parquet', perdue: true }],
+      fichiers: [{ cle: 'f1', nom: 'Cuisine', locataires: false, prises: [{ id: 81, dureeS: 2 }, { cle: 'perdue-82', dureeS: 1, perdue: true }, { cle: 'jamais-arrivee', dureeS: 3 }] }] };
+    await ouvrir();
+    await patienter(() => document.querySelectorAll('[data-prise]').length === 3);
+    expect(statut(1, 1)!.textContent).toBe('Sauvegardée');
+    for (const k of [2, 3]) {
+      expect(document.querySelector(`[data-vocal="1"] [data-prise="${k}"]`)!.getAttribute('data-prise-etat')).toBe('perdue');
+      expect([statut(1, k)!.textContent, statut(1, k)!.getAttribute('role'), statut(1, k)!.className]).toEqual(['Vide ou perdue — à réenregistrer', 'alert', 'pvv-statut-piece pvv-statut-piece--perdue']);
+      expect(document.querySelector(`[data-vocal="1"] [data-prise="${k}"]`)!.className).toContain('pvv-prise--perdue');
+      expect((document.querySelector(`[data-vocal="1"] [data-prise="${k}"] [data-prise-ecouter]`) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect(document.querySelector('[data-photo="1"]')!.getAttribute('data-photo-etat')).toBe('perdue');
+    expect(document.querySelector('[data-photo="1"] [data-photo-perdue]')!.textContent).toBe('Photo vide ou perdue — à reprendre (supprimez-la, puis ajoutez-la de nouveau).');
+    const motif = 'Photo 1, Prise 2 de « Cuisine » et Prise 3 de « Cuisine » : vides ou perdues — supprimez-les (et refaites-les) avant d’envoyer.';
+    expect(document.querySelector('[data-blocage-envoi="perdue"]')!.textContent).toBe(motif);
+    const avant = posts.length;
+    await act(async () => { recap().click(); });
+    await attendre();
+    expect(refus()).toBe(motif);
+    expect(posts.slice(avant).some((c) => String(c.action).startsWith('apercu'))).toBe(false);
+    // le brouillon garde la trace des perdues (jamais retirées en silence)
+    // supprimer : plus rien ne bloque
+    for (const k of [3, 2]) {
+      act(() => (document.querySelector(`[data-vocal="1"] [data-prise="${k}"] [data-prise-supprimer]`) as HTMLButtonElement).click());
+      act(() => (document.querySelector('[data-prise-supprimer-oui]') as HTMLButtonElement).click());
+    }
+    act(() => (document.querySelector('[data-photo="1"] [data-photo-supprimer]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-photo-supprimer-oui]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-blocage-envoi]')).toBeNull();
+  });
+  it('MISE EN VEILLE pendant une prise : la prise est finalisée TOUT DE SUITE, écrite dans le téléphone puis envoyée ; la fin normale ne la double pas', async () => {
+    let liberer: () => void = () => {}; depotRetenu = new Promise<void>((r) => { liberer = r; });
+    await ouvrir();
+    const b = rond();
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => b.getAttribute('data-enregistrement') === 'oui' && b.querySelector('[data-maintien-duree]') !== null);
+    horloge += 1500;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    await patienter(() => document.querySelector('[data-vocal="1"]') !== null);
+    expect(prises(1)).toBe('1');
+    const { listerAttente, groupeDe } = await import('../../../../lib/location/fileAttenteLocale');
+    await patienter(() => false);
+    const attente = await listerAttente(groupeDe([11, 12]));
+    expect(attente.filter((e) => e.sorte === 'prise').map((e) => [e.fichierCle !== undefined, e.dureeS])).toEqual([[true, 1.5]]);
+    // le doigt relevé ensuite : aucune seconde prise
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+    await attendre();
+    expect(prises(1)).toBe('1');
+    liberer(); depotRetenu = null;
+    await patienter(() => statut(1, 1)?.getAttribute('data-prise-statut') === 'sauvegardee');
+    expect(statut(1, 1)!.textContent).toBe('Sauvegardée');
+  });
+  it('une prise SANS contenu n’est jamais gardée en silence : c’est dit', async () => {
+    const { MESSAGE_PRISE_VIDE } = await import('./CompteRenduSaisie');
+    const vide = class extends FauxEnregistreur { stop() { this.state = 'inactive'; this.onstop?.(); } };
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = vide;
+    await ouvrir();
+    await maintenir(rond(), 900);
+    expect(document.querySelector('[data-vocal="1"]')).toBeNull();
+    expect(document.querySelector('[data-vocal-micro]')!.textContent).toBe(MESSAGE_PRISE_VIDE);
   });
 });

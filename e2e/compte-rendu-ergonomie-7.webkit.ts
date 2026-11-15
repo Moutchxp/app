@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { brouillonPropreAvantChaqueEpreuve } from './brouillonPropre';
 
 /**
  * 🔴 Arno (15/11/2026, 7e retour du test iPhone) — WebKit, profil iPhone 15, contre la RECETTE (préavis de test), en clair ET en sombre.
@@ -14,6 +15,7 @@ const OCC = process.env.E2E_OCCUPATION ?? '';
 const JETON = process.env.E2E_JETON_FICHIER ? readFileSync(process.env.E2E_JETON_FICHIER, 'utf8').trim() : '';
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 test.skip(OCC === '' || JETON === '', 'E2E_OCCUPATION et E2E_JETON_FICHIER requis (recette)');
+brouillonPropreAvantChaqueEpreuve();
 const capturer = async (page: Page, nom: string) => { if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/${nom}.png` }); };
 
 async function preparer(page: Page, theme: 'light' | 'dark', o: { microLent?: boolean } = {}): Promise<{ dictees: number[]; erreurs: string[] }> {
@@ -130,6 +132,7 @@ for (const theme of ['light', 'dark'] as const) {
     // l'encadré ATTENTION dans le mail aux locataires (VRAI aperçu) — version texte au récapitulatif
     await page.locator('[data-presence-locataire]').first().check();
     await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
+    await expect(page.locator('[data-blocage-envoi]')).toHaveCount(0, { timeout: 15_000 }); // 🔴 (9e retour) le récapitulatif attend « Sauvegardée »
     await page.locator('[data-recap-previsite]').tap();
     await expect(page.locator('[data-fenetre-previsite="recap"]')).toBeVisible({ timeout: 20_000 });
     const loc = (await page.locator('[data-famille-mail="locataire"] [data-texte-mail]').textContent())!;

@@ -352,6 +352,12 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   }
   // 🔴 Arno (15/11/2026) — les vocaux « envoyés aux locataires » (et seulement si les locataires reçoivent le compte rendu) : leurs prises en pièces
   // jointes, nommées dans l'ordre ; poids total (photos comprises) plafonné.
+  // 🔴🔴 Arno (15/11/2026, 9e retour) — TOUTES les prises citées (internes comprises) doivent exister pour ce préavis et ne pas être vides
+  const idsTous = [...new Set(fichiersVocaux.flatMap((f) => f.ids))];
+  if (idsTous.length > 0) {
+    const tous = await vocauxDesOccupations(idsTous, ids);
+    if (tous.length !== idsTous.length || tous.some((m) => !(m.taille > 0))) return { etat: 'refus', motif: 'Une prise vocale est vide ou introuvable pour ce préavis : supprimez-la puis réenregistrez-la. Rien n’est parti.', champ: 'vocaux' };
+  }
   const vocauxEnvoyes = aussiLocataires ? fichiersVocaux.map((f, rang) => ({ ...f, rang })).filter((f) => f.locataires === true && f.ids.length > 0) : [];
   const idsVocaux = vocauxEnvoyes.flatMap((f) => f.ids);
   const nomsVocaux: string[] = [];

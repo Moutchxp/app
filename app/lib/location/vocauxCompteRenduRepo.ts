@@ -5,7 +5,7 @@ import type { Auteur } from '../gestion/gestes';
 import { deposerPieceSortie, recuperer } from '../stockage';
 import { lireBail } from './sortieLocatairesRepo';
 import { MOTIF_SANS_468, piecesSortieDisponibles } from './piecesSortieRepo';
-import { nomVocal, refusVocal, typeAudio, VOCAL_MAX_OCTETS, VOCAUX_MAX } from './vocauxCompteRendu';
+import { nomVocal, refusContenuAudio, refusVocal, typeAudio, VOCAL_MAX_OCTETS, VOCAUX_MAX } from './vocauxCompteRendu';
 import { transcrireVocal, type IssueTranscription } from './transcriptionVocal';
 
 /**
@@ -13,8 +13,10 @@ import { transcrireVocal, type IssueTranscription } from './transcriptionVocal';
  * (stockage objet, ajout seul, jamais le Drive — ni « Documents clients scannés », ni ailleurs), bornés aux occupations du préavis ; transcrits
  * par Mistral. 🔴 INTERNES : aucune de ces fonctions ne les joint à un mail.
  */
-export async function deposerVocal(d: { occupationIds: readonly number[]; donnees: string; typeMime: string; dureeS: number | null; dejaIds: readonly number[] }, auteur: Auteur):
-  Promise<{ etat: 'ok'; data: { id: number; nom: string; taille: number } } | { etat: 'refus'; motif: string }> {
+export async function deposerVocal(d: { occupationIds: readonly number[]; donnees: string; typeMime: string; dureeS: number | null; dejaIds: readonly number[];
+  /** 🔴 (9e retour) l'empreinte SHA-256 calculée par le téléphone : l'enregistrement est refusé s'il n'est pas arrivé tel quel */
+  empreinte?: string | null }, auteur: Auteur):
+  Promise<{ etat: 'ok'; data: { id: number; nom: string; taille: number; empreinte: string } } | { etat: 'refus'; motif: string }> {
   if (!(await piecesSortieDisponibles())) return { etat: 'refus', motif: MOTIF_SANS_468 };
   if (d.occupationIds.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
   if (d.dejaIds.length >= VOCAUX_MAX) return { etat: 'refus', motif: `Au plus ${VOCAUX_MAX} prises vocales par compte rendu.` };
@@ -23,6 +25,12 @@ export async function deposerVocal(d: { occupationIds: readonly number[]; donnee
   const octets = Buffer.from(base64, 'base64');
   const refus = refusVocal({ typeMime: d.typeMime, taille: octets.byteLength, dureeS: d.dureeS });
   if (refus !== null) return { etat: 'refus', motif: refus };
+  // 🔴🔴 (9e retour) jamais un vocal fantôme : un vrai son, une durée, et les octets arrivés tels que le téléphone les a envoyés
+  if (d.dureeS !== null && !(d.dureeS > 0)) return { etat: 'refus', motif: 'L’enregistrement dure 0 seconde : réenregistrez la prise.' };
+  const refusContenu = refusContenuAudio(new Uint8Array(octets));
+  if (refusContenu !== null) return { etat: 'refus', motif: refusContenu };
+  const empreinte = createHash('sha256').update(octets).digest('hex');
+  if (typeof d.empreinte === 'string' && d.empreinte !== '' && d.empreinte.toLowerCase() !== empreinte) return { etat: 'refus', motif: 'L’enregistrement est arrivé incomplet : il est renvoyé automatiquement.' };
   const occ = d.occupationIds[0];
   if ((await lireBail(occ)) === null) return { etat: 'refus', motif: 'Ce bail n’existe plus : rechargez la page.' };
   const type = typeAudio(d.typeMime) as string;
@@ -33,7 +41,7 @@ export async function deposerVocal(d: { occupationIds: readonly number[]; donnee
     `INSERT INTO gestion_location_sortie_piece (occupation_id, provenance, nom, type_mime, taille_octets, cle_stockage, empreinte_sha256, drive_file_id, ajoute_par_id, ajoute_par_libelle)
      VALUES ($1, 'ordinateur', $2, $3, $4, $5, $6, NULL, $7, $8) RETURNING id::text`,
     [occ, nom, type, octets.byteLength, depot.cle, depot.empreinte, auteur.id, auteur.libelle]);
-  return { etat: 'ok', data: { id: Number(rows[0].id), nom, taille: octets.byteLength } };
+  return { etat: 'ok', data: { id: Number(rows[0].id), nom, taille: octets.byteLength, empreinte } };
 }
 
 /**
@@ -79,6 +87,8 @@ export async function prisesPourEnvoi(ids: readonly number[], occupationIds: rea
     let octets: Buffer;
     try { octets = await lireOctets(r.cle_stockage); } catch { return { ok: false, motif: 'Un vocal est illisible sur le stockage : rien n’est parti.' }; }
     if (createHash('sha256').update(octets).digest('hex') !== r.empreinte_sha256) return { ok: false, motif: 'Un vocal a changé depuis son enregistrement : rien n’est parti.' };
+    // 🔴🔴 (9e retour) aucun mail ne part avec une pièce audio vide ou illisible
+    if (refusContenuAudio(new Uint8Array(octets)) !== null) return { ok: false, motif: `« ${r.nom} » est vide ou illisible : supprimez la prise et réenregistrez-la. Rien n’est parti.` };
     prises.push({ id: Number(r.id), nom: r.nom, typeMime: r.type_mime, taille: Number(r.taille_octets), octets: new Uint8Array(octets) });
   }
   return { ok: true, prises };

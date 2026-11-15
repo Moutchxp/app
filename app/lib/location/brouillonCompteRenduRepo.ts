@@ -36,11 +36,14 @@ export async function lireBrouillon(ids: readonly number[]): Promise<Issue<{ bro
     `SELECT contenu, enregistre_le::text FROM gestion_location_previsite_brouillon WHERE previsite_id = $1 AND efface_le IS NULL`, [pv]);
   if (rows.length === 0) return { etat: 'ok', data: { brouillon: null, enregistreLe: null } };
   const c = nettoyerBrouillon(rows[0].contenu);
-  const photos = c.photos.length === 0 ? new Set<number>() : new Set((await metaPieces(c.photos.map((p) => p.id), ids)).map((m) => Number(m.id)));
-  const idsPrises = c.fichiers.flatMap((f) => f.prises.map((p) => p.id));
+  const idsPhotos = c.photos.flatMap((p) => (p.id !== undefined ? [p.id] : []));
+  const photos = idsPhotos.length === 0 ? new Set<number>() : new Set((await metaPieces(idsPhotos, ids)).map((m) => Number(m.id)));
+  const idsPrises = c.fichiers.flatMap((f) => f.prises.flatMap((p) => (p.id !== undefined ? [p.id] : [])));
   const prises = idsPrises.length === 0 ? new Set<number>() : new Set((await vocauxDesOccupations(idsPrises, ids)).map((m) => Number(m.id)));
-  const brouillon: ContenuBrouillon = { ...c, presents: c.presents.filter((x) => ids.includes(x)), photos: c.photos.filter((p) => photos.has(p.id)),
-    fichiers: c.fichiers.map((f) => ({ ...f, prises: f.prises.filter((p) => prises.has(p.id)) })) };
+  // 🔴 (9e retour) une pièce référencée qui n'existe plus (ou d'un autre bail) n'est JAMAIS retirée en silence : elle revient « perdue »
+  const brouillon: ContenuBrouillon = { ...c, presents: c.presents.filter((x) => ids.includes(x)),
+    photos: c.photos.map((p) => (p.id === undefined || photos.has(p.id) ? p : { cle: `perdue-${p.id}`, legende: p.legende, perdue: true })),
+    fichiers: c.fichiers.map((f) => ({ ...f, prises: f.prises.map((p) => (p.id === undefined || prises.has(p.id) ? p : { cle: `perdue-${p.id}`, dureeS: p.dureeS, perdue: true })) })) };
   return { etat: 'ok', data: { brouillon, enregistreLe: new Date(rows[0].enregistre_le).toISOString() } };
 }
 

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { brouillonPropreAvantChaqueEpreuve } from './brouillonPropre';
 
 /**
  * 🔴 Arno (15/11/2026, 5e retour du test iPhone) — LE COMPTE RENDU DE PRÉ-VISITE EST UNE PAGE À PART ENTIÈRE. WebKit, profil iPhone 15, contre
@@ -13,6 +14,7 @@ const OCC = process.env.E2E_OCCUPATION ?? '';
 const JETON = process.env.E2E_JETON_FICHIER ? readFileSync(process.env.E2E_JETON_FICHIER, 'utf8').trim() : '';
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 test.skip(OCC === '' || JETON === '', 'E2E_OCCUPATION et E2E_JETON_FICHIER requis (recette)');
+brouillonPropreAvantChaqueEpreuve();
 const capturer = async (page: Page, nom: string) => { if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/${nom}.png` }); };
 const PAGE_CR = `/admin/location/previsite/${OCC}/compte-rendu`;
 /** Ce qui appartient à la page Location (le bloc des préavis, sa frise, ses lignes, l'accueil). */
@@ -145,6 +147,7 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await page.evaluate(() => getComputedStyle(document.querySelector('.svv-adm-shell')!).visibility)).toBe('visible');
     await page.locator('[data-corps-compte-rendu]').fill('Logement propre.');
     await page.locator('[data-recap-previsite]').scrollIntoViewIfNeeded();
+    await expect(page.locator('[data-blocage-envoi]')).toHaveCount(0, { timeout: 15_000 }); // 🔴 (9e retour) le récapitulatif attend « Sauvegardée »
     await page.locator('[data-recap-previsite]').tap();
     await expect(page.locator('[data-fenetre-previsite="recap"]')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-fenetre-previsite="recap"]')).toContainText('En présence de Mme Léa Martin.');

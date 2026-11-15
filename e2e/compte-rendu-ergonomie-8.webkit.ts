@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { brouillonPropreAvantChaqueEpreuve } from './brouillonPropre';
 
 /**
  * 🔴 Arno (15/11/2026, 8e retour du test iPhone) — LE DICTAPHONE : LA DESTINATION DES PRISES TOUJOURS VISIBLE. WebKit, profil iPhone 15, contre
@@ -13,6 +14,7 @@ const OCC = process.env.E2E_OCCUPATION ?? '';
 const JETON = process.env.E2E_JETON_FICHIER ? readFileSync(process.env.E2E_JETON_FICHIER, 'utf8').trim() : '';
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 test.skip(OCC === '' || JETON === '', 'E2E_OCCUPATION et E2E_JETON_FICHIER requis (recette)');
+brouillonPropreAvantChaqueEpreuve();
 const capturer = async (page: Page, nom: string) => { if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/${nom}.png` }); };
 
 async function preparer(page: Page, theme: 'light' | 'dark'): Promise<string[]> {

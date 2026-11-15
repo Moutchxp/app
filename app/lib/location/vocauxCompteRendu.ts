@@ -34,6 +34,25 @@ export function refusVocal(v: { typeMime: string | null; taille: number; dureeS:
   return null;
 }
 
+/**
+ * 🔴🔴 Arno (15/11/2026, 9e retour) — JAMAIS DE VOCAL FANTÔME : les OCTETS reçus sont-ils vraiment un enregistrement audio avec du contenu ?
+ * Signature lue dans les octets (jamais le seul type annoncé) : MP4/M4A (« ftyp » puis des données « mdat »/« moof »), WebM (EBML), Ogg,
+ * WAV, MP3, AAC. null : accepté ; sinon le motif. PUR.
+ */
+export const AUDIO_MIN_OCTETS = 64;
+export function refusContenuAudio(o: Uint8Array): string | null {
+  if (o.byteLength === 0) return 'L’enregistrement est vide.';
+  if (o.byteLength < AUDIO_MIN_OCTETS) return 'L’enregistrement est vide ou incomplet : réenregistrez la prise.';
+  const asc = (i: number, n: number): string => String.fromCharCode(...o.subarray(i, i + n));
+  const contient = (mot: string): boolean => { const t = asc(0, Math.min(o.byteLength, 4 * 1024 * 1024)); return t.includes(mot); };
+  if (asc(4, 4) === 'ftyp') return contient('mdat') || contient('moof') ? null : 'L’enregistrement ne contient aucun son : réenregistrez la prise.';
+  if (o[0] === 0x1a && o[1] === 0x45 && o[2] === 0xdf && o[3] === 0xa3) return null; // WebM / Matroska
+  if (asc(0, 4) === 'OggS') return null;
+  if (asc(0, 4) === 'RIFF' && asc(8, 4) === 'WAVE') return null;
+  if (asc(0, 3) === 'ID3' || (o[0] === 0xff && (o[1] & 0xe0) === 0xe0)) return null; // MP3 ou AAC (ADTS)
+  return 'Ce fichier n’est pas un enregistrement audio lisible : réenregistrez la prise.';
+}
+
 /** Le texte transcrit, inséré À L'ENDROIT DU CURSEUR (ligne à part, mention discrète) ; rend aussi la nouvelle position du curseur. PUR. */
 export function insererTranscription(corps: string, curseur: number | null, transcrit: string): { texte: string; curseur: number } {
   const t = transcrit.trim();

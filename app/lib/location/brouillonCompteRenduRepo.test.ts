@@ -27,11 +27,20 @@ describe('brouillon côté serveur', () => {
     expect(JSON.parse(String(ins.params[2]))).toMatchObject({ corps: 'CR', presents: [11] });
     expect(JSON.parse(String(ins.params[2]))).not.toHaveProperty('inconnu');
   });
-  it('lit le vivant ; ne rend que les photos et prises qui existent pour CES occupations', async () => {
+  // 🔴🔴 (9e retour) une pièce introuvable (ou d'un autre bail) n'est plus retirée en silence : elle revient « perdue », sans son numéro
+  it('lit le vivant ; une photo ou une prise introuvable pour CES occupations revient « perdue » (jamais son numéro)', async () => {
     lignes['FROM gestion_location_previsite_brouillon'] = [{ enregistre_le: '2026-11-15 13:05:00+00', contenu: { corps: 'CR', presents: [11, 99], photos: [{ id: 71, legende: 'A' }, { id: 72, legende: 'autre bail' }],
       fichiers: [{ cle: 'f', nom: 'V', locataires: false, prises: [{ id: 81, dureeS: 2 }, { id: 82, dureeS: 1 }] }] } }];
     const r = await lireBrouillon([11]);
-    expect(r.etat === 'ok' && r.data.brouillon).toMatchObject({ presents: [11], photos: [{ id: 71, legende: 'A' }], fichiers: [{ prises: [{ id: 81, dureeS: 2 }] }] });
+    expect(r.etat === 'ok' && r.data.brouillon).toEqual(expect.objectContaining({ presents: [11],
+      photos: [{ id: 71, legende: 'A' }, { cle: 'perdue-72', legende: 'autre bail', perdue: true }],
+      fichiers: [expect.objectContaining({ prises: [{ id: 81, dureeS: 2 }, { cle: 'perdue-82', dureeS: 1, perdue: true }] })] }));
+  });
+  it('une photo ou une prise pas encore confirmée (référencée par sa clé) est rendue telle quelle', async () => {
+    lignes['FROM gestion_location_previsite_brouillon'] = [{ enregistre_le: '2026-11-15 13:05:00+00', contenu: { corps: 'CR', photos: [{ cle: 'ph1', legende: 'L' }],
+      fichiers: [{ cle: 'f', nom: 'V', locataires: false, prises: [{ cle: 'pr1', dureeS: 3 }] }] } }];
+    const r = await lireBrouillon([11]);
+    expect(r.etat === 'ok' && r.data.brouillon).toMatchObject({ photos: [{ cle: 'ph1', legende: 'L' }], fichiers: [{ prises: [{ cle: 'pr1', dureeS: 3 }] }] });
   });
   it('« Effacer » et l’envoi MARQUENT le brouillon (jamais de DELETE) ; sans la 474 : sans_schema, rien n’est écrit', async () => {
     lignes['UPDATE gestion_location_previsite_brouillon'] = [{ id: '3' }];

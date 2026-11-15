@@ -771,7 +771,7 @@ async function postLocation(request: Request): Promise<Response> {
       // 🔴 Arno (13/11/2026, lot C) — UN vocal du compte rendu (déposé comme les photos, INTERNE), puis sa transcription par Mistral. Rien n'est envoyé.
       case 'vocal-compte-rendu':
         return repondre(await deposerVocal({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime),
-          dureeS: typeof corps.dureeS === 'number' && Number.isFinite(corps.dureeS) ? corps.dureeS : null, dejaIds: idsPrises(corps.dejaIds) }, auteur));
+          dureeS: typeof corps.dureeS === 'number' && Number.isFinite(corps.dureeS) ? corps.dureeS : null, dejaIds: idsPrises(corps.dejaIds), empreinte: texte(corps.empreinte) }, auteur));
       // 🔴 Arno (15/11/2026) — LA DICTÉE (« Maintenir pour dicter ») : transcrite par Mistral, RIEN n'est gardé (ni fichier, ni pièce).
       case 'dicter-compte-rendu':
         return repondre(await dicterCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime) }));

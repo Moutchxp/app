@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { brouillonPropreAvantChaqueEpreuve } from './brouillonPropre';
 
 /**
  * 🔴 Arno (15/11/2026, retours du test iPhone) — WebKit, profil iPhone 15, contre la RECETTE. Micro, transcription et dépôts SIMULÉS dans la
@@ -12,6 +13,7 @@ const OCC = process.env.E2E_OCCUPATION ?? '';
 const JETON = process.env.E2E_JETON_FICHIER ? readFileSync(process.env.E2E_JETON_FICHIER, 'utf8').trim() : '';
 const BASE = process.env.E2E_BASE ?? 'http://localhost:3000';
 test.skip(OCC === '' || JETON === '', 'E2E_OCCUPATION et E2E_JETON_FICHIER requis (recette)');
+brouillonPropreAvantChaqueEpreuve();
 const capturer = async (page: Page, nom: string) => { if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/${nom}.png` }); };
 
 async function preparer(page: Page, o: { compteRendu?: unknown } = {}): Promise<Record<string, unknown>[]> {
@@ -145,6 +147,7 @@ test('vocal « Envoyé aux locataires » : non par défaut ; l’aperçu le reç
   await capturer(page, '05-vocal-interrupteur');
   await expect(page.locator('[data-aussi-locataires]')).toHaveAttribute('aria-pressed', 'true'); // 🔴 (15/11/2026) activé par défaut
   await page.locator('[data-presence-locataire]').first().check(); // 🔴 (15/11/2026) la présence est obligatoire
+  await expect(page.locator('[data-blocage-envoi]')).toHaveCount(0, { timeout: 15_000 }); // 🔴 (9e retour) le récapitulatif attend « Sauvegardée »
   await page.locator('[data-recap-previsite]').tap();
   await expect(page.locator('[data-recap-vocal]')).toHaveText(['Vocal 1 — NON envoyé (interne)', 'Vocal 2 — ENVOYÉ aux locataires']);
   const apercu = appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!;
