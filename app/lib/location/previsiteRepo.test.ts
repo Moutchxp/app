@@ -790,6 +790,9 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
     const trace = journal().filter((a) => a.params[1] === 'location_previsite_presences');
     expect(trace).toHaveLength(2); // le journal de chaque locataire du préavis
     expect(JSON.parse(trace[0].params[3] as string)).toMatchObject({ phrase: 'En présence de Bruno TEST et de Mme Léa Martin.' });
+    // 🔴🔴 (15/11/2026, retours sur la fenêtre) les présences ENREGISTRÉES avec le compte rendu : chaque personne, son rôle, l'occupation du locataire
+    expect(JSON.parse(trace[0].params[3] as string)).toEqual({ v: 2, phrase: 'En présence de Bruno TEST et de Mme Léa Martin.', presents: [
+      { role: 'locataire', occupationId: 12, civilite: null, prenom: 'Bruno', nom: 'TEST' }, { role: 'personne', civilite: 'Madame', prenom: 'Léa', nom: 'Martin' }] });
   });
   it('🔴 la NOTE d’une personne ajoutée : dans le mail INTERNE seulement — jamais dans la phrase, jamais dans les mails des locataires', async () => {
     programmee(); avecAnnuaire();
@@ -800,6 +803,9 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
     const interne = mails.find((m) => m.a.includes('arno@exemple.test'))!;
     const auxLocataires = mails.filter((m) => m !== interne);
     expect(interne.texte).toContain('Notes de présence (internes)\n\nMme Léa Martin — mère du locataire');
+    // la note interne est enregistrée avec la personne (journal), pour la fenêtre du compte rendu
+    const trace = journal().filter((x) => x.params[1] === 'location_previsite_presences');
+    expect(JSON.parse(trace[0].params[3] as string).presents).toEqual([{ role: 'personne', civilite: 'Madame', prenom: 'Léa', nom: 'Martin', note: 'mère du locataire' }]);
     expect(auxLocataires.length).toBeGreaterThan(0);
     for (const m of auxLocataires) { expect(m.texte).not.toContain('mère du locataire'); expect(m.texte).not.toContain('Notes de présence'); }
     expect(interne.texte).toContain('\n\nEn présence de Mme Léa Martin.\n');

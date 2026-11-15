@@ -17,10 +17,11 @@ import { familleDuMail, PREFIXE_COPIE_INTERNE_MAIL } from './famillesMails';
 
 /** 🔴 Arno (15/11/2026) — la présence reçue de l'écran : les occupations des locataires cochés, les personnes ajoutées (non vérifiées). */
 export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[] }
-export const ACTION_JOURNAL_PRESENCES = 'location_previsite_presences';
+export { ACTION_JOURNAL_PRESENCES };
 import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace, libelleJournalVocaux } from './vocauxCompteRendu';
 import { prisesPourEnvoi, vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { effacerBrouillon } from './brouillonCompteRenduRepo';
+import { ACTION_JOURNAL_PRESENCES, tracePresences, type PresentJournal } from './compteRenduPrevisite';
 import { mentionRecetteCourante } from './mentionRecetteMail';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
@@ -313,13 +314,15 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   /** 🔴 Arno (15/11/2026) — LA PRÉSENCE : les locataires cochés (occupations du préavis) et les personnes ajoutées pour ce compte rendu ; au moins une. */
   presences?: PresencesCr):
   Promise<IssuePrevisite<{ mails: MailPrevisite[]; interne: boolean; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[];
-    phrase: string; presence: string; presents: PersonnePresente[] }>> {
+    phrase: string; presence: string; presents: PersonnePresente[]; presentsJournal: PresentJournal[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
   if (texte === '') return { etat: 'refus', motif: 'Écrivez le compte rendu.', champ: 'corps' };
   if (texte.length > CORPS_MAX) return { etat: 'refus', motif: `Le compte rendu dépasse ${CORPS_MAX} caractères.`, champ: 'corps' };
   // 🔴 la présence : les locataires cochés relus dans l'annuaire (bornés aux occupations du préavis), les personnes ajoutées vérifiées
   const presents: PersonnePresente[] = [];
+  // 🔴 (15/11/2026, retours sur la fenêtre) les mêmes personnes avec leur RÔLE, rangées au journal à l'envoi
+  const presentsJournal: PresentJournal[] = [];
   if (presences !== undefined) {
     const occ = [...new Set(presences.occupations)].filter((x) => ids.includes(x));
     if (occ.length !== new Set(presences.occupations).size) return { etat: 'refus', motif: 'Un locataire coché n’est pas de ce préavis : rechargez la page.', champ: 'presences' };
@@ -328,10 +331,12 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
         `SELECT o.id::text, l.civilite, l.prenom, l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
           WHERE o.id = ANY($1::bigint[]) ORDER BY array_position($1::bigint[], o.id)`, [occ]);
       presents.push(...rows.map((r) => ({ civilite: r.civilite, prenom: r.prenom, nom: r.nom })));
+      presentsJournal.push(...rows.map((r) => ({ role: 'locataire' as const, occupationId: Number(r.id), civilite: r.civilite, prenom: r.prenom, nom: r.nom })));
     }
     const ajoutees = presences.personnes.slice(0, PERSONNES_AJOUTEES_MAX).map(personneAjoutee);
     if (ajoutees.some((x) => x === null) || presences.personnes.length > PERSONNES_AJOUTEES_MAX) return { etat: 'refus', motif: 'Une personne ajoutée est incomplète (civilité et nom).', champ: 'presences' };
     presents.push(...(ajoutees as PersonnePresente[]));
+    presentsJournal.push(...(ajoutees as PersonnePresente[]).map((x) => ({ role: 'personne' as const, civilite: x.civilite, prenom: x.prenom, nom: x.nom, ...(x.note ? { note: x.note } : {}) })));
     if (presents.length === 0) return { etat: 'refus', motif: MOTIF_PRESENCE, champ: 'presences' };
   }
   const phrase = phrasePresence(presents);
@@ -404,7 +409,7 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
     paragraphesDe: (l) => paragraphesCompteRenduLocataire({ locataire: l, adresse: c.adresse, rdv, presence, texte: personnaliserTexte(texte, l),
       legendesPhotos: photos.map((p) => p.legende), vocaux: paragraphesVocaux(vocauxEnvoyes) }), qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
-  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], interne: internes.length > 0, c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presence, presents } };
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], interne: internes.length > 0, c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presence, presents, presentsJournal } };
 }
 
 /**
@@ -475,7 +480,7 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
     await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mails[0].objet,
       `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
     // 🔴 Arno (15/11/2026) — LA PRÉSENCE, rangée avec le compte rendu (journal en ajout seul) : la phrase et les personnes
-    if (r.data.phrase !== '') await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_PRESENCES, null, JSON.stringify({ phrase: r.data.phrase, presents: r.data.presents }),
+    if (r.data.phrase !== '') await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_PRESENCES, null, tracePresences(r.data.phrase, r.data.presentsJournal),
       `présence à la pré-visite : ${r.data.phrase}`, auteur);
     // 🔴 lot C — les vocaux du compte rendu : rattachés ici (« Voir le compte rendu » les relit) ; 🔴 (15/11/2026) le libellé dit lesquels
     // sont partis aux locataires (vocal « envoyé aux locataires » ET envoi aux locataires actif), les autres restent internes

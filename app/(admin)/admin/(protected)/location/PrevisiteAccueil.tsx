@@ -32,7 +32,8 @@ import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMa
 import { CartoucheSauvegarde, CSS_CARTOUCHE_SAUVEGARDE, useBrouillonCompteRendu } from './BrouillonCompteRendu';
 import { repeindre } from './repeindre';
 import { BROUILLON_VIDE, heureBrouillon, type ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
-import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
+import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, texteSaisiDuMail, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
+import { BADGE_TEST } from '../../../../lib/location/preavisTest';
 
 /**
  * ══ 🔴🔴 LA PRÉ-VISITE SUR LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 10/11/2026) ════════════════════════════════════════════════════
@@ -673,19 +674,22 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
   const section = (cle: string, titre: string, contenu: ReactNode) => (
     <section className="pvv-cr-section" data-cr-section={cle} aria-label={titre}><h3 className="pvv-cr-section-titre">{titre}</h3>{contenu}</section>);
   type Present = { cle: string; nom: string; qualite: string; note: string; sorte: 'locataire' | 'personne' };
-  const presenceSection = (pr: Present[] | null) => section('presence', 'Présence', pr === null ? <p className="loc-muet">Présences non enregistrées.</p>
-    : pr.length === 0 ? <p className="loc-muet">Personne n’est coché présent.</p> : (
+  // 🔴🔴 (15/11/2026, retours sur la fenêtre) présences reconstituées depuis la phrase du mail : mention discrète, rien n'est écrit
+  const presenceSection = (pr: Present[] | null, reconstitue = false) => section('presence', 'Présence', pr === null ? <p className="loc-muet">Présences non enregistrées.</p>
+    : pr.length === 0 ? <p className="loc-muet">Personne n’est coché présent.</p> : (<>
       <ul className="pvv-cr-lignes">{pr.map((x) => (
         <li key={x.cle} className="pvv-cr-ligne-presence" data-cr-present={x.sorte}>
           <span className="pvv-cr-present-nom">{x.nom}</span> <span className="loc-muet">— {x.qualite}</span>
-          {x.note.trim() !== '' && <em className="pvv-cr-note" data-cr-note-interne> — note interne : {x.note}</em>}</li>))}</ul>));
+          {x.note.trim() !== '' && <em className="pvv-cr-note" data-cr-note-interne> — note interne : {x.note}</em>}</li>))}</ul>
+      {reconstitue && <p className="loc-muet pvv-cr-reconstitue" data-cr-presence-reconstituee>reconstitué depuis le texte</p>}</>));
   const presentsDe = (occupations: number[], personnes: { civilite: string; nom: string; prenom: string; note: string }[],
-    locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[]): Present[] => [
+    locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[], telQuel = false): Present[] => [
     ...occupations.map((id) => { const n = locataires?.find((x) => x.occupationId === id);
       return { cle: `o${id}`, sorte: 'locataire' as const, qualite: 'locataire', note: '',
         nom: n ? [n.civilite ?? '', n.prenom ?? '', n.nom.toLocaleUpperCase('fr-FR')].map((x) => x.trim()).filter(Boolean).join(' ') : nomOccupation(id) }; }),
     ...personnes.map((x, i) => ({ cle: `p${i}`, sorte: 'personne' as const, qualite: 'personne présente', note: x.note,
-      nom: [x.civilite, x.prenom, x.nom.toLocaleUpperCase('fr-FR')].map((y) => (y ?? '').trim()).filter(Boolean).join(' ') })),
+      // un nom tiré du texte du mail : tel qu'il y est écrit
+      nom: telQuel ? x.nom : [x.civilite, x.prenom, x.nom.toLocaleUpperCase('fr-FR')].map((y) => (y ?? '').trim()).filter(Boolean).join(' ') })),
   ];
   const texteSection = (texte: string) => section('texte', 'Texte', texte.trim() === ''
     ? <p className="loc-muet" data-cr-texte>Aucun texte pour l’instant.</p> : <pre className="pvv-cr-texte" data-cr-texte>{texte}</pre>);
@@ -706,7 +710,6 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
     const c = b?.brouillon ?? null;
     corps = <>
       <div className="pvv-cr-entete" data-cr-entete>
-        <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{p.rdv ? objetCompteRendu(p.rdv) : '—'}</span></p>
         <p className="pvv-cr-adresse-grande" data-cr-adresse-grande>{l.adresse ?? `Bien ${l.lotId}`}</p>
         {c !== null && <p className="pvv-cr-brouillon" role="status" data-cr-brouillon="oui">Brouillon — non envoyé{b?.enregistreLe ? `, dernier enregistrement à ${heureBrouillon(b.enregistreLe)}` : ''}</p>}
       </div>
@@ -720,8 +723,9 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
       </>}
     </>;
   } else {
-    // le texte saisi seul : celui du brouillon envoyé ; à défaut (compte rendu ancien), le texte du mail sans les photos ni la signature
-    const texteSaisi = (x: CompteRenduAffiche): string => x.corps ?? texteSansPhotos(x.texte ?? '').split(/\n\s*Mail envoyé par /)[0].trim();
+    /* 🔴🔴 (15/11/2026, retours sur la fenêtre) le texte SAISI seul : celui du brouillon envoyé ; à défaut, le texte du mail sans aucune partie
+       générée (en-tête, « En présence de … », vocaux joints, photos, notes de présence, « Mail envoyé par … », signature) — chacune a sa section */
+    const texteSaisi = (x: CompteRenduAffiche): string => x.corps ?? texteSaisiDuMail(x.texte);
     const etatEnvoi = (x: CompteRenduAffiche): string => {
       if (x.aucunEnvoi) return AUCUN_ENVOI_CR;
       const ok = x.destinataires.filter((d) => d.etat === 'envoye').length; const ko = x.destinataires.length - ok;
@@ -729,12 +733,12 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
     };
     corps = cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
       <div className="pvv-cr-entete" data-cr-entete>
-        {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
         <p className="pvv-cr-adresse-grande" data-cr-adresse-grande>{l.adresse ?? `Bien ${l.lotId}`}</p>
         <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
         <p className={`pvv-cr-etat-envoi${cr.aucunEnvoi ? '' : ' pvv-cr-etat-envoi--ok'}`} data-cr-etat-envoi>{etatEnvoi(cr)}</p>
       </div>
-      {presenceSection(cr.presences ? presentsDe(cr.presences.occupations, cr.presences.personnes, cr.presences.locataires) : null)}
+      {presenceSection(cr.presences ? presentsDe(cr.presences.occupations, cr.presences.personnes, cr.presences.locataires, cr.presences.source === 'texte') : null,
+        cr.presences?.source === 'texte')}
       {texteSection(texteSaisi(cr))}
       {/* 🔴 Arno (13/11/2026, lot B) — chaque photo numérotée avec sa légende */}
       {(() => { const legendes = legendesDuTexte(cr.texte); return photosSection(cr.pieces.slice(0, legendes.length).map((x, i) => ({ id: x.id, legende: legendes[i] }))); })()}
@@ -755,7 +759,10 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
               <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
             </li>))}</ul>)}
         {/* la signature et « Mail envoyé par … » restent visibles ici, dans le mail tel qu'envoyé */}
-        <details className="pvv-cr-mail" data-cr-mail-envoye><summary>Voir le mail tel qu’envoyé</summary><pre className="pvv-cr-texte">{texteSansPhotos(cr.texte)}</pre></details>
+        <details className="pvv-cr-mail" data-cr-mail-envoye><summary>Voir le mail tel qu’envoyé</summary>
+          {/* 🔴 (15/11/2026) l'objet n'est plus qu'ici, avec le mail entier */}
+          {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
+          <pre className="pvv-cr-texte" data-cr-mail-texte>{texteSansPhotos(cr.texte)}</pre></details>
       </div>)}
     </>;
   }
@@ -767,8 +774,8 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
       <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_PREVISITE + CSS_COMPTE_RENDU_SAISIE}</style>
       <div className="mis-boite pss-boite pss-boite-recap pvv-boite-consultation" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu={mode}>
         <div className="pvv-cr-barre"><button type="button" className="pvv-cr-fermer-haut" onClick={onFermer} aria-label="Fermer le compte rendu" data-fermer-haut>← Fermer</button></div>
-        <h2 id={titreId} className="mis-titre">Compte rendu de pré-visite</h2>
-        <p className="loc-muet pss-rien" data-cr-adresse>{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
+        {/* 🔴🔴 (15/11/2026, retours sur la fenêtre) le titre, puis l'adresse UNE fois (en grand, dans l'en-tête) ; seul le badge TEST reste ici */}
+        <h2 id={titreId} className="mis-titre">{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}Compte rendu de pré-visite</h2>
         {corps}
         <div className="mis-actions">
           <button type="button" className={`svv-btn ${mode === 'brouillon' ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn mis-action`} onClick={onFermer} data-fermer-compte-rendu>Fermer</button>
@@ -816,6 +823,9 @@ export const CSS_PREVISITE = `
 }
 /* Arno (15/11/2026) : la consultation en SECTIONS bien separees — titre, encadre, espace entre elles ; une photo et un vocal par ligne */
 .pvv-cr-entete{display:flex;flex-direction:column;gap:6px}
+.pvv-boite-consultation .pvt-badge{display:inline-block;background:var(--color-svv-orange);color:var(--color-svv-orange-soft);font-weight:800;font-size:.7rem;letter-spacing:.06em;border-radius:6px;padding:2px 7px;margin-right:8px;vertical-align:middle}
+.pvv-cr-reconstitue{margin:6px 0 0;font-size:.82rem;font-style:italic}
+.pvv-cr-mail .pvv-objet{margin:8px 0 4px}
 .pvv-cr-adresse-grande{margin:0;font-size:1.3rem;font-weight:900;line-height:1.3;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .pvv-cr-etat-envoi{margin:0;font-weight:700;color:var(--color-svv-muted)}
 .pvv-cr-etat-envoi--ok{color:var(--color-svv-green-ink)}

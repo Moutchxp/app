@@ -2746,8 +2746,10 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     expect(f.getAttribute('aria-modal')).toBe('true');
     expect(f.closest('.mis-voile')!.className).toContain('pvv-voile-consultation');
     expect(f.querySelector('[data-cr-brouillon="oui"]')!.textContent).toBe('Brouillon — non envoyé, dernier enregistrement à 14h05');
-    expect(f.querySelector('[data-cr-objet]')!.textContent).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 13/11/2026 à 13h45');
-    expect(f.querySelector('[data-cr-adresse]')!.textContent).toBe('BERNARD Alice, BERNARD Paul — C rue');
+    // 🔴🔴 (15/11/2026, retours sur la fenêtre) l'adresse une seule fois, en grand ; plus de ligne grise « locataires — adresse » ; pas d'objet (rien n'est envoyé)
+    expect(f.querySelector('[data-cr-adresse-grande]')!.textContent).toBe('C rue');
+    expect(f.querySelector('[data-cr-adresse]')).toBeNull();
+    expect(f.querySelector('[data-cr-objet]')).toBeNull();
     expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice — locataire', 'Madame Léa MARTIN — personne présente — note interne : mère du locataire']);
     expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Salon propre.');
     expect(f.querySelector('[data-cr-legende]')!.textContent).toBe('Photo 1 — Rayure parquet');
@@ -2799,7 +2801,8 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
     const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
     expect(f.className).toContain('pvv-boite-consultation');
-    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe(TEXTE); // en entier, retours à la ligne et tirets compris
+    // en entier, retours à la ligne et tirets compris — 🔴🔴 (15/11/2026, retours sur la fenêtre) sans l'en-tête ni « En présence de … » (générés)
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('- Logement propre.\n- Rayure du parquet de la chambre\n- Joint de la douche à refaire');
     expect(f.querySelector('[data-cr-saisi]')!.textContent).toBe('Saisi par Arnaud JOREL le 15/11/2026 à 16h49');
     // le titre du vocal une seule fois ; le statut en étiquette ; les trois prises
     const v = f.querySelector('[data-cr-vocal="1"]')!;
@@ -2818,6 +2821,62 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     expect(css).toContain('.pvv-voile-consultation .mis-boite{width:100%;max-height:none;min-height:100%;overflow:visible;border:0;border-radius:0;box-shadow:none');
     act(() => (haut as HTMLButtonElement).click());
     expect(document.querySelector('[data-fenetre-compte-rendu]')).toBeNull();
+    global.fetch = avant;
+  });
+  it('🔴🔴 (15/11/2026, retours sur la fenêtre) AUCUNE information deux fois : adresse, présence, vocaux, photos, signature ; objet seulement avec le mail ; présences reconstituées depuis le texte, mention discrète ; mail tel qu’envoyé inchangé', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, test: true, previsite: { statut: 'effectuee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const TEXTE = ['Compte rendu de la pré-visite du 15/11/2026 — C rue', 'En présence de Alice BERNARD et de M. Jean Durand.', 'Logement propre.\n- Rayure du parquet',
+      'Photos', 'Photo 1 — Rayure du parquet\nPhoto 2 — Joint de la douche', 'Enregistrements vocaux joints', 'Vocal pour locataire (2 prises, à écouter dans l’ordre)',
+      'Mail envoyé par Arnaud JOREL (a.jorel@sansvisavis.com)', '-- \nService Gestion'].join('\n\n');
+    const CR = { texte: TEXTE, objet: '[TEST] Compte rendu de pré-visite', saisiPar: 'Arnaud JOREL', saisiLe: '2026-11-15T14:49:00Z', aucunEnvoi: false, destinataires: [],
+      pieces: [{ id: 71, nom: 'Photo-1.jpg', taille: 3 }, { id: 72, nom: 'Photo-2.jpg', taille: 3 }],
+      presences: { occupations: [11], personnes: [{ civilite: '', prenom: '', nom: 'M. Jean Durand', note: '' }], locataires: [{ occupationId: 11, civilite: null, prenom: 'Alice', nom: 'Bernard' }], source: 'texte' },
+      vocaux: [], fichiersVocaux: [{ nom: 'Vocal pour locataire', prises: [{ id: 81, nom: 'a', taille: 3, dureeS: 4 }, { id: 82, nom: 'b', taille: 3, dureeS: 4 }], locataires: true }] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
+    // en-tête : le titre (badge TEST seul), l'adresse UNE fois en grand, « Saisi par », l'état d'envoi ; plus de ligne grise ni d'objet
+    expect(f.querySelector('h2')!.textContent).toBe('TESTCompte rendu de pré-visite');
+    expect(f.querySelector('h2 [data-badge-test]')).not.toBeNull();
+    expect(f.querySelector('[data-cr-adresse]')).toBeNull();
+    expect([...f.querySelector('[data-cr-entete]')!.children].map((x) => x.getAttribute('class'))).toEqual(['pvv-cr-adresse-grande', 'pvv-cr-qui', 'pvv-cr-etat-envoi pvv-cr-etat-envoi--ok']);
+    // l'objet : seulement dans « Voir le mail tel qu'envoyé », avec le mail entier, INCHANGÉ
+    const mail = f.querySelector('[data-cr-mail-envoye]')!;
+    expect(f.querySelectorAll('[data-cr-objet]')).toHaveLength(1);
+    expect(mail.querySelector('[data-cr-objet]')!.textContent).toBe('[TEST] Compte rendu de pré-visite');
+    expect(mail.querySelector('[data-cr-mail-texte]')!.textContent).toBe(TEXTE.replace(/\n\nPhotos\n\nPhoto 1 — Rayure du parquet\nPhoto 2 — Joint de la douche/, ''));
+    // hors du mail tel qu'envoyé, chaque information une seule fois
+    const hors = (x: string): number => { const c = f.cloneNode(true) as Element; c.querySelector('[data-cr-mail-envoye]')!.remove(); return c.textContent!.split(x).length - 1; };
+    expect(hors('C rue')).toBe(1);
+    expect(hors('Jean Durand')).toBe(1);
+    expect(hors('Vocal pour locataire')).toBe(1);
+    expect(hors('Rayure du parquet')).toBe(2); // le texte saisi, et la légende de la photo 1 (deux informations distinctes)
+    expect(hors('Joint de la douche')).toBe(1);
+    expect(hors('Mail envoyé par')).toBe(0);
+    expect(hors('Service Gestion')).toBe(0);
+    expect(hors('En présence')).toBe(0);
+    // la section Texte : ce que le collaborateur a saisi, rien d'autre
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.\n- Rayure du parquet');
+    // la présence, reconstituée depuis le texte : les noms, la mention discrète
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['Alice BERNARD — locataire', 'M. Jean Durand — personne présente']);
+    expect(f.querySelector('[data-cr-presence-reconstituee]')!.textContent).toBe('reconstitué depuis le texte');
+    expect([...f.querySelectorAll('[data-cr-legende]')].map((x) => x.textContent)).toEqual(['Photo 1 — Rayure du parquet', 'Photo 2 — Joint de la douche']);
+    global.fetch = avant;
+  });
+  it('🔴 présences ENREGISTRÉES (journal) : aucune mention « reconstitué » ; brouillon : même règle (adresse une fois, ni objet ni ligne grise)', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const CR = { texte: 'CR', objet: 'Objet', saisiPar: 'Arno', saisiLe: '2026-11-15T14:49:00Z', aucunEnvoi: false, destinataires: [], pieces: [],
+      presences: { occupations: [11], personnes: [], locataires: [{ occupationId: 11, civilite: null, prenom: 'Alice', nom: 'Bernard' }] } };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['Alice BERNARD — locataire']);
+    expect(f.querySelector('[data-cr-presence-reconstituee]')).toBeNull();
+    expect(f.querySelector('h2 [data-badge-test]')).toBeNull(); // pas un préavis de test : pas de badge
     global.fetch = avant;
   });
   it('la page n’est jamais blanche : « Restauration du brouillon… » visible tant qu’il tarde ; repeinte d’elle-même quand le contenu arrive et au retour de l’arrière-plan', async () => {

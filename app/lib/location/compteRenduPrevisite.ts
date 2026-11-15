@@ -16,7 +16,9 @@ export interface PieceCr { id: number; nom: string; taille: number;
 /** 🔴 Arno (15/11/2026, 9e retour) — qui était présent (locataires : leurs occupations ; personnes ajoutées, avec leur note INTERNE). */
 export interface PresencesCr { occupations: number[]; personnes: { civilite: string; nom: string; prenom: string; note: string }[];
   /** 🔴 (15/11/2026) les locataires présents, nommés (civilité, prénom, nom) — ceux de CE préavis seulement */
-  locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[] }
+  locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[];
+  /** 🔴 (15/11/2026, retours sur la fenêtre) « texte » : RECONSTITUÉES depuis la phrase « En présence de … » du mail envoyé (rien d'enregistré) */
+  source?: 'texte' }
 export interface CompteRenduAffiche {
   /** Le texte du compte rendu, tel qu'enregistré (le mail interne) ; null : aucun compte rendu saisi. */
   texte: string | null; objet: string | null; saisiPar: string | null; saisiLe: string | null;
@@ -114,6 +116,99 @@ export function nomSaisisseur(libelle: string | null, comptes: readonly { identi
   if (!c) return libelle;
   const nom = [(c.prenom ?? '').trim(), (c.nom ?? '').trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
   return nom === '' ? libelle : nom;
+}
+
+/* ══ 🔴🔴 Arno (15/11/2026, retours sur la fenêtre) — LES PRÉSENCES ENREGISTRÉES AVEC LE COMPTE RENDU, ET LE TEXTE SAISI SEUL ══════════════════
+ * À l'envoi, les présences sont rangées au JOURNAL (en ajout seul, dans la transaction qui marque la pré-visite effectuée) : chaque personne avec
+ * son RÔLE (locataire du préavis, avec son occupation ; ou personne présente, avec sa note interne). La fenêtre les relit là, quel que soit le
+ * brouillon. Les envois d'avant le rôle (version 1 : les noms seuls) : le rôle se retrouve par le nom des locataires du préavis. Un compte rendu
+ * envoyé sans aucune présence enregistrée : les noms tirés de la phrase « En présence de … » du mail, marqués « reconstitué depuis le texte »
+ * (rien n'est écrit après coup). */
+export const ACTION_JOURNAL_PRESENCES = 'location_previsite_presences';
+type LocataireCr = { occupationId: number; civilite: string | null; prenom: string | null; nom: string };
+/** Une personne présente telle qu'enregistrée au journal (version 2 : avec son rôle). */
+export type PresentJournal = { role: 'locataire'; occupationId: number; civilite: string | null; prenom: string | null; nom: string }
+  | { role: 'personne'; civilite: string | null; prenom: string | null; nom: string; note?: string | null };
+/** Ce qui est rangé au journal à l'envoi. PUR. */
+export function tracePresences(phrase: string, presents: readonly PresentJournal[]): string {
+  return JSON.stringify({ v: 2, phrase, presents });
+}
+
+const cleNom = (p: { civilite?: string | null; prenom: string | null; nom: string }): string => nomPresentCr(p).replace(/\s+/g, ' ').trim().toLowerCase();
+/** Même rendu que `nomPresent` (texteCompteRendu) — dupliqué ici pour garder ce module sans import. */
+function nomPresentCr(p: { civilite?: string | null; prenom: string | null; nom: string }): string {
+  const nom = p.nom.replace(/\s+/g, ' ').trim();
+  const prenom = (p.prenom ?? '').replace(/\s+/g, ' ').trim();
+  const complet = prenom !== '' && !nom.toLowerCase().includes(prenom.toLowerCase()) ? `${prenom} ${nom}` : nom;
+  const c = (p.civilite ?? '').trim().toLowerCase().replace(/\.$/, '');
+  const civ = ['madame', 'mme', 'mlle', 'mademoiselle'].includes(c) ? 'Mme' : ['monsieur', 'm', 'mr'].includes(c) ? 'M.' : '';
+  return [civ, complet].filter(Boolean).join(' ');
+}
+
+/** Les présences relues dans le journal (versions 1 et 2), bornées aux locataires de CE préavis ; illisible : null. PUR. */
+export function presencesDuJournal(valeur: string | null, locataires: readonly LocataireCr[]): PresencesCr | null {
+  let o: { v?: unknown; presents?: unknown };
+  try { o = JSON.parse(valeur ?? '') as typeof o; } catch { return null; }
+  if (o === null || typeof o !== 'object' || !Array.isArray(o.presents)) return null;
+  const r: PresencesCr = { occupations: [], personnes: [], locataires: [] };
+  for (const brut of o.presents as Record<string, unknown>[]) {
+    if (brut === null || typeof brut !== 'object' || typeof brut.nom !== 'string') continue;
+    const p = { civilite: typeof brut.civilite === 'string' ? brut.civilite : null, prenom: typeof brut.prenom === 'string' ? brut.prenom : null, nom: brut.nom,
+      note: typeof brut.note === 'string' ? brut.note : '' };
+    // version 2 : le rôle et l'occupation enregistrés ; version 1 : le locataire du préavis qui porte ce nom
+    const loc = o.v === 2
+      ? (brut.role === 'locataire' ? locataires.find((l) => l.occupationId === Number(brut.occupationId)) : undefined)
+      : locataires.find((l) => cleNom(l) === cleNom(p));
+    if (loc !== undefined && !r.occupations.includes(loc.occupationId)) { r.occupations.push(loc.occupationId); r.locataires!.push({ ...loc }); continue; }
+    if (o.v === 2 && brut.role === 'locataire') continue; // un locataire qui n'est plus de ce préavis : jamais rendu
+    r.personnes.push({ civilite: p.civilite ?? '', prenom: p.prenom ?? '', nom: p.nom, note: p.note });
+  }
+  return r;
+}
+
+/** Les noms de la phrase « En présence de Mme X, M. Y et de Mme Z. » (le premier paragraphe qui commence ainsi) ; aucune phrase : []. PUR. */
+export function nomsDeLaPhrase(texte: string | null): string[] {
+  const p = (texte ?? '').replace(/\r\n/g, '\n').split(/\n[ \t]*\n/).map((x) => x.trim()).find((x) => /^En présence (de |d’|d')/.test(x));
+  if (p === undefined) return [];
+  const s = p.replace(/^En présence /, '').replace(/\.$/, '');
+  const i = s.lastIndexOf(' et ');
+  const parts = i < 0 ? [s] : [...s.slice(0, i).split(', '), s.slice(i + 4)];
+  const sansDe = (x: string): string => x.replace(/^(de |d’|d')/, '');
+  return parts.map((x, k) => (k === 0 || k === parts.length - 1 ? sansDe(x) : x).trim()).filter((x) => x !== '');
+}
+
+/** Les présences RECONSTITUÉES depuis le texte du mail (un nom de locataire du préavis : locataire ; sinon : personne présente). PUR. */
+export function presencesDuTexte(texte: string | null, locataires: readonly LocataireCr[]): PresencesCr | null {
+  const noms = nomsDeLaPhrase(texte);
+  if (noms.length === 0) return null;
+  const r: PresencesCr = { occupations: [], personnes: [], locataires: [], source: 'texte' };
+  for (const n of noms) {
+    const loc = locataires.find((l) => cleNom(l) === n.toLowerCase());
+    if (loc !== undefined && !r.occupations.includes(loc.occupationId)) { r.occupations.push(loc.occupationId); r.locataires!.push({ ...loc }); }
+    else r.personnes.push({ civilite: '', prenom: '', nom: n, note: '' });
+  }
+  return r;
+}
+
+const TITRES_GENERES = ['Photos', 'Enregistrements vocaux joints', 'Notes de présence (internes)'];
+/**
+ * Le TEXTE SAISI seul, retrouvé dans le mail interne envoyé : sans la ligne d'en-tête « Compte rendu de la pré-visite du … — adresse », sans la
+ * phrase « En présence de … », et rien à partir des parties générées (photos, vocaux joints, notes de présence, « Mail envoyé par … », signature).
+ * Le mail lui-même n'est jamais modifié. PUR.
+ */
+export function texteSaisiDuMail(texte: string | null): string {
+  // « Mail envoyé par … » et la signature (« -- ») : tout ce qui suit est généré, même sans ligne vide avant
+  const paras = (texte ?? '').replace(/\r\n/g, '\n').split(/\n[ \t]*(?:Mail envoyé par |-- ?\n)/)[0].split(/\n[ \t]*\n/);
+  let i = 0;
+  if (/^Compte rendu de la pré-visite du /.test((paras[i] ?? '').trim())) i += 1;
+  if (/^En présence (de |d’|d')/.test((paras[i] ?? '').trim())) i += 1;
+  const garde: string[] = [];
+  for (const p of paras.slice(i)) {
+    const t = p.trim();
+    if (TITRES_GENERES.includes(t) || /^Mail envoyé par /.test(t) || /^--\s*(\n|$)/.test(t)) break;
+    garde.push(p.replace(/^\n+|\s+$/g, ''));
+  }
+  return garde.filter((p) => p.trim() !== '').join('\n\n');
 }
 
 /** « le 13/11/2026 à 13h52 » (heure de Paris). PUR. */

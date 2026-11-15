@@ -5,7 +5,7 @@ import { ficheDepuisEncart } from './ficheIntervention';
 import { locatairesAvis, mailsAvisDisponibles, piecesDuMailDisponible } from './mailsPreavisSortieRepo';
 import { metaPieces } from './piecesSortieRepo';
 import { lireGroupe, previsiteDisponible, suiviOuvert } from './previsiteBase';
-import { compteRenduAffiche, nomSaisisseur, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr, type PieceCr } from './compteRenduPrevisite';
+import { ACTION_JOURNAL_PRESENCES, compteRenduAffiche, nomSaisisseur, presencesDuJournal, presencesDuTexte, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr, type PieceCr } from './compteRenduPrevisite';
 import { ACTION_JOURNAL_VOCAUX, fichiersDeTrace } from './vocauxCompteRendu';
 import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { brouillonDisponible } from './brouillonCompteRenduRepo';
@@ -57,14 +57,22 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
     if (b.rows[0]) envoye = nettoyerBrouillon(b.rows[0].contenu);
   }
   const durees = new Map((envoye?.fichiers ?? []).flatMap((f) => f.prises.flatMap((p) => (p.id !== undefined ? [[p.id, p.dureeS] as const] : []))));
+  /* 🔴🔴 (15/11/2026, retours sur la fenêtre) LES PRÉSENCES : celles ENREGISTRÉES à l'envoi (journal, avec leur rôle) ; à défaut, celles du
+     brouillon envoyé ; à défaut, reconstituées depuis la phrase « En présence de … » du mail (marquées comme telles, rien n'est écrit). */
+  const locPreavis = (await locatairesAvis(ids)).map((x) => ({ occupationId: x.occupationId, civilite: x.civilite ?? null, prenom: x.prenom, nom: x.nom }));
+  const trace = await query<{ v: string | null }>(
+    `SELECT j.valeur_apres AS v FROM gestion_journal j JOIN gestion_location_previsite s ON s.id = $3
+      WHERE j.entite = 'annuaire' AND j.action = $1 AND j.entite_id = ANY($2::bigint[]) AND j.survenu_le >= s.cree_le ORDER BY j.id DESC LIMIT 1`,
+    [ACTION_JOURNAL_PRESENCES, g.g.lignes.map((x) => Number(x.locataire_id)), Number(s.id)]);
   const occPresentes = envoye === null ? [] : envoye.presents.filter((x) => ids.includes(x));
-  const nommes = occPresentes.length === 0 ? [] : (await locatairesAvis(occPresentes)).map((x) => ({ occupationId: x.occupationId, civilite: x.civilite ?? null, prenom: x.prenom, nom: x.nom }));
-  const presences = envoye === null ? null : { occupations: occPresentes, locataires: nommes,
+  const presencesBrouillon = envoye === null ? null : { occupations: occPresentes, locataires: locPreavis.filter((x) => occPresentes.includes(x.occupationId)),
     personnes: envoye.ajoutees.filter((p) => p.present).map((p) => ({ civilite: p.civilite, nom: p.nom, prenom: p.prenom, note: p.note })) };
   const parId = new Map(vocaux.map((v) => [v.id, durees.has(v.id) ? { ...v, dureeS: durees.get(v.id) } : v]));
   const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined), locataires: f.locataires === true }))
     .filter((f) => f.prises.length > 0);
   const affiche = compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces);
+  // le texte du mail INTERNE (celui qui porte la phrase « En présence de … » en paragraphe à part)
+  const presences = (trace.rows[0] ? presencesDuJournal(trace.rows[0].v, locPreavis) : null) ?? presencesBrouillon ?? presencesDuTexte(affiche.texte, locPreavis);
   // 🔴 (11e retour) « Saisi par » : prénom et NOM du collaborateur, jamais son adresse
   const comptes = affiche.saisiPar !== null && affiche.saisiPar.includes('@')
     ? (await query<{ identifiant: string; prenom: string | null; nom: string | null }>(`SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE lower(identifiant) = lower($1)`, [affiche.saisiPar])).rows : [];
