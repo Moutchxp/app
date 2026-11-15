@@ -277,12 +277,14 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   useEffect(() => { if (presenceOk) setRefusPresence(null); }, [presenceOk]);
   const [dictaphoneOccupe, setDictaphoneOccupe] = useState(false);
   const [dicteeOccupee, setDicteeOccupee] = useState(false);
+  /** 🔴 Arno (15/11/2026) — une légende de photo en cours de dictée ou de transcription */
+  const [legendeOccupee, setLegendeOccupee] = useState(false);
   const curseur = useRef<number | null>(null);
   const lireCurseur = useCallback((): number | null => curseur.current, []);
   const noterCurseur = useCallback((n: number | null): void => { curseur.current = n; }, []);
   const envoiVocaux = vocauxPourEnvoi(fichiers);
   const vocauxPrets = envoiVocaux.vocaux;
-  const vocauxEnCours = dictaphoneOccupe || dicteeOccupee;
+  const vocauxEnCours = dictaphoneOccupe || dicteeOccupee || legendeOccupee;
   const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); const x = appliquerTirets(r.texte, r.curseur); curseur.current = x.curseur; return x.texte; });
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
@@ -426,7 +428,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         {/* 🔴 Arno (15/11/2026) — TROIS BLOCS, dans cet ordre : TEXTE (dictée maintenue, clavier), PHOTOS, DICTAPHONE (fichiers vocaux internes) */}
         <BlocPresence locataires={l.locataires} presents={presents} setPresents={setPresents} ajoutees={ajoutees} setAjoutees={setAjoutees} erreur={refusPresence} dateFr={dateFrPreavis} />
         <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
-        <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
+        <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} onOccupe={setLegendeOccupee} />
         <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe} />
         <BoutonEnvoiLocataires actif={aussiLocataires} onBasculer={() => setAussiLocataires((v) => !v)} occupationId={l.occupationId} occupationIds={l.occupationIds}
           nomsConnus={l.locataires.map((x) => x.nom)} />

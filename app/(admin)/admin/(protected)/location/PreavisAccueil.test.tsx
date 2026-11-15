@@ -1899,7 +1899,13 @@ describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétiqu
     // la phrase (écrite par le serveur) est visible dans le récapitulatif
     expect(document.querySelector('[data-fenetre-previsite="recap"]')!.textContent).toContain('En présence de Alice et de Mme Léa Martin.');
     act(() => (document.querySelector('[data-revenir-previsite]') as HTMLButtonElement).click()); await attendre();
+    // 🔴 (15/11/2026) — retirer se CONFIRME : « Garder » la laisse, « Retirer » l'enlève
     act(() => (document.querySelector('[data-personne-retirer]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-personne-confirmer] .pvv-confirmer-question')!.textContent).toBe('Retirer Mme Léa Martin ?');
+    act(() => (document.querySelector('[data-personne-retirer-non]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-personne-ajoutee]')).not.toBeNull();
+    act(() => (document.querySelector('[data-personne-retirer]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-personne-retirer-oui]') as HTMLButtonElement).click());
     expect(document.querySelector('[data-personne-ajoutee]')).toBeNull();
   });
 
@@ -2010,5 +2016,108 @@ describe('🔴 Arno (15/11/2026) — bandeau de recette : l’adresse n’est PA
     expect(src).not.toContain('`RECETTE — envois réels autorisés vers ${reel.adresse}`');
     expect(readFileSync('app/globals.css', 'utf8')).toContain('.svv-adresse-css::after{content:attr(data-adresse)}');
     expect(readFileSync('app/layout.tsx', 'utf8')).toMatch(/<html[\s\S]*?suppressHydrationWarning[\s\S]*?>/);
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en vrais boutons ; légendes cadrées avec micro ; confirmations sur une ligne', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let dictees: Record<string, unknown>[] = []; let horloge = 1_000_000;
+  class FauxEnregistreur {
+    static isTypeSupported = (t: string) => t === 'audio/mp4';
+    mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
+    constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+  }
+  beforeEach(() => {
+    dictees = []; horloge = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => horloge);
+    try { window.localStorage.removeItem('svav.compteRendu.photos.vue'); } catch { /* sans stockage */ }
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:apercu'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    let n = 70;
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'photo-compte-rendu') { n += 1; return ok({ id: n, nom: 'p.jpg', taille: 3 }); }
+        if (c.action === 'dicter-compte-rendu') { dictees.push(c); return ok({ ok: true, texte: 'fissure plafond' }); }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const patienter = async (cond: () => boolean) => { for (let k = 0; k < 60 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
+  const ouvrir = async () => {
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    const input = document.querySelector('[data-photo-galerie]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: ['a.jpg', 'b.jpg'].map((x) => new File([new Uint8Array([1])], x, { type: 'image/jpeg' })), configurable: true });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await patienter(() => document.querySelector('[data-photo-etat="envoi"]') === null);
+  };
+  const legende = (n: number) => document.querySelector(`[data-photo="${n}"] [data-photo-legende]`) as HTMLInputElement;
+  const taper = (el: HTMLInputElement, v: string) => act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  const maintenir = async (b: HTMLButtonElement, ms: number) => {
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => b.getAttribute('data-enregistrement') === 'oui' && b.querySelector('[data-maintien-duree]') !== null);
+    horloge += ms;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+    await attendre();
+  };
+
+  it('Carrousel / Liste : deux VRAIS boutons séparés, liseré, l’actif marqué (plein rouge), aria-pressed juste ; la bascule Location (pva-segment) n’est pas touchée', async () => {
+    await ouvrir();
+    const c = document.querySelector('[data-vue-carrousel]') as HTMLButtonElement; const l = document.querySelector('[data-vue-liste]') as HTMLButtonElement;
+    expect(c.className).toBe('pvv-choix pvv-vue'); expect(l.className).toBe('pvv-choix pvv-vue');
+    expect([c.getAttribute('aria-pressed'), l.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
+    act(() => l.click());
+    expect([c.getAttribute('aria-pressed'), l.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-segments{display:inline-flex;gap:10px;flex-wrap:wrap}');
+    expect(css).toContain('.pvv-choix{box-sizing:border-box;min-height:44px;min-width:44px;padding:0 16px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface)');
+    expect(css).toContain('.pvv-choix[aria-pressed=true]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);font-weight:900}');
+  });
+  it('la légende : cadrée (liseré, accentué au focus, marge droite pour le micro) ; un micro DANS chaque légende ; la dictée s’insère au curseur de CETTE légende, sans focus ; appui bref ignoré', async () => {
+    await ouvrir();
+    act(() => (document.querySelector('[data-vue-liste]') as HTMLButtonElement).click());
+    expect(document.querySelectorAll('[data-dicter-legende]')).toHaveLength(2);
+    expect(legende(1).className).toBe('pvv-legende-champ');
+    expect(document.querySelector('[data-photo="2"] [data-dicter-legende]')!.getAttribute('aria-label')).toBe('Maintenir pour dicter la légende de la photo 2');
+    expect(document.querySelector('[data-photo="2"] [data-dicter-legende] svg')).not.toBeNull();
+    taper(legende(1), 'Salon'); taper(legende(2), 'Mur chambre');
+    act(() => { legende(2).focus(); legende(2).setSelectionRange(3, 3); legende(2).blur(); });
+    await maintenir(document.querySelector('[data-photo="2"] [data-dicter-legende]') as HTMLButtonElement, 900);
+    await patienter(() => legende(2).value !== 'Mur chambre');
+    expect(legende(2).value).toBe('Mur fissure plafond chambre');
+    expect(legende(1).value).toBe('Salon'); // l'autre légende n'est pas touchée
+    expect(document.activeElement === legende(2)).toBe(false); // le clavier ne s'ouvre pas
+    expect(dictees).toHaveLength(1);
+    // appui de moins de 0,5 s : ignoré, rien n'est transcrit
+    await maintenir(document.querySelector('[data-photo="1"] [data-dicter-legende]') as HTMLButtonElement, 200);
+    expect(dictees).toHaveLength(1);
+    expect(document.querySelector('[data-photo="1"] [data-legende-message]')!.textContent).toContain('Appui trop bref');
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('padding:0 60px 0 12px;font:inherit;font-size:16px;border-radius:12px;border:1px solid var(--color-svv-line-strong)');
+    expect(css).toContain('.pvv-legende-champ:focus{outline:none;border-color:var(--color-svv-ink);box-shadow:0 0 0 1px var(--color-svv-ink)}');
+    expect(css).toContain('.pvv-micro-legende{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:44px;height:44px;border-radius:999px');
+  });
+  it('confirmation de suppression : « Supprimer la photo 2 ? » sur une ligne, puis « Garder » (contour) à gauche et « Supprimer » (rouge) à droite, sur UNE ligne', async () => {
+    await ouvrir();
+    act(() => (document.querySelector('[data-vue-liste]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-photo="2"] [data-photo-supprimer]') as HTMLButtonElement).click());
+    const conf = document.querySelector('[data-photo-confirmer]')!;
+    expect(conf.querySelector('.pvv-confirmer-question')!.textContent).toBe('Supprimer la photo 2 ?');
+    const boutons = [...conf.querySelectorAll('.pvv-confirmer-boutons > button')];
+    expect(boutons.map((b) => [b.textContent, b.className])).toEqual([['Garder', 'pvv-choix'], ['Supprimer', 'pvv-choix pvv-choix--danger']]);
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-confirmer-boutons{display:grid;grid-template-columns:1fr 1fr;gap:10px}');
+    act(() => (conf.querySelector('[data-photo-supprimer-non]') as HTMLButtonElement).click());
+    expect(document.querySelectorAll('[data-photo]')).toHaveLength(2);
+    act(() => (document.querySelector('[data-photo="2"] [data-photo-supprimer]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-photo-supprimer-oui]') as HTMLButtonElement).click());
+    expect(document.querySelectorAll('[data-photo]')).toHaveLength(1);
   });
 });

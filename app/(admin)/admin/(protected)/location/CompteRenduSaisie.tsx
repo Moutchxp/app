@@ -114,6 +114,81 @@ export function BoutonMaintenir({ etat, dureeMs, repos, actif, rond = false, onA
   );
 }
 
+/** La dictée maintenue, transcrite par Mistral (RIEN n'est gardé : ni fichier, ni pièce) : le texte, ou la raison de l'échec. Ne lève jamais. */
+export async function transcrireDictee(blob: Blob, type: string, occupationIds: readonly number[]): Promise<{ texte: string } | { motif: string }> {
+  let donnees: string;
+  try { donnees = await (await modulePhoto()).enBase64(blob); } catch { return { motif: 'La dictée n’a pas pu être préparée sur cet appareil.' }; }
+  const r = await envoyer({ action: 'dicter-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type }, { propre: true });
+  const d = r.data as { ok?: boolean; texte?: string; motif?: string } | undefined;
+  if (r.motif !== null || d?.ok !== true || typeof d.texte !== 'string') return { motif: d?.motif ?? r.motif ?? 'La transcription a échoué : rien n’a été ajouté, réessayez.' };
+  return { texte: d.texte };
+}
+
+/**
+ * 🔴 Arno (15/11/2026) — UNE CONFIRMATION, la même partout sur la page (photo, fichier vocal, prise, personne ajoutée) : la question sur une
+ * ligne, puis les deux boutons côte à côte sur UNE même ligne, même taille — « Garder » (contour) à gauche, l'action (rouge) à droite.
+ */
+export function Confirmation({ question, action, onConfirmer, onGarder, attributs, attributsOui, attributsNon }: {
+  question: string; action: string; onConfirmer: () => void; onGarder: () => void;
+  attributs: Record<string, string>; attributsOui: Record<string, string>; attributsNon: Record<string, string> }) {
+  return (
+    <div className="pvv-confirmer" role="alertdialog" aria-label={question} {...attributs}>
+      <p className="pvv-confirmer-question">{question}</p>
+      <div className="pvv-confirmer-boutons">
+        <button type="button" className="pvv-choix" onClick={onGarder} {...attributsNon}>Garder</button>
+        <button type="button" className="pvv-choix pvv-choix--danger" onClick={onConfirmer} {...attributsOui}>{action}</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 🔴 Arno (15/11/2026) — LE CHAMP DE LÉGENDE d'une photo : le liseré d'un champ de saisie de l'application (visible au repos, accentué au
+ * focus), et à l'extrême droite DANS le champ un petit bouton micro rond « Maintenir pour dicter la légende » : la mécanique de « Maintenir
+ * pour dicter » (appui maintenu, rouge et pulsation, transcription au relâchement, insertion au curseur de CETTE légende, sans ouvrir le
+ * clavier, appui de moins de 0,5 s ignoré). Le texte ne passe jamais sous le bouton (marge droite du champ).
+ */
+export function ChampLegende({ rang, valeur, invalide, occupationIds, onChange, onOccupe }: {
+  rang: number; valeur: string; invalide: boolean; occupationIds: readonly number[];
+  onChange: (f: (legende: string) => string) => void; onOccupe: (occupe: boolean) => void }) {
+  const curseur = useRef<number | null>(null);
+  const [transcription, setTranscription] = useState(false);
+  const [motif, setMotif] = useState<string | null>(null);
+  const noter = (e: { currentTarget: HTMLInputElement }): void => { curseur.current = e.currentTarget.selectionStart; };
+  const dictee = useEnregistrementMaintenu((blob, type) => {
+    setTranscription(true); setMotif(null);
+    void (async () => {
+      const r = await transcrireDictee(blob, type, occupationIds);
+      setTranscription(false);
+      if ('motif' in r) { setMotif(r.motif); return; }
+      onChange((l) => { const x = insererDictee(l, curseur.current, r.texte); const t = x.texte.slice(0, LEGENDE_MAX); curseur.current = Math.min(x.curseur, t.length); return t; });
+    })();
+  });
+  const occupe = dictee.etat !== 'repos' || transcription;
+  // le parent passe une fonction neuve à chaque rendu : on la lit par une référence (sinon l'effet se relancerait sans fin)
+  const occuperRef = useRef(onOccupe);
+  useEffect(() => { occuperRef.current = onOccupe; }, [onOccupe]);
+  useEffect(() => { occuperRef.current(occupe); }, [occupe]);
+  useEffect(() => () => occuperRef.current(false), []);
+  return (
+    <div className="pvv-legende-bloc">
+      <label className="pvs-champ pvv-legende"><span className="pvs-libelle">{`Légende de la photo ${rang} *`}</span>
+        <span className="pvv-legende-cadre">
+          <input type="text" className="pvv-legende-champ" value={valeur} maxLength={LEGENDE_MAX} placeholder="ex. Rayure parquet chambre" aria-invalid={invalide} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
+            onChange={(e) => { const v = e.target.value; curseur.current = e.target.selectionStart; onChange(() => v); }} onSelect={noter} onKeyUp={noter} onClick={noter} onBlur={noter} data-photo-legende />
+          <BoutonMaintenir etat={dictee.etat} dureeMs={dictee.dureeMs} rond repos={<Icone nom="micro" taille={20} />} actif={<Icone nom="micro" taille={20} />}
+            onAppui={dictee.appuyer} onRelache={dictee.relacher} className="pvv-maintien pvv-micro-legende"
+            attributs={{ 'aria-label': `Maintenir pour dicter la légende de la photo ${rang}`, title: 'Maintenir pour dicter la légende', 'data-dicter-legende': String(rang) }} />
+        </span>
+      </label>
+      {transcription && <span className="loc-muet pvv-statut" role="status" data-legende-transcription>transcription…</span>}
+      {dictee.message !== null && <span className="pvv-photo-motif" role="alert" data-legende-message>{dictee.message}</span>}
+      {motif !== null && <span className="pvv-photo-motif" role="alert" data-legende-motif>{motif}</span>}
+    </div>
+  );
+}
+const LEGENDE_MAX = 200;
+
 /* ══ BLOC PRÉSENCE (Arno, 15/11/2026) ════════════════════════════════════════════════════════════════════════════════════════════════════
  * Un locataire par ligne, « présent » à cocher (non coché par défaut), avec sa date d'entrée ; « + Ajouter une personne » (civilité, nom,
  * prénom) : elle n'existe que pour CE compte rendu (rien n'est créé dans les fiches), cochée par défaut, supprimable. Au moins une personne
@@ -131,6 +206,8 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
   erreur: string | null; dateFr: (iso: string) => string }) {
   const titreId = useId();
   const [ajout, setAjout] = useState(false);
+  /** 🔴 Arno (15/11/2026) — retirer une personne ajoutée se confirme, comme toute suppression de la page */
+  const [aRetirer, setARetirer] = useState<string | null>(null);
   const [civilite, setCivilite] = useState<'Madame' | 'Monsieur' | null>(null);
   const [nom, setNom] = useState(''); const [prenom, setPrenom] = useState(''); const [note, setNote] = useState('');
   const fermer = (): void => { setAjout(false); setCivilite(null); setNom(''); setPrenom(''); setNote(''); };
@@ -163,7 +240,11 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
             <label className="pvv-note-presence"><span className="pvv-lu">Note interne sur {libellePersonne(p)}</span>
               <input type="text" value={p.note} maxLength={120} placeholder="ex. mère du locataire (note interne)" autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
                 onChange={(e) => { const v = e.target.value; setAjoutees((xs) => xs.map((y) => (y.cle === p.cle ? { ...y, note: v } : y))); }} data-personne-note /></label>
-            <button type="button" className="pvv-mini" onClick={() => setAjoutees((xs) => xs.filter((y) => y.cle !== p.cle))} aria-label={`Retirer ${libellePersonne(p)}`} data-personne-retirer><Icone nom="corbeille" /></button>
+            <button type="button" className="pvv-mini" onClick={() => setARetirer(p.cle)} aria-label={`Retirer ${libellePersonne(p)}`} data-personne-retirer><Icone nom="corbeille" /></button>
+            {aRetirer === p.cle && (
+              <Confirmation question={`Retirer ${libellePersonne(p)} ?`} action="Retirer" onGarder={() => setARetirer(null)}
+                onConfirmer={() => { setAjoutees((xs) => xs.filter((y) => y.cle !== p.cle)); setARetirer(null); }}
+                attributs={{ 'data-personne-confirmer': '' }} attributsOui={{ 'data-personne-retirer-oui': '' }} attributsNon={{ 'data-personne-retirer-non': '' }} />)}
           </li>))}
       </ul>
       <button type="button" className="pvv-lien" onClick={() => setAjout(true)} data-ajouter-personne><Icone nom="plus" taille={16} /> Ajouter une personne</button>
@@ -207,13 +288,10 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
   const dictee = useEnregistrementMaintenu((blob, type) => {
     setTranscription(true); setMotif(null);
     void (async () => {
-      let donnees: string;
-      try { donnees = await (await modulePhoto()).enBase64(blob); } catch { setTranscription(false); setMotif('La dictée n’a pas pu être préparée sur cet appareil.'); return; }
-      const r = await envoyer({ action: 'dicter-compte-rendu', occupationIds: [...occupationIds], donnees, typeMime: type }, { propre: true });
+      const r = await transcrireDictee(blob, type, occupationIds);
       setTranscription(false);
-      const d = r.data as { ok?: boolean; texte?: string; motif?: string } | undefined;
-      if (r.motif !== null || d?.ok !== true || typeof d.texte !== 'string') { setMotif(d?.motif ?? r.motif ?? 'La transcription a échoué : rien n’a été ajouté, réessayez.'); return; }
-      const t = d.texte;
+      if ('motif' in r) { setMotif(r.motif); return; }
+      const t = r.texte;
       setCorps((c) => { const x = insererDictee(c, lireCurseur(), t); const y = appliquerTirets(x.texte, x.curseur); noterCurseur(y.curseur); replacer.current = true; return y.texte; });
     })();
   });
@@ -287,8 +365,16 @@ export const CLE_VUE_PHOTOS = 'svav.compteRendu.photos.vue';
 /** 🔴 Arno (15/11/2026) — « Carrousel » par défaut ; le choix de l'utilisateur, mémorisé sur l'appareil, l'emporte ensuite. */
 export const lireVuePhotos = (): VuePhotos => { try { return window.localStorage.getItem(CLE_VUE_PHOTOS) === 'liste' ? 'liste' : 'carrousel'; } catch { return 'carrousel'; } };
 
-export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }: { photos: PhotoSaisie[];
-  onChange: (f: (x: PhotoSaisie[]) => PhotoSaisie[]) => void; occupationIds: readonly number[]; rangSansLegende: number | null }) {
+export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, onOccupe }: { photos: PhotoSaisie[];
+  onChange: (f: (x: PhotoSaisie[]) => PhotoSaisie[]) => void; occupationIds: readonly number[]; rangSansLegende: number | null;
+  /** 🔴 Arno (15/11/2026) — une légende en cours de dictée ou de transcription : le récapitulatif attend */
+  onOccupe?: (occupe: boolean) => void }) {
+  const [legendesOccupees, setLegendesOccupees] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => { onOccupe?.(legendesOccupees.size > 0); }, [legendesOccupees, onOccupe]);
+  const occuper = useCallback((cle: string, o: boolean) => setLegendesOccupees((s) => {
+    if (o === s.has(cle)) return s;
+    const n = new Set(s); if (o) n.add(cle); else n.delete(cle); return n;
+  }), []);
   const camera = useId(); const galerie = useId(); const titreId = useId();
   const [vue, setVue] = useState<VuePhotos>('carrousel');
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -345,9 +431,10 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
       <div className="pvv-bloc-tete">
         <h3 id={titreId} className="pvv-bloc-titre">Photos {photos.length > 0 && <span className="loc-muet">({photos.length})</span>}</h3>
         {photos.length > 0 && (
+          // 🔴 Arno (15/11/2026) — deux VRAIS petits boutons, bien séparés, liseré gris ; l'actif en plein rouge (accent de l'application)
           <div className="pvv-segments" role="group" aria-label="Affichage des photos">
-            <button type="button" className="pva-segment" aria-pressed={vue === 'carrousel'} onClick={() => choisirVue('carrousel')} data-vue-carrousel>Carrousel</button>
-            <button type="button" className="pva-segment" aria-pressed={vue === 'liste'} onClick={() => choisirVue('liste')} data-vue-liste>Liste</button>
+            <button type="button" className="pvv-choix pvv-vue" aria-pressed={vue === 'carrousel'} onClick={() => choisirVue('carrousel')} data-vue-carrousel>Carrousel</button>
+            <button type="button" className="pvv-choix pvv-vue" aria-pressed={vue === 'liste'} onClick={() => choisirVue('liste')} data-vue-liste>Liste</button>
           </div>)}
       </div>
       <div className="pvv-photos-boutons pvv-boutons-2">
@@ -394,21 +481,17 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
                   <span className="pvv-photo-gestes">
                     <button type="button" className="pvv-mini" onClick={() => deplacer(i, -1)} disabled={i === 0} aria-label={`Monter la photo ${i + 1}`} data-photo-monter><Icone nom="haut" /></button>
                     <button type="button" className="pvv-mini" onClick={() => deplacer(i, 1)} disabled={i === photos.length - 1} aria-label={`Descendre la photo ${i + 1}`} data-photo-descendre><Icone nom="bas" /></button>
-                    <button type="button" className="pvv-mini" onClick={() => setAConfirmer(x.cle)} aria-label={`Supprimer la photo ${i + 1}`} data-photo-supprimer>Supprimer</button>
+                    <button type="button" className="pvv-mini pvv-mini--danger" onClick={() => setAConfirmer(x.cle)} aria-label={`Supprimer la photo ${i + 1}`} data-photo-supprimer>Supprimer</button>
                   </span>
                 </div>
                 {aConfirmer === x.cle && (
-                  <div className="pvv-confirmer" role="alertdialog" aria-label={`Supprimer la photo ${i + 1} ?`} data-photo-confirmer>
-                    <span>Supprimer la photo {i + 1} ?</span>
-                    <button type="button" className="pvv-mini pvv-mini--danger" onClick={() => retirer(x.cle)} data-photo-supprimer-oui>Supprimer</button>
-                    <button type="button" className="pvv-mini" onClick={() => setAConfirmer(null)} data-photo-supprimer-non>Garder</button>
-                  </div>)}
+                  <Confirmation question={`Supprimer la photo ${i + 1} ?`} action="Supprimer" onConfirmer={() => retirer(x.cle)} onGarder={() => setAConfirmer(null)}
+                    attributs={{ 'data-photo-confirmer': '' }} attributsOui={{ 'data-photo-supprimer-oui': '' }} attributsNon={{ 'data-photo-supprimer-non': '' }} />)}
                 {x.apercu ? <img className="pvv-vignette" src={x.apercu} alt={x.legende ? lignePhoto(i, x.legende) : `Photo ${i + 1}`} /> : <span className="pvv-vignette pvv-vignette--vide" />}
                 {x.etat === 'envoi' && <span className="loc-muet" role="status">Préparation…</span>}
                 {x.etat === 'erreur' && <span className="pvv-photo-motif" role="alert">{x.motif}</span>}
-                <label className="pvs-champ"><span className="pvs-libelle">{`Légende de la photo ${i + 1} *`}</span>
-                  <input type="text" value={x.legende} maxLength={200} placeholder="ex. Rayure parquet chambre" aria-invalid={sansLegende} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
-                    onChange={(e) => { const v = e.target.value; maj(x.cle, (y) => ({ ...y, legende: v })); }} data-photo-legende /></label>
+                <ChampLegende rang={i + 1} valeur={x.legende} invalide={sansLegende} occupationIds={occupationIds}
+                  onChange={(f) => maj(x.cle, (y) => ({ ...y, legende: f(y.legende) }))} onOccupe={(o) => occuper(x.cle, o)} />
                 {sansLegende && x.etat !== 'erreur' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
               </li>);
           })}
@@ -550,11 +633,9 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
               <button type="button" className="svv-btn svv-btn-outline pvv-gros pvv-gros--danger" onClick={() => setAConfirmer({ fichier: f.cle, prise: null })} aria-label={`Supprimer ${f.nom}`} data-vocal-supprimer><Icone nom="corbeille" /> Supprimer</button>
             </div>
             {aConfirmer?.fichier === f.cle && aConfirmer.prise === null && (
-              <div className="pvv-confirmer" role="alertdialog" aria-label={`Supprimer ${f.nom} ?`} data-vocal-confirmer>
-                <span>Supprimer « {f.nom} » et ses {f.prises.length} prise{f.prises.length > 1 ? 's' : ''} ?</span>
-                <button type="button" className="pvv-mini pvv-mini--danger" onClick={() => supprimerFichier(f.cle)} data-vocal-supprimer-oui>Supprimer</button>
-                <button type="button" className="pvv-mini" onClick={() => setAConfirmer(null)} data-vocal-supprimer-non>Garder</button>
-              </div>)}
+              <Confirmation question={`Supprimer « ${f.nom} » et ses ${f.prises.length} prise${f.prises.length > 1 ? 's' : ''} ?`} action="Supprimer"
+                onConfirmer={() => supprimerFichier(f.cle)} onGarder={() => setAConfirmer(null)}
+                attributs={{ 'data-vocal-confirmer': '' }} attributsOui={{ 'data-vocal-supprimer-oui': '' }} attributsNon={{ 'data-vocal-supprimer-non': '' }} />)}
             {f.transcription === 'en_cours' && <span className="loc-muet" role="status" data-vocal-transcription-en-cours>Transcription en cours…</span>}
             {f.transcription === 'ok' && <span className="loc-muet" data-vocal-transcrit>Texte inséré dans le compte rendu {MENTION_TRANSCRIT} — modifiable.</span>}
             {f.motif !== null && <span className="pvv-photo-motif" role="alert" data-vocal-motif>{f.motif}</span>}
@@ -565,9 +646,8 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
                 <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} aria-label={lecteur.jouant === p.cle ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`} data-prise-ecouter><Icone nom={lecteur.jouant === p.cle ? 'pause' : 'lecture'} /></button>
                 <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: p.cle })} aria-label={`Supprimer la prise ${k + 1}`} data-prise-supprimer><Icone nom="corbeille" /></button>
                 {aConfirmer?.fichier === f.cle && aConfirmer.prise === p.cle && (
-                  <span className="pvv-confirmer" role="alertdialog" data-prise-confirmer>Supprimer la prise {k + 1} ?
-                    <button type="button" className="pvv-mini pvv-mini--danger" onClick={() => supprimerPrise(f.cle, p.cle)} data-prise-supprimer-oui>Supprimer</button>
-                    <button type="button" className="pvv-mini" onClick={() => setAConfirmer(null)}>Garder</button></span>)}
+                  <Confirmation question={`Supprimer la prise ${k + 1} ?`} action="Supprimer" onConfirmer={() => supprimerPrise(f.cle, p.cle)} onGarder={() => setAConfirmer(null)}
+                    attributs={{ 'data-prise-confirmer': '' }} attributsOui={{ 'data-prise-supprimer-oui': '' }} attributsNon={{ 'data-prise-supprimer-non': '' }} />)}
                 {p.motif !== null && <span className="pvv-photo-motif" role="alert">{p.motif}</span>}
               </li>))}</ol>}
           </li>);
@@ -703,12 +783,27 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-point{display:inline-block;width:10px;height:10px;border-radius:999px;background:var(--color-svv-surface)}
 .pvv-chrono{font-variant-numeric:tabular-nums}
 .pvv-statut{margin:0;font-style:italic}
-.pvv-segments{display:inline-flex;gap:6px}
+.pvv-segments{display:inline-flex;gap:10px;flex-wrap:wrap}
+/* Arno (15/11/2026) : un CHOIX est un vrai bouton — liseré gris, fond de carte, 44 px ; l'actif en plein rouge (accent), texte gras */
+.pvv-choix{box-sizing:border-box;min-height:44px;min-width:44px;padding:0 16px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.95rem;font-weight:700;line-height:1.2;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.pvv-choix:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
+.pvv-choix[aria-pressed=true]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);font-weight:900}
+.pvv-choix--danger{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);font-weight:800}
+/* le champ de legende : le lisere d'un champ de saisie (visible au repos, accentue au focus), le micro DANS le champ, a droite */
+.pvv-legende-bloc{display:flex;flex-direction:column;gap:4px}
+.pvv-legende-cadre{position:relative;display:block}
+.pvv-legende-champ{width:100%;box-sizing:border-box;min-height:52px;margin:0;padding:0 60px 0 12px;font:inherit;font-size:16px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.pvv-legende-champ:focus{outline:none;border-color:var(--color-svv-ink);box-shadow:0 0 0 1px var(--color-svv-ink)}
+.pvv-legende-champ[aria-invalid=true]{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
+.pvv-micro-legende{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:44px;height:44px;border-radius:999px;border:0;padding:0;display:flex;align-items:center;justify-content:center;background:var(--color-svv-ink);color:var(--color-svv-surface)}
 .pvv-carrousel-nav{display:flex;align-items:center;justify-content:center;gap:12px}
 .pvv-indicateur{min-width:3.5em;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
 .pvv-carrousel{flex-direction:row !important;overflow-x:auto;scroll-snap-type:x mandatory;gap:0 !important;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
 .pvv-carrousel > li{flex:0 0 100%;box-sizing:border-box;scroll-snap-align:start}
-.pvv-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:2px solid var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 6%, var(--color-svv-surface));font-weight:700}
+.pvv-confirmer{flex:1 1 100%;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 6%, var(--color-svv-surface))}
+.pvv-confirmer-question{margin:0;font-weight:800;color:var(--color-svv-ink)}
+.pvv-confirmer-boutons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pvv-confirmer-boutons .pvv-choix{width:100%;min-height:48px}
 .pvv-mini--danger{border-color:var(--color-svv-red);color:var(--color-svv-red)}
 .pvv-dictaphone{display:flex;flex-direction:column;align-items:center;gap:8px}
 .pvv-rond{width:96px;height:96px;min-width:72px;min-height:72px;border-radius:999px;border:0;background:var(--color-svv-ink);color:var(--color-svv-surface);display:flex;align-items:center;justify-content:center;padding:0}
