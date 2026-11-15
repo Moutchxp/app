@@ -18,7 +18,7 @@ import { familleDuMail, PREFIXE_COPIE_INTERNE_MAIL } from './famillesMails';
 /** 🔴 Arno (15/11/2026) — la présence reçue de l'écran : les occupations des locataires cochés, les personnes ajoutées (non vérifiées). */
 export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[] }
 export const ACTION_JOURNAL_PRESENCES = 'location_previsite_presences';
-import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace } from './vocauxCompteRendu';
+import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace, libelleJournalVocaux } from './vocauxCompteRendu';
 import { prisesPourEnvoi, vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { effacerBrouillon } from './brouillonCompteRenduRepo';
 import { mentionRecetteCourante } from './mentionRecetteMail';
@@ -466,10 +466,11 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
     // 🔴 Arno (15/11/2026) — LA PRÉSENCE, rangée avec le compte rendu (journal en ajout seul) : la phrase et les personnes
     if (r.data.phrase !== '') await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_PRESENCES, null, JSON.stringify({ phrase: r.data.phrase, presents: r.data.presents }),
       `présence à la pré-visite : ${r.data.phrase}`, auteur);
-    // 🔴 lot C — les vocaux du compte rendu, INTERNES : rattachés ici (« Voir le compte rendu » les relit), aucun n'est parti
+    // 🔴 lot C — les vocaux du compte rendu : rattachés ici (« Voir le compte rendu » les relit) ; 🔴 (15/11/2026) le libellé dit lesquels
+    // sont partis aux locataires (vocal « envoyé aux locataires » ET envoi aux locataires actif), les autres restent internes
     if (vocaux.length > 0) await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_VOCAUX, null,
       traceVocaux(vocaux.map((v) => v.id), fichiers),
-      `${vocaux.length} vocal(aux) interne(s) du compte rendu de pré-visite — jamais envoyé(s)`, auteur);
+      libelleJournalVocaux(vocaux.length, d.aussiLocataires ? (fichiers ?? []).filter((f) => f.locataires === true).reduce((n, f) => n + f.ids.length, 0) : 0), auteur);
   });
   if (r.data.s.tache_etat === 'a_faire') await marquerFaite(Number(r.data.s.tache_id), auteur).catch(() => null);
   // 🔴 Arno (15/11/2026) — le compte rendu est parti : son brouillon est marqué « envoyé » (rien n'est supprimé)

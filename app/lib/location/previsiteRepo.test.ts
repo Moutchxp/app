@@ -688,6 +688,8 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INT
       expect(m.texte).not.toContain('Salon');
     }
     expect(journal().filter((a) => a.params[1] === 'location_previsite_vocaux')[0].params[3]).toBe('json:{"fichiers":[{"nom":"Cuisine","ids":[81,82],"locataires":true},{"nom":"Salon","ids":[83]}]}');
+    // 🔴 (15/11/2026) le libellé dit lesquelles sont parties aux locataires
+    expect(journal().filter((a) => a.params[1] === 'location_previsite_vocaux')[0].params[4]).toBe('3 prises vocales du compte rendu de pré-visite — 2 envoyées aux locataires, 1 interne — occupation 11');
   });
   it('« Envoyer aussi aux locataires » DÉCOCHÉ : aucun vocal ne part, même coché « envoyé aux locataires »', async () => {
     programmee();
@@ -719,6 +721,8 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INT
     const trace = journal().filter((a) => a.params[1] === 'location_previsite_vocaux');
     expect(trace.map((a) => a.params[0])).toEqual([101, 102]); // le journal de chaque locataire du préavis
     expect(trace[0].params[3]).toBe('ids:81,82');
+    // 🔴 (15/11/2026) le libellé ne dit plus « jamais envoyé(s) » : aucun fichier envoyé aux locataires ici, les deux prises restent internes
+    expect(trace[0].params[4]).toBe('2 prises vocales du compte rendu de pré-visite — 2 internes — occupation 11');
   });
   it('🔴 (15/11/2026) les FICHIERS vocaux du dictaphone (nom, prises dans l’ordre) sont rangés au journal ; une prise inconnue y est écartée', async () => {
     programmee();

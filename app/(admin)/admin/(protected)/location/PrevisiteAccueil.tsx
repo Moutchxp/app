@@ -713,8 +713,9 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
               {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
         </div>)}
       {(cr.vocaux ?? []).length > 0 && (
-        <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux <span className="loc-muet">(internes — jamais envoyés)</span></p>
-          {/* 🔴 Arno (15/11/2026) — les fichiers vocaux du dictaphone, leur statut, leurs prises, réécoute enchaînée ; LECTURE SEULE */}
+        <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux</p>
+          {/* 🔴 Arno (15/11/2026) — les fichiers vocaux du dictaphone, leur statut, leurs prises, réécoute enchaînée ; LECTURE SEULE ;
+              🔴 (accord d'Arno, 15/11/2026) l'intitulé : « Vocaux » tout court — chaque vocal dit lui-même s'il est parti aux locataires */}
           <LectureFichiersVocaux fichiers={(cr.fichiersVocaux ?? []).length > 0 ? cr.fichiersVocaux ?? [] : (cr.vocaux ?? []).map((v, i) => ({ nom: `Vocal ${i + 1}`, prises: [v] }))}
             url={urlPiece} />
         </div>)}

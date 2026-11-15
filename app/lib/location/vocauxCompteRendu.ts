@@ -146,4 +146,10 @@ export function refusPoidsPieces(octets: number, plafond: number): string | null
   return `Les pièces jointes pèsent ${mo(octets)} Mo, au-delà de ${mo(plafond)} Mo : décochez « Envoyé aux locataires » sur un vocal (ou retirez une photo), puis réessayez.`;
 }
 /** Le vocal dans le récapitulatif et dans « Voir le compte rendu ». PUR. */
+/** Le libellé du journal des vocaux d'un compte rendu : combien sont partis aux locataires, combien restent internes. PUR. */
+export function libelleJournalVocaux(total: number, envoyees: number): string {
+  const n = Math.max(0, Math.min(envoyees, total));
+  const parties = [n > 0 ? `${n} envoyée${n > 1 ? 's' : ''} aux locataires` : null, total - n > 0 ? `${total - n} interne${total - n > 1 ? 's' : ''}` : null].filter(Boolean);
+  return `${total} prise${total > 1 ? 's' : ''} vocale${total > 1 ? 's' : ''} du compte rendu de pré-visite — ${parties.join(', ')}`;
+}
 export const etatVocalLocataires = (envoye: boolean): string => (envoye ? 'ENVOYÉ aux locataires' : 'NON envoyé (interne)');

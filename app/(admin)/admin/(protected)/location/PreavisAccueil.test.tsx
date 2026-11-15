@@ -1360,8 +1360,10 @@ describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le text
     expect([...f.querySelectorAll('[data-cr-photo]')].map((x) => [x.querySelector('img')!.getAttribute('src'), x.querySelector('[data-cr-legende]')!.textContent]))
       .toEqual([['/api/admin/location/pieces-sortie?piece=72', 'Photo 1 — Joint douche'], ['/api/admin/location/pieces-sortie?piece=71', 'Photo 2 — Rayure parquet chambre']]);
     expect(f.querySelector('[data-cr-pieces]')).toBeNull();
-    // 🔴 lot C — les vocaux : écoutables ici, dits internes
-    expect(f.querySelector('[data-cr-vocaux]')!.textContent).toContain('internes — jamais envoyés');
+    // 🔴 lot C — les vocaux : écoutables ici ; 🔴 (accord d'Arno, 15/11/2026) l'intitulé est « Vocaux » tout court, chaque vocal porte son statut
+    expect(f.querySelector('[data-cr-vocaux] .pss-sous-titre')!.textContent).toBe('Vocaux');
+    expect(f.querySelector('[data-cr-vocaux]')!.textContent).not.toContain('jamais envoy');
+    expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-etat]')!.textContent).toBe('Vocal 1 — NON envoyé (interne)');
     // 🔴 (15/11/2026) — en fichiers vocaux (une ancienne trace : un fichier par vocal), lecture seule
     expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-nom]')!.textContent).toBe('Vocal 1');
     expect(f.querySelector('[data-cr-vocal="1"]')!.getAttribute('data-cr-vocal-prises')).toBe('1');

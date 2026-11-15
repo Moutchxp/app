@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { dispositionPiece, lirePlage } from './plageOctets';
 import { appliquerGain, CIBLE_CRETE_DBFS, crete, encoderWav, FREQUENCE_NORMALISEE, gainPourCrete, GAIN_MAX, normaliserPrise } from './normalisationVocal';
 import { CONTRAINTES_MICRO, libererMicro, ouvrirEnregistreur } from './enregistreurVocal';
-import { refusContenuAudio } from './vocauxCompteRendu';
+import { libelleJournalVocaux, refusContenuAudio } from './vocauxCompteRendu';
 
 /** 🔴🔴 Arno (15/11/2026, 9e retour du test iPhone) — lire un son sur l'iPhone ; le même niveau d'une prise à l'autre. */
 describe('lire un son servi par le serveur (iPhone : plages, inline)', () => {
@@ -75,5 +75,14 @@ describe('la normalisation de chaque prise (crête à −1 dBFS)', () => {
     let max = 0; for (let i = 44; i < o.byteLength; i += 2) max = Math.max(max, Math.abs(v.getInt16(i, true)));
     expect(max / 0x7fff).toBeCloseTo(10 ** (-1 / 20), 3);
     expect(await normaliserPrise(new Blob([new Uint8Array(10)]))).toBeNull(); // jsdom : pas de décodeur
+  });
+});
+
+describe('le libellé du journal des vocaux (plus jamais « jamais envoyé(s) » à tort)', () => {
+  it('dit combien de prises sont parties aux locataires et combien restent internes', () => {
+    expect(libelleJournalVocaux(1, 0)).toBe('1 prise vocale du compte rendu de pré-visite — 1 interne');
+    expect(libelleJournalVocaux(3, 2)).toBe('3 prises vocales du compte rendu de pré-visite — 2 envoyées aux locataires, 1 interne');
+    expect(libelleJournalVocaux(2, 2)).toBe('2 prises vocales du compte rendu de pré-visite — 2 envoyées aux locataires');
+    expect(libelleJournalVocaux(1, 1)).toBe('1 prise vocale du compte rendu de pré-visite — 1 envoyée aux locataires');
   });
 });
