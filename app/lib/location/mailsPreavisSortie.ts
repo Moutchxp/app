@@ -18,6 +18,7 @@
 
 import { echapper } from './mailNouvelleLocation';
 import { boutonMailHtml, lienBoutonValide } from '../email/boutonMail';
+import { encadreMailHtml } from '../email/encadreMail';
 import { ajouterMois, dateFrPreavis, type DureeMois, type ModePreavis } from './preavis';
 import { descriptionLogement, type DonneesMailSortie } from './sortieLocataires';
 import { mentionEnvoyePar } from './mentionEnvoyePar';
@@ -143,13 +144,16 @@ const libelleDuree = (d: DureeMois): string => `${d} mois`;
  * préavis du récapitulatif des alertes). Jamais dans un mail aux clients.
  */
 export interface ParagrapheBouton { texte: string; bouton: string; lien: string; avant?: string }
-export type ParagrapheMail = string | ParagrapheBouton;
+/** 🔴 Arno (15/11/2026, 7e retour) — un ENCADRÉ (« ATTENTION ») : une table encadrée dans le HTML ; la version texte garde `texte`. */
+export interface ParagrapheEncadre { texte: string; encadre: { titre: string; paragraphes: readonly string[] } }
+export type ParagrapheMail = string | ParagrapheBouton | ParagrapheEncadre;
 const texteDu = (p: ParagrapheMail): string => (typeof p === 'string' ? p : p.texte);
 
 const paragrapheHtml = (p: string): string => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1a1f26">${echapper(p).replace(/\n/g, '<br>')}</p>`;
 const paragraphesHtml = (paras: readonly ParagrapheMail[]): string =>
   paras.map((p) => (typeof p === 'string' ? paragrapheHtml(p)
-    : lienBoutonValide(p.lien) ? `${p.avant !== undefined ? paragrapheHtml(p.avant) : ''}${boutonMailHtml(p.bouton, p.lien)}` : paragrapheHtml(p.texte))).join('');
+    : 'encadre' in p ? encadreMailHtml(p.encadre.titre, p.encadre.paragraphes)
+      : lienBoutonValide(p.lien) ? `${p.avant !== undefined ? paragrapheHtml(p.avant) : ''}${boutonMailHtml(p.bouton, p.lien)}` : paragrapheHtml(p.texte))).join('');
 
 /** Une signature Gmail est-elle là (texte OU HTML) ? */
 const aSignature = (s: Signature): boolean => s.texte.trim() !== '' || s.html.trim() !== '';

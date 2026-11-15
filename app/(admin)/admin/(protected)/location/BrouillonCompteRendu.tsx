@@ -6,7 +6,7 @@ import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregi
 
 /** Une sauvegarde ne s'annonce jamais : aucune fenêtre « Modification enregistrée » (l'indicateur du formulaire suffit). */
 const ENTETES = { 'Content-Type': 'application/json', [ENTETE_CONFIRMATION]: 'propre' };
-import { BROUILLON_VIDE, LIBELLE_SAUVEGARDE, brouillonVide, messageBrouillonRestaure, nettoyerBrouillon, type ContenuBrouillon, type EtatSauvegarde }
+import { BROUILLON_VIDE, LIBELLE_CARTOUCHE, LIBELLE_SAUVEGARDE, brouillonVide, detailCartouche, messageBrouillonRestaure, nettoyerBrouillon, type ContenuBrouillon, type EtatSauvegarde }
   from '../../../../lib/location/brouillonCompteRendu';
 import { ecrireBrouillonLocal, effacerBrouillonLocal, groupeDe, lireBrouillonLocal, viderAttente } from '../../../../lib/location/fileAttenteLocale';
 
@@ -52,6 +52,8 @@ export interface Brouillon {
   restaure: string | null;
   /** le brouillon est lu : la page peut être saisie sans risque d'écraser */
   pret: boolean;
+  /** 🔴 (7e retour) l'heure du dernier enregistrement (serveur, ou brouillon restauré) */
+  dernier: string | null;
   effacer: () => Promise<void>;
   /** après l'envoi du compte rendu : plus rien n'est enregistré, le téléphone est vidé (le serveur l'a déjà marqué « envoyé ») */
   terminer: () => Promise<void>;
@@ -65,6 +67,7 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
   const [etat, setEtat] = useState<EtatSauvegarde | null>(null);
   const [restaure, setRestaure] = useState<string | null>(null);
   const [pret, setPret] = useState(!o.actif);
+  const [dernier, setDernier] = useState<string | null>(null);
   const courant = useRef(JSON.stringify(o.contenu));
   courant.current = JSON.stringify(o.contenu);
   /** ce que le serveur a (JSON) ; null : rien encore */
@@ -86,6 +89,7 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
     if (arrete.current) return;
     if (r.issue === 'ok') {
       serveur.current = s;
+      setDernier(r.enregistreLe ?? new Date().toISOString());
       if (courant.current === s) { await ecrireBrouillonLocal(g, { contenu: JSON.parse(s), modifieLe: r.enregistreLe ?? new Date().toISOString(), synchronise: true }); setEtat('enregistre'); }
       return;
     }
@@ -108,6 +112,7 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
       if (choisi !== null && !brouillonVide(choisi.contenu)) {
         appliquer.current(choisi.contenu);
         setRestaure(messageBrouillonRestaure(choisi.le));
+        setDernier(choisi.le);
       }
       arrete.current = false;
       setPret(true);
@@ -157,7 +162,7 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
     if (minuterie.current) { clearTimeout(minuterie.current); minuterie.current = null; }
     try { await fetch(API_PREAVIS_LOCATION, { method: 'POST', headers: ENTETES, body: JSON.stringify({ action: 'effacer-brouillon-previsite', occupationIds: [...ids.current] }) }); } catch { /* le serveur sera écrasé au prochain enregistrement */ }
     await effacerBrouillonLocal(g); await viderAttente(g);
-    serveur.current = null;
+    serveur.current = null; setDernier(null);
     appliquer.current(BROUILLON_VIDE);
     courant.current = JSON.stringify(BROUILLON_VIDE);
     setRestaure(null); setEtat(null);
@@ -168,15 +173,37 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
     if (minuterie.current) { clearTimeout(minuterie.current); minuterie.current = null; }
     await effacerBrouillonLocal(g); await viderAttente(g);
   }, [g]);
-  return { etat, restaure, pret, effacer, terminer };
+  return { etat, restaure, pret, dernier, effacer, terminer };
 }
 
-/** L'indicateur discret en haut du formulaire, et le message de restauration. */
-export function IndicateurSauvegarde({ b }: { b: Brouillon }) {
+/**
+ * 🔴🔴 Arno (15/11/2026, 7e retour) — LE CARTOUCHE DE SAUVEGARDE, petit et discret, sur la ligne de « ← Retour », aligné à droite : « Enregistré »,
+ * « Enregistrement… », « Hors ligne ». Un appui affiche « Dernier enregistrement à HHhMM » (et « Brouillon restauré » si la page a été rouverte).
+ * Il remplace le grand bandeau « Brouillon restauré… » et la pastille sous le titre (accord d'Arno).
+ */
+export function CartoucheSauvegarde({ b }: { b: Brouillon }) {
+  const [ouvert, setOuvert] = useState(false);
+  if (b.etat === null && b.dernier === null) return null;
+  const etat = b.etat ?? 'enregistre';
   return (
-    <>
-      {b.etat !== null && <p className={`pvv-sauvegarde pvv-sauvegarde--${b.etat}`} role="status" aria-live="polite" data-sauvegarde={b.etat}>{LIBELLE_SAUVEGARDE[b.etat]}</p>}
-      {b.restaure !== null && <p className="pvv-restaure" role="status" data-brouillon-restaure>{b.restaure}</p>}
-    </>
+    <span className="pvv-cartouche-sauvegarde">
+      <button type="button" className={`pvv-cartouche-bouton pvv-cartouche-bouton--${etat}`} aria-expanded={ouvert} onClick={() => setOuvert((v) => !v)}
+        aria-label={`${LIBELLE_SAUVEGARDE[etat]} — ${detailCartouche(b.dernier, b.restaure !== null)}`} data-sauvegarde={etat}>
+        <span aria-hidden="true" className="pvv-cartouche-point" />{LIBELLE_CARTOUCHE[etat]}
+      </button>
+      {ouvert && <span className="pvv-cartouche-detail" role="status" data-sauvegarde-detail>{detailCartouche(b.dernier, b.restaure !== null)}</span>}
+    </span>
   );
 }
+
+/** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme. */
+export const CSS_CARTOUCHE_SAUVEGARDE = `
+.pvv-ligne-retour{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.pvv-cartouche-sauvegarde{position:relative;display:inline-flex;flex-direction:column;align-items:flex-end}
+.pvv-cartouche-bouton{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-muted);font:inherit;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap}
+.pvv-cartouche-point{display:inline-block;width:8px;height:8px;border-radius:999px;background:var(--color-svv-line-strong)}
+.pvv-cartouche-bouton--enregistre .pvv-cartouche-point{background:var(--color-svv-green-ink)}
+.pvv-cartouche-bouton--enregistrement .pvv-cartouche-point{background:var(--color-svv-muted)}
+.pvv-cartouche-bouton--hors_ligne .pvv-cartouche-point,.pvv-cartouche-bouton--echec .pvv-cartouche-point{background:var(--color-svv-urgence-orange)}
+.pvv-cartouche-detail{position:absolute;top:calc(100% + 4px);right:0;z-index:5;padding:6px 10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.82rem;font-weight:700;white-space:nowrap;box-shadow:0 6px 16px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
+`;

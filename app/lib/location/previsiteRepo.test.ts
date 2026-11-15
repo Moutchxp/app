@@ -802,10 +802,41 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
       'Vous trouverez en pièce jointe la photo prise lors de la pré-visite :',
       'Photo 1 — Rayure',
       'Ces éléments vous permettent d’anticiper votre état des lieux de sortie. Nous restons à votre disposition pour toute question.',
+      // 🔴 (7e retour) l'encadré « ATTENTION », version texte : entre deux filets, avant la politesse
+      ['━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'ATTENTION', '',
+        'Cette pré-visite a été réalisée dans votre intérêt : elle vous permet d’anticiper les points à corriger avant votre départ, afin de préserver au mieux votre dépôt de garantie et d’éviter tout malentendu le jour de l’état des lieux de sortie.', '',
+        'Elle ne constitue pas un état des lieux et n’a pas de valeur contractuelle. Elle porte uniquement sur les éléments les plus visibles le jour de la visite. L’état des lieux de sortie, réalisé le jour de votre départ, sera plus complet et pourra relever d’autres points non mentionnés ici, par exemple (liste non exhaustive) : le ménage de l’ensemble du logement, l’étanchéité et l’entretien des siphons et des joints, le fonctionnement des équipements, la vaisselle et l’inventaire du mobilier pour les locations meublées.',
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━'].join('\n'),
       'Nous vous prions d’agréer, Madame, Monsieur, nos salutations distinguées.',
       'Mail envoyé par Arno TEST (arno@exemple.test)',
     ].join('\n\n'));
     for (const m of loc) { expect(m.texte).not.toContain('proprio@exemple.test'); expect(m.texte).not.toContain('06 99 88 77 66'); expect(m.texte).not.toContain('DUPONT'); }
+  });
+  it('🔴🔴 (7e retour) l’encadré « ATTENTION » : dans le HTML (table encadrée, titre en gros) et le texte des mails AUX LOCATAIRES, avant la politesse ; jamais dans le mail interne', async () => {
+    programmee(); avecAnnuaire();
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true, presences: { occupations: [11], personnes: [] } }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error(JSON.stringify(r));
+    const [interne, ...loc] = r.data.mails;
+    for (const m of loc) {
+      expect(m.texte).toContain('ATTENTION\n\nCette pré-visite a été réalisée dans votre intérêt');
+      expect(m.texte.indexOf('ATTENTION')).toBeLessThan(m.texte.indexOf('Nous vous prions d’agréer'));
+    }
+    expect(interne.texte).not.toContain('ATTENTION');
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true, presences: { occupations: [11], personnes: [] } }, AUTEUR);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; html: string }[]];
+    const htmlLoc = mails.find((m) => m.a.includes('alice@exemple.test'))!.html;
+    expect(htmlLoc).toContain('data-encadre-mail=""');
+    expect(htmlLoc).toContain('font-size:22px;line-height:1.2;font-weight:bold;letter-spacing:.06em;color:#a30402">ATTENTION</p>');
+    expect(htmlLoc).toContain('border:3px solid #a30402');
+    expect(mails.find((m) => m.a.includes('arno@exemple.test'))!.html).not.toContain('data-encadre-mail');
+  });
+  it('🔴🔴 (7e retour) HISTORIQUE DU BIEN : tous les mails du compte rendu (interne, chaque locataire) partent par le journal du bien, avec le bien, les occupations et les pièces jointes', async () => {
+    programmee(); avecAnnuaire(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]);
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true, photos: [{ id: 71, legende: 'Rayure' }], presences: { occupations: [11], personnes: [] } }, AUTEUR);
+    const [mails, , contexteJournal] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; pieces?: { id: number }[] }[], unknown, { lotId: number; occupationIds: number[] }];
+    expect(contexteJournal).toMatchObject({ lotId: 7, occupationIds: OCC });
+    expect(mails).toHaveLength(3); // l'interne et un par locataire : TOUS dans la même série journalisée
+    for (const m of mails) expect(m.pieces?.map((x) => x.id)).toEqual([71]);
   });
   it('🔴 (6e retour) la civilité connue : « Monsieur TEST, » et « Nous vous prions d’agréer, Monsieur, … »', async () => {
     const { paragraphesCompteRenduLocataire } = await import('./previsite');

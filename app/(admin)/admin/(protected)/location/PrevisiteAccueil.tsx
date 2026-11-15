@@ -28,7 +28,7 @@ import { appliquerTirets, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../.
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
-import { IndicateurSauvegarde, useBrouillonCompteRendu } from './BrouillonCompteRendu';
+import { CartoucheSauvegarde, CSS_CARTOUCHE_SAUVEGARDE, useBrouillonCompteRendu } from './BrouillonCompteRendu';
 import type { ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
@@ -318,7 +318,12 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   }, [l.occupationIds]);
   const brouillon = useBrouillonCompteRendu({ actif: geste === 'compte_rendu' && resultatInitial === undefined, occupationIds: l.occupationIds, contenu: contenuBrouillon, appliquer: appliquerBrouillon });
   const [effacerBrouillon, setEffacerBrouillon] = useState(false);
-  const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); const x = appliquerTirets(r.texte, r.curseur); curseur.current = x.curseur; return x.texte; });
+  /** 🔴 (7e retour) la place du cartouche de sauvegarde : la ligne de « ← Retour » de la page */
+  const [placeCartouche, setPlaceCartouche] = useState<Element | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (page && geste === 'compte_rendu') setPlaceCartouche(document.querySelector('[data-cartouche-sauvegarde]')); }, [page, geste]);
+  // 🔴 (7e retour) le curseur lu AVANT la mise à jour (React la rejoue en développement)
+  const insererTexteVocal = (t: string): void => { const p = curseur.current; setCorps((c) => { const r = insererTranscription(c, p, t); const x = appliquerTirets(r.texte, r.curseur); curseur.current = x.curseur; return x.texte; }); };
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
     if (geste !== 'compte_rendu') return true;
@@ -419,8 +424,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       {geste === 'compte_rendu' ? <>
         {/* 🔴 Arno (15/11/2026) — le titre, et sur téléphone le petit bouton clair / sombre à droite ; sous l'adresse, chaque locataire et sa date d'entrée */}
         <div className="pvv-titre-ligne"><h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2><BoutonTheme /></div>
-        <IndicateurSauvegarde b={brouillon} />
-        <p className="loc-muet pss-rien" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
+        {/* 🔴 Arno (15/11/2026, 7e retour) — l'adresse du bien en GRAND et en gras, juste sous le titre : on vérifie d'un coup d'œil le logement */}
+        <p className="pvv-adresse-cr" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
       </> : <>
         <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
         <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
@@ -563,7 +568,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     const clavier = zone !== null && typeof window !== 'undefined' ? Math.max(0, window.innerHeight - zone.height - zone.top) : 0;
     return (
       <div className="pvv-page-cr" style={{ ['--pvv-clavier' as string]: `${clavier}px` }} data-clavier-ios={clavier > 0 ? 'ouvert' : 'ferme'}>
-        <style>{styles + CSS_PAGE_COMPTE_RENDU}</style>
+        <style>{styles + CSS_PAGE_COMPTE_RENDU + CSS_CARTOUCHE_SAUVEGARDE}</style>
+        {placeCartouche !== null && geste === 'compte_rendu' && createPortal(<CartoucheSauvegarde b={brouillon} />, placeCartouche)}
         <div className={`pss-boite pvv-boite-cr pvv-boite-page${etape.etape === 'recap' ? ' pss-boite-recap' : ''}`} role="region"
           aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
           {contenu}
@@ -732,6 +738,7 @@ export const CSS_PREVISITE = `
 .pvv-reserve{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-muted)}
 /* Arno (15/11/2026) : « Objet : … » — le libelle, deux-points, une espace, puis le texte (plus jamais colles) */
 .pvv-objet{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
+.pvv-adresse-cr{margin:0;font-size:1.3rem;font-weight:900;line-height:1.3;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .pvv-lien-cr{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 `;
 

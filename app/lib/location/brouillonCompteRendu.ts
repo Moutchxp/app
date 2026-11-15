@@ -79,3 +79,13 @@ export const LIBELLE_SAUVEGARDE: Record<EtatSauvegarde, string> = {
   local: 'Brouillon gardé sur cet appareil',
   echec: 'Enregistrement impossible pour l’instant — nouvel essai automatique',
 };
+
+/** 🔴 Arno (15/11/2026, 7e retour) — le PETIT CARTOUCHE sur la ligne de « ← Retour » (le grand bandeau et la pastille sont retirés, accord d'Arno). */
+export const LIBELLE_CARTOUCHE: Record<EtatSauvegarde, string> = {
+  enregistre: 'Enregistré', enregistrement: 'Enregistrement…', hors_ligne: 'Hors ligne', local: 'Sur cet appareil', echec: 'Hors ligne',
+};
+/** Ce qu'un appui sur le cartouche affiche : « Dernier enregistrement à HHhMM », et « Brouillon restauré » si la page a été rouverte. PUR. */
+export function detailCartouche(dernier: string | null, restaure: boolean): string {
+  const quand = dernier === null ? 'Pas encore enregistré' : `Dernier enregistrement à ${heureBrouillon(dernier)}`;
+  return restaure ? `${quand} · Brouillon restauré` : quand;
+}

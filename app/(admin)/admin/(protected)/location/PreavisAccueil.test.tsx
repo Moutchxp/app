@@ -79,7 +79,9 @@ let lignes: LignePreavisAccueil[];
 let posts: Record<string, unknown>[];
 let planification = false;
 let statutPose: string = 'en_attente';
-beforeEach(() => {
+beforeEach(async () => {
+  // 🔴 (7e retour) le micro est gardé ouvert d'un appui à l'autre : chaque épreuve repart d'un micro fermé
+  (await import('../../../../lib/location/enregistreurVocal')).libererMicro();
   planification = false;
   statutPose = 'en_attente';
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -1450,13 +1452,22 @@ describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visi
     expect(document.activeElement).toBe(document.querySelector('[data-corps-compte-rendu]'));
   });
 
-  it('dictée : un appui de moins d’une demi-seconde est ignoré ; le doigt qui SORT du bouton arrête normalement ; un échec de transcription : message, texte intact', async () => {
+  it('dictée : un appui de moins d’une demi-seconde est ignoré ; 🔴 (7e retour) le doigt qui GLISSE hors du bouton n’arrête PAS (seul le retrait du doigt arrête) ; un échec de transcription : message, texte intact', async () => {
     await ouvrirCr('Mon texte.', 10);
     await maintenir('[data-dicter]', 300);
     expect(document.querySelector('[data-dictee-message]')!.textContent).toContain('Appui trop bref');
     expect(appels.some((c) => c.action === 'dicter-compte-rendu')).toBe(false);
     dictee = { ok: false, motif: 'La transcription a échoué.' };
-    await maintenir('[data-dicter]', 1500, 'pointerleave');
+    const b = document.querySelector('[data-dicter]') as HTMLButtonElement;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => b.querySelector('[data-maintien-duree]') !== null);
+    horloge += 1500;
+    // un léger glissement : le doigt sort du bouton (pointerout / pointerleave), le navigateur reprend le geste (pointercancel) — on enregistre TOUJOURS
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, cancelable: true, relatedTarget: document.body })); b.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true })); });
+    expect(b.getAttribute('data-enregistrement')).toBe('oui');
+    // le retrait du doigt, même hors du bouton : l'arrêt
+    await act(async () => { window.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
+    await attendre();
     await patienter(() => document.querySelector('[data-dictee-motif]') !== null);
     expect(document.querySelector('[data-dictee-motif]')!.textContent).toBe('La transcription a échoué.');
     expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Mon texte.');
@@ -2005,16 +2016,16 @@ describe('🔴🔴 Arno (15/11/2026, 4e retour iPhone) — flèche d’Entrée, 
     expect(appels[0].presences).toEqual({ occupations: [], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: '', note: 'amie du locataire' }] });
   });
 
-  it('trames : « Ajouter une photo » PLEIN comme « Maintenir pour dicter », « Photothèque » en contour comme « Clavier » ; « Nouveau fichier vocal » à DROITE', async () => {
+  it('trames : « Ajouter une photo » PLEIN comme « Maintenir pour dicter », « Photothèque » en contour comme « Clavier » ; 🔴 (7e retour) « Nouveau fichier vocal » PLEINE LARGEUR', async () => {
     await ouvrirCr();
     expect(document.querySelector('[data-ajouter-photo]')!.className).toContain('pvv-plein');
     expect(document.querySelector('[data-ajouter-photo]')!.className).not.toContain('svv-btn-outline');
     expect(document.querySelector('[data-photo-galerie-bouton]')!.className).toContain('svv-btn-outline');
     expect(document.querySelector('[data-clavier]')!.className).toContain('svv-btn-outline');
-    expect(document.querySelector('[data-nouveau-vocal]')!.parentElement!.className).toContain('pvv-a-droite');
+    expect(document.querySelector('[data-nouveau-vocal]')!.parentElement!.className).toBe('pvv-nouveau-vocal');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
     expect(css).toContain('.pvv-plein.svv-btn,.pvv-plein{background:var(--color-svv-ink);color:var(--color-svv-surface)');
-    expect(css).toContain('.pvv-a-droite > :only-child{grid-column:2}');
+    expect(css).toContain('.pvv-nouveau-vocal{align-self:stretch;width:100%}');
   });
 
   it('suggestions du clavier adaptées par champ : texte (correction gardée, pas de remplissage), noms (ni correction ni remplissage)', async () => {
@@ -2174,7 +2185,12 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — SAUVEGARDE AUTOMATIQUE du co
     await ouvrir();
     await patienter(() => zone().value === 'Salon propre.');
     expect(zone().value).toBe('Salon propre.');
-    expect(document.querySelector('[data-brouillon-restaure]')!.textContent).toBe('Brouillon restauré — enregistré à 14h05');
+    // 🔴 (7e retour) plus de bandeau : le petit cartouche sur la ligne de « ← Retour » ; un appui dit l'heure et « Brouillon restauré »
+    expect(document.querySelector('[data-brouillon-restaure]')).toBeNull();
+    const cartouche = document.querySelector('.pvv-ligne-retour [data-sauvegarde]') as HTMLButtonElement;
+    expect(cartouche.textContent).toBe('Enregistré');
+    act(() => cartouche.click());
+    expect(document.querySelector('[data-sauvegarde-detail]')!.textContent).toBe('Dernier enregistrement à 14h05 · Brouillon restauré');
     expect((document.querySelector('[data-presence-locataire="11"]') as HTMLInputElement).checked).toBe(true);
     expect(document.querySelector('[data-personne-ajoutee] [data-personne-note]')!.getAttribute('value') ?? (document.querySelector('[data-personne-ajoutee] [data-personne-note]') as HTMLInputElement).value).toBe('mère du locataire');
     expect((document.querySelector('[data-photo="1"] [data-photo-legende]') as HTMLInputElement).value).toBe('Rayure parquet');
@@ -2283,6 +2299,33 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — clavier réel ; micro du tit
     await attendre();
   };
 
+  it('🔴🔴 (7e retour) ROUGE dès le contact, sans attendre le micro ; un seul retour à la ligne par appui, même livré deux fois ; adresse en grand ; liserés de « Ajouter une personne »', async () => {
+    // un micro qui tarde à répondre (première autorisation) : le bouton est rouge AU CONTACT
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: () => new Promise(() => {}) } });
+    await ouvrir();
+    const d = document.querySelector('[data-dicter]') as HTMLButtonElement;
+    act(() => { d.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    expect(d.getAttribute('data-enregistrement')).toBe('oui');
+    expect(d.className).toContain('pvv-maintien--actif');
+    act(() => { window.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
+    // « Entrée » activé deux fois par le même toucher (contact puis clic) : UN seul retour à la ligne
+    const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Salon'); t.dispatchEvent(new Event('input', { bubbles: true })); });
+    const e = document.querySelector('[data-entree]') as HTMLButtonElement;
+    act(() => { e.click(); e.click(); });
+    expect(t.value).toBe('Salon\n- ');
+    horloge += 1000;
+    act(() => e.click());
+    expect(t.value).toBe('Salon\n\n- ');
+    // l'adresse en grand, juste sous le titre
+    const adr = document.querySelector('[data-cr-adresse]')!;
+    expect(adr.className).toBe('pvv-adresse-cr');
+    expect(adr.previousElementSibling!.className).toBe('pvv-titre-ligne');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-adresse-cr{margin:0;font-size:1.3rem;font-weight:900');
+    expect(css).toContain('.pvv-mini-modale input[type=text]{padding:0 12px;border-radius:12px;border:1px solid var(--color-svv-line-strong)');
+    expect(css).toContain('.pvv-civilite .pvv-case{min-height:48px;padding:0 16px;border-radius:12px;border:1px solid var(--color-svv-line-strong)');
+  });
   it('« Clavier » : rouge quand le champ a le focus, BLANC dès qu’il le perd (bouton iOS, appui ailleurs)', async () => {
     await ouvrir();
     const b = document.querySelector('[data-clavier]') as HTMLButtonElement; const zone = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;

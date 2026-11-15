@@ -9,7 +9,8 @@
  * Ce module décide : le statut d'un préavis, l'alerte, les compteurs des pastilles, la saisie d'un rendez-vous, l'objet et le texte de
  * chaque mail, et l'invitation d'agenda (.ics) jointe. Le dépôt (`previsiteRepo.ts`) lit, écrit et envoie.
  */
-import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, prenomNom, REPERE_NOM, type ParagrapheMail, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, prenomNom, REPERE_NOM, type ParagrapheEncadre, type ParagrapheMail, type Signature } from './mailsPreavisSortie';
+import { encadreMailTexte } from '../email/encadreMail';
 import { paragraphesDesParties, partiesDuMail, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
 import { heureFr, minutesDe, plageFr } from './edls';
@@ -362,10 +363,20 @@ export function pointsDuCompteRendu(texte: string): string {
   return texte.replace(/\r\n/g, '\n').split('\n').map((l) => l.trim()).filter((l) => l !== '' && !/^-$/.test(l))
     .map((l) => (/^-/.test(l) ? `- ${l.replace(/^-\s*/, '')}` : `- ${l}`)).join('\n');
 }
+/** 🔴 Arno (15/11/2026, 7e retour) — l'encadré « ATTENTION » du mail aux locataires, mot pour mot (partie protégée). */
+export const TITRE_ATTENTION_PREVISITE = 'ATTENTION';
+export const TEXTE_ATTENTION_PREVISITE: readonly string[] = [
+  'Cette pré-visite a été réalisée dans votre intérêt : elle vous permet d’anticiper les points à corriger avant votre départ, afin de préserver au mieux votre dépôt de garantie et d’éviter tout malentendu le jour de l’état des lieux de sortie.',
+  'Elle ne constitue pas un état des lieux et n’a pas de valeur contractuelle. Elle porte uniquement sur les éléments les plus visibles le jour de la visite. L’état des lieux de sortie, réalisé le jour de votre départ, sera plus complet et pourra relever d’autres points non mentionnés ici, par exemple (liste non exhaustive) : le ménage de l’ensemble du logement, l’étanchéité et l’entretien des siphons et des joints, le fonctionnement des équipements, la vaisselle et l’inventaire du mobilier pour les locations meublées.',
+];
+export const ENCADRE_ATTENTION_PREVISITE: ParagrapheEncadre = {
+  texte: encadreMailTexte(TITRE_ATTENTION_PREVISITE, TEXTE_ATTENTION_PREVISITE),
+  encadre: { titre: TITRE_ATTENTION_PREVISITE, paragraphes: TEXTE_ATTENTION_PREVISITE },
+};
 export const CLOTURE_COMPTE_RENDU = 'Ces éléments vous permettent d’anticiper votre état des lieux de sortie. Nous restons à votre disposition pour toute question.';
 /** Les paragraphes du mail d'UN locataire. `presence` : « de Mme X et de M. Y » (vide : aucune personne). PUR. */
 export function paragraphesCompteRenduLocataire(o: { locataire: { civilite?: string | null; nom: string }; adresse: string; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>;
-  presence: string; texte: string; legendesPhotos: readonly string[]; vocaux: readonly string[] }): string[] {
+  presence: string; texte: string; legendesPhotos: readonly string[]; vocaux: readonly string[] }): ParagrapheMail[] {
   const n = o.legendesPhotos.length;
   const photos = n === 0 ? [] : [`${n === 1 ? 'Vous trouverez en pièce jointe la photo prise' : `Vous trouverez en pièces jointes les ${n} photos prises`} lors de la pré-visite :`,
     o.legendesPhotos.map((l, i) => `Photo ${i + 1} — ${l.trim()}`).join('\n')];
@@ -375,8 +386,10 @@ export function paragraphesCompteRenduLocataire(o: { locataire: { civilite?: str
     pointsDuCompteRendu(o.texte),
     ...photos, ...o.vocaux,
     CLOTURE_COMPTE_RENDU,
+    // 🔴 (7e retour) l'encadré « ATTENTION », juste avant la formule de politesse
+    ENCADRE_ATTENTION_PREVISITE,
     politesseLocataire(o.locataire),
-  ].filter((p) => p.trim() !== '');
+  ].filter((p) => typeof p !== 'string' || p.trim() !== '');
 }
 /** L'introduction courte et factuelle du mail INTERNE. PUR. */
 export function introCompteRenduInterne(adresse: string, rdv: Pick<RdvPrevisite, 'jour' | 'heure'>): string {
@@ -427,7 +440,7 @@ export function paragraphesDuTexte(texte: string): string[] {
  */
 export function mailsAuxLocataires(o: {
   sorte: MailPrevisite['sorte']; de: string; locataires: readonly LocatairePrevisite[]; objet: string;
-  paragraphesDe: (l: LocatairePrevisite) => readonly string[]; qui: QuiEnvoie; signature: Signature; ics?: MailPrevisite['ics'];
+  paragraphesDe: (l: LocatairePrevisite) => readonly ParagrapheMail[]; qui: QuiEnvoie; signature: Signature; ics?: MailPrevisite['ics'];
 }): MailPrevisite[] {
   return o.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => mailPrevisite({
     sorte: o.sorte, de: o.de, a: adressesUniques(l.emails), cc: [], objet: o.objet, paragraphes: o.paragraphesDe(l),

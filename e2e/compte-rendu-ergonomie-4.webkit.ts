@@ -47,7 +47,7 @@ for (const theme of ['light', 'dark'] as const) {
     await capturer(page, `${theme}-01-ouverture-sans-erreur`);
   });
 
-  test(`[${theme}] flèche d’Entrée seule ; trames ; « Nouveau fichier vocal » à droite`, async ({ page }) => {
+  test(`[${theme}] flèche d’Entrée seule ; trames ; 🔴 (7e retour) « Nouveau fichier vocal » pleine largeur`, async ({ page }) => {
     await preparer(page, theme);
     const entree = page.locator('[data-entree]');
     await expect(entree).toHaveAttribute('aria-label', 'Aller à la ligne');
@@ -62,8 +62,8 @@ for (const theme of ['light', 'dark'] as const) {
       const b = document.querySelector('[data-nouveau-vocal]')!.getBoundingClientRect(); const c = document.querySelector('[data-vocaux-compte-rendu]')!.getBoundingClientRect();
       return { bouton: Math.round(b.right), bloc: Math.round(c.right), gauche: Math.round(b.left - c.left) };
     });
-    expect(droite.bloc - droite.bouton).toBeLessThanOrEqual(16); // collé à la marge droite du bloc
-    expect(droite.gauche).toBeGreaterThan(100);
+    expect(droite.bloc - droite.bouton).toBeLessThanOrEqual(24); // jusqu'à la marge droite de l'encart
+    expect(droite.gauche).toBeLessThanOrEqual(24); // et depuis sa marge gauche : pleine largeur
     await page.locator('[data-bloc-texte]').scrollIntoViewIfNeeded();
     await capturer(page, `${theme}-02-texte-fleche`);
     await page.locator('[data-photos-compte-rendu]').scrollIntoViewIfNeeded();

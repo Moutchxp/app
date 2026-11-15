@@ -104,7 +104,7 @@ test('« Maintenir pour dicter » : insertion AU CURSEUR, sans ouvrir le clavier
   await capturer(page, '02-texte-dictee-inseree');
 });
 
-test('dictée : pendant l’appui, le bouton est ROUGE avec la durée ; le doigt qui sort du bouton arrête normalement', async ({ page }) => {
+test('dictée : pendant l’appui, le bouton est ROUGE avec la durée ; 🔴 (7e retour) le doigt qui glisse hors du bouton n’arrête PAS — seul son retrait arrête', async ({ page }) => {
   await preparer(page);
   const b = page.locator('[data-dicter]');
   await b.scrollIntoViewIfNeeded();
@@ -113,7 +113,10 @@ test('dictée : pendant l’appui, le bouton est ROUGE avec la durée ; le doigt
   await page.waitForTimeout(1200);
   await expect(b).toHaveClass(/pvv-maintien--actif/);
   await capturer(page, '03-dictee-en-cours-rouge');
-  await b.dispatchEvent('pointerout', { pointerType: 'touch' }); await b.dispatchEvent('pointerleave', { pointerType: 'touch' });
+  await b.dispatchEvent('pointerout', { pointerType: 'touch' }); await b.dispatchEvent('pointerleave', { pointerType: 'touch' }); await b.dispatchEvent('pointercancel', { pointerType: 'touch' });
+  await page.waitForTimeout(400);
+  await expect(b).toHaveAttribute('data-enregistrement', 'oui'); // toujours en cours
+  await b.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, button: 0 });
   await expect(page.locator('[data-corps-compte-rendu]')).toHaveValue(/Cuisine propre/);
 });
 

@@ -68,7 +68,8 @@ export function PageCompteRendu({ occupationId }: { occupationId: number }) {
     <ContextePreavis.Provider value={contexte}>
       <div className="pvv-page" data-page-compte-rendu={occupationId}>
         <style>{CSS_LOCATION_ECRANS}</style>
-        <LienRetour href={retour} />
+        {/* 🔴 Arno (15/11/2026, 7e retour) — la ligne de « ← Retour » porte, à droite, le petit cartouche de sauvegarde du brouillon */}
+        <div className="pvv-ligne-retour"><LienRetour href={retour} /><span data-cartouche-sauvegarde /></div>
         {d === null ? <EtatLecture etat={lu.etat} />
           : motif !== null || l === null || !l.previsite ? <div className="svv-card" role="status" data-cr-impossible>{motif}</div>
             : <FenetrePrevisite page geste="compte_rendu" l={l} p={l.previsite} onFermer={revenir} />}

@@ -86,7 +86,9 @@ for (const theme of ['light', 'dark'] as const) {
     await page.reload();
     await expect(formulaire(page)).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('[data-corps-compte-rendu]')).toHaveValue(`Salon propre (${theme}).`, { timeout: 10_000 });
-    await expect(page.locator('[data-brouillon-restaure]')).toHaveText(/^Brouillon restauré — enregistré à \d{2}h\d{2}$/);
+    // 🔴 (7e retour) le petit cartouche sur la ligne de « ← Retour » : un appui dit l'heure et « Brouillon restauré »
+    await page.locator('.pvv-ligne-retour [data-sauvegarde]').tap();
+    await expect(page.locator('[data-sauvegarde-detail]')).toHaveText(/^Dernier enregistrement à \d{2}h\d{2} · Brouillon restauré$/);
     await expect(page.locator('[data-presence-locataire]').first()).toBeChecked();
     await expect(page.locator('[data-aussi-locataires]')).toHaveAttribute('aria-pressed', 'false');
     await capturer(page, `${theme}-02-restaure-apres-rechargement`);
@@ -102,7 +104,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(formulaire(page)).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-corps-compte-rendu]')).toHaveValue('');
-    await expect(page.locator('[data-brouillon-restaure]')).toHaveCount(0);
+    await expect(page.locator('[data-sauvegarde-detail]')).toHaveCount(0);
     expect(erreurs).toEqual([]);
   });
 
@@ -122,7 +124,8 @@ for (const theme of ['light', 'dark'] as const) {
     await preparer(p2, theme);
     await ouvrir(p2);
     await expect(p2.locator('[data-corps-compte-rendu]')).toHaveValue('Vu en arrière-plan.', { timeout: 10_000 });
-    await expect(p2.locator('[data-brouillon-restaure]')).toBeVisible();
+    await p2.locator('.pvv-ligne-retour [data-sauvegarde]').tap();
+    await expect(p2.locator('[data-sauvegarde-detail]')).toContainText('Brouillon restauré');
     await capturer(p2, `${theme}-04-autre-appareil-restaure`);
     await effacer(p2);
     await autre.close();

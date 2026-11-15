@@ -79,7 +79,8 @@ for (const theme of ['light', 'dark'] as const) {
     const tailles = await page.evaluate(() => ['[data-clavier]', '[data-dicter]', '[data-photo-galerie-bouton]', '[data-ajouter-photo]', '[data-nouveau-vocal]', '[data-annuler-previsite]', '[data-recap-previsite]']
       .map((s) => { const r = document.querySelector(s)!.getBoundingClientRect(); return [s, Math.round(r.width), Math.round(r.height)] as const; }));
     const [, l0, h0] = tailles[0];
-    for (const [s, l, h] of tailles) { expect(Math.abs(l - l0), `${s} largeur`).toBeLessThanOrEqual(2); expect(Math.abs(h - h0), `${s} hauteur`).toBeLessThanOrEqual(2); }
+    // 🔴 (15/11/2026, 7e retour) « Nouveau fichier vocal » : même hauteur, mais PLEINE LARGEUR de l'encart
+    for (const [s, l, h] of tailles) { if (s !== '[data-nouveau-vocal]') expect(Math.abs(l - l0), `${s} largeur`).toBeLessThanOrEqual(2); expect(Math.abs(h - h0), `${s} hauteur`).toBeLessThanOrEqual(2); }
     await capturer(page, `${theme}-05-texte-boutons`);
     const rouge = await page.evaluate(() => { const d = document.createElement('div'); d.style.color = 'var(--color-svv-red)'; document.querySelector('.svv-adm-root')!.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; });
     for (const sel of ['[data-enregistrer-vocal]', '[data-dicter]']) {

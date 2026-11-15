@@ -52,11 +52,12 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
       try { o = await (await moduleVocal()).ouvrirEnregistreur(); } catch { o = { ok: false, motif: 'L’enregistrement n’a pas pu démarrer sur cet appareil.' }; }
       if (!o.ok) { voulu.current = false; setEtat('repos'); setMessage(o.motif); return; }
       // relâché pendant la demande d'autorisation du micro (première fois) : on ne garde rien, on dit de recommencer
-      if (!voulu.current) { o.flux.getTracks().forEach((t) => t.stop()); setEtat('repos'); setMessage(MESSAGE_MICRO_PRET); return; }
+      // le micro reste ouvert (gardé tant que la page est visible) ; rien n'a été enregistré
+      if (!voulu.current) { setEtat('repos'); setMessage(MESSAGE_MICRO_PRET); return; }
       const x = { r: o.r, flux: o.flux, morceaux: [] as Blob[], debut: Date.now(), type: o.type };
       o.r.ondataavailable = (e) => { if (e.data && e.data.size > 0) x.morceaux.push(e.data); };
       o.r.onstop = () => {
-        x.flux.getTracks().forEach((t) => t.stop());
+        // 🔴 (7e retour) le micro n'est PAS refermé : il est gardé pour l'appui suivant (relâché en arrière-plan)
         const ms = Date.now() - x.debut;
         rec.current = null; setEtat('repos'); setDureeMs(0);
         if (ms < PRISE_MIN_MS) { setMessage(MESSAGE_APPUI_BREF); return; }
@@ -64,7 +65,7 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
         if (blob.size > 0) priseRef.current(blob, x.type, ms);
       };
       rec.current = x;
-      try { o.r.start(250); } catch { rec.current = null; x.flux.getTracks().forEach((t) => t.stop()); setEtat('repos'); setMessage('L’enregistrement n’a pas pu démarrer sur cet appareil.'); return; }
+      try { o.r.start(250); } catch { rec.current = null; setEtat('repos'); setMessage('L’enregistrement n’a pas pu démarrer sur cet appareil.'); return; }
       setEtat('enregistre'); setDureeMs(0);
     })();
   }, []);
@@ -77,19 +78,46 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
     }, 200);
     return () => clearInterval(t);
   }, [etat, relacher]);
-  useEffect(() => () => { voulu.current = false; const x = rec.current; if (x) { try { x.r.stop(); } catch { /* rien */ } x.flux.getTracks().forEach((t) => t.stop()); } }, []);
+  useEffect(() => () => { voulu.current = false; const x = rec.current; if (x) { try { x.r.stop(); } catch { /* rien */ } } }, []);
   return { etat, dureeMs, message, appuyer, relacher, effacerMessage: () => setMessage(null) };
 }
 
-/** Le gros bouton « maintenir » : pointer events, aucun menu, aucune sélection, aucun zoom ; sortir du bouton = relâcher. */
+/**
+ * Le bouton « maintenir » : pointer events, aucun menu, aucune sélection, aucun zoom.
+ * 🔴🔴 Arno (15/11/2026, 7e retour) — APPUI CONTINU GARANTI : tant que le doigt reste posé, l'enregistrement ne s'interrompt JAMAIS.
+ * CAUSE des arrêts constatés doigt posé : au contact, le bouton RELÂCHAIT la capture du doigt (ancienne règle « doigt sorti du bouton =
+ * arrêt ») ; le moindre glissement hors des 44 px du micro déclenchait `pointerleave` → arrêt, et `pointercancel` (geste repris par le
+ * navigateur) aussi. Désormais : le doigt est CAPTURÉ (`setPointerCapture`), `touch-action: none` ; ni `pointerleave` ni `pointercancel`
+ * n'arrêtent ; l'arrêt vient UNIQUEMENT du retrait du doigt (pointerup sur le bouton ou n'importe où, touchend sans plus aucun doigt) ou du
+ * passage de la page en arrière-plan. Rouge et pulsation dès le contact, sans attendre le micro.
+ */
 export function BoutonMaintenir({ etat, dureeMs, repos, actif, rond = false, onAppui, onRelache, className, attributs }: {
   etat: EtatMaintien; dureeMs: number; repos: React.ReactNode; actif: React.ReactNode;
   /** le bouton rond du dictaphone : l'icône seule (la durée est affichée SOUS le bouton) */
   rond?: boolean; onAppui: () => void; onRelache: () => void; className: string; attributs: Record<string, string> }) {
+  const relache = useRef(onRelache);
+  useEffect(() => { relache.current = onRelache; }, [onRelache]);
+  const desarmer = useRef<(() => void) | null>(null);
+  /** le retrait du doigt, où qu'il se produise, et l'arrière-plan : les SEULES fins d'un appui */
+  const armer = (pointeur: number): void => {
+    desarmer.current?.();
+    const fin = (): void => { desarmer.current?.(); relache.current(); };
+    const haut = (e: PointerEvent): void => { if (e.pointerId === pointeur || e.pointerType === 'mouse') fin(); };
+    const doigts = (e: TouchEvent): void => { if (e.touches.length === 0) fin(); };
+    const cache = (): void => { if (document.visibilityState === 'hidden') fin(); };
+    window.addEventListener('pointerup', haut, true); window.addEventListener('touchend', doigts, true); window.addEventListener('mouseup', fin, true);
+    document.addEventListener('visibilitychange', cache); window.addEventListener('pagehide', fin);
+    desarmer.current = () => {
+      window.removeEventListener('pointerup', haut, true); window.removeEventListener('touchend', doigts, true); window.removeEventListener('mouseup', fin, true);
+      document.removeEventListener('visibilitychange', cache); window.removeEventListener('pagehide', fin);
+      desarmer.current = null;
+    };
+  };
+  useEffect(() => () => desarmer.current?.(), []);
   const bas = (e: PointerEventReact<HTMLButtonElement>): void => {
     e.preventDefault();
-    // le toucher capture le doigt d'office : on le libère pour que « sortir du bouton » arrête l'enregistrement
-    try { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* rien */ }
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* rien */ }
+    armer(e.pointerId);
     onAppui();
   };
   const clavier = (e: KeyboardEventReact<HTMLButtonElement>, haut: boolean): void => {
@@ -102,7 +130,7 @@ export function BoutonMaintenir({ etat, dureeMs, repos, actif, rond = false, onA
   const enCours = etat !== 'repos';
   return (
     <button type="button" className={`${className}${enCours ? ' pvv-maintien--actif' : ''}`} aria-pressed={enCours} data-enregistrement={enCours ? 'oui' : 'non'}
-      onPointerDown={bas} onPointerUp={onRelache} onPointerCancel={onRelache} onPointerLeave={() => { if (enCours) onRelache(); }}
+      onPointerDown={bas} onPointerUp={() => { desarmer.current?.(); onRelache(); }}
       onContextMenu={(e) => e.preventDefault()} onKeyDown={(e) => clavier(e, false)} onKeyUp={(e) => clavier(e, true)} {...attributs}>
       {rond ? (enCours ? actif : repos)
         : etat === 'enregistre' ? <><span className="pvv-point" aria-hidden="true" />{actif} <span className="pvv-chrono" role="timer" data-maintien-duree>{dureeFr(dureeMs / 1000)}</span></>
@@ -165,7 +193,8 @@ export function ChampAvecMicro({ libelle, libelleVisible, valeur, max, placehold
       const r = await transcrireDictee(blob, type, occupationIds);
       setTranscription(false);
       if ('motif' in r) { setMotif(r.motif); return; }
-      onChange((l) => { const x = insererDictee(l, curseur.current, r.texte); const t = x.texte.slice(0, max); curseur.current = Math.min(x.curseur, t.length); return t; });
+      const p = curseur.current; // lu AVANT la mise à jour (rejouée en développement)
+      onChange((l) => { const x = insererDictee(l, p, r.texte); const t = x.texte.slice(0, max); curseur.current = Math.min(x.curseur, t.length); return t; });
     })();
   });
   const occupe = dictee.etat !== 'repos' || transcription;
@@ -306,7 +335,10 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
       setTranscription(false);
       if ('motif' in r) { setMotif(r.motif); return; }
       const t = r.texte;
-      setCorps((c) => { const x = insererDictee(c, lireCurseur(), t); const y = appliquerTirets(x.texte, x.curseur); noterCurseur(y.curseur); replacer.current = true; return y.texte; });
+      // 🔴 (7e retour) le curseur est lu AVANT la mise à jour : React rejoue la fonction de mise à jour en développement ; relire un curseur
+      // déjà déplacé insérait au mauvais endroit
+      const p = lireCurseur();
+      setCorps((c) => { const x = insererDictee(c, p, t); const y = appliquerTirets(x.texte, x.curseur); noterCurseur(y.curseur); replacer.current = true; return y.texte; });
     })();
   });
   const occupe = dictee.etat !== 'repos' || transcription;
@@ -361,8 +393,16 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
     setTimeout(() => { try { t.scrollIntoView({ block: 'center' }); } catch { /* rien */ } }, 300);
   };
   /** « Entrée » : un retour à la ligne au curseur, SANS ouvrir le clavier (le focus ne bouge pas : ouvert, il le reste ; fermé, il le reste). */
+  /* 🔴🔴 Arno (15/11/2026, 7e retour) — UN APPUI = UN SEUL RETOUR À LA LIGNE. Causes du double retour : (1) la fonction de mise à jour relisait
+     le curseur qu'elle venait de déplacer, et React la rejoue (développement) ; (2) un même toucher peut livrer deux activations (contact puis
+     clic de compatibilité). Le curseur est lu une fois, avant ; et une seconde activation dans la même demi-seconde est ignorée. */
+  const derniereEntree = useRef(0);
   const entree = (): void => {
-    setCorps((c) => { const x = insererEntree(c, lireCurseur()); noterCurseur(x.curseur); replacer.current = true; return x.texte; });
+    const t = Date.now();
+    if (t - derniereEntree.current < 450) return;
+    derniereEntree.current = t;
+    const p = lireCurseur();
+    setCorps((c) => { const x = insererEntree(c, p); noterCurseur(x.curseur); replacer.current = true; return x.texte; });
   };
   /** un bouton qui ne doit PAS faire perdre (ni prendre) le focus du champ */
   const sansFocus = { onPointerDown: (e: { preventDefault: () => void }) => e.preventDefault(), onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() };
@@ -761,7 +801,8 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
         <span className="pvv-chrono pvv-rond-duree" role="timer" aria-live="off" data-rond-duree>{prise.etat === 'repos' ? 'Maintenir pour enregistrer' : dureeFr(prise.dureeMs / 1000)}</span>
         <p className="loc-muet pvv-dictaphone-cible" data-vocal-cible>{cleCourante === null ? 'La première prise crée « Vocal 1 ».'
           : `Les prises s’ajoutent à « ${fichiers.find((f) => f.cle === cleCourante)?.nom ?? ''} ».`}</p>
-        <div className="pvv-boutons-2 pvv-a-droite"><button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal><Icone nom="plus" /> Nouveau fichier vocal</button></div>
+        {/* 🔴 Arno (15/11/2026, 7e retour) — même style, pleine largeur de l'encart */}
+        <div className="pvv-nouveau-vocal"><button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal><Icone nom="plus" /> Nouveau fichier vocal</button></div>
       </div>
       {prise.message !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{prise.message}</p>}
       {fichiers.length > 0 && <ol className="pvv-fichiers">{fichiers.map((f, i) => {
@@ -976,7 +1017,9 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-boite-cr .mis-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pvv-boite-cr .mis-actions .mis-action{width:100%;min-height:56px;font-size:1rem;font-weight:800;padding:0 10px}
 .pvv-gros{box-sizing:border-box;min-height:56px;width:100%;margin:0;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:1rem;font-weight:800;line-height:1.2;padding:0 10px;text-align:center;border-radius:14px;cursor:pointer}
-.pvv-maintien{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
+.pvv-maintien{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:pointer;transition:none}
+/* Arno (15/11/2026, 7e retour) : rouge DES le contact — aucune transition de couleur sur les boutons micro */
+.pvv-maintien.svv-btn,.pvv-maintien--actif{transition:none}
 .pvv-maintien.svv-btn{background:var(--color-svv-ink);color:var(--color-svv-surface);border:0}
 .pvv-maintien--actif,.pvv-maintien--actif.svv-btn,.pvv-boite-cr .pvv-maintien.pvv-maintien--actif,.pvv-boite-cr .pvv-maintien.pvv-maintien--actif:hover,.pvv-boite-cr .pvv-maintien.pvv-maintien--actif:active{background:var(--color-svv-red) !important;border-color:var(--color-svv-red) !important;color:var(--color-svv-blanc) !important;animation:pvv-pulsation 1.1s ease-in-out infinite}
 @keyframes pvv-pulsation{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--color-svv-red) 55%, transparent)}70%{box-shadow:0 0 0 14px color-mix(in srgb, var(--color-svv-red) 0%, transparent)}100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--color-svv-red) 0%, transparent)}}
@@ -1057,6 +1100,13 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-mini-modale{width:min(420px,100%);box-sizing:border-box;padding:16px;border-radius:16px;background:var(--color-svv-surface);color:var(--color-svv-ink);display:flex;flex-direction:column;gap:12px;box-shadow:0 18px 40px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
 .pvv-civilite{border:0;margin:0;padding:0;display:flex;gap:16px;flex-wrap:wrap}
 .pvv-mini-modale input[type=text]{width:100%;box-sizing:border-box;min-height:48px;font-size:16px}
+/* Arno (15/11/2026, 7e retour) : les champs de la fenetre « Ajouter une personne » ont le lisere standard ; Madame / Monsieur lisibles */
+.pvv-mini-modale input[type=text]{padding:0 12px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:16px}
+.pvv-mini-modale input[type=text]:focus{outline:none;border-color:var(--color-svv-ink);box-shadow:0 0 0 1px var(--color-svv-ink)}
+.pvv-civilite .pvv-case{min-height:48px;padding:0 16px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:800}
+.pvv-civilite .pvv-case:has(input:checked){border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 8%, var(--color-svv-surface))}
+.pvv-nouveau-vocal{align-self:stretch;width:100%}
+.pvv-nouveau-vocal .pvv-gros{width:100%}
 .pvv-cr-fichiers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
 /* le formulaire du compte rendu : fond OPAQUE (rien de la page derriere ne transparait), boutons en FIN de formulaire (plus colles en bas) */
 .pvv-voile-cr{background:var(--color-svv-surface);z-index:200;top:0;right:0;bottom:0;left:0;box-shadow:0 0 0 100vmax var(--color-svv-surface)}
