@@ -25,7 +25,7 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
-import { estModeTriRdv, LIBELLE_TRI_RDV, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { colonneRdv, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -121,11 +121,12 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const [locaux, setLocaux] = useState<Record<string, EdlsAffiche>>({});
   /* 🔴🔴 Arno (15/11/2026) — le TRI CHRONOLOGIQUE DES RENDEZ-VOUS (défaut : plus proches d'abord), mémorisé sur l'appareil par écran ; actif, il
      prime sur les tris du panneau ; choisir un tri du panneau le désactive. */
-  const cleTriRdv = `svav.preavis.triRdv:${plein ? 'plein' : 'bloc'}:${lecture}`;
+  // 🔴 (15/11/2026) mémoire VERSIONNÉE (clé .v2) : une valeur d'un format ancien ou invalide est ignorée, le défaut « plus proches d'abord » revient
+  const cleTriRdv = `svav.preavis.triRdv.v2:${plein ? 'plein' : 'bloc'}:${lecture}`;
   const [triRdv, setTriRdv] = useState<ModeTriRdv>(MODE_TRI_RDV_DEFAUT);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { try { const v = window.localStorage.getItem(cleTriRdv); if (estModeTriRdv(v)) setTriRdv(v); } catch { /* sans stockage */ } }, [cleTriRdv]);
-  const choisirTriRdv = (m: ModeTriRdv): void => { setTriRdv(m); try { window.localStorage.setItem(cleTriRdv, m); } catch { /* sans stockage */ } };
+  useEffect(() => { let v: ModeTriRdv = MODE_TRI_RDV_DEFAUT; try { v = lireModeTriRdv(window.localStorage.getItem(cleTriRdv)); } catch { /* sans stockage */ } setTriRdv(v); }, [cleTriRdv]);
+  const choisirTriRdv = (m: ModeTriRdv): void => { setTriRdv(m); try { window.localStorage.setItem(cleTriRdv, ecrireModeTriRdv(m)); } catch { /* sans stockage */ } };
   // 🔴 (15/11/2026) le panneau des tris, replié derrière l'icône « Tris » (accord d'Arno : rien n'est supprimé, tout reste accessible)
   const [trisOuverts, setTrisOuverts] = useState(false);
   const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); choisirTriRdv('off'); };
@@ -270,16 +271,29 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               {affichage.map((l) => {
                 if ('separateur' in l) return <li key="sans-rdv" className="pva-separateur" data-separateur-sans-rdv>Sans rendez-vous fixé ({l.separateur})</li>;
                 const noms = l.locataires.map((x) => x.nom).join(', ');
-                const detail = [l.adresse ?? `Bien ${l.lotId}`, `Fin de préavis le ${dateFrPreavis(l.dateMax)}`,
-                  l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null,
+                /* 🔴🔴 Arno (15/11/2026) — DEUX LIGNES : 1) nom(s) + adresse ; 2) colonnes FIXES communes à tout le listing : A « Fin de préavis »,
+                   B le rendez-vous fixé (mis en évidence, couleur de son type), C les détails existants. Aucune information retirée : le texte
+                   complet d'avant reste en infobulle de la ligne. */
+                const adresse = l.adresse ?? `Bien ${l.lotId}`;
+                const fin = `Fin de préavis ${dateFrPreavis(l.dateMax)}`;
+                const rdv = colonneRdv(l, maintenantParis());
+                const details = [l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null,
                   detailPrevisite(l.previsite)].filter((x) => x !== null).join(' · ');
+                const detail = [adresse, `Fin de préavis le ${dateFrPreavis(l.dateMax)}`, details].filter((x) => x !== '').join(' · ');
                 const estOuverte = ouverte === l.cle;
                 return (
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
                     <div className="pva-ligne">
-                      <div className="pva-textes">
-                        <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
-                        <span className="pva-detail" title={detail}>{detail}</span>
+                      <div className="pva-textes" title={`${noms} — ${detail}`}>
+                        <span className="pva-l1">
+                          <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
+                          <span className="pva-adresse" title={adresse} data-adresse-ligne>{adresse}</span>
+                        </span>
+                        <span className="pva-l2">
+                          <span className="pva-col-fin" data-col-fin>{fin}</span>
+                          <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{rdv.texte}</span>
+                          <span className="pva-col-details pva-detail" title={details} data-col-details>{details}</span>
+                        </span>
                       </div>
                       {/* 🔴🔴 Arno (15/11/2026) — LE statut de la ligne (un seul, calculé) à la place de « en préavis » fixe ; l'alerte « Préavis
                           échu » reste affichée à côté ; un état des lieux refusé par le collègue garde son repère « EDLS à réattribuer ». */}
@@ -681,6 +695,19 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-noms,.pva-detail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .pva-noms{font-weight:800;color:var(--color-svv-ink)}
 .pva-detail{font-size:.88rem;color:var(--color-svv-muted)}
+/* Arno (15/11/2026) : ligne 1 = nom(s) + adresse ; ligne 2 = colonnes FIXES communes a tout le listing (les dates de rendez-vous sont toutes
+   dans la meme colonne verticale) : A fin de preavis, B rendez-vous fixe (couleur de son type), C details */
+.pva-l1{display:flex;align-items:baseline;gap:10px;min-width:0;white-space:nowrap}
+.pva-l1 .pva-noms{flex:0 1 auto}
+.pva-adresse{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
+.pva-l2{display:grid;grid-template-columns:11.5rem 17rem minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem}
+.pva-col-fin,.pva-col-rdv,.pva-col-details{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pva-col-fin{color:var(--color-svv-muted)}
+.pva-col-rdv{font-weight:800}
+.pva-col-rdv--previsite{color:var(--color-svv-sarcelle)}
+.pva-col-rdv--edl{color:var(--color-svv-violet)}
+.pva-col-rdv--effectuee,.pva-col-rdv--aucun{color:var(--color-svv-muted);font-weight:600}
+.pva-col-details{color:var(--color-svv-muted)}
 .pva-ouvrir{min-height:44px}
 .pva-depliee{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;padding:4px 12px 14px}
 .pva-bloc{display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -695,7 +722,12 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-liens a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-ink);font-weight:600;text-decoration:underline}
 .sor-gestion-seule-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 @media (max-width:760px){
-  .pva-ligne{height:6.25rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
+  .pva-ligne{height:8.25rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
+  /* telephone : ligne 1 nom + adresse ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
+     les details restent dans l'infobulle de la ligne ; aucun debordement horizontal */
+  .pva-l2{grid-template-columns:minmax(0,1fr);row-gap:2px}
+  .pva-col-rdv{order:-1}
+  .pva-col-details{display:none}
   /* hauteur CONSTANTE (Arno) : les reperes, plus compacts, tiennent au plus sur deux rangees, jamais sous « Ouvrir » */
   .psl-cartouches{justify-content:flex-start;gap:3px 4px;max-height:2.9rem;overflow:hidden}
   .psl-cartouches .psl-statut,.psl-cartouches .pvs-mention,.psl-cartouches .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px;letter-spacing:-.01em}

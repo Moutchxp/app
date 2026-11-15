@@ -37,3 +37,29 @@ describe('le tri chronologique des rendez-vous', () => {
     expect(maintenantParis(new Date('2026-11-15T17:05:00Z'))).toBe('2026-11-15 18:05');
   });
 });
+
+describe('🔴 (15/11/2026) la colonne « rendez-vous » du listing et la mémoire du tri', async () => {
+  const { colonneRdv, jourCourt, lireModeTriRdv, ecrireModeTriRdv, AUCUN_RDV_FIXE } = await import('./triRdvPreavis');
+  it('« Pré-visite · dim. 15/11 · 00h16 », « État des lieux · mer. 18/11 · 11h30 » : le prochain à venir, à défaut le dernier passé', () => {
+    expect(jourCourt('2026-11-15')).toBe('dim. 15/11'); // le 15/11/2026 est un dimanche
+    expect(colonneRdv({ previsite: { statut: 'programmee', rdv: { jour: '2026-11-15', heure: '00:16' } } }, '2026-11-14 12:00'))
+      .toEqual({ sorte: 'previsite', quand: '2026-11-15 00:16', texte: 'Pré-visite · dim. 15/11 · 00h16' });
+    expect(colonneRdv({ previsite: { statut: 'effectuee', rdv: { jour: '2026-11-15', heure: '00:16' } }, edls: { jour: '2026-11-18', heure: '11:30:00' } }, MAINTENANT))
+      .toEqual({ sorte: 'edl', quand: '2026-11-18 11:30', texte: 'État des lieux · mer. 18/11 · 11h30' });
+    expect(colonneRdv({ previsite: { statut: 'programmee', rdv: { jour: '2026-11-14', heure: '23:49' } } }, MAINTENANT).texte).toBe('Pré-visite · sam. 14/11 · 23h49'); // passé, gardé
+  });
+  it('pré-visite effectuée sans état des lieux : « Pré-visite effectuée le 15/11 » ; rien : « — Aucun RDV fixé » ; un refus n’a pas de rendez-vous', () => {
+    expect(colonneRdv({ previsite: { statut: 'effectuee', rdv: { jour: '2026-11-15', heure: '00:16' } } }, MAINTENANT)).toEqual({ sorte: 'effectuee', texte: 'Pré-visite effectuée le 15/11' });
+    expect(colonneRdv({ previsite: { statut: 'recu' } }, MAINTENANT)).toEqual({ sorte: 'aucun', texte: AUCUN_RDV_FIXE });
+    expect(colonneRdv({ previsite: { statut: 'refusee', rdv: { jour: '2026-11-20', heure: '10:00' } } }, MAINTENANT).sorte).toBe('aucun');
+  });
+  it('la mémoire du tri RDV est VERSIONNÉE : sans préférence, ou un format ancien / invalide → « plus proches d’abord »', () => {
+    expect(lireModeTriRdv(null)).toBe('proches');
+    expect(lireModeTriRdv('off')).toBe('proches'); // l'ancien format (texte nu) ne survit pas
+    expect(lireModeTriRdv('{"v":1,"mode":"off"}')).toBe('proches');
+    expect(lireModeTriRdv('{"v":2,"mode":"n-importe"}')).toBe('proches');
+    expect(lireModeTriRdv('pas du json')).toBe('proches');
+    expect(lireModeTriRdv(ecrireModeTriRdv('lointains'))).toBe('lointains');
+    expect(lireModeTriRdv(ecrireModeTriRdv('off'))).toBe('off');
+  });
+});

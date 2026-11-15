@@ -63,3 +63,44 @@ export function maintenantParis(d: Date = new Date()): string {
   const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
   return `${v('year')}-${v('month')}-${v('day')} ${v('hour')}:${v('minute')}`;
 }
+
+/* ══ 🔴🔴 Arno (15/11/2026) — LA COLONNE « RENDEZ-VOUS » du listing (même place sur toutes les lignes) ═══════════════════════════════════
+   Le rendez-vous FIXÉ de la ligne, mis en évidence avec son type : « Pré-visite · sam. 15/11 · 00h16 » (pré-visite fixée) ou « État des lieux
+   · mer. 18/11 · 11h30 » (état des lieux planifié) — le prochain à venir, à défaut le dernier passé ; sans rendez-vous : « Pré-visite effectuée
+   le JJ/MM » (pré-visite faite, pas encore d'état des lieux), sinon « — Aucun RDV fixé ». */
+export type ColonneRdv = { sorte: 'previsite' | 'edl'; texte: string; quand: string } | { sorte: 'effectuee' | 'aucun'; texte: string };
+export const AUCUN_RDV_FIXE = '— Aucun RDV fixé';
+const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+/** « sam. 15/11 » (le jour civil, sans fuseau). PUR. */
+export function jourCourt(jour: string): string {
+  const [a, m, j] = jour.split('-').map(Number);
+  const d = new Date(Date.UTC(a, (m || 1) - 1, j || 1));
+  return `${JOURS[d.getUTCDay()]} ${String(j).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+}
+const heureCourte = (h: string | null | undefined): string => { const [hh, mm] = (h || '00:00').split(':'); return `${hh.padStart(2, '0')}h${(mm ?? '00').padStart(2, '0')}`; };
+/** La colonne « rendez-vous » d'une ligne. PUR. */
+export function colonneRdv(l: LigneRdv, maintenant: string): ColonneRdv {
+  const c: { sorte: 'previsite' | 'edl'; jour: string; heure: string | null; quand: string }[] = [];
+  const p = l.previsite;
+  if (p && p.statut === 'programmee' && p.rdv && p.rdv.jour) c.push({ sorte: 'previsite', jour: p.rdv.jour, heure: p.rdv.heure, quand: `${p.rdv.jour} ${(p.rdv.heure || '00:00').slice(0, 5)}` });
+  if (l.edls && l.edls.jour) c.push({ sorte: 'edl', jour: l.edls.jour, heure: l.edls.heure, quand: `${l.edls.jour} ${(l.edls.heure || '00:00').slice(0, 5)}` });
+  if (c.length > 0) {
+    const futurs = c.filter((x) => x.quand >= maintenant).sort((a, b) => a.quand.localeCompare(b.quand));
+    const x = futurs[0] ?? [...c].sort((a, b) => a.quand.localeCompare(b.quand)).at(-1)!;
+    return { sorte: x.sorte, quand: x.quand, texte: `${x.sorte === 'edl' ? 'État des lieux' : 'Pré-visite'} · ${jourCourt(x.jour)} · ${heureCourte(x.heure)}` };
+  }
+  if (p && p.statut === 'effectuee' && p.rdv && p.rdv.jour) return { sorte: 'effectuee', texte: `Pré-visite effectuée le ${jourCourt(p.rdv.jour).slice(5)}` };
+  return { sorte: 'aucun', texte: AUCUN_RDV_FIXE };
+}
+
+/* 🔴 (15/11/2026) LA MÉMOIRE DU TRI RDV, VERSIONNÉE : seul le format courant est relu ; une valeur d'un format ancien ou invalide est
+   ignorée et le défaut (« RDV : plus proches d'abord ») s'applique. */
+export const VERSION_MEMOIRE_TRI_RDV = 2;
+export function lireModeTriRdv(brut: string | null | undefined): ModeTriRdv {
+  if (!brut) return MODE_TRI_RDV_DEFAUT;
+  try {
+    const o = JSON.parse(brut) as { v?: unknown; mode?: unknown };
+    return o && o.v === VERSION_MEMOIRE_TRI_RDV && estModeTriRdv(o.mode) ? o.mode : MODE_TRI_RDV_DEFAUT;
+  } catch { return MODE_TRI_RDV_DEFAUT; }
+}
+export const ecrireModeTriRdv = (m: ModeTriRdv): string => JSON.stringify({ v: VERSION_MEMOIRE_TRI_RDV, mode: m });

@@ -177,18 +177,26 @@ describe('placement : le même espace que barre de recherche → cases', () => {
 });
 
 describe('les lignes', () => {
-  it('hauteur CONSTANTE : une hauteur fixe (bureau et téléphone), deux lignes de texte tronquées, texte complet en infobulle', async () => {
+  it('hauteur CONSTANTE : une hauteur fixe (bureau et téléphone) ; 🔴 (15/11/2026) DEUX lignes : nom(s) + adresse, puis colonnes fixes (fin de préavis, rendez-vous, détails) ; texte complet en infobulle', async () => {
     const regle = (sel: string, css: string): string => new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     const [bureau, mobile] = CSS_PREAVIS_ACCUEIL.split('@media');
     expect(regle('.pva-ligne', bureau)).toMatch(/(^|;)height:4\.75rem/);
-    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:6\.25rem/);
+    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:8\.25rem/);
     expect(CSS_PREAVIS_ACCUEIL).not.toMatch(/\.pva-ligne\{[^}]*min-height/);
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-noms,\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
+    // les colonnes FIXES, communes à tout le listing : une seule règle de grille, des largeurs fixes (pas de largeur calculée par ligne)
+    expect(regle('.pva-l2', bureau)).toBe('display:grid;grid-template-columns:11.5rem 17rem minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem');
+    expect(regle('.pva-l2', mobile)).toBe('grid-template-columns:minmax(0,1fr);row-gap:2px');
+    expect(mobile).toContain('.pva-col-rdv{order:-1}');
     await rendre();
     const a = container.querySelector('[data-ligne-preavis="A"]')!;
     expect(a.querySelector('.pva-noms')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul');
-    expect(a.querySelector('.pva-detail')?.textContent).toBe('A rue · Fin de préavis le 01/12/2099 · État des lieux le 10/01/2099');
-    expect(container.querySelector('[data-ligne-preavis="B"] .pva-detail')?.textContent).toBe('B rue · Fin de préavis le 01/01/2020');
+    expect(a.querySelector('[data-adresse-ligne]')?.textContent).toBe('A rue');
+    expect([...a.querySelectorAll('.pva-l2 > span')].map((x) => [x.className, x.textContent])).toEqual([
+      ['pva-col-fin', 'Fin de préavis 01/12/2099'], ['pva-col-rdv pva-col-rdv--aucun', '— Aucun RDV fixé'], ['pva-col-details pva-detail', 'État des lieux le 10/01/2099']]);
+    // rien n'est retiré : tout le texte d'avant reste en infobulle de la ligne
+    expect(a.querySelector('.pva-textes')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul — A rue · Fin de préavis le 01/12/2099 · État des lieux le 10/01/2099');
+    expect(container.querySelector('[data-ligne-preavis="B"] [data-col-fin]')?.textContent).toBe('Fin de préavis 01/01/2020');
     expect(a.querySelectorAll('.pva-textes > span')).toHaveLength(2);
     expect(container.querySelector('[data-nombre-preavis]')?.textContent).toBe('3');
   });
@@ -2982,5 +2990,45 @@ describe('🔴🔴 Arno (15/11/2026) — tris repliés derrière l’icône « T
     act(() => root.unmount()); root = createRoot(container);
     await rendre(true);
     expect(container.querySelector('[data-tri-rdv]')!.getAttribute('data-tri-rdv')).toBe('lointains'); // mémorisé sur l'appareil
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026) — le listing sur DEUX lignes, colonnes fixes ; le tri RDV par défaut', () => {
+  const PV = (statut: 'alerte' | 'recu' | 'programmee' | 'effectuee' | 'refusee', jour?: string, heure = '10:00') => ({ statut, rdv: jour ? { jour, heure, dureeMinutes: 60 } : null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null });
+  const EDLS = { edlsId: 1, tacheId: 2, jour: '2099-02-03', heure: '11:30', dureeMinutes: 60, confieA: 'Arno Test', confieAId: 3, statut: 'acceptee' as const, reponduPar: null, motifRefus: null };
+  beforeEach(() => {
+    try { window.localStorage.clear(); } catch { /* rien */ }
+    lignes = [
+      { ...LIGNES[0], previsite: PV('programmee', '2099-01-10', '00:16') },
+      { ...LIGNES[1], previsite: PV('effectuee', '2026-11-15', '00:16') },
+      { ...LIGNES[2], previsite: PV('effectuee', '2099-01-05'), edls: EDLS },
+    ];
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('preavisEnCours=1')
+      ? ok({ disponible: true, etatDesLieux: true, previsite: true, planification: true, lignes }) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+  });
+  const col = (cle: string, c: string) => container.querySelector(`[data-ligne-preavis="${cle}"] [data-col-${c}]`)!;
+  it('ligne 2 : la MÊME grille pour toutes les lignes ; A « Fin de préavis », B le rendez-vous (pré-visite / état des lieux / effectuée), C les détails', async () => {
+    await rendre(true);
+    for (const cle of ['A', 'B', 'C']) expect([...container.querySelectorAll(`[data-ligne-preavis="${cle}"] .pva-l2 > span`)].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-col-details']);
+    expect([col('A', 'rdv').textContent, col('A', 'rdv').getAttribute('data-col-rdv')]).toEqual(['Pré-visite · sam. 10/01 · 00h16', 'previsite']);
+    expect([col('C', 'rdv').textContent, col('C', 'rdv').getAttribute('data-col-rdv')]).toEqual(['État des lieux · mar. 03/02 · 11h30', 'edl']);
+    expect([col('B', 'rdv').textContent, col('B', 'rdv').getAttribute('data-col-rdv')]).toEqual(['Pré-visite effectuée le 15/11', 'effectuee']);
+    expect(col('C', 'details').textContent).toContain('confié à Arno Test');
+    expect(col('A', 'fin').textContent).toBe('Fin de préavis 01/12/2099');
+    // ligne 1 : badge éventuel + nom(s) + adresse ; le cartouche de statut et « Ouvrir » à droite
+    const a = container.querySelector('[data-ligne-preavis="A"] .pva-ligne')!;
+    expect([...a.children].map((x) => x.className.split(' ')[0])).toEqual(['pva-textes', 'psl-cartouches', 'svv-btn']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pva-col-rdv--previsite{color:var(--color-svv-sarcelle)}');
+    expect(css).toContain('.pva-col-rdv--edl{color:var(--color-svv-violet)}');
+  });
+  it('le tri RDV : « plus proches d’abord » à la première ouverture ; une valeur d’un ancien format est ignorée ; le libellé dit l’état réel', async () => {
+    window.localStorage.setItem('svav.preavis.triRdv:bloc:location', 'off'); // l'ancien format (texte nu, ancienne clé)
+    window.localStorage.setItem('svav.preavis.triRdv.v2:bloc:location', 'off'); // une valeur invalide sous la nouvelle clé
+    await rendre(true);
+    const b = container.querySelector('[data-tri-rdv]') as HTMLButtonElement;
+    expect([b.getAttribute('data-tri-rdv'), b.textContent]).toEqual(['proches', 'RDV : plus proches d’abord']);
+    expect(ordre()).toEqual(['C', 'A', 'B']);
   });
 });
