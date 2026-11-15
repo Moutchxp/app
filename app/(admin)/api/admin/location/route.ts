@@ -41,14 +41,14 @@ import {
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
 import { apercuValidationSortie, validerSortieEdls } from '../../../../lib/location/validationSortieRepo';
 import {
-  apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
+  apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
   envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
 } from '../../../../lib/location/previsiteRepo';
 import { apercuMailsPreavis, apercuMailsSortie, destinatairesPourInfo, envoyerMailsSortie, enregistrerPreavisAvecMails, envoyerMailSortieAdhoc, logementDe, partenairesDeSortie } from '../../../../lib/location/mailsPreavisSortieRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
-import { perimetreCourant } from '../../../../lib/location/perimetreTest';
-import { creerPreavisTest, supprimerPreavisTest, testDisponible } from '../../../../lib/location/preavisTestRepo';
+import { avecPerimetreTest, perimetreCourant } from '../../../../lib/location/perimetreTest';
+import { creerPreavisTest, perimetreDuGeste, supprimerPreavisTest, testDisponible } from '../../../../lib/location/preavisTestRepo';
 import { planifierInvitationTest } from '../../../../lib/location/preavisTestInvitation';
 import { exigerAdministrateur } from '../../../../lib/admin/garde';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
@@ -171,6 +171,16 @@ export async function GET(request: Request): Promise<Response> {
     if (p('previsiteCompteRendu') !== null) {
       const ids = (p('previsiteCompteRendu') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
       return Response.json(ids.length === 0 ? { etat: 'inconnu' } : await lireCompteRenduPrevisite(ids), { headers: ENTETES });
+    }
+    // 🔴 Arno (15/11/2026, 6e retour) — les DESTINATAIRES du compte rendu (noms des locataires, adresses internes, mention de recette), DANS le
+    // périmètre du préavis de test (la mention dit l'adresse réellement servie) — LECTURE SEULE.
+    if (p('previsiteDestinataires') !== null) {
+      const ids = (p('previsiteDestinataires') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
+      if (ids.length === 0) return Response.json({ etat: 'inconnu' }, { headers: ENTETES });
+      const per = await perimetreDuGeste({ occupationIds: ids });
+      if (!per.ok) return Response.json({ etat: 'refus', motif: per.motif }, { status: 403, headers: ENTETES });
+      const auteurLu = await auteurDeLaRequete(request);
+      return Response.json(await avecPerimetreTest(per.perimetre, () => destinatairesCompteRendu(ids, auteurLu)), { headers: ENTETES });
     }
     // 🔴 Arno (15/11/2026) — le BROUILLON du compte rendu de pré-visite (474) : texte, présences, photos et légendes, vocaux, envoi aux locataires — LECTURE SEULE.
     if (p('previsiteBrouillon') !== null) {

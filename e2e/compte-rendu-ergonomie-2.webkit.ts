@@ -104,10 +104,10 @@ test('« Clavier » en bascule ; ordre des boutons ; « Entrée » et tirets ; d
   await clavier.tap();
   await expect(zone).not.toBeFocused();
   await expect(clavier).toHaveAttribute('aria-pressed', 'false');
-  // « Entrée » sans clavier : la nouvelle ligne, vide, sans tiret ; la dictée qui y arrive prend le tiret
+  // « Entrée » sans clavier : 🔴 (15/11/2026, 6e retour) la nouvelle ligne a son tiret TOUT DE SUITE (« - | ») ; la dictée y arrive
   await page.locator('[data-entree]').tap();
   await expect(zone).not.toBeFocused();
-  await expect(zone).toHaveValue('Salon propre\n- Cuisine sale\n');
+  await expect(zone).toHaveValue('Salon propre\n- Cuisine sale\n- ');
   await maintenir(page, '[data-dicter]', 800);
   await expect(zone).toHaveValue('Salon propre\n- Cuisine sale\n- Cuisine propre');
   await zone.scrollIntoViewIfNeeded();

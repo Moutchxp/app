@@ -4,13 +4,10 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSy
 import { envoyer, useLecture } from './commun';
 import { erreurReseau, groupeDe, listerAttente, mettreEnAttente, retirerAttente } from '../../../../lib/location/fileAttenteLocale';
 import { useContextePreavis } from './preavisSynchro';
-import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
-import { aUnEmail } from '../../../../lib/location/emailLocataireRequis';
-import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 import { Icone } from './IconesCompteRendu';
 import { lignePhoto } from '../../../../lib/location/photosCompteRendu';
 import { dureeFr, etatVocalLocataires, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
-import { appliquerTirets, insererEntree, themeBascule } from '../../../../lib/location/texteCompteRendu';
+import { appliquerTirets, insererEntree, themeBascule, tiretApresRetour } from '../../../../lib/location/texteCompteRendu';
 import { appliquerThemeSur, persisterTheme, racineTheme, snapshotTheme, snapshotThemeServeur, souscrireTheme } from '../themeDom';
 
 /**
@@ -149,9 +146,15 @@ export function Confirmation({ question, action, onConfirmer, onGarder, attribut
  * pour dicter » (appui maintenu, rouge et pulsation, transcription au relâchement, insertion au curseur de CETTE légende, sans ouvrir le
  * clavier, appui de moins de 0,5 s ignoré). Le texte ne passe jamais sous le bouton (marge droite du champ).
  */
-export function ChampLegende({ rang, valeur, invalide, occupationIds, onChange, onOccupe }: {
-  rang: number; valeur: string; invalide: boolean; occupationIds: readonly number[];
-  onChange: (f: (legende: string) => string) => void; onOccupe: (occupe: boolean) => void }) {
+/**
+ * 🔴 Arno (15/11/2026) — UN CHAMP D'UNE LIGNE AVEC SON MICRO (légende d'une photo, titre d'un fichier vocal) : le liseré d'un champ de saisie,
+ * le petit bouton micro rond à droite DANS le champ (« Maintenir pour dicter … »), la dictée insérée au curseur de CE champ, sans ouvrir le
+ * clavier ; le texte ne passe jamais sous le bouton.
+ */
+export function ChampAvecMicro({ libelle, libelleVisible, valeur, max, placeholder, invalide = false, occupationIds, onChange, onOccupe, attributsChamp, attributsMicro, classe = '' }: {
+  libelle: string; libelleVisible: boolean; valeur: string; max: number; placeholder?: string; invalide?: boolean; occupationIds: readonly number[];
+  onChange: (f: (v: string) => string) => void; onOccupe: (occupe: boolean) => void;
+  attributsChamp: Record<string, string>; attributsMicro: Record<string, string>; classe?: string }) {
   const curseur = useRef<number | null>(null);
   const [transcription, setTranscription] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -162,7 +165,7 @@ export function ChampLegende({ rang, valeur, invalide, occupationIds, onChange, 
       const r = await transcrireDictee(blob, type, occupationIds);
       setTranscription(false);
       if ('motif' in r) { setMotif(r.motif); return; }
-      onChange((l) => { const x = insererDictee(l, curseur.current, r.texte); const t = x.texte.slice(0, LEGENDE_MAX); curseur.current = Math.min(x.curseur, t.length); return t; });
+      onChange((l) => { const x = insererDictee(l, curseur.current, r.texte); const t = x.texte.slice(0, max); curseur.current = Math.min(x.curseur, t.length); return t; });
     })();
   });
   const occupe = dictee.etat !== 'repos' || transcription;
@@ -173,19 +176,29 @@ export function ChampLegende({ rang, valeur, invalide, occupationIds, onChange, 
   useEffect(() => () => occuperRef.current(false), []);
   return (
     <div className="pvv-legende-bloc">
-      <label className="pvs-champ pvv-legende"><span className="pvs-libelle">{`Légende de la photo ${rang} *`}</span>
+      <label className={`pvs-champ pvv-legende${classe ? ` ${classe}` : ''}`}><span className={libelleVisible ? 'pvs-libelle' : 'pvv-lu'}>{libelle}</span>
         <span className="pvv-legende-cadre">
-          <input type="text" className="pvv-legende-champ" value={valeur} maxLength={LEGENDE_MAX} placeholder="ex. Rayure parquet chambre" aria-invalid={invalide} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
-            onChange={(e) => { const v = e.target.value; curseur.current = e.target.selectionStart; onChange(() => v); }} onSelect={noter} onKeyUp={noter} onClick={noter} onBlur={noter} data-photo-legende />
+          <input type="text" className="pvv-legende-champ" value={valeur} maxLength={max} placeholder={placeholder} aria-invalid={invalide} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
+            onChange={(e) => { const v = e.target.value; curseur.current = e.target.selectionStart; onChange(() => v); }} onSelect={noter} onKeyUp={noter} onClick={noter} onBlur={noter} {...attributsChamp} />
           <BoutonMaintenir etat={dictee.etat} dureeMs={dictee.dureeMs} rond repos={<Icone nom="micro" taille={20} />} actif={<Icone nom="micro" taille={20} />}
-            onAppui={dictee.appuyer} onRelache={dictee.relacher} className="pvv-maintien pvv-micro-legende"
-            attributs={{ 'aria-label': `Maintenir pour dicter la légende de la photo ${rang}`, title: 'Maintenir pour dicter la légende', 'data-dicter-legende': String(rang) }} />
+            onAppui={dictee.appuyer} onRelache={dictee.relacher} className="pvv-maintien pvv-micro-legende" attributs={attributsMicro} />
         </span>
       </label>
       {transcription && <span className="loc-muet pvv-statut" role="status" data-legende-transcription>transcription…</span>}
       {dictee.message !== null && <span className="pvv-photo-motif" role="alert" data-legende-message>{dictee.message}</span>}
       {motif !== null && <span className="pvv-photo-motif" role="alert" data-legende-motif>{motif}</span>}
     </div>
+  );
+}
+
+/** Le champ de légende d'une photo (et son micro). */
+export function ChampLegende({ rang, valeur, invalide, occupationIds, onChange, onOccupe }: {
+  rang: number; valeur: string; invalide: boolean; occupationIds: readonly number[];
+  onChange: (f: (legende: string) => string) => void; onOccupe: (occupe: boolean) => void }) {
+  return (
+    <ChampAvecMicro libelle={`Légende de la photo ${rang} *`} libelleVisible valeur={valeur} max={LEGENDE_MAX} placeholder="ex. Rayure parquet chambre" invalide={invalide}
+      occupationIds={occupationIds} onChange={onChange} onOccupe={onOccupe} attributsChamp={{ 'data-photo-legende': '' }}
+      attributsMicro={{ 'aria-label': `Maintenir pour dicter la légende de la photo ${rang}`, title: 'Maintenir pour dicter la légende', 'data-dicter-legende': String(rang) }} />
   );
 }
 const LEGENDE_MAX = 200;
@@ -310,6 +323,34 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
     const p = lireCurseur();
     if (p !== null && document.activeElement === t) { try { t.setSelectionRange(p, p); } catch { /* rien */ } }
   }, [corps, lireCurseur]);
+  /* 🔴 Arno (15/11/2026, 6e retour) — l'état du bouton suit le clavier RÉEL : fermé autrement (bouton de la barre iOS, appui ailleurs,
+     défilement), la zone visible reprend sa hauteur : le champ est quitté et le bouton redevient blanc. Blanc = fermé, rouge = ouvert. */
+  const vuOuvert = useRef(false);
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!vv) return;
+    const verifier = (): void => {
+      if (window.innerHeight - vv.height > 120) { vuOuvert.current = true; return; }
+      if (!vuOuvert.current) return;
+      vuOuvert.current = false;
+      const t = zone.current;
+      if (t && document.activeElement === t) { noterCurseur(t.selectionStart); t.blur(); }
+      setClavier(false);
+    };
+    vv.addEventListener('resize', verifier);
+    return () => vv.removeEventListener('resize', verifier);
+  }, [noterCurseur]);
+  // un appui AILLEURS (hors du champ et des boutons du texte) : WebKit garde le focus du champ ; on le quitte, le clavier se ferme, le bouton redevient blanc
+  useEffect(() => {
+    if (!clavier) return;
+    const ailleurs = (e: PointerEvent): void => {
+      const t = zone.current; const cible = e.target as Element | null;
+      if (!t || !cible || t.contains(cible) || cible.closest?.('[data-clavier],[data-entree],[data-dicter]')) return;
+      if (document.activeElement === t) { noterCurseur(t.selectionStart); t.blur(); }
+    };
+    document.addEventListener('pointerdown', ailleurs, true);
+    return () => document.removeEventListener('pointerdown', ailleurs, true);
+  }, [clavier, noterCurseur]);
   /** « Clavier » : ouvre (curseur dans la zone) — ou, s'il est ouvert, REFERME (le champ perd le focus). */
   const basculerClavier = (): void => {
     const t = zone.current; if (!t) return;
@@ -334,8 +375,9 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
       </div>
       <textarea ref={zone} className="pvv-texte" value={corps} rows={6} aria-labelledby={titreId} autoComplete="off" autoCapitalize="sentences" autoCorrect="on" spellCheck enterKeyHint="enter" placeholder="ex. Logement propre, rayure du parquet de la chambre… (dictez ou tapez)"
         onChange={(e) => {
-          // 🔴 la règle des tirets s'applique à la frappe (retour à la ligne du clavier compris) ; le curseur suit
-          const x = appliquerTirets(e.target.value, e.target.selectionStart);
+          // 🔴 la règle des tirets s'applique à la frappe ; le retour à la ligne du clavier pose le tiret TOUT DE SUITE (comme « Entrée ») ; le curseur suit
+          const type = (e.nativeEvent as InputEvent).inputType;
+          const x = type === 'insertLineBreak' || type === 'insertParagraph' ? tiretApresRetour(e.target.value, e.target.selectionStart) : appliquerTirets(e.target.value, e.target.selectionStart);
           if (x.texte !== e.target.value) replacer.current = true;
           setCorps(() => x.texte); noterCurseur(x.curseur);
         }}
@@ -673,7 +715,12 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
     void mettreEnAttente(groupe, { cle: pc, sorte: 'prise', blob, type, fichierCle: cible, fichierNom: nom, dureeS, creeLe: new Date().toISOString() })
       .then(() => deposer(cible, pc, blob, type, dureeS));
   });
-  const enCours = prise.etat !== 'repos' || fichiers.some((f) => f.transcription === 'en_cours' || f.prises.some((p) => p.etat === 'depot' || p.etat === 'attente'));
+  const [titresOccupes, setTitresOccupes] = useState<ReadonlySet<string>>(new Set());
+  const occuperTitre = useCallback((cle: string, o: boolean) => setTitresOccupes((s) => {
+    if (o === s.has(cle)) return s;
+    const n = new Set(s); if (o) n.add(cle); else n.delete(cle); return n;
+  }), []);
+  const enCours = prise.etat !== 'repos' || titresOccupes.size > 0 || fichiers.some((f) => f.transcription === 'en_cours' || f.prises.some((p) => p.etat === 'depot' || p.etat === 'attente'));
   useEffect(() => { onOccupe(enCours); }, [enCours, onOccupe]);
   const nouveau = (): void => { const f = fichierVide(fichiers.length); setFichiers((xs) => [...xs, f]); setCourant(f.cle); };
   const supprimerFichier = (fc: string): void => {
@@ -724,10 +771,11 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
         return (
           <li key={f.cle} className={`pvv-fichier-vocal${estCourant ? ' pvv-fichier-vocal--courant' : ''}`} data-vocal={i + 1} data-vocal-prises={f.prises.length}
             data-vocal-transcription={f.transcription ?? undefined}>
-            <div className="pvv-photo-tete">
-              <label className="pvv-nom-vocal"><span className="pvv-lu">Nom du fichier vocal {i + 1}</span>
-                <input type="text" value={f.nom} maxLength={60} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" onChange={(e) => { const v = e.target.value; majFichier(f.cle, (x) => ({ ...x, nom: v })); }} data-vocal-nom /></label>
-            </div>
+            {/* 🔴 Arno (15/11/2026, 6e retour) — le titre du fichier vocal : le même petit micro à droite dans le champ que pour les légendes */}
+            <ChampAvecMicro libelle={`Nom du fichier vocal ${i + 1}`} libelleVisible={false} valeur={f.nom} max={60} occupationIds={occupationIds} classe="pvv-nom-vocal"
+              onChange={(g) => majFichier(f.cle, (x) => ({ ...x, nom: g(x.nom) }))} onOccupe={(o) => occuperTitre(f.cle, o)}
+              attributsChamp={{ 'data-vocal-nom': '' }}
+              attributsMicro={{ 'aria-label': `Maintenir pour dicter le nom du fichier vocal ${i + 1}`, title: 'Maintenir pour dicter le nom', 'data-dicter-titre': String(i + 1) }} />
             <p className="loc-muet pvv-vocal-resume" data-vocal-resume>{f.prises.length} prise{f.prises.length > 1 ? 's' : ''} · {dureeFr(dureeFichier(f))}</p>
             {/* 🔴 Arno (15/11/2026) — l'interrupteur « Envoyé aux locataires » (défaut : non envoyé) */}
             <label className={`pvv-interrupteur${f.locataires ? ' pvv-interrupteur--oui' : ''}`} data-vocal-locataires={f.locataires ? 'oui' : 'non'}>
@@ -765,6 +813,30 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
           </li>);
       })}</ol>}
     </section>
+  );
+}
+
+/**
+ * 🔴 Arno (15/11/2026, 6e retour) — LES VOCAUX DU RÉCAPITULATIF, AVANT L'ENVOI : sur chaque ligne (« ENVOYÉ aux locataires » / « NON envoyé
+ * (interne) »), un bouton « Écouter » (lecture / pause, prises enchaînées) pour vérifier l'affectation avant de confirmer.
+ */
+export function LignesVocauxRecap({ fichiers, aussiLocataires }: { fichiers: readonly FichierVocal[]; aussiLocataires: boolean }) {
+  const lecteur = useLecteur();
+  const liste = fichiers.map((f, i) => ({ f, i })).filter(({ f }) => f.prises.some((p) => p.id !== null));
+  if (liste.length === 0) return null;
+  return (
+    <ul className="pvv-recap-vocaux" data-recap-vocaux>{liste.map(({ f, i }) => {
+      const envoye = f.locataires === true && aussiLocataires;
+      const urls = f.prises.filter((p) => p.id !== null).map((p) => p.url);
+      const jouant = lecteur.jouant === f.cle;
+      return (
+        <li key={f.cle} className="pvv-recap-vocal-ligne" data-recap-vocal-ligne={i + 1}>
+          <span className={`pvv-vocal-etat${envoye ? ' pvv-vocal-etat--envoye' : ''}`} data-recap-vocal={envoye ? 'envoye' : 'interne'}>
+            {f.nom.trim() || `Vocal ${i + 1}`} — {etatVocalLocataires(envoye)}{f.locataires && !aussiLocataires ? ' — l’envoi aux locataires est désactivé : activez « Compte rendu envoyé aux locataires » pour le joindre' : ''}</span>
+          <button type="button" className="pvv-choix pvv-recap-ecouter" aria-pressed={jouant} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))}
+            aria-label={`${jouant ? 'Pause' : 'Écouter'} — ${f.nom.trim() || `Vocal ${i + 1}`}`} data-recap-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
+        </li>);
+    })}</ul>
   );
 }
 
@@ -828,32 +900,40 @@ export const LIBELLE_ENVOI_LOCATAIRES_NON = 'Compte rendu NON envoyé aux locata
 export const AIDE_ENVOI_LOCATAIRES_OUI = 'Envoyé à tous les collaborateurs ayant accès à Gestion et/ou Location ; chaque locataire reçoit en plus SON propre mail (seul destinataire, sans copie visible).';
 export const AIDE_ENVOI_LOCATAIRES_NON = 'Envoyé seulement aux collaborateurs ayant accès à Gestion et/ou Location : aucun locataire ne le reçoit.';
 
-/** Qui recevra le compte rendu : les locataires du préavis avec une adresse e-mail ; ceux qui n'en ont pas sont dits à part. PUR. */
-export function destinatairesLocataires(locs: readonly { occupationId: number; nom: string; prenom?: string | null; emails: readonly string[] }[], occupationIds: readonly number[]):
-  { recoivent: string[]; sansEmail: string[] } {
-  const ici = locs.filter((x) => occupationIds.includes(x.occupationId));
-  const nom = (x: (typeof ici)[number]) => prenomNom({ nom: x.nom, prenom: x.prenom ?? null });
-  return { recoivent: ici.filter((x) => aUnEmail(x.emails)).map(nom), sansEmail: ici.filter((x) => !aUnEmail(x.emails)).map(nom) };
-}
+/** 🔴 Arno (15/11/2026, 6e retour) — les destinataires du compte rendu, lus au serveur (noms des locataires, adresses internes, mentions de recette). */
+export interface DestinatairesCompteRendu { locataires: { nom: string; recette: string | null }[]; sansEmail: string[]; internes: string[]; recetteInternes: string | null }
 
-export function BoutonEnvoiLocataires({ actif, onBasculer, occupationId, occupationIds, nomsConnus }: {
-  actif: boolean; onBasculer: () => void; occupationId: number; occupationIds: readonly number[];
-  /** les noms des locataires du préavis, montrés tant que leurs adresses ne sont pas lues */
+export function BoutonEnvoiLocataires({ actif, onBasculer, occupationIds, nomsConnus }: {
+  actif: boolean; onBasculer: () => void; occupationIds: readonly number[];
+  /** les noms des locataires du préavis, montrés tant que la liste n'est pas lue */
   nomsConnus: readonly string[];
 }) {
   const { base } = useContextePreavis();
-  const lu = useLecture<EncartLogement>(`encartBail=${occupationId}`, base);
-  const d = lu.etat.etat === 'ok' ? destinatairesLocataires(lu.etat.data.coordonnees?.locataires ?? [], occupationIds) : null;
-  const recoivent = d === null ? [...nomsConnus] : d.recoivent;
+  const lu = useLecture<DestinatairesCompteRendu>(`previsiteDestinataires=${occupationIds.join(',')}`, base);
+  // une réponse illisible (ou pas encore lue) ne casse rien : les noms connus, aucun interne
+  const brut = lu.etat.etat === 'ok' ? (lu.etat.data as Partial<DestinatairesCompteRendu> | null) : null;
+  const d: DestinatairesCompteRendu | null = brut && Array.isArray(brut.locataires) && Array.isArray(brut.internes)
+    ? { locataires: brut.locataires, internes: brut.internes, sansEmail: Array.isArray(brut.sansEmail) ? brut.sansEmail : [], recetteInternes: brut.recetteInternes ?? null } : null;
+  const locataires = d?.locataires ?? nomsConnus.map((nom) => ({ nom, recette: null }));
+  const internes = d?.internes ?? [];
   return (
     <div className="pvv-envoi-loc" data-bloc-envoi-locataires>
       <button type="button" className={`svv-btn pvv-gros pvv-envoi-loc-bouton${actif ? ' svv-btn-primary pvv-envoi-loc--oui' : ' svv-btn-outline'}`} aria-pressed={actif}
         onClick={onBasculer} data-aussi-locataires={actif ? 'oui' : 'non'}>
         {actif ? <><Icone nom="coche" /> {LIBELLE_ENVOI_LOCATAIRES_OUI}</> : LIBELLE_ENVOI_LOCATAIRES_NON}
       </button>
-      {actif && (recoivent.length > 0
-        ? <p className="pvv-envoi-loc-noms" data-envoi-locataires-noms>Le recevra{recoivent.length > 1 ? 'nt' : ''} : {recoivent.join(', ')}</p>
-        : <p className="pvv-envoi-loc-noms" data-envoi-locataires-noms>Aucun locataire avec une adresse e-mail : seuls les collaborateurs le recevront.</p>)}
+      {/* 🔴 Arno (15/11/2026, 6e retour) — « Les destinataires : » un par ligne, barre VERTE pour chaque locataire, GRISE pour chaque interne ;
+          bouton désactivé : les seuls internes */}
+      <p className="pvv-dest-titre" data-destinataires-titre>Les destinataires :</p>
+      <ul className="pvv-dest-liste" data-destinataires-liste>
+        {actif && locataires.map((l, i) => (
+          <li key={`l${i}`} className="pvv-dest pvv-dest--locataire" data-destinataire-liste="locataire">
+            <span className="pvv-dest-nom">{l.nom}</span>{l.recette && <span className="pvv-dest-recette" data-destinataire-recette>{l.recette}</span>}
+          </li>))}
+        {internes.map((a) => <li key={a} className="pvv-dest pvv-dest--interne" data-destinataire-liste="interne"><span className="pvv-dest-nom">{a}</span></li>)}
+      </ul>
+      {d?.recetteInternes && <p className="pvv-dest-recette" data-destinataires-recette-internes>{d.recetteInternes}</p>}
+      {actif && d !== null && d.locataires.length === 0 && <p className="loc-muet" data-envoi-locataires-aucun>Aucun locataire avec une adresse e-mail : seuls les collaborateurs le recevront.</p>}
       {actif && d !== null && d.sansEmail.length > 0 && <p className="loc-muet" data-envoi-locataires-sans-email>Sans adresse e-mail, ne le recevra pas : {d.sansEmail.join(', ')}</p>}
       <p className="loc-muet" data-aide-envoi-locataires>{actif ? AIDE_ENVOI_LOCATAIRES_OUI : AIDE_ENVOI_LOCATAIRES_NON}</p>
     </div>
@@ -865,7 +945,16 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-envoi-loc{display:flex;flex-direction:column;gap:6px}
 .pvv-envoi-loc--oui.svv-btn,.pvv-envoi-loc--oui{background:var(--color-svv-red);color:var(--color-svv-surface);border:2px solid var(--color-svv-red)}
 .pvv-envoi-loc-bouton.svv-btn-outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border:2px solid var(--color-svv-line-strong)}
-.pvv-envoi-loc-noms{margin:0;font-weight:800;overflow-wrap:anywhere}
+.pvv-recap-vocaux{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.pvv-recap-vocal-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:10px;background:var(--color-svv-field)}
+.pvv-recap-vocal-ligne .pvv-vocal-etat{flex:1 1 12rem;min-width:0}
+.pvv-recap-ecouter{white-space:nowrap;flex:0 0 auto}
+.pvv-dest-titre{margin:4px 0 0;font-weight:800;color:var(--color-svv-ink)}
+.pvv-dest-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.pvv-dest{--pvv-dest:var(--color-svv-gray);display:flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;border-left:6px solid var(--pvv-dest);background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
+.pvv-dest--locataire{--pvv-dest:var(--color-svv-green-ink)}
+.pvv-dest--interne{--pvv-dest:var(--color-svv-gray)}
+.pvv-dest-recette{display:block;margin:0;font-size:.86rem;font-weight:700;color:var(--color-svv-ink);padding:4px 8px;border-radius:8px;border:1px dashed var(--color-svv-urgence-orange)}
 .pvv-bloc{border:1px solid var(--color-svv-line);border-radius:14px;padding:12px;margin:14px 0 0;display:flex;flex-direction:column;gap:10px;min-width:0}
 .pvv-bloc--texte{background:color-mix(in srgb, var(--color-svv-green) 5%, var(--color-svv-surface))}
 .pvv-bloc--photos{background:color-mix(in srgb, var(--color-svv-ink) 4%, var(--color-svv-surface))}
@@ -934,7 +1023,7 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-fichier-vocal{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;border:2px solid var(--color-svv-line);background:var(--color-svv-surface)}
 .pvv-fichier-vocal--courant{border-color:var(--color-svv-ink)}
 .pvv-nom-vocal{flex:1;min-width:0}
-.pvv-nom-vocal input{width:100%;box-sizing:border-box;min-height:44px;font:inherit;font-size:16px;font-weight:800;padding:0 10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.pvv-nom-vocal .pvv-legende-champ{font-weight:800}
 .pvv-lu{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .pvv-vocal-resume{margin:0}
 .pvv-vocal-gestes{flex-wrap:wrap}

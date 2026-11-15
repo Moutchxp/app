@@ -334,6 +334,55 @@ export function objetCompteRendu(r: Pick<RdvPrevisite, 'jour' | 'heure'>): strin
 
 export const CORPS_MAX = 20_000;
 
+/* ══ 🔴 Arno (15/11/2026, 6e retour) — LE TEXTE DES MAILS DU COMPTE RENDU, plus soigné : factuel et poli, sans être mielleux ══════════════════
+ * AUX LOCATAIRES (chacun le sien) : formule d'appel (civilité et nom si connus, sinon « Madame, Monsieur, ») ; introduction (« Suite à la
+ * pré-visite de votre logement situé … effectuée le … à … en présence de …, vous trouverez ci-dessous le compte rendu des points relevés en
+ * vue de l'état des lieux de sortie. ») ; le compte rendu en points à tirets ; les photos jointes annoncées ; les vocaux joints ; la clôture ;
+ * la formule de politesse ; puis la mention et la signature habituelles. Jamais une coordonnée du propriétaire.
+ * INTERNE : « Compte rendu de la pré-visite du … — … », « En présence de … », le texte, les photos, les vocaux, les notes de présence. */
+const civiliteLongue = (c: string | null | undefined): 'Madame' | 'Monsieur' | null => {
+  const x = (c ?? '').trim().toLowerCase().replace(/\.$/, '');
+  if (['madame', 'mme', 'mlle', 'mademoiselle'].includes(x)) return 'Madame';
+  if (['monsieur', 'm', 'mr'].includes(x)) return 'Monsieur';
+  return null;
+};
+/** « Madame Dupont » / « Monsieur Martin » si la civilité est connue ; sinon « Madame, Monsieur ». PUR. */
+export function appelLocataire(l: { civilite?: string | null; nom: string }): string {
+  const c = civiliteLongue(l.civilite);
+  const nom = l.nom.replace(/\s+/g, ' ').trim();
+  return c === null || nom === '' ? 'Madame, Monsieur' : `${c} ${nom}`;
+}
+/** La formule de politesse, accordée à l'appel (« Madame, Monsieur » ou la seule civilité). PUR. */
+export function politesseLocataire(l: { civilite?: string | null }): string {
+  const c = civiliteLongue(l.civilite);
+  return `Nous vous prions d’agréer, ${c ?? 'Madame, Monsieur'}, nos salutations distinguées.`;
+}
+/** Le compte rendu en POINTS À TIRETS : chaque ligne écrite devient un point « - … » (les tirets déjà là ne sont pas doublés). PUR. */
+export function pointsDuCompteRendu(texte: string): string {
+  return texte.replace(/\r\n/g, '\n').split('\n').map((l) => l.trim()).filter((l) => l !== '' && !/^-$/.test(l))
+    .map((l) => (/^-/.test(l) ? `- ${l.replace(/^-\s*/, '')}` : `- ${l}`)).join('\n');
+}
+export const CLOTURE_COMPTE_RENDU = 'Ces éléments vous permettent d’anticiper votre état des lieux de sortie. Nous restons à votre disposition pour toute question.';
+/** Les paragraphes du mail d'UN locataire. `presence` : « de Mme X et de M. Y » (vide : aucune personne). PUR. */
+export function paragraphesCompteRenduLocataire(o: { locataire: { civilite?: string | null; nom: string }; adresse: string; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>;
+  presence: string; texte: string; legendesPhotos: readonly string[]; vocaux: readonly string[] }): string[] {
+  const n = o.legendesPhotos.length;
+  const photos = n === 0 ? [] : [`${n === 1 ? 'Vous trouverez en pièce jointe la photo prise' : `Vous trouverez en pièces jointes les ${n} photos prises`} lors de la pré-visite :`,
+    o.legendesPhotos.map((l, i) => `Photo ${i + 1} — ${l.trim()}`).join('\n')];
+  return [
+    `${appelLocataire(o.locataire)},`,
+    `Suite à la pré-visite de votre logement situé ${o.adresse} effectuée le ${dateFrPreavis(o.rdv.jour)} à ${heureFr(o.rdv.heure)}${o.presence ? ` en présence ${o.presence}` : ''}, vous trouverez ci-dessous le compte rendu des points relevés en vue de l’état des lieux de sortie.`,
+    pointsDuCompteRendu(o.texte),
+    ...photos, ...o.vocaux,
+    CLOTURE_COMPTE_RENDU,
+    politesseLocataire(o.locataire),
+  ].filter((p) => p.trim() !== '');
+}
+/** L'introduction courte et factuelle du mail INTERNE. PUR. */
+export function introCompteRenduInterne(adresse: string, rdv: Pick<RdvPrevisite, 'jour' | 'heure'>): string {
+  return `Compte rendu de la pré-visite du ${dateFrPreavis(rdv.jour)} — ${adresse}`;
+}
+
 // ── Le refus / l'absence de pré-visite, aux locataires ──────────────────────────────────────────────────────────────
 
 export function objetRefusPrevisite(adresse: string): string {

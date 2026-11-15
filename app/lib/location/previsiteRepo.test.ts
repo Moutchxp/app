@@ -289,7 +289,8 @@ describe('🔴 Règle 5 — le compte rendu fait passer en « Pré-visite effect
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; objet: string; texte: string }[]];
     expect(mails[0].a).toEqual(INTERNES);
     expect(mails[0].objet).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 12/11/2026 à 10h00');
-    expect(mails[0].texte).toBe('Logement propre.\n\nRepeindre la chambre.\n\nMail envoyé par Arno TEST (arno@exemple.test)');
+    // 🔴 (15/11/2026, 6e retour) — le mail interne commence par une introduction courte et factuelle
+    expect(mails[0].texte).toBe('Compte rendu de la pré-visite du 12/11/2026 — 4 rue Fictive, 92800 Puteaux\n\nLogement propre.\n\nRepeindre la chambre.\n\nMail envoyé par Arno TEST (arno@exemple.test)');
     expect(suivi?.effectuee_le).toBe(MAINTENANT);
     expect(marquerFaite).toHaveBeenCalledWith(500, AUTEUR);
   });
@@ -649,7 +650,9 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — le compte rendu AVEC PHOTOS : l�
     programmee();
     await envoyerCompteRendu({ occupationIds: OCC, corps: 'Logement propre.', aussiLocataires: true, photos: [{ id: 72, legende: 'Joint de la douche' }, { id: 71, legende: 'Rayure parquet chambre' }] }, AUTEUR);
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; pieces?: { id: number; nom: string }[] }[]];
-    expect(mails[0].texte).toBe('Logement propre.\n\nPhotos\n\nPhoto 1 — Joint de la douche\nPhoto 2 — Rayure parquet chambre\n\nMail envoyé par Arno TEST (arno@exemple.test)');
+    expect(mails[0].texte).toBe('Compte rendu de la pré-visite du 12/11/2026 — 4 rue Fictive, 92800 Puteaux\n\nLogement propre.\n\nPhotos\n\nPhoto 1 — Joint de la douche\nPhoto 2 — Rayure parquet chambre\n\nMail envoyé par Arno TEST (arno@exemple.test)');
+    // aux locataires : les photos jointes annoncées, avec leurs légendes
+    expect(mails[1].texte).toContain('Vous trouverez en pièces jointes les 2 photos prises lors de la pré-visite :\n\nPhoto 1 — Joint de la douche\nPhoto 2 — Rayure parquet chambre');
     for (const m of mails) expect(m.pieces?.map((x) => [x.id, x.nom])).toEqual([[72, 'Photo-1-joint-de-la-douche.jpg'], [71, 'Photo-2-rayure-parquet-chambre.jpg']]);
     expect(mails).toHaveLength(3); // l'interne + un par locataire
   });
@@ -749,7 +752,9 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
     expect(r).toMatchObject({ etat: 'ok' });
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string }[]];
     expect(mails.length).toBeGreaterThan(1);
-    for (const m of mails) expect(m.texte.startsWith('En présence de Bruno TEST et de Mme Léa Martin.')).toBe(true);
+    // 🔴 (6e retour) interne : l'introduction, puis la phrase ; locataires : la présence dans l'introduction
+    expect(mails[0].texte.startsWith('Compte rendu de la pré-visite du 12/11/2026 — 4 rue Fictive, 92800 Puteaux\n\nEn présence de Bruno TEST et de Mme Léa Martin.')).toBe(true);
+    for (const m of mails.slice(1)) expect(m.texte).toContain('à 10h00 en présence de Bruno TEST et de Mme Léa Martin, vous trouverez ci-dessous le compte rendu');
     const trace = journal().filter((a) => a.params[1] === 'location_previsite_presences');
     expect(trace).toHaveLength(2); // le journal de chaque locataire du préavis
     expect(JSON.parse(trace[0].params[3] as string)).toMatchObject({ phrase: 'En présence de Bruno TEST et de Mme Léa Martin.' });
@@ -765,7 +770,8 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
     expect(interne.texte).toContain('Notes de présence (internes)\n\nMme Léa Martin — mère du locataire');
     expect(auxLocataires.length).toBeGreaterThan(0);
     for (const m of auxLocataires) { expect(m.texte).not.toContain('mère du locataire'); expect(m.texte).not.toContain('Notes de présence'); }
-    for (const m of mails) expect(m.texte.startsWith('En présence de Mme Léa Martin.\n')).toBe(true);
+    expect(interne.texte).toContain('\n\nEn présence de Mme Léa Martin.\n');
+    for (const m of auxLocataires) expect(m.texte).toContain(' en présence de Mme Léa Martin, vous trouverez');
   });
   it('🔴 (15/11/2026) le RÉCAPITULATIF par famille : l’interne d’abord, UN mail par locataire à son nom, les pièces de chaque mail, la phrase et les notes internes rendues à part', async () => {
     programmee(); avecAnnuaire(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]);
@@ -776,15 +782,42 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
       ['interne', null, INTERNES], ['locataire', 'Alice TEST', ['alice@exemple.test']], ['locataire', 'Bruno TEST', ['bruno@exemple.test']]]);
     for (const m of r.data.mails) expect(m.pieces).toEqual(['Photo-1-rayure.jpg']);
     expect(r.data.phrase).toBe('En présence de M. Alice TEST et de Mme Léa Martin.');
-    for (const m of r.data.mails) expect(m.texte.startsWith(`${r.data.phrase}\n`)).toBe(true);
+    expect(r.data.presence).toBe('de M. Alice TEST et de Mme Léa Martin');
+    expect(r.data.mails[0].texte).toContain(`\n\n${r.data.phrase}\n`);
+    for (const m of r.data.mails.slice(1)) expect(m.texte).toContain(`en présence ${r.data.presence},`);
     expect(r.data.notesInternes).toEqual(['Mme Léa Martin — mère du locataire']);
     // ni préavis de test, ni recette ici : aucune mention de remplacement
     for (const m of r.data.mails) expect(m.recette).toBeUndefined();
   });
+  it('🔴🔴 (15/11/2026, 6e retour) le mail AUX LOCATAIRES, mot pour mot : appel, introduction, points à tirets, photos, clôture, politesse ; jamais le propriétaire', async () => {
+    programmee(); avecAnnuaire(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]);
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'Logement propre.\n- Rayure du parquet\n- ', aussiLocataires: true, photos: [{ id: 71, legende: 'Rayure' }],
+      presences: { occupations: [11], personnes: [] } }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error(JSON.stringify(r));
+    const loc = r.data.mails.filter((m) => m.famille === 'locataire');
+    expect(loc[0].texte).toBe([
+      'Madame, Monsieur,',
+      'Suite à la pré-visite de votre logement situé 4 rue Fictive, 92800 Puteaux effectuée le 12/11/2026 à 10h00 en présence de M. Alice TEST, vous trouverez ci-dessous le compte rendu des points relevés en vue de l’état des lieux de sortie.',
+      '- Logement propre.\n- Rayure du parquet',
+      'Vous trouverez en pièce jointe la photo prise lors de la pré-visite :',
+      'Photo 1 — Rayure',
+      'Ces éléments vous permettent d’anticiper votre état des lieux de sortie. Nous restons à votre disposition pour toute question.',
+      'Nous vous prions d’agréer, Madame, Monsieur, nos salutations distinguées.',
+      'Mail envoyé par Arno TEST (arno@exemple.test)',
+    ].join('\n\n'));
+    for (const m of loc) { expect(m.texte).not.toContain('proprio@exemple.test'); expect(m.texte).not.toContain('06 99 88 77 66'); expect(m.texte).not.toContain('DUPONT'); }
+  });
+  it('🔴 (6e retour) la civilité connue : « Monsieur TEST, » et « Nous vous prions d’agréer, Monsieur, … »', async () => {
+    const { paragraphesCompteRenduLocataire } = await import('./previsite');
+    const p = paragraphesCompteRenduLocataire({ locataire: { civilite: 'M.', nom: 'TEST' }, adresse: '4 rue Fictive', rdv: { jour: '2026-11-12', heure: '10:00' }, presence: '', texte: 'CR', legendesPhotos: [], vocaux: [] });
+    expect(p[0]).toBe('Monsieur TEST,');
+    expect(p[1]).toBe('Suite à la pré-visite de votre logement situé 4 rue Fictive effectuée le 12/11/2026 à 10h00, vous trouverez ci-dessous le compte rendu des points relevés en vue de l’état des lieux de sortie.');
+    expect(p.at(-1)).toBe('Nous vous prions d’agréer, Monsieur, nos salutations distinguées.');
+  });
   it('une seule personne : au singulier', async () => {
     programmee(); avecAnnuaire();
     const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [11], personnes: [] } }, AUTEUR);
-    expect(r.etat === 'ok' && r.data.mails[0].texte.startsWith('En présence de M. Alice TEST.')).toBe(true);
+    expect(r.etat === 'ok' && r.data.mails[0].texte.includes('\n\nEn présence de M. Alice TEST.')).toBe(true);
   });
   it('🔴 personne cochée : REFUS, rien ne part ; un locataire d’un autre préavis ou une personne incomplète : refus', async () => {
     programmee(); avecAnnuaire();

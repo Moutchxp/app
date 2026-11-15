@@ -50,7 +50,9 @@ async function verifierFamilles(page: Page): Promise<void> {
   await expect(interne.locator('[data-notes-internes-carte]')).toContainText('Mme Léa Martin — mère du locataire');
   await expect(locataire.locator('[data-notes-internes-carte]')).toHaveCount(0);
   // « En présence de … » en tête du texte de chaque carte
-  for (const c of [interne, locataire]) expect((await c.locator('[data-texte-mail]').textContent())!.startsWith('En présence de ')).toBe(true);
+  // 🔴 (15/11/2026, 6e retour) interne : introduction courte puis « En présence de … » ; locataire : la présence dans l'introduction
+  expect((await interne.locator('[data-texte-mail]').textContent())!).toMatch(/^Compte rendu de la pré-visite du .+\n\nEn présence de /);
+  expect((await locataire.locator('[data-texte-mail]').textContent())!).toMatch(/ en présence de .+, vous trouverez ci-dessous/);
   await expect(locataire.locator('[data-texte-mail]')).not.toContainText('mère du locataire');
   // les couleurs : la barre et l'étiquette de la même couleur dans une carte ; interne (gris) et locataire (vert) différentes
   const couleurs = await cartes.evaluateAll((cs) => cs.map((c) => [getComputedStyle(c).borderLeftColor, getComputedStyle(c.querySelector('[data-etiquette-famille]')!).backgroundColor,

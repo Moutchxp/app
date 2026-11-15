@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliquerTirets, insererEntree, themeBascule } from './texteCompteRendu';
+import { appliquerTirets, insererEntree, sansTiretsOrphelins, themeBascule, tiretApresRetour } from './texteCompteRendu';
 import { insererDictee, insererTranscription } from './vocauxCompteRendu';
 
 /** 🔴 Arno (15/11/2026) — la règle des tirets du compte rendu, dans TOUS les cas. */
@@ -11,10 +11,13 @@ describe('appliquerTirets', () => {
   it('pas de double tiret ; une ligne vide (ou un tiret seul) ne garde pas de tiret', () => {
     expect(appliquerTirets('A\n- déjà\n-aussi\n\n- \n   ', null).texte).toBe('A\n- déjà\n-aussi\n\n\n   ');
   });
-  it('« Entrée » : nouvelle ligne au curseur, vide (sans tiret) tant qu’on n’y écrit pas ; le tiret vient dès la première lettre', () => {
+  it('🔴 (15/11/2026, 6e retour) « Entrée » : le tiret TOUT DE SUITE, le curseur juste après (« - | ») ; on y écrit à la suite', () => {
     const e = insererEntree('Salon propre', 12);
-    expect(e).toEqual({ texte: 'Salon propre\n', curseur: 13 });
-    expect(appliquerTirets(`${e.texte}C`, 14)).toEqual({ texte: 'Salon propre\n- C', curseur: 16 });
+    expect(e).toEqual({ texte: 'Salon propre\n- ', curseur: 15 });
+    expect(appliquerTirets(`${e.texte}C`, 16)).toEqual({ texte: 'Salon propre\n- C', curseur: 16 });
+    // deux « Entrée » de suite : la ligne quittée sans rien y écrire perd son tiret, la nouvelle a le sien
+    const e2 = insererEntree(e.texte, e.curseur);
+    expect(e2).toEqual({ texte: 'Salon propre\n\n- ', curseur: 16 });
     // au milieu d'une ligne : la suite descend, avec son tiret ; le curseur reste devant elle
     expect(insererEntree('Salon propre Cuisine', 13)).toEqual({ texte: 'Salon propre \n- Cuisine', curseur: 16 });
   });
@@ -73,5 +76,18 @@ describe('🔴 la note INTERNE d’une personne ajoutée (Arno, 15/11/2026)', ()
     expect(phrasePresence([p])).toBe('En présence de Mme Léa Martin.');
     expect(paragraphesNotesPresence([p, { civilite: null, prenom: null, nom: 'BERNARD Paul' }])).toEqual(['Notes de présence (internes)', 'Mme Léa Martin — mère du locataire']);
     expect(paragraphesNotesPresence([{ civilite: null, prenom: null, nom: 'X' }])).toEqual([]);
+  });
+});
+
+describe('🔴 (15/11/2026, 6e retour) le retour à la ligne du clavier ; les tirets orphelins', () => {
+  it('le retour du CLAVIER pose le tiret tout de suite, comme « Entrée » ; jamais de double tiret', () => {
+    expect(tiretApresRetour('Salon\n', 6)).toEqual({ texte: 'Salon\n- ', curseur: 8 });
+    expect(tiretApresRetour('Salon\n- déjà', 6)).toEqual({ texte: 'Salon\n- déjà', curseur: 6 });
+    expect(tiretApresRetour('Salon\nsuite', 6)).toEqual({ texte: 'Salon\n- suite', curseur: 8 });
+  });
+  it('à l’enregistrement, une ligne restée vide avec son seul tiret est retirée ; le reste ne bouge pas', () => {
+    expect(sansTiretsOrphelins('Salon\n- Cuisine\n- ')).toBe('Salon\n- Cuisine');
+    expect(sansTiretsOrphelins('Salon\n-\n- Cuisine\n\n')).toBe('Salon\n- Cuisine');
+    expect(sansTiretsOrphelins('Salon propre.')).toBe('Salon propre.');
   });
 });

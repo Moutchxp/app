@@ -77,7 +77,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(b).toHaveAttribute('aria-pressed', 'true');
     await expect(b).toHaveText('Compte rendu envoyé aux locataires');
     expect(await b.locator('svg').count()).toBe(1);
-    await expect(page.locator('[data-envoi-locataires-noms]')).toContainText('Le recevra');
+    await expect(page.locator('[data-destinataires-titre]')).toHaveText('Les destinataires :');
+    await expect(page.locator('[data-destinataire-liste="locataire"]')).toHaveCount(1);
     const rouge = await page.evaluate(() => getComputedStyle(document.querySelector('.svv-adm-root')!).getPropertyValue('--color-svv-red').trim());
     const actif = await b.evaluate((e) => ({ fond: getComputedStyle(e).backgroundColor, h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width,
       ref: (document.querySelector('[data-clavier]') as HTMLElement).getBoundingClientRect().height }));
@@ -90,7 +91,7 @@ for (const theme of ['light', 'dark'] as const) {
     await b.tap();
     await expect(b).toHaveAttribute('aria-pressed', 'false');
     await expect(b).toHaveText('Compte rendu NON envoyé aux locataires (interne uniquement)');
-    await expect(page.locator('[data-envoi-locataires-noms]')).toHaveCount(0);
+    await expect(page.locator('[data-destinataire-liste="locataire"]')).toHaveCount(0);
     await expect(page.locator('[data-aide-envoi-locataires]')).toContainText('aucun locataire ne le reçoit');
     // le fond change avec une transition de 0,15 s : on attend l'état stable — contour seul, fond de la page (plus le rouge)
     const surface = await page.evaluate(() => getComputedStyle(document.querySelector('.pvv-page-cr')!).backgroundColor);

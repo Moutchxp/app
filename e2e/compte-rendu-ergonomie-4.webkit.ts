@@ -96,7 +96,9 @@ for (const theme of ['light', 'dark'] as const) {
     const interne = textes.filter((m) => m.texte.includes('Notes de présence (internes)'));
     expect(interne).toHaveLength(1);
     expect(interne[0].texte).toContain('Mme Léa Martin — mère de la locataire');
-    for (const m of textes) expect(m.texte).toContain('En présence de Mme Léa Martin.');
+    // 🔴 (15/11/2026, 6e retour) interne : « En présence de … » ; locataires : « … en présence de … » dans l'introduction
+    expect(interne[0].texte).toContain('En présence de Mme Léa Martin.');
+    for (const m of textes.filter((x) => x !== interne[0])) expect(m.texte).toContain('en présence de Mme Léa Martin, vous trouverez');
     for (const m of textes.filter((x) => x !== interne[0])) expect(m.texte).not.toContain('mère de la locataire');
     await capturer(page, `${theme}-07-recapitulatif-note-interne`);
     expect(erreurs).toEqual([]);

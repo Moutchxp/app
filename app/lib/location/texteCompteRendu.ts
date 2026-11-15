@@ -4,6 +4,9 @@
  * une ligne vide) commence par « - » dès qu'on y écrit ; jamais de tiret sur la toute première ligne ; jamais de double tiret (une ligne qui
  * commence déjà par « - » est laissée telle quelle) ; une ligne laissée vide ne garde pas de tiret. Le tiret fait partie du texte enregistré
  * (et donc du mail). Le curseur suit : il reste au même endroit du texte écrit. ⚠️ AUCUN IMPORT.
+ * 🔴 Arno (15/11/2026, 6e retour) — « Entrée » (le bouton ↵ ou le retour à la ligne du clavier) pose le tiret TOUT DE SUITE, le curseur juste
+ * après (« - | ») : on voit que la prochaine dictée ira sur cette ligne. Une ligne qui n'a que son tiret est gardée TANT QUE le curseur y est ;
+ * restée vide, son tiret orphelin est retiré de ce qui est enregistré et envoyé (`sansTiretsOrphelins`).
  */
 export const TIRET = '- ';
 
@@ -14,8 +17,10 @@ export function appliquerTirets(texte: string, curseur: number | null): { texte:
   let nouveauCurseur = curseur;
   const sortie = lignes.map((ligne, i) => {
     let l = ligne; let decaleAuDebut = 0; let retires = 0;
+    const curseurIci = curseur !== null && curseur >= debutAncien && curseur <= debutAncien + ligne.length;
     if (i > 0) {
-      if (/^[ \t]*-[ \t]*$/.test(l)) { retires = l.length; l = ''; } // une ligne vide ne garde pas de tiret
+      // une ligne qui n'a que son tiret : gardée (« - ») tant que le curseur y est, retirée sinon
+      if (/^[ \t]*-[ \t]*$/.test(l)) { if (curseurIci) { retires = l.length; l = TIRET; decaleAuDebut = TIRET.length; } else { retires = l.length; l = ''; } }
       else if (l.trim() !== '' && !/^[ \t]*-/.test(l)) {
         retires = l.length - l.replace(/^[ \t]+/, '').length;
         l = `${TIRET}${l.slice(retires)}`; decaleAuDebut = TIRET.length;
@@ -31,10 +36,25 @@ export function appliquerTirets(texte: string, curseur: number | null): { texte:
   return { texte: sortie.join('\n'), curseur: nouveauCurseur };
 }
 
-/** « Entrée » : un retour à la ligne À L'ENDROIT DU CURSEUR (ou à la fin), puis la règle des tirets. PUR. */
+/** « Entrée » : un retour à la ligne À L'ENDROIT DU CURSEUR (ou à la fin), le tiret TOUT DE SUITE (« - | »), puis la règle des tirets. PUR. */
 export function insererEntree(texte: string, curseur: number | null): { texte: string; curseur: number | null } {
   const p = curseur === null || curseur < 0 || curseur > texte.length ? texte.length : curseur;
-  return appliquerTirets(`${texte.slice(0, p)}\n${texte.slice(p)}`, p + 1);
+  const reste = texte.slice(p).replace(/^[ \t]+/, '');
+  const tiret = /^-/.test(reste) ? '' : TIRET;
+  return appliquerTirets(`${texte.slice(0, p)}\n${tiret}${reste}`, p + 1 + tiret.length);
+}
+
+/** Le retour à la ligne du CLAVIER (déjà dans le texte, le curseur juste après) : le tiret tout de suite, comme « Entrée ». PUR. */
+export function tiretApresRetour(texte: string, curseur: number | null): { texte: string; curseur: number | null } {
+  if (curseur === null || curseur < 1 || texte[curseur - 1] !== '\n') return appliquerTirets(texte, curseur);
+  const reste = texte.slice(curseur);
+  if (/^[ \t]*-/.test(reste)) return appliquerTirets(texte, curseur);
+  return appliquerTirets(`${texte.slice(0, curseur)}${TIRET}${reste.replace(/^[ \t]+/, '')}`, curseur + TIRET.length);
+}
+
+/** Ce qui est enregistré et envoyé : sans les lignes restées vides avec leur seul tiret, ni les retours à la ligne en trop à la fin. PUR. */
+export function sansTiretsOrphelins(texte: string): string {
+  return texte.split('\n').filter((l, i) => i === 0 || !/^[ \t]*-[ \t]*$/.test(l)).join('\n').replace(/\n+$/, '');
 }
 
 /** La bascule clair / sombre : le thème inverse de celui qu'on VOIT (le thème « système » suit l'appareil). PUR. */
@@ -68,12 +88,17 @@ export function nomPresent(p: PersonnePresente): string {
   return [abregerCivilite(p.civilite), complet].filter(Boolean).join(' ');
 }
 const de = (x: string): string => (/^[aeiouyhàâäéèêëîïôöùûü]/i.test(x) ? `d’${x}` : `de ${x}`);
-/** « En présence de Mme X, M. Y et de Mme Z. » ; aucune personne : chaîne vide. PUR. */
-export function phrasePresence(personnes: readonly PersonnePresente[]): string {
+/** « de Mme X, M. Y et de Mme Z » (ce qui suit « en présence ») ; aucune personne : chaîne vide. PUR. */
+export function listePresence(personnes: readonly PersonnePresente[]): string {
   const noms = personnes.map(nomPresent).filter((x) => x !== '');
   if (noms.length === 0) return '';
-  if (noms.length === 1) return `En présence ${de(noms[0])}.`;
-  return `En présence ${de(noms[0])}${noms.slice(1, -1).map((n) => `, ${n}`).join('')} et ${de(noms[noms.length - 1])}.`;
+  if (noms.length === 1) return de(noms[0]);
+  return `${de(noms[0])}${noms.slice(1, -1).map((n) => `, ${n}`).join('')} et ${de(noms[noms.length - 1])}`;
+}
+/** « En présence de Mme X, M. Y et de Mme Z. » ; aucune personne : chaîne vide. PUR. */
+export function phrasePresence(personnes: readonly PersonnePresente[]): string {
+  const l = listePresence(personnes);
+  return l === '' ? '' : `En présence ${l}.`;
 }
 /** Une personne ajoutée au formulaire, propre ; `null` si elle ne tient pas (nom obligatoire, civilité Madame / Monsieur). PUR. */
 export function personneAjoutee(brut: unknown): (PersonnePresente & { civilite: Civilite }) | null {

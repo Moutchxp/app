@@ -94,14 +94,14 @@ export async function logementDe(occupationId: number): Promise<{ lotId: number;
 /** Les locataires de ces occupations, avec leur prénom éventuel et leurs adresses e-mail EN VIGUEUR. */
 export async function locatairesAvis(occupationIds: readonly number[]): Promise<(LocataireAvis & { entree: string | null; sortie: string | null })[]> {
   const vivante = await conditionCoordonneeVivante('c');
-  const { rows } = await query<{ occupation_id: string; nom: string; prenom: string | null; entree: string | null; sortie: string | null; emails: string[] }>(
-    `SELECT o.id::text AS occupation_id, l.nom, l.prenom, o.entree::text, o.sortie::text,
+  const { rows } = await query<{ occupation_id: string; nom: string; prenom: string | null; civilite?: string | null; entree: string | null; sortie: string | null; emails: string[] }>(
+    `SELECT o.id::text AS occupation_id, l.nom, l.prenom, l.civilite, o.entree::text, o.sortie::text,
             array(SELECT coalesce(nullif(btrim(c.valeur_brute), ''), c.valeur) FROM gestion_annuaire_contact c
                    WHERE c.sujet = 'locataire' AND c.sujet_id = l.id AND c.sorte = 'email' AND c.absent_le IS NULL${vivante}
                    ORDER BY c.rang NULLS LAST, c.id) AS emails
        FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
       WHERE o.id = ANY($1::bigint[]) ORDER BY l.nom_normalise, o.id`, [[...occupationIds]]);
-  return rows.map((r) => ({ occupationId: Number(r.occupation_id), nom: r.nom, prenom: r.prenom, entree: r.entree, sortie: r.sortie,
+  return rows.map((r) => ({ occupationId: Number(r.occupation_id), nom: r.nom, prenom: r.prenom, civilite: r.civilite ?? null, entree: r.entree, sortie: r.sortie,
     emails: (r.emails ?? []).filter((e): e is string => typeof e === 'string') }));
 }
 

@@ -22,9 +22,9 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, Confirmation, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, Confirmation, LignesVocauxRecap, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
-import { appliquerTirets, MOTIF_PRESENCE } from '../../../../lib/location/texteCompteRendu';
+import { appliquerTirets, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
@@ -159,10 +159,12 @@ type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEm
  * serveur. Constaté le 15/11/2026 : un serveur de recette qui servait une version périmée du module (rechargement à chaud incomplet) rendait
  * des mails sans la phrase, et rien ne le disait. Désormais le récapitulatif ne s'affiche pas : la raison est dite, rien n'est parti. PUR.
  */
-export const MOTIF_PHRASE_ABSENTE = 'Le récapitulatif ne commence pas par « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.';
-export function refusSansPhrase(phrase: unknown, mails: readonly { texte: string }[]): string | null {
+export const MOTIF_PHRASE_ABSENTE = 'Le récapitulatif ne porte pas « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.';
+/** 🔴 (6e retour) le mail interne porte la phrase « En présence de … » ; celui des locataires, « … en présence de … » dans son introduction. */
+export function refusSansPhrase(phrase: unknown, mails: readonly { texte: string }[], presence?: unknown): string | null {
   if (typeof phrase !== 'string' || !phrase.startsWith('En présence')) return MOTIF_PHRASE_ABSENTE;
-  return mails.every((m) => m.texte.startsWith(phrase)) ? null : MOTIF_PHRASE_ABSENTE;
+  const liste = typeof presence === 'string' && presence !== '' ? `en présence ${presence}` : null;
+  return mails.every((m) => m.texte.includes(phrase) || (liste !== null && m.texte.includes(liste))) ? null : MOTIF_PHRASE_ABSENTE;
 }
 
 /**
@@ -292,7 +294,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
      numéro de pièce), enregistré tout seul ; restauré à la réouverture. Les photos et prises pas encore déposées vivent dans le téléphone. */
   const urlPiece = (id: number): string => `/api/admin/location/pieces-sortie?piece=${id}`;
   const contenuBrouillon: ContenuBrouillon = {
-    corps, presents, ajoutees: ajoutees.map((a) => ({ cle: a.cle, civilite: a.civilite, nom: a.nom, prenom: a.prenom, present: a.present, note: a.note })),
+    // 🔴 (6e retour) le tiret orphelin d'une ligne restée vide n'est pas enregistré
+    corps: sansTiretsOrphelins(corps), presents, ajoutees: ajoutees.map((a) => ({ cle: a.cle, civilite: a.civilite, nom: a.nom, prenom: a.prenom, present: a.present, note: a.note })),
     photos: photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende })),
     fichiers: fichiers.map((f) => ({ cle: f.cle, nom: f.nom, locataires: f.locataires === true, prises: f.prises.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, dureeS: x.dureeS })) })),
     aussiLocataires,
@@ -364,7 +367,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     }
     if (!verifierPhotos()) return;
     setEnvoi(true); setRefus(null);
-    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires, photos: photosPretes, presences,
+    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps: sansTiretsOrphelins(corps), aussiLocataires, photos: photosPretes, presences,
       ...(envoiVocaux.fichiersVocaux.some((f) => f.locataires) ? { vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}) }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
@@ -373,10 +376,10 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     // Un texte modifié refusé par le serveur : le récapitulatif d'avant reste, la raison est dite (la retouche n'est pas gardée).
     if (r.motif !== null) { setRefus(r.motif); return; }
     setRetouches(rt);
-    const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[]; phrase?: unknown; notesInternes?: string[] };
+    const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[]; phrase?: unknown; presence?: unknown; notesInternes?: string[] };
     // Réaffecter : seules les invitations des collègues partent (les locataires ne sont pas prévenus d'un changement de collègue).
     const mails = (d.mails ?? []).filter((m) => geste !== 'reaffecter' || m.sorte === 'previsite_invitation');
-    const sansPhrase = geste === 'compte_rendu' ? refusSansPhrase(d.phrase, mails) : null;
+    const sansPhrase = geste === 'compte_rendu' ? refusSansPhrase(d.phrase, mails, d.presence) : null;
     if (sansPhrase !== null) { setRefus(sansPhrase); return; }
     setEtape({ etape: 'recap', mails, sansEmail: geste === 'reaffecter' ? [] : d.sansEmail ?? [], ...(Array.isArray(d.notesInternes) ? { notesInternes: d.notesInternes } : {}) });
   };
@@ -386,7 +389,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     setEnvoi(true); setRefus(null);
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
-    const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '',
+    const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps: sansTiretsOrphelins(corps), aussiLocataires, texte: texteRefus ?? '',
       ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux, presences } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
@@ -463,7 +466,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
         <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} onOccupe={setLegendeOccupee} />
         <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe} />
-        <BoutonEnvoiLocataires actif={aussiLocataires} onBasculer={() => setAussiLocataires((v) => !v)} occupationId={l.occupationId} occupationIds={l.occupationIds}
+        <BoutonEnvoiLocataires actif={aussiLocataires} onBasculer={() => setAussiLocataires((v) => !v)} occupationIds={l.occupationIds}
           nomsConnus={l.locataires.map((x) => x.nom)} />
       </>}
       {geste === 'refus' && (propose.etat.etat !== 'ok' ? <EtatLecture etat={propose.etat} /> : <>
@@ -530,12 +533,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       })()}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
       {/* 🔴 Arno (15/11/2026) — une ligne TRÈS visible par vocal : envoyé aux locataires (vert) ou non envoyé, interne (rouge) */}
-      {geste === 'compte_rendu' && envoiVocaux.fichiersVocaux.length > 0 && (
-        <ul className="pvv-recap-vocaux" data-recap-vocaux>{envoiVocaux.fichiersVocaux.map((f, i) => {
-          const envoye = f.locataires && aussiLocataires;
-          return <li key={`${i}-${f.nom}`} className={`pvv-vocal-etat${envoye ? ' pvv-vocal-etat--envoye' : ''}`} data-recap-vocal={envoye ? 'envoye' : 'interne'}>
-            {f.nom} — {etatVocalLocataires(envoye)}{f.locataires && !aussiLocataires ? ' — l’envoi aux locataires est désactivé : activez « Compte rendu envoyé aux locataires » pour le joindre' : ''}</li>;
-        })}</ul>)}
+      {/* 🔴 Arno (15/11/2026, 6e retour) — chaque ligne de vocal a son bouton « Écouter » (prises enchaînées) : vérifier l'affectation avant de confirmer */}
+      {geste === 'compte_rendu' && <LignesVocauxRecap fichiers={fichiers} aussiLocataires={aussiLocataires} />}
       <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">

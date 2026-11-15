@@ -62,7 +62,9 @@ export interface MailAvis {
 
 export interface Signature { html: string; texte: string }
 
-export interface LocataireAvis { occupationId: number; nom: string; prenom: string | null; emails: string[] }
+export interface LocataireAvis { occupationId: number; nom: string; prenom: string | null; emails: string[];
+  /** 🔴 Arno (15/11/2026) — la civilité de l'annuaire (« Madame, » / « Monsieur, » en tête du compte rendu de pré-visite) ; absente : inconnue. */
+  civilite?: string | null }
 
 export interface DonneesPreavisMails {
   /** L'adresse complète du logement (« 12 rue …, 75011 Paris »). */

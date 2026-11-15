@@ -167,6 +167,12 @@ test('PHOTOS : légende modifiable ; Carrousel (1/n, une photo à la fois) / Lis
   await page.goto(`${BASE}/admin/location?previsite=${OCC}&geste=compte-rendu`);
   await expect(page.locator('[data-fenetre-previsite="saisie"]')).toBeVisible({ timeout: 30_000 });
   expect(await page.evaluate(() => localStorage.getItem('svav.compteRendu.photos.vue'))).toBe('carrousel'); // mémorisé sur l'appareil
+  // 🔴 (15/11/2026, 6e retour) — la sauvegarde automatique a gardé les 3 photos : restaurées ; on efface le brouillon pour repartir d'un formulaire vide
+  await expect(page.locator('[data-photo]')).toHaveCount(3, { timeout: 10_000 });
+  await page.locator('[data-effacer-brouillon]').scrollIntoViewIfNeeded();
+  await page.locator('[data-effacer-brouillon]').tap();
+  await page.locator('[data-effacer-brouillon-oui]').tap();
+  await expect(page.locator('[data-photo]')).toHaveCount(0);
   await page.locator('[data-photo-galerie]').setInputFiles([{ name: 'a.png', mimeType: 'image/png', buffer: png(32, 32, [10, 10, 10]) }, { name: 'b.png', mimeType: 'image/png', buffer: png(32, 32, [240, 240, 240]) }]);
   await expect(page.locator('[data-photo-etat="ok"]')).toHaveCount(2, { timeout: 20_000 });
   await expect(page.locator('[data-photos-compte-rendu]')).toHaveAttribute('data-vue-photos', 'carrousel');

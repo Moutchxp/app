@@ -1219,7 +1219,7 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     cocherPresence();
     await act(async () => { (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click(); }); await attendre();
     expect(document.querySelector('[data-fenetre-previsite="recap"]')).toBeNull();
-    expect(document.querySelector('[data-previsite-refus]')!.textContent).toBe('Le récapitulatif ne commence pas par « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.');
+    expect(document.querySelector('[data-previsite-refus]')!.textContent).toBe('Le récapitulatif ne porte pas « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.');
     global.fetch = avant;
   });
   it('rendez-vous pas commencé, déjà fait, préavis introuvable : la page le dit, sans formulaire', async () => {
@@ -1703,19 +1703,22 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     expect(b().textContent).toContain('Clavier');
   });
 
-  it('🔴 « Entrée » insère une ligne AU CURSEUR sans ouvrir le clavier ; la nouvelle ligne prend « - » dès qu’on y écrit ; pas sur la 1re ligne ; pas de double tiret ; vide : pas de tiret', async () => {
+  it('🔴 « Entrée » insère une ligne AU CURSEUR sans ouvrir le clavier ; 🔴 (6e retour) le tiret TOUT DE SUITE (« - | ») ; pas sur la 1re ligne ; pas de double tiret ; le tiret orphelin n’est pas enregistré', async () => {
     await ouvrirCr();
     taper('Salon propre');
     expect(zone().value).toBe('Salon propre');
     act(() => (document.querySelector('[data-entree]') as HTMLButtonElement).click());
-    expect(zone().value).toBe('Salon propre\n');
+    expect(zone().value).toBe('Salon propre\n- ');
     expect(document.activeElement).not.toBe(zone());
-    taper('Salon propre\nC');
+    taper('Salon propre\n- C');
     expect(zone().value).toBe('Salon propre\n- C');
     taper('Salon propre\n- Cuisine\n- déjà\n');
     expect(zone().value).toBe('Salon propre\n- Cuisine\n- déjà\n');
+    // le curseur sur la ligne qui n'a que son tiret : il reste (on va y dicter) ; à l'enregistrement, il est retiré
     taper('Salon propre\n- Cuisine\n- ');
-    expect(zone().value).toBe('Salon propre\n- Cuisine\n');
+    expect(zone().value).toBe('Salon propre\n- Cuisine\n- ');
+    cocherPresence(); act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    expect(appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!.corps).toBe('Salon propre\n- Cuisine');
   });
 
   it('une DICTÉE qui arrive sur une ligne vide reçoit son tiret', async () => {
@@ -1771,23 +1774,38 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     expect(b.className).toContain('svv-btn-primary'); expect(b.className).toContain('pvv-gros'); expect(b.className).toContain('pvv-envoi-loc--oui');
     expect(b.textContent).toBe(' Compte rendu envoyé aux locataires');
     expect(b.querySelector('svg')).not.toBeNull(); // la coche dessinée
-    expect(document.querySelector('[data-envoi-locataires-noms]')!.textContent).toMatch(/^Le recevra/);
+    expect(document.querySelector('[data-destinataires-titre]')!.textContent).toBe('Les destinataires :');
     expect(document.querySelector('[data-aide-envoi-locataires]')!.textContent).toContain('chaque locataire reçoit en plus SON propre mail');
     act(() => b.click());
     expect(b.getAttribute('aria-pressed')).toBe('false');
     expect(b.className).toContain('svv-btn-outline'); expect(b.className).not.toContain('svv-btn-primary');
     expect(b.textContent).toBe('Compte rendu NON envoyé aux locataires (interne uniquement)');
-    expect(document.querySelector('[data-envoi-locataires-noms]')).toBeNull();
+    expect(document.querySelectorAll('[data-destinataire-liste="locataire"]')).toHaveLength(0); // désactivé : les seuls internes
     expect(document.querySelector('[data-aide-envoi-locataires]')!.textContent).toContain('aucun locataire ne le reçoit');
     act(() => b.click());
     expect(b.getAttribute('aria-pressed')).toBe('true');
     const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
     expect(css).toContain('.pvv-envoi-loc--oui.svv-btn,.pvv-envoi-loc--oui{background:var(--color-svv-red);color:var(--color-svv-surface)');
   });
-  it('🔴 (15/11/2026) qui recevra le compte rendu : les locataires du préavis AVEC une adresse ; les autres dits à part', async () => {
-    const { destinatairesLocataires } = await import('./CompteRenduSaisie');
-    expect(destinatairesLocataires([{ occupationId: 11, nom: 'MAGNANI', prenom: 'Monia', emails: ['m@exemple.test'] }, { occupationId: 12, nom: 'BERNARD', prenom: 'Paul', emails: [] },
-      { occupationId: 99, nom: 'AUTRE', prenom: null, emails: ['x@exemple.test'] }], [11, 12])).toEqual({ recoivent: ['Monia MAGNANI'], sansEmail: ['Paul BERNARD'] });
+  it('🔴🔴 (6e retour) « Les destinataires : » un par ligne — barre VERTE pour chaque locataire, GRISE pour chaque interne ; désactivé : les seuls internes ; mention de recette', async () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteDestinataires=')
+      ? ok({ locataires: [{ nom: 'Monia MAGNANI', recette: 'Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.' }],
+        sansEmail: ['Paul BERNARD'], internes: ['a.jorel@sansvisavis.com', 'gestion@exemple.test'], recetteInternes: null })
+      : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await ouvrirCr();
+    await attendre();
+    const lignes = () => [...document.querySelectorAll('[data-destinataire-liste]')].map((x) => [x.getAttribute('data-destinataire-liste'), x.querySelector('.pvv-dest-nom')!.textContent, x.className]);
+    expect(lignes()).toEqual([['locataire', 'Monia MAGNANI', 'pvv-dest pvv-dest--locataire'], ['interne', 'a.jorel@sansvisavis.com', 'pvv-dest pvv-dest--interne'],
+      ['interne', 'gestion@exemple.test', 'pvv-dest pvv-dest--interne']]);
+    expect(document.querySelector('[data-destinataire-recette]')!.textContent).toContain('Adresse remplacée en recette');
+    expect(document.querySelector('[data-envoi-locataires-sans-email]')!.textContent).toBe('Sans adresse e-mail, ne le recevra pas : Paul BERNARD');
+    act(() => (document.querySelector('[data-aussi-locataires]') as HTMLButtonElement).click());
+    expect(lignes().map((x) => x[0])).toEqual(['interne', 'interne']);
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-dest--locataire{--pvv-dest:var(--color-svv-green-ink)}');
+    expect(css).toContain('.pvv-dest--interne{--pvv-dest:var(--color-svv-gray)}');
+    global.fetch = avant;
   });
   it('vocal marqué « Envoyé aux locataires » mais envoi aux locataires DÉSACTIVÉ : le récapitulatif dit NON envoyé, et pourquoi ; rien ne part aux locataires', async () => {
     await ouvrirCr();
@@ -2219,5 +2237,99 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — SAUVEGARDE AUTOMATIQUE du co
     await patienter(() => document.querySelector('[data-photo-etat="ok"]') !== null);
     expect((document.querySelector('[data-photo="1"] [data-photo-legende]') as HTMLInputElement).value).toBe('Joint douche');
     expect(photosDeposees).toBe(1);
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, 6e retour) — clavier réel ; micro du titre de vocal ; « Écouter » dans le récapitulatif', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let dictees: Record<string, unknown>[] = []; let horloge = 1_000_000; let id = 300;
+  class FauxEnregistreur {
+    static isTypeSupported = (t: string) => t === 'audio/mp4';
+    mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
+    constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+  }
+  let joues: string[] = [];
+  beforeEach(async () => {
+    (await import('../../../../lib/location/fileAttenteLocale')).oublierMemoireLocale();
+    dictees = []; horloge = 1_000_000; id = 300; joues = [];
+    vi.spyOn(Date, 'now').mockImplementation(() => horloge);
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => `blob:vocal-${Math.random()}`; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) { joues.push(this.src); return Promise.resolve(); });
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'vocal-compte-rendu') { id += 1; return ok({ id, nom: 'v.m4a', taille: 3 }); }
+        if (c.action === 'dicter-compte-rendu') { dictees.push(c); return ok({ ok: true, texte: 'salle de bains' }); }
+        if (c.action === 'apercu-compte-rendu-previsite') return ok({ mails: [], sansEmail: [], phrase: 'En présence de Alice BERNARD.' });
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const patienter = async (cond: () => boolean) => { for (let k = 0; k < 80 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
+  const ouvrir = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); await patienter(() => document.querySelector('[data-corps-compte-rendu]') !== null); };
+  const maintenir = async (b: HTMLButtonElement, ms: number) => {
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => b.getAttribute('data-enregistrement') === 'oui' && b.querySelector('[data-maintien-duree]') !== null);
+    horloge += ms;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+    await attendre();
+  };
+
+  it('« Clavier » : rouge quand le champ a le focus, BLANC dès qu’il le perd (bouton iOS, appui ailleurs)', async () => {
+    await ouvrir();
+    const b = document.querySelector('[data-clavier]') as HTMLButtonElement; const zone = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+    act(() => b.click());
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    expect(b.className).toContain('svv-btn-primary');
+    act(() => { zone.blur(); });
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+    expect(b.className).toContain('svv-btn-outline');
+    // un appui AILLEURS (zone non saisissable : WebKit garde le focus) : le champ est quitté, le bouton redevient blanc
+    act(() => b.click());
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    act(() => { document.querySelector('[data-titre-previsite]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); });
+    expect(document.activeElement).not.toBe(zone);
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+  });
+  it('le TITRE d’un fichier vocal : le même micro à droite dans le champ ; la dictée s’insère dans CE titre', async () => {
+    await ouvrir();
+    await maintenir(document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement, 900);
+    await patienter(() => document.querySelector('[data-prise-etat="ok"]') !== null);
+    const nom = document.querySelector('[data-vocal="1"] [data-vocal-nom]') as HTMLInputElement;
+    expect(nom.className).toBe('pvv-legende-champ');
+    const micro = document.querySelector('[data-vocal="1"] [data-dicter-titre]') as HTMLButtonElement;
+    expect(micro.getAttribute('aria-label')).toBe('Maintenir pour dicter le nom du fichier vocal 1');
+    act(() => { nom.focus(); nom.setSelectionRange(nom.value.length, nom.value.length); nom.blur(); });
+    await maintenir(micro, 900);
+    await patienter(() => nom.value !== 'Vocal 1');
+    expect(nom.value).toBe('Vocal 1 salle de bains');
+    expect(dictees).toHaveLength(1);
+  });
+  it('le RÉCAPITULATIF : chaque ligne de vocal a « Écouter » (lecture / pause, prises enchaînées)', async () => {
+    await ouvrir();
+    await maintenir(document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement, 900);
+    await maintenir(document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement, 900);
+    await patienter(() => document.querySelectorAll('[data-prise-etat="ok"]').length === 2);
+    const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'CR.'); t.dispatchEvent(new Event('input', { bubbles: true })); });
+    cocherPresence(); act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    const ligne = document.querySelector('[data-recap-vocal-ligne="1"]')!;
+    expect(ligne.querySelector('[data-recap-vocal]')!.textContent).toBe('Vocal 1 — NON envoyé (interne)');
+    const ecouter = ligne.querySelector('[data-recap-ecouter]') as HTMLButtonElement;
+    expect(ecouter.textContent).toBe(' Écouter');
+    act(() => ecouter.click());
+    expect(ecouter.getAttribute('aria-pressed')).toBe('true');
+    expect(ecouter.textContent).toBe(' Pause');
+    expect(joues).toHaveLength(1);
+    act(() => ecouter.click());
+    expect(ecouter.getAttribute('aria-pressed')).toBe('false');
   });
 });
