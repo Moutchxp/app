@@ -749,6 +749,8 @@ const CSS_FENETRE = `
 .tchf{display:flex;flex-direction:column;gap:10px;width:min(560px,100%);max-height:94vh;overflow:auto;padding:14px;
   border:1px solid var(--color-svv-line);border-radius:.8rem;background:var(--color-svv-surface);
   box-shadow:0 18px 50px rgba(0,0,0,.28);color:var(--color-svv-ink)}
+/* Arno (15/11/2026) : regle commune des fenetres — les blocs ne retrecissent jamais (la fenetre defile si elle depasse l'ecran) */
+.tchf > *{flex-shrink:0}
 .tchf-tete{display:flex;align-items:flex-start;gap:10px}
 .tchf-titre{flex:1 1 auto;min-width:0;margin:0;font-size:1rem;font-weight:700;overflow-wrap:anywhere}
 .tchf-adresse{font-weight:500;color:var(--color-svv-muted)}

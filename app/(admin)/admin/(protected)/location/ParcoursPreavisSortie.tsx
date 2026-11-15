@@ -388,7 +388,12 @@ export const CSS_PARCOURS = `
 .pss-texte{margin-top:6px}
 .pss-bascule-texte{appearance:none;border:0;background:none;padding:0;min-height:32px;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
 .pss-pre{white-space:pre-wrap;font-family:inherit;font-size:.85rem;margin:6px 0 0;background:var(--color-svv-field);padding:8px;border-radius:8px;overflow-wrap:anywhere}
-.pss-boite .mis-actions{position:sticky;bottom:0;margin:0 -24px -22px;padding:12px 24px;background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line);z-index:1}
-@media (max-width:640px){ .pss-boite .mis-actions{bottom:0;margin:0 -16px calc(-16px - env(safe-area-inset-bottom));padding:12px 16px calc(12px + env(safe-area-inset-bottom))} }
+/* Arno (06/11/2026) : « Revenir » et « Confirmer » toujours visibles, en bas de la fenetre qui defile ; 🔴 (15/11/2026) la barre est OPAQUE
+   et occupe sa propre place : a la fin du defilement, rien du texte n'est dessous (les blocs ne retrecissent plus) */
+.pss-boite .mis-actions{position:sticky;bottom:0;margin:0 -24px;padding:12px 24px 22px;background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line);z-index:1}
+/* 🔴 (15/11/2026) CAUSE du texte coupe sous « Fermer » : la barre avait une marge basse NEGATIVE (-22 px, plus au telephone), qui retranchait
+   autant de la zone de defilement : meme tout en bas, la barre recouvrait le dernier bloc. Le rembourrage bas est porte par la barre. */
+.mis-boite.pss-boite{padding-bottom:0}
+@media (max-width:640px){ .pss-boite .mis-actions{bottom:0;margin:0 -16px;padding:12px 16px calc(16px + env(safe-area-inset-bottom))} }
 @media (max-width:640px){ .pss-boutons{justify-content:stretch} .pss-boutons .gst-btn{width:100%} .pss-envoi{width:100%} .pss-envoi .gst-btn{flex:1} }
 `;

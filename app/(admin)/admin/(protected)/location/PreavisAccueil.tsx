@@ -32,7 +32,7 @@ import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RES
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
 import { BandeauPreavisTest, CreerPreavisTest, CSS_PREAVIS_TEST } from './PreavisTest';
-import { BADGE_TEST, horsTest } from '../../../../lib/location/preavisTest';
+import { BADGE_TEST } from '../../../../lib/location/preavisTest';
 
 /**
  * ══ 🔴🔴 ACCUEIL LOCATION — LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 18/10/2026) ═════════════════════════════════════════
@@ -120,6 +120,11 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); };
   // 🔴 Arno (15/11/2026) — le filtre des STATUTS de ligne (arbre validé par Arno ; vide : tous ; « Alerte préavis » gardé à part).
   const [filtre, setFiltre] = useState<Set<FiltreLigne>>(new Set());
+  // 🔴 (15/11/2026) le filtre choisi est MÉMORISÉ sur cet appareil (par écran), comme le tri
+  const cleFiltre = `svav.preavis.filtre:${plein ? 'plein' : 'bloc'}:${lecture}`;
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { const v = JSON.parse(window.localStorage.getItem(cleFiltre) ?? '[]') as unknown; if (Array.isArray(v)) setFiltre(new Set(v.filter(estFiltreLigne))); } catch { /* sans stockage */ } }, [cleFiltre]);
+  const choisirFiltre = (f: Set<FiltreLigne>): void => { setFiltre(f); try { window.localStorage.setItem(cleFiltre, JSON.stringify([...f])); } catch { /* sans stockage */ } };
   /* 🔴 Arno (11/11/2026) — le « ← Retour » commun rend ce bloc TEL QU'IL ÉTAIT : ligne dépliée, statut filtré, recherche, bloc ouvert (le tri
      est déjà gardé par le navigateur). Une clé par écran (bloc / pleine page, Location / Gestion). */
   useEtatRetour(`preavis:${plein ? 'plein' : 'bloc'}:${lecture}`, { ouverte, filtre: [...filtre], recherche, ouvert },
@@ -134,12 +139,14 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   // Une réponse inattendue (serveur plus ancien que l'écran) ne fait jamais tomber l'accueil : on n'affiche que ce qui est lisible.
   const toutes = d === null || !Array.isArray(d.lignes) ? []
     : trierPreavis(d.lignes.map((x) => (locaux[x.cle] ? { ...x, edls: locaux[x.cle], etatDesLieuxLe: locaux[x.cle].jour } : x)), tri);
-  const filtrees = toutes.filter((x) => lignePasseFiltre(x, filtre));
-  const lignes = plein ? chercherPreavis(filtrees, recherche) : filtrees;
+  /* 🔴🔴 Arno (15/11/2026) — les filtres et leurs compteurs portent EXACTEMENT sur les lignes affichées : la liste (après la recherche) est
+     la base ; chaque compteur = ses lignes de ce statut, « Tous » = le total ; les préavis de TEST visibles sont comptés comme les autres. */
+  const affichables = plein ? chercherPreavis(toutes, recherche) : toutes;
+  const lignes = affichables.filter((x) => lignePasseFiltre(x, filtre));
   // 🔴 Arno (10/11/2026) — le repère rouge du bloc replié : LA fonction de la pastille du menu, sur les mêmes lignes que l'intérieur.
   const alertes = compterPreavisEnAlerte(lignes);
   // 🔴 Arno (14/11/2026, 473) — les préavis de TEST (les vôtres seulement) n'entrent dans aucun compteur ni pastille
-  const nombre = horsTest(lignes).length;
+  const nombre = lignes.length; // 🔴 (15/11/2026) le nombre des lignes affichées, préavis de test compris (ils sont dans la liste)
   // 🔴 Arno (10/11/2026) — `?previsite=<occupation>` (lien des mails d'alerte et d'invitation au compte rendu) : la ligne s'ouvre, dépliée.
   const [cible, setCible] = useState<number | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -210,7 +217,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
             </div>
             {d!.previsite === true && <>
               <div className="pva-tri" role="group" aria-label="Statut de pré-visite">
-                <span className="pva-tri-libelle">Statut</span>
+                <span className="pva-tri-libelle">Tri par statut</span>
                 {segment({ cle: 'statut', sens: 'asc' }, 'En préavis d’abord')}
                 {segment({ cle: 'statut', sens: 'desc' }, 'Plus avancés d’abord')}
               </div>
@@ -221,7 +228,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               </div>
             </>}
           </div>
-          {d!.previsite === true && <FiltresStatutLigne lignes={horsTest(toutes)} filtre={filtre} onChange={setFiltre} />}
+          {d!.previsite === true && <FiltresStatutLigne lignes={affichables} filtre={filtre} onChange={choisirFiltre} />}
           {/* 🔴 Arno (14/11/2026, 473) — « Préavis de test » : discret, réservé aux administrateurs (écran Location seulement). */}
           {lecture === 'location' && d!.preavisTest?.administrateur === true && <CreerPreavisTest disponible={d!.preavisTest.disponible} apres={(m) => { setBilan(m); apresGeste(); }} />}
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}

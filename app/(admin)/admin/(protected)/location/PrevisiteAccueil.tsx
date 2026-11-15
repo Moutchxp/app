@@ -792,7 +792,7 @@ export const CSS_PREVISITE = `
 .pvv-boite-consultation > *{flex-shrink:0}
 .pvv-boite-consultation .pvv-cr-texte{max-height:none;overflow:visible}
 /* le « Fermer » du bas : en FIN de contenu, jamais colle par-dessus les prises (la barre des fenetres de parcours est collante) */
-.pvv-boite-consultation .mis-actions{position:static;margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--color-svv-line);background:transparent}
+.pvv-boite-consultation .mis-actions{position:static;margin:18px 0 0;padding:12px 0 16px;border-top:1px solid var(--color-svv-line);background:transparent}
 .pvv-cr-barre{position:sticky;top:0;z-index:2;display:flex;justify-content:flex-start;margin:-6px 0 0;padding:6px 0;background:var(--color-svv-surface)}
 .pvv-cr-fermer-haut{min-height:44px;padding:0 6px;border:0;background:none;color:var(--color-svv-ink);font:inherit;font-weight:800;cursor:pointer}
 @media (max-width:640px){
@@ -860,11 +860,15 @@ export const CSS_PREVISITE = `
 .psl-statut--previsite_effectuee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .psl-statut--rdv_edl{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .psl-statut--edl_effectue{background:var(--color-svv-field);color:var(--color-svv-gray)}
-.psl-filtre--rdv_previsite[aria-pressed=true]{border-color:var(--color-svv-sarcelle)}
-.psl-filtre--refus_previsite[aria-pressed=true]{border-color:var(--color-svv-orange)}
-.psl-filtre--previsite_effectuee[aria-pressed=true]{border-color:var(--color-svv-green-ink)}
-.psl-filtre--rdv_edl[aria-pressed=true]{border-color:var(--color-svv-violet)}
-.psl-filtre--alerte{border-color:var(--color-svv-urgence-orange)}
+/* Arno (15/11/2026) : chaque FILTRE porte la couleur de son statut, identique au cartouche de la ligne ; choisi : plein de sa couleur */
+.psl-filtre{--psl-fond:var(--color-svv-blue-soft);--psl-encre:var(--color-svv-blue);background:var(--psl-fond);color:var(--psl-encre);border-color:var(--psl-encre);font-weight:700}
+.psl-filtre--rdv_previsite{--psl-fond:var(--color-svv-sarcelle-soft);--psl-encre:var(--color-svv-sarcelle)}
+.psl-filtre--refus_previsite{--psl-fond:var(--color-svv-orange-soft);--psl-encre:var(--color-svv-orange)}
+.psl-filtre--previsite_effectuee{--psl-fond:var(--color-svv-green-soft);--psl-encre:var(--color-svv-green-ink)}
+.psl-filtre--rdv_edl{--psl-fond:var(--color-svv-violet-soft);--psl-encre:var(--color-svv-violet)}
+.psl-filtre--alerte{--psl-fond:var(--color-svv-orange-soft);--psl-encre:var(--color-svv-urgence-orange)}
+.pva-segment.psl-filtre[aria-pressed="true"]{background:var(--psl-encre);color:var(--color-svv-surface);border-color:var(--psl-encre);font-weight:900}
+.psl-filtre .pvv-compteur{background:var(--color-svv-surface);color:var(--psl-encre)}
 .pvv-etat{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
 .pvv-etat--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 /* Arno (13/11/2026) : un rendez-vous fixe est VERT, comme la pre-visite effectuee */

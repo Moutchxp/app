@@ -88,6 +88,9 @@ export function ModaleIssue({ sorte, titre, lignes = [], echec, notes = [], acti
 export const CSS_MODALE_ISSUE = `
 .mis-voile{position:fixed;inset:0;z-index:90;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:24px}
 .mis-boite{background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:20px;width:min(560px,100%);max-height:calc(100vh - 48px);overflow-y:auto;padding:22px 24px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;border:2px solid var(--color-svv-line);box-shadow:0 30px 60px -20px color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+/* Arno (15/11/2026) : REGLE COMMUNE DES FENETRES — la boite est une colonne qui ne defile que si elle depasse l'ecran ; ses blocs ne
+   RETRECISSENT JAMAIS (sinon un texte etait reduit a une ligne et coupe sous les boutons) : la hauteur suit le contenu */
+.mis-boite > *{flex-shrink:0}
 .mis-boite--succes{border-color:var(--color-svv-green-ink)}
 .mis-boite--erreur{border-color:var(--color-svv-red);border-width:3px}
 .mis-boite--attention{border-color:var(--color-svv-amber)}

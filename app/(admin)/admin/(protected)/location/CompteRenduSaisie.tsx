@@ -1299,7 +1299,7 @@ html:has(.pvv-voile-cr),body:has(.pvv-voile-cr){background:var(--color-svv-surfa
 .pvv-recap-vocaux{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
 .pvv-recap-vocaux li{padding:10px 12px;border-radius:10px;border:2px solid currentColor;font-size:1.02rem;background:var(--color-svv-surface)}
 /* la marge laterale des blocs (12 px + 1 px de bord) : les boutons du bas ont exactement la largeur de ceux des blocs */
-.pvv-boite-cr .mis-actions{position:static;margin:18px 0 0;padding:12px 13px 0;border-top:1px solid var(--color-svv-line);background:transparent}
+.pvv-boite-cr .mis-actions{position:static;margin:18px 0 0;padding:12px 13px 16px;border-top:1px solid var(--color-svv-line);background:transparent}
 @media (max-width:640px){
   .pvv-voile-cr .mis-boite{min-height:100%;border-radius:0;box-shadow:none}
   .pvv-boite-cr .mis-actions{margin:18px 0 0;padding:12px 13px calc(12px + env(safe-area-inset-bottom))}

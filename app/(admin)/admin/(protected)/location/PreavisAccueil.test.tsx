@@ -1616,12 +1616,16 @@ describe('🔴🔴 Arno (14/11/2026, 473) — le PRÉAVIS DE TEST à l’écran'
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
   });
-  it('badge « TEST » sur la ligne ; le test n’entre ni dans le nombre ni dans les pastilles de statut', async () => {
+  it('badge « TEST » sur la ligne ; 🔴 (15/11/2026, accord d’Arno) dans la vue où il apparaît, le test est compté comme les autres : nombre et filtres = lignes affichées', async () => {
     await rendre(false);
     expect(container.querySelector('[data-ligne-preavis="T"] [data-badge-test]')!.textContent).toBe('TEST');
-    expect(container.querySelector('[data-nombre-preavis]')!.textContent).toBe('3');
+    const affichees = container.querySelectorAll('[data-ligne-preavis]').length;
+    expect(affichees).toBe(4);
+    expect(container.querySelector('[data-nombre-preavis]')!.textContent).toBe('4');
     expect(container.querySelector('[data-ligne-preavis="A"] [data-badge-test]')).toBeNull();
-    expect(container.querySelector('[data-compteur-previsite="alerte"]')?.textContent ?? '0').toBe('0');
+    // la pastille du menu (préavis en alerte) n'est pas concernée : elle n'entre pas les tests (inchangée)
+    const { compterPreavisEnAlerte } = await import('../../../../lib/location/previsite');
+    expect(compterPreavisEnAlerte([{ previsite: { statut: 'alerte' }, test: true }])).toBe(0);
   });
   it('« Préavis de test » : discret, réservé aux administrateurs ; l’explication, puis « Créer le préavis de test »', async () => {
     await rendre(false);
@@ -2795,7 +2799,7 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     expect(v.compareDocumentPosition(bas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
     expect(css).toContain('.pvv-boite-consultation > *{flex-shrink:0}');
-    expect(css).toContain('.pvv-boite-consultation .mis-actions{position:static;margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--color-svv-line);background:transparent}');
+    expect(css).toContain('.pvv-boite-consultation .mis-actions{position:static;margin:18px 0 0;padding:12px 0 16px;border-top:1px solid var(--color-svv-line);background:transparent}');
     expect(css).toContain('.pvv-boite-consultation .pvv-cr-texte{max-height:none;overflow:visible}');
     expect(css).toContain('.pvv-voile-consultation{inset:0;padding:0;align-items:stretch;justify-content:stretch;display:block;overflow-y:auto');
     expect(css).toContain('.pvv-voile-consultation .mis-boite{width:100%;max-height:none;min-height:100%;overflow:visible;border:0;border-radius:0;box-shadow:none');
@@ -2828,5 +2832,80 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     await patienter(() => document.documentElement.hasAttribute('data-repeint'));
     expect(document.documentElement.hasAttribute('data-repeint')).toBe(true);
     raf.mockRestore();
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026) — filtres par STATUT au-dessus de la liste : compteurs et filtrage = lignes AFFICHÉES ; fenêtres toujours lisibles', () => {
+  const PV = (statut: 'alerte' | 'recu' | 'programmee' | 'effectuee' | 'refusee') => ({ statut, rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null });
+  const EDLS = { edlsId: 1, tacheId: 2, jour: '2099-06-01', heure: '10:00', dureeMinutes: 60, confieA: 'Arno Test', confieAId: 3, statut: 'acceptee' as const, reponduPar: null, motifRefus: null };
+  beforeEach(() => {
+    try { window.localStorage.clear(); } catch { /* rien */ }
+    lignes = [
+      { ...LIGNES[0], previsite: PV('alerte') },
+      { ...LIGNES[1], previsite: PV('programmee') },
+      { ...LIGNES[2], previsite: PV('effectuee'), edls: EDLS },
+      ligne('T', { adresse: 'T rue', occupationId: 41, occupationIds: [41], test: true, testId: 9, previsite: PV('programmee'),
+        locataires: [{ occupationId: 41, locataireId: 401, nom: 'TEST' }] }),
+    ];
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('preavisEnCours=1')
+      ? ok({ disponible: true, etatDesLieux: true, previsite: true, planification: true, lignes }) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+  });
+  const compteurs = () => Object.fromEntries([...container.querySelectorAll('[data-filtre-previsite]')].map((b) => [b.getAttribute('data-filtre-previsite'), b.textContent]));
+  it('chaque compteur = ses lignes dans la liste affichée (préavis de test compris) ; « Tous » = le total affiché', async () => {
+    await rendre(true);
+    expect(ordre()).toHaveLength(4);
+    expect(compteurs()).toEqual({ tous: 'Tous (4)', en_preavis: 'En préavis 1', rdv_previsite: 'RDV pré-visite fixé 2', refus_previsite: 'Refus / absence pré-visite 0',
+      previsite_effectuee: 'Pré-visite effectuée 0', rdv_edl: 'RDV état des lieux fixé 1', alerte: 'Alerte préavis 1' });
+    expect(container.querySelector('[data-nombre-preavis]')!.textContent).toBe('4');
+    // la somme des compteurs de statut = le total : aucune ligne perdue
+    const somme = [...container.querySelectorAll('[data-compteur-previsite]')].filter((x) => x.getAttribute('data-compteur-previsite') !== 'alerte').reduce((n, x) => n + Number(x.textContent), 0);
+    expect(somme).toBe(4);
+  });
+  it('un clic sur un statut n’affiche QUE ses lignes ; cumulable ; combinable avec l’alerte et le tri ; « Tous » remet tout', async () => {
+    await rendre(true);
+    clic('[data-filtre-previsite="rdv_previsite"]'); await attendre();
+    expect(ordre().sort()).toEqual(['B', 'T']);
+    expect([...container.querySelectorAll('[data-ligne-preavis] [data-statut-ligne]')].every((x) => x.textContent === 'RDV pré-visite fixé')).toBe(true);
+    clic('[data-filtre-previsite="alerte"]'); await attendre();
+    expect(ordre().sort()).toEqual(['A', 'B', 'T']);
+    clic('[data-tri="statut:desc"]'); await attendre();
+    expect(ordre()[2]).toBe('A'); // le tri s'applique aux lignes filtrées
+    clic('[data-filtre-previsite="tous"]'); await attendre();
+    expect(ordre()).toHaveLength(4);
+  });
+  it('les deux rangées ne s’appellent plus pareil : « Tri par statut » (le tri) et « Statut » (le filtre)', async () => {
+    await rendre(true);
+    const libelles = [...container.querySelectorAll('.pva-tri-libelle')].map((x) => x.textContent);
+    expect(libelles).toContain('Tri par statut');
+    expect(libelles.filter((x) => x === 'Statut')).toHaveLength(1);
+  });
+  it('chaque filtre porte la couleur de son statut (comme le cartouche) ; le filtre choisi est MÉMORISÉ', async () => {
+    await rendre(true);
+    expect(container.querySelector('[data-filtre-previsite="rdv_edl"]')!.className).toBe('pva-segment pvv-pastille psl-filtre psl-filtre--rdv_edl');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.psl-filtre--rdv_edl{--psl-fond:var(--color-svv-violet-soft);--psl-encre:var(--color-svv-violet)}');
+    expect(css).toContain('.psl-statut--rdv_edl{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}');
+    clic('[data-filtre-previsite="rdv_edl"]'); await attendre();
+    expect(ordre()).toEqual(['C']);
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(true);
+    expect(ordre()).toEqual(['C']);
+    expect(container.querySelector('[data-filtre-previsite="rdv_edl"]')!.getAttribute('aria-pressed')).toBe('true');
+  });
+  it('fenêtres : les blocs ne RÉTRÉCISSENT jamais (texte jamais coupé) ; la barre de boutons des récapitulatifs est opaque et garde sa place', async () => {
+    const { CSS_MODALE_ISSUE } = await import('./ModaleIssue');
+    const { CSS_PARCOURS } = await import('./ParcoursPreavisSortie');
+    expect(CSS_MODALE_ISSUE).toContain('.mis-boite > *{flex-shrink:0}');
+    // la barre collante n'a plus de marge basse négative (elle recouvrait le dernier bloc, même tout en bas)
+    const c = CSS_PARCOURS.replace(/\s+/g, ' ');
+    expect(c).toContain('.pss-boite .mis-actions{position:sticky;bottom:0;margin:0 -24px;padding:12px 24px 22px;background:var(--color-svv-surface)');
+    expect(c).toContain('.mis-boite.pss-boite{padding-bottom:0}');
+    expect(c).not.toContain('margin:0 -24px -22px');
+    expect(c).not.toContain('calc(-16px - env(safe-area-inset-bottom))');
+    // les autres fenêtres en colonne qui défilent : même règle (fiche locataire, tâche de la Gestion)
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/ModaleFicheLocataire.tsx', 'utf8')).toContain('.mfl-boite > *{flex-shrink:0}');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/FenetreTache.tsx', 'utf8')).toContain('.tchf > *{flex-shrink:0}');
   });
 });

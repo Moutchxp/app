@@ -358,6 +358,7 @@ const CSS_MODALE_LOCATAIRE = `
 .mfl-ok{margin:0;margin-right:auto;color:var(--color-svv-green-ink);font-weight:800}
 .mfl-voile2{position:fixed;inset:0;z-index:95;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:16px}
 .mfl-boite{background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:16px;padding:18px 20px;width:min(620px,100%);max-height:calc(100vh - 32px);overflow:auto;display:flex;flex-direction:column;gap:10px}
+.mfl-boite > *{flex-shrink:0}
 .mfl-boite h3{margin:0;font-size:1.1rem}
 .mfl-boite p{margin:0}
 .mfl-recap-carte{padding:8px 0;border-bottom:1px solid var(--color-svv-line)}
