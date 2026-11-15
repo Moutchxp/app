@@ -214,10 +214,12 @@ describe('les lignes', () => {
 describe('les tris', () => {
   it('par défaut : fin de préavis la plus proche d’abord ; les 4 sens ; sans état des lieux toujours en dernier ; mémorisé localement', async () => {
     await rendre();
+    // 🔴 (15/11/2026) par défaut le tri chronologique des rendez-vous prime ; sans rendez-vous, l'ordre du panneau (fin de préavis) s'applique
     expect(ordre()).toEqual(['B', 'C', 'A']);
-    expect(container.querySelector('button[data-tri="fin:asc"]')?.getAttribute('aria-pressed')).toBe('true');
-    expect(container.querySelectorAll('button.pva-segment[aria-pressed="true"]')).toHaveLength(1);
+    expect(container.querySelector('[data-tri-rdv]')!.getAttribute('data-tri-rdv')).toBe('proches');
+    expect(container.querySelectorAll('button.pva-segment[data-tri][aria-pressed="true"]')).toHaveLength(0);
     clic('button[data-tri="fin:desc"]');
+    expect(container.querySelector('[data-tri-rdv]')!.getAttribute('data-tri-rdv')).toBe('off'); // un tri du panneau désactive le tri chronologique
     expect(ordre()).toEqual(['A', 'C', 'B']);
     clic('button[data-tri="edl:asc"]');
     expect(ordre()).toEqual(['A', 'C', 'B']);
@@ -2907,5 +2909,78 @@ describe('🔴🔴 Arno (15/11/2026) — filtres par STATUT au-dessus de la list
     const { readFileSync } = await import('node:fs');
     expect(readFileSync('app/(admin)/admin/(protected)/location/ModaleFicheLocataire.tsx', 'utf8')).toContain('.mfl-boite > *{flex-shrink:0}');
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/FenetreTache.tsx', 'utf8')).toContain('.tchf > *{flex-shrink:0}');
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026) — tris repliés derrière l’icône « Tris » ; tri chronologique des rendez-vous', () => {
+  const PV = (statut: 'alerte' | 'recu' | 'programmee' | 'effectuee' | 'refusee', jour?: string) => ({ statut, rdv: jour ? { jour, heure: '10:00', dureeMinutes: 60 } : null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null });
+  const EDLS = (jour: string) => ({ edlsId: 1, tacheId: 2, jour, heure: '09:00', dureeMinutes: 60, confieA: 'Arno Test', confieAId: 3, statut: 'acceptee' as const, reponduPar: null, motifRefus: null });
+  beforeEach(() => {
+    try { window.localStorage.clear(); } catch { /* rien */ }
+    lignes = [
+      { ...LIGNES[0], previsite: PV('programmee', '2099-03-01') },   // A : RDV pré-visite loin
+      { ...LIGNES[1], previsite: PV('refusee') },                    // B : sans rendez-vous
+      { ...LIGNES[2], previsite: PV('effectuee', '2099-01-10'), edls: EDLS('2099-02-01') }, // C : prochain = EDL du 01/02/2099
+    ];
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('preavisEnCours=1')
+      ? ok({ disponible: true, etatDesLieux: true, previsite: true, planification: true, lignes }) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+  });
+  const panneau = () => container.querySelector('[data-panneau-tris]') as HTMLElement;
+  it('l’icône « Tris » au BOUT de la rangée « Statut » (≥ 44 px, « Trier la liste ») ; un clic ouvre le panneau avec EXACTEMENT les tris d’avant ; second clic ou « Fermer » le replie', async () => {
+    await rendre(true);
+    const rangee = container.querySelector('[data-filtres-statut]')!;
+    const icone = rangee.lastElementChild as HTMLButtonElement;
+    expect(icone.hasAttribute('data-ouvrir-tris')).toBe(true);
+    expect([icone.getAttribute('aria-label'), icone.title, icone.getAttribute('aria-expanded')]).toEqual(['Trier la liste', 'Trier la liste', 'false']);
+    expect(panneau().hidden).toBe(true);
+    expect([...panneau().querySelectorAll('[data-tri]')].map((b) => b.getAttribute('data-tri'))).toEqual(['fin:asc', 'fin:desc', 'edl:asc', 'edl:desc', 'statut:asc', 'statut:desc', 'previsite:asc', 'previsite:desc']);
+    act(() => icone.click());
+    expect([panneau().hidden, icone.getAttribute('aria-expanded')]).toEqual([false, 'true']);
+    act(() => icone.click());
+    expect(panneau().hidden).toBe(true);
+    act(() => icone.click());
+    act(() => (container.querySelector('[data-fermer-tris]') as HTMLButtonElement).click());
+    expect(panneau().hidden).toBe(true);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pva-icone-tris{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px');
+  });
+  it('une pastille sur l’icône quand un tri non standard est actif', async () => {
+    await rendre(true);
+    expect(container.querySelector('[data-ouvrir-tris] [data-tri-actif]')).toBeNull();
+    clic('button[data-tri="edl:desc"]'); await attendre();
+    expect(container.querySelector('[data-ouvrir-tris] [data-tri-actif]')).not.toBeNull();
+    clic('button[data-tri="fin:asc"]'); await attendre();
+    expect(container.querySelector('[data-ouvrir-tris] [data-tri-actif]')).toBeNull();
+  });
+  it('le tri chronologique : à DROITE de la ligne au-dessus de la liste ; plus proches (défaut) → plus lointains → désactivé ; séparateur « Sans rendez-vous fixé (n) » ; aucune ligne perdue', async () => {
+    await rendre(true);
+    const b = () => container.querySelector('[data-tri-rdv]') as HTMLButtonElement;
+    expect(b().closest('.pva-avant-liste')).not.toBeNull();
+    expect([b().getAttribute('data-tri-rdv'), b().textContent]).toEqual(['proches', 'RDV : plus proches d’abord']);
+    expect(ordre()).toEqual(['C', 'A', 'B']);
+    expect(container.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (1)');
+    act(() => b().click()); await attendre();
+    expect([b().getAttribute('data-tri-rdv'), b().textContent]).toEqual(['lointains', 'RDV : plus lointains d’abord']);
+    expect(ordre()).toEqual(['A', 'C', 'B']);
+    act(() => b().click()); await attendre();
+    expect([b().getAttribute('data-tri-rdv'), b().textContent]).toEqual(['off', 'Tri RDV désactivé']);
+    expect(container.querySelector('[data-separateur-sans-rdv]')).toBeNull();
+    expect(ordre()).toHaveLength(3);
+    act(() => b().click()); await attendre();
+    expect(b().getAttribute('data-tri-rdv')).toBe('proches');
+  });
+  it('actif, il PRIME sur les tris du panneau ; choisir un tri du panneau le désactive ; compatible avec les filtres ; mémorisé', async () => {
+    await rendre(true);
+    clic('button[data-tri="edl:desc"]'); await attendre();
+    expect(container.querySelector('[data-tri-rdv]')!.getAttribute('data-tri-rdv')).toBe('off');
+    act(() => (container.querySelector('[data-tri-rdv]') as HTMLButtonElement).click()); await attendre(); // → plus proches
+    expect(ordre()).toEqual(['C', 'A', 'B']);
+    clic('[data-filtre-previsite="rdv_previsite"]'); await attendre();
+    expect(ordre()).toEqual(['A']);
+    act(() => (container.querySelector('[data-tri-rdv]') as HTMLButtonElement).click()); await attendre(); // → plus lointains
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(true);
+    expect(container.querySelector('[data-tri-rdv]')!.getAttribute('data-tri-rdv')).toBe('lointains'); // mémorisé sur l'appareil
   });
 });

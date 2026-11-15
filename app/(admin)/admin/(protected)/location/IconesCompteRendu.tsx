@@ -3,7 +3,7 @@
  * grille 24, trait `currentColor` de 1,8, extrémités arrondies, AUCUN emoji. L'icône ne porte jamais l'information seule : le mot est écrit à
  * côté, ou le bouton porte un `aria-label` (`aria-hidden` sur le dessin).
  */
-export type NomIcone = 'micro' | 'clavier' | 'appareil' | 'images' | 'plus' | 'lecture' | 'pause' | 'corbeille' | 'texte' | 'entree' | 'soleil' | 'lune' | 'personne' | 'cible' | 'haut' | 'bas' | 'gauche' | 'droite' | 'coche';
+export type NomIcone = 'micro' | 'clavier' | 'appareil' | 'images' | 'plus' | 'lecture' | 'pause' | 'corbeille' | 'texte' | 'entree' | 'soleil' | 'lune' | 'personne' | 'cible' | 'haut' | 'bas' | 'gauche' | 'droite' | 'coche' | 'tris' | 'horloge';
 
 export function Icone({ nom, taille = 20 }: { nom: NomIcone; taille?: number }) {
   const commun = { viewBox: '0 0 24 24', width: taille, height: taille, 'aria-hidden': true as const, focusable: false as const, className: 'pvv-icone',
@@ -28,5 +28,8 @@ export function Icone({ nom, taille = 20 }: { nom: NomIcone; taille?: number }) 
     case 'gauche': return <svg {...commun}><path d="M15 6l-6 6 6 6" /></svg>;
     case 'droite': return <svg {...commun}><path d="M9 6l6 6-6 6" /></svg>;
     case 'coche': return <svg {...commun}><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
+    // 🔴 (15/11/2026) les tris de la liste des préavis : des curseurs de réglage ; le tri chronologique des rendez-vous : une horloge et ses flèches
+    case 'tris': return <svg {...commun}><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>;
+    case 'horloge': return <svg {...commun}><circle cx="11" cy="12" r="7" /><path d="M11 8.5V12l2.5 1.5" /><path d="M20 4v4M18 6l2-2 2 2M20 20v-4M18 18l2 2 2-2" /></svg>;
   }
 }

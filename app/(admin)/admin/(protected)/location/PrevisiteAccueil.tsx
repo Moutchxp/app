@@ -71,7 +71,8 @@ export function CartoucheStatutLigne({ statut }: { statut: StatutLigne }) {
  * filtres « Préavis reçu / Pré-visite programmée / effectuée / refusée-absente » (accord d'Arno), sans perdre de ligne. « Alerte préavis »
  * reste en plus (il n'est pas un statut), seulement s'il y en a. Plusieurs à la fois.
  */
-export function FiltresStatutLigne({ lignes, filtre, onChange }: { lignes: readonly LignePreavisAccueil[]; filtre: ReadonlySet<FiltreLigne>; onChange: (f: Set<FiltreLigne>) => void }) {
+export function FiltresStatutLigne({ lignes, filtre, onChange, fin }: { lignes: readonly LignePreavisAccueil[]; filtre: ReadonlySet<FiltreLigne>; onChange: (f: Set<FiltreLigne>) => void;
+  /** 🔴 (15/11/2026) au bout de la rangée : l'icône « Tris » */ fin?: ReactNode }) {
   const filtres = filtresLignes(lignes);
   const basculer = (s: FiltreLigne): void => { const n = new Set(filtre); if (n.has(s)) n.delete(s); else n.add(s); onChange(n); };
   return (
@@ -82,6 +83,7 @@ export function FiltresStatutLigne({ lignes, filtre, onChange }: { lignes: reado
         <button key={f.filtre} type="button" className={`pva-segment pvv-pastille psl-filtre psl-filtre--${f.filtre}`} aria-pressed={filtre.has(f.filtre)}
           onClick={() => basculer(f.filtre)} data-filtre-previsite={f.filtre}>{f.libelle} <span className="pvv-compteur" data-compteur-previsite={f.filtre}>{f.nombre}</span></button>
       ))}
+      {fin}
     </div>
   );
 }

@@ -25,6 +25,8 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
+import { estModeTriRdv, LIBELLE_TRI_RDV, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
 import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
@@ -117,7 +119,16 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const [bilan, setBilan] = useState<string | null>(null);
   // L'EDLS que l'on vient de planifier, montré AUSSITÔT, en attendant la relecture du serveur (qui le remplace).
   const [locaux, setLocaux] = useState<Record<string, EdlsAffiche>>({});
-  const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); };
+  /* 🔴🔴 Arno (15/11/2026) — le TRI CHRONOLOGIQUE DES RENDEZ-VOUS (défaut : plus proches d'abord), mémorisé sur l'appareil par écran ; actif, il
+     prime sur les tris du panneau ; choisir un tri du panneau le désactive. */
+  const cleTriRdv = `svav.preavis.triRdv:${plein ? 'plein' : 'bloc'}:${lecture}`;
+  const [triRdv, setTriRdv] = useState<ModeTriRdv>(MODE_TRI_RDV_DEFAUT);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { const v = window.localStorage.getItem(cleTriRdv); if (estModeTriRdv(v)) setTriRdv(v); } catch { /* sans stockage */ } }, [cleTriRdv]);
+  const choisirTriRdv = (m: ModeTriRdv): void => { setTriRdv(m); try { window.localStorage.setItem(cleTriRdv, m); } catch { /* sans stockage */ } };
+  // 🔴 (15/11/2026) le panneau des tris, replié derrière l'icône « Tris » (accord d'Arno : rien n'est supprimé, tout reste accessible)
+  const [trisOuverts, setTrisOuverts] = useState(false);
+  const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); choisirTriRdv('off'); };
   // 🔴 Arno (15/11/2026) — le filtre des STATUTS de ligne (arbre validé par Arno ; vide : tous ; « Alerte préavis » gardé à part).
   const [filtre, setFiltre] = useState<Set<FiltreLigne>>(new Set());
   // 🔴 (15/11/2026) le filtre choisi est MÉMORISÉ sur cet appareil (par écran), comme le tri
@@ -163,9 +174,20 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   useEffect(() => { setLocaux({}); }, [d]);
   const jour = aujourdhuiParisEcran();
   const segment = (t: TriPreavis, libelle: string) => (
-    <button type="button" className="pva-segment" aria-pressed={tri.cle === t.cle && tri.sens === t.sens}
+    <button type="button" className="pva-segment" aria-pressed={triRdv === 'off' && tri.cle === t.cle && tri.sens === t.sens}
       data-tri={`${t.cle}:${t.sens}`} onClick={() => choisirTri(t)}>{libelle}</button>
   );
+  /** l'icône « Tris » : au bout de la rangée « Statut » ; une pastille dit qu'un tri non standard est actif */
+  const triNonStandard = tri.cle !== TRI_DEFAUT.cle || tri.sens !== TRI_DEFAUT.sens;
+  const iconeTris = (
+    <button type="button" className="pva-icone-tris" aria-expanded={trisOuverts} aria-label="Trier la liste" title="Trier la liste"
+      onClick={() => setTrisOuverts((o) => !o)} data-ouvrir-tris>
+      <Icone nom="tris" />{triNonStandard && <span className="pva-tris-pastille" aria-label="Un tri non standard est actif" data-tri-actif />}</button>
+  );
+  // la liste affichée : chronologique (lignes avec rendez-vous, puis « Sans rendez-vous fixé (n) »), ou l'ordre des tris du panneau
+  const ordreRdv = triRdv === 'off' ? null : ordonnerParRdv(lignes, triRdv, maintenantParis());
+  const affichage: (LignePreavisAccueil | { separateur: number })[] = ordreRdv === null ? lignes
+    : [...ordreRdv.avecRdv, ...(ordreRdv.sansRdv.length > 0 ? [{ separateur: ordreRdv.sansRdv.length }] : []), ...ordreRdv.sansRdv];
   return (
     <ContextePreavis.Provider value={contexte}>
     <section className={`pva${deplie ? '' : ' blr-bloc'}`} aria-label="Locataires en préavis" data-bloc-preavis data-ecriture={ecriture ? 'oui' : 'non'}>
@@ -197,6 +219,10 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="ex. Dupont, ou 12 rue des Lilas" data-recherche-preavis />
             </label>
           )}
+          {d!.previsite !== true && <div className="pva-tri pva-tri--seul">{iconeTris}</div>}
+          {d!.previsite === true && <FiltresStatutLigne lignes={affichables} filtre={filtre} onChange={choisirFiltre} fin={iconeTris} />}
+          {/* 🔴 (15/11/2026) le panneau des tris s'ouvre SOUS la rangée « Statut » */}
+          <div className="pva-panneau-tris" hidden={!trisOuverts} data-panneau-tris={trisOuverts ? 'ouvert' : 'replie'}>
           <div className="pva-tris" role="group" aria-label="Trier les préavis">
             {plein && (
               <div className="pva-tri" role="group" aria-label="Réception du préavis">
@@ -228,13 +254,21 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               </div>
             </>}
           </div>
-          {d!.previsite === true && <FiltresStatutLigne lignes={affichables} filtre={filtre} onChange={choisirFiltre} />}
+            <button type="button" className="svv-btn svv-btn-outline gst-btn pva-fermer-tris" onClick={() => setTrisOuverts(false)} data-fermer-tris>Fermer</button>
+          </div>
           {/* 🔴 Arno (14/11/2026, 473) — « Préavis de test » : discret, réservé aux administrateurs (écran Location seulement). */}
-          {lecture === 'location' && d!.preavisTest?.administrateur === true && <CreerPreavisTest disponible={d!.preavisTest.disponible} apres={(m) => { setBilan(m); apresGeste(); }} />}
+          {/* 🔴 (15/11/2026) la ligne juste au-dessus de la liste : « Préavis de test » à gauche, le tri chronologique des rendez-vous à droite */}
+          <div className="pva-avant-liste">
+            <div className="pva-avant-liste-gauche">{lecture === 'location' && d!.preavisTest?.administrateur === true && <CreerPreavisTest disponible={d!.preavisTest.disponible} apres={(m) => { setBilan(m); apresGeste(); }} />}</div>
+            <button type="button" className="pva-tri-rdv" aria-label={`${LIBELLE_TRI_RDV[triRdv]} — toucher pour changer`} title="Tri chronologique des rendez-vous"
+              onClick={() => { const m = modeTriRdvSuivant(triRdv); choisirTriRdv(m); }} data-tri-rdv={triRdv}>
+              <Icone nom="horloge" taille={20} /><span>{LIBELLE_TRI_RDV[triRdv]}</span></button>
+          </div>
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}
           {lignes.length === 0 ? <p className="loc-muet" data-preavis-vide>{toutes.length > 0 ? 'Aucun préavis avec ce statut' : 'Aucun locataire en préavis'}</p> : (
             <ul className="pva-liste">
-              {lignes.map((l) => {
+              {affichage.map((l) => {
+                if ('separateur' in l) return <li key="sans-rdv" className="pva-separateur" data-separateur-sans-rdv>Sans rendez-vous fixé ({l.separateur})</li>;
                 const noms = l.locataires.map((x) => x.nom).join(', ');
                 const detail = [l.adresse ?? `Bien ${l.lotId}`, `Fin de préavis le ${dateFrPreavis(l.dateMax)}`,
                   l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null,
@@ -620,6 +654,17 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-recherche{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 .pva-recherche input{min-height:44px;box-sizing:border-box;flex:1 1 260px;max-width:480px;padding:0 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;font:inherit}
 .pva-tris{display:flex;flex-wrap:wrap;gap:10px 18px}
+/* Arno (15/11/2026) : le panneau des tris (replie derriere l'icone « Tris ») ; l'icone au bout de la rangee « Statut » ; le tri des rendez-vous */
+.pva-icone-tris{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 10px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer}
+.pva-icone-tris[aria-expanded="true"]{border-color:var(--color-svv-ink);box-shadow:0 0 0 1px var(--color-svv-ink)}
+.pva-tris-pastille{position:absolute;top:6px;right:6px;width:10px;height:10px;border-radius:999px;background:var(--color-svv-red);border:2px solid var(--color-svv-surface)}
+.pva-panneau-tris[hidden]{display:none}
+.pva-panneau-tris{display:flex;flex-direction:column;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-field)}
+.pva-fermer-tris{min-height:44px;width:auto}
+.pva-avant-liste{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.pva-tri-rdv{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.88rem;font-weight:700;cursor:pointer}
+.pva-tri-rdv[data-tri-rdv="off"]{color:var(--color-svv-muted);font-weight:600}
+.pva-separateur{padding:8px 12px;font-size:.82rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted);background:var(--color-svv-field);border-top:1px solid var(--color-svv-line)}
 .pva-tri{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .pva-tri-libelle{font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}
 .pva-segment{min-height:44px;padding:8px 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.9rem;cursor:pointer}

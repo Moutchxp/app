@@ -247,9 +247,10 @@ describe('🔴 3 — « Ouvrir en pleine page » depuis les deux blocs', () => {
 
 describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, recherche, tri conservé', () => {
   const plein = () => monter(createElement(BlocPreavisAccueil, { gestion: true, plein: true }));
-  it('tri par défaut = celui du bloc (fin de préavis, la plus proche d’abord)', async () => {
+  it('tri par défaut = celui du bloc : 🔴 (15/11/2026) le rendez-vous le plus proche d’abord, puis les lignes sans rendez-vous (fin de préavis la plus proche d’abord)', async () => {
     const c = await plein();
-    expect(ordre(c)).toEqual(['A', 'B', 'C']);
+    expect(ordre(c)).toEqual(['B', 'A', 'C']);
+    expect(c.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (2)');
   });
   it.each([
     ['recu:asc', ['A', 'C', 'B']], ['recu:desc', ['B', 'C', 'A']],
@@ -274,7 +275,7 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     await clic(c.querySelector('[data-filtre-previsite="alerte"]'));
     expect(ordre(c)).toEqual(['A', 'C']);
     await clic(c.querySelector('[data-filtre-previsite="rdv_previsite"]'));
-    expect(ordre(c)).toEqual(['A', 'B', 'C']);
+    expect(ordre(c)).toEqual(['B', 'A', 'C']); // le tri chronologique des rendez-vous (défaut) reste actif avec les filtres
     await clic(c.querySelector('[data-filtre-previsite="tous"]'));
     await clic(c.querySelector('[data-filtre-previsite="previsite_effectuee"]'));
     expect(ordre(c)).toEqual([]);
