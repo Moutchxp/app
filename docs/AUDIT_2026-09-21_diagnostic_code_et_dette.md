@@ -167,6 +167,38 @@ une seule personne.**
 | **F4** | 🟡 | S | ⬜ | Corriger la **doc périmée** (le compteur de certificat est décrit « non implémenté » alors qu'il est fait et atomique) | `CLAUDE.md §6` vs `db/certificatNumero.ts:37-58` |
 | **F5** | 🟡 | M | ⬜ | (Sécurité) Encadrer les fetch serveur d'URL issues d'e-mails/GED de mairies derrière une allow-list d'hôtes (SSRF bornée) | `app/lib/veille/detectionRepo.ts:92-97`, `permis/drive.ts` |
 
+### Priorité 4 — Remise en ordre : maintenabilité et cohérence *(ajouté 2026-11-15 — bilan demandé par Arno)*
+
+> **Bilan mesuré le 15/11/2026** (fichiers suivis par git) : **≈ 470 000 lignes d'application** (437 500 TS/TSX + 30 500 SQL
+> dans 485 migrations + ≈ 2 000 de scripts) et **≈ 338 000 lignes de tests** (1 832 fichiers, 26 533 tests verts) ;
+> 73 pages, 266 routes, 2 811 commits depuis le 15/06/2026. Verdict : **robuste** (tests, typage strict à 8 `any`,
+> invariants verrouillés en base et par épreuves), **cohérent sur le fond** (une seule langue métier, même découpage
+> pur / repo / écran dans tous les modules, règles datées et non contradictoires) ; **touffu dans le détail** — le
+> code a grossi par empilement de lots sans refonte. Notes : fiabilité ★★★★★, robustesse ★★★★☆, évolutivité ★★★☆☆,
+> reprise par un humain ★★☆☆☆.
+>
+> 🔴 **Condition impérative de TOUS les items R (décision d'Arno du 31/10/2026)** : AUCUN changement de fonction, de
+> comportement ni d'affichage. Preuve par lot : `npm test` complet vert **et** captures avant / après identiques
+> (banc Chrome). Un lot = un item = un commit. **À proposer à Arno, jamais à lancer de soi-même.**
+
+| ID | Sév. | Effort | Statut | Action | Preuve |
+|----|------|--------|--------|--------|--------|
+| **R1** | 🔴 *(seule source de vrais bugs)* | M | ⬜ | **Une seule normalisation des noms et des textes** (accents, casse, espaces, civilités) dans un module commun, utilisée partout. Aujourd'hui ≈ **50 fonctions écrites lot par lot** (`norm` ×18, `normaliser` ×15, `sansAccent(s)` ×14, `normalise` ×5, `normaliserAdresse` ×6, `normaliserObjet` ×4…) dans **55 fichiers**. Risque : deux variantes qui divergent d'un caractère → un même locataire / contact / adresse reconnu dans un écran et pas dans l'autre, **sans aucune erreur visible**. Méthode : inventaire des variantes, table de cas réels qui fige ce que chacune rend, regroupement seulement des variantes identiques sur toute la table ; les autres sont NOMMÉES pour ce qu'elles font. | `grep -E '(function\|const) (norm\|normaliser\|sansAccents?\|normalise\|cleNom)\b'` — ex. `lib/gestion/{annuaireEdition,annuaireImport,arborescenceDrive,classement}.ts`, `location/ListeChoix.tsx`, `permis/PermisVue.tsx`, `lib/location/compteRenduPrevisite.ts` (`cleNom`) |
+| **R2** | 🟠 | M | ⬜ | **Découper les 18 fichiers de plus de 2 000 lignes** (55 dépassent 1 000 ; la norme est 200-500) : séparer affichage, calculs d'écran et styles, sans changer le rendu. Commencer par les plus touchés par les lots. | `gestion/SelecteurFichierDrive.tsx` 7 038 · `gestion/HistoriqueDuBien.tsx` 5 592 · `gestion/Conversation.tsx` 4 287 · `app/page.tsx` 4 060 (cf. **F2**) · `gestion/Redaction.tsx` 3 326 · `gestion/FriseAvancement.tsx` 3 139 · `gestion/RattachementsDuFil.tsx` 3 132 · `gestion/Annuaire.tsx` 3 037 · `lib/gestion/historiqueBien.ts` 3 018 · `gestion/FicheSyndic.tsx` 2 984 · `gestion/GestionVue.tsx` 2 965 · `permis/TraceEmpriseRendu.tsx` 2 908 · `lib/gestion/annuaireRepo.ts` 2 734 · `gestion/BoiteMail.tsx` 2 482 · `transaction/EcransTransaction.tsx` 2 480 · `curation/CurationCarte.tsx` 2 358 · `gestion/CartesPersonnes.tsx` 2 286 · `gestion/EncartRattachement.tsx` 2 051 |
+| **R3** | 🟠 | S | ⬜ | **Vérification automatique hors du Mac** : `npm test` + `tsc --noEmit` + `eslint` + preuve de construction lancés à chaque commit sur un serveur d'intégration continue. Aujourd'hui tout ne tourne que sur le Mac, à la main. ⚠️ Service tiers (GitHub Actions ou autre) → **décision d'Arno** ; jamais les `*.itest.ts` (ils écrivent en base). | aucun `.github/workflows/` dans le dépôt |
+| **R4** | 🟠 | M | ⬜ | **Une seule mise en forme des dates** (jour, date courte, date longue, heure, « dim. 15/11 · 00h16 ») dans un module commun. ≈ **31 fonctions de formatage** définies séparément. Même risque que R1 en plus faible : deux écrans qui n'écrivent pas la même date de la même façon. | `grep -E '(function\|const) (format\|fmt\|date\|jour)[A-Za-z]*(Date\|Jour\|Fr\|Court\|Long)'` |
+| **R5** | 🟡 | L | ⬜ | **Une seule façon de styler** : 238 fichiers portent leur propre feuille de style dans une chaîne (`const CSS…`, `<style>`), 77 utilisent Tailwind ; **304 couleurs en dur** (`#xxxxxx`) malgré les jetons `--color-svv-*`. Passer les couleurs en jetons d'abord (changer la charte ne doit toucher qu'un fichier), puis harmoniser au fil des lots. | couleurs en dur : `permis/TraceEmpriseRendu.tsx` 34 · `lib/location/mailNouvelleLocation.ts` 28 (mail : à garder en dur, les messageries ignorent les variables CSS) · `curation/CurationCarte.tsx` 20 · `lib/carte/orientationCarte.ts` 19 (rendu de carte) · `origine/page.tsx` 16 |
+| **R6** | 🟡 | M | ⬜ | **L'accès à la base toujours par un `…Repo.ts`** : 33 routes importent `db/client` et interrogent la base directement, au lieu de passer par le fichier dédié de leur module. | `grep -l "from '.*db/client'"` sur les `route.ts` |
+| **R7** | 🟡 | M | ⬜ | **Lignes trop denses** : 7 432 lignes de plus de 200 caractères, 2 422 de plus de 300 (67 caractères en moyenne). Lisible pour l'IA, pénible pour un humain. Mise en forme automatique (Prettier) **par module**, chacune dans un commit à part, et seulement quand le module n'est pas en cours de lot (sinon conflits). | mesure `awk 'length>200'` sur les sources de production |
+| **R8** | 🟡 | S | ⬜ | **Commentaires « 🔴 Arno (date) — LOT … » très longs dans le code** : l'historique d'une décision vit dans git et dans ce dossier `docs/` ; le code ne garde que la règle en une ou deux lignes et la date. ⚠️ Ne jamais retirer la RÈGLE elle-même. | (relevé du 31/10/2026, toujours vrai) |
+| **R9** | 🟡 | S | ⬜ | **Tests instables** : la suite peut se bloquer quand deux exécutions tournent en même temps (constaté le 15/11/2026 : 4 dépassements de délai dans des fichiers non touchés, verts seuls). Rendre chaque test indépendant de la charge, ou interdire l'exécution concurrente. | `docs/FLAKES_CONNUS.md` ; mémoire « suite figée » |
+| **R10** | 🟠 *(stratégique)* | L | ⬜ **DÉCISION ARNO** | **Deux produits dans un même code** : l'outil interne d'agence (Gestion 113 000 lignes, Location 30 000, Permis 17 500, Veille + Sitadel 23 000, Transaction 9 000) et l'application grand public de certification (moteur `lib/svv` : 3 500 lignes). Sans conséquence tant que tout sert l'agence ; **à séparer proprement** (frontières d'import, données partagées identifiées) si l'un des deux doit être vendu, ouvert à d'autres agences ou audité séparément. | volumes par dossier `app/lib/*` au 15/11/2026 ; cf. §3 |
+
+> **Ordre conseillé** : **R1** (seule incohérence capable de produire de vrais bugs) → **R3** (filet automatique, dès
+> qu'Arno accepte le service) → **R4** → **R2** (fichier par fichier, en commençant par ceux que les lots touchent le plus)
+> → R6, R5, R7, R8, R9 au fil de l'eau. Items déjà ouverts qui recoupent : **F2** (`page.tsx`) ⊂ R2, **F3** (tests qui
+> lisent le source), **M3** (registre de migrations), **F1** (bus factor).
+
 ---
 
 ## 3. Constat stratégique (hors action immédiate)
@@ -176,6 +208,11 @@ une seule personne.**
 construire »** (veille Sitadel, relève des mairies, GED, rattachement, projection… ≈ 64,5 k lignes).
 Ce n'est pas un défaut, mais c'est là que se concentrent la complexité, le coût de maintenance et le bus
 factor. À garder en tête pour toute décision de priorisation ou de recrutement.
+
+**Mise à jour du 15/11/2026** : le centre de gravité a encore bougé. Sur ≈ 470 000 lignes d'application, la **Gestion**
+en pèse 113 000 (près d'un quart), la Location 30 000, le Permis 17 500, Veille + Sitadel 23 000, la Transaction 9 000 ;
+le moteur de certification reste à **3 500 lignes (< 1 %)**. L'application est devenue le logiciel de gestion complet
+de l'agence, avec un module de certification grand public — deux produits dans un même code (→ **R10**).
 
 ---
 
@@ -250,6 +287,7 @@ latence** reste à faire. Émission du certificat ≈ **11,3 s**, non instruite 
 | Date | Auteur | Modification |
 |------|--------|--------------|
 | 2026-09-21 | Diagnostic initial (audit 4 axes, lecture seule) | Création du registre. Tous items ⬜. |
+| 2026-11-15 | Bilan taille, qualité et cohérence (demande d'Arno, lecture seule) | Mesures : ≈ 470 000 lignes d'application, ≈ 338 000 de tests (26 533 tests verts), 2 811 commits. Ajout de la **Priorité 4 — Remise en ordre** (items **R1 à R10**, tous ⬜, à proposer à Arno, aucun changement de comportement ni d'affichage) et de la mise à jour du §3 (poids des modules, deux produits en un). Aucun code modifié. |
 | 2026-09-21 | Recon performance + notation | Ajout de l'axe **Performance** (items P1-P4), de la **notation /20** (§1), et de la ligne Performance au §5. Verdict global mis à jour (temps de réaction lourd). |
 | 2026-09-22 | Lot « gains rapides » | ✅ **G3** filet pg 3 pools (`4c193ca`) · ✅ **G1** `tsc --noEmit` dans le gate + 6 erreurs de type corrigées + `public/**` hors lint (`d74fe25`) · ✅ **G2** garde golden PUR sans base, égalité stricte (`137b5dc`). ✅ **M1** fail-closed (session.ts + 4 gardes) committé (`4e58530`) après validation manuelle Arno + `npm test` complet vert (590 fichiers / 7755 tests). ✅ **G4** `/api/check-building` supprimée (aucun appelant ; accord Arno ; commit `bb8b6e8`) ; 3 mentions « route supprimée » ajoutées aux docs ; `npm test` complet vert après purge du cache `.next` périmé. Résidu : throttle routes publiques (`/api/analyse`) NON traité. Les 42 erreurs lint pré-existantes (any/entités/hooks) restent hors périmètre. |
 | 2026-09-22 | Diagnostic double (analyse publique qui expire · QR de certificat mort) + lot de 3 correctifs | **Diagnostic en lecture seule** : le pipeline chronométré (0,154-0,688 s, réponse de 2 036 o) écarte calcul et base ; l'analytique (3 `resultat` pour 3 `analyse_lancee`, INSEE 92004) prouve que le serveur répondait ; les métriques `cloudflared` (11 requêtes sans réponse sur 196, 7 reconnexions, 114 `ResetStream` en 48 min) désignent l'acheminement. Le QR mort s'explique par `SITE_URL` figée sur une ancienne IP DHCP. **Correctifs** : ✅ **P3** plafond base scopé au chemin public + 503 propre (`eddf022`) · ✅ **T1** trois messages d'analyse distincts (`375f77c`) · ✅ **T2** adresse temporaire refusée dans un QR en production, 3 `siteUrl()` factorisées (`f3b2ac5`). **Ajouts au registre** : ⬜ **T3** tunnel nommé + `authentification.sansvisavis.com` (décision porteur, recon DNS préalable) · ⬜ **T4** jeton de vérification en clair dans l'URL du QR, verrou de mise en production · ⬜ **T5** émission ≈ 11,3 s à profiler · **G5** enrichi (`SMTP_PERSONNE_USER/_PORT/_PASS` définis 3 fois chacun). Chapeau Performance et §5 requalifiés par la mesure. `npm test` complet vert à chaque commit (592 fichiers / 7 806 tests au dernier). Dette eslint de `page.tsx` gelée : 22 problèmes avant comme après. |
