@@ -18,8 +18,8 @@ export const estModeTriRdv = (x: unknown): x is ModeTriRdv => x === 'proches' ||
 
 /** Ce qu'il faut d'une ligne : le rendez-vous de sa pré-visite (s'il tient encore) et son état des lieux planifié. */
 export interface LigneRdv {
-  previsite?: { statut: string; rdv?: { jour: string; heure: string | null } | null } | null;
-  edls?: { jour: string; heure: string | null } | null;
+  previsite?: { statut: string; rdv?: { jour: string; heure: string | null } | null; collegues?: readonly { libelle: string; statut: string | null }[] } | null;
+  edls?: { jour: string; heure: string | null; confieA?: string | null; statut?: string | null } | null;
 }
 
 /** Les rendez-vous qui TIENNENT d'une ligne (« AAAA-MM-JJ HH:MM ») : la pré-visite fixée ou effectuée, l'état des lieux planifié. PUR. */
@@ -104,3 +104,32 @@ export function lireModeTriRdv(brut: string | null | undefined): ModeTriRdv {
   } catch { return MODE_TRI_RDV_DEFAUT; }
 }
 export const ecrireModeTriRdv = (m: ModeTriRdv): string => JSON.stringify({ v: VERSION_MEMOIRE_TRI_RDV, mode: m });
+
+/* ══ 🔴🔴 Arno (15/11/2026) — LA MISSION du rendez-vous affiché : « confié à Prénom NOM » et l'état de la tâche (acceptation existante) ══════
+   « En attente de confirmation » tant que la personne n'a pas accepté ; « Confirmé » quand elle a accepté (ou quand le rendez-vous lui a été
+   confié directement, sans demande) ; « Refusé — à réattribuer » quand elle a refusé (tous les collègues invités, pour une pré-visite). */
+export type EtatMission = 'attente' | 'confirme' | 'refuse';
+export const LIBELLE_ETAT_MISSION: Record<EtatMission, string> = { attente: 'En attente de confirmation', confirme: 'Confirmé', refuse: 'Refusé — à réattribuer' };
+/** « Arnaud JOREL » (le nom de famille en capitales) ; une adresse reste telle quelle. PUR. */
+export function prenomNom(libelle: string): string {
+  const x = libelle.trim().replace(/\s+/g, ' ');
+  if (x === '' || x.includes('@')) return x;
+  const [prenom, ...reste] = x.split(' ');
+  return reste.length === 0 ? x : `${prenom} ${reste.join(' ').toLocaleUpperCase('fr-FR')}`;
+}
+const etatDe = (statut: string | null | undefined): EtatMission => (statut === 'en_attente' ? 'attente' : statut === 'refusee' ? 'refuse' : 'confirme');
+/** La mission du rendez-vous de cette sorte (celui de la colonne « rendez-vous »), ou null. PUR. */
+export function missionDeLigne(l: LigneRdv, sorte: 'previsite' | 'edl'): { qui: string; etat: EtatMission } | null {
+  if (sorte === 'edl') {
+    const e = l.edls;
+    if (!e || !e.confieA || e.confieA.trim() === '') return null;
+    return { qui: prenomNom(e.confieA), etat: etatDe(e.statut) };
+  }
+  const c = l.previsite?.collegues ?? [];
+  if (c.length === 0) return null;
+  const accepte = c.find((x) => x.statut === 'acceptee' || x.statut === null);
+  if (accepte) return { qui: prenomNom(accepte.libelle), etat: 'confirme' };
+  if (c.every((x) => x.statut === 'refusee')) return { qui: prenomNom(c[0].libelle), etat: 'refuse' };
+  const attente = c.find((x) => x.statut === 'en_attente') ?? c[0];
+  return { qui: prenomNom(attente.libelle), etat: 'attente' };
+}

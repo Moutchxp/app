@@ -110,7 +110,8 @@ const gestion = async (adresse: string, location = true) => {
 };
 const clic = async (el: Element | null) => { if (el === null) throw new Error('élément absent'); await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
 const ordre = (c: HTMLElement) => [...c.querySelectorAll('[data-ligne-preavis]')].map((li) => li.getAttribute('data-ligne-preavis'));
-const statutLigne = (c: HTMLElement, cle: string) => c.querySelector(`[data-ligne-preavis="${cle}"] .pva-detail`)?.textContent ?? '';
+// 🔴 (15/11/2026) le texte complet de la ligne (dates, pré-visite) est dans son infobulle : la colonne C ne répète plus les dates
+const statutLigne = (c: HTMLElement, cle: string) => c.querySelector(`[data-ligne-preavis="${cle}"] .pva-textes`)?.getAttribute('title') ?? '';
 
 describe('🔴 1 — sous les Tâches de la Gestion : LE bloc de la Location, la même donnée', () => {
   it('le bloc est rendu sous les Tâches (écran partagé), avec les pastilles et le cartouche', async () => {

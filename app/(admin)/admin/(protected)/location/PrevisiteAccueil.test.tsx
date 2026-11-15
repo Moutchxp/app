@@ -127,7 +127,8 @@ describe('🔴 Règles 2-3 — la ligne : cartouche « Aucune pré-visite fixée
   it('en alerte : le cartouche ; programmée : « Pré-visite le 20/11/2026 à 10h00 » dans le détail', async () => {
     await rendre();
     expect(container.querySelector('[data-ligne-preavis="A"] [data-cartouche-previsite="alerte"]')?.textContent).toBe('Aucune pré-visite fixée');
-    expect(container.querySelector('[data-ligne-preavis="B"] .pva-detail')?.textContent).toContain('Pré-visite le 20/11/2026 à 10h00');
+    expect(container.querySelector('[data-ligne-preavis="B"] .pva-textes')?.getAttribute('title')).toContain('Pré-visite le 20/11/2026 à 10h00'); // 🔴 (15/11/2026) en infobulle
+    expect(container.querySelector('[data-ligne-preavis="B"] [data-col-rdv]')?.textContent).toBe('Pré-visite · ven. 20/11 · 10h00');
     expect(container.querySelector('[data-ligne-preavis="C"] [data-cartouche-previsite]')).toBeNull();
   });
   it('★ tous ont refusé : « Personne n’a accepté la pré-visite » et « Réaffecter »', async () => {

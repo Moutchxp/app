@@ -63,3 +63,28 @@ describe('🔴 (15/11/2026) la colonne « rendez-vous » du listing et la mémoi
     expect(lireModeTriRdv(ecrireModeTriRdv('off'))).toBe('off');
   });
 });
+
+describe('🔴 (15/11/2026) la mission du rendez-vous : « confié à Prénom NOM » et son état', async () => {
+  const { missionDeLigne, prenomNom, LIBELLE_ETAT_MISSION } = await import('./triRdvPreavis');
+  it('les libellés ; le nom en « Prénom NOM »', () => {
+    expect(LIBELLE_ETAT_MISSION).toEqual({ attente: 'En attente de confirmation', confirme: 'Confirmé', refuse: 'Refusé — à réattribuer' });
+    expect(prenomNom('Claire Test')).toBe('Claire TEST');
+    expect(prenomNom('Jean-Paul de la Tour')).toBe('Jean-Paul DE LA TOUR');
+    expect(prenomNom('a.jorel@sansvisavis.com')).toBe('a.jorel@sansvisavis.com');
+  });
+  it('état des lieux : en attente, confirmé (accepté ou confié directement), refusé', () => {
+    const e = (statut: string | null) => ({ edls: { jour: '2099-01-01', heure: '10:00', confieA: 'Claire Test', statut } });
+    expect(missionDeLigne(e('en_attente'), 'edl')).toEqual({ qui: 'Claire TEST', etat: 'attente' });
+    expect(missionDeLigne(e('acceptee'), 'edl')).toEqual({ qui: 'Claire TEST', etat: 'confirme' });
+    expect(missionDeLigne(e(null), 'edl')).toEqual({ qui: 'Claire TEST', etat: 'confirme' });
+    expect(missionDeLigne(e('refusee'), 'edl')).toEqual({ qui: 'Claire TEST', etat: 'refuse' });
+    expect(missionDeLigne({ edls: null }, 'edl')).toBeNull();
+  });
+  it('pré-visite : un collègue qui accepte = confirmé ; tous refusent = refusé ; sinon en attente ; personne = rien', () => {
+    const p = (...c: [string, string | null][]) => ({ previsite: { statut: 'programmee', collegues: c.map(([libelle, statut]) => ({ libelle, statut })) } });
+    expect(missionDeLigne(p(['Claire Test', 'en_attente'], ['Arno Test', 'acceptee']), 'previsite')).toEqual({ qui: 'Arno TEST', etat: 'confirme' });
+    expect(missionDeLigne(p(['Claire Test', 'refusee'], ['Arno Test', 'refusee']), 'previsite')).toEqual({ qui: 'Claire TEST', etat: 'refuse' });
+    expect(missionDeLigne(p(['Claire Test', 'refusee'], ['Arno Test', 'en_attente']), 'previsite')).toEqual({ qui: 'Arno TEST', etat: 'attente' });
+    expect(missionDeLigne({ previsite: { statut: 'programmee', collegues: [] } }, 'previsite')).toBeNull();
+  });
+});

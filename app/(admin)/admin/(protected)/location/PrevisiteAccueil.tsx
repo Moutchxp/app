@@ -668,74 +668,85 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
   const cr = mode === 'envoye' && lu.etat.etat === 'ok' ? lu.etat.data : null;
   const nomOccupation = (id: number): string => l.locataires.find((x) => x.occupationId === id)?.nom ?? `Locataire ${id}`;
   const urlPiece = (id: number): string => `/api/admin/location/pieces-sortie?piece=${id}`;
-  const vignettes = (photos: { id: number | null; legende: string }[]) => photos.length === 0 ? null : (
-    <div className="pvv-cr-bloc" data-cr-photos><p className="pss-sous-titre">Photos</p>
-      <ol className="pvv-cr-photos">{photos.map((x, i) => (
-        <li key={`${i}-${x.id ?? 'x'}`} data-cr-photo={i + 1}>
-          {x.id === null ? <span className="pvv-vignette pvv-vignette--vide" data-cr-photo-attente>Pas encore déposée</span>
-            : <button type="button" className="pvv-cr-vignette" onClick={() => setAgrandie({ url: urlPiece(x.id as number), legende: lignePhoto(i, x.legende) })}
-              aria-label={`Agrandir — ${lignePhoto(i, x.legende)}`} data-cr-agrandir={i + 1}>
-              <img className="pvv-vignette" src={urlPiece(x.id)} alt={lignePhoto(i, x.legende)} loading="lazy" /></button>}
-          <span className="pvv-cr-legende" data-cr-legende>{lignePhoto(i, x.legende)}</span>
-        </li>))}</ol>
-    </div>);
-  const presencesBloc = (pr: { occupations: number[]; personnes: { civilite: string; nom: string; prenom: string; note: string }[] } | null | undefined) => (pr == null ? null : (
-    <div className="pvv-cr-bloc" data-cr-presences><p className="pss-sous-titre">Présences</p>
-      {pr.occupations.length + pr.personnes.length === 0 ? <p className="loc-muet">Personne n’est coché présent.</p> : (
-        <ul className="pvv-cr-liste">
-          {pr.occupations.map((id) => <li key={`o${id}`} data-cr-present="locataire">{nomOccupation(id)} <span className="loc-muet">(locataire)</span></li>)}
-          {pr.personnes.map((x, i) => (
-            <li key={`p${i}`} data-cr-present="personne">{x.civilite} {[x.prenom, x.nom].filter(Boolean).join(' ')}
-              {x.note.trim() !== '' && <span className="pvv-cr-note" data-cr-note-interne> — note interne : {x.note}</span>}</li>))}
-        </ul>)}
-    </div>));
+  /* 🔴🔴 Arno (15/11/2026) — la consultation, en SECTIONS bien séparées (titre, encadré, espace), dans l'ordre du formulaire : en-tête,
+     Présence, Texte, Photos, Dictaphone, Envois. Même structure pour un compte rendu envoyé et pour un brouillon. */
+  const section = (cle: string, titre: string, contenu: ReactNode) => (
+    <section className="pvv-cr-section" data-cr-section={cle} aria-label={titre}><h3 className="pvv-cr-section-titre">{titre}</h3>{contenu}</section>);
+  type Present = { cle: string; nom: string; qualite: string; note: string; sorte: 'locataire' | 'personne' };
+  const presenceSection = (pr: Present[] | null) => section('presence', 'Présence', pr === null ? <p className="loc-muet">Présences non enregistrées.</p>
+    : pr.length === 0 ? <p className="loc-muet">Personne n’est coché présent.</p> : (
+      <ul className="pvv-cr-lignes">{pr.map((x) => (
+        <li key={x.cle} className="pvv-cr-ligne-presence" data-cr-present={x.sorte}>
+          <span className="pvv-cr-present-nom">{x.nom}</span> <span className="loc-muet">— {x.qualite}</span>
+          {x.note.trim() !== '' && <em className="pvv-cr-note" data-cr-note-interne> — note interne : {x.note}</em>}</li>))}</ul>));
+  const presentsDe = (occupations: number[], personnes: { civilite: string; nom: string; prenom: string; note: string }[],
+    locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[]): Present[] => [
+    ...occupations.map((id) => { const n = locataires?.find((x) => x.occupationId === id);
+      return { cle: `o${id}`, sorte: 'locataire' as const, qualite: 'locataire', note: '',
+        nom: n ? [n.civilite ?? '', n.prenom ?? '', n.nom.toLocaleUpperCase('fr-FR')].map((x) => x.trim()).filter(Boolean).join(' ') : nomOccupation(id) }; }),
+    ...personnes.map((x, i) => ({ cle: `p${i}`, sorte: 'personne' as const, qualite: 'personne présente', note: x.note,
+      nom: [x.civilite, x.prenom, x.nom.toLocaleUpperCase('fr-FR')].map((y) => (y ?? '').trim()).filter(Boolean).join(' ') })),
+  ];
+  const texteSection = (texte: string) => section('texte', 'Texte', texte.trim() === ''
+    ? <p className="loc-muet" data-cr-texte>Aucun texte pour l’instant.</p> : <pre className="pvv-cr-texte" data-cr-texte>{texte}</pre>);
+  const photosSection = (photos: { id: number | null; legende: string }[]) => photos.length === 0 ? null : section('photos', 'Photos', (
+    <ol className="pvv-cr-lignes pvv-cr-photos-lignes" data-cr-photos>{photos.map((x, i) => (
+      <li key={`${i}-${x.id ?? 'x'}`} className="pvv-cr-ligne-photo" data-cr-photo={i + 1}>
+        {x.id === null ? <span className="pvv-cr-miniature pvv-vignette--vide" data-cr-photo-attente>Pas encore déposée</span>
+          : <button type="button" className="pvv-cr-vignette pvv-cr-miniature" onClick={() => setAgrandie({ url: urlPiece(x.id as number), legende: lignePhoto(i, x.legende) })}
+            aria-label={`Agrandir — ${lignePhoto(i, x.legende)}`} data-cr-agrandir={i + 1}>
+            <img src={urlPiece(x.id)} alt={lignePhoto(i, x.legende)} loading="lazy" /></button>}
+        <span className="pvv-cr-legende" data-cr-legende>{lignePhoto(i, x.legende)}</span>
+      </li>))}</ol>));
+  const dictaphoneSection = (fichiers: { nom: string; prises: { id: number; nom: string; dureeS?: number; taille?: number }[]; locataires?: boolean }[]) =>
+    fichiers.length === 0 ? null : section('dictaphone', 'Dictaphone', <div data-cr-vocaux><LectureFichiersVocaux fichiers={fichiers} url={urlPiece} /></div>);
   let corps: ReactNode;
   if (mode === 'brouillon') {
     const b = luB.etat.etat === 'ok' ? luB.etat.data : null;
     const c = b?.brouillon ?? null;
     corps = <>
-      <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{p.rdv ? objetCompteRendu(p.rdv) : '—'}</span></p>
+      <div className="pvv-cr-entete" data-cr-entete>
+        <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{p.rdv ? objetCompteRendu(p.rdv) : '—'}</span></p>
+        <p className="pvv-cr-adresse-grande" data-cr-adresse-grande>{l.adresse ?? `Bien ${l.lotId}`}</p>
+        {c !== null && <p className="pvv-cr-brouillon" role="status" data-cr-brouillon="oui">Brouillon — non envoyé{b?.enregistreLe ? `, dernier enregistrement à ${heureBrouillon(b.enregistreLe)}` : ''}</p>}
+      </div>
       {luB.etat.etat !== 'ok' ? <EtatLecture etat={luB.etat} /> : c === null ? <p className="mis-note pss-note-neutre" data-cr-brouillon="aucun">Aucune saisie enregistrée pour l’instant.</p> : <>
-        <p className="pvv-cr-brouillon" role="status" data-cr-brouillon="oui">Brouillon — non envoyé{b?.enregistreLe ? `, dernier enregistrement à ${heureBrouillon(b.enregistreLe)}` : ''}</p>
-        {presencesBloc({ occupations: c.presents, personnes: c.ajoutees.filter((x) => x.present) })}
-        <div className="pvv-cr-bloc"><p className="pss-sous-titre">Texte</p>
-          {c.corps.trim() === '' ? <p className="loc-muet" data-cr-texte>Aucun texte pour l’instant.</p> : <pre className="pvv-cr-texte" data-cr-texte>{c.corps}</pre>}</div>
-        {vignettes(c.photos.map((x) => ({ id: x.id ?? null, legende: x.legende })))}
-        {c.fichiers.some((f) => f.prises.length > 0) && (
-          <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux</p>
-            <LectureFichiersVocaux fichiers={c.fichiers.filter((f) => f.prises.length > 0).map((f, i) => ({ nom: f.nom.trim() || `Vocal ${i + 1}`, locataires: f.locataires && c.aussiLocataires,
-              prises: f.prises.flatMap((x, k) => (x.id !== undefined ? [{ id: x.id, nom: `Prise ${k + 1}`, dureeS: x.dureeS }] : [])) }))} url={urlPiece} />
-          </div>)}
-        <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
-          <p className="mis-note pss-note-neutre" data-cr-pas-envoye>Rien n’est encore envoyé.</p></div>
+        {presenceSection(presentsDe(c.presents, c.ajoutees.filter((x) => x.present)))}
+        {texteSection(c.corps)}
+        {photosSection(c.photos.map((x) => ({ id: x.id ?? null, legende: x.legende })))}
+        {dictaphoneSection(c.fichiers.filter((f) => f.prises.length > 0).map((f, i) => ({ nom: f.nom.trim() || `Vocal ${i + 1}`, locataires: f.locataires && c.aussiLocataires,
+          prises: f.prises.flatMap((x, k) => (x.id !== undefined ? [{ id: x.id, nom: `Prise ${k + 1}`, dureeS: x.dureeS }] : [])) })))}
+        {section('envois', 'Envois', <div data-cr-envois><p className="mis-note pss-note-neutre" data-cr-pas-envoye>Rien n’est encore envoyé.</p></div>)}
       </>}
     </>;
   } else {
+    // le texte saisi seul : celui du brouillon envoyé ; à défaut (compte rendu ancien), le texte du mail sans les photos ni la signature
+    const texteSaisi = (x: CompteRenduAffiche): string => x.corps ?? texteSansPhotos(x.texte ?? '').split(/\n\s*Mail envoyé par /)[0].trim();
+    const etatEnvoi = (x: CompteRenduAffiche): string => {
+      if (x.aucunEnvoi) return AUCUN_ENVOI_CR;
+      const ok = x.destinataires.filter((d) => d.etat === 'envoye').length; const ko = x.destinataires.length - ok;
+      return `Envoyé à ${ok} destinataire${ok > 1 ? 's' : ''}${ko > 0 ? ` — ${ko} non envoyé${ko > 1 ? 's' : ''}` : ''}`;
+    };
     corps = cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
-      <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
-      {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
-      {presencesBloc(cr.presences)}
-      <pre className="pvv-cr-texte" data-cr-texte>{texteSansPhotos(cr.texte)}</pre>
-      {/* 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos », chaque photo numérotée, sa légende juste en dessous */}
-      {(() => { const legendes = legendesDuTexte(cr.texte); return vignettes(cr.pieces.slice(0, legendes.length).map((x, i) => ({ id: x.id, legende: legendes[i] }))); })()}
-      {cr.pieces.length > legendesDuTexte(cr.texte).length && (
-        <div className="pvv-cr-bloc" data-cr-pieces><p className="pss-sous-titre">Pièces jointes</p>
-          <ul className="pvv-cr-liste">{cr.pieces.slice(legendesDuTexte(cr.texte).length).map((x) => (
-            <li key={x.id}><a href={urlPiece(x.id)} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
-              {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
-        </div>)}
-      {(cr.vocaux ?? []).length > 0 && (
-        <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux</p>
-          {/* 🔴 Arno (15/11/2026) — les fichiers vocaux du dictaphone, leur statut, leurs prises, réécoute enchaînée ; LECTURE SEULE ;
-              🔴 (accord d'Arno, 15/11/2026) l'intitulé : « Vocaux » tout court — chaque vocal dit lui-même s'il est parti aux locataires */}
-          <LectureFichiersVocaux fichiers={(cr.fichiersVocaux ?? []).length > 0 ? cr.fichiersVocaux ?? [] : (cr.vocaux ?? []).map((v, i) => ({ nom: `Vocal ${i + 1}`, prises: [v] }))}
-            url={urlPiece} />
-        </div>)}
-      <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
+      <div className="pvv-cr-entete" data-cr-entete>
+        {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
+        <p className="pvv-cr-adresse-grande" data-cr-adresse-grande>{l.adresse ?? `Bien ${l.lotId}`}</p>
+        <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
+        <p className={`pvv-cr-etat-envoi${cr.aucunEnvoi ? '' : ' pvv-cr-etat-envoi--ok'}`} data-cr-etat-envoi>{etatEnvoi(cr)}</p>
+      </div>
+      {presenceSection(cr.presences ? presentsDe(cr.presences.occupations, cr.presences.personnes, cr.presences.locataires) : null)}
+      {texteSection(texteSaisi(cr))}
+      {/* 🔴 Arno (13/11/2026, lot B) — chaque photo numérotée avec sa légende */}
+      {(() => { const legendes = legendesDuTexte(cr.texte); return photosSection(cr.pieces.slice(0, legendes.length).map((x, i) => ({ id: x.id, legende: legendes[i] }))); })()}
+      {cr.pieces.length > legendesDuTexte(cr.texte).length && section('pieces', 'Pièces jointes', (
+        <ul className="pvv-cr-lignes" data-cr-pieces>{cr.pieces.slice(legendesDuTexte(cr.texte).length).map((x) => (
+          <li key={x.id}><a href={urlPiece(x.id)} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
+            {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>))}
+      {dictaphoneSection((cr.fichiersVocaux ?? []).length > 0 ? cr.fichiersVocaux ?? [] : (cr.vocaux ?? []).map((v, i) => ({ nom: `Vocal ${i + 1}`, prises: [v] })))}
+      {section('envois', 'Envois', <div data-cr-envois>
         {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}
         {cr.destinataires.length > 0 && (
-          // 🔴 Arno (15/11/2026) — même mise en forme que le récapitulatif : l'ÉTIQUETTE de famille très visible, la barre de la couleur de la
-          // famille ; les LOCATAIRES d'abord, puis l'interne (ordre rendu par le serveur)
+          // les LOCATAIRES d'abord (vert), puis l'interne (gris) — ordre rendu par le serveur
           <ul className="pvv-cr-liste">{cr.destinataires.map((d, i) => (
             <li key={`${i}-${d.nom}`} className={`pvv-cr-dest pvv-cr-dest--${d.famille}`} data-cr-destinataire={d.famille} data-cr-etat={d.etat}>
               <span className="pvv-cr-famille" data-etiquette-famille={d.famille} title={LIBELLE_FAMILLE_CR[d.famille]}>{ETIQUETTE_ENVOI_CR[d.famille]}</span>
@@ -743,7 +754,9 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
               <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
               <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
             </li>))}</ul>)}
-      </div>
+        {/* la signature et « Mail envoyé par … » restent visibles ici, dans le mail tel qu'envoyé */}
+        <details className="pvv-cr-mail" data-cr-mail-envoye><summary>Voir le mail tel qu’envoyé</summary><pre className="pvv-cr-texte">{texteSansPhotos(cr.texte)}</pre></details>
+      </div>)}
     </>;
   }
   /* 🔴🔴 Arno (15/11/2026, 11e retour) — au téléphone : PLEIN ÉCRAN, fond opaque jusqu'en bas, hauteur de la ZONE VISIBLE, rien de la
@@ -801,6 +814,24 @@ export const CSS_PREVISITE = `
   .pvv-voile-consultation{inset:0;padding:0;align-items:stretch;justify-content:stretch;display:block;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--color-svv-surface);box-shadow:0 0 0 100vmax var(--color-svv-surface);z-index:200}
   .pvv-voile-consultation .mis-boite{width:100%;max-height:none;min-height:100%;overflow:visible;border:0;border-radius:0;box-shadow:none;padding:6px 16px calc(20px + env(safe-area-inset-bottom))}
 }
+/* Arno (15/11/2026) : la consultation en SECTIONS bien separees — titre, encadre, espace entre elles ; une photo et un vocal par ligne */
+.pvv-cr-entete{display:flex;flex-direction:column;gap:6px}
+.pvv-cr-adresse-grande{margin:0;font-size:1.3rem;font-weight:900;line-height:1.3;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.pvv-cr-etat-envoi{margin:0;font-weight:700;color:var(--color-svv-muted)}
+.pvv-cr-etat-envoi--ok{color:var(--color-svv-green-ink)}
+.pvv-cr-section{display:flex;flex-direction:column;gap:8px;margin-top:6px;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
+.pvv-cr-section-titre{margin:0;font-size:1.05rem;font-weight:900;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-ink)}
+.pvv-cr-lignes{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.pvv-cr-ligne-presence{overflow-wrap:anywhere}
+.pvv-cr-present-nom{font-weight:800}
+.pvv-cr-note{color:var(--color-svv-muted)}
+.pvv-cr-ligne-photo{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:center}
+.pvv-cr-miniature{width:96px;height:72px;border-radius:8px;overflow:hidden;padding:0;border:1px solid var(--color-svv-line);background:var(--color-svv-field);display:flex;align-items:center;justify-content:center;font-size:.72rem;text-align:center;color:var(--color-svv-muted)}
+.pvv-cr-miniature img{width:100%;height:100%;object-fit:cover;display:block}
+.pvv-cr-ligne-vocal{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:12px;border:1px solid var(--color-svv-line);background:var(--color-svv-field)}
+.pvv-cr-vocal-ligne1{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.pvv-cr-prises-depliables summary{cursor:pointer;min-height:36px;display:flex;align-items:center;font-weight:700;color:var(--color-svv-ink)}
+.pvv-cr-mail summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:700;text-decoration:underline;color:var(--color-svv-ink)}
 .pvv-cr-brouillon{margin:0;padding:8px 12px;border-radius:10px;border:1px dashed var(--color-svv-line-strong);background:var(--color-svv-field);font-weight:800}
 .pvv-cr-note{color:var(--color-svv-muted)}
 .pvv-cr-vignette{display:block;padding:0;margin:0;border:0;background:none;cursor:zoom-in;border-radius:8px;min-height:44px}

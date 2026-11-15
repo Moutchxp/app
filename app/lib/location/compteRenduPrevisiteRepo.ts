@@ -57,7 +57,9 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
     if (b.rows[0]) envoye = nettoyerBrouillon(b.rows[0].contenu);
   }
   const durees = new Map((envoye?.fichiers ?? []).flatMap((f) => f.prises.flatMap((p) => (p.id !== undefined ? [[p.id, p.dureeS] as const] : []))));
-  const presences = envoye === null ? null : { occupations: envoye.presents.filter((x) => ids.includes(x)),
+  const occPresentes = envoye === null ? [] : envoye.presents.filter((x) => ids.includes(x));
+  const nommes = occPresentes.length === 0 ? [] : (await locatairesAvis(occPresentes)).map((x) => ({ occupationId: x.occupationId, civilite: x.civilite ?? null, prenom: x.prenom, nom: x.nom }));
+  const presences = envoye === null ? null : { occupations: occPresentes, locataires: nommes,
     personnes: envoye.ajoutees.filter((p) => p.present).map((p) => ({ civilite: p.civilite, nom: p.nom, prenom: p.prenom, note: p.note })) };
   const parId = new Map(vocaux.map((v) => [v.id, durees.has(v.id) ? { ...v, dureeS: durees.get(v.id) } : v]));
   const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined), locataires: f.locataires === true }))
@@ -66,7 +68,7 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
   // 🔴 (11e retour) « Saisi par » : prénom et NOM du collaborateur, jamais son adresse
   const comptes = affiche.saisiPar !== null && affiche.saisiPar.includes('@')
     ? (await query<{ identifiant: string; prenom: string | null; nom: string | null }>(`SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE lower(identifiant) = lower($1)`, [affiche.saisiPar])).rows : [];
-  return { etat: 'ok', data: { ...affiche, saisiPar: nomSaisisseur(affiche.saisiPar, comptes), vocaux, fichiersVocaux, presences } };
+  return { etat: 'ok', data: { ...affiche, saisiPar: nomSaisisseur(affiche.saisiPar, comptes), vocaux, fichiersVocaux, presences, corps: envoye?.corps ?? null } };
 }
 
 const vide = (): AnnuaireCr => ({ locataires: [], proprietaires: [], internes: [], domainesAgence: [] });

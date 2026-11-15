@@ -1040,24 +1040,29 @@ export function LignesVocauxRecap({ fichiers, aussiLocataires }: { fichiers: rea
  * celle de chaque prise. Rien n'est modifiable.
  */
 export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: string; prises: { id: number; nom: string; dureeS?: number }[]; locataires?: boolean }[]; url: (id: number) => string }) {
+  /* 🔴🔴 Arno (15/11/2026) — UN fichier vocal par ligne : « Écouter », le titre, la durée et l'étiquette (ENVOYÉ aux locataires / NON envoyé
+     (interne)) ; les prises restent accessibles en dépliant la ligne. */
   return (
     <ol className="pvv-cr-fichiers">{fichiers.map((f, i) => {
       const cle = `cr-f${i}`;
+      const duree = f.prises.reduce((t, p) => t + (p.dureeS ?? 0), 0);
       return (
-        <li key={cle} className="pvv-fichier-vocal" data-cr-vocal={i + 1} data-cr-vocal-prises={f.prises.length}>
-          {/* 🔴 Arno (15/11/2026, 11e retour) — le titre UNE fois, le statut en étiquette (vert : envoyé aux locataires ; gris : interne) */}
-          <div className="pvv-photo-tete pvv-cr-vocal-tete"><strong className="pvv-cr-legende" data-cr-vocal-nom>{f.nom}</strong>
-            <span className="loc-muet">{f.prises.length} prise{f.prises.length > 1 ? 's' : ''}</span></div>
-          <span className={`pvv-cr-vocal-statut${f.locataires ? ' pvv-cr-vocal-statut--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{etatVocalLocataires(f.locataires === true)}</span>
-          <div className="pvv-photo-gestes pvv-vocal-gestes">
+        <li key={cle} className="pvv-cr-ligne-vocal" data-cr-vocal={i + 1} data-cr-vocal-prises={f.prises.length}>
+          <div className="pvv-cr-vocal-ligne1">
             <BoutonEcouter cle={cle} pistes={f.prises.map((p) => ({ url: url(p.id), dureeS: p.dureeS ?? 0 }))} classe="pvv-mini" texte attributs={{ 'data-cr-vocal-ecouter': '' }} />
+            <strong className="pvv-cr-legende" data-cr-vocal-nom>{f.nom}</strong>
+            {duree > 0 && <span className="loc-muet" data-cr-vocal-duree>{dureeFr(duree)}</span>}
+            <span className={`pvv-cr-vocal-statut${f.locataires ? ' pvv-cr-vocal-statut--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{etatVocalLocataires(f.locataires === true)}</span>
           </div>
           <ProgressionLecture cles={[cle]} />
-          <ol className="pvv-prises">{f.prises.map((p, k) => (
-            <li key={p.id} className="pvv-prise" data-cr-prise={k + 1}><span>Prise {k + 1}</span>
-              <BoutonEcouter cle={`cr-p${p.id}`} pistes={[{ url: url(p.id), dureeS: p.dureeS ?? 0 }]} classe="pvv-mini"
-                etiquette={(l) => (l ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`)} attributs={{ 'data-cr-prise-ecouter': '' }} />
-              <ProgressionLecture cles={[`cr-p${p.id}`]} /></li>))}</ol>
+          <details className="pvv-cr-prises-depliables" data-cr-prises>
+            <summary>{f.prises.length} prise{f.prises.length > 1 ? 's' : ''}</summary>
+            <ol className="pvv-prises">{f.prises.map((p, k) => (
+              <li key={p.id} className="pvv-prise" data-cr-prise={k + 1}><span>Prise {k + 1}{p.dureeS ? <span className="loc-muet"> ({dureeFr(p.dureeS)})</span> : null}</span>
+                <BoutonEcouter cle={`cr-p${p.id}`} pistes={[{ url: url(p.id), dureeS: p.dureeS ?? 0 }]} classe="pvv-mini"
+                  etiquette={(l) => (l ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`)} attributs={{ 'data-cr-prise-ecouter': '' }} />
+                <ProgressionLecture cles={[`cr-p${p.id}`]} /></li>))}</ol>
+          </details>
         </li>);
     })}</ol>
   );

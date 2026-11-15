@@ -181,19 +181,20 @@ describe('les lignes', () => {
     const regle = (sel: string, css: string): string => new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     const [bureau, mobile] = CSS_PREAVIS_ACCUEIL.split('@media');
     expect(regle('.pva-ligne', bureau)).toMatch(/(^|;)height:4\.75rem/);
-    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:8\.25rem/);
+    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:9\.5rem/);
     expect(CSS_PREAVIS_ACCUEIL).not.toMatch(/\.pva-ligne\{[^}]*min-height/);
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-noms,\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
     // les colonnes FIXES, communes à tout le listing : une seule règle de grille, des largeurs fixes (pas de largeur calculée par ligne)
-    expect(regle('.pva-l2', bureau)).toBe('display:grid;grid-template-columns:11.5rem 17rem minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem');
+    expect(regle('.pva-l2', bureau)).toBe('display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem');
     expect(regle('.pva-l2', mobile)).toBe('grid-template-columns:minmax(0,1fr);row-gap:2px');
-    expect(mobile).toContain('.pva-col-rdv{order:-1}');
+    expect(mobile).toContain('.pva-col-rdv{order:-2}');
+    expect(mobile).toContain('.pva-col-mission{order:-1;min-height:1.2rem}');
     await rendre();
     const a = container.querySelector('[data-ligne-preavis="A"]')!;
     expect(a.querySelector('.pva-noms')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul');
     expect(a.querySelector('[data-adresse-ligne]')?.textContent).toBe('A rue');
     expect([...a.querySelectorAll('.pva-l2 > span')].map((x) => [x.className, x.textContent])).toEqual([
-      ['pva-col-fin', 'Fin de préavis 01/12/2099'], ['pva-col-rdv pva-col-rdv--aucun', '— Aucun RDV fixé'], ['pva-col-details pva-detail', 'État des lieux le 10/01/2099']]);
+      ['pva-col-fin', 'Fin de préavis 01/12/2099'], ['pva-col-rdv pva-col-rdv--aucun', '— Aucun RDV fixé'], ['pva-col-mission', ''], ['pva-col-details pva-detail', 'État des lieux le 10/01/2099']]);
     // rien n'est retiré : tout le texte d'avant reste en infobulle de la ligne
     expect(a.querySelector('.pva-textes')?.getAttribute('title')).toBe('BERNARD Alice, BERNARD Paul — A rue · Fin de préavis le 01/12/2099 · État des lieux le 10/01/2099');
     expect(container.querySelector('[data-ligne-preavis="B"] [data-col-fin]')?.textContent).toBe('Fin de préavis 01/01/2020');
@@ -500,7 +501,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     // 🔴 (15/11/2026) le statut « RDV état des lieux fixé » (violet) remplace la pastille « EDLS planifié » ; le détail le dit toujours
     expect(ligne.querySelector('[data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');
     expect(ligne.querySelector('[data-statut-ligne]')?.className).toBe('psl-statut psl-statut--rdv_edl');
-    expect(ligne.querySelector('.pva-detail')?.textContent).toContain('EDLS le 05/11/2099 à 10h00 — confié à Claire Test — en attente de confirmation');
+    expect(ligne.querySelector('.pva-textes')?.getAttribute('title')).toContain('EDLS le 05/11/2099 à 10h00 — confié à Claire Test — en attente de confirmation');
   });
 
   it('confié à soi : « accepté » d’office (le module de tâches inscrit directement dans l’agenda, sans demande)', async () => {
@@ -511,7 +512,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
-    expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('confié à Arno Test — accepté');
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('confié à Arno Test — accepté');
   });
 
   const EDLS = { edlsId: 77, tacheId: 500, jour: '2099-11-05', heure: '10:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente' as const, reponduPar: null, motifRefus: null };
@@ -531,7 +532,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('fin'), '15:30'));
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-06', debut: '14:00', fin: '15:30', confieA: 4 });
-    expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('EDLS le 06/11/2099 à 14h00 — confié à Claire Test — en attente de confirmation');
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('EDLS le 06/11/2099 à 14h00 — confié à Claire Test — en attente de confirmation');
     expect(container.querySelector('[data-edls-bilan]')?.textContent).toContain('mail à Claire Test : préparé (essai)');
   });
 
@@ -548,7 +549,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     expect(optionsConfier()).toEqual(['Arno Test']);   // la liste verte du formulaire « réattribuer »
     await act(async () => { (container.querySelector('button[data-valider-reattribution]') as HTMLButtonElement).click(); });
     expect(posts.at(-1)).toEqual({ action: 'reattribuer-edls', occupationIds: [11, 12], confieA: 3 });
-    expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('confié à Arno Test — en attente de confirmation');
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('confié à Arno Test — en attente de confirmation');
   });
 
   it('préavis échu : l’alerte garde la priorité même avec un EDLS planifié', async () => {
@@ -556,7 +557,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     lignes = lignes.map((l) => (l.cle === 'B' ? { ...l, edls: { ...EDLS, jour: '2020-01-10' } } : l));
     await rendre();
     expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.textContent).toBe('Préavis échu — sortie à saisir');
-    expect(container.querySelector('[data-ligne-preavis="B"] .pva-detail')?.textContent).toContain('EDLS le 10/01/2020 à 10h00');
+    expect(container.querySelector('[data-ligne-preavis="B"] .pva-textes')?.getAttribute('title')).toContain('EDLS le 10/01/2020 à 10h00');
   });
 
   it('le tri « État des lieux » suit la date de l’EDLS (la même donnée)', async () => {
@@ -1040,7 +1041,9 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
     await attendre(); await attendre();
     const f = document.querySelector('[data-fenetre-compte-rendu]')!;
     expect(lectures).toEqual([expect.stringContaining('previsiteCompteRendu=11,12')]);
-    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe(CR.texte);
+    // 🔴 (15/11/2026) la section Texte : le texte saisi, sans « Mail envoyé par … » (le mail complet reste dans « Voir le mail tel qu'envoyé »)
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe(CR.texte.split(/\n\s*Mail envoyé par /)[0].trim());
+    expect(f.querySelector('[data-cr-mail-envoye] pre')!.textContent).toBe(CR.texte);
     expect(f.querySelector('[data-cr-saisi]')!.textContent).toBe('Saisi par Arnaud Jorel le 13/11/2026 à 13h52');
     expect(f.querySelector('[data-cr-piece="41"]')!.getAttribute('href')).toBe('/api/admin/location/pieces-sortie?piece=41');
     const d = [...f.querySelectorAll('[data-cr-destinataire]')].map((x) => [x.getAttribute('data-cr-destinataire'), x.querySelector('.pvv-cr-nom')!.textContent,
@@ -1368,12 +1371,12 @@ describe('🔴 Arno (13/11/2026, lot B) — « Voir le compte rendu » : le text
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
     clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
     const f = document.querySelector('[data-fenetre-compte-rendu]')!;
-    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.\n\nMail envoyé par Arno');
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.'); // 🔴 (15/11/2026) sans « Mail envoyé par … »
     expect([...f.querySelectorAll('[data-cr-photo]')].map((x) => [x.querySelector('img')!.getAttribute('src'), x.querySelector('[data-cr-legende]')!.textContent]))
       .toEqual([['/api/admin/location/pieces-sortie?piece=72', 'Photo 1 — Joint douche'], ['/api/admin/location/pieces-sortie?piece=71', 'Photo 2 — Rayure parquet chambre']]);
     expect(f.querySelector('[data-cr-pieces]')).toBeNull();
-    // 🔴 lot C — les vocaux : écoutables ici ; 🔴 (accord d'Arno, 15/11/2026) l'intitulé est « Vocaux » tout court, chaque vocal porte son statut
-    expect(f.querySelector('[data-cr-vocaux] .pss-sous-titre')!.textContent).toBe('Vocaux');
+    // 🔴 lot C — les vocaux : écoutables ici ; 🔴 (15/11/2026) la section s'appelle « Dictaphone » (ordre du formulaire), chaque vocal porte son statut
+    expect(f.querySelector('[data-cr-section="dictaphone"] .pvv-cr-section-titre')!.textContent).toBe('Dictaphone');
     expect(f.querySelector('[data-cr-vocaux]')!.textContent).not.toContain('jamais envoy');
     // 🔴 (11e retour) le titre une fois, le statut en étiquette
     expect(f.querySelector('[data-cr-vocal="1"] [data-cr-vocal-etat]')!.textContent).toBe('NON envoyé (interne)');
@@ -2745,7 +2748,7 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     expect(f.querySelector('[data-cr-brouillon="oui"]')!.textContent).toBe('Brouillon — non envoyé, dernier enregistrement à 14h05');
     expect(f.querySelector('[data-cr-objet]')!.textContent).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 13/11/2026 à 13h45');
     expect(f.querySelector('[data-cr-adresse]')!.textContent).toBe('BERNARD Alice, BERNARD Paul — C rue');
-    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice (locataire)', 'Madame Léa Martin — note interne : mère du locataire']);
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice — locataire', 'Madame Léa MARTIN — personne présente — note interne : mère du locataire']);
     expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Salon propre.');
     expect(f.querySelector('[data-cr-legende]')!.textContent).toBe('Photo 1 — Rayure parquet');
     expect([...f.querySelectorAll('[data-cr-vocal-etat]')].map((x) => x.textContent)).toEqual(['ENVOYÉ aux locataires', 'NON envoyé (interne)']);
@@ -2777,7 +2780,7 @@ describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhon
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
     clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
     const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
-    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice (locataire)', 'Madame Léa Martin — note interne : mère du locataire']);
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice — locataire', 'Madame Léa MARTIN — personne présente — note interne : mère du locataire']);
     expect([...f.querySelectorAll('[data-cr-destinataire]')].map((x) => x.getAttribute('data-cr-destinataire'))).toEqual(['locataire', 'interne']);
     act(() => (f.querySelector('[data-cr-vocal-ecouter]') as HTMLButtonElement).click());
     expect(f.querySelector('[data-lecture-texte]')!.textContent).toBe('Lecture… 00:00 / 00:03');
@@ -3010,11 +3013,13 @@ describe('🔴🔴 Arno (15/11/2026) — le listing sur DEUX lignes, colonnes fi
   const col = (cle: string, c: string) => container.querySelector(`[data-ligne-preavis="${cle}"] [data-col-${c}]`)!;
   it('ligne 2 : la MÊME grille pour toutes les lignes ; A « Fin de préavis », B le rendez-vous (pré-visite / état des lieux / effectuée), C les détails', async () => {
     await rendre(true);
-    for (const cle of ['A', 'B', 'C']) expect([...container.querySelectorAll(`[data-ligne-preavis="${cle}"] .pva-l2 > span`)].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-col-details']);
+    for (const cle of ['A', 'B', 'C']) expect([...container.querySelectorAll(`[data-ligne-preavis="${cle}"] .pva-l2 > span`)].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-col-mission', 'pva-col-details']);
     expect([col('A', 'rdv').textContent, col('A', 'rdv').getAttribute('data-col-rdv')]).toEqual(['Pré-visite · sam. 10/01 · 00h16', 'previsite']);
     expect([col('C', 'rdv').textContent, col('C', 'rdv').getAttribute('data-col-rdv')]).toEqual(['État des lieux · mar. 03/02 · 11h30', 'edl']);
     expect([col('B', 'rdv').textContent, col('B', 'rdv').getAttribute('data-col-rdv')]).toEqual(['Pré-visite effectuée le 15/11', 'effectuee']);
-    expect(col('C', 'details').textContent).toContain('confié à Arno Test');
+    // 🔴 (15/11/2026) « confié à Prénom NOM » + l'état de la mission, juste à droite de la date ; la colonne C ne répète plus la date
+    expect(col('C', 'mission').textContent).toBe('confié à Arno TESTConfirmé');
+    expect(col('C', 'details').textContent).toBe('');
     expect(col('A', 'fin').textContent).toBe('Fin de préavis 01/12/2099');
     // ligne 1 : badge éventuel + nom(s) + adresse ; le cartouche de statut et « Ouvrir » à droite
     const a = container.querySelector('[data-ligne-preavis="A"] .pva-ligne')!;
@@ -3030,5 +3035,79 @@ describe('🔴🔴 Arno (15/11/2026) — le listing sur DEUX lignes, colonnes fi
     const b = container.querySelector('[data-tri-rdv]') as HTMLButtonElement;
     expect([b.getAttribute('data-tri-rdv'), b.textContent]).toEqual(['proches', 'RDV : plus proches d’abord']);
     expect(ordre()).toEqual(['C', 'A', 'B']);
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026) — mission à droite de la date (sans date en double) ; compte rendu en sections', () => {
+  const PV = (statut: 'programmee' | 'effectuee', jour: string, collegues: { libelle: string; statut: 'en_attente' | 'acceptee' | 'refusee' | null }[]) =>
+    ({ statut, rdv: { jour, heure: '10:30', dureeMinutes: 60 }, tacheId: 9, collegues: collegues.map((c) => ({ collaborateurId: 1, email: null, motif: null, ...c })), tousRefusent: collegues.length > 0 && collegues.every((c) => c.statut === 'refusee'), rdvPasse: false, alerteEnvoyeeLe: null });
+  const EDLS = (statut: 'en_attente' | 'acceptee' | 'refusee') => ({ edlsId: 1, tacheId: 2, jour: '2099-02-03', heure: '11:30', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut, reponduPar: null, motifRefus: null });
+  beforeEach(() => {
+    try { window.localStorage.clear(); } catch { /* rien */ }
+    lignes = [
+      { ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Claire Test', statut: 'en_attente' }]) },
+      { ...LIGNES[1], previsite: PV('programmee', '2099-01-12', [{ libelle: 'Arno Test', statut: 'acceptee' }]) },
+      { ...LIGNES[2], previsite: PV('effectuee', '2099-01-05', []), edls: EDLS('refusee') },
+    ];
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('preavisEnCours=1')
+      ? ok({ disponible: true, etatDesLieux: true, previsite: true, planification: true, lignes }) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+  });
+  const sel = (cle: string, s: string) => container.querySelector(`[data-ligne-preavis="${cle}"] ${s}`)!;
+  it('« confié à Prénom NOM » + cartouche : En attente de confirmation / Confirmé / Refusé — à réattribuer, juste à droite de la date', async () => {
+    await rendre(true);
+    expect([sel('A', '.pva-confie').textContent, sel('A', '[data-etat-mission]').textContent, sel('A', '[data-etat-mission]').className]).toEqual(['confié à Claire TEST', 'En attente de confirmation', 'pva-etat-mission pva-etat-mission--attente']);
+    expect([sel('B', '.pva-confie').textContent, sel('B', '[data-etat-mission]').textContent]).toEqual(['confié à Arno TEST', 'Confirmé']);
+    expect([sel('C', '[data-col-rdv]').textContent, sel('C', '.pva-confie').textContent, sel('C', '[data-etat-mission]').textContent]).toEqual(['État des lieux · mar. 03/02 · 11h30', 'confié à Claire TEST', 'Refusé — à réattribuer']);
+    // la mission vient juste après la date, dans la même grille pour toutes les lignes
+    for (const cle of ['A', 'B', 'C']) expect([...container.querySelectorAll(`[data-ligne-preavis="${cle}"] .pva-l2 > span`)].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-col-mission', 'pva-col-details']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pva-etat-mission--attente{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}');
+    expect(css).toContain('.pva-etat-mission--confirme{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
+    expect(css).toContain('.pva-etat-mission--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}');
+  });
+  it('AUCUNE date répétée dans la colonne C (« Pré-visite le … », « EDLS le … », « Pré-visite effectuée le … ») ; le texte complet reste en infobulle', async () => {
+    await rendre(true);
+    for (const cle of ['A', 'B', 'C']) expect(sel(cle, '[data-col-details]').textContent).not.toMatch(/Pré-visite le|EDLS le|Pré-visite effectuée/);
+    expect(sel('B', '[data-col-details]').textContent).toBe('');
+    expect(sel('C', '[data-col-details]').textContent).toBe('');
+    // seul ce qui n'est affiché nulle part ailleurs reste : la date d'état des lieux saisie au préavis (sans état des lieux planifié)
+    expect(sel('A', '[data-col-details]').textContent).toBe('État des lieux le 10/01/2099');
+    expect(sel('C', '.pva-textes').getAttribute('title')).toContain('Refusée par Claire Test — à réattribuer');
+  });
+  it('« Voir le compte rendu » : sections dans l’ordre du formulaire ; une photo et un vocal par ligne ; texte sans signature ; le mail tel qu’envoyé repliable', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: null, previsite: { ...PV('effectuee', '2099-01-05', []), compteRendu: true } } : l));
+    const CR = { texte: 'Compte rendu de la pré-visite du 05/01/2099 — C rue\n\nEn présence de Alice BERNARD.\n\nLogement propre.\n- Rayure parquet\n\nPhotos\nPhoto 1 — Parquet chambre\nPhoto 2 — Joint douche\n\nMail envoyé par Arnaud JOREL', objet: 'Objet', saisiPar: 'Arnaud JOREL', saisiLe: '2026-11-15T15:49:00Z',
+      pieces: [{ id: 71, nom: 'p.jpg', taille: 3 }, { id: 72, nom: 'p.jpg', taille: 3 }], aucunEnvoi: false, corps: 'Logement propre.\n- Rayure parquet',
+      presences: { occupations: [11], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa', note: 'mère du locataire' }], locataires: [{ occupationId: 11, civilite: 'Madame', prenom: 'Alice', nom: 'Bernard' }] },
+      destinataires: [{ nom: 'Alice BERNARD', famille: 'locataire', quand: '2026-11-15T15:49:00Z', etat: 'envoye', motif: null }, { nom: 'Arnaud JOREL', famille: 'interne', quand: '2026-11-15T15:49:00Z', etat: 'envoye', motif: null }],
+      vocaux: [{ id: 81, nom: 'a', taille: 3 }], fichiersVocaux: [{ nom: 'Vocal pour locataire', prises: [{ id: 81, nom: 'a', taille: 3, dureeS: 4 }, { id: 82, nom: 'b', taille: 3, dureeS: 3 }], locataires: true }, { nom: 'Vocal pour agence', prises: [{ id: 83, nom: 'c', taille: 3, dureeS: 5 }] }] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
+    expect([...f.querySelectorAll('[data-cr-section]')].map((x) => x.getAttribute('data-cr-section'))).toEqual(['presence', 'texte', 'photos', 'dictaphone', 'envois']);
+    expect([...f.querySelectorAll('.pvv-cr-section-titre')].map((x) => x.textContent)).toEqual(['Présence', 'Texte', 'Photos', 'Dictaphone', 'Envois']);
+    // en-tête : objet, adresse en grand, saisi par, état de l'envoi
+    expect(f.querySelector('[data-cr-entete] [data-cr-adresse-grande]')!.textContent).toBe('C rue');
+    expect(f.querySelector('[data-cr-etat-envoi]')!.textContent).toBe('Envoyé à 2 destinataires');
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['Madame Alice BERNARD — locataire', 'Madame Léa MARTIN — personne présente — note interne : mère du locataire']);
+    expect(f.querySelector('[data-cr-note-interne]')!.tagName).toBe('EM');
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.\n- Rayure parquet');
+    // une photo par ligne : miniature à gauche (agrandissable), légende à droite
+    const photos = [...f.querySelectorAll('[data-cr-photo]')];
+    expect(photos.map((x) => [x.className, x.firstElementChild!.hasAttribute('data-cr-agrandir'), x.querySelector('[data-cr-legende]')!.textContent])).toEqual([
+      ['pvv-cr-ligne-photo', true, 'Photo 1 — Parquet chambre'], ['pvv-cr-ligne-photo', true, 'Photo 2 — Joint douche']]);
+    // un vocal par ligne : Écouter, titre, durée, étiquette ; les prises en dépliant
+    const v = [...f.querySelectorAll('[data-cr-vocal]')];
+    expect(v.map((x) => [x.querySelector('[data-cr-vocal-nom]')!.textContent, x.querySelector('[data-cr-vocal-duree]')!.textContent, x.querySelector('[data-cr-vocal-etat]')!.textContent, x.querySelector('[data-cr-vocal-ecouter]') !== null])).toEqual([
+      ['Vocal pour locataire', '00:07', 'ENVOYÉ aux locataires', true], ['Vocal pour agence', '00:05', 'NON envoyé (interne)', true]]);
+    expect(v[0].querySelector('[data-cr-prises] summary')!.textContent).toBe('2 prises');
+    expect(v[0].querySelectorAll('[data-cr-prise]')).toHaveLength(2);
+    // envois : locataires (vert) puis interne (gris) ; le mail tel qu'envoyé, repliable, garde la signature
+    expect([...f.querySelectorAll('[data-cr-destinataire]')].map((x) => x.getAttribute('data-cr-destinataire'))).toEqual(['locataire', 'interne']);
+    expect(f.querySelector('[data-cr-mail-envoye] summary')!.textContent).toBe('Voir le mail tel qu’envoyé');
+    expect(f.querySelector('[data-cr-mail-envoye] pre')!.textContent).toContain('Mail envoyé par Arnaud JOREL');
   });
 });

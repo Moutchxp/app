@@ -14,7 +14,9 @@ export interface PieceCr { id: number; nom: string; taille: number;
   /** 🔴 (9e retour) la durée d'une prise, lue dans le brouillon envoyé (barre de lecture) */
   dureeS?: number }
 /** 🔴 Arno (15/11/2026, 9e retour) — qui était présent (locataires : leurs occupations ; personnes ajoutées, avec leur note INTERNE). */
-export interface PresencesCr { occupations: number[]; personnes: { civilite: string; nom: string; prenom: string; note: string }[] }
+export interface PresencesCr { occupations: number[]; personnes: { civilite: string; nom: string; prenom: string; note: string }[];
+  /** 🔴 (15/11/2026) les locataires présents, nommés (civilité, prénom, nom) — ceux de CE préavis seulement */
+  locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[] }
 export interface CompteRenduAffiche {
   /** Le texte du compte rendu, tel qu'enregistré (le mail interne) ; null : aucun compte rendu saisi. */
   texte: string | null; objet: string | null; saisiPar: string | null; saisiLe: string | null;
@@ -27,6 +29,8 @@ export interface CompteRenduAffiche {
   fichiersVocaux?: { nom: string; prises: PieceCr[]; locataires?: boolean }[];
   /** 🔴 Arno (15/11/2026, 9e retour) — les présences et les notes internes, lues dans le brouillon marqué « envoyé » ; null : inconnues */
   presences?: PresencesCr | null;
+  /** 🔴 (15/11/2026) le TEXTE saisi seul (sans en-tête, présence, pièces, signature ni « Mail envoyé par »), lu dans le brouillon envoyé */
+  corps?: string | null;
 }
 
 /** Une ligne du journal des envois (sorte `previsite_compte_rendu`). */

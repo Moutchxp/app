@@ -25,7 +25,7 @@ import {
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte } from '../../../../lib/location/previsite';
 import { estFiltreLigne, lignePasseFiltre, statutLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
-import { colonneRdv, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { colonneRdv, LIBELLE_ETAT_MISSION, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -277,9 +277,14 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 const adresse = l.adresse ?? `Bien ${l.lotId}`;
                 const fin = `Fin de préavis ${dateFrPreavis(l.dateMax)}`;
                 const rdv = colonneRdv(l, maintenantParis());
-                const details = [l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null,
-                  detailPrevisite(l.previsite)].filter((x) => x !== null).join(' · ');
-                const detail = [adresse, `Fin de préavis le ${dateFrPreavis(l.dateMax)}`, details].filter((x) => x !== '').join(' · ');
+                // 🔴 (15/11/2026) la mission du rendez-vous affiché : « confié à Prénom NOM » + l'état de la tâche
+                const mission = rdv.sorte === 'previsite' || rdv.sorte === 'edl' ? missionDeLigne(l, rdv.sorte) : null;
+                // 🔴 (15/11/2026, accord d'Arno) la colonne C ne répète plus aucune date : seulement ce qui n'est pas déjà affiché
+                const details = !l.edls && l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : '';
+                // l'infobulle de la ligne garde le texte complet d'avant (rien n'est perdu)
+                const detail = [adresse, `Fin de préavis le ${dateFrPreavis(l.dateMax)}`,
+                  l.edls ? mentionEdls(l.edls) : l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : null, detailPrevisite(l.previsite)]
+                  .filter((x): x is string => x !== null && x !== '').join(' · ');
                 const estOuverte = ouverte === l.cle;
                 return (
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
@@ -292,6 +297,9 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                         <span className="pva-l2">
                           <span className="pva-col-fin" data-col-fin>{fin}</span>
                           <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{rdv.texte}</span>
+                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{mission && <>
+                            <span className="pva-confie" title={`confié à ${mission.qui}`}>confié à {mission.qui}</span>
+                            <span className={`pva-etat-mission pva-etat-mission--${mission.etat}`} data-etat-mission={mission.etat}>{LIBELLE_ETAT_MISSION[mission.etat]}</span></>}</span>
                           <span className="pva-col-details pva-detail" title={details} data-col-details>{details}</span>
                         </span>
                       </div>
@@ -700,7 +708,14 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-l1{display:flex;align-items:baseline;gap:10px;min-width:0;white-space:nowrap}
 .pva-l1 .pva-noms{flex:0 1 auto}
 .pva-adresse{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
-.pva-l2{display:grid;grid-template-columns:11.5rem 17rem minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem}
+.pva-l2{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem}
+/* la mission du rendez-vous : « confie a Prenom NOM » puis l'etat (orange doux : en attente ; vert doux : confirme ; rouge doux : refuse) */
+.pva-col-mission{display:flex;align-items:center;gap:6px;min-width:0}
+.pva-confie{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
+.pva-etat-mission{flex:0 0 auto;display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:.76rem;font-weight:800;white-space:nowrap;border:1px solid currentColor}
+.pva-etat-mission--attente{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
+.pva-etat-mission--confirme{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.pva-etat-mission--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .pva-col-fin,.pva-col-rdv,.pva-col-details{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pva-col-fin{color:var(--color-svv-muted)}
 .pva-col-rdv{font-weight:800}
@@ -722,11 +737,12 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-liens a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-ink);font-weight:600;text-decoration:underline}
 .sor-gestion-seule-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 @media (max-width:760px){
-  .pva-ligne{height:8.25rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
+  .pva-ligne{height:9.5rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
   /* telephone : ligne 1 nom + adresse ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
      les details restent dans l'infobulle de la ligne ; aucun debordement horizontal */
   .pva-l2{grid-template-columns:minmax(0,1fr);row-gap:2px}
-  .pva-col-rdv{order:-1}
+  .pva-col-rdv{order:-2}
+  .pva-col-mission{order:-1;min-height:1.2rem}
   .pva-col-details{display:none}
   /* hauteur CONSTANTE (Arno) : les reperes, plus compacts, tiennent au plus sur deux rangees, jamais sous « Ouvrir » */
   .psl-cartouches{justify-content:flex-start;gap:3px 4px;max-height:2.9rem;overflow:hidden}
