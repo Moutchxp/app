@@ -572,3 +572,7 @@ body {
   background-color: var(--color-svv-green-soft);
   color: var(--color-svv-green-ink);
 }
+
+/* 🔴 Arno (15/11/2026) — une adresse e-mail affichée par le CSS (bandeau de recette) : pas de texte dans la page, donc rien que Chrome sur
+   iPhone puisse transformer en lien (il ignore format-detection) — plus d'erreur d'hydratation. */
+.svv-adresse-css::after{content:attr(data-adresse)}

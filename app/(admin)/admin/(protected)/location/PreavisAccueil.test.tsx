@@ -1690,7 +1690,7 @@ describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétiqu
     act(() => ajouter().click());
     expect(document.querySelector('[data-modale-personne]')).toBeNull();
     const ligne = document.querySelector('[data-personne-ajoutee]')!;
-    expect(ligne.textContent).toBe('Mme Léa Martin personne présente');
+    expect(ligne.querySelector('.pvv-presence')!.textContent).toBe('Mme Léa Martin personne présente');
     expect((ligne.querySelector('[data-presence-personne]') as HTMLInputElement).checked).toBe(true);
     act(() => (document.querySelector('[data-presence-locataire="11"]') as HTMLInputElement).click());
     act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
@@ -1737,5 +1737,77 @@ describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétiqu
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
     expect(css).toContain('.pvv-boite-cr .pvv-maintien.pvv-maintien--actif:hover');
     expect(css).toContain('background:var(--color-svv-red) !important');
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, 4e retour iPhone) — flèche d’Entrée, note interne, trames, alignement, suggestions du clavier', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let appels: Record<string, unknown>[] = [];
+  beforeEach(() => {
+    appels = [];
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') { const c = JSON.parse(String(init.body)) as Record<string, unknown>; if (c.action === 'apercu-compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [] }); } }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); };
+  const saisir = (el: Element, v: string) => act(() => { const e = el as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true })); });
+
+  it('« Entrée » : la FLÈCHE seule (SVG), libellé accessible « Aller à la ligne », zone tactile de 44 px', async () => {
+    await ouvrirCr();
+    const b = document.querySelector('[data-entree]')!;
+    expect(b.textContent).toBe('');
+    expect(b.querySelector('svg')).not.toBeNull();
+    expect(b.getAttribute('aria-label')).toBe('Aller à la ligne');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-entree{min-width:44px;min-height:44px');
+  });
+
+  it('🔴 NOTE INTERNE : saisie dans la fenêtre, visible et MODIFIABLE dans la liste, envoyée avec la personne', async () => {
+    await ouvrirCr();
+    act(() => (document.querySelector('[data-ajouter-personne]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-personne-civilite="Madame"]') as HTMLInputElement).click());
+    saisir(document.querySelector('[data-personne-nom]')!, 'Martin');
+    saisir(document.querySelector('[data-personne-note-modale]')!, 'mère du locataire');
+    act(() => (document.querySelector('[data-personne-ajouter]') as HTMLButtonElement).click());
+    const note = document.querySelector('[data-personne-ajoutee] [data-personne-note]') as HTMLInputElement;
+    expect(note.value).toBe('mère du locataire');
+    saisir(note, 'amie du locataire');
+    act(() => { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'CR.'); t.dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    expect(appels[0].presences).toEqual({ occupations: [], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: '', note: 'amie du locataire' }] });
+  });
+
+  it('trames : « Ajouter une photo » PLEIN comme « Maintenir pour dicter », « Photothèque » en contour comme « Clavier » ; « Nouveau fichier vocal » à DROITE', async () => {
+    await ouvrirCr();
+    expect(document.querySelector('[data-ajouter-photo]')!.className).toContain('pvv-plein');
+    expect(document.querySelector('[data-ajouter-photo]')!.className).not.toContain('svv-btn-outline');
+    expect(document.querySelector('[data-photo-galerie-bouton]')!.className).toContain('svv-btn-outline');
+    expect(document.querySelector('[data-clavier]')!.className).toContain('svv-btn-outline');
+    expect(document.querySelector('[data-nouveau-vocal]')!.parentElement!.className).toContain('pvv-a-droite');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-plein.svv-btn,.pvv-plein{background:var(--color-svv-ink);color:var(--color-svv-surface)');
+    expect(css).toContain('.pvv-a-droite > :only-child{grid-column:2}');
+  });
+
+  it('suggestions du clavier adaptées par champ : texte (correction gardée, pas de remplissage), noms (ni correction ni remplissage)', async () => {
+    await ouvrirCr();
+    const t = document.querySelector('[data-corps-compte-rendu]')!;
+    expect([t.getAttribute('autocomplete'), t.getAttribute('autocorrect'), t.getAttribute('autocapitalize'), t.getAttribute('spellcheck')]).toEqual(['off', 'on', 'sentences', 'true']);
+    act(() => (document.querySelector('[data-ajouter-personne]') as HTMLButtonElement).click());
+    const nom = document.querySelector('[data-personne-nom]')!;
+    expect([nom.getAttribute('autocomplete'), nom.getAttribute('autocorrect'), nom.getAttribute('autocapitalize'), nom.getAttribute('spellcheck')]).toEqual(['off', 'off', 'words', 'false']);
+  });
+});
+
+describe('🔴 Arno (15/11/2026) — bandeau de recette : l’adresse n’est PAS du texte de la page (Chrome iPhone la transformait en lien → erreur d’hydratation)', () => {
+  it('l’adresse vient d’un attribut, affichée par le CSS ; <html> ignore les attributs ajoutés par Chrome iOS', () => {
+    const src = readFileSync('app/(admin)/layout.tsx', 'utf8');
+    expect(src).toContain('<span className="svv-adresse-css" data-adresse={reel.adresse} role="img" aria-label={reel.adresse} />');
+    expect(src).not.toContain('`RECETTE — envois réels autorisés vers ${reel.adresse}`');
+    expect(readFileSync('app/globals.css', 'utf8')).toContain('.svv-adresse-css::after{content:attr(data-adresse)}');
+    expect(readFileSync('app/layout.tsx', 'utf8')).toMatch(/<html[\s\S]*?suppressHydrationWarning[\s\S]*?>/);
   });
 });

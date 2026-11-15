@@ -12,7 +12,7 @@ import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
 import { PIECES_MAX_OCTETS } from './validationSortie';
-import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, personneAjoutee, phrasePresence, type PersonnePresente } from './texteCompteRendu';
+import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, paragraphesNotesPresence, personneAjoutee, phrasePresence, type PersonnePresente } from './texteCompteRendu';
 
 /** 🔴 Arno (15/11/2026) — la présence reçue de l'écran : les occupations des locataires cochés, les personnes ajoutées (non vérifiées). */
 export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[] }
@@ -384,8 +384,9 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const photosP = [...paragraphesPhotos(photos), ...paragraphesVocaux(vocauxEnvoyes)];
   // 🔴 Arno (15/11/2026) — « En présence de … » EN TÊTE du compte rendu (mail interne et mails des locataires)
   const tete = phrase === '' ? [] : [phrase];
+  // 🔴 Arno (15/11/2026) — les NOTES de présence (internes) : dans le mail interne SEULEMENT, jamais dans ceux des locataires
   const interne = avecPhotos(mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
-    paragraphes: [...tete, ...paragraphesDuTexte(texte), ...photosP], qui: c.qui, signature: c.signature }));
+    paragraphes: [...tete, ...paragraphesDuTexte(texte), ...photosP, ...paragraphesNotesPresence(presents)], qui: c.qui, signature: c.signature }));
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
     paragraphesDe: (l) => [...tete, ...paragraphesDuTexte(personnaliserTexte(texte, l)), ...photosP], qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
   return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presents } };

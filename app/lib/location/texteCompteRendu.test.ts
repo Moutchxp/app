@@ -64,3 +64,14 @@ describe('🔴 « En présence de … » (Arno, 15/11/2026)', () => {
     expect(personneAjoutee({ civilite: 'Monsieur', nom: '   ' })).toBeNull();
   });
 });
+
+import { paragraphesNotesPresence } from './texteCompteRendu';
+describe('🔴 la note INTERNE d’une personne ajoutée (Arno, 15/11/2026)', () => {
+  it('gardée sur la personne, jamais dans la phrase de présence ; listée seulement dans les notes internes', () => {
+    const p = personneAjoutee({ civilite: 'Madame', nom: 'Martin', prenom: 'Léa', note: '  mère du locataire ' })!;
+    expect(p.note).toBe('mère du locataire');
+    expect(phrasePresence([p])).toBe('En présence de Mme Léa Martin.');
+    expect(paragraphesNotesPresence([p, { civilite: null, prenom: null, nom: 'BERNARD Paul' }])).toEqual(['Notes de présence (internes)', 'Mme Léa Martin — mère du locataire']);
+    expect(paragraphesNotesPresence([{ civilite: null, prenom: null, nom: 'X' }])).toEqual([]);
+  });
+});

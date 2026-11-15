@@ -28,6 +28,9 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // 🔴 Arno (15/11/2026) — Chrome sur iPhone ajoute ses propres attributs à <html> (`__gcrremoteframetoken`) : React ne doit pas les
+      // compter comme un écart d'hydratation. Ne vaut que pour les ATTRIBUTS de cette balise, jamais pour son contenu.
+      suppressHydrationWarning
     >
       <head>
         {/* Thème de l'admin, anti-flash : cf. SCRIPT_INIT_THEME (il ne touche que `.svv-adm-root`, jamais le public). */}

@@ -241,7 +241,8 @@ describe('🔴 le bandeau RECETTE nomme l’exception', () => {
   it('rouge, « envois réels autorisés vers … » quand elle est active ; sinon inchangé', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/(admin)/layout.tsx', 'utf8');
-    expect(src).toContain('`RECETTE — envois réels autorisés vers ${reel.adresse}`');
+    // 🔴 (15/11/2026) — l'adresse n'est plus du texte (Chrome iPhone la transformait en lien) : affichée par le CSS depuis l'attribut
+    expect(src).toContain('RECETTE — envois réels autorisés vers <span className="svv-adresse-css" data-adresse={reel.adresse}');
     expect(src).toContain("background: reel.actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)'");
     expect(src).toContain("'RECETTE — aucun envoi réel'");
   });

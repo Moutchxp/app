@@ -230,7 +230,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const [presents, setPresents] = useState<number[]>([]);
   const [ajoutees, setAjoutees] = useState<PersonneAjouteeSaisie[]>([]);
   const [refusPresence, setRefusPresence] = useState<string | null>(null);
-  const presences = { occupations: presents, personnes: ajoutees.filter((x) => x.present).map((x) => ({ civilite: x.civilite, nom: x.nom, prenom: x.prenom })) };
+  const presences = { occupations: presents, personnes: ajoutees.filter((x) => x.present).map((x) => ({ civilite: x.civilite, nom: x.nom, prenom: x.prenom, ...(x.note.trim() ? { note: x.note.trim() } : {}) })) };
   const presenceOk = presences.occupations.length + presences.personnes.length > 0;
   // une case cochée efface le refus
   // eslint-disable-next-line react-hooks/set-state-in-effect

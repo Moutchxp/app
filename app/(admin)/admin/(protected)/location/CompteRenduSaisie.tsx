@@ -114,7 +114,9 @@ export function BoutonMaintenir({ etat, dureeMs, repos, actif, rond = false, onA
  * Un locataire par ligne, « présent » à cocher (non coché par défaut), avec sa date d'entrée ; « + Ajouter une personne » (civilité, nom,
  * prénom) : elle n'existe que pour CE compte rendu (rien n'est créé dans les fiches), cochée par défaut, supprimable. Au moins une personne
  * cochée pour voir le récapitulatif. Le serveur écrit « En présence de … » en tête du compte rendu. */
-export interface PersonneAjouteeSaisie { cle: string; civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string; present: boolean }
+export interface PersonneAjouteeSaisie { cle: string; civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string; present: boolean;
+  /** 🔴 Arno (15/11/2026) — note INTERNE (« mère du locataire »…) : jamais dans la phrase de présence ni dans un mail aux locataires */
+  note: string }
 export const libellePersonne = (p: { civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string }): string =>
   [p.civilite === 'Madame' ? 'Mme' : 'M.', p.prenom.trim(), p.nom.trim()].filter(Boolean).join(' ');
 
@@ -126,11 +128,11 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
   const titreId = useId();
   const [ajout, setAjout] = useState(false);
   const [civilite, setCivilite] = useState<'Madame' | 'Monsieur' | null>(null);
-  const [nom, setNom] = useState(''); const [prenom, setPrenom] = useState('');
-  const fermer = (): void => { setAjout(false); setCivilite(null); setNom(''); setPrenom(''); };
+  const [nom, setNom] = useState(''); const [prenom, setPrenom] = useState(''); const [note, setNote] = useState('');
+  const fermer = (): void => { setAjout(false); setCivilite(null); setNom(''); setPrenom(''); setNote(''); };
   const ajouter = (): void => {
     if (civilite === null || nom.trim() === '') return;
-    setAjoutees((xs) => [...xs, { cle: nouvelleCle(), civilite, nom: nom.trim().slice(0, 80), prenom: prenom.trim().slice(0, 80), present: true }]);
+    setAjoutees((xs) => [...xs, { cle: nouvelleCle(), civilite, nom: nom.trim().slice(0, 80), prenom: prenom.trim().slice(0, 80), present: true, note: note.trim().slice(0, 120) }]);
     fermer();
   };
   return (
@@ -153,6 +155,10 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
                 onChange={(e) => { const v = e.target.checked; setAjoutees((xs) => xs.map((y) => (y.cle === p.cle ? { ...y, present: v } : y))); }} data-presence-personne />
               <span><strong>{libellePersonne(p)}</strong> <span className="pvv-etiquette">personne présente</span></span>
             </label>
+            {/* la note INTERNE, modifiable jusqu'à l'envoi */}
+            <label className="pvv-note-presence"><span className="pvv-lu">Note interne sur {libellePersonne(p)}</span>
+              <input type="text" value={p.note} maxLength={120} placeholder="ex. mère du locataire (note interne)" autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
+                onChange={(e) => { const v = e.target.value; setAjoutees((xs) => xs.map((y) => (y.cle === p.cle ? { ...y, note: v } : y))); }} data-personne-note /></label>
             <button type="button" className="pvv-mini" onClick={() => setAjoutees((xs) => xs.filter((y) => y.cle !== p.cle))} aria-label={`Retirer ${libellePersonne(p)}`} data-personne-retirer><Icone nom="corbeille" /></button>
           </li>))}
       </ul>
@@ -166,8 +172,9 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
               {(['Madame', 'Monsieur'] as const).map((c) => (
                 <label key={c} className="pvv-case"><input type="radio" name="civilite-personne" checked={civilite === c} onChange={() => setCivilite(c)} data-personne-civilite={c} />{c}</label>))}
             </fieldset>
-            <label className="pvs-champ"><span className="pvs-libelle">Nom *</span><input type="text" value={nom} maxLength={80} placeholder="ex. Martin" onChange={(e) => setNom(e.target.value)} data-personne-nom /></label>
-            <label className="pvs-champ"><span className="pvs-libelle">Prénom</span><input type="text" value={prenom} maxLength={80} placeholder="ex. Léa" onChange={(e) => setPrenom(e.target.value)} data-personne-prenom /></label>
+            <label className="pvs-champ"><span className="pvs-libelle">Nom *</span><input type="text" value={nom} maxLength={80} placeholder="ex. Martin" autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck={false} enterKeyHint="next" onChange={(e) => setNom(e.target.value)} data-personne-nom /></label>
+            <label className="pvs-champ"><span className="pvs-libelle">Prénom</span><input type="text" value={prenom} maxLength={80} placeholder="ex. Léa" autoComplete="off" autoCorrect="off" autoCapitalize="words" spellCheck={false} enterKeyHint="next" onChange={(e) => setPrenom(e.target.value)} data-personne-prenom /></label>
+            <label className="pvs-champ"><span className="pvs-libelle">Note <span className="loc-muet">(interne, facultative)</span></span><input type="text" value={note} maxLength={120} placeholder="ex. mère du locataire" autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" onChange={(e) => setNote(e.target.value)} data-personne-note-modale /></label>
             <div className="pvv-boutons-2">
               <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={fermer} data-personne-annuler>Annuler</button>
               <button type="button" className="svv-btn svv-btn-primary pvv-gros" onClick={ajouter} disabled={civilite === null || nom.trim() === ''} data-personne-ajouter>Ajouter</button>
@@ -240,9 +247,9 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
     <section className="pvv-bloc pvv-bloc--texte" aria-labelledby={titreId} data-bloc-texte>
       <div className="pvv-bloc-tete">
         <h3 id={titreId} className="pvv-bloc-titre">Texte <span className="pvv-requis">*</span></h3>
-        <button type="button" className="pvv-mini pvv-entree" {...sansFocus} onClick={entree} aria-label="Entrée : aller à la ligne" data-entree><Icone nom="entree" taille={18} /> Entrée</button>
+        <button type="button" className="pvv-mini pvv-entree" {...sansFocus} onClick={entree} aria-label="Aller à la ligne" title="Aller à la ligne" data-entree><Icone nom="entree" taille={22} /></button>
       </div>
-      <textarea ref={zone} className="pvv-texte" value={corps} rows={6} aria-labelledby={titreId} placeholder="ex. Logement propre, rayure du parquet de la chambre… (dictez ou tapez)"
+      <textarea ref={zone} className="pvv-texte" value={corps} rows={6} aria-labelledby={titreId} autoComplete="off" autoCapitalize="sentences" autoCorrect="on" spellCheck enterKeyHint="enter" placeholder="ex. Logement propre, rayure du parquet de la chambre… (dictez ou tapez)"
         onChange={(e) => {
           // 🔴 la règle des tirets s'applique à la frappe (retour à la ligne du clavier compris) ; le curseur suit
           const x = appliquerTirets(e.target.value, e.target.selectionStart);
@@ -287,6 +294,8 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
   const [rang, setRang] = useState(0);
   const piste = useRef<HTMLOListElement | null>(null);
   const reglage = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** la photo vers laquelle le carrousel défile (‹ ›, légende touchée) : pas de recalage avant d'y être (1 s au plus) */
+  const cible = useRef<{ rang: number; jusqua: number } | null>(null);
   useEffect(() => () => { if (reglage.current) clearTimeout(reglage.current); }, []);
   const maj = (cle: string, f: (x: PhotoSaisie) => PhotoSaisie) => onChange((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
   const dejaDeposees = (): Promise<number[]> => new Promise((ok) => onChange((xs) => { ok(xs.filter((x) => x.id !== null).map((x) => x.id as number)); return xs; }));
@@ -317,6 +326,8 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
   const aller = (i: number): void => {
     const p = piste.current; if (!p) return;
     const j = Math.max(0, Math.min(photos.length - 1, i));
+    cible.current = { rang: j, jusqua: Date.now() + 1000 };
+    if (reglage.current) { clearTimeout(reglage.current); reglage.current = null; } // un recalage d'avant ne doit pas ramener en arrière
     try { p.scrollTo({ left: j * p.clientWidth, behavior: 'smooth' }); } catch { p.scrollLeft = j * p.clientWidth; }
     setRang(j);
   };
@@ -339,7 +350,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
         {/* 🔴 Arno (15/11/2026) — « Photothèque » à GAUCHE, « Ajouter une photo » à DROITE */}
         <label className="svv-btn svv-btn-outline pvv-gros" htmlFor={galerie} data-photo-galerie-bouton><Icone nom="images" /> Photothèque</label>
         <input id={galerie} className="pvv-fichier" type="file" accept="image/*" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-galerie />
-        <label className="svv-btn svv-btn-outline pvv-gros" htmlFor={camera} data-ajouter-photo><Icone nom="appareil" /> Ajouter une photo</label>
+        <label className="svv-btn pvv-gros pvv-plein" htmlFor={camera} data-ajouter-photo><Icone nom="appareil" /> Ajouter une photo</label>
         <input id={camera} className="pvv-fichier" type="file" accept="image/*" capture="environment" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-camera />
       </div>
       {photos.length > 0 && <>
@@ -352,10 +363,20 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
         <ol ref={piste} className={vue === 'carrousel' ? 'pvv-photos-liste pvv-carrousel' : 'pvv-photos-liste'}
           onScroll={vue === 'carrousel' ? (e) => {
             const p = e.currentTarget; if (p.clientWidth <= 0) return;
+            // un défilement voulu (‹ ›, légende) : l'indicateur montre déjà la cible ; on ne recale pas tant qu'on n'y est pas
+            const c = cible.current;
+            if (c !== null) {
+              if (Math.abs(p.scrollLeft - c.rang * p.clientWidth) <= 2 || Date.now() > c.jusqua) cible.current = null;
+              else return;
+            }
             setRang(Math.round(p.scrollLeft / p.clientWidth));
             // le défilement arrêté : on se recale sur la photo la plus proche (WebKit ne le fait pas toujours, ex. après le focus d'une légende)
             if (reglage.current) clearTimeout(reglage.current);
-            reglage.current = setTimeout(() => { const j = Math.round(p.scrollLeft / p.clientWidth); if (Math.abs(p.scrollLeft - j * p.clientWidth) > 2) aller(j); }, 140);
+            reglage.current = setTimeout(() => {
+              reglage.current = null;
+              if (cible.current !== null && Date.now() <= cible.current.jusqua) return; // un défilement voulu est en cours
+              const j = Math.round(p.scrollLeft / p.clientWidth); if (Math.abs(p.scrollLeft - j * p.clientWidth) > 2) aller(j);
+            }, 140);
           } : undefined}>
           {photos.map((x, i) => {
             const sansLegende = rangSansLegende === i || (rangSansLegende !== null && x.legende.trim() === '');
@@ -382,7 +403,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
                 {x.etat === 'envoi' && <span className="loc-muet" role="status">Préparation…</span>}
                 {x.etat === 'erreur' && <span className="pvv-photo-motif" role="alert">{x.motif}</span>}
                 <label className="pvs-champ"><span className="pvs-libelle">{`Légende de la photo ${i + 1} *`}</span>
-                  <input type="text" value={x.legende} maxLength={200} placeholder="ex. Rayure parquet chambre" aria-invalid={sansLegende}
+                  <input type="text" value={x.legende} maxLength={200} placeholder="ex. Rayure parquet chambre" aria-invalid={sansLegende} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done"
                     onChange={(e) => { const v = e.target.value; maj(x.cle, (y) => ({ ...y, legende: v })); }} data-photo-legende /></label>
                 {sansLegende && x.etat !== 'erreur' && <span className="pvv-photo-motif" role="alert" data-photo-legende-requise>Légende obligatoire avant l’envoi.</span>}
               </li>);
@@ -495,7 +516,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
         <span className="pvv-chrono pvv-rond-duree" role="timer" aria-live="off" data-rond-duree>{prise.etat === 'repos' ? 'Maintenir pour enregistrer' : dureeFr(prise.dureeMs / 1000)}</span>
         <p className="loc-muet pvv-dictaphone-cible" data-vocal-cible>{cleCourante === null ? 'La première prise crée « Vocal 1 ».'
           : `Les prises s’ajoutent à « ${fichiers.find((f) => f.cle === cleCourante)?.nom ?? ''} ».`}</p>
-        <div className="pvv-boutons-2"><button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal><Icone nom="plus" /> Nouveau fichier vocal</button></div>
+        <div className="pvv-boutons-2 pvv-a-droite"><button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal><Icone nom="plus" /> Nouveau fichier vocal</button></div>
       </div>
       {prise.message !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{prise.message}</p>}
       {fichiers.length > 0 && <ol className="pvv-fichiers">{fichiers.map((f, i) => {
@@ -507,7 +528,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
             data-vocal-transcription={f.transcription ?? undefined}>
             <div className="pvv-photo-tete">
               <label className="pvv-nom-vocal"><span className="pvv-lu">Nom du fichier vocal {i + 1}</span>
-                <input type="text" value={f.nom} maxLength={60} onChange={(e) => { const v = e.target.value; majFichier(f.cle, (x) => ({ ...x, nom: v })); }} data-vocal-nom /></label>
+                <input type="text" value={f.nom} maxLength={60} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" onChange={(e) => { const v = e.target.value; majFichier(f.cle, (x) => ({ ...x, nom: v })); }} data-vocal-nom /></label>
             </div>
             <p className="loc-muet pvv-vocal-resume" data-vocal-resume>{f.prises.length} prise{f.prises.length > 1 ? 's' : ''} · {dureeFr(dureeFichier(f))}</p>
             {/* 🔴 Arno (15/11/2026) — l'interrupteur « Envoyé aux locataires » (défaut : non envoyé) */}
@@ -616,6 +637,10 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-texte-boutons,.pvv-boutons-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
 .pvv-photos-boutons.pvv-boutons-2{display:grid}
 .pvv-icone{flex:0 0 auto}
+.pvv-plein.svv-btn,.pvv-plein{background:var(--color-svv-ink);color:var(--color-svv-surface);border:0}
+.pvv-a-droite > :only-child{grid-column:2}
+.pvv-note-presence{flex:1 1 100%;margin:0 0 0 30px}
+.pvv-note-presence input{width:100%;box-sizing:border-box;min-height:40px;font:inherit;font-size:16px;padding:0 10px;border-radius:10px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .pvv-gros--danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 /* les boutons du bas du formulaire : la meme forme, hauteur, typographie et largeur que ceux des blocs */
 .pvv-boite-cr .mis-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -652,7 +677,7 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-vocal-gestes{flex-wrap:wrap}
 .pvv-prises{margin:0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:6px}
 .pvv-prise{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:var(--color-svv-field)}
-.pvv-entree{font-size:.95rem;font-weight:800}
+.pvv-entree{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0}
 .pvv-clavier--ouvert{box-shadow:inset 0 0 0 2px var(--color-svv-surface)}
 .pvv-interrupteur{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-weight:800;cursor:pointer;color:var(--color-svv-muted)}
 .pvv-interrupteur input{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0}
@@ -671,7 +696,7 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-bloc--erreur{border-color:var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 6%, var(--color-svv-surface))}
 .pvv-bloc--erreur .pvv-presence{color:var(--color-svv-red)}
 .pvv-presences{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
-.pvv-presences li{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pvv-presences li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 8px}
 .pvv-presence{align-items:flex-start;min-height:44px}
 .pvv-presence input{flex:0 0 auto;margin-top:2px;width:22px;height:22px}
 .pvv-etiquette{display:inline-block;margin-left:4px;padding:1px 8px;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:.78rem;font-weight:800}

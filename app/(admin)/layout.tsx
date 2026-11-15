@@ -38,7 +38,10 @@ export default function AdminGroupLayout({ children }: { children: React.ReactNo
           data-envoi-reel={reel.actif ? reel.adresse : undefined}
           style={{ background: reel.actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)', color: '#fff', padding: '.5rem 1rem', textAlign: 'center', fontWeight: 800, fontSize: '.9rem', letterSpacing: '.02em' }}
         >
-          {reel.actif ? `RECETTE — envois réels autorisés vers ${reel.adresse}` : 'RECETTE — aucun envoi réel'}
+          {/* 🔴 Arno (15/11/2026) — l'ADRESSE n'est pas du texte de la page : Chrome sur iPhone transforme d'office toute adresse e-mail en lien
+              (il ignore `format-detection`), le DOM ne correspondait plus à celui de React (« Hydration failed », pastille « 1 Issue »). Elle est
+              affichée par le CSS, depuis l'attribut (calculée UNE fois, ici, au serveur) ; un lecteur d'écran la lit par `aria-label`. */}
+          {reel.actif ? <>RECETTE — envois réels autorisés vers <span className="svv-adresse-css" data-adresse={reel.adresse} role="img" aria-label={reel.adresse} /></> : 'RECETTE — aucun envoi réel'}
           <span style={{ fontWeight: 400 }}>{reel.actif ? ' · tout autre mail, l’agenda et le Drive interceptés · ' : ' · mails, agenda et Drive interceptés · '}</span>
           <a href="/admin/recette" style={{ color: '#fff', textDecoration: 'underline' }}>boîte de test</a>
         </div>

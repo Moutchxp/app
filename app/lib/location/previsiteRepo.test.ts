@@ -754,6 +754,19 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
     expect(trace).toHaveLength(2); // le journal de chaque locataire du préavis
     expect(JSON.parse(trace[0].params[3] as string)).toMatchObject({ phrase: 'En présence de Bruno TEST et de Mme Léa Martin.' });
   });
+  it('🔴 la NOTE d’une personne ajoutée : dans le mail INTERNE seulement — jamais dans la phrase, jamais dans les mails des locataires', async () => {
+    programmee(); avecAnnuaire();
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true,
+      presences: { occupations: [], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa', note: 'mère du locataire' }] } }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok' });
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; texte: string }[]];
+    const interne = mails.find((m) => m.a.includes('arno@exemple.test'))!;
+    const auxLocataires = mails.filter((m) => m !== interne);
+    expect(interne.texte).toContain('Notes de présence (internes)\n\nMme Léa Martin — mère du locataire');
+    expect(auxLocataires.length).toBeGreaterThan(0);
+    for (const m of auxLocataires) { expect(m.texte).not.toContain('mère du locataire'); expect(m.texte).not.toContain('Notes de présence'); }
+    for (const m of mails) expect(m.texte.startsWith('En présence de Mme Léa Martin.\n')).toBe(true);
+  });
   it('une seule personne : au singulier', async () => {
     programmee(); avecAnnuaire();
     const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [11], personnes: [] } }, AUTEUR);

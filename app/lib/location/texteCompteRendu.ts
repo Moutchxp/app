@@ -47,7 +47,9 @@ export function themeBascule(pref: 'light' | 'dark' | 'system', systemeSombre: b
  * Les personnes cochées « présentes » (locataires du préavis, et personnes ajoutées pour ce seul compte rendu) : en tête du compte rendu,
  * « En présence de Mme X, M. Y et de Mme Z. » — civilité abrégée, prénom, nom ; « d’ » devant une voyelle ; une seule personne : pas de « et ». */
 export type Civilite = 'Madame' | 'Monsieur';
-export interface PersonnePresente { civilite: string | null; prenom: string | null; nom: string }
+export interface PersonnePresente { civilite: string | null; prenom: string | null; nom: string;
+  /** 🔴 Arno (15/11/2026) — note INTERNE d'une personne ajoutée : jamais dans la phrase, jamais dans un mail aux locataires */
+  note?: string | null }
 export const PERSONNES_AJOUTEES_MAX = 10;
 export const MOTIF_PRESENCE = 'Cochez au moins une personne présente à la pré-visite.';
 
@@ -75,11 +77,19 @@ export function phrasePresence(personnes: readonly PersonnePresente[]): string {
 }
 /** Une personne ajoutée au formulaire, propre ; `null` si elle ne tient pas (nom obligatoire, civilité Madame / Monsieur). PUR. */
 export function personneAjoutee(brut: unknown): (PersonnePresente & { civilite: Civilite }) | null {
-  const o = (brut ?? {}) as { civilite?: unknown; nom?: unknown; prenom?: unknown };
+  const o = (brut ?? {}) as { civilite?: unknown; nom?: unknown; prenom?: unknown; note?: unknown };
   const propre = (x: unknown, max: number) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
   const civilite = o.civilite === 'Madame' || o.civilite === 'Monsieur' ? o.civilite : null;
   const nom = propre(o.nom, 80);
   if (civilite === null || nom === '') return null;
   const prenom = propre(o.prenom, 80);
-  return { civilite, nom, prenom: prenom === '' ? null : prenom };
+  const note = propre(o.note, 120);
+  return { civilite, nom, prenom: prenom === '' ? null : prenom, ...(note !== '' ? { note } : {}) };
+}
+
+export const TITRE_NOTES_PRESENCE = 'Notes de présence (internes)';
+/** Les notes INTERNES des personnes présentes (mail interne seulement) : « Mme Léa Martin — mère du locataire ». Aucune note : rien. PUR. */
+export function paragraphesNotesPresence(personnes: readonly PersonnePresente[]): string[] {
+  const lignes = personnes.filter((p) => (p.note ?? '').trim() !== '').map((p) => `${nomPresent(p)} — ${(p.note ?? '').trim()}`);
+  return lignes.length === 0 ? [] : [TITRE_NOTES_PRESENCE, lignes.join('\n')];
 }
