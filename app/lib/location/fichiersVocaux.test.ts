@@ -40,6 +40,6 @@ describe('ce qui part à l’envoi', () => {
     const f = (nom: string, ids: (number | null)[]): FichierVocal => ({ cle: nom, nom, transcription: null, motif: null,
       prises: ids.map((id, i) => ({ cle: `${nom}${i}`, id, url: '', dureeS: 1, etat: id === null ? 'depot' : 'ok', motif: null })) });
     expect(vocauxPourEnvoi([f('Vocal 1', [3, null, 4]), f('Vide', [null]), f(' ', [9])]))
-      .toEqual({ vocaux: [3, 4, 9], fichiersVocaux: [{ nom: 'Vocal 1', ids: [3, 4] }, { nom: 'Vocal 3', ids: [9] }] });
+      .toEqual({ vocaux: [3, 4, 9], fichiersVocaux: [{ nom: 'Vocal 1', ids: [3, 4], locataires: false }, { nom: 'Vocal 3', ids: [9], locataires: false }] });
   });
 });

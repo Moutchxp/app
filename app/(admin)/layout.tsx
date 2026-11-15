@@ -7,6 +7,12 @@ import { hostname } from 'node:os';
 /** L'interface admin ne doit jamais être indexée (EX-1, isolation du public). */
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
+  /**
+   * 🔴 Arno (15/11/2026) — iOS (Safari ET Chrome) transforme d'office les adresses e-mail, numéros et adresses du texte en liens : le DOM
+   * reçu ne correspond plus à celui que React attend (« Hydration failed », pastille « 1 Issue » sur le compte rendu de pré-visite, à cause
+   * de l'adresse du bandeau de recette). Dans l'admin, on coupe cette détection : nos liens sont posés par l'application elle-même.
+   */
+  formatDetection: { email: false, telephone: false, address: false, date: false },
 };
 
 /**

@@ -81,9 +81,11 @@ vi.mock('../db/client', () => ({
 }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 // 🔴 Arno (13/11/2026, lot C) — les vocaux déposés (pièces audio) : simulés
-const vocauxSim = vi.hoisted(() => ({ ids: new Set<number>() }));
+const vocauxSim = vi.hoisted(() => ({ ids: new Set<number>(), taille: 90000 }));
 vi.mock('./vocauxCompteRenduRepo', () => ({
-  vocauxDesOccupations: async (ids: readonly number[]) => ids.filter((i) => vocauxSim.ids.has(i)).map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: 90000, cle: `k${id}` })),
+  vocauxDesOccupations: async (ids: readonly number[]) => ids.filter((i) => vocauxSim.ids.has(i)).map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: vocauxSim.taille, cle: `k${id}` })),
+  // 🔴 (15/11/2026) — les prises d'un vocal envoyé aux locataires, relues pour l'envoi : simulées (rien n'est lu du stockage)
+  prisesPourEnvoi: async (ids: readonly number[]) => ({ ok: true, prises: ids.map((id) => ({ id, nom: `Vocal-${id}.m4a`, typeMime: 'audio/mp4', taille: vocauxSim.taille, octets: new Uint8Array([1, 2, 3]) })) }),
 }));
 // 🔴 Arno (13/11/2026, lot B) — les photos déposées (pièces de la sortie) : simulées, rien n'est lu du stockage
 const photosSim = vi.hoisted(() => ({ pieces: new Map<number, { nom: string; taille: number }>() }));
@@ -669,7 +671,39 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — le compte rendu AVEC PHOTOS : l�
 
 
 describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INTERNES, jamais envoyés', () => {
-  beforeEach(() => { vocauxSim.ids = new Set([81, 82]); });
+  beforeEach(() => { vocauxSim.ids = new Set([81, 82, 83]); vocauxSim.taille = 90000; });
+  it('🔴 (15/11/2026) un fichier « ENVOYÉ aux locataires » : ses prises en pièces jointes (nommées dans l’ordre) dans les mails des LOCATAIRES et le mail interne, annoncées dans le texte ; les autres fichiers restent internes', async () => {
+    programmee();
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82, 83],
+      fichiersVocaux: [{ nom: 'Cuisine', ids: [81, 82], locataires: true }, { nom: 'Salon', ids: [83] }] }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok' });
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; pieces?: { nom: string; typeMime: string }[]; texte: string }[]];
+    expect(mails.length).toBeGreaterThan(1);
+    for (const m of mails) {
+      expect((m.pieces ?? []).filter((x) => /^audio\//.test(x.typeMime)).map((x) => x.nom)).toEqual(['Vocal-1-cuisine-prise-1.m4a', 'Vocal-1-cuisine-prise-2.m4a']);
+      expect(m.texte).toContain('Enregistrements vocaux joints');
+      expect(m.texte).not.toContain('Salon');
+    }
+    expect(journal().filter((a) => a.params[1] === 'location_previsite_vocaux')[0].params[3]).toBe('json:{"fichiers":[{"nom":"Cuisine","ids":[81,82],"locataires":true},{"nom":"Salon","ids":[83]}]}');
+  });
+  it('« Envoyer aussi aux locataires » DÉCOCHÉ : aucun vocal ne part, même coché « envoyé aux locataires »', async () => {
+    programmee();
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, vocaux: [81], fichiersVocaux: [{ nom: 'Cuisine', ids: [81], locataires: true }] }, AUTEUR);
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ pieces?: { typeMime: string }[] }[]];
+    for (const m of mails) expect((m.pieces ?? []).filter((x) => /^audio\//.test(x.typeMime))).toEqual([]);
+  });
+  it('trop lourd : refus clair, rien ne part', async () => {
+    programmee(); vocauxSim.taille = 9 * 1024 * 1024;
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82], fichiersVocaux: [{ nom: 'Cuisine', ids: [81, 82], locataires: true }] }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'refus', champ: 'vocaux' });
+    expect((r as { motif: string }).motif).toContain('décochez « Envoyé aux locataires »');
+    expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  it('l’aperçu montre les pièces jointes des vocaux envoyés aux locataires', async () => {
+    programmee();
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81], fichiersVocaux: [{ nom: 'Cuisine', ids: [81], locataires: true }] }, AUTEUR);
+    expect(r.etat === 'ok' && r.data.mails.every((m) => (m as { piece?: string }).piece === 'Vocal-1-cuisine.m4a')).toBe(true);
+  });
   it('rattachés au compte rendu (journal), 🔴 AUCUN mail ne porte d’audio (ni l’interne, ni ceux des locataires)', async () => {
     programmee();
     const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, vocaux: [81, 82] }, AUTEUR);

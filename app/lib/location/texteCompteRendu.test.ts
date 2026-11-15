@@ -1,0 +1,43 @@
+import { describe, expect, it } from 'vitest';
+import { appliquerTirets, insererEntree, themeBascule } from './texteCompteRendu';
+import { insererDictee, insererTranscription } from './vocauxCompteRendu';
+
+/** 🔴 Arno (15/11/2026) — la règle des tirets du compte rendu, dans TOUS les cas. */
+describe('appliquerTirets', () => {
+  it('jamais sur la première ligne ; toute nouvelle ligne écrite commence par « - »', () => {
+    expect(appliquerTirets('Entrée propre\nCuisine sale', null).texte).toBe('Entrée propre\n- Cuisine sale');
+    expect(appliquerTirets('Première ligne', null).texte).toBe('Première ligne');
+  });
+  it('pas de double tiret ; une ligne vide (ou un tiret seul) ne garde pas de tiret', () => {
+    expect(appliquerTirets('A\n- déjà\n-aussi\n\n- \n   ', null).texte).toBe('A\n- déjà\n-aussi\n\n\n   ');
+  });
+  it('« Entrée » : nouvelle ligne au curseur, vide (sans tiret) tant qu’on n’y écrit pas ; le tiret vient dès la première lettre', () => {
+    const e = insererEntree('Salon propre', 12);
+    expect(e).toEqual({ texte: 'Salon propre\n', curseur: 13 });
+    expect(appliquerTirets(`${e.texte}C`, 14)).toEqual({ texte: 'Salon propre\n- C', curseur: 16 });
+    // au milieu d'une ligne : la suite descend, avec son tiret ; le curseur reste devant elle
+    expect(insererEntree('Salon propre Cuisine', 13)).toEqual({ texte: 'Salon propre \n- Cuisine', curseur: 16 });
+  });
+  it('le retour à la ligne du CLAVIER puis la frappe : même règle, le curseur suit', () => {
+    expect(appliquerTirets('A\nb', 3)).toEqual({ texte: 'A\n- b', curseur: 5 });
+  });
+  it('une DICTÉE qui arrive sur une ligne vide reçoit son tiret ; au milieu d’une ligne, aucun', () => {
+    const d = insererDictee('Entrée.\n', 8, 'Cuisine propre');
+    expect(appliquerTirets(d.texte, d.curseur)).toEqual({ texte: 'Entrée.\n- Cuisine propre', curseur: 24 });
+    const m = insererDictee('Entrée. Salon.', 8, 'Cuisine');
+    expect(appliquerTirets(m.texte, m.curseur).texte).toBe('Entrée. Cuisine Salon.');
+  });
+  it('la transcription d’un fichier vocal (sur sa ligne) reçoit son tiret', () => {
+    const t = insererTranscription('Début.', 6, 'Le parquet.');
+    expect(appliquerTirets(t.texte, t.curseur).texte).toBe('Début.\n- Le parquet. (transcrit d’un vocal)');
+  });
+});
+
+describe('themeBascule', () => {
+  it('le thème inverse de celui qu’on voit', () => {
+    expect(themeBascule('light', true)).toBe('dark');
+    expect(themeBascule('dark', false)).toBe('light');
+    expect(themeBascule('system', true)).toBe('light');
+    expect(themeBascule('system', false)).toBe('dark');
+  });
+});

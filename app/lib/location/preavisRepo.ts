@@ -261,7 +261,7 @@ export async function preavisEnCours(
       ...(r.test_id ? { test: true, testId: Number(r.test_id) } : {}),
     };
     g.occupationIds.push(Number(r.occupation_id));
-    g.locataires.push({ occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom });
+    g.locataires.push({ occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom, entree: r.entree });
     // Une date d'état des lieux commune au groupe ; si elles divergent, la plus proche.
     if (r.edl !== null && (g.etatDesLieuxLe === null || r.edl < g.etatDesLieuxLe)) g.etatDesLieuxLe = r.edl;
     groupes.set(cle, g);

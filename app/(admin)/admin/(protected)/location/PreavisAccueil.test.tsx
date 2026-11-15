@@ -1313,13 +1313,14 @@ describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visi
     // transcrire le fichier 1, à la demande : inséré au curseur, avec la mention
     clicDoc('[data-vocal="1"] [data-vocal-transcrire]');
     await patienter(() => (document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value.includes('parquet'));
-    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Début.\nLe parquet est rayé. (transcrit d’un vocal)');
+    // 🔴 (15/11/2026) — la transcription arrive sur sa ligne : elle reçoit son tiret
+    expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Début.\n- Le parquet est rayé. (transcrit d’un vocal)');
     // envoi : les prises restantes, groupées par fichier, avec les noms
     clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
     expect(appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!.vocaux).toBeUndefined(); // l'aperçu ne reçoit aucun vocal
     clicDoc('[data-confirmer-previsite]'); await attendre(); await attendre();
     const envoi = appels.find((c) => c.action === 'compte-rendu-previsite')!;
-    expect(envoi.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [82] }, { nom: 'Salle de bain', ids: [83] }]);
+    expect(envoi.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [82], locataires: false }, { nom: 'Salle de bain', ids: [83], locataires: false }]);
     expect(envoi.vocaux).toEqual([82, 83]);
   });
 
@@ -1371,20 +1372,21 @@ describe('🔴 Arno (15/11/2026) — PHOTOS : Carrousel / Liste, choix mémoris�
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
     for (let k = 0; k < 60 && document.querySelector('[data-photo-etat="envoi"]'); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
   };
-  it('Liste par défaut ; Carrousel : défilement horizontal, une photo à la fois, indicateur 1/n et ‹ › ; le choix est MÉMORISÉ', async () => {
+  it('🔴 (15/11/2026) Carrousel PAR DÉFAUT : défilement horizontal, une photo à la fois, indicateur 1/n et ‹ › ; le choix est MÉMORISÉ', async () => {
     await ouvrir();
     const bloc = () => document.querySelector('[data-photos-compte-rendu]')!;
-    expect(bloc().getAttribute('data-vue-photos')).toBe('liste');
-    act(() => (document.querySelector('[data-vue-carrousel]') as HTMLButtonElement).click());
+    expect(bloc().getAttribute('data-vue-photos')).toBe('carrousel');
     expect(bloc().getAttribute('data-vue-photos')).toBe('carrousel');
     expect(bloc().querySelector('.pvv-carrousel')).not.toBeNull();
     expect(document.querySelector('[data-carrousel-indicateur]')!.textContent).toBe('1/3');
     act(() => (document.querySelector('[data-carrousel-suivante]') as HTMLButtonElement).click());
     expect(document.querySelector('[data-carrousel-indicateur]')!.textContent).toBe('2/3');
-    expect(window.localStorage.getItem('svav.compteRendu.photos.vue')).toBe('carrousel');
+    expect(window.localStorage.getItem('svav.compteRendu.photos.vue')).toBeNull(); // le défaut n'est pas un choix
     act(() => (document.querySelector('[data-vue-liste]') as HTMLButtonElement).click());
     expect(window.localStorage.getItem('svav.compteRendu.photos.vue')).toBe('liste');
     expect(bloc().querySelector('.pvv-carrousel')).toBeNull();
+    act(() => (document.querySelector('[data-vue-carrousel]') as HTMLButtonElement).click());
+    expect(window.localStorage.getItem('svav.compteRendu.photos.vue')).toBe('carrousel');
   });
   it('la légende reste MODIFIABLE à tout moment, dans les deux affichages', async () => {
     window.localStorage.setItem('svav.compteRendu.photos.vue', 'carrousel');
@@ -1461,5 +1463,162 @@ describe('🔴🔴 Arno (14/11/2026, 473) — le PRÉAVIS DE TEST à l’écran'
     const choix = document.querySelector('[data-previsite-destinataires]')!.textContent ?? '';
     expect(choix).toContain('Moi (Arno)');
     expect(choix).not.toContain('Claire Test');
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée et tirets, Clavier en bascule, ordre des boutons, en-tête, thème, vocaux envoyés aux locataires', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let appels: Record<string, unknown>[] = []; let horloge = 1_000_000; let idSuivant = 90;
+  class FauxEnregistreur {
+    static isTypeSupported = (t: string) => t === 'audio/mp4';
+    mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
+    constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+  }
+  beforeEach(() => {
+    appels = []; horloge = 1_000_000; idSuivant = 90;
+    vi.spyOn(Date, 'now').mockImplementation(() => horloge);
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => `blob:x-${Math.random()}`; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }, { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2023-01-15' }],
+      previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'vocal-compte-rendu') { appels.push(c); idSuivant += 1; return ok({ id: idSuivant, nom: 'Vocal.m4a', taille: 3 }); }
+        if (c.action === 'dicter-compte-rendu') { appels.push(c); return ok({ ok: true, texte: 'Cuisine propre' }); }
+        if (c.action === 'apercu-compte-rendu-previsite' || c.action === 'compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [] }); }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const zone = () => document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
+  const taper = (v: string, curseur = v.length) => act(() => {
+    const t = zone(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v); t.setSelectionRange(curseur, curseur); t.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); };
+  const patienter = async (cond: () => boolean) => { for (let k = 0; k < 60 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
+  const maintenir = async (sel: string, ms: number) => {
+    const b = document.querySelector(sel) as HTMLButtonElement;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => b.querySelector('[data-maintien-duree]') !== null);
+    horloge += ms;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+    await attendre();
+  };
+
+  it('ordre : « Clavier » à gauche, « Maintenir pour dicter » à droite ; « Photothèque » à gauche, « Ajouter une photo » à droite ; « Entrée » sur la ligne du titre « Texte »', async () => {
+    await ouvrirCr();
+    const boutons = [...document.querySelectorAll('.pvv-texte-boutons > button')];
+    expect(boutons.map((b) => (b.hasAttribute('data-clavier') ? 'clavier' : b.hasAttribute('data-dicter') ? 'dicter' : '?'))).toEqual(['clavier', 'dicter']);
+    expect([...document.querySelectorAll('.pvv-photos-boutons label')].map((x) => x.textContent!.replace(/^\W+/u, ''))).toEqual(['Photothèque', 'Ajouter une photo']);
+    expect(document.querySelector('[data-bloc-texte] .pvv-bloc-tete [data-entree]')).not.toBeNull();
+  });
+
+  it('🔴 « Clavier » en BASCULE : 1er appui ouvre (focus), 2e appui referme (perte du focus) ; libellé et état le disent', async () => {
+    await ouvrirCr();
+    const b = () => document.querySelector('[data-clavier]') as HTMLButtonElement;
+    expect(b().getAttribute('aria-pressed')).toBe('false');
+    act(() => b().click());
+    expect(document.activeElement).toBe(zone());
+    expect(b().getAttribute('aria-pressed')).toBe('true');
+    expect(b().textContent).toContain('Fermer le clavier');
+    act(() => b().click());
+    expect(document.activeElement).not.toBe(zone());
+    expect(b().getAttribute('aria-pressed')).toBe('false');
+    expect(b().textContent).toContain('Clavier');
+  });
+
+  it('🔴 « Entrée » insère une ligne AU CURSEUR sans ouvrir le clavier ; la nouvelle ligne prend « - » dès qu’on y écrit ; pas sur la 1re ligne ; pas de double tiret ; vide : pas de tiret', async () => {
+    await ouvrirCr();
+    taper('Salon propre');
+    expect(zone().value).toBe('Salon propre');
+    act(() => (document.querySelector('[data-entree]') as HTMLButtonElement).click());
+    expect(zone().value).toBe('Salon propre\n');
+    expect(document.activeElement).not.toBe(zone());
+    taper('Salon propre\nC');
+    expect(zone().value).toBe('Salon propre\n- C');
+    taper('Salon propre\n- Cuisine\n- déjà\n');
+    expect(zone().value).toBe('Salon propre\n- Cuisine\n- déjà\n');
+    taper('Salon propre\n- Cuisine\n- ');
+    expect(zone().value).toBe('Salon propre\n- Cuisine\n');
+  });
+
+  it('une DICTÉE qui arrive sur une ligne vide reçoit son tiret', async () => {
+    await ouvrirCr();
+    taper('Entrée.\n');
+    await maintenir('[data-dicter]', 1500);
+    await patienter(() => zone().value.includes('Cuisine'));
+    expect(zone().value).toBe('Entrée.\n- Cuisine propre');
+  });
+
+  it('en-tête : l’adresse, puis chaque locataire et « Entré(e) dans les lieux le JJ/MM/AAAA » ; le bouton clair / sombre sur la ligne du titre (même réglage que l’admin)', async () => {
+    await ouvrirCr();
+    expect(document.querySelector('[data-cr-adresse]')!.textContent).toBe('C rue');
+    expect([...document.querySelectorAll('[data-cr-locataire]')].map((x) => x.textContent)).toEqual([
+      'BERNARD Alice — Entré(e) dans les lieux le 01/09/2022', 'BERNARD Paul — Entré(e) dans les lieux le 15/01/2023']);
+    const theme = document.querySelector('.pvv-titre-ligne [data-theme-bascule]') as HTMLButtonElement;
+    expect(theme).not.toBeNull();
+    const avant = theme.getAttribute('data-theme-bascule');
+    act(() => theme.click());
+    expect(window.localStorage.getItem('svv-theme')).toBe(avant === 'dark' ? 'light' : 'dark');
+    try { window.localStorage.removeItem('svv-theme'); } catch { /* rien */ }
+  });
+
+  it('🔴 vocal « Envoyé aux locataires » : NON par défaut ; activé, il part avec l’aperçu et l’envoi ; le RÉCAPITULATIF le dit pour chaque vocal (vert / interne)', async () => {
+    await ouvrirCr();
+    taper('CR.');
+    await maintenir('[data-enregistrer-vocal]', 1500);
+    act(() => (document.querySelector('[data-nouveau-vocal]') as HTMLButtonElement).click());
+    await maintenir('[data-enregistrer-vocal]', 1500);
+    await patienter(() => document.querySelectorAll('[data-prise-etat="ok"]').length === 2);
+    expect([...document.querySelectorAll('[data-vocal-locataires]')].map((x) => x.getAttribute('data-vocal-locataires'))).toEqual(['non', 'non']);
+    expect(document.querySelector('[data-vocal="1"] [data-vocal-locataires]')!.textContent).toBe('Non envoyé aux locataires');
+    act(() => (document.querySelector('[data-vocal="2"] [data-vocal-locataires-case]') as HTMLInputElement).click());
+    expect(document.querySelector('[data-vocal="2"] [data-vocal-locataires]')!.textContent).toBe('Envoyé aux locataires');
+    act(() => (document.querySelector('[data-aussi-locataires]') as HTMLInputElement).click());
+    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    const apercu = appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!;
+    expect(apercu.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [91], locataires: false }, { nom: 'Vocal 2', ids: [92], locataires: true }]);
+    expect([...document.querySelectorAll('[data-recap-vocal]')].map((x) => [x.getAttribute('data-recap-vocal'), x.textContent])).toEqual([
+      ['interne', 'Vocal 1 — NON envoyé (interne)'], ['envoye', 'Vocal 2 — ENVOYÉ aux locataires']]);
+    act(() => (document.querySelector('[data-confirmer-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    expect(appels.find((c) => c.action === 'compte-rendu-previsite')!.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [91], locataires: false }, { nom: 'Vocal 2', ids: [92], locataires: true }]);
+  });
+
+  it('vocal coché mais « Envoyer aussi aux locataires » décoché : le récapitulatif dit NON envoyé, et pourquoi', async () => {
+    await ouvrirCr();
+    taper('CR.');
+    await maintenir('[data-enregistrer-vocal]', 1500);
+    await patienter(() => document.querySelectorAll('[data-prise-etat="ok"]').length === 1);
+    act(() => (document.querySelector('[data-vocal-locataires-case]') as HTMLInputElement).click());
+    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    expect(document.querySelector('[data-recap-vocal]')!.textContent).toBe('Vocal 1 — NON envoyé (interne) — cochez « Envoyer aussi aux locataires » pour l’envoyer');
+  });
+
+  it('« Voir le compte rendu » : chaque vocal dit s’il est parti aux locataires', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const CR = { texte: 'CR', objet: 'CR', saisiPar: 'Arno', saisiLe: '2026-11-13T15:13:00Z', pieces: [], aucunEnvoi: false, destinataires: [],
+      vocaux: [{ id: 81, nom: 'a', taille: 3 }, { id: 82, nom: 'b', taille: 3 }],
+      fichiersVocaux: [{ nom: 'Cuisine', prises: [{ id: 81, nom: 'a', taille: 3 }], locataires: true }, { nom: 'Salon', prises: [{ id: 82, nom: 'b', taille: 3 }] }] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    expect([...document.querySelectorAll('[data-cr-vocal-etat]')].map((x) => [x.getAttribute('data-cr-vocal-etat'), x.textContent])).toEqual([
+      ['envoye', 'Cuisine — ENVOYÉ aux locataires'], ['interne', 'Salon — NON envoyé (interne)']]);
+  });
+
+  it('🔴 fond OPAQUE sur toute la hauteur : le formulaire du compte rendu ne suit pas la zone visible (aucune bande de la page derrière), la page elle-même devient opaque', async () => {
+    await ouvrirCr();
+    const voile = document.querySelector('.pvv-voile-cr') as HTMLElement;
+    expect(voile.getAttribute('style') ?? '').toBe('');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('box-shadow:0 0 0 100vmax var(--color-svv-surface)');
+    expect(css).toContain('html:has(.pvv-voile-cr),body:has(.pvv-voile-cr){background:var(--color-svv-surface)}');
   });
 });

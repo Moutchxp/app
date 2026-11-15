@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as KeyboardEventReact, type PointerEvent as PointerEventReact } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as KeyboardEventReact, type PointerEvent as PointerEventReact } from 'react';
 import { envoyer } from './commun';
 import { lignePhoto } from '../../../../lib/location/photosCompteRendu';
-import { dureeFr, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
+import { dureeFr, etatVocalLocataires, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
+import { appliquerTirets, insererEntree, themeBascule } from '../../../../lib/location/texteCompteRendu';
+import { appliquerThemeSur, persisterTheme, racineTheme, snapshotTheme, snapshotThemeServeur, souscrireTheme } from '../themeDom';
 
 /**
  * ══ 🔴🔴 LE FORMULAIRE « COMPTE RENDU PRÉ-VISITE » SUR MOBILE (Arno, 15/11/2026) ═══════════════════════════════════════════════════════════
@@ -109,6 +111,10 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
   occupationIds: readonly number[]; onOccupe: (occupe: boolean) => void }) {
   const [transcription, setTranscription] = useState(false);
   const zone = useRef<HTMLTextAreaElement | null>(null);
+  /** le clavier est-il ouvert (le champ a le focus) : « Clavier » bascule */
+  const [clavier, setClavier] = useState(false);
+  /** 🔴 Arno (15/11/2026) — après un changement fait PAR le formulaire (tiret, dictée, Entrée), le curseur est remis à sa place si le champ a le focus */
+  const replacer = useRef(false);
   const [motif, setMotif] = useState<string | null>(null);
   const noter = (e: { currentTarget: HTMLTextAreaElement }): void => { noterCurseur(e.currentTarget.selectionStart); };
   const dictee = useEnregistrementMaintenu((blob, type) => {
@@ -121,7 +127,7 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
       const d = r.data as { ok?: boolean; texte?: string; motif?: string } | undefined;
       if (r.motif !== null || d?.ok !== true || typeof d.texte !== 'string') { setMotif(d?.motif ?? r.motif ?? 'La transcription a échoué : rien n’a été ajouté, réessayez.'); return; }
       const t = d.texte;
-      setCorps((c) => { const x = insererDictee(c, lireCurseur(), t); noterCurseur(x.curseur); return x.texte; });
+      setCorps((c) => { const x = insererDictee(c, lireCurseur(), t); const y = appliquerTirets(x.texte, x.curseur); noterCurseur(y.curseur); replacer.current = true; return y.texte; });
     })();
   });
   const occupe = dictee.etat !== 'repos' || transcription;
@@ -131,26 +137,52 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
     const t = zone.current; if (!t) return;
     t.style.height = 'auto'; t.style.height = `${Math.max(t.scrollHeight, 0)}px`;
   }, [corps]);
-  const ouvrirClavier = (): void => {
+  useLayoutEffect(() => {
+    const t = zone.current;
+    if (!replacer.current || !t) return;
+    replacer.current = false;
+    const p = lireCurseur();
+    if (p !== null && document.activeElement === t) { try { t.setSelectionRange(p, p); } catch { /* rien */ } }
+  }, [corps, lireCurseur]);
+  /** « Clavier » : ouvre (curseur dans la zone) — ou, s'il est ouvert, REFERME (le champ perd le focus). */
+  const basculerClavier = (): void => {
     const t = zone.current; if (!t) return;
+    if (document.activeElement === t) { noterCurseur(t.selectionStart); t.blur(); return; }
     const p = lireCurseur() ?? t.value.length;
     t.focus();
     try { t.setSelectionRange(p, p); } catch { /* rien */ }
     setTimeout(() => { try { t.scrollIntoView({ block: 'center' }); } catch { /* rien */ } }, 300);
   };
+  /** « Entrée » : un retour à la ligne au curseur, SANS ouvrir le clavier (le focus ne bouge pas : ouvert, il le reste ; fermé, il le reste). */
+  const entree = (): void => {
+    setCorps((c) => { const x = insererEntree(c, lireCurseur()); noterCurseur(x.curseur); replacer.current = true; return x.texte; });
+  };
+  /** un bouton qui ne doit PAS faire perdre (ni prendre) le focus du champ */
+  const sansFocus = { onPointerDown: (e: { preventDefault: () => void }) => e.preventDefault(), onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() };
   const titreId = useId();
   return (
     <section className="pvv-bloc pvv-bloc--texte" aria-labelledby={titreId} data-bloc-texte>
-      <h3 id={titreId} className="pvv-bloc-titre">Texte <span className="pvv-requis">*</span></h3>
+      <div className="pvv-bloc-tete">
+        <h3 id={titreId} className="pvv-bloc-titre">Texte <span className="pvv-requis">*</span></h3>
+        <button type="button" className="pvv-mini pvv-entree" {...sansFocus} onClick={entree} aria-label="Entrée : aller à la ligne" data-entree>↵ Entrée</button>
+      </div>
       <textarea ref={zone} className="pvv-texte" value={corps} rows={6} aria-labelledby={titreId} placeholder="ex. Logement propre, rayure du parquet de la chambre… (dictez ou tapez)"
-        onChange={(e) => { const v = e.target.value; setCorps(() => v); noterCurseur(e.target.selectionStart); }}
-        onSelect={noter} onBlur={noter} onKeyUp={noter} onClick={noter}
-        onFocus={(e) => { const t = e.currentTarget; setTimeout(() => { try { t.scrollIntoView({ block: 'nearest' }); } catch { /* rien */ } }, 350); }}
+        onChange={(e) => {
+          // 🔴 la règle des tirets s'applique à la frappe (retour à la ligne du clavier compris) ; le curseur suit
+          const x = appliquerTirets(e.target.value, e.target.selectionStart);
+          if (x.texte !== e.target.value) replacer.current = true;
+          setCorps(() => x.texte); noterCurseur(x.curseur);
+        }}
+        onSelect={noter} onKeyUp={noter} onClick={noter}
+        onBlur={(e) => { noter(e); setClavier(false); }}
+        onFocus={(e) => { setClavier(true); const t = e.currentTarget; setTimeout(() => { try { t.scrollIntoView({ block: 'nearest' }); } catch { /* rien */ } }, 350); }}
         data-corps-compte-rendu />
+      {/* 🔴 Arno (15/11/2026) — « Clavier » à GAUCHE (bascule ouvrir / fermer), « Maintenir pour dicter » à DROITE */}
       <div className="pvv-texte-boutons">
+        <button type="button" className={`svv-btn pvv-gros${clavier ? ' svv-btn-primary pvv-clavier--ouvert' : ' svv-btn-outline'}`} {...sansFocus} onClick={basculerClavier}
+          aria-pressed={clavier} data-clavier data-clavier-ouvert={clavier ? 'oui' : 'non'}><span aria-hidden="true">⌨️</span> {clavier ? 'Fermer le clavier' : 'Clavier'}</button>
         <BoutonMaintenir etat={dictee.etat} dureeMs={dictee.dureeMs} repos={<><span aria-hidden="true">🎤</span> Maintenir pour dicter</>} actif="Dictée…"
           onAppui={dictee.appuyer} onRelache={dictee.relacher} className="svv-btn pvv-gros pvv-maintien" attributs={{ 'data-dicter': '' }} />
-        <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={ouvrirClavier} data-clavier><span aria-hidden="true">⌨️</span> Clavier</button>
       </div>
       {transcription && <p className="loc-muet pvv-statut" role="status" data-dictee-transcription>transcription…</p>}
       {dictee.message !== null && <p className="pvv-photo-motif" role="alert" data-dictee-message>{dictee.message}</p>}
@@ -165,12 +197,13 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
 export interface PhotoSaisie { cle: string; id: number | null; apercu: string; legende: string; etat: 'envoi' | 'ok' | 'erreur'; motif: string | null }
 export type VuePhotos = 'carrousel' | 'liste';
 export const CLE_VUE_PHOTOS = 'svav.compteRendu.photos.vue';
-export const lireVuePhotos = (): VuePhotos => { try { return window.localStorage.getItem(CLE_VUE_PHOTOS) === 'carrousel' ? 'carrousel' : 'liste'; } catch { return 'liste'; } };
+/** 🔴 Arno (15/11/2026) — « Carrousel » par défaut ; le choix de l'utilisateur, mémorisé sur l'appareil, l'emporte ensuite. */
+export const lireVuePhotos = (): VuePhotos => { try { return window.localStorage.getItem(CLE_VUE_PHOTOS) === 'liste' ? 'liste' : 'carrousel'; } catch { return 'carrousel'; } };
 
 export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }: { photos: PhotoSaisie[];
   onChange: (f: (x: PhotoSaisie[]) => PhotoSaisie[]) => void; occupationIds: readonly number[]; rangSansLegende: number | null }) {
   const camera = useId(); const galerie = useId(); const titreId = useId();
-  const [vue, setVue] = useState<VuePhotos>('liste');
+  const [vue, setVue] = useState<VuePhotos>('carrousel');
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setVue(lireVuePhotos()); }, []);
   const choisirVue = (v: VuePhotos): void => { setVue(v); try { window.localStorage.setItem(CLE_VUE_PHOTOS, v); } catch { /* sans stockage */ } };
@@ -227,10 +260,11 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
           </div>)}
       </div>
       <div className="pvv-photos-boutons">
-        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={camera} data-ajouter-photo>📷 Ajouter une photo</label>
-        <input id={camera} className="pvv-fichier" type="file" accept="image/*" capture="environment" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-camera />
+        {/* 🔴 Arno (15/11/2026) — « Photothèque » à GAUCHE, « Ajouter une photo » à DROITE */}
         <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={galerie} data-photo-galerie-bouton>🖼 Photothèque</label>
         <input id={galerie} className="pvv-fichier" type="file" accept="image/*" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-galerie />
+        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={camera} data-ajouter-photo>📷 Ajouter une photo</label>
+        <input id={camera} className="pvv-fichier" type="file" accept="image/*" capture="environment" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-camera />
       </div>
       {photos.length > 0 && <>
         {vue === 'carrousel' && (
@@ -288,10 +322,12 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
 /** Une prise du dictaphone : sa réécoute (sur l'appareil) et sa pièce déposée (`id`, interne). */
 export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'ok' | 'erreur'; motif: string | null }
 /** Un fichier vocal : un nom (renommable) et ses prises, dans l'ordre. */
-export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[]; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null }
+export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[]; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null;
+  /** 🔴 Arno (15/11/2026) — « Envoyé aux locataires » : défaut NON (le fichier reste interne). */
+  locataires?: boolean }
 
 const nouvelleCle = (): string => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-export const fichierVide = (rang: number): FichierVocal => ({ cle: nouvelleCle(), nom: `Vocal ${rang + 1}`, prises: [], transcription: null, motif: null });
+export const fichierVide = (rang: number): FichierVocal => ({ cle: nouvelleCle(), nom: `Vocal ${rang + 1}`, prises: [], transcription: null, motif: null, locataires: false });
 export const dureeFichier = (f: FichierVocal): number => f.prises.reduce((s, p) => s + p.dureeS, 0);
 
 /** Un lecteur unique : lit une suite de prises (le fichier : enchaînées), ou une seule ; Pause. */
@@ -376,7 +412,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   };
   return (
     <section className="pvv-bloc pvv-bloc--dictaphone pvv-vocaux" aria-labelledby={titreId} data-vocaux-compte-rendu>
-      <h3 id={titreId} className="pvv-bloc-titre">Dictaphone <span className="loc-muet">(internes : jamais envoyés)</span></h3>
+      <h3 id={titreId} className="pvv-bloc-titre">Dictaphone <span className="loc-muet">(internes, sauf ceux envoyés aux locataires)</span></h3>
       <div className="pvv-dictaphone">
         <BoutonMaintenir etat={prise.etat} dureeMs={prise.dureeMs} repos={<><span aria-hidden="true" className="pvv-rond-icone">🎙</span><span>Maintenir pour enregistrer</span></>}
           actif="Enregistrement" onAppui={prise.appuyer} onRelache={prise.relacher} className="pvv-rond pvv-maintien" attributs={{ 'data-enregistrer-vocal': '' }} />
@@ -397,6 +433,13 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
                 <input type="text" value={f.nom} maxLength={60} onChange={(e) => { const v = e.target.value; majFichier(f.cle, (x) => ({ ...x, nom: v })); }} data-vocal-nom /></label>
             </div>
             <p className="loc-muet pvv-vocal-resume" data-vocal-resume>{f.prises.length} prise{f.prises.length > 1 ? 's' : ''} · {dureeFr(dureeFichier(f))}</p>
+            {/* 🔴 Arno (15/11/2026) — l'interrupteur « Envoyé aux locataires » (défaut : non envoyé) */}
+            <label className={`pvv-interrupteur${f.locataires ? ' pvv-interrupteur--oui' : ''}`} data-vocal-locataires={f.locataires ? 'oui' : 'non'}>
+              <input type="checkbox" role="switch" checked={f.locataires === true} aria-checked={f.locataires === true}
+                onChange={(e) => { const v = e.target.checked; majFichier(f.cle, (x) => ({ ...x, locataires: v })); }} data-vocal-locataires-case />
+              <span className="pvv-interrupteur-piste" aria-hidden="true" />
+              <span>{f.locataires ? 'Envoyé aux locataires' : 'Non envoyé aux locataires'}</span>
+            </label>
             <div className="pvv-photo-gestes pvv-vocal-gestes">
               <button type="button" className="pvv-mini" disabled={urls.length === 0} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))} data-vocal-ecouter>{jouant ? '⏸ Pause' : '▶ Écouter'}</button>
               {!estCourant && <button type="button" className="pvv-mini" onClick={() => setCourant(f.cle)} data-vocal-choisir>Enregistrer ici</button>}
@@ -434,7 +477,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
  * « Voir le compte rendu » (après l'envoi, LECTURE SEULE) : les fichiers vocaux, leurs prises, la réécoute du fichier qui les ENCHAÎNE et
  * celle de chaque prise. Rien n'est modifiable.
  */
-export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: string; prises: { id: number; nom: string }[] }[]; url: (id: number) => string }) {
+export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: string; prises: { id: number; nom: string }[]; locataires?: boolean }[]; url: (id: number) => string }) {
   const lecteur = useLecteur();
   return (
     <ol className="pvv-cr-fichiers">{fichiers.map((f, i) => {
@@ -443,6 +486,7 @@ export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: stri
         <li key={cle} className="pvv-fichier-vocal" data-cr-vocal={i + 1} data-cr-vocal-prises={f.prises.length}>
           <div className="pvv-photo-tete"><strong className="pvv-cr-legende" data-cr-vocal-nom>{f.nom}</strong>
             <span className="loc-muet">{f.prises.length} prise{f.prises.length > 1 ? 's' : ''}</span></div>
+          <p className={`pvv-vocal-etat${f.locataires ? ' pvv-vocal-etat--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{f.nom} — {etatVocalLocataires(f.locataires === true)}</p>
           <div className="pvv-photo-gestes pvv-vocal-gestes">
             <button type="button" className="pvv-mini" onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(cle, f.prises.map((p) => url(p.id))))} data-cr-vocal-ecouter>{jouant ? '⏸ Pause' : '▶ Écouter'}</button>
           </div>
@@ -454,9 +498,24 @@ export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: stri
   );
 }
 
+/**
+ * 🔴 Arno (15/11/2026) — le petit bouton clair / sombre du formulaire (sur téléphone) : le MÊME réglage que le sélecteur de thème de l'admin
+ * (même mémorisation par navigateur) ; il bascule vers le thème inverse de celui qu'on voit.
+ */
+export function BoutonTheme() {
+  const pref = useSyncExternalStore(souscrireTheme, snapshotTheme, snapshotThemeServeur);
+  const sombreSysteme = (): boolean => { try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; } };
+  const vu = pref === 'system' ? (typeof window !== 'undefined' && sombreSysteme() ? 'dark' : 'light') : pref;
+  const basculer = (): void => { const v = themeBascule(pref, sombreSysteme()); persisterTheme(v); appliquerThemeSur(racineTheme(), v); };
+  return (
+    <button type="button" className="pvv-theme" onClick={basculer} aria-label={vu === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'} data-theme-bascule={vu}>
+      {vu === 'dark' ? '☀︎' : '☾'}</button>
+  );
+}
+
 /** Ce qui part avec l'envoi : les prises déposées et les fichiers (nom, prises dans l'ordre). PUR. */
-export function vocauxPourEnvoi(fichiers: readonly FichierVocal[]): { vocaux: number[]; fichiersVocaux: { nom: string; ids: number[] }[] } {
-  const fichiersVocaux = fichiers.map((f, i) => ({ nom: f.nom.trim() || `Vocal ${i + 1}`, ids: f.prises.filter((p) => p.id !== null).map((p) => p.id as number) }))
+export function vocauxPourEnvoi(fichiers: readonly FichierVocal[]): { vocaux: number[]; fichiersVocaux: { nom: string; ids: number[]; locataires: boolean }[] } {
+  const fichiersVocaux = fichiers.map((f, i) => ({ nom: f.nom.trim() || `Vocal ${i + 1}`, ids: f.prises.filter((p) => p.id !== null).map((p) => p.id as number), locataires: f.locataires === true }))
     .filter((f) => f.ids.length > 0);
   return { vocaux: fichiersVocaux.flatMap((f) => f.ids), fichiersVocaux };
 }
@@ -506,9 +565,30 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-vocal-gestes{flex-wrap:wrap}
 .pvv-prises{margin:0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:6px}
 .pvv-prise{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:var(--color-svv-field)}
+.pvv-entree{font-size:.95rem;font-weight:800}
+.pvv-clavier--ouvert{box-shadow:inset 0 0 0 2px var(--color-svv-surface)}
+.pvv-interrupteur{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-weight:800;cursor:pointer;color:var(--color-svv-muted)}
+.pvv-interrupteur input{position:absolute;top:0;left:0;width:1px;height:1px;opacity:0}
+.pvv-interrupteur-piste{position:relative;flex:0 0 auto;width:46px;height:28px;border-radius:999px;background:var(--color-svv-line-strong);transition:background .15s}
+.pvv-interrupteur-piste::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:999px;background:var(--color-svv-surface);transition:transform .15s}
+.pvv-interrupteur--oui{color:var(--color-svv-green-ink)}
+.pvv-interrupteur--oui .pvv-interrupteur-piste{background:var(--color-svv-green)}
+.pvv-interrupteur--oui .pvv-interrupteur-piste::after{transform:translateX(18px)}
+.pvv-interrupteur input:focus-visible + .pvv-interrupteur-piste{outline:2px solid var(--color-svv-ink);outline-offset:2px}
+.pvv-vocal-etat{margin:0;font-weight:900;color:var(--color-svv-red)}
+.pvv-vocal-etat--envoye{color:var(--color-svv-green-ink)}
+.pvv-titre-ligne{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.pvv-theme{display:none;flex:0 0 auto;min-width:40px;min-height:40px;border-radius:999px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;cursor:pointer}
+@media (max-width:640px){.pvv-theme{display:inline-flex;align-items:center;justify-content:center}}
+.pvv-locataires-cr{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.pvv-locataires-cr li{font-size:.9rem}
 .pvv-cr-fichiers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
 /* le formulaire du compte rendu : fond OPAQUE (rien de la page derriere ne transparait), boutons en FIN de formulaire (plus colles en bas) */
-.pvv-voile-cr{background:var(--color-svv-surface);z-index:200}
+.pvv-voile-cr{background:var(--color-svv-surface);z-index:200;top:0;right:0;bottom:0;left:0;box-shadow:0 0 0 100vmax var(--color-svv-surface)}
+/* clavier iOS ouvert, rebond du defilement : le fond de la page elle-meme est opaque tant que le formulaire est ouvert */
+html:has(.pvv-voile-cr),body:has(.pvv-voile-cr){background:var(--color-svv-surface)}
+.pvv-recap-vocaux{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.pvv-recap-vocaux li{padding:10px 12px;border-radius:10px;border:2px solid currentColor;font-size:1.02rem;background:var(--color-svv-surface)}
 .pvv-boite-cr .mis-actions{position:static;margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--color-svv-line);background:transparent}
 @media (max-width:640px){
   .pvv-voile-cr .mis-boite{min-height:100%;border-radius:0;box-shadow:none}

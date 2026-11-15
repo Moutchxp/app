@@ -100,6 +100,9 @@ const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 const idsOccupations = (brut: unknown): number[] =>
   (Array.isArray(brut) ? brut : []).map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
 const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
+/** 🔴 Arno (15/11/2026) — les prises vocales d'un compte rendu (40 au plus, `VOCAUX_MAX`). */
+const idsPrises = (brut: unknown): number[] =>
+  (Array.isArray(brut) ? brut : []).map(identifiant).filter((x): x is number => x !== null).slice(0, 40);
 
 function identifiant(brut: unknown): number | null {
   const s = typeof brut === 'number' ? String(brut) : typeof brut === 'string' ? brut : '';
@@ -729,9 +732,10 @@ async function postLocation(request: Request): Promise<Response> {
         return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
       }
       case 'apercu-compte-rendu-previsite':
-        return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos) }, auteur));
+        return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos),
+          vocaux: idsPrises(corps.vocaux), fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined }, auteur));
       case 'compte-rendu-previsite':
-        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsOccupations(corps.vocaux),
+        return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsPrises(corps.vocaux),
           fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined }, auteur));
       // 🔴 Arno (13/11/2026, lot B) — UNE photo du compte rendu : préparée au serveur (format lu dans les octets, réduite, métadonnées et GPS retirés),
       // puis déposée comme les pièces de « Valider la sortie » (stockage objet, jamais le Drive). Rien n'est envoyé.
@@ -740,7 +744,7 @@ async function postLocation(request: Request): Promise<Response> {
       // 🔴 Arno (13/11/2026, lot C) — UN vocal du compte rendu (déposé comme les photos, INTERNE), puis sa transcription par Mistral. Rien n'est envoyé.
       case 'vocal-compte-rendu':
         return repondre(await deposerVocal({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime),
-          dureeS: typeof corps.dureeS === 'number' && Number.isFinite(corps.dureeS) ? corps.dureeS : null, dejaIds: idsOccupations(corps.dejaIds) }, auteur));
+          dureeS: typeof corps.dureeS === 'number' && Number.isFinite(corps.dureeS) ? corps.dureeS : null, dejaIds: idsPrises(corps.dejaIds) }, auteur));
       // 🔴 Arno (15/11/2026) — LA DICTÉE (« Maintenir pour dicter ») : transcrite par Mistral, RIEN n'est gardé (ni fichier, ni pièce).
       case 'dicter-compte-rendu':
         return repondre(await dicterCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), donnees: texte(corps.donnees), typeMime: texte(corps.typeMime) }));

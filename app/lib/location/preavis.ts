@@ -159,7 +159,8 @@ export interface LignePreavisAccueil {
   /** L'occupation de référence (écran de sortie, lecture du bail). */
   occupationId: number;
   occupationIds: number[];
-  locataires: { occupationId: number; locataireId: number; nom: string }[];
+  /** 🔴 Arno (15/11/2026) — + la date d'entrée dans les lieux de chaque locataire (en-tête du compte rendu de pré-visite, page interne). */
+  locataires: { occupationId: number; locataireId: number; nom: string; entree?: string | null }[];
   recuLe: string;
   dateMax: string;
   /** `null` = non saisie (ou migration 384 absente). */

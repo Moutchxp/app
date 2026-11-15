@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { deposerPieceSortie, recuperer } from '../stockage';
@@ -59,6 +60,28 @@ export async function vocauxDesOccupations(ids: readonly number[], occupationIds
     `SELECT id::text, nom, type_mime, taille_octets::text, cle_stockage FROM gestion_location_sortie_piece
       WHERE id = ANY($1::bigint[]) AND occupation_id = ANY($2::bigint[]) AND type_mime LIKE 'audio/%' ORDER BY array_position($1::bigint[], id)`, [[...ids], [...occupationIds]]);
   return rows.map((r) => ({ id: Number(r.id), nom: r.nom, typeMime: r.type_mime, taille: Number(r.taille_octets), cle: r.cle_stockage }));
+}
+
+/**
+ * 🔴 Arno (15/11/2026) — les prises d'un vocal « envoyé aux locataires », RELUES pour l'envoi (bornées aux occupations du préavis, empreinte
+ * vérifiée : une prise changée ou illisible → rien ne part). Seulement des pièces AUDIO.
+ */
+export async function prisesPourEnvoi(ids: readonly number[], occupationIds: readonly number[], lireOctets: (cle: string) => Promise<Buffer> = recuperer):
+  Promise<{ ok: true; prises: { id: number; nom: string; typeMime: string; taille: number; octets: Uint8Array }[] } | { ok: false; motif: string }> {
+  const voulues = [...new Set(ids)];
+  if (voulues.length === 0) return { ok: true, prises: [] };
+  const { rows } = await query<{ id: string; nom: string; type_mime: string; taille_octets: string; cle_stockage: string; empreinte_sha256: string }>(
+    `SELECT id::text, nom, type_mime, taille_octets::text, cle_stockage, empreinte_sha256 FROM gestion_location_sortie_piece
+      WHERE id = ANY($1::bigint[]) AND occupation_id = ANY($2::bigint[]) AND type_mime LIKE 'audio/%' ORDER BY array_position($1::bigint[], id)`, [voulues, [...occupationIds]]);
+  if (rows.length !== voulues.length) return { ok: false, motif: 'Un vocal est introuvable pour ce préavis : retirez-le puis enregistrez-le de nouveau.' };
+  const prises: { id: number; nom: string; typeMime: string; taille: number; octets: Uint8Array }[] = [];
+  for (const r of rows) {
+    let octets: Buffer;
+    try { octets = await lireOctets(r.cle_stockage); } catch { return { ok: false, motif: 'Un vocal est illisible sur le stockage : rien n’est parti.' }; }
+    if (createHash('sha256').update(octets).digest('hex') !== r.empreinte_sha256) return { ok: false, motif: 'Un vocal a changé depuis son enregistrement : rien n’est parti.' };
+    prises.push({ id: Number(r.id), nom: r.nom, typeMime: r.type_mime, taille: Number(r.taille_octets), octets: new Uint8Array(octets) });
+  }
+  return { ok: true, prises };
 }
 
 /** TRANSCRIRE un vocal déjà déposé (relu du stockage). Un échec : le motif, le vocal reste. */

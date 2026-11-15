@@ -22,8 +22,9 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocTexte, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
-import { insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
+import { BlocDictaphone, BlocPhotos, BlocTexte, BoutonTheme, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
+import { appliquerTirets } from '../../../../lib/location/texteCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -233,7 +234,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const envoiVocaux = vocauxPourEnvoi(fichiers);
   const vocauxPrets = envoiVocaux.vocaux;
   const vocauxEnCours = dictaphoneOccupe || dicteeOccupee;
-  const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); curseur.current = r.curseur; return r.texte; });
+  const insererTexteVocal = (t: string): void => setCorps((c) => { const r = insererTranscription(c, curseur.current, t); const x = appliquerTirets(r.texte, r.curseur); curseur.current = x.curseur; return x.texte; });
   /** Le refus des photos (légende manquante) : dit, la photo concernée en rouge ; rien ne part. */
   const verifierPhotos = (): boolean => {
     if (geste !== 'compte_rendu') return true;
@@ -277,7 +278,8 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const voirRecap = async (rt: Retouches = {}): Promise<void> => {
     if (!verifierPhotos()) return;
     setEnvoi(true); setRefus(null);
-    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires, photos: photosPretes }
+    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires, photos: photosPretes,
+      ...(envoiVocaux.fichiersVocaux.some((f) => f.locataires) ? { vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}) }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
           : { action: 'apercu-previsite', ...corpsCommun, jour, debut, fin, destinataires: dest, deplacer: deplacement, retouches: rt }, { propre: true });
@@ -318,8 +320,16 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   let contenu: ReactNode;
   if (etape.etape === 'saisie') {
     contenu = <>
-      <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
-      <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
+      {geste === 'compte_rendu' ? <>
+        {/* 🔴 Arno (15/11/2026) — le titre, et sur téléphone le petit bouton clair / sombre à droite ; sous l'adresse, chaque locataire et sa date d'entrée */}
+        <div className="pvv-titre-ligne"><h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2><BoutonTheme /></div>
+        <p className="loc-muet pss-rien" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
+        <ul className="pvv-locataires-cr" data-cr-locataires>{l.locataires.map((x) => (
+          <li key={x.occupationId} data-cr-locataire={x.occupationId}><strong>{x.nom}</strong>{x.entree ? ` — Entré(e) dans les lieux le ${dateFrPreavis(x.entree)}` : ''}</li>))}</ul>
+      </> : <>
+        <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
+        <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
+      </>}
       {avecDate && (
         // 🔴 Arno (11/11/2026, présentation) — les trois champs sur UNE ligne, même hauteur, même largeur ; libellés courts sur une ligne,
         // l'astérisque collé (espace insécable) ; empilés dans le même ordre sur écran étroit. Une grille PROPRE à la pré-visite (la grille de
@@ -408,7 +418,13 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
           </li>))}</ul>
       </>}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
-      {geste === 'compte_rendu' && vocauxPrets.length > 0 && <p className="mis-note pss-note-neutre" data-vocaux-internes>🎙 {envoiVocaux.fichiersVocaux.length === 1 ? '1 fichier vocal reste' : `${envoiVocaux.fichiersVocaux.length} fichiers vocaux restent`} INTERNE{envoiVocaux.fichiersVocaux.length > 1 ? 'S' : ''} ({vocauxPrets.length} prise{vocauxPrets.length > 1 ? 's' : ''}) : écoutable{envoiVocaux.fichiersVocaux.length > 1 ? 's' : ''} dans « Voir le compte rendu », jamais envoyé{envoiVocaux.fichiersVocaux.length > 1 ? 's' : ''} (ni aux locataires, ni au propriétaire, ni en pièce jointe).</p>}
+      {/* 🔴 Arno (15/11/2026) — une ligne TRÈS visible par vocal : envoyé aux locataires (vert) ou non envoyé, interne (rouge) */}
+      {geste === 'compte_rendu' && envoiVocaux.fichiersVocaux.length > 0 && (
+        <ul className="pvv-recap-vocaux" data-recap-vocaux>{envoiVocaux.fichiersVocaux.map((f, i) => {
+          const envoye = f.locataires && aussiLocataires;
+          return <li key={`${i}-${f.nom}`} className={`pvv-vocal-etat${envoye ? ' pvv-vocal-etat--envoye' : ''}`} data-recap-vocal={envoye ? 'envoye' : 'interne'}>
+            {f.nom} — {etatVocalLocataires(envoye)}{f.locataires && !aussiLocataires ? ' — cochez « Envoyer aussi aux locataires » pour l’envoyer' : ''}</li>;
+        })}</ul>)}
       <BlocageEmailLocataires e={emails} />
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
       <div className="mis-actions">
@@ -431,7 +447,8 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   // 🔴 Arno (15/11/2026) — le formulaire du compte rendu (saisie) : fond opaque, boutons en fin de formulaire (classes propres : les autres fenêtres ne changent pas)
   const saisieCr = geste === 'compte_rendu' && etape.etape === 'saisie';
   const boite = (
-    <div className={`mis-voile pvv-voile${saisieCr ? ' pvv-voile-cr' : ''}`} style={zone ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined} data-zone-visible={zone ? 'oui' : undefined}>
+    <div className={`mis-voile pvv-voile${saisieCr ? ' pvv-voile-cr' : ''}`} style={zone && !saisieCr ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined}
+      data-zone-visible={zone && !saisieCr ? 'oui' : undefined}>
       <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_COMPTE_RENDU_SAISIE}</style>
       <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}${saisieCr ? ' pvv-boite-cr' : ''}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>

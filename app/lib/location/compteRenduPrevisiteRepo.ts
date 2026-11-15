@@ -36,7 +36,8 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
   const envois: EnvoiJournalCr[] = rows.map((r) => ({ destinataires: r.destinataires ?? [], copies: r.copies ?? [], objet: r.objet, texte: r.texte, statut: r.statut,
     erreur: r.erreur, envoyeLe: r.envoye_le, auteur: r.auteur_libelle, pieceIds: (r.piece_ids ?? []).map(Number) }));
   const pieceIds = [...new Set(envois.flatMap((e) => e.pieceIds))];
-  const pieces = (await metaPieces(pieceIds, ids)).map((p) => ({ id: p.id, nom: p.nom, taille: p.taille }));
+  // les prises d'un vocal envoyé aux locataires sont dans les pièces des mails : elles s'affichent avec les vocaux, pas ici
+  const pieces = (await metaPieces(pieceIds, ids)).filter((p) => !/^audio\//i.test(p.typeMime)).map((p) => ({ id: p.id, nom: p.nom, taille: p.taille }));
   // 🔴 lot C — les vocaux rattachés à CE compte rendu (journal), bornés aux occupations du préavis
   const traces = await query<{ v: string | null }>(
     `SELECT j.valeur_apres AS v FROM gestion_journal j JOIN gestion_location_previsite s ON s.id = $3
@@ -47,7 +48,8 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
   const idsVocaux = [...new Set(fichiersTrace.flatMap((f) => f.ids))];
   const vocaux = (await vocauxDesOccupations(idsVocaux, ids)).map((v) => ({ id: v.id, nom: v.nom, taille: v.taille }));
   const parId = new Map(vocaux.map((v) => [v.id, v]));
-  const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined) })).filter((f) => f.prises.length > 0);
+  const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined), locataires: f.locataires === true }))
+    .filter((f) => f.prises.length > 0);
   return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux, fichiersVocaux } };
 }
 

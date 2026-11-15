@@ -52,7 +52,9 @@ export const dureeFr = (s: number): string => `${String(Math.floor(Math.max(0, s
  * 🔴 Arno (15/11/2026) — LES FICHIERS VOCAUX du dictaphone : un nom (« Vocal 1 », renommable) et ses PRISES dans l'ordre. Rangés au journal à
  * l'envoi (`json:{"fichiers":[…]}`) ; l'ancienne trace (`ids:1,2`) reste lue : chaque vocal y est un fichier d'une prise.
  */
-export interface FichierVocalTrace { nom: string; ids: number[] }
+export interface FichierVocalTrace { nom: string; ids: number[];
+  /** 🔴 Arno (15/11/2026) — « Envoyé aux locataires » (défaut : non, le fichier reste interne). */
+  locataires?: boolean }
 export const NOM_FICHIER_MAX = 60;
 const idValide = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
 /** Un nom de fichier vocal propre (un seul espace, 60 caractères au plus), ou le nom par défaut. PUR. */
@@ -62,7 +64,7 @@ export const nomFichierVocal = (brut: unknown, rang: number): string => {
 };
 export function traceVocaux(ids: readonly number[], fichiers?: readonly FichierVocalTrace[]): string {
   if (!fichiers || fichiers.length === 0) return `ids:${ids.join(',')}`;
-  return `json:${JSON.stringify({ fichiers: fichiers.map((f, i) => ({ nom: nomFichierVocal(f.nom, i), ids: f.ids.filter(idValide) })) })}`;
+  return `json:${JSON.stringify({ fichiers: fichiers.map((f, i) => ({ nom: nomFichierVocal(f.nom, i), ids: f.ids.filter(idValide), ...(f.locataires ? { locataires: true } : {}) })) })}`;
 }
 /** Les fichiers vocaux d'une trace du journal (ancienne trace : un fichier par vocal). PUR. */
 export function fichiersDeTrace(x: string | null | undefined): FichierVocalTrace[] {
@@ -70,8 +72,9 @@ export function fichiersDeTrace(x: string | null | undefined): FichierVocalTrace
   if (/^ids:[\d,]*$/.test(x)) return x.slice(4).split(',').map(Number).filter(idValide).map((id, i) => ({ nom: `Vocal ${i + 1}`, ids: [id] }));
   if (!x.startsWith('json:')) return [];
   try {
-    const j = JSON.parse(x.slice(5)) as { fichiers?: { nom?: unknown; ids?: unknown }[] };
-    return (Array.isArray(j.fichiers) ? j.fichiers : []).map((f, i) => ({ nom: nomFichierVocal(f.nom, i), ids: (Array.isArray(f.ids) ? f.ids : []).filter(idValide) }))
+    const j = JSON.parse(x.slice(5)) as { fichiers?: { nom?: unknown; ids?: unknown; locataires?: unknown }[] };
+    return (Array.isArray(j.fichiers) ? j.fichiers : []).map((f, i) => ({ nom: nomFichierVocal(f.nom, i), ids: (Array.isArray(f.ids) ? f.ids : []).filter(idValide),
+      ...(f.locataires === true ? { locataires: true } : {}) }))
       .filter((f) => f.ids.length > 0);
   } catch { return []; }
 }
@@ -84,9 +87,9 @@ export const idsDeTrace = (x: string | null | undefined): number[] => fichiersDe
 export function fichiersVocauxRecus(brut: unknown, prises: readonly number[]): FichierVocalTrace[] {
   const connues = new Set(prises); const vues = new Set<number>();
   const liste = (Array.isArray(brut) ? brut : []).slice(0, VOCAUX_MAX).map((f, i) => {
-    const o = (f ?? {}) as { nom?: unknown; ids?: unknown };
+    const o = (f ?? {}) as { nom?: unknown; ids?: unknown; locataires?: unknown };
     const ids = (Array.isArray(o.ids) ? o.ids : []).map((n) => (typeof n === 'string' ? Number(n) : n)).filter((n): n is number => idValide(n) && connues.has(n) && !vues.has(n) && (vues.add(n), true));
-    return { nom: nomFichierVocal(o.nom, i), ids };
+    return { nom: nomFichierVocal(o.nom, i), ids, ...(o.locataires === true ? { locataires: true } : {}) };
   }).filter((f) => f.ids.length > 0);
   for (const id of prises) if (!vues.has(id)) liste.push({ nom: `Vocal ${liste.length + 1}`, ids: [id] });
   return liste;
@@ -101,3 +104,27 @@ export function insererDictee(corps: string, curseur: number | null, dicte: stri
   const bloc = `${avant !== '' && !/\s$/.test(avant) ? ' ' : ''}${t}${apres !== '' && !/^\s/.test(apres) ? ' ' : ''}`;
   return { texte: `${avant}${bloc}${apres}`, curseur: avant.length + bloc.length };
 }
+
+/* ══ 🔴 Arno (15/11/2026) — UN FICHIER VOCAL « ENVOYÉ AUX LOCATAIRES » ══════════════════════════════════════════════════════════════════════
+ * Coché sur un fichier (défaut : NON), ses prises partent en pièces jointes dans les mails des LOCATAIRES et dans le mail interne (jamais
+ * ailleurs : le compte rendu ne va à aucun propriétaire), nommées dans l'ordre ; le texte du mail les annonce. Poids total des pièces
+ * (photos comprises) plafonné. */
+const slug = (x: string): string => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50).replace(/-+$/g, '');
+/** « Vocal-1-salle-de-bain.m4a », ou « Vocal-1-salle-de-bain-prise-2.m4a » quand le fichier a plusieurs prises. PUR. */
+export function nomPieceVocale(rangFichier: number, nom: string, rangPrise: number, nbPrises: number, type: string): string {
+  const s = slug(nom); const ext = TYPES_AUDIO[typeAudio(type) ?? ''] ?? 'audio';
+  return `Vocal-${rangFichier + 1}${s && s !== `vocal-${rangFichier + 1}` ? `-${s}` : ''}${nbPrises > 1 ? `-prise-${rangPrise + 1}` : ''}.${ext}`;
+}
+export const TITRE_VOCAUX = 'Enregistrements vocaux joints';
+/** Les lignes du mail qui annoncent les vocaux joints. PUR. */
+export function paragraphesVocaux(fichiers: readonly { nom: string; ids: readonly number[] }[]): string[] {
+  return fichiers.length === 0 ? [] : [TITRE_VOCAUX, fichiers.map((f, i) => `${nomFichierVocal(f.nom, i)}${f.ids.length > 1 ? ` (${f.ids.length} prises, à écouter dans l’ordre)` : ''}`).join('\n')];
+}
+/** Le refus d'un envoi trop lourd (photos et vocaux joints). PUR. */
+export function refusPoidsPieces(octets: number, plafond: number): string | null {
+  if (octets <= plafond) return null;
+  const mo = (x: number) => (x / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+  return `Les pièces jointes pèsent ${mo(octets)} Mo, au-delà de ${mo(plafond)} Mo : décochez « Envoyé aux locataires » sur un vocal (ou retirez une photo), puis réessayez.`;
+}
+/** Le vocal dans le récapitulatif et dans « Voir le compte rendu ». PUR. */
+export const etatVocalLocataires = (envoye: boolean): string => (envoye ? 'ENVOYÉ aux locataires' : 'NON envoyé (interne)');

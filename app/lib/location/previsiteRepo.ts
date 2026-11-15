@@ -11,8 +11,9 @@ import { envoyerSerie, mailsAvisDisponibles, refusRetouches, type DepsAvis, type
 import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
-import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, traceVocaux, VOCAUX_MAX } from './vocauxCompteRendu';
-import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
+import { PIECES_MAX_OCTETS } from './validationSortie';
+import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace } from './vocauxCompteRendu';
+import { prisesPourEnvoi, vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
@@ -297,8 +298,10 @@ export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Aut
 
 async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocataires: boolean, auteur: Auteur, deps: DepsAvis,
   /** 🔴 Arno (13/11/2026, lot B) — les photos (pièces déjà déposées), légende obligatoire ; `octets` : seulement pour l'envoi. */
-  photos: readonly PhotoCompteRendu[] = [], o: { octets?: boolean } = {}):
-  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[] }>> {
+  photos: readonly PhotoCompteRendu[] = [], o: { octets?: boolean } = {},
+  /** 🔴 Arno (15/11/2026) — les fichiers vocaux ; ceux « envoyés aux locataires » partent en pièces jointes (mails des locataires + mail interne). */
+  fichiersVocaux: readonly FichierVocalTrace[] = []):
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
   if (texte === '') return { etat: 'refus', motif: 'Écrivez le compte rendu.', champ: 'corps' };
@@ -318,7 +321,28 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
       if (meta.length !== photos.length) return { etat: 'refus', motif: 'Une photo est introuvable pour ce préavis : retirez-la puis ajoutez-la de nouveau.', champ: 'photos' };
     }
   }
-  const avecPhotos = (m: MailPrevisite): MailPrevisite => (piecesPhotos.length > 0 ? { ...m, pieces: piecesPhotos } : m);
+  // 🔴 Arno (15/11/2026) — les vocaux « envoyés aux locataires » (et seulement si les locataires reçoivent le compte rendu) : leurs prises en pièces
+  // jointes, nommées dans l'ordre ; poids total (photos comprises) plafonné.
+  const vocauxEnvoyes = aussiLocataires ? fichiersVocaux.map((f, rang) => ({ ...f, rang })).filter((f) => f.locataires === true && f.ids.length > 0) : [];
+  const idsVocaux = vocauxEnvoyes.flatMap((f) => f.ids);
+  const nomsVocaux: string[] = [];
+  let piecesVocaux: NonNullable<MailPrevisite['pieces']> = [];
+  if (idsVocaux.length > 0) {
+    const meta = await vocauxDesOccupations(idsVocaux, ids);
+    if (meta.length !== new Set(idsVocaux).size) return { etat: 'refus', motif: 'Un vocal est introuvable pour ce préavis : retirez-le puis enregistrez-le de nouveau.', champ: 'vocaux' };
+    const parId = new Map(meta.map((m) => [m.id, m]));
+    for (const f of vocauxEnvoyes) f.ids.forEach((id, k) => nomsVocaux.push(nomPieceVocale(f.rang, f.nom, k, f.ids.length, parId.get(id)?.typeMime ?? 'audio/mp4')));
+    const poidsPhotos = photos.length === 0 ? 0 : o.octets ? piecesPhotos.reduce((t, x) => t + (x.octets?.byteLength ?? x.taille), 0)
+      : (await metaPieces(photos.map((p) => p.id), ids)).reduce((t, x) => t + x.taille, 0);
+    const trop = refusPoidsPieces(poidsPhotos + meta.reduce((t, x) => t + x.taille, 0), PIECES_MAX_OCTETS);
+    if (trop !== null) return { etat: 'refus', motif: trop, champ: 'vocaux' };
+    if (o.octets) {
+      const lues = await prisesPourEnvoi(idsVocaux, ids);
+      if (!lues.ok) return { etat: 'refus', motif: lues.motif, champ: 'vocaux' };
+      piecesVocaux = lues.prises.map((x, i) => ({ id: x.id, nom: nomsVocaux[i], typeMime: x.typeMime, taille: x.taille, octets: x.octets }));
+    }
+  }
+  const avecPhotos = (m: MailPrevisite): MailPrevisite => (piecesPhotos.length + piecesVocaux.length > 0 ? { ...m, pieces: [...piecesPhotos, ...piecesVocaux] } : m);
   const lu = await withTransaction(async (q) => {
     const g = await lireGroupe(q, ids);
     return g.ok ? { ok: true as const, g: g.g, s: await suiviOuvert(q, g.g.cle) } : g;
@@ -332,19 +356,23 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   /* 🔴 Arno (10/11/2026, confidentialité) — les collaborateurs : UN mail interne (complet, « Mail envoyé par … ») ; « Envoyer aussi aux
      locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, avec « Mail envoyé par … » (l'expéditeur de l'agence) — jamais les adresses des autres collaborateurs. */
   // 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos » (chaque photo numérotée, sa légende) ; les photos en pièces jointes
-  const photosP = paragraphesPhotos(photos);
+  const photosP = [...paragraphesPhotos(photos), ...paragraphesVocaux(vocauxEnvoyes)];
   const interne = avecPhotos(mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
     paragraphes: [...paragraphesDuTexte(texte), ...photosP], qui: c.qui, signature: c.signature }));
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
     paragraphesDe: (l) => [...paragraphesDuTexte(personnaliserTexte(texte, l)), ...photosP], qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
-  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos } };
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux } };
 }
 
-export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[] }, auteur: Auteur, deps: DepsAvis = {}):
+export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
+  /** 🔴 Arno (15/11/2026) — les prises et les fichiers vocaux : ceux « envoyés aux locataires » figurent dans les pièces jointes de l'aperçu. */
+  vocaux?: readonly number[]; fichiersVocaux?: unknown }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
-  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? []);
+  const fichiers = d.fichiersVocaux === undefined ? [] : fichiersVocauxRecus(d.fichiersVocaux, [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX));
+  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], {}, fichiers);
   if (r.etat !== 'ok') return r;
-  const piece = r.data.nomsPhotos.length > 0 ? r.data.nomsPhotos.join(', ') : null;
+  const noms = [...r.data.nomsPhotos, ...r.data.nomsVocaux];
+  const piece = noms.length > 0 ? noms.join(', ') : null;
   return { etat: 'ok', data: { mails: r.data.mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(piece ? { piece } : {}) })), sansEmail: r.data.sansEmail } };
 }
 
@@ -359,7 +387,8 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
   const vocauxVoulus = [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX);
   const vocaux = vocauxVoulus.length === 0 ? [] : await vocauxDesOccupations(vocauxVoulus, ids);
   if (vocaux.length !== vocauxVoulus.length) return { etat: 'refus', motif: 'Un vocal est introuvable pour ce préavis : retirez-le puis enregistrez-le de nouveau.', champ: 'vocaux' };
-  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true });
+  const fichiers = d.fichiersVocaux === undefined ? undefined : fichiersVocauxRecus(d.fichiersVocaux, vocaux.map((v) => v.id));
+  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? []);
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
   if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };
@@ -371,7 +400,7 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
       `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
     // 🔴 lot C — les vocaux du compte rendu, INTERNES : rattachés ici (« Voir le compte rendu » les relit), aucun n'est parti
     if (vocaux.length > 0) await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_VOCAUX, null,
-      traceVocaux(vocaux.map((v) => v.id), d.fichiersVocaux === undefined ? undefined : fichiersVocauxRecus(d.fichiersVocaux, vocaux.map((v) => v.id))),
+      traceVocaux(vocaux.map((v) => v.id), fichiers),
       `${vocaux.length} vocal(aux) interne(s) du compte rendu de pré-visite — jamais envoyé(s)`, auteur);
   });
   if (r.data.s.tache_etat === 'a_faire') await marquerFaite(Number(r.data.s.tache_id), auteur).catch(() => null);
