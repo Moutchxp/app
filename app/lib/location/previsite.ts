@@ -9,7 +9,7 @@
  * Ce module décide : le statut d'un préavis, l'alerte, les compteurs des pastilles, la saisie d'un rendez-vous, l'objet et le texte de
  * chaque mail, et l'invitation d'agenda (.ics) jointe. Le dépôt (`previsiteRepo.ts`) lit, écrit et envoie.
  */
-import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, prenomNom, REPERE_NOM, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, prenomNom, REPERE_NOM, type ParagrapheMail, type Signature } from './mailsPreavisSortie';
 import { paragraphesDesParties, partiesDuMail, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
 import { heureFr, minutesDe, plageFr } from './edls';
@@ -203,12 +203,13 @@ export function objetAlertePrevisite(adresse: string): string {
   return `Alerte préavis — aucune pré-visite fixée — ${adresse}`;
 }
 
-export function paragraphesAlertePrevisite(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; recuLe: string; dateMax: string; lien: string }): string[] {
+export function paragraphesAlertePrevisite(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; recuLe: string; dateMax: string; lien: string }): ParagrapheMail[] {
   return [
     'Bonjour,',
     `Le préavis de ${noms(d.locataires)} pour le logement situé ${d.adresse}, reçu le ${dateFrPreavis(d.recuLe)} (fin du préavis le ${dateFrPreavis(d.dateMax)}), n’a fait l’objet d’aucun rendez-vous de pré-visite saisi dans les ${JOURS_SANS_PREVISITE} jours qui ont suivi sa réception.`,
     'Merci de fixer un rendez-vous de pré-visite (bouton « RDV pré-visite ») ou, si les locataires la refusent ou ne répondent pas, de leur envoyer le mail « Refus / absence de pré-visite ».',
-    `Ouvrir la ligne de ce préavis : ${d.lien}`,
+    // 🔴 Arno (15/11/2026) — un GROS BOUTON dans le HTML ; la version texte garde la phrase et le lien
+    { texte: `Ouvrir la ligne de ce préavis : ${d.lien}`, bouton: 'Ouvrir la ligne de ce préavis', lien: d.lien },
   ];
 }
 
@@ -220,12 +221,15 @@ export function objetRecapAlertes(n: number): string {
   return `Alerte préavis — ${n} préavis sans pré-visite fixée`;
 }
 
-export function paragraphesRecapAlertes(liste: readonly PreavisEnRetard[]): string[] {
+export function paragraphesRecapAlertes(liste: readonly PreavisEnRetard[]): ParagrapheMail[] {
   return [
     'Bonjour,',
     `${liste.length === 1 ? 'Le préavis suivant n’a' : `Les ${liste.length} préavis suivants n’ont`} fait l’objet d’aucun rendez-vous de pré-visite saisi dans les ${JOURS_SANS_PREVISITE} jours qui ont suivi leur réception :`,
-    ...liste.map((p) => `· ${noms(p.locataires)} — ${p.adresse} — reçu le ${dateFrPreavis(p.recuLe)}
-  ${p.lien}`),
+    // 🔴 Arno (15/11/2026) — chaque préavis : sa ligne, puis un GROS BOUTON dans le HTML ; la version texte est inchangée
+    ...liste.map((p): ParagrapheMail => {
+      const ligne = `· ${noms(p.locataires)} — ${p.adresse} — reçu le ${dateFrPreavis(p.recuLe)}`;
+      return { texte: `${ligne}\n  ${p.lien}`, avant: ligne, bouton: 'Ouvrir la ligne de ce préavis', lien: p.lien };
+    }),
     'Merci de fixer un rendez-vous de pré-visite (bouton « RDV pré-visite ») ou, si les locataires la refusent ou ne répondent pas, de leur envoyer le mail « Refus / absence de pré-visite ». Chaque nouvelle alerte fera ensuite l’objet de son propre mail.',
   ];
 }
@@ -297,12 +301,13 @@ export function objetInvitationCompteRendu(adresse: string, r: Pick<RdvPrevisite
   return `Compte rendu de pré-visite à faire — ${adresse} — ${dateFrPreavis(r.jour)} à ${heureFr(r.heure)}`;
 }
 
-export function paragraphesInvitationCompteRendu(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>; lien: string }): string[] {
+export function paragraphesInvitationCompteRendu(d: { adresse: string; locataires: readonly Pick<LocatairePrevisite, 'nom' | 'prenom'>[]; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>; lien: string }): ParagrapheMail[] {
   return [
     'Bonjour,',
     `La pré-visite d’état des lieux de sortie du logement situé ${d.adresse} (${noms(d.locataires)}) commence ${quandFr(d.rdv.jour, d.rdv.heure)}.`,
     'Prenez vos notes pendant la visite et envoyez le compte rendu sur place, devant le locataire : le lien ci-dessous ouvre directement le formulaire « Compte rendu pré-visite » de ce préavis (après connexion si nécessaire).',
-    d.lien,
+    // 🔴 Arno (15/11/2026) — le GROS BOUTON « Rédiger le compte rendu » (et le lien de secours) ; la version texte garde le lien seul
+    { texte: d.lien, bouton: 'Rédiger le compte rendu', lien: d.lien },
   ];
 }
 
@@ -414,7 +419,7 @@ export interface MailPrevisite {
 export type QuiEnvoie = { prenom?: string | null; nomFamille?: string | null; email: string | null } | { mention: string | null };
 
 export function mailPrevisite(o: {
-  sorte: MailPrevisite['sorte']; de: string; a: readonly string[]; cc: readonly string[]; objet: string; paragraphes: readonly string[];
+  sorte: MailPrevisite['sorte']; de: string; a: readonly string[]; cc: readonly string[]; objet: string; paragraphes: readonly ParagrapheMail[];
   qui: QuiEnvoie; signature: Signature; ics?: MailPrevisite['ics'];
 }): MailPrevisite {
   const c = composerMailLocation(o.paragraphes, o.qui, o.signature);

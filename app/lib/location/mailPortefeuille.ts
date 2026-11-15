@@ -14,6 +14,8 @@
  * Les montants arrivent DÉJÀ CALCULÉS par les règles de l'écran « Honoraires de gestion » (`mailPortefeuilleRepo`).
  */
 
+import { boutonMailHtml } from '../email/boutonMail';
+
 export type SensMouvement = 'sortie' | 'entree';
 export type TuileOrigine = 'Location' | 'Gestion';
 
@@ -204,7 +206,8 @@ export function htmlMail(d: DonneesMail): string {
     + petit(`${euros(t.mensuelTTC)} TTC / mois · ${euros(t.annuelHT)} HT / an · ${euros(t.annuelTTC)} TTC / an`)
     + (t.lotsSansValeur > 0 ? petit(`<strong>${t.lotsSansValeur} lot${t.lotsSansValeur > 1 ? 's' : ''}</strong> sans loyer de départ ou sans taux : exclu${t.lotsSansValeur > 1 ? 's' : ''} du total.`) : '')
     + `</div>`;
-  const lien = d.lienFiche === null ? '' : `<tr><td style="padding:16px 20px 20px"><a href="${echapper(d.lienFiche)}" style="display:inline-block;padding:12px 18px;border-radius:8px;background:${rouge};color:#ffffff;font-weight:700;text-decoration:none;font-size:15px">Ouvrir la fiche du propriétaire</a></td></tr>`;
+  // 🔴 Arno (15/11/2026) — le GROS BOUTON commun des mails internes (et son lien de secours) ; la version texte garde « Fiche du propriétaire : … »
+  const lien = d.lienFiche === null ? '' : `<tr><td style="padding:8px 20px 12px">${boutonMailHtml('Ouvrir la fiche du propriétaire', d.lienFiche)}</td></tr>`;
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${echapper(objetMail(d))}</title></head>`
     + `<body style="margin:0;padding:0;background:${fond};font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">`
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${fond}"><tr><td align="center" style="padding:16px 8px">`

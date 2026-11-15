@@ -54,6 +54,9 @@ describe('mail de sortie / d’entrée du portefeuille', () => {
     expect(h).toContain('#a30402');
     expect(h).toContain('Compromis signé le 10/10');
     expect(h).toContain('href="https://exemple.test/admin/location/proprietaire/46"');
+    // 🔴 (15/11/2026) — le GROS BOUTON commun des mails internes, avec son lien de secours
+    expect(h).toContain('>Ouvrir la fiche du propriétaire</a>');
+    expect(h).toContain('Si le bouton ne fonctionne pas : <a href="https://exemple.test/admin/location/proprietaire/46"');
     expect(h).toContain('−54,00');
   });
 

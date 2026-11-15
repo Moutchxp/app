@@ -17,6 +17,7 @@
  */
 
 import { echapper } from './mailNouvelleLocation';
+import { boutonMailHtml, lienBoutonValide } from '../email/boutonMail';
 import { ajouterMois, dateFrPreavis, type DureeMois, type ModePreavis } from './preavis';
 import { descriptionLogement, type DonneesMailSortie } from './sortieLocataires';
 import { mentionEnvoyePar } from './mentionEnvoyePar';
@@ -134,8 +135,19 @@ export function copiesAvis(expediteur: string, valideur: { email: string | null 
 
 const libelleDuree = (d: DureeMois): string => `${d} mois`;
 
-const paragraphesHtml = (paras: readonly string[]): string =>
-  paras.map((p) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1a1f26">${echapper(p).replace(/\n/g, '<br>')}</p>`).join('');
+/**
+ * 🔴 Arno (15/11/2026) — UN PARAGRAPHE-BOUTON d'un mail INTERNE : un lien d'action vers l'admin, rendu en GROS BOUTON dans le HTML (et son lien
+ * de secours) ; la version TEXTE garde `texte`, mot pour mot (le lien y reste). `avant` : la ligne qui précède le bouton dans le HTML (un
+ * préavis du récapitulatif des alertes). Jamais dans un mail aux clients.
+ */
+export interface ParagrapheBouton { texte: string; bouton: string; lien: string; avant?: string }
+export type ParagrapheMail = string | ParagrapheBouton;
+const texteDu = (p: ParagrapheMail): string => (typeof p === 'string' ? p : p.texte);
+
+const paragrapheHtml = (p: string): string => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1a1f26">${echapper(p).replace(/\n/g, '<br>')}</p>`;
+const paragraphesHtml = (paras: readonly ParagrapheMail[]): string =>
+  paras.map((p) => (typeof p === 'string' ? paragrapheHtml(p)
+    : lienBoutonValide(p.lien) ? `${p.avant !== undefined ? paragrapheHtml(p.avant) : ''}${boutonMailHtml(p.bouton, p.lien)}` : paragrapheHtml(p.texte))).join('');
 
 /** Une signature Gmail est-elle là (texte OU HTML) ? */
 const aSignature = (s: Signature): boolean => s.texte.trim() !== '' || s.html.trim() !== '';
@@ -186,10 +198,11 @@ const enveloppe = (contenu: string): string =>
  * 🔴 Arno (10/11/2026, pré-visite) — LE MÊME ASSEMBLAGE pour tout autre mail de la Location : les paragraphes, puis « Mail envoyé par … »
  * (ou la mention donnée, pour un envoi automatique), puis la signature Gmail ; texte et HTML disent la même chose. PUR.
  */
-export function composerMailLocation(paras: readonly string[], qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string | null }, s: Signature): { texte: string; html: string } {
+export function composerMailLocation(paras: readonly ParagrapheMail[], qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string | null }, s: Signature): { texte: string; html: string } {
   // 🔴 Arno (10/11/2026, confidentialité) — `{ mention: null }` : AUCUNE mention (mail à un contact extérieur : seule la signature de l'agence).
-  const avec = 'mention' in qui ? (qui.mention ? [...paras, qui.mention] : [...paras]) : avecMention(paras, qui);
-  const sig = avecSignature(avec.join('\n\n'), s);
+  const mention = 'mention' in qui ? qui.mention : mentionEnvoyePar(qui);
+  const avec: ParagrapheMail[] = mention ? [...paras, mention] : [...paras];
+  const sig = avecSignature(avec.map(texteDu).join('\n\n'), s);
   return { texte: sig.texte, html: enveloppe(`${paragraphesHtml(avec)}${sig.html}`) };
 }
 

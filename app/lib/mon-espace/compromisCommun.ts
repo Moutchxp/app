@@ -12,6 +12,8 @@
  * n'est saisi, la ligne du compromis est en ROUGE et n'entre pas dans ses grandes cases (compromis créés à partir de ce lot seulement).
  */
 
+import { boutonMailHtml } from '../email/boutonMail';
+
 export type CoteVente = 'entree' | 'sortie';
 export const ROLE_DU_COTE = { entree: 'vendeur', sortie: 'acquereur' } as const;
 export const MOT_COTE: Record<CoteVente, string> = { entree: 'entrée du mandat (côté vendeur)', sortie: 'sortie du mandat (côté acquéreur)' };
@@ -168,7 +170,8 @@ const echapper = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '
 export function mailCommun(d: DonneesMailCommun): { objet: string; texte: string; html: string } {
   const lignes = lignesMailCommun(d);
   const ligneDuLien = lignes.findIndex((l) => l.startsWith('Renseigner mes clients : '));
-  const bouton = `<p style="margin:16px 0"><a href="${echapper(d.lien)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#a30402;color:#ffffff;font-weight:700;text-decoration:none">Renseigner mes clients</a></p>`;
+  // 🔴 Arno (15/11/2026) — le GROS BOUTON commun des mails internes (et son lien de secours) ; la version texte est inchangée
+  const bouton = boutonMailHtml('Renseigner mes clients', d.lien);
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1a1f26;max-width:640px">`
     + lignes.map((l, i) => (i === ligneDuLien ? bouton : l === '' ? '<br>' : `<div>${echapper(l)}</div>`)).join('')
     + '</div>';

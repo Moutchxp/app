@@ -134,9 +134,12 @@ describe('🔴 Règles 3-4 — les mails aux locataires (plusieurs locataires) ;
   it('l’alerte : envoi automatique, avec le lien vers la ligne', () => {
     const p = paragraphesAlertePrevisite({ adresse: '4 rue Fictive', locataires: locs, recuLe: '2026-11-01', dateMax: '2027-02-01', lien: 'http://localhost:3000/admin/location?preavis=x' });
     expect(p[1]).toContain('reçu le 01/11/2026');
-    expect(p[3]).toBe('Ouvrir la ligne de ce préavis : http://localhost:3000/admin/location?preavis=x');
+    // 🔴 (15/11/2026) — un paragraphe-BOUTON : la version texte garde la phrase et le lien, mot pour mot
+    expect(p[3]).toEqual({ texte: 'Ouvrir la ligne de ce préavis : http://localhost:3000/admin/location?preavis=x', bouton: 'Ouvrir la ligne de ce préavis', lien: 'http://localhost:3000/admin/location?preavis=x' });
     const m = mailPrevisite({ sorte: 'previsite_alerte', de: 'g@exemple.test', a: ['a@exemple.test'], cc: [], objet: 'o', paragraphes: p, qui: { mention: MENTION_AUTOMATIQUE }, signature: { html: '', texte: '' } });
     expect(m.texte.endsWith(MENTION_AUTOMATIQUE)).toBe(true);
+    expect(m.texte).toContain('\n\nOuvrir la ligne de ce préavis : http://localhost:3000/admin/location?preavis=x\n\n');
+    expect(m.html).toContain('>Ouvrir la ligne de ce préavis</a>');
   });
 });
 
