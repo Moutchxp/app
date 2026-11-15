@@ -193,13 +193,14 @@ describe('les lignes', () => {
     expect(container.querySelector('[data-nombre-preavis]')?.textContent).toBe('3');
   });
 
-  it('mention orange AVEC LE MOT : « en préavis » ; date passée → « Préavis échu — sortie à saisir »', async () => {
+  it('🔴 (15/11/2026) le STATUT de la ligne à la place de « en préavis » fixe (bleu, avec le mot) ; date passée → « Préavis échu — sortie à saisir » en plus', async () => {
     await rendre();
-    expect(container.querySelector('[data-ligne-preavis="A"] [data-preavis]')?.textContent).toBe('en préavis');
+    expect(container.querySelector('[data-ligne-preavis="A"] [data-statut-ligne]')?.textContent).toBe('En préavis');
+    expect(container.querySelector('[data-ligne-preavis="A"] [data-statut-ligne]')?.className).toBe('psl-statut psl-statut--en_preavis');
+    expect(container.querySelector('[data-ligne-preavis="A"] [data-preavis]')).toBeNull();
     expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.textContent).toBe('Préavis échu — sortie à saisir');
     expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.getAttribute('data-preavis')).toBe('echu');
-    // Arno (19/10/2026) : « en préavis » en BLEU (plus d'orange) ; l'échu garde sa couleur d'alerte.
-    expect(container.querySelector('[data-ligne-preavis="A"] [data-preavis]')?.className).toBe('pvs-mention pvs-mention--en_preavis');
+    expect(container.querySelectorAll('[data-ligne-preavis="B"] [data-statut-ligne]')).toHaveLength(1);
     expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.className).toBe('pvs-mention pvs-mention--echu');
   });
 
@@ -486,8 +487,9 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '' });
     const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
-    expect(ligne.querySelector('[data-preavis="edls"]')?.textContent).toBe('EDLS planifié');
-    expect(ligne.querySelector('[data-preavis="edls"]')?.className).toBe('pvs-mention pvs-mention--en_preavis');
+    // 🔴 (15/11/2026) le statut « RDV état des lieux fixé » (violet) remplace la pastille « EDLS planifié » ; le détail le dit toujours
+    expect(ligne.querySelector('[data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');
+    expect(ligne.querySelector('[data-statut-ligne]')?.className).toBe('psl-statut psl-statut--rdv_edl');
     expect(ligne.querySelector('.pva-detail')?.textContent).toContain('EDLS le 05/11/2099 à 10h00 — confié à Claire Test — en attente de confirmation');
   });
 

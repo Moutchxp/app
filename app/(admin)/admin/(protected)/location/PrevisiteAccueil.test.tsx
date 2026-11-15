@@ -101,7 +101,8 @@ describe('🔴 Règle 1 — les pastilles de statut, avec compteur ; filtrer ; t
   it('les compteurs dans l’ordre d’Arno ; « Alerte préavis » présente parce qu’il y en a une', async () => {
     await rendre();
     const p = [...container.querySelectorAll('[data-filtre-previsite]')].map((b) => b.textContent);
-    expect(p).toEqual(['Tous (3)', 'Alerte préavis 1', 'Préavis reçu 1', 'Pré-visite programmée 1', 'Pré-visite effectuée 0', 'Pré-visite refusée / absente 0']);
+    // 🔴 (15/11/2026) les statuts de ligne (arbre d'Arno, 1 à 4) ; « Alerte préavis » en plus (repère, pas un statut)
+    expect(p).toEqual(['Tous (3)', 'En préavis 2', 'RDV pré-visite fixé 1', 'Refus / absence pré-visite 0', 'Pré-visite effectuée 0', 'RDV état des lieux fixé 0', 'Alerte préavis 1']);
   });
   it('aucune alerte : la pastille « Alerte préavis » n’apparaît pas', async () => {
     lignes = lignes.filter((l) => l.cle !== 'A');
@@ -110,7 +111,7 @@ describe('🔴 Règle 1 — les pastilles de statut, avec compteur ; filtrer ; t
   });
   it('cliquer une pastille filtre ; « Tous » remet tout', async () => {
     await rendre();
-    await clic(container.querySelector('[data-filtre-previsite="programmee"]'));
+    await clic(container.querySelector('[data-filtre-previsite="rdv_previsite"]'));
     expect(ordre()).toEqual(['B']);
     await clic(container.querySelector('[data-filtre-previsite="tous"]'));
     expect(ordre()).toHaveLength(3);

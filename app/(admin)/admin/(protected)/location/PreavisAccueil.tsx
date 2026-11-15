@@ -23,10 +23,11 @@ import {
   heureFinProposee, mentionEdls, pastilleEdls, verifierPlanification, type EdlsAffiche,
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
-import { compterPreavisEnAlerte, type StatutPrevisite } from '../../../../lib/location/previsite';
+import { compterPreavisEnAlerte } from '../../../../lib/location/previsite';
+import { estFiltreLigne, lignePasseFiltre, statutLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
-import { BlocPrevisite, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, MentionReserveLocation, PastillesPrevisite } from './PrevisiteAccueil';
+import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
@@ -117,14 +118,15 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   // L'EDLS que l'on vient de planifier, montré AUSSITÔT, en attendant la relecture du serveur (qui le remplace).
   const [locaux, setLocaux] = useState<Record<string, EdlsAffiche>>({});
   const choisirTri = (t: TriPreavis): void => { setTri(t); memoriserTri(t, cleTri); };
-  // 🔴 Arno (10/11/2026) — le filtre des pastilles de statut de pré-visite (vide : tous).
-  const [filtre, setFiltre] = useState<Set<StatutPrevisite>>(new Set());
+  // 🔴 Arno (15/11/2026) — le filtre des STATUTS de ligne (arbre validé par Arno ; vide : tous ; « Alerte préavis » gardé à part).
+  const [filtre, setFiltre] = useState<Set<FiltreLigne>>(new Set());
   /* 🔴 Arno (11/11/2026) — le « ← Retour » commun rend ce bloc TEL QU'IL ÉTAIT : ligne dépliée, statut filtré, recherche, bloc ouvert (le tri
      est déjà gardé par le navigateur). Une clé par écran (bloc / pleine page, Location / Gestion). */
   useEtatRetour(`preavis:${plein ? 'plein' : 'bloc'}:${lecture}`, { ouverte, filtre: [...filtre], recherche, ouvert },
-    (v: { ouverte?: string | null; filtre?: StatutPrevisite[]; recherche?: string; ouvert?: boolean }) => {
+    (v: { ouverte?: string | null; filtre?: unknown[]; recherche?: string; ouvert?: boolean }) => {
       if (v.ouverte !== undefined) setOuverte(v.ouverte);
-      if (Array.isArray(v.filtre)) setFiltre(new Set(v.filtre));
+      // un filtre d'avant (« Préavis reçu »…) n'existe plus : il est laissé de côté, aucune ligne n'est perdue
+      if (Array.isArray(v.filtre)) setFiltre(new Set(v.filtre.filter(estFiltreLigne)));
       if (typeof v.recherche === 'string') setRecherche(v.recherche);
       if (typeof v.ouvert === 'boolean') setOuvert(v.ouvert);
     });
@@ -132,7 +134,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   // Une réponse inattendue (serveur plus ancien que l'écran) ne fait jamais tomber l'accueil : on n'affiche que ce qui est lisible.
   const toutes = d === null || !Array.isArray(d.lignes) ? []
     : trierPreavis(d.lignes.map((x) => (locaux[x.cle] ? { ...x, edls: locaux[x.cle], etatDesLieuxLe: locaux[x.cle].jour } : x)), tri);
-  const filtrees = filtre.size === 0 ? toutes : toutes.filter((x) => x.previsite && filtre.has(x.previsite.statut));
+  const filtrees = toutes.filter((x) => lignePasseFiltre(x, filtre));
   const lignes = plein ? chercherPreavis(filtrees, recherche) : filtrees;
   // 🔴 Arno (10/11/2026) — le repère rouge du bloc replié : LA fonction de la pastille du menu, sur les mêmes lignes que l'intérieur.
   const alertes = compterPreavisEnAlerte(lignes);
@@ -209,8 +211,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
             {d!.previsite === true && <>
               <div className="pva-tri" role="group" aria-label="Statut de pré-visite">
                 <span className="pva-tri-libelle">Statut</span>
-                {segment({ cle: 'statut', sens: 'asc' }, 'Alerte d’abord')}
-                {segment({ cle: 'statut', sens: 'desc' }, 'Refusées d’abord')}
+                {segment({ cle: 'statut', sens: 'asc' }, 'En préavis d’abord')}
+                {segment({ cle: 'statut', sens: 'desc' }, 'Plus avancés d’abord')}
               </div>
               <div className="pva-tri" role="group" aria-label="Date de pré-visite">
                 <span className="pva-tri-libelle">Pré-visite</span>
@@ -219,7 +221,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
               </div>
             </>}
           </div>
-          {d!.previsite === true && <PastillesPrevisite lignes={horsTest(toutes)} filtre={filtre} onChange={setFiltre} />}
+          {d!.previsite === true && <FiltresStatutLigne lignes={horsTest(toutes)} filtre={filtre} onChange={setFiltre} />}
           {/* 🔴 Arno (14/11/2026, 473) — « Préavis de test » : discret, réservé aux administrateurs (écran Location seulement). */}
           {lecture === 'location' && d!.preavisTest?.administrateur === true && <CreerPreavisTest disponible={d!.preavisTest.disponible} apres={(m) => { setBilan(m); apresGeste(); }} />}
           {bilan !== null && <p className="gst-info" role="status" data-preavis-bilan>{bilan}</p>}
@@ -238,12 +240,15 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                         <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
                         <span className="pva-detail" title={detail}>{detail}</span>
                       </div>
-                      {/* L'alerte « Préavis échu » garde la priorité ; sinon « EDLS planifié » (bleu), sinon « en préavis ». */}
-                      {l.edls && statutPreavis(l, jour) !== 'echu'
-                        ? <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut={l.edls.statut ?? 'planifie'}>{pastilleEdls(l.edls)}</span>
-                        : <MentionPreavis p={l} jour={jour} court />}
-                      {/* 🔴 Arno (10/11/2026) — « Aucune pré-visite fixée » / « Personne n'a accepté la pré-visite ». */}
-                      <span className="pvv-cartouches" data-cartouches-previsite><CartouchesPrevisite p={l.previsite} /></span>
+                      {/* 🔴🔴 Arno (15/11/2026) — LE statut de la ligne (un seul, calculé) à la place de « en préavis » fixe ; l'alerte « Préavis
+                          échu » reste affichée à côté ; un état des lieux refusé par le collègue garde son repère « EDLS à réattribuer ». */}
+                      <span className="psl-cartouches" data-cartouches-ligne>
+                        <CartoucheStatutLigne statut={statutLigne(l)} />
+                        {statutPreavis(l, jour) === 'echu' && <MentionPreavis p={l} jour={jour} court />}
+                        {l.edls?.statut === 'refusee' && <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut="refusee">{pastilleEdls(l.edls)}</span>}
+                        {/* 🔴 Arno (10/11/2026) — « Aucune pré-visite fixée » / « Personne n'a accepté la pré-visite ». */}
+                        <span className="pvv-cartouches" data-cartouches-previsite><CartouchesPrevisite p={l.previsite} /></span>
+                      </span>
                       <button type="button" className="svv-btn svv-btn-outline gst-btn pva-ouvrir" aria-expanded={estOuverte}
                         aria-label={`${estOuverte ? 'Fermer' : 'Ouvrir'} le préavis de ${noms}`} data-ouvrir-preavis={l.cle}
                         onClick={() => setOuverte(estOuverte ? null : l.cle)}>{estOuverte ? 'Fermer' : 'Ouvrir'}</button>
@@ -615,7 +620,10 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-segment[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface);border-color:var(--color-svv-red);font-weight:700}
 .pva-liste{list-style:none;margin:0;padding:0;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .pva-item + .pva-item{border-top:1px solid var(--color-svv-line)}
-.pva-ligne{box-sizing:border-box;height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:10px;padding:8px 12px}
+.pva-ligne{box-sizing:border-box;height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:8px 12px}
+/* Arno (15/11/2026) : le statut de la ligne et ses reperes (echu, EDLS a reattribuer, alerte) dans UN conteneur qui passe a la ligne,
+   jamais sous le bouton « Ouvrir » */
+.psl-cartouches{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px 6px;min-width:0}
 .pvv-cartouches{display:flex;flex-direction:column;gap:2px;align-items:flex-end}
 .pva-textes{display:flex;flex-direction:column;gap:2px;min-width:0}
 .pva-noms,.pva-detail{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -636,9 +644,13 @@ export const CSS_PREAVIS_ACCUEIL = `
 .sor-gestion-seule-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 @media (max-width:760px){
   .pva-ligne{height:6.25rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
+  /* hauteur CONSTANTE (Arno) : les reperes, plus compacts, tiennent au plus sur deux rangees, jamais sous « Ouvrir » */
+  .psl-cartouches{justify-content:flex-start;gap:3px 4px;max-height:2.9rem;overflow:hidden}
+  .psl-cartouches .psl-statut,.psl-cartouches .pvs-mention,.psl-cartouches .pvv-cartouche{font-size:.72rem;line-height:1.2;padding:1px 6px;letter-spacing:-.01em}
+  .pva-ligne{gap:6px}
   .pva-textes{grid-column:1 / -1}
   .pva-ligne .pvs-mention{justify-self:start}
-  .pva-ligne{grid-template-columns:auto minmax(0,1fr) auto}
+  .pva-ligne{grid-template-columns:minmax(0,1fr) auto}
   .pvv-cartouches{align-items:flex-start}
   .pva-depliee{grid-template-columns:1fr}
 }

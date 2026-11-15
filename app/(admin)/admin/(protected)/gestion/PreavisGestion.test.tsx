@@ -273,10 +273,10 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     const c = await plein();
     await clic(c.querySelector('[data-filtre-previsite="alerte"]'));
     expect(ordre(c)).toEqual(['A', 'C']);
-    await clic(c.querySelector('[data-filtre-previsite="programmee"]'));
+    await clic(c.querySelector('[data-filtre-previsite="rdv_previsite"]'));
     expect(ordre(c)).toEqual(['A', 'B', 'C']);
     await clic(c.querySelector('[data-filtre-previsite="tous"]'));
-    await clic(c.querySelector('[data-filtre-previsite="effectuee"]'));
+    await clic(c.querySelector('[data-filtre-previsite="previsite_effectuee"]'));
     expect(ordre(c)).toEqual([]);
   });
   it('recherche par nom de locataire ou adresse (sans accents ni casse)', async () => {

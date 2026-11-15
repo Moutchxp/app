@@ -10,6 +10,7 @@
  * Ce module ne lit rien et n'écrit rien.
  */
 
+import { rangStatutLigne } from './statutLignePreavis';
 import type { EdlsAffiche } from './edls';
 import type { PrevisiteAffiche } from './previsite';
 
@@ -176,7 +177,7 @@ export interface LignePreavisAccueil {
 
 /** 🔴 Arno (10/11/2026) — + le statut de pré-visite (ordre d'Arno), la date du rendez-vous de pré-visite et la date de réception (pleine page). */
 export type CleTri = 'fin' | 'edl' | 'statut' | 'previsite' | 'recu';
-const ORDRE_STATUT_PREVISITE = ['alerte', 'recu', 'programmee', 'effectuee', 'refusee'];
+
 export type SensTri = 'asc' | 'desc';
 export interface TriPreavis { cle: CleTri; sens: SensTri }
 /** Par défaut : la fin de préavis la plus proche d'abord. */
@@ -188,7 +189,8 @@ export function trierPreavis(lignes: readonly LignePreavisAccueil[], tri: TriPre
     if (tri.cle === 'fin') return l.dateMax;
     if (tri.cle === 'edl') return l.etatDesLieuxLe;
     if (tri.cle === 'recu') return l.recuLe;
-    if (tri.cle === 'statut') return l.previsite ? String(ORDRE_STATUT_PREVISITE.indexOf(l.previsite.statut)) : null;
+    // 🔴 (15/11/2026) le statut de la LIGNE (arbre d'Arno), une ligne en alerte avant les autres « En préavis »
+    if (tri.cle === 'statut') return String(rangStatutLigne(l)).padStart(2, '0');
     return l.previsite?.rdv ? `${l.previsite.rdv.jour} ${l.previsite.rdv.heure}` : null;
   };
   return [...lignes].sort((a, b) => {

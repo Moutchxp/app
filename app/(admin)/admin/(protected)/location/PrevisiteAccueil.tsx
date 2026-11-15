@@ -15,7 +15,7 @@ import { libelleMail, type MailParti } from '../../../../lib/location/confirmati
 import { ajouterMois, dateFrPreavis, EDL_MOIS_APRES_FIN, type LignePreavisAccueil } from '../../../../lib/location/preavis';
 import { heureFinProposee, heureFr } from '../../../../lib/location/edls';
 import {
-  ALERTE_TOUS_REFUSENT, CARTOUCHE_ALERTE, LIBELLE_STATUT_PREVISITE, creneauFr, objetCompteRendu, pastillesPrevisite, verifierRdvPrevisite,
+  ALERTE_TOUS_REFUSENT, CARTOUCHE_ALERTE, LIBELLE_STATUT_PREVISITE, creneauFr, objetCompteRendu, verifierRdvPrevisite,
   type PrevisiteAffiche, type StatutPrevisite,
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
@@ -26,6 +26,7 @@ import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocatai
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
+import { filtresLignes, LIBELLE_STATUT_LIGNE, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, ORDRE_LOCATAIRES_DABORD, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
 import { CartoucheSauvegarde, CSS_CARTOUCHE_SAUVEGARDE, useBrouillonCompteRendu } from './BrouillonCompteRendu';
@@ -60,18 +61,26 @@ export function CartouchesPrevisite({ p }: { p: PrevisiteAffiche | null | undefi
   </>;
 }
 
-/** Les pastilles de statut, filtrantes (plusieurs à la fois) ; « Tous » efface le filtre. */
-export function PastillesPrevisite({ lignes, filtre, onChange }: { lignes: readonly LignePreavisAccueil[]; filtre: ReadonlySet<StatutPrevisite>; onChange: (f: Set<StatutPrevisite>) => void }) {
-  const statuts = lignes.map((l) => l.previsite?.statut).filter((s): s is StatutPrevisite => s !== undefined);
-  const pastilles = pastillesPrevisite(statuts);
-  const basculer = (s: StatutPrevisite): void => { const n = new Set(filtre); if (n.has(s)) n.delete(s); else n.add(s); onChange(n); };
+/** 🔴🔴 Arno (15/11/2026) — le cartouche du STATUT de la ligne (arbre d'Arno) : une couleur par statut, le MOT toujours écrit. */
+export function CartoucheStatutLigne({ statut }: { statut: StatutLigne }) {
+  return <span className={`psl-statut psl-statut--${statut}`} data-statut-ligne={statut}>{LIBELLE_STATUT_LIGNE[statut]}</span>;
+}
+
+/**
+ * 🔴🔴 Arno (15/11/2026) — les FILTRES « Statut » : un par statut de ligne (1 à 4) avec son compteur, plus « Tous » ; ils remplacent les
+ * filtres « Préavis reçu / Pré-visite programmée / effectuée / refusée-absente » (accord d'Arno), sans perdre de ligne. « Alerte préavis »
+ * reste en plus (il n'est pas un statut), seulement s'il y en a. Plusieurs à la fois.
+ */
+export function FiltresStatutLigne({ lignes, filtre, onChange }: { lignes: readonly LignePreavisAccueil[]; filtre: ReadonlySet<FiltreLigne>; onChange: (f: Set<FiltreLigne>) => void }) {
+  const filtres = filtresLignes(lignes);
+  const basculer = (s: FiltreLigne): void => { const n = new Set(filtre); if (n.has(s)) n.delete(s); else n.add(s); onChange(n); };
   return (
-    <div className="pva-tri pvv-pastilles" role="group" aria-label="Filtrer par statut de pré-visite" data-pastilles-previsite>
+    <div className="pva-tri pvv-pastilles" role="group" aria-label="Filtrer par statut" data-pastilles-previsite data-filtres-statut>
       <span className="pva-tri-libelle">Statut</span>
-      <button type="button" className="pva-segment" aria-pressed={filtre.size === 0} onClick={() => onChange(new Set())} data-filtre-previsite="tous">Tous ({statuts.length})</button>
-      {pastilles.map((p) => (
-        <button key={p.statut} type="button" className={`pva-segment pvv-pastille pvv-pastille--${p.statut}`} aria-pressed={filtre.has(p.statut)}
-          onClick={() => basculer(p.statut)} data-filtre-previsite={p.statut}>{p.libelle} <span className="pvv-compteur" data-compteur-previsite={p.statut}>{p.nombre}</span></button>
+      <button type="button" className="pva-segment" aria-pressed={filtre.size === 0} onClick={() => onChange(new Set())} data-filtre-previsite="tous">Tous ({lignes.length})</button>
+      {filtres.map((f) => (
+        <button key={f.filtre} type="button" className={`pva-segment pvv-pastille psl-filtre psl-filtre--${f.filtre}`} aria-pressed={filtre.has(f.filtre)}
+          onClick={() => basculer(f.filtre)} data-filtre-previsite={f.filtre}>{f.libelle} <span className="pvv-compteur" data-compteur-previsite={f.filtre}>{f.nombre}</span></button>
       ))}
     </div>
   );
@@ -842,6 +851,20 @@ export const CSS_PREVISITE = `
 .pvv-cartouche--refus{background:var(--color-svv-red);color:var(--color-svv-surface)}
 .pvv-compteur{display:inline-flex;min-width:1.4em;justify-content:center;margin-left:4px;padding:0 6px;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:800}
 .pvv-pastille--alerte{border-color:var(--color-svv-urgence-orange)}
+/* Arno (15/11/2026) : le STATUT de la ligne (arbre d'Arno) — fond clair et texte fonce de la meme famille (jetons du theme, clair et sombre) ;
+   seul « En preavis » reste bleu */
+.psl-statut{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:800;border:1px solid currentColor;white-space:nowrap}
+.psl-statut--en_preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+.psl-statut--rdv_previsite{background:var(--color-svv-sarcelle-soft);color:var(--color-svv-sarcelle)}
+.psl-statut--refus_previsite{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
+.psl-statut--previsite_effectuee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.psl-statut--rdv_edl{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
+.psl-statut--edl_effectue{background:var(--color-svv-field);color:var(--color-svv-gray)}
+.psl-filtre--rdv_previsite[aria-pressed=true]{border-color:var(--color-svv-sarcelle)}
+.psl-filtre--refus_previsite[aria-pressed=true]{border-color:var(--color-svv-orange)}
+.psl-filtre--previsite_effectuee[aria-pressed=true]{border-color:var(--color-svv-green-ink)}
+.psl-filtre--rdv_edl[aria-pressed=true]{border-color:var(--color-svv-violet)}
+.psl-filtre--alerte{border-color:var(--color-svv-urgence-orange)}
 .pvv-etat{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
 .pvv-etat--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 /* Arno (13/11/2026) : un rendez-vous fixe est VERT, comme la pre-visite effectuee */
