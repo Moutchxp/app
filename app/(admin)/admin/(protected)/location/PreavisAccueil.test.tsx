@@ -107,6 +107,8 @@ beforeEach(() => {
         });
         return ({ ok: true, json: async () => ({ etat: 'ok', data: { edlsId: 77, statut: statutPose, mails: [{ destinataire: 'Claire Test', etat: 'factice' }], agenda: '' } }) }) as unknown as Response;
       }
+      // 🔴 (15/11/2026) — l'aperçu du compte rendu rend toujours la phrase de présence (l'écran la vérifie en tête de chaque mail)
+      if (corps.action === 'apercu-compte-rendu-previsite') return ok({ mails: [], sansEmail: [], phrase: 'En présence de Alice BERNARD.' });
       return ({ ok: true, json: async () => ({ etat: 'ok', data: {}, mail: { etat: 'sans_adresse' } }) }) as unknown as Response;
     }
     const s = String(u);
@@ -1028,6 +1030,8 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
       x.querySelector('.pvv-cr-quand')!.textContent, x.querySelector('.pvv-cr-etat')!.textContent]);
     expect(d).toEqual([['locataire', 'Alice BERNARD', 'le 13/11/2026 à 13h52', 'envoyé'], ['locataire', 'Paul BERNARD', '—', 'non envoyé (pas d’adresse e-mail)'],
       ['interne', 'Claire Test', 'le 13/11/2026 à 13h52', 'échec (boîte pleine)']]);
+    // 🔴 Arno (15/11/2026) — même mise en forme que le récapitulatif : l'étiquette de famille sur chaque envoi
+    expect([...f.querySelectorAll('[data-cr-destinataire] [data-etiquette-famille]')].map((x) => x.textContent)).toEqual(['MAIL AUX LOCATAIRES', 'MAIL AUX LOCATAIRES', 'MAIL INTERNE À L’AGENCE']);
     expect(f.textContent).not.toMatch(/@/); // aucune adresse
     expect(f.querySelector('[data-cr-aucun-envoi]')).toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
@@ -1164,6 +1168,60 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
   it('🔴 « 1 Issue » : Chrome sur iPhone pose `__gcruniqueid` sur le champ de recherche de la Location avant l’hydratation — React ne s’en plaint pas', () => {
     expect(readFileSync('app/(admin)/admin/(protected)/location/AccueilLocation.tsx', 'utf8')).toContain('<input suppressHydrationWarning value={texte}');
   });
+  it('🔴🔴 (15/11/2026) RÉCAPITULATIF PAR FAMILLE : étiquette et couleur, l’interne d’abord, UNE carte par locataire à son nom, pièces de chaque mail, mention de recette, notes internes dans la seule carte interne', async () => {
+    const PHRASE = 'En présence de Alice BERNARD.';
+    const APERCU = { phrase: PHRASE, sansEmail: [], notesInternes: ['Mme Léa Martin — mère du locataire'], mails: [
+      // le serveur peut les rendre dans n'importe quel ordre : l'écran met l'interne d'abord
+      { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['alice@exemple.test'], cc: [], texte: `${PHRASE}\n\nLogement propre.`, famille: 'locataire', destinataire: 'Alice BERNARD',
+        pieces: ['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a'], recette: 'Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.' },
+      { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['arno@exemple.test', 'claire@exemple.test'], cc: [], texte: `${PHRASE}\n\nLogement propre.\n\nNotes de présence (internes)`, famille: 'interne',
+        pieces: ['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a'] },
+      { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['paul@exemple.test'], cc: [], texte: `${PHRASE}\n\nLogement propre.`, famille: 'locataire', destinataire: 'Paul BERNARD',
+        pieces: ['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a'] },
+    ] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' && String(init.body).includes('"apercu-compte-rendu-previsite"')
+      ? ok(APERCU) : (avant as (u: string | URL | Request, i?: RequestInit) => Promise<Response>)(u, init))) as unknown as typeof fetch;
+    programmeeCommencee();
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Logement propre.'); t.dispatchEvent(new Event('input', { bubbles: true })); }); }
+    cocherPresence();
+    await act(async () => { (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click(); }); await attendre();
+    const cartes = [...document.querySelectorAll('[data-famille-mail]')];
+    expect(cartes.map((c) => [c.getAttribute('data-famille-mail'), c.querySelector('[data-etiquette-famille]')!.textContent])).toEqual([
+      ['interne', 'MAIL INTERNE À L’AGENCE'], ['locataire', 'MAIL AUX LOCATAIRES'], ['locataire', 'MAIL AUX LOCATAIRES']]);
+    expect(cartes.map((c) => c.className)).toEqual(['cev-mail mfa-carte mfa-carte--interne', 'cev-mail mfa-carte mfa-carte--locataire', 'cev-mail mfa-carte mfa-carte--locataire']);
+    expect(document.querySelector('[data-rappel-familles]')!.textContent).toBe('1 mail interne · 2 mails locataires');
+    // une carte par locataire, à son nom ; la carte interne : les collaborateurs destinataires
+    expect(cartes.slice(1).map((c) => c.querySelector('[data-destinataire-famille]')!.textContent)).toEqual(['Destinataire : Alice BERNARD', 'Destinataire : Paul BERNARD']);
+    expect([...cartes[0].querySelectorAll('[data-collaborateurs-destinataires] li')].map((x) => x.textContent)).toEqual(['arno@exemple.test', 'claire@exemple.test']);
+    // la mention de recette, sur la seule carte concernée
+    expect(cartes[1].querySelector('[data-recette-remplacement]')!.textContent).toBe('Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.');
+    expect(cartes[2].querySelector('[data-recette-remplacement]')).toBeNull();
+    // les pièces jointes de chaque mail ; les notes de présence internes dans la SEULE carte interne
+    expect([...cartes[1].querySelectorAll('[data-piece-jointe]')].map((x) => x.textContent)).toEqual(['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a']);
+    expect(cartes[0].querySelector('[data-notes-internes-carte]')!.textContent).toContain('Mme Léa Martin — mère du locataire');
+    expect(cartes.slice(1).some((c) => c.querySelector('[data-notes-internes-carte]') !== null)).toBe(false);
+    // la phrase de présence en tête du texte de chaque carte
+    for (const c of cartes) expect(c.querySelector('[data-texte-mail]')!.textContent!.startsWith(PHRASE)).toBe(true);
+    global.fetch = avant;
+  });
+  it('🔴 (15/11/2026) un aperçu SANS « En présence de … » en tête (serveur périmé) : pas de récapitulatif, la raison est dite, rien ne part', async () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' && String(init.body).includes('"apercu-compte-rendu-previsite"')
+      ? ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['arno@exemple.test'], cc: [], texte: 'Logement propre.' }], sansEmail: [] })
+      : (avant as (u: string | URL | Request, i?: RequestInit) => Promise<Response>)(u, init))) as unknown as typeof fetch;
+    programmeeCommencee();
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Logement propre.'); t.dispatchEvent(new Event('input', { bubbles: true })); }); }
+    cocherPresence();
+    await act(async () => { (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click(); }); await attendre();
+    expect(document.querySelector('[data-fenetre-previsite="recap"]')).toBeNull();
+    expect(document.querySelector('[data-previsite-refus]')!.textContent).toBe('Le récapitulatif ne commence pas par « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.');
+    global.fetch = avant;
+  });
   it('rendez-vous pas commencé, déjà fait, préavis introuvable : la page le dit, sans formulaire', async () => {
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
     await act(async () => { root.render(createElement(PageCompteRendu, { occupationId: 11 })); }); await attendre(); await attendre();
@@ -1195,7 +1253,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
       if (init?.method === 'POST') {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
         if (c.action === 'photo-compte-rendu') { deposees.push(c); n += 1; return ok({ id: n, nom: 'photo-previsite.jpg', taille: 300000 }); }
-        if (c.action === 'apercu-compte-rendu-previsite') { apercus.push(c); return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['x@agence.test'], cc: [], texte: 'T', piece: 'Photo-1-joint-douche.jpg, Photo-2-rayure-parquet-chambre.jpg' }], sansEmail: [] }); }
+        if (c.action === 'apercu-compte-rendu-previsite') { apercus.push(c); return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['x@agence.test'], cc: [], texte: 'En présence de Alice BERNARD.\n\nT', piece: 'Photo-1-joint-douche.jpg, Photo-2-rayure-parquet-chambre.jpg' }], sansEmail: [], phrase: 'En présence de Alice BERNARD.' }); }
       }
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
@@ -1255,7 +1313,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     expect(apercus).toHaveLength(1);
     expect(apercus[0].photos).toEqual([{ id: 72, legende: 'Joint douche' }, { id: 71, legende: 'Rayure parquet chambre' }]);
     // le récapitulatif : « Pièces jointes » (jamais « invitation d’agenda » pour des photos)
-    expect(document.querySelector('[data-pieces-prevues]')!.textContent).toBe('Photo-1-joint-douche.jpg, Photo-2-rayure-parquet-chambre.jpg');
+    expect([...document.querySelectorAll('[data-pieces-famille] [data-piece-jointe]')].map((x) => x.textContent)).toEqual(['Photo-1-joint-douche.jpg', 'Photo-2-rayure-parquet-chambre.jpg']);
     expect(document.querySelector('[data-fenetre-previsite="recap"]')!.textContent).not.toContain('invitation d’agenda');
   });
   it('supprimer une photo avant l’envoi : elle ne part pas', async () => {
@@ -1329,7 +1387,7 @@ describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visi
         if (c.action === 'vocal-compte-rendu') { appels.push(c); idSuivant += 1; return ok({ id: idSuivant, nom: 'Vocal.m4a', taille: 3 }); }
         if (c.action === 'transcrire-vocal') { appels.push(c); return ok(transcription); }
         if (c.action === 'dicter-compte-rendu') { appels.push(c); return ok(dictee); }
-        if (c.action === 'apercu-compte-rendu-previsite' || c.action === 'compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [] }); }
+        if (c.action === 'apercu-compte-rendu-previsite' || c.action === 'compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [], phrase: 'En présence de Alice BERNARD.' }); }
       }
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
@@ -1602,7 +1660,7 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
         if (c.action === 'vocal-compte-rendu') { appels.push(c); idSuivant += 1; return ok({ id: idSuivant, nom: 'Vocal.m4a', taille: 3 }); }
         if (c.action === 'dicter-compte-rendu') { appels.push(c); return ok({ ok: true, texte: 'Cuisine propre' }); }
-        if (c.action === 'apercu-compte-rendu-previsite' || c.action === 'compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [] }); }
+        if (c.action === 'apercu-compte-rendu-previsite' || c.action === 'compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [], phrase: 'En présence de Alice BERNARD.' }); }
       }
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
@@ -1759,7 +1817,7 @@ describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétiqu
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
       if (init?.method === 'POST') {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
-        if (c.action === 'apercu-compte-rendu-previsite') { appels.push(c); return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['x@agence.test'], cc: [], texte: 'En présence de Alice et de Mme Léa Martin.\n\nCR.' }], sansEmail: [] }); }
+        if (c.action === 'apercu-compte-rendu-previsite') { appels.push(c); return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['x@agence.test'], cc: [], texte: 'En présence de Alice et de Mme Léa Martin.\n\nCR.' }], sansEmail: [], phrase: 'En présence de Alice et de Mme Léa Martin.' }); }
         if (c.action === 'vocal-compte-rendu') { appels.push(c); return ok({ id: 91, nom: 'v', taille: 1 }); }
       }
       return (avant as typeof fetch)(u, init);
@@ -1860,7 +1918,7 @@ describe('🔴🔴 Arno (15/11/2026, 4e retour iPhone) — flèche d’Entrée, 
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
     const avant = global.fetch;
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === 'POST') { const c = JSON.parse(String(init.body)) as Record<string, unknown>; if (c.action === 'apercu-compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [] }); } }
+      if (init?.method === 'POST') { const c = JSON.parse(String(init.body)) as Record<string, unknown>; if (c.action === 'apercu-compte-rendu-previsite') { appels.push(c); return ok({ mails: [], sansEmail: [], phrase: 'En présence de Alice BERNARD.' }); } }
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
   });

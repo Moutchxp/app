@@ -191,6 +191,10 @@ describe('③ le préavis, « Enregistrer et envoyer les mails »', () => {
     expect([...f.querySelectorAll('[data-mail-prevu]')].map((m) => [m.getAttribute('data-mail-prevu'), m.querySelector('[data-a]')?.textContent, m.querySelector('[data-cc]')?.textContent]))
       .toEqual([['preavis_locataires', 'alice@exemple.test, paul@exemple.test', 'gestion@criterimmo.fr, moi@exemple.test'],
         ['preavis_adhoc', 'gestion.criterimmo@gmail.com', 'gestion@criterimmo.fr, moi@exemple.test']]);
+    // 🔴 Arno (15/11/2026) — chaque carte dit sa FAMILLE (étiquette, couleur) ; le rappel des comptes ; l'ordre d'avant est gardé
+    expect([...f.querySelectorAll('[data-mail-prevu]')].map((m) => [m.getAttribute('data-famille-mail'), m.querySelector('[data-etiquette-famille]')?.textContent]))
+      .toEqual([['locataire', 'MAIL AUX LOCATAIRES'], ['partenaires', 'MAIL À NOS PARTENAIRES']]);
+    expect(f.querySelector('[data-rappel-familles]')?.textContent).toBe('1 mail locataire · 1 mail partenaires');
     expect(f.querySelector('[data-texte-mail]')?.textContent).toBe('Bonjour Alice et Paul,');
     await clic(f.querySelector('[data-confirmer-parcours]'));
     expect(posts.at(-1)!.corps).toMatchObject({ action: 'enregistrer-preavis', envoyerMails: true, informerPartenaires: true });

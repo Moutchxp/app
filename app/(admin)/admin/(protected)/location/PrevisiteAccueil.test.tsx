@@ -198,7 +198,7 @@ describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vo
   });
   it('le rendez-vous passé : le bouton ; l’objet mot pour mot ; « Envoyer aussi aux locataires » décochée ; le statut au résultat', async () => {
     lignes[1].previsite = { ...lignes[1].previsite!, rdvPasse: true };
-    reponsePost = (c) => (String(c.action).startsWith('apercu') ? { mails: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], texte: 'Tout va bien.' }], sansEmail: [] }
+    reponsePost = (c) => (String(c.action).startsWith('apercu') ? { mails: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], texte: 'En présence de Bob PROGRAMME.\n\nTout va bien.' }], sansEmail: [], phrase: 'En présence de Bob PROGRAMME.' }
       : { envois: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], envoye: true, motif: null }], statut: 'effectuee' });
     await rendre();
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));

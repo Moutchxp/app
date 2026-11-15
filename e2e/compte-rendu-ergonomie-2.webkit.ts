@@ -41,7 +41,9 @@ async function preparer(page: Page, o: { compteRendu?: unknown } = {}): Promise<
     if (c.action === 'apercu-compte-rendu-previsite') {
       appels.push(c);
       const avecVocal = Array.isArray(c.fichiersVocaux) && (c.fichiersVocaux as { locataires?: boolean }[]).some((f) => f.locataires) && c.aussiLocataires === true;
-      return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'Compte rendu', a: ['interne@agence.test'], cc: [], texte: 'CR', ...(avecVocal ? { piece: 'Vocal-2.m4a' } : {}) }], sansEmail: [] });
+      // 🔴 (15/11/2026) — comme le vrai serveur : la phrase de présence en tête (l'écran la vérifie)
+      return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'Compte rendu', a: ['interne@agence.test'], cc: [], texte: 'En présence de TEST.\n\nCR', ...(avecVocal ? { piece: 'Vocal-2.m4a' } : {}) }],
+        sansEmail: [], phrase: 'En présence de TEST.' });
     }
     if (c.action === 'compte-rendu-previsite') { appels.push(c); return r.fulfill({ contentType: 'application/json', body: JSON.stringify({ etat: 'refus', motif: 'Essai : rien n’est envoyé.' }) }); }
     return r.continue();

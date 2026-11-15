@@ -12,7 +12,8 @@ import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
 import { PIECES_MAX_OCTETS } from './validationSortie';
-import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, paragraphesNotesPresence, personneAjoutee, phrasePresence, type PersonnePresente } from './texteCompteRendu';
+import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, nomPresent, paragraphesNotesPresence, personneAjoutee, phrasePresence, type PersonnePresente } from './texteCompteRendu';
+import { familleDuMail, PREFIXE_COPIE_INTERNE_MAIL } from './famillesMails';
 
 /** 🔴 Arno (15/11/2026) — la présence reçue de l'écran : les occupations des locataires cochés, les personnes ajoutées (non vérifiées). */
 export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[] }
@@ -27,7 +28,7 @@ import {
   texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
 import {
-  SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, icsDuRdv, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
+  SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, etiqueterApercu, icsDuRdv, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
   noteMissionPrevisite, reponsesDesTaches, sansEmail, sequenceTache, suiviOuvert, type Contexte, type Groupe, type IssuePrevisite, type LigneSuivi,
   type MailApercu,
 } from './previsiteBase';
@@ -124,17 +125,18 @@ export async function apercuRdvPrevisite(
     : (await collegesPrevisite(auteur.id)).filter((x) => dest.includes(Number(x.id))).map((x) => x.libelle);
   const objetCollegue = `${ancien ? 'Rendez-vous déplacé — ' : ''}${OBJET_TACHE_PREVISITE} — ${c.adresse} — ${plageFr(rdv.jour, rdv.heure, rdv.dureeMinutes)}`;
   const note = await noteMissionPrevisite(ids, c, { recuLe: lu.g.recuLe, dateMax: lu.g.dateMax });
-  const mails: MailApercu[] = libelles.map((l) => ({
+  // 🔴 Arno (15/11/2026) — chaque carte du récapitulatif dit sa FAMILLE : les invitations des collègues sont INTERNES
+  const mails: MailApercu[] = libelles.map((l) => etiqueterApercu({
     sorte: 'previsite_invitation', objet: objetCollegue, a: [l], cc: [], piece: NOM_FICHIER_ICS,
     texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien, note)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
-  }));
+  }, 'interne', c, { pieces: [NOM_FICHIER_ICS] }));
   // 🔴 Arno (10/11/2026, texte modifiable) — les retouches : CONTRÔLÉES ici comme à l'envoi (même code) ; refusées, rien n'est montré comme parti.
   const auxLocataires = mailLocataires(c, 0, rdv, 0, ancien, new Date(), d.retouches);
   const refus = await refusRetouches(auxLocataires, d.retouches);
   if (refus !== null) return { etat: 'refus', motif: refus };
   for (const loc of auxLocataires) {
-    mails.push({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: loc.ics ? NOM_FICHIER_ICS : null,
-      ...(loc.edition ? { edition: loc.edition } : {}), ...(loc.texteOrigine ? { modifie: true } : {}) });
+    mails.push(etiqueterApercu({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: loc.ics ? NOM_FICHIER_ICS : null,
+      ...(loc.edition ? { edition: loc.edition } : {}), ...(loc.texteOrigine ? { modifie: true } : {}) }, familleDuMail(loc), c, { pieces: loc.ics ? [NOM_FICHIER_ICS] : [] }));
   }
   return { etat: 'ok', data: { mails, sansEmail: sansEmail(c) } };
 }
@@ -308,7 +310,7 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   fichiersVocaux: readonly FichierVocalTrace[] = [],
   /** 🔴 Arno (15/11/2026) — LA PRÉSENCE : les locataires cochés (occupations du préavis) et les personnes ajoutées pour ce compte rendu ; au moins une. */
   presences?: PresencesCr):
-  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[];
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; interne: boolean; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[];
     phrase: string; presents: PersonnePresente[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
@@ -389,19 +391,25 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
     paragraphes: [...tete, ...paragraphesDuTexte(texte), ...photosP, ...paragraphesNotesPresence(presents)], qui: c.qui, signature: c.signature }));
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
     paragraphesDe: (l) => [...tete, ...paragraphesDuTexte(personnaliserTexte(texte, l)), ...photosP], qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
-  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presents } };
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], interne: internes.length > 0, c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presents } };
 }
 
 export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
   /** 🔴 Arno (15/11/2026) — les prises et les fichiers vocaux : ceux « envoyés aux locataires » figurent dans les pièces jointes de l'aperçu. */
   vocaux?: readonly number[]; fichiersVocaux?: unknown; presences?: PresencesCr }, auteur: Auteur, deps: DepsAvis = {}):
-  Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
+  Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[]; phrase: string; notesInternes: string[] }>> {
   const fichiers = d.fichiersVocaux === undefined ? [] : fichiersVocauxRecus(d.fichiersVocaux, [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX));
   const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], {}, fichiers, d.presences);
   if (r.etat !== 'ok') return r;
   const noms = [...r.data.nomsPhotos, ...r.data.nomsVocaux];
   const piece = noms.length > 0 ? noms.join(', ') : null;
-  return { etat: 'ok', data: { mails: r.data.mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(piece ? { piece } : {}) })), sansEmail: r.data.sansEmail } };
+  // 🔴 Arno (15/11/2026) — chaque carte : sa FAMILLE (le mail interne d'abord, puis UN mail par locataire, à son nom), ses pièces jointes (les
+  // photos et les vocaux « envoyés aux locataires », dans les deux), la mention de recette ; la phrase de présence et les notes internes
+  // (mail interne seulement) sont rendues à part, pour que l'écran vérifie la tête du texte et les montre clairement.
+  const mails = r.data.mails.map((m, i) => etiqueterApercu({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(piece ? { piece } : {}) },
+    r.data.interne && i === 0 ? 'interne' : 'locataire', r.data.c, { pieces: noms }));
+  const notesInternes = r.data.presents.filter((p) => (p.note ?? '').trim() !== '').map((p) => `${nomPresent(p)} — ${(p.note ?? '').trim()}`);
+  return { etat: 'ok', data: { mails, sansEmail: r.data.sansEmail, phrase: r.data.phrase, notesInternes } };
 }
 
 /** ENVOIE le compte rendu ; dès qu'il est parti, le préavis passe en « Pré-visite effectuée » (et la tâche est faite). */
@@ -456,7 +464,7 @@ export async function texteRefusPropose(ids: readonly number[], auteur: Auteur):
 interface AnnulationRdv { tacheId: number; previsiteId: number; mail: MailPrevisite }
 
 async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, deps: DepsAvis):
-  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; g: Groupe; sansEmail: string[]; annulation: AnnulationRdv | null }>> {
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; versLocataires: boolean; c: Contexte; g: Groupe; sansEmail: string[]; annulation: AnnulationRdv | null }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const t = (texte ?? '').trim();
   if (t === '') return { etat: 'refus', motif: 'Le texte du mail est vide.', champ: 'texte' };
@@ -491,14 +499,18 @@ async function mailRefus(ids: readonly number[], texte: string, auteur: Auteur, 
       ics: ics ? { nom: ics.nom, contenu: ics.contenu.replace('METHOD:PUBLISH', 'METHOD:CANCEL').replace('STATUS:CONFIRMED', 'STATUS:CANCELLED') } : null,
     }) };
   }
-  return { etat: 'ok', data: { mails, c, g: lu.g, sansEmail: sansEmail(c), annulation } };
+  return { etat: 'ok', data: { mails, versLocataires: auxLocataires.length > 0, c, g: lu.g, sansEmail: sansEmail(c), annulation } };
 }
 
 export async function apercuRefus(d: { occupationIds: readonly number[]; texte: string }, auteur: Auteur, deps: DepsAvis = {}): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   const r = await mailRefus([...new Set(d.occupationIds)], d.texte, auteur, deps);
   if (r.etat !== 'ok') return r;
+  // 🔴 Arno (15/11/2026) — la famille : les mails aux locataires (un par locataire) ; la copie interne, le mail aux seuls collaborateurs (aucun
+  // locataire joignable) et l'annulation des collègues sont INTERNES
+  const famille = (m: MailPrevisite) => (m.sorte === 'previsite_refus' && r.data.versLocataires && !m.objet.startsWith(PREFIXE_COPIE_INTERNE_MAIL) ? 'locataire' as const : 'interne' as const);
   const mails: MailApercu[] = [...r.data.mails, ...(r.data.annulation !== null ? [r.data.annulation.mail] : [])]
-    .map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(m.ics ? { piece: m.ics.nom } : {}) }));
+    .map((m) => etiqueterApercu({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(m.ics ? { piece: m.ics.nom } : {}) }, famille(m), r.data.c,
+      { pieces: m.ics ? [m.ics.nom] : [] }));
   return { etat: 'ok', data: { mails, sansEmail: r.data.sansEmail } };
 }
 

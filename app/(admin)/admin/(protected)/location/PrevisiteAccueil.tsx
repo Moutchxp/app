@@ -26,6 +26,8 @@ import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonTheme, type 
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
+import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
+import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -144,9 +146,22 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
 
 interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null;
   /** 🔴 Arno (10/11/2026) — un mail aux locataires à texte modifiable : ses parties. */
-  edition?: EditionMail }
+  edition?: EditionMail;
+  /** 🔴 Arno (15/11/2026) — sa famille, le locataire qu'il vise, ses pièces jointes, ce qui part vraiment en recette (dits par le serveur). */
+  famille?: FamilleMail; destinataire?: string; pieces?: string[]; recette?: string }
 type EtapeResultat = { etape: 'resultat'; mails: MailParti[]; lignes: [string, ReactNode][]; motif: string | null };
-type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[] } | EtapeResultat;
+type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[]; notesInternes?: string[] } | EtapeResultat;
+
+/**
+ * 🔴 Arno (15/11/2026) — « En présence de … » EN TÊTE du texte de chaque mail du compte rendu : l'écran le VÉRIFIE sur l'aperçu rendu par le
+ * serveur. Constaté le 15/11/2026 : un serveur de recette qui servait une version périmée du module (rechargement à chaud incomplet) rendait
+ * des mails sans la phrase, et rien ne le disait. Désormais le récapitulatif ne s'affiche pas : la raison est dite, rien n'est parti. PUR.
+ */
+export const MOTIF_PHRASE_ABSENTE = 'Le récapitulatif ne commence pas par « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.';
+export function refusSansPhrase(phrase: unknown, mails: readonly { texte: string }[]): string | null {
+  if (typeof phrase !== 'string' || !phrase.startsWith('En présence')) return MOTIF_PHRASE_ABSENTE;
+  return mails.every((m) => m.texte.startsWith(phrase)) ? null : MOTIF_PHRASE_ABSENTE;
+}
 
 /**
  * 🔴 Arno (15/11/2026) — LE RÉSULTAT DE L'ENVOI, DE LA PAGE DU COMPTE RENDU À LA LOCATION : rangé dans l'onglet (sessionStorage) le temps de
@@ -325,10 +340,12 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     // Un texte modifié refusé par le serveur : le récapitulatif d'avant reste, la raison est dite (la retouche n'est pas gardée).
     if (r.motif !== null) { setRefus(r.motif); return; }
     setRetouches(rt);
-    const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[] };
+    const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[]; phrase?: unknown; notesInternes?: string[] };
     // Réaffecter : seules les invitations des collègues partent (les locataires ne sont pas prévenus d'un changement de collègue).
     const mails = (d.mails ?? []).filter((m) => geste !== 'reaffecter' || m.sorte === 'previsite_invitation');
-    setEtape({ etape: 'recap', mails, sansEmail: geste === 'reaffecter' ? [] : d.sansEmail ?? [] });
+    const sansPhrase = geste === 'compte_rendu' ? refusSansPhrase(d.phrase, mails) : null;
+    if (sansPhrase !== null) { setRefus(sansPhrase); return; }
+    setEtape({ etape: 'recap', mails, sansEmail: geste === 'reaffecter' ? [] : d.sansEmail ?? [], ...(Array.isArray(d.notesInternes) ? { notesInternes: d.notesInternes } : {}) });
   };
 
   const confirmer = async (): Promise<void> => {
@@ -434,29 +451,39 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     contenu = <>
       <h2 id={titreId} className="mis-titre" data-titre-previsite>Récapitulatif — {TITRES[geste][0]}</h2>
       <p className="loc-muet pss-rien" data-rien-enregistre>Rien n’est encore enregistré ni envoyé : vérifiez, puis « Confirmer et envoyer ».</p>
-      {etape.mails.length === 0 ? <p className="mis-note pss-note-neutre">Aucun mail ne partira.</p> : <>
-        <p className="pss-sous-titre">Les mails qui partiront :</p>
-        <ul className="cev-mails" data-mails-prevus>{etape.mails.map((m, i) => (
-          <li key={`${i}-${m.sorte}`} className="cev-mail" data-mail-prevu={m.sorte}>
-            <p className="cev-mail-titre">{libelleMail(m)}</p>
-            <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataires</dt><dd data-a>{m.a.join(', ') || '—'}</dd>
-              <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd>
-              {m.piece && (/\.ics$/i.test(m.piece) ? <><dt>Pièce jointe</dt><dd>{m.piece} (invitation d’agenda)</dd></>
-                : <><dt>Pièces jointes</dt><dd data-pieces-prevues>{m.piece}</dd></>)}</dl>
-            <TexteDuMail key={m.texte} texte={m.texte} ouvert />
-            {/* 🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirmation / la modification aux locataires ; « Texte modifié ». */}
-            {m.edition !== undefined && (
-              <ModifierTexteMail edition={m.edition} retouche={retouches[m.edition.cle]} desactive={envoi}
-                plusieurs={etape.mails.filter((x) => x.edition?.cle === m.edition?.cle).length > 1}
-                onAppliquer={(r: Retouche | undefined) => {
-                  const cle = m.edition!.cle;
-                  const suivantes: Retouches = { ...retouches };
-                  if (r === undefined) delete suivantes[cle]; else suivantes[cle] = r;
-                  void voirRecap(suivantes);
-                }} />
-            )}
-          </li>))}</ul>
-      </>}
+      {etape.mails.length === 0 ? <p className="mis-note pss-note-neutre">Aucun mail ne partira.</p> : (() => {
+        // 🔴 Arno (15/11/2026) — chaque carte dit sa FAMILLE (étiquette et couleur) ; interne d'abord, puis locataires, puis propriétaires ;
+        // le rappel des comptes au-dessus. Ce qui ne part QU'en interne (notes de présence, vocaux internes) est montré dans la carte interne.
+        const cartes = trierParFamille(etape.mails.map((m) => ({ ...m, famille: familleDuMail(m) })));
+        const vocauxInternes = geste === 'compte_rendu' ? envoiVocaux.fichiersVocaux.filter((f) => !(f.locataires && aussiLocataires)) : [];
+        return <>
+          <p className="pss-sous-titre">Les mails qui partiront :</p>
+          <RappelFamilles mails={cartes} />
+          <ul className="cev-mails" data-mails-prevus>{cartes.map((m, i) => (
+            <CarteMailFamille key={`${i}-${m.sorte}`} famille={m.famille} sorte={m.sorte} titre={libelleMail(m)} objet={m.objet} a={m.a} cc={m.cc}
+              destinataire={m.destinataire} recette={m.recette}
+              pieces={m.pieces ?? (m.piece ? m.piece.split(', ') : geste === 'compte_rendu' ? [] : null)}>
+              {geste === 'compte_rendu' && m.famille === 'interne' && (etape.notesInternes ?? []).length > 0 && (
+                <div className="mfa-bloc" data-notes-internes-carte><p className="mfa-bloc-titre">Notes de présence (internes)</p>
+                  <ul className="mfa-liste">{(etape.notesInternes ?? []).map((n) => <li key={n}>{n}</li>)}</ul></div>)}
+              {geste === 'compte_rendu' && m.famille === 'interne' && vocauxInternes.length > 0 && (
+                <div className="mfa-bloc" data-vocaux-internes-carte><p className="mfa-bloc-titre">Vocaux internes — rangés avec le compte rendu, jamais joints</p>
+                  <ul className="mfa-liste">{vocauxInternes.map((f, k) => <li key={`${k}-${f.nom}`}>{f.nom} — {etatVocalLocataires(false)}</li>)}</ul></div>)}
+              <TexteDuMail key={m.texte} texte={m.texte} ouvert />
+              {/* 🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirmation / la modification aux locataires ; « Texte modifié ». */}
+              {m.edition !== undefined && (
+                <ModifierTexteMail edition={m.edition} retouche={retouches[m.edition.cle]} desactive={envoi}
+                  plusieurs={etape.mails.filter((x) => x.edition?.cle === m.edition?.cle).length > 1}
+                  onAppliquer={(r: Retouche | undefined) => {
+                    const cle = m.edition!.cle;
+                    const suivantes: Retouches = { ...retouches };
+                    if (r === undefined) delete suivantes[cle]; else suivantes[cle] = r;
+                    void voirRecap(suivantes);
+                  }} />
+              )}
+            </CarteMailFamille>))}</ul>
+        </>;
+      })()}
       {etape.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : pas d’adresse e-mail, il ne recevra pas ce mail</p>)}
       {/* 🔴 Arno (15/11/2026) — une ligne TRÈS visible par vocal : envoyé aux locataires (vert) ou non envoyé, interne (rouge) */}
       {geste === 'compte_rendu' && envoiVocaux.fichiersVocaux.length > 0 && (
@@ -486,7 +513,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const echec = etape.etape === 'resultat' && (etape.motif !== null || etape.mails.some((m) => !m.envoye));
   // 🔴 Arno (15/11/2026) — le formulaire du compte rendu (saisie) : fond opaque, boutons en fin de formulaire (classes propres : les autres fenêtres ne changent pas)
   const saisieCr = geste === 'compte_rendu' && etape.etape === 'saisie';
-  const styles = CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_COMPTE_RENDU_SAISIE;
+  const styles = CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_COMPTE_RENDU_SAISIE + CSS_FAMILLES_MAILS;
   if (page) {
     // 🔴 Arno (15/11/2026) — EN PAGE : ni voile ni fenêtre, rien dessous ; la hauteur suit la ZONE VISIBLE (clavier iOS ouvert : la marge du
     // bas vaut la hauteur du clavier, le bas du formulaire reste atteignable) ; fond de la page jusqu'au bord inférieur.
@@ -563,9 +590,11 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
           <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
             {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}
             {cr.destinataires.length > 0 && (
+              // 🔴 Arno (15/11/2026) — même mise en forme que le récapitulatif : l'ÉTIQUETTE de famille très visible, la barre de la couleur de la
+              // famille (l'ordre reste celui du serveur)
               <ul className="pvv-cr-liste">{cr.destinataires.map((d, i) => (
                 <li key={`${i}-${d.nom}`} className={`pvv-cr-dest pvv-cr-dest--${d.famille}`} data-cr-destinataire={d.famille} data-cr-etat={d.etat}>
-                  <span className="pvv-cr-famille"><span aria-hidden="true" className="pvv-cr-pastille" />{LIBELLE_FAMILLE_CR[d.famille]}</span>
+                  <span className="pvv-cr-famille" data-etiquette-famille={d.famille} title={LIBELLE_FAMILLE_CR[d.famille]}>{ETIQUETTE_ENVOI_CR[d.famille]}</span>
                   <strong className="pvv-cr-nom">{d.nom}</strong>
                   <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
                   <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
@@ -580,6 +609,11 @@ function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer:
   );
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
 }
+
+/** 🔴 Arno (15/11/2026) — l'étiquette de chaque envoi de « Voir le compte rendu » : celle des cartes du récapitulatif. */
+export const ETIQUETTE_ENVOI_CR: Record<CompteRenduAffiche['destinataires'][number]['famille'], string> = {
+  interne: ETIQUETTE_FAMILLE_MAIL.interne, locataire: ETIQUETTE_FAMILLE_MAIL.locataire, proprietaire: ETIQUETTE_FAMILLE_MAIL.proprietaire, autre: 'AUTRE DESTINATAIRE',
+};
 
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_PREVISITE = `
@@ -610,20 +644,19 @@ export const CSS_PREVISITE = `
 .pvv-cr-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}
 .pvv-cr-bloc{display:flex;flex-direction:column;gap:6px}
 .pvv-cr-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
-.pvv-cr-dest{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:6px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
-.pvv-cr-dest--locataire{border-left-color:var(--color-svv-green)}
-.pvv-cr-dest--proprietaire{border-left-color:var(--color-svv-red)}
-.pvv-cr-famille{flex:0 0 7.5rem;display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase}
-.pvv-cr-pastille{display:inline-block;width:10px;height:10px;border-radius:999px;background:var(--color-svv-line-strong)}
-.pvv-cr-dest--locataire .pvv-cr-pastille{background:var(--color-svv-green)}
-.pvv-cr-dest--proprietaire .pvv-cr-pastille{background:var(--color-svv-red)}
+/* Arno (15/11/2026) : meme mise en forme que les cartes du recapitulatif — barre et etiquette de la couleur de la famille
+   (locataire vert, interne gris, proprietaire rouge) */
+.pvv-cr-dest{--pvv-famille:var(--color-svv-gray);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-line);border-left:8px solid var(--pvv-famille);background:var(--color-svv-surface)}
+.pvv-cr-dest--locataire{--pvv-famille:var(--color-svv-green-ink)}
+.pvv-cr-dest--proprietaire{--pvv-famille:var(--color-svv-red)}
+.pvv-cr-dest--interne{--pvv-famille:var(--color-svv-gray)}
+.pvv-cr-famille{flex:0 0 100%;align-self:flex-start;max-width:max-content;display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:var(--pvv-famille);color:var(--color-svv-surface);font-size:.8rem;font-weight:900;letter-spacing:.06em;line-height:1.25}
 .pvv-cr-nom{flex:1 1 10rem;min-width:8rem;overflow-wrap:break-word}
 .pvv-cr-quand{font-size:.86rem;color:var(--color-svv-muted);white-space:nowrap}
 .pvv-cr-etat{font-weight:800}
 .pvv-cr-etat--envoye{color:var(--color-svv-green-ink)}
 .pvv-cr-etat--echec{color:var(--color-svv-red)}
 .pvv-cr-etat--non_envoye{color:var(--color-svv-red)}
-@media (max-width:600px){.pvv-cr-famille{flex-basis:100%}}
 .pvv-cartouche{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;font-size:.82rem;font-weight:800;white-space:nowrap}
 .pvv-cartouche--alerte{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
 .pvv-cartouche--refus{background:var(--color-svv-red);color:var(--color-svv-surface)}

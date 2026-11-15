@@ -767,6 +767,20 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
     for (const m of auxLocataires) { expect(m.texte).not.toContain('mère du locataire'); expect(m.texte).not.toContain('Notes de présence'); }
     for (const m of mails) expect(m.texte.startsWith('En présence de Mme Léa Martin.\n')).toBe(true);
   });
+  it('🔴 (15/11/2026) le RÉCAPITULATIF par famille : l’interne d’abord, UN mail par locataire à son nom, les pièces de chaque mail, la phrase et les notes internes rendues à part', async () => {
+    programmee(); avecAnnuaire(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]);
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, photos: [{ id: 71, legende: 'Rayure' }],
+      presences: { occupations: [11], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa', note: 'mère du locataire' }] } }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error(JSON.stringify(r));
+    expect(r.data.mails.map((m) => [m.famille, m.destinataire ?? null, m.a])).toEqual([
+      ['interne', null, INTERNES], ['locataire', 'Alice TEST', ['alice@exemple.test']], ['locataire', 'Bruno TEST', ['bruno@exemple.test']]]);
+    for (const m of r.data.mails) expect(m.pieces).toEqual(['Photo-1-rayure.jpg']);
+    expect(r.data.phrase).toBe('En présence de M. Alice TEST et de Mme Léa Martin.');
+    for (const m of r.data.mails) expect(m.texte.startsWith(`${r.data.phrase}\n`)).toBe(true);
+    expect(r.data.notesInternes).toEqual(['Mme Léa Martin — mère du locataire']);
+    // ni préavis de test, ni recette ici : aucune mention de remplacement
+    for (const m of r.data.mails) expect(m.recette).toBeUndefined();
+  });
   it('une seule personne : au singulier', async () => {
     programmee(); avecAnnuaire();
     const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [11], personnes: [] } }, AUTEUR);

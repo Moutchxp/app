@@ -13,6 +13,8 @@ import { dateFr, dateMinSortie, verifierSortie, type BailLogement } from '../../
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import type { EditionMail, Retouche, Retouches } from '../../../../lib/location/texteModifiable';
 import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from './TexteModifiableMail';
+import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
+import { familleDuMail } from '../../../../lib/location/famillesMails';
 
 /**
  * ══ 🔴🔴 LOCATION — LE PARCOURS « PRÉAVIS / SORTIE », UNE SEULE PASSE (Arno, 06/11/2026) ═══════════════════════════════════════════════════════
@@ -161,7 +163,7 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
 
   return (
     <div className="pss" data-parcours-preavis-sortie>
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_TEXTE_MODIFIABLE}</style>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_TEXTE_MODIFIABLE + CSS_FAMILLES_MAILS}</style>
       <div className="sor-deux-boutons" data-choix-geste>
         <button type="button" className="arc-gros sor-bascule" aria-pressed={geste === 'preavis'} disabled={!preavisDisponible || locataires.length === 0}
           title={!preavisDisponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
@@ -310,12 +312,13 @@ function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfi
           {fenetre.enGestion === false && <p className="mis-note pss-note-neutre" data-hors-gestion>Bien hors gestion : aucun mail aux partenaires —
             {geste === 'preavis' ? ' seulement aux locataires, avec les copies internes.' : ' seulement le compte rendu interne.'}</p>}
           {fenetre.mails.length === 0 && fenetre.motifMails === null && <p className="mis-note pss-note-neutre" data-aucun-mail-prevu>{AUCUN_MAIL_PREVU}</p>}
-          {fenetre.mails.length > 0 && <><p className="pss-sous-titre">Les mails qui partiront :</p>
-            <ul className="cev-mails" data-mails-prevus>{fenetre.mails.map((m, i) => (
-              <li key={`${i}-${m.sorte}`} className="cev-mail" data-mail-prevu={m.sorte}>
-                <p className="cev-mail-titre">{libelleMail(m)}</p>
-                <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataires</dt><dd data-a>{m.a.join(', ') || '—'}</dd>
-                  <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd></dl>
+          {/* 🔴 Arno (15/11/2026) — le récapitulatif mêlait locataires, copies internes et partenaires sans le dire : chaque carte porte
+              l'ÉTIQUETTE de sa famille et sa couleur, avec le rappel des comptes. L'ORDRE reste celui d'avant (décision d'Arno du 06/11/2026 : le
+              mail de départ aux locataires en tête). */}
+          {fenetre.mails.length > 0 && (() => { const cartes = fenetre.mails.map((m) => ({ ...m, famille: familleDuMail(m) })); return <><p className="pss-sous-titre">Les mails qui partiront :</p>
+            <RappelFamilles mails={cartes} />
+            <ul className="cev-mails" data-mails-prevus>{cartes.map((m, i) => (
+              <CarteMailFamille key={`${i}-${m.sorte}`} famille={m.famille} sorte={m.sorte} titre={libelleMail(m)} objet={m.objet} a={m.a} cc={m.cc}>
                 {/* 🔴 Arno (06/11/2026) — le texte INTÉGRAL, tel que le serveur l'enverra, DÉPLIÉ par défaut ; « Masquer le texte » le replie. */}
                 {m.texte !== undefined && <TexteDuMail key={m.texte} texte={m.texte} ouvert />}
                 {/* 🔴 Arno (10/11/2026) — « Modifier le texte » sous chaque mail à texte fixe ; « Texte modifié » quand il l'a été. */}
@@ -324,7 +327,7 @@ function FenetreParcours({ geste, fenetre, noms, sort, dates, onRevenir, onConfi
                     plusieurs={(fenetre.mails ?? []).filter((x) => x.edition?.cle === m.edition?.cle).length > 1}
                     onAppliquer={(r) => onAppliquerTexte(m.edition!.cle, r)} />
                 )}
-              </li>))}</ul></>}
+              </CarteMailFamille>))}</ul></>; })()}
           {fenetre.refusTexte && <p className="cev-alerte" role="alert" data-refus-texte-serveur>Le texte modifié est refusé : {fenetre.refusTexte}</p>}
           {fenetre.sansEmail.map((n) => <p key={n} className="mis-note" data-sans-email>⚠ {n} : {MENTION_SANS_EMAIL}</p>)}
         </>}

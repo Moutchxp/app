@@ -13,6 +13,8 @@ import { adressesUniques, copiesAvis, prenomNom } from './mailsPreavisSortie';
 import { locatairesAvis, logementDe, mailsAvisDisponibles, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
 import type { LignePreavisAccueil } from './preavis';
 import { cheminCompteRendu, cheminRetourPrevisite } from './cheminCompteRendu';
+import type { FamilleMail } from './famillesMails';
+import { mentionRecetteCourante } from './mentionRecetteMail';
 import {
   NOM_FICHIER_ICS, debutDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
   copieInterneLocataires, mailRdvLocataire, paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
@@ -261,4 +263,20 @@ export const recapitulatifMission = (c: Pick<Contexte, 'adresse' | 'locataires'>
 
 export interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null;
   /** 🔴 Arno (10/11/2026, texte modifiable) — les parties, pour « Modifier le texte » ; `modifie` : le texte a été modifié. */
-  edition?: import('./texteModifiable').EditionMail; modifie?: boolean }
+  edition?: import('./texteModifiable').EditionMail; modifie?: boolean;
+  /** 🔴 Arno (15/11/2026) — la FAMILLE du mail (étiquette et couleur de la carte), le ou les locataires destinataires (nom), les pièces jointes
+   *  de CE mail, et ce qui part vraiment en recette / pour un préavis de test (`recette`). */
+  famille?: FamilleMail; destinataire?: string; pieces?: string[]; recette?: string }
+
+/**
+ * 🔴 Arno (15/11/2026) — un mail prêt, tel que le récapitulatif le montre : sa famille, le nom du ou des locataires qu'il vise (une carte par
+ * locataire : chacun reçoit son propre mail), ses pièces jointes, la mention de recette. Les adresses des destinataires restent celles du mail.
+ */
+export function etiqueterApercu(m: MailApercu, famille: FamilleMail, c: Pick<Contexte, 'locataires'>, o: { pieces?: readonly string[] } = {}): MailApercu {
+  const dest = new Set(m.a.map((x) => x.trim().toLowerCase()));
+  const noms = famille === 'locataire'
+    ? c.locataires.filter((l) => adressesUniques(l.emails).some((x) => dest.has(x.trim().toLowerCase()))).map(prenomNom) : [];
+  const recette = mentionRecetteCourante(m, famille);
+  return { ...m, famille, ...(noms.length > 0 ? { destinataire: noms.join(', ') } : {}), ...(o.pieces && o.pieces.length > 0 ? { pieces: [...o.pieces] } : {}),
+    ...(recette !== null ? { recette } : {}) };
+}
