@@ -1,9 +1,9 @@
 /**
  * ══ 🔴🔴 Arno (15/11/2026) — LE TRI CHRONOLOGIQUE DES RENDEZ-VOUS de la liste des préavis ══════════════════════════════════════════════
  * Un bouton fait tourner trois états : « RDV : plus proches d'abord » (PAR DÉFAUT) → « RDV : plus lointains d'abord » → « Tri RDV
- * désactivé » (l'ordre des tris du panneau) → retour au premier. La date d'une ligne = son PROCHAIN rendez-vous à venir (pré-visite fixée ou
- * effectuée, état des lieux planifié — le plus proche dans le futur), à défaut le DERNIER passé. AUCUNE ligne n'est exclue : celles sans
- * rendez-vous fixé (en préavis, refus, en attente) viennent APRÈS, dans l'ordre des tris du panneau, sous « Sans rendez-vous fixé (n) ».
+ * désactivé » (l'ordre des tris du panneau) → retour au premier. 🔴 (16/11/2026) La date d'une ligne = le rendez-vous de SON STATUT
+ * (« RDV pré-visite fixé » ou « RDV état des lieux fixé » seulement), même dépassé. AUCUNE ligne n'est exclue : toutes les autres (en
+ * préavis, refus, pré-visite effectuée) viennent APRÈS, par fin de préavis la plus proche, sous « Sans rendez-vous fixé (n) ».
  * Actif, il prime sur les tris du panneau. PUR, sans import.
  */
 export type ModeTriRdv = 'proches' | 'lointains' | 'off';
@@ -16,45 +16,53 @@ export const LIBELLE_TRI_RDV: Record<ModeTriRdv, string> = {
 export const modeTriRdvSuivant = (m: ModeTriRdv): ModeTriRdv => (m === 'proches' ? 'lointains' : m === 'lointains' ? 'off' : 'proches');
 export const estModeTriRdv = (x: unknown): x is ModeTriRdv => x === 'proches' || x === 'lointains' || x === 'off';
 
-/** Ce qu'il faut d'une ligne : le rendez-vous de sa pré-visite (s'il tient encore) et son état des lieux planifié. */
+/** Ce qu'il faut d'une ligne : le rendez-vous de sa pré-visite (s'il tient encore), son état des lieux planifié, sa fin de préavis. */
 export interface LigneRdv {
   previsite?: { statut: string; rdv?: { jour: string; heure: string | null } | null; collegues?: readonly { libelle: string; statut: string | null }[] } | null;
   edls?: { jour: string; heure: string | null; confieA?: string | null; statut?: string | null } | null;
+  /** la fin de préavis (AAAA-MM-JJ) : l'ordre des lignes SANS rendez-vous fixé */
+  dateMax?: string | null;
 }
 
-/** Les rendez-vous qui TIENNENT d'une ligne (« AAAA-MM-JJ HH:MM ») : la pré-visite fixée ou effectuée, l'état des lieux planifié. PUR. */
-export function rendezVousDeLigne(l: LigneRdv): string[] {
-  const r: string[] = [];
+/* ══ 🔴🔴 Arno (16/11/2026, correctif constaté en production) — LE RENDEZ-VOUS DU STATUT ════════════════════════════════════════════════
+ * Seules les lignes « RDV pré-visite fixé » et « RDV état des lieux fixé » ont un rendez-vous fixé : sa date est celle du rendez-vous de CE
+ * statut (l'état des lieux planifié l'emporte, comme dans le statut de la ligne). Une pré-visite EFFECTUÉE n'est plus un rendez-vous fixé :
+ * la ligne va sous « Sans rendez-vous fixé ». Un rendez-vous dont la date est passée sans que l'étape soit faite reste fixé, avec la mention
+ * rouge « date dépassée — compte rendu à faire » (pré-visite) ou « date dépassée — sortie à valider » (état des lieux). */
+export interface RdvDuStatut { sorte: 'previsite' | 'edl'; jour: string; heure: string | null; quand: string }
+export const MENTION_DATE_DEPASSEE: Record<'previsite' | 'edl', string> = {
+  previsite: 'date dépassée — compte rendu à faire',
+  edl: 'date dépassée — sortie à valider',
+};
+const quandDe = (jour: string, heure: string | null | undefined): string => `${jour} ${(heure || '00:00').slice(0, 5)}`;
+/** Le rendez-vous FIXÉ de la ligne (celui de son statut), ou null. PUR. */
+export function rdvDuStatut(l: LigneRdv): RdvDuStatut | null {
+  if (l.edls && l.edls.jour) return { sorte: 'edl', jour: l.edls.jour, heure: l.edls.heure, quand: quandDe(l.edls.jour, l.edls.heure) };
   const p = l.previsite;
-  if (p && (p.statut === 'programmee' || p.statut === 'effectuee') && p.rdv && p.rdv.jour) r.push(`${p.rdv.jour} ${(p.rdv.heure || '00:00').slice(0, 5)}`);
-  if (l.edls && l.edls.jour) r.push(`${l.edls.jour} ${(l.edls.heure || '00:00').slice(0, 5)}`);
-  return r;
+  if (p && p.statut === 'programmee' && p.rdv && p.rdv.jour) return { sorte: 'previsite', jour: p.rdv.jour, heure: p.rdv.heure, quand: quandDe(p.rdv.jour, p.rdv.heure) };
+  return null;
 }
-
-/** La date retenue : le prochain rendez-vous à venir, à défaut le dernier passé ; null : aucun rendez-vous fixé. PUR. */
-export function dateRdvDeLigne(l: LigneRdv, maintenant: string): { quand: string; aVenir: boolean } | null {
-  const r = rendezVousDeLigne(l);
-  if (r.length === 0) return null;
-  const futurs = r.filter((x) => x >= maintenant).sort();
-  if (futurs.length > 0) return { quand: futurs[0], aVenir: true };
-  return { quand: [...r].sort().at(-1)!, aVenir: false };
-}
+/** La date est-elle dépassée (étape pas faite) ? PUR. */
+export const rdvDepasse = (r: RdvDuStatut, maintenant: string): boolean => r.quand < maintenant;
 
 /**
- * L'ordre chronologique : les lignes AVEC rendez-vous (« plus proches » : à venir du plus proche au plus lointain, puis passés du plus
- * récent au plus ancien ; « plus lointains » : l'inverse exact), puis les lignes SANS rendez-vous dans l'ordre reçu (celui du panneau).
- * Aucune ligne perdue ; à égalité, l'ordre reçu. PUR.
+ * L'ordre chronologique. « Rendez-vous fixés » (statuts « RDV pré-visite fixé » et « RDV état des lieux fixé » seulement), par la date de
+ * ce rendez-vous : « plus proches » = du plus ancien au plus lointain (un rendez-vous DÉPASSÉ vient donc EN TÊTE) ; « plus lointains » :
+ * l'inverse. Puis « Sans rendez-vous fixé » (toutes les autres lignes), par fin de préavis la plus proche (sans date : à la fin). Aucune
+ * ligne perdue ; à égalité, l'ordre reçu. PUR.
  */
-export function ordonnerParRdv<T extends LigneRdv>(lignes: readonly T[], mode: Exclude<ModeTriRdv, 'off'>, maintenant: string): { avecRdv: T[]; sansRdv: T[] } {
-  const avec: { l: T; i: number; d: { quand: string; aVenir: boolean } }[] = [];
-  const sansRdv: T[] = [];
-  lignes.forEach((l, i) => { const d = dateRdvDeLigne(l, maintenant); if (d === null) sansRdv.push(l); else avec.push({ l, i, d }); });
-  const proches = [...avec].sort((a, b) => {
-    if (a.d.aVenir !== b.d.aVenir) return a.d.aVenir ? -1 : 1;
-    const c = a.d.aVenir ? a.d.quand.localeCompare(b.d.quand) : b.d.quand.localeCompare(a.d.quand);
-    return c !== 0 ? c : a.i - b.i;
+export function ordonnerParRdv<T extends LigneRdv>(lignes: readonly T[], mode: Exclude<ModeTriRdv, 'off'>): { avecRdv: T[]; sansRdv: T[] } {
+  const avec: { l: T; i: number; quand: string }[] = [];
+  const sans: { l: T; i: number }[] = [];
+  lignes.forEach((l, i) => { const r = rdvDuStatut(l); if (r === null) sans.push({ l, i }); else avec.push({ l, i, quand: r.quand }); });
+  const sens = mode === 'proches' ? 1 : -1;
+  const avecRdv = avec.sort((a, b) => sens * a.quand.localeCompare(b.quand) || a.i - b.i).map((x) => x.l);
+  const sansRdv = sans.sort((a, b) => {
+    const x = a.l.dateMax ?? null; const y = b.l.dateMax ?? null;
+    if (x !== y) { if (x === null) return 1; if (y === null) return -1; return x.localeCompare(y); }
+    return a.i - b.i;
   }).map((x) => x.l);
-  return { avecRdv: mode === 'proches' ? proches : proches.reverse(), sansRdv };
+  return { avecRdv, sansRdv };
 }
 
 /** « AAAA-MM-JJ HH:MM » à Paris (le moment présent, comparé aux rendez-vous). */
@@ -65,10 +73,10 @@ export function maintenantParis(d: Date = new Date()): string {
 }
 
 /* ══ 🔴🔴 Arno (15/11/2026) — LA COLONNE « RENDEZ-VOUS » du listing (même place sur toutes les lignes) ═══════════════════════════════════
-   Le rendez-vous FIXÉ de la ligne, mis en évidence avec son type : « Pré-visite · sam. 15/11 · 00h16 » (pré-visite fixée) ou « État des lieux
-   · mer. 18/11 · 11h30 » (état des lieux planifié) — le prochain à venir, à défaut le dernier passé ; sans rendez-vous : « Pré-visite effectuée
-   le JJ/MM » (pré-visite faite, pas encore d'état des lieux), sinon « — Aucun RDV fixé ». */
-export type ColonneRdv = { sorte: 'previsite' | 'edl'; texte: string; quand: string } | { sorte: 'effectuee' | 'aucun'; texte: string };
+   Le rendez-vous FIXÉ de la ligne (celui de son statut), mis en évidence avec son type : « Pré-visite · dim. 15/11 · 00h16 » ou « État des
+   lieux · mer. 18/11 · 11h30 » ; 🔴 (16/11/2026) sa date passée sans que l'étape soit faite : la mention rouge « date dépassée — … » ;
+   sans rendez-vous : « Pré-visite effectuée le JJ/MM » (pré-visite faite, pas encore d'état des lieux), sinon « — Aucun RDV fixé ». */
+export type ColonneRdv = { sorte: 'previsite' | 'edl'; texte: string; quand: string; depassee: string | null } | { sorte: 'effectuee' | 'aucun'; texte: string };
 export const AUCUN_RDV_FIXE = '— Aucun RDV fixé';
 const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
 /** « sam. 15/11 » (le jour civil, sans fuseau). PUR. */
@@ -80,15 +88,10 @@ export function jourCourt(jour: string): string {
 const heureCourte = (h: string | null | undefined): string => { const [hh, mm] = (h || '00:00').split(':'); return `${hh.padStart(2, '0')}h${(mm ?? '00').padStart(2, '0')}`; };
 /** La colonne « rendez-vous » d'une ligne. PUR. */
 export function colonneRdv(l: LigneRdv, maintenant: string): ColonneRdv {
-  const c: { sorte: 'previsite' | 'edl'; jour: string; heure: string | null; quand: string }[] = [];
+  const r = rdvDuStatut(l);
+  if (r !== null) return { sorte: r.sorte, quand: r.quand, texte: `${r.sorte === 'edl' ? 'État des lieux' : 'Pré-visite'} · ${jourCourt(r.jour)} · ${heureCourte(r.heure)}`,
+    depassee: rdvDepasse(r, maintenant) ? MENTION_DATE_DEPASSEE[r.sorte] : null };
   const p = l.previsite;
-  if (p && p.statut === 'programmee' && p.rdv && p.rdv.jour) c.push({ sorte: 'previsite', jour: p.rdv.jour, heure: p.rdv.heure, quand: `${p.rdv.jour} ${(p.rdv.heure || '00:00').slice(0, 5)}` });
-  if (l.edls && l.edls.jour) c.push({ sorte: 'edl', jour: l.edls.jour, heure: l.edls.heure, quand: `${l.edls.jour} ${(l.edls.heure || '00:00').slice(0, 5)}` });
-  if (c.length > 0) {
-    const futurs = c.filter((x) => x.quand >= maintenant).sort((a, b) => a.quand.localeCompare(b.quand));
-    const x = futurs[0] ?? [...c].sort((a, b) => a.quand.localeCompare(b.quand)).at(-1)!;
-    return { sorte: x.sorte, quand: x.quand, texte: `${x.sorte === 'edl' ? 'État des lieux' : 'Pré-visite'} · ${jourCourt(x.jour)} · ${heureCourte(x.heure)}` };
-  }
   if (p && p.statut === 'effectuee' && p.rdv && p.rdv.jour) return { sorte: 'effectuee', texte: `Pré-visite effectuée le ${jourCourt(p.rdv.jour).slice(5)}` };
   return { sorte: 'aucun', texte: AUCUN_RDV_FIXE };
 }

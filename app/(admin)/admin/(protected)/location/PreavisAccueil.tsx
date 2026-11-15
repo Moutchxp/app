@@ -185,8 +185,9 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
       onClick={() => setTrisOuverts((o) => !o)} data-ouvrir-tris>
       <Icone nom="tris" />{triNonStandard && <span className="pva-tris-pastille" aria-label="Un tri non standard est actif" data-tri-actif />}</button>
   );
-  // la liste affichée : chronologique (lignes avec rendez-vous, puis « Sans rendez-vous fixé (n) »), ou l'ordre des tris du panneau
-  const ordreRdv = triRdv === 'off' ? null : ordonnerParRdv(lignes, triRdv, maintenantParis());
+  // la liste affichée : chronologique (🔴 16/11/2026 : les lignes « RDV … fixé » seulement, puis « Sans rendez-vous fixé (n) » par fin de
+  // préavis), ou l'ordre des tris du panneau
+  const ordreRdv = triRdv === 'off' ? null : ordonnerParRdv(lignes, triRdv);
   const affichage: (LignePreavisAccueil | { separateur: number })[] = ordreRdv === null ? lignes
     : [...ordreRdv.avecRdv, ...(ordreRdv.sansRdv.length > 0 ? [{ separateur: ordreRdv.sansRdv.length }] : []), ...ordreRdv.sansRdv];
   return (
@@ -296,7 +297,10 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                         </span>
                         <span className="pva-l2">
                           <span className="pva-col-fin" data-col-fin>{fin}</span>
-                          <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{rdv.texte}</span>
+                          <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>
+                            <span className="pva-rdv-date">{rdv.texte}</span>
+                            {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
+                            {'depassee' in rdv && rdv.depassee !== null && <span className="pva-rdv-depassee" data-rdv-depassee={rdv.sorte}>{rdv.depassee}</span>}</span>
                           <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{mission && <>
                             <span className="pva-confie" title={`confié à ${mission.qui}`}>confié à {mission.qui}</span>
                             <span className={`pva-etat-mission pva-etat-mission--${mission.etat}`} data-etat-mission={mission.etat}>{LIBELLE_ETAT_MISSION[mission.etat]}</span></>}</span>
@@ -718,7 +722,9 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-etat-mission--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .pva-col-fin,.pva-col-rdv,.pva-col-details{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pva-col-fin{color:var(--color-svv-muted)}
-.pva-col-rdv{font-weight:800}
+.pva-col-rdv{font-weight:800;display:flex;flex-direction:column;justify-content:center}
+.pva-rdv-date,.pva-rdv-depassee{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pva-rdv-depassee{font-size:.72rem;line-height:1.1;font-weight:700;color:var(--color-svv-red)}
 .pva-col-rdv--previsite{color:var(--color-svv-sarcelle)}
 .pva-col-rdv--edl{color:var(--color-svv-violet)}
 .pva-col-rdv--effectuee,.pva-col-rdv--aucun{color:var(--color-svv-muted);font-weight:600}
@@ -737,7 +743,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-liens a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-ink);font-weight:600;text-decoration:underline}
 .sor-gestion-seule-texte{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 @media (max-width:760px){
-  .pva-ligne{height:9.5rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
+  /* 🔴 (16/11/2026) 10,5 rem : la place de la mention « date dépassée — … » sous la date, sur toutes les lignes (hauteur constante) */
+  .pva-ligne{height:10.5rem;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto}
   /* telephone : ligne 1 nom + adresse ; puis la date du rendez-vous en premier (toujours a gauche, meme style), la fin de preavis dessous ;
      les details restent dans l'infobulle de la ligne ; aucun debordement horizontal */
   .pva-l2{grid-template-columns:minmax(0,1fr);row-gap:2px}

@@ -181,7 +181,7 @@ describe('les lignes', () => {
     const regle = (sel: string, css: string): string => new RegExp(`${sel.replace('.', '\\.')}\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
     const [bureau, mobile] = CSS_PREAVIS_ACCUEIL.split('@media');
     expect(regle('.pva-ligne', bureau)).toMatch(/(^|;)height:4\.75rem/);
-    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:9\.5rem/);
+    expect(regle('.pva-ligne', mobile)).toMatch(/(^|;)height:10\.5rem/); // 🔴 (16/11/2026) la place de la mention « date dépassée — … »
     expect(CSS_PREAVIS_ACCUEIL).not.toMatch(/\.pva-ligne\{[^}]*min-height/);
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-noms,\.pva-detail\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
     // les colonnes FIXES, communes à tout le listing : une seule règle de grille, des largeurs fixes (pas de largeur calculée par ligne)
@@ -3093,7 +3093,33 @@ describe('🔴🔴 Arno (15/11/2026) — le listing sur DEUX lignes, colonnes fi
     await rendre(true);
     const b = container.querySelector('[data-tri-rdv]') as HTMLButtonElement;
     expect([b.getAttribute('data-tri-rdv'), b.textContent]).toEqual(['proches', 'RDV : plus proches d’abord']);
-    expect(ordre()).toEqual(['C', 'A', 'B']);
+    // 🔴 (16/11/2026) C se classe par son état des lieux (statut « RDV état des lieux fixé »), plus par sa pré-visite effectuée ; B (pré-visite
+    // effectuée) n'a plus de rendez-vous fixé : sous le séparateur
+    expect(ordre()).toEqual(['A', 'C', 'B']);
+    expect(container.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (1)');
+  });
+  it('🔴🔴 (16/11/2026, constaté en production) pré-visite effectuée → « Sans rendez-vous fixé » ; un RDV DÉPASSÉ (étape pas faite) EN TÊTE avec sa mention rouge ; plus lointains : l’inverse ; aucune ligne perdue', async () => {
+    lignes = [
+      { ...LIGNES[0], previsite: PV('effectuee', '2020-01-10') }, // le cas MAGNANI : aucun RDV à venir
+      { ...LIGNES[1], previsite: PV('programmee', '2020-01-14', '09:30') }, // le cas FAYET : pré-visite passée, sans compte rendu
+      { ...LIGNES[2], previsite: PV('effectuee', '2020-01-05'), edls: EDLS },
+    ];
+    await rendre(true);
+    expect(ordre()).toEqual(['B', 'C', 'A']);
+    expect(container.querySelector('[data-separateur-sans-rdv]')!.textContent).toBe('Sans rendez-vous fixé (1)');
+    const sep = container.querySelector('[data-separateur-sans-rdv]')!;
+    expect(sep.compareDocumentPosition(container.querySelector('[data-ligne-preavis="A"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const m = container.querySelector('[data-ligne-preavis="B"] [data-rdv-depassee]')!;
+    expect([m.getAttribute('data-rdv-depassee'), m.textContent, m.className]).toEqual(['previsite', 'date dépassée — compte rendu à faire', 'pva-rdv-depassee']);
+    expect(m.closest('[data-col-rdv]')!.querySelector('.pva-rdv-date')!.textContent).toBe('Pré-visite · mar. 14/01 · 09h30');
+    expect(container.querySelector('[data-ligne-preavis="C"] [data-rdv-depassee]')).toBeNull(); // état des lieux à venir
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pva-rdv-depassee{font-size:.72rem;line-height:1.1;font-weight:700;color:var(--color-svv-red)}');
+    act(() => (container.querySelector('[data-tri-rdv]') as HTMLButtonElement).click()); await attendre();
+    expect(ordre()).toEqual(['C', 'B', 'A']); // plus lointains : l'état des lieux de 2099, puis le RDV dépassé ; le groupe sans RDV inchangé
+    act(() => (container.querySelector('[data-tri-rdv]') as HTMLButtonElement).click()); await attendre();
+    expect(container.querySelector('[data-separateur-sans-rdv]')).toBeNull(); // désactivé : ordre du panneau, sans séparateur
+    expect(ordre().sort()).toEqual(['A', 'B', 'C']);
   });
 });
 
