@@ -202,8 +202,10 @@ describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vo
       : { envois: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], envoye: true, motif: null }], statut: 'effectuee' });
     await rendre();
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
-    // 🔴 Arno (15/11/2026) — le bouton est un LIEN vers la PAGE du compte rendu (jsdom ne navigue pas : la page est rendue à la place)
-    expect(container.querySelector('[data-compte-rendu-previsite]')?.getAttribute('href')).toBe('/admin/location/previsite/31/compte-rendu');
+    // 🔴 Arno (15/11/2026, 9e retour) — le bouton ouvre la fenêtre du compte rendu ; « Continuer la saisie » y est un LIEN vers la PAGE
+    // (jsdom ne navigue pas : la page est rendue à la place)
+    await clic(container.querySelector('[data-compte-rendu-previsite]'));
+    expect(document.querySelector('[data-continuer-saisie]')?.getAttribute('href')).toBe('/admin/location/previsite/31/compte-rendu');
     const retours: string[] = [];
     naviguerRetour.vers = (url: string) => { retours.push(url); window.history.replaceState(null, '', url); };
     act(() => root.unmount()); root = createRoot(container);

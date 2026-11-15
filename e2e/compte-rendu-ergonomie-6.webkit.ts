@@ -30,7 +30,16 @@ async function preparer(page: Page, theme: 'light' | 'dark'): Promise<{ apercus:
       mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
       constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? 'audio/mp4'; }
       start() { this.state = 'recording'; }
-      stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); setTimeout(() => this.onstop?.(), 0); }
+      // 🔴 (9e retour) un VRAI son (WAV, 2 s, un « la ») : le lecteur unique le joue réellement — un faux fichier de 3 octets échouait à la lecture
+      stop() {
+        this.state = 'inactive';
+        const n = 16_000 * 2; const o = new DataView(new ArrayBuffer(44 + n * 2));
+        const ec = (i: number, x: string) => { for (let k = 0; k < x.length; k++) o.setUint8(i + k, x.charCodeAt(k)); };
+        ec(0, 'RIFF'); o.setUint32(4, 36 + n * 2, true); ec(8, 'WAVE'); ec(12, 'fmt '); o.setUint32(16, 16, true); o.setUint16(20, 1, true); o.setUint16(22, 1, true);
+        o.setUint32(24, 16_000, true); o.setUint32(28, 32_000, true); o.setUint16(32, 2, true); o.setUint16(34, 16, true); ec(36, 'data'); o.setUint32(40, n * 2, true);
+        for (let i = 0; i < n; i++) o.setInt16(44 + i * 2, Math.round(Math.sin((2 * Math.PI * 440 * i) / 16_000) * 0.3 * 0x7fff), true);
+        this.ondataavailable?.({ data: new Blob([o.buffer], { type: 'audio/mp4' }) }); setTimeout(() => this.onstop?.(), 0);
+      }
     }
     (window as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });

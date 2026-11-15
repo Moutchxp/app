@@ -88,14 +88,18 @@ for (const theme of ['light', 'dark'] as const) {
     expect(erreurs).toEqual([]);
   });
 
-  test(`[${theme}] « Annuler » et « ← Retour » : la Location, le bon préavis déplié ; le bouton de la frise ouvre la page`, async ({ page }) => {
+  test(`[${theme}] « Annuler » et « ← Retour » : la Location, le bon préavis déplié ; le bouton de la frise ouvre la fenêtre, « Continuer la saisie » la page`, async ({ page }) => {
     const erreurs = await preparer(page, theme);
     await page.goto(`${BASE}/admin/location?previsite=${OCC}`);
-    const lien = page.locator('[data-ligne-depliee] a[data-compte-rendu-previsite]');
-    await expect(lien).toBeVisible({ timeout: 30_000 });
-    expect(await lien.getAttribute('href')).toBe(PAGE_CR);
+    // 🔴 (9e retour) le bouton de la frise ouvre la FENÊTRE du compte rendu ; « Continuer la saisie » (un lien) y mène à la page
+    const bouton = page.locator('[data-ligne-depliee] [data-compte-rendu-previsite]');
+    await expect(bouton).toBeVisible({ timeout: 30_000 });
     const cle = await page.locator('[data-ligne-depliee]').getAttribute('data-ligne-depliee');
     await capturer(page, `${theme}-04-location-frise`);
+    await bouton.tap();
+    const lien = page.locator('[data-fenetre-compte-rendu="brouillon"] a[data-continuer-saisie]');
+    await expect(lien).toBeVisible({ timeout: 20_000 });
+    expect(await lien.getAttribute('href')).toBe(PAGE_CR);
     await lien.tap();
     await expect(formulaire(page)).toBeVisible({ timeout: 30_000 });
     expect(new URL(page.url()).pathname).toBe(PAGE_CR);
@@ -107,7 +111,8 @@ for (const theme of ['light', 'dark'] as const) {
     expect(new URL(page.url()).pathname).toBe('/admin/location');
     await expect(page.locator('[data-fenetre-previsite]')).toHaveCount(0);
     // « ← Retour » de la page : même retour
-    await page.locator('[data-ligne-depliee] a[data-compte-rendu-previsite]').tap();
+    await page.locator('[data-ligne-depliee] [data-compte-rendu-previsite]').tap();
+    await page.locator('[data-fenetre-compte-rendu="brouillon"] a[data-continuer-saisie]').tap();
     await expect(formulaire(page)).toBeVisible({ timeout: 30_000 });
     await capturer(page, `${theme}-05-page-retour`);
     await page.locator('[data-page-compte-rendu] a[data-retour-lien]').tap();

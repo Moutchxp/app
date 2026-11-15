@@ -138,7 +138,10 @@ let retours: string[] = [];
 beforeEach(() => { retours = []; naviguerRetour.vers = (url: string) => { retours.push(url); window.history.replaceState(null, '', url); }; });
 afterEach(() => { try { window.sessionStorage.clear(); } catch { /* rien */ } window.history.replaceState(null, '', '/'); });
 async function suivreLienCr(): Promise<void> {
-  const a = container.querySelector('a[data-compte-rendu-previsite]') as HTMLAnchorElement;
+  // 🔴 (9e retour) le bouton de la frise ouvre la FENÊTRE du compte rendu ; « Continuer la saisie » y mène à la PAGE du formulaire
+  act(() => (container.querySelector('button[data-compte-rendu-previsite]') as HTMLButtonElement).click());
+  await attendre();
+  const a = document.querySelector('a[data-continuer-saisie]') as HTMLAnchorElement;
   const occ = Number(/\/admin\/location\/previsite\/(\d+)\/compte-rendu$/.exec(a.getAttribute('href') ?? '')![1]);
   act(() => root.unmount()); root = createRoot(container);
   window.history.replaceState(null, '', a.getAttribute('href'));
@@ -1085,16 +1088,19 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     expect(page).toContain('const cible = redirectionAncienLien(await searchParams);');
     expect(page.indexOf('redirect(cible)')).toBeLessThan(page.indexOf('accesLocation()'));
   });
-  it('la Location n’ouvre plus le formulaire en fenêtre, même avec l’ancien paramètre ; le bouton de la frise est un LIEN vers la page', async () => {
+  it('la Location n’ouvre plus le formulaire en fenêtre, même avec l’ancien paramètre ; 🔴 (9e retour) le bouton de la frise ouvre la fenêtre du compte rendu, dont « Continuer la saisie » est un LIEN vers la page', async () => {
     programmeeCommencee();
     window.history.replaceState(null, '', '/admin/location?previsite=11&geste=compte-rendu');
     await rendre(true); await attendre(); await attendre();
     expect(container.querySelector('[data-ligne-depliee="C"]')).not.toBeNull();
     expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
-    const a = container.querySelector('[data-ligne-depliee="C"] [data-compte-rendu-previsite]') as HTMLAnchorElement;
-    expect(a.tagName).toBe('A');
+    const b = container.querySelector('[data-ligne-depliee="C"] [data-compte-rendu-previsite]') as HTMLButtonElement;
+    expect([b.tagName, b.textContent]).toEqual(['BUTTON', 'Compte rendu pré-visite']);
+    act(() => b.click()); await attendre();
+    expect(document.querySelector('[data-fenetre-compte-rendu="brouillon"]')).not.toBeNull();
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    const a = document.querySelector('[data-fenetre-compte-rendu] a[data-continuer-saisie]') as HTMLAnchorElement;
     expect(a.getAttribute('href')).toBe('/admin/location/previsite/11/compte-rendu');
-    expect(a.textContent).toBe('Compte rendu pré-visite');
   });
   it('la PAGE : le formulaire seul — aucun élément de la Location (bloc des préavis, frise, ligne) ; « ← Retour » vers le bon préavis', async () => {
     programmeeCommencee();
@@ -1158,6 +1164,8 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     await act(async () => { r2.render(createElement(Sonde)); });
     expect(document.documentElement.style.backgroundColor).toBe('rgb(27, 35, 47)');
     expect(document.body.style.backgroundColor).toBe('rgb(27, 35, 47)');
+    // 🔴 (9e retour) la racine aussi, en ligne (plus de règle « :has() » sur <html>)
+    expect(racine.style.backgroundColor).toBe('rgb(27, 35, 47)');
     // le thème change (bouton clair / sombre) : la couleur est relue
     racine.style.setProperty('--color-svv-surface', '#ffffff');
     await act(async () => { racine.setAttribute('data-theme', 'light'); await Promise.resolve(); });
@@ -1165,15 +1173,16 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     await act(async () => { r2.unmount(); });
     expect(document.documentElement.style.backgroundColor).toBe('');
     expect(document.body.style.backgroundColor).toBe('');
+    expect(racine.style.backgroundColor).toBe('');
     racine.remove();
   });
   it('🔴 « 1 Issue » : Chrome sur iPhone pose `__gcruniqueid` sur le champ de recherche de la Location avant l’hydratation — React ne s’en plaint pas', () => {
     expect(readFileSync('app/(admin)/admin/(protected)/location/AccueilLocation.tsx', 'utf8')).toContain('<input suppressHydrationWarning value={texte}');
   });
-  it('🔴🔴 (15/11/2026) RÉCAPITULATIF PAR FAMILLE : étiquette et couleur, l’interne d’abord, UNE carte par locataire à son nom, pièces de chaque mail, mention de recette, notes internes dans la seule carte interne', async () => {
+  it('🔴🔴 (15/11/2026) RÉCAPITULATIF PAR FAMILLE : étiquette et couleur, 🔴 (9e retour) les LOCATAIRES d’abord puis l’interne, UNE carte par locataire à son nom, pièces de chaque mail, mention de recette, notes internes dans la seule carte interne', async () => {
     const PHRASE = 'En présence de Alice BERNARD.';
     const APERCU = { phrase: PHRASE, sansEmail: [], notesInternes: ['Mme Léa Martin — mère du locataire'], mails: [
-      // le serveur peut les rendre dans n'importe quel ordre : l'écran met l'interne d'abord
+      // le serveur peut les rendre dans n'importe quel ordre : l'écran met les locataires d'abord (9e retour)
       { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['alice@exemple.test'], cc: [], texte: `${PHRASE}\n\nLogement propre.`, famille: 'locataire', destinataire: 'Alice BERNARD',
         pieces: ['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a'], recette: 'Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.' },
       { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['arno@exemple.test', 'claire@exemple.test'], cc: [], texte: `${PHRASE}\n\nLogement propre.\n\nNotes de présence (internes)`, famille: 'interne',
@@ -1192,19 +1201,19 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     await act(async () => { (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click(); }); await attendre();
     const cartes = [...document.querySelectorAll('[data-famille-mail]')];
     expect(cartes.map((c) => [c.getAttribute('data-famille-mail'), c.querySelector('[data-etiquette-famille]')!.textContent])).toEqual([
-      ['interne', 'MAIL INTERNE À L’AGENCE'], ['locataire', 'MAIL AUX LOCATAIRES'], ['locataire', 'MAIL AUX LOCATAIRES']]);
-    expect(cartes.map((c) => c.className)).toEqual(['cev-mail mfa-carte mfa-carte--interne', 'cev-mail mfa-carte mfa-carte--locataire', 'cev-mail mfa-carte mfa-carte--locataire']);
-    expect(document.querySelector('[data-rappel-familles]')!.textContent).toBe('1 mail interne · 2 mails locataires');
+      ['locataire', 'MAIL AUX LOCATAIRES'], ['locataire', 'MAIL AUX LOCATAIRES'], ['interne', 'MAIL INTERNE À L’AGENCE']]);
+    expect(cartes.map((c) => c.className)).toEqual(['cev-mail mfa-carte mfa-carte--locataire', 'cev-mail mfa-carte mfa-carte--locataire', 'cev-mail mfa-carte mfa-carte--interne']);
+    expect(document.querySelector('[data-rappel-familles]')!.textContent).toBe('2 mails locataires · 1 mail interne');
     // une carte par locataire, à son nom ; la carte interne : les collaborateurs destinataires
-    expect(cartes.slice(1).map((c) => c.querySelector('[data-destinataire-famille]')!.textContent)).toEqual(['Destinataire : Alice BERNARD', 'Destinataire : Paul BERNARD']);
-    expect([...cartes[0].querySelectorAll('[data-collaborateurs-destinataires] li')].map((x) => x.textContent)).toEqual(['arno@exemple.test', 'claire@exemple.test']);
+    expect(cartes.slice(0, 2).map((c) => c.querySelector('[data-destinataire-famille]')!.textContent)).toEqual(['Destinataire : Alice BERNARD', 'Destinataire : Paul BERNARD']);
+    expect([...cartes[2].querySelectorAll('[data-collaborateurs-destinataires] li')].map((x) => x.textContent)).toEqual(['arno@exemple.test', 'claire@exemple.test']);
     // la mention de recette, sur la seule carte concernée
-    expect(cartes[1].querySelector('[data-recette-remplacement]')!.textContent).toBe('Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.');
-    expect(cartes[2].querySelector('[data-recette-remplacement]')).toBeNull();
+    expect(cartes[0].querySelector('[data-recette-remplacement]')!.textContent).toBe('Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.');
+    expect(cartes[1].querySelector('[data-recette-remplacement]')).toBeNull();
     // les pièces jointes de chaque mail ; les notes de présence internes dans la SEULE carte interne
-    expect([...cartes[1].querySelectorAll('[data-piece-jointe]')].map((x) => x.textContent)).toEqual(['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a']);
-    expect(cartes[0].querySelector('[data-notes-internes-carte]')!.textContent).toContain('Mme Léa Martin — mère du locataire');
-    expect(cartes.slice(1).some((c) => c.querySelector('[data-notes-internes-carte]') !== null)).toBe(false);
+    expect([...cartes[0].querySelectorAll('[data-piece-jointe]')].map((x) => x.textContent)).toEqual(['Photo-1-cuisine.jpg', 'Vocal-1-cuisine.m4a']);
+    expect(cartes[2].querySelector('[data-notes-internes-carte]')!.textContent).toContain('Mme Léa Martin — mère du locataire');
+    expect(cartes.slice(0, 2).some((c) => c.querySelector('[data-notes-internes-carte]') !== null)).toBe(false);
     // la phrase de présence en tête du texte de chaque carte
     for (const c of cartes) expect(c.querySelector('[data-texte-mail]')!.textContent!.startsWith(PHRASE)).toBe(true);
     global.fetch = avant;
@@ -1849,7 +1858,10 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     const page = document.querySelector('.pvv-page-cr') as HTMLElement;
     expect(page.style.getPropertyValue('--pvv-clavier')).toBe('0px');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
-    expect(css).toContain('html:has(.pvv-page-cr),body:has(.pvv-page-cr),.svv-adm-root:has(.pvv-page-cr){background:var(--color-svv-surface)}');
+    // 🔴 (9e retour) plus AUCUNE règle « :has() » sur <html> / <body> / la racine (cause de la page blanche sur l'iPhone) : le fond y est posé en ligne
+    expect(css).not.toContain('html:has(.pvv-page-cr)');
+    expect(css).not.toContain('.svv-adm-root:has(.pvv-page-cr)');
+    expect(css).toContain('.pvv-page-cr{--pvv-clavier:0px;flex:1 0 auto;background:var(--color-svv-surface)');
     expect(css).toContain('padding-bottom:var(--pvv-clavier)');
     expect(css).toContain('.pvv-page{min-height:100dvh');
   });
@@ -2604,5 +2616,159 @@ describe('🔴🔴 Arno (15/11/2026, 8e retour) — Dictaphone : la DESTINATION 
     await maintenir(rond(), 900);
     expect(document.querySelector('[data-vocal="1"]')).toBeNull();
     expect(document.querySelector('[data-vocal-micro]')!.textContent).toBe(MESSAGE_PRISE_VIDE);
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, 9e retour) — « Écouter » sur l’iPhone, la fenêtre du compte rendu depuis la frise, la page jamais blanche', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let brouillonServeur: unknown = null; let lectureBrouillonRetenue: Promise<void> | null = null;
+  let joues: { el: HTMLMediaElement; src: string }[] = []; let pauses = 0; let temps = 0;
+  beforeEach(async () => {
+    (await import('../../../../lib/location/fileAttenteLocale')).oublierMemoireLocale();
+    (await import('./lecteurVocal')).oublierLecteur();
+    brouillonServeur = null; lectureBrouillonRetenue = null; joues = []; pauses = 0; temps = 0;
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => `blob:v-${Math.random()}`; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) { joues.push({ el: this, src: this.getAttribute('src') ?? this.src }); return Promise.resolve(); });
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => { pauses += 1; });
+    vi.spyOn(HTMLMediaElement.prototype, 'currentTime', 'get').mockImplementation(() => temps);
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (!init?.method && String(u).includes('previsiteBrouillon=')) {
+        if (lectureBrouillonRetenue) await lectureBrouillonRetenue;
+        return ok({ brouillon: brouillonServeur, enregistreLe: brouillonServeur ? '2026-11-15T13:05:00.000Z' : null });
+      }
+      if (init?.method === 'POST' && String(init.body).includes('"brouillon-previsite"')) return ok({ enregistreLe: '2026-11-15T13:06:00.000Z' });
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const patienter = async (cond: () => boolean) => { for (let k = 0; k < 80 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
+  const BROUILLON = { corps: 'Salon propre.', presents: [11], aussiLocataires: true, fichierActif: null,
+    ajoutees: [{ cle: 'p1', civilite: 'Madame', nom: 'Martin', prenom: 'Léa', present: true, note: 'mère du locataire' }],
+    photos: [{ id: 71, legende: 'Rayure parquet' }],
+    fichiers: [{ cle: 'f1', nom: 'Cuisine', locataires: true, prises: [{ id: 81, dureeS: 3 }, { id: 82, dureeS: 2 }] }, { cle: 'f2', nom: 'Salon', locataires: false, prises: [{ id: 83, dureeS: 4 }] }] };
+  const progression = () => document.querySelector('[data-lecture-progression]');
+
+  it('« Écouter » : la lecture démarre au PREMIER toucher, prises ENCHAÎNÉES, « Lecture… 00:01 / 00:05 » et la barre ; Pause garde la position ; UN SEUL vocal à la fois', async () => {
+    brouillonServeur = BROUILLON;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    await patienter(() => document.querySelectorAll('[data-vocal]').length === 2);
+    const ecouter = (n: number) => document.querySelector(`[data-vocal="${n}"] [data-vocal-ecouter]`) as HTMLButtonElement;
+    act(() => ecouter(1).click());
+    expect(joues.map((j) => j.src)).toEqual(['/api/admin/location/pieces-sortie?piece=81']);
+    expect([ecouter(1).getAttribute('data-en-lecture'), ecouter(1).textContent]).toEqual(['oui', ' Pause']);
+    expect(progression()!.textContent).toBe('Lecture… 00:00 / 00:05');
+    temps = 1.4; act(() => { joues[0].el.dispatchEvent(new Event('timeupdate')); });
+    expect(progression()!.querySelector('[data-lecture-texte]')!.textContent).toBe('Lecture… 00:01 / 00:05');
+    expect(progression()!.querySelector('[role="progressbar"]')!.getAttribute('aria-valuenow')).toBe('28');
+    // la prise suivante s'enchaîne
+    temps = 0; act(() => { joues[0].el.dispatchEvent(new Event('ended')); });
+    expect(joues.map((j) => j.src)).toEqual(['/api/admin/location/pieces-sortie?piece=81', '/api/admin/location/pieces-sortie?piece=82']);
+    temps = 1; act(() => { joues[0].el.dispatchEvent(new Event('timeupdate')); });
+    expect(progression()!.querySelector('[data-lecture-texte]')!.textContent).toBe('Lecture… 00:04 / 00:05');
+    // Pause : la position est gardée ; la barre reste
+    act(() => ecouter(1).click());
+    expect([ecouter(1).getAttribute('data-en-lecture'), progression()!.querySelector('[data-lecture-texte]')!.textContent]).toEqual(['non', 'En pause 00:04 / 00:05']);
+    // un AUTRE vocal : le premier s'arrête (un seul à la fois)
+    act(() => ecouter(2).click());
+    expect(ecouter(1).getAttribute('data-en-lecture')).toBe('non');
+    expect(ecouter(2).getAttribute('data-en-lecture')).toBe('oui');
+    expect(document.querySelectorAll('[data-lecture-progression]')).toHaveLength(1);
+    expect(joues.at(-1)!.src).toBe('/api/admin/location/pieces-sortie?piece=83');
+    // une prise seule : même lecteur
+    act(() => (document.querySelector('[data-vocal="1"] [data-prise="2"] [data-prise-ecouter]') as HTMLButtonElement).click());
+    expect(ecouter(2).getAttribute('data-en-lecture')).toBe('non');
+    expect(joues.at(-1)!.src).toBe('/api/admin/location/pieces-sortie?piece=82');
+    // jamais le menu de l'appui long sur un bouton ; les champs restent sélectionnables
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-page-cr button,.pvv-page-cr .svv-btn,.pvv-page-cr [role=switch],.pvv-page-cr label.pvv-interrupteur,.mis-boite button,.mis-boite .svv-btn,.pvv-voile button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}');
+    expect(css).toContain('.pvv-page-cr input,.pvv-page-cr textarea,.mis-boite input,.mis-boite textarea{-webkit-user-select:text;user-select:text}');
+  });
+  it('« Écouter » relâche d’abord le micro gardé ouvert (sinon l’iPhone joue dans l’écouteur) — jamais pendant un enregistrement', async () => {
+    const env = await import('../../../../lib/location/enregistreurVocal');
+    let arrets = 0;
+    class MR { static isTypeSupported = () => true; mimeType = 'audio/mp4'; state = 'inactive'; }
+    await env.ouvrirEnregistreur({ securise: true, MediaRecorder: MR as never, mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => { arrets += 1; }, readyState: 'live' }] }) as never } });
+    const { basculerLecture } = await import('./lecteurVocal');
+    act(() => basculerLecture('x', [{ url: '/a', dureeS: 1 }]));
+    expect(arrets).toBe(1);
+  });
+  it('la frise : « Compte rendu pré-visite » ouvre la FENÊTRE (brouillon non envoyé, lecture seule) : objet, adresse, présences et notes internes, texte, photos qui s’AGRANDISSENT, vocaux (titre, statut, lecteur) ; « Continuer la saisie »', async () => {
+    brouillonServeur = BROUILLON;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu="brouillon"]')!;
+    expect(f.getAttribute('aria-modal')).toBe('true');
+    expect(f.closest('.mis-voile')!.className).toContain('pvv-voile-consultation');
+    expect(f.querySelector('[data-cr-brouillon="oui"]')!.textContent).toBe('Brouillon — non envoyé, dernier enregistrement à 14h05');
+    expect(f.querySelector('[data-cr-objet]')!.textContent).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 13/11/2026 à 13h45');
+    expect(f.querySelector('[data-cr-adresse]')!.textContent).toBe('BERNARD Alice, BERNARD Paul — C rue');
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice (locataire)', 'Madame Léa Martin — note interne : mère du locataire']);
+    expect(f.querySelector('[data-cr-texte]')!.textContent).toBe('Salon propre.');
+    expect(f.querySelector('[data-cr-legende]')!.textContent).toBe('Photo 1 — Rayure parquet');
+    expect([...f.querySelectorAll('[data-cr-vocal-etat]')].map((x) => x.textContent)).toEqual(['Cuisine — ENVOYÉ aux locataires', 'Salon — NON envoyé (interne)']);
+    expect(f.querySelectorAll('[data-cr-vocal-ecouter]')).toHaveLength(2);
+    expect(f.querySelector('[data-cr-pas-envoye]')!.textContent).toBe('Rien n’est encore envoyé.');
+    // la vignette s'agrandit, puis se referme
+    act(() => (f.querySelector('[data-cr-agrandir="1"]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-cr-photo-agrandie] img')!.getAttribute('src')).toBe('/api/admin/location/pieces-sortie?piece=71');
+    act(() => (document.querySelector('[data-cr-photo-fermer]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-cr-photo-agrandie]')).toBeNull();
+    const a = f.querySelector('a[data-continuer-saisie]')!;
+    expect([a.textContent, a.getAttribute('href')]).toEqual(['Continuer la saisie', '/admin/location/previsite/11/compte-rendu']);
+    expect(posts.some((c) => String(c.action).includes('brouillon'))).toBe(false); // rien n'est écrit en l'ouvrant
+  });
+  it('la frise, sans aucune saisie : « Aucune saisie enregistrée pour l’instant » et « Commencer la saisie »', async () => {
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); await attendre();
+    expect(document.querySelector('[data-cr-brouillon="aucun"]')!.textContent).toBe('Aucune saisie enregistrée pour l’instant.');
+    expect(document.querySelector('a[data-continuer-saisie]')!.textContent).toBe('Commencer la saisie');
+  });
+  it('« Voir le compte rendu » (envoyé) : présences et notes internes, durée des prises, envois LOCATAIRES d’abord puis interne', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const CR = { texte: 'En présence de Alice BERNARD.\n\nCR', objet: 'Objet du CR', saisiPar: 'Arno', saisiLe: '2026-11-13T15:13:00Z', pieces: [], aucunEnvoi: false,
+      presences: { occupations: [11], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa', note: 'mère du locataire' }] },
+      destinataires: [{ nom: 'Alice BERNARD', famille: 'locataire', quand: '2026-11-13T15:13:00Z', etat: 'envoye', motif: null }, { nom: 'Arno', famille: 'interne', quand: '2026-11-13T15:13:00Z', etat: 'envoye', motif: null }],
+      vocaux: [{ id: 81, nom: 'a', taille: 3, dureeS: 3 }], fichiersVocaux: [{ nom: 'Cuisine', prises: [{ id: 81, nom: 'a', taille: 3, dureeS: 3 }], locataires: true }] };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-compte-rendu="envoye"]')!;
+    expect([...f.querySelectorAll('[data-cr-present]')].map((x) => x.textContent)).toEqual(['BERNARD Alice (locataire)', 'Madame Léa Martin — note interne : mère du locataire']);
+    expect([...f.querySelectorAll('[data-cr-destinataire]')].map((x) => x.getAttribute('data-cr-destinataire'))).toEqual(['locataire', 'interne']);
+    act(() => (f.querySelector('[data-cr-vocal-ecouter]') as HTMLButtonElement).click());
+    expect(f.querySelector('[data-lecture-texte]')!.textContent).toBe('Lecture… 00:00 / 00:03');
+    // fermer la fenêtre arrête la lecture
+    act(() => (f.querySelector('[data-fermer-compte-rendu]') as HTMLButtonElement).click());
+    expect((await import('./lecteurVocal')).etatLecture().cle).toBeNull();
+  });
+  it('la page n’est jamais blanche : « Restauration du brouillon… » visible tant qu’il tarde ; repeinte d’elle-même quand le contenu arrive et au retour de l’arrière-plan', async () => {
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => setTimeout(() => cb(0), 0) as unknown as number);
+    let liberer: () => void = () => {}; lectureBrouillonRetenue = new Promise<void>((r) => { liberer = r; });
+    brouillonServeur = BROUILLON;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    // la fenêtre de la frise lit aussi le brouillon : on la libère pour atteindre le lien
+    const suivre = suivreLienCr(); liberer(); await suivre;
+    lectureBrouillonRetenue = new Promise<void>((r) => { liberer = r; });
+    act(() => root.unmount()); root = createRoot(container);
+    const { PageCompteRendu } = await import('./PageCompteRendu');
+    document.documentElement.removeAttribute('data-repeint');
+    await act(async () => { root.render(createElement(PageCompteRendu, { occupationId: 11 })); }); await attendre();
+    await patienter(() => document.querySelector('[data-corps-compte-rendu]') !== null);
+    expect(document.querySelector('[data-brouillon-chargement]')!.textContent).toBe('Restauration du brouillon…');
+    expect(document.querySelector('[data-corps-compte-rendu]')).not.toBeNull(); // le formulaire reste visible pendant ce temps
+    document.documentElement.removeAttribute('data-repeint');
+    liberer();
+    await patienter(() => document.querySelector('[data-brouillon-chargement]') === null);
+    await patienter(() => document.documentElement.hasAttribute('data-repeint'));
+    expect(document.documentElement.hasAttribute('data-repeint')).toBe(true);
+    document.documentElement.removeAttribute('data-repeint');
+    act(() => { window.dispatchEvent(new Event('pageshow')); });
+    await patienter(() => document.documentElement.hasAttribute('data-repeint'));
+    expect(document.documentElement.hasAttribute('data-repeint')).toBe(true);
+    raf.mockRestore();
   });
 });

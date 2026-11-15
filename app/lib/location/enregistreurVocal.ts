@@ -41,6 +41,8 @@ export type OuvertureVocal = { ok: true; r: MediaRecorder; flux: MediaStream; ty
  * personne ; pas de tampon permanent, qui reviendrait à enregistrer hors appui). */
 let fluxPartage: MediaStream | null = null;
 let ecouteInstallee = false;
+/** le dernier enregistreur préparé : tant qu'il enregistre, le micro n'est jamais relâché par la lecture d'un vocal */
+let dernierEnregistreur: { state?: string } | null = null;
 const vivant = (f: MediaStream): boolean => {
   try { const pistes = f.getTracks(); return pistes.length > 0 && pistes.every((t) => (t as { readyState?: string }).readyState !== 'ended'); } catch { return false; }
 };
@@ -49,6 +51,27 @@ export function libererMicro(): void {
   const f = fluxPartage; fluxPartage = null;
   if (f) { try { f.getTracks().forEach((t) => t.stop()); } catch { /* rien */ } }
 }
+/**
+ * 🔴 Arno (15/11/2026, 9e retour) — AVANT DE LIRE UN VOCAL : le micro gardé ouvert est relâché (sauf pendant un enregistrement). Sur
+ * l'iPhone, un micro ouvert bascule le son dans l'écouteur du haut, à peine audible : « Écouter » semblait ne rien faire. Il est rouvert,
+ * sans nouvelle autorisation, au prochain appui sur un micro.
+ */
+export function libererMicroSiLibre(): void {
+  if (dernierEnregistreur !== null && dernierEnregistreur.state === 'recording') return;
+  libererMicro();
+}
+
+/**
+ * 🔴🔴 Arno (15/11/2026, 9e retour) — LE MÊME NIVEAU D'UNE PRISE À L'AUTRE : les MÊMES réglages du micro, posés explicitement, à chaque
+ * ouverture (première prise, réouverture après l'arrière-plan ou une écoute). Le contrôle automatique du gain est COUPÉ (il faisait varier
+ * le niveau d'une prise à l'autre) ; l'annulation d'écho et la réduction de bruit aussi (elles pompent le niveau et ne servent à rien pour
+ * un dictaphone) ; une seule voie ; 48 kHz demandés (« ideal » : jamais un refus si l'appareil ne sait pas). Le niveau est ensuite
+ * NORMALISÉ prise par prise (crête à −1 dBFS, `normalisationVocal.ts`).
+ */
+export const CONTRAINTES_MICRO: MediaStreamConstraints = {
+  audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 1 }, sampleRate: { ideal: 48_000 } },
+};
+
 function installerEcoute(): void {
   if (ecouteInstallee || typeof document === 'undefined') return;
   ecouteInstallee = true;
@@ -62,12 +85,13 @@ export async function ouvrirEnregistreur(env: EnvVocal = envNavigateur()): Promi
   installerEcoute();
   let flux = fluxPartage !== null && vivant(fluxPartage) ? fluxPartage : null;
   if (flux === null) {
-    try { flux = await env.mediaDevices!.getUserMedia!({ audio: true }); } catch { return { ok: false, motif: MOTIF_VOCAL_REFUS }; }
+    try { flux = await env.mediaDevices!.getUserMedia!(CONTRAINTES_MICRO); } catch { return { ok: false, motif: MOTIF_VOCAL_REFUS }; }
     fluxPartage = flux;
   }
   const voulu = typeEnregistrement(env.MediaRecorder);
   try {
     const r = new env.MediaRecorder!(flux, voulu ? { mimeType: voulu } : undefined);
+    dernierEnregistreur = r;
     return { ok: true, r, flux, type: r.mimeType || voulu || 'audio/mp4' };
   } catch {
     libererMicro();

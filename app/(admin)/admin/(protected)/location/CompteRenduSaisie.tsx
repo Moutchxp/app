@@ -5,6 +5,8 @@ import { envoyer, useLecture } from './commun';
 import { erreurReseau, groupeDe, listerAttente, mettreEnAttente, retirerAttente } from '../../../../lib/location/fileAttenteLocale';
 import { useContextePreavis } from './preavisSynchro';
 import { Icone } from './IconesCompteRendu';
+import { arreterLecture, basculerLecture, etatLecture, useLecteurVocal, type Piste } from './lecteurVocal';
+import { normaliserPrise } from '../../../../lib/location/normalisationVocal';
 import { lignePhoto } from '../../../../lib/location/photosCompteRendu';
 import { dureeFr, etatVocalLocataires, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, insererEntree, themeBascule, tiretApresRetour } from '../../../../lib/location/texteCompteRendu';
@@ -732,7 +734,9 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
 /* ══ BLOC DICTAPHONE ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Une prise du dictaphone : sa réécoute (sur l'appareil) et sa pièce déposée (`id`, interne). */
-export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'attente' | 'ok' | 'erreur' | 'perdue'; motif: string | null }
+export interface PriseVocale { cle: string; id: number | null; url: string; dureeS: number; etat: 'depot' | 'attente' | 'ok' | 'erreur' | 'perdue'; motif: string | null;
+  /** 🔴 (9e retour) le niveau a été normalisé (crête à −1 dBFS) avant le dépôt */
+  normalisee?: boolean }
 /** Un fichier vocal : un nom (renommable) et ses prises, dans l'ordre. */
 export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[]; transcription: 'en_cours' | 'ok' | 'echec' | null; motif: string | null;
   /** 🔴 Arno (15/11/2026) — « Envoyé aux locataires » : défaut NON (le fichier reste interne). */
@@ -741,27 +745,37 @@ export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[];
 export const fichierVide = (rang: number): FichierVocal => ({ cle: nouvelleCle(), nom: `Vocal ${rang + 1}`, prises: [], transcription: null, motif: null, locataires: false });
 export const dureeFichier = (f: FichierVocal): number => f.prises.reduce((s, p) => s + p.dureeS, 0);
 
-/** Un lecteur unique : lit une suite de prises (le fichier : enchaînées), ou une seule ; Pause. */
-function useLecteur(): { jouant: string | null; lire: (cle: string, urls: string[]) => void; arreter: () => void } {
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const [jouant, setJouant] = useState<string | null>(null);
-  const arreter = useCallback((): void => { const a = audio.current; if (a) { a.onended = null; a.pause(); } setJouant(null); }, []);
-  const lire = useCallback((cle: string, urls: string[]): void => {
-    if (typeof Audio === 'undefined' || urls.length === 0) return;
-    if (audio.current === null) audio.current = new Audio();
-    const a = audio.current;
-    let i = 0;
-    const suivante = (): void => {
-      if (i >= urls.length) { setJouant(null); a.onended = null; return; }
-      a.src = urls[i]; i += 1;
-      void a.play()?.catch?.(() => setJouant(null));
-    };
-    a.onended = suivante;
-    setJouant(cle); suivante();
-  }, []);
-  useEffect(() => () => { const a = audio.current; if (a) { a.onended = null; a.pause(); } }, []);
-  return { jouant, lire, arreter };
+/**
+ * 🔴🔴 Arno (15/11/2026, 9e retour) — LE BOUTON « ÉCOUTER » de partout (cartes, prises, récapitulatif, consultation) : Lecture / Pause, le
+ * lecteur UNIQUE de la page (`lecteurVocal.ts`) ; la lecture démarre au premier toucher. Jamais de menu de l'appui long (CSS).
+ */
+export function BoutonEcouter({ cle, pistes, classe, texte = false, etiquette, attributs }: { cle: string; pistes: readonly Piste[]; classe: string;
+  /** avec le mot « Écouter » / « Pause » (sinon l'icône seule) */ texte?: boolean;
+  etiquette?: (enLecture: boolean) => string; attributs?: Record<string, string | undefined> }) {
+  const e = useLecteurVocal();
+  const enLecture = e.cle === cle && e.enLecture;
+  // le bouton disparaît (prise supprimée, fenêtre fermée) : sa lecture s'arrête
+  useEffect(() => () => { if (etatLecture().cle === cle) arreterLecture(); }, [cle]);
+  return (
+    <button type="button" className={classe} disabled={pistes.every((p) => p.url === '')} aria-pressed={enLecture} aria-label={etiquette?.(enLecture)}
+      onClick={() => basculerLecture(cle, pistes)} data-lecture-cle={cle} data-en-lecture={enLecture ? 'oui' : 'non'} {...attributs}>
+      <Icone nom={enLecture ? 'pause' : 'lecture'} />{texte && ` ${enLecture ? 'Pause' : 'Écouter'}`}</button>
+  );
 }
+/** « Lecture… 00:03 / 00:05 » et la barre, sous le vocal qui joue (ou est en pause) ; rien sinon. */
+export function ProgressionLecture({ cles }: { cles: readonly string[] }) {
+  const e = useLecteurVocal();
+  if (e.cle === null || !cles.includes(e.cle)) return null;
+  const pct = e.dureeS > 0 ? Math.max(0, Math.min(100, (e.positionS / e.dureeS) * 100)) : 0;
+  return (
+    <div className="pvv-lecture" role="status" data-lecture-progression={e.cle} data-lecture-etat={e.motif ? 'erreur' : e.enLecture ? 'lecture' : 'pause'}>
+      <span className={e.motif ? 'pvv-photo-motif' : 'pvv-lecture-texte'} data-lecture-texte>{e.motif ?? `${e.enLecture ? 'Lecture…' : 'En pause'} ${dureeFr(e.positionS)} / ${dureeFr(e.dureeS)}`}</span>
+      <span className="pvv-lecture-barre" role="progressbar" aria-label="Avancement de la lecture" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+        <span className="pvv-lecture-plein" style={{ width: `${pct}%` }} /></span>
+    </div>
+  );
+}
+const pistesDe = (prises: readonly { url: string; dureeS: number }[]): Piste[] => prises.filter((p) => p.url !== '').map((p) => ({ url: p.url, dureeS: p.dureeS }));
 
 export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscrit, onOccupe, courant, setCourant }: {
   fichiers: FichierVocal[]; setFichiers: (f: (x: FichierVocal[]) => FichierVocal[]) => void; occupationIds: readonly number[];
@@ -771,14 +785,13 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   const titreId = useId();
   const rond = useRef<HTMLDivElement | null>(null);
   const [aConfirmer, setAConfirmer] = useState<{ fichier: string; prise: string | null } | null>(null);
-  const lecteur = useLecteur();
   const cleCourante = courant !== null && fichiers.some((f) => f.cle === courant) ? courant : (fichiers[fichiers.length - 1]?.cle ?? null);
   const majFichier = (cle: string, f: (x: FichierVocal) => FichierVocal) => setFichiers((xs) => xs.map((x) => (x.cle === cle ? f(x) : x)));
   const majPrise = (fc: string, pc: string, f: (x: PriseVocale) => PriseVocale) => majFichier(fc, (x) => ({ ...x, prises: x.prises.map((p) => (p.cle === pc ? f(p) : p)) }));
   // 🔴 Arno (15/11/2026) — chaque prise est gardée DANS LE TÉLÉPHONE avant d'être déposée, et le reste tant que le serveur n'a pas confirmé ;
   // réseau coupé : « en attente », renvoyée automatiquement (retour du réseau, relance régulière, réouverture de la page).
   const groupe = groupeDe(occupationIds);
-  const enAttente = useRef(new Map<string, { fc: string; blob: Blob; type: string; dureeS: number }>());
+  const enAttente = useRef(new Map<string, { fc: string; blob: Blob; type: string; dureeS: number; nom?: string }>());
   const encours = useRef(new Set<string>());
   const deposer = async (fc: string, pc: string, blob: Blob, type: string, dureeS: number): Promise<void> => {
     if (encours.current.has(pc)) return;
@@ -802,8 +815,30 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
       majPrise(fc, pc, (p) => ({ ...p, etat: 'erreur', motif: r.motif ?? 'La prise n’a pas pu être enregistrée.' }));
     } finally { encours.current.delete(pc); }
   };
+  /* 🔴🔴 Arno (15/11/2026, 9e retour) — LE MÊME NIVEAU D'UNE PRISE À L'AUTRE : la prise (déjà gardée telle quelle dans le téléphone) est
+     NORMALISÉE (crête à −1 dBFS), la version normalisée remplace l'originale dans le téléphone, PUIS elle est déposée. L'appareil ne sait
+     pas : l'originale est déposée (jamais perdue). Une prise remise par le téléphone à la réouverture passe par le même chemin. */
+  const normalisees = useRef(new Set<string>());
+  const preparerEtDeposer = async (fc: string, pc: string, blob: Blob, type: string, dureeS: number): Promise<void> => {
+    let b = blob; let t = type;
+    if (!normalisees.current.has(pc) && !/^audio\/wav/i.test(type)) {
+      normalisees.current.add(pc);
+      const n = await normaliserPrise(blob);
+      const e = enAttente.current.get(pc);
+      if (n !== null && e !== undefined) {
+        b = n.blob; t = n.type;
+        enAttente.current.set(pc, { ...e, blob: b, type: t });
+        await mettreEnAttente(groupe, { cle: pc, sorte: 'prise', blob: b, type: t, fichierCle: fc, fichierNom: e.nom, dureeS, creeLe: new Date().toISOString() });
+        if (!enAttente.current.has(pc)) { await retirerAttente(groupe, pc); return; } // supprimée pendant l'écriture
+        const url = URL.createObjectURL(b);
+        majPrise(fc, pc, (p) => { try { if (p.url.startsWith('blob:')) URL.revokeObjectURL(p.url); } catch { /* rien */ } return { ...p, url, normalisee: true }; });
+      }
+      if (e === undefined) return; // supprimée pendant ce temps
+    }
+    await deposer(fc, pc, b, t, dureeS);
+  };
   const relancer = useCallback((): void => {
-    for (const [pc, e] of enAttente.current) void deposer(e.fc, pc, e.blob, e.type, e.dureeS);
+    for (const [pc, e] of enAttente.current) void preparerEtDeposer(e.fc, pc, e.blob, e.type, e.dureeS);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // à l'ouverture : les prises restées dans le téléphone reviennent dans leur fichier vocal, puis repartent
   useEffect(() => {
@@ -812,7 +847,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
       if (!vivant) return;
       const lp = xs.filter((e) => e.sorte === 'prise' && e.fichierCle);
       if (lp.length === 0) return;
-      for (const e of lp) enAttente.current.set(e.cle, { fc: e.fichierCle as string, blob: e.blob, type: e.type, dureeS: e.dureeS ?? 0 });
+      for (const e of lp) enAttente.current.set(e.cle, { fc: e.fichierCle as string, blob: e.blob, type: e.type, dureeS: e.dureeS ?? 0, nom: e.fichierNom });
       setFichiers((cur) => {
         const out = cur.map((f) => ({ ...f, prises: [...f.prises] }));
         for (const e of lp) {
@@ -836,10 +871,11 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
     if (fc === null) { const f = fichierVide(0); fc = f.cle; setFichiers((xs) => [...xs, f]); setCourant(f.cle); }
     const cible = fc;
     setFichiers((xs) => xs.map((x) => (x.cle === cible ? { ...x, prises: [...x.prises, { cle: pc, id: null, url, dureeS, etat: 'depot', motif: null }] } : x)));
-    enAttente.current.set(pc, { fc: cible, blob, type, dureeS });
     const nom = fichiers.find((x) => x.cle === cible)?.nom ?? `Vocal ${fichiers.length + 1}`;
+    enAttente.current.set(pc, { fc: cible, blob, type, dureeS, nom });
+    // 🔴 (9e retour) l'ordre garanti : la prise brute dans le téléphone D'ABORD, puis la normalisation, puis le dépôt vérifié
     void mettreEnAttente(groupe, { cle: pc, sorte: 'prise', blob, type, fichierCle: cible, fichierNom: nom, dureeS, creeLe: new Date().toISOString() })
-      .then(() => deposer(cible, pc, blob, type, dureeS));
+      .then(() => preparerEtDeposer(cible, pc, blob, type, dureeS));
   });
   const [titresOccupes, setTitresOccupes] = useState<ReadonlySet<string>>(new Set());
   const occuperTitre = useCallback((cle: string, o: boolean) => setTitresOccupes((s) => {
@@ -863,7 +899,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   const supprimerFichier = (fc: string): void => {
     const f = fichiers.find((x) => x.cle === fc);
     f?.prises.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } enAttente.current.delete(p.cle); void retirerAttente(groupe, p.cle); });
-    if (lecteur.jouant !== null) lecteur.arreter();
+    arreterLecture();
     // 🔴 (8e retour) le fichier ACTIF supprimé : le précédent devient actif (le suivant s'il n'y en a pas avant)
     if (fc === cleCourante) { const i = fichiers.findIndex((x) => x.cle === fc); const voisin = fichiers[i - 1] ?? fichiers[i + 1] ?? null; setCourant(voisin?.cle ?? null); }
     setFichiers((xs) => xs.filter((x) => x.cle !== fc)); setAConfirmer(null);
@@ -871,7 +907,7 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   const supprimerPrise = (fc: string, pc: string): void => {
     const p = fichiers.find((x) => x.cle === fc)?.prises.find((y) => y.cle === pc);
     if (p) { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } enAttente.current.delete(pc); void retirerAttente(groupe, pc); }
-    if (lecteur.jouant !== null) lecteur.arreter();
+    arreterLecture();
     majFichier(fc, (x) => ({ ...x, prises: x.prises.filter((y) => y.cle !== pc) })); setAConfirmer(null);
   };
   const transcrire = async (f: FichierVocal): Promise<void> => {
@@ -916,8 +952,6 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
       </div>
       {prise.message !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{prise.message}</p>}
       {fichiers.length > 0 && <ol className="pvv-fichiers">{fichiers.map((f, i) => {
-        const urls = f.prises.filter((p) => p.url !== '').map((p) => p.url);
-        const jouant = lecteur.jouant === f.cle;
         const estCourant = f.cle === cleCourante;
         return (
           <li key={f.cle} className={`pvv-fichier-vocal${estCourant ? ' pvv-fichier-vocal--courant' : ''}`} data-vocal={i + 1} data-vocal-prises={f.prises.length}
@@ -938,13 +972,15 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
             </label>
             {/* 🔴 Arno (15/11/2026) — boutons homogènes : la forme, la hauteur, la typographie et la largeur des deux boutons du bloc Texte */}
             <div className="pvv-boutons-2 pvv-vocal-gestes">
-              <button type="button" className="svv-btn svv-btn-outline pvv-gros" disabled={urls.length === 0} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))} data-vocal-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
+              {/* 🔴 (9e retour) Lecture / Pause par le lecteur unique ; les prises enchaînées ; la progression sous les boutons */}
+              <BoutonEcouter cle={f.cle} pistes={pistesDe(f.prises)} classe="svv-btn svv-btn-outline pvv-gros" texte attributs={{ 'data-vocal-ecouter': '' }} />
               {/* 🔴 (8e retour) « Enregistrer ici » devient « Choisir ce fichier » (même fonction, accord d'Arno) ; sur la carte active : « Fichier actif », désactivé */}
               <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={() => setCourant(f.cle)} disabled={estCourant} aria-pressed={estCourant} data-vocal-choisir>
                 <Icone nom="cible" /> {estCourant ? 'Fichier actif' : 'Choisir ce fichier'}</button>
               <button type="button" className="svv-btn svv-btn-outline pvv-gros" disabled={f.prises.every((p) => p.id === null) || f.transcription === 'en_cours'} onClick={() => { void transcrire(f); }} data-vocal-transcrire><Icone nom="texte" /> Transcrire dans le texte</button>
               <button type="button" className="svv-btn svv-btn-outline pvv-gros pvv-gros--danger" onClick={() => setAConfirmer({ fichier: f.cle, prise: null })} aria-label={`Supprimer ${f.nom}`} data-vocal-supprimer><Icone nom="corbeille" /> Supprimer</button>
             </div>
+            <ProgressionLecture cles={[f.cle]} />
             {aConfirmer?.fichier === f.cle && aConfirmer.prise === null && (
               <Confirmation question={`Supprimer « ${f.nom} » et ses ${f.prises.length} prise${f.prises.length > 1 ? 's' : ''} ?`} action="Supprimer"
                 onConfirmer={() => supprimerFichier(f.cle)} onGarder={() => setAConfirmer(null)}
@@ -953,17 +989,19 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
             {f.transcription === 'ok' && <span className="loc-muet" data-vocal-transcrit>Texte inséré dans le compte rendu {MENTION_TRANSCRIT} — modifiable.</span>}
             {f.motif !== null && <span className="pvv-photo-motif" role="alert" data-vocal-motif>{f.motif}</span>}
             {f.prises.length > 0 && <ol className="pvv-prises">{f.prises.map((p, k) => (
-              <li key={p.cle} className={`pvv-prise${p.etat === 'erreur' || p.etat === 'perdue' ? ' pvv-photo--echec pvv-prise--perdue' : ''}`} data-prise={k + 1} data-prise-etat={p.etat}>
+              <li key={p.cle} className={`pvv-prise${p.etat === 'erreur' || p.etat === 'perdue' ? ' pvv-photo--echec pvv-prise--perdue' : ''}`} data-prise={k + 1} data-prise-etat={p.etat}
+                data-prise-normalisee={p.normalisee ? 'oui' : undefined}>
                 <span>Prise {k + 1} <span className="loc-muet">({dureeFr(p.dureeS)})</span></span>
                 {/* 🔴🔴 Arno (15/11/2026, 9e retour) — l'état de CHAQUE prise, toujours dit : « Sauvegardée » seulement après la vérification du serveur */}
                 <span className={STATUT_PIECE[statutPiece(p.etat)].classe} role={statutPiece(p.etat) === 'perdue' ? 'alert' : 'status'} data-prise-statut={statutPiece(p.etat)}>{STATUT_PIECE[statutPiece(p.etat)].libelle}</span>
                 {p.etat === 'attente' && <span className="pvv-attente" role="status" data-prise-attente>{p.motif}</span>}
-                <button type="button" className="pvv-mini" disabled={p.url === ''} onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} aria-label={lecteur.jouant === p.cle ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`} data-prise-ecouter><Icone nom={lecteur.jouant === p.cle ? 'pause' : 'lecture'} /></button>
+                <BoutonEcouter cle={p.cle} pistes={pistesDe([p])} classe="pvv-mini" etiquette={(l) => (l ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`)} attributs={{ 'data-prise-ecouter': '' }} />
                 <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: p.cle })} aria-label={`Supprimer la prise ${k + 1}`} data-prise-supprimer><Icone nom="corbeille" /></button>
                 {aConfirmer?.fichier === f.cle && aConfirmer.prise === p.cle && (
                   <Confirmation question={`Supprimer la prise ${k + 1} ?`} action="Supprimer" onConfirmer={() => supprimerPrise(f.cle, p.cle)} onGarder={() => setAConfirmer(null)}
                     attributs={{ 'data-prise-confirmer': '' }} attributsOui={{ 'data-prise-supprimer-oui': '' }} attributsNon={{ 'data-prise-supprimer-non': '' }} />)}
                 {p.motif !== null && p.etat !== 'attente' && <span className="pvv-photo-motif" role="alert" data-prise-motif>{p.motif}</span>}
+                <ProgressionLecture cles={[p.cle]} />
               </li>))}</ol>}
           </li>);
       })}</ol>}
@@ -976,20 +1014,19 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
  * (interne) »), un bouton « Écouter » (lecture / pause, prises enchaînées) pour vérifier l'affectation avant de confirmer.
  */
 export function LignesVocauxRecap({ fichiers, aussiLocataires }: { fichiers: readonly FichierVocal[]; aussiLocataires: boolean }) {
-  const lecteur = useLecteur();
   const liste = fichiers.map((f, i) => ({ f, i })).filter(({ f }) => f.prises.some((p) => p.id !== null));
   if (liste.length === 0) return null;
   return (
     <ul className="pvv-recap-vocaux" data-recap-vocaux>{liste.map(({ f, i }) => {
       const envoye = f.locataires === true && aussiLocataires;
-      const urls = f.prises.filter((p) => p.id !== null).map((p) => p.url);
-      const jouant = lecteur.jouant === f.cle;
+      const cle = `recap-${f.cle}`;
       return (
         <li key={f.cle} className="pvv-recap-vocal-ligne" data-recap-vocal-ligne={i + 1}>
           <span className={`pvv-vocal-etat${envoye ? ' pvv-vocal-etat--envoye' : ''}`} data-recap-vocal={envoye ? 'envoye' : 'interne'}>
             {f.nom.trim() || `Vocal ${i + 1}`} — {etatVocalLocataires(envoye)}{f.locataires && !aussiLocataires ? ' — l’envoi aux locataires est désactivé : activez « Compte rendu envoyé aux locataires » pour le joindre' : ''}</span>
-          <button type="button" className="pvv-choix pvv-recap-ecouter" aria-pressed={jouant} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))}
-            aria-label={`${jouant ? 'Pause' : 'Écouter'} — ${f.nom.trim() || `Vocal ${i + 1}`}`} data-recap-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
+          <BoutonEcouter cle={cle} pistes={pistesDe(f.prises.filter((p) => p.id !== null))} classe="pvv-choix pvv-recap-ecouter" texte
+            etiquette={(l) => `${l ? 'Pause' : 'Écouter'} — ${f.nom.trim() || `Vocal ${i + 1}`}`} attributs={{ 'data-recap-ecouter': '' }} />
+          <ProgressionLecture cles={[cle]} />
         </li>);
     })}</ul>
   );
@@ -999,23 +1036,24 @@ export function LignesVocauxRecap({ fichiers, aussiLocataires }: { fichiers: rea
  * « Voir le compte rendu » (après l'envoi, LECTURE SEULE) : les fichiers vocaux, leurs prises, la réécoute du fichier qui les ENCHAÎNE et
  * celle de chaque prise. Rien n'est modifiable.
  */
-export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: string; prises: { id: number; nom: string }[]; locataires?: boolean }[]; url: (id: number) => string }) {
-  const lecteur = useLecteur();
+export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: string; prises: { id: number; nom: string; dureeS?: number }[]; locataires?: boolean }[]; url: (id: number) => string }) {
   return (
     <ol className="pvv-cr-fichiers">{fichiers.map((f, i) => {
-      const cle = `f${i}`; const jouant = lecteur.jouant === cle;
+      const cle = `cr-f${i}`;
       return (
         <li key={cle} className="pvv-fichier-vocal" data-cr-vocal={i + 1} data-cr-vocal-prises={f.prises.length}>
           <div className="pvv-photo-tete"><strong className="pvv-cr-legende" data-cr-vocal-nom>{f.nom}</strong>
             <span className="loc-muet">{f.prises.length} prise{f.prises.length > 1 ? 's' : ''}</span></div>
           <p className={`pvv-vocal-etat${f.locataires ? ' pvv-vocal-etat--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{f.nom} — {etatVocalLocataires(f.locataires === true)}</p>
           <div className="pvv-photo-gestes pvv-vocal-gestes">
-            <button type="button" className="pvv-mini" onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(cle, f.prises.map((p) => url(p.id))))} data-cr-vocal-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
+            <BoutonEcouter cle={cle} pistes={f.prises.map((p) => ({ url: url(p.id), dureeS: p.dureeS ?? 0 }))} classe="pvv-mini" texte attributs={{ 'data-cr-vocal-ecouter': '' }} />
           </div>
+          <ProgressionLecture cles={[cle]} />
           <ol className="pvv-prises">{f.prises.map((p, k) => (
             <li key={p.id} className="pvv-prise" data-cr-prise={k + 1}><span>Prise {k + 1}</span>
-              <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === `p${p.id}` ? lecteur.arreter() : lecteur.lire(`p${p.id}`, [url(p.id)]))}
-                aria-label={lecteur.jouant === `p${p.id}` ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`}><Icone nom={lecteur.jouant === `p${p.id}` ? 'pause' : 'lecture'} /></button></li>))}</ol>
+              <BoutonEcouter cle={`cr-p${p.id}`} pistes={[{ url: url(p.id), dureeS: p.dureeS ?? 0 }]} classe="pvv-mini"
+                etiquette={(l) => (l ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`)} attributs={{ 'data-cr-prise-ecouter': '' }} />
+              <ProgressionLecture cles={[`cr-p${p.id}`]} /></li>))}</ol>
         </li>);
     })}</ol>
   );
@@ -1195,6 +1233,14 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-prises{margin:0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:6px}
 .pvv-prise{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border-radius:10px;background:var(--color-svv-field)}
 .pvv-statut-piece{font-size:.85rem}
+/* Arno (15/11/2026, 9e retour) : la progression de la lecture, sous le vocal qui joue */
+.pvv-lecture{flex:1 0 100%;display:flex;flex-direction:column;gap:4px;min-width:0}
+.pvv-lecture-texte{font-size:.88rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--color-svv-ink)}
+.pvv-lecture-barre{display:block;position:relative;height:6px;border-radius:999px;background:var(--color-svv-line);overflow:hidden}
+.pvv-lecture-plein{display:block;height:100%;border-radius:999px;background:var(--color-svv-red)}
+/* Arno (15/11/2026, 9e retour) : JAMAIS le menu de l'appui long (Copier, Coller...) sur un bouton ; les champs de saisie restent selectionnables */
+.pvv-page-cr button,.pvv-page-cr .svv-btn,.pvv-page-cr [role=switch],.pvv-page-cr label.pvv-interrupteur,.mis-boite button,.mis-boite .svv-btn,.pvv-voile button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+.pvv-page-cr input,.pvv-page-cr textarea,.mis-boite input,.mis-boite textarea{-webkit-user-select:text;user-select:text}
 .pvv-statut-piece--perdue{color:var(--color-svv-red);font-weight:800}
 .pvv-prise--perdue{border:2px solid var(--color-svv-red)}
 .pvv-entree{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0}

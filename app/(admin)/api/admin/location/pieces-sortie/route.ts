@@ -5,7 +5,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { jetonPourRequete } from '../../../../../lib/gestion/jetonCollaborateur';
 import { fichiersDriveDuBien, joindreDepuisDrive, joindreDepuisOrdinateur, octetsPieceSortie } from '../../../../../lib/location/piecesSortieRepo';
 import { PIECE_MAX_OCTETS } from '../../../../../lib/location/validationSortie';
-import { dispositionTelechargement } from '../../../../../lib/stockage';
+import { dispositionPiece, lirePlage } from '../../../../../lib/location/plageOctets';
 
 /**
  * ══ 🔴🔴 LES PIÈCES JOINTES DE « VALIDER L'ÉTAT DES LIEUX DE SORTIE » (Arno, 11/11/2026, migration 468) ═════════════════════════════════════
@@ -37,7 +37,14 @@ export async function GET(request: Request): Promise<Response> {
   if (piece !== null) {
     const p = await octetsPieceSortie(piece);
     if (p === null) return json({ etat: 'inconnu' }, 404);
-    return new Response(new Uint8Array(p.octets), { headers: { ...ENTETES, 'Content-Type': p.typeMime, 'Content-Disposition': dispositionTelechargement(p.nom) } });
+    // 🔴 Arno (15/11/2026, 9e retour) — l'iPhone ne lit un son que par PLAGES (206) et « inline » : sinon « Écouter » ne démarre pas
+    const octets = new Uint8Array(p.octets);
+    const base = { ...ENTETES, 'Content-Type': p.typeMime, 'Content-Disposition': dispositionPiece(p.typeMime, p.nom), 'Accept-Ranges': 'bytes' };
+    const plage = lirePlage(request.headers.get('range'), octets.byteLength);
+    if (plage === 'invalide') return new Response(null, { status: 416, headers: { ...base, 'Content-Range': `bytes */${octets.byteLength}` } });
+    if (plage === null) return new Response(octets, { headers: { ...base, 'Content-Length': String(octets.byteLength) } });
+    const morceau = octets.subarray(plage.debut, plage.fin + 1);
+    return new Response(morceau, { status: 206, headers: { ...base, 'Content-Range': `bytes ${plage.debut}-${plage.fin}/${octets.byteLength}`, 'Content-Length': String(morceau.byteLength) } });
   }
   const occ = id(url.searchParams.get('drive'));
   if (occ === null) return json({ etat: 'refus', motif: 'Demande incomplète.' }, 400);

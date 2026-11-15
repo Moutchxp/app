@@ -43,9 +43,10 @@ async function jusquAuRecap(page: Page, theme: 'light' | 'dark'): Promise<string
 
 async function verifierFamilles(page: Page): Promise<void> {
   const cartes = page.locator('[data-famille-mail]');
-  await expect(cartes.locator('[data-etiquette-famille]')).toHaveText(['MAIL INTERNE À L’AGENCE', 'MAIL AUX LOCATAIRES']);
-  await expect(page.locator('[data-rappel-familles]')).toHaveText('1 mail interne · 1 mail locataire');
-  const interne = cartes.nth(0); const locataire = cartes.nth(1);
+  // 🔴 (9e retour) les LOCATAIRES d'abord, puis l'interne ; le rappel dans le même ordre
+  await expect(cartes.locator('[data-etiquette-famille]')).toHaveText(['MAIL AUX LOCATAIRES', 'MAIL INTERNE À L’AGENCE']);
+  await expect(page.locator('[data-rappel-familles]')).toHaveText('1 mail locataire · 1 mail interne');
+  const locataire = cartes.nth(0); const interne = cartes.nth(1);
   await expect(locataire.locator('[data-destinataire-famille]')).toContainText('Destinataire :');
   await expect(locataire.locator('[data-recette-remplacement]')).toHaveText('Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com au lieu de l’adresse du locataire.');
   await expect(interne.locator('[data-collaborateurs-destinataires] li').first()).toBeVisible();

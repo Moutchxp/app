@@ -26,10 +26,11 @@ import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocatai
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
-import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
+import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, ORDRE_LOCATAIRES_DABORD, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
 import { CartoucheSauvegarde, CSS_CARTOUCHE_SAUVEGARDE, useBrouillonCompteRendu } from './BrouillonCompteRendu';
-import { BROUILLON_VIDE, type ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
+import { repeindre } from './repeindre';
+import { BROUILLON_VIDE, heureBrouillon, type ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -89,7 +90,8 @@ export function MentionReserveLocation() {
 export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () => void }) {
   const p = l.previsite ?? null;
   const [geste, setGeste] = useState<Geste | null>(null);
-  const [voirCr, setVoirCr] = useState(false);
+  /** 🔴 (9e retour) la fenêtre du compte rendu : envoyé (« Voir le compte rendu ») ou brouillon (« Compte rendu pré-visite » de la frise) */
+  const [voirCr, setVoirCr] = useState<false | 'envoye' | 'brouillon'>(false);
   const { ecriture } = useContextePreavis();
   // 🔴 Arno (15/11/2026) — le compte rendu est une PAGE à part entière (`PageCompteRendu`) : l'ancien lien de l'invitation y est redirigé par
   // le serveur. Au retour de l'envoi, la fenêtre de résultat habituelle s'affiche ICI (rangée par la page le temps de revenir, une seule fois).
@@ -121,9 +123,10 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
         {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>RDV pré-visite</button>}
         {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Déplacer la pré-visite</button>}
         {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
-        {/* 🔴 Arno (15/11/2026) — le bouton ouvre la PAGE du compte rendu (un lien : le « ← Retour » commun note d'où l'on vient) ; inactif sans droit */}
+        {/* 🔴🔴 Arno (15/11/2026, 9e retour) — le bouton ouvre la FENÊTRE du compte rendu (le brouillon en cours, lecture seule) ; « Continuer la
+            saisie » y ouvre la PAGE du formulaire (un lien : le « ← Retour » commun note d'où l'on vient) ; inactif sans droit */}
         {p.rdv !== null && p.rdvPasse && p.statut === 'programmee' && (ecriture
-          ? <a className="svv-btn svv-btn-primary gst-btn pvv-lien-cr" href={cheminCompteRendu(l.occupationIds[0])} data-compte-rendu-previsite>Compte rendu pré-visite</a>
+          ? <button type="button" className="svv-btn svv-btn-primary gst-btn pvv-lien-cr" onClick={() => setVoirCr('brouillon')} data-compte-rendu-previsite>Compte rendu pré-visite</button>
           : <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} data-compte-rendu-previsite>Compte rendu pré-visite</button>)}
         {p.statut !== 'effectuee' && p.statut !== 'refusee' && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
@@ -135,11 +138,11 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
         <div className="loc-boutons pvv-voir-cr" style={{ justifyContent: 'flex-start' }}>
           {p.compteRendu === false
             ? <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" disabled aria-disabled="true" data-voir-compte-rendu="aucun">{AUCUN_CR}</button>
-            : <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" onClick={() => setVoirCr(true)} data-voir-compte-rendu="oui">Voir le compte rendu</button>}
+            : <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" onClick={() => setVoirCr('envoye')} data-voir-compte-rendu="oui">Voir le compte rendu</button>}
         </div>
       )}
       </div>
-      {voirCr && <FenetreCompteRendu l={l} onFermer={() => setVoirCr(false)} />}
+      {voirCr !== false && <FenetreCompteRendu l={l} p={p} mode={voirCr} onFermer={() => setVoirCr(false)} />}
       {geste !== null && ecriture && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
       {resultat !== null && <FenetrePrevisite geste="compte_rendu" l={l} p={p} resultatInitial={resultat} onFermer={() => { setResultat(null); apres(); }} />}
     </div>
@@ -343,6 +346,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   }, [l.occupationIds]);
   const brouillon = useBrouillonCompteRendu({ actif: geste === 'compte_rendu' && resultatInitial === undefined, occupationIds: l.occupationIds, contenu: contenuBrouillon, appliquer: appliquerBrouillon });
   const [effacerBrouillon, setEffacerBrouillon] = useState(false);
+  // 🔴 (9e retour) le brouillon restauré : la page est repeinte d'elle-même (jamais blanche jusqu'au défilement, iPhone)
+  useEffect(() => { if (page && brouillon.pret) repeindre(); }, [page, brouillon.pret]);
   /** 🔴 (7e retour) la place du cartouche de sauvegarde : la ligne de « ← Retour » de la page */
   const [placeCartouche, setPlaceCartouche] = useState<Element | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -456,6 +461,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <div className="pvv-titre-ligne"><h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2><BoutonTheme /></div>
         {/* 🔴 Arno (15/11/2026, 7e retour) — l'adresse du bien en GRAND et en gras, juste sous le titre : on vérifie d'un coup d'œil le logement */}
         <p className="pvv-adresse-cr" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
+        {/* 🔴 (9e retour) la restauration du brouillon tarde : c'est dit, le formulaire reste visible */}
+        {geste === 'compte_rendu' && !brouillon.pret && <p className="loc-muet pvv-restauration" role="status" data-brouillon-chargement>Restauration du brouillon…</p>}
       </> : <>
         <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
         <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
@@ -537,13 +544,15 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       <h2 id={titreId} className="mis-titre" data-titre-previsite>Récapitulatif — {TITRES[geste][0]}</h2>
       <p className="loc-muet pss-rien" data-rien-enregistre>Rien n’est encore enregistré ni envoyé : vérifiez, puis « Confirmer et envoyer ».</p>
       {etape.mails.length === 0 ? <p className="mis-note pss-note-neutre">Aucun mail ne partira.</p> : (() => {
-        // 🔴 Arno (15/11/2026) — chaque carte dit sa FAMILLE (étiquette et couleur) ; interne d'abord, puis locataires, puis propriétaires ;
-        // le rappel des comptes au-dessus. Ce qui ne part QU'en interne (notes de présence, vocaux internes) est montré dans la carte interne.
-        const cartes = trierParFamille(etape.mails.map((m) => ({ ...m, famille: familleDuMail(m) })));
+        // 🔴 Arno (15/11/2026) — chaque carte dit sa FAMILLE (étiquette et couleur) ; 🔴 (9e retour) au compte rendu, les LOCATAIRES d'abord,
+        // puis l'interne (comme « Voir le compte rendu ») ; les autres gestes gardent l'interne d'abord ; le rappel des comptes au-dessus, dans le même ordre. Ce qui ne part QU'en interne (notes de
+        // présence, vocaux internes) est montré dans la carte interne.
+        const ordre = geste === 'compte_rendu' ? ORDRE_LOCATAIRES_DABORD : undefined;
+        const cartes = trierParFamille(etape.mails.map((m) => ({ ...m, famille: familleDuMail(m) })), ordre);
         const vocauxInternes = geste === 'compte_rendu' ? envoiVocaux.fichiersVocaux.filter((f) => !(f.locataires && aussiLocataires)) : [];
         return <>
           <p className="pss-sous-titre">Les mails qui partiront :</p>
-          <RappelFamilles mails={cartes} />
+          <RappelFamilles mails={cartes} ordre={ordre} />
           <ul className="cev-mails" data-mails-prevus>{cartes.map((m, i) => (
             <CarteMailFamille key={`${i}-${m.sorte}`} famille={m.famille} sorte={m.sorte} titre={libelleMail(m)} objet={m.objet} a={m.a} cc={m.cc}
               destinataire={m.destinataire} recette={m.recette}
@@ -626,67 +635,127 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
 /**
  * 🔴 Arno (13/11/2026) — LE COMPTE RENDU DE PRÉ-VISITE, EN LECTURE : le texte tel qu'enregistré, qui l'a saisi et quand, les pièces jointes, et
  * l'envoi par mail (chaque destinataire : nom, famille, date et heure, état). Rien n'est modifié en l'ouvrant ; aucune adresse de client.
+ * 🔴🔴 Arno (15/11/2026, 9e retour) — LA MÊME FENÊTRE, centrée, ouverte depuis la frise (« Compte rendu pré-visite ») :
+ *  · envoyé : objet, adresse, présences et notes internes, texte, photos et légendes (vignettes qui s'AGRANDISSENT), chaque vocal (titre,
+ *    statut, lecteur), les envois par famille (locataires en vert d'abord, interne en gris), dates et états ;
+ *  · pas encore envoyé : le BROUILLON tel qu'enregistré (« Brouillon — non envoyé, dernier enregistrement à HHhMM »), en lecture seule, et
+ *    « Continuer la saisie », qui ouvre la page du formulaire.
+ * Défilement de la page bloqué, page de fond masquée et inerte au téléphone (fenêtre modale, comme les autres).
  */
-function FenetreCompteRendu({ l, onFermer }: { l: LignePreavisAccueil; onFermer: () => void }) {
+function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; p: PrevisiteAffiche; mode: 'envoye' | 'brouillon'; onFermer: () => void }) {
   useVerrouDefilement();
   const titreId = useId();
-  const lu = useLecture<CompteRenduAffiche>(`previsiteCompteRendu=${l.occupationIds.join(',')}`);
+  const lu = useLecture<CompteRenduAffiche>(mode === 'envoye' ? `previsiteCompteRendu=${l.occupationIds.join(',')}` : null);
+  const luB = useLecture<{ brouillon: ContenuBrouillon | null; enregistreLe: string | null }>(mode === 'brouillon' ? `previsiteBrouillon=${l.occupationIds.join(',')}` : null);
+  const [agrandie, setAgrandie] = useState<{ url: string; legende: string } | null>(null);
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { if (agrandie !== null) setAgrandie(null); else onFermer(); } };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
-  }, [onFermer]);
-  const cr = lu.etat.etat === 'ok' ? lu.etat.data : null;
+  }, [onFermer, agrandie]);
+  const cr = mode === 'envoye' && lu.etat.etat === 'ok' ? lu.etat.data : null;
+  const nomOccupation = (id: number): string => l.locataires.find((x) => x.occupationId === id)?.nom ?? `Locataire ${id}`;
+  const urlPiece = (id: number): string => `/api/admin/location/pieces-sortie?piece=${id}`;
+  const vignettes = (photos: { id: number | null; legende: string }[]) => photos.length === 0 ? null : (
+    <div className="pvv-cr-bloc" data-cr-photos><p className="pss-sous-titre">Photos</p>
+      <ol className="pvv-cr-photos">{photos.map((x, i) => (
+        <li key={`${i}-${x.id ?? 'x'}`} data-cr-photo={i + 1}>
+          {x.id === null ? <span className="pvv-vignette pvv-vignette--vide" data-cr-photo-attente>Pas encore déposée</span>
+            : <button type="button" className="pvv-cr-vignette" onClick={() => setAgrandie({ url: urlPiece(x.id as number), legende: lignePhoto(i, x.legende) })}
+              aria-label={`Agrandir — ${lignePhoto(i, x.legende)}`} data-cr-agrandir={i + 1}>
+              <img className="pvv-vignette" src={urlPiece(x.id)} alt={lignePhoto(i, x.legende)} loading="lazy" /></button>}
+          <span className="pvv-cr-legende" data-cr-legende>{lignePhoto(i, x.legende)}</span>
+        </li>))}</ol>
+    </div>);
+  const presencesBloc = (pr: { occupations: number[]; personnes: { civilite: string; nom: string; prenom: string; note: string }[] } | null | undefined) => (pr == null ? null : (
+    <div className="pvv-cr-bloc" data-cr-presences><p className="pss-sous-titre">Présences</p>
+      {pr.occupations.length + pr.personnes.length === 0 ? <p className="loc-muet">Personne n’est coché présent.</p> : (
+        <ul className="pvv-cr-liste">
+          {pr.occupations.map((id) => <li key={`o${id}`} data-cr-present="locataire">{nomOccupation(id)} <span className="loc-muet">(locataire)</span></li>)}
+          {pr.personnes.map((x, i) => (
+            <li key={`p${i}`} data-cr-present="personne">{x.civilite} {[x.prenom, x.nom].filter(Boolean).join(' ')}
+              {x.note.trim() !== '' && <span className="pvv-cr-note" data-cr-note-interne> — note interne : {x.note}</span>}</li>))}
+        </ul>)}
+    </div>));
+  let corps: ReactNode;
+  if (mode === 'brouillon') {
+    const b = luB.etat.etat === 'ok' ? luB.etat.data : null;
+    const c = b?.brouillon ?? null;
+    corps = <>
+      <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{p.rdv ? objetCompteRendu(p.rdv) : '—'}</span></p>
+      {luB.etat.etat !== 'ok' ? <EtatLecture etat={luB.etat} /> : c === null ? <p className="mis-note pss-note-neutre" data-cr-brouillon="aucun">Aucune saisie enregistrée pour l’instant.</p> : <>
+        <p className="pvv-cr-brouillon" role="status" data-cr-brouillon="oui">Brouillon — non envoyé{b?.enregistreLe ? `, dernier enregistrement à ${heureBrouillon(b.enregistreLe)}` : ''}</p>
+        {presencesBloc({ occupations: c.presents, personnes: c.ajoutees.filter((x) => x.present) })}
+        <div className="pvv-cr-bloc"><p className="pss-sous-titre">Texte</p>
+          {c.corps.trim() === '' ? <p className="loc-muet" data-cr-texte>Aucun texte pour l’instant.</p> : <pre className="pvv-cr-texte" data-cr-texte>{c.corps}</pre>}</div>
+        {vignettes(c.photos.map((x) => ({ id: x.id ?? null, legende: x.legende })))}
+        {c.fichiers.some((f) => f.prises.length > 0) && (
+          <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux</p>
+            <LectureFichiersVocaux fichiers={c.fichiers.filter((f) => f.prises.length > 0).map((f, i) => ({ nom: f.nom.trim() || `Vocal ${i + 1}`, locataires: f.locataires && c.aussiLocataires,
+              prises: f.prises.flatMap((x, k) => (x.id !== undefined ? [{ id: x.id, nom: `Prise ${k + 1}`, dureeS: x.dureeS }] : [])) }))} url={urlPiece} />
+          </div>)}
+        <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
+          <p className="mis-note pss-note-neutre" data-cr-pas-envoye>Rien n’est encore envoyé.</p></div>
+      </>}
+    </>;
+  } else {
+    corps = cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
+      <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
+      {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
+      {presencesBloc(cr.presences)}
+      <pre className="pvv-cr-texte" data-cr-texte>{texteSansPhotos(cr.texte)}</pre>
+      {/* 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos », chaque photo numérotée, sa légende juste en dessous */}
+      {(() => { const legendes = legendesDuTexte(cr.texte); return vignettes(cr.pieces.slice(0, legendes.length).map((x, i) => ({ id: x.id, legende: legendes[i] }))); })()}
+      {cr.pieces.length > legendesDuTexte(cr.texte).length && (
+        <div className="pvv-cr-bloc" data-cr-pieces><p className="pss-sous-titre">Pièces jointes</p>
+          <ul className="pvv-cr-liste">{cr.pieces.slice(legendesDuTexte(cr.texte).length).map((x) => (
+            <li key={x.id}><a href={urlPiece(x.id)} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
+              {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
+        </div>)}
+      {(cr.vocaux ?? []).length > 0 && (
+        <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux <span className="loc-muet">(internes — jamais envoyés)</span></p>
+          {/* 🔴 Arno (15/11/2026) — les fichiers vocaux du dictaphone, leur statut, leurs prises, réécoute enchaînée ; LECTURE SEULE */}
+          <LectureFichiersVocaux fichiers={(cr.fichiersVocaux ?? []).length > 0 ? cr.fichiersVocaux ?? [] : (cr.vocaux ?? []).map((v, i) => ({ nom: `Vocal ${i + 1}`, prises: [v] }))}
+            url={urlPiece} />
+        </div>)}
+      <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
+        {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}
+        {cr.destinataires.length > 0 && (
+          // 🔴 Arno (15/11/2026) — même mise en forme que le récapitulatif : l'ÉTIQUETTE de famille très visible, la barre de la couleur de la
+          // famille ; les LOCATAIRES d'abord, puis l'interne (ordre rendu par le serveur)
+          <ul className="pvv-cr-liste">{cr.destinataires.map((d, i) => (
+            <li key={`${i}-${d.nom}`} className={`pvv-cr-dest pvv-cr-dest--${d.famille}`} data-cr-destinataire={d.famille} data-cr-etat={d.etat}>
+              <span className="pvv-cr-famille" data-etiquette-famille={d.famille} title={LIBELLE_FAMILLE_CR[d.famille]}>{ETIQUETTE_ENVOI_CR[d.famille]}</span>
+              <strong className="pvv-cr-nom">{d.nom}</strong>
+              <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
+              <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
+            </li>))}</ul>)}
+      </div>
+    </>;
+  }
   const boite = (
-    <div className="mis-voile">
+    <div className="mis-voile pvv-voile-consultation">
       <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_PREVISITE + CSS_COMPTE_RENDU_SAISIE}</style>
-      <div className="mis-boite pss-boite pss-boite-recap" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu>
+      <div className="mis-boite pss-boite pss-boite-recap" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fenetre-compte-rendu={mode}>
         <h2 id={titreId} className="mis-titre">Compte rendu de pré-visite</h2>
-        <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
-        {cr === null ? <EtatLecture etat={lu.etat} /> : cr.texte === null ? <p className="mis-note pss-note-neutre" data-cr-aucun>{AUCUN_CR}</p> : <>
-          <p className="pvv-cr-qui" data-cr-saisi>Saisi{cr.saisiPar ? ` par ${cr.saisiPar}` : ''}{cr.saisiLe ? ` ${quandFr(cr.saisiLe)}` : ''}</p>
-          {cr.objet && <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-cr-objet>{cr.objet}</span></p>}
-          <pre className="pvv-cr-texte" data-cr-texte>{texteSansPhotos(cr.texte)}</pre>
-          {/* 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos », chaque photo numérotée, sa légende juste en dessous */}
-          {(() => { const legendes = legendesDuTexte(cr.texte); const photos = cr.pieces.slice(0, legendes.length);
-            return photos.length === 0 ? null : (
-              <div className="pvv-cr-bloc" data-cr-photos><p className="pss-sous-titre">Photos</p>
-                <ol className="pvv-cr-photos">{photos.map((x, i) => (
-                  <li key={x.id} data-cr-photo={i + 1}>
-                    <a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} target="_blank" rel="noopener noreferrer"><img className="pvv-vignette" src={`/api/admin/location/pieces-sortie?piece=${x.id}`} alt={lignePhoto(i, legendes[i])} loading="lazy" /></a>
-                    <span className="pvv-cr-legende" data-cr-legende>{lignePhoto(i, legendes[i])}</span>
-                  </li>))}</ol>
-              </div>); })()}
-          {cr.pieces.length > legendesDuTexte(cr.texte).length && (
-            <div className="pvv-cr-bloc" data-cr-pieces><p className="pss-sous-titre">Pièces jointes</p>
-              <ul className="pvv-cr-liste">{cr.pieces.slice(legendesDuTexte(cr.texte).length).map((x) => (
-                <li key={x.id}><a href={`/api/admin/location/pieces-sortie?piece=${x.id}`} target="_blank" rel="noopener noreferrer" data-cr-piece={x.id}>{x.nom}</a>
-                  {' '}<span className="loc-muet">({(x.taille / (1024 * 1024)).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo)</span></li>))}</ul>
-            </div>)}
-          {(cr.vocaux ?? []).length > 0 && (
-            <div className="pvv-cr-bloc" data-cr-vocaux><p className="pss-sous-titre">Vocaux <span className="loc-muet">(internes — jamais envoyés)</span></p>
-              {/* 🔴 Arno (15/11/2026) — les fichiers vocaux du dictaphone, leurs prises, réécoute enchaînée ; LECTURE SEULE */}
-              <LectureFichiersVocaux fichiers={(cr.fichiersVocaux ?? []).length > 0 ? cr.fichiersVocaux ?? [] : (cr.vocaux ?? []).map((v, i) => ({ nom: `Vocal ${i + 1}`, prises: [v] }))}
-                url={(id) => `/api/admin/location/pieces-sortie?piece=${id}`} />
-            </div>)}
-          <div className="pvv-cr-bloc" data-cr-envois><p className="pss-sous-titre">Envoi par mail</p>
-            {cr.aucunEnvoi && <p className="mis-note pss-note-neutre" data-cr-aucun-envoi>{AUCUN_ENVOI_CR}</p>}
-            {cr.destinataires.length > 0 && (
-              // 🔴 Arno (15/11/2026) — même mise en forme que le récapitulatif : l'ÉTIQUETTE de famille très visible, la barre de la couleur de la
-              // famille (l'ordre reste celui du serveur)
-              <ul className="pvv-cr-liste">{cr.destinataires.map((d, i) => (
-                <li key={`${i}-${d.nom}`} className={`pvv-cr-dest pvv-cr-dest--${d.famille}`} data-cr-destinataire={d.famille} data-cr-etat={d.etat}>
-                  <span className="pvv-cr-famille" data-etiquette-famille={d.famille} title={LIBELLE_FAMILLE_CR[d.famille]}>{ETIQUETTE_ENVOI_CR[d.famille]}</span>
-                  <strong className="pvv-cr-nom">{d.nom}</strong>
-                  <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
-                  <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
-                </li>))}</ul>)}
-          </div>
-        </>}
+        <p className="loc-muet pss-rien" data-cr-adresse>{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
+        {corps}
         <div className="mis-actions">
-          <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={onFermer} data-fermer-compte-rendu>Fermer</button>
+          <button type="button" className={`svv-btn ${mode === 'brouillon' ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn mis-action`} onClick={onFermer} data-fermer-compte-rendu>Fermer</button>
+          {mode === 'brouillon' && (
+            <a className="svv-btn svv-btn-primary gst-btn mis-action" href={cheminCompteRendu(l.occupationIds[0])} data-continuer-saisie>
+              {luB.etat.etat === 'ok' && luB.etat.data.brouillon === null ? 'Commencer la saisie' : 'Continuer la saisie'}</a>)}
         </div>
       </div>
+      {agrandie !== null && (
+        <div className="pvv-agrandie" role="dialog" aria-modal="true" aria-label={agrandie.legende} data-cr-photo-agrandie onClick={() => setAgrandie(null)}>
+          <img src={agrandie.url} alt={agrandie.legende} />
+          <p className="pvv-agrandie-legende">{agrandie.legende}</p>
+          <div className="pvv-agrandie-boutons">
+            <a className="svv-btn svv-btn-outline gst-btn" href={agrandie.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} data-cr-photo-ouvrir>Ouvrir</a>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setAgrandie(null)} data-cr-photo-fermer>Fermer</button>
+          </div>
+        </div>)}
     </div>
   );
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
@@ -700,6 +769,18 @@ export const ETIQUETTE_ENVOI_CR: Record<CompteRenduAffiche['destinataires'][numb
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_PREVISITE = `
 .pvv-voir-cr{margin-top:8px}
+/* Arno (15/11/2026, 9e retour) : la fenetre du compte rendu, CENTREE (aussi au telephone), son contenu defile dedans */
+.pvv-voile-consultation{align-items:center;padding:12px}
+.pvv-voile-consultation .mis-boite{width:min(640px,100%);max-height:calc(100dvh - 24px);border-radius:18px}
+@media (max-width:640px){.pvv-voile-consultation{align-items:center;padding:10px}.pvv-voile-consultation .mis-boite{max-height:calc(100dvh - 20px);border-radius:16px;padding:16px 14px}}
+.pvv-cr-brouillon{margin:0;padding:8px 12px;border-radius:10px;border:1px dashed var(--color-svv-line-strong);background:var(--color-svv-field);font-weight:800}
+.pvv-cr-note{color:var(--color-svv-muted)}
+.pvv-cr-vignette{display:block;padding:0;margin:0;border:0;background:none;cursor:zoom-in;border-radius:8px;min-height:44px}
+.pvv-agrandie{position:fixed;inset:0;z-index:120;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 88%, transparent)}
+.pvv-agrandie img{max-width:100%;max-height:calc(100dvh - 160px);object-fit:contain;border-radius:8px;background:var(--color-svv-surface)}
+.pvv-agrandie-legende{margin:0;color:var(--color-svv-surface);font-weight:800;text-align:center;overflow-wrap:anywhere}
+.pvv-agrandie-boutons{display:flex;gap:10px}
+.pvv-agrandie-boutons .svv-btn{min-height:48px;width:auto;padding:0 18px;display:inline-flex;align-items:center}
 .pvv-photos{position:relative;border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
 .pvv-photos legend{padding:0;margin:0 0 6px}
 .pvv-photos-boutons{display:flex;flex-wrap:wrap;gap:8px}
@@ -780,7 +861,6 @@ export const CSS_PREVISITE = `
  * html, body), hauteur sur la zone visible (dvh ; marge du bas = hauteur du clavier iOS, lue sur visualViewport), aucune zone transparente.
  */
 export const CSS_PAGE_COMPTE_RENDU = `
-html:has(.pvv-page-cr),body:has(.pvv-page-cr),.svv-adm-root:has(.pvv-page-cr){background:var(--color-svv-surface)}
 .pvv-page{min-height:100dvh;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
 .pvv-page-cr{--pvv-clavier:0px;flex:1 0 auto;background:var(--color-svv-surface);color:var(--color-svv-ink);padding-bottom:var(--pvv-clavier)}
 .pvv-boite-page{display:flex;flex-direction:column;gap:14px;width:min(640px,100%);margin:0 auto;padding:18px 16px;box-sizing:border-box;background:var(--color-svv-surface);color:var(--color-svv-ink);border:2px solid var(--color-svv-line);border-radius:20px}

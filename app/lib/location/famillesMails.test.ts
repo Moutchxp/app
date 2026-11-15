@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, rappelFamilles, trierParFamille } from './famillesMails';
+import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, ORDRE_LOCATAIRES_DABORD, rappelFamilles, trierParFamille } from './famillesMails';
 
 /** 🔴 Arno (15/11/2026) — les familles de mails d'un récapitulatif : étiquette, ordre, rappel des comptes. */
 describe('familles de mails', () => {
@@ -23,5 +23,13 @@ describe('familles de mails', () => {
     expect(familleDuMail({ sorte: 'sortie_edls_proprietaire' })).toBe('proprietaire');
     expect(familleDuMail({ sorte: 'previsite_compte_rendu', famille: 'locataire' })).toBe('locataire');
     expect(familleDuMail({ sorte: 'inconnue' })).toBe('interne');
+  });
+  it('🔴 (9e retour) le compte rendu de pré-visite : les LOCATAIRES d’abord, puis l’interne — cartes ET rappel ; l’ordre ordinaire ne change pas', () => {
+    const m = [{ famille: 'interne' as const, n: 1 }, { famille: 'locataire' as const, n: 2 }, { famille: 'locataire' as const, n: 3 }];
+    expect(trierParFamille(m, ORDRE_LOCATAIRES_DABORD).map((x) => x.n)).toEqual([2, 3, 1]);
+    expect(rappelFamilles(m, ORDRE_LOCATAIRES_DABORD)).toBe('2 mails locataires · 1 mail interne');
+    expect(rappelFamilles([{ famille: 'locataire' }, { famille: 'interne' }], ORDRE_LOCATAIRES_DABORD)).toBe('1 mail locataire · 1 mail interne');
+    expect(trierParFamille(m).map((x) => x.n)).toEqual([1, 2, 3]);
+    expect(rappelFamilles(m)).toBe('1 mail interne · 2 mails locataires');
   });
 });

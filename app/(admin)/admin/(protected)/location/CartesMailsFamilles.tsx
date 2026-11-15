@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ETIQUETTE_FAMILLE_MAIL, rappelFamilles, type FamilleMail } from '../../../../lib/location/famillesMails';
+import { ETIQUETTE_FAMILLE_MAIL, rappelFamilles, type FamilleMail, type ORDRE_LOCATAIRES_DABORD } from '../../../../lib/location/famillesMails';
 
 /**
  * ══ 🔴🔴 Arno (15/11/2026) — LES CARTES DE MAIL D'UN RÉCAPITULATIF, PAR FAMILLE ══════════════════════════════════════════════════════════
@@ -11,8 +11,8 @@ import { ETIQUETTE_FAMILLE_MAIL, rappelFamilles, type FamilleMail } from '../../
  * destinataires ; la mention de recette quand les destinataires affichés ne sont pas ceux qui recevront le mail. Le reste (objet, adresses,
  * copies, pièces jointes, texte, « Modifier le texte ») est celui de la carte d'avant : rien n'est retiré.
  */
-export function RappelFamilles({ mails }: { mails: readonly { famille: FamilleMail }[] }) {
-  const texte = rappelFamilles(mails);
+export function RappelFamilles({ mails, ordre }: { mails: readonly { famille: FamilleMail }[]; ordre?: typeof ORDRE_LOCATAIRES_DABORD }) {
+  const texte = rappelFamilles(mails, ordre);
   return texte === '' ? null : <p className="mfa-rappel" data-rappel-familles>{texte}</p>;
 }
 

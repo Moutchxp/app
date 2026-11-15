@@ -8,6 +8,8 @@ import { lireGroupe, previsiteDisponible, suiviOuvert } from './previsiteBase';
 import { compteRenduAffiche, type AnnuaireCr, type CompteRenduAffiche, type EnvoiJournalCr, type PieceCr } from './compteRenduPrevisite';
 import { ACTION_JOURNAL_VOCAUX, fichiersDeTrace } from './vocauxCompteRendu';
 import { vocauxDesOccupations } from './vocauxCompteRenduRepo';
+import { brouillonDisponible } from './brouillonCompteRenduRepo';
+import { nettoyerBrouillon, type ContenuBrouillon } from './brouillonCompteRendu';
 
 /**
  * ══ 🔴 Arno (13/11/2026) — LE COMPTE RENDU DE PRÉ-VISITE D'UN PRÉAVIS, EN LECTURE SEULE ═══════════════════════════════════════════════════════
@@ -47,10 +49,20 @@ export async function lireCompteRenduPrevisite(occupationIds: readonly number[])
   const fichiersTrace = traces.rows.flatMap((x) => fichiersDeTrace(x.v));
   const idsVocaux = [...new Set(fichiersTrace.flatMap((f) => f.ids))];
   const vocaux = (await vocauxDesOccupations(idsVocaux, ids)).map((v) => ({ id: v.id, nom: v.nom, taille: v.taille }));
-  const parId = new Map(vocaux.map((v) => [v.id, v]));
+  // 🔴 (9e retour) le brouillon tel qu'ENVOYÉ (marqué, jamais effacé) : les présences, les notes internes, la durée des prises
+  let envoye: ContenuBrouillon | null = null;
+  if (await brouillonDisponible()) {
+    const b = await query<{ contenu: unknown }>(
+      `SELECT contenu FROM gestion_location_previsite_brouillon WHERE previsite_id = $1 AND efface_motif = 'envoye' ORDER BY efface_le DESC, id DESC LIMIT 1`, [Number(s.id)]);
+    if (b.rows[0]) envoye = nettoyerBrouillon(b.rows[0].contenu);
+  }
+  const durees = new Map((envoye?.fichiers ?? []).flatMap((f) => f.prises.flatMap((p) => (p.id !== undefined ? [[p.id, p.dureeS] as const] : []))));
+  const presences = envoye === null ? null : { occupations: envoye.presents.filter((x) => ids.includes(x)),
+    personnes: envoye.ajoutees.filter((p) => p.present).map((p) => ({ civilite: p.civilite, nom: p.nom, prenom: p.prenom, note: p.note })) };
+  const parId = new Map(vocaux.map((v) => [v.id, durees.has(v.id) ? { ...v, dureeS: durees.get(v.id) } : v]));
   const fichiersVocaux = fichiersTrace.map((f) => ({ nom: f.nom, prises: f.ids.map((id) => parId.get(id)).filter((v): v is PieceCr => v !== undefined), locataires: f.locataires === true }))
     .filter((f) => f.prises.length > 0);
-  return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux, fichiersVocaux } };
+  return { etat: 'ok', data: { ...compteRenduAffiche(envois, await annuaire(ids), { effectueeLe: s.effectuee_le, effectueePar: par.rows[0]?.p ?? null }, pieces), vocaux, fichiersVocaux, presences } };
 }
 
 const vide = (): AnnuaireCr => ({ locataires: [], proprietaires: [], internes: [], domainesAgence: [] });

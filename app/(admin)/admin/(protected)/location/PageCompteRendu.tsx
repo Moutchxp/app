@@ -5,6 +5,7 @@ import { LienRetour, naviguerRetour, retourVersOrigine } from '../_composants/Na
 import { CSS_LOCATION_ECRANS, EtatLecture, useLecture } from './commun';
 import { API_PREAVIS_LOCATION, ContextePreavis } from './preavisSynchro';
 import { FenetrePrevisite } from './PrevisiteAccueil';
+import { useRepeindre } from './repeindre';
 import { cheminRetourPrevisite } from '../../../../lib/location/cheminCompteRendu';
 import type { LignePreavisAccueil } from '../../../../lib/location/preavis';
 
@@ -38,20 +39,21 @@ export function motifSansFormulaire(l: LignePreavisAccueil | null): string | nul
  */
 export function useFondDeLaPage(): void {
   useEffect(() => {
-    const racine = document.querySelector('.svv-adm-root');
+    const racine = document.querySelector('.svv-adm-root') as HTMLElement | null;
     if (racine === null) return;
     const html = document.documentElement; const corps = document.body;
-    const avant = [html.style.backgroundColor, corps.style.backgroundColor];
+    const avant = [html.style.backgroundColor, corps.style.backgroundColor, racine.style.backgroundColor];
+    // 🔴 (9e retour) la racine aussi, en ligne : plus de règle « :has() » sur <html> (voir useRepeindre)
     const recopier = (): void => {
       const c = getComputedStyle(racine).getPropertyValue('--color-svv-surface').trim();
-      if (c !== '') { html.style.backgroundColor = c; corps.style.backgroundColor = c; }
+      if (c !== '') { html.style.backgroundColor = c; corps.style.backgroundColor = c; racine.style.backgroundColor = c; }
     };
     recopier();
     const mo = new MutationObserver(recopier);
     mo.observe(racine, { attributes: true, attributeFilter: ['data-theme'] });
     const mq = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     mq?.addEventListener?.('change', recopier);
-    return () => { mo.disconnect(); mq?.removeEventListener?.('change', recopier); html.style.backgroundColor = avant[0]; corps.style.backgroundColor = avant[1]; };
+    return () => { mo.disconnect(); mq?.removeEventListener?.('change', recopier); html.style.backgroundColor = avant[0]; corps.style.backgroundColor = avant[1]; racine.style.backgroundColor = avant[2]; };
   }, []);
 }
 
@@ -64,13 +66,15 @@ export function PageCompteRendu({ occupationId }: { occupationId: number }) {
   const d = lu.etat.etat === 'ok' ? lu.etat.data : null;
   const l = d !== null && Array.isArray(d.lignes) ? d.lignes.find((x) => x.occupationIds.includes(occupationId)) ?? null : null;
   const motif = d === null ? null : motifSansFormulaire(l);
+  // 🔴 (9e retour) le contenu arrivé : la page est repeinte d'elle-même (jamais blanche jusqu'au défilement)
+  useRepeindre(d === null ? 'chargement' : motif ?? 'formulaire');
   return (
     <ContextePreavis.Provider value={contexte}>
       <div className="pvv-page" data-page-compte-rendu={occupationId}>
         <style>{CSS_LOCATION_ECRANS}</style>
         {/* 🔴 Arno (15/11/2026, 7e retour) — la ligne de « ← Retour » porte, à droite, le petit cartouche de sauvegarde du brouillon */}
         <div className="pvv-ligne-retour"><LienRetour href={retour} /><span data-cartouche-sauvegarde /></div>
-        {d === null ? <EtatLecture etat={lu.etat} />
+        {d === null ? <div className="pvv-chargement" role="status" data-chargement-page><EtatLecture etat={lu.etat} /></div>
           : motif !== null || l === null || !l.previsite ? <div className="svv-card" role="status" data-cr-impossible>{motif}</div>
             : <FenetrePrevisite page geste="compte_rendu" l={l} p={l.previsite} onFermer={revenir} />}
       </div>

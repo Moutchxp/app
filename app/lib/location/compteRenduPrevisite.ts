@@ -10,7 +10,11 @@
 export type FamilleDestinataire = 'locataire' | 'proprietaire' | 'interne' | 'autre';
 export type EtatEnvoiCr = 'envoye' | 'echec' | 'non_envoye';
 export interface DestinataireCr { nom: string; famille: FamilleDestinataire; quand: string | null; etat: EtatEnvoiCr; motif: string | null }
-export interface PieceCr { id: number; nom: string; taille: number }
+export interface PieceCr { id: number; nom: string; taille: number;
+  /** 🔴 (9e retour) la durée d'une prise, lue dans le brouillon envoyé (barre de lecture) */
+  dureeS?: number }
+/** 🔴 Arno (15/11/2026, 9e retour) — qui était présent (locataires : leurs occupations ; personnes ajoutées, avec leur note INTERNE). */
+export interface PresencesCr { occupations: number[]; personnes: { civilite: string; nom: string; prenom: string; note: string }[] }
 export interface CompteRenduAffiche {
   /** Le texte du compte rendu, tel qu'enregistré (le mail interne) ; null : aucun compte rendu saisi. */
   texte: string | null; objet: string | null; saisiPar: string | null; saisiLe: string | null;
@@ -21,6 +25,8 @@ export interface CompteRenduAffiche {
   vocaux?: PieceCr[];
   /** 🔴 Arno (15/11/2026) — les FICHIERS VOCAUX du dictaphone (nom, prises dans l'ordre), en lecture seule. */
   fichiersVocaux?: { nom: string; prises: PieceCr[]; locataires?: boolean }[];
+  /** 🔴 Arno (15/11/2026, 9e retour) — les présences et les notes internes, lues dans le brouillon marqué « envoyé » ; null : inconnues */
+  presences?: PresencesCr | null;
 }
 
 /** Une ligne du journal des envois (sorte `previsite_compte_rendu`). */
