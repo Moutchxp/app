@@ -7,6 +7,9 @@ import { BlocPreavisAccueil, CLE_TRI, CSS_PREAVIS_ACCUEIL } from './PreavisAccue
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
 import { ficheDepuisEncart, texteFicheIntervention } from '../../../../lib/location/ficheIntervention';
 import { AccueilLocation } from './AccueilLocation';
+import { PageCompteRendu, motifSansFormulaire } from './PageCompteRendu';
+import { naviguerRetour } from '../_composants/NavigationRetour';
+import { cheminCompteRendu, redirectionAncienLien } from '../../../../lib/location/cheminCompteRendu';
 import { EcranSortieLocataire } from './SortieLocataires';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
 import type { BailLogement, EncartLogement } from '../../../../lib/location/sortieLocataires';
@@ -122,6 +125,26 @@ const attendre = async (): Promise<void> => { await act(async () => { await Prom
 async function rendre(gestion = true): Promise<void> {
   await act(async () => { root.render(createElement(BlocPreavisAccueil, { gestion })); });
   await attendre();
+}
+/**
+ * 🔴 Arno (15/11/2026, 5e retour iPhone) — le compte rendu est une PAGE à part entière : « suivre » le lien de la frise = démonter la Location
+ * et rendre la page à sa place (jsdom ne change pas de page). Le retour (« Annuler », après l'envoi) passe par `naviguerRetour.vers`, noté.
+ */
+let retours: string[] = [];
+beforeEach(() => { retours = []; naviguerRetour.vers = (url: string) => { retours.push(url); window.history.replaceState(null, '', url); }; });
+afterEach(() => { try { window.sessionStorage.clear(); } catch { /* rien */ } window.history.replaceState(null, '', '/'); });
+async function suivreLienCr(): Promise<void> {
+  const a = container.querySelector('a[data-compte-rendu-previsite]') as HTMLAnchorElement;
+  const occ = Number(/\/admin\/location\/previsite\/(\d+)\/compte-rendu$/.exec(a.getAttribute('href') ?? '')![1]);
+  act(() => root.unmount()); root = createRoot(container);
+  window.history.replaceState(null, '', a.getAttribute('href'));
+  await act(async () => { root.render(createElement(PageCompteRendu, { occupationId: occ })); });
+  await attendre(); await attendre();
+}
+/** Le retour sur la Location (après « Annuler » ou l'envoi) : la page démontée, la Location rendue à l'adresse de retour. */
+async function revenirSurLocation(): Promise<void> {
+  act(() => root.unmount()); root = createRoot(container);
+  await rendre(true); await attendre(); await attendre();
 }
 const ordre = (): string[] => [...container.querySelectorAll('[data-ligne-preavis]')].map((li) => li.getAttribute('data-ligne-preavis')!);
 const clic = (sel: string): void => act(() => (container.querySelector(sel) as HTMLButtonElement).click());
@@ -1042,27 +1065,112 @@ describe('🔴🔴 Arno (13/11/2026) — lot A : le lien de l’invitation ouvre
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
   };
   afterEach(() => { window.history.replaceState(null, '', '/'); });
-  it('?previsite=11&geste=compte-rendu : la ligne s’ouvre ET le formulaire « Compte rendu pré-visite » est déjà ouvert ; le paramètre est retiré de l’adresse', async () => {
+  // 🔴 Arno (15/11/2026, 5e retour iPhone) — le formulaire est une PAGE : l'ancien lien est redirigé par le serveur (`redirectionAncienLien`,
+  // lu par la page Location AVANT tout rendu) ; la Location ne l'ouvre plus en fenêtre.
+  it('ancien lien ?previsite=11&geste=compte-rendu → la page /admin/location/previsite/11/compte-rendu (reprise gardée) ; tout autre lien : rien', () => {
+    expect(redirectionAncienLien({ previsite: '11', geste: 'compte-rendu' })).toBe('/admin/location/previsite/11/compte-rendu');
+    expect(redirectionAncienLien({ previsite: '11', geste: 'compte-rendu', reprise: '1' })).toBe('/admin/location/previsite/11/compte-rendu?reprise=1');
+    expect(redirectionAncienLien({ previsite: '11' })).toBeNull();
+    expect(redirectionAncienLien({ previsite: 'x', geste: 'compte-rendu' })).toBeNull();
+    expect(redirectionAncienLien({ previsite: '0', geste: 'compte-rendu' })).toBeNull();
+    expect(redirectionAncienLien({})).toBeNull();
+    expect(cheminCompteRendu(11)).toBe('/admin/location/previsite/11/compte-rendu');
+    const page = readFileSync('app/(admin)/admin/(protected)/location/page.tsx', 'utf8');
+    expect(page).toContain('const cible = redirectionAncienLien(await searchParams);');
+    expect(page.indexOf('redirect(cible)')).toBeLessThan(page.indexOf('accesLocation()'));
+  });
+  it('la Location n’ouvre plus le formulaire en fenêtre, même avec l’ancien paramètre ; le bouton de la frise est un LIEN vers la page', async () => {
     programmeeCommencee();
     window.history.replaceState(null, '', '/admin/location?previsite=11&geste=compte-rendu');
     await rendre(true); await attendre(); await attendre();
     expect(container.querySelector('[data-ligne-depliee="C"]')).not.toBeNull();
-    const f = document.querySelector('[data-fenetre-previsite="saisie"][data-geste-previsite="compte_rendu"]');
-    expect(f).not.toBeNull();
-    expect(f!.querySelector('[data-corps-compte-rendu]')).not.toBeNull();
-    expect(window.location.search).toBe('?previsite=11');
-    act(() => (document.querySelector('[data-annuler-previsite]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    const a = container.querySelector('[data-ligne-depliee="C"] [data-compte-rendu-previsite]') as HTMLAnchorElement;
+    expect(a.tagName).toBe('A');
+    expect(a.getAttribute('href')).toBe('/admin/location/previsite/11/compte-rendu');
+    expect(a.textContent).toBe('Compte rendu pré-visite');
   });
-  it('sans « geste » : la ligne s’ouvre seulement (comme avant) ; rendez-vous pas commencé : le formulaire ne s’ouvre pas', async () => {
+  it('la PAGE : le formulaire seul — aucun élément de la Location (bloc des préavis, frise, ligne) ; « ← Retour » vers le bon préavis', async () => {
     programmeeCommencee();
-    window.history.replaceState(null, '', '/admin/location?previsite=11');
-    await rendre(true); await attendre();
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    expect(document.querySelector('[data-fenetre-previsite="saisie"][data-geste-previsite="compte_rendu"]')).not.toBeNull();
+    expect(document.querySelector('[data-page-compte-rendu="11"]')).not.toBeNull();
+    for (const s of ['[data-bloc-preavis]', '[data-frise-preavis]', '[data-ligne-preavis]', '[data-ligne-depliee]', '.mis-voile', '[aria-modal="true"]']) expect(document.querySelector(s), s).toBeNull();
+    const retour = document.querySelector('[data-page-compte-rendu] a[data-retour-lien]') as HTMLAnchorElement;
+    expect(retour.getAttribute('href')).toBe('/admin/location?previsite=11');
+    expect(retour.textContent).toBe('← Retour');
+  });
+  it('« Annuler » : retour à la Location sur le bon préavis (ligne dépliée), rien d’envoyé', async () => {
+    programmeeCommencee();
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    act(() => (document.querySelector('[data-annuler-previsite]') as HTMLButtonElement).click());
+    expect(retours).toEqual(['/admin/location?previsite=11']);
+    await revenirSurLocation();
+    expect(container.querySelector('[data-ligne-depliee="C"]')).not.toBeNull();
     expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
-    act(() => root.unmount()); root = createRoot(container);
-    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { ...l.previsite!, rdvPasse: false } } : l));
-    window.history.replaceState(null, '', '/admin/location?previsite=11&geste=compte-rendu');
-    await rendre(true); await attendre();
+    expect(posts.filter((c) => String(c.action).includes('compte-rendu'))).toEqual([]);
+  });
+  it('parcours complet sur la PAGE : saisie, présence, récapitulatif, envoi → retour à la Location, la fenêtre de résultat habituelle (une fois)', async () => {
+    programmeeCommencee();
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    await suivreLienCr();
+    { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Logement propre.'); t.dispatchEvent(new Event('input', { bubbles: true })); }); }
+    cocherPresence();
+    await act(async () => { (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click(); }); await attendre();
+    expect(document.querySelector('[data-fenetre-previsite="recap"]')).not.toBeNull();
+    expect(document.querySelector('[data-bloc-preavis]')).toBeNull();
+    await act(async () => { (document.querySelector('[data-confirmer-previsite]') as HTMLButtonElement).click(); }); await attendre();
+    expect(posts.at(-1)).toMatchObject({ action: 'compte-rendu-previsite', corps: 'Logement propre.', presences: { occupations: [11], personnes: [] } });
+    expect(retours).toEqual(['/admin/location?previsite=11']);
+    await revenirSurLocation();
+    const f = document.querySelector('[data-fenetre-previsite="resultat"][data-geste-previsite="compte_rendu"]')!;
+    expect(f.querySelector('[data-titre-previsite]')!.textContent).toBe('✓ Compte rendu envoyé');
+    expect(f.querySelector('[data-resume]')!.textContent).toContain('C rue');
+    act(() => (document.querySelector('[data-fermer-previsite]') as HTMLButtonElement).click());
     expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    // lu une seule fois : un nouveau retour ne le rouvre pas
+    await revenirSurLocation();
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+  });
+  it('🔴 TOUTE fenêtre ouverte sur téléphone (Valider la sortie, RDV / Tâches, Ajouter une personne…) : la page de fond est MASQUÉE et inerte (une règle commune)', () => {
+    const css = readFileSync('app/globals.css', 'utf8').replace(/\s+/g, ' ');
+    expect(css).toContain('@media (max-width: 640px) { html:has(.svv-adm-root [aria-modal="true"]) .svv-adm-shell { visibility: hidden; } html:has(.svv-adm-root [aria-modal="true"]) .svv-adm-root [aria-modal="true"] { visibility: visible; } }');
+    // les fenêtres de saisie utilisées sur téléphone se déclarent bien « aria-modal » (sans quoi la règle ne les verrait pas)
+    for (const f of ['ValidationSortieEdls.tsx', 'ParcoursPreavisSortie.tsx', 'PrevisiteAccueil.tsx', 'CompteRenduSaisie.tsx', '../gestion/FenetreTache.tsx', '../gestion/RecapEnvoisTache.tsx']) {
+      expect(readFileSync(`app/(admin)/admin/(protected)/location/${f}`, 'utf8'), f).toContain('aria-modal="true"');
+    }
+  });
+  it('🔴 le fond jusqu’au bord inférieur, EN SOMBRE AUSSI : html et body prennent la couleur du thème résolue, relue au changement de thème, rendue en quittant', async () => {
+    const { useFondDeLaPage } = await import('./PageCompteRendu');
+    const racine = document.createElement('div'); racine.className = 'svv-adm-root'; racine.setAttribute('data-theme', 'dark');
+    racine.style.setProperty('--color-svv-surface', '#1b232f'); document.body.appendChild(racine);
+    const hote = document.createElement('div'); racine.appendChild(hote);
+    const r2 = createRoot(hote);
+    function Sonde() { useFondDeLaPage(); return null; }
+    await act(async () => { r2.render(createElement(Sonde)); });
+    expect(document.documentElement.style.backgroundColor).toBe('rgb(27, 35, 47)');
+    expect(document.body.style.backgroundColor).toBe('rgb(27, 35, 47)');
+    // le thème change (bouton clair / sombre) : la couleur est relue
+    racine.style.setProperty('--color-svv-surface', '#ffffff');
+    await act(async () => { racine.setAttribute('data-theme', 'light'); await Promise.resolve(); });
+    expect(document.body.style.backgroundColor).toBe('rgb(255, 255, 255)');
+    await act(async () => { r2.unmount(); });
+    expect(document.documentElement.style.backgroundColor).toBe('');
+    expect(document.body.style.backgroundColor).toBe('');
+    racine.remove();
+  });
+  it('🔴 « 1 Issue » : Chrome sur iPhone pose `__gcruniqueid` sur le champ de recherche de la Location avant l’hydratation — React ne s’en plaint pas', () => {
+    expect(readFileSync('app/(admin)/admin/(protected)/location/AccueilLocation.tsx', 'utf8')).toContain('<input suppressHydrationWarning value={texte}');
+  });
+  it('rendez-vous pas commencé, déjà fait, préavis introuvable : la page le dit, sans formulaire', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null } } : l));
+    await act(async () => { root.render(createElement(PageCompteRendu, { occupationId: 11 })); }); await attendre(); await attendre();
+    expect(document.querySelector('[data-cr-impossible]')!.textContent).toBe('Le compte rendu s’ouvre dès le début du rendez-vous de pré-visite.');
+    expect(document.querySelector('[data-fenetre-previsite]')).toBeNull();
+    expect(motifSansFormulaire(null)).toContain('plus en cours');
+    expect(motifSansFormulaire({ ...lignes[2], previsite: { ...lignes[2].previsite!, statut: 'effectuee', rdvPasse: true } })).toContain('déjà enregistré');
   });
   it('« non envoyé » et « échec » en ROUGE, « envoyé » en vert ; la fenêtre tient dans la zone visible (clavier iPhone), champs en 16 px', async () => {
     const css = (await import('./PrevisiteAccueil')).CSS_PREVISITE.replace(/\s+/g, ' ');
@@ -1095,7 +1203,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
   const clicDoc = (sel: string): void => act(() => (document.querySelector(sel) as HTMLButtonElement).click());
   const ouvrirCr = async () => {
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
-    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
+    await suivreLienCr();
     const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
     act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Logement propre.'); t.dispatchEvent(new Event('input', { bubbles: true })); });
   };
@@ -1230,7 +1338,7 @@ describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visi
   const clicDoc = (sel: string): void => act(() => (document.querySelector(sel) as HTMLButtonElement).click());
   const ouvrirCr = async (texte = '', curseur = 0) => {
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
-    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
+    await suivreLienCr();
     const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement;
     if (texte !== '') act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, texte); t.dispatchEvent(new Event('input', { bubbles: true })); });
     act(() => { t.focus(); t.setSelectionRange(curseur, curseur); t.blur(); }); // le toucher d'un bouton fait sortir du champ
@@ -1255,12 +1363,14 @@ describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visi
     expect([...boite.querySelectorAll('[data-bloc-texte], [data-photos-compte-rendu], [data-vocaux-compte-rendu]')].map((x) => x.querySelector('h3')!.textContent!.split(' ')[0]))
       .toEqual(['Texte', 'Photos', 'Dictaphone']);
     expect(boite.className).toContain('pvv-boite-cr');
-    expect(boite.closest('.mis-voile')!.className).toContain('pvv-voile-cr');
+    // 🔴 (15/11/2026) — une PAGE : aucune fenêtre, aucun voile ; fond opaque de la page jusqu'au bord inférieur
+    expect(boite.closest('.mis-voile')).toBeNull();
+    expect(boite.closest('.pvv-page-cr')).not.toBeNull();
     const actions = boite.querySelector('.mis-actions')!;
     expect(boite.lastElementChild).toBe(actions);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
     expect(css).toContain('.pvv-boite-cr .mis-actions{position:static');
-    expect(css).toContain('.pvv-voile-cr{background:var(--color-svv-surface)');
+    expect(css).toContain('.pvv-page-cr{--pvv-clavier:0px;flex:1 0 auto;background:var(--color-svv-surface)');
   });
 
   it('🔴 « Maintenir pour dicter » : enregistre TANT QUE le doigt est posé, puis transcrit ; le texte s’insère AU CURSEUR (sans mention) ; aucun fichier gardé ; « Clavier » ouvre la saisie', async () => {
@@ -1368,7 +1478,7 @@ describe('🔴 Arno (15/11/2026) — PHOTOS : Carrousel / Liste, choix mémoris�
   });
   const ouvrir = async () => {
     await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
-    clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre();
+    await suivreLienCr();
     const input = document.querySelector('[data-photo-galerie]') as HTMLInputElement;
     Object.defineProperty(input, 'files', { value: ['a.jpg', 'b.jpg', 'c.jpg'].map((x) => new File([new Uint8Array([1])], x, { type: 'image/jpeg' })), configurable: true });
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -1502,7 +1612,7 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
   const taper = (v: string, curseur = v.length) => act(() => {
     const t = zone(); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v); t.setSelectionRange(curseur, curseur); t.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); };
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); };
   const patienter = async (cond: () => boolean) => { for (let k = 0; k < 60 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
   const maintenir = async (sel: string, ms: number) => {
     const b = document.querySelector(sel) as HTMLButtonElement;
@@ -1615,13 +1725,15 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
       ['envoye', 'Cuisine — ENVOYÉ aux locataires'], ['interne', 'Salon — NON envoyé (interne)']]);
   });
 
-  it('🔴 fond OPAQUE sur toute la hauteur : le formulaire du compte rendu ne suit pas la zone visible (aucune bande de la page derrière), la page elle-même devient opaque', async () => {
+  it('🔴 fond OPAQUE sur toute la hauteur : une PAGE (rien dessous), la page elle-même et la racine opaques ; la marge du bas suit le clavier (zone visible)', async () => {
     await ouvrirCr();
-    const voile = document.querySelector('.pvv-voile-cr') as HTMLElement;
-    expect(voile.getAttribute('style') ?? '').toBe('');
+    expect(document.querySelector('.mis-voile, .pvv-voile-cr')).toBeNull();
+    const page = document.querySelector('.pvv-page-cr') as HTMLElement;
+    expect(page.style.getPropertyValue('--pvv-clavier')).toBe('0px');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
-    expect(css).toContain('box-shadow:0 0 0 100vmax var(--color-svv-surface)');
-    expect(css).toContain('html:has(.pvv-voile-cr),body:has(.pvv-voile-cr){background:var(--color-svv-surface)}');
+    expect(css).toContain('html:has(.pvv-page-cr),body:has(.pvv-page-cr),.svv-adm-root:has(.pvv-page-cr){background:var(--color-svv-surface)}');
+    expect(css).toContain('padding-bottom:var(--pvv-clavier)');
+    expect(css).toContain('.pvv-page{min-height:100dvh');
   });
 });
 
@@ -1654,7 +1766,7 @@ describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétiqu
     }) as unknown as typeof fetch;
   });
   afterEach(() => { vi.restoreAllMocks(); });
-  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); };
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); };
   const taperTexte = (v: string) => act(() => { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v); t.dispatchEvent(new Event('input', { bubbles: true })); });
   const saisir = (sel: string, v: string) => act(() => { const e = document.querySelector(sel) as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true })); });
 
@@ -1752,7 +1864,7 @@ describe('🔴🔴 Arno (15/11/2026, 4e retour iPhone) — flèche d’Entrée, 
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
   });
-  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); };
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); };
   const saisir = (el: Element, v: string) => act(() => { const e = el as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true })); });
 
   it('« Entrée » : la FLÈCHE seule (SVG), libellé accessible « Aller à la ligne », zone tactile de 44 px', async () => {

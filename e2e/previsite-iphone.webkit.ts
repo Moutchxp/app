@@ -40,7 +40,11 @@ test('session valide : le formulaire du compte rendu s’ouvre, au plus un aller
   await expect(page.locator('[data-fenetre-previsite="saisie"][data-geste-previsite="compte_rendu"]')).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(1500);
   expect(navigations.filter((n) => n.startsWith('/admin/login')).length).toBeLessThanOrEqual(1);
-  expect(navigations.length).toBeLessThanOrEqual(3);
+  // 🔴 (15/11/2026, 5e retour) — l'ancien lien est redirigé PAR LE SERVEUR vers la page du compte rendu : ce saut n'est pas un aller-retour par
+  // la connexion, il est compté à part (au plus un par passage sur l'ancien lien)
+  const page_ = navigations.filter((n) => n.startsWith('/admin/location/previsite/'));
+  expect(navigations.length - page_.length).toBeLessThanOrEqual(3);
+  expect(page_.length).toBeLessThanOrEqual(2);
   expect(page.url()).not.toContain('reprise=1');
   await capturer(page, '02-session-valide-formulaire-ouvert');
   expect(erreurs).toEqual([]);

@@ -12,6 +12,7 @@ import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { adressesUniques, copiesAvis, prenomNom } from './mailsPreavisSortie';
 import { locatairesAvis, logementDe, mailsAvisDisponibles, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
 import type { LignePreavisAccueil } from './preavis';
+import { cheminCompteRendu, cheminRetourPrevisite } from './cheminCompteRendu';
 import {
   NOM_FICHIER_ICS, debutDuRendezVous, invitationIcs, mailPrevisite, objetConfirmationLocataires, objetModificationLocataires,
   copieInterneLocataires, mailRdvLocataire, paragraphesConfirmationLocataires, paragraphesModificationLocataires, statutPrevisite, tousRefusent, uidPrevisite,
@@ -185,8 +186,10 @@ export async function avecPrevisites<T extends { disponible: boolean; lignes: Li
 // ══ LE LIEN QUI OUVRE LA LIGNE, DÉPLIÉE ═════════════════════════════════════════════════════════════════════════════════
 
 export function lienLignePreavis(occupationId: number, o: { compteRendu?: boolean } = {}): string {
-  // 🔴 Arno (13/11/2026) — l'invitation au compte rendu : `&geste=compte-rendu` ouvre directement le formulaire (après connexion, le retour y ramène)
-  return `${adresseApplication().base.replace(/\/+$/, '')}/admin/location?previsite=${occupationId}${o.compteRendu ? '&geste=compte-rendu' : ''}`;
+  // 🔴 Arno (13/11/2026) — l'invitation au compte rendu ouvre directement le formulaire (après connexion, le retour y ramène) ;
+  // 🔴 Arno (15/11/2026) — c'est désormais une PAGE à part entière (`cheminCompteRendu`), plus une fenêtre sur la Location
+  const base = adresseApplication().base.replace(/\/+$/, '');
+  return `${base}${o.compteRendu ? cheminCompteRendu(occupationId) : cheminRetourPrevisite(occupationId)}`;
 }
 // ══ LES MAILS AUX LOCATAIRES (confirmation, modification) ═══════════════════════════════════════════════════════════════
 

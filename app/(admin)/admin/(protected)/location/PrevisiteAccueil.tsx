@@ -25,6 +25,7 @@ import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonTheme, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, MOTIF_PRESENCE } from '../../../../lib/location/texteCompteRendu';
+import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -85,20 +86,12 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
   const p = l.previsite ?? null;
   const [geste, setGeste] = useState<Geste | null>(null);
   const [voirCr, setVoirCr] = useState(false);
-  // 🔴 Arno (13/11/2026) — le lien de l'invitation (`?previsite=…&geste=compte-rendu`) ouvre DIRECTEMENT le formulaire du compte rendu, une fois
-  // (le paramètre est retiré de l'adresse : un rechargement ne le rouvre pas) — si le geste est possible ici (rendez-vous commencé, droit d'écrire).
   const { ecriture } = useContextePreavis();
-  const peutCompteRendu = p !== null && p.rdv !== null && p.rdvPasse && p.statut === 'programmee' && ecriture;
-  useEffect(() => {
-    if (!peutCompteRendu) return;
-    try {
-      const u = new URL(window.location.href);
-      if (u.searchParams.get('geste') !== 'compte-rendu' || !l.occupationIds.includes(Number(u.searchParams.get('previsite')))) return;
-      u.searchParams.delete('geste');
-      window.history.replaceState(window.history.state, '', `${u.pathname}${u.search}${u.hash}`);
-      setGeste('compte_rendu'); // eslint-disable-line react-hooks/set-state-in-effect
-    } catch { /* sans adresse lisible : rien */ }
-  }, [peutCompteRendu, l.occupationIds]);
+  // 🔴 Arno (15/11/2026) — le compte rendu est une PAGE à part entière (`PageCompteRendu`) : l'ancien lien de l'invitation y est redirigé par
+  // le serveur. Au retour de l'envoi, la fenêtre de résultat habituelle s'affiche ICI (rangée par la page le temps de revenir, une seule fois).
+  const [resultat, setResultat] = useState<EtapeResultat | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { const r = prendreResultatCompteRendu(l.occupationIds); if (r !== null) setResultat(r); }, [l.occupationIds]);
   if (p === null) return null;
   const programmee = p.statut === 'programmee' && p.rdv !== null;
   // 🔴 Arno (10/11/2026, option A) — sans le droit « Location » : les boutons restent visibles, INACTIFS, avec la mention.
@@ -124,8 +117,10 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
         {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>RDV pré-visite</button>}
         {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Déplacer la pré-visite</button>}
         {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
-        {p.rdv !== null && p.rdvPasse && p.statut === 'programmee' && (
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('compte_rendu')} data-compte-rendu-previsite>Compte rendu pré-visite</button>)}
+        {/* 🔴 Arno (15/11/2026) — le bouton ouvre la PAGE du compte rendu (un lien : le « ← Retour » commun note d'où l'on vient) ; inactif sans droit */}
+        {p.rdv !== null && p.rdvPasse && p.statut === 'programmee' && (ecriture
+          ? <a className="svv-btn svv-btn-primary gst-btn pvv-lien-cr" href={cheminCompteRendu(l.occupationIds[0])} data-compte-rendu-previsite>Compte rendu pré-visite</a>
+          : <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} data-compte-rendu-previsite>Compte rendu pré-visite</button>)}
         {p.statut !== 'effectuee' && p.statut !== 'refusee' && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('refus')} data-refus-previsite>Refus / absence de pré-visite</button>)}
       </div>
@@ -142,6 +137,7 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
       </div>
       {voirCr && <FenetreCompteRendu l={l} onFermer={() => setVoirCr(false)} />}
       {geste !== null && ecriture && <FenetrePrevisite geste={geste} l={l} p={p} onFermer={(fait) => { setGeste(null); if (fait) apres(); }} />}
+      {resultat !== null && <FenetrePrevisite geste="compte_rendu" l={l} p={p} resultatInitial={resultat} onFermer={() => { setResultat(null); apres(); }} />}
     </div>
   );
 }
@@ -149,7 +145,30 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
 interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; piece?: string | null;
   /** 🔴 Arno (10/11/2026) — un mail aux locataires à texte modifiable : ses parties. */
   edition?: EditionMail }
-type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[] } | { etape: 'resultat'; mails: MailParti[]; lignes: [string, ReactNode][]; motif: string | null };
+type EtapeResultat = { etape: 'resultat'; mails: MailParti[]; lignes: [string, ReactNode][]; motif: string | null };
+type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[] } | EtapeResultat;
+
+/**
+ * 🔴 Arno (15/11/2026) — LE RÉSULTAT DE L'ENVOI, DE LA PAGE DU COMPTE RENDU À LA LOCATION : rangé dans l'onglet (sessionStorage) le temps de
+ * revenir, puis lu UNE fois par le bloc « Pré-visite » du même préavis, qui affiche la fenêtre de résultat habituelle. Sans stockage : rien
+ * (l'envoi est fait ; la ligne relue dit « Pré-visite effectuée »). Périmé au-delà de 10 minutes.
+ */
+export const CLE_RESULTAT_CR = 'svav.previsite.resultat-compte-rendu';
+const RESULTAT_PERIME_MS = 10 * 60_000;
+export function noterResultatCompteRendu(occupationIds: readonly number[], r: { mails: MailParti[]; lignes: [string, string][]; motif: string | null }): void {
+  try { window.sessionStorage.setItem(CLE_RESULTAT_CR, JSON.stringify({ occupationIds, le: Date.now(), ...r })); } catch { /* sans stockage : rien */ }
+}
+export function prendreResultatCompteRendu(occupationIds: readonly number[]): EtapeResultat | null {
+  try {
+    const brut = window.sessionStorage.getItem(CLE_RESULTAT_CR);
+    if (brut === null) return null;
+    const r = JSON.parse(brut) as { occupationIds?: number[]; le?: number; mails?: MailParti[]; lignes?: [string, string][]; motif?: string | null };
+    if (!Array.isArray(r.occupationIds) || !r.occupationIds.some((x) => occupationIds.includes(x))) return null;
+    window.sessionStorage.removeItem(CLE_RESULTAT_CR);
+    if (typeof r.le !== 'number' || Date.now() - r.le > RESULTAT_PERIME_MS) return null;
+    return { etape: 'resultat', mails: Array.isArray(r.mails) ? r.mails : [], lignes: Array.isArray(r.lignes) ? r.lignes : [], motif: r.motif ?? null };
+  } catch { return null; }
+}
 
 const TITRES: Record<Geste, [string, string]> = {
   rdv: ['RDV pré-visite', 'Pré-visite programmée'],
@@ -194,12 +213,17 @@ export function useZoneVisible(): { top: number; height: number } | null {
   return z;
 }
 
-function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePreavisAccueil; p: PrevisiteAffiche; onFermer: (fait: boolean) => void }) {
+export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultatInitial }: { geste: Geste; l: LignePreavisAccueil; p: PrevisiteAffiche; onFermer: (fait: boolean) => void;
+  /** 🔴 Arno (15/11/2026) — le compte rendu en PAGE à part entière : aucune fenêtre, aucun voile, rien de la page d'avant dessous ; après
+   *  l'envoi, le résultat est rangé pour la Location et la page y retourne (`onFermer(true)`). */
+  page?: boolean;
+  /** Le résultat d'un envoi fait sur la page du compte rendu : la fenêtre s'ouvre directement dessus (sur la Location). */
+  resultatInitial?: EtapeResultat }) {
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
-  useVerrouDefilement();
+  useVerrouDefilement(!page);
   const zone = useZoneVisible();
   const titreId = useId();
-  const [etape, setEtape] = useState<Etape>({ etape: 'saisie' });
+  const [etape, setEtape] = useState<Etape>(resultatInitial ?? { etape: 'saisie' });
   const [envoi, setEnvoi] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
   /** 🔴 Arno (10/11/2026) — le texte modifié des mails aux locataires (confirmation, modification), par sorte. */
@@ -321,14 +345,17 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       collegues?: { destinataire: string; etat: string }[]; locataires?: MailParti[]; envois?: MailParti[]; sansEmail?: string[]; statut?: StatutPrevisite | null; agenda?: string;
       tacheAnnulee?: number | null };
     const mails: MailParti[] = [...(d.collegues ?? []).map(mailCollegue), ...(d.locataires ?? []), ...(d.envois ?? [])];
-    const lignes: [string, ReactNode][] = [[l.locataires.length > 1 ? 'Locataires' : 'Locataire', l.locataires.map((x) => x.nom).join(', ')], ['Le logement', l.adresse ?? `Bien ${l.lotId}`]];
+    const lignes: [string, string][] = [[l.locataires.length > 1 ? 'Locataires' : 'Locataire', l.locataires.map((x) => x.nom).join(', ')], ['Le logement', l.adresse ?? `Bien ${l.lotId}`]];
     if (d.rdv) lignes.push(['Rendez-vous', `le ${creneauFr(d.rdv)}`]);
     if (d.ancien) lignes.push(['Ancien rendez-vous', `le ${creneauFr(d.ancien)}`]);
     if (d.statut !== undefined) lignes.push(['Statut', d.statut === null ? 'inchangé : le mail n’est pas parti' : LIBELLE_STATUT_PREVISITE[d.statut]]);
     for (const n of d.sansEmail ?? []) lignes.push(['Sans adresse e-mail', `${n} n’a pas reçu le mail`]);
     if (typeof d.tacheAnnulee === 'number') lignes.push(['Rendez-vous', 'annulé — la tâche des collègues est annulée']);
     if (d.agenda) lignes.push(['Agenda', d.agenda]);
-    setEtape({ etape: 'resultat', mails, lignes, motif: mails.length === 0 ? 'Aucun mail n’est parti pour cette opération.' : null });
+    const motif = mails.length === 0 ? 'Aucun mail n’est parti pour cette opération.' : null;
+    // 🔴 Arno (15/11/2026) — la page du compte rendu : retour à la Location, qui affiche ce résultat (la fenêtre habituelle)
+    if (page) { noterResultatCompteRendu(l.occupationIds, { mails, lignes, motif }); onFermer(true); return; }
+    setEtape({ etape: 'resultat', mails, lignes, motif });
   };
 
   let contenu: ReactNode;
@@ -459,10 +486,25 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const echec = etape.etape === 'resultat' && (etape.motif !== null || etape.mails.some((m) => !m.envoye));
   // 🔴 Arno (15/11/2026) — le formulaire du compte rendu (saisie) : fond opaque, boutons en fin de formulaire (classes propres : les autres fenêtres ne changent pas)
   const saisieCr = geste === 'compte_rendu' && etape.etape === 'saisie';
+  const styles = CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_COMPTE_RENDU_SAISIE;
+  if (page) {
+    // 🔴 Arno (15/11/2026) — EN PAGE : ni voile ni fenêtre, rien dessous ; la hauteur suit la ZONE VISIBLE (clavier iOS ouvert : la marge du
+    // bas vaut la hauteur du clavier, le bas du formulaire reste atteignable) ; fond de la page jusqu'au bord inférieur.
+    const clavier = zone !== null && typeof window !== 'undefined' ? Math.max(0, window.innerHeight - zone.height - zone.top) : 0;
+    return (
+      <div className="pvv-page-cr" style={{ ['--pvv-clavier' as string]: `${clavier}px` }} data-clavier-ios={clavier > 0 ? 'ouvert' : 'ferme'}>
+        <style>{styles + CSS_PAGE_COMPTE_RENDU}</style>
+        <div className={`pss-boite pvv-boite-cr pvv-boite-page${etape.etape === 'recap' ? ' pss-boite-recap' : ''}`} role="region"
+          aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
+          {contenu}
+        </div>
+      </div>
+    );
+  }
   const boite = (
     <div className={`mis-voile pvv-voile${saisieCr ? ' pvv-voile-cr' : ''}`} style={zone && !saisieCr ? { top: zone.top, bottom: 'auto', height: zone.height } : undefined}
       data-zone-visible={zone && !saisieCr ? 'oui' : undefined}>
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_TEXTE_MODIFIABLE + CSS_COMPTE_RENDU_SAISIE}</style>
+      <style>{styles}</style>
       <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}${saisieCr ? ' pvv-boite-cr' : ''}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-previsite={etape.etape} data-geste-previsite={geste}>
         {contenu}
@@ -612,4 +654,20 @@ export const CSS_PREVISITE = `
   .pss-boite .mis-actions .mis-action{min-height:52px;font-size:1.02rem}
 }
 .pvv-reserve{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-muted)}
+.pvv-lien-cr{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+`;
+
+/**
+ * AUCUN ACCENT GRAVE DANS CE LITTERAL. 🔴 Arno (15/11/2026) — LA PAGE DU COMPTE RENDU : fond opaque de la page jusqu'au bord inferieur (racine,
+ * html, body), hauteur sur la zone visible (dvh ; marge du bas = hauteur du clavier iOS, lue sur visualViewport), aucune zone transparente.
+ */
+export const CSS_PAGE_COMPTE_RENDU = `
+html:has(.pvv-page-cr),body:has(.pvv-page-cr),.svv-adm-root:has(.pvv-page-cr){background:var(--color-svv-surface)}
+.pvv-page{min-height:100dvh;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
+.pvv-page-cr{--pvv-clavier:0px;flex:1 0 auto;background:var(--color-svv-surface);color:var(--color-svv-ink);padding-bottom:var(--pvv-clavier)}
+.pvv-boite-page{display:flex;flex-direction:column;gap:14px;width:min(640px,100%);margin:0 auto;padding:18px 16px;box-sizing:border-box;background:var(--color-svv-surface);color:var(--color-svv-ink);border:2px solid var(--color-svv-line);border-radius:20px}
+.pvv-boite-page.pss-boite-recap{border-color:var(--color-svv-ink)}
+@media (max-width:640px){
+  .pvv-boite-page{border:0;border-radius:0;padding:4px 0 calc(16px + env(safe-area-inset-bottom))}
+}
 `;

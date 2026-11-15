@@ -69,14 +69,18 @@ test('fond OPAQUE clavier ouvert : la zone visible réduite (clavier), rien de l
   await page.waitForTimeout(400);
   const fond = await page.evaluate(() => {
     const points = [[10, window.innerHeight - 2], [196, window.innerHeight - 2], [380, window.innerHeight - 2], [196, 2]];
-    return points.map(([x, y]) => { const e = document.elementFromPoint(x, y); return e !== null && e.closest('.pvv-voile-cr') !== null; });
+    // 🔴 (15/11/2026, 5e retour) — le formulaire est une PAGE (sous l'en-tête de l'admin) : en chaque point, un élément opaque de la page,
+    // jamais rien de la Location
+    const LOCATION = '[data-bloc-preavis], [data-frise-preavis], [data-ligne-preavis], [data-ligne-depliee], .loc-cases, .loc-page';
+    return points.map(([x, y]) => { const e = document.elementFromPoint(x, y); return e !== null && e.closest(LOCATION) === null && document.querySelector('.pvv-page-cr') !== null; });
   });
   expect(fond).toEqual([true, true, true, true]);
   // le défilement du formulaire (au doigt) : le fond reste opaque
-  await page.locator('[data-fenetre-previsite="saisie"]').evaluate((b) => { b.scrollTop = 600; });
+  // 🔴 (15/11/2026, 5e retour) — le formulaire est une PAGE : c'est la page qui défile
+  await page.evaluate(() => window.scrollTo(0, 600));
   await page.waitForTimeout(300);
-  expect(await page.evaluate(() => { const e = document.elementFromPoint(196, window.innerHeight - 2); return e !== null && e.closest('.pvv-voile-cr') !== null; })).toBe(true);
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(await page.locator('.pvv-voile-cr').evaluate((e) => getComputedStyle(e).backgroundColor));
+  expect(await page.evaluate(() => { const e = document.elementFromPoint(196, window.innerHeight - 2); return e !== null && e.closest('.pvv-page-cr') !== null; })).toBe(true);
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(await page.locator('.pvv-page-cr').evaluate((e) => getComputedStyle(e).backgroundColor));
   await capturer(page, '01-clavier-ouvert-fond-opaque');
 });
 

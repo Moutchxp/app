@@ -576,3 +576,12 @@ body {
 /* 🔴 Arno (15/11/2026) — une adresse e-mail affichée par le CSS (bandeau de recette) : pas de texte dans la page, donc rien que Chrome sur
    iPhone puisse transformer en lien (il ignore format-detection) — plus d'erreur d'hydratation. */
 .svv-adresse-css::after{content:attr(data-adresse)}
+
+/* 🔴🔴 Arno (15/11/2026, 5e retour du test iPhone) — DEUX PAGES NE SONT JAMAIS VISIBLES EN MÊME TEMPS. Sur téléphone, tant qu'une fenêtre
+   (`aria-modal="true"`) est ouverte, la page de fond de l'admin est MASQUÉE (visibility hidden : plus rien ne s'en voit, ni ne se touche,
+   ni ne prend le focus, ni n'est lu par un lecteur d'écran — elle est inerte) ; seule la fenêtre reste visible. Clavier ouvert, rien de la
+   page du dessous ne peut réapparaître entre la fenêtre et le clavier. Une règle pour TOUTES les fenêtres, présentes et futures. */
+@media (max-width: 640px) {
+  html:has(.svv-adm-root [aria-modal="true"]) .svv-adm-shell { visibility: hidden; }
+  html:has(.svv-adm-root [aria-modal="true"]) .svv-adm-root [aria-modal="true"] { visibility: visible; }
+}

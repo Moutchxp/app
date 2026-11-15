@@ -80,7 +80,7 @@ test('trois blocs dans l’ordre ; boutons en FIN de formulaire (pas collés) ; 
   const actions = boite.locator('.mis-actions');
   expect(await actions.evaluate((e) => getComputedStyle(e).position)).toBe('static');
   expect(await boite.evaluate((b) => b.lastElementChild?.classList.contains('mis-actions'))).toBe(true);
-  expect(await page.locator('.pvv-voile-cr').evaluate((e) => getComputedStyle(e).backgroundColor)).not.toMatch(/rgba\(.*, 0\.\d+\)$/);
+  expect(await page.locator('.pvv-page-cr').evaluate((e) => getComputedStyle(e).backgroundColor)).not.toMatch(/rgba\(.*, 0\.\d+\)$/);
   // au départ, les boutons ne sont pas à l'écran : on les atteint en défilant jusqu'en bas
   expect(await actions.evaluate((e) => e.getBoundingClientRect().top > window.innerHeight)).toBe(true);
   await actions.scrollIntoViewIfNeeded();

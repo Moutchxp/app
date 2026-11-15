@@ -381,7 +381,7 @@ describe('🔴 Règle 5 — l’invitation au compte rendu : 🔴 Arno (13/11/20
     expect(await passeInvitationsCompteRendu({ maintenant: new Date('2026-11-12T09:00:00Z') })).toEqual({ invitations: 1, echecs: 0 }); // 10h00 : le début
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ sorte: string; a: string[]; texte: string }[]];
     expect(mails[0]).toMatchObject({ sorte: 'previsite_invitation_cr', a: ['claire@exemple.test'] });
-    expect(mails[0].texte).toContain('http://localhost:3000/admin/location?previsite=11&geste=compte-rendu');
+    expect(mails[0].texte).toContain('http://localhost:3000/admin/location/previsite/11/compte-rendu'); // 🔴 (15/11/2026) la PAGE du compte rendu
     expect(mails[0].texte).toContain('commence le 12/11/2026 à 10h00');
     expect(mails[0].texte).toContain('Prenez vos notes pendant la visite et envoyez le compte rendu sur place');
     expect(mails[0].texte).not.toMatch(/était prévue|terminée/);

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { BlocPreavisAccueil, CLE_TRI } from './PreavisAccueil';
+import { PageCompteRendu } from './PageCompteRendu';
+import { naviguerRetour } from '../_composants/NavigationRetour';
 import type { LignePreavisAccueil } from '../../../../lib/location/preavis';
 import type { PrevisiteAffiche } from '../../../../lib/location/previsite';
 import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
@@ -200,7 +202,12 @@ describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vo
       : { envois: [{ sorte: 'previsite_compte_rendu', objet: 'x', a: ['arno@exemple.test'], cc: [], envoye: true, motif: null }], statut: 'effectuee' });
     await rendre();
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
-    await clic(container.querySelector('[data-compte-rendu-previsite]'));
+    // 🔴 Arno (15/11/2026) — le bouton est un LIEN vers la PAGE du compte rendu (jsdom ne navigue pas : la page est rendue à la place)
+    expect(container.querySelector('[data-compte-rendu-previsite]')?.getAttribute('href')).toBe('/admin/location/previsite/31/compte-rendu');
+    const retours: string[] = [];
+    naviguerRetour.vers = (url: string) => { retours.push(url); window.history.replaceState(null, '', url); };
+    act(() => root.unmount()); root = createRoot(container);
+    await act(async () => { root.render(createElement(PageCompteRendu, { occupationId: 31 })); }); await attendre();
     expect(document.querySelector('[data-objet-compte-rendu]')?.textContent).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 20/11/2026 à 10h00');
     expect((document.querySelector('[data-aussi-locataires]') as HTMLInputElement).checked).toBe(false);
     expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
@@ -210,7 +217,12 @@ describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vo
     await clic(document.querySelector('[data-recap-previsite]'));
     await clic(document.querySelector('[data-confirmer-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'compte-rendu-previsite', corps: 'Tout va bien.', aussiLocataires: false });
+    // après l'envoi : retour à la Location (le bon préavis), où la fenêtre de résultat habituelle s'affiche
+    expect(retours).toEqual(['/admin/location?previsite=31']);
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(); await attendre();
     expect(document.querySelector('[data-resume]')?.textContent).toContain('Pré-visite effectuée');
+    try { window.sessionStorage.clear(); } catch { /* rien */ }
   });
 });
 

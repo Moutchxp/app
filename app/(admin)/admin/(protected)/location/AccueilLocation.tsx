@@ -92,7 +92,9 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
       <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS}</style>
       <label className="loc-recherche loc-recherche--large">
         <span aria-hidden="true">🔎</span>
-        <input value={texte} onChange={(e) => setTexte(e.target.value)} onKeyDown={auClavier} autoFocus type="search"
+        {/* 🔴 Arno (15/11/2026, « 1 Issue ») — Chrome sur iPhone pose son attribut `__gcruniqueid` sur ce champ AVANT l'hydratation : React ne
+            doit pas le prendre pour une erreur (sans effet sur les autres attributs ni sur les enfants). */}
+        <input suppressHydrationWarning value={texte} onChange={(e) => setTexte(e.target.value)} onKeyDown={auClavier} autoFocus type="search"
           placeholder="Propriétaire, locataire, syndic (nom, téléphone, e-mail) ou adresse d’un bien du portefeuille"
           aria-label="Chercher un propriétaire, un locataire, un syndic ou un bien du portefeuille"
           role="combobox" aria-expanded={ouvert && lignes.length > 0} aria-controls="loc-resultats" aria-autocomplete="list"
