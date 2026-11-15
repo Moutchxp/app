@@ -264,8 +264,10 @@ export function ChampLegende({ rang, valeur, invalide, occupationIds, onChange, 
   rang: number; valeur: string; invalide: boolean; occupationIds: readonly number[];
   onChange: (f: (legende: string) => string) => void; onOccupe: (occupe: boolean) => void }) {
   return (
+    // 🔴 Arno (15/11/2026, 10e retour) — la dictée REMPLACE la légende (capitale, sans point final), comme pour les titres de vocaux ;
+    // dictée vide ou échouée : la légende d'avant reste. Seul le bloc Texte insère au curseur.
     <ChampAvecMicro libelle={`Légende de la photo ${rang} *`} libelleVisible valeur={valeur} max={LEGENDE_MAX} placeholder="ex. Rayure parquet chambre" invalide={invalide}
-      occupationIds={occupationIds} onChange={onChange} onOccupe={onOccupe} attributsChamp={{ 'data-photo-legende': '' }}
+      occupationIds={occupationIds} onChange={onChange} remplacer onOccupe={onOccupe} attributsChamp={{ 'data-photo-legende': '' }}
       attributsMicro={{ 'aria-label': `Maintenir pour dicter la légende de la photo ${rang}`, title: 'Maintenir pour dicter la légende', 'data-dicter-legende': String(rang) }} />
   );
 }
@@ -300,7 +302,7 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
   };
   return (
     <section className={`pvv-bloc pvv-bloc--presence${erreur !== null ? ' pvv-bloc--erreur' : ''}`} aria-labelledby={titreId} data-bloc-presence data-presence-erreur={erreur !== null ? 'oui' : undefined}>
-      <h3 id={titreId} className="pvv-bloc-titre">Présence <span className="pvv-requis">*</span></h3>
+      <h3 id={titreId} className="pvv-bloc-titre pvv-titre-encart">Présence <span className="pvv-requis">*</span></h3>
       <ul className="pvv-presences" data-cr-locataires>
         {locataires.map((x) => (
           <li key={x.occupationId}>
@@ -449,7 +451,7 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
   return (
     <section className="pvv-bloc pvv-bloc--texte" aria-labelledby={titreId} data-bloc-texte>
       <div className="pvv-bloc-tete">
-        <h3 id={titreId} className="pvv-bloc-titre">Texte <span className="pvv-requis">*</span></h3>
+        <h3 id={titreId} className="pvv-bloc-titre pvv-titre-encart">Texte <span className="pvv-requis">*</span></h3>
         <button type="button" className="pvv-mini pvv-entree" {...sansFocus} onClick={entree} aria-label="Aller à la ligne" title="Aller à la ligne" data-entree><Icone nom="entree" taille={22} /></button>
       </div>
       <textarea ref={zone} className="pvv-texte" value={corps} rows={6} aria-labelledby={titreId} autoComplete="off" autoCapitalize="sentences" autoCorrect="on" spellCheck enterKeyHint="enter" placeholder="ex. Logement propre, rayure du parquet de la chambre… (dictez ou tapez)"
@@ -652,7 +654,7 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende, o
   return (
     <section className="pvv-bloc pvv-bloc--photos pvv-photos" aria-labelledby={titreId} data-photos-compte-rendu data-vue-photos={vue}>
       <div className="pvv-bloc-tete">
-        <h3 id={titreId} className="pvv-bloc-titre">Photos {photos.length > 0 && <span className="loc-muet">({photos.length})</span>}</h3>
+        <h3 id={titreId} className="pvv-bloc-titre pvv-titre-encart">Photos {photos.length > 0 && <span className="loc-muet">({photos.length})</span>}</h3>
         {photos.length > 0 && (
           // 🔴 Arno (15/11/2026) — deux VRAIS petits boutons, bien séparés, liseré gris ; l'actif en plein rouge (accent de l'application)
           <div className="pvv-segments" role="group" aria-label="Affichage des photos">
@@ -928,7 +930,8 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   };
   return (
     <section className="pvv-bloc pvv-bloc--dictaphone pvv-vocaux" aria-labelledby={titreId} data-vocaux-compte-rendu>
-      <h3 id={titreId} className="pvv-bloc-titre">Dictaphone <span className="loc-muet">(internes, sauf ceux envoyés aux locataires)</span></h3>
+      {/* 🔴 Arno (15/11/2026, 10e retour) — le titre est « Dictaphone » tout court (mention retirée avec son accord) : chaque carte dit son statut */}
+      <h3 id={titreId} className="pvv-bloc-titre pvv-titre-encart">Dictaphone</h3>
       <div className="pvv-dictaphone" ref={rond}>
         {/* 🔴🔴 Arno (15/11/2026, 8e retour) — la DESTINATION toujours visible : une pastille par fichier (l'actif plein rouge) et « + Nouveau » */}
         {fichiers.length > 0 && (
@@ -1154,6 +1157,10 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-bloc--dictaphone{background:color-mix(in srgb, var(--color-svv-red) 4%, var(--color-svv-surface))}
 .pvv-bloc-tete{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .pvv-bloc-titre{margin:0;font-size:1.05rem;font-weight:900;letter-spacing:.01em}
+/* Arno (15/11/2026, 10e retour) : les titres des quatre encarts (Presence, Texte, Photos, Dictaphone) nettement plus gros, le meme style ;
+   l'asterisque et le compteur suivent la ligne, a leur taille */
+.pvv-bloc-titre.pvv-titre-encart{font-size:1.45rem;font-weight:900;line-height:1.2;letter-spacing:0;color:var(--color-svv-ink)}
+.pvv-titre-encart .loc-muet{font-size:1rem;font-weight:700}
 .pvv-requis{color:var(--color-svv-red)}
 .pvv-texte{width:100%;box-sizing:border-box;min-height:9.5em;resize:vertical;font:inherit;font-size:16px;line-height:1.5;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);overflow:hidden}
 .pvv-boite-cr .pvv-texte{min-height:9.5em}

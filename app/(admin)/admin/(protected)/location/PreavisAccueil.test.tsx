@@ -2064,7 +2064,7 @@ describe('🔴 Arno (15/11/2026) — bandeau de recette : l’adresse n’est PA
 
 describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en vrais boutons ; légendes cadrées avec micro ; confirmations sur une ligne', () => {
   const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
-  let dictees: Record<string, unknown>[] = []; let horloge = 1_000_000;
+  let dictees: Record<string, unknown>[] = []; let dicteeVide = false; let horloge = 1_000_000;
   class FauxEnregistreur {
     static isTypeSupported = (t: string) => t === 'audio/mp4';
     mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
@@ -2073,7 +2073,7 @@ describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en 
     stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
   }
   beforeEach(() => {
-    dictees = []; horloge = 1_000_000;
+    dictees = []; horloge = 1_000_000; dicteeVide = false;
     vi.spyOn(Date, 'now').mockImplementation(() => horloge);
     try { window.localStorage.removeItem('svav.compteRendu.photos.vue'); } catch { /* sans stockage */ }
     (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:apercu'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
@@ -2086,7 +2086,7 @@ describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en 
       if (init?.method === 'POST') {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
         if (c.action === 'photo-compte-rendu') { n += 1; return ok({ id: n, nom: 'p.jpg', taille: 3 }); }
-        if (c.action === 'dicter-compte-rendu') { dictees.push(c); return ok({ ok: true, texte: 'fissure plafond' }); }
+        if (c.action === 'dicter-compte-rendu') { dictees.push(c); return ok(dicteeVide ? { ok: true, texte: '' } : { ok: true, texte: 'fissure plafond.' }); }
       }
       return (avant as typeof fetch)(u, init);
     }) as unknown as typeof fetch;
@@ -2123,7 +2123,22 @@ describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en 
     expect(css).toContain('.pvv-choix{box-sizing:border-box;min-height:44px;min-width:44px;padding:0 16px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface)');
     expect(css).toContain('.pvv-choix[aria-pressed=true]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);font-weight:900}');
   });
-  it('la légende : cadrée (liseré, accentué au focus, marge droite pour le micro) ; un micro DANS chaque légende ; la dictée s’insère au curseur de CETTE légende, sans focus ; appui bref ignoré', async () => {
+  it('🔴 (10e retour) les titres des QUATRE encarts, même style, plus gros ; « Dictaphone » tout court ; astérisque, compteur et boutons de la ligne à leur place', async () => {
+    await ouvrir();
+    const titres = [...document.querySelectorAll('h3.pvv-titre-encart')];
+    expect(titres.map((t) => t.textContent)).toEqual(['Présence *', 'Texte *', 'Photos (2)', 'Dictaphone']);
+    expect(titres.every((t) => t.className === 'pvv-bloc-titre pvv-titre-encart')).toBe(true);
+    expect(titres[0].querySelector('.pvv-requis')!.textContent).toBe('*');
+    expect(titres[2].querySelector('.loc-muet')!.textContent).toBe('(2)');
+    expect(document.querySelector('[data-vocaux-compte-rendu]')!.textContent).not.toContain('internes, sauf ceux envoyés aux locataires');
+    // les éléments de la même ligne restent dans l'en-tête de leur encart
+    expect(titres[1].parentElement!.querySelector('[data-entree]')).not.toBeNull();
+    expect(titres[2].parentElement!.querySelector('[data-vue-carrousel]')).not.toBeNull();
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-bloc-titre{margin:0;font-size:1.05rem;font-weight:900;letter-spacing:.01em}'); // les titres internes (« Ajouter une personne ») ne changent pas
+    expect(css).toContain('.pvv-bloc-titre.pvv-titre-encart{font-size:1.45rem;font-weight:900;line-height:1.2;letter-spacing:0;color:var(--color-svv-ink)}');
+  });
+  it('la légende : cadrée (liseré, accentué au focus, marge droite pour le micro) ; un micro DANS chaque légende ; 🔴 (10e retour) la dictée REMPLACE CETTE légende (capitale, sans point final), sans focus ; dictée vide : la légende reste ; appui bref ignoré', async () => {
     await ouvrir();
     act(() => (document.querySelector('[data-vue-liste]') as HTMLButtonElement).click());
     expect(document.querySelectorAll('[data-dicter-legende]')).toHaveLength(2);
@@ -2134,13 +2149,19 @@ describe('🔴🔴 Arno (15/11/2026, 5e retour iPhone) — Carrousel / Liste en 
     act(() => { legende(2).focus(); legende(2).setSelectionRange(3, 3); legende(2).blur(); });
     await maintenir(document.querySelector('[data-photo="2"] [data-dicter-legende]') as HTMLButtonElement, 900);
     await patienter(() => legende(2).value !== 'Mur chambre');
-    expect(legende(2).value).toBe('Mur fissure plafond chambre');
+    expect(legende(2).value).toBe('Fissure plafond'); // 🔴 (10e retour) remplacée, capitale, sans point final
     expect(legende(1).value).toBe('Salon'); // l'autre légende n'est pas touchée
     expect(document.activeElement === legende(2)).toBe(false); // le clavier ne s'ouvre pas
     expect(dictees).toHaveLength(1);
+    // une dictée vide (ou échouée) : la légende d'avant reste
+    dicteeVide = true;
+    await maintenir(document.querySelector('[data-photo="2"] [data-dicter-legende]') as HTMLButtonElement, 900);
+    await patienter(() => dictees.length === 2);
+    expect(legende(2).value).toBe('Fissure plafond');
+    dicteeVide = false;
     // appui de moins de 0,5 s : ignoré, rien n'est transcrit
     await maintenir(document.querySelector('[data-photo="1"] [data-dicter-legende]') as HTMLButtonElement, 200);
-    expect(dictees).toHaveLength(1);
+    expect(dictees).toHaveLength(2);
     expect(document.querySelector('[data-photo="1"] [data-legende-message]')!.textContent).toContain('Appui trop bref');
     const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
     expect(css).toContain('padding:0 60px 0 12px;font:inherit;font-size:16px;border-radius:12px;border:1px solid var(--color-svv-line-strong)');

@@ -113,7 +113,7 @@ for (const theme of ['light', 'dark'] as const) {
     expect(erreurs).toEqual([]);
   });
 
-  test(`[${theme}] le micro d’une légende : la dictée s’insère dans CETTE légende, au curseur, sans ouvrir le clavier ; rouge pendant l’appui`, async ({ page }) => {
+  test(`[${theme}] le micro d’une légende : 🔴 (10e retour) la dictée REMPLACE CETTE légende (capitale, sans point final), sans ouvrir le clavier ; rouge pendant l’appui`, async ({ page }) => {
     const { appels } = await preparer(page, theme);
     await page.locator('[data-vue-liste]').tap();
     await page.locator('[data-photo="1"] [data-photo-legende]').fill('Salon');
@@ -129,7 +129,7 @@ for (const theme of ['light', 'dark'] as const) {
     await capturer(page, `${theme}-03-micro-legende-rouge`);
     await page.waitForTimeout(800);
     await b.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, button: 0 });
-    await expect(page.locator('[data-photo="2"] [data-photo-legende]')).toHaveValue('Mur fissure plafond chambre', { timeout: 10_000 });
+    await expect(page.locator('[data-photo="2"] [data-photo-legende]')).toHaveValue('Fissure plafond', { timeout: 10_000 });
     await expect(page.locator('[data-photo="1"] [data-photo-legende]')).toHaveValue('Salon');
     expect(await page.evaluate(() => document.activeElement?.hasAttribute('data-photo-legende') ?? false)).toBe(false);
     expect(appels.filter((c) => c.action === 'dicter-compte-rendu')).toHaveLength(1);
