@@ -205,6 +205,8 @@ describe('🔴 Règle 5 — « Compte rendu pré-visite » : après le rendez-vo
     expect((document.querySelector('[data-aussi-locataires]') as HTMLInputElement).checked).toBe(false);
     expect((document.querySelector('[data-recap-previsite]') as HTMLButtonElement).disabled).toBe(true);
     saisir(document.querySelector('[data-corps-compte-rendu]'), 'Tout va bien.');
+    // 🔴 Arno (15/11/2026) — la présence est obligatoire : on coche le premier locataire
+    await clic(document.querySelector('[data-presence-locataire]'));
     await clic(document.querySelector('[data-recap-previsite]'));
     await clic(document.querySelector('[data-confirmer-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'compte-rendu-previsite', corps: 'Tout va bien.', aussiLocataires: false });

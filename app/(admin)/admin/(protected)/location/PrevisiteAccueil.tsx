@@ -22,9 +22,9 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocTexte, BoutonTheme, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonTheme, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
-import { appliquerTirets } from '../../../../lib/location/texteCompteRendu';
+import { appliquerTirets, MOTIF_PRESENCE } from '../../../../lib/location/texteCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 
 /**
@@ -226,6 +226,15 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   /** 🔴 Arno (15/11/2026) — le DICTAPHONE : des fichiers vocaux (INTERNES, jamais envoyés), chacun ses prises ; le curseur du texte, où
    *  s'insèrent la dictée et la transcription d'un fichier. */
   const [fichiers, setFichiers] = useState<FichierVocal[]>([]);
+  /** 🔴 Arno (15/11/2026) — la présence : locataires cochés (occupations), personnes ajoutées ; au moins une pour voir le récapitulatif. */
+  const [presents, setPresents] = useState<number[]>([]);
+  const [ajoutees, setAjoutees] = useState<PersonneAjouteeSaisie[]>([]);
+  const [refusPresence, setRefusPresence] = useState<string | null>(null);
+  const presences = { occupations: presents, personnes: ajoutees.filter((x) => x.present).map((x) => ({ civilite: x.civilite, nom: x.nom, prenom: x.prenom })) };
+  const presenceOk = presences.occupations.length + presences.personnes.length > 0;
+  // une case cochée efface le refus
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (presenceOk) setRefusPresence(null); }, [presenceOk]);
   const [dictaphoneOccupe, setDictaphoneOccupe] = useState(false);
   const [dicteeOccupee, setDicteeOccupee] = useState(false);
   const curseur = useRef<number | null>(null);
@@ -276,9 +285,14 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
   const rdvActuel = p.rdv;
 
   const voirRecap = async (rt: Retouches = {}): Promise<void> => {
+    if (geste === 'compte_rendu' && !presenceOk) {
+      setRefusPresence(MOTIF_PRESENCE);
+      setTimeout(() => { try { document.querySelector('[data-bloc-presence]')?.scrollIntoView({ block: 'start' }); } catch { /* rien */ } }, 0);
+      return;
+    }
     if (!verifierPhotos()) return;
     setEnvoi(true); setRefus(null);
-    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires, photos: photosPretes,
+    const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps, aussiLocataires, photos: photosPretes, presences,
       ...(envoiVocaux.fichiersVocaux.some((f) => f.locataires) ? { vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}) }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
@@ -299,7 +313,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
     const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps, aussiLocataires, texte: texteRefus ?? '',
-      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}),
+      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux, presences } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
@@ -324,8 +338,6 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
         {/* 🔴 Arno (15/11/2026) — le titre, et sur téléphone le petit bouton clair / sombre à droite ; sous l'adresse, chaque locataire et sa date d'entrée */}
         <div className="pvv-titre-ligne"><h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2><BoutonTheme /></div>
         <p className="loc-muet pss-rien" data-cr-adresse>{l.adresse ?? `Bien ${l.lotId}`}</p>
-        <ul className="pvv-locataires-cr" data-cr-locataires>{l.locataires.map((x) => (
-          <li key={x.occupationId} data-cr-locataire={x.occupationId}><strong>{x.nom}</strong>{x.entree ? ` — Entré(e) dans les lieux le ${dateFrPreavis(x.entree)}` : ''}</li>))}</ul>
       </> : <>
         <h2 id={titreId} className="mis-titre" data-titre-previsite>{TITRES[geste][0]}</h2>
         <p className="loc-muet pss-rien">{l.locataires.map((x) => x.nom).join(', ')} — {l.adresse ?? `Bien ${l.lotId}`}</p>
@@ -367,6 +379,7 @@ function FenetrePrevisite({ geste, l, p, onFermer }: { geste: Geste; l: LignePre
       {geste === 'compte_rendu' && rdvActuel && <>
         <p className="pvs-champ"><span className="pvs-libelle">Objet</span><span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
         {/* 🔴 Arno (15/11/2026) — TROIS BLOCS, dans cet ordre : TEXTE (dictée maintenue, clavier), PHOTOS, DICTAPHONE (fichiers vocaux internes) */}
+        <BlocPresence locataires={l.locataires} presents={presents} setPresents={setPresents} ajoutees={ajoutees} setAjoutees={setAjoutees} erreur={refusPresence} dateFr={dateFrPreavis} />
         <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
         <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} />
         <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe} />

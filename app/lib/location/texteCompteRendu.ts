@@ -42,3 +42,44 @@ export function themeBascule(pref: 'light' | 'dark' | 'system', systemeSombre: b
   const vu = pref === 'system' ? (systemeSombre ? 'dark' : 'light') : pref;
   return vu === 'dark' ? 'light' : 'dark';
 }
+
+/* ══ 🔴 Arno (15/11/2026) — LA PRÉSENCE À LA PRÉ-VISITE ══════════════════════════════════════════════════════════════════════════════════
+ * Les personnes cochées « présentes » (locataires du préavis, et personnes ajoutées pour ce seul compte rendu) : en tête du compte rendu,
+ * « En présence de Mme X, M. Y et de Mme Z. » — civilité abrégée, prénom, nom ; « d’ » devant une voyelle ; une seule personne : pas de « et ». */
+export type Civilite = 'Madame' | 'Monsieur';
+export interface PersonnePresente { civilite: string | null; prenom: string | null; nom: string }
+export const PERSONNES_AJOUTEES_MAX = 10;
+export const MOTIF_PRESENCE = 'Cochez au moins une personne présente à la pré-visite.';
+
+/** « Mme », « M. », ou rien (civilité inconnue ou composée). PUR. */
+export function abregerCivilite(c: string | null | undefined): string {
+  const x = (c ?? '').trim().toLowerCase().replace(/\.$/, '');
+  if (x === 'madame' || x === 'mme' || x === 'mlle' || x === 'mademoiselle') return 'Mme';
+  if (x === 'monsieur' || x === 'm' || x === 'mr') return 'M.';
+  return '';
+}
+/** « Mme Jeanne Dupont », ou le nom tel qu'il est connu. PUR. */
+export function nomPresent(p: PersonnePresente): string {
+  const nom = p.nom.replace(/\s+/g, ' ').trim();
+  const prenom = (p.prenom ?? '').replace(/\s+/g, ' ').trim();
+  const complet = prenom !== '' && !nom.toLowerCase().includes(prenom.toLowerCase()) ? `${prenom} ${nom}` : nom;
+  return [abregerCivilite(p.civilite), complet].filter(Boolean).join(' ');
+}
+const de = (x: string): string => (/^[aeiouyhàâäéèêëîïôöùûü]/i.test(x) ? `d’${x}` : `de ${x}`);
+/** « En présence de Mme X, M. Y et de Mme Z. » ; aucune personne : chaîne vide. PUR. */
+export function phrasePresence(personnes: readonly PersonnePresente[]): string {
+  const noms = personnes.map(nomPresent).filter((x) => x !== '');
+  if (noms.length === 0) return '';
+  if (noms.length === 1) return `En présence ${de(noms[0])}.`;
+  return `En présence ${de(noms[0])}${noms.slice(1, -1).map((n) => `, ${n}`).join('')} et ${de(noms[noms.length - 1])}.`;
+}
+/** Une personne ajoutée au formulaire, propre ; `null` si elle ne tient pas (nom obligatoire, civilité Madame / Monsieur). PUR. */
+export function personneAjoutee(brut: unknown): (PersonnePresente & { civilite: Civilite }) | null {
+  const o = (brut ?? {}) as { civilite?: unknown; nom?: unknown; prenom?: unknown };
+  const propre = (x: unknown, max: number) => (typeof x === 'string' ? x.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
+  const civilite = o.civilite === 'Madame' || o.civilite === 'Monsieur' ? o.civilite : null;
+  const nom = propre(o.nom, 80);
+  if (civilite === null || nom === '') return null;
+  const prenom = propre(o.prenom, 80);
+  return { civilite, nom, prenom: prenom === '' ? null : prenom };
+}

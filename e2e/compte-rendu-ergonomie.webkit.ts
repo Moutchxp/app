@@ -74,7 +74,8 @@ async function maintenir(page: Page, sel: string, ms: number, sortie = false): P
 test('trois blocs dans l’ordre ; boutons en FIN de formulaire (pas collés) ; fond opaque', async ({ page }) => {
   await preparer(page);
   const boite = page.locator('[data-fenetre-previsite="saisie"]');
-  await expect(boite.locator('h3')).toHaveText([/^Texte/, /^Photos/, /^Dictaphone/]);
+  // 🔴 (15/11/2026) — la partie « Présence » vient en tête
+  await expect(boite.locator('.pvv-bloc-titre')).toHaveText([/^Présence/, /^Texte/, /^Photos/, /^Dictaphone/]);
   await capturer(page, '01-ouverture-trois-blocs');
   const actions = boite.locator('.mis-actions');
   expect(await actions.evaluate((e) => getComputedStyle(e).position)).toBe('static');

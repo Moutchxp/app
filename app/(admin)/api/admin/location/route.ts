@@ -100,6 +100,11 @@ const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 const idsOccupations = (brut: unknown): number[] =>
   (Array.isArray(brut) ? brut : []).map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
 const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
+/** 🔴 Arno (15/11/2026) — la présence à la pré-visite : TOUJOURS transmise au compte rendu (vide : refusé — au moins une personne). */
+const presencesDuCorps = (brut: unknown): { occupations: number[]; personnes: unknown[] } => {
+  const o = (brut ?? {}) as { occupations?: unknown; personnes?: unknown };
+  return { occupations: idsOccupations(o.occupations), personnes: Array.isArray(o.personnes) ? o.personnes.slice(0, 11) : [] };
+};
 /** 🔴 Arno (15/11/2026) — les prises vocales d'un compte rendu (40 au plus, `VOCAUX_MAX`). */
 const idsPrises = (brut: unknown): number[] =>
   (Array.isArray(brut) ? brut : []).map(identifiant).filter((x): x is number => x !== null).slice(0, 40);
@@ -733,10 +738,10 @@ async function postLocation(request: Request): Promise<Response> {
       }
       case 'apercu-compte-rendu-previsite':
         return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos),
-          vocaux: idsPrises(corps.vocaux), fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined }, auteur));
+          vocaux: idsPrises(corps.vocaux), fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences) }, auteur));
       case 'compte-rendu-previsite':
         return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsPrises(corps.vocaux),
-          fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined }, auteur));
+          fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences) }, auteur));
       // 🔴 Arno (13/11/2026, lot B) — UNE photo du compte rendu : préparée au serveur (format lu dans les octets, réduite, métadonnées et GPS retirés),
       // puis déposée comme les pièces de « Valider la sortie » (stockage objet, jamais le Drive). Rien n'est envoyé.
       case 'photo-compte-rendu':

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as KeyboardEventReact, type PointerEvent as PointerEventReact } from 'react';
 import { envoyer } from './commun';
+import { Icone } from './IconesCompteRendu';
 import { lignePhoto } from '../../../../lib/location/photosCompteRendu';
 import { dureeFr, etatVocalLocataires, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
 import { appliquerTirets, insererEntree, themeBascule } from '../../../../lib/location/texteCompteRendu';
@@ -17,6 +18,7 @@ import { appliquerThemeSur, persisterTheme, racineTheme, snapshotTheme, snapshot
  * photos, enregistreur) se chargent AU TOUCHER.
  */
 const modulePhoto = () => import('../../../../lib/location/photoEcran');
+const nouvelleCle = (): string => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const moduleVocal = () => import('../../../../lib/location/enregistreurVocal');
 
 /* ══ L'ENREGISTREMENT MAINTENU (dictée et dictaphone) ═══════════════════════════════════════════════════════════════════════════════════ */
@@ -78,8 +80,10 @@ export function useEnregistrementMaintenu(onPrise: (blob: Blob, type: string, du
 }
 
 /** Le gros bouton « maintenir » : pointer events, aucun menu, aucune sélection, aucun zoom ; sortir du bouton = relâcher. */
-export function BoutonMaintenir({ etat, dureeMs, repos, actif, onAppui, onRelache, className, attributs }: {
-  etat: EtatMaintien; dureeMs: number; repos: React.ReactNode; actif: string; onAppui: () => void; onRelache: () => void; className: string; attributs: Record<string, string> }) {
+export function BoutonMaintenir({ etat, dureeMs, repos, actif, rond = false, onAppui, onRelache, className, attributs }: {
+  etat: EtatMaintien; dureeMs: number; repos: React.ReactNode; actif: React.ReactNode;
+  /** le bouton rond du dictaphone : l'icône seule (la durée est affichée SOUS le bouton) */
+  rond?: boolean; onAppui: () => void; onRelache: () => void; className: string; attributs: Record<string, string> }) {
   const bas = (e: PointerEventReact<HTMLButtonElement>): void => {
     e.preventDefault();
     // le toucher capture le doigt d'office : on le libère pour que « sortir du bouton » arrête l'enregistrement
@@ -91,14 +95,86 @@ export function BoutonMaintenir({ etat, dureeMs, repos, actif, onAppui, onRelach
     e.preventDefault();
     if (haut) onRelache(); else if (!e.repeat) onAppui();
   };
+  // 🔴 Arno (15/11/2026) — UN SEUL code visuel d'enregistrement (dictée et dictaphone) : ROUGE dès que le doigt est posé (y compris pendant
+  // l'ouverture du micro), pulsation ; retour à l'état normal au relâchement.
   const enCours = etat !== 'repos';
   return (
-    <button type="button" className={`${className}${enCours ? ' pvv-maintien--actif' : ''}`} aria-pressed={enCours}
+    <button type="button" className={`${className}${enCours ? ' pvv-maintien--actif' : ''}`} aria-pressed={enCours} data-enregistrement={enCours ? 'oui' : 'non'}
       onPointerDown={bas} onPointerUp={onRelache} onPointerCancel={onRelache} onPointerLeave={() => { if (enCours) onRelache(); }}
       onContextMenu={(e) => e.preventDefault()} onKeyDown={(e) => clavier(e, false)} onKeyUp={(e) => clavier(e, true)} {...attributs}>
-      {etat === 'enregistre' ? <><span className="pvv-point" aria-hidden="true" />{actif} <span className="pvv-chrono" role="timer" data-maintien-duree>{dureeFr(dureeMs / 1000)}</span></>
-        : etat === 'demarrage' ? 'Micro…' : repos}
+      {rond ? (enCours ? actif : repos)
+        : etat === 'enregistre' ? <><span className="pvv-point" aria-hidden="true" />{actif} <span className="pvv-chrono" role="timer" data-maintien-duree>{dureeFr(dureeMs / 1000)}</span></>
+          : etat === 'demarrage' ? <><span className="pvv-point" aria-hidden="true" />Micro…</> : repos}
+      {rond && etat === 'enregistre' && <span className="pvv-lu" data-maintien-duree>{dureeFr(dureeMs / 1000)}</span>}
     </button>
+  );
+}
+
+/* ══ BLOC PRÉSENCE (Arno, 15/11/2026) ════════════════════════════════════════════════════════════════════════════════════════════════════
+ * Un locataire par ligne, « présent » à cocher (non coché par défaut), avec sa date d'entrée ; « + Ajouter une personne » (civilité, nom,
+ * prénom) : elle n'existe que pour CE compte rendu (rien n'est créé dans les fiches), cochée par défaut, supprimable. Au moins une personne
+ * cochée pour voir le récapitulatif. Le serveur écrit « En présence de … » en tête du compte rendu. */
+export interface PersonneAjouteeSaisie { cle: string; civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string; present: boolean }
+export const libellePersonne = (p: { civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string }): string =>
+  [p.civilite === 'Madame' ? 'Mme' : 'M.', p.prenom.trim(), p.nom.trim()].filter(Boolean).join(' ');
+
+export function BlocPresence({ locataires, presents, setPresents, ajoutees, setAjoutees, erreur, dateFr }: {
+  locataires: readonly { occupationId: number; nom: string; entree?: string | null }[];
+  presents: readonly number[]; setPresents: (f: (x: number[]) => number[]) => void;
+  ajoutees: readonly PersonneAjouteeSaisie[]; setAjoutees: (f: (x: PersonneAjouteeSaisie[]) => PersonneAjouteeSaisie[]) => void;
+  erreur: string | null; dateFr: (iso: string) => string }) {
+  const titreId = useId();
+  const [ajout, setAjout] = useState(false);
+  const [civilite, setCivilite] = useState<'Madame' | 'Monsieur' | null>(null);
+  const [nom, setNom] = useState(''); const [prenom, setPrenom] = useState('');
+  const fermer = (): void => { setAjout(false); setCivilite(null); setNom(''); setPrenom(''); };
+  const ajouter = (): void => {
+    if (civilite === null || nom.trim() === '') return;
+    setAjoutees((xs) => [...xs, { cle: nouvelleCle(), civilite, nom: nom.trim().slice(0, 80), prenom: prenom.trim().slice(0, 80), present: true }]);
+    fermer();
+  };
+  return (
+    <section className={`pvv-bloc pvv-bloc--presence${erreur !== null ? ' pvv-bloc--erreur' : ''}`} aria-labelledby={titreId} data-bloc-presence data-presence-erreur={erreur !== null ? 'oui' : undefined}>
+      <h3 id={titreId} className="pvv-bloc-titre">Présence <span className="pvv-requis">*</span></h3>
+      <ul className="pvv-presences" data-cr-locataires>
+        {locataires.map((x) => (
+          <li key={x.occupationId}>
+            <label className="pvv-case pvv-presence">
+              <input type="checkbox" checked={presents.includes(x.occupationId)} aria-invalid={erreur !== null}
+                onChange={(e) => { const v = e.target.checked; setPresents((xs) => (v ? [...xs.filter((y) => y !== x.occupationId), x.occupationId] : xs.filter((y) => y !== x.occupationId))); }}
+                data-presence-locataire={x.occupationId} />
+              <span data-cr-locataire={x.occupationId}><strong>{x.nom}</strong>{x.entree ? ` — Entré(e) dans les lieux le ${dateFr(x.entree)}` : ''}</span>
+            </label>
+          </li>))}
+        {ajoutees.map((p) => (
+          <li key={p.cle} className="pvv-presence-ajoutee" data-personne-ajoutee={p.cle}>
+            <label className="pvv-case pvv-presence">
+              <input type="checkbox" checked={p.present} aria-invalid={erreur !== null}
+                onChange={(e) => { const v = e.target.checked; setAjoutees((xs) => xs.map((y) => (y.cle === p.cle ? { ...y, present: v } : y))); }} data-presence-personne />
+              <span><strong>{libellePersonne(p)}</strong> <span className="pvv-etiquette">personne présente</span></span>
+            </label>
+            <button type="button" className="pvv-mini" onClick={() => setAjoutees((xs) => xs.filter((y) => y.cle !== p.cle))} aria-label={`Retirer ${libellePersonne(p)}`} data-personne-retirer><Icone nom="corbeille" /></button>
+          </li>))}
+      </ul>
+      <button type="button" className="pvv-lien" onClick={() => setAjout(true)} data-ajouter-personne><Icone nom="plus" taille={16} /> Ajouter une personne</button>
+      {erreur !== null && <p className="pvv-photo-motif" role="alert" data-presence-motif>{erreur}</p>}
+      {ajout && (
+        <div className="pvv-mini-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) fermer(); }}>
+          <div className="pvv-mini-modale" role="dialog" aria-modal="true" aria-label="Ajouter une personne présente" data-modale-personne>
+            <h4 className="pvv-bloc-titre">Ajouter une personne</h4>
+            <fieldset className="pvv-civilite"><legend className="pvs-libelle">Civilité *</legend>
+              {(['Madame', 'Monsieur'] as const).map((c) => (
+                <label key={c} className="pvv-case"><input type="radio" name="civilite-personne" checked={civilite === c} onChange={() => setCivilite(c)} data-personne-civilite={c} />{c}</label>))}
+            </fieldset>
+            <label className="pvs-champ"><span className="pvs-libelle">Nom *</span><input type="text" value={nom} maxLength={80} placeholder="ex. Martin" onChange={(e) => setNom(e.target.value)} data-personne-nom /></label>
+            <label className="pvs-champ"><span className="pvs-libelle">Prénom</span><input type="text" value={prenom} maxLength={80} placeholder="ex. Léa" onChange={(e) => setPrenom(e.target.value)} data-personne-prenom /></label>
+            <div className="pvv-boutons-2">
+              <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={fermer} data-personne-annuler>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-primary pvv-gros" onClick={ajouter} disabled={civilite === null || nom.trim() === ''} data-personne-ajouter>Ajouter</button>
+            </div>
+          </div>
+        </div>)}
+    </section>
   );
 }
 
@@ -164,7 +240,7 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
     <section className="pvv-bloc pvv-bloc--texte" aria-labelledby={titreId} data-bloc-texte>
       <div className="pvv-bloc-tete">
         <h3 id={titreId} className="pvv-bloc-titre">Texte <span className="pvv-requis">*</span></h3>
-        <button type="button" className="pvv-mini pvv-entree" {...sansFocus} onClick={entree} aria-label="Entrée : aller à la ligne" data-entree>↵ Entrée</button>
+        <button type="button" className="pvv-mini pvv-entree" {...sansFocus} onClick={entree} aria-label="Entrée : aller à la ligne" data-entree><Icone nom="entree" taille={18} /> Entrée</button>
       </div>
       <textarea ref={zone} className="pvv-texte" value={corps} rows={6} aria-labelledby={titreId} placeholder="ex. Logement propre, rayure du parquet de la chambre… (dictez ou tapez)"
         onChange={(e) => {
@@ -180,8 +256,8 @@ export function BlocTexte({ corps, setCorps, lireCurseur, noterCurseur, occupati
       {/* 🔴 Arno (15/11/2026) — « Clavier » à GAUCHE (bascule ouvrir / fermer), « Maintenir pour dicter » à DROITE */}
       <div className="pvv-texte-boutons">
         <button type="button" className={`svv-btn pvv-gros${clavier ? ' svv-btn-primary pvv-clavier--ouvert' : ' svv-btn-outline'}`} {...sansFocus} onClick={basculerClavier}
-          aria-pressed={clavier} data-clavier data-clavier-ouvert={clavier ? 'oui' : 'non'}><span aria-hidden="true">⌨️</span> {clavier ? 'Fermer le clavier' : 'Clavier'}</button>
-        <BoutonMaintenir etat={dictee.etat} dureeMs={dictee.dureeMs} repos={<><span aria-hidden="true">🎤</span> Maintenir pour dicter</>} actif="Dictée…"
+          aria-pressed={clavier} data-clavier data-clavier-ouvert={clavier ? 'oui' : 'non'}><Icone nom="clavier" /> {clavier ? 'Fermer le clavier' : 'Clavier'}</button>
+        <BoutonMaintenir etat={dictee.etat} dureeMs={dictee.dureeMs} repos={<><Icone nom="micro" /> Maintenir pour dicter</>} actif="Dictée…"
           onAppui={dictee.appuyer} onRelache={dictee.relacher} className="svv-btn pvv-gros pvv-maintien" attributs={{ 'data-dicter': '' }} />
       </div>
       {transcription && <p className="loc-muet pvv-statut" role="status" data-dictee-transcription>transcription…</p>}
@@ -259,19 +335,19 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
             <button type="button" className="pva-segment" aria-pressed={vue === 'liste'} onClick={() => choisirVue('liste')} data-vue-liste>Liste</button>
           </div>)}
       </div>
-      <div className="pvv-photos-boutons">
+      <div className="pvv-photos-boutons pvv-boutons-2">
         {/* 🔴 Arno (15/11/2026) — « Photothèque » à GAUCHE, « Ajouter une photo » à DROITE */}
-        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={galerie} data-photo-galerie-bouton>🖼 Photothèque</label>
+        <label className="svv-btn svv-btn-outline pvv-gros" htmlFor={galerie} data-photo-galerie-bouton><Icone nom="images" /> Photothèque</label>
         <input id={galerie} className="pvv-fichier" type="file" accept="image/*" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-galerie />
-        <label className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" htmlFor={camera} data-ajouter-photo>📷 Ajouter une photo</label>
+        <label className="svv-btn svv-btn-outline pvv-gros" htmlFor={camera} data-ajouter-photo><Icone nom="appareil" /> Ajouter une photo</label>
         <input id={camera} className="pvv-fichier" type="file" accept="image/*" capture="environment" multiple onChange={(e) => { void ajouter(e.target.files); e.target.value = ''; }} data-photo-camera />
       </div>
       {photos.length > 0 && <>
         {vue === 'carrousel' && (
           <div className="pvv-carrousel-nav">
-            <button type="button" className="pvv-mini" onClick={() => aller(rang - 1)} disabled={rang === 0} aria-label="Photo précédente" data-carrousel-precedente>‹</button>
+            <button type="button" className="pvv-mini" onClick={() => aller(rang - 1)} disabled={rang === 0} aria-label="Photo précédente" data-carrousel-precedente><Icone nom="gauche" /></button>
             <span className="pvv-indicateur" aria-live="polite" data-carrousel-indicateur>{Math.min(rang + 1, photos.length)}/{photos.length}</span>
-            <button type="button" className="pvv-mini" onClick={() => aller(rang + 1)} disabled={rang >= photos.length - 1} aria-label="Photo suivante" data-carrousel-suivante>›</button>
+            <button type="button" className="pvv-mini" onClick={() => aller(rang + 1)} disabled={rang >= photos.length - 1} aria-label="Photo suivante" data-carrousel-suivante><Icone nom="droite" /></button>
           </div>)}
         <ol ref={piste} className={vue === 'carrousel' ? 'pvv-photos-liste pvv-carrousel' : 'pvv-photos-liste'}
           onScroll={vue === 'carrousel' ? (e) => {
@@ -291,8 +367,8 @@ export function BlocPhotos({ photos, onChange, occupationIds, rangSansLegende }:
                 <div className="pvv-photo-tete">
                   <strong>Photo {i + 1}</strong>
                   <span className="pvv-photo-gestes">
-                    <button type="button" className="pvv-mini" onClick={() => deplacer(i, -1)} disabled={i === 0} aria-label={`Monter la photo ${i + 1}`} data-photo-monter>↑</button>
-                    <button type="button" className="pvv-mini" onClick={() => deplacer(i, 1)} disabled={i === photos.length - 1} aria-label={`Descendre la photo ${i + 1}`} data-photo-descendre>↓</button>
+                    <button type="button" className="pvv-mini" onClick={() => deplacer(i, -1)} disabled={i === 0} aria-label={`Monter la photo ${i + 1}`} data-photo-monter><Icone nom="haut" /></button>
+                    <button type="button" className="pvv-mini" onClick={() => deplacer(i, 1)} disabled={i === photos.length - 1} aria-label={`Descendre la photo ${i + 1}`} data-photo-descendre><Icone nom="bas" /></button>
                     <button type="button" className="pvv-mini" onClick={() => setAConfirmer(x.cle)} aria-label={`Supprimer la photo ${i + 1}`} data-photo-supprimer>Supprimer</button>
                   </span>
                 </div>
@@ -326,7 +402,6 @@ export interface FichierVocal { cle: string; nom: string; prises: PriseVocale[];
   /** 🔴 Arno (15/11/2026) — « Envoyé aux locataires » : défaut NON (le fichier reste interne). */
   locataires?: boolean }
 
-const nouvelleCle = (): string => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export const fichierVide = (rang: number): FichierVocal => ({ cle: nouvelleCle(), nom: `Vocal ${rang + 1}`, prises: [], transcription: null, motif: null, locataires: false });
 export const dureeFichier = (f: FichierVocal): number => f.prises.reduce((s, p) => s + p.dureeS, 0);
 
@@ -414,11 +489,13 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
     <section className="pvv-bloc pvv-bloc--dictaphone pvv-vocaux" aria-labelledby={titreId} data-vocaux-compte-rendu>
       <h3 id={titreId} className="pvv-bloc-titre">Dictaphone <span className="loc-muet">(internes, sauf ceux envoyés aux locataires)</span></h3>
       <div className="pvv-dictaphone">
-        <BoutonMaintenir etat={prise.etat} dureeMs={prise.dureeMs} repos={<><span aria-hidden="true" className="pvv-rond-icone">🎙</span><span>Maintenir pour enregistrer</span></>}
-          actif="Enregistrement" onAppui={prise.appuyer} onRelache={prise.relacher} className="pvv-rond pvv-maintien" attributs={{ 'data-enregistrer-vocal': '' }} />
+        {/* 🔴 Arno (15/11/2026) — le bouton rond : une grande icône de micro, rien d'autre ; ROUGE tant que le doigt est posé ; la durée SOUS le bouton */}
+        <BoutonMaintenir etat={prise.etat} dureeMs={prise.dureeMs} repos={<Icone nom="micro" taille={44} />} actif={<Icone nom="micro" taille={44} />} rond
+          onAppui={prise.appuyer} onRelache={prise.relacher} className="pvv-rond pvv-maintien" attributs={{ 'data-enregistrer-vocal': '', 'aria-label': 'Maintenir pour enregistrer' }} />
+        <span className="pvv-chrono pvv-rond-duree" role="timer" aria-live="off" data-rond-duree>{prise.etat === 'repos' ? 'Maintenir pour enregistrer' : dureeFr(prise.dureeMs / 1000)}</span>
         <p className="loc-muet pvv-dictaphone-cible" data-vocal-cible>{cleCourante === null ? 'La première prise crée « Vocal 1 ».'
           : `Les prises s’ajoutent à « ${fichiers.find((f) => f.cle === cleCourante)?.nom ?? ''} ».`}</p>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-photo-ajout" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal>➕ Nouveau fichier vocal</button>
+        <div className="pvv-boutons-2"><button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal><Icone nom="plus" /> Nouveau fichier vocal</button></div>
       </div>
       {prise.message !== null && <p className="pvv-photo-motif" role="alert" data-vocal-micro>{prise.message}</p>}
       {fichiers.length > 0 && <ol className="pvv-fichiers">{fichiers.map((f, i) => {
@@ -440,11 +517,12 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
               <span className="pvv-interrupteur-piste" aria-hidden="true" />
               <span>{f.locataires ? 'Envoyé aux locataires' : 'Non envoyé aux locataires'}</span>
             </label>
-            <div className="pvv-photo-gestes pvv-vocal-gestes">
-              <button type="button" className="pvv-mini" disabled={urls.length === 0} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))} data-vocal-ecouter>{jouant ? '⏸ Pause' : '▶ Écouter'}</button>
-              {!estCourant && <button type="button" className="pvv-mini" onClick={() => setCourant(f.cle)} data-vocal-choisir>Enregistrer ici</button>}
-              <button type="button" className="pvv-mini" disabled={f.prises.every((p) => p.id === null) || f.transcription === 'en_cours'} onClick={() => { void transcrire(f); }} data-vocal-transcrire>Transcrire dans le texte</button>
-              <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: null })} aria-label={`Supprimer ${f.nom}`} data-vocal-supprimer>Supprimer</button>
+            {/* 🔴 Arno (15/11/2026) — boutons homogènes : la forme, la hauteur, la typographie et la largeur des deux boutons du bloc Texte */}
+            <div className="pvv-boutons-2 pvv-vocal-gestes">
+              <button type="button" className="svv-btn svv-btn-outline pvv-gros" disabled={urls.length === 0} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))} data-vocal-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
+              {!estCourant && <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={() => setCourant(f.cle)} data-vocal-choisir><Icone nom="cible" /> Enregistrer ici</button>}
+              <button type="button" className="svv-btn svv-btn-outline pvv-gros" disabled={f.prises.every((p) => p.id === null) || f.transcription === 'en_cours'} onClick={() => { void transcrire(f); }} data-vocal-transcrire><Icone nom="texte" /> Transcrire dans le texte</button>
+              <button type="button" className="svv-btn svv-btn-outline pvv-gros pvv-gros--danger" onClick={() => setAConfirmer({ fichier: f.cle, prise: null })} aria-label={`Supprimer ${f.nom}`} data-vocal-supprimer><Icone nom="corbeille" /> Supprimer</button>
             </div>
             {aConfirmer?.fichier === f.cle && aConfirmer.prise === null && (
               <div className="pvv-confirmer" role="alertdialog" aria-label={`Supprimer ${f.nom} ?`} data-vocal-confirmer>
@@ -459,8 +537,8 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
               <li key={p.cle} className={`pvv-prise${p.etat === 'erreur' ? ' pvv-photo--echec' : ''}`} data-prise={k + 1} data-prise-etat={p.etat}>
                 <span>Prise {k + 1} <span className="loc-muet">({dureeFr(p.dureeS)})</span></span>
                 {p.etat === 'depot' && <span className="loc-muet" role="status">Enregistrement…</span>}
-                <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} data-prise-ecouter>{lecteur.jouant === p.cle ? '⏸' : '▶'}</button>
-                <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: p.cle })} aria-label={`Supprimer la prise ${k + 1}`} data-prise-supprimer>Supprimer</button>
+                <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === p.cle ? lecteur.arreter() : lecteur.lire(p.cle, [p.url]))} aria-label={lecteur.jouant === p.cle ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`} data-prise-ecouter><Icone nom={lecteur.jouant === p.cle ? 'pause' : 'lecture'} /></button>
+                <button type="button" className="pvv-mini" onClick={() => setAConfirmer({ fichier: f.cle, prise: p.cle })} aria-label={`Supprimer la prise ${k + 1}`} data-prise-supprimer><Icone nom="corbeille" /></button>
                 {aConfirmer?.fichier === f.cle && aConfirmer.prise === p.cle && (
                   <span className="pvv-confirmer" role="alertdialog" data-prise-confirmer>Supprimer la prise {k + 1} ?
                     <button type="button" className="pvv-mini pvv-mini--danger" onClick={() => supprimerPrise(f.cle, p.cle)} data-prise-supprimer-oui>Supprimer</button>
@@ -488,11 +566,12 @@ export function LectureFichiersVocaux({ fichiers, url }: { fichiers: { nom: stri
             <span className="loc-muet">{f.prises.length} prise{f.prises.length > 1 ? 's' : ''}</span></div>
           <p className={`pvv-vocal-etat${f.locataires ? ' pvv-vocal-etat--envoye' : ''}`} data-cr-vocal-etat={f.locataires ? 'envoye' : 'interne'}>{f.nom} — {etatVocalLocataires(f.locataires === true)}</p>
           <div className="pvv-photo-gestes pvv-vocal-gestes">
-            <button type="button" className="pvv-mini" onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(cle, f.prises.map((p) => url(p.id))))} data-cr-vocal-ecouter>{jouant ? '⏸ Pause' : '▶ Écouter'}</button>
+            <button type="button" className="pvv-mini" onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(cle, f.prises.map((p) => url(p.id))))} data-cr-vocal-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
           </div>
           <ol className="pvv-prises">{f.prises.map((p, k) => (
             <li key={p.id} className="pvv-prise" data-cr-prise={k + 1}><span>Prise {k + 1}</span>
-              <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === `p${p.id}` ? lecteur.arreter() : lecteur.lire(`p${p.id}`, [url(p.id)]))}>{lecteur.jouant === `p${p.id}` ? '⏸' : '▶'}</button></li>))}</ol>
+              <button type="button" className="pvv-mini" onClick={() => (lecteur.jouant === `p${p.id}` ? lecteur.arreter() : lecteur.lire(`p${p.id}`, [url(p.id)]))}
+                aria-label={lecteur.jouant === `p${p.id}` ? `Pause de la prise ${k + 1}` : `Écouter la prise ${k + 1}`}><Icone nom={lecteur.jouant === `p${p.id}` ? 'pause' : 'lecture'} /></button></li>))}</ol>
         </li>);
     })}</ol>
   );
@@ -509,7 +588,7 @@ export function BoutonTheme() {
   const basculer = (): void => { const v = themeBascule(pref, sombreSysteme()); persisterTheme(v); appliquerThemeSur(racineTheme(), v); };
   return (
     <button type="button" className="pvv-theme" onClick={basculer} aria-label={vu === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'} data-theme-bascule={vu}>
-      {vu === 'dark' ? '☀︎' : '☾'}</button>
+      <Icone nom={vu === 'dark' ? 'soleil' : 'lune'} /></button>
   );
 }
 
@@ -534,11 +613,17 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-requis{color:var(--color-svv-red)}
 .pvv-texte{width:100%;box-sizing:border-box;min-height:9.5em;resize:vertical;font:inherit;font-size:16px;line-height:1.5;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);overflow:hidden}
 .pvv-boite-cr .pvv-texte{min-height:9.5em}
-.pvv-texte-boutons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.pvv-gros{min-height:56px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:1rem;font-weight:800;padding:0 10px}
+.pvv-texte-boutons,.pvv-boutons-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
+.pvv-photos-boutons.pvv-boutons-2{display:grid}
+.pvv-icone{flex:0 0 auto}
+.pvv-gros--danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+/* les boutons du bas du formulaire : la meme forme, hauteur, typographie et largeur que ceux des blocs */
+.pvv-boite-cr .mis-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pvv-boite-cr .mis-actions .mis-action{width:100%;min-height:56px;font-size:1rem;font-weight:800;padding:0 10px}
+.pvv-gros{box-sizing:border-box;min-height:56px;width:100%;margin:0;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:1rem;font-weight:800;line-height:1.2;padding:0 10px;text-align:center;border-radius:14px;cursor:pointer}
 .pvv-maintien{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
 .pvv-maintien.svv-btn{background:var(--color-svv-ink);color:var(--color-svv-surface);border:0}
-.pvv-maintien--actif,.pvv-maintien--actif.svv-btn{background:var(--color-svv-red);color:var(--color-svv-surface);animation:pvv-pulsation 1.1s ease-in-out infinite}
+.pvv-maintien--actif,.pvv-maintien--actif.svv-btn,.pvv-boite-cr .pvv-maintien.pvv-maintien--actif,.pvv-boite-cr .pvv-maintien.pvv-maintien--actif:hover,.pvv-boite-cr .pvv-maintien.pvv-maintien--actif:active{background:var(--color-svv-red) !important;border-color:var(--color-svv-red) !important;color:var(--color-svv-blanc) !important;animation:pvv-pulsation 1.1s ease-in-out infinite}
 @keyframes pvv-pulsation{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--color-svv-red) 55%, transparent)}70%{box-shadow:0 0 0 14px color-mix(in srgb, var(--color-svv-red) 0%, transparent)}100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--color-svv-red) 0%, transparent)}}
 @media (prefers-reduced-motion: reduce){.pvv-maintien--actif,.pvv-maintien--actif.svv-btn{animation:none}}
 .pvv-point{display:inline-block;width:10px;height:10px;border-radius:999px;background:var(--color-svv-surface)}
@@ -552,7 +637,9 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:2px solid var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 6%, var(--color-svv-surface));font-weight:700}
 .pvv-mini--danger{border-color:var(--color-svv-red);color:var(--color-svv-red)}
 .pvv-dictaphone{display:flex;flex-direction:column;align-items:center;gap:8px}
-.pvv-rond{width:96px;height:96px;min-width:72px;min-height:72px;border-radius:999px;border:0;background:var(--color-svv-ink);color:var(--color-svv-surface);font:inherit;font-size:.72rem;font-weight:800;line-height:1.15;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px;text-align:center}
+.pvv-rond{width:96px;height:96px;min-width:72px;min-height:72px;border-radius:999px;border:0;background:var(--color-svv-ink);color:var(--color-svv-surface);display:flex;align-items:center;justify-content:center;padding:0}
+.pvv-rond-duree{min-height:1.4em;font-weight:800;color:var(--color-svv-muted)}
+.pvv-dictaphone:has(.pvv-maintien--actif) .pvv-rond-duree{color:var(--color-svv-red)}
 .pvv-rond-icone{font-size:1.6rem}
 .pvv-dictaphone-cible{margin:0;text-align:center}
 .pvv-fichiers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
@@ -580,8 +667,19 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-titre-ligne{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .pvv-theme{display:none;flex:0 0 auto;min-width:40px;min-height:40px;border-radius:999px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;cursor:pointer}
 @media (max-width:640px){.pvv-theme{display:inline-flex;align-items:center;justify-content:center}}
-.pvv-locataires-cr{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
-.pvv-locataires-cr li{font-size:.9rem}
+.pvv-bloc--presence{background:color-mix(in srgb, var(--color-svv-ink) 3%, var(--color-svv-surface))}
+.pvv-bloc--erreur{border-color:var(--color-svv-red);background:color-mix(in srgb, var(--color-svv-red) 6%, var(--color-svv-surface))}
+.pvv-bloc--erreur .pvv-presence{color:var(--color-svv-red)}
+.pvv-presences{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+.pvv-presences li{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pvv-presence{align-items:flex-start;min-height:44px}
+.pvv-presence input{flex:0 0 auto;margin-top:2px;width:22px;height:22px}
+.pvv-etiquette{display:inline-block;margin-left:4px;padding:1px 8px;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:.78rem;font-weight:800}
+.pvv-lien{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;font:inherit;font-weight:800;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
+.pvv-mini-voile{position:fixed;top:0;right:0;bottom:0;left:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+.pvv-mini-modale{width:min(420px,100%);box-sizing:border-box;padding:16px;border-radius:16px;background:var(--color-svv-surface);color:var(--color-svv-ink);display:flex;flex-direction:column;gap:12px;box-shadow:0 18px 40px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
+.pvv-civilite{border:0;margin:0;padding:0;display:flex;gap:16px;flex-wrap:wrap}
+.pvv-mini-modale input[type=text]{width:100%;box-sizing:border-box;min-height:48px;font-size:16px}
 .pvv-cr-fichiers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
 /* le formulaire du compte rendu : fond OPAQUE (rien de la page derriere ne transparait), boutons en FIN de formulaire (plus colles en bas) */
 .pvv-voile-cr{background:var(--color-svv-surface);z-index:200;top:0;right:0;bottom:0;left:0;box-shadow:0 0 0 100vmax var(--color-svv-surface)}
@@ -589,9 +687,10 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 html:has(.pvv-voile-cr),body:has(.pvv-voile-cr){background:var(--color-svv-surface)}
 .pvv-recap-vocaux{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
 .pvv-recap-vocaux li{padding:10px 12px;border-radius:10px;border:2px solid currentColor;font-size:1.02rem;background:var(--color-svv-surface)}
-.pvv-boite-cr .mis-actions{position:static;margin:18px 0 0;padding:12px 0 0;border-top:1px solid var(--color-svv-line);background:transparent}
+/* la marge laterale des blocs (12 px + 1 px de bord) : les boutons du bas ont exactement la largeur de ceux des blocs */
+.pvv-boite-cr .mis-actions{position:static;margin:18px 0 0;padding:12px 13px 0;border-top:1px solid var(--color-svv-line);background:transparent}
 @media (max-width:640px){
   .pvv-voile-cr .mis-boite{min-height:100%;border-radius:0;box-shadow:none}
-  .pvv-boite-cr .mis-actions{margin:18px 0 0;padding:12px 0 calc(12px + env(safe-area-inset-bottom))}
+  .pvv-boite-cr .mis-actions{margin:18px 0 0;padding:12px 13px calc(12px + env(safe-area-inset-bottom))}
 }
 `;

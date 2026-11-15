@@ -41,3 +41,26 @@ describe('themeBascule', () => {
     expect(themeBascule('system', false)).toBe('dark');
   });
 });
+
+import { abregerCivilite, personneAjoutee, phrasePresence } from './texteCompteRendu';
+describe('🔴 « En présence de … » (Arno, 15/11/2026)', () => {
+  it('une seule personne : sans « et » ; civilité abrégée, prénom puis nom', () => {
+    expect(phrasePresence([{ civilite: 'Madame', prenom: 'Jeanne', nom: 'DUPONT' }])).toBe('En présence de Mme Jeanne DUPONT.');
+  });
+  it('deux : « X et de Y » ; trois : « X, Y et de Z »', () => {
+    const p = [{ civilite: 'Madame', prenom: 'Jeanne', nom: 'X' }, { civilite: 'Monsieur', prenom: 'Paul', nom: 'Y' }, { civilite: 'Mme', prenom: null, nom: 'Z' }];
+    expect(phrasePresence(p.slice(0, 2))).toBe('En présence de Mme Jeanne X et de M. Paul Y.');
+    expect(phrasePresence(p)).toBe('En présence de Mme Jeanne X, M. Paul Y et de Mme Z.');
+  });
+  it('civilité inconnue : le nom tel qu’il est connu ; « d’ » devant une voyelle ; le prénom déjà dans le nom n’est pas doublé', () => {
+    expect(phrasePresence([{ civilite: null, prenom: null, nom: 'ANDRÉ Alice' }])).toBe('En présence d’ANDRÉ Alice.');
+    expect(phrasePresence([{ civilite: null, prenom: 'Alice', nom: 'BERNARD Alice' }, { civilite: null, prenom: null, nom: 'Émile Roux' }])).toBe('En présence de BERNARD Alice et d’Émile Roux.');
+    expect(phrasePresence([])).toBe('');
+    expect([abregerCivilite('M.'), abregerCivilite('Mme'), abregerCivilite('M. et Mme')]).toEqual(['M.', 'Mme', '']);
+  });
+  it('une personne ajoutée : civilité Madame / Monsieur et nom obligatoires, nettoyée', () => {
+    expect(personneAjoutee({ civilite: 'Madame', nom: '  Martin ', prenom: ' Léa ' })).toEqual({ civilite: 'Madame', nom: 'Martin', prenom: 'Léa' });
+    expect(personneAjoutee({ civilite: 'Docteur', nom: 'Martin' })).toBeNull();
+    expect(personneAjoutee({ civilite: 'Monsieur', nom: '   ' })).toBeNull();
+  });
+});

@@ -84,7 +84,7 @@ test('« Clavier » en bascule ; ordre des boutons ; « Entrée » et tirets ; d
   await preparer(page);
   const ordre = await page.locator('.pvv-texte-boutons > button').evaluateAll((bs) => bs.map((b) => (b.hasAttribute('data-clavier') ? 'clavier' : 'dicter')));
   expect(ordre).toEqual(['clavier', 'dicter']);
-  expect(await page.locator('.pvv-photos-boutons label').allTextContents()).toEqual(['🖼 Photothèque', '📷 Ajouter une photo']);
+  expect((await page.locator('.pvv-photos-boutons label').allTextContents()).map((x) => x.trim())).toEqual(['Photothèque', 'Ajouter une photo']);
   const clavier = page.locator('[data-clavier]');
   const zone = page.locator('[data-corps-compte-rendu]');
   await clavier.tap();
@@ -138,6 +138,7 @@ test('vocal « Envoyé aux locataires » : non par défaut ; l’aperçu le reç
   await page.locator('[data-vocal="2"]').scrollIntoViewIfNeeded();
   await capturer(page, '05-vocal-interrupteur');
   await page.locator('[data-aussi-locataires]').check();
+  await page.locator('[data-presence-locataire]').first().check(); // 🔴 (15/11/2026) la présence est obligatoire
   await page.locator('[data-recap-previsite]').tap();
   await expect(page.locator('[data-recap-vocal]')).toHaveText(['Vocal 1 — NON envoyé (interne)', 'Vocal 2 — ENVOYÉ aux locataires']);
   const apercu = appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!;

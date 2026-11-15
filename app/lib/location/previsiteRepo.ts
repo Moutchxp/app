@@ -12,6 +12,11 @@ import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
 import { PIECES_MAX_OCTETS } from './validationSortie';
+import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, personneAjoutee, phrasePresence, type PersonnePresente } from './texteCompteRendu';
+
+/** 🔴 Arno (15/11/2026) — la présence reçue de l'écran : les occupations des locataires cochés, les personnes ajoutées (non vérifiées). */
+export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[] }
+export const ACTION_JOURNAL_PRESENCES = 'location_previsite_presences';
 import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace } from './vocauxCompteRendu';
 import { prisesPourEnvoi, vocauxDesOccupations } from './vocauxCompteRenduRepo';
 import { dateFrPreavis } from './preavis';
@@ -300,12 +305,32 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   /** 🔴 Arno (13/11/2026, lot B) — les photos (pièces déjà déposées), légende obligatoire ; `octets` : seulement pour l'envoi. */
   photos: readonly PhotoCompteRendu[] = [], o: { octets?: boolean } = {},
   /** 🔴 Arno (15/11/2026) — les fichiers vocaux ; ceux « envoyés aux locataires » partent en pièces jointes (mails des locataires + mail interne). */
-  fichiersVocaux: readonly FichierVocalTrace[] = []):
-  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[] }>> {
+  fichiersVocaux: readonly FichierVocalTrace[] = [],
+  /** 🔴 Arno (15/11/2026) — LA PRÉSENCE : les locataires cochés (occupations du préavis) et les personnes ajoutées pour ce compte rendu ; au moins une. */
+  presences?: PresencesCr):
+  Promise<IssuePrevisite<{ mails: MailPrevisite[]; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[];
+    phrase: string; presents: PersonnePresente[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
   if (texte === '') return { etat: 'refus', motif: 'Écrivez le compte rendu.', champ: 'corps' };
   if (texte.length > CORPS_MAX) return { etat: 'refus', motif: `Le compte rendu dépasse ${CORPS_MAX} caractères.`, champ: 'corps' };
+  // 🔴 la présence : les locataires cochés relus dans l'annuaire (bornés aux occupations du préavis), les personnes ajoutées vérifiées
+  const presents: PersonnePresente[] = [];
+  if (presences !== undefined) {
+    const occ = [...new Set(presences.occupations)].filter((x) => ids.includes(x));
+    if (occ.length !== new Set(presences.occupations).size) return { etat: 'refus', motif: 'Un locataire coché n’est pas de ce préavis : rechargez la page.', champ: 'presences' };
+    if (occ.length > 0) {
+      const { rows } = await query<{ id: string; civilite: string | null; prenom: string | null; nom: string }>(
+        `SELECT o.id::text, l.civilite, l.prenom, l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+          WHERE o.id = ANY($1::bigint[]) ORDER BY array_position($1::bigint[], o.id)`, [occ]);
+      presents.push(...rows.map((r) => ({ civilite: r.civilite, prenom: r.prenom, nom: r.nom })));
+    }
+    const ajoutees = presences.personnes.slice(0, PERSONNES_AJOUTEES_MAX).map(personneAjoutee);
+    if (ajoutees.some((x) => x === null) || presences.personnes.length > PERSONNES_AJOUTEES_MAX) return { etat: 'refus', motif: 'Une personne ajoutée est incomplète (civilité et nom).', champ: 'presences' };
+    presents.push(...(ajoutees as PersonnePresente[]));
+    if (presents.length === 0) return { etat: 'refus', motif: MOTIF_PRESENCE, champ: 'presences' };
+  }
+  const phrase = phrasePresence(presents);
   const refusP = refusPhotos(photos);
   if (refusP !== null) return { etat: 'refus', motif: refusP.motif, champ: 'photos' };
   // Les pièces : celles de CES occupations seulement ; à l'envoi, leurs octets relus et vérifiés (empreinte), renommées « Photo-1-légende.jpg ».
@@ -357,19 +382,21 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
      locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, avec « Mail envoyé par … » (l'expéditeur de l'agence) — jamais les adresses des autres collaborateurs. */
   // 🔴 Arno (13/11/2026, lot B) — structuré : le texte, puis « Photos » (chaque photo numérotée, sa légende) ; les photos en pièces jointes
   const photosP = [...paragraphesPhotos(photos), ...paragraphesVocaux(vocauxEnvoyes)];
+  // 🔴 Arno (15/11/2026) — « En présence de … » EN TÊTE du compte rendu (mail interne et mails des locataires)
+  const tete = phrase === '' ? [] : [phrase];
   const interne = avecPhotos(mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
-    paragraphes: [...paragraphesDuTexte(texte), ...photosP], qui: c.qui, signature: c.signature }));
+    paragraphes: [...tete, ...paragraphesDuTexte(texte), ...photosP], qui: c.qui, signature: c.signature }));
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
-    paragraphesDe: (l) => [...paragraphesDuTexte(personnaliserTexte(texte, l)), ...photosP], qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
-  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux } };
+    paragraphesDe: (l) => [...tete, ...paragraphesDuTexte(personnaliserTexte(texte, l)), ...photosP], qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presents } };
 }
 
 export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
   /** 🔴 Arno (15/11/2026) — les prises et les fichiers vocaux : ceux « envoyés aux locataires » figurent dans les pièces jointes de l'aperçu. */
-  vocaux?: readonly number[]; fichiersVocaux?: unknown }, auteur: Auteur, deps: DepsAvis = {}):
+  vocaux?: readonly number[]; fichiersVocaux?: unknown; presences?: PresencesCr }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
   const fichiers = d.fichiersVocaux === undefined ? [] : fichiersVocauxRecus(d.fichiersVocaux, [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX));
-  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], {}, fichiers);
+  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], {}, fichiers, d.presences);
   if (r.etat !== 'ok') return r;
   const noms = [...r.data.nomsPhotos, ...r.data.nomsVocaux];
   const piece = noms.length > 0 ? noms.join(', ') : null;
@@ -381,14 +408,14 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
   /** 🔴 Arno (13/11/2026, lot C) — les vocaux : rattachés au compte rendu (journal), 🔴 JAMAIS joints à un mail. */
   vocaux?: readonly number[];
   /** 🔴 Arno (15/11/2026) — les FICHIERS VOCAUX du dictaphone (nom, prises dans l'ordre) : rangés au journal, relus groupés dans « Voir le compte rendu ». */
-  fichiersVocaux?: unknown }, auteur: Auteur, deps: DepsAvis = {}):
+  fichiersVocaux?: unknown; presences?: PresencesCr }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null }>> {
   const ids = [...new Set(d.occupationIds)];
   const vocauxVoulus = [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX);
   const vocaux = vocauxVoulus.length === 0 ? [] : await vocauxDesOccupations(vocauxVoulus, ids);
   if (vocaux.length !== vocauxVoulus.length) return { etat: 'refus', motif: 'Un vocal est introuvable pour ce préavis : retirez-le puis enregistrez-le de nouveau.', champ: 'vocaux' };
   const fichiers = d.fichiersVocaux === undefined ? undefined : fichiersVocauxRecus(d.fichiersVocaux, vocaux.map((v) => v.id));
-  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? []);
+  const r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? [], d.presences);
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
   if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };
@@ -398,6 +425,9 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
     await q('UPDATE gestion_location_previsite SET effectuee_le = now(), effectuee_par_libelle = $2 WHERE id = $1 AND effectuee_le IS NULL', [Number(r.data.s.id), auteur.libelle]);
     await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mails[0].objet,
       `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
+    // 🔴 Arno (15/11/2026) — LA PRÉSENCE, rangée avec le compte rendu (journal en ajout seul) : la phrase et les personnes
+    if (r.data.phrase !== '') await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_PRESENCES, null, JSON.stringify({ phrase: r.data.phrase, presents: r.data.presents }),
+      `présence à la pré-visite : ${r.data.phrase}`, auteur);
     // 🔴 lot C — les vocaux du compte rendu, INTERNES : rattachés ici (« Voir le compte rendu » les relit), aucun n'est parti
     if (vocaux.length > 0) await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_VOCAUX, null,
       traceVocaux(vocaux.map((v) => v.id), fichiers),

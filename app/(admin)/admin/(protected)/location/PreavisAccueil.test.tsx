@@ -116,6 +116,8 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
 
+/** 🔴 Arno (15/11/2026) — la présence est obligatoire pour voir le récapitulatif du compte rendu : on coche le premier locataire. */
+const cocherPresence = (): void => { const c = document.querySelector('[data-presence-locataire]') as HTMLInputElement | null; if (c && !c.checked) act(() => c.click()); };
 const attendre = async (): Promise<void> => { await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); }); };
 async function rendre(gestion = true): Promise<void> {
   await act(async () => { root.render(createElement(BlocPreavisAccueil, { gestion })); });
@@ -1132,7 +1134,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     expect(deposees[1].dejaIds).toEqual([71]);
     expect([...document.querySelectorAll('[data-photo]')].map((x) => x.getAttribute('data-photo-etat'))).toEqual(['ok', 'ok']);
     legender(0, 'Rayure parquet chambre');
-    clicDoc('[data-recap-previsite]'); await attendre();
+    cocherPresence(); clicDoc('[data-recap-previsite]'); await attendre();
     expect(document.querySelector('[data-previsite-refus]')!.textContent).toBe('La photo 2 n’a pas de légende : chaque photo doit être légendée avant l’envoi.');
     expect(document.querySelector('[data-photo="2"]')!.getAttribute('data-photo-sans-legende')).toBe('oui');
     expect(document.querySelector('[data-photo="2"]')!.className).toContain('pvv-photo--erreur');
@@ -1141,7 +1143,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     expect(apercus).toEqual([]);
     legender(1, 'Joint douche');
     clicDoc('[data-photo="1"] [data-photo-descendre]'); // la 1re descend : Joint douche passe en photo 1
-    clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
+    cocherPresence(); clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
     expect(apercus).toHaveLength(1);
     expect(apercus[0].photos).toEqual([{ id: 72, legende: 'Joint douche' }, { id: 71, legende: 'Rayure parquet chambre' }]);
     // le récapitulatif : « Pièces jointes » (jamais « invitation d’agenda » pour des photos)
@@ -1160,7 +1162,7 @@ describe('🔴🔴 Arno (13/11/2026, lot B) — les photos du formulaire « Comp
     clicDoc('[data-photo="1"] [data-photo-supprimer]');
     clicDoc('[data-photo="1"] [data-photo-supprimer-oui]');
     expect(document.querySelectorAll('[data-photo]')).toHaveLength(1);
-    clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
+    cocherPresence(); clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
     expect(apercus[0].photos).toEqual([{ id: 72, legende: 'B' }]);
   });
 });
@@ -1316,7 +1318,7 @@ describe('🔴🔴 Arno (15/11/2026) — le formulaire « Compte rendu pré-visi
     // 🔴 (15/11/2026) — la transcription arrive sur sa ligne : elle reçoit son tiret
     expect((document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement).value).toBe('Début.\n- Le parquet est rayé. (transcrit d’un vocal)');
     // envoi : les prises restantes, groupées par fichier, avec les noms
-    clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
+    cocherPresence(); clicDoc('[data-recap-previsite]'); await attendre(); await attendre();
     expect(appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!.vocaux).toBeUndefined(); // l'aperçu ne reçoit aucun vocal
     clicDoc('[data-confirmer-previsite]'); await attendre(); await attendre();
     const envoi = appels.find((c) => c.action === 'compte-rendu-previsite')!;
@@ -1581,7 +1583,7 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     act(() => (document.querySelector('[data-vocal="2"] [data-vocal-locataires-case]') as HTMLInputElement).click());
     expect(document.querySelector('[data-vocal="2"] [data-vocal-locataires]')!.textContent).toBe('Envoyé aux locataires');
     act(() => (document.querySelector('[data-aussi-locataires]') as HTMLInputElement).click());
-    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    cocherPresence(); act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
     const apercu = appels.find((c) => c.action === 'apercu-compte-rendu-previsite')!;
     expect(apercu.fichiersVocaux).toEqual([{ nom: 'Vocal 1', ids: [91], locataires: false }, { nom: 'Vocal 2', ids: [92], locataires: true }]);
     expect([...document.querySelectorAll('[data-recap-vocal]')].map((x) => [x.getAttribute('data-recap-vocal'), x.textContent])).toEqual([
@@ -1596,7 +1598,7 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     await maintenir('[data-enregistrer-vocal]', 1500);
     await patienter(() => document.querySelectorAll('[data-prise-etat="ok"]').length === 1);
     act(() => (document.querySelector('[data-vocal-locataires-case]') as HTMLInputElement).click());
-    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    cocherPresence(); act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
     expect(document.querySelector('[data-recap-vocal]')!.textContent).toBe('Vocal 1 — NON envoyé (interne) — cochez « Envoyer aussi aux locataires » pour l’envoyer');
   });
 
@@ -1620,5 +1622,120 @@ describe('🔴🔴 Arno (15/11/2026, retours iPhone) — compte rendu : Entrée 
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
     expect(css).toContain('box-shadow:0 0 0 100vmax var(--color-svv-surface)');
     expect(css).toContain('html:has(.pvv-voile-cr),body:has(.pvv-voile-cr){background:var(--color-svv-surface)}');
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétique homogène, enregistrement en ROUGE', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let appels: Record<string, unknown>[] = []; let horloge = 1_000_000;
+  class FauxEnregistreur {
+    static isTypeSupported = (t: string) => t === 'audio/mp4';
+    mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
+    constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+  }
+  beforeEach(() => {
+    appels = []; horloge = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => horloge);
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:x'; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }, { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2023-01-15' }],
+      previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'apercu-compte-rendu-previsite') { appels.push(c); return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['x@agence.test'], cc: [], texte: 'En présence de Alice et de Mme Léa Martin.\n\nCR.' }], sansEmail: [] }); }
+        if (c.action === 'vocal-compte-rendu') { appels.push(c); return ok({ id: 91, nom: 'v', taille: 1 }); }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); clic('[data-ligne-depliee="C"] [data-compte-rendu-previsite]'); await attendre(); };
+  const taperTexte = (v: string) => act(() => { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v); t.dispatchEvent(new Event('input', { bubbles: true })); });
+  const saisir = (sel: string, v: string) => act(() => { const e = document.querySelector(sel) as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true })); });
+
+  it('PRÉSENCE : un locataire par ligne, case NON cochée, nom et date d’entrée ; quatre parties dans l’ordre : Présence, Texte, Photos, Dictaphone', async () => {
+    await ouvrirCr();
+    const cases = [...document.querySelectorAll('[data-presence-locataire]')] as HTMLInputElement[];
+    expect(cases.map((c) => c.checked)).toEqual([false, false]);
+    expect([...document.querySelectorAll('[data-cr-locataire]')].map((x) => x.textContent)).toEqual([
+      'BERNARD Alice — Entré(e) dans les lieux le 01/09/2022', 'BERNARD Paul — Entré(e) dans les lieux le 15/01/2023']);
+    expect([...document.querySelectorAll('[data-fenetre-previsite="saisie"] .pvv-bloc > .pvv-bloc-titre, [data-fenetre-previsite="saisie"] .pvv-bloc > .pvv-bloc-tete > .pvv-bloc-titre')]
+      .map((h) => h.textContent!.split(' ')[0])).toEqual(['Présence', 'Texte', 'Photos', 'Dictaphone']);
+  });
+
+  it('🔴 sans personne cochée : récapitulatif REFUSÉ, message clair, liste en rouge ; cochée : le refus s’efface', async () => {
+    await ouvrirCr();
+    taperTexte('CR.');
+    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre();
+    expect(appels).toEqual([]);
+    expect(document.querySelector('[data-presence-motif]')!.textContent).toBe('Cochez au moins une personne présente à la pré-visite.');
+    expect(document.querySelector('[data-bloc-presence]')!.getAttribute('data-presence-erreur')).toBe('oui');
+    act(() => (document.querySelector('[data-presence-locataire="12"]') as HTMLInputElement).click());
+    expect(document.querySelector('[data-presence-motif]')).toBeNull();
+  });
+
+  it('« + Ajouter une personne » : civilité, nom, prénom ; ajoutée COCHÉE, marquée « personne présente », supprimable ; envoyée au serveur avec les locataires cochés', async () => {
+    await ouvrirCr();
+    taperTexte('CR.');
+    act(() => (document.querySelector('[data-ajouter-personne]') as HTMLButtonElement).click());
+    const ajouter = () => document.querySelector('[data-personne-ajouter]') as HTMLButtonElement;
+    expect(ajouter().disabled).toBe(true); // civilité et nom obligatoires
+    act(() => (document.querySelector('[data-personne-civilite="Madame"]') as HTMLInputElement).click());
+    saisir('[data-personne-nom]', 'Martin'); saisir('[data-personne-prenom]', 'Léa');
+    act(() => ajouter().click());
+    expect(document.querySelector('[data-modale-personne]')).toBeNull();
+    const ligne = document.querySelector('[data-personne-ajoutee]')!;
+    expect(ligne.textContent).toBe('Mme Léa Martin personne présente');
+    expect((ligne.querySelector('[data-presence-personne]') as HTMLInputElement).checked).toBe(true);
+    act(() => (document.querySelector('[data-presence-locataire="11"]') as HTMLInputElement).click());
+    act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre();
+    expect(appels[0].presences).toEqual({ occupations: [11], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa' }] });
+    // la phrase (écrite par le serveur) est visible dans le récapitulatif
+    expect(document.querySelector('[data-fenetre-previsite="recap"]')!.textContent).toContain('En présence de Alice et de Mme Léa Martin.');
+    act(() => (document.querySelector('[data-revenir-previsite]') as HTMLButtonElement).click()); await attendre();
+    act(() => (document.querySelector('[data-personne-retirer]') as HTMLButtonElement).click());
+    expect(document.querySelector('[data-personne-ajoutee]')).toBeNull();
+  });
+
+  it('🔴 plus AUCUN emoji dans le formulaire (icônes SVG de l’admin) ; boutons homogènes (mêmes classes, deux par ligne) ; bouton rond : l’icône seule', async () => {
+    await ouvrirCr();
+    const boite = document.querySelector('[data-fenetre-previsite="saisie"]')!;
+    expect(boite.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+    expect(boite.textContent).not.toMatch(/[↵▶⏸‹›↑↓➕☀☾]/);
+    for (const sel of ['[data-clavier]', '[data-dicter]', '[data-photo-galerie-bouton]', '[data-ajouter-photo]', '[data-nouveau-vocal]']) {
+      expect(document.querySelector(sel)!.className, sel).toContain('pvv-gros');
+    }
+    expect(document.querySelector('.pvv-photos-boutons')!.className).toContain('pvv-boutons-2');
+    const rond = document.querySelector('[data-enregistrer-vocal]')!;
+    expect(rond.textContent).toBe('');
+    expect(rond.querySelector('svg')).not.toBeNull();
+    expect(rond.getAttribute('aria-label')).toBe('Maintenir pour enregistrer');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-boite-cr .mis-actions{display:grid;grid-template-columns:1fr 1fr');
+    expect(css).toContain('.pvv-boite-cr .mis-actions .mis-action{width:100%;min-height:56px;font-size:1rem;font-weight:800');
+  });
+
+  it('🔴 ENREGISTREMENT EN ROUGE : le bouton rond ET « Maintenir pour dicter » prennent le MÊME code (classe, état) dès que le doigt est posé ; durée SOUS le bouton rond ; retour à la normale au relâchement', async () => {
+    await ouvrirCr();
+    for (const sel of ['[data-enregistrer-vocal]', '[data-dicter]']) {
+      const b = document.querySelector(sel) as HTMLButtonElement;
+      await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+      expect(b.className, sel).toContain('pvv-maintien--actif'); // rouge AVANT même que le micro réponde
+      for (let k = 0; k < 30 && b.querySelector('[data-maintien-duree]') === null; k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+      expect(b.getAttribute('data-enregistrement')).toBe('oui');
+      if (sel === '[data-enregistrer-vocal]') expect(document.querySelector('[data-rond-duree]')!.textContent).toMatch(/^\d{2}:\d{2}$/);
+      horloge += 1000;
+      await act(async () => { b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+      await attendre();
+      expect(b.className, sel).not.toContain('pvv-maintien--actif');
+    }
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n');
+    expect(css).toContain('.pvv-boite-cr .pvv-maintien.pvv-maintien--actif:hover');
+    expect(css).toContain('background:var(--color-svv-red) !important');
   });
 });

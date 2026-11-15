@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * 🔴🔴 LA PRÉ-VISITE (Arno, 10/11/2026) — le dépôt, base SIMULÉE (les suivis en mémoire), module de tâches simulé (on vérifie qu'on
@@ -733,5 +733,40 @@ describe('🔴🔴 Arno (13/11/2026, lot C) — les vocaux du compte rendu : INT
     programmee(); echecEnvoi = true;
     await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, vocaux: [81] }, AUTEUR);
     expect(journal().filter((a) => a.params[1] === 'location_previsite_vocaux')).toEqual([]);
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … » en tête du compte rendu, au moins une personne', () => {
+  const avecAnnuaire = () => query.mockImplementation(async (sql: string, params: unknown[] = []) =>
+    (sql.includes('l.civilite, l.prenom, l.nom') ? { rows: (params[0] as number[]).map((id) => (id === 11 ? { id: '11', civilite: 'M.', prenom: 'Alice', nom: 'TEST' } : { id: '12', civilite: null, prenom: 'Bruno', nom: 'TEST' })) }
+      : repondre(sql, params)) as never);
+  afterEach(() => { query.mockImplementation(async (sql: string, params: unknown[] = []) => repondre(sql, params)); });
+
+  it('un locataire coché et une personne ajoutée : la phrase EN TÊTE de chaque mail (interne et locataires), rangée au journal', async () => {
+    programmee(); avecAnnuaire();
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'Logement propre.', aussiLocataires: true,
+      presences: { occupations: [12], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa' }] } }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok' });
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string }[]];
+    expect(mails.length).toBeGreaterThan(1);
+    for (const m of mails) expect(m.texte.startsWith('En présence de Bruno TEST et de Mme Léa Martin.')).toBe(true);
+    const trace = journal().filter((a) => a.params[1] === 'location_previsite_presences');
+    expect(trace).toHaveLength(2); // le journal de chaque locataire du préavis
+    expect(JSON.parse(trace[0].params[3] as string)).toMatchObject({ phrase: 'En présence de Bruno TEST et de Mme Léa Martin.' });
+  });
+  it('une seule personne : au singulier', async () => {
+    programmee(); avecAnnuaire();
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [11], personnes: [] } }, AUTEUR);
+    expect(r.etat === 'ok' && r.data.mails[0].texte.startsWith('En présence de M. Alice TEST.')).toBe(true);
+  });
+  it('🔴 personne cochée : REFUS, rien ne part ; un locataire d’un autre préavis ou une personne incomplète : refus', async () => {
+    programmee(); avecAnnuaire();
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [], personnes: [] } }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'presences', motif: 'Cochez au moins une personne présente à la pré-visite.' });
+    expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [99], personnes: [] } }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'presences' });
+    expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [], personnes: [{ civilite: 'Docteur', nom: 'X' }] } }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'presences' });
+    expect(envoyerSerie).not.toHaveBeenCalled();
   });
 });
