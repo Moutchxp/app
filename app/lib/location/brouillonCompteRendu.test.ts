@@ -8,7 +8,7 @@ describe('brouillon du compte rendu', () => {
       ajoutees: [{ cle: 'a', civilite: 'Madame', nom: ' Martin ', prenom: 'Léa', present: true, note: 'mère' }, { civilite: 'Docteur', nom: 'X' }],
       photos: [{ id: 71, legende: 'Rayure' }, { id: 71, legende: 'doublon' }, { id: 0, legende: 'non' }],
       fichiers: [{ cle: 'f1', nom: 'Cuisine', locataires: true, prises: [{ id: 81, dureeS: 3.5 }, { id: 'x' }] }], inconnu: 'ignoré' });
-    expect(c).toEqual({ corps: 'Salon propre', presents: [11, 12], aussiLocataires: false,
+    expect(c).toEqual({ corps: 'Salon propre', presents: [11, 12], aussiLocataires: false, fichierActif: null,
       ajoutees: [{ cle: 'a', civilite: 'Madame', nom: 'Martin', prenom: 'Léa', present: true, note: 'mère' }],
       photos: [{ id: 71, legende: 'Rayure' }], fichiers: [{ cle: 'f1', nom: 'Cuisine', locataires: true, prises: [{ id: 81, dureeS: 3.5 }] }] });
     expect(nettoyerBrouillon(null)).toEqual(BROUILLON_VIDE);

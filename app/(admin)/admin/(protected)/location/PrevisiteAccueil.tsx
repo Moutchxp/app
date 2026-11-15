@@ -271,6 +271,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   /** 🔴 Arno (15/11/2026) — le DICTAPHONE : des fichiers vocaux (INTERNES, jamais envoyés), chacun ses prises ; le curseur du texte, où
    *  s'insèrent la dictée et la transcription d'un fichier. */
   const [fichiers, setFichiers] = useState<FichierVocal[]>([]);
+  /** 🔴 Arno (15/11/2026, 8e retour) — le fichier vocal ACTIF (destination des prochaines prises), mémorisé dans le brouillon */
+  const [fichierActif, setFichierActif] = useState<string | null>(null);
   /** 🔴 Arno (15/11/2026) — la présence : locataires cochés (occupations), personnes ajoutées ; au moins une pour voir le récapitulatif. */
   const [presents, setPresents] = useState<number[]>([]);
   const [ajoutees, setAjoutees] = useState<PersonneAjouteeSaisie[]>([]);
@@ -298,11 +300,12 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     corps: sansTiretsOrphelins(corps), presents, ajoutees: ajoutees.map((a) => ({ cle: a.cle, civilite: a.civilite, nom: a.nom, prenom: a.prenom, present: a.present, note: a.note })),
     photos: photos.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, legende: x.legende })),
     fichiers: fichiers.map((f) => ({ cle: f.cle, nom: f.nom, locataires: f.locataires === true, prises: f.prises.filter((x) => x.id !== null).map((x) => ({ id: x.id as number, dureeS: x.dureeS })) })),
-    aussiLocataires,
+    aussiLocataires, fichierActif,
   };
   const appliquerBrouillon = useCallback((c: ContenuBrouillon): void => {
     setCorps(c.corps); setPresents(c.presents.filter((x) => l.occupationIds.includes(x))); setAjoutees(c.ajoutees.map((a) => ({ ...a })));
     setAussiLocataires(c.aussiLocataires);
+    setFichierActif(c.fichierActif);
     // les pièces DÉPOSÉES viennent du brouillon ; celles qui attendent encore dans le téléphone (remises par la file locale) sont gardées
     setPhotos((xs) => [...c.photos.map((x): PhotoSaisie => { const deja = xs.find((y) => y.id === x.id);
       return { cle: deja?.cle ?? `b${x.id}`, id: x.id, apercu: deja?.apercu ?? urlPiece(x.id), legende: x.legende, etat: 'ok', motif: null }; }), ...xs.filter((y) => y.id === null)]);
@@ -470,7 +473,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <BlocPresence locataires={l.locataires} presents={presents} setPresents={setPresents} ajoutees={ajoutees} setAjoutees={setAjoutees} erreur={refusPresence} dateFr={dateFrPreavis} />
         <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
         <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} onOccupe={setLegendeOccupee} />
-        <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe} />
+        <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe}
+          courant={fichierActif} setCourant={setFichierActif} />
         <BoutonEnvoiLocataires actif={aussiLocataires} onBasculer={() => setAussiLocataires((v) => !v)} occupationIds={l.occupationIds}
           nomsConnus={l.locataires.map((x) => x.nom)} />
       </>}

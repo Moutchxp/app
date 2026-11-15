@@ -77,6 +77,8 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
   const arrete = useRef(true);
   const indispo = useRef(false);
   const minuterie = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 🔴 (8e retour) l'enregistrement en route vers le serveur : « Effacer » l'attend, sinon il arrivait APRÈS l'effacement et recréait le brouillon */
+  const enVol = useRef<Promise<unknown> | null>(null);
 
   const envoyerAuServeur = useCallback(async (keepalive = false): Promise<void> => {
     if (arrete.current || indispo.current) return;
@@ -85,7 +87,10 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
     // rien de saisi et rien sur le serveur : pas de brouillon à créer
     if (serveur.current === null && brouillonVide(JSON.parse(s) as ContenuBrouillon)) { setEtat(null); return; }
     setEtat('enregistrement');
-    const r = await ecrireServeur(ids.current, JSON.parse(s), keepalive);
+    const envoi = ecrireServeur(ids.current, JSON.parse(s), keepalive);
+    enVol.current = envoi;
+    const r = await envoi;
+    if (enVol.current === envoi) enVol.current = null;
     if (arrete.current) return;
     if (r.issue === 'ok') {
       serveur.current = s;
@@ -160,6 +165,8 @@ export function useBrouillonCompteRendu(o: { actif: boolean; occupationIds: read
   const effacer = useCallback(async (): Promise<void> => {
     arrete.current = true;
     if (minuterie.current) { clearTimeout(minuterie.current); minuterie.current = null; }
+    // un enregistrement déjà parti doit ARRIVER avant l'effacement (sinon il recréerait le brouillon effacé)
+    if (enVol.current) { try { await enVol.current; } catch { /* rien */ } }
     try { await fetch(API_PREAVIS_LOCATION, { method: 'POST', headers: ENTETES, body: JSON.stringify({ action: 'effacer-brouillon-previsite', occupationIds: [...ids.current] }) }); } catch { /* le serveur sera écrasé au prochain enregistrement */ }
     await effacerBrouillonLocal(g); await viderAttente(g);
     serveur.current = null; setDernier(null);

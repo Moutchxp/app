@@ -2229,6 +2229,29 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — SAUVEGARDE AUTOMATIQUE du co
     expect(ecritures.some((e) => e.action === 'effacer-brouillon-previsite')).toBe(true);
     expect(posts.some((c) => String(c.action).startsWith('compte-rendu') || String(c.action).startsWith('apercu'))).toBe(false);
   });
+  it('🔴 (8e retour) « Effacer » ATTEND l’enregistrement déjà en route : l’effacement arrive après lui (sinon le brouillon effacé renaissait)', async () => {
+    const ordre: string[] = []; let liberer: () => void = () => {};
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'brouillon-previsite') { ordre.push('envoi'); await new Promise<void>((r) => { liberer = r; }); ordre.push('envoi arrivé'); return ok({ enregistreLe: '2026-11-15T13:06:00.000Z' }); }
+        if (c.action === 'effacer-brouillon-previsite') { ordre.push('effacement'); return ok({ efface: true }); }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+    await ouvrir();
+    taper('Texte en route');
+    await patienter(() => ordre.includes('envoi'));
+    act(() => (document.querySelector('[data-effacer-brouillon]') as HTMLButtonElement).click());
+    await act(async () => { (document.querySelector('[data-effacer-brouillon-oui]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(ordre).toEqual(['envoi']); // l'effacement attend
+    await act(async () => { liberer(); });
+    await patienter(() => ordre.includes('effacement'));
+    expect(ordre).toEqual(['envoi', 'envoi arrivé', 'effacement']);
+    expect(zone().value).toBe('');
+  });
   it('réseau coupé : la photo reste dans le téléphone (« en attente du réseau »), puis part TOUTE SEULE au retour du réseau', async () => {
     await ouvrir();
     reseau = false;
@@ -2342,7 +2365,7 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — clavier réel ; micro du tit
     expect(document.activeElement).not.toBe(zone);
     expect(b.getAttribute('aria-pressed')).toBe('false');
   });
-  it('le TITRE d’un fichier vocal : le même micro à droite dans le champ ; la dictée s’insère dans CE titre', async () => {
+  it('le TITRE d’un fichier vocal : le même micro à droite dans le champ ; 🔴 (8e retour) la dictée REMPLACE ce titre', async () => {
     await ouvrir();
     await maintenir(document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement, 900);
     await patienter(() => document.querySelector('[data-prise-etat="ok"]') !== null);
@@ -2353,7 +2376,7 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — clavier réel ; micro du tit
     act(() => { nom.focus(); nom.setSelectionRange(nom.value.length, nom.value.length); nom.blur(); });
     await maintenir(micro, 900);
     await patienter(() => nom.value !== 'Vocal 1');
-    expect(nom.value).toBe('Vocal 1 salle de bains');
+    expect(nom.value).toBe('Salle de bains');
     expect(dictees).toHaveLength(1);
   });
   it('le RÉCAPITULATIF : chaque ligne de vocal a « Écouter » (lecture / pause, prises enchaînées)', async () => {
@@ -2374,5 +2397,111 @@ describe('🔴🔴 Arno (15/11/2026, 6e retour) — clavier réel ; micro du tit
     expect(joues).toHaveLength(1);
     act(() => ecouter.click());
     expect(ecouter.getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+describe('🔴🔴 Arno (15/11/2026, 8e retour) — Dictaphone : la DESTINATION des prises toujours visible ; titre dicté qui remplace', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let horloge = 1_000_000; let id = 500; let dictee: { ok: boolean; texte?: string } = { ok: true, texte: 'salle de bain.' };
+  let brouillonServeur: unknown = null;
+  class FauxEnregistreur {
+    static isTypeSupported = (t: string) => t === 'audio/mp4';
+    mimeType: string; state = 'inactive'; ondataavailable: ((e: { data: Blob }) => void) | null = null; onstop: (() => void) | null = null;
+    constructor(_f: unknown, o?: { mimeType?: string }) { this.mimeType = o?.mimeType ?? ''; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) }); this.onstop?.(); }
+  }
+  beforeEach(async () => {
+    (await import('../../../../lib/location/fileAttenteLocale')).oublierMemoireLocale();
+    horloge = 1_000_000; id = 500; dictee = { ok: true, texte: 'salle de bain.' }; brouillonServeur = null;
+    vi.spyOn(Date, 'now').mockImplementation(() => horloge);
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => `blob:v-${Math.random()}`; (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FauxEnregistreur;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop: () => {} }] }) } });
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (!init?.method && String(u).includes('previsiteBrouillon=')) return ok({ brouillon: brouillonServeur, enregistreLe: brouillonServeur ? '2026-11-15T13:05:00.000Z' : null });
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'vocal-compte-rendu') { id += 1; return ok({ id, nom: 'v.m4a', taille: 3 }); }
+        if (c.action === 'dicter-compte-rendu') return ok(dictee);
+        if (c.action === 'brouillon-previsite') return ok({ enregistreLe: '2026-11-15T13:06:00.000Z' });
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const patienter = async (cond: () => boolean) => { for (let k = 0; k < 80 && !cond(); k++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await attendre(); };
+  const ouvrir = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); await patienter(() => document.querySelector('[data-corps-compte-rendu]') !== null); };
+  const maintenir = async (b: HTMLButtonElement, ms: number) => {
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })); });
+    await patienter(() => b.getAttribute('data-enregistrement') === 'oui' && b.querySelector('[data-maintien-duree]') !== null);
+    horloge += ms;
+    await act(async () => { b.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true })); });
+    await attendre();
+  };
+  const rond = () => document.querySelector('[data-enregistrer-vocal]') as HTMLButtonElement;
+  const sous = () => document.querySelector('[data-rond-duree]')!.textContent;
+  const pastilles = () => [...document.querySelectorAll('[data-pastille-vocal]')].map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const prises = (n: number) => document.querySelector(`[data-vocal="${n}"]`)!.getAttribute('data-vocal-prises');
+
+  it('titre dicté : il REMPLACE l’ancien (capitale, sans point) ; une dictée vide ne change rien ; titreDicte', async () => {
+    const { titreDicte } = await import('./CompteRenduSaisie');
+    expect(titreDicte('  salle de bain.  ', 60)).toBe('Salle de bain');
+    expect(titreDicte('   ', 60)).toBe('');
+    await ouvrir();
+    await maintenir(rond(), 900);
+    await patienter(() => document.querySelector('[data-prise-etat="ok"]') !== null);
+    const nom = document.querySelector('[data-vocal="1"] [data-vocal-nom]') as HTMLInputElement;
+    await maintenir(document.querySelector('[data-vocal="1"] [data-dicter-titre]') as HTMLButtonElement, 900);
+    await patienter(() => nom.value !== 'Vocal 1');
+    expect(nom.value).toBe('Salle de bain');
+    dictee = { ok: true, texte: '' };
+    await maintenir(document.querySelector('[data-vocal="1"] [data-dicter-titre]') as HTMLButtonElement, 900);
+    await attendre();
+    expect(nom.value).toBe('Salle de bain');
+  });
+  it('pastilles (une par fichier + « Nouveau »), libellé sous le bouton, carte active bordée et étiquetée, prise dans le BON fichier, appui sur une carte, suppression du fichier actif', async () => {
+    await ouvrir();
+    expect(document.querySelector('[data-pastilles-vocaux]')).toBeNull();
+    expect(sous()).toBe('La première prise crée « Vocal 1 »');
+    await maintenir(rond(), 900);
+    await patienter(() => document.querySelector('[data-prise-etat="ok"]') !== null);
+    expect(pastilles()).toEqual([['Vocal 1', 'true']]);
+    expect(document.querySelector('[data-pastille-nouveau]')!.textContent).toBe(' Nouveau');
+    expect(sous()).toBe('Maintenir pour enregistrer dans « Vocal 1 »');
+    act(() => (document.querySelector('[data-pastille-nouveau]') as HTMLButtonElement).click());
+    expect(pastilles()).toEqual([['Vocal 1', 'false'], ['Vocal 2', 'true']]);
+    expect(sous()).toBe('Maintenir pour enregistrer dans « Vocal 2 »');
+    // la carte active : bordée de rouge et étiquetée ; « Choisir ce fichier » ailleurs, « Fichier actif » (désactivé) sur elle
+    expect(document.querySelector('[data-vocal="2"]')!.className).toContain('pvv-fichier-vocal--courant');
+    expect(document.querySelector('[data-vocal="2"] [data-fichier-actif-etiquette]')!.textContent).toBe('Les prochaines prises vont ici');
+    expect(document.querySelector('[data-vocal="1"] [data-fichier-actif-etiquette]')).toBeNull();
+    expect((document.querySelector('[data-vocal="2"] [data-vocal-choisir]') as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector('[data-vocal="2"] [data-vocal-choisir]')!.textContent).toBe(' Fichier actif');
+    expect(document.querySelector('[data-vocal="1"] [data-vocal-choisir]')!.textContent).toBe(' Choisir ce fichier');
+    // changer de destination par la pastille : la prise va dans « Vocal 1 »
+    act(() => (document.querySelector('[data-pastille-vocal="1"]') as HTMLButtonElement).click());
+    expect(sous()).toBe('Maintenir pour enregistrer dans « Vocal 1 »');
+    await maintenir(rond(), 900);
+    await patienter(() => prises(1) === '2');
+    expect([prises(1), prises(2)]).toEqual(['2', '0']);
+    // un appui sur une AUTRE carte (hors boutons et champs) la rend active
+    act(() => { (document.querySelector('[data-vocal="2"] [data-vocal-resume]') as HTMLElement).click(); });
+    expect(pastilles().map((x) => x[1])).toEqual(['false', 'true']);
+    // supprimer le fichier ACTIF : le précédent devient actif
+    act(() => (document.querySelector('[data-vocal="2"] [data-vocal-supprimer]') as HTMLButtonElement).click());
+    act(() => (document.querySelector('[data-vocal-supprimer-oui]') as HTMLButtonElement).click());
+    expect(pastilles()).toEqual([['Vocal 1', 'true']]);
+    expect(sous()).toBe('Maintenir pour enregistrer dans « Vocal 1 »');
+  });
+  it('le fichier actif est MÉMORISÉ dans le brouillon et restauré à la réouverture', async () => {
+    brouillonServeur = { corps: 'CR', presents: [], ajoutees: [], photos: [], aussiLocataires: true, fichierActif: 'f1',
+      fichiers: [{ cle: 'f1', nom: 'Cuisine', locataires: false, prises: [] }, { cle: 'f2', nom: 'Salle de bain', locataires: false, prises: [] }] };
+    await ouvrir();
+    await patienter(() => document.querySelectorAll('[data-pastille-vocal]').length === 2);
+    expect(pastilles()).toEqual([['Cuisine', 'true'], ['Salle de bain', 'false']]);
+    expect(sous()).toBe('Maintenir pour enregistrer dans « Cuisine »');
   });
 });

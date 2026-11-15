@@ -179,10 +179,12 @@ export function Confirmation({ question, action, onConfirmer, onGarder, attribut
  * le petit bouton micro rond à droite DANS le champ (« Maintenir pour dicter … »), la dictée insérée au curseur de CE champ, sans ouvrir le
  * clavier ; le texte ne passe jamais sous le bouton.
  */
-export function ChampAvecMicro({ libelle, libelleVisible, valeur, max, placeholder, invalide = false, occupationIds, onChange, onOccupe, attributsChamp, attributsMicro, classe = '' }: {
+export function ChampAvecMicro({ libelle, libelleVisible, valeur, max, placeholder, invalide = false, occupationIds, onChange, onOccupe, attributsChamp, attributsMicro, classe = '', remplacer = false }: {
   libelle: string; libelleVisible: boolean; valeur: string; max: number; placeholder?: string; invalide?: boolean; occupationIds: readonly number[];
   onChange: (f: (v: string) => string) => void; onOccupe: (occupe: boolean) => void;
-  attributsChamp: Record<string, string>; attributsMicro: Record<string, string>; classe?: string }) {
+  attributsChamp: Record<string, string>; attributsMicro: Record<string, string>; classe?: string;
+  /** 🔴 Arno (15/11/2026, 8e retour) — la dictée REMPLACE tout le champ (titre d'un fichier vocal) au lieu de s'insérer au curseur ; vide : rien ne change */
+  remplacer?: boolean }) {
   const curseur = useRef<number | null>(null);
   const [transcription, setTranscription] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -193,6 +195,12 @@ export function ChampAvecMicro({ libelle, libelleVisible, valeur, max, placehold
       const r = await transcrireDictee(blob, type, occupationIds);
       setTranscription(false);
       if ('motif' in r) { setMotif(r.motif); return; }
+      if (remplacer) {
+        // 🔴 (8e retour) le titre dicté remplace l'ancien (« Vocal 2 » + « salle de bain » → « Salle de bain ») ; une dictée vide ne change rien
+        const t = titreDicte(r.texte, max);
+        if (t !== '') { curseur.current = t.length; onChange(() => t); }
+        return;
+      }
       const p = curseur.current; // lu AVANT la mise à jour (rejouée en développement)
       onChange((l) => { const x = insererDictee(l, p, r.texte); const t = x.texte.slice(0, max); curseur.current = Math.min(x.curseur, t.length); return t; });
     })();
@@ -218,6 +226,12 @@ export function ChampAvecMicro({ libelle, libelleVisible, valeur, max, placehold
       {motif !== null && <span className="pvv-photo-motif" role="alert" data-legende-motif>{motif}</span>}
     </div>
   );
+}
+
+/** 🔴 Arno (15/11/2026, 8e retour) — un TITRE dicté : propre, sans point final, première lettre en capitale, borné ; vide : chaîne vide. PUR. */
+export function titreDicte(dicte: string, max: number): string {
+  const t = dicte.replace(/\s+/g, ' ').trim().replace(/[.。]+$/, '').trim();
+  return t === '' ? '' : `${t.charAt(0).toLocaleUpperCase('fr-FR')}${t.slice(1)}`.slice(0, max);
 }
 
 /** Le champ de légende d'une photo (et son micro). */
@@ -685,11 +699,13 @@ function useLecteur(): { jouant: string | null; lire: (cle: string, urls: string
   return { jouant, lire, arreter };
 }
 
-export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscrit, onOccupe }: {
+export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscrit, onOccupe, courant, setCourant }: {
   fichiers: FichierVocal[]; setFichiers: (f: (x: FichierVocal[]) => FichierVocal[]) => void; occupationIds: readonly number[];
-  onTranscrit: (texte: string) => void; onOccupe: (occupe: boolean) => void }) {
+  onTranscrit: (texte: string) => void; onOccupe: (occupe: boolean) => void;
+  /** 🔴 Arno (15/11/2026, 8e retour) — le FICHIER ACTIF (destination des prochaines prises), tenu par le formulaire : il est mémorisé dans le brouillon */
+  courant: string | null; setCourant: (cle: string | null) => void }) {
   const titreId = useId();
-  const [courant, setCourant] = useState<string | null>(null);
+  const rond = useRef<HTMLDivElement | null>(null);
   const [aConfirmer, setAConfirmer] = useState<{ fichier: string; prise: string | null } | null>(null);
   const lecteur = useLecteur();
   const cleCourante = courant !== null && fichiers.some((f) => f.cle === courant) ? courant : (fichiers[fichiers.length - 1]?.cle ?? null);
@@ -762,11 +778,23 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   }), []);
   const enCours = prise.etat !== 'repos' || titresOccupes.size > 0 || fichiers.some((f) => f.transcription === 'en_cours' || f.prises.some((p) => p.etat === 'depot' || p.etat === 'attente'));
   useEffect(() => { onOccupe(enCours); }, [enCours, onOccupe]);
-  const nouveau = (): void => { const f = fichierVide(fichiers.length); setFichiers((xs) => [...xs, f]); setCourant(f.cle); };
+  // 🔴 (8e retour) « Nouveau fichier vocal » : créé, rendu actif, et l'écran défile jusqu'au gros bouton
+  const nouveau = (): void => {
+    const f = fichierVide(fichiers.length); setFichiers((xs) => [...xs, f]); setCourant(f.cle);
+    setTimeout(() => { try { rond.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /* rien */ } }, 0);
+  };
+  /** un appui n'importe où sur une carte (hors boutons et champs) la rend active */
+  const choisirParLaCarte = (cle: string, e: { target: EventTarget | null }): void => {
+    const t = e.target as Element | null;
+    if (t?.closest?.('button,input,textarea,select,label,a,audio,[role="switch"]')) return;
+    setCourant(cle);
+  };
   const supprimerFichier = (fc: string): void => {
     const f = fichiers.find((x) => x.cle === fc);
     f?.prises.forEach((p) => { try { URL.revokeObjectURL(p.url); } catch { /* rien */ } enAttente.current.delete(p.cle); void retirerAttente(groupe, p.cle); });
     if (lecteur.jouant !== null) lecteur.arreter();
+    // 🔴 (8e retour) le fichier ACTIF supprimé : le précédent devient actif (le suivant s'il n'y en a pas avant)
+    if (fc === cleCourante) { const i = fichiers.findIndex((x) => x.cle === fc); const voisin = fichiers[i - 1] ?? fichiers[i + 1] ?? null; setCourant(voisin?.cle ?? null); }
     setFichiers((xs) => xs.filter((x) => x.cle !== fc)); setAConfirmer(null);
   };
   const supprimerPrise = (fc: string, pc: string): void => {
@@ -794,13 +822,24 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
   return (
     <section className="pvv-bloc pvv-bloc--dictaphone pvv-vocaux" aria-labelledby={titreId} data-vocaux-compte-rendu>
       <h3 id={titreId} className="pvv-bloc-titre">Dictaphone <span className="loc-muet">(internes, sauf ceux envoyés aux locataires)</span></h3>
-      <div className="pvv-dictaphone">
+      <div className="pvv-dictaphone" ref={rond}>
+        {/* 🔴🔴 Arno (15/11/2026, 8e retour) — la DESTINATION toujours visible : une pastille par fichier (l'actif plein rouge) et « + Nouveau » */}
+        {fichiers.length > 0 && (
+          <div className="pvv-pastilles-vocaux" role="group" aria-label="Fichier où vont les prochaines prises" data-pastilles-vocaux>
+            {fichiers.map((f, i) => (
+              <button key={f.cle} type="button" className="pvv-choix pvv-pastille-vocal" aria-pressed={f.cle === cleCourante} title={f.nom.trim() || `Vocal ${i + 1}`}
+                onClick={() => setCourant(f.cle)} disabled={prise.etat !== 'repos'} data-pastille-vocal={i + 1}>
+                <span className="pvv-pastille-texte">{f.nom.trim() || `Vocal ${i + 1}`}</span></button>))}
+            <button type="button" className="pvv-choix pvv-pastille-vocal pvv-pastille-nouveau" onClick={nouveau} disabled={prise.etat !== 'repos'} data-pastille-nouveau>
+              <Icone nom="plus" taille={16} /> Nouveau</button>
+          </div>)}
         {/* 🔴 Arno (15/11/2026) — le bouton rond : une grande icône de micro, rien d'autre ; ROUGE tant que le doigt est posé ; la durée SOUS le bouton */}
         <BoutonMaintenir etat={prise.etat} dureeMs={prise.dureeMs} repos={<Icone nom="micro" taille={44} />} actif={<Icone nom="micro" taille={44} />} rond
           onAppui={prise.appuyer} onRelache={prise.relacher} className="pvv-rond pvv-maintien" attributs={{ 'data-enregistrer-vocal': '', 'aria-label': 'Maintenir pour enregistrer' }} />
-        <span className="pvv-chrono pvv-rond-duree" role="timer" aria-live="off" data-rond-duree>{prise.etat === 'repos' ? 'Maintenir pour enregistrer' : dureeFr(prise.dureeMs / 1000)}</span>
-        <p className="loc-muet pvv-dictaphone-cible" data-vocal-cible>{cleCourante === null ? 'La première prise crée « Vocal 1 ».'
-          : `Les prises s’ajoutent à « ${fichiers.find((f) => f.cle === cleCourante)?.nom ?? ''} ».`}</p>
+        {/* 🔴 (8e retour) sous le gros bouton : où va la prise (la durée pendant l'enregistrement) */}
+        <span className="pvv-chrono pvv-rond-duree" role="timer" aria-live="off" data-rond-duree data-vocal-cible>{prise.etat !== 'repos' ? dureeFr(prise.dureeMs / 1000)
+          : cleCourante === null ? 'La première prise crée « Vocal 1 »'
+            : `Maintenir pour enregistrer dans « ${(() => { const i = fichiers.findIndex((f) => f.cle === cleCourante); return fichiers[i]?.nom.trim() || `Vocal ${i + 1}`; })()} »`}</span>
         {/* 🔴 Arno (15/11/2026, 7e retour) — même style, pleine largeur de l'encart */}
         <div className="pvv-nouveau-vocal"><button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={nouveau} disabled={prise.etat !== 'repos'} data-nouveau-vocal><Icone nom="plus" /> Nouveau fichier vocal</button></div>
       </div>
@@ -811,9 +850,10 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
         const estCourant = f.cle === cleCourante;
         return (
           <li key={f.cle} className={`pvv-fichier-vocal${estCourant ? ' pvv-fichier-vocal--courant' : ''}`} data-vocal={i + 1} data-vocal-prises={f.prises.length}
-            data-vocal-transcription={f.transcription ?? undefined}>
+            data-vocal-transcription={f.transcription ?? undefined} data-vocal-actif={estCourant ? 'oui' : 'non'} onClick={(e) => { if (!estCourant) choisirParLaCarte(f.cle, e); }}>
+            {estCourant && <p className="pvv-fichier-actif-etiquette" data-fichier-actif-etiquette>Les prochaines prises vont ici</p>}
             {/* 🔴 Arno (15/11/2026, 6e retour) — le titre du fichier vocal : le même petit micro à droite dans le champ que pour les légendes */}
-            <ChampAvecMicro libelle={`Nom du fichier vocal ${i + 1}`} libelleVisible={false} valeur={f.nom} max={60} occupationIds={occupationIds} classe="pvv-nom-vocal"
+            <ChampAvecMicro libelle={`Nom du fichier vocal ${i + 1}`} libelleVisible={false} valeur={f.nom} max={60} occupationIds={occupationIds} classe="pvv-nom-vocal" remplacer
               onChange={(g) => majFichier(f.cle, (x) => ({ ...x, nom: g(x.nom) }))} onOccupe={(o) => occuperTitre(f.cle, o)}
               attributsChamp={{ 'data-vocal-nom': '' }}
               attributsMicro={{ 'aria-label': `Maintenir pour dicter le nom du fichier vocal ${i + 1}`, title: 'Maintenir pour dicter le nom', 'data-dicter-titre': String(i + 1) }} />
@@ -828,7 +868,9 @@ export function BlocDictaphone({ fichiers, setFichiers, occupationIds, onTranscr
             {/* 🔴 Arno (15/11/2026) — boutons homogènes : la forme, la hauteur, la typographie et la largeur des deux boutons du bloc Texte */}
             <div className="pvv-boutons-2 pvv-vocal-gestes">
               <button type="button" className="svv-btn svv-btn-outline pvv-gros" disabled={urls.length === 0} onClick={() => (jouant ? lecteur.arreter() : lecteur.lire(f.cle, urls))} data-vocal-ecouter><Icone nom={jouant ? 'pause' : 'lecture'} /> {jouant ? 'Pause' : 'Écouter'}</button>
-              {!estCourant && <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={() => setCourant(f.cle)} data-vocal-choisir><Icone nom="cible" /> Enregistrer ici</button>}
+              {/* 🔴 (8e retour) « Enregistrer ici » devient « Choisir ce fichier » (même fonction, accord d'Arno) ; sur la carte active : « Fichier actif », désactivé */}
+              <button type="button" className="svv-btn svv-btn-outline pvv-gros" onClick={() => setCourant(f.cle)} disabled={estCourant} aria-pressed={estCourant} data-vocal-choisir>
+                <Icone nom="cible" /> {estCourant ? 'Fichier actif' : 'Choisir ce fichier'}</button>
               <button type="button" className="svv-btn svv-btn-outline pvv-gros" disabled={f.prises.every((p) => p.id === null) || f.transcription === 'en_cours'} onClick={() => { void transcrire(f); }} data-vocal-transcrire><Icone nom="texte" /> Transcrire dans le texte</button>
               <button type="button" className="svv-btn svv-btn-outline pvv-gros pvv-gros--danger" onClick={() => setAConfirmer({ fichier: f.cle, prise: null })} aria-label={`Supprimer ${f.nom}`} data-vocal-supprimer><Icone nom="corbeille" /> Supprimer</button>
             </div>
@@ -1065,6 +1107,14 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-fichiers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
 .pvv-fichier-vocal{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;border:2px solid var(--color-svv-line);background:var(--color-svv-surface)}
 .pvv-fichier-vocal--courant{border-color:var(--color-svv-ink)}
+/* Arno (15/11/2026, 8e retour) : la destination des prises toujours visible — pastilles, carte active bordee de rouge et etiquetee */
+.pvv-fichier-vocal{cursor:pointer}
+.pvv-fichier-vocal.pvv-fichier-vocal--courant{border:4px solid var(--color-svv-red);cursor:default}
+.pvv-fichier-actif-etiquette{align-self:flex-start;margin:0;padding:3px 10px;border-radius:999px;background:var(--color-svv-red);color:var(--color-svv-surface);font-size:.82rem;font-weight:900}
+.pvv-pastilles-vocaux{align-self:stretch;display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.pvv-pastille-vocal{flex:0 0 auto;max-width:12rem;border-radius:999px}
+.pvv-pastille-texte{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:10.5rem}
+.pvv-pastille-nouveau{color:var(--color-svv-ink)}
 .pvv-nom-vocal{flex:1;min-width:0}
 .pvv-nom-vocal .pvv-legende-champ{font-weight:800}
 .pvv-lu{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

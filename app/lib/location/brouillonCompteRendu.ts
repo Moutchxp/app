@@ -11,9 +11,11 @@ export interface PriseBrouillon { id: number; dureeS: number }
 export interface FichierBrouillon { cle: string; nom: string; locataires: boolean; prises: PriseBrouillon[] }
 export interface ContenuBrouillon {
   corps: string; presents: number[]; ajoutees: PersonneBrouillon[]; photos: PhotoBrouillon[]; fichiers: FichierBrouillon[]; aussiLocataires: boolean;
+  /** 🔴 Arno (15/11/2026, 8e retour) — le fichier vocal ACTIF (destination des prochaines prises), par sa clé ; null : le dernier */
+  fichierActif: string | null;
 }
 
-export const BROUILLON_VIDE: ContenuBrouillon = { corps: '', presents: [], ajoutees: [], photos: [], fichiers: [], aussiLocataires: true };
+export const BROUILLON_VIDE: ContenuBrouillon = { corps: '', presents: [], ajoutees: [], photos: [], fichiers: [], aussiLocataires: true, fichierActif: null };
 const CORPS_MAX = 20_000; const PHOTOS_MAX = 40; const FICHIERS_MAX = 20; const PRISES_MAX = 40; const PERSONNES_MAX = 10;
 
 const texte = (x: unknown, max: number): string => (typeof x === 'string' ? x.replace(/\u0000/g, '').slice(0, max) : '');
@@ -50,7 +52,9 @@ export function nettoyerBrouillon(brut: unknown): ContenuBrouillon {
     });
     return { cle: ligne(f.cle, 60) || `f${i}`, nom: ligne(f.nom, 60), locataires: f.locataires === true, prises };
   });
-  return { corps: texte(o.corps, CORPS_MAX), presents, ajoutees, photos, fichiers, aussiLocataires: o.aussiLocataires !== false };
+  const actif = ligne(o.fichierActif, 60);
+  return { corps: texte(o.corps, CORPS_MAX), presents, ajoutees, photos, fichiers, aussiLocataires: o.aussiLocataires !== false,
+    fichierActif: actif !== '' && fichiers.some((f) => f.cle === actif) ? actif : null };
 }
 
 /** Le brouillon est-il vide (rien à garder) ? PUR. */

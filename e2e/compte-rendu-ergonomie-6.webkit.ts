@@ -125,7 +125,8 @@ for (const theme of ['light', 'dark'] as const) {
     const nom = page.locator('[data-vocal="1"] [data-vocal-nom]');
     await nom.evaluate((i: HTMLInputElement) => { i.focus(); i.setSelectionRange(i.value.length, i.value.length); i.blur(); });
     await maintenir(page, '[data-vocal="1"] [data-dicter-titre]', 700);
-    await expect(nom).toHaveValue('Vocal 1 salle de bains', { timeout: 10_000 });
+    // 🔴 (15/11/2026, 8e retour) le titre dicté REMPLACE l'ancien
+    await expect(nom).toHaveValue('Salle de bains', { timeout: 10_000 });
     const [bNom, bMicro] = [await nom.boundingBox(), await page.locator('[data-vocal="1"] [data-dicter-titre]').boundingBox()];
     expect(bMicro!.x + bMicro!.width).toBeLessThanOrEqual(bNom!.x + bNom!.width); expect(bMicro!.width).toBeGreaterThanOrEqual(44);
     await page.locator('[data-vocal="1"]').scrollIntoViewIfNeeded();
@@ -137,7 +138,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.locator('[data-recap-previsite]').tap();
     await expect(page.locator('[data-fenetre-previsite="recap"]')).toBeVisible({ timeout: 20_000 });
     const ecouter = page.locator('[data-recap-vocal-ligne="1"] [data-recap-ecouter]');
-    await expect(page.locator('[data-recap-vocal-ligne="1"] [data-recap-vocal]')).toHaveText('Vocal 1 salle de bains — NON envoyé (interne)');
+    await expect(page.locator('[data-recap-vocal-ligne="1"] [data-recap-vocal]')).toHaveText('Salle de bains — NON envoyé (interne)');
     await ecouter.tap();
     await expect(ecouter).toHaveAttribute('aria-pressed', 'true');
     await page.locator('[data-recap-vocal-ligne="1"]').scrollIntoViewIfNeeded();
