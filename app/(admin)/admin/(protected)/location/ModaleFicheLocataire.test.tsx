@@ -84,7 +84,7 @@ describe('🔴 « Fiche locataire » du Suivi du mois — les cartes de « Nouve
     await monter();
     await modifierLea();
     expect(document.querySelector('.cp-form')?.textContent).toContain('Modifier la fiche');
-    await saisir(champ('Commune'), 'PUTEAUX');
+    await saisir(champ('Prénom'), 'Lou'); // (lot 2 « Adresses uniformisées » : la commune ne se tape plus)
     await validerCarte();
     expect(document.querySelector('.cp-form')).not.toBeNull();
     expect(enregistrer().disabled).toBe(true);
@@ -99,7 +99,7 @@ describe('🔴 « Fiche locataire » du Suivi du mois — les cartes de « Nouve
   it('RÉCAPITULATIF (ancienne → nouvelle) ; « Revenir » n’envoie rien ; « Confirmer » envoie la MISE À JOUR ; la modale RESTE ouverte, « ✓ Modifications enregistrées », la ligne se relit', async () => {
     await monter();
     await modifierLea();
-    await saisir(champ('Commune'), 'PUTEAUX');
+    await saisir(champ('Prénom'), 'Lou'); // (lot 2 « Adresses uniformisées » : la commune ne se tape plus)
     await clic([...document.querySelectorAll('.cp-ajouts button')].find((b) => b.textContent?.includes('E-mail'))!);
     const lignes = document.querySelectorAll('.cp-form .cp-saisie--valeur');
     await saisir(lignes[lignes.length - 1] as HTMLInputElement, 'lea@exemple.test');
@@ -107,7 +107,7 @@ describe('🔴 « Fiche locataire » du Suivi du mois — les cartes de « Nouve
     await clic(enregistrer());
     const recap = document.querySelector('[data-recap-fiche]')!;
     expect(recap.textContent).toContain('Locataire Mme MARTIN Léa');
-    expect(recap.textContent).toContain('Commune : COURBEVOIE → PUTEAUX');
+    expect(recap.textContent).toContain('Prénom : Léa → Lou');
     expect(recap.textContent).toContain('Coordonnées : Téléphone 06 00 00 00 01 → E-mail lea@exemple.test · Téléphone 06 00 00 00 01');
     await clic(document.querySelector('[data-revenir]')!);
     expect(posts).toEqual([]);
@@ -115,7 +115,7 @@ describe('🔴 « Fiche locataire » du Suivi du mois — les cartes de « Nouve
     await clic(document.querySelector('[data-confirmer-fiche]')!);
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ action: 'modifier-fiche-locataire', id: 230, bailId: 70, ecran: 'Fiche locataire (Suivi du mois)',
-      saisie: { version: 'v1', nouvelles: [], modifiees: [{ id: 230, sorte: 'client', champs: { commune: 'PUTEAUX' } }] } });
+      saisie: { version: 'v1', nouvelles: [], modifiees: [{ id: 230, sorte: 'client', champs: { prenom: 'Lou' } }] } });
     expect((posts[0].saisie as { modifiees: { champs: Record<string, unknown> }[] }).modifiees[0].champs).not.toHaveProperty('nom');
     expect(document.querySelector('[data-modale-fiche-locataire="230"]')).not.toBeNull();
     expect(document.querySelector('[data-fiche-enregistree]')?.textContent).toBe('✓ Modifications enregistrées');
@@ -128,7 +128,7 @@ describe('🔴 « Fiche locataire » du Suivi du mois — les cartes de « Nouve
     reponse = { status: 409, corps: { etat: 'conflit', motif: 'Cette fiche a été modifiée depuis son ouverture : rechargez-la avant d’enregistrer. Rien n’a été enregistré.' } };
     await monter();
     await clic([...document.querySelectorAll('[data-recap="contact"] button')].find((b) => b.textContent === 'Modifier')!);
-    await saisir(champ('Commune'), 'VILLEURBANNE');
+    await saisir(champ('Prénom'), 'Zoé'); // (lot 2 : la commune ne se tape plus)
     await validerCarte();
     // Les manques d'un contact (pas de téléphone) passent par la fenêtre d'alerte de « Nouveau locataire » : « Enregistrer quand même ».
     await clic([...document.querySelectorAll('button')].find((b) => b.textContent === 'Enregistrer quand même')!);
@@ -188,7 +188,7 @@ describe('🔴 Arno (25/10/2026) — la « Fiche locataire » porte aussi le blo
   it('UN SEUL « Enregistrer » : le récapitulatif GROUPÉ PAR BLOC ; « Confirmer » envoie les cartes ET le bloc 3 (bail) ; aucun envoi de mail ; la modale reste ouverte', async () => {
     await monterAvecBail();
     await modifierLea();
-    await saisir(champ('Commune'), 'PUTEAUX');
+    await saisir(champ('Prénom'), 'Lou'); // (lot 2 « Adresses uniformisées » : la commune ne se tape plus)
     await clic([...document.querySelectorAll('.cp-ajouts button')].find((b) => b.textContent?.includes('E-mail'))!);
     const lignes = document.querySelectorAll('.cp-form .cp-saisie--valeur');
     await saisir(lignes[lignes.length - 1] as HTMLInputElement, 'lea@exemple.test');
@@ -390,7 +390,7 @@ describe('🔴 bloc 3 — bail sans conditions d’entrée : le formulaire de «
   it('bloc 3 non touché : les cartes seules s’enregistrent comme avant (aucune condition envoyée, rien n’est exigé)', async () => {
     await monterSans();
     await modifierLea();
-    await saisir(champ('Commune'), 'PUTEAUX');
+    await saisir(champ('Prénom'), 'Lou'); // (lot 2 « Adresses uniformisées » : la commune ne se tape plus)
     await clic([...document.querySelectorAll('.cp-ajouts button')].find((b) => b.textContent?.includes('E-mail'))!);
     const lignes = document.querySelectorAll('.cp-form .cp-saisie--valeur');
     await saisir(lignes[lignes.length - 1] as HTMLInputElement, 'lea@exemple.test');

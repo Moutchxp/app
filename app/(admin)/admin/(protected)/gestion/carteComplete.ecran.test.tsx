@@ -39,6 +39,10 @@ beforeEach(() => {
   posts = []; personnes = [COMPLET(), INCOMPLET()];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
+    // (lot 2 « Adresses uniformisées ») la Base Adresse Nationale, simulée : l'adresse se choisit dans ses suggestions
+    if (u.startsWith('https://api-adresse.data.gouv.fr/')) {
+      return reponse({ features: [{ properties: { label: '2 Rue B 75012 Paris', name: '2 Rue B', postcode: '75012', city: 'Paris' } }] });
+    }
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return reponse({ etat: 'ok', data: { id: 77 } }); }
     if (u.includes('/api/admin/gestion/annuaire?proprietaire=')) {
       return reponse({ etat: 'ok', data: {
@@ -109,10 +113,13 @@ for (const [ou, monter] of Object.entries(MONTAGES)) {
       const champ = (mot: string) => [...form.querySelectorAll('.cp-champ')].find((l) => (l.textContent ?? '').startsWith(mot));
       const civ = champ('Civilité')?.querySelector('select') as HTMLSelectElement;
       await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(civ, civ.options[1].value); civ.dispatchEvent(new Event('change', { bubbles: true })); });
-      for (const [mot, v] of [['Nom', 'LEROY'], ['Prénom', 'Anne'], ['Adresse', '2 rue B'], ['Code postal', '75012']] as const) {
+      for (const [mot, v] of [['Nom', 'LEROY'], ['Prénom', 'Anne'], ['Adresse', '2 rue B']] as const) {
         await act(async () => { poser(champ(mot)?.querySelector('input') as HTMLInputElement, v); });
       }
-      await act(async () => { poser(champ('Code postal')?.querySelectorAll('input')[1] as HTMLInputElement, 'Paris'); });
+      // (lot 2) l'adresse se CHOISIT dans les suggestions : rue, code postal et commune arrivent ensemble
+      await act(async () => { await new Promise((r) => setTimeout(r, 320)); }); await calmer();
+      await act(async () => { (form.querySelector('.cab-prop') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
+      expect([(form.querySelector('[data-adresse-cp]') as HTMLInputElement).value, (form.querySelector('[data-adresse-commune]') as HTMLInputElement).value]).toEqual(['75012', 'PARIS']);
       const valeurs = [...form.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
       await act(async () => { poser(valeurs[valeurs.length - 1], 'leroy@fictif.test'); });
       // Le téléphone n'est PLUS bloquant pour une carte suivante : « Enregistrer » est cliquable.

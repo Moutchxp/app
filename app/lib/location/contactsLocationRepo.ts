@@ -55,6 +55,7 @@ export async function creerContactsDuBien(lotId: number, cote: CoteCarte, contac
       fiche: {
         civilite: fiche.civilite, prenom: fiche.prenom, qualite: fiche.qualite, adressePostale: fiche.adressePostale,
         codePostal: fiche.codePostal, commune: fiche.commune, note: fiche.note, coordonnees: fiche.coordonnees,
+        ...(fiche.adresseSaisie !== undefined ? { adresseSaisie: fiche.adresseSaisie } : {}),
       },
     });
     if (!carte.ok) return { ok: false, motif: `Contact ${i + 1} : ${carte.motif}` };

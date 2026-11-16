@@ -12,6 +12,7 @@ import {
 } from '../../../../../../lib/gestion/partieCategorieRepo';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — la MÊME relecture pour le corps de la requête et pour le `jsonb`. */
 import { coordonneesDeLaCarte } from '../../../../../../lib/gestion/ficheContact';
+import { metaAdresseDuCorps } from '../../../../../../lib/gestion/adresseSaisie';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — quelle location réclame quel contact annexe. Voir son encadré. */
 import { contactsParLocataire } from '../../../../../../lib/gestion/historiqueRepo';
 /* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — qui, parmi les adresses du bien, la fiche syndic reconnaît. Lecture seule. */
@@ -180,6 +181,7 @@ export async function GET(request: Request): Promise<Response> {
           note: c.note, verifieLe: c.verifieLe, verifiePar: c.verifiePar,
           civilite: c.civilite, prenom: c.prenom, qualite: c.qualite,
           adressePostale: c.adressePostale, codePostal: c.codePostal, commune: c.commune,
+          adresseNature: c.adresseNature ?? null, adressePays: c.adressePays ?? null,
           coordonnees: c.coordonnees,
         })),
         /**
@@ -261,6 +263,7 @@ function ficheDuCorps(c: Record<string, unknown>): FicheDeCarte | undefined {
     commune: texteCourt(c.commune, 120),
     note: texteCourt(c.note, 2000),
     coordonnees: coordonneesDeLaCarte(c.coordonnees),
+    ...metaAdresseDuCorps(c.adresseSaisie),
   };
 }
 
@@ -357,6 +360,8 @@ async function faireSuivreLaCarte(o: {
       civilite: ancienne.civilite, prenom: ancienne.prenom, qualite: ancienne.qualite,
       adressePostale: ancienne.adressePostale, codePostal: ancienne.codePostal, commune: ancienne.commune,
       note: ancienne.note, coordonnees: ancienne.coordonnees,
+      // 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) une carte déplacée garde son adresse et sa nature, sans nouveau contrôle
+      adresseRecopiee: { nature: ancienne.adresseNature ?? null, pays: ancienne.adressePays ?? null },
     });
     /**
      * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 1 — DÉPLACER N'EST PAS CRÉER ═══════════════════════════════════════

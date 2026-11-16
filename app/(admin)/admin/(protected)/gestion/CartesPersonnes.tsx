@@ -20,6 +20,8 @@ import {
   prenomEnSaisie, prenomFormate,
 } from '../../../../lib/gestion/saisieFiche';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from './ChampAdresseBan';
+import { mentionAdresse, MENTION_ETRANGER, MENTION_HORS_LISTE, TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne, type MetaAdresse, type NatureAdresse } from '../../../../lib/gestion/adresseSaisie';
+import { adresseSansNumero } from '../../../../lib/gestion/copropriete';
 import {
   MOTIF_DERNIER_PROPRIETAIRE, MOTIF_SANS_MIGRATION, manquesDeLaFiche, phraseArchivage, proposerCoupure,
   verifierCoordonnees, type CoordonneeSaisie, type PartDeCoordonnee,
@@ -125,6 +127,8 @@ export interface ChampsSaisis {
   commune?: string | null;
   note?: string | null;
   coordonnees?: CoordonneeSaisie[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse (liste, hors liste, étranger), le pays, les confirmations. */
+  adresseSaisie?: MetaAdresse;
 }
 
 // ══ ① LA RANGÉE QUI DÉFILE ════════════════════════════════════════════════════════════════════════════════════════
@@ -402,8 +406,11 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer, ton, regles 
    */
   const adresse = [
     p.adresse,
-    [codePostalFormate(p.codePostal), communeFormatee(p.commune)].filter((x) => x !== '').join(' '),
+    // 🔴 (lot 2) une adresse à l'étranger garde son code postal tel quel, et dit son pays
+    [p.adresseNature === 'etranger' ? (p.codePostal ?? '').trim() : codePostalFormate(p.codePostal), communeFormatee(p.commune)].filter((x) => x !== '').join(' '),
+    p.adresseNature === 'etranger' ? p.adressePays ?? null : null,
   ].filter((x) => x !== null && x.trim() !== '').join(', ');
+  const marqueAdresse = mentionAdresse(p.adresseNature, null);
   const mention = mentionCreation({ creeLe: p.creeLe, importeLe: p.importeLe, wippimmoId: p.cle });
 
   const fermer = (): void => { setMode('lecture'); setMenu(false); setRefus(null); };
@@ -472,7 +479,7 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer, ton, regles 
 
       <div className="cp-lignes">
         <Ligne libelle="Qualité">{p.qualite ?? <Rien mot="non renseignée" />}</Ligne>
-        <Ligne libelle="Adresse">{adresse !== '' ? adresse : <Rien mot="non renseignée" />}</Ligne>
+        <Ligne libelle="Adresse">{adresse !== '' ? <>{adresse}{marqueAdresse !== null && <span className="cp-adr-marque" data-adresse-marque>{marqueAdresse}</span>}</> : <Rien mot="non renseignée" />}</Ligne>
         <Coordonnees contacts={p.contacts} onEcrire={gestes.onEcrire} />
         {dessous}
         <Ligne libelle="Note">{p.note ?? <Rien mot="non renseignée" />}</Ligne>
@@ -680,6 +687,9 @@ export interface FicheAEditer {
   adresse: string | null;
   codePostal: string | null;
   commune: string | null;
+  /** 🔴 (lot 2) la nature de l'adresse et le pays ; absents ou `null` : une adresse d'avant ce lot. */
+  adresseNature?: NatureAdresse | null;
+  adressePays?: string | null;
   note: string | null;
   /** Les coordonnées, dans l'ordre affiché. `id` ne sert qu'à donner une clé React stable à la ligne. */
   contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
@@ -799,7 +809,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const proposee = (q: string): string | undefined => qualitesProposees?.find((x) => x.toLowerCase() === q.trim().toLowerCase());
   const [qualitePerso, setQualitePerso] = useState(() => (p?.qualite ?? '').trim() !== '' && proposee(p?.qualite ?? '') === undefined);
   const [adresse, setAdresse] = useState(p?.adresse ?? '');
-  const [codePostal, setCodePostal] = useState(codePostalFormate(p?.codePostal));
+  const [codePostal, setCodePostal] = useState(p?.adresseNature === 'etranger' ? (p?.codePostal ?? '').trim() : codePostalFormate(p?.codePostal));
   const [commune, setCommune] = useState(communeFormatee(p?.commune));
   const [note, setNote] = useState(p?.note ?? '');
   /**
@@ -808,6 +818,32 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
    * contraire serait affirmer sans savoir. La mention est discrète, et elle n'interdit rien.
    */
   const [adresseVerifiee, setAdresseVerifiee] = useState(false);
+  /**
+   * 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) — LA NATURE DE L'ADRESSE : choisie dans la liste (rue, code postal et commune
+   * ensemble ; plus de saisie libre), « hors liste — à vérifier » (confirmée), ou à l'étranger (saisie libre, pays obligatoire). Une
+   * adresse qu'on ne touche pas part telle quelle, avec sa nature d'avant (jamais requalifiée).
+   */
+  const natureInitiale: NatureAdresse | null = p?.adresseNature ?? null;
+  const [natureAdr, setNatureAdr] = useState<NatureAdresse | null>(natureInitiale);
+  const [pays, setPays] = useState(p?.adressePays ?? '');
+  const [horsListeConfirme, setHorsListeConfirme] = useState(false);
+  const [sansNumeroConfirme, setSansNumeroConfirme] = useState(false);
+  const [fenetreAdresse, setFenetreAdresse] = useState<null | 'hors_liste' | 'sans_numero'>(null);
+  const cpInitial = p?.adresseNature === 'etranger' ? (p?.codePostal ?? '').trim() : codePostalFormate(p?.codePostal);
+  const adresseTouchee = adresse !== (p?.adresse ?? '') || codePostal !== cpInitial || commune !== communeFormatee(p?.commune)
+    || natureAdr !== natureInitiale || pays !== (p?.adressePays ?? '');
+  const enFrance = natureAdr !== 'etranger';
+  const metaAdresse = (sansNumeroOk = sansNumeroConfirme): MetaAdresse => ({
+    nature: !adresseTouchee ? natureInitiale : natureAdr === 'etranger' || natureAdr === 'hors_liste' ? natureAdr : 'liste',
+    pays: natureAdr === 'etranger' ? pays.trim() : null, horsListeConfirme, sansNumeroConfirme: sansNumeroOk,
+  });
+  /** La fiche telle qu'elle part : la mise en forme d'usage ; une adresse à l'étranger garde son code postal tel quel. */
+  const ficheEnvoyee = (sansNumeroOk = sansNumeroConfirme) => ({
+    ...ficheFormatee({ civilite, nom, prenom, adresse, codePostal, commune }),
+    ...(natureAdr === 'etranger' ? { codePostal: codePostal.trim() } : {}),
+    // une adresse non touchée part sans nature : le serveur la laisse telle quelle (jamais requalifiée)
+    ...(adresseTouchee ? { adresseSaisie: metaAdresse(sansNumeroOk) } : {}),
+  });
   const civilite = civiliteRetenue(civiliteChoix, civiliteLibre);
   /**
    * ⚠️ LE TYPE D'UNE COORDONNÉE EXISTANTE SE DÉDUIT DE SON LIBELLÉ IMPORTÉ (« Mobile 2 » → Mobile), et à défaut de
@@ -879,7 +915,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const tracee = useContext(ContexteEditionTracee);
   const recapitulatif = tracee !== null && p !== null && creation === undefined && contact === undefined;
   const champsSaisis = (): ChampsSaisis => ({
-    ...ficheFormatee({ civilite, nom, prenom, adresse, codePostal, commune }),
+    ...ficheEnvoyee(),
     qualite, note, coordonnees: saisiesVivantes.filter((c) => c.valeur.trim() !== ''),
   });
   // La carte ouverte, MISE EN FORME comme la saisie : un format appliqué à l'affichage n'est pas une modification.
@@ -891,13 +927,21 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
     setEnvoi(true);
     void (async () => { await onEnregistrer(champs); setEnvoi(false); })();
   };
-  const soumettre = (forcer = false): void => {
+  const soumettre = (forcer = false, sansNumeroOk = sansNumeroConfirme): void => {
     // 🔴 LE TYPE REDEVIENT `sorte` + `libelle` À L'ENVOI : le serveur n'apprend pas un nouveau vocabulaire.
     const saisies = saisiesVivantes.filter((c) => c.valeur.trim() !== '');
     const verdict = verifierCoordonnees(saisies);
     if (!verdict.ok) { setLocal(verdict.motif); return; }
     if (nom.trim() === '') { setLocal('Le nom ne peut pas être vide.'); return; }
     if (incomplete) { setLocal(null); return; }
+    // 🔴🔴 (lot 2) L'ADRESSE, avant tout envoi (le serveur refait les mêmes contrôles) — seulement si elle a été touchée
+    if (adresseTouchee && adresse.trim() !== '') {
+      if (natureAdr === 'etranger' && pays.trim() === '') { setLocal('Indiquez le pays de cette adresse à l’étranger.'); return; }
+      if (enFrance && natureAdr !== 'hors_liste' && !adresseVerifiee) {
+        setLocal('Choisissez l’adresse dans la liste proposée (ou « Adresse absente de la liste ? », ou « Adresse à l’étranger »).'); return;
+      }
+      if (enFrance && adresseSansNumero(adresse) && !sansNumeroOk) { setLocal(null); setFenetreAdresse('sans_numero'); return; }
+    }
     // 🔴 LA CARTE COMPLÈTE : d'abord le refus (invariant de la famille), puis l'alerte des manques — sauf « quand même ».
     const carte: CarteMin = { nom, coordonnees: saisies };
     const refusFamille = bloquer?.(carte) ?? null;
@@ -908,7 +952,8 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
       const champs = champsSaisis();
       const changements = avantFormate === null ? [] : changementsCarte(avantFormate, champs);
       if (changements.length === 0) return;
-      setFenetre({ sorte: 'recap', changements, champs: saisieDesChangements(champs, changements) });
+      // 🔴 (lot 2) la nature de l'adresse accompagne une adresse modifiée (sans elle, une adresse hors liste ou à l'étranger serait refusée)
+      setFenetre({ sorte: 'recap', changements, champs: { ...saisieDesChangements(champs, changements), ...(champs.adresseSaisie !== undefined ? { adresseSaisie: champs.adresseSaisie } : {}) } });
       return;
     }
     setFenetre(null);
@@ -919,7 +964,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
          une valeur d'avant ce lot, une fiche importée qu'on rouvre : tout repasse par la MÊME fonction pure. La
          saisie se met en forme sous les doigts pour qu'on voie ce qui partira ; ici, on s'en assure. */
       await onEnregistrer({
-        ...ficheFormatee({ civilite, nom, prenom, adresse, codePostal, commune }),
+        ...ficheEnvoyee(sansNumeroOk),
         qualite, note, coordonnees: saisies,
       });
       setEnvoi(false);
@@ -1042,38 +1087,127 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
             placeholder={contact !== undefined ? EXEMPLE_QUALITE_CONTACT : EXEMPLE_QUALITE_CLIENT} />
         </label>
       )}
-      {/* ══ 🔴🔴 L'ADRESSE, AVEC LES PROPOSITIONS DE LA BASE ADRESSE NATIONALE ════════════════════════════════
-          Un choix remplit les TROIS champs d'un coup — adresse, code postal, commune (en majuscules). La saisie
-          libre reste possible partout : adresse étrangère, lieu-dit, BAN muette. Aucun blocage, jamais. */}
-      <div className="cp-champ">
-        <label className="cp-champ-mot" htmlFor="cp-adresse">Adresse</label>
-        <ChampAdresseBan
-          id="cp-adresse"
-          valeur={adresse}
-          verifiee={adresseVerifiee}
-          onChange={(v) => { setAdresse(v); setAdresseVerifiee(false); }}
-          onChoisir={(a) => {
-            setAdresse(a.voie);
-            setCodePostal(a.codePostal);
-            setCommune(a.commune);
-            setAdresseVerifiee(true);
-          }}
-          manque={manqueDe('adresse')} />
-      </div>
-      <div className="cp-champ cp-champ--duo">
-        <label className="cp-duo-part">
-          <span className="cp-champ-mot">Code postal</span>
-          <input className="cp-saisie" value={codePostal} inputMode="numeric" maxLength={5}
-            onChange={(e) => setCodePostal(codePostalFormate(e.target.value))} />
-          {manqueDe('codePostal')}
-        </label>
-        <label className="cp-duo-part">
-          <span className="cp-champ-mot">Commune</span>
-          <input className="cp-saisie" value={commune}
-            onChange={(e) => setCommune(communeEnSaisie(e.target.value))} />
-          {manqueDe('commune')}
-        </label>
-      </div>
+      {/* ══ 🔴🔴 L'ADRESSE, CHOISIE DANS LES SUGGESTIONS DE LA BASE ADRESSE NATIONALE (Arno, 17/11/2026, « Adresses uniformisées », lot 2) ══
+          Un choix remplit les TROIS champs d'un coup — adresse, code postal, commune (en majuscules) — et le code postal et la commune ne se
+          tapent plus. Deux exceptions, marquées : « Adresse absente de la liste ? » (saisie libre confirmée, « hors liste — à vérifier ») et
+          « Adresse à l'étranger » (saisie libre, pays obligatoire). Une adresse qu'on ne touche pas reste telle quelle. */}
+      <label className="cp-adr-etranger" data-champ-etranger>
+        <input type="checkbox" checked={natureAdr === 'etranger'} data-adresse-etranger onChange={(e) => {
+          setAdresseVerifiee(false); setSansNumeroConfirme(false); setHorsListeConfirme(false);
+          if (e.target.checked) { setNatureAdr('etranger'); return; }
+          // retour en France : l'adresse étrangère n'a plus cours, on la choisit dans la liste
+          setNatureAdr(natureInitiale === 'etranger' ? null : natureInitiale); setPays(''); setAdresse(''); setCodePostal(''); setCommune('');
+        }} />
+        <span>Adresse à l’étranger</span>
+      </label>
+      {enFrance && natureAdr !== 'hors_liste' && (
+        <>
+          <div className="cp-champ">
+            <label className="cp-champ-mot" htmlFor="cp-adresse">Adresse</label>
+            <ChampAdresseBan
+              id="cp-adresse"
+              valeur={adresse}
+              verifiee={adresseVerifiee}
+              onChange={(v) => {
+                setAdresse(v); setAdresseVerifiee(false); setSansNumeroConfirme(false);
+                // la rue effacée : l'adresse entière s'efface (code postal et commune ne se tapent plus)
+                if (v.trim() === '') { setCodePostal(''); setCommune(''); }
+              }}
+              onChoisir={(a) => {
+                setAdresse(a.voie);
+                setCodePostal(a.codePostal);
+                setCommune(a.commune);
+                setAdresseVerifiee(true);
+                setNatureAdr('liste'); setSansNumeroConfirme(false);
+              }}
+              manque={manqueDe('adresse')} />
+            {adresseTouchee && !adresseVerifiee && adresse.trim() !== '' && (
+              <p className="cp-adr-aide" data-adresse-a-choisir>Choisissez l’adresse dans la liste proposée.{' '}
+                <button type="button" className="cp-adr-lien" onClick={() => setFenetreAdresse('hors_liste')} data-adresse-hors-liste>Adresse absente de la liste ?</button>
+              </p>
+            )}
+          </div>
+          <div className="cp-champ cp-champ--duo">
+            <label className="cp-duo-part">
+              <span className="cp-champ-mot">Code postal</span>
+              <input className="cp-saisie cp-saisie--auto" value={codePostal} readOnly tabIndex={-1} aria-readonly="true"
+                title="Rempli par le choix de l’adresse dans la liste" data-adresse-cp />
+              {manqueDe('codePostal')}
+            </label>
+            <label className="cp-duo-part">
+              <span className="cp-champ-mot">Commune</span>
+              <input className="cp-saisie cp-saisie--auto" value={commune} readOnly tabIndex={-1} aria-readonly="true"
+                title="Remplie par le choix de l’adresse dans la liste" data-adresse-commune />
+              {manqueDe('commune')}
+            </label>
+          </div>
+        </>
+      )}
+      {natureAdr === 'hors_liste' && (
+        <>
+          <div className="cp-champ">
+            <label className="cp-champ-mot" htmlFor="cp-adresse-libre">Adresse <span className="cp-adr-marque" data-adresse-marque>{MENTION_HORS_LISTE}</span></label>
+            <input id="cp-adresse-libre" className="cp-saisie" value={adresse} data-adresse-libre
+              onChange={(e) => { setAdresse(e.target.value); setSansNumeroConfirme(false); }} />
+            {manqueDe('adresse')}
+            <button type="button" className="cp-adr-lien" data-adresse-retour-liste
+              onClick={() => { setNatureAdr(natureInitiale === 'hors_liste' ? 'liste' : natureInitiale); setHorsListeConfirme(false); setAdresseVerifiee(false); }}>Revenir aux suggestions</button>
+          </div>
+          <div className="cp-champ cp-champ--duo">
+            <label className="cp-duo-part">
+              <span className="cp-champ-mot">Code postal</span>
+              <input className="cp-saisie" value={codePostal} inputMode="numeric" maxLength={5} data-adresse-cp
+                onChange={(e) => setCodePostal(codePostalFormate(e.target.value))} />
+              {manqueDe('codePostal')}
+            </label>
+            <label className="cp-duo-part">
+              <span className="cp-champ-mot">Commune</span>
+              <input className="cp-saisie" value={commune} data-adresse-commune
+                onChange={(e) => setCommune(communeEnSaisie(e.target.value))} />
+              {manqueDe('commune')}
+            </label>
+          </div>
+        </>
+      )}
+      {natureAdr === 'etranger' && (
+        <>
+          <div className="cp-champ">
+            <label className="cp-champ-mot" htmlFor="cp-adresse-etr">Adresse <span className="cp-adr-marque" data-adresse-marque>{MENTION_ETRANGER}</span></label>
+            <input id="cp-adresse-etr" className="cp-saisie" value={adresse} data-adresse-libre onChange={(e) => setAdresse(e.target.value)} />
+            {manqueDe('adresse')}
+          </div>
+          <div className="cp-champ cp-champ--duo">
+            <label className="cp-duo-part">
+              <span className="cp-champ-mot">Code postal</span>
+              <input className="cp-saisie" value={codePostal} maxLength={20} data-adresse-cp onChange={(e) => setCodePostal(e.target.value)} />
+              {manqueDe('codePostal')}
+            </label>
+            <label className="cp-duo-part">
+              <span className="cp-champ-mot">Ville</span>
+              <input className="cp-saisie" value={commune} data-adresse-commune onChange={(e) => setCommune(communeEnSaisie(e.target.value))} />
+              {manqueDe('commune')}
+            </label>
+          </div>
+          <label className="cp-champ">
+            <span className="cp-champ-mot">Pays</span>
+            <input className="cp-saisie" value={pays} maxLength={120} data-adresse-pays aria-required="true" onChange={(e) => setPays(e.target.value)} />
+            {adresse.trim() !== '' && pays.trim() === '' && <span className="cp-manque">Le pays est obligatoire.</span>}
+          </label>
+        </>
+      )}
+      {fenetreAdresse === 'hors_liste' && (
+        <FenetreCarte titre="Adresse hors liste"
+          texte="Cette adresse n’est pas dans la liste de la Base Adresse Nationale. Elle sera enregistrée telle que vous la saisissez, marquée « hors liste — à vérifier », et regroupée dans la liste des adresses à contrôler. Confirmez-vous ?"
+          boutons={[{ mot: 'Revenir à la liste', onClic: () => setFenetreAdresse(null) },
+            { mot: 'Confirmer : adresse hors liste', principal: true, onClic: () => { setNatureAdr('hors_liste'); setHorsListeConfirme(true); setFenetreAdresse(null); } }]}
+          onFermer={() => setFenetreAdresse(null)} />
+      )}
+      {fenetreAdresse === 'sans_numero' && (
+        <FenetreCarte titre={TITRE_SANS_NUMERO_PERSONNE} lignes={texteSansNumeroPersonne(`${adresse.trim()}${codePostal.trim() !== '' || commune.trim() !== '' ? `, ${[codePostal.trim(), commune.trim()].filter(Boolean).join(' ')}` : ''}`)}
+          boutons={[{ mot: 'Corriger', onClic: () => setFenetreAdresse(null) },
+            { mot: 'Confirmer', principal: true, onClic: () => { setSansNumeroConfirme(true); setFenetreAdresse(null); soumettre(false, true); } }]}
+          onFermer={() => setFenetreAdresse(null)} />
+      )}
       {/* ══ 🔴🔴 LE CHAMP « PROPRIÉTAIRE DEPUIS LE » A ÉTÉ RETIRÉ (Arno, 01/10/2026) ══════════════════════════
           Il demandait une date à la création, la refusait tant qu'elle manquait (« La date est obligatoire »), et
           ne servait à rien d'autre : `relation_depuis` n'est lue par aucun écran. Ce qui compte pour l'historique
@@ -1336,6 +1470,7 @@ export function ficheDeContact(c: {
   adresse: string;
   civilite?: string | null; prenom?: string | null; nom?: string | null; qualite?: string | null;
   adressePostale?: string | null; codePostal?: string | null; commune?: string | null; note?: string | null;
+  adresseNature?: NatureAdresse | null; adressePays?: string | null;
   telephone?: string | null;
   coordonnees?: readonly { sorte: 'telephone' | 'email'; libelle: string | null; valeur: string }[];
 }): FicheAEditer {
@@ -1354,6 +1489,8 @@ export function ficheDeContact(c: {
     adresse: c.adressePostale ?? null,
     codePostal: c.codePostal ?? null,
     commune: c.commune ?? null,
+    adresseNature: c.adresseNature ?? null,
+    adressePays: c.adressePays ?? null,
     note: c.note ?? null,
     contacts: (liste.length > 0 ? liste : amorce).map((x, i) => ({
       id: i, sorte: x.sorte, affichage: x.valeur, libelle: x.libelle,
@@ -1427,8 +1564,10 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
   /** Même composition que la carte d'un client : « 12 rue des Lilas, 92400 COURBEVOIE ». */
   const adressePostale = [
     c.adressePostale,
-    [codePostalFormate(c.codePostal), communeFormatee(c.commune)].filter((x) => x !== '').join(' '),
+    [c.adresseNature === 'etranger' ? (c.codePostal ?? '').trim() : codePostalFormate(c.codePostal), communeFormatee(c.commune)].filter((x) => x !== '').join(' '),
+    c.adresseNature === 'etranger' ? c.adressePays ?? null : null,
   ].filter((x) => x !== null && x.trim() !== '').join(', ');
+  const marqueAdresse = mentionAdresse(c.adresseNature, null);
 
   /**
    * 🔴 LE GARDE DE LA RÈGLE D'ARNO, À L'ENDROIT OÙ LE BADGE S'ÉCRIT. Il ne peut pas se déclencher aujourd'hui
@@ -1541,7 +1680,7 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
           « E-mail » séparée aurait affiché deux fois la même adresse dès qu'une liste en porte une. */}
       <div className="cp-lignes">
         <Ligne libelle="Qualité">{c.qualite ?? <Rien mot="non renseignée" />}</Ligne>
-        <Ligne libelle="Adresse">{adressePostale !== '' ? adressePostale : <Rien mot="non renseignée" />}</Ligne>
+        <Ligne libelle="Adresse">{adressePostale !== '' ? <>{adressePostale}{marqueAdresse !== null && <span className="cp-adr-marque" data-adresse-marque>{marqueAdresse}</span>}</> : <Rien mot="non renseignée" />}</Ligne>
         <Coordonnees contacts={coordonneesAffichables(c)} onEcrire={gestes.onEcrire} />
         <Ligne libelle="Note">{(c.note ?? '').trim() !== '' ? c.note : <Rien mot="non renseignée" />}</Ligne>
       </div>
@@ -2136,6 +2275,13 @@ ${CSS_CHAMP_ADRESSE}
    Un mot, en rouge de la charte, juste sous la case qu'il concerne. « La fiche est incomplete » oblige a chercher
    lequel des huit champs manque ; ceci le montre du doigt. */
 .cp-manque{display:block;margin-top:.15rem;font-size:.73rem;color:var(--color-svv-red)}
+.cp-adr-etranger{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer}
+.cp-adr-etranger input{width:1.1rem;height:1.1rem;accent-color:var(--color-svv-red)}
+.cp-saisie--auto{background:var(--color-svv-field);color:var(--color-svv-muted);cursor:default}
+.cp-adr-aide{margin:.25rem 0 0;font-size:.78rem;color:var(--color-svv-red-dark)}
+.cp-adr-lien{display:inline-flex;align-items:center;min-height:44px;padding:0;border:0;background:none;color:var(--color-svv-red);font:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
+.cp-adr-marque{display:inline-block;margin-left:.4rem;padding:.05rem .45rem;border-radius:999px;font-size:.7rem;font-weight:700;letter-spacing:.01em;
+  color:var(--color-svv-red-dark);background:color-mix(in srgb, var(--color-svv-red) 12%, transparent);vertical-align:middle}
 .cp-facultatif{font-weight:400;text-transform:none;letter-spacing:0;font-style:italic;
   color:var(--color-svv-muted)}
 /* Le rappel du haut de la carte d'ajout : ce que le geste va faire, avant qu'on ne remplisse quoi que ce soit. */

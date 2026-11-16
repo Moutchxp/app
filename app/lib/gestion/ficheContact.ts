@@ -31,6 +31,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import type { MetaAdresse } from './adresseSaisie';
 import type { CoordonneeSaisie } from './annuaireEdition';
 import { libellePropre, notePropre, texteOuRien } from './annuaireEdition';
 
@@ -151,10 +152,13 @@ export function ficheAEnvoyer(champs: {
   civilite?: string | null; nom?: string; prenom?: string | null; qualite?: string | null;
   adresse?: string | null; codePostal?: string | null; commune?: string | null; note?: string | null;
   coordonnees?: readonly CoordonneeSaisie[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse, le pays et les confirmations de l'écran. */
+  adresseSaisie?: MetaAdresse;
 }): {
   nom: string | null; civilite: string | null; prenom: string | null; qualite: string | null;
   adressePostale: string | null; codePostal: string | null; commune: string | null; note: string | null;
   coordonnees: CoordonneeDeCarte[];
+  adresseSaisie?: MetaAdresse;
 } {
   return {
     nom: texteOuRien(champs.nom, 200),
@@ -168,6 +172,7 @@ export function ficheAEnvoyer(champs: {
        `texteOuRien`, qui écrase les blancs — la même distinction que pour une note de client. */
     note: notePropre(champs.note),
     coordonnees: coordonneesPourLaBase(champs.coordonnees ?? []),
+    ...(champs.adresseSaisie !== undefined ? { adresseSaisie: champs.adresseSaisie } : {}),
   };
 }
 

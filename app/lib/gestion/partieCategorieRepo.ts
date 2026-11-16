@@ -18,6 +18,8 @@ import { adresseEnSignature, telephoneEnSignature, type AdresseEnSignature } fro
 /* 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — les coordonnées d'une carte : module PUR, relu sans rien deviner. */
 import { coordonneesDeLaCarte, premierTelephone, type CoordonneeDeCarte } from './ficheContact';
 import type { Categorie, CategorieRangee, Cote, Origine } from './partieCategorie';
+import type { MetaAdresse, NatureAdresse } from './adresseSaisie';
+import { adresseDeLaLigne, AUCUNE_ADRESSE, controlerAdresse, natureAdresseDisponible, type ControleAdresse } from './adresseSaisieRepo';
 import type { Auteur } from './gestes';
 
 /**
@@ -138,6 +140,9 @@ export interface LigneCarte {
   adressePostale: string | null;
   codePostal: string | null;
   commune: string | null;
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse postale et le pays ; `null` : d'avant (ou sans la 480). */
+  adresseNature?: 'liste' | 'hors_liste' | 'etranger' | null;
+  adressePays?: string | null;
   /** Les téléphones et e-mails, DANS L'ORDRE AFFICHÉ. Vide = la carte n'en porte pas (ou la 306 n'est pas là). */
   coordonnees: readonly CoordonneeDeCarte[];
   /**
@@ -324,14 +329,18 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
      propose pas d'ajouter un contact à un ancien locataire : une sonde voyage avec sa donnée. */
   const avecAncien = await contactAncienLocataireDisponible();
   const avecRattachements = await garantsDisponibles();
+  // 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse postale et le pays, si la 480 est passée
+  const avecNature = await natureAdresseDisponible('gestion_contact_carte');
   const { rows } = await query<{
     id: string; lot_cle: string; cote: string; adresse: string; nom: string | null; telephone: string | null;
     locataire_id: string | null; garantis?: string[] | null; locataire_nom?: string | null;
     origine: string; verifie_le: string | null; verifie_par: string | null; cree_le: string; cree_par: string;
     note: string | null; civilite: string | null; prenom: string | null; qualite: string | null;
     adresse_postale: string | null; code_postal: string | null; commune: string | null; coordonnees: unknown;
+    adresse_nature: string | null; adresse_pays: string | null;
   }>(
     `SELECT id::text, lot_cle, cote, adresse, nom, telephone, origine,
+            ${avecNature ? 'adresse_nature, adresse_pays' : 'NULL::text AS adresse_nature, NULL::text AS adresse_pays'},
             ${avecAncien ? 'locataire_id::text' : 'NULL::text'} AS locataire_id,
             ${ts('verifie_le')} AS verifie_le, verifie_par_libelle AS verifie_par,
             ${ts('cree_le')} AS cree_le, cree_par_libelle AS cree_par,
@@ -360,6 +369,8 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
     note: r.note,
     civilite: r.civilite, prenom: r.prenom, qualite: r.qualite,
     adressePostale: r.adresse_postale, codePostal: r.code_postal, commune: r.commune,
+    adresseNature: r.adresse_nature === 'liste' || r.adresse_nature === 'hors_liste' || r.adresse_nature === 'etranger' ? r.adresse_nature : null,
+    adressePays: r.adresse_pays,
     /* 🔴 LE `jsonb` PASSE PAR LE MODULE PUR : une ligne illisible est IGNORÉE, jamais devinée (voir
        `coordonneesDeLaCarte`). Deviner la sorte d'une ligne rangerait un numéro parmi les e-mails. */
     coordonnees: coordonneesDeLaCarte(r.coordonnees),
@@ -807,6 +818,11 @@ export interface FicheDeCarte {
   note?: string | null;
   /** La liste ORDONNÉE des téléphones et e-mails. Vide ⇒ on n'écrase pas celle qui est déjà là. */
   coordonnees?: readonly CoordonneeDeCarte[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse postale, le pays et les confirmations de l'écran. */
+  adresseSaisie?: MetaAdresse;
+  /** 🔴 (lot 2) l'adresse RECOPIÉE d'une carte existante (déplacement, contact rattaché à un autre bien) : ce n'est pas une saisie — elle
+   *  garde sa nature et son pays, sans nouveau contrôle (aucune adresse existante n'est requalifiée). */
+  adresseRecopiee?: { nature: NatureAdresse | null; pays: string | null };
 }
 
 /** Le `jsonb` à écrire, ou `null` quand il n'y a rien à écrire — ce qui laisse en place ce qui est déjà là. */
@@ -857,6 +873,18 @@ export async function poserCarteAlaMain(o: {
    */
   const avecFiche = o.fiche !== undefined && (await ficheContactCarteDisponible());
   const avecNote = o.fiche !== undefined && (await noteContactCarteDisponible());
+  /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) — L'ADRESSE POSTALE, AVANT TOUTE ÉCRITURE (une pose n'efface pas : seule une
+     adresse DONNÉE est contrôlée) : retrouvée dans la Base Adresse Nationale, hors liste confirmée, ou à l'étranger avec son pays. */
+  let controle: ControleAdresse = { ok: true, ecrire: false };
+  const recopiee = o.fiche?.adresseRecopiee;
+  const avecNature = avecFiche && (await natureAdresseDisponible('gestion_contact_carte'));
+  if (avecNature && recopiee !== undefined) {
+    if (recopiee.nature !== null) controle = { ok: true, ecrire: true, nature: recopiee.nature, pays: recopiee.pays };
+  } else if (avecNature && [o.fiche?.adressePostale, o.fiche?.codePostal, o.fiche?.commune].some((x) => (x ?? '').trim() !== '')) {
+    controle = await controlerAdresse(true, AUCUNE_ADRESSE,
+      { adresse: o.fiche?.adressePostale ?? null, codePostal: o.fiche?.codePostal ?? null, commune: o.fiche?.commune ?? null }, o.fiche?.adresseSaisie);
+    if (!controle.ok) return { ok: false, motif: controle.motif };
+  }
 
   /**
    * 🔴 LE TÉLÉPHONE DE LA COLONNE EST **DÉRIVÉ** DE LA LISTE, quand la liste en porte un. Voir
@@ -910,6 +938,13 @@ export async function poserCarteAlaMain(o: {
     ajouter('code_postal', texteCourt(o.fiche?.codePostal, 10));
     ajouter('commune', texteCourt(o.fiche?.commune, 120));
     ajouter('coordonnees', coordonneesEnJson(o.fiche?.coordonnees), '::jsonb');
+  }
+  // 🔴 (lot 2) la nature et le pays vont ENSEMBLE (la base exige qu'ils s'accordent) : jamais un `coalesce` séparé
+  if (controle.ok && controle.ecrire) {
+    params.push(controle.nature, controle.pays);
+    cols.push('adresse_nature', 'adresse_pays');
+    vals.push(`$${params.length - 1}`, `$${params.length}`);
+    maj.push('adresse_nature = EXCLUDED.adresse_nature', 'adresse_pays = EXCLUDED.adresse_pays');
   }
 
   /**
@@ -1102,6 +1137,16 @@ export async function modifierCarte(o: {
      et le reste de la modification — le nom, le téléphone — serait perdu avec elle. */
   const avecNote = await noteContactCarteDisponible();
   const avecFiche = o.fiche !== undefined && (await ficheContactCarteDisponible());
+  /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) — L'ADRESSE POSTALE, AVANT TOUTE ÉCRITURE ; non touchée, elle passe telle quelle. */
+  let controle: ControleAdresse = { ok: true, ecrire: false };
+  if (avecFiche && (await natureAdresseDisponible('gestion_contact_carte'))) {
+    const { rows: av } = await query<Record<string, unknown>>('SELECT * FROM gestion_contact_carte WHERE id = $1 AND retire_le IS NULL', [o.id]);
+    if (av[0] !== undefined) {
+      controle = await controlerAdresse(true, adresseDeLaLigne(av[0], 'adresse_postale'),
+        { adresse: o.fiche?.adressePostale ?? null, codePostal: o.fiche?.codePostal ?? null, commune: o.fiche?.commune ?? null }, o.fiche?.adresseSaisie);
+      if (!controle.ok) return { ok: false, motif: controle.motif };
+    }
+  }
 
   /**
    * 🔴 LE CRAYON **ÉCRASE**, et c'est toute la différence avec `poserCarteAlaMain` (qui, lui, `coalesce`). Le
@@ -1131,6 +1176,7 @@ export async function modifierCarte(o: {
     ecrire('commune', texteCourt(o.fiche?.commune, 120));
     ecrire('coordonnees', JSON.stringify(o.fiche?.coordonnees ?? []), '::jsonb');
   }
+  if (controle.ok && controle.ecrire) { ecrire('adresse_nature', controle.nature); ecrire('adresse_pays', controle.pays); }
 
   const { rows } = await query<{ id: string }>(
     `UPDATE gestion_contact_carte

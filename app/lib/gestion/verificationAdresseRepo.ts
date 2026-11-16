@@ -50,16 +50,30 @@ async function trouveeEnLigne(a: AdresseSaisie, appel: typeof fetch = fetch): Pr
   }
 }
 
-/** Chaque adresse doit être retrouvée (base locale, puis service national). Le premier refus est rendu. LECTURE SEULE. */
-export async function verifierAdresses(adresses: readonly AdresseSaisie[], appel: typeof fetch = fetch): Promise<IssueVerification> {
-  if (adresses.length === 0) return { ok: true };
+/**
+ * L'ÉTAT de chaque adresse : retrouvée (base locale, puis service national), introuvable, ou non vérifiable (service muet). LECTURE SEULE.
+ * 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) — la même vérification sert l'adresse d'une personne, avec ses propres mots.
+ */
+export async function etatsAdresses(adresses: readonly AdresseSaisie[], appel: typeof fetch = fetch): Promise<('trouvee' | 'introuvable' | 'muet')[]> {
+  if (adresses.length === 0) return [];
   const { points } = await pointsBan(adresses);
   const locales = new Set(points.map((p) => p.cle));
+  const etats: ('trouvee' | 'introuvable' | 'muet')[] = [];
   for (const a of adresses) {
-    if (locales.has(cleImmeuble(a.libelle))) continue;
+    if (locales.has(cleImmeuble(a.libelle))) { etats.push('trouvee'); continue; }
     const enLigne = await trouveeEnLigne(a, appel);
-    if (enLigne === null) return { ok: false, motif: motifServiceMuet(a) };
-    if (!enLigne) return { ok: false, motif: motifIntrouvable(a) };
+    etats.push(enLigne === null ? 'muet' : enLigne ? 'trouvee' : 'introuvable');
+    if (enLigne !== true) break;
+  }
+  return etats;
+}
+
+/** Chaque adresse doit être retrouvée (base locale, puis service national). Le premier refus est rendu. LECTURE SEULE. */
+export async function verifierAdresses(adresses: readonly AdresseSaisie[], appel: typeof fetch = fetch): Promise<IssueVerification> {
+  const etats = await etatsAdresses(adresses, appel);
+  for (const [i, e] of etats.entries()) {
+    if (e === 'muet') return { ok: false, motif: motifServiceMuet(adresses[i]) };
+    if (e === 'introuvable') return { ok: false, motif: motifIntrouvable(adresses[i]) };
   }
   return { ok: true };
 }

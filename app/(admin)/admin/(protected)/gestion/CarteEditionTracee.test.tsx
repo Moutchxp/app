@@ -44,21 +44,22 @@ describe('🔴 la carte dans le contexte « Suivi du mois »', () => {
   it('un champ changé : le récapitulatif des SEULS champs modifiés, puis « Confirmer » enregistre', async () => {
     const onEnregistrer = vi.fn(async () => {});
     await monter(onEnregistrer, true);
-    await taper(champ('Commune'), 'Puteaux');
+    // (lot 2 « Adresses uniformisées » : la commune ne se tape plus — elle vient du choix de l'adresse ; le prénom sert d'exemple)
+    await taper(champ('Prénom'), 'Lou');
     expect(enregistrer().disabled).toBe(false);
     await act(async () => { enregistrer().click(); });
     expect(fenetre()?.querySelector('.cpf-titre')?.textContent).toBe('Enregistrer ces modifications ?');
-    expect([...fenetre()!.querySelectorAll('.cpf-liste li')].map((l) => l.textContent)).toEqual(['Commune : COURBEVOIE → PUTEAUX']);
+    expect([...fenetre()!.querySelectorAll('.cpf-liste li')].map((l) => l.textContent)).toEqual(['Prénom : Léa → Lou']);
     expect(onEnregistrer).not.toHaveBeenCalled();
     await act(async () => { bouton('Confirmer').click(); });
     expect(onEnregistrer).toHaveBeenCalledTimes(1);
-    expect(onEnregistrer).toHaveBeenCalledWith({ commune: 'PUTEAUX' });
+    expect(onEnregistrer).toHaveBeenCalledWith({ prenom: 'Lou' });
   });
 
   it('« Revenir » ferme le récapitulatif sans rien enregistrer', async () => {
     const onEnregistrer = vi.fn(async () => {});
     await monter(onEnregistrer, true);
-    await taper(champ('Commune'), 'Puteaux');
+    await taper(champ('Prénom'), 'Lou');
     await act(async () => { enregistrer().click(); });
     await act(async () => { bouton('Revenir').click(); });
     expect(fenetre()).toBeNull();
@@ -69,7 +70,7 @@ describe('🔴 la carte dans le contexte « Suivi du mois »', () => {
     const onEnregistrer = vi.fn(async () => {});
     await monter(onEnregistrer, false);
     expect(enregistrer().disabled).toBe(false);
-    await taper(champ('Commune'), 'Puteaux');
+    await taper(champ('Prénom'), 'Lou');
     await act(async () => { enregistrer().click(); });
     expect(fenetre()).toBeNull();
     expect(onEnregistrer).toHaveBeenCalledTimes(1);

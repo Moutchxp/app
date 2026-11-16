@@ -26,6 +26,8 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { enregistrerConditions } from './honorairesGestionRepo';
 import { reintegrerSiComplet } from '../location/regroupementRepo';
 import { ecrireOrigineProprietaireTx, origineProprietaireDisponible } from '../location/origineProprietaireRepo';
+import type { MetaAdresse } from './adresseSaisie';
+import { adresseDeLaLigne, AUCUNE_ADRESSE, controlerAdresse, natureAdresseDisponible, type ControleAdresse } from './adresseSaisieRepo';
 import type { OrigineProprietaire } from '../location/origineProprietaire';
 
 /**
@@ -126,6 +128,22 @@ export interface ChampsPersonne {
   note?: string | null;
   /** La liste COMPLÈTE des coordonnées voulues, dans l'ordre voulu. Absente = on n'y touche pas. */
   coordonnees?: CoordonneeSaisie[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse saisie (liste, hors liste, étranger), le pays et les
+   *  confirmations de l'écran. Absente : l'écran d'avant — une adresse modifiée doit alors être retrouvée dans la Base Adresse Nationale. */
+  adresseSaisie?: MetaAdresse;
+}
+
+/** 🔴 (lot 2) La nature et le pays de l'adresse, écrits ENSEMBLE (la base exige qu'ils s'accordent), journalisés, verrouillés contre l'import. */
+async function ecrireNatureAdresse(q: RequeteTx, sujet: Sujet, id: number, avant: Record<string, string | null>, c: ControleAdresse, auteur: Auteur): Promise<void> {
+  if (!c.ok || !c.ecrire) return;
+  if ((avant.adresse_nature ?? null) === c.nature && (avant.adresse_pays ?? null) === c.pays) return;
+  await q(`UPDATE ${TABLE[sujet]} SET adresse_nature = $2, adresse_pays = $3 WHERE id = $1`, [id, c.nature, c.pays]);
+  await verrouiller(q, { sujet, sujetId: id, champ: 'adresse_nature', valeurImport: avant.adresse_nature ?? null, auteur });
+  const mot = (n: string | null, p: string | null): string | null => (n === null ? null : n === 'etranger' ? `étranger (${p ?? ''})` : n === 'hors_liste' ? 'hors liste — à vérifier' : 'choisie dans la liste');
+  await journaliser(q, {
+    personneId: id, action: 'annuaire_adresse_nature', avant: mot(avant.adresse_nature ?? null, avant.adresse_pays ?? null), apres: mot(c.nature, c.pays),
+    commentaire: 'nature de l’adresse (liste, hors liste, étranger)', auteur, sujet, champ: 'Adresse',
+  });
 }
 
 /**
@@ -184,6 +202,13 @@ export async function modifierPersonne(
     if (o.depuisJournalId !== undefined) {
       const autre = await modificationDepuis(q as never, sujet, id, o.depuisJournalId);
       if (autre !== null) return { etat: 'conflit' as const, motif: motifConflitFiche(autre) };
+    }
+    /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) — L'ADRESSE, AVANT TOUTE ÉCRITURE : retrouvée dans la Base Adresse
+       Nationale, ou hors liste confirmée, ou à l'étranger avec son pays ; une adresse non touchée passe telle quelle. */
+    let controle: ControleAdresse = { ok: true, ecrire: false };
+    if (champs.adresse !== undefined || champs.codePostal !== undefined || champs.commune !== undefined || champs.adresseSaisie !== undefined) {
+      controle = await controlerAdresse(await natureAdresseDisponible(TABLE[sujet]), adresseDeLaLigne(avant), champs, champs.adresseSaisie);
+      if (!controle.ok) return { etat: 'refus' as const, motif: controle.motif };
     }
 
     /* 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une modification qui retirerait le téléphone ou l'e-mail de la DERNIÈRE
@@ -266,6 +291,8 @@ export async function modifierPersonne(
           WHERE a.source = 'saisie' AND a.bail_id IN (SELECT oc.bail_id FROM gestion_annuaire_occupation oc WHERE oc.locataire_id = $1 AND oc.bail_id IS NOT NULL)`,
         [id]);
     }
+
+    await ecrireNatureAdresse(q, sujet, id, avant, controle, auteur);
 
     // ── LES COORDONNÉES ───────────────────────────────────────────────────────────────────────────────────────
     if (retenues !== null && retenues.ok) {
@@ -785,8 +812,10 @@ export async function remplacerProprietaireDuLot(lotId: number, o: {
 /** CRÉE une personne dans l'annuaire, à la main. Rend son identifiant. */
 export async function creerPersonne(
   sujet: Sujet, o: ChampsPersonne & { nom: string }, auteur: Auteur,
-  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact d'un PROPRIÉTAIRE, VÉRIFIÉE par l'appelant, écrite dans la même transaction. */
-  options: { origine?: OrigineProprietaire | null } = {},
+  /** 🔴 Arno (25/10/2026, 425) — l'origine du contact d'un PROPRIÉTAIRE, VÉRIFIÉE par l'appelant, écrite dans la même transaction.
+   *  🔴 (17/11/2026, « Adresses uniformisées », lot 2) `controleAdresse: false` : SEULE la page « Nouveau propriétaire + bien » (sans lien,
+   *  en attente de la décision d'Arno — on n'y touche pas) garde la saisie d'avant. */
+  options: { origine?: OrigineProprietaire | null; controleAdresse?: boolean } = {},
 ): Promise<IssueEdition<{ id: number }>> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
   const nom = texteOuRien(o.nom, 200);
@@ -798,6 +827,10 @@ export async function creerPersonne(
    */
   const retenues = verifierCoordonnees(o.coordonnees ?? []);
   if (!retenues.ok) return { etat: 'refus', motif: retenues.motif, rang: retenues.rang };
+  // 🔴 (lot 2) l'adresse, AVANT d'ouvrir la transaction : un refus n'a rien commencé
+  const controle: ControleAdresse = options.controleAdresse === false ? { ok: true, ecrire: false }
+    : await controlerAdresse(await natureAdresseDisponible(TABLE[sujet]), AUCUNE_ADRESSE, o, o.adresseSaisie);
+  if (!controle.ok) return { etat: 'refus', motif: controle.motif };
 
   const issue = await withTransaction(async (q) => {
     const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -828,6 +861,7 @@ export async function creerPersonne(
          VALUES ($1, $1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10) RETURNING id::text`,
         [cle, civilite, nom, prenom, normaliserTexte(nom), ...champs]);
     const id = Number(rows[0].id);
+    await ecrireNatureAdresse(q, sujet, id, {}, controle, auteur);
 
     for (const c of retenues.retenues) {
       await q(

@@ -586,6 +586,8 @@ describe('🔴🔴 la fiche d’un contact, du corps de la requête jusqu’au d
       adressePostale: '2 rue Mars et Roty', codePostal: '92800', commune: 'PUTEAUX',
       note: 'ne pas appeler avant 10 h',
       coordonnees: [{ sorte: 'email', libelle: 'E-mail', valeur: 'f.rosky@fictif.test' }],
+      // 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) l'adresse RECOPIÉE garde sa nature, sans nouveau contrôle
+      adresseRecopiee: { nature: null, pays: null },
     });
   });
 

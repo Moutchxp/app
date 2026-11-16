@@ -602,7 +602,8 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
     const cree = await creerPersonne('proprietaire', {
       nom: p.nom ?? '', prenom: p.prenom ?? null, civilite: p.civilite ?? null, adresse: p.adresse ?? null,
       codePostal: p.codePostal ?? null, commune: p.commune ?? null, coordonnees,
-    }, auteur, { origine });
+    // 🔴 (Arno, 17/11/2026) la page « Nouveau propriétaire + bien » attend la décision d'Arno (enquête du lien disparu) : elle garde sa saisie
+    }, auteur, { origine, controleAdresse: false });
     if (cree.etat !== 'ok') return cree.etat === 'refus' ? { etat: 'refus', motif: cree.motif } : { etat: 'sans_schema' };
     proprietaireId = cree.data.id;
   }

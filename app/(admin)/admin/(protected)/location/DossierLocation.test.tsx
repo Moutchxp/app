@@ -105,13 +105,14 @@ describe('🔴 « Dossier de location » — le formulaire « Nouveau locataire 
   it('une carte de locataire modifiée : marquée « modifiée », dans le récapitulatif du bloc 1 ; rien n’est écrit avant « Confirmer »', async () => {
     await monter();
     await act(async () => { (document.querySelector('[data-modifier-carte="230"]') as HTMLButtonElement).click(); });
-    const commune = [...document.querySelectorAll('label')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === 'Commune')!.querySelector('input') as HTMLInputElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(commune, 'Puteaux'); commune.dispatchEvent(new Event('input', { bubbles: true })); });
+    // (lot 2 « Adresses uniformisées » : la commune ne se tape plus — le prénom sert d'exemple de champ modifié)
+    const prenom = [...document.querySelectorAll('label')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === 'Prénom')!.querySelector('input') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(prenom, 'Lou'); prenom.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { (document.querySelector('[data-carte-dossier="230"] form button[type="submit"]') as HTMLButtonElement).click(); });
     expect(document.querySelector('[data-carte-modifiee]')).not.toBeNull();
     expect(posts).toEqual([]);
     await act(async () => { enregistrer().click(); });
-    expect([...document.querySelectorAll('[data-recap-bloc="1"] [data-recap-champ]')].map((l) => l.textContent)).toEqual(['MARTIN Léa — Commune : COURBEVOIE → PUTEAUX']);
+    expect([...document.querySelectorAll('[data-recap-bloc="1"] [data-recap-champ]')].map((l) => l.textContent)).toEqual(['MARTIN Léa — Prénom : Léa → Lou']);
   });
 });
 

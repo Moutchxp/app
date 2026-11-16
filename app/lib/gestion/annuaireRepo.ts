@@ -938,6 +938,8 @@ export interface PersonneAnnuaire {
   archiveLe: string | null;
   archivePar: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse (liste, hors liste, étranger) et le pays ; `null` : d'avant. */
+  adresseNature?: 'liste' | 'hors_liste' | 'etranger' | null; adressePays?: string | null;
   absent: boolean;
   /**
    * 🔴 LOT FICHE-SAISIE-UNIFORME — « Créé le JJ/MM/AAAA affiché sur la carte, rempli automatiquement à la
@@ -1574,6 +1576,9 @@ async function personnesDe(
    * Défaut mesuré à l'écran le 29/09/2026 : la fiche rendait « Fiche illisible » sans la migration 278.
    */
   const rangTri = modifiable ? 'rang' : '0::int';
+  // 🔴 (lot 2) la nature de l'adresse et le pays, si la migration 480 est passée
+  const natureAdresse = (await colonneExisteMemo(sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire', 'adresse_nature'))
+    ? 'adresse_nature, adresse_pays' : 'NULL::text AS adresse_nature, NULL::text AS adresse_pays';
   const civiliteTri = sujet === 'proprietaire' || modifiable ? 'civilite' : 'NULL::text';
 
   const { rows } = await query<{
@@ -1581,13 +1586,14 @@ async function personnesDe(
     qualite: string | null; note: string | null; rang: number; archive_le: string | null;
     archive_par_libelle: string | null; adresse: string | null; commune: string | null;
     code_postal: string | null; absent_le: string | null; cree_le: string | null; importe_le: string | null;
+    adresse_nature: string | null; adresse_pays: string | null;
   }>(
     /* 🔴 LOT FICHE-SAISIE-UNIFORME — « Créée le … » / « Importée le … » sur la carte. Les DEUX colonnes existent
        depuis la creation des tables : ce lot n'en ajoute aucune. C'est la CLE qui dit d'ou vient la fiche (une
        fiche creee dans l'application porte « app-… »), pas les dates — a l'import elles valent toutes deux
        « maintenant », et les comparer ne dirait rien. */
     `SELECT id::text, ${identite}, ${neuves}, adresse, commune, code_postal, absent_le::text,
-            cree_le::text, importe_le::text
+            cree_le::text, importe_le::text, ${natureAdresse}
        FROM ${sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire'} pe
       WHERE id = ANY($1::bigint[]) AND ${await sqlPersonneVivante('pe')}
       ORDER BY (${rangTri} = 0), ${rangTri},
@@ -1610,6 +1616,8 @@ async function personnesDe(
     archive: r.archive_le !== null, archiveLe: r.archive_le, archivePar: r.archive_par_libelle,
     creeLe: r.cree_le, importeLe: r.importe_le,
     adresse: r.adresse, commune: r.commune, codePostal: r.code_postal,
+    adresseNature: r.adresse_nature === 'liste' || r.adresse_nature === 'hors_liste' || r.adresse_nature === 'etranger' ? r.adresse_nature : null,
+    adressePays: r.adresse_pays,
     absent: r.absent_le !== null,
     contacts: coords.get(Number(r.id)) ?? [],
     dernierProprietaire: derniers.has(Number(r.id)),

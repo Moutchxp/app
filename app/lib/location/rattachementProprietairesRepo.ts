@@ -123,7 +123,9 @@ export async function rattacherContactsExistants(lotCle: string, carteIds: reado
     const pose = await poserCarteAlaMain({
       lotCle, cote: 'proprietaire', adresse: c.adresse, nom: c.nom, telephone: c.telephone, auteur,
       fiche: { civilite: c.civilite, prenom: c.prenom, qualite: c.qualite, adressePostale: c.adressePostale, codePostal: c.codePostal,
-        commune: c.commune, note: c.note, coordonnees: c.coordonnees },
+        commune: c.commune, note: c.note, coordonnees: c.coordonnees,
+        // 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) un contact rattaché à un autre bien garde son adresse et sa nature
+        adresseRecopiee: { nature: c.adresseNature ?? null, pays: c.adressePays ?? null } },
     });
     if (!pose.ok) return { ok: false, motif: `${nomDeCarte(c)} : ${pose.motif}` };
     n += 1;

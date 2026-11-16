@@ -47,6 +47,10 @@ beforeEach(() => {
   archive = false; posts = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
+    // (lot 2 « Adresses uniformisées ») la Base Adresse Nationale, simulée : l'adresse se choisit dans ses suggestions
+    if (u.startsWith('https://api-adresse.data.gouv.fr/')) {
+      return reponse({ features: [{ properties: { label: '3 Rue des Lilas 75011 Paris', name: '3 Rue des Lilas', postcode: '75011', city: 'Paris' } }] });
+    }
     if (init?.method === 'POST') {
       const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
       posts.push({ url: u, corps });
@@ -107,13 +111,13 @@ for (const [ou, monter] of Object.entries(MONTAGES)) {
       const civ = champ('Civilité')?.querySelector('select, input') as HTMLSelectElement | HTMLInputElement | null;
       if (civ) await act(async () => { poser(civ, civ instanceof HTMLSelectElement ? (civ.options[1]?.value ?? 'Mme') : 'Mme'); });
       await act(async () => { poser(champ('Nom')?.querySelector('input') as HTMLInputElement, 'DURAND'); });
-      for (const [mot, v] of [['Prénom', 'Léa'], ['Adresse', '3 rue des Lilas'], ['Code postal', '75011']] as const) {
+      for (const [mot, v] of [['Prénom', 'Léa'], ['Adresse', '3 rue des Lilas']] as const) {
         const el = champ(mot)?.querySelector('input') as HTMLInputElement | null;
         if (el) await act(async () => { poser(el, v); });
       }
-      // Code postal et commune partagent un même libellé : la commune est le second champ.
-      const commune = champ('Code postal')?.querySelectorAll('input')[1] as HTMLInputElement | undefined;
-      if (commune) await act(async () => { poser(commune, 'Paris'); });
+      // (lot 2) l'adresse se CHOISIT dans les suggestions : rue, code postal et commune arrivent ensemble
+      await act(async () => { await new Promise((r) => setTimeout(r, 320)); }); await calmer();
+      await act(async () => { (hote.querySelector('.cab-prop') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
       const valeurs = [...hote.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
       await act(async () => { poser(valeurs[0], '06 11 22 33 44'); });
       await act(async () => { poser(valeurs[valeurs.length - 1], 'durand@fictif.test'); });
