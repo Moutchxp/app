@@ -6,6 +6,7 @@ import { colonneExisteMemo } from '../../../../../../lib/location/sondeLocation'
 import { ficheCopropriete } from '../../../../../../lib/gestion/coproprieteRepo';
 import { enregistrerCopropriete, propositionsParcelle } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
+import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
 
 /**
  * /api/admin/gestion/coproprietes/fiche — LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2). Au droit « Gestion ».
@@ -31,7 +32,7 @@ export async function GET(request: Request): Promise<Response> {
         `SELECT immeuble, adresse, ${avec461 ? 'copropriete' : 'NULL::boolean AS copropriete'} FROM gestion_annuaire_lot WHERE id = $1`, [lot]);
       if (rows[0] === undefined) return Response.json({ etat: 'inconnu' }, { headers: ENTETES });
       coproprieteDuBien = rows[0].copropriete;
-      if (immeuble === '') immeuble = ((rows[0].immeuble ?? '').trim() || (rows[0].adresse ?? '').trim());
+      if (immeuble === '') immeuble = immeubleDuBien(rows[0]);
     }
     if (cleImmeuble(immeuble) === '') return Response.json({ etat: 'ok', data: { fiche: null, coproprieteDuBien } }, { headers: ENTETES });
     return Response.json({ etat: 'ok', data: { fiche: await ficheCopropriete(immeuble), coproprieteDuBien } }, { headers: ENTETES });

@@ -904,7 +904,7 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
       {/* 🔴 JUSTE AU-DESSUS DES FAITS de la carte (là où était la ligne SURFACE), sur toute la largeur. */}
       <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — À LA PLACE DE LA LIGNE SURFACE : « Coordonnées syndic » ou « Créer le syndic ». */}
-      <BoutonSyndic immeuble={b.immeuble} lotId={b.id} />
+      <BoutonSyndic immeuble={b.immeuble} adresse={b.adresse} lotId={b.id} />
       {/* 🔴 Arno (16/11/2026, fiche Copropriété) — juste sous le syndic : « Copropriété » (ou « Bien hors copropriété ») */}
       <BoutonCopropriete lotId={b.id} />
       <div className="ann-carte-faits">
@@ -1707,7 +1707,7 @@ function VueLot({
         onEcrire={onEcrire === undefined ? undefined : (email) => onEcrire(email, { lotId: f.id })} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
       <PastilleConflitParcelle immeuble={f.immeuble} />
-      <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />
+      <BoutonSyndic immeuble={f.immeuble} adresse={f.adresse} dansLaFiche lotId={f.id} />
       {/* 🔴 Arno (16/11/2026, fiche Copropriété) — juste sous le syndic */}
       <BoutonCopropriete lotId={f.id} dansLaFiche />
       {/* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE, PARTIE 3 — un bien sans syndic à une adresse déjà
@@ -2496,7 +2496,7 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
               onClick={() => ouvrir('lot', o.lotId as number)}>
               {tete}
             </button>
-            <span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} /></span>
+            <span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} adresse={o.adresse} lotId={o.lotId} /></span>
             {/* 🔴 Arno (16/11/2026, fiche Copropriété) — juste sous le syndic */}
             <span className="ann-carte-syndic"><BoutonCopropriete lotId={o.lotId} /></span>
             <button type="button" className="ann-carte-corps ann-carte-corps--faits" tabIndex={-1}

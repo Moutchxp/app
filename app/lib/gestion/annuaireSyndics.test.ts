@@ -1254,7 +1254,7 @@ describe('les écrans', () => {
     expect(src).toContain('svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large bsy');
     expect(src).toContain('.bsy-ligne{display:flex;flex-direction:column;align-items:stretch;padding:0 14px;');
     expect(lire('Annuaire.tsx')).toContain('.ann-carte-pied{display:flex;flex-direction:column;gap:.4rem;padding:0 14px 12px;');
-    expect(lire('Annuaire.tsx')).toContain('<BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />');
+    expect(lire('Annuaire.tsx')).toContain('<BoutonSyndic immeuble={f.immeuble} adresse={f.adresse} dansLaFiche lotId={f.id} />');
   });
 
   it('rose franc par des jetons, en Clair ET en Sombre ; « Créer le syndic » reste blanc', () => {
@@ -1270,12 +1270,12 @@ describe('les écrans', () => {
   it('dans la carte du bien, À LA PLACE de la ligne SURFACE (entre le cartouche et les faits)', () => {
     const src = lire('Annuaire.tsx');
     const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
-    const i = carte.indexOf('<BoutonSyndic immeuble={b.immeuble} lotId={b.id} />');
+    const i = carte.indexOf('<BoutonSyndic immeuble={b.immeuble} adresse={b.adresse} lotId={b.id} />');
     expect(i).toBeGreaterThan(carte.indexOf('<CartoucheEvenement'));
     expect(i).toBeLessThan(carte.indexOf('className="ann-carte-faits"'));
     /* LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC (Arno, 14/10/2026) — carte de LOGEMENT d'une fiche locataire : sous l'en-tête,
        au-dessus d'OCCUPATION (le bouton de carte est coupé autour de lui). La carte du bien, ci-dessus, est inchangée. */
-    expect(src).toContain('<span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} /></span>');
+    expect(src).toContain('<span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} adresse={o.adresse} lotId={o.lotId} /></span>');
   });
 
   it('l\'entrée « Syndics » est SOUS « Événements », et « Annuaire » garde sa place après', () => {

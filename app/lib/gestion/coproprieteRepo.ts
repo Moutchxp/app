@@ -2,7 +2,7 @@ import { query } from '../db/client';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { cleImmeuble } from './syndics';
-import { biensEnDesaccord, type BienCopropriete, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
+import { biensEnDesaccord, immeubleDuBien, type BienCopropriete, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA LECTURE (Arno, 16/11/2026, migration 476). IMPUR (base), LECTURE SEULE. ══════════════════════════════════
@@ -14,8 +14,7 @@ import { biensEnDesaccord, type BienCopropriete, type FicheCopropriete, type Ges
  */
 
 /** La clé de l'immeuble d'un bien : son « Immeuble », sinon son adresse (la règle de l'AG, 377/475). PUR. */
-export const cleImmeubleDuBien = (l: { immeuble: string | null; adresse: string | null }): string =>
-  cleImmeuble((l.immeuble ?? '').trim() !== '' ? l.immeuble : l.adresse);
+export const cleImmeubleDuBien = (l: { immeuble: string | null; adresse: string | null }): string => cleImmeuble(immeubleDuBien(l));
 
 export function fiche476Disponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_copropriete', 'hors_copropriete');

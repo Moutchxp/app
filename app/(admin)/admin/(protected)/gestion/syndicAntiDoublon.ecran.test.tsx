@@ -250,7 +250,7 @@ describe('🔒 ce lot complète l’existant, il ne retire rien', () => {
   const G = 'app/(admin)/admin/(protected)/gestion/';
   it('la fiche du bien porte le bandeau, sous le bouton du syndic et la pastille de conflit, toujours là', () => {
     const a = readFileSync(`${G}Annuaire.tsx`, 'utf8');
-    expect(a).toContain('<PastilleConflitParcelle immeuble={f.immeuble} />\n      <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />');
+    expect(a).toContain('<PastilleConflitParcelle immeuble={f.immeuble} />\n      <BoutonSyndic immeuble={f.immeuble} adresse={f.adresse} dansLaFiche lotId={f.id} />');
     expect(a).toContain('<BandeauSyndicConnuDuBien lotId={f.id} />');
   });
   it('la fenêtre garde sa recherche, son « Rattacher cet immeuble à ce syndic », ses étapes de parcelle et de coordonnées', () => {

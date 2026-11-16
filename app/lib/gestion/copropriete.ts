@@ -37,6 +37,13 @@ export interface FicheCopropriete {
   avec476: boolean;
 }
 
+/**
+ * 🔴 Arno (16/11/2026, lot A) — L'IMMEUBLE D'UN BIEN, UNE SEULE RÈGLE pour le bouton du syndic ET celui de la copropriété : son « Immeuble »,
+ * sinon son adresse. Rien n'est réécrit : le champ « Immeuble » du bien n'est pas modifié. PUR.
+ */
+export const immeubleDuBien = (l: { immeuble?: string | null; adresse?: string | null }): string =>
+  (l.immeuble ?? '').trim() || (l.adresse ?? '').trim();
+
 export const TITRE_COPROPRIETE = 'Copropriété';
 export const TITRE_HORS_COPROPRIETE = 'Bien hors copropriété';
 export const ALERTE_DESACCORD = 'Les biens de cet immeuble se contredisent : certains sont notés « en copropriété », d’autres « pas en copropriété ». Vérifiez les fiches des biens (rien n’est corrigé tout seul).';

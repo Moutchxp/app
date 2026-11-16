@@ -1,5 +1,6 @@
 'use client';
 
+import { immeubleDuBien } from '../../../../lib/gestion/copropriete';
 import { createContext, useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cleImmeuble, nomAvecVille } from '../../../../lib/gestion/syndics';
@@ -33,13 +34,17 @@ import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics'
 /** Le composeur « écrire depuis gestion@ », fourni par l'écran qui le possède (l'Annuaire). */
 export const EcrireDepuisGestion = createContext<EcrireDepuisGestionFn | undefined>(undefined);
 
-export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
+export function BoutonSyndic({ immeuble: immeubleDuChamp, adresse = null, dansLaFiche = false, lotId = null }: {
   immeuble: string | null | undefined;
+  /** 🔴 Arno (16/11/2026, lot A) — l'adresse du bien : son immeuble quand le champ « Immeuble » est vide (la règle du bouton « Copropriété »). */
+  adresse?: string | null;
   /** LOT SYNDIC-NOTE-PAR-BIEN — le lot de la carte : la fiche syndic y lit et y écrit la note de CE bien. */
   lotId?: number | null;
   /** Vrai dans la fiche du bien : pas de carte autour, donc pas de retrait. */
   dansLaFiche?: boolean;
 }) {
+  // 🔴 (lot A) le même immeuble que le bouton « Copropriété » : « Immeuble », sinon l'adresse — rien n'est réécrit
+  const immeuble = immeubleDuBien({ immeuble: immeubleDuChamp, adresse });
   const etat = useImmeublesSyndics();
   const onEcrire = useContext(EcrireDepuisGestion);
   const [ouvert, setOuvert] = useState(false);
