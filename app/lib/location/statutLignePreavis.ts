@@ -46,6 +46,16 @@ export function statutLigne(f: FaitsLigne): StatutLigne {
   return 'en_preavis';
 }
 
+/* ══ 🔴🔴 Arno (16/11/2026) — DEUX RENDEZ-VOUS FIXÉS EN MÊME TEMPS (exception à « un seul statut », validée par Arno) ═════════════════════
+ * À la réception du préavis, on fixe d'un coup la pré-visite ET l'état des lieux de sortie. Tant que la pré-visite est programmée (ni
+ * effectuée, ni refusée) et qu'un état des lieux est planifié, la ligne a DEUX statuts : « RDV pré-visite fixé » et « RDV état des lieux
+ * fixé ». Pré-visite effectuée ou refusée : un seul, « RDV état des lieux fixé ». Tous les autres cas : le statut unique de `statutLigne`. */
+/** LES statuts de la ligne (un, ou les deux rendez-vous fixés), dans l'ordre de l'arbre. PUR. */
+export function statutsLigne(f: FaitsLigne): StatutLigne[] {
+  const s = statutLigne(f);
+  return s === 'rdv_edl' && f.previsite?.statut === 'programmee' ? ['rdv_previsite', 'rdv_edl'] : [s];
+}
+
 /** Un filtre : un statut, ou « alerte » (repère gardé à part, il n'est pas un statut). */
 export type FiltreLigne = StatutLigne | 'alerte';
 export const estFiltreLigne = (x: unknown): x is FiltreLigne => x === 'alerte' || (typeof x === 'string' && (STATUTS_LIGNE as readonly string[]).includes(x));
@@ -53,14 +63,15 @@ export const estFiltreLigne = (x: unknown): x is FiltreLigne => x === 'alerte' |
 /** La ligne passe-t-elle le filtre (plusieurs valeurs : l'une OU l'autre ; vide : toutes) ? PUR. */
 export function lignePasseFiltre(f: FaitsLigne, filtre: ReadonlySet<FiltreLigne>): boolean {
   if (filtre.size === 0) return true;
-  return filtre.has(statutLigne(f)) || (filtre.has('alerte') && f.previsite?.statut === 'alerte');
+  return statutsLigne(f).some((s) => filtre.has(s)) || (filtre.has('alerte') && f.previsite?.statut === 'alerte');
 }
 
-/** Les filtres avec leur compteur, dans l'ordre de l'arbre (statuts 1 à 4) ; « Alerte préavis » en plus, seulement s'il y en a. PUR. */
+/** Les filtres avec leur compteur, dans l'ordre de l'arbre (statuts 1 à 4) ; « Alerte préavis » en plus, seulement s'il y en a. Une ligne à
+ *  deux statuts compte dans les DEUX filtres (« Tous », le nombre des lignes, ne la compte qu'une fois). PUR. */
 export function filtresLignes(lignes: readonly FaitsLigne[]): { filtre: FiltreLigne; libelle: string; nombre: number }[] {
   const alertes = lignes.filter((l) => l.previsite?.statut === 'alerte').length;
   return [
-    ...STATUTS_LIGNE_ACTIFS.map((s) => ({ filtre: s as FiltreLigne, libelle: LIBELLE_STATUT_LIGNE[s], nombre: lignes.filter((l) => statutLigne(l) === s).length })),
+    ...STATUTS_LIGNE_ACTIFS.map((s) => ({ filtre: s as FiltreLigne, libelle: LIBELLE_STATUT_LIGNE[s], nombre: lignes.filter((l) => statutsLigne(l).includes(s)).length })),
     ...(alertes > 0 ? [{ filtre: 'alerte' as const, libelle: 'Alerte préavis', nombre: alertes }] : []),
   ];
 }

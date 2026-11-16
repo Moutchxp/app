@@ -27,6 +27,7 @@ import { etatVocalLocataires, insererTranscription } from '../../../../lib/locat
 import { AGENCE_PREVISITE, appliquerTirets, estPhraseAbsence, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { filtresLignes, LIBELLE_STATUT_LIGNE, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
+import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, ORDRE_LOCATAIRES_DABORD, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
 import { CarteMailFamille, CSS_FAMILLES_MAILS, RappelFamilles } from './CartesMailsFamilles';
 import { CartoucheSauvegarde, CSS_CARTOUCHE_SAUVEGARDE, useBrouillonCompteRendu } from './BrouillonCompteRendu';
@@ -125,7 +126,7 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
       {p.collegues.length > 0 && p.statut === 'programmee' && (
         <ul className="pvv-collegues" data-previsite-collegues>
           {p.collegues.map((c, i) => (
-            <li key={`${i}-${c.libelle}`} data-collegue-statut={c.statut ?? 'inconnu'}>{c.libelle} : {LIBELLE_REPONSE[c.statut ?? ''] ?? '—'}{c.statut === 'refusee' && c.motif ? ` (${c.motif})` : ''}</li>
+            <li key={`${i}-${c.libelle}`} data-collegue-statut={c.statut ?? 'inconnu'}>{prenomNom(c.libelle)} : {LIBELLE_REPONSE[c.statut ?? ''] ?? '—'}{c.statut === 'refusee' && c.motif ? ` (${c.motif})` : ''}</li>
           ))}
         </ul>
       )}

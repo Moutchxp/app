@@ -35,12 +35,20 @@ export const MENTION_DATE_DEPASSEE: Record<'previsite' | 'edl', string> = {
   edl: 'date dépassée — sortie à valider',
 };
 const quandDe = (jour: string, heure: string | null | undefined): string => `${jour} ${(heure || '00:00').slice(0, 5)}`;
-/** Le rendez-vous FIXÉ de la ligne (celui de son statut), ou null. PUR. */
-export function rdvDuStatut(l: LigneRdv): RdvDuStatut | null {
-  if (l.edls && l.edls.jour) return { sorte: 'edl', jour: l.edls.jour, heure: l.edls.heure, quand: quandDe(l.edls.jour, l.edls.heure) };
+/* 🔴🔴 Arno (16/11/2026) — DEUX RENDEZ-VOUS FIXÉS : la pré-visite programmée (ni effectuée, ni refusée) ET l'état des lieux planifié. La ligne
+ * est datée par son PROCHAIN rendez-vous non réalisé (le plus tôt des deux — en général la pré-visite ; dépassé, il reste en tête). */
+/** Les rendez-vous FIXÉS de la ligne (ceux de ses statuts) : pré-visite puis état des lieux ; aucun : liste vide. PUR. */
+export function rdvsDeLigne(l: LigneRdv): RdvDuStatut[] {
   const p = l.previsite;
-  if (p && p.statut === 'programmee' && p.rdv && p.rdv.jour) return { sorte: 'previsite', jour: p.rdv.jour, heure: p.rdv.heure, quand: quandDe(p.rdv.jour, p.rdv.heure) };
-  return null;
+  const pv: RdvDuStatut[] = p && p.statut === 'programmee' && p.rdv && p.rdv.jour
+    ? [{ sorte: 'previsite', jour: p.rdv.jour, heure: p.rdv.heure, quand: quandDe(p.rdv.jour, p.rdv.heure) }] : [];
+  if (l.edls && l.edls.jour) return [...pv, { sorte: 'edl', jour: l.edls.jour, heure: l.edls.heure, quand: quandDe(l.edls.jour, l.edls.heure) }];
+  return pv;
+}
+/** Le rendez-vous qui DATE la ligne (le prochain non réalisé), ou null. PUR. */
+export function rdvDuStatut(l: LigneRdv): RdvDuStatut | null {
+  const r = rdvsDeLigne(l);
+  return r.length === 0 ? null : r.reduce((a, b) => (b.quand < a.quand ? b : a));
 }
 /** La date est-elle dépassée (étape pas faite) ? PUR. */
 export const rdvDepasse = (r: RdvDuStatut, maintenant: string): boolean => r.quand < maintenant;
@@ -86,11 +94,18 @@ export function jourCourt(jour: string): string {
   return `${JOURS[d.getUTCDay()]} ${String(j).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
 }
 const heureCourte = (h: string | null | undefined): string => { const [hh, mm] = (h || '00:00').split(':'); return `${hh.padStart(2, '0')}h${(mm ?? '00').padStart(2, '0')}`; };
-/** La colonne « rendez-vous » d'une ligne. PUR. */
+const colonneDe = (r: RdvDuStatut, maintenant: string): ColonneRdv => ({ sorte: r.sorte, quand: r.quand,
+  texte: `${r.sorte === 'edl' ? 'État des lieux' : 'Pré-visite'} · ${jourCourt(r.jour)} · ${heureCourte(r.heure)}`,
+  depassee: rdvDepasse(r, maintenant) ? MENTION_DATE_DEPASSEE[r.sorte] : null });
+/** 🔴 (16/11/2026) La colonne « rendez-vous » : un rendez-vous par statut — deux, l'un sous l'autre (pré-visite puis état des lieux). PUR. */
+export function colonnesRdv(l: LigneRdv, maintenant: string): ColonneRdv[] {
+  const r = rdvsDeLigne(l);
+  return r.length === 0 ? [colonneRdv(l, maintenant)] : r.map((x) => colonneDe(x, maintenant));
+}
+/** La colonne « rendez-vous » d'une ligne (le rendez-vous qui la date). PUR. */
 export function colonneRdv(l: LigneRdv, maintenant: string): ColonneRdv {
   const r = rdvDuStatut(l);
-  if (r !== null) return { sorte: r.sorte, quand: r.quand, texte: `${r.sorte === 'edl' ? 'État des lieux' : 'Pré-visite'} · ${jourCourt(r.jour)} · ${heureCourte(r.heure)}`,
-    depassee: rdvDepasse(r, maintenant) ? MENTION_DATE_DEPASSEE[r.sorte] : null };
+  if (r !== null) return colonneDe(r, maintenant);
   const p = l.previsite;
   if (p && p.statut === 'effectuee' && p.rdv && p.rdv.jour) return { sorte: 'effectuee', texte: `Pré-visite effectuée le ${jourCourt(p.rdv.jour).slice(5)}` };
   return { sorte: 'aucun', texte: AUCUN_RDV_FIXE };

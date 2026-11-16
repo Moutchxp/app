@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { filtresLignes, LIBELLE_STATUT_LIGNE, lignePasseFiltre, rangStatutLigne, statutLigne, STATUTS_LIGNE, type FaitsLigne } from './statutLignePreavis';
+import { filtresLignes, LIBELLE_STATUT_LIGNE, lignePasseFiltre, rangStatutLigne, statutLigne, statutsLigne, STATUTS_LIGNE, type FaitsLigne } from './statutLignePreavis';
 import { issueSortie } from './sortieLocataires';
 
 /** 🔴🔴 Arno (15/11/2026) — le statut d'une ligne de préavis (arbre validé par Arno) : un seul, calculé, le geste le plus avancé l'emporte. */
@@ -28,13 +28,15 @@ describe('le statut d’une ligne de préavis', () => {
   it('un état des lieux planifié puis annulé (tâche annulée : plus d’« edls ») : la ligne revient au statut de sa pré-visite', () => {
     expect(statutLigne({ previsite: pv('refusee'), edls: null })).toBe('refus_previsite');
   });
-  it('UNE seule valeur par ligne, quelle que soit la combinaison des faits', () => {
+  it('UNE seule valeur par ligne, quelle que soit la combinaison des faits — SAUF pré-visite programmée + état des lieux planifié (16/11/2026)', () => {
     const faits: FaitsLigne[] = [];
     for (const s of ['alerte', 'recu', 'programmee', 'effectuee', 'refusee'] as const) for (const e of [null, EDLS]) for (const v of [false, true]) faits.push({ previsite: pv(s), edls: e, sortieValidee: v });
     for (const f of faits) {
       const s = statutLigne(f);
       expect(STATUTS_LIGNE).toContain(s);
-      expect(STATUTS_LIGNE.filter((x) => lignePasseFiltre(f, new Set([x])))).toEqual([s]); // un seul filtre de statut la retient
+      const deux = f.previsite?.statut === 'programmee' && f.edls !== null && f.sortieValidee !== true;
+      expect(statutsLigne(f)).toEqual(deux ? ['rdv_previsite', 'rdv_edl'] : [s]);
+      expect(STATUTS_LIGNE.filter((x) => lignePasseFiltre(f, new Set([x])))).toEqual(statutsLigne(f)); // les filtres de ses statuts, eux seuls
     }
   });
   it('les filtres : statuts 1 à 4 avec leur compteur, « Alerte préavis » en plus s’il y en a ; filtres cumulés ; vide = tout, aucune ligne perdue', () => {

@@ -1015,14 +1015,19 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { edlsId: 77, tacheId: 500, jour: '2099-06-01', heure: '10:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4,
       statut: 'acceptee' as const, reponduPar: null, motifRefus: null } } : l));
     await ouvrir();
-    const m = container.querySelector('[data-ligne-depliee="C"] [data-edls-mention]')!;
-    expect(m.className).toBe('pva-edls');
+    // 🔴 (16/11/2026) le cartouche VERT de la case 2 (même classe), puis « Prénom NOM : acceptée »
+    const m = container.querySelector('[data-ligne-depliee="C"] [data-edls-cartouche]')!;
+    expect(m.className).toBe('pvv-etat pvv-etat--programmee');
+    expect(m.textContent).toBe('État des lieux programmé — le 01/06/2099 de 10h00 à 11h00');
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-collegue]')!.textContent).toBe('Claire TEST : acceptée');
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-mention]')).toBeNull();
     expect(CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ')).toContain('.pva-edls{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);');
     expect(sous('edls')).toEqual(['étape en cours']);
     act(() => root.unmount()); root = createRoot(container);
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...l.edls!, statut: 'refusee' as const, reponduPar: 'Claire Test' } } : l));
     await ouvrir();
     expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-mention]')!.className).toContain('pva-edls--refus');
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-edls-collegue]')!.textContent).toBe('Claire TEST : refusée');
     expect(sous('edls')).toEqual(['Prévu le 01/06/2099 — confié à Claire Test · étape en cours']);
   });
 
@@ -3322,5 +3327,96 @@ describe('🔴🔴 (16/11/2026, responsable location) — « Absence de la parti
       ['collaborateur', 'Arnaud JOREL — collaborateur (Sans Vis-à-Vis / CRITERIMMO)'], ['personne', 'Madame Léa MARTIN — personne présente']]);
     expect(document.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.');
     expect(document.querySelector('[data-cr-destinataire="proprietaire"]')!.textContent).toContain('DUPONT Jean');
+  });
+});
+
+describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux fixés en même temps : deux statuts, deux rendez-vous, les deux filtres', () => {
+  const PV = (statut: 'programmee' | 'effectuee' | 'refusee' | 'recu', jour: string, collegues: { libelle: string; statut: 'en_attente' | 'acceptee' | 'refusee' | null }[] = []) =>
+    ({ statut, rdv: statut === 'recu' || statut === 'refusee' ? null : { jour, heure: '10:30', dureeMinutes: 60 }, tacheId: 9, collegues: collegues.map((c) => ({ collaborateurId: 1, email: null, motif: null, ...c })),
+      tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null });
+  const EDLS = (jour: string, statut: 'en_attente' | 'acceptee' | 'refusee' = 'en_attente') => ({ edlsId: 1, tacheId: 2, jour, heure: '11:30', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut, reponduPar: null, motifRefus: null });
+  beforeEach(() => {
+    try { window.localStorage.clear(); } catch { /* rien */ }
+    lignes = [
+      { ...LIGNES[0], previsite: PV('programmee', '2099-01-10', [{ libelle: 'Arno Test', statut: 'acceptee' }]), edls: EDLS('2099-02-03') },
+      { ...LIGNES[1], previsite: PV('effectuee', '2099-01-05'), edls: EDLS('2099-01-20', 'acceptee') },
+      { ...LIGNES[2], previsite: PV('refusee', ''), edls: EDLS('2099-01-07') },
+    ];
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('preavisEnCours=1')
+      ? ok({ disponible: true, etatDesLieux: true, previsite: true, planification: true, lignes }) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+  });
+  const sel = (cle: string, s: string) => container.querySelector(`[data-ligne-preavis="${cle}"] ${s}`)!;
+  const statuts = (cle: string) => [...container.querySelectorAll(`[data-ligne-preavis="${cle}"] [data-statut-ligne]`)].map((x) => x.getAttribute('data-statut-ligne'));
+  const ordre = () => [...container.querySelectorAll('[data-ligne-preavis]')].map((x) => x.getAttribute('data-ligne-preavis'));
+
+  it('DEUX cartouches de statut côte à côte (pré-visite programmée + état des lieux) ; effectuée ou refusée : un seul', async () => {
+    await rendre(true);
+    expect(statuts('A')).toEqual(['rdv_previsite', 'rdv_edl']);
+    expect([...container.querySelectorAll('[data-ligne-preavis="A"] [data-statut-ligne]')].map((x) => x.textContent)).toEqual(['RDV pré-visite fixé', 'RDV état des lieux fixé']);
+    expect(statuts('B')).toEqual(['rdv_edl']);
+    expect(statuts('C')).toEqual(['rdv_edl']);
+    // dans le même conteneur, à droite
+    expect(sel('A', '[data-cartouches-ligne]').querySelectorAll('[data-statut-ligne]')).toHaveLength(2);
+  });
+  it('les deux dates l’une sous l’autre (pré-visite puis état des lieux), chacune avec « confié à … » et son cartouche, sur les colonnes communes', async () => {
+    await rendre(true);
+    const deux = sel('A', '[data-col-rdv="deux"]');
+    expect([...deux.children].map((x) => x.className)).toEqual(['pva-rdv-item pva-col-rdv--previsite', 'pva-col-mission', 'pva-rdv-item pva-col-rdv--edl', 'pva-col-mission']);
+    expect([...deux.querySelectorAll('.pva-rdv-date')].map((x) => x.textContent)).toEqual(['Pré-visite · sam. 10/01 · 10h30', 'État des lieux · mar. 03/02 · 11h30']);
+    expect([...deux.querySelectorAll('.pva-confie')].map((x) => x.textContent)).toEqual(['confié à Arno TEST', 'confié à Claire TEST']);
+    expect([...deux.querySelectorAll('[data-etat-mission]')].map((x) => x.textContent)).toEqual(['Confirmé', 'En attente de confirmation']);
+    expect([...container.querySelectorAll('[data-ligne-preavis="A"] .pva-l2 > span')].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-col-details']);
+    expect(sel('A', '.pva-ligne').className).toBe('pva-ligne pva-ligne--deux-rdv');
+    // les lignes à un seul rendez-vous : inchangées
+    expect([...container.querySelectorAll('[data-ligne-preavis="B"] .pva-l2 > span')].map((x) => x.className.split(' ')[0])).toEqual(['pva-col-fin', 'pva-col-rdv', 'pva-col-mission', 'pva-col-details']);
+    expect(sel('B', '.pva-ligne').className).toBe('pva-ligne');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('\n').replace(/\s+/g, ' ');
+    expect(css).toContain('.pva-col-rdv--deux{grid-column:span 2;display:grid;grid-template-columns:subgrid;');
+    expect(css).toContain('.pva-col-rdv--deux > *{order:0}');
+  });
+  it('la mention rouge « date dépassée » sur chaque rendez-vous concerné', async () => {
+    lignes = lignes.map((l) => (l.cle === 'A' ? { ...l, previsite: PV('programmee', '2020-01-10'), edls: EDLS('2020-02-03') } : l));
+    await rendre(true);
+    expect([...sel('A', '[data-col-rdv="deux"]').querySelectorAll('[data-rdv-depassee]')].map((x) => [x.getAttribute('data-rdv-depassee'), x.textContent]))
+      .toEqual([['previsite', 'date dépassée — compte rendu à faire'], ['edl', 'date dépassée — sortie à valider']]);
+  });
+  it('FILTRES : la ligne comptée et visible dans les deux ; « Tous » ne la compte qu’une fois', async () => {
+    await rendre(true);
+    const n = (f: string) => container.querySelector(`[data-compteur-previsite="${f}"]`)!.textContent;
+    expect([n('rdv_previsite'), n('rdv_edl')]).toEqual(['1', '3']);
+    expect(container.querySelector('[data-filtre-previsite="tous"]')!.textContent).toBe('Tous (3)');
+    clic('[data-filtre-previsite="rdv_previsite"]'); await attendre();
+    expect(ordre()).toEqual(['A']);
+    clic('[data-filtre-previsite="rdv_previsite"]'); clic('[data-filtre-previsite="rdv_edl"]'); await attendre();
+    expect(ordre().sort()).toEqual(['A', 'B', 'C']);
+    clic('[data-filtre-previsite="rdv_previsite"]'); await attendre(); // les deux filtres : la ligne une seule fois
+    expect(ordre().sort()).toEqual(['A', 'B', 'C']);
+  });
+  it('TRI RDV : datée par son prochain rendez-vous non réalisé (la pré-visite), dans les « Rendez-vous fixés »', async () => {
+    await rendre(true);
+    // C : état des lieux le 07/01 ; A : pré-visite le 10/01 (son état des lieux le 03/02) ; B : état des lieux le 20/01
+    expect(ordre()).toEqual(['C', 'A', 'B']);
+    expect(container.querySelector('[data-separateur-sans-rdv]')).toBeNull();
+  });
+  it('FRISE : cartouche VERT en case 2 (pré-visite) ET en case 3 (état des lieux), chacun avec « Prénom NOM : … » dessous', async () => {
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="A"]'); await attendre();
+    const c2 = sel('A', '[data-etape="previsite"] [data-previsite-etat]');
+    expect([c2.className, c2.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'Pré-visite programmée — le 10/01/2099 de 10h30 à 11h30']);
+    expect(sel('A', '[data-etape="previsite"] [data-previsite-collegues]').textContent).toBe('Arno TEST : acceptée');
+    const c3 = sel('A', '[data-etape="edls"] [data-edls-cartouche]');
+    expect([c3.className, c3.textContent]).toEqual(['pvv-etat pvv-etat--programmee', 'État des lieux programmé — le 03/02/2099 de 11h30 à 12h30']);
+    expect(sel('A', '[data-etape="edls"] [data-edls-collegue]').textContent).toBe('Claire TEST : en attente');
+  });
+  it('« Planifier l’état des lieux de sortie » présent et ACTIF avec une pré-visite seulement programmée ; le formulaire s’ouvre', async () => {
+    lignes = lignes.map((l) => (l.cle === 'A' ? { ...l, edls: null } : l));
+    await rendre(true);
+    expect(statuts('A')).toEqual(['rdv_previsite']);
+    clic('button[data-ouvrir-preavis="A"]'); await attendre();
+    const b = sel('A', '[data-planifier-edls]') as HTMLButtonElement;
+    expect(b.disabled).toBe(false);
+    act(() => b.click()); await attendre();
+    expect(sel('A', '[data-formulaire-edls]').getAttribute('data-formulaire-edls')).toBe('planifier');
   });
 });

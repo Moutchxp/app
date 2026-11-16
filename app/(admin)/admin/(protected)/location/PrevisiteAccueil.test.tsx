@@ -138,7 +138,7 @@ describe('🔴 Règles 2-3 — la ligne : cartouche « Aucune pré-visite fixée
     expect(container.querySelector('[data-ligne-preavis="B"] [data-cartouche-previsite="tous-refusent"]')?.textContent).toBe('Personne n’a accepté la pré-visite');
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
     expect(container.querySelector('[data-reaffecter-previsite]')).not.toBeNull();
-    expect(container.querySelector('[data-collegue-statut="refusee"]')?.textContent).toBe('Claire Test : refusée (absente)');
+    expect(container.querySelector('[data-collegue-statut="refusee"]')?.textContent).toBe('Claire TEST : refusée (absente)');
   });
 });
 

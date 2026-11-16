@@ -7,7 +7,7 @@ import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun'
 import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
 import { ficheDepuisEncart } from '../../../../lib/location/ficheIntervention';
-import { etapesPreavis, lignesSousTitre } from '../../../../lib/location/frisePreavis';
+import { cartoucheEdls, etapesPreavis, lignesSousTitre } from '../../../../lib/location/frisePreavis';
 
 const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 import type { FinParcours } from './ParcoursPreavisSortie';
@@ -24,8 +24,8 @@ import {
 } from '../../../../lib/location/edls';
 import { statutPreavis } from '../../../../lib/location/preavis';
 import { compterPreavisEnAlerte } from '../../../../lib/location/previsite';
-import { estFiltreLigne, lignePasseFiltre, statutLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
-import { colonneRdv, LIBELLE_ETAT_MISSION, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
+import { estFiltreLigne, lignePasseFiltre, statutsLigne, type FiltreLigne } from '../../../../lib/location/statutLignePreavis';
+import { colonnesRdv, LIBELLE_ETAT_MISSION, missionDeLigne, ecrireModeTriRdv, LIBELLE_TRI_RDV, lireModeTriRdv, maintenantParis, MODE_TRI_RDV_DEFAUT, modeTriRdvSuivant, ordonnerParRdv, type ModeTriRdv } from '../../../../lib/location/triRdvPreavis';
 import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
@@ -277,9 +277,19 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                    complet d'avant reste en infobulle de la ligne. */
                 const adresse = l.adresse ?? `Bien ${l.lotId}`;
                 const fin = `Fin de préavis ${dateFrPreavis(l.dateMax)}`;
-                const rdv = colonneRdv(l, maintenantParis());
+                // 🔴 (16/11/2026) un rendez-vous par statut : deux (pré-visite puis état des lieux) quand les deux sont fixés
+                const rdvs = colonnesRdv(l, maintenantParis());
+                const rdv = rdvs[0];
                 // 🔴 (15/11/2026) la mission du rendez-vous affiché : « confié à Prénom NOM » + l'état de la tâche
-                const mission = rdv.sorte === 'previsite' || rdv.sorte === 'edl' ? missionDeLigne(l, rdv.sorte) : null;
+                const missionDe = (r: typeof rdv) => (r.sorte === 'previsite' || r.sorte === 'edl' ? missionDeLigne(l, r.sorte) : null);
+                const mission = missionDe(rdv);
+                const missionHtml = (m: ReturnType<typeof missionDe>) => m && <>
+                  <span className="pva-confie" title={`confié à ${m.qui}`}>confié à {m.qui}</span>
+                  <span className={`pva-etat-mission pva-etat-mission--${m.etat}`} data-etat-mission={m.etat}>{LIBELLE_ETAT_MISSION[m.etat]}</span></>;
+                const dateHtml = (r: typeof rdv) => <>
+                  <span className="pva-rdv-date">{r.texte}</span>
+                  {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
+                  {'depassee' in r && r.depassee !== null && <span className="pva-rdv-depassee" data-rdv-depassee={r.sorte}>{r.depassee}</span>}</>;
                 // 🔴 (15/11/2026, accord d'Arno) la colonne C ne répète plus aucune date : seulement ce qui n'est pas déjà affiché
                 const details = !l.edls && l.etatDesLieuxLe ? `État des lieux le ${dateFrPreavis(l.etatDesLieuxLe)}` : '';
                 // l'infobulle de la ligne garde le texte complet d'avant (rien n'est perdu)
@@ -289,7 +299,7 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 const estOuverte = ouverte === l.cle;
                 return (
                   <li key={l.cle} className="pva-item" data-ligne-preavis={l.cle}>
-                    <div className="pva-ligne">
+                    <div className={`pva-ligne${rdvs.length > 1 ? ' pva-ligne--deux-rdv' : ''}`}>
                       <div className="pva-textes" title={`${noms} — ${detail}`}>
                         <span className="pva-l1">
                           <span className="pva-noms" title={noms}>{l.test && <span className="pvt-badge" data-badge-test>{BADGE_TEST}</span>}{noms}</span>
@@ -297,20 +307,25 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                         </span>
                         <span className="pva-l2">
                           <span className="pva-col-fin" data-col-fin>{fin}</span>
-                          <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>
-                            <span className="pva-rdv-date">{rdv.texte}</span>
-                            {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
-                            {'depassee' in rdv && rdv.depassee !== null && <span className="pva-rdv-depassee" data-rdv-depassee={rdv.sorte}>{rdv.depassee}</span>}</span>
-                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{mission && <>
-                            <span className="pva-confie" title={`confié à ${mission.qui}`}>confié à {mission.qui}</span>
-                            <span className={`pva-etat-mission pva-etat-mission--${mission.etat}`} data-etat-mission={mission.etat}>{LIBELLE_ETAT_MISSION[mission.etat]}</span></>}</span>
+                          {rdvs.length > 1 ? (
+                            /* 🔴🔴 Arno (16/11/2026) — DEUX rendez-vous fixés : l'un sous l'autre (pré-visite puis état des lieux), chacun avec sa mission,
+                               alignés sur les colonnes « rendez-vous » et « mission » des autres lignes (sous-grille) */
+                            <span className="pva-col-rdv pva-col-rdv--deux" data-col-rdv="deux">
+                              {rdvs.map((r) => { const m = missionDe(r); return [
+                                <span key={`${r.sorte}-d`} className={`pva-rdv-item pva-col-rdv--${r.sorte}`} data-rdv-item={r.sorte}>{dateHtml(r)}</span>,
+                                <span key={`${r.sorte}-m`} className="pva-col-mission" data-col-mission={m?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(m)}</span>]; })}
+                            </span>
+                          ) : <>
+                          <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{dateHtml(rdv)}</span>
+                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{missionHtml(mission)}</span></>}
                           <span className="pva-col-details pva-detail" title={details} data-col-details>{details}</span>
                         </span>
                       </div>
                       {/* 🔴🔴 Arno (15/11/2026) — LE statut de la ligne (un seul, calculé) à la place de « en préavis » fixe ; l'alerte « Préavis
                           échu » reste affichée à côté ; un état des lieux refusé par le collègue garde son repère « EDLS à réattribuer ». */}
                       <span className="psl-cartouches" data-cartouches-ligne>
-                        <CartoucheStatutLigne statut={statutLigne(l)} />
+                        {/* 🔴 (16/11/2026) deux statuts côte à côte quand la pré-visite et l'état des lieux sont fixés tous les deux */}
+                        {statutsLigne(l).map((s) => <CartoucheStatutLigne key={s} statut={s} />)}
                         {statutPreavis(l, jour) === 'echu' && <MentionPreavis p={l} jour={jour} court />}
                         {l.edls?.statut === 'refusee' && <span className="pvs-mention pvs-mention--en_preavis" data-preavis="edls" data-edls-statut="refusee">{pastilleEdls(l.edls)}</span>}
                         {/* 🔴 Arno (10/11/2026) — « Aucune pré-visite fixée » / « Personne n'a accepté la pré-visite ». */}
@@ -478,7 +493,12 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
     <div className="pva-bloc" data-bloc-edls>
       {/* 🔴 Arno (11/11/2026, lot 5) — plus de sous-titre « État des lieux de sortie » (le titre de la case le dit) ; informations, puis boutons. */}
       <div className="frp-infos">
-      {e !== null && <p className={`pva-edls${e.statut === 'refusee' ? ' pva-edls--refus' : ''}`} role="status" data-edls-mention>{mentionEdls(e)}</p>}
+      {/* 🔴🔴 Arno (16/11/2026) — le rendez-vous fixé : le cartouche VERT de la case 2 (« État des lieux programmé — le … de … à … »), et dessous
+          « Prénom NOM : en attente / acceptée / refusée » ; refusé : la mention orange « Refusée par … — à réattribuer » reste en plus */}
+      {e !== null && (() => { const c = cartoucheEdls(e); return <>
+        <p className="pvv-etat pvv-etat--programmee" role="status" data-edls-cartouche>{c.texte}</p>
+        <ul className="pvv-collegues" data-edls-collegue><li data-collegue-statut={c.statut}>{c.qui} : {c.reponse}</li></ul>
+        {e.statut === 'refusee' && <p className="pva-edls pva-edls--refus" role="status" data-edls-mention>{mentionEdls(e)}</p>}</>; })()}
       {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}
       </div>
       <div className="frp-actions">
@@ -729,6 +749,14 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-col-rdv--edl{color:var(--color-svv-violet)}
 .pva-col-rdv--effectuee,.pva-col-rdv--aucun{color:var(--color-svv-muted);font-weight:600}
 .pva-col-details{color:var(--color-svv-muted)}
+/* 🔴 Arno (16/11/2026) : DEUX rendez-vous fixes (pre-visite puis etat des lieux), l'un sous l'autre : une sous-grille sur les colonnes B
+   (rendez-vous) et C (mission), alignee sur celles des autres lignes ; la ligne est un peu plus haute */
+.pva-col-rdv--deux{grid-column:span 2;display:grid;grid-template-columns:subgrid;row-gap:3px;align-items:center}
+.pva-rdv-item{min-width:0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+.pva-col-rdv--deux .pva-col-mission{font-weight:400}
+.pva-ligne--deux-rdv{height:6.25rem;grid-template-columns:minmax(min(52rem,calc(100% - 16rem)),1fr) auto auto}
+/* les deux statuts : cote a cote quand l'ecran le permet, l'un sous l'autre sinon (jamais au prix de « confie a … » tronque) */
+.pva-ligne--deux-rdv .psl-cartouches{flex-direction:column;align-items:flex-end}
 .pva-ouvrir{min-height:44px}
 .pva-depliee{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;padding:4px 12px 14px}
 .pva-bloc{display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -750,6 +778,11 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-l2{grid-template-columns:minmax(0,1fr);row-gap:2px}
   .pva-col-rdv{order:-2}
   .pva-col-mission{order:-1;min-height:1.2rem}
+  /* deux rendez-vous : pre-visite et sa mission, puis etat des lieux et sa mission, en tete ; la ligne s'allonge d'autant */
+  .pva-col-rdv--deux{grid-column:auto;row-gap:2px}
+  .pva-col-rdv--deux > *{order:0}
+  .pva-ligne--deux-rdv{height:14rem;grid-template-columns:minmax(0,1fr) auto}
+  .pva-ligne--deux-rdv .psl-cartouches{flex-direction:row;align-items:center}
   .pva-col-details{display:none}
   /* hauteur CONSTANTE (Arno) : les reperes, plus compacts, tiennent au plus sur deux rangees, jamais sous « Ouvrir » */
   .psl-cartouches{justify-content:flex-start;gap:3px 4px;max-height:2.9rem;overflow:hidden}
@@ -761,6 +794,8 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pvv-cartouches{align-items:flex-start}
   .pva-depliee{grid-template-columns:1fr}
 }
+/* 🔴 (16/11/2026) ecran large : les deux statuts cote a cote */
+@media (min-width:1700px){.pva-ligne--deux-rdv .psl-cartouches{flex-direction:row}}
 .frp{grid-column:1 / -1;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:none;min-width:0}
 @media (max-width:1100px){.frp{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:600px){.frp{grid-template-columns:1fr}}

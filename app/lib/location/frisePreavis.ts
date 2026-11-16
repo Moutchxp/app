@@ -6,6 +6,8 @@
  */
 import { dateFrPreavis, type LignePreavisAccueil } from './preavis';
 import { creneauFr } from './previsite';
+import { prenomNom } from './triRdvPreavis';
+import type { EdlsAffiche } from './edls';
 
 export type StatutEtape = 'faite' | 'refusee' | 'programmee' | 'a_faire';
 export type CleEtape = 'preavis' | 'previsite' | 'edls' | 'sortie';
@@ -56,3 +58,15 @@ export function lignesSousTitre(e: EtapePreavis, l: LignePreavisAccueil, o: { pl
   return e.lignes.map((x, i) => (i === e.lignes.length - 1 && e.enCours ? `${x} · ${ETAPE_EN_COURS}` : x));
 }
 export const ETAPE_EN_COURS = 'étape en cours';
+
+/**
+ * 🔴🔴 Arno (16/11/2026) — LE CARTOUCHE VERT de l'état des lieux de sortie fixé (case 3), du même style que « Pré-visite programmée — le … de …
+ * à … » de la case 2 : « État des lieux programmé — le 18/11/2026 de 11h30 à 12h30 », et dessous « Prénom NOM : en attente / acceptée /
+ * refusée » (confié directement, sans demande : acceptée). PUR.
+ */
+export const REPONSE_EDLS: Record<'en_attente' | 'acceptee' | 'refusee', string> = { en_attente: 'en attente', acceptee: 'acceptée', refusee: 'refusée' };
+export function cartoucheEdls(e: Pick<EdlsAffiche, 'jour' | 'heure' | 'dureeMinutes' | 'confieA' | 'statut'>): { texte: string; qui: string; reponse: string; statut: 'en_attente' | 'acceptee' | 'refusee' } {
+  const quand = e.heure ? creneauFr({ jour: e.jour, heure: e.heure, dureeMinutes: e.dureeMinutes ?? 60 }) : dateFrPreavis(e.jour);
+  const statut = e.statut ?? 'acceptee';
+  return { texte: `État des lieux programmé — le ${quand}`, qui: prenomNom(e.confieA), reponse: REPONSE_EDLS[statut], statut };
+}
