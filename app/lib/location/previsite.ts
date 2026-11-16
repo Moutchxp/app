@@ -376,21 +376,61 @@ export const ENCADRE_ATTENTION_PREVISITE: ParagrapheEncadre = {
 export const CLOTURE_COMPTE_RENDU = 'Ces éléments vous permettent d’anticiper votre état des lieux de sortie. Nous restons à votre disposition pour toute question.';
 /** Les paragraphes du mail d'UN locataire. `presence` : « de Mme X et de M. Y » (vide : aucune personne). PUR. */
 export function paragraphesCompteRenduLocataire(o: { locataire: { civilite?: string | null; nom: string }; adresse: string; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>;
-  presence: string; texte: string; legendesPhotos: readonly string[]; vocaux: readonly string[] }): ParagrapheMail[] {
-  const n = o.legendesPhotos.length;
-  const photos = n === 0 ? [] : [`${n === 1 ? 'Vous trouverez en pièce jointe la photo prise' : `Vous trouverez en pièces jointes les ${n} photos prises`} lors de la pré-visite :`,
-    o.legendesPhotos.map((l, i) => `Photo ${i + 1} — ${l.trim()}`).join('\n')];
+  presence: string; texte: string; legendesPhotos: readonly string[]; vocaux: readonly string[];
+  /** 🔴 (16/11/2026) « Absence de la partie locataire » : la phrase entière (« Pré-visite réalisée en l’absence des locataires, par … »),
+   *  en paragraphe juste après l'introduction — qui ne dit alors plus « en présence de … » */
+  absence?: string | null }): ParagrapheMail[] {
+  const absence = (o.absence ?? '').trim();
   return [
     `${appelLocataire(o.locataire)},`,
-    `Suite à la pré-visite de votre logement situé ${o.adresse} effectuée le ${dateFrPreavis(o.rdv.jour)} à ${heureFr(o.rdv.heure)}${o.presence ? ` en présence ${o.presence}` : ''}, vous trouverez ci-dessous le compte rendu des points relevés en vue de l’état des lieux de sortie.`,
+    `Suite à la pré-visite de votre logement situé ${o.adresse} effectuée le ${dateFrPreavis(o.rdv.jour)} à ${heureFr(o.rdv.heure)}${!absence && o.presence ? ` en présence ${o.presence}` : ''}, vous trouverez ci-dessous le compte rendu des points relevés en vue de l’état des lieux de sortie.`,
+    absence,
     pointsDuCompteRendu(o.texte),
-    ...photos, ...o.vocaux,
+    ...paragraphesPhotosJointes(o.legendesPhotos), ...o.vocaux,
     CLOTURE_COMPTE_RENDU,
     // 🔴 (7e retour) l'encadré « ATTENTION », juste avant la formule de politesse
     ENCADRE_ATTENTION_PREVISITE,
     politesseLocataire(o.locataire),
   ].filter((p) => typeof p !== 'string' || p.trim() !== '');
 }
+/** Les photos jointes annoncées, chacune avec sa légende (mails des locataires et des propriétaires). PUR. */
+export function paragraphesPhotosJointes(legendes: readonly string[]): string[] {
+  const n = legendes.length;
+  return n === 0 ? [] : [`${n === 1 ? 'Vous trouverez en pièce jointe la photo prise' : `Vous trouverez en pièces jointes les ${n} photos prises`} lors de la pré-visite :`,
+    legendes.map((l, i) => `Photo ${i + 1} — ${l.trim()}`).join('\n')];
+}
+
+/* ══ 🔴🔴 (16/11/2026, responsable location) — LE COMPTE RENDU AUX PROPRIÉTAIRES ══════════════════════════════════════════════════════════
+ * Un mail SÉPARÉ par adresse cochée (seul destinataire, aucune copie visible) : appel, introduction adaptée au propriétaire, la présence, le
+ * compte rendu en points, les photos jointes avec leurs légendes, la clôture, la politesse, puis la mention et la signature habituelles.
+ * JAMAIS l'encadré « ATTENTION » (destiné aux locataires), JAMAIS un vocal, JAMAIS une coordonnée de locataire (le serveur refuse un texte qui
+ * en porte). Appel, introduction, conclusion et politesse modifiables avant l'envoi (repères protégés), comme les autres mails. */
+export const CLE_EDITION_CR_PROPRIETAIRE = 'previsite_compte_rendu_proprietaire';
+export const REPERE_NOM_PROPRIETAIRE = 'nom du propriétaire';
+export function partiesCompteRenduProprietaire(d: { presence: string; texte: string; legendesPhotos: readonly string[]; plusieursLocataires: boolean }): PartieTexte[] {
+  return partiesDuMail({
+    appel: `Bonjour {${REPERE_NOM_PROPRIETAIRE}},`,
+    intro: `Nous avons réalisé le {date} la pré-visite de votre logement situé {adresse}, en vue du départ de ${d.plusieursLocataires ? 'vos locataires' : 'votre locataire'}. Vous trouverez ci-dessous le compte rendu des points relevés.`,
+    proteges: [
+      { libelle: 'Présence', texte: d.presence },
+      { libelle: 'Compte rendu', texte: pointsDuCompteRendu(d.texte) },
+      { libelle: 'Photos jointes', texte: paragraphesPhotosJointes(d.legendesPhotos).join('\n') },
+      { libelle: 'Clôture', texte: 'Nous restons à votre disposition pour toute question.' },
+    ],
+    politesse: 'Nous vous prions d’agréer, Madame, Monsieur, nos salutations distinguées.',
+  });
+}
+/** Le mail d'UNE adresse de propriétaire (elle seule en destinataire, aucune copie). PUR. */
+export function mailCompteRenduProprietaire(o: { de: string; objet: string; email: string; nomProprietaire: string; adresse: string; rdv: Pick<RdvPrevisite, 'jour' | 'heure'>;
+  presence: string; texte: string; legendesPhotos: readonly string[]; plusieursLocataires: boolean; qui: QuiEnvoie; signature: Signature; retouche?: Retouche }): MailPrevisite {
+  const c = corpsDepuisParties({ cle: CLE_EDITION_CR_PROPRIETAIRE, objet: o.objet,
+    parties: partiesCompteRenduProprietaire({ presence: o.presence, texte: o.texte, legendesPhotos: o.legendesPhotos, plusieursLocataires: o.plusieursLocataires }),
+    retouche: o.retouche, valeurs: { [REPERE_NOM_PROPRIETAIRE]: o.nomProprietaire.replace(/\s+/g, ' ').trim(), date: dateFrPreavis(o.rdv.jour), adresse: o.adresse },
+    qui: o.qui, signature: o.signature });
+  return { sorte: 'previsite_compte_rendu', de: o.de, a: [o.email.trim()], cc: [], objet: o.objet, texte: c.texte, html: c.html,
+    ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition };
+}
+
 /** L'introduction courte et factuelle du mail INTERNE. PUR. */
 export function introCompteRenduInterne(adresse: string, rdv: Pick<RdvPrevisite, 'jour' | 'heure'>): string {
   return `Compte rendu de la pré-visite du ${dateFrPreavis(rdv.jour)} — ${adresse}`;

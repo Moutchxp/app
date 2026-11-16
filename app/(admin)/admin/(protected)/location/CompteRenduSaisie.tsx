@@ -9,7 +9,7 @@ import { arreterLecture, basculerLecture, etatLecture, useLecteurVocal, type Pis
 import { normaliserPrise } from '../../../../lib/location/normalisationVocal';
 import { lignePhoto } from '../../../../lib/location/photosCompteRendu';
 import { dureeFr, etatVocalLocataires, insererDictee, insererTranscription, MENTION_TRANSCRIT, PRISE_MIN_MS, VOCAL_DUREE_MAX_S } from '../../../../lib/location/vocauxCompteRendu';
-import { appliquerTirets, insererEntree, themeBascule, tiretApresRetour } from '../../../../lib/location/texteCompteRendu';
+import { AGENCE_PREVISITE, appliquerTirets, insererEntree, LIBELLE_ABSENCE_LOCATAIRES, themeBascule, tiretApresRetour } from '../../../../lib/location/texteCompteRendu';
 import { appliquerThemeSur, persisterTheme, racineTheme, snapshotTheme, snapshotThemeServeur, souscrireTheme } from '../themeDom';
 
 /**
@@ -283,11 +283,13 @@ export interface PersonneAjouteeSaisie { cle: string; civilite: 'Madame' | 'Mons
 export const libellePersonne = (p: { civilite: 'Madame' | 'Monsieur'; nom: string; prenom: string }): string =>
   [p.civilite === 'Madame' ? 'Mme' : 'M.', p.prenom.trim(), p.nom.trim()].filter(Boolean).join(' ');
 
-export function BlocPresence({ locataires, presents, setPresents, ajoutees, setAjoutees, erreur, dateFr }: {
+export function BlocPresence({ locataires, presents, setPresents, ajoutees, setAjoutees, erreur, dateFr, absence = false, onAbsence, collaborateur = null }: {
   locataires: readonly { occupationId: number; nom: string; entree?: string | null }[];
   presents: readonly number[]; setPresents: (f: (x: number[]) => number[]) => void;
   ajoutees: readonly PersonneAjouteeSaisie[]; setAjoutees: (f: (x: PersonneAjouteeSaisie[]) => PersonneAjouteeSaisie[]) => void;
-  erreur: string | null; dateFr: (iso: string) => string }) {
+  erreur: string | null; dateFr: (iso: string) => string;
+  /** 🔴 (16/11/2026) « Absence de la partie locataire » : cochée, les cases des locataires sont décochées et grisées ; le collaborateur figure présent */
+  absence?: boolean; onAbsence?: (v: boolean) => void; collaborateur?: string | null }) {
   const titreId = useId();
   const [ajout, setAjout] = useState(false);
   /** 🔴 Arno (15/11/2026) — retirer une personne ajoutée se confirme, comme toute suppression de la page */
@@ -307,12 +309,25 @@ export function BlocPresence({ locataires, presents, setPresents, ajoutees, setA
         {locataires.map((x) => (
           <li key={x.occupationId}>
             <label className="pvv-case pvv-presence">
-              <input type="checkbox" checked={presents.includes(x.occupationId)} aria-invalid={erreur !== null}
+              <input type="checkbox" checked={!absence && presents.includes(x.occupationId)} aria-invalid={erreur !== null} disabled={absence}
                 onChange={(e) => { const v = e.target.checked; setPresents((xs) => (v ? [...xs.filter((y) => y !== x.occupationId), x.occupationId] : xs.filter((y) => y !== x.occupationId))); }}
                 data-presence-locataire={x.occupationId} />
               <span data-cr-locataire={x.occupationId}><strong>{x.nom}</strong>{x.entree ? ` — Entré(e) dans les lieux le ${dateFr(x.entree)}` : ''}</span>
             </label>
           </li>))}
+        {/* 🔴 (16/11/2026) « Absence de la partie locataire », TOUJOURS proposée, sous les locataires ; cochée : le collaborateur figure présent */}
+        {onAbsence !== undefined && (
+          <li className="pvv-presence-absence" data-presence-absence>
+            <label className="pvv-case pvv-presence">
+              <input type="checkbox" checked={absence} aria-invalid={erreur !== null} onChange={(e) => onAbsence(e.target.checked)} data-absence-locataires />
+              <span><strong>{LIBELLE_ABSENCE_LOCATAIRES}</strong></span>
+            </label>
+            {absence && (
+              <p className="pvv-presence-collaborateur" data-presence-collaborateur>
+                <strong>{collaborateur && collaborateur.trim() !== '' ? collaborateur : 'Le collaborateur connecté'}</strong>{' '}
+                <span className="pvv-etiquette">collaborateur — présent</span> <span className="loc-muet">({AGENCE_PREVISITE})</span>
+              </p>)}
+          </li>)}
         {ajoutees.map((p) => (
           <li key={p.cle} className="pvv-presence-ajoutee" data-personne-ajoutee={p.cle}>
             <label className="pvv-case pvv-presence">
@@ -1103,19 +1118,20 @@ export const AIDE_ENVOI_LOCATAIRES_OUI = 'Envoyé à tous les collaborateurs aya
 export const AIDE_ENVOI_LOCATAIRES_NON = 'Envoyé seulement aux collaborateurs ayant accès à Gestion et/ou Location : aucun locataire ne le reçoit.';
 
 /** 🔴 Arno (15/11/2026, 6e retour) — les destinataires du compte rendu, lus au serveur (noms des locataires, adresses internes, mentions de recette). */
-export interface DestinatairesCompteRendu { locataires: { nom: string; recette: string | null }[]; sansEmail: string[]; internes: string[]; recetteInternes: string | null }
+export interface DestinatairesCompteRendu { locataires: { nom: string; recette: string | null }[]; sansEmail: string[]; internes: string[]; recetteInternes: string | null;
+  /** 🔴 (16/11/2026) une ligne par adresse de propriétaire ; les propriétaires sans adresse ; le collaborateur connecté (« Prénom NOM ») */
+  proprietaires: AdresseProprietaireSaisie[]; proprietairesSansEmail: string[]; collaborateur: string }
 
-export function BoutonEnvoiLocataires({ actif, onBasculer, occupationIds, nomsConnus }: {
+export function BoutonEnvoiLocataires({ actif, onBasculer, occupationIds, nomsConnus, destinataires }: {
   actif: boolean; onBasculer: () => void; occupationIds: readonly number[];
   /** les noms des locataires du préavis, montrés tant que la liste n'est pas lue */
   nomsConnus: readonly string[];
+  /** 🔴 (16/11/2026) la liste lue une fois pour tout le formulaire ; absente : lue ici */
+  destinataires?: DestinatairesCompteRendu | null;
 }) {
-  const { base } = useContextePreavis();
-  const lu = useLecture<DestinatairesCompteRendu>(`previsiteDestinataires=${occupationIds.join(',')}`, base);
+  const propre = useDestinatairesCompteRendu(occupationIds, destinataires === undefined);
   // une réponse illisible (ou pas encore lue) ne casse rien : les noms connus, aucun interne
-  const brut = lu.etat.etat === 'ok' ? (lu.etat.data as Partial<DestinatairesCompteRendu> | null) : null;
-  const d: DestinatairesCompteRendu | null = brut && Array.isArray(brut.locataires) && Array.isArray(brut.internes)
-    ? { locataires: brut.locataires, internes: brut.internes, sansEmail: Array.isArray(brut.sansEmail) ? brut.sansEmail : [], recetteInternes: brut.recetteInternes ?? null } : null;
+  const d: DestinatairesCompteRendu | null = destinataires === undefined ? propre : destinataires;
   const locataires = d?.locataires ?? nomsConnus.map((nom) => ({ nom, recette: null }));
   const internes = d?.internes ?? [];
   return (
@@ -1142,8 +1158,79 @@ export function BoutonEnvoiLocataires({ actif, onBasculer, occupationIds, nomsCo
   );
 }
 
+/* ══ 🔴🔴 (16/11/2026, responsable location) — « COMPTE RENDU ENVOYÉ AUX PROPRIÉTAIRES » ════════════════════════════════════════════════════
+ * Sous le bouton des locataires, le même style, DÉSACTIVÉ par défaut. Activé : « Les destinataires », UNE ligne par adresse de propriétaire
+ * (adresse, nom du propriétaire en face, barre rouge de la famille propriétaire), chacune avec sa case — toutes cochées par défaut ; un
+ * propriétaire sans adresse : ligne grisée « aucune adresse mail — compléter la fiche ». Décocher la dernière adresse désactive le bouton. */
+export const LIBELLE_ENVOI_PROPRIETAIRES_OUI = 'Compte rendu envoyé aux propriétaires';
+export const LIBELLE_ENVOI_PROPRIETAIRES_NON = 'Compte rendu NON envoyé aux propriétaires';
+export const AIDE_ENVOI_PROPRIETAIRES_OUI = 'Chaque adresse cochée reçoit SON mail (seule destinataire, sans copie visible) : le compte rendu et les photos, sans l’encadré ATTENTION, sans vocal, sans aucune coordonnée des locataires.';
+export const AIDE_ENVOI_PROPRIETAIRES_NON = 'Les propriétaires ne reçoivent pas ce compte rendu.';
+export const SANS_ADRESSE_PROPRIETAIRE = 'aucune adresse mail — compléter la fiche';
+export interface AdresseProprietaireSaisie { cle: string; proprietaireId: number; nom: string; email: string; recette: string | null }
+
+/** Les destinataires du compte rendu, lus UNE fois pour tout le formulaire (locataires, propriétaires, collaborateur connecté). */
+export function useDestinatairesCompteRendu(occupationIds: readonly number[], actif = true): DestinatairesCompteRendu | null {
+  const { base } = useContextePreavis();
+  const lu = useLecture<DestinatairesCompteRendu>(actif ? `previsiteDestinataires=${occupationIds.join(',')}` : null, base);
+  return lireDestinataires(lu.etat.etat === 'ok' ? lu.etat.data : null);
+}
+/** Une réponse illisible ne casse rien : null (les noms connus, aucun interne, aucun propriétaire). PUR. */
+export function lireDestinataires(brut0: unknown): DestinatairesCompteRendu | null {
+  const brut = brut0 as Partial<DestinatairesCompteRendu> | null;
+  if (!brut || !Array.isArray(brut.locataires) || !Array.isArray(brut.internes)) return null;
+  return { locataires: brut.locataires, internes: brut.internes, sansEmail: Array.isArray(brut.sansEmail) ? brut.sansEmail : [], recetteInternes: brut.recetteInternes ?? null,
+    proprietaires: Array.isArray(brut.proprietaires) ? brut.proprietaires : [], proprietairesSansEmail: Array.isArray(brut.proprietairesSansEmail) ? brut.proprietairesSansEmail : [],
+    collaborateur: typeof brut.collaborateur === 'string' ? brut.collaborateur : '' };
+}
+
+export function BoutonEnvoiProprietaires({ actif, onBasculer, d, cochees, setCochees }: {
+  actif: boolean; onBasculer: () => void; d: DestinatairesCompteRendu | null;
+  /** les clés des adresses cochées */
+  cochees: readonly string[]; setCochees: (x: string[]) => void;
+}) {
+  const adresses = d?.proprietaires ?? [];
+  return (
+    <div className="pvv-envoi-loc pvv-envoi-pro" data-bloc-envoi-proprietaires>
+      <button type="button" className={`svv-btn pvv-gros pvv-envoi-loc-bouton${actif ? ' svv-btn-primary pvv-envoi-loc--oui' : ' svv-btn-outline'}`} aria-pressed={actif}
+        onClick={onBasculer} data-aussi-proprietaires={actif ? 'oui' : 'non'}>
+        {actif ? <><Icone nom="coche" /> {LIBELLE_ENVOI_PROPRIETAIRES_OUI}</> : LIBELLE_ENVOI_PROPRIETAIRES_NON}
+      </button>
+      {actif && <>
+        <p className="pvv-dest-titre" data-destinataires-proprietaires-titre>Les destinataires :</p>
+        <ul className="pvv-dest-liste" data-destinataires-proprietaires>
+          {adresses.map((a) => (
+            <li key={a.cle} className="pvv-dest pvv-dest--proprietaire" data-destinataire-liste="proprietaire">
+              <label className="pvv-dest-case">
+                <input type="checkbox" checked={cochees.includes(a.cle)} onChange={(e) => setCochees(e.target.checked ? [...cochees.filter((x) => x !== a.cle), a.cle] : cochees.filter((x) => x !== a.cle))}
+                  aria-label={`${a.email} — ${a.nom}`} data-adresse-proprietaire={a.cle} />
+                <span className="pvv-dest-adresse" data-adresse-email>{a.email}</span>
+                <span className="pvv-dest-proprio" data-adresse-nom>{a.nom}</span>
+              </label>
+              {a.recette && <span className="pvv-dest-recette" data-destinataire-recette>{a.recette}</span>}
+            </li>))}
+          {(d?.proprietairesSansEmail ?? []).map((n) => (
+            <li key={`sans-${n}`} className="pvv-dest pvv-dest--proprietaire pvv-dest--sans" data-proprietaire-sans-adresse>
+              <span className="pvv-dest-nom">{n}</span><span className="pvv-dest-sans">{SANS_ADRESSE_PROPRIETAIRE}</span>
+            </li>))}
+        </ul>
+        {d !== null && adresses.length === 0 && d.proprietairesSansEmail.length === 0 && <p className="loc-muet" data-envoi-proprietaires-aucun>Aucun propriétaire sur la fiche du bien.</p>}
+      </>}
+      <p className="loc-muet" data-aide-envoi-proprietaires>{actif ? AIDE_ENVOI_PROPRIETAIRES_OUI : AIDE_ENVOI_PROPRIETAIRES_NON}</p>
+    </div>
+  );
+}
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme seulement. */
 export const CSS_COMPTE_RENDU_SAISIE = `
+.pvv-dest-case{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-height:44px;cursor:pointer}
+.pvv-dest-case input{flex:0 0 auto;width:22px;height:22px;margin:0}
+.pvv-dest-adresse{flex:1 1 12rem;min-width:0;overflow-wrap:anywhere}
+.pvv-dest-proprio{flex:0 1 auto;font-weight:600;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.pvv-dest-sans{font-style:italic;font-weight:600;color:var(--color-svv-muted)}
+.pvv-presence:has(input:disabled){opacity:.5;cursor:not-allowed}
+.pvv-presence-absence{flex-direction:column;align-items:stretch !important;border-top:1px dashed var(--color-svv-line);padding-top:6px;margin-top:2px}
+.pvv-presence-collaborateur{margin:0 0 0 30px}
 .pvv-envoi-loc{display:flex;flex-direction:column;gap:6px}
 .pvv-envoi-loc--oui.svv-btn,.pvv-envoi-loc--oui{background:var(--color-svv-red);color:var(--color-svv-surface);border:2px solid var(--color-svv-red)}
 .pvv-envoi-loc-bouton.svv-btn-outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border:2px solid var(--color-svv-line-strong)}
@@ -1156,6 +1243,9 @@ export const CSS_COMPTE_RENDU_SAISIE = `
 .pvv-dest{--pvv-dest:var(--color-svv-gray);display:flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;border-left:6px solid var(--pvv-dest);background:var(--color-svv-field);color:var(--color-svv-ink);font-weight:700;overflow-wrap:anywhere}
 .pvv-dest--locataire{--pvv-dest:var(--color-svv-green-ink)}
 .pvv-dest--interne{--pvv-dest:var(--color-svv-gray)}
+/* (16/11/2026) la famille proprietaire : barre ROUGE (apres .pvv-dest, sinon la variable grise l'emporte) ; sans adresse : grisee */
+.pvv-dest--proprietaire{--pvv-dest:var(--color-svv-red)}
+.pvv-dest--proprietaire.pvv-dest--sans{--pvv-dest:var(--color-svv-line-strong);opacity:.65;font-weight:600}
 .pvv-dest-recette{display:block;margin:0;font-size:.86rem;font-weight:700;color:var(--color-svv-ink);padding:4px 8px;border-radius:8px;border:1px dashed var(--color-svv-urgence-orange)}
 .pvv-bloc{border:1px solid var(--color-svv-line);border-radius:14px;padding:12px;margin:14px 0 0;display:flex;flex-direction:column;gap:10px;min-width:0}
 .pvv-bloc--texte{background:color-mix(in srgb, var(--color-svv-green) 5%, var(--color-svv-surface))}

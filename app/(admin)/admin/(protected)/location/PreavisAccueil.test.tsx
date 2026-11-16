@@ -1937,7 +1937,7 @@ describe('🔴🔴 Arno (15/11/2026, 3e retour iPhone) — PRÉSENCE, esthétiqu
     taperTexte('CR.');
     act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre();
     expect(appels).toEqual([]);
-    expect(document.querySelector('[data-presence-motif]')!.textContent).toBe('Cochez au moins une personne présente à la pré-visite.');
+    expect(document.querySelector('[data-presence-motif]')!.textContent).toBe('Cochez au moins une personne présente à la pré-visite, ou « Absence de la partie locataire ».');
     expect(document.querySelector('[data-bloc-presence]')!.getAttribute('data-presence-erreur')).toBe('oui');
     act(() => (document.querySelector('[data-presence-locataire="12"]') as HTMLInputElement).click());
     expect(document.querySelector('[data-presence-motif]')).toBeNull();
@@ -3194,5 +3194,133 @@ describe('🔴🔴 Arno (15/11/2026) — mission à droite de la date (sans date
     expect([...f.querySelectorAll('[data-cr-destinataire]')].map((x) => x.getAttribute('data-cr-destinataire'))).toEqual(['locataire', 'interne']);
     expect(f.querySelector('[data-cr-mail-envoye] summary')!.textContent).toBe('Voir le mail tel qu’envoyé');
     expect(f.querySelector('[data-cr-mail-envoye] pre')!.textContent).toContain('Mail envoyé par Arnaud JOREL');
+  });
+});
+
+describe('🔴🔴 (16/11/2026, responsable location) — « Absence de la partie locataire » et « Compte rendu envoyé aux propriétaires » (écran)', () => {
+  const RDV = { jour: '2026-11-13', heure: '13:45', dureeMinutes: 15 };
+  let appels: Record<string, unknown>[] = [];
+  let destinataires: Record<string, unknown> = {};
+  const UN = [{ cle: '5|proprio@exemple.test', proprietaireId: 5, nom: 'DUPONT Jean', email: 'proprio@exemple.test', recette: null }];
+  const PLUSIEURS = [...UN, { cle: '5|jean.dupont@exemple.test', proprietaireId: 5, nom: 'DUPONT Jean', email: 'jean.dupont@exemple.test', recette: null },
+    { cle: '6|sci@exemple.test', proprietaireId: 6, nom: 'SCI Les Tilleuls', email: 'sci@exemple.test', recette: 'Adresse remplacée en recette : envoyé à a.jorel@sansvisavis.com.' }];
+  beforeEach(() => {
+    appels = [];
+    destinataires = { locataires: [{ nom: 'Alice BERNARD', recette: null }], sansEmail: [], internes: ['a.jorel@sansvisavis.com'], recetteInternes: null,
+      proprietaires: UN, proprietairesSansEmail: [], collaborateur: 'Arnaud JOREL' };
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }, { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2023-01-15' }],
+      previsite: { statut: 'programmee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } : l));
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if (!init?.method && String(u).includes('previsiteDestinataires=')) return ok(destinataires);
+      if (init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'apercu-compte-rendu-previsite') {
+          appels.push(c);
+          const phrase = (c.presences as { absence?: boolean }).absence ? 'Pré-visite réalisée en l’absence des locataires, par Arnaud JOREL (Sans Vis-à-Vis / CRITERIMMO).' : 'En présence de Alice BERNARD.';
+          return ok({ mails: [{ sorte: 'previsite_compte_rendu', objet: 'CR', a: ['a.jorel@sansvisavis.com'], cc: [], texte: `${phrase}\n\nCR.`, famille: 'interne' },
+            { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['proprio@exemple.test'], cc: [], texte: `Bonjour DUPONT Jean,\n\n${phrase}\n\n- CR.`, famille: 'proprietaire', destinataire: 'DUPONT Jean' },
+            { sorte: 'previsite_compte_rendu', objet: 'CR', a: ['alice@exemple.test'], cc: [], texte: `Madame, Monsieur,\n\n${phrase}\n\n- CR.`, famille: 'locataire', destinataire: 'Alice BERNARD' }],
+          sansEmail: [], phrase });
+        }
+      }
+      return (avant as typeof fetch)(u, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const ouvrirCr = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); await suivreLienCr(); await attendre(); };
+  const taper = (v: string) => act(() => { const t = document.querySelector('[data-corps-compte-rendu]') as HTMLTextAreaElement; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v); t.dispatchEvent(new Event('input', { bubbles: true })); });
+  const cases = () => [...document.querySelectorAll('[data-presence-locataire]')] as HTMLInputElement[];
+  const recap = async () => { act(() => (document.querySelector('[data-recap-previsite]') as HTMLButtonElement).click()); await attendre(); await attendre(); };
+
+  it('« Absence de la partie locataire » toujours proposée sous les locataires ; cochée : les cases des locataires décochées et GRISÉES, le collaborateur présent ; décochée : l’état d’avant revient', async () => {
+    await ouvrirCr();
+    const absence = document.querySelector('[data-absence-locataires]') as HTMLInputElement;
+    expect(absence).not.toBeNull(); expect(absence.checked).toBe(false);
+    expect(absence.closest('[data-presence-absence]')!.textContent).toContain('Absence de la partie locataire');
+    // l'absence vient APRÈS les locataires
+    const lis = [...document.querySelectorAll('[data-cr-locataires] > li')];
+    expect(lis.findIndex((x) => x.hasAttribute('data-presence-absence'))).toBe(2);
+    act(() => cases()[0].click());
+    expect(cases().map((c) => c.checked)).toEqual([true, false]);
+    act(() => absence.click());
+    expect(cases().map((c) => [c.checked, c.disabled])).toEqual([[false, true], [false, true]]);
+    expect(document.querySelector('[data-presence-collaborateur]')!.textContent).toBe('Arnaud JOREL collaborateur — présent (Sans Vis-à-Vis / CRITERIMMO)');
+    // les personnes ajoutées restent possibles
+    expect((document.querySelector('[data-ajouter-personne]') as HTMLButtonElement).disabled).toBe(false);
+    act(() => absence.click());
+    expect(cases().map((c) => [c.checked, c.disabled])).toEqual([[true, false], [false, false]]);
+    expect(document.querySelector('[data-presence-collaborateur]')).toBeNull();
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-presence:has(input:disabled){opacity:.5');
+  });
+  it('validation : sans personne cochée ni absence, refus ; absence seule : le récapitulatif part (présences { absence })', async () => {
+    await ouvrirCr(); taper('CR.');
+    await recap();
+    expect(appels).toEqual([]);
+    expect(document.querySelector('[data-presence-motif]')!.textContent).toBe('Cochez au moins une personne présente à la pré-visite, ou « Absence de la partie locataire ».');
+    act(() => (document.querySelector('[data-absence-locataires]') as HTMLInputElement).click());
+    await recap();
+    expect(appels).toHaveLength(1);
+    expect(appels[0].presences).toEqual({ occupations: [], personnes: [], absence: true });
+    expect(appels[0].proprietaires).toBeNull();
+    expect(document.querySelector('[data-fenetre-previsite="recap"]')).not.toBeNull();
+  });
+  it('« Compte rendu envoyé aux propriétaires » : sous celui des locataires, même style, DÉSACTIVÉ par défaut (creux) ; activé : plein, une adresse seule cochée d’office', async () => {
+    await ouvrirCr();
+    const b = document.querySelector('[data-aussi-proprietaires]') as HTMLButtonElement;
+    const blocs = [...document.querySelectorAll('[data-bloc-envoi-locataires], [data-bloc-envoi-proprietaires]')].map((x) => (x.hasAttribute('data-bloc-envoi-locataires') ? 'locataires' : 'proprietaires'));
+    expect(blocs).toEqual(['locataires', 'proprietaires']);
+    expect(b.getAttribute('aria-pressed')).toBe('false'); expect(b.className).toContain('svv-btn-outline');
+    expect(b.textContent).toBe('Compte rendu NON envoyé aux propriétaires');
+    expect(document.querySelector('[data-destinataires-proprietaires]')).toBeNull();
+    act(() => b.click());
+    expect(b.getAttribute('aria-pressed')).toBe('true'); expect(b.className).toContain('svv-btn-primary');
+    expect(b.textContent!.trim()).toBe('Compte rendu envoyé aux propriétaires');
+    const lignesP = [...document.querySelectorAll('[data-destinataire-liste="proprietaire"]')];
+    expect(lignesP.map((x) => [x.querySelector('[data-adresse-email]')!.textContent, x.querySelector('[data-adresse-nom]')!.textContent, x.className]))
+      .toEqual([['proprio@exemple.test', 'DUPONT Jean', 'pvv-dest pvv-dest--proprietaire']]);
+    expect((lignesP[0].querySelector('input') as HTMLInputElement).checked).toBe(true);
+    const css = (await import('./CompteRenduSaisie')).CSS_COMPTE_RENDU_SAISIE.replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-dest--proprietaire{--pvv-dest:var(--color-svv-red)}');
+  });
+  it('plusieurs adresses : une ligne chacune, toutes cochées, décochables une par une ; un propriétaire sans adresse grisé ; la dernière décochée désactive le bouton', async () => {
+    destinataires = { ...destinataires, proprietaires: PLUSIEURS, proprietairesSansEmail: ['MARTIN Paul'] };
+    await ouvrirCr(); taper('CR.');
+    act(() => (document.querySelector('[data-aussi-proprietaires]') as HTMLButtonElement).click());
+    const boites = () => [...document.querySelectorAll('[data-adresse-proprietaire]')] as HTMLInputElement[];
+    expect(boites().map((x) => [x.getAttribute('data-adresse-proprietaire'), x.checked])).toEqual([['5|proprio@exemple.test', true], ['5|jean.dupont@exemple.test', true], ['6|sci@exemple.test', true]]);
+    expect(document.querySelector('[data-proprietaire-sans-adresse]')!.textContent).toBe('MARTIN Paulaucune adresse mail — compléter la fiche');
+    expect(document.querySelector('[data-proprietaire-sans-adresse]')!.className).toContain('pvv-dest--sans');
+    expect(document.querySelector('[data-destinataire-recette]')!.textContent).toContain('Adresse remplacée en recette');
+    act(() => boites()[1].click());
+    expect(boites().map((x) => x.checked)).toEqual([true, false, true]);
+    // le récapitulatif reçoit les seules adresses cochées
+    act(() => cases()[0].click());
+    await recap();
+    expect(appels[0].proprietaires).toEqual({ adresses: [{ proprietaireId: 5, email: 'proprio@exemple.test' }, { proprietaireId: 6, email: 'sci@exemple.test' }] });
+    // l'ordre des cartes : locataires → propriétaires → interne
+    expect([...document.querySelectorAll('[data-mails-prevus] [data-etiquette-famille]')].map((x) => x.getAttribute('data-etiquette-famille'))).toEqual(['locataire', 'proprietaire', 'interne']);
+    act(() => (document.querySelector('[data-revenir-previsite]') as HTMLButtonElement).click()); await attendre();
+    act(() => boites()[0].click()); act(() => boites()[2].click());
+    expect(document.querySelector('[data-aussi-proprietaires]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('[data-destinataires-proprietaires]')).toBeNull();
+  });
+  it('« Voir le compte rendu » : section PRÉSENCE « Locataires absents », puis le collaborateur et les personnes ajoutées ; le propriétaire dans les envois', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'effectuee', rdv: RDV, tacheId: 9, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null, compteRendu: true } } : l));
+    const CR = { texte: 'Compte rendu de la pré-visite du 13/11/2026 — C rue\n\nPré-visite réalisée en l’absence des locataires, par Arnaud JOREL (Sans Vis-à-Vis / CRITERIMMO).\n\nLogement propre.',
+      objet: 'CR', saisiPar: 'Arnaud JOREL', saisiLe: '2026-11-13T15:13:00Z', pieces: [], aucunEnvoi: false,
+      destinataires: [{ nom: 'DUPONT Jean', famille: 'proprietaire', quand: '2026-11-13T15:13:00Z', etat: 'envoye', motif: null }],
+      presences: { occupations: [], locataires: [], personnes: [{ civilite: 'Madame', prenom: 'Léa', nom: 'Martin', note: '' }], absence: { par: 'Arnaud JOREL' } } };
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (!init?.method && String(u).includes('previsiteCompteRendu=') ? ok(CR) : (avant as typeof fetch)(u, init))) as unknown as typeof fetch;
+    await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre();
+    clic('[data-ligne-depliee="C"] [data-voir-compte-rendu="oui"]'); await attendre(); await attendre();
+    const sec = document.querySelector('[data-cr-section="presence"]')!;
+    expect(sec.querySelector('[data-cr-locataires-absents]')!.textContent).toBe('Locataires absents');
+    expect([...sec.querySelectorAll('[data-cr-present]')].map((x) => [x.getAttribute('data-cr-present'), x.textContent])).toEqual([
+      ['collaborateur', 'Arnaud JOREL — collaborateur (Sans Vis-à-Vis / CRITERIMMO)'], ['personne', 'Madame Léa MARTIN — personne présente']]);
+    expect(document.querySelector('[data-cr-texte]')!.textContent).toBe('Logement propre.');
+    expect(document.querySelector('[data-cr-destinataire="proprietaire"]')!.textContent).toContain('DUPONT Jean');
   });
 });

@@ -11,6 +11,8 @@ export type ActionLocation = 'nouvelle_location' | 'preavis' | 'sortie';
 
 /** Un mail tel que le serveur dit l'avoir envoyé (ou tenté). */
 export interface MailParti { sorte: string; objet: string | null; a: string[]; cc: string[]; envoye: boolean; motif: string | null;
+  /** 🔴 (16/11/2026) le compte rendu de pré-visite parti à un propriétaire */
+  famille?: string;
   /** 🔴 Arno (06/11/2026) — le texte tel qu'il est parti, rendu par le serveur ; absent : non montré. */
   texte?: string }
 
@@ -58,8 +60,9 @@ export const LIBELLE_MAIL: Record<string, string> = {
   tache_exterieur_annulation: 'Annulation (contact extérieur)',
 };
 // 🔴 Arno (10/11/2026) — la copie interne des mails partis séparément à chaque locataire garde la sorte du mail (journal) : son objet la dit.
-export const libelleMail = (m: Pick<MailParti, 'sorte'> & { objet?: string | null }): string =>
-  ((m.objet ?? '').startsWith('[Copie interne] ') ? 'Copie interne (collaborateurs)' : LIBELLE_MAIL[m.sorte] ?? 'Mail');
+export const libelleMail = (m: Pick<MailParti, 'sorte'> & { objet?: string | null; famille?: string }): string =>
+  ((m.objet ?? '').startsWith('[Copie interne] ') ? 'Copie interne (collaborateurs)'
+    : m.sorte === 'previsite_compte_rendu' && m.famille === 'proprietaire' ? 'Compte rendu de pré-visite (propriétaire)' : LIBELLE_MAIL[m.sorte] ?? 'Mail');
 
 /** Les mails du préavis / de la sortie (champ `mails` / `adhoc` de la réponse). PUR. */
 export function mailsDepuisAvis(m: { etat: 'ok'; envois: readonly MailParti[] } | { etat: string; motif: string } | undefined): { mails: MailParti[]; motifGlobal: string | null } {

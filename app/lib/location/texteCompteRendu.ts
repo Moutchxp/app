@@ -71,7 +71,26 @@ export interface PersonnePresente { civilite: string | null; prenom: string | nu
   /** 🔴 Arno (15/11/2026) — note INTERNE d'une personne ajoutée : jamais dans la phrase, jamais dans un mail aux locataires */
   note?: string | null }
 export const PERSONNES_AJOUTEES_MAX = 10;
-export const MOTIF_PRESENCE = 'Cochez au moins une personne présente à la pré-visite.';
+export const MOTIF_PRESENCE = 'Cochez au moins une personne présente à la pré-visite, ou « Absence de la partie locataire ».';
+
+/* 🔴 (16/11/2026, responsable location) — « ABSENCE DE LA PARTIE LOCATAIRE » : la pré-visite faite sans les locataires. Le collaborateur qui la
+ * réalise (le compte connecté) figure comme présent ; la phrase de présence devient « Pré-visite réalisée en l’absence des locataires, par
+ * Prénom NOM (Sans Vis-à-Vis / CRITERIMMO). », avec « en présence de … » si des personnes ont été ajoutées. */
+export const LIBELLE_ABSENCE_LOCATAIRES = 'Absence de la partie locataire';
+export const AGENCE_PREVISITE = 'Sans Vis-à-Vis / CRITERIMMO';
+/** « Prénom NOM » du collaborateur ; inconnu : chaîne vide. PUR. */
+export function nomCollaborateur(p: { prenom?: string | null; nom?: string | null }): string {
+  return [(p.prenom ?? '').replace(/\s+/g, ' ').trim(), (p.nom ?? '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
+}
+/** « Pré-visite réalisée en l’absence des locataires, par Arnaud JOREL (Sans Vis-à-Vis / CRITERIMMO)[, en présence de …]. » PUR. */
+export function phraseAbsence(collaborateur: string, personnes: readonly PersonnePresente[]): string {
+  const l = listePresence(personnes);
+  const morceaux = ['Pré-visite réalisée en l’absence des locataires', ...(collaborateur.trim() === '' ? [] : [` par ${collaborateur.trim()} (${AGENCE_PREVISITE})`]),
+    ...(l === '' ? [] : [` en présence ${l}`])];
+  return `${morceaux.join(',')}.`;
+}
+/** La phrase de présence d'un compte rendu : celle de l'absence, ou « En présence de … ». PUR. */
+export const estPhraseAbsence = (phrase: string): boolean => phrase.startsWith('Pré-visite réalisée en l’absence des locataires');
 
 /** « Mme », « M. », ou rien (civilité inconnue ou composée). PUR. */
 export function abregerCivilite(c: string | null | undefined): string {

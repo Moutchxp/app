@@ -17,8 +17,9 @@ export const ETIQUETTE_FAMILLE_MAIL: Record<FamilleMail, string> = {
 };
 
 const ORDRE_FAMILLE: Record<FamilleMail, number> = { interne: 0, locataire: 1, proprietaire: 2, partenaires: 3 };
-/** 🔴 Arno (15/11/2026, 9e retour) — le récapitulatif de la PRÉ-VISITE : les LOCATAIRES d'abord, puis l'interne (« 1 mail locataire · 1 mail interne »). */
-export const ORDRE_LOCATAIRES_DABORD: Record<FamilleMail, number> = { locataire: 0, interne: 1, proprietaire: 2, partenaires: 3 };
+/** 🔴 Arno (15/11/2026, 9e retour) — le récapitulatif de la PRÉ-VISITE : les LOCATAIRES d'abord, puis l'interne (« 1 mail locataire · 1 mail interne »).
+ *  🔴 (16/11/2026) les PROPRIÉTAIRES entre les deux : locataires → propriétaires → interne. */
+export const ORDRE_LOCATAIRES_DABORD: Record<FamilleMail, number> = { locataire: 0, proprietaire: 1, interne: 2, partenaires: 3 };
 type Ordre = Record<FamilleMail, number>;
 const MOTS: Record<FamilleMail, [string, string]> = {
   interne: ['mail interne', 'mails internes'],

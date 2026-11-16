@@ -160,6 +160,8 @@ export async function apercuMailsPreavis(
 
 /** Ce que l'écran dit de chaque mail, après l'envoi. */
 export interface EnvoiAvis { sorte: MailAvis['sorte']; objet: string; a: string[]; cc: string[]; envoye: boolean; motif: string | null;
+  /** 🔴 (16/11/2026) un compte rendu de pré-visite parti à un PROPRIÉTAIRE (même sorte que le mail interne) : dit dans la fenêtre de résultat */
+  famille?: string;
   /** 🔴 Arno (06/11/2026) — le texte tel qu'il est parti (la fenêtre de résultat le montre). */
   texte?: string }
 

@@ -891,11 +891,143 @@ describe('🔴🔴 Arno (15/11/2026) — LA PRÉSENCE : « En présence de … �
   it('🔴 personne cochée : REFUS, rien ne part ; un locataire d’un autre préavis ou une personne incomplète : refus', async () => {
     programmee(); avecAnnuaire();
     expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [], personnes: [] } }, AUTEUR))
-      .toMatchObject({ etat: 'refus', champ: 'presences', motif: 'Cochez au moins une personne présente à la pré-visite.' });
+      .toMatchObject({ etat: 'refus', champ: 'presences', motif: 'Cochez au moins une personne présente à la pré-visite, ou « Absence de la partie locataire ».' });
     expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [99], personnes: [] } }, AUTEUR))
       .toMatchObject({ etat: 'refus', champ: 'presences' });
     expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: false, presences: { occupations: [], personnes: [{ civilite: 'Docteur', nom: 'X' }] } }, AUTEUR))
       .toMatchObject({ etat: 'refus', champ: 'presences' });
     expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴🔴 (16/11/2026, responsable location) — « ABSENCE DE LA PARTIE LOCATAIRE » et COMPTE RENDU AUX PROPRIÉTAIRES', () => {
+  const PHRASE = 'Pré-visite réalisée en l’absence des locataires, par Arno TEST (Sans Vis-à-Vis / CRITERIMMO).';
+  const proprietaires = (...adresses: [number, string][]) => ({ adresses: adresses.map(([proprietaireId, email]) => ({ proprietaireId, email })) });
+  const tousLesMails = () => envoyerSerie.mock.calls.flatMap((c) => c[0] as unknown as { a: string[]; cc: string[]; texte: string; pieces?: { nom: string; typeMime: string }[] }[]);
+  const PROS = ENCART_FICHE.coordonnees.proprietaires;
+  // les locataires cochés, relus dans l'annuaire
+  beforeEach(() => { query.mockImplementation(async (sql: string, params: unknown[] = []) =>
+    (sql.includes('l.civilite, l.prenom, l.nom') ? { rows: (params[0] as number[]).map((id) => (id === 11 ? { id: '11', civilite: 'M.', prenom: 'Alice', nom: 'TEST' } : { id: '12', civilite: null, prenom: 'Bruno', nom: 'TEST' })) }
+      : repondre(sql, params)) as never); });
+  afterEach(() => { ENCART_FICHE.coordonnees.proprietaires = PROS; query.mockImplementation(async (sql: string, params: unknown[] = []) => repondre(sql, params)); });
+
+  it('absence cochée, AUCUN locataire coché : valide ; le collaborateur connecté figure présent ; la phrase dans le mail interne ET dans chaque mail aux locataires ; rangée au journal', async () => {
+    programmee();
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'Logement propre.', aussiLocataires: true, presences: { occupations: [], personnes: [], absence: true } }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: 'effectuee' } });
+    const mails = tousLesMails();
+    expect(mails[0].texte.startsWith(`Compte rendu de la pré-visite du 12/11/2026 — 4 rue Fictive, 92800 Puteaux\n\n${PHRASE}\n`)).toBe(true);
+    const auxLocataires = mails.filter((m) => !m.a.includes('arno@exemple.test'));
+    expect(auxLocataires).toHaveLength(2);
+    for (const m of auxLocataires) {
+      expect(m.texte).toContain(`à 10h00, vous trouverez ci-dessous le compte rendu des points relevés en vue de l’état des lieux de sortie.\n\n${PHRASE}`);
+      expect(m.texte).not.toContain(' en présence de');
+    }
+    const trace = journal().filter((a) => a.params[1] === 'location_previsite_presences');
+    expect(JSON.parse(trace[0].params[3] as string)).toEqual({ v: 2, phrase: PHRASE, presents: [], absence: { par: 'Arno TEST' } });
+  });
+  it('absence + personnes ajoutées : « …, en présence de Mme Léa Martin. » ; absence + un locataire coché : REFUS, rien ne part', async () => {
+    programmee();
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: false,
+      presences: { occupations: [], personnes: [{ civilite: 'Madame', nom: 'Martin', prenom: 'Léa' }], absence: true } }, AUTEUR);
+    expect(tousLesMails()[0].texte).toContain('Pré-visite réalisée en l’absence des locataires, par Arno TEST (Sans Vis-à-Vis / CRITERIMMO), en présence de Mme Léa Martin.');
+    envoyerSerie.mockClear();
+    const { MOTIF_ABSENCE_ET_LOCATAIRE } = await import('./previsiteRepo');
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true, presences: { occupations: [11], personnes: [], absence: true } }, AUTEUR))
+      .toEqual({ etat: 'refus', motif: MOTIF_ABSENCE_ET_LOCATAIRE, champ: 'presences' });
+    expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  it('sans absence ni personne cochée : toujours refusé (le message nomme l’absence)', async () => {
+    programmee();
+    expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true, presences: { occupations: [], personnes: [] } }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'presences', motif: 'Cochez au moins une personne présente à la pré-visite, ou « Absence de la partie locataire ».' });
+  });
+
+  it('bouton propriétaires désactivé (rien reçu) : aucun mail de propriétaire', async () => {
+    programmee();
+    await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true, presences: { occupations: [11], personnes: [] } }, AUTEUR);
+    expect(tousLesMails().some((m) => m.a.includes('proprio@exemple.test'))).toBe(false);
+  });
+  it('🔴 un mail SÉPARÉ par adresse cochée, seule destinataire, sans copie ; rangé dans l’historique de SON propriétaire ; la présence, le texte, les photos et leurs légendes ; ni ATTENTION, ni vocal, ni coordonnée de locataire', async () => {
+    programmee(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]); vocauxSim.ids = new Set([81]);
+    ENCART_FICHE.coordonnees.proprietaires = [{ id: 5, nom: 'DUPONT Jean', telephones: ['06 99 88 77 66'], emails: ['proprio@exemple.test', 'jean.dupont@exemple.test'] },
+      { id: 6, nom: 'SCI Les Tilleuls', telephones: [], emails: ['sci@exemple.test'] }];
+    const r = await envoyerCompteRendu({ occupationIds: OCC, corps: 'Salon propre.\n- Rayure au parquet', aussiLocataires: true, photos: [{ id: 71, legende: 'Parquet du salon' }],
+      vocaux: [81], fichiersVocaux: [{ nom: 'Cuisine', ids: [81], locataires: true }], presences: { occupations: [11], personnes: [] },
+      proprietaires: proprietaires([5, 'proprio@exemple.test'], [5, 'jean.dupont@exemple.test'], [6, 'sci@exemple.test']) }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { statut: 'effectuee' } });
+    const appelsPro = envoyerSerie.mock.calls.filter((c) => ((c[0] as unknown as { a: string[] }[])[0].a[0] ?? '').match(/proprio|dupont|sci@/));
+    expect(appelsPro).toHaveLength(3);
+    expect(appelsPro.map((c) => (c[2] as { proprietaireIds: number[] }).proprietaireIds)).toEqual([[5], [5], [6]]);
+    for (const c of appelsPro) {
+      const [m] = c[0] as unknown as { a: string[]; cc: string[]; texte: string; pieces?: { nom: string; typeMime: string }[] }[];
+      expect(m.a).toHaveLength(1); expect(m.cc).toEqual([]);
+      expect(m.texte).toContain('Nous avons réalisé le 12/11/2026 la pré-visite de votre logement situé 4 rue Fictive, 92800 Puteaux, en vue du départ de vos locataires.');
+      expect(m.texte).toContain('En présence de M. Alice TEST.');
+      expect(m.texte).toContain('- Salon propre.\n- Rayure au parquet');
+      expect(m.texte).toContain('Vous trouverez en pièce jointe la photo prise lors de la pré-visite :\nPhoto 1 — Parquet du salon');
+      expect(m.texte).not.toContain('ATTENTION');
+      expect(m.texte).not.toMatch(/vocal|Vocal/);
+      for (const c2 of ['alice@exemple.test', 'bruno@exemple.test', '06 55 66 77 88']) expect(m.texte).not.toContain(c2);
+      expect((m.pieces ?? []).map((p) => p.typeMime)).toEqual(['image/jpeg']);
+    }
+    expect(appelsPro.map((c) => (c[0] as unknown as { texte: string }[])[0].texte.split('\n')[0])).toEqual(['Bonjour DUPONT Jean,', 'Bonjour DUPONT Jean,', 'Bonjour SCI Les Tilleuls,']);
+    // la fenêtre de résultat dit « propriétaire »
+    expect(r.etat === 'ok' && r.data.envois.filter((e) => e.famille === 'proprietaire').map((e) => e.a[0])).toEqual(['proprio@exemple.test', 'jean.dupont@exemple.test', 'sci@exemple.test']);
+  });
+  it('une adresse qui n’est pas sur la fiche, ou aucune adresse cochée : REFUS, rien ne part', async () => {
+    programmee();
+    const { MOTIF_ADRESSE_PROPRIETAIRE_INCONNUE, MOTIF_AUCUNE_ADRESSE_PROPRIETAIRE } = await import('./previsiteRepo');
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: false, presences: { occupations: [11], personnes: [] },
+      proprietaires: proprietaires([5, 'pirate@exemple.test']) }, AUTEUR)).toMatchObject({ etat: 'refus', motif: MOTIF_ADRESSE_PROPRIETAIRE_INCONNUE });
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: false, presences: { occupations: [11], personnes: [] },
+      proprietaires: proprietaires([6, 'proprio@exemple.test']) }, AUTEUR)).toMatchObject({ etat: 'refus', motif: MOTIF_ADRESSE_PROPRIETAIRE_INCONNUE });
+    expect(await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: false, presences: { occupations: [11], personnes: [] },
+      proprietaires: { adresses: [] } }, AUTEUR)).toMatchObject({ etat: 'refus', motif: MOTIF_AUCUNE_ADRESSE_PROPRIETAIRE });
+    expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  it('🔴 CONFIDENTIALITÉ : un téléphone ou un e-mail de locataire dans le texte (ou une légende) d’un compte rendu aux propriétaires : REFUS ; l’inverse aussi', async () => {
+    programmee(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]);
+    const base = { occupationIds: OCC, aussiLocataires: false, presences: { occupations: [11], personnes: [] } };
+    const r1 = await envoyerCompteRendu({ ...base, corps: 'Rappeler Alice au 06 55 66 77 88.', proprietaires: proprietaires([5, 'proprio@exemple.test']) }, AUTEUR);
+    expect(r1).toMatchObject({ etat: 'refus', champ: 'corps' });
+    expect(r1.etat === 'refus' && r1.motif).toContain('Alice TEST (téléphone)');
+    expect(await envoyerCompteRendu({ ...base, corps: 'CR.', photos: [{ id: 71, legende: 'écrire à bruno@exemple.test' }], proprietaires: proprietaires([5, 'proprio@exemple.test']) }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'corps' });
+    // le même texte, sans envoi aux propriétaires ni aux locataires : rien à protéger
+    expect(await envoyerCompteRendu({ ...base, corps: 'Rappeler Alice au 06 55 66 77 88.' }, AUTEUR)).toMatchObject({ etat: 'ok' });
+    envoyerSerie.mockClear();
+    // l'inverse : une coordonnée du propriétaire dans un compte rendu envoyé aux locataires
+    expect(await envoyerCompteRendu({ ...base, aussiLocataires: true, corps: 'Le propriétaire (proprio@exemple.test) passera.' }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'corps' });
+    expect(envoyerSerie).not.toHaveBeenCalled();
+  });
+  it('le RÉCAPITULATIF : une carte « propriétaire » par adresse, à son nom, ses photos seulement, le texte modifiable (appel, introduction, conclusion, politesse) — la modification vaut pour chacun', async () => {
+    programmee(); photosSim.pieces = new Map([[71, { nom: 'photo-previsite.jpg', taille: 300_000 }]]); vocauxSim.ids = new Set([81]);
+    const r = await apercuCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: true, photos: [{ id: 71, legende: 'Parquet' }], vocaux: [81],
+      fichiersVocaux: [{ nom: 'Cuisine', ids: [81], locataires: true }], presences: { occupations: [11], personnes: [] }, proprietaires: proprietaires([5, 'proprio@exemple.test']),
+      retouches: { previsite_compte_rendu_proprietaire: { conclusion: 'Nous vous tiendrons informé de la date de l’état des lieux.' } } }, AUTEUR);
+    expect(r.etat).toBe('ok');
+    if (r.etat !== 'ok') return;
+    const pro = r.data.mails.filter((m) => m.famille === 'proprietaire');
+    expect(pro).toHaveLength(1);
+    expect(pro[0]).toMatchObject({ a: ['proprio@exemple.test'], destinataire: 'DUPONT Jean', pieces: ['Photo-1-parquet.jpg'], modifie: true });
+    expect(pro[0].edition?.cle).toBe('previsite_compte_rendu_proprietaire');
+    expect(pro[0].edition?.parties.filter((p) => p.modifiable).map((p) => p.cle)).toEqual(['appel', 'intro', 'conclusion', 'politesse']);
+    expect(pro[0].texte).toContain('Nous vous tiendrons informé de la date de l’état des lieux.');
+    // les autres cartes gardent leurs familles (le vocal reste dans ceux des locataires)
+    expect(r.data.mails.filter((m) => m.famille === 'locataire').every((m) => (m.pieces ?? []).some((n) => n.endsWith('.m4a')))).toBe(true);
+    // une retouche qui retire un repère protégé : refusée
+    expect(await apercuCompteRendu({ occupationIds: OCC, corps: 'CR.', aussiLocataires: false, presences: { occupations: [11], personnes: [] }, proprietaires: proprietaires([5, 'proprio@exemple.test']),
+      retouches: { previsite_compte_rendu_proprietaire: { intro: 'Bonjour.' } } }, AUTEUR)).toMatchObject({ etat: 'refus' });
+  });
+  it('« Les destinataires » : une ligne par adresse de propriétaire (nom en face), les propriétaires sans adresse à part, le collaborateur connecté', async () => {
+    ENCART_FICHE.coordonnees.proprietaires = [{ id: 5, nom: 'DUPONT Jean', telephones: [], emails: ['proprio@exemple.test', 'jean.dupont@exemple.test'] },
+      { id: 6, nom: 'MARTIN Paul', telephones: [], emails: [] }];
+    const { destinatairesCompteRendu } = await import('./previsiteRepo');
+    const r = await destinatairesCompteRendu(OCC, AUTEUR);
+    expect(r.etat === 'ok' && r.data.proprietaires.map((x) => [x.cle, x.nom, x.email])).toEqual([
+      ['5|proprio@exemple.test', 'DUPONT Jean', 'proprio@exemple.test'], ['5|jean.dupont@exemple.test', 'DUPONT Jean', 'jean.dupont@exemple.test']]);
+    expect(r.etat === 'ok' && r.data.proprietairesSansEmail).toEqual(['MARTIN Paul']);
+    expect(r.etat === 'ok' && r.data.collaborateur).toBe('Arno TEST');
   });
 });

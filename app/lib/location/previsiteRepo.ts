@@ -12,11 +12,22 @@ import type { Retouches } from './texteModifiable';
 import { nomFichierPhoto, paragraphesPhotos, refusPhotos, type PhotoCompteRendu } from './photosCompteRendu';
 import { metaPieces, piecesPourEnvoi } from './piecesSortieRepo';
 import { PIECES_MAX_OCTETS } from './validationSortie';
-import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, listePresence, nomPresent, paragraphesNotesPresence, personneAjoutee, phrasePresence, type PersonnePresente } from './texteCompteRendu';
+import { MOTIF_PRESENCE, PERSONNES_AJOUTEES_MAX, listePresence, nomCollaborateur, nomPresent, paragraphesNotesPresence, personneAjoutee, phraseAbsence, phrasePresence, type PersonnePresente } from './texteCompteRendu';
+import { partiesDuBail } from './validationSortieRepo';
+import { coordonneesDeTiers, type PartieSortie } from './validationSortie';
 import { familleDuMail, PREFIXE_COPIE_INTERNE_MAIL } from './famillesMails';
 
 /** 🔴 Arno (15/11/2026) — la présence reçue de l'écran : les occupations des locataires cochés, les personnes ajoutées (non vérifiées). */
-export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[] }
+export interface PresencesCr { occupations: readonly number[]; personnes: readonly unknown[];
+  /** 🔴 (16/11/2026) « Absence de la partie locataire » : aucun locataire coché ; le collaborateur connecté figure comme présent */
+  absence?: boolean }
+/** 🔴 (16/11/2026) les adresses de propriétaires cochées (un mail SÉPARÉ chacune) ; absent : le bouton « envoyé aux propriétaires » est désactivé. */
+export interface ProprietairesCr { adresses: readonly { proprietaireId: number; email: string }[] }
+export const MOTIF_AUCUNE_ADRESSE_PROPRIETAIRE = 'Cochez au moins une adresse de propriétaire, ou désactivez « Compte rendu envoyé aux propriétaires ».';
+export const MOTIF_ADRESSE_PROPRIETAIRE_INCONNUE = 'Une adresse de propriétaire cochée n’est plus sur la fiche du bien : rechargez la page. Rien n’est parti.';
+export const MOTIF_ABSENCE_ET_LOCATAIRE = 'Absence de la partie locataire : aucun locataire ne peut être coché présent.';
+/** Un mail prêt pour UNE adresse de propriétaire. */
+interface MailProprietaireCr { mail: MailPrevisite; proprietaireId: number; nom: string }
 export { ACTION_JOURNAL_PRESENCES };
 import { ACTION_JOURNAL_VOCAUX, fichiersVocauxRecus, nomPieceVocale, paragraphesVocaux, refusPoidsPieces, traceVocaux, VOCAUX_MAX, type FichierVocalTrace, libelleJournalVocaux } from './vocauxCompteRendu';
 import { prisesPourEnvoi, vocauxDesOccupations } from './vocauxCompteRenduRepo';
@@ -27,7 +38,7 @@ import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
   CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
-  copieInterneLocataires, introCompteRenduInterne, mailsAuxLocataires, paragraphesCompteRenduLocataire, personnaliserTexte,
+  CLE_EDITION_CR_PROPRIETAIRE, copieInterneLocataires, introCompteRenduInterne, mailCompteRenduProprietaire, mailsAuxLocataires, paragraphesCompteRenduLocataire, personnaliserTexte,
   texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
 import {
@@ -312,9 +323,12 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   /** 🔴 Arno (15/11/2026) — les fichiers vocaux ; ceux « envoyés aux locataires » partent en pièces jointes (mails des locataires + mail interne). */
   fichiersVocaux: readonly FichierVocalTrace[] = [],
   /** 🔴 Arno (15/11/2026) — LA PRÉSENCE : les locataires cochés (occupations du préavis) et les personnes ajoutées pour ce compte rendu ; au moins une. */
-  presences?: PresencesCr):
+  presences?: PresencesCr,
+  /** 🔴 (16/11/2026) les adresses de propriétaires cochées, et le texte modifié de leur mail */
+  x: { proprietaires?: ProprietairesCr | null; retouches?: Retouches } = {}):
   Promise<IssuePrevisite<{ mails: MailPrevisite[]; interne: boolean; c: Contexte; s: LigneSuivi; g: Groupe; rdv: RdvPrevisite; sansEmail: string[]; nomsPhotos: string[]; nomsVocaux: string[];
-    phrase: string; presence: string; presents: PersonnePresente[]; presentsJournal: PresentJournal[] }>> {
+    phrase: string; presence: string; presents: PersonnePresente[]; presentsJournal: PresentJournal[]; absence: { par: string | null } | null;
+    proprietaires: MailProprietaireCr[] }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const texte = (corps ?? '').trim();
   if (texte === '') return { etat: 'refus', motif: 'Écrivez le compte rendu.', champ: 'corps' };
@@ -323,9 +337,11 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const presents: PersonnePresente[] = [];
   // 🔴 (15/11/2026, retours sur la fenêtre) les mêmes personnes avec leur RÔLE, rangées au journal à l'envoi
   const presentsJournal: PresentJournal[] = [];
+  const absence = presences?.absence === true;
   if (presences !== undefined) {
     const occ = [...new Set(presences.occupations)].filter((x) => ids.includes(x));
     if (occ.length !== new Set(presences.occupations).size) return { etat: 'refus', motif: 'Un locataire coché n’est pas de ce préavis : rechargez la page.', champ: 'presences' };
+    if (absence && occ.length > 0) return { etat: 'refus', motif: MOTIF_ABSENCE_ET_LOCATAIRE, champ: 'presences' };
     if (occ.length > 0) {
       const { rows } = await query<{ id: string; civilite: string | null; prenom: string | null; nom: string }>(
         `SELECT o.id::text, l.civilite, l.prenom, l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
@@ -337,9 +353,8 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
     if (ajoutees.some((x) => x === null) || presences.personnes.length > PERSONNES_AJOUTEES_MAX) return { etat: 'refus', motif: 'Une personne ajoutée est incomplète (civilité et nom).', champ: 'presences' };
     presents.push(...(ajoutees as PersonnePresente[]));
     presentsJournal.push(...(ajoutees as PersonnePresente[]).map((x) => ({ role: 'personne' as const, civilite: x.civilite, prenom: x.prenom, nom: x.nom, ...(x.note ? { note: x.note } : {}) })));
-    if (presents.length === 0) return { etat: 'refus', motif: MOTIF_PRESENCE, champ: 'presences' };
+    if (presents.length === 0 && !absence) return { etat: 'refus', motif: MOTIF_PRESENCE, champ: 'presences' };
   }
-  const phrase = phrasePresence(presents);
   const refusP = refusPhotos(photos);
   if (refusP !== null) return { etat: 'refus', motif: refusP.motif, champ: 'photos' };
   // Les pièces : celles de CES occupations seulement ; à l'envoi, leurs octets relus et vérifiés (empreinte), renommées « Photo-1-légende.jpg ».
@@ -392,6 +407,33 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   if (lu.s === null || rdv === null) return { etat: 'refus', motif: 'Aucune pré-visite programmée pour ce préavis.' };
   const c = await contexte(ids, auteur, deps);
   if (c === null) return { etat: 'inconnu' };
+  // 🔴 (16/11/2026) l'absence : le collaborateur connecté figure comme présent, dans la phrase (« par Prénom NOM (agence) »)
+  const collaborateur = 'mention' in c.qui ? '' : nomCollaborateur({ prenom: c.qui.prenom, nom: c.qui.nomFamille });
+  const phrase = absence ? phraseAbsence(collaborateur, presents) : phrasePresence(presents);
+  // 🔴🔴 (16/11/2026) LES PROPRIÉTAIRES : chaque adresse cochée relue sur la fiche du bien (jamais une adresse reçue telle quelle)
+  const choix = x.proprietaires ?? null;
+  if (choix !== null && choix.adresses.length === 0) return { etat: 'refus', motif: MOTIF_AUCUNE_ADRESSE_PROPRIETAIRE, champ: 'proprietaires' };
+  const parties = choix !== null || aussiLocataires ? (await partiesDuBail(ids[0]).catch(() => null)) ?? [] : [];
+  const partiesLoc = parties.filter((p) => p.famille === 'locataire');
+  const partiesPro = parties.filter((p) => p.famille === 'proprietaire');
+  const norm = (e: string): string => e.trim().toLowerCase();
+  const cibles: { partie: PartieSortie; email: string }[] = [];
+  for (const a of choix?.adresses ?? []) {
+    const partie = partiesPro.find((p) => p.proprietaireId === a.proprietaireId && p.emails.some((e) => norm(e) === norm(a.email)));
+    if (partie === undefined) return { etat: 'refus', motif: MOTIF_ADRESSE_PROPRIETAIRE_INCONNUE, champ: 'proprietaires' };
+    if (!cibles.some((y) => norm(y.email) === norm(a.email))) cibles.push({ partie, email: partie.emails.find((e) => norm(e) === norm(a.email)) ?? a.email });
+  }
+  /* 🔴🔴 CONFIDENTIALITÉ (16/11/2026) — aucun e-mail ni téléphone d'un locataire dans le mail d'un propriétaire, et inversement : le texte et les
+     légendes sont contrôlés pour chaque famille qui reçoit le compte rendu ; une coordonnée trouvée : REFUS, rien ne part. */
+  const controle = [texte, ...photos.map((p) => p.legende)].join('\n');
+  const coordonnees = (dest: PartieSortie, autres: readonly PartieSortie[]) => coordonneesDeTiers(controle, dest, autres)
+    .map((t) => ({ ...t, quoi: t.quoi.filter((q) => q !== 'nom') })).filter((t) => t.quoi.length > 0);
+  const fuites = [...(cibles.length > 0 ? coordonnees(cibles[0].partie, partiesLoc) : []),
+    ...(aussiLocataires && partiesLoc.length > 0 ? coordonnees(partiesLoc[0], partiesPro) : [])];
+  if (fuites.length > 0) {
+    const MOT = { telephone: 'téléphone', email: 'e-mail', nom: 'nom' } as const;
+    return { etat: 'refus', champ: 'corps', motif: `Le compte rendu contient les coordonnées de ${fuites.map((t) => `${t.libelle} (${t.quoi.map((q) => MOT[q]).join(', ')})`).join(', ')} : retirez-les, rien n’est parti (aucune coordonnée d’un locataire au propriétaire, ni l’inverse).` };
+  }
   const internes = await collaborateursInternes();
   /* 🔴 Arno (10/11/2026, confidentialité) — les collaborateurs : UN mail interne (complet, « Mail envoyé par … ») ; « Envoyer aussi aux
      locataires » : en plus, UN mail PAR locataire, seul destinataire, sans copie, avec « Mail envoyé par … » (l'expéditeur de l'agence) — jamais les adresses des autres collaborateurs. */
@@ -408,8 +450,18 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const presence = listePresence(presents);
   const auxLocataires = aussiLocataires ? mailsAuxLocataires({ sorte: 'previsite_compte_rendu', de: c.expediteur, locataires: c.locataires, objet: objetCompteRendu(rdv),
     paragraphesDe: (l) => paragraphesCompteRenduLocataire({ locataire: l, adresse: c.adresse, rdv, presence, texte: personnaliserTexte(texte, l),
-      legendesPhotos: photos.map((p) => p.legende), vocaux: paragraphesVocaux(vocauxEnvoyes) }), qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
-  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], interne: internes.length > 0, c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presence, presents, presentsJournal } };
+      legendesPhotos: photos.map((p) => p.legende), vocaux: paragraphesVocaux(vocauxEnvoyes), ...(absence ? { absence: phrase } : {}) }), qui: c.qui, signature: c.signature }).map(avecPhotos) : [];
+  // 🔴🔴 (16/11/2026) PROPRIÉTAIRES : un mail par adresse cochée, les photos jointes (jamais un vocal), ni « ATTENTION » ni coordonnée de locataire
+  const avecPhotosSeules = (m: MailPrevisite): MailPrevisite => (piecesPhotos.length > 0 ? { ...m, pieces: [...piecesPhotos] } : m);
+  const retoucheP = x.retouches?.[CLE_EDITION_CR_PROPRIETAIRE];
+  const auxProprietaires: MailProprietaireCr[] = cibles.map((cible) => ({ proprietaireId: cible.partie.proprietaireId as number, nom: cible.partie.nom,
+    mail: avecPhotosSeules(mailCompteRenduProprietaire({ de: c.expediteur, objet: objetCompteRendu(rdv), email: cible.email, nomProprietaire: cible.partie.nom, adresse: c.adresse, rdv,
+      presence: phrase, texte, legendesPhotos: photos.map((p) => p.legende), plusieursLocataires: c.locataires.length > 1, qui: c.qui, signature: c.signature,
+      ...(retoucheP ? { retouche: retoucheP } : {}) })) }));
+  const refusP2 = await refusRetouches(auxProprietaires.map((y) => y.mail), x.retouches);
+  if (refusP2 !== null) return { etat: 'refus', motif: refusP2 };
+  return { etat: 'ok', data: { mails: [...(internes.length > 0 ? [interne] : []), ...auxLocataires], interne: internes.length > 0, c, s: lu.s, g: lu.g, rdv, sansEmail: aussiLocataires ? sansEmail(c) : [], nomsPhotos, nomsVocaux, phrase, presence, presents, presentsJournal,
+    absence: absence ? { par: collaborateur === '' ? null : collaborateur } : null, proprietaires: auxProprietaires } };
 }
 
 /**
@@ -418,22 +470,35 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
  * pas celle affichée (verrou du préavis de test, garde de la recette). LECTURE SEULE.
  */
 export async function destinatairesCompteRendu(ids: readonly number[], auteur: Auteur):
-  Promise<IssuePrevisite<{ locataires: { nom: string; recette: string | null }[]; sansEmail: string[]; internes: string[]; recetteInternes: string | null }>> {
+  Promise<IssuePrevisite<{ locataires: { nom: string; recette: string | null }[]; sansEmail: string[]; internes: string[]; recetteInternes: string | null;
+    proprietaires: AdresseProprietaireCr[]; proprietairesSansEmail: string[]; collaborateur: string }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const c = await contexte([...new Set(ids)], auteur, { signatureBrute: async () => '' });
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
   const locataires = c.locataires.filter((l) => adressesUniques(l.emails).length > 0)
     .map((l) => ({ nom: prenomNom(l), recette: mentionRecetteCourante({ a: adressesUniques(l.emails), cc: [] }, 'locataire') }));
-  return { etat: 'ok', data: { locataires, sansEmail: sansEmail(c), internes, recetteInternes: internes.length > 0 ? mentionRecetteCourante({ a: internes, cc: [] }, 'interne') : null } };
+  // 🔴 (16/11/2026) les propriétaires du bien : UNE ligne par adresse (nom en face) ; sans adresse : nommés à part (« compléter la fiche »)
+  const pros = ((await partiesDuBail(ids[0]).catch(() => null)) ?? []).filter((p) => p.famille === 'proprietaire');
+  const proprietaires = pros.flatMap((p) => adressesUniques(p.emails).map((email) => ({ cle: cleAdresseProprietaire(p.proprietaireId as number, email),
+    proprietaireId: p.proprietaireId as number, nom: p.nom, email, recette: mentionRecetteCourante({ a: [email], cc: [] }, 'proprietaire') })));
+  const proprietairesSansEmail = pros.filter((p) => adressesUniques(p.emails).length === 0).map((p) => p.nom);
+  const collaborateur = 'mention' in c.qui ? '' : nomCollaborateur({ prenom: c.qui.prenom, nom: c.qui.nomFamille });
+  return { etat: 'ok', data: { locataires, sansEmail: sansEmail(c), internes, recetteInternes: internes.length > 0 ? mentionRecetteCourante({ a: internes, cc: [] }, 'interne') : null,
+    proprietaires, proprietairesSansEmail, collaborateur } };
 }
+/** Une adresse de propriétaire proposée sous « Compte rendu envoyé aux propriétaires ». */
+export interface AdresseProprietaireCr { cle: string; proprietaireId: number; nom: string; email: string; recette: string | null }
+/** La clé d'une adresse cochée (brouillon, écran) : « propriétaire|adresse ». PUR. */
+export const cleAdresseProprietaire = (proprietaireId: number, email: string): string => `${proprietaireId}|${email.trim().toLowerCase()}`;
 
 export async function apercuCompteRendu(d: { occupationIds: readonly number[]; corps: string; aussiLocataires: boolean; photos?: readonly PhotoCompteRendu[];
   /** 🔴 Arno (15/11/2026) — les prises et les fichiers vocaux : ceux « envoyés aux locataires » figurent dans les pièces jointes de l'aperçu. */
-  vocaux?: readonly number[]; fichiersVocaux?: unknown; presences?: PresencesCr }, auteur: Auteur, deps: DepsAvis = {}):
+  vocaux?: readonly number[]; fichiersVocaux?: unknown; presences?: PresencesCr; proprietaires?: ProprietairesCr | null; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[]; phrase: string; presence: string; notesInternes: string[] }>> {
   const fichiers = d.fichiersVocaux === undefined ? [] : fichiersVocauxRecus(d.fichiersVocaux, [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX));
-  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], {}, fichiers, d.presences);
+  const r = await mailCompteRendu([...new Set(d.occupationIds)], d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], {}, fichiers, d.presences,
+    { proprietaires: d.proprietaires ?? null, ...(d.retouches ? { retouches: d.retouches } : {}) });
   if (r.etat !== 'ok') return r;
   const noms = [...r.data.nomsPhotos, ...r.data.nomsVocaux];
   const piece = noms.length > 0 ? noms.join(', ') : null;
@@ -442,6 +507,12 @@ export async function apercuCompteRendu(d: { occupationIds: readonly number[]; c
   // (mail interne seulement) sont rendues à part, pour que l'écran vérifie la tête du texte et les montre clairement.
   const mails = r.data.mails.map((m, i) => etiqueterApercu({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(piece ? { piece } : {}) },
     r.data.interne && i === 0 ? 'interne' : 'locataire', r.data.c, { pieces: noms }));
+  // 🔴 (16/11/2026) une carte « MAIL AUX PROPRIÉTAIRES » par adresse : le nom du propriétaire, ses photos (jamais un vocal), le texte modifiable
+  const photosSeules = r.data.nomsPhotos;
+  for (const x of r.data.proprietaires) {
+    mails.push({ ...etiqueterApercu({ sorte: x.mail.sorte, objet: x.mail.objet, a: x.mail.a, cc: x.mail.cc, texte: x.mail.texte, ...(photosSeules.length > 0 ? { piece: photosSeules.join(', ') } : {}),
+      ...(x.mail.edition ? { edition: x.mail.edition } : {}), ...(x.mail.texteOrigine ? { modifie: true } : {}) }, 'proprietaire', r.data.c, { pieces: photosSeules }), destinataire: x.nom });
+  }
   const notesInternes = r.data.presents.filter((p) => (p.note ?? '').trim() !== '').map((p) => `${nomPresent(p)} — ${(p.note ?? '').trim()}`);
   return { etat: 'ok', data: { mails, sansEmail: r.data.sansEmail, phrase: r.data.phrase, presence: r.data.presence, notesInternes } };
 }
@@ -455,7 +526,7 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
   /** 🔴 Arno (13/11/2026, lot C) — les vocaux : rattachés au compte rendu (journal), 🔴 JAMAIS joints à un mail. */
   vocaux?: readonly number[];
   /** 🔴 Arno (15/11/2026) — les FICHIERS VOCAUX du dictaphone (nom, prises dans l'ordre) : rangés au journal, relus groupés dans « Voir le compte rendu ». */
-  fichiersVocaux?: unknown; presences?: PresencesCr }, auteur: Auteur, deps: DepsAvis = {}):
+  fichiersVocaux?: unknown; presences?: PresencesCr; proprietaires?: ProprietairesCr | null; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis = {}):
   Promise<IssuePrevisite<{ envois: EnvoiAvis[]; statut: StatutPrevisite | null }>> {
   const ids = [...new Set(d.occupationIds)];
   const vocauxVoulus = [...new Set(d.vocaux ?? [])].slice(0, VOCAUX_MAX);
@@ -466,13 +537,21 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
      rien : tant qu'aucun mail n'est parti, rien n'est marqué et le brouillon reste intact. Aucune opération lente n'est dans une transaction :
      la lecture des pièces et la construction des mails (ici), l'envoi (envoyerSerie) se font AVANT, la transaction n'écrit que le journal. */
   let r: Awaited<ReturnType<typeof mailCompteRendu>>;
-  try { r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? [], d.presences); }
+  try { r = await mailCompteRendu(ids, d.corps, d.aussiLocataires, auteur, deps, d.photos ?? [], { octets: true }, fichiers ?? [], d.presences,
+    { proprietaires: d.proprietaires ?? null, ...(d.retouches ? { retouches: d.retouches } : {}) }); }
   catch (e) { console.error('[compte rendu] préparation des pièces jointes', e); return { etat: 'refus', motif: MOTIF_PIECES_ILLISIBLES, champ: 'vocaux' }; }
   if (r.etat !== 'ok') return r;
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'Les mails de la Location demandent la migration 457 : rien n’est parti.' };
-  if (r.data.mails.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };
+  if (r.data.mails.length + r.data.proprietaires.length === 0) return { etat: 'refus', motif: 'Aucun destinataire : ni collaborateur, ni locataire avec une adresse.' };
   let envois: EnvoiAvis[];
-  try { envois = await envoyerSerie(r.data.mails, r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps); }
+  try {
+    envois = await envoyerSerie(r.data.mails, r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur }, deps);
+    // 🔴 (16/11/2026) chaque mail d'un propriétaire, seul, rangé aussi dans SON historique (467)
+    for (const x of r.data.proprietaires) {
+      envois.push(...(await envoyerSerie([x.mail], r.data.c.brute, { lotId: r.data.c.lotId, occupationIds: ids, auteur, proprietaireIds: [x.proprietaireId] }, deps))
+        .map((e) => ({ ...e, famille: 'proprietaire' as const })));
+    }
+  }
   catch (e) { console.error('[compte rendu] envoi', e); return { etat: 'refus', motif: MOTIF_ENVOI_INTERROMPU }; }
   if (!envois.some((e) => e.envoye)) return { etat: 'ok', data: { envois, statut: null } };
   await withTransaction(async (q) => {
@@ -480,7 +559,7 @@ export async function envoyerCompteRendu(d: { occupationIds: readonly number[]; 
     await journaliser(q, r.data.g.lignes, 'location_previsite_effectuee', null, r.data.mails[0].objet,
       `compte rendu de pré-visite envoyé à ${envois.filter((e) => e.envoye).flatMap((e) => e.a).join(', ')}`, auteur);
     // 🔴 Arno (15/11/2026) — LA PRÉSENCE, rangée avec le compte rendu (journal en ajout seul) : la phrase et les personnes
-    if (r.data.phrase !== '') await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_PRESENCES, null, tracePresences(r.data.phrase, r.data.presentsJournal),
+    if (r.data.phrase !== '') await journaliser(q, r.data.g.lignes, ACTION_JOURNAL_PRESENCES, null, tracePresences(r.data.phrase, r.data.presentsJournal, r.data.absence),
       `présence à la pré-visite : ${r.data.phrase}`, auteur);
     // 🔴 lot C — les vocaux du compte rendu : rattachés ici (« Voir le compte rendu » les relit) ; 🔴 (15/11/2026) le libellé dit lesquels
     // sont partis aux locataires (vocal « envoyé aux locataires » ET envoi aux locataires actif), les autres restent internes

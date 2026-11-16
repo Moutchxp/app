@@ -6,6 +6,7 @@ import { deposerPhotoCompteRendu, photosDuCorps } from '../../../../lib/location
 import { lireCompteRenduPrevisite } from '../../../../lib/location/compteRenduPrevisiteRepo';
 import { ecrireBrouillon, effacerBrouillon, lireBrouillon } from '../../../../lib/location/brouillonCompteRenduRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS, SORTES_MODIFIABLES_PREVISITE, SORTES_MODIFIABLES_SORTIE } from '../../../../lib/location/texteModifiable';
+import { CLE_EDITION_CR_PROPRIETAIRE } from '../../../../lib/location/previsite';
 import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arbreStatutDriveRepo';
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
@@ -103,9 +104,19 @@ const idsOccupations = (brut: unknown): number[] =>
   (Array.isArray(brut) ? brut : []).map(identifiant).filter((x): x is number => x !== null).slice(0, 20);
 const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
 /** 🔴 Arno (15/11/2026) — la présence à la pré-visite : TOUJOURS transmise au compte rendu (vide : refusé — au moins une personne). */
-const presencesDuCorps = (brut: unknown): { occupations: number[]; personnes: unknown[] } => {
-  const o = (brut ?? {}) as { occupations?: unknown; personnes?: unknown };
-  return { occupations: idsOccupations(o.occupations), personnes: Array.isArray(o.personnes) ? o.personnes.slice(0, 11) : [] };
+const presencesDuCorps = (brut: unknown): { occupations: number[]; personnes: unknown[]; absence: boolean } => {
+  const o = (brut ?? {}) as { occupations?: unknown; personnes?: unknown; absence?: unknown };
+  return { occupations: idsOccupations(o.occupations), personnes: Array.isArray(o.personnes) ? o.personnes.slice(0, 11) : [], absence: o.absence === true };
+};
+/** 🔴 (16/11/2026) les adresses de propriétaires cochées (`null` : envoi aux propriétaires désactivé) — relues sur la fiche par le serveur. */
+const proprietairesDuCorps = (brut: unknown): { adresses: { proprietaireId: number; email: string }[] } | null => {
+  if (brut === null || brut === undefined || typeof brut !== 'object') return null;
+  const a = (brut as { adresses?: unknown }).adresses;
+  return { adresses: (Array.isArray(a) ? a : []).slice(0, 40).flatMap((x) => {
+    const o = (x ?? {}) as { proprietaireId?: unknown; email?: unknown };
+    const id = identifiant(o.proprietaireId);
+    return id !== null && typeof o.email === 'string' && o.email.trim() !== '' ? [{ proprietaireId: id, email: o.email.trim().slice(0, 320) }] : [];
+  }) };
 };
 /** 🔴 Arno (15/11/2026) — les prises vocales d'un compte rendu (40 au plus, `VOCAUX_MAX`). */
 const idsPrises = (brut: unknown): number[] =>
@@ -753,18 +764,27 @@ async function postLocation(request: Request): Promise<Response> {
         if (test !== null && action !== 'reaffecter-previsite' && r.data.rdv) planifierInvitationTest(r.data.rdv);
         return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
       }
-      case 'apercu-compte-rendu-previsite':
+      case 'apercu-compte-rendu-previsite': {
+        // 🔴 (16/11/2026) le texte modifié du mail aux propriétaires (seule sorte modifiable de ce récapitulatif)
+        const rtA = lireRetouches(corps.retouches, [CLE_EDITION_CR_PROPRIETAIRE]);
+        if (!rtA.ok) return Response.json({ etat: 'refus', motif: rtA.motif }, { status: 400, headers: ENTETES });
         return repondre(await apercuCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos),
-          vocaux: idsPrises(corps.vocaux), fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences) }, auteur));
+          vocaux: idsPrises(corps.vocaux), fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences),
+          proprietaires: proprietairesDuCorps(corps.proprietaires), retouches: rtA.retouches }, auteur));
+      }
       // 🔴 Arno (15/11/2026) — le BROUILLON du compte rendu (474) : enregistré tout seul par le formulaire ; « Effacer le brouillon » le marque
       // effacé (rien n'est supprimé, aucune pièce n'est touchée). Rien n'est envoyé à qui que ce soit.
       case 'brouillon-previsite':
         return repondre(await ecrireBrouillon(idsOccupations(corps.occupationIds), corps.contenu, auteur));
       case 'effacer-brouillon-previsite':
         return repondre(await effacerBrouillon(idsOccupations(corps.occupationIds), auteur));
-      case 'compte-rendu-previsite':
+      case 'compte-rendu-previsite': {
+        const rtE = lireRetouches(corps.retouches, [CLE_EDITION_CR_PROPRIETAIRE]);
+        if (!rtE.ok) return Response.json({ etat: 'refus', motif: rtE.motif }, { status: 400, headers: ENTETES });
         return repondre(await envoyerCompteRendu({ occupationIds: idsOccupations(corps.occupationIds), corps: texte(corps.corps), aussiLocataires: corps.aussiLocataires === true, photos: photosDuCorps(corps.photos), vocaux: idsPrises(corps.vocaux),
-          fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences) }, auteur));
+          fichiersVocaux: Array.isArray(corps.fichiersVocaux) ? (corps.fichiersVocaux as unknown[]).slice(0, 40) : undefined, presences: presencesDuCorps(corps.presences),
+          proprietaires: proprietairesDuCorps(corps.proprietaires), retouches: rtE.retouches }, auteur));
+      }
       // 🔴 Arno (13/11/2026, lot B) — UNE photo du compte rendu : préparée au serveur (format lu dans les octets, réduite, métadonnées et GPS retirés),
       // puis déposée comme les pièces de « Valider la sortie » (stockage objet, jamais le Drive). Rien n'est envoyé.
       case 'photo-compte-rendu':

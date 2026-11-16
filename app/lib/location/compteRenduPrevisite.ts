@@ -18,7 +18,9 @@ export interface PresencesCr { occupations: number[]; personnes: { civilite: str
   /** 🔴 (15/11/2026) les locataires présents, nommés (civilité, prénom, nom) — ceux de CE préavis seulement */
   locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[];
   /** 🔴 (15/11/2026, retours sur la fenêtre) « texte » : RECONSTITUÉES depuis la phrase « En présence de … » du mail envoyé (rien d'enregistré) */
-  source?: 'texte' }
+  source?: 'texte';
+  /** 🔴 (16/11/2026) « Absence de la partie locataire » : les locataires étaient absents ; `par` : le collaborateur qui a réalisé la pré-visite */
+  absence?: { par: string | null } }
 export interface CompteRenduAffiche {
   /** Le texte du compte rendu, tel qu'enregistré (le mail interne) ; null : aucun compte rendu saisi. */
   texte: string | null; objet: string | null; saisiPar: string | null; saisiLe: string | null;
@@ -79,7 +81,9 @@ export function compteRenduAffiche(envois: readonly EnvoiJournalCr[], a: Annuair
   pieces: readonly PieceCr[] = []): CompteRenduAffiche {
   const tries = [...envois].sort((x, y) => x.envoyeLe.localeCompare(y.envoyeLe));
   const estLocataire = (adr: string) => identifier(adr, a).famille === 'locataire';
-  const interne = tries.find((m) => !m.destinataires.some(estLocataire)) ?? tries[0] ?? null;
+  // 🔴 (16/11/2026) le mail INTERNE : ni locataire ni propriétaire parmi ses destinataires (les mails aux propriétaires ont la même sorte)
+  const estExterieur = (adr: string) => ['locataire', 'proprietaire'].includes(identifier(adr, a).famille);
+  const interne = tries.find((m) => !m.destinataires.some(estExterieur)) ?? tries.find((m) => !m.destinataires.some(estLocataire)) ?? tries[0] ?? null;
   const vus = new Map<string, DestinataireCr>();
   for (const m of tries) {
     for (const adr of [...m.destinataires, ...m.copies]) {
@@ -130,8 +134,8 @@ type LocataireCr = { occupationId: number; civilite: string | null; prenom: stri
 export type PresentJournal = { role: 'locataire'; occupationId: number; civilite: string | null; prenom: string | null; nom: string }
   | { role: 'personne'; civilite: string | null; prenom: string | null; nom: string; note?: string | null };
 /** Ce qui est rangé au journal à l'envoi. PUR. */
-export function tracePresences(phrase: string, presents: readonly PresentJournal[]): string {
-  return JSON.stringify({ v: 2, phrase, presents });
+export function tracePresences(phrase: string, presents: readonly PresentJournal[], absence?: { par: string | null } | null): string {
+  return JSON.stringify({ v: 2, phrase, presents, ...(absence ? { absence: { par: absence.par } } : {}) });
 }
 
 const cleNom = (p: { civilite?: string | null; prenom: string | null; nom: string }): string => nomPresentCr(p).replace(/\s+/g, ' ').trim().toLowerCase();
@@ -147,10 +151,14 @@ function nomPresentCr(p: { civilite?: string | null; prenom: string | null; nom:
 
 /** Les présences relues dans le journal (versions 1 et 2), bornées aux locataires de CE préavis ; illisible : null. PUR. */
 export function presencesDuJournal(valeur: string | null, locataires: readonly LocataireCr[]): PresencesCr | null {
-  let o: { v?: unknown; presents?: unknown };
+  let o: { v?: unknown; presents?: unknown; absence?: unknown };
   try { o = JSON.parse(valeur ?? '') as typeof o; } catch { return null; }
   if (o === null || typeof o !== 'object' || !Array.isArray(o.presents)) return null;
   const r: PresencesCr = { occupations: [], personnes: [], locataires: [] };
+  if (o.absence !== null && typeof o.absence === 'object') {
+    const par = (o.absence as { par?: unknown }).par;
+    r.absence = { par: typeof par === 'string' && par.trim() !== '' ? par.trim() : null };
+  }
   for (const brut of o.presents as Record<string, unknown>[]) {
     if (brut === null || typeof brut !== 'object' || typeof brut.nom !== 'string') continue;
     const p = { civilite: typeof brut.civilite === 'string' ? brut.civilite : null, prenom: typeof brut.prenom === 'string' ? brut.prenom : null, nom: brut.nom,
@@ -166,6 +174,8 @@ export function presencesDuJournal(valeur: string | null, locataires: readonly L
   return r;
 }
 
+const RE_ABSENCE = /^Pré-visite réalisée en l’absence des locataires/;
+const paragraphesDuMail = (texte: string | null): string[] => (texte ?? '').replace(/\r\n/g, '\n').split(/\n[ \t]*\n/).map((x) => x.trim());
 /** Les noms de la phrase « En présence de Mme X, M. Y et de Mme Z. » (le premier paragraphe qui commence ainsi) ; aucune phrase : []. PUR. */
 export function nomsDeLaPhrase(texte: string | null): string[] {
   const p = (texte ?? '').replace(/\r\n/g, '\n').split(/\n[ \t]*\n/).map((x) => x.trim()).find((x) => /^En présence (de |d’|d')/.test(x));
@@ -179,6 +189,14 @@ export function nomsDeLaPhrase(texte: string | null): string[] {
 
 /** Les présences RECONSTITUÉES depuis le texte du mail (un nom de locataire du préavis : locataire ; sinon : personne présente). PUR. */
 export function presencesDuTexte(texte: string | null, locataires: readonly LocataireCr[]): PresencesCr | null {
+  // 🔴 (16/11/2026) la phrase de l'ABSENCE : « Pré-visite réalisée en l’absence des locataires, par X (agence)[, en présence de …]. »
+  const abs = paragraphesDuMail(texte).find((x) => RE_ABSENCE.test(x));
+  if (abs !== undefined) {
+    const par = /, par (.+?) \(/.exec(abs)?.[1]?.trim() ?? null;
+    const i = abs.indexOf(', en présence ');
+    const noms = i < 0 ? [] : nomsDeLaPhrase(`En présence ${abs.slice(i + ', en présence '.length)}`);
+    return { occupations: [], locataires: [], personnes: noms.map((n) => ({ civilite: '', prenom: '', nom: n, note: '' })), source: 'texte', absence: { par } };
+  }
   const noms = nomsDeLaPhrase(texte);
   if (noms.length === 0) return null;
   const r: PresencesCr = { occupations: [], personnes: [], locataires: [], source: 'texte' };
@@ -201,7 +219,7 @@ export function texteSaisiDuMail(texte: string | null): string {
   const paras = (texte ?? '').replace(/\r\n/g, '\n').split(/\n[ \t]*(?:Mail envoyé par |-- ?\n)/)[0].split(/\n[ \t]*\n/);
   let i = 0;
   if (/^Compte rendu de la pré-visite du /.test((paras[i] ?? '').trim())) i += 1;
-  if (/^En présence (de |d’|d')/.test((paras[i] ?? '').trim())) i += 1;
+  if (/^En présence (de |d’|d')/.test((paras[i] ?? '').trim()) || RE_ABSENCE.test((paras[i] ?? '').trim())) i += 1;
   const garde: string[] = [];
   for (const p of paras.slice(i)) {
     const t = p.trim();

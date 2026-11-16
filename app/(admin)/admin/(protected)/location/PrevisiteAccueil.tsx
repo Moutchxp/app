@@ -22,9 +22,9 @@ import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../..
 import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
-import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonTheme, Confirmation, LignesVocauxRecap, MOTIF_PHOTO_PERDUE, MOTIF_PRISE_PERDUE, motifPiecesBloquantes, piecesBloquantes, type PriseVocale, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
+import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonEnvoiProprietaires, BoutonTheme, useDestinatairesCompteRendu, Confirmation, LignesVocauxRecap, MOTIF_PHOTO_PERDUE, MOTIF_PRISE_PERDUE, motifPiecesBloquantes, piecesBloquantes, type PriseVocale, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
 import { etatVocalLocataires, insererTranscription } from '../../../../lib/location/vocauxCompteRendu';
-import { appliquerTirets, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
+import { AGENCE_PREVISITE, appliquerTirets, estPhraseAbsence, MOTIF_PRESENCE, sansTiretsOrphelins } from '../../../../lib/location/texteCompteRendu';
 import { cheminCompteRendu } from '../../../../lib/location/cheminCompteRendu';
 import { filtresLignes, LIBELLE_STATUT_LIGNE, type FiltreLigne, type StatutLigne } from '../../../../lib/location/statutLignePreavis';
 import { ETIQUETTE_FAMILLE_MAIL, familleDuMail, ORDRE_LOCATAIRES_DABORD, trierParFamille, type FamilleMail } from '../../../../lib/location/famillesMails';
@@ -177,7 +177,8 @@ type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEm
 export const MOTIF_PHRASE_ABSENTE = 'Le récapitulatif ne porte pas « En présence de … » : le serveur doit être relancé (version périmée). Rien n’est parti.';
 /** 🔴 (6e retour) le mail interne porte la phrase « En présence de … » ; celui des locataires, « … en présence de … » dans son introduction. */
 export function refusSansPhrase(phrase: unknown, mails: readonly { texte: string }[], presence?: unknown): string | null {
-  if (typeof phrase !== 'string' || !phrase.startsWith('En présence')) return MOTIF_PHRASE_ABSENTE;
+  // 🔴 (16/11/2026) la phrase de l'absence (« Pré-visite réalisée en l’absence des locataires, par … ») vaut phrase de présence
+  if (typeof phrase !== 'string' || !(phrase.startsWith('En présence') || estPhraseAbsence(phrase))) return MOTIF_PHRASE_ABSENTE;
   const liste = typeof presence === 'string' && presence !== '' ? `en présence ${presence}` : null;
   return mails.every((m) => m.texte.includes(phrase) || (liste !== null && m.texte.includes(liste))) ? null : MOTIF_PHRASE_ABSENTE;
 }
@@ -294,8 +295,23 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [presents, setPresents] = useState<number[]>([]);
   const [ajoutees, setAjoutees] = useState<PersonneAjouteeSaisie[]>([]);
   const [refusPresence, setRefusPresence] = useState<string | null>(null);
-  const presences = { occupations: presents, personnes: ajoutees.filter((x) => x.present).map((x) => ({ civilite: x.civilite, nom: x.nom, prenom: x.prenom, ...(x.note.trim() ? { note: x.note.trim() } : {}) })) };
-  const presenceOk = presences.occupations.length + presences.personnes.length > 0;
+  /** 🔴 (16/11/2026) « Absence de la partie locataire » : les cases des locataires décochées et grisées ; décochée, elles reviennent comme avant */
+  const [absence, setAbsence] = useState(false);
+  const presentsAvantAbsence = useRef<number[]>([]);
+  const basculerAbsence = (v: boolean): void => {
+    if (v) { presentsAvantAbsence.current = presents; setPresents([]); } else setPresents(presentsAvantAbsence.current.filter((x) => l.occupationIds.includes(x)));
+    setAbsence(v);
+  };
+  /** 🔴 (16/11/2026) l'envoi aux PROPRIÉTAIRES : désactivé par défaut ; les adresses cochées (null : toutes) */
+  const [aussiProprietaires, setAussiProprietaires] = useState(false);
+  const [adressesCochees, setAdressesCochees] = useState<string[] | null>(null);
+  const destinatairesCr = useDestinatairesCompteRendu(l.occupationIds, geste === 'compte_rendu');
+  const cochees = adressesCochees ?? (destinatairesCr?.proprietaires ?? []).map((a) => a.cle);
+  const choixProprietaires = aussiProprietaires
+    ? { adresses: (destinatairesCr?.proprietaires ?? []).filter((a) => cochees.includes(a.cle)).map((a) => ({ proprietaireId: a.proprietaireId, email: a.email })) } : null;
+  const presences = { occupations: absence ? [] : presents, personnes: ajoutees.filter((x) => x.present).map((x) => ({ civilite: x.civilite, nom: x.nom, prenom: x.prenom, ...(x.note.trim() ? { note: x.note.trim() } : {}) })),
+    ...(absence ? { absence: true } : {}) };
+  const presenceOk = presences.occupations.length + presences.personnes.length > 0 || absence;
   // une case cochée efface le refus
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (presenceOk) setRefusPresence(null); }, [presenceOk]);
@@ -321,11 +337,13 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     fichiers: fichiers.map((f) => ({ cle: f.cle, nom: f.nom, locataires: f.locataires === true,
       prises: f.prises.filter((x) => x.etat !== 'erreur').map((x) => (x.id !== null ? { id: x.id, dureeS: x.dureeS } : { cle: x.cle, dureeS: x.dureeS })) })),
     aussiLocataires, fichierActif,
+    absence, aussiProprietaires, adressesProprietaires: adressesCochees,
   };
   const appliquerBrouillon = useCallback((c: ContenuBrouillon): void => {
     setCorps(c.corps); setPresents(c.presents.filter((x) => l.occupationIds.includes(x))); setAjoutees(c.ajoutees.map((a) => ({ ...a })));
     setAussiLocataires(c.aussiLocataires);
     setFichierActif(c.fichierActif);
+    setAbsence(c.absence === true); setAussiProprietaires(c.aussiProprietaires === true); setAdressesCochees(Array.isArray(c.adressesProprietaires) ? [...c.adressesProprietaires] : null);
     // « Effacer le brouillon » : le formulaire est vidé, pièces en attente comprises (le téléphone vient d'être vidé)
     if (c === BROUILLON_VIDE) { setPhotos([]); setFichiers([]); return; }
     /** une pièce qui attend VRAIMENT dans le téléphone (pas une pièce perdue ou refusée) */
@@ -420,6 +438,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     if (!verifierPhotos()) return;
     setEnvoi(true); setRefus(null);
     const r = await envoyer(geste === 'compte_rendu' ? { action: 'apercu-compte-rendu-previsite', ...corpsCommun, corps: sansTiretsOrphelins(corps), aussiLocataires, photos: photosPretes, presences,
+      proprietaires: choixProprietaires, retouches: rt,
       ...(envoiVocaux.fichiersVocaux.some((f) => f.locataires) ? { vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}) }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
@@ -442,7 +461,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
     const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps: sansTiretsOrphelins(corps), aussiLocataires, texte: texteRefus ?? '',
-      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux, presences } : {}),
+      ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux, presences, proprietaires: choixProprietaires } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
     if (r.motif !== null) { setRefus(r.motif); return; }
@@ -516,13 +535,18 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       {geste === 'compte_rendu' && rdvActuel && <>
         <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span data-objet-compte-rendu>{objetCompteRendu(rdvActuel)}</span></p>
         {/* 🔴 Arno (15/11/2026) — TROIS BLOCS, dans cet ordre : TEXTE (dictée maintenue, clavier), PHOTOS, DICTAPHONE (fichiers vocaux internes) */}
-        <BlocPresence locataires={l.locataires} presents={presents} setPresents={setPresents} ajoutees={ajoutees} setAjoutees={setAjoutees} erreur={refusPresence} dateFr={dateFrPreavis} />
+        <BlocPresence locataires={l.locataires} presents={presents} setPresents={setPresents} ajoutees={ajoutees} setAjoutees={setAjoutees} erreur={refusPresence} dateFr={dateFrPreavis}
+          absence={absence} onAbsence={basculerAbsence} collaborateur={destinatairesCr?.collaborateur ?? null} />
         <BlocTexte corps={corps} setCorps={setCorps} lireCurseur={lireCurseur} noterCurseur={noterCurseur} occupationIds={l.occupationIds} onOccupe={setDicteeOccupee} />
         <BlocPhotos photos={photos} onChange={(f) => { setPhotos(f); setRangSansLegende(null); setRefus(null); }} occupationIds={l.occupationIds} rangSansLegende={rangSansLegende} onOccupe={setLegendeOccupee} />
         <BlocDictaphone fichiers={fichiers} setFichiers={setFichiers} occupationIds={l.occupationIds} onTranscrit={insererTexteVocal} onOccupe={setDictaphoneOccupe}
           courant={fichierActif} setCourant={setFichierActif} />
         <BoutonEnvoiLocataires actif={aussiLocataires} onBasculer={() => setAussiLocataires((v) => !v)} occupationIds={l.occupationIds}
-          nomsConnus={l.locataires.map((x) => x.nom)} />
+          nomsConnus={l.locataires.map((x) => x.nom)} destinataires={destinatairesCr} />
+        {/* 🔴 (16/11/2026) sous le bouton des locataires : l'envoi aux propriétaires (désactivé par défaut) ; la dernière adresse décochée le désactive */}
+        <BoutonEnvoiProprietaires actif={aussiProprietaires} d={destinatairesCr} cochees={cochees}
+          onBasculer={() => { setAussiProprietaires((v) => !v); setAdressesCochees(null); }}
+          setCochees={(x) => { if (x.length === 0) { setAussiProprietaires(false); setAdressesCochees(null); } else setAdressesCochees(x); }} />
       </>}
       {geste === 'refus' && (propose.etat.etat !== 'ok' ? <EtatLecture etat={propose.etat} /> : <>
         <p className="pvv-objet" data-objet-ligne><span className="pvs-libelle">Objet :</span> <span>{propose.etat.data.objet}</span></p>
@@ -673,15 +697,22 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
      Présence, Texte, Photos, Dictaphone, Envois. Même structure pour un compte rendu envoyé et pour un brouillon. */
   const section = (cle: string, titre: string, contenu: ReactNode) => (
     <section className="pvv-cr-section" data-cr-section={cle} aria-label={titre}><h3 className="pvv-cr-section-titre">{titre}</h3>{contenu}</section>);
-  type Present = { cle: string; nom: string; qualite: string; note: string; sorte: 'locataire' | 'personne' };
+  type Present = { cle: string; nom: string; qualite: string; note: string; sorte: 'locataire' | 'personne' | 'collaborateur' };
   // 🔴🔴 (15/11/2026, retours sur la fenêtre) présences reconstituées depuis la phrase du mail : mention discrète, rien n'est écrit
-  const presenceSection = (pr: Present[] | null, reconstitue = false) => section('presence', 'Présence', pr === null ? <p className="loc-muet">Présences non enregistrées.</p>
-    : pr.length === 0 ? <p className="loc-muet">Personne n’est coché présent.</p> : (<>
+  // 🔴 (16/11/2026) « Absence de la partie locataire » : « Locataires absents », puis le collaborateur qui a réalisé la pré-visite
+  const presenceSection = (pr0: Present[] | null, reconstitue = false, absence: { par: string | null } | null = null) => {
+    const pr = pr0 === null || absence === null ? pr0
+      : [...(absence.par ? [{ cle: 'collaborateur', sorte: 'collaborateur' as const, nom: absence.par, qualite: `collaborateur (${AGENCE_PREVISITE})`, note: '' }] : []), ...pr0];
+    return section('presence', 'Présence', <>
+    {absence !== null && <p className="pvv-cr-absents" data-cr-locataires-absents>Locataires absents</p>}
+    {pr === null ? <p className="loc-muet">Présences non enregistrées.</p>
+    : pr.length === 0 ? (absence !== null ? null : <p className="loc-muet">Personne n’est coché présent.</p>) : (<>
       <ul className="pvv-cr-lignes">{pr.map((x) => (
         <li key={x.cle} className="pvv-cr-ligne-presence" data-cr-present={x.sorte}>
           <span className="pvv-cr-present-nom">{x.nom}</span> <span className="loc-muet">— {x.qualite}</span>
           {x.note.trim() !== '' && <em className="pvv-cr-note" data-cr-note-interne> — note interne : {x.note}</em>}</li>))}</ul>
-      {reconstitue && <p className="loc-muet pvv-cr-reconstitue" data-cr-presence-reconstituee>reconstitué depuis le texte</p>}</>));
+      {reconstitue && <p className="loc-muet pvv-cr-reconstitue" data-cr-presence-reconstituee>reconstitué depuis le texte</p>}</>)}</>);
+  };
   const presentsDe = (occupations: number[], personnes: { civilite: string; nom: string; prenom: string; note: string }[],
     locataires?: { occupationId: number; civilite: string | null; prenom: string | null; nom: string }[], telQuel = false): Present[] => [
     ...occupations.map((id) => { const n = locataires?.find((x) => x.occupationId === id);
@@ -714,7 +745,7 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
         {c !== null && <p className="pvv-cr-brouillon" role="status" data-cr-brouillon="oui">Brouillon — non envoyé{b?.enregistreLe ? `, dernier enregistrement à ${heureBrouillon(b.enregistreLe)}` : ''}</p>}
       </div>
       {luB.etat.etat !== 'ok' ? <EtatLecture etat={luB.etat} /> : c === null ? <p className="mis-note pss-note-neutre" data-cr-brouillon="aucun">Aucune saisie enregistrée pour l’instant.</p> : <>
-        {presenceSection(presentsDe(c.presents, c.ajoutees.filter((x) => x.present)))}
+        {presenceSection(presentsDe(c.absence ? [] : c.presents, c.ajoutees.filter((x) => x.present)), false, c.absence ? { par: null } : null)}
         {texteSection(c.corps)}
         {photosSection(c.photos.map((x) => ({ id: x.id ?? null, legende: x.legende })))}
         {dictaphoneSection(c.fichiers.filter((f) => f.prises.length > 0).map((f, i) => ({ nom: f.nom.trim() || `Vocal ${i + 1}`, locataires: f.locataires && c.aussiLocataires,
@@ -738,7 +769,7 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
         <p className={`pvv-cr-etat-envoi${cr.aucunEnvoi ? '' : ' pvv-cr-etat-envoi--ok'}`} data-cr-etat-envoi>{etatEnvoi(cr)}</p>
       </div>
       {presenceSection(cr.presences ? presentsDe(cr.presences.occupations, cr.presences.personnes, cr.presences.locataires, cr.presences.source === 'texte') : null,
-        cr.presences?.source === 'texte')}
+        cr.presences?.source === 'texte', cr.presences?.absence ?? null)}
       {texteSection(texteSaisi(cr))}
       {/* 🔴 Arno (13/11/2026, lot B) — chaque photo numérotée avec sa légende */}
       {(() => { const legendes = legendesDuTexte(cr.texte); return photosSection(cr.pieces.slice(0, legendes.length).map((x, i) => ({ id: x.id, legende: legendes[i] }))); })()}
@@ -825,6 +856,7 @@ export const CSS_PREVISITE = `
 .pvv-cr-entete{display:flex;flex-direction:column;gap:6px}
 .pvv-boite-consultation .pvt-badge{display:inline-block;background:var(--color-svv-orange);color:var(--color-svv-orange-soft);font-weight:800;font-size:.7rem;letter-spacing:.06em;border-radius:6px;padding:2px 7px;margin-right:8px;vertical-align:middle}
 .pvv-cr-reconstitue{margin:6px 0 0;font-size:.82rem;font-style:italic}
+.pvv-cr-absents{margin:0 0 6px;font-weight:900;color:var(--color-svv-red)}
 .pvv-cr-mail .pvv-objet{margin:8px 0 4px}
 .pvv-cr-adresse-grande{margin:0;font-size:1.3rem;font-weight:900;line-height:1.3;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .pvv-cr-etat-envoi{margin:0;font-weight:700;color:var(--color-svv-muted)}
