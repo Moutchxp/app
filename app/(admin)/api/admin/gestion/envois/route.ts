@@ -31,6 +31,7 @@ import { lancerPasseEnFond } from '../../../../../lib/gestion/travailleurEnvoiRe
 import { pretAEnvoyer } from '../../../../../lib/gestion/redaction';
 // 🔴 LOT CLASSER-AVANT-ENVOI — le garde « ce mail est-il classé ? », module PUR partagé avec l'écran.
 import { refusSiNonClasse } from '../../../../../lib/gestion/classementAvantEnvoi';
+import { refusEnvoiHabitants } from '../../../../../lib/gestion/confidentialiteHabitants';
 import { biensDesClients } from '../../../../../lib/gestion/biensDesClientsRepo';
 import { ciblesAPoserALEnvoi, type OrigineCible } from '../../../../../lib/gestion/contexteClients';
 import { rattachementRecu } from '../../../../../lib/gestion/rattachementBrouillon';
@@ -212,6 +213,10 @@ export async function POST(request: Request): Promise<Response> {
    * ⚠️ SANS LA MIGRATION 271, RIEN DE TOUT CELA : on tombe dans l'envoi synchrone ci-dessous, c'est-à-dire
    * exactement le comportement d'avant ce lot, attente visible comprise.
    */
+  // 🔴🔴 Arno (16/11/2026, fiche Copropriété) — UN HABITANT NE VOIT JAMAIS LES AUTRES DESTINATAIRES : avant la mise en file comme avant l'envoi
+  // direct (les deux chemins passent ici), même refus, même motif ; rien n'est écrit ni envoyé.
+  const habitantVisible = await refusEnvoiHabitants(demande);
+  if (habitantVisible !== null) return Response.json({ erreur: habitantVisible, code: 'invalide' }, { status: 422 });
   if (await fileEnvoiDisponible()) {
     const pret = pretAEnvoyer({
       a: demande.a, cc: demande.cc, cci: demande.cci, objet: demande.objet, corps: demande.corpsTexte,

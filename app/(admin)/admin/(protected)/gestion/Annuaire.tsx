@@ -107,6 +107,7 @@ import { boutonDossierProprietaire } from '../../../../lib/gestion/rangementDoss
 import { boutonDossierBien, LIBELLE_DOSSIER_DU_LOT } from '../../../../lib/gestion/racinesProprietaires';
 // LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
 import { BoutonSyndic, EcrireDepuisGestion, PastilleConflitParcelle } from './BoutonSyndic';
+import { BoutonCopropriete } from './FicheCopropriete';
 import { BandeauSyndicConnuDuBien } from './PropositionsSyndic';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 
@@ -904,6 +905,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
       <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — À LA PLACE DE LA LIGNE SURFACE : « Coordonnées syndic » ou « Créer le syndic ». */}
       <BoutonSyndic immeuble={b.immeuble} lotId={b.id} />
+      {/* 🔴 Arno (16/11/2026, fiche Copropriété) — juste sous le syndic : « Copropriété » (ou « Bien hors copropriété ») */}
+      <BoutonCopropriete lotId={b.id} />
       <div className="ann-carte-faits">
           {/* 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA LIGNE « SURFACE » EST RETIRÉE, avec l'accord explicite
               d'Arno pour CETTE ligne : la surface monte dans l'en-tête (pastille « 63 m² », quand elle est connue). */}
@@ -1705,6 +1708,8 @@ function VueLot({
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
       <PastilleConflitParcelle immeuble={f.immeuble} />
       <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />
+      {/* 🔴 Arno (16/11/2026, fiche Copropriété) — juste sous le syndic */}
+      <BoutonCopropriete lotId={f.id} dansLaFiche />
       {/* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE, PARTIE 3 — un bien sans syndic à une adresse déjà
           connue (un autre bien rattaché à un syndic) : « Syndic connu pour cette adresse : … — Rattacher / Ignorer ».
           Jamais de rattachement automatique ; « Ignorer » est mémorisé pour ce bien. */}
@@ -2492,6 +2497,8 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
               {tete}
             </button>
             <span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} /></span>
+            {/* 🔴 Arno (16/11/2026, fiche Copropriété) — juste sous le syndic */}
+            <span className="ann-carte-syndic"><BoutonCopropriete lotId={o.lotId} /></span>
             <button type="button" className="ann-carte-corps ann-carte-corps--faits" tabIndex={-1}
               onClick={() => ouvrir('lot', o.lotId as number)}>
               {faits}

@@ -452,46 +452,9 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
   // (même NOM + prénom, même e-mail) refusés DANS CET IMMEUBLE seulement.
   let contactsImmeuble: { immeuble: string; contacts: ContactImmeubleSaisi[] } | null = null;
   if (typeof b.contactsImmeuble === 'object' && b.contactsImmeuble !== null) {
-    const ci = b.contactsImmeuble as Record<string, unknown>;
-    const immeuble = texte(ci.immeuble);
-    if (cleImmeuble(immeuble) === '') return { ok: false, motif: 'Contacts de l’immeuble : immeuble non désigné.' };
-    const liste: ContactImmeubleSaisi[] = [];
-    for (const cb of (Array.isArray(ci.contacts) ? ci.contacts.slice(0, 100) : [])) {
-      if (typeof cb !== 'object' || cb === null) continue;
-      const c = cb as Record<string, unknown>;
-      const categorie = c.categorie === 'gardien' || c.categorie === 'coproprietaire' || c.categorie === 'conseil_syndical' || c.categorie === 'personnalise' ? c.categorie : null;
-      if (categorie === null) return { ok: false, motif: 'Contact de l’immeuble : choisissez une catégorie (Gardien, Conseil syndical ou Personnalisé).' };
-      const libelle = categorie === 'personnalise' ? texte(c.libelle) : '';
-      if (categorie === 'personnalise' && libelle === '') {
-        return { ok: false, motif: 'Contact de l’immeuble : précisez le libellé personnalisé (Habitant, Femme de ménage…).' };
-      }
-      const civilite = civiliteLue(c.civilite);
-      if (civilite === undefined) return { ok: false, motif: `Civilité inconnue : « ${texte(c.civilite)} » (M. ou Mme).` };
-      const coordonnees: CoordonneeSaisie[] = [];
-      const vus = new Set<string>();
-      for (const kb of (Array.isArray(c.coordonnees) ? c.coordonnees.slice(0, 50) : [])) {
-        if (typeof kb !== 'object' || kb === null) continue;
-        const k = kb as Record<string, unknown>;
-        const sorte: SorteCoordonnee = k.sorte === 'email' ? 'email' : 'telephone';
-        const valeur = sorte === 'telephone' ? chiffresTelephone(texte(k.valeur)) : texte(k.valeur);
-        if (valeur === '' || valeur === '+') continue;
-        if (sorte === 'email' && !emailPlausible(valeur)) return { ok: false, motif: `E-mail illisible : « ${valeur} ».` };
-        if (sorte === 'email') { if (vus.has(cleEmail(valeur))) continue; vus.add(cleEmail(valeur)); }
-        coordonnees.push({ id: entierOuNull(k.id), sorte, libelle: texte(k.libelle), valeur });
-      }
-      liste.push({ id: entierOuNull(c.id), categorie, libelle, civilite, prenom: texte(c.prenom), nom: texte(c.nom),
-        note: texte(c.note, BORNE_NOTE), coordonnees });
-    }
-    const noms = new Set<string>();
-    for (const c of liste) {
-      const n = cleNom(c.prenom, c.nom);
-      if (n !== '') {
-        if (noms.has(n)) return { ok: false, motif: `Deux contacts de cet immeuble portent le même nom : ${prenomNom(c.prenom, c.nom)}.` };
-        noms.add(n);
-      }
-      // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — un e-mail partagé n'est plus un refus (avertissement confirmé).
-    }
-    contactsImmeuble = { immeuble, contacts: liste };
+    const v = validerContactsImmeuble(b.contactsImmeuble);
+    if (!v.ok) return v;
+    contactsImmeuble = v.carnet;
   }
 
   return {
@@ -1350,4 +1313,51 @@ export function lotsDuPortefeuille(immeubles: readonly ImmeubleSaisi[], connus: 
     return voieSansNumero(a.libelle).localeCompare(voieSansNumero(b.libelle), 'fr') || numeroDe(a.libelle) - numeroDe(b.libelle);
   });
   return groupes.map(({ libelle: _l, ...g }) => g);
+}
+
+/**
+ * LOT COPRO-CONTACTS-IMMEUBLE — la validation du CARNET de l'immeuble (une catégorie, un libellé si « Personnalisé », doublons de nom refusés
+ * dans cet immeuble), commune à la fiche syndic et, 🔴 depuis le 16/11/2026 (476), à la fiche Copropriété. PUR.
+ */
+export function validerContactsImmeuble(brut: unknown): { ok: true; carnet: { immeuble: string; contacts: ContactImmeubleSaisi[] } } | { ok: false; motif: string } {
+  const ci = (brut ?? {}) as Record<string, unknown>;
+  const immeuble = texte(ci.immeuble);
+  if (cleImmeuble(immeuble) === '') return { ok: false, motif: 'Contacts de l’immeuble : immeuble non désigné.' };
+  const liste: ContactImmeubleSaisi[] = [];
+  for (const cb of (Array.isArray(ci.contacts) ? ci.contacts.slice(0, 100) : [])) {
+    if (typeof cb !== 'object' || cb === null) continue;
+    const c = cb as Record<string, unknown>;
+    const categorie = c.categorie === 'gardien' || c.categorie === 'coproprietaire' || c.categorie === 'conseil_syndical' || c.categorie === 'personnalise' ? c.categorie : null;
+    if (categorie === null) return { ok: false, motif: 'Contact de l’immeuble : choisissez une catégorie (Gardien, Conseil syndical ou Personnalisé).' };
+    const libelle = categorie === 'personnalise' ? texte(c.libelle) : '';
+    if (categorie === 'personnalise' && libelle === '') {
+      return { ok: false, motif: 'Contact de l’immeuble : précisez le libellé personnalisé (Habitant, Femme de ménage…).' };
+    }
+    const civilite = civiliteLue(c.civilite);
+    if (civilite === undefined) return { ok: false, motif: `Civilité inconnue : « ${texte(c.civilite)} » (M. ou Mme).` };
+    const coordonnees: CoordonneeSaisie[] = [];
+    const vus = new Set<string>();
+    for (const kb of (Array.isArray(c.coordonnees) ? c.coordonnees.slice(0, 50) : [])) {
+      if (typeof kb !== 'object' || kb === null) continue;
+      const k = kb as Record<string, unknown>;
+      const sorte: SorteCoordonnee = k.sorte === 'email' ? 'email' : 'telephone';
+      const valeur = sorte === 'telephone' ? chiffresTelephone(texte(k.valeur)) : texte(k.valeur);
+      if (valeur === '' || valeur === '+') continue;
+      if (sorte === 'email' && !emailPlausible(valeur)) return { ok: false, motif: `E-mail illisible : « ${valeur} ».` };
+      if (sorte === 'email') { if (vus.has(cleEmail(valeur))) continue; vus.add(cleEmail(valeur)); }
+      coordonnees.push({ id: entierOuNull(k.id), sorte, libelle: texte(k.libelle), valeur });
+    }
+    liste.push({ id: entierOuNull(c.id), categorie, libelle, civilite, prenom: texte(c.prenom), nom: texte(c.nom),
+      note: texte(c.note, BORNE_NOTE), coordonnees });
+  }
+  const noms = new Set<string>();
+  for (const c of liste) {
+    const n = cleNom(c.prenom, c.nom);
+    if (n !== '') {
+      if (noms.has(n)) return { ok: false, motif: `Deux contacts de cet immeuble portent le même nom : ${prenomNom(c.prenom, c.nom)}.` };
+      noms.add(n);
+    }
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — un e-mail partagé n'est plus un refus (avertissement confirmé).
+  }
+  return { ok: true, carnet: { immeuble, contacts: liste } };
 }

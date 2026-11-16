@@ -1,0 +1,387 @@
+'use client';
+
+import { useEffect, useId, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useVerrouDefilement } from '../_composants/verrouDefilement';
+import { DigicodeImmeuble } from './DigicodeImmeuble';
+import { AgCopropriete } from './AgCopropriete';
+import { FicheSyndic } from './FicheSyndic';
+import {
+  ALERTE_DESACCORD, estHorsCopropriete, nomAffiche, titreFicheCopropriete, type FicheCopropriete as Fiche,
+} from '../../../../lib/gestion/copropriete';
+import { adresseImmeuble, cleImmeuble, libelleCategorieImmeuble, nomAvecVille, type CategorieImmeuble, type SyndicResume } from '../../../../lib/gestion/syndics';
+
+/**
+ * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA FENÊTRE (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2) ═══════════════════════════════════════════
+ * Ouverte par le bouton « Copropriété » (ou « Bien hors copropriété ») de la carte du bien, juste sous celui du syndic. Elle montre et modifie ce
+ * qui appartient à la COPROPRIÉTÉ, jamais au syndic : son nom, « hors copropriété » (l'immeuble entier), toutes ses adresses (« + » : celles de la
+ * même parcelle, ou une autre), les digicodes de chaque adresse, les AG (lecture), le syndic lié (lien vers sa fiche, ses gestionnaires en lecture
+ * seule ; rattacher ou changer), les habitants (Copropriétaire, Conseil syndical, Personnaliser) et les gardiens. Hors copropriété : ni syndic ni
+ * AG. Les coordonnées des habitants sont à USAGE INTERNE : jamais visibles d'un autre habitant ou client (garde-fou des envois).
+ * La fiche syndic n'est pas modifiée avant le lot 6 (accord d'Arno). ⚠️ AUCUN IMPORT QUI TIRE `pg`.
+ */
+const API = '/api/admin/gestion/coproprietes/fiche';
+const CATEGORIES: { cle: CategorieImmeuble; mot: string }[] = [
+  { cle: 'gardien', mot: 'Gardien' }, { cle: 'coproprietaire', mot: 'Copropriétaire' }, { cle: 'conseil_syndical', mot: 'Conseil syndical' }, { cle: 'personnalise', mot: 'Personnaliser' }];
+interface Coord { id: number | null; sorte: 'email' | 'telephone'; libelle: string; valeur: string }
+interface ContactEdit { cle: string; id: number | null; categorie: CategorieImmeuble; libelle: string; civilite: 'M.' | 'Mme' | null; prenom: string; nom: string; note: string; coordonnees: Coord[] }
+interface Adresse { libelle: string; codePostal: string; commune: string }
+interface Proposition { libelle: string; codePostal: string; commune: string; parcelle: string; etat: 'libre' | 'prise'; copropriete: string | null; syndic: { id: number; nom: string; ville: string | null } | null }
+interface Lu { fiche: Fiche | null; coproprieteDuBien: boolean | null }
+let n = 0;
+const cleLocale = (): string => `c${++n}`;
+
+const versEdition = (f: Fiche): ContactEdit[] => f.contacts.map((c) => ({ cle: cleLocale(), id: c.id, categorie: c.categorie, libelle: c.libelle ?? '',
+  civilite: c.civilite === 'M.' || c.civilite === 'Mme' ? c.civilite : null, prenom: c.prenom ?? '', nom: c.nom ?? '', note: c.note ?? '',
+  coordonnees: c.coordonnees.map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle ?? '', valeur: k.valeur })) }));
+const nomContact = (c: Pick<ContactEdit, 'civilite' | 'prenom' | 'nom'>): string => [c.civilite, c.prenom.trim(), c.nom.trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
+/** Ce qui manque pour valider un contact (`null` : rien). PUR. */
+export function refusContact(c: ContactEdit): string | null {
+  if (c.categorie === 'personnalise' && c.libelle.trim() === '') return 'Précisez le statut personnalisé (Locataire, Femme de ménage…).';
+  if (c.prenom.trim() === '' && c.nom.trim() === '') return 'Donnez au moins un nom ou un prénom.';
+  return null;
+}
+
+export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number | null; immeuble?: string | null; onFerme: () => void }) {
+  useVerrouDefilement();
+  const titreId = useId();
+  const [lu, setLu] = useState<Lu | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  // la saisie
+  const [nom, setNom] = useState('');
+  const [hors, setHors] = useState(false);
+  const [adresses, setAdresses] = useState<Adresse[]>([]);
+  const [contacts, setContacts] = useState<ContactEdit[]>([]);
+  const [syndicChoisi, setSyndicChoisi] = useState<SyndicResume | null>(null);
+  // l'interface
+  const [ajoutAdresse, setAjoutAdresse] = useState(false);
+  const [nouvelle, setNouvelle] = useState<Adresse>({ libelle: '', codePostal: '', commune: '' });
+  const [aRetirer, setARetirer] = useState<string | null>(null);
+  const [propositions, setPropositions] = useState<Proposition[]>([]);
+  const [rattacheeIci, setRattacheeIci] = useState(false);
+  const [edition, setEdition] = useState<ContactEdit | null>(null);
+  const [choixSyndic, setChoixSyndic] = useState(false);
+  const [q, setQ] = useState('');
+  const [syndics, setSyndics] = useState<SyndicResume[]>([]);
+  const [ficheSyndic, setFicheSyndic] = useState<number | null>(null);
+  const [etape, setEtape] = useState<null | 'alerte' | 'conflit'>(null);
+
+  const appliquer = (l: Lu): void => {
+    setLu(l);
+    const f = l.fiche;
+    if (f === null) return;
+    // la case : celle de la fiche ; une fiche encore à créer part de ce que dit le bien (« pas en copropriété » : cochée)
+    setNom(f.nom ?? ''); setHors(f.declaree ? f.horsCopropriete : l.coproprieteDuBien === false);
+    setAdresses(f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' })));
+    setContacts(versEdition(f)); setSyndicChoisi(null);
+  };
+  useEffect(() => {
+    let vivant = true;
+    const p = lotId ? `lotId=${lotId}` : `immeuble=${encodeURIComponent(immeuble ?? '')}`;
+    fetch(`${API}?${p}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: Lu; message?: string }>)
+      .then((d) => { if (!vivant) return; if (d.etat === 'ok' && d.data) appliquer(d.data); else setErreur(d.message ?? 'Lecture impossible.'); })
+      .catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
+    return () => { vivant = false; };
+  }, [lotId, immeuble]); // eslint-disable-line react-hooks/exhaustive-deps
+  const f = lu?.fiche ?? null;
+  const toutes: Adresse[] = f === null ? [] : [{ libelle: f.libelle, codePostal: f.codePostal ?? '', commune: f.commune ?? '' }, ...adresses];
+  const signature = JSON.stringify(toutes);
+  // les adresses de la même parcelle (proposées au « + »)
+  useEffect(() => {
+    if (f === null) return;
+    let vivant = true;
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'parcelle', adresses: toutes, cle: f.cle }) })
+      .then((r) => r.json() as Promise<{ etat?: string; data?: Proposition[] }>).then((d) => { if (vivant && d.etat === 'ok') setPropositions(d.data ?? []); }).catch(() => { /* aucune proposition */ });
+    return () => { vivant = false; };
+  }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!choixSyndic) return;
+    let vivant = true;
+    const t = setTimeout(() => {
+      fetch(`/api/admin/gestion/syndics?q=${encodeURIComponent(q)}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ syndics?: SyndicResume[] }>)
+        .then((j) => { if (vivant) setSyndics((j.syndics ?? []).slice(0, 12)); }).catch(() => { if (vivant) setSyndics([]); });
+    }, 200);
+    return () => { vivant = false; clearTimeout(t); };
+  }, [choixSyndic, q]);
+  useEffect(() => {
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null) onFerme(); };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [envoi, ficheSyndic, onFerme]);
+
+  const clesIci = new Set(toutes.map((a) => cleImmeuble(a.libelle)));
+  const libres = propositions.filter((p) => p.etat === 'libre' && !clesIci.has(cleImmeuble(p.libelle)));
+  const prises = propositions.filter((p) => p.etat === 'prise' && !clesIci.has(cleImmeuble(p.libelle)));
+  const ajouter = (a: Adresse): void => {
+    if (cleImmeuble(a.libelle) === '' || clesIci.has(cleImmeuble(a.libelle))) return;
+    setAdresses((x) => [...x, a]); setRattacheeIci(true); setInfo(null);
+  };
+  // les conflits : la copropriété reçoit un syndic, et une adresse de la parcelle est la copropriété d'un AUTRE syndic
+  const conflits = syndicChoisi === null ? [] : prises.filter((p) => p.syndic !== null && p.syndic.id !== syndicChoisi.id);
+
+  const valider = async (passe: { alerte?: boolean; conflit?: boolean } = {}): Promise<void> => {
+    if (f === null) return;
+    if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
+    if (!passe.conflit && conflits.length > 0) { setEtape('conflit'); return; }
+    const alerteDue = !passe.alerte && libres.length > 0 && !rattacheeIci && !f.declaree;
+    if (alerteDue) { setEtape('alerte'); return; }
+    setEtape(null); setEnvoi(true); setErreur(null);
+    try {
+      const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
+        adresses, syndicId: syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true,
+        conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
+        contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
+          coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
+      if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Enregistrement refusé.'); return; }
+      appliquer({ fiche: d.data, coproprieteDuBien: lu?.coproprieteDuBien ?? null }); setRattacheeIci(false); setInfo('Fiche copropriété enregistrée.');
+    } catch { setErreur('Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
+  };
+
+  // le titre : « Bien hors copropriété » dès que la fiche le dit, ou que le bien d'où l'on vient est noté « pas en copropriété »
+  const horsAffiche = estHorsCopropriete({ horsCopropriete: hors }, lu?.coproprieteDuBien);
+  const titre = titreFicheCopropriete(horsAffiche);
+  let corps: React.ReactNode;
+  if (lu === null) corps = <p className="loc-muet">{erreur ?? 'Lecture…'}</p>;
+  else if (f === null) corps = <p className="loc-muet" data-fcp-vide>Ce bien n’a ni immeuble ni adresse : aucune fiche copropriété possible.</p>;
+  else corps = <>
+    {f.desaccord && <p className="fcp-alerte" role="status" data-fcp-desaccord>{ALERTE_DESACCORD}</p>}
+    {!f.declaree && <p className="loc-muet" data-fcp-nouvelle>Cette fiche n’existe pas encore : elle sera créée au premier « Valider ».</p>}
+    <section className="fcp-bloc" data-fcp-identite>
+      <h3 className="fcp-titre">Identité</h3>
+      <label className="fcp-champ"><span>Nom de la copropriété (facultatif)</span>
+        <input value={nom} disabled={!f.avec476 || envoi} placeholder={f.libelle} onChange={(e) => setNom(e.target.value)} data-fcp-nom /></label>
+      {f.avec476 && <label className="fcp-case"><input type="checkbox" checked={hors} disabled={envoi} onChange={(e) => setHors(e.target.checked)} data-fcp-hors />
+        <span>Immeuble hors copropriété (tout l’immeuble) : ni syndic ni AG</span></label>}
+      {horsAffiche && !hors && <p className="fcp-alerte" data-fcp-bien-hors>Ce bien est noté « pas en copropriété » sur sa fiche : cochez la case pour tout l’immeuble (rien n’est changé sans « Valider »).</p>}
+      <p className="loc-muet fcp-sans-marge" data-fcp-biens>{f.biens.length} bien{f.biens.length > 1 ? 's' : ''} du portefeuille dans cet immeuble</p>
+    </section>
+
+    <section className="fcp-bloc" data-fcp-adresses>
+      <h3 className="fcp-titre">Adresses
+        <button type="button" className="fcp-plus" aria-expanded={ajoutAdresse} aria-label="Ajouter une adresse à cette copropriété" title="Ajouter une adresse"
+          onClick={() => setAjoutAdresse((o) => !o)} data-fcp-plus-adresse>+</button></h3>
+      <ul className="fcp-liste">
+        <li data-fcp-adresse="principale"><strong>{adresseImmeuble(f.libelle, f.codePostal, f.commune)}</strong> <span className="loc-muet">— adresse principale</span></li>
+        {adresses.map((a) => (
+          <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire">{adresseImmeuble(a.libelle, a.codePostal, a.commune)}{' '}
+            {aRetirer === cleImmeuble(a.libelle) ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
+              <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
+              : <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setARetirer(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>}</li>))}
+      </ul>
+      {ajoutAdresse && (
+        <div className="fcp-ajout" data-fcp-ajout-adresse>
+          {libres.length + prises.length > 0 && <p className="fcp-sous-titre">Sur la même parcelle</p>}
+          <ul className="fcp-liste">
+            {libres.map((p) => <li key={p.libelle}>{adresseImmeuble(p.libelle, p.codePostal, p.commune)}{' '}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => ajouter(p)} data-fcp-rattacher-parcelle>Rattacher</button></li>)}
+            {prises.map((p) => <li key={p.libelle} className="loc-muet" data-fcp-prise>{adresseImmeuble(p.libelle, p.codePostal, p.commune)} — déjà rattachée à une autre copropriété
+              {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}</li>)}
+          </ul>
+          <p className="fcp-sous-titre">Une autre adresse</p>
+          <div className="fcp-grille">
+            <label className="fcp-champ"><span>Rue</span><input value={nouvelle.libelle} onChange={(e) => setNouvelle({ ...nouvelle, libelle: e.target.value })} data-fcp-rue /></label>
+            <label className="fcp-champ"><span>Code postal</span><input value={nouvelle.codePostal} inputMode="numeric" onChange={(e) => setNouvelle({ ...nouvelle, codePostal: e.target.value })} data-fcp-cp /></label>
+            <label className="fcp-champ"><span>Ville</span><input value={nouvelle.commune} onChange={(e) => setNouvelle({ ...nouvelle, commune: e.target.value })} data-fcp-ville /></label>
+          </div>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={cleImmeuble(nouvelle.libelle) === ''}
+            onClick={() => { ajouter(nouvelle); setNouvelle({ libelle: '', codePostal: '', commune: '' }); }} data-fcp-ajouter-adresse>Ajouter</button>
+        </div>
+      )}
+    </section>
+
+    <section className="fcp-bloc" data-fcp-digicodes>
+      <h3 className="fcp-titre">Digicodes</h3>
+      {/* chaque adresse ENREGISTRÉE garde le digicode de son immeuble (commun à tous les biens de l'adresse), avec son propre « Enregistrer » */}
+      {f.adresses.map((a) => <DigicodeImmeuble key={a.cle} voie={a.libelle} codePostal={a.codePostal} commune={a.commune} />)}
+    </section>
+
+    {!horsAffiche && <>
+      <section className="fcp-bloc" data-fcp-syndic>
+        <h3 className="fcp-titre">Syndic</h3>
+        {f.syndic !== null ? <p className="fcp-sans-marge">
+          <button type="button" className="fcp-lien fcp-fort" onClick={() => setFicheSyndic(f.syndic!.id)} data-fcp-ouvrir-syndic>{nomAvecVille(f.syndic.nom, f.syndic.ville)}</button>
+          <span className="loc-muet"> — ouvrir sa fiche</span></p> : <p className="loc-muet fcp-sans-marge" data-fcp-sans-syndic>Aucun syndic lié.</p>}
+        {f.syndic !== null && (
+          <div data-fcp-gestionnaires>
+            <p className="fcp-sous-titre">Contact(s) syndic de cette copropriété <span className="loc-muet">(lecture seule)</span></p>
+            {f.gestionnaires.length === 0 ? <p className="loc-muet fcp-sans-marge">Aucun gestionnaire affecté.</p> : (
+              <ul className="fcp-liste">{f.gestionnaires.map((g) => <li key={g.id}><strong>{[g.civilite, g.prenom, (g.nom ?? '').toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ')}</strong>
+                {g.titre ? <span className="loc-muet"> · {g.titre}</span> : null}{g.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}</li>)}</ul>)}
+          </div>)}
+        {syndicChoisi !== null && <p className="fcp-info" data-fcp-syndic-choisi>Sera rattachée à {nomAvecVille(syndicChoisi.nom, syndicChoisi.ville)} à la validation
+          {f.syndic !== null ? ` (le lien avec ${f.syndic.nom} passera en historique)` : ''}. <button type="button" className="fcp-lien" onClick={() => setSyndicChoisi(null)}>Annuler ce choix</button></p>}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setChoixSyndic((o) => !o)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>
+          {f.syndic === null ? 'Rattacher un syndic' : 'Changer de syndic'}</button>
+        {choixSyndic && (
+          <div className="fcp-ajout" data-fcp-recherche-syndic>
+            <label className="fcp-champ"><span>Rechercher un syndic</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="nom, ville, e-mail" data-fcp-q-syndic /></label>
+            <ul className="fcp-liste">{syndics.filter((s) => s.id !== f.syndic?.id).map((s) => (
+              <li key={s.id}><button type="button" className="fcp-lien" onClick={() => { setSyndicChoisi(s); setChoixSyndic(false); }} data-fcp-syndic-propose={s.id}>{nomAvecVille(s.nom, s.ville ?? null)}</button>
+                <span className="loc-muet"> · {s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''}</span></li>))}</ul>
+          </div>)}
+      </section>
+      <section className="fcp-bloc" data-fcp-ag>{f.declaree ? <AgCopropriete immeuble={f.cle} /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>
+    </>}
+    {horsAffiche && f.syndic !== null && <p className="fcp-alerte" data-fcp-hors-avec-syndic>Un syndic est encore lié à cet immeuble ({nomAvecVille(f.syndic.nom, f.syndic.ville)}) : rien n’est retiré tout seul.</p>}
+
+    <section className="fcp-bloc" data-fcp-contacts>
+      <h3 className="fcp-titre">Habitants et gardiens</h3>
+      <p className="loc-muet fcp-sans-marge" data-fcp-usage-interne>Usage interne : ces coordonnées ne sont jamais communiquées à un autre client, et un habitant ne voit jamais les autres destinataires d’un envoi.</p>
+      {contacts.length === 0 && edition === null && <p className="loc-muet fcp-sans-marge">Aucun habitant ni gardien.</p>}
+      <ul className="fcp-liste">{contacts.map((c) => (
+        <li key={c.cle} className="fcp-contact" data-fcp-contact={c.categorie}>
+          <span className="fcp-pastille" data-fcp-statut>{c.categorie === 'personnalise' ? c.libelle : libelleCategorieImmeuble(c.categorie, null)}</span>{' '}
+          <strong>{nomContact(c) || '—'}</strong>{c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}{' '}
+          <button type="button" className="fcp-lien" onClick={() => setEdition({ ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) })} data-fcp-modifier-contact>Modifier</button>
+        </li>))}</ul>
+      {edition !== null ? (
+        <EditionContact c={edition} onChange={setEdition} onAnnuler={() => setEdition(null)}
+          onRetirer={edition.id === null && !contacts.some((x) => x.cle === edition.cle) ? null : () => { setContacts((l) => l.filter((x) => x.cle !== edition.cle)); setEdition(null); }}
+          onValider={() => { setContacts((l) => (l.some((x) => x.cle === edition.cle) ? l.map((x) => (x.cle === edition.cle ? edition : x)) : [...l, edition])); setEdition(null); }} />
+      ) : <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setEdition({ cle: cleLocale(), id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })} data-fcp-ajouter-contact>+ Ajouter un habitant ou un gardien</button>}
+    </section>
+  </>;
+
+  const boite = (
+    <div className="fcp-voile">
+      <style>{CSS_FICHE_COPROPRIETE}</style>
+      <div className="fcp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fiche-copropriete={horsAffiche ? 'hors' : 'copropriete'}>
+        <div className="fcp-tete">
+          <h2 id={titreId} className="fcp-h2" data-fcp-titre>{titre}{f !== null ? <span className="fcp-nom"> · {nomAffiche({ nom: nom || null, libelle: f.libelle })}</span> : null}</h2>
+          <button type="button" className="fcp-fermer" aria-label="Fermer" onClick={onFerme} disabled={envoi}>×</button>
+        </div>
+        <div className="fcp-corps">{corps}</div>
+        {etape === 'conflit' && (
+          <div className="fcp-etape" role="alert" data-fcp-conflit>
+            <p className="fcp-sans-marge">Sur la même parcelle, {conflits.map((k) => `${adresseImmeuble(k.libelle, k.codePostal, k.commune)} (${k.copropriete}) est gérée par ${nomAvecVille(k.syndic!.nom, k.syndic!.ville)}`).join(' ; ')}.
+              Confirmez-vous un autre syndic pour cette copropriété ?</p>
+            <div className="fcp-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape(null)}>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider({ conflit: true }); }} data-fcp-conflit-oui>Oui, je confirme</button></div>
+          </div>)}
+        {etape === 'alerte' && (
+          <div className="fcp-etape" role="status" data-fcp-alerte-parcelle>
+            <p className="fcp-sans-marge">{libres.length} autre{libres.length > 1 ? 's' : ''} adresse{libres.length > 1 ? 's' : ''} postale{libres.length > 1 ? 's' : ''} sur la même parcelle : {libres.map((p) => p.libelle).join(', ')}.</p>
+            <div className="fcp-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setEtape(null); setAjoutAdresse(true); }} data-fcp-voir-adresses>Voir les adresses</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider({ alerte: true, conflit: conflits.length > 0 ? true : undefined }); }} data-fcp-valider-quand-meme>Valider quand même</button></div>
+          </div>)}
+        {erreur !== null && lu !== null && <p className="cp-refus fcp-pied-msg" role="alert" data-fcp-erreur>{erreur}</p>}
+        {info !== null && <p className="gst-info fcp-pied-msg" role="status" data-fcp-info>{info}</p>}
+        <div className="fcp-actions fcp-pied">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme} disabled={envoi} data-fcp-annuler>Fermer</button>
+          {f !== null && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider(); }} disabled={envoi || etape !== null} data-fcp-valider>{envoi ? 'Enregistrement…' : 'Valider'}</button>}
+        </div>
+      </div>
+      {ficheSyndic !== null && typeof document !== 'undefined' && createPortal(
+        <FicheSyndic syndicId={ficheSyndic} lotDepart={lotId ?? null} onFerme={() => setFicheSyndic(null)} />, document.querySelector('.svv-adm-root') ?? document.body)}
+    </div>
+  );
+  return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
+}
+
+function EditionContact({ c, onChange, onAnnuler, onValider, onRetirer }: { c: ContactEdit; onChange: (c: ContactEdit) => void; onAnnuler: () => void; onValider: () => void; onRetirer: (() => void) | null }) {
+  const refus = refusContact(c);
+  const coord = (i: number, k: Partial<Coord>): void => onChange({ ...c, coordonnees: c.coordonnees.map((x, j) => (j === i ? { ...x, ...k } : x)) });
+  return (
+    <div className="fcp-ajout" data-fcp-edition-contact>
+      <div className="fcp-pilules" role="group" aria-label="Statut">
+        {CATEGORIES.map((k) => <button key={k.cle} type="button" className="fcp-pilule" aria-pressed={c.categorie === k.cle} onClick={() => onChange({ ...c, categorie: k.cle })} data-fcp-statut-choix={k.cle}>{k.mot}</button>)}
+      </div>
+      {c.categorie === 'personnalise' && <label className="fcp-champ"><span>Statut (texte libre) *</span><input value={c.libelle} onChange={(e) => onChange({ ...c, libelle: e.target.value })} placeholder="Locataire, Femme de ménage…" data-fcp-statut-libre /></label>}
+      <div className="fcp-pilules" role="group" aria-label="Civilité">
+        {(['M.', 'Mme'] as const).map((x) => <button key={x} type="button" className="fcp-pilule" aria-pressed={c.civilite === x} onClick={() => onChange({ ...c, civilite: c.civilite === x ? null : x })}>{x}</button>)}
+      </div>
+      <div className="fcp-grille">
+        <label className="fcp-champ"><span>Prénom</span><input value={c.prenom} onChange={(e) => onChange({ ...c, prenom: e.target.value })} data-fcp-prenom /></label>
+        <label className="fcp-champ"><span>Nom</span><input value={c.nom} onChange={(e) => onChange({ ...c, nom: e.target.value })} data-fcp-nom-contact /></label>
+      </div>
+      {c.coordonnees.map((k, i) => (
+        <div key={i} className="fcp-ligne-coord">
+          <label className="fcp-champ"><span>{k.sorte === 'email' ? 'E-mail' : 'Téléphone'}</span>
+            <input value={k.valeur} type={k.sorte === 'email' ? 'email' : 'tel'} onChange={(e) => coord(i, { valeur: e.target.value })} data-fcp-coord={k.sorte} /></label>
+          <button type="button" className="fcp-lien" aria-label="Retirer cette coordonnée" onClick={() => onChange({ ...c, coordonnees: c.coordonnees.filter((_, j) => j !== i) })}>×</button>
+        </div>))}
+      <div className="fcp-actions fcp-gauche">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => onChange({ ...c, coordonnees: [...c.coordonnees, { id: null, sorte: 'telephone', libelle: '', valeur: '' }] })} data-fcp-plus-tel>+ téléphone</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => onChange({ ...c, coordonnees: [...c.coordonnees, { id: null, sorte: 'email', libelle: '', valeur: '' }] })} data-fcp-plus-email>+ e-mail</button>
+      </div>
+      <label className="fcp-champ"><span>Note (interne)</span><input value={c.note} onChange={(e) => onChange({ ...c, note: e.target.value })} data-fcp-note /></label>
+      {refus !== null && <p className="cp-refus fcp-sans-marge" data-fcp-refus-contact>{refus}</p>}
+      <div className="fcp-actions fcp-gauche">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
+        {onRetirer !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetirer} data-fcp-retirer-contact>Retirer de l’immeuble</button>}
+        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={refus !== null} onClick={onValider} data-fcp-valider-contact>Valider le contact</button>
+      </div>
+    </div>
+  );
+}
+
+/** Le bouton de la carte du bien, juste sous celui du syndic : « Copropriété », ou « Bien hors copropriété » dès le départ. */
+export function BoutonCopropriete({ lotId, dansLaFiche = false }: { lotId: number | null | undefined; dansLaFiche?: boolean }) {
+  const [hors, setHors] = useState<boolean | null>(null);
+  const [ouvert, setOuvert] = useState(false);
+  useEffect(() => {
+    if (!lotId) return;
+    let vivant = true;
+    fetch(`${API}?lotId=${lotId}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: Lu }>)
+      .then((d) => { if (vivant && d.etat === 'ok' && d.data) setHors(estHorsCopropriete(d.data.fiche, d.data.coproprieteDuBien)); }).catch(() => { /* le bouton reste « Copropriété » */ });
+    return () => { vivant = false; };
+  }, [lotId, ouvert]);
+  if (!lotId) return null;
+  return (
+    <span className={`bsy-ligne${dansLaFiche ? ' bsy-ligne--fiche' : ''}`} data-bouton-copropriete={hors ? 'hors' : 'copropriete'}>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large bcp" onClick={() => setOuvert(true)}>
+        <span className="bsy-mot">{titreFicheCopropriete(hors === true)}</span></button>
+      {ouvert && <FicheCopropriete lotId={lotId} onFerme={() => setOuvert(false)} />}
+    </span>
+  );
+}
+
+/* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; telephone : une colonne, cibles de 44 px. */
+export const CSS_FICHE_COPROPRIETE = `
+.fcp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+.fcp-boite{width:min(760px,100%);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;padding:0;overflow:hidden;box-sizing:border-box;
+  background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line);border-radius:16px;box-shadow:0 18px 48px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
+.fcp-champ input{border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:8px 10px;font:inherit;font-weight:400}
+.fcp-champ input:disabled{opacity:.6}
+.fcp-pilule{min-height:44px;padding:8px 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.9rem;cursor:pointer}
+.fcp-pilule[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface);border-color:var(--color-svv-red);font-weight:700}
+.fcp-tete{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--color-svv-line)}
+.fcp-h2{margin:0;font-size:1.15rem;font-weight:900;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.fcp-nom{font-weight:700;color:var(--color-svv-muted)}
+.fcp-fermer{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--color-svv-ink);font-size:1.4rem;cursor:pointer}
+.fcp-corps{overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.fcp-bloc{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0}
+.fcp-titre{margin:0;display:flex;align-items:center;gap:8px;font-size:.82rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;color:var(--color-svv-ink)}
+.fcp-sous-titre{margin:4px 0 0;font-weight:800;font-size:.9rem;color:var(--color-svv-ink)}
+.fcp-plus{min-width:36px;min-height:36px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:900;font-size:1.1rem;cursor:pointer}
+.fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.fcp-ajout{display:flex;flex-direction:column;gap:8px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field)}
+.fcp-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
+.fcp-champ{display:flex;flex-direction:column;gap:3px;font-size:.88rem;font-weight:700;color:var(--color-svv-ink);min-width:0}
+.fcp-champ input{min-height:44px;box-sizing:border-box;width:100%;max-width:100%}
+.fcp-case{display:flex;align-items:center;gap:8px;min-height:44px;font-weight:700;color:var(--color-svv-ink)}
+.fcp-case input{width:22px;height:22px}
+.fcp-lien{border:0;background:transparent;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer;padding:4px;min-height:32px;font:inherit}
+.fcp-fort{font-weight:800}
+.fcp-mini{min-height:40px;align-self:flex-start}
+.fcp-pilules{display:flex;flex-wrap:wrap;gap:6px}
+.fcp-pastille{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.78rem;font-weight:800;border:1px solid var(--color-svv-line-strong);color:var(--color-svv-ink)}
+.fcp-contact{padding:4px 0}
+.fcp-coord{color:var(--color-svv-muted)}
+.fcp-ligne-coord{display:flex;align-items:flex-end;gap:6px}
+.fcp-ligne-coord .fcp-champ{flex:1 1 auto}
+.fcp-alerte{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-orange-soft);color:var(--color-svv-orange);font-weight:800}
+.fcp-info{margin:0;font-weight:700;color:var(--color-svv-ink)}
+.fcp-confirmer{font-weight:700}
+.fcp-etape{margin:0 16px;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-field);display:flex;flex-direction:column;gap:8px}
+.fcp-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.fcp-gauche{justify-content:flex-start}
+.fcp-pied{padding:12px 16px;border-top:1px solid var(--color-svv-line)}
+.fcp-pied-msg{margin:6px 16px 0}
+.fcp-sans-marge{margin:0}
+@media (max-width:600px){.fcp-pied .svv-btn{flex:1 1 100%}}
+`;
