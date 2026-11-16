@@ -255,6 +255,30 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         : f.adresses.map((a) => <DigicodeImmeuble key={a.cle} voie={a.libelle} codePostal={a.codePostal} commune={a.commune} />)}
     </section>
 
+    {/* 🔴 (16/11/2026, point 3) l'ordre : Identité, Adresses, Digicodes, AG, Habitants et gardiens, puis le Syndic EN DERNIER ; chaque partie est une
+        carte (titre net, fond et bordure distincts). Rien n'est retiré, masqué ni conditionné : AG et Syndic gardent leur condition d'avant
+        (absents d'un immeuble « hors copropriété »). */}
+    {!horsAffiche && <section className="fcp-bloc" data-fcp-ag>
+      <h3 className="fcp-titre">AG</h3>
+      {f.declaree ? <AgCopropriete immeuble={f.cle} /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>}
+
+    <section className="fcp-bloc" data-fcp-contacts>
+      <h3 className="fcp-titre">Habitants et gardiens</h3>
+      <p className="loc-muet fcp-sans-marge" data-fcp-usage-interne>Usage interne : ces coordonnées ne sont jamais communiquées à un autre client, et un habitant ne voit jamais les autres destinataires d’un envoi.</p>
+      {contacts.length === 0 && edition === null && <p className="loc-muet fcp-sans-marge">Aucun habitant ni gardien.</p>}
+      <ul className="fcp-liste">{contacts.map((c) => (
+        <li key={c.cle} className="fcp-contact" data-fcp-contact={c.categorie}>
+          <span className="fcp-pastille" data-fcp-statut>{c.categorie === 'personnalise' ? c.libelle : libelleCategorieImmeuble(c.categorie, null)}</span>{' '}
+          <strong>{nomContact(c) || '—'}</strong>{c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}{' '}
+          <button type="button" className="fcp-lien" onClick={() => setEdition({ ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) })} data-fcp-modifier-contact>Modifier</button>
+        </li>))}</ul>
+      {edition !== null ? (
+        <EditionContact c={edition} onChange={setEdition} onAnnuler={() => setEdition(null)} autres={contacts} immeuble={f.libelle} syndicId={f.syndic?.id ?? null}
+          onRetirer={edition.id === null && !contacts.some((x) => x.cle === edition.cle) ? null : () => { setContacts((l) => l.filter((x) => x.cle !== edition.cle)); setEdition(null); }}
+          onValider={() => { setContacts((l) => (l.some((x) => x.cle === edition.cle) ? l.map((x) => (x.cle === edition.cle ? edition : x)) : [...l, edition])); setEdition(null); }} />
+      ) : <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setEdition({ cle: cleLocale(), id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })} data-fcp-ajouter-contact>+ Ajouter un habitant ou un gardien</button>}
+    </section>
+
     {!horsAffiche && <>
       <section className="fcp-bloc" data-fcp-syndic>
         <h3 className="fcp-titre">Syndic</h3>
@@ -280,26 +304,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
                 <span className="loc-muet"> · {s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''}</span></li>))}</ul>
           </div>)}
       </section>
-      <section className="fcp-bloc" data-fcp-ag>{f.declaree ? <AgCopropriete immeuble={f.cle} /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>
     </>}
     {horsAffiche && f.syndic !== null && <p className="fcp-alerte" data-fcp-hors-avec-syndic>Un syndic est encore lié à cet immeuble ({nomAvecVille(f.syndic.nom, f.syndic.ville)}) : rien n’est retiré tout seul.</p>}
-
-    <section className="fcp-bloc" data-fcp-contacts>
-      <h3 className="fcp-titre">Habitants et gardiens</h3>
-      <p className="loc-muet fcp-sans-marge" data-fcp-usage-interne>Usage interne : ces coordonnées ne sont jamais communiquées à un autre client, et un habitant ne voit jamais les autres destinataires d’un envoi.</p>
-      {contacts.length === 0 && edition === null && <p className="loc-muet fcp-sans-marge">Aucun habitant ni gardien.</p>}
-      <ul className="fcp-liste">{contacts.map((c) => (
-        <li key={c.cle} className="fcp-contact" data-fcp-contact={c.categorie}>
-          <span className="fcp-pastille" data-fcp-statut>{c.categorie === 'personnalise' ? c.libelle : libelleCategorieImmeuble(c.categorie, null)}</span>{' '}
-          <strong>{nomContact(c) || '—'}</strong>{c.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}{' '}
-          <button type="button" className="fcp-lien" onClick={() => setEdition({ ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) })} data-fcp-modifier-contact>Modifier</button>
-        </li>))}</ul>
-      {edition !== null ? (
-        <EditionContact c={edition} onChange={setEdition} onAnnuler={() => setEdition(null)} autres={contacts} immeuble={f.libelle} syndicId={f.syndic?.id ?? null}
-          onRetirer={edition.id === null && !contacts.some((x) => x.cle === edition.cle) ? null : () => { setContacts((l) => l.filter((x) => x.cle !== edition.cle)); setEdition(null); }}
-          onValider={() => { setContacts((l) => (l.some((x) => x.cle === edition.cle) ? l.map((x) => (x.cle === edition.cle ? edition : x)) : [...l, edition])); setEdition(null); }} />
-      ) : <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setEdition({ cle: cleLocale(), id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })} data-fcp-ajouter-contact>+ Ajouter un habitant ou un gardien</button>}
-    </section>
   </>;
 
   const boite = (
@@ -443,9 +449,11 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-h2{margin:0;font-size:1.15rem;font-weight:900;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .fcp-nom{font-weight:700;color:var(--color-svv-muted)}
 .fcp-fermer{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--color-svv-ink);font-size:1.4rem;cursor:pointer}
-.fcp-corps{overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
-.fcp-bloc{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0}
-.fcp-titre{margin:0;display:flex;align-items:center;gap:8px;font-size:.82rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;color:var(--color-svv-ink)}
+.fcp-corps{overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px;min-width:0;background:var(--color-svv-field)}
+.fcp-bloc{display:flex;flex-direction:column;gap:8px;padding:12px 14px 14px;border:1px solid var(--color-svv-line-strong);border-radius:14px;background:var(--color-svv-surface);
+  box-shadow:0 1px 3px color-mix(in srgb, var(--color-svv-ink) 10%, transparent);min-width:0}
+.fcp-titre{margin:0 0 2px;padding:0 0 8px;display:flex;align-items:center;gap:8px;min-height:36px;border-bottom:1px solid var(--color-svv-line);
+  font-size:.86rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;color:var(--color-svv-ink)}
 .fcp-sous-titre{margin:4px 0 0;font-weight:800;font-size:.9rem;color:var(--color-svv-ink)}
 .fcp-plus{min-width:36px;min-height:36px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:900;font-size:1.1rem;cursor:pointer}
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}

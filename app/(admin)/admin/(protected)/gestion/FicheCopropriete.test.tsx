@@ -293,3 +293,31 @@ describe('🔴 (lot 6, repris du cadre « Ajouter un contact de l’immeuble » 
     expect($('[data-fcp-contacts]').textContent).toContain('MARTIN');
   });
 });
+
+describe('🔴 (16/11/2026, point 3) la mise en page : le Syndic en DERNIER, chaque partie en carte — rien retiré ni masqué', () => {
+  const ordre = () => [...document.querySelectorAll('.fcp-corps > section.fcp-bloc')].map((x) => [...x.attributes].find((a) => a.name.startsWith('data-fcp-'))!.name);
+  it('l’ordre : Identité, Adresses, Digicodes, AG, Habitants et gardiens, Syndic ; chaque carte a son titre', async () => {
+    await ouvrir();
+    expect(ordre()).toEqual(['data-fcp-identite', 'data-fcp-adresses', 'data-fcp-digicodes', 'data-fcp-ag', 'data-fcp-contacts', 'data-fcp-syndic']);
+    expect([...document.querySelectorAll('.fcp-corps > section.fcp-bloc > h3.fcp-titre')].map((h) => h.childNodes[0].textContent))
+      .toEqual(['Identité', 'Adresses', 'Digicodes', 'AG', 'Habitants et gardiens', 'Syndic']);
+    // tout ce que portait chaque partie y est toujours
+    for (const s of ['[data-fcp-plus-adresse]', '[data-fcp-ouvrir-syndic]', '[data-fcp-gestionnaires]', '[data-fcp-choisir-syndic]', '[data-fcp-ajouter-contact]', '[data-fcp-usage-interne]', '[data-fcp-nom]', '[data-fcp-hors]', '[data-fcp-biens]']) {
+      expect(document.querySelector(s), s).not.toBeNull();
+    }
+  });
+  it('« hors copropriété » : ni AG ni Syndic, comme avant ; le syndic encore lié reste dit, en fin de fenêtre', async () => {
+    lu = { fiche: FICHE({ horsCopropriete: true }), coproprieteDuBien: null };
+    await ouvrir();
+    expect(ordre()).toEqual(['data-fcp-identite', 'data-fcp-adresses', 'data-fcp-digicodes', 'data-fcp-contacts']);
+    expect(document.querySelector('.fcp-corps')!.lastElementChild!.hasAttribute('data-fcp-hors-avec-syndic')).toBe(true);
+  });
+  it('les cartes : fond et bordure distincts du fond de la fenêtre, titre souligné ; jetons de couleur (clair et sombre)', async () => {
+    const { CSS_FICHE_COPROPRIETE } = await import('./FicheCopropriete');
+    const regle = (sel: string) => CSS_FICHE_COPROPRIETE.split('\n').filter((l) => l.startsWith(`${sel}{`) || l.startsWith(`  `)).join('');
+    expect(CSS_FICHE_COPROPRIETE).toMatch(/\.fcp-corps\{[^}]*background:var\(--color-svv-field\)/);
+    expect(CSS_FICHE_COPROPRIETE).toMatch(/\.fcp-bloc\{[^}]*border:1px solid var\(--color-svv-line-strong\)[^}]*background:var\(--color-svv-surface\)/);
+    expect(CSS_FICHE_COPROPRIETE).toMatch(/\.fcp-titre\{[^}]*border-bottom:1px solid var\(--color-svv-line\)/);
+    expect(regle('.fcp-bloc')).not.toMatch(/#[0-9a-f]{3,6}/i);
+  });
+});
