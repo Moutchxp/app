@@ -371,3 +371,16 @@ export async function digicodesDesAdresses(adresseCles: readonly string[], insta
       batiments: [...cles.entries()].map(([cle, libelle]) => place(cle, libelle)).sort((a, b) => (a.libelle ?? '').localeCompare(b.libelle ?? '', 'fr', { numeric: true, sensitivity: 'base' })) };
   });
 }
+
+/**
+ * 🔴 (« Digicodes unifiés », lot 5) ANNULER un changement PRÉVU (pas encore appliqué), dans la transaction de l'appelant : la ligne est marquée
+ * annulée (qui, quand) — jamais effacée ; l'historique la montre « annulée ». Refus clair sinon (déjà appliqué, déjà annulé, autre adresse).
+ */
+export async function annulerChangement(q: RequeteTx, adresseCle: string, ligneId: number, auteur: Auteur): Promise<IssueEcriture> {
+  if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478) : rien n’est enregistré.' };
+  const { rows } = await q<{ id: string }>(
+    `UPDATE gestion_digicode SET annule_le = now(), annule_par_libelle = $3
+      WHERE id = $1 AND adresse_cle = $2 AND nature = 'changement' AND annule_le IS NULL AND applique_le > now() RETURNING id::text`, [ligneId, adresseCle, auteur.libelle]);
+  return rows[0] === undefined ? { ok: false, motif: 'Ce changement n’est plus annulable (déjà appliqué ou déjà annulé) : rechargez la fiche. Rien n’est enregistré.' }
+    : { ok: true, change: true, id: ligneId };
+}

@@ -28,7 +28,8 @@ vi.mock('../location/digicodeImmeubleRepo', () => ({ depuisCoproprieteDisponible
 // 🔴 (« Digicodes unifiés », lot 3) la base unique : absente pour les épreuves d'avant, présente pour les siennes (le chemin serveur unique simulé)
 const un = vi.hoisted(() => ({ avec478: false, ecrits: [] as Record<string, unknown>[], issue: { ok: true, change: true, id: 1 } as Record<string, unknown> }));
 vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => un.avec478, RefusDigicode: class extends Error {},
-  ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { un.ecrits.push(e); return un.issue; } }));
+  ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { un.ecrits.push(e); return typeof un.issue === 'function' ? (un.issue as (x: unknown) => unknown)(e) : un.issue; },
+  annulerChangement: async (_q: unknown, adresseCle: string, id: number) => { un.ecrits.push({ annulation: id, adresseCle }); return { ok: true, change: true, id }; } }));
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
 const va = vi.hoisted(() => ({ vues: [] as unknown[][], issue: { ok: true } as { ok: true } | { ok: false; motif: string } }));
 vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknown[]) => { va.vues.push(a); return va.issue; } }));
@@ -244,5 +245,26 @@ describe('🔴🔴 (« Digicodes unifiés », lot 3) avec la 478 : le chemin ser
       .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
     un.avec478 = false;
     expect((await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', digicode: true, code: '1' }, 'correction', AUTEUR)).ok).toBe(false);
+  });
+});
+
+describe('🔴🔴 (« Digicodes unifiés », lot 5) « Modifier » : changements datés, tous ou aucun ; annulation d’un changement prévu', () => {
+  beforeEach(() => { un.avec478 = true; h.fiche = FICHE({ adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', principale: true }] }); });
+  const P = { immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', appliqueLe: '2026-11-20T08:00:00.000Z',
+    changements: [{ batiment: null, digicode: true, code: 'Z7' }, { batiment: 'B', digicode: true, code: 'B9' }] };
+  it('chaque code coché part en « changement », à la MÊME date d’application', async () => {
+    expect((await gesteDigicodeCopro(P, 'planification', AUTEUR)).ok).toBe(true);
+    expect(un.ecrits.map((e) => [e.batiment, e.valeur, e.nature, e.appliqueLe])).toEqual([
+      [null, { digicode: true, code: 'Z7' }, 'changement', '2026-11-20T08:00:00.000Z'], ['B', { digicode: true, code: 'B9' }, 'changement', '2026-11-20T08:00:00.000Z']]);
+  });
+  it('un code refusé (date passée, changement déjà prévu…) : TOUT est annulé (refus levé), le message dit lequel', async () => {
+    un.issue = ((e: Record<string, unknown>) => (e.batiment === 'B' ? { ok: false, motif: 'Un changement est déjà prévu pour ce digicode (…) : annulez-le d’abord. Rien n’est enregistré.' } : { ok: true, change: true, id: 1 })) as never;
+    expect(await gesteDigicodeCopro(P, 'planification', AUTEUR)).toEqual({ ok: false, motif: 'Bâtiment B : Un changement est déjà prévu pour ce digicode (…) : annulez-le d’abord. Rien n’est enregistré.' });
+  });
+  it('une saisie incomplète est refusée avant toute écriture ; « Annuler ce changement » passe par le chemin unique', async () => {
+    expect(await gesteDigicodeCopro({ ...P, changements: [] }, 'planification', AUTEUR)).toEqual({ ok: false, motif: 'Choisissez au moins un digicode qui change.' });
+    expect(un.ecrits).toEqual([]);
+    expect((await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', ligneId: 42 }, 'annulation', AUTEUR)).ok).toBe(true);
+    expect(un.ecrits).toEqual([{ annulation: 42, adresseCle: 'residence les tilleuls' }]);
   });
 });

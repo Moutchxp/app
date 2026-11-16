@@ -197,17 +197,20 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
    * unique ; seuls les digicodes de la fiche sont relus (le reste de la saisie en cours n'est pas touché). Des digicodes saisis et pas encore
    * validés : on le dit d'abord (ils seraient perdus).
    */
-  const gesteDigicode = async (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> => {
+  const gesteDigicode = (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> =>
+    appelDigicode({ action, adresseCle, batiment, digicode: v.digicode, code: v.code });
+  const appelDigicode = async (corpsGeste: Record<string, unknown> & { action: string }): Promise<string | null> => {
+    const action = corpsGeste.action;
     if (f === null) return 'Fiche non chargée.';
     if (digicodesModifies(digi).length > 0) return 'Validez (ou retirez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
     try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, immeuble: f.cle, adresseCle, batiment, digicode: v.digicode, code: v.code }) });
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...corpsGeste, immeuble: f.cle }) });
       const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
       if (d.etat !== 'ok' || !d.data) return d.motif ?? d.message ?? 'Enregistrement refusé.';
       const nouvelle = d.data;
       setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective } }));
       setDigi(saisieDigicodesInitiale(nouvelle));
-      setInfo(action === 'digicode-corriger' ? 'Digicode corrigé.' : 'Digicode choisi.');
+      setInfo(action === 'digicode-corriger' ? 'Digicode corrigé.' : action === 'digicode-arbitrer' ? 'Digicode choisi.' : action === 'digicode-planifier' ? 'Changement de digicode enregistré.' : 'Changement annulé.');
       return null;
     } catch { return 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'; }
   };
@@ -279,7 +282,9 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       {f.saisieDigicodes
         ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi}
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
-            onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v) } : {})} />
+            onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
+            onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),
+            onAnnulerChangement: (a: string, ligneId: number) => appelDigicode({ action: 'digicode-annuler-changement', adresseCle: a, ligneId }) } : {})} />
         /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : l'ancienne saisie par adresse (DigicodeImmeuble), en repli sans la 477 —
            RETIRÉE : le composant unique couvre tout ce qu'elle faisait (code commun, code de chaque bâtiment, ajout d'un bâtiment, « commun aux N
            biens », message après enregistrement). Sans la mise à jour de la base, on le dit ; rien n'est saisi. */

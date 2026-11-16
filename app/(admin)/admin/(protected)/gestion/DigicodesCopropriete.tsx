@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { avertissementBatiment, avertissementsDesBatiments, batimentDe, menuBatiments, refusDesBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
+import { avertissementBatiment, avertissementsDesBatiments, batimentDe, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
-import { dateHeure } from '../../../../lib/gestion/digicodes';
+import { dateHeure, instantDepuisParis } from '../../../../lib/gestion/digicodes';
 
 /**
  * ══ 🔴🔴 LES DIGICODES DE LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 3) ═══════════════════════════════════════
@@ -36,6 +36,9 @@ export const motValeur = (v: { digicode: boolean | null; code: string | null }):
 const MOT_NATURE: Record<string, string> = { saisie: 'saisi', correction: 'corrigé (faute de frappe)', changement: 'changement de code', reprise: 'repris d’avant', arbitrage: 'choisi parmi des valeurs différentes' };
 /** Un geste immédiat (correction, arbitrage) : la place, la valeur ; rend le motif d'un refus, ou `null`. */
 export type GesteDigicode = (adresseCle: string, batiment: string | null, valeur: { digicode: boolean; code: string | null }) => Promise<string | null>;
+/** 🔴 (lot 5) « Modifier » : la date d'application (ISO) et les codes qui changent ; « Annuler ce changement » : la ligne prévue. */
+export type PlanifierDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null>;
+export type AnnulerChangementDigicode = (adresseCle: string, ligneId: number) => Promise<string | null>;
 
 let n = 0;
 const k = (): string => `b${++n}`;
@@ -89,15 +92,19 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, modeBien = false }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, modeBien = false }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
+  /** 🔴 (lot 5) « Modifier » (changement daté) et « Annuler ce changement » ; absents : non proposés */
+  onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
   /** 🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : son adresse, son code commun et celui de SON bâtiment (choisi au menu, à part) — sans
    *  « + » ni rappel de la règle (le menu du bâtiment les porte) */
   modeBien?: boolean;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
+  // 🔴 (lot 5) la fenêtre « Modifier » : l'adresse et le code d'où on l'a ouverte (pré-coché)
+  const [modifier, setModifier] = useState<{ cle: string; place: string } | null>(null);
   // 🔴 (lot D) la fenêtre d'avertissement : la ligne concernée et ce qui est dit
   const [alerte, setAlerte] = useState<{ cle: string; k: string; a: AvertissementBatiment } | null>(null);
   /** Au moment où le bâtiment est AJOUTÉ (choix dans le menu, ou nom saisi quand on quitte le champ) : la fenêtre, s'il ne suit pas la numérotation. */
@@ -125,7 +132,9 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>
           {placeLue(d.communEtat) ? (
             <div className="dcp-ligne" data-dcp-commun>
-              <PlaceDigicodeLue titre="Digicode commun" etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)} />
+              <PlaceDigicodeLue titre="Digicode commun" etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
+                onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: '' })}
+                onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {!modeBien && <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
                 onClick={() => { const kk = k(); maj(d.cle, (x) => ({ ...x, batiments: [...x.batiments, { k: kk, libelle: '', code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] })); setMenu(kk); }}
                 data-dcp-plus>+</button>}
@@ -143,7 +152,9 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.libelle}>
-              <PlaceDigicodeLue titre={`Bâtiment / cage ${b.libelle}`} etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)} />
+              <PlaceDigicodeLue titre={`Bâtiment / cage ${b.libelle}`} etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)}
+                onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: batimentDe(b.libelle)?.cle ?? '' })}
+                onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {b.nb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>{mentionNb(b.nb, b.libelle)}</p>}
             </div>) : (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}>
@@ -174,6 +185,9 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
         </div>))}
       {refus !== null && <p className="cp-refus dcp-refus" role="status" data-dcp-refus>{refus}</p>}
       <HistoriqueDigicodes s={s} />
+      {modifier !== null && onPlanifier !== undefined && s.find((d) => d.cle === modifier.cle) !== undefined && (
+        <FenetreModifier d={s.find((d) => d.cle === modifier.cle) as DigicodesAdresseSaisis} depart={modifier.place} onFermer={() => setModifier(null)}
+          onValider={(appliqueLe, changements) => onPlanifier(modifier.cle, appliqueLe, changements)} />)}
       {alerte !== null && (
         <div className="dcp-voile" data-dcp-avertissement>
           <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="dcp-alerte-titre" aria-describedby="dcp-alerte-texte"
@@ -210,8 +224,10 @@ export function valeurDeLaSaisie(c: CodeLigne): { digicode: boolean; code: strin
 }
 
 /** 🔴 (478) Une place dont le code est CONNU (ou à arbitrer) : lue, et « Corriger une erreur » (confirmé, immédiat, sans date ni mail). */
-function PlaceDigicodeLue({ titre, etat, desactive, onCorriger }: { titre: string; etat: EtatPlaceDigicode; desactive: boolean;
-  onCorriger?: (v: { digicode: boolean; code: string | null }) => Promise<string | null> }) {
+function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAnnulerChangement }: { titre: string; etat: EtatPlaceDigicode; desactive: boolean;
+  onCorriger?: (v: { digicode: boolean; code: string | null }) => Promise<string | null>; onModifier?: () => void; onAnnulerChangement?: (id: number) => Promise<string | null> }) {
+  const [annuler, setAnnuler] = useState<number | null>(null);
+  const [erreurAnnulation, setErreurAnnulation] = useState<string | null>(null);
   const [ouvert, setOuvert] = useState(false);
   const [saisie, setSaisie] = useState<CodeLigne>({ code: '', aucun: false });
   const [envoi, setEnvoi] = useState(false);
@@ -226,9 +242,20 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger }: { titre: strin
         : <span className="dcp-lue-valeur" data-dcp-lue-valeur><strong>{valeur === null ? '' : motValeur(valeur)}</strong>
           {etat.depuis ? <span className="loc-muet"> · en vigueur depuis le {dateHeure(etat.depuis)}</span> : null}
           {etat.source === 'ancien' ? <span className="loc-muet"> · valeur d’avant, pas encore dans la base unique</span> : null}</span>}
-      {etat.aVenir.map((x) => <span key={x.appliqueLe} className="dcp-a-venir" data-dcp-a-venir>Changement prévu : {motValeur(x)} à partir du {dateHeure(x.appliqueLe)}</span>)}
-      {etat.connu && onCorriger !== undefined && !ouvert && (
-        <button type="button" className="dcp-lien" disabled={desactive} onClick={() => { setOuvert(true); setErreur(null); setSaisie({ code: '', aucun: false }); }} data-dcp-corriger-erreur>Corriger une erreur</button>)}
+      {etat.aVenir.map((x) => (
+        <span key={x.appliqueLe} className="dcp-a-venir" data-dcp-a-venir>Changement prévu : {motValeur(x)} à partir du {dateHeure(x.appliqueLe)}
+          {onAnnulerChangement !== undefined && (annuler === x.id
+            ? <span className="dcp-confirmer"> — annuler ce changement ? <button type="button" className="dcp-lien" disabled={desactive}
+                onClick={() => { void onAnnulerChangement(x.id).then((m) => { setAnnuler(null); setErreurAnnulation(m); }); }} data-dcp-annuler-changement-oui>Oui</button>{' '}
+                <button type="button" className="dcp-lien" onClick={() => setAnnuler(null)}>Non</button></span>
+            : <> — <button type="button" className="dcp-lien" disabled={desactive} onClick={() => { setAnnuler(x.id); setErreurAnnulation(null); }} data-dcp-annuler-changement>Annuler ce changement</button></>)}
+        </span>))}
+      {erreurAnnulation !== null && <p className="cp-refus dcp-refus" role="alert">{erreurAnnulation}</p>}
+      {etat.connu && !ouvert && (onCorriger !== undefined || onModifier !== undefined) && (
+        <span className="dcp-gestes">
+          {onModifier !== undefined && <button type="button" className="svv-btn svv-btn-outline gst-btn dcp-mini" disabled={desactive} onClick={onModifier} data-dcp-modifier>Modifier</button>}
+          {onCorriger !== undefined && <button type="button" className="dcp-lien" disabled={desactive} onClick={() => { setOuvert(true); setErreur(null); setSaisie({ code: '', aucun: false }); }} data-dcp-corriger-erreur>Corriger une erreur</button>}
+        </span>)}
       {ouvert && onCorriger !== undefined && valeur !== null && (
         <div className="dcp-correction" role="group" aria-label={`Corriger une erreur — ${titre}`} data-dcp-correction>
           <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
@@ -248,6 +275,75 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger }: { titre: strin
             }}>{envoi ? 'Enregistrement…' : 'Confirmer la correction'}</button>
           </div>
         </div>)}
+    </div>
+  );
+}
+
+/** La date de demain (heure de Paris), pour le champ « Date d'application ». */
+const demainParis = (): string => new Date(Date.now() + 86400000).toLocaleDateString('fr-CA', { timeZone: 'Europe/Paris' });
+
+/**
+ * 🔴🔴 (« Digicodes unifiés », lot 5) LA FENÊTRE « MODIFIER » : les syndics changent les codes. On COCHE le ou les codes de l'adresse qui changent
+ * (commun et/ou bâtiments ; celui d'où l'on vient est coché), en face de chaque code actuel on saisit le NOUVEAU, puis la DATE ET L'HEURE
+ * d'application (heure de Paris). Le nouveau code ne remplace l'ancien qu'à partir de cette date ; avant, l'ancien reste en vigueur ; ensuite il
+ * reste dans l'historique. Aucun envoi ici (l'écran des destinataires vient ensuite).
+ */
+function FenetreModifier({ d, depart, onFermer, onValider }: { d: DigicodesAdresseSaisis; depart: string; onFermer: () => void;
+  onValider: (appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null> }) {
+  const places = [...(d.communEtat?.connu ? [{ cle: '', libelle: null as string | null, titre: 'Digicode commun', etat: d.communEtat }] : []),
+    ...d.batiments.filter((b) => b.etat?.connu).map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, libelle: b.libelle as string | null, titre: `Bâtiment / cage ${b.libelle}`, etat: b.etat as EtatPlaceDigicode }))];
+  const [coches, setCoches] = useState<Record<string, CodeLigne | undefined>>(() => (places.some((p) => p.cle === depart && p.etat.aVenir.length === 0) ? { [depart]: { code: '', aucun: false } } : {}));
+  const [date, setDate] = useState(demainParis());
+  const [heure, setHeure] = useState('09:00');
+  const [envoi, setEnvoi] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [ouverture] = useState(() => Date.now()); // l'heure d'ouverture de la fenêtre (le serveur revérifie au moment d'enregistrer)
+  const appliqueLe = instantDepuisParis(date, heure);
+  const choisis = places.filter((p) => coches[p.cle] !== undefined);
+  const manque = choisis.length === 0 ? 'Cochez au moins un digicode qui change.'
+    : choisis.some((p) => valeurDeLaSaisie(coches[p.cle] as CodeLigne) === null) ? 'Saisissez le nouveau code de chaque digicode coché (ou « pas de digicode »).'
+      : appliqueLe === null ? 'Indiquez la date et l’heure d’application.'
+        : new Date(appliqueLe).getTime() <= ouverture ? 'La date et l’heure d’application doivent être à venir.' : null;
+  return (
+    <div className="dcp-voile" data-dcp-fenetre-modifier>
+      <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-modifier-titre"
+        onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onFermer(); } }}>
+        <p className="dcp-alerte-titre" id="dcp-modifier-titre">Modifier un digicode — {adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>
+        <p className="dcp-alerte-texte loc-muet">Cochez le ou les codes qui changent, saisissez le nouveau code en face de l’actuel, puis la date et l’heure d’application. Jusque-là, le code actuel reste en vigueur ; ensuite, il reste dans l’historique.</p>
+        <ul className="dcp-arbitrer-liste">{places.map((p) => {
+          const prevu = p.etat.aVenir[0];
+          const c = coches[p.cle];
+          return (
+            <li key={p.cle} className="dcp-modifier-ligne" data-dcp-modifier-place={p.libelle ?? 'commun'}>
+              <label className="dcp-aucun"><input type="checkbox" checked={c !== undefined} disabled={envoi || prevu !== undefined}
+                onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: e.target.checked ? { code: '', aucun: false } : undefined }))} data-dcp-modifier-coche />
+                <span><strong>{p.titre}</strong> — actuel : {p.etat.valeur ? motValeur(p.etat.valeur) : '—'}</span></label>
+              {prevu !== undefined && <span className="loc-muet">Un changement est déjà prévu le {dateHeure(prevu.appliqueLe)} : annulez-le d’abord.</span>}
+              {c !== undefined && (
+                <div className="dcp-ligne">
+                  <label className="dcp-champ"><span>Nouveau code</span>
+                    <input value={c.code} maxLength={8} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : 'nouveau code'}
+                      onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: e.target.value } }))} data-dcp-modifier-code /></label>
+                  <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
+                </div>)}
+            </li>);
+        })}</ul>
+        <div className="dcp-ligne">
+          <label className="dcp-champ"><span>Date d’application</span><input type="date" value={date} disabled={envoi} onChange={(e) => setDate(e.target.value)} data-dcp-modifier-date /></label>
+          <label className="dcp-champ"><span>Heure (Paris)</span><input type="time" value={heure} disabled={envoi} onChange={(e) => setHeure(e.target.value)} data-dcp-modifier-heure /></label>
+        </div>
+        {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-modifier-erreur>{erreur}</p>}
+        {manque !== null && erreur === null && <p className="loc-muet dcp-sans-marge" data-dcp-modifier-manque>{manque}</p>}
+        <div className="dcp-alerte-actions">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={onFermer} data-dcp-modifier-annuler>Annuler</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || manque !== null} data-dcp-modifier-valider onClick={() => {
+            if (appliqueLe === null) return;
+            setEnvoi(true); setErreur(null);
+            void onValider(appliqueLe, choisis.map((p) => ({ batiment: p.libelle, ...(valeurDeLaSaisie(coches[p.cle] as CodeLigne) as { digicode: boolean; code: string | null }) })))
+              .then((m) => { setEnvoi(false); if (m === null) onFermer(); else setErreur(m); });
+          }}>{envoi ? 'Enregistrement…' : 'Enregistrer le changement'}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -391,9 +487,9 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
  * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
  * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
  */
-export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer }: {
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement }: {
   donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
-  onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
+  onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode; onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
 }) {
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const vue: DigicodesAdresseSaisis = { ...s, batiments: ligne === null ? [] : [ligne] };
@@ -405,7 +501,7 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   };
   return <div data-digicodes-bien>
     <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
-      {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} />
+      {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} {...(onPlanifier ? { onPlanifier } : {})} {...(onAnnulerChangement ? { onAnnulerChangement } : {})} />
   </div>;
 }
 
@@ -450,6 +546,9 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-confirmer{font-weight:700}
 .dcp-sans-marge{margin:0}
 .dcp-mention{margin:0;font-size:.82rem;flex-basis:100%}
+.dcp-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.dcp-fenetre{width:min(560px,100%);max-height:calc(100dvh - 32px);overflow-y:auto}
+.dcp-modifier-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-bottom:1px solid var(--color-svv-line)}
 .dcp-historique summary{cursor:pointer;font-weight:800;min-height:36px;display:flex;align-items:center;color:var(--color-svv-ink)}
 .dcp-historique{font-size:.88rem}
 @media (max-width:600px){.dcp-alerte-actions .svv-btn{flex:1 1 100%}}

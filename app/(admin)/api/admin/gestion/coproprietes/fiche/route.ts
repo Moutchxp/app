@@ -4,7 +4,7 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { query } from '../../../../../../lib/db/client';
 import { colonneExisteMemo } from '../../../../../../lib/location/sondeLocation';
 import { ficheCopropriete } from '../../../../../../lib/gestion/coproprieteRepo';
-import { enregistrerCopropriete, gesteDigicodeCopro, propositionsParcelle } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
+import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, propositionsParcelle } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
 
@@ -15,7 +15,9 @@ import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
  *   POST `{ action: 'parcelle', adresses, cle }` : les adresses de la même parcelle (libres ou prises, avec leur syndic) — LECTURE SEULE ;
  *   POST `{ action: 'enregistrer', … }` : l'enregistrement (refus avant toute écriture) ;
  *   POST `{ action: 'digicode-corriger' | 'digicode-arbitrer', immeuble, adresseCle, batiment, digicode, code }` : 🔴 (« Digicodes unifiés », lot 3)
- *        « Corriger une erreur » / « Garder ce code », immédiats, par le chemin serveur unique (478).
+ *        « Corriger une erreur » / « Garder ce code », immédiats, par le chemin serveur unique (478) ;
+ *   POST `{ action: 'digicode-planifier', immeuble, adresseCle, appliqueLe, changements }` / `{ action: 'digicode-annuler-changement', …, ligneId }` :
+ *        (lot 5) « Modifier » daté, et l'annulation d'un changement encore à venir.
  */
 export const runtime = 'nodejs';
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
@@ -61,8 +63,9 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif, ...(r.conflitsParcelle ? { conflitsParcelle: r.conflitsParcelle } : {}) }, { headers: ENTETES });
     }
     // 🔴 (« Digicodes unifiés », lot 3) « Corriger une erreur » et « Garder ce code » (à arbitrer) : immédiats, par le chemin serveur unique
-    if (corps.action === 'digicode-corriger' || corps.action === 'digicode-arbitrer') {
-      const r = await gesteDigicodeCopro(corps, corps.action === 'digicode-corriger' ? 'correction' : 'arbitrage', await auteurDeLaRequete(request));
+    const geste = gesteDeLAction(corps.action);
+    if (geste !== null) {
+      const r = await gesteDigicodeCopro(corps, geste, await auteurDeLaRequete(request));
       return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
     }
     return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });

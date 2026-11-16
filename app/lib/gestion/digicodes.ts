@@ -242,3 +242,45 @@ export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null 
 /** Une première valeur saisie → la valeur à écrire, ou `null` (rien de saisi : rien n'est écrit). PUR. */
 export const premiereValeur = (c: { code: string; aucun: boolean } | null): { digicode: boolean; code: string | null } | null =>
   (c === null ? null : c.aucun ? { digicode: false, code: null } : c.code === '' ? null : { digicode: true, code: c.code });
+
+// ── LE CHANGEMENT DATÉ (« Modifier ») ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Le décalage de l'heure de Paris (en minutes) à un instant donné. PUR. */
+function decalageParis(t: number): number {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+  return (Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second)) - t) / 60000;
+}
+/** « 2026-11-20 » et « 09:00 », heure de PARIS → l'instant (ISO) ; `null` si la saisie n'est pas une date et une heure. PUR. */
+export function instantDepuisParis(date: string, heure: string): string | null {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  const h = /^(\d{2}):(\d{2})$/.exec(heure.trim());
+  if (d === null || h === null) return null;
+  const local = Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]), Number(h[1]), Number(h[2]));
+  if (Number.isNaN(local)) return null;
+  let t = local - decalageParis(local) * 60000;
+  t = local - decalageParis(t) * 60000; // une seconde passe : le changement d'heure
+  return new Date(t).toISOString();
+}
+
+/** Ce que la fenêtre « Modifier » envoie : la date d'application, et pour chaque code qui change, sa place et sa nouvelle valeur. PUR. */
+export interface ChangementsSaisis { appliqueLe: string; changements: { batiment: string | null; digicode: boolean; code: string | null }[] }
+export function validerChangements(brut: unknown): { ok: true; saisie: ChangementsSaisis } | { ok: false; motif: string } {
+  const b = (brut ?? {}) as Record<string, unknown>;
+  const appliqueLe = typeof b.appliqueLe === 'string' && !Number.isNaN(new Date(b.appliqueLe).getTime()) ? new Date(b.appliqueLe).toISOString() : null;
+  if (appliqueLe === null) return { ok: false, motif: 'Indiquez la date et l’heure d’application du nouveau code.' };
+  const changements: ChangementsSaisis['changements'] = [];
+  const vues = new Set<string>();
+  for (const x of Array.isArray(b.changements) ? b.changements.slice(0, 40) : []) {
+    const c = (x ?? {}) as Record<string, unknown>;
+    const v = valeurSaisie({ digicode: c.digicode, code: c.code });
+    if (!v.ok) return v;
+    const batiment = typeof c.batiment === 'string' && c.batiment.trim() !== '' ? c.batiment.trim().slice(0, 60) : null;
+    const k = placeBatiment(batiment).cle;
+    if (vues.has(k)) return { ok: false, motif: 'Le même digicode figure deux fois dans le changement.' };
+    vues.add(k);
+    changements.push({ batiment, ...v.valeur });
+  }
+  if (changements.length === 0) return { ok: false, motif: 'Choisissez au moins un digicode qui change.' };
+  return { ok: true, saisie: { appliqueLe, changements } };
+}

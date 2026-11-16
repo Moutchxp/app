@@ -253,3 +253,52 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
     expect([mentionNb(3, null), mentionNb(1, 'B'), mentionNb(0, 'C')]).toEqual(['Commun aux 3 biens du portefeuille de cette adresse.', 'Le seul bien du portefeuille du bâtiment B le lit.', 'Aucun bien du portefeuille du bâtiment C pour l’instant.']);
   });
 });
+
+describe('🔴🔴 (« Digicodes unifiés », lot 5) « Modifier » : la fenêtre datée', () => {
+  const E = (o: Record<string, unknown> = {}) => ({ connu: true, valeur: { digicode: true, code: '1234' }, depuis: '2026-11-01T10:00:00.000Z', source: 'unifie', aVenir: [], aArbitrer: [], historique: [], ...o });
+  const F = () => ({ digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234', etat: E() },
+    batiments: [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', etat: E({ valeur: { digicode: true, code: 'A1' } }) },
+      { cle: 'c', libelle: 'C', digicode: true, code: 'C3', etat: E({ valeur: { digicode: true, code: 'C3' }, aVenir: [{ id: 9, digicode: true, code: 'C4', appliqueLe: '2099-01-10T08:00:00.000Z' }] }) }] }] });
+  let planifies: unknown[] = []; let annules: unknown[] = [];
+  function HoteM() {
+    const [s, setS] = useState(saisieDigicodesInitiale(F() as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false,
+      onPlanifier: async (...a: unknown[]) => { planifies.push(a); return null; }, onAnnulerChangement: async (...a: unknown[]) => { annules.push(a); return null; } });
+  }
+  beforeEach(() => { planifies = []; annules = []; });
+  it('« Modifier » sur le bâtiment A : la fenêtre liste les codes de l’adresse, A coché ; C a déjà un changement prévu (non cochable) ; rien ne part sans nouveau code', async () => {
+    await act(async () => { root.render(createElement(HoteM)); });
+    await clic($('[data-dcp-batiment="A"] [data-dcp-modifier]'));
+    const f = $('[data-dcp-fenetre-modifier]');
+    expect([...f.querySelectorAll('[data-dcp-modifier-place]')].map((x) => x.getAttribute('data-dcp-modifier-place'))).toEqual(['commun', 'A', 'C']);
+    expect([...f.querySelectorAll('[data-dcp-modifier-coche]')].map((x) => [(x as HTMLInputElement).checked, (x as HTMLInputElement).disabled])).toEqual([[false, false], [true, false], [false, true]]);
+    expect(f.textContent).toContain('Un changement est déjà prévu le 10/01/2099 à 09:00 : annulez-le d’abord.');
+    expect(($('[data-dcp-modifier-valider]') as HTMLButtonElement).disabled).toBe(true);
+    expect($('[data-dcp-modifier-manque]').textContent).toContain('Saisissez le nouveau code');
+  });
+  it('le commun ET A changent à la même date et heure (Paris) : un seul envoi, nouveau code en face de chaque actuel', async () => {
+    await act(async () => { root.render(createElement(HoteM)); });
+    await clic($('[data-dcp-batiment="A"] [data-dcp-modifier]'));
+    await clic($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-coche]'));
+    await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), 'Z7Z6');
+    await saisir($('[data-dcp-modifier-place="A"] [data-dcp-modifier-code]'), 'A9');
+    await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await clic($('[data-dcp-modifier-valider]'));
+    expect(planifies).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7Z6' }, { batiment: 'A', digicode: true, code: 'A9' }]]]);
+    expect(container.querySelector('[data-dcp-fenetre-modifier]')).toBeNull();
+  });
+  it('une date passée : refusée à l’écran', async () => {
+    await act(async () => { root.render(createElement(HoteM)); });
+    await clic($('[data-dcp-commun] [data-dcp-modifier]'));
+    await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), '1');
+    await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2020-01-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect($('[data-dcp-modifier-manque]').textContent).toBe('La date et l’heure d’application doivent être à venir.');
+  });
+  it('« Annuler ce changement » demande confirmation, puis part', async () => {
+    await act(async () => { root.render(createElement(HoteM)); });
+    await clic($('[data-dcp-batiment="C"] [data-dcp-annuler-changement]'));
+    expect(annules).toEqual([]);
+    await clic($('[data-dcp-annuler-changement-oui]'));
+    expect(annules).toEqual([['residence les tilleuls', 9]]);
+  });
+});

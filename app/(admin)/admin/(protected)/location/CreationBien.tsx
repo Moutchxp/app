@@ -380,12 +380,14 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   }, [b.adresse, b.codePostal, b.commune, digiRelire]); // eslint-disable-line react-hooks/exhaustive-deps
   const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme) : null;
   /** « Corriger une erreur » / « Garder ce code » : immédiats, par le même chemin serveur que la fiche Copropriété ; les digicodes se relisent. */
-  const gesteDigi = async (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> => {
+  const gesteDigi = (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> =>
+    appelDigi({ action, adresseCle, batiment, digicode: v.digicode, code: v.code });
+  const appelDigi = async (corpsGeste: Record<string, unknown>): Promise<string | null> => {
     if (digiBien === null) return 'Les digicodes ne sont pas chargés.';
     if (digiEnvoi !== null && (digiEnvoi.commun !== null || digiEnvoi.codeBatiment !== null)) return 'Enregistrez (ou effacez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, immeuble: digiBien.copropriete.cle, adresseCle, batiment, digicode: v.digicode, code: v.code }) });
+        body: JSON.stringify({ ...corpsGeste, immeuble: digiBien.copropriete.cle }) });
       const d = (await r.json()) as { etat?: string; motif?: string };
       if (d.etat !== 'ok') return d.motif ?? 'Enregistrement refusé.';
       setDigiRelire((n) => n + 1);
@@ -906,7 +908,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                  le code commun de l'adresse et celui du bâtiment choisi ; connus : lus, « Corriger une erreur » ; sinon : à saisir. */
               <div className="loc-acces-bloc loc-acces-digicodes" data-digicode data-digicodes-unifies><span className="loc-acces-mot">Digicode</span>
                 <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi}
-                  onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)} />
+                  onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)}
+                  onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
+                  onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })} />
               </div>) : (
             <div className="loc-acces-bloc" data-digicode><span className="loc-acces-mot">Digicode</span>
               <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}

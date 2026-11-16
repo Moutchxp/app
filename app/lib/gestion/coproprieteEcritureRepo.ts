@@ -7,7 +7,8 @@ import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
-import { digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode } from './digicodesRepo';
+import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode } from './digicodesRepo';
+import { validerChangements } from './digicodes';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
 import { verifierDigicode } from '../location/digicodeImmeuble';
 
@@ -264,7 +265,18 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
  * code corrigé, sans mail ; l'ancienne valeur reste dans l'historique) ; le choix d'une des valeurs d'avant différentes d'une place à arbitrer
  * (rien n'est jamais écrasé : la valeur choisie ENTRE dans la base unique, les anciennes tables ne bougent pas). Rend la fiche relue.
  */
-export async function gesteDigicodeCopro(brut: unknown, nature: 'correction' | 'arbitrage', auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
+/** Les gestes immédiats des digicodes, par action de route — les mêmes dans les trois routes (fiche Copropriété, Location, fiche du bien). */
+export const ACTIONS_DIGICODE = { 'digicode-corriger': 'correction', 'digicode-arbitrer': 'arbitrage', 'digicode-planifier': 'planification',
+  'digicode-annuler-changement': 'annulation' } as const;
+export type GesteDigicode = (typeof ACTIONS_DIGICODE)[keyof typeof ACTIONS_DIGICODE];
+export const gesteDeLAction = (a: unknown): GesteDigicode | null => (typeof a === 'string' && a in ACTIONS_DIGICODE ? ACTIONS_DIGICODE[a as keyof typeof ACTIONS_DIGICODE] : null);
+
+/**
+ * 🔴 (« Digicodes unifiés », lot 5) « MODIFIER » : un ou plusieurs codes de l'adresse changent à la MÊME date et heure d'application (commun et/ou
+ * bâtiments) — tous ou aucun (une transaction ; un refus annule tout). Avant la date, l'ancien code reste en vigueur ; ensuite il reste dans
+ * l'historique. « Annuler ce changement » : un changement encore à venir, marqué annulé (jamais effacé). Aucun envoi ici.
+ */
+export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
   const b = (brut ?? {}) as Record<string, unknown>;
   if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478) : rien n’est enregistré.' };
   const lue = await ficheCopropriete(texte(b.immeuble));
@@ -272,9 +284,23 @@ export async function gesteDigicodeCopro(brut: unknown, nature: 'correction' | '
   const adresse = lue.adresses.find((a) => a.cle === cleImmeuble(texte(b.adresseCle)));
   if (adresse === undefined) return { ok: false, motif: 'Cette adresse n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
   const batiment = texte(b.batiment, 60) === '' ? null : texte(b.batiment, 60);
-  const r = await withTransaction((q) => ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment, valeur: { digicode: b.digicode, code: b.code }, nature,
-    origine: 'fiche_copropriete', copropriete: { cle: lue.cle, libelle: lue.libelle, codePostal: lue.codePostal, commune: lue.commune } }, auteur))
-    .catch((e: unknown) => { if (e instanceof RefusDigicode) return { ok: false as const, motif: e.message }; throw e; });
+  const copropriete = { cle: lue.cle, libelle: lue.libelle, codePostal: lue.codePostal, commune: lue.commune };
+  let planifies: ReturnType<typeof validerChangements> | null = null;
+  if (nature === 'planification') { planifies = validerChangements(b); if (!planifies.ok) return planifies; }
+  const r = await withTransaction(async (q): Promise<{ ok: true } | { ok: false; motif: string }> => {
+    if (nature === 'annulation') return annulerChangement(q, adresse.cle, Number(b.ligneId), auteur);
+    if (nature === 'planification' && planifies !== null && planifies.ok) {
+      for (const c of planifies.saisie.changements) {
+        const w = await ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment: c.batiment, valeur: { digicode: c.digicode, code: c.code }, nature: 'changement',
+          appliqueLe: planifies.saisie.appliqueLe, origine: 'fiche_copropriete', copropriete }, auteur);
+        // tous ou aucun : un refus LEVÉ annule les changements déjà écrits de cette fenêtre
+        if (!w.ok) throw new RefusDigicode(`${c.batiment === null ? 'Digicode commun' : `Bâtiment ${c.batiment}`} : ${w.motif}`);
+      }
+      return { ok: true };
+    }
+    return ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment, valeur: { digicode: b.digicode, code: b.code },
+      nature: nature === 'correction' ? 'correction' : 'arbitrage', origine: 'fiche_copropriete', copropriete }, auteur);
+  }).catch((e: unknown) => { if (e instanceof RefusDigicode) return { ok: false as const, motif: e.message }; throw e; });
   if (!r.ok) return r;
   const relue = await ficheCopropriete(lue.cle);
   return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };

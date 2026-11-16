@@ -103,3 +103,21 @@ describe('la reprise (à blanc par défaut)', () => {
     for (const code of ['57B83', '1111', 'B77']) expect(texte).not.toContain(code);
   });
 });
+
+describe('🔴 (lot 5) « Modifier » : la date et l’heure de PARIS, et ce qui part', () => {
+  it('l’heure saisie est celle de Paris, hiver comme été ; une saisie incomplète : rien', async () => {
+    const { instantDepuisParis } = await import('./digicodes');
+    expect(instantDepuisParis('2026-11-20', '09:00')).toBe('2026-11-20T08:00:00.000Z');
+    expect(instantDepuisParis('2027-07-01', '09:00')).toBe('2027-07-01T07:00:00.000Z');
+    expect(instantDepuisParis('2027-03-28', '12:00')).toBe('2027-03-28T10:00:00.000Z'); // jour du passage à l'heure d'été
+    expect([instantDepuisParis('', '09:00'), instantDepuisParis('2026-11-20', '9h')]).toEqual([null, null]);
+  });
+  it('au moins un code ; chaque nouveau code valide ; pas deux fois le même digicode ; la date est requise', async () => {
+    const { validerChangements } = await import('./digicodes');
+    expect(validerChangements({ appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: null, digicode: true, code: 'Z7' }, { batiment: 'Bât. B', digicode: false }] }))
+      .toEqual({ ok: true, saisie: { appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: null, digicode: true, code: 'Z7' }, { batiment: 'Bât. B', digicode: false, code: null }] } });
+    expect(validerChangements({ appliqueLe: '2026-11-20T08:00:00.000Z', changements: [] })).toMatchObject({ ok: false, motif: 'Choisissez au moins un digicode qui change.' });
+    expect(validerChangements({ changements: [{ digicode: true, code: '1' }] }).ok).toBe(false);
+    expect(validerChangements({ appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: 'B', digicode: true, code: '1' }, { batiment: 'bâtiment b', digicode: true, code: '2' }] }).ok).toBe(false);
+  });
+});

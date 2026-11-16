@@ -740,10 +740,12 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
     return () => { vivant = false; };
   }, [edition, id, digiRelire]);
   const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, v.batiment, batimentConfirme) : null;
-  const gesteDigi = async (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, x: { digicode: boolean; code: string | null }): Promise<string | null> => {
+  const gesteDigi = (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, x: { digicode: boolean; code: string | null }): Promise<string | null> =>
+    appelDigi({ action, adresseCle, batiment, digicode: x.digicode, code: x.code });
+  const appelDigi = async (corpsGeste: Record<string, unknown>): Promise<string | null> => {
     if (digiBien === null) return 'Les digicodes ne sont pas chargés.';
     if (digiEnvoi !== null && (digiEnvoi.commun !== null || digiEnvoi.codeBatiment !== null)) return 'Enregistrez (ou effacez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
-    const m = await envoyer({ action, immeuble: digiBien.copropriete.cle, adresseCle, batiment, digicode: x.digicode, code: x.code });
+    const m = await envoyer({ ...corpsGeste, immeuble: digiBien.copropriete.cle });
     if (m === null) setDigiRelire((n) => n + 1);
     return m;
   };
@@ -849,7 +851,9 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                  478 : le composant unique (code commun et code du bâtiment, lus ou à saisir, « Corriger une erreur ») */
               <div style={{ gridColumn: '1 / -1' }} data-digicodes-unifies><span className="loc-champ">Digicode</span>
                 <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={v.batiment} desactive={false}
-                  onCorriger={(a, bt, x) => gesteDigi('digicode-corriger', a, bt, x)} onArbitrer={(a, bt, x) => gesteDigi('digicode-arbitrer', a, bt, x)} /></div>
+                  onCorriger={(a, bt, x) => gesteDigi('digicode-corriger', a, bt, x)} onArbitrer={(a, bt, x) => gesteDigi('digicode-arbitrer', a, bt, x)}
+                  onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
+                  onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })} /></div>
             ) : <>
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
             {v.digicode === 'oui' && champ('digicodeCode', 'Code du digicode')}

@@ -1,7 +1,7 @@
 import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreRequete';
 import 'server-only';
 import { digicodesPourBien } from '../../../../../../lib/gestion/digicodesBienRepo';
-import { gesteDigicodeCopro } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
+import { gesteDeLAction, gesteDigicodeCopro } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS } from '../../../../../../lib/location/texteModifiable';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
 import { creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
@@ -158,9 +158,8 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
   const incomplet = (): Response => Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
   try {
     // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche Copropriété
-    if (corps.action === 'digicode-corriger' || corps.action === 'digicode-arbitrer') {
-      return repondre(await gesteDigicodeCopro(corps, corps.action === 'digicode-corriger' ? 'correction' : 'arbitrage', auteur));
-    }
+    const geste = gesteDeLAction(corps.action);
+    if (geste !== null) return repondre(await gesteDigicodeCopro(corps, geste, auteur));
     switch (corps.action) {
       case 'numero-mandat':
         if (id === null) return incomplet();

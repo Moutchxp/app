@@ -27,7 +27,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible: async () => true, digicodeBatimentDisponible: async () => true }));
-import { digicodesDuBien, ecrireDigicode as ecrire, relierBienAuBatiment as relier } from './digicodesRepo';
+import { annulerChangement, digicodesDuBien, ecrireDigicode as ecrire, relierBienAuBatiment as relier } from './digicodesRepo';
 import type { RequeteTx } from '../db/client';
 const ecrireDigicode = (_q: unknown, ...a: Parameters<typeof ecrire> extends [unknown, ...infer R] ? R : never) => ecrire(q as unknown as RequeteTx, ...a);
 const relierBienAuBatiment = (_q: unknown, ...a: Parameters<typeof relier> extends [unknown, ...infer R] ? R : never) => relier(q as unknown as RequeteTx, ...a);
@@ -115,5 +115,16 @@ describe('🔴🔴 (lot 2) la CLÉ UNIQUE : un code saisi dans la fiche Copropri
     const d = (await digicodesDuBien(5, MAINTENANT, q as never))!;
     expect([d.codeBatiment?.valeur.code, d.codeBatiment?.source, d.aVenir.map((x) => [x.batiment, x.valeur.code, x.appliqueLe])]).toEqual(['B1', 'unifie', [['B', 'B2', '2026-11-20T08:00:00.000Z']]]);
     expect((await digicodesDuBien(5, new Date('2026-11-21T00:00:00.000Z'), q as never))?.codeBatiment?.valeur.code).toBe('B2');
+  });
+});
+
+describe('🔴 (lot 5) annuler un changement PRÉVU', () => {
+  it('seulement un changement encore à venir et non annulé, à cette adresse (marqué, jamais effacé) ; sinon refus clair', async () => {
+    const r = await annulerChangement(q as never, '12 rue x', 7, AUTEUR);
+    const u = h.sql.find((x) => x.s.startsWith('UPDATE gestion_digicode SET annule_le'))!;
+    expect(u.s).toContain("nature = 'changement' AND annule_le IS NULL AND applique_le > now()");
+    expect(u.p).toEqual([7, '12 rue x', AUTEUR.libelle]);
+    expect(r).toMatchObject({ ok: false, motif: expect.stringContaining('n’est plus annulable') });
+    expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
   });
 });

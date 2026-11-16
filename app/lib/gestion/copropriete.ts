@@ -21,7 +21,7 @@ export interface EtatPlaceDigicode {
   valeur: { digicode: boolean | null; code: string | null } | null;
   depuis: string | null;
   source: 'unifie' | 'ancien' | null;
-  aVenir: { digicode: boolean; code: string | null; appliqueLe: string }[];
+  aVenir: { id: number; digicode: boolean; code: string | null; appliqueLe: string }[];
   aArbitrer: { digicode: boolean | null; code: string | null; origines: string[]; lots: number[] }[];
   historique: { id: number; digicode: boolean; code: string | null; appliqueLe: string; nature: string; par: string; creeLe: string; annule: boolean }[];
 }
