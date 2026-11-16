@@ -87,7 +87,7 @@ describe('l’enregistrement', () => {
 });
 
 describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
-  const D = (batiments: { libelle: string; code: string; aucun?: boolean }[], commun?: { code: string; aucun: boolean }) =>
+  const D = (batiments: { libelle: string; code: string; aucun?: boolean; confirme?: boolean }[], commun?: { code: string; aucun: boolean }) =>
     ({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', ...(commun ? { commun } : {}), batiments: batiments.map((b) => ({ aucun: false, ...b })) }] });
   it('le commun et un bâtiment : écrits « depuis la fiche copropriété » ; le nouveau bâtiment entre au registre ; la règle connue est enregistrée', async () => {
     const r = await enregistrerCopropriete(D([{ libelle: 'Bât. B', code: 'B42' }], { code: '1234', aucun: false }), AUTEUR);
@@ -100,13 +100,20 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
     await enregistrerCopropriete(D([{ libelle: 'A', code: '', aucun: true }], { code: '', aucun: false }), AUTEUR);
     expect(dg.ecrits.map((a) => a[1])).toEqual([{ digicode: null, code: null }, { digicode: false, code: null }]);
   });
-  it('🔴 mélange lettres / chiffres : refus avec le message clair, AVANT toute écriture ; sans la 477 : refus, rien n’est écrit', async () => {
+  it('🔴 (lot D) mélange lettres / chiffres NON confirmé : refus avec le même message clair, AVANT toute écriture ; sans la 477 : refus, rien n’est écrit', async () => {
     expect(await enregistrerCopropriete(D([{ libelle: '2', code: 'X' }]), AUTEUR)).toEqual({ ok: false, motif: 'Cette copropriété nomme ses bâtiments par des LETTRES (A, B, C…) : utilisez une lettre, ou un intitulé libre (« Côté cour »).' });
     expect([ecritures(), dg.ecrits]).toEqual([[], []]);
-    expect((await enregistrerCopropriete(D([{ libelle: 'Côté cour', code: 'X' }]), AUTEUR)).ok).toBe(true); // un intitulé libre : permis
+    expect((await enregistrerCopropriete(D([{ libelle: 'Côté cour', code: 'X' }]), AUTEUR)).ok).toBe(true); // un intitulé libre : permis, sans confirmation
     h.sql = []; dg.ecrits = []; dg.avec477 = false;
     expect(await enregistrerCopropriete(D([{ libelle: 'B', code: 'X' }]), AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('migration 477') });
     expect([ecritures(), dg.ecrits]).toEqual([[], []]);
+  });
+  it('🔴 (lot D) mélange CONFIRMÉ à l’écran : accepté, écrit, entré au registre ; la référence (lettres) n’est PAS changée par l’exception', async () => {
+    const r = await enregistrerCopropriete(D([{ libelle: '2', code: '2222', confirme: true }]), AUTEUR);
+    expect(r.ok).toBe(true);
+    expect(dg.ecrits.map((a) => a[5])).toEqual(['2']);
+    expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_batiment'))?.p.slice(1, 4)).toEqual(['2', '2', 'chiffre']);
+    expect(ecritures().filter((x) => x.s.includes('SET nomenclature_batiments = $2')).map((x) => x.p[1])).toEqual(['lettres']); // la règle déjà en place, jamais « chiffres »
   });
   it('un code trop long : refusé dès la saisie ; une adresse qui n’est pas de la copropriété : refusée', async () => {
     expect((await enregistrerCopropriete(D([{ libelle: 'B', code: '123456789' }]), AUTEUR)).ok).toBe(false);

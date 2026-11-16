@@ -41,16 +41,16 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
     expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('C');
     expect(container.querySelector('[data-dcp-menu]')).toBeNull();
     await saisir($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-code-batiment]'), 'C77');
-    expect(digicodesModifies(dernier)).toEqual([{ cle: '12 rue des lilas', batiments: [{ libelle: 'C', code: 'C77', aucun: false }] }]);
+    expect(digicodesModifies(dernier)).toEqual([{ cle: '12 rue des lilas', batiments: [{ libelle: 'C', code: 'C77', aucun: false, confirme: false }] }]);
   });
-  it('« Ajouter nouveau bâtiment » : on écrit ; un chiffre dans une copropriété en lettres : message clair', async () => {
+  it('« Ajouter nouveau bâtiment » : on écrit ; un intitulé personnalisé parmi des lettres : aucune fenêtre', async () => {
     await act(async () => { root.render(createElement(Hote)); });
     await clic($('[data-dcp-plus]'));
     await clic($('[data-dcp-nom-batiment]'));
     await clic($('[data-dcp-ajouter-nouveau]'));
-    await saisir($('[data-dcp-nom-batiment]'), '2');
-    expect($('[data-dcp-refus]').textContent).toContain('LETTRES (A, B, C…)');
     await saisir($('[data-dcp-nom-batiment]'), 'Côté rue');
+    await act(async () => { $('[data-dcp-nom-batiment]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    expect(document.querySelector('[data-dcp-avertissement]')).toBeNull();
     expect(container.querySelector('[data-dcp-refus]')).toBeNull();
   });
   it('une même adresse : un code commun PUIS un code par bâtiment ; modifier le commun ne part que s’il change', async () => {
@@ -58,7 +58,7 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
     await saisir($('[data-dcp-code-commun]'), '9999');
     await clic($('[data-dcp-plus]'));
     await saisir($('[data-dcp-nom-batiment]'), 'B');
-    expect(digicodesModifies(dernier)).toEqual([{ cle: 'residence les tilleuls', commun: { code: '9999', aucun: false }, batiments: [{ libelle: 'B', code: '', aucun: false }] }]);
+    expect(digicodesModifies(dernier)).toEqual([{ cle: 'residence les tilleuls', commun: { code: '9999', aucun: false }, batiments: [{ libelle: 'B', code: '', aucun: false, confirme: false }] }]);
   });
 });
 
@@ -77,7 +77,50 @@ describe('les refus (purs)', () => {
     const avec = (libelle: string) => s.map((d, i) => (i === 0 ? { ...d, batiments: [...d.batiments, { k: 'n', libelle, code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] } : d));
     expect(refusDigicodes(avec(''), 'lettres', CONNUS)).toBe('Donnez un nom au bâtiment ou à la cage d’escalier.');
     expect(refusDigicodes(avec('Bât. A'), 'lettres', CONNUS)).toContain('a déjà son digicode à cette adresse');
-    expect(refusDigicodes(avec('3'), 'lettres', CONNUS)).toContain('LETTRES');
+    expect(refusDigicodes(avec('3'), 'lettres', CONNUS)).toBe('Confirmez ou corrigez l’intitulé « 3 » : il ne suit pas la numérotation des autres bâtiments.');
     expect(refusDigicodes(avec('D'), 'lettres', CONNUS)).toBeNull();
+  });
+});
+
+describe('🔴 (lot D) la fenêtre d’avertissement', () => {
+  const ajouterChiffre = async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    await clic($('[data-dcp-plus]'));
+    await saisir($('[data-dcp-nom-batiment]'), '2');
+    await act(async () => { $('[data-dcp-nom-batiment]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  };
+  it('un chiffre parmi des lettres : la fenêtre, au moment de l’ajout, explique et rappelle les intitulés déjà utilisés', async () => {
+    await ajouterChiffre();
+    const f = container.querySelector('[data-dcp-avertissement] [role="alertdialog"]')!;
+    expect(f.textContent).toContain('Intitulé différent des autres bâtiments');
+    expect(f.textContent).toContain('« 2 » est un chiffre, alors que les bâtiments de cette copropriété sont nommés par des lettres. Ce nouvel intitulé ne respecte pas la même numérotation que les autres cages d’escalier de la copropriété.');
+    expect(f.textContent).toContain('Intitulés déjà utilisés : A, C, Côté cour.');
+    expect([...f.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Corriger', 'Confirmer cet intitulé']);
+  });
+  it('« Confirmer cet intitulé » : gardé, la confirmation part avec « Valider »', async () => {
+    await ajouterChiffre();
+    await clic($('[data-dcp-confirmer]'));
+    expect(container.querySelector('[data-dcp-avertissement]')).toBeNull();
+    expect(container.querySelector('[data-dcp-refus]')).toBeNull();
+    expect(digicodesModifies(dernier)).toEqual([{ cle: 'residence les tilleuls', batiments: [{ libelle: '2', code: '', aucun: false, confirme: true }] }]);
+  });
+  it('« Corriger » : rien n’est gardé, la main revient au champ', async () => {
+    await ajouterChiffre();
+    await clic($('[data-dcp-corriger]'));
+    expect(container.querySelector('[data-dcp-avertissement]')).toBeNull();
+    expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('');
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(document.activeElement).toBe($('[data-dcp-nom-batiment]'));
+  });
+  it('choisir un chiffre dans le menu : même fenêtre ; changer l’intitulé après confirmation retire la confirmation', async () => {
+    const CONNUS_CH: BatimentConnu[] = [...CONNUS, { cle: '9', libelle: '9', sorte: 'chiffre' }];
+    function H() { const [s, setS] = useState(saisieDigicodesInitiale(FICHE)); dernier = s; return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS_CH, nomenclature: 'lettres', desactive: false }); }
+    await act(async () => { root.render(createElement(H)); });
+    await clic($('[data-dcp-plus]')); await clic($('[data-dcp-nom-batiment]'));
+    await clic($('[data-dcp-option="9"]'));
+    expect(container.querySelector('[data-dcp-avertissement]')).not.toBeNull();
+    await clic($('[data-dcp-confirmer]'));
+    await saisir($('[data-dcp-nom-batiment]'), '8');
+    expect(refusDigicodes(dernier, 'lettres', CONNUS_CH)).toContain('« 8 »');
   });
 });

@@ -41,27 +41,56 @@ export function nomenclatureDe(enregistree: Nomenclature | null, connus: readonl
 
 export const MOTIF_LETTRES = 'Cette copropriété nomme ses bâtiments par des LETTRES (A, B, C…) : utilisez une lettre, ou un intitulé libre (« Côté cour »).';
 export const MOTIF_CHIFFRES = 'Cette copropriété numérote ses bâtiments par des CHIFFRES (1, 2, 3…) : utilisez un chiffre, ou un intitulé libre (« Côté cour »).';
-/** Le refus d'un bâtiment (`null` : permis) au regard de la règle de la copropriété. Un bâtiment DÉJÀ connu est toujours permis. PUR. */
-export function refusBatiment(brut: string, nomenclature: Nomenclature | null, connus: readonly Pick<BatimentConnu, 'cle'>[] = []): string | null {
+export const MOTIF_TOUS_LIBRES = 'Les autres bâtiments de cette copropriété ont des intitulés personnalisés : confirmez cet intitulé en lettre ou en chiffre dans la fenêtre d’avertissement.';
+
+/**
+ * ══ 🔴🔴 Arno (16/11/2026, lot D) — LE MÉLANGE N'EST PLUS REFUSÉ, IL EST AVERTI ════════════════════════════════════════════════════════════════
+ * On peut mettre le nom de bâtiment qu'on veut. Un NOUVEAU bâtiment en lettre ou en chiffre qui ne suit pas la numérotation en place (un chiffre
+ * parmi des lettres, ou l'inverse), ou qui arrive alors que tous les autres ont des intitulés personnalisés, demande une CONFIRMATION (fenêtre
+ * « Confirmer cet intitulé » / « Corriger ») ; un intitulé personnalisé, ou un nom qui suit la numérotation, n'en demande pas. La référence reste
+ * celle déjà enregistrée (le premier bâtiment en lettre ou en chiffre) : une exception confirmée ne la change pas.
+ */
+export type RaisonAvertissement = 'autre_numerotation' | 'tous_libres';
+export interface AvertissementBatiment { libelle: string; sorte: 'lettre' | 'chiffre'; raison: RaisonAvertissement; reference: Nomenclature | null; intitules: string[]; motif: string }
+
+/** L'avertissement d'UN nouveau bâtiment (`null` : aucun). `reference` : la règle en place (enregistrée, ou fixée par le premier). PUR. */
+export function avertissementBatiment(brut: string, reference: Nomenclature | null, connus: readonly BatimentConnu[]): AvertissementBatiment | null {
   const b = batimentDe(brut);
-  if (b === null) return 'Donnez un nom au bâtiment ou à la cage d’escalier.';
-  if (connus.some((x) => x.cle === b.cle)) return null;
-  if (b.sorte === 'lettre' && nomenclature === 'chiffres') return MOTIF_CHIFFRES;
-  if (b.sorte === 'chiffre' && nomenclature === 'lettres') return MOTIF_LETTRES;
-  return null;
-}
-/** Plusieurs nouveaux bâtiments saisis ensemble : le premier en lettre ou en chiffre fixe la règle pour les suivants. PUR. */
-export function refusDesBatiments(bruts: readonly string[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[]): string | null {
-  let regle = nomenclature;
-  const vus = [...connus];
-  for (const brut of bruts) {
-    const r = refusBatiment(brut, regle, vus);
-    if (r !== null) return r;
-    const b = batimentDe(brut) as BatimentConnu;
-    if (regle === null && b.sorte !== 'libre') regle = b.sorte === 'lettre' ? 'lettres' : 'chiffres';
-    if (!vus.some((x) => x.cle === b.cle)) vus.push(b);
+  if (b === null || b.sorte === 'libre' || connus.some((x) => x.cle === b.cle)) return null;
+  const intitules = menuBatiments(connus).map((x) => x.libelle);
+  if (reference !== null) {
+    const suit = (reference === 'lettres' && b.sorte === 'lettre') || (reference === 'chiffres' && b.sorte === 'chiffre');
+    return suit ? null : { libelle: b.libelle, sorte: b.sorte, raison: 'autre_numerotation', reference, intitules, motif: reference === 'lettres' ? MOTIF_LETTRES : MOTIF_CHIFFRES };
   }
-  return null;
+  // aucune référence : les autres sont tous des intitulés personnalisés → on le dit ; rien du tout → le premier fixe la règle, sans fenêtre
+  return connus.length > 0 && connus.every((x) => x.sorte === 'libre')
+    ? { libelle: b.libelle, sorte: b.sorte, raison: 'tous_libres', reference: null, intitules, motif: MOTIF_TOUS_LIBRES } : null;
+}
+
+/**
+ * Les nouveaux bâtiments d'une saisie, dans l'ordre : chacun avec son avertissement éventuel. Le PREMIER en lettre ou en chiffre fixe la
+ * référence s'il n'y en avait pas (et s'il n'est pas lui-même une exception) ; une exception confirmée ne la change pas. PUR.
+ */
+export function avertissementsDesBatiments(bruts: readonly string[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[]): { libelle: string; avertissement: AvertissementBatiment | null }[] {
+  let reference = nomenclature;
+  const vus = [...connus];
+  return bruts.map((brut) => {
+    const avertissement = avertissementBatiment(brut, reference, vus);
+    const b = batimentDe(brut);
+    if (b !== null) {
+      if (reference === null && avertissement === null && b.sorte !== 'libre') reference = b.sorte === 'lettre' ? 'lettres' : 'chiffres';
+      if (!vus.some((x) => x.cle === b.cle)) vus.push(b);
+    }
+    return { libelle: brut, avertissement };
+  });
+}
+
+/** Le refus du SERVEUR (`null` : permis) : un nom vide, ou un avertissement que l'écran n'a pas fait confirmer. PUR. */
+export function refusDesBatiments(nouveaux: readonly { libelle: string; confirme?: boolean }[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[]): string | null {
+  if (nouveaux.some((x) => batimentDe(x.libelle) === null)) return 'Donnez un nom au bâtiment ou à la cage d’escalier.';
+  const av = avertissementsDesBatiments(nouveaux.map((x) => x.libelle), nomenclature, connus);
+  const manque = av.find((x, i) => x.avertissement !== null && nouveaux[i].confirme !== true);
+  return manque?.avertissement?.motif ?? null;
 }
 
 /** Le menu sous le champ du bâtiment : lettres et chiffres dans l'ordre, puis les intitulés libres ; sans doublon. PUR. */

@@ -5,7 +5,7 @@ import { adressesDeLaParcelle } from './parcelleRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, type AdresseSaisie, type ContactImmeubleSaisi } from './syndics';
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import type { FicheCopropriete } from './copropriete';
-import { batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
+import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
 import { verifierDigicode } from '../location/digicodeImmeuble';
 
@@ -34,7 +34,7 @@ export interface SaisieCopropriete {
   alerteParcelleVue: boolean;
   conflitsParcelle: { autre: string; parcelle: string | null }[];
   /** 🔴 (lot 3) les digicodes MODIFIÉS, par adresse de la copropriété : le commun (`undefined` : inchangé ; `''` : retiré) et ceux des bâtiments */
-  digicodes: { cle: string; commun?: CodeSaisi; batiments: (CodeSaisi & { libelle: string })[] }[];
+  digicodes: { cle: string; commun?: CodeSaisi; batiments: (CodeSaisi & { libelle: string; confirme: boolean })[] }[];
 }
 /** Un code saisi : le code, ou « pas de digicode » (le « Non » d'avant). */
 export interface CodeSaisi { code: string; aucun: boolean }
@@ -74,7 +74,7 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
   const digicodes = (Array.isArray(b.digicodes) ? b.digicodes.slice(0, 30) : []).map((x) => (x ?? {}) as Record<string, unknown>).map((d) => ({
     cle: cleImmeuble(texte(d.cle)), ...(typeof d.commun === 'object' && d.commun !== null ? { commun: code(d.commun as Record<string, unknown>) } : {}),
     batiments: (Array.isArray(d.batiments) ? d.batiments.slice(0, 40) : []).map((y) => (y ?? {}) as Record<string, unknown>)
-      .map((y) => ({ libelle: texte(y.libelle, 60), ...code(y) })) })).filter((d) => d.cle !== '');
+      .map((y) => ({ libelle: texte(y.libelle, 60), ...code(y), confirme: y.confirme === true })) })).filter((d) => d.cle !== '');
   for (const d of digicodes) {
     for (const v of [...(d.commun !== undefined ? [d.commun] : []), ...d.batiments]) {
       const r = verifierDigicode(valeurDuCode(v));
@@ -122,7 +122,8 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       for (const d of s.digicodes) {
         if (!lue.digicodes.some((x) => x.cle === d.cle)) return { ok: false as const, motif: 'Une adresse des digicodes n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
       }
-      const refus = refusDesBatiments(s.digicodes.flatMap((d) => d.batiments.map((y) => y.libelle)), lue.nomenclatureEffective, lue.batimentsConnus);
+      // 🔴 (lot D) le mélange n'est plus refusé : il est accepté s'il a été CONFIRMÉ à l'écran ; sinon, le même message clair qu'avant
+      const refus = refusDesBatiments(s.digicodes.flatMap((d) => d.batiments.map((y) => ({ libelle: y.libelle, confirme: y.confirme }))), lue.nomenclatureEffective, lue.batimentsConnus);
       if (refus !== null) return { ok: false as const, motif: refus };
     }
     if (s.syndicId !== null) {
@@ -211,7 +212,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
         await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
                  ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [coproId, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
       }
-      const premier = nouveaux.find((b) => b.sorte !== 'libre');
+      // la référence : le premier nouveau bâtiment en lettre ou en chiffre qui n'est pas une exception (une exception confirmée ne la change pas)
+      const avert = avertissementsDesBatiments(nouveaux.map((b) => b.libelle), lue.nomenclatureEffective, lue.batimentsConnus);
+      const premier = nouveaux.find((b, i) => b.sorte !== 'libre' && avert[i].avertissement === null);
       if (lue.nomenclatureEffective === null && premier !== undefined) {
         await q('UPDATE gestion_copropriete SET nomenclature_batiments = $2 WHERE id = $1 AND nomenclature_batiments IS NULL', [coproId, premier.sorte === 'lettre' ? 'lettres' : 'chiffres']);
       } else if (lue.nomenclatureEffective !== null) {

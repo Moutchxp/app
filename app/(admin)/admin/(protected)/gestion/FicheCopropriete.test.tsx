@@ -146,6 +146,6 @@ describe('la fiche', () => {
     await clic('[data-dcp-plus]');
     await saisir('[data-dcp-nom-batiment]', '1');
     await clic('[data-fcp-valider]');
-    expect(posts[0].digicodes).toEqual([{ cle: 'residence les tilleuls', commun: { code: '4321', aucun: false }, batiments: [{ libelle: '1', code: '', aucun: false }] }]);
+    expect(posts[0].digicodes).toEqual([{ cle: 'residence les tilleuls', commun: { code: '4321', aucun: false }, batiments: [{ libelle: '1', code: '', aucun: false, confirme: false }] }]);
   });
 });
