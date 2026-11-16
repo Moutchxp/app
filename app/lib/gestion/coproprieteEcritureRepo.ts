@@ -5,6 +5,9 @@ import { adressesDeLaParcelle } from './parcelleRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, type AdresseSaisie, type ContactImmeubleSaisi } from './syndics';
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import type { FicheCopropriete } from './copropriete';
+import { batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
+import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
+import { verifierDigicode } from '../location/digicodeImmeuble';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — L'ÉCRITURE (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2). IMPUR (base). ═════════════════════════════
@@ -30,7 +33,15 @@ export interface SaisieCopropriete {
   syndicId: number | null;
   alerteParcelleVue: boolean;
   conflitsParcelle: { autre: string; parcelle: string | null }[];
+  /** 🔴 (lot 3) les digicodes MODIFIÉS, par adresse de la copropriété : le commun (`undefined` : inchangé ; `''` : retiré) et ceux des bâtiments */
+  digicodes: { cle: string; commun?: CodeSaisi; batiments: (CodeSaisi & { libelle: string })[] }[];
 }
+/** Un code saisi : le code, ou « pas de digicode » (le « Non » d'avant). */
+export interface CodeSaisi { code: string; aucun: boolean }
+
+/** La saisie → la valeur du digicode : « pas de digicode » = Non ; un code = Oui + le code ; vide = rien de connu. PUR. */
+export const valeurDuCode = (c: CodeSaisi): { digicode: boolean | null; code: string | null } =>
+  (c.aucun ? { digicode: false, code: null } : c.code.trim() === '' ? { digicode: null, code: null } : { digicode: true, code: c.code.trim() });
 
 const texte = (v: unknown, max = 300): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const nul = (s: string | null | undefined): string | null => ((s ?? '').trim() === '' ? null : (s ?? '').trim());
@@ -59,8 +70,20 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
   const syndicId = typeof b.syndicId === 'number' && Number.isSafeInteger(b.syndicId) && b.syndicId > 0 ? b.syndicId : null;
   const conflitsParcelle = (Array.isArray(b.conflitsParcelle) ? b.conflitsParcelle.slice(0, 20) : [])
     .map((x) => (x ?? {}) as Record<string, unknown>).map((k) => ({ autre: texte(k.autre), parcelle: nul(texte(k.parcelle, 40)) })).filter((k) => cleImmeuble(k.autre) !== '');
+  const code = (y: Record<string, unknown>): CodeSaisi => ({ code: typeof y.code === 'string' ? y.code.trim().slice(0, 20) : '', aucun: y.aucun === true });
+  const digicodes = (Array.isArray(b.digicodes) ? b.digicodes.slice(0, 30) : []).map((x) => (x ?? {}) as Record<string, unknown>).map((d) => ({
+    cle: cleImmeuble(texte(d.cle)), ...(typeof d.commun === 'object' && d.commun !== null ? { commun: code(d.commun as Record<string, unknown>) } : {}),
+    batiments: (Array.isArray(d.batiments) ? d.batiments.slice(0, 40) : []).map((y) => (y ?? {}) as Record<string, unknown>)
+      .map((y) => ({ libelle: texte(y.libelle, 60), ...code(y) })) })).filter((d) => d.cle !== '');
+  for (const d of digicodes) {
+    for (const v of [...(d.commun !== undefined ? [d.commun] : []), ...d.batiments]) {
+      const r = verifierDigicode(valeurDuCode(v));
+      if (!r.ok) return r;
+    }
+    if (d.batiments.some((y) => batimentDe(y.libelle) === null)) return { ok: false, motif: 'Donnez un nom au bâtiment ou à la cage d’escalier.' };
+  }
   return { ok: true, saisie: { immeuble, nom: nul(texte(b.nom, 200)), horsCopropriete: typeof b.horsCopropriete === 'boolean' ? b.horsCopropriete : null,
-    adresses, contacts, syndicId, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle } };
+    adresses, contacts, syndicId, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes } };
 }
 
 /** La copropriété (principale) d'une clé : la sienne, ou celle dont elle est une adresse en cours. */
@@ -92,6 +115,15 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
           ? `${adresseImmeuble(a.libelle, a.codePostal, a.commune)} est déjà une autre copropriété (« ${autre.libelle} »).`
           : `${adresseImmeuble(a.libelle, a.codePostal, a.commune)} est déjà une adresse de la copropriété « ${autre.libelle} ».` };
       }
+    }
+    // les digicodes : chaque adresse est une adresse de la copropriété ; les NOUVEAUX bâtiments suivent la règle lettres OU chiffres
+    if (s.digicodes.length > 0) {
+      if (!(await depuisCoproprieteDisponible())) return { ok: false as const, motif: 'La saisie des digicodes dans la fiche copropriété demande la mise à jour de la base (migration 477) : rien n’est enregistré.' };
+      for (const d of s.digicodes) {
+        if (!lue.digicodes.some((x) => x.cle === d.cle)) return { ok: false as const, motif: 'Une adresse des digicodes n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
+      }
+      const refus = refusDesBatiments(s.digicodes.flatMap((d) => d.batiments.map((y) => y.libelle)), lue.nomenclatureEffective, lue.batimentsConnus);
+      if (refus !== null) return { ok: false as const, motif: refus };
     }
     if (s.syndicId !== null) {
       const { rows } = await q<{ id: string }>('SELECT id::text FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL', [s.syndicId]);
@@ -158,15 +190,47 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
           [coproId, s.syndicId, autre.id, sb[0].syndic, k.parcelle, auteur.id, auteur.libelle]);
       }
     }
+    // ── ⑥ les digicodes (journal « depuis la fiche copropriété ») ; les nouveaux bâtiments entrent au registre de la copropriété ──────────────
+    const nouveaux: BatimentConnu[] = [];
+    for (const d of s.digicodes) {
+      const a = lue.digicodes.find((x) => x.cle === d.cle)!;
+      const adresse = { voie: a.voie, codePostal: a.codePostal, commune: a.commune };
+      if (d.commun !== undefined) {
+        const r = await enregistrerDigicodeDans(q, adresse, valeurDuCode(d.commun), auteur, 'fiche_copropriete', null, null);
+        if (!r.ok) throw new RefusCopro(r.motif);
+      }
+      for (const y of d.batiments) {
+        const r = await enregistrerDigicodeDans(q, adresse, valeurDuCode(y), auteur, 'fiche_copropriete', null, y.libelle);
+        if (!r.ok) throw new RefusCopro(r.motif);
+        const b = batimentDe(y.libelle);
+        if (b !== null && !lue.batimentsConnus.some((x) => x.cle === b.cle) && !nouveaux.some((x) => x.cle === b.cle)) nouveaux.push(b);
+      }
+    }
+    if (avec476 && nouveaux.length > 0) {
+      for (const b of nouveaux) {
+        await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [coproId, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
+      }
+      const premier = nouveaux.find((b) => b.sorte !== 'libre');
+      if (lue.nomenclatureEffective === null && premier !== undefined) {
+        await q('UPDATE gestion_copropriete SET nomenclature_batiments = $2 WHERE id = $1 AND nomenclature_batiments IS NULL', [coproId, premier.sorte === 'lettre' ? 'lettres' : 'chiffres']);
+      } else if (lue.nomenclatureEffective !== null) {
+        // la règle déjà connue (déduite des bâtiments existants) est enregistrée telle quelle, une fois
+        await q('UPDATE gestion_copropriete SET nomenclature_batiments = $2 WHERE id = $1 AND nomenclature_batiments IS NULL', [coproId, lue.nomenclatureEffective]);
+      }
+    }
     if (s.alerteParcelleVue) {
       await q('UPDATE gestion_copropriete SET alerte_parcelle_le = now(), alerte_parcelle_par_libelle = $2 WHERE id = $1 AND alerte_parcelle_le IS NULL', [coproId, auteur.libelle]);
     }
     return { ok: true as const };
-  });
+  }).catch((e: unknown) => { if (e instanceof RefusCopro) return { ok: false as const, motif: e.message }; throw e; });
   if (!r.ok) return r;
   const relue = await ficheCopropriete(lue.cle);
   return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };
 }
+
+/** Un refus découvert APRÈS le début des écritures : levé, pour que la transaction soit ANNULÉE (rien n'est écrit). */
+class RefusCopro extends Error {}
 
 /** Une adresse de la même parcelle : libre (« Rattacher »), déjà de cette copropriété, ou prise par une autre (avec son syndic). */
 export interface PropositionParcelle { libelle: string; codePostal: string; commune: string; parcelle: string; etat: 'libre' | 'prise';

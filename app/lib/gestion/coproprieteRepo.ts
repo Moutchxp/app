@@ -2,7 +2,9 @@ import { query } from '../db/client';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { cleImmeuble } from './syndics';
-import { biensEnDesaccord, immeubleDuBien, type BienCopropriete, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
+import { biensEnDesaccord, immeubleDuBien, type BienCopropriete, type DigicodesAdresseFiche, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
+import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
+import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA LECTURE (Arno, 16/11/2026, migration 476). IMPUR (base), LECTURE SEULE. ══════════════════════════════════
@@ -41,8 +43,9 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
   const cles = new Set([cle, ...sec.map((a) => a.cle)]);
   // les biens : leur « Immeuble » est l'une des clés de la copropriété (lecture de tous les biens actifs, filtrés ici, comme la fiche syndic)
   const avec461 = await colonneExisteMemo('gestion_annuaire_lot', 'copropriete');
-  const { rows: lots } = await query<{ id: string; numero: string; immeuble: string | null; adresse: string | null; code_postal: string | null; commune: string | null; copropriete: boolean | null }>(
-    `SELECT id::text, wippimmo_id AS numero, immeuble, adresse, code_postal, commune, ${avec461 ? 'copropriete' : 'NULL::boolean AS copropriete'}
+  const avecBat = await colonneExisteMemo('gestion_annuaire_lot', 'batiment');
+  const { rows: lots } = await query<{ id: string; numero: string; immeuble: string | null; adresse: string | null; code_postal: string | null; commune: string | null; copropriete: boolean | null; batiment: string | null }>(
+    `SELECT id::text, wippimmo_id AS numero, immeuble, adresse, code_postal, commune, ${avec461 ? 'copropriete' : 'NULL::boolean AS copropriete'}, ${avecBat ? 'batiment' : 'NULL::text AS batiment'}
        FROM gestion_annuaire_lot WHERE absent_le IS NULL ORDER BY wippimmo_id`);
   const siens = lots.filter((l) => cles.has(cleImmeubleDuBien(l)));
   if (copro === undefined && siens.length === 0) return null;
@@ -72,7 +75,30 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
       gestionnaires = g.map((x) => ({ id: Number(x.id), civilite: x.civilite, prenom: x.prenom, nom: x.nom, titre: x.titre, coordonnees: x.coordonnees ?? [] }));
     }
   }
+  // 🔴 (lot 3) les digicodes de chaque adresse, et les bâtiments connus de TOUTE la copropriété : le registre (476), ceux des adresses (399, biens
+  // et ajoutés), le champ « Bâtiment » de ses biens — relus tels quels, rien n'est repris ni réécrit
+  const adressesFiche = [{ libelle, codePostal, commune }, ...sec.map((a) => ({ libelle: a.libelle, codePostal: a.code_postal, commune: a.commune }))];
+  const digicodes: DigicodesAdresseFiche[] = [];
+  const connus: BatimentConnu[] = [];
+  if (await digicodeImmeubleDisponible()) {
+    for (const a of adressesFiche) {
+      const d = await lireDigicodesAdresse({ voie: a.libelle, codePostal: a.codePostal, commune: a.commune });
+      if (d === null) continue;
+      digicodes.push({ cle: cleImmeuble(a.libelle), voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: { digicode: d.general.source === 'immeuble' ? d.general.digicode : null, code: d.general.source === 'immeuble' ? d.general.code : null },
+        batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle, digicode: b.digicode, code: b.code })) });
+      for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }
+    }
+  }
+  for (const l of siens) { const x = batimentDe(l.batiment); if (x !== null) connus.push(x); }
+  if (copro !== undefined && avec476) {
+    const { rows: reg } = await query<{ cle: string; libelle: string; sorte: BatimentConnu['sorte'] }>(
+      'SELECT batiment_cle AS cle, batiment_libelle AS libelle, sorte FROM gestion_copropriete_batiment WHERE copropriete_id = $1 ORDER BY cree_le, id', [copro.id]);
+    connus.push(...reg);
+  }
+  const batimentsConnus = [...new Map(connus.map((b) => [b.cle, b])).values()];
+  const nomenclature = copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null;
   return {
+    digicodes, batimentsConnus, nomenclatureEffective: nomenclatureDe(nomenclature, batimentsConnus), saisieDigicodes: (await depuisCoproprieteDisponible()) && digicodes.length > 0,
     cle, declaree: copro !== undefined, id: copro === undefined ? null : Number(copro.id), libelle, nom: copro?.nom ?? null,
     horsCopropriete: copro?.hors === true, nomenclature: copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null,
     codePostal, commune,

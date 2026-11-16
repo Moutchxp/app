@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { DigicodeImmeuble } from './DigicodeImmeuble';
 import { AgCopropriete } from './AgCopropriete';
+import { DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import {
   ALERTE_DESACCORD, estHorsCopropriete, nomAffiche, titreFicheCopropriete, type FicheCopropriete as Fiche,
@@ -55,6 +56,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [adresses, setAdresses] = useState<Adresse[]>([]);
   const [contacts, setContacts] = useState<ContactEdit[]>([]);
   const [syndicChoisi, setSyndicChoisi] = useState<SyndicResume | null>(null);
+  const [digi, setDigi] = useState<DigicodesAdresseSaisis[]>([]);
   // l'interface
   const [ajoutAdresse, setAjoutAdresse] = useState(false);
   const [nouvelle, setNouvelle] = useState<Adresse>({ libelle: '', codePostal: '', commune: '' });
@@ -75,7 +77,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     // la case : celle de la fiche ; une fiche encore à créer part de ce que dit le bien (« pas en copropriété » : cochée)
     setNom(f.nom ?? ''); setHors(f.declaree ? f.horsCopropriete : l.coproprieteDuBien === false);
     setAdresses(f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' })));
-    setContacts(versEdition(f)); setSyndicChoisi(null);
+    setContacts(versEdition(f)); setSyndicChoisi(null); setDigi(saisieDigicodesInitiale(f));
   };
   useEffect(() => {
     let vivant = true;
@@ -124,13 +126,15 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const valider = async (passe: { alerte?: boolean; conflit?: boolean } = {}): Promise<void> => {
     if (f === null) return;
     if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
+    const refusDigi = f.saisieDigicodes ? refusDigicodes(digi, f.nomenclatureEffective, f.batimentsConnus) : null;
+    if (refusDigi !== null) { setErreur(refusDigi); return; }
     if (!passe.conflit && conflits.length > 0) { setEtape('conflit'); return; }
     const alerteDue = !passe.alerte && libres.length > 0 && !rattacheeIci && !f.declaree;
     if (alerteDue) { setEtape('alerte'); return; }
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
-        adresses, syndicId: syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true,
+        adresses, syndicId: syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
@@ -195,8 +199,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
 
     <section className="fcp-bloc" data-fcp-digicodes>
       <h3 className="fcp-titre">Digicodes</h3>
-      {/* chaque adresse ENREGISTRÉE garde le digicode de son immeuble (commun à tous les biens de l'adresse), avec son propre « Enregistrer » */}
-      {f.adresses.map((a) => <DigicodeImmeuble key={a.cle} voie={a.libelle} codePostal={a.codePostal} commune={a.commune} />)}
+      {/* 🔴 (lot 3) la nouvelle saisie : digicode commun, « + » pour un bâtiment ou une cage, menu des bâtiments de toute la copropriété ;
+          sans la 477, l'ancienne saisie par adresse reste (rien n'est perdu) */}
+      {f.saisieDigicodes
+        ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} />
+        : f.adresses.map((a) => <DigicodeImmeuble key={a.cle} voie={a.libelle} codePostal={a.codePostal} commune={a.commune} />)}
     </section>
 
     {!horsAffiche && <>

@@ -8,6 +8,14 @@
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 import type { ContactImmeubleLu } from './syndics';
+import type { BatimentConnu, Nomenclature } from './batimentsCopropriete';
+
+/** 🔴 (lot 3) Les digicodes d'UNE adresse de la copropriété : le commun (le « code général » de l'immeuble de l'adresse) et ceux des bâtiments. */
+export interface DigicodesAdresseFiche {
+  cle: string; voie: string; codePostal: string | null; commune: string | null;
+  commun: { digicode: boolean | null; code: string | null };
+  batiments: { cle: string; libelle: string; digicode: boolean | null; code: string | null }[];
+}
 
 export interface AdresseCopropriete { cle: string; libelle: string; codePostal: string | null; commune: string | null; principale: boolean }
 export interface GestionnaireSyndic { id: number; civilite: string | null; prenom: string | null; nom: string | null; titre: string | null;
@@ -35,6 +43,11 @@ export interface FicheCopropriete {
   desaccord: boolean;
   /** la migration 476 est en place (nom, hors copropriété, bâtiments, statut « Copropriétaire ») */
   avec476: boolean;
+  /** 🔴 (lot 3) les digicodes de chaque adresse, les bâtiments connus de toute la copropriété, la règle effective, et si la saisie est possible (477) */
+  digicodes: DigicodesAdresseFiche[];
+  batimentsConnus: BatimentConnu[];
+  nomenclatureEffective: Nomenclature | null;
+  saisieDigicodes: boolean;
 }
 
 /**

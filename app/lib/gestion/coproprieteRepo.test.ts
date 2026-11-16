@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (16/11/2026, 476) — la lecture de la fiche Copropriété (base simulée ; le vrai SQL a été rejoué sur la recette). */
 const b = vi.hoisted(() => ({ avec476: true, sql: [] as string[], copro: null as Record<string, unknown> | null, adresses: [] as unknown[], lots: [] as unknown[],
-  syndic: [] as unknown[], gestionnaires: [] as unknown[] }));
+  syndic: [] as unknown[], gestionnaires: [] as unknown[], registre: [] as unknown[] }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async (t: string) => (t === 'gestion_copropriete' ? b.avec476 : true) }));
+vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible: async () => true, depuisCoproprieteDisponible: async () => true,
+  lireDigicodesAdresse: async (a: { voie: string }) => ({ general: { digicode: true, code: a.voie.startsWith('12') ? '1234' : null, source: 'immeuble' }, parBatiment: true,
+    batiments: a.voie.startsWith('12') ? [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', nbBiens: 1, mention: '' }] : [] }) }));
 vi.mock('./contactsImmeubleRepo', () => ({ contactsDeLImmeuble: async () => [{ id: 1, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [] }] }));
 vi.mock('../db/client', () => ({
   query: async (sql: string) => {
@@ -13,6 +16,7 @@ vi.mock('../db/client', () => ({
     if (s.includes('FROM gestion_annuaire_lot WHERE absent_le IS NULL')) return { rows: b.lots };
     if (s.includes('FROM gestion_copropriete_syndic cs JOIN gestion_syndic s')) return { rows: b.syndic };
     if (s.includes('FROM gestion_syndic_contact ct')) return { rows: b.gestionnaires };
+    if (s.includes('FROM gestion_copropriete_batiment')) return { rows: b.registre };
     throw new Error(`requête inattendue : ${s.slice(0, 80)}`);
   },
 }));
@@ -20,7 +24,7 @@ import { cleImmeubleDuBien, ficheCopropriete } from './coproprieteRepo';
 
 const LOT = (id: number, immeuble: string | null, adresse: string, copropriete: boolean | null = null) => ({ id: String(id), numero: `W${id}`, immeuble, adresse, code_postal: '75011', commune: 'Paris', copropriete });
 beforeEach(() => {
-  b.avec476 = true; b.sql = [];
+  b.avec476 = true; b.sql = []; b.registre = [];
   b.copro = { id: '7', cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', code_postal: '75011', commune: 'Paris', nom: null, hors: false, nomenclature: null };
   b.adresses = [{ cle: '12 rue des lilas', libelle: '12 rue des Lilas', code_postal: '75011', commune: 'Paris' }];
   b.lots = [LOT(1, 'Résidence Les Tilleuls', '10 rue des Lilas', true), LOT(2, '12 rue des Lilas', '12 rue des Lilas', true), LOT(3, null, '12 rue des Lilas', null), LOT(4, 'Autre immeuble', '3 rue X', false)];
@@ -62,5 +66,13 @@ describe('la fiche Copropriété', () => {
   it('la clé d’immeuble d’un bien : son « Immeuble », sinon son adresse', () => {
     expect(cleImmeubleDuBien({ immeuble: 'Résidence Les Tilleuls', adresse: '1 rue X' })).toBe(cleImmeubleDuBien({ immeuble: 'résidence  les tilleuls', adresse: null }));
     expect(cleImmeubleDuBien({ immeuble: ' ', adresse: '12 rue des Lilas' })).toBe(cleImmeubleDuBien({ immeuble: '12 rue des Lilas', adresse: null }));
+  });
+  it('🔴 (lot 3) les digicodes de chaque adresse, les bâtiments connus de TOUTE la copropriété (adresses, biens, registre), la règle effective', async () => {
+    b.lots = [...b.lots, { ...LOT(6, 'Résidence Les Tilleuls', '10 rue des Lilas'), batiment: 'Bât. C' }];
+    b.registre = [{ cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }];
+    const f = (await ficheCopropriete('Résidence Les Tilleuls'))!;
+    expect(f.digicodes.map((d) => [d.voie, d.commun.code, d.batiments.map((x) => x.libelle)])).toEqual([['Résidence Les Tilleuls', null, []], ['12 rue des Lilas', '1234', ['A']]]);
+    expect(f.batimentsConnus.map((x) => [x.libelle, x.sorte])).toEqual([['A', 'lettre'], ['C', 'lettre'], ['Côté cour', 'libre']]);
+    expect([f.nomenclatureEffective, f.saisieDigicodes]).toEqual(['lettres', true]);
   });
 });

@@ -27,7 +27,16 @@ export function digicodeBatimentDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_immeuble_digicode_journal', 'batiment_cle');
 }
 
-export type DepuisDigicode = 'fiche_syndic' | 'fiche_bien' | 'nouveau_bien' | 'reprise';
+export type DepuisDigicode = 'fiche_syndic' | 'fiche_bien' | 'nouveau_bien' | 'reprise' | 'fiche_copropriete';
+
+/** 🔴 (16/11/2026, 477) le journal accepte-t-il « depuis la fiche copropriété » ? (sans la 477 : la fiche copropriété n'écrit pas de digicode) */
+let avec477: Promise<boolean> | null = null;
+export function depuisCoproprieteDisponible(): Promise<boolean> {
+  avec477 ??= query<{ ok: boolean }>(
+    `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%fiche_copropriete%'), false) AS ok FROM pg_constraint WHERE conname = 'gestion_immeuble_digicode_journal_depuis_check'`)
+    .then((r) => r.rows[0]?.ok === true).catch(() => { avec477 = null; return false; });
+  return avec477;
+}
 
 export interface DigicodeLu extends ValeurDigicode {
   /** `immeuble` : la valeur de l'immeuble ; `bien` : l'ANCIENNE valeur propre au bien (l'immeuble n'en a pas encore — reprise

@@ -137,4 +137,15 @@ describe('la fiche', () => {
     await ouvrir();
     expect($('[data-fcp-desaccord]').textContent).toContain('rien n’est corrigé tout seul');
   });
+  it('🔴 (lot 3) la nouvelle saisie des digicodes : elle remplace l’ancienne dans cette fiche, et ce qui change part avec « Valider »', async () => {
+    lu = { fiche: FICHE({ saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [],
+      digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: null, code: null }, batiments: [] }] }), coproprieteDuBien: true };
+    await ouvrir();
+    expect(document.querySelector('[data-digicodes-copro]')).not.toBeNull();
+    await saisir('[data-dcp-code-commun]', '4321');
+    await clic('[data-dcp-plus]');
+    await saisir('[data-dcp-nom-batiment]', '1');
+    await clic('[data-fcp-valider]');
+    expect(posts[0].digicodes).toEqual([{ cle: 'residence les tilleuls', commun: { code: '4321', aucun: false }, batiments: [{ libelle: '1', code: '', aucun: false }] }]);
+  });
 });

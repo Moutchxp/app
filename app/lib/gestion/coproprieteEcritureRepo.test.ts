@@ -18,16 +18,20 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
 vi.mock('./coproprieteRepo', () => ({ fiche476Disponible: async () => true, ficheCopropriete: async () => h.fiche }));
 vi.mock('./contactsImmeubleRepo', () => ({ enregistrerContactsImmeuble: async (_q: unknown, c: unknown) => { h.contacts.push(c); } }));
+const dg = vi.hoisted(() => ({ avec477: true, ecrits: [] as unknown[][] }));
+vi.mock('../location/digicodeImmeubleRepo', () => ({ depuisCoproprieteDisponible: async () => dg.avec477,
+  enregistrerDigicodeDans: async (...a: unknown[]) => { dg.ecrits.push(a.slice(1)); return { ok: true, change: true, immeubleId: 1 }; } }));
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: [] }) }));
 import { enregistrerCopropriete, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleuls', declaree: true, id: 7, libelle: 'Résidence Les Tilleuls', nom: null, horsCopropriete: false, nomenclature: null,
-  codePostal: '75011', commune: 'Paris', adresses: [], syndic: { id: 2, nom: 'Cabinet A', ville: 'Paris', depuis: '2026-01-01' }, gestionnaires: [], contacts: [], biens: [], desaccord: false, avec476: true, ...o });
+  codePostal: '75011', commune: 'Paris', adresses: [], digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: null, code: null }, batiments: [] }],
+  batimentsConnus: [{ cle: 'a', libelle: 'A', sorte: 'lettre' }], nomenclatureEffective: 'lettres', saisieDigicodes: true, syndic: { id: 2, nom: 'Cabinet A', ville: 'Paris', depuis: '2026-01-01' }, gestionnaires: [], contacts: [], biens: [], desaccord: false, avec476: true, ...o });
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); });
+beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -79,5 +83,35 @@ describe('l’enregistrement', () => {
   it('l’alerte « autres adresses de la parcelle » marquée vue une seule fois', async () => {
     await enregistrerCopropriete({ ...SAISIE, alerteParcelleVue: true }, AUTEUR);
     expect(ecritures().some((x) => x.s.includes('SET alerte_parcelle_le = now()') && x.s.includes('alerte_parcelle_le IS NULL'))).toBe(true);
+  });
+});
+
+describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
+  const D = (batiments: { libelle: string; code: string; aucun?: boolean }[], commun?: { code: string; aucun: boolean }) =>
+    ({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', ...(commun ? { commun } : {}), batiments: batiments.map((b) => ({ aucun: false, ...b })) }] });
+  it('le commun et un bâtiment : écrits « depuis la fiche copropriété » ; le nouveau bâtiment entre au registre ; la règle connue est enregistrée', async () => {
+    const r = await enregistrerCopropriete(D([{ libelle: 'Bât. B', code: 'B42' }], { code: '1234', aucun: false }), AUTEUR);
+    expect(r.ok).toBe(true);
+    expect(dg.ecrits.map((a) => [a[1], a[3], a[5]])).toEqual([[{ digicode: true, code: '1234' }, 'fiche_copropriete', null], [{ digicode: true, code: 'B42' }, 'fiche_copropriete', 'Bât. B']]);
+    expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_batiment'))?.p.slice(0, 4)).toEqual(['7', 'b', 'B', 'lettre']);
+    expect(ecritures().some((x) => x.s.includes('SET nomenclature_batiments = $2') && x.p[1] === 'lettres')).toBe(true);
+  });
+  it('« pas de digicode » = le « Non » d’avant ; un code vidé = plus rien de connu', async () => {
+    await enregistrerCopropriete(D([{ libelle: 'A', code: '', aucun: true }], { code: '', aucun: false }), AUTEUR);
+    expect(dg.ecrits.map((a) => a[1])).toEqual([{ digicode: null, code: null }, { digicode: false, code: null }]);
+  });
+  it('🔴 mélange lettres / chiffres : refus avec le message clair, AVANT toute écriture ; sans la 477 : refus, rien n’est écrit', async () => {
+    expect(await enregistrerCopropriete(D([{ libelle: '2', code: 'X' }]), AUTEUR)).toEqual({ ok: false, motif: 'Cette copropriété nomme ses bâtiments par des LETTRES (A, B, C…) : utilisez une lettre, ou un intitulé libre (« Côté cour »).' });
+    expect([ecritures(), dg.ecrits]).toEqual([[], []]);
+    expect((await enregistrerCopropriete(D([{ libelle: 'Côté cour', code: 'X' }]), AUTEUR)).ok).toBe(true); // un intitulé libre : permis
+    h.sql = []; dg.ecrits = []; dg.avec477 = false;
+    expect(await enregistrerCopropriete(D([{ libelle: 'B', code: 'X' }]), AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('migration 477') });
+    expect([ecritures(), dg.ecrits]).toEqual([[], []]);
+  });
+  it('un code trop long : refusé dès la saisie ; une adresse qui n’est pas de la copropriété : refusée', async () => {
+    expect((await enregistrerCopropriete(D([{ libelle: 'B', code: '123456789' }]), AUTEUR)).ok).toBe(false);
+    expect(await enregistrerCopropriete({ ...SAISIE, digicodes: [{ cle: '99 rue Ailleurs', batiments: [{ libelle: 'B', code: '1', aucun: false }] }] }, AUTEUR))
+      .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
+    expect(dg.ecrits).toEqual([]);
   });
 });
