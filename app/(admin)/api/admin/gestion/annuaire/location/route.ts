@@ -2,6 +2,7 @@ import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreR
 import 'server-only';
 import { digicodesPourBien } from '../../../../../../lib/gestion/digicodesBienRepo';
 import { gesteDeLAction, gesteDigicodeCopro } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
+import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/gestion/digicodesEnvoiRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS } from '../../../../../../lib/location/texteModifiable';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
 import { creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
@@ -158,6 +159,10 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
   const incomplet = (): Response => Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
   try {
     // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche Copropriété
+    if (corps.action === 'digicode-apercu-envoi' || corps.action === 'digicode-planifier-envoyer') {
+      const r = corps.action === 'digicode-apercu-envoi' ? await apercuChangement(corps) : await planifierEtPrevenir(corps, auteur);
+      return repondre(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif });
+    }
     const geste = gesteDeLAction(corps.action);
     if (geste !== null) return repondre(await gesteDigicodeCopro(corps, geste, auteur));
     switch (corps.action) {

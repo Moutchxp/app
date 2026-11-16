@@ -5,6 +5,8 @@ import { avertissementBatiment, avertissementsDesBatiments, batimentDe, menuBati
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis } from '../../../../lib/gestion/digicodes';
+import { bilanEnvoi, motCode, proprietairesRegroupes, type ApercuEnvoi, type IssueEnvoi, type LogementDest } from '../../../../lib/gestion/digicodesEnvoi';
+import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 
 /**
  * ══ 🔴🔴 LES DIGICODES DE LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 3) ═══════════════════════════════════════
@@ -39,6 +41,9 @@ export type GesteDigicode = (adresseCle: string, batiment: string | null, valeur
 /** 🔴 (lot 5) « Modifier » : la date d'application (ISO) et les codes qui changent ; « Annuler ce changement » : la ligne prévue. */
 export type PlanifierDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null>;
 export type AnnulerChangementDigicode = (adresseCle: string, ligneId: number) => Promise<string | null>;
+/** 🔴 (lot 6) l'écran des destinataires d'un changement proposé, puis « Enregistrer et envoyer » ; un `string` : le refus. */
+export type ApercuDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<ApercuEnvoi | string>;
+export type EnvoyerDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[], proprietaires: boolean) => Promise<IssueEnvoi | string>;
 
 let n = 0;
 const k = (): string => `b${++n}`;
@@ -92,12 +97,14 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, modeBien = false }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
   /** 🔴 (lot 5) « Modifier » (changement daté) et « Annuler ce changement » ; absents : non proposés */
   onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
+  /** 🔴 (lot 6) l'écran des destinataires et l'envoi ; présents : « Modifier » passe par eux (sinon : enregistrement sans envoi, lot 5) */
+  onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
   /** 🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : son adresse, son code commun et celui de SON bâtiment (choisi au menu, à part) — sans
    *  « + » ni rappel de la règle (le menu du bâtiment les porte) */
   modeBien?: boolean;
@@ -187,7 +194,9 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
       <HistoriqueDigicodes s={s} />
       {modifier !== null && onPlanifier !== undefined && s.find((d) => d.cle === modifier.cle) !== undefined && (
         <FenetreModifier d={s.find((d) => d.cle === modifier.cle) as DigicodesAdresseSaisis} depart={modifier.place} onFermer={() => setModifier(null)}
-          onValider={(appliqueLe, changements) => onPlanifier(modifier.cle, appliqueLe, changements)} />)}
+          onValider={(appliqueLe, changements) => onPlanifier(modifier.cle, appliqueLe, changements)}
+          {...(onApercu && onEnvoyer ? { onApercu: (appliqueLe: string, ch: Parameters<ApercuDigicodes>[2]) => onApercu(modifier.cle, appliqueLe, ch),
+            onEnvoyer: (appliqueLe: string, ch: Parameters<ApercuDigicodes>[2], p: boolean) => onEnvoyer(modifier.cle, appliqueLe, ch, p) } : {})} />)}
       {alerte !== null && (
         <div className="dcp-voile" data-dcp-avertissement>
           <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="dcp-alerte-titre" aria-describedby="dcp-alerte-texte"
@@ -288,8 +297,14 @@ const demainParis = (): string => new Date(Date.now() + 86400000).toLocaleDateSt
  * d'application (heure de Paris). Le nouveau code ne remplace l'ancien qu'à partir de cette date ; avant, l'ancien reste en vigueur ; ensuite il
  * reste dans l'historique. Aucun envoi ici (l'écran des destinataires vient ensuite).
  */
-function FenetreModifier({ d, depart, onFermer, onValider }: { d: DigicodesAdresseSaisis; depart: string; onFermer: () => void;
-  onValider: (appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null> }) {
+function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }: { d: DigicodesAdresseSaisis; depart: string; onFermer: () => void;
+  onValider: (appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null>;
+  onApercu?: (appliqueLe: string, changements: Parameters<ApercuDigicodes>[2]) => Promise<ApercuEnvoi | string>;
+  onEnvoyer?: (appliqueLe: string, changements: Parameters<ApercuDigicodes>[2], proprietaires: boolean) => Promise<IssueEnvoi | string> }) {
+  // 🔴 (lot 6) les étapes : la saisie, l'écran des destinataires, le compte rendu de l'envoi
+  const [apercu, setApercu] = useState<ApercuEnvoi | null>(null);
+  const [proprietaires, setProprietaires] = useState(false);
+  const [fait, setFait] = useState<IssueEnvoi | null>(null);
   const places = [...(d.communEtat?.connu ? [{ cle: '', libelle: null as string | null, titre: 'Digicode commun', etat: d.communEtat }] : []),
     ...d.batiments.filter((b) => b.etat?.connu).map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, libelle: b.libelle as string | null, titre: `Bâtiment / cage ${b.libelle}`, etat: b.etat as EtatPlaceDigicode }))];
   const [coches, setCoches] = useState<Record<string, CodeLigne | undefined>>(() => (places.some((p) => p.cle === depart && p.etat.aVenir.length === 0) ? { [depart]: { code: '', aucun: false } } : {}));
@@ -300,6 +315,13 @@ function FenetreModifier({ d, depart, onFermer, onValider }: { d: DigicodesAdres
   const [ouverture] = useState(() => Date.now()); // l'heure d'ouverture de la fenêtre (le serveur revérifie au moment d'enregistrer)
   const appliqueLe = instantDepuisParis(date, heure);
   const choisis = places.filter((p) => coches[p.cle] !== undefined);
+  const changementsSaisis = () => choisis.map((p) => ({ batiment: p.libelle, ...(valeurDeLaSaisie(coches[p.cle] as CodeLigne) as { digicode: boolean; code: string | null }) }));
+  if (fait !== null) return <CompteRenduEnvoi fait={fait} onFermer={onFermer} />;
+  if (apercu !== null && appliqueLe !== null && onEnvoyer !== undefined) {
+    return <EcranDestinataires a={apercu} proprietaires={proprietaires} onProprietaires={setProprietaires} envoi={envoi} erreur={erreur}
+      onRetour={() => { setApercu(null); setErreur(null); }}
+      onEnvoyer={() => { setEnvoi(true); setErreur(null); void onEnvoyer(appliqueLe, changementsSaisis(), proprietaires).then((r) => { setEnvoi(false); if (typeof r === 'string') setErreur(r); else setFait(r); }); }} />;
+  }
   const manque = choisis.length === 0 ? 'Cochez au moins un digicode qui change.'
     : choisis.some((p) => valeurDeLaSaisie(coches[p.cle] as CodeLigne) === null) ? 'Saisissez le nouveau code de chaque digicode coché (ou « pas de digicode »).'
       : appliqueLe === null ? 'Indiquez la date et l’heure d’application.'
@@ -336,13 +358,89 @@ function FenetreModifier({ d, depart, onFermer, onValider }: { d: DigicodesAdres
         {manque !== null && erreur === null && <p className="loc-muet dcp-sans-marge" data-dcp-modifier-manque>{manque}</p>}
         <div className="dcp-alerte-actions">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={onFermer} data-dcp-modifier-annuler>Annuler</button>
+          {onApercu !== undefined ? (
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || manque !== null} data-dcp-modifier-suivant onClick={() => {
+              if (appliqueLe === null) return;
+              setEnvoi(true); setErreur(null);
+              void onApercu(appliqueLe, changementsSaisis()).then((r) => { setEnvoi(false); if (typeof r === 'string') setErreur(r); else setApercu(r); });
+            }}>{envoi ? 'Lecture…' : 'Suivant : vérifier les destinataires'}</button>
+          ) : (
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || manque !== null} data-dcp-modifier-valider onClick={() => {
             if (appliqueLe === null) return;
             setEnvoi(true); setErreur(null);
-            void onValider(appliqueLe, choisis.map((p) => ({ batiment: p.libelle, ...(valeurDeLaSaisie(coches[p.cle] as CodeLigne) as { digicode: boolean; code: string | null }) })))
+            void onValider(appliqueLe, changementsSaisis())
               .then((m) => { setEnvoi(false); if (m === null) onFermer(); else setErreur(m); });
-          }}>{envoi ? 'Enregistrement…' : 'Enregistrer le changement'}</button>
+          }}>{envoi ? 'Enregistrement…' : 'Enregistrer le changement'}</button>)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Les noms d'un logement, une ligne : « Léa MARTIN et Paul MARTIN ». PUR. */
+const noms = (xs: readonly { nom: string; prenom: string | null }[]): string => (xs.length <= 1 ? xs.map((x) => prenomNom(x)).join('')
+  : `${xs.slice(0, -1).map((x) => prenomNom(x)).join(', ')} et ${prenomNom(xs[xs.length - 1])}`);
+
+/**
+ * 🔴🔴 (« Digicodes unifiés », lot 6) L'ÉCRAN DES DESTINATAIRES, AVANT L'ENVOI : bâtiment par bâtiment, UNE LIGNE PAR LOGEMENT (couple ou
+ * colocataires ensemble), ses codes ; les locataires partis (règle des 7 jours) dits avec la raison ; « pas d'e-mail — à prévenir autrement » ;
+ * « Prévenir aussi les propriétaires » décochée par défaut (un mail par propriétaire, ses logements regroupés) ; le total.
+ */
+function EcranDestinataires({ a, proprietaires, onProprietaires, envoi, erreur, onRetour, onEnvoyer }: { a: ApercuEnvoi; proprietaires: boolean;
+  onProprietaires: (b: boolean) => void; envoi: boolean; erreur: string | null; onRetour: () => void; onEnvoyer: () => void }) {
+  const b = bilanEnvoi(a, proprietaires);
+  const groupes = new Map<string, LogementDest[]>();
+  for (const l of a.logements) { const k = l.batiment ?? ''; groupes.set(k, [...(groupes.get(k) ?? []), l]); }
+  const total = b.mailsLocataires + b.mailsProprietaires;
+  return (
+    <div className="dcp-voile" data-dcp-destinataires>
+      <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-dest-titre" onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onRetour(); } }}>
+        <p className="dcp-alerte-titre" id="dcp-dest-titre">Qui sera prévenu ?</p>
+        <p className="dcp-alerte-texte">{a.adresse} — nouveau code à partir du {dateHeure(a.appliqueLe)}. Chaque personne reçoit SON mail, à son nom, sans autre destinataire, avec seulement le code commun et celui de son bâtiment.</p>
+        <p className="dcp-total" data-dcp-total>{a.logements.length} logement{a.logements.length > 1 ? 's' : ''} concerné{a.logements.length > 1 ? 's' : ''}</p>
+        {[...groupes.entries()].sort(([x], [y]) => x.localeCompare(y, 'fr', { numeric: true })).map(([bat, ls]) => (
+          <div key={bat} className="dcp-dest-groupe" data-dcp-dest-batiment={bat === '' ? 'sans' : bat}>
+            <p className="dcp-titre">{bat === '' ? 'Sans bâtiment (code commun seulement)' : `Bâtiment ${bat}`}</p>
+            <ul className="dcp-arbitrer-liste">{ls.map((l) => {
+              const inclus = l.locataires.filter((x) => x.inclus);
+              return (
+                <li key={l.lotId} className="dcp-dest-logement" data-dcp-dest-logement={l.lotId}>
+                  <span><strong>{l.libelle}</strong> — {inclus.length === 0 ? <span className="loc-muet">aucun locataire à prévenir</span> : noms(inclus)}</span>
+                  <span className="loc-muet dcp-dest-codes">codes : commun {motCode(l.codes.commun)}{l.batiment !== null ? ` ; bâtiment ${l.batiment} ${motCode(l.codes.batiment)}` : ''}</span>
+                  {inclus.filter((x) => x.emails.length === 0).map((x) => <span key={x.occupationId} className="dcp-a-arbitrer" data-dcp-sans-email>{prenomNom(x)} — pas d’e-mail — à prévenir autrement</span>)}
+                  {l.locataires.filter((x) => !x.inclus).map((x) => <span key={x.occupationId} className="loc-muet" data-dcp-exclu>{prenomNom(x)} — {x.raison} : non prévenu</span>)}
+                </li>);
+            })}</ul>
+          </div>))}
+        <label className="dcp-aucun"><input type="checkbox" checked={proprietaires} disabled={envoi} onChange={(e) => onProprietaires(e.target.checked)} data-dcp-proprietaires />
+          <span>Prévenir aussi les propriétaires</span></label>
+        {proprietaires && <ul className="dcp-arbitrer-liste" data-dcp-liste-proprietaires>{proprietairesRegroupes(a).map((p) => (
+          <li key={p.personne.id}>{prenomNom(p.personne)} — {p.logements.length} logement{p.logements.length > 1 ? 's' : ''} (un seul mail){p.personne.emails.length === 0 ? <span className="dcp-a-arbitrer"> — pas d’e-mail — à prévenir autrement</span> : null}</li>))}</ul>}
+        <p className="dcp-total" data-dcp-bilan>{b.mailsLocataires} mail{b.mailsLocataires > 1 ? 's' : ''} aux locataires{proprietaires ? ` · ${b.mailsProprietaires} aux propriétaires` : ''}{b.sansEmail.length > 0 ? ` · ${b.sansEmail.length} à prévenir autrement` : ''}</p>
+        {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-envoi-erreur>{erreur}</p>}
+        <div className="dcp-alerte-actions">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={onRetour} data-dcp-dest-retour>Retour</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={onEnvoyer} data-dcp-envoyer>
+            {envoi ? 'Envoi…' : total === 0 ? 'Enregistrer le changement' : `Enregistrer et envoyer ${total} mail${total > 1 ? 's' : ''}`}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 🔴 (lot 6) Le compte rendu, APRÈS l'envoi : chaque mail (pour qui, parti ou non), et ce qui reste à faire autrement. */
+function CompteRenduEnvoi({ fait, onFermer }: { fait: IssueEnvoi; onFermer: () => void }) {
+  const partis = fait.envois.filter((e) => e.envoye).length;
+  return (
+    <div className="dcp-voile" data-dcp-compte-rendu>
+      <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-cr-titre" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFermer(); } }}>
+        <p className="dcp-alerte-titre" id="dcp-cr-titre">Changement enregistré</p>
+        <p className="dcp-alerte-texte">{partis} mail{partis > 1 ? 's' : ''} parti{partis > 1 ? 's' : ''} sur {fait.envois.length}. Chacun est rangé dans l’historique du bien et de la personne.</p>
+        <ul className="dcp-arbitrer-liste">{fait.envois.map((e, i) => (
+          <li key={i} data-dcp-envoi={e.envoye ? 'parti' : 'echec'}><strong>{e.pour}</strong> — {e.envoye ? 'envoyé' : `non envoyé : ${e.motif ?? 'erreur'}`}</li>))}</ul>
+        {fait.sansEmail.length > 0 && <p className="dcp-a-arbitrer dcp-sans-marge" data-dcp-cr-sans-email>À prévenir autrement (pas d’e-mail) : {fait.sansEmail.join(', ')}.</p>}
+        {fait.exclus.length > 0 && <p className="loc-muet dcp-sans-marge">Non prévenus : {fait.exclus.join(' ; ')}.</p>}
+        <div className="dcp-alerte-actions"><button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onFermer} data-dcp-cr-fermer>Fermer</button></div>
       </div>
     </div>
   );
@@ -487,9 +585,10 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
  * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
  * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
  */
-export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement }: {
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer }: {
   donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode; onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
+  onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
 }) {
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const vue: DigicodesAdresseSaisis = { ...s, batiments: ligne === null ? [] : [ligne] };
@@ -501,7 +600,8 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   };
   return <div data-digicodes-bien>
     <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
-      {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} {...(onPlanifier ? { onPlanifier } : {})} {...(onAnnulerChangement ? { onAnnulerChangement } : {})} />
+      {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} {...(onPlanifier ? { onPlanifier } : {})} {...(onAnnulerChangement ? { onAnnulerChangement } : {})}
+      {...(onApercu ? { onApercu } : {})} {...(onEnvoyer ? { onEnvoyer } : {})} />
   </div>;
 }
 
@@ -547,6 +647,10 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-sans-marge{margin:0}
 .dcp-mention{margin:0;font-size:.82rem;flex-basis:100%}
 .dcp-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.dcp-total{margin:0;font-weight:800;color:var(--color-svv-ink)}
+.dcp-dest-groupe{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field)}
+.dcp-dest-logement{display:flex;flex-direction:column;gap:2px;padding:4px 0}
+.dcp-dest-codes{font-size:.85rem}
 .dcp-fenetre{width:min(560px,100%);max-height:calc(100dvh - 32px);overflow-y:auto}
 .dcp-modifier-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-bottom:1px solid var(--color-svv-line)}
 .dcp-historique summary{cursor:pointer;font-weight:800;min-height:36px;display:flex;align-items:center;color:var(--color-svv-ink)}

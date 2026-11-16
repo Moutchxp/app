@@ -4,6 +4,7 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { query } from '../../../../../../lib/db/client';
 import { colonneExisteMemo } from '../../../../../../lib/location/sondeLocation';
 import { ficheCopropriete } from '../../../../../../lib/gestion/coproprieteRepo';
+import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/gestion/digicodesEnvoiRepo';
 import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, propositionsParcelle } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
@@ -63,6 +64,11 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif, ...(r.conflitsParcelle ? { conflitsParcelle: r.conflitsParcelle } : {}) }, { headers: ENTETES });
     }
     // 🔴 (« Digicodes unifiés », lot 3) « Corriger une erreur » et « Garder ce code » (à arbitrer) : immédiats, par le chemin serveur unique
+    // 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires (lecture seule), puis « Enregistrer et envoyer »
+    if (corps.action === 'digicode-apercu-envoi' || corps.action === 'digicode-planifier-envoyer') {
+      const r = corps.action === 'digicode-apercu-envoi' ? await apercuChangement(corps) : await planifierEtPrevenir(corps, await auteurDeLaRequete(request));
+      return Response.json(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+    }
     const geste = gesteDeLAction(corps.action);
     if (geste !== null) {
       const r = await gesteDigicodeCopro(corps, geste, await auteurDeLaRequete(request));

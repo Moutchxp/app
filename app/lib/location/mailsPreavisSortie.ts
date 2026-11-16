@@ -40,7 +40,9 @@ export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adh
   | 'previsite_alerte' | 'previsite_invitation' | 'previsite_reponse' | 'previsite_locataires' | 'previsite_locataires_modif'
   | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus' | 'previsite_annulation'
   // 🔴 Arno (11/11/2026, migration 467) — « Valider l'état des lieux de sortie » (`validationSortie.ts`).
-  | 'sortie_edls_locataire' | 'sortie_edls_proprietaire' | 'sortie_edls_interne';
+  | 'sortie_edls_locataire' | 'sortie_edls_proprietaire' | 'sortie_edls_interne'
+  // 🔴 Arno (16/11/2026, migration 479) — le CHANGEMENT DE DIGICODE (`digicodesEnvoi.ts`).
+  | 'digicode_locataire' | 'digicode_proprietaire';
 
 /** Un mail prêt : ce que l'aperçu montre et ce qui part, à l'identique. */
 export interface MailAvis {

@@ -36,6 +36,7 @@ import { nomAuteurAg } from '../../../../lib/location/agCoproprieteRepo';
 import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
 import { digicodesPourBien } from '../../../../lib/gestion/digicodesBienRepo';
 import { gesteDeLAction, gesteDigicodeCopro } from '../../../../lib/gestion/coproprieteEcritureRepo';
+import { apercuChangement, planifierEtPrevenir } from '../../../../lib/gestion/digicodesEnvoiRepo';
 import { mandatsDesProprietaires } from '../../../../lib/location/mandatBienRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
@@ -439,6 +440,10 @@ async function postLocation(request: Request): Promise<Response> {
   try {
     // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche
     // Copropriété (le chemin unique), avec le droit de la Location
+    if (action === 'digicode-apercu-envoi' || action === 'digicode-planifier-envoyer') {
+      const r = action === 'digicode-apercu-envoi' ? await apercuChangement(corps) : await planifierEtPrevenir(corps, auteur);
+      return Response.json(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+    }
     const geste = gesteDeLAction(action);
     if (geste !== null) return Response.json(await gesteDigicodeCopro(corps, geste, auteur), { headers: ENTETES });
     switch (action) {

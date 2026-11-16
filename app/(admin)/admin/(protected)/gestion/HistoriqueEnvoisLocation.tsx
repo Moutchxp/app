@@ -104,6 +104,9 @@ const LIBELLE_AVIS: Record<string, string> = {
   sortie_edls_locataire: 'État des lieux de sortie — compte rendu (locataire)',
   sortie_edls_proprietaire: 'État des lieux de sortie — compte rendu (propriétaire)',
   sortie_edls_interne: 'État des lieux de sortie — copie interne de la validation',
+  // 🔴 (16/11/2026, 479) le changement de digicode
+  digicode_locataire: 'Changement de digicode (locataire)',
+  digicode_proprietaire: 'Changement de digicode (propriétaire)',
 };
 
 /**

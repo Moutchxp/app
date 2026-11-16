@@ -32,17 +32,19 @@ const CAVE = bien(437, { categorie: 'cave', etageSaisi: '-2', porte: '56', numLo
 let biens: unknown[];
 let posts: Record<string, unknown>[];
 let lectures: number;
+let retenue: Promise<void> | null = null;
 let hote: HTMLDivElement;
 let racine: Root;
 let ouvertes: { sorte: string; id: number }[];
 beforeEach(() => {
-  hote = document.createElement('div'); document.body.appendChild(hote); racine = createRoot(hote); ouvertes = []; posts = []; lectures = 0;
+  hote = document.createElement('div'); document.body.appendChild(hote); racine = createRoot(hote); ouvertes = []; posts = []; lectures = 0; retenue = null;
   biens = [WIPPIMMO, LOGEMENT, CAVE];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return reponse({ etat: 'ok', data: undefined }); }
     if (u.includes('/api/admin/gestion/annuaire?proprietaire=')) {
       lectures += 1;
+      if (retenue !== null) await retenue;
       return reponse({ etat: 'ok', data: { id: 49, cle: 'P49', nom: 'CHALAH Ramdane', civilite: null, adresse: null, commune: null, codePostal: null,
         relationDepuis: null, absent: false, contacts: [], driveDossierId: null, lots: [], personnes: [], modifiable: false, suppressionDisponible: false, biens } });
     }
@@ -112,6 +114,19 @@ describe('🔴 détacher, puis rattacher', () => {
     await clic(document.querySelector('[data-confirmer-detacher]')!);
     expect(posts).toEqual([{ action: 'detacher-annexe', id: 437, detacher: true }]);
     expect(lectures).toBe(avant + 1);
+  });
+
+  it('🔴 (17/11/2026) la MÊME fiche relue GARDE son contenu pendant la lecture : ni « Chargement… », ni éléments remontés (une fenêtre ouverte dessus reste ouverte)', async () => {
+    await monter();
+    const avant = carte(436);
+    let liberer = (): void => {};
+    retenue = new Promise<void>((r) => { liberer = r; });
+    await clic(carte(436).querySelector('[data-detacher-annexe="437"]')!);
+    await clic(document.querySelector('[data-confirmer-detacher]')!);
+    expect(hote.textContent).not.toContain('Chargement…');
+    expect(carte(436)).toBe(avant);
+    await act(async () => { liberer(); }); await calmer();
+    expect(carte(436)).toBe(avant);
   });
 
   it('l’annexe DÉTACHÉE : sa propre carte, avec son type, COMPTÉE comme un bien ; « Rattacher à son lot principal » ne propose que son bien d’origine', async () => {

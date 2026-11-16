@@ -302,3 +302,52 @@ describe('🔴🔴 (« Digicodes unifiés », lot 5) « Modifier » : la fenêtr
     expect(annules).toEqual([['residence les tilleuls', 9]]);
   });
 });
+
+describe('🔴🔴 (« Digicodes unifiés », lot 6) « Modifier » → l’écran des destinataires → l’envoi', () => {
+  const E = { connu: true, valeur: { digicode: true, code: '1234' }, depuis: '2026-11-01T10:00:00.000Z', source: 'unifie', aVenir: [], aArbitrer: [], historique: [] };
+  const F = { digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234', etat: E }, batiments: [] }] };
+  const p = { id: 9, nom: 'PROPRIO', prenom: 'Jean', emails: ['j@exemple.test'] };
+  const APERCU = { adresse: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', appliqueLe: '2099-06-01T07:00:00.000Z', logements: [
+    { lotId: 1, libelle: 'Résidence Les Tilleuls — lot 1', batiment: 'A', proprietaires: [p], codes: { commun: { digicode: true, code: 'Z7' }, batiment: { digicode: true, code: 'A1' }, communChange: true, batimentChange: false },
+      locataires: [{ id: 1, occupationId: 11, nom: 'MARTIN', prenom: 'Léa', emails: ['l@exemple.test'], depart: null, inclus: true, raison: null },
+        { id: 2, occupationId: 12, nom: 'MARTIN', prenom: 'Paul', emails: [], depart: null, inclus: true, raison: null }] },
+    { lotId: 2, libelle: 'Résidence Les Tilleuls — lot 2', batiment: 'B', proprietaires: [p], codes: { commun: { digicode: true, code: 'Z7' }, batiment: null, communChange: true, batimentChange: false },
+      locataires: [{ id: 3, occupationId: 13, nom: 'DURAND', prenom: 'Zoé', emails: ['z@exemple.test'], depart: '2099-05-01', inclus: false, raison: 'parti le 01/05' }] }] };
+  let envois: unknown[] = [];
+  function HoteE() {
+    const [s, setS] = useState(saisieDigicodesInitiale(F as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false, onPlanifier: async () => null,
+      onApercu: async () => APERCU as never,
+      onEnvoyer: async (...a: unknown[]) => { envois.push(a); return { enregistre: true, envois: [{ pour: 'Léa MARTIN', objet: 'x', a: ['l@exemple.test'], envoye: true, motif: null }], sansEmail: ['Paul MARTIN'], exclus: ['Zoé DURAND — parti le 01/05'] }; } });
+  }
+  beforeEach(() => { envois = []; });
+  it('« Suivant » : l’écran des destinataires — bâtiment par bâtiment, une ligne par logement, les exclus avec la raison, « pas d’e-mail — à prévenir autrement », le total', async () => {
+    await act(async () => { root.render(createElement(HoteE)); });
+    await clic($('[data-dcp-commun] [data-dcp-modifier]'));
+    await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), 'Z7');
+    await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await clic($('[data-dcp-modifier-suivant]'));
+    const z = $('[data-dcp-destinataires]');
+    expect([...z.querySelectorAll('[data-dcp-dest-batiment]')].map((x) => x.getAttribute('data-dcp-dest-batiment'))).toEqual(['A', 'B']);
+    expect($('[data-dcp-total]').textContent).toBe('2 logements concernés');
+    expect($('[data-dcp-dest-logement="1"]').textContent).toContain('Léa MARTIN et Paul MARTIN');
+    expect($('[data-dcp-sans-email]').textContent).toBe('Paul MARTIN — pas d’e-mail — à prévenir autrement');
+    expect($('[data-dcp-exclu]').textContent).toBe('Zoé DURAND — parti le 01/05 : non prévenu');
+    expect(($('[data-dcp-proprietaires]') as HTMLInputElement).checked).toBe(false); // décochée par défaut
+    expect($('[data-dcp-envoyer]').textContent).toBe('Enregistrer et envoyer 1 mail');
+    await clic($('[data-dcp-proprietaires]'));
+    expect($('[data-dcp-liste-proprietaires]').textContent).toContain('Jean PROPRIO — 2 logements (un seul mail)');
+    expect($('[data-dcp-envoyer]').textContent).toBe('Enregistrer et envoyer 2 mails');
+  });
+  it('« Enregistrer et envoyer » : le changement et la case propriétaires partent ; le compte rendu dit chaque mail et qui prévenir autrement', async () => {
+    await act(async () => { root.render(createElement(HoteE)); });
+    await clic($('[data-dcp-commun] [data-dcp-modifier]'));
+    await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), 'Z7');
+    await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await clic($('[data-dcp-modifier-suivant]'));
+    await clic($('[data-dcp-envoyer]'));
+    expect(envois).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7' }], false]]);
+    expect($('[data-dcp-compte-rendu]').textContent).toContain('1 mail parti sur 1');
+    expect($('[data-dcp-cr-sans-email]').textContent).toBe('À prévenir autrement (pas d’e-mail) : Paul MARTIN.');
+  });
+});

@@ -352,10 +352,16 @@ export function Annuaire({
      elle était déjà. C'est son seul APPELANT d'écran qui disparaît, sur décision d'Arno. */
 
   // ── LA FICHE OUVERTE, QUI VIT DANS L'ADRESSE ────────────────────────────────────────────────────────────────────
+  /* 🔴 Arno (17/11/2026, « Digicodes unifiés », lot 6) — LA MÊME FICHE QUI SE RELIT GARDE SON CONTENU jusqu'à la nouvelle lecture : passer par
+     « Chargement… » démontait toute la fiche, et avec elle une fenêtre ouverte dessus (la fiche Copropriété et le compte rendu d'un envoi,
+     refermés dès que l'envoi rangeait son mail dans l'historique du bien). Une AUTRE fiche, elle, passe toujours par « Chargement… ». */
+  const ficheLue = useRef<FicheUrl | null>(null);
   useEffect(() => {
-    if (fiche === null) { setDetail(null); return; }
+    if (fiche === null) { ficheLue.current = null; setDetail(null); return; }
     let vivant = true;
-    setDetail({ etat: 'charge' });
+    const relecture = ficheLue.current !== null && ficheLue.current.sorte === fiche.sorte && ficheLue.current.id === fiche.id;
+    ficheLue.current = fiche;
+    if (!relecture) setDetail({ etat: 'charge' });
     void (async () => {
       try {
         /**

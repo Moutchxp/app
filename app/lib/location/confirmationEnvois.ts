@@ -54,6 +54,9 @@ export const LIBELLE_MAIL: Record<string, string> = {
   sortie_edls_locataire: 'Compte rendu de l’état des lieux de sortie (locataire)',
   sortie_edls_proprietaire: 'Compte rendu de l’état des lieux de sortie (propriétaire)',
   sortie_edls_interne: 'Copie interne de la validation de sortie',
+  // 🔴 (16/11/2026, 479) le changement de digicode
+  digicode_locataire: 'Changement de digicode (locataire)',
+  digicode_proprietaire: 'Changement de digicode (propriétaire)',
   // 🔴 Arno (10/11/2026) — les invitations d'une tâche.
   tache_collaborateur: 'Invitation (collaborateur de l’agence)',
   tache_exterieur: 'Invitation (contact extérieur)',

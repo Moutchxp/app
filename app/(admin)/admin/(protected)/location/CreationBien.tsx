@@ -1,5 +1,6 @@
 'use client';
 
+import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ListeChoix } from './ListeChoix';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModaleIssue } from './ModaleIssue';
@@ -380,6 +381,16 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   }, [b.adresse, b.codePostal, b.commune, digiRelire]); // eslint-disable-line react-hooks/exhaustive-deps
   const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme) : null;
   /** « Corriger une erreur » / « Garder ce code » : immédiats, par le même chemin serveur que la fiche Copropriété ; les digicodes se relisent. */
+  /** 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires et l'envoi, par la route de la Location. */
+  const echangeDigi = async <T,>(corpsGeste: Record<string, unknown>): Promise<T | string> => {
+    if (digiBien === null) return 'Les digicodes ne sont pas chargés.';
+    if (digiEnvoi !== null && (digiEnvoi.commun !== null || digiEnvoi.codeBatiment !== null)) return 'Enregistrez (ou effacez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...corpsGeste, immeuble: digiBien.copropriete.cle }) });
+      const d = (await r.json()) as { etat?: string; data?: T; motif?: string };
+      return d.etat === 'ok' && d.data !== undefined ? d.data : (d.motif ?? 'Refusé.');
+    } catch { return 'Le serveur n’a pas répondu. Rien n’a été modifié.'; }
+  };
   const gesteDigi = (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> =>
     appelDigi({ action, adresseCle, batiment, digicode: v.digicode, code: v.code });
   const appelDigi = async (corpsGeste: Record<string, unknown>): Promise<string | null> => {
@@ -910,7 +921,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi}
                   onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
-                  onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })} />
+                  onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
+                  onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
+                  onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
+                    if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} />
               </div>) : (
             <div className="loc-acces-bloc" data-digicode><span className="loc-acces-mot">Digicode</span>
               <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}

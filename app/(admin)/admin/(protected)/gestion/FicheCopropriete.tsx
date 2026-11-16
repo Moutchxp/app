@@ -7,6 +7,7 @@ import { AgCopropriete } from './AgCopropriete';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
+import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import {
   ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
@@ -197,6 +198,27 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
    * unique ; seuls les digicodes de la fiche sont relus (le reste de la saisie en cours n'est pas touché). Des digicodes saisis et pas encore
    * validés : on le dit d'abord (ils seraient perdus).
    */
+  /** 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires et l'envoi : la réponse telle quelle (ou le refus) ; ensuite les digicodes se relisent. */
+  const echangeEnvoi = async <T,>(corpsGeste: Record<string, unknown>): Promise<T | string> => {
+    if (f === null) return 'Fiche non chargée.';
+    if (digicodesModifies(digi).length > 0) return 'Validez (ou retirez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...corpsGeste, immeuble: f.cle }) });
+      const d = (await r.json()) as { etat?: string; data?: T; motif?: string; message?: string };
+      return d.etat === 'ok' && d.data !== undefined ? d.data : (d.motif ?? d.message ?? 'Refusé.');
+    } catch { return 'Le serveur n’a pas répondu. Rien n’a été modifié.'; }
+  };
+  const relireDigicodes = async (): Promise<void> => {
+    if (f === null) return;
+    try {
+      const r = await fetch(`${API}?immeuble=${encodeURIComponent(f.cle)}`, { cache: 'no-store' });
+      const d = (await r.json()) as { etat?: string; data?: { fiche: Fiche | null } };
+      const nouvelle = d.data?.fiche;
+      if (d.etat !== 'ok' || !nouvelle) return;
+      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective } }));
+      setDigi(saisieDigicodesInitiale(nouvelle));
+    } catch { /* la fiche se relira à la prochaine ouverture */ }
+  };
   const gesteDigicode = (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> =>
     appelDigicode({ action, adresseCle, batiment, digicode: v.digicode, code: v.code });
   const appelDigicode = async (corpsGeste: Record<string, unknown> & { action: string }): Promise<string | null> => {
@@ -284,7 +306,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
             onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),
-            onAnnulerChangement: (a: string, ligneId: number) => appelDigicode({ action: 'digicode-annuler-changement', adresseCle: a, ligneId }) } : {})} />
+            onAnnulerChangement: (a: string, ligneId: number) => appelDigicode({ action: 'digicode-annuler-changement', adresseCle: a, ligneId }),
+            onApercu: (a: string, appliqueLe: string, changements: unknown[]) => echangeEnvoi<ApercuEnvoi>({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements }),
+            onEnvoyer: async (a: string, appliqueLe: string, changements: unknown[], proprietaires: boolean) => {
+              const r = await echangeEnvoi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
+              if (typeof r !== 'string') void relireDigicodes();
+              return r;
+            } } : {})} />
         /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : l'ancienne saisie par adresse (DigicodeImmeuble), en repli sans la 477 —
            RETIRÉE : le composant unique couvre tout ce qu'elle faisait (code commun, code de chaque bâtiment, ajout d'un bâtiment, « commun aux N
            biens », message après enregistrement). Sans la mise à jour de la base, on le dit ; rien n'est saisi. */
