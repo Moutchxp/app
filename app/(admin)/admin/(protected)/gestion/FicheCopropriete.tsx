@@ -5,12 +5,12 @@ import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { DigicodeImmeuble } from './DigicodeImmeuble';
 import { AgCopropriete } from './AgCopropriete';
-import { DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
+import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import {
-  ALERTE_DESACCORD, estHorsCopropriete, nomAffiche, titreFicheCopropriete, type FicheCopropriete as Fiche,
+  ALERTE_DESACCORD, adresseSansNumero, estHorsCopropriete, nomAffiche, texteSansNumero, titreFicheCopropriete, TITRE_SANS_NUMERO, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
 import { adresseImmeuble, cleCoordonnee, cleImmeuble, cleNom, libelleCategorieImmeuble, lignesDoublonCoordonnee, nomAvecVille, quiPorte, type CategorieImmeuble, type CoordonneeConnue, type SyndicResume } from '../../../../lib/gestion/syndics';
 
@@ -93,6 +93,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [autreChoisie, setAutreChoisie] = useState<ChoixAdresse | null>(null);
   const [introuvable, setIntrouvable] = useState(false);
   const idAutre = useId();
+  /* 🔴 (16/11/2026) une adresse SANS NUMÉRO : la fenêtre d'avertissement (même style que celle des noms de bâtiment) ; les clés confirmées partent
+     avec « Valider » (le serveur refuse sans elles) */
+  const [sansNumero, setSansNumero] = useState<Adresse | null>(null);
+  const [confirmeesSansNumero, setConfirmeesSansNumero] = useState<string[]>([]);
   const [aRetirer, setARetirer] = useState<string | null>(null);
   const [propositions, setPropositions] = useState<Proposition[]>([]);
   const [rattacheeIci, setRattacheeIci] = useState(false);
@@ -142,17 +146,20 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     return () => { vivant = false; clearTimeout(t); };
   }, [choixSyndic, q]);
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null) onFerme(); };
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && sansNumero === null) onFerme(); };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
-  }, [envoi, ficheSyndic, onFerme]);
+  }, [envoi, ficheSyndic, onFerme, sansNumero]);
 
   const clesIci = new Set(toutes.map((a) => cleImmeuble(a.libelle)));
   const libres = propositions.filter((p) => p.etat === 'libre' && !clesIci.has(cleImmeuble(p.libelle)));
   const prises = propositions.filter((p) => p.etat === 'prise' && !clesIci.has(cleImmeuble(p.libelle)));
-  const ajouter = (a: Adresse): void => {
-    if (cleImmeuble(a.libelle) === '' || clesIci.has(cleImmeuble(a.libelle))) return;
+  const ajouter = (a: Adresse, confirmeSansNumero = false): boolean => {
+    if (cleImmeuble(a.libelle) === '' || clesIci.has(cleImmeuble(a.libelle))) return false;
+    if (adresseSansNumero(a.libelle) && !confirmeSansNumero) { setSansNumero(a); return false; }
+    if (confirmeSansNumero) setConfirmeesSansNumero((l) => [...l, cleImmeuble(a.libelle)]);
     setAdresses((x) => [...x, a]); setRattacheeIci(true); setInfo(null);
+    return true;
   };
   // les conflits : la copropriété reçoit un syndic, et une adresse de la parcelle est la copropriété d'un AUTRE syndic
   const conflits = syndicChoisi === null ? [] : prises.filter((p) => p.syndic !== null && p.syndic.id !== syndicChoisi.id);
@@ -174,7 +181,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
-        adresses, syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
@@ -239,7 +246,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={autre.trim() === ''}
             onClick={() => {
               if (autreChoisie === null) { setIntrouvable(true); return; }
-              ajouter({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune });
+              if (!ajouter({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune })) return;
               setAutre(''); setAutreChoisie(null);
             }} data-fcp-ajouter-adresse>Ajouter</button>
         </div>
@@ -318,6 +325,26 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <button type="button" className="fcp-fermer" aria-label="Fermer" onClick={onFerme} disabled={envoi}>×</button>
         </div>
         <div className="fcp-corps">{corps}</div>
+        {sansNumero !== null && (
+          <div className="dcp-voile" data-fcp-sans-numero>
+            <style>{CSS_DIGICODES_COPRO}</style>
+            <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="fcp-sans-numero-titre" aria-describedby="fcp-sans-numero-texte"
+              onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); (e.currentTarget.querySelector('[data-fcp-sans-numero-corriger]') as HTMLButtonElement | null)?.click(); } }}>
+              <p className="dcp-alerte-titre" id="fcp-sans-numero-titre">{TITRE_SANS_NUMERO}</p>
+              <div id="fcp-sans-numero-texte">{texteSansNumero(adresseImmeuble(sansNumero.libelle, sansNumero.codePostal || null, sansNumero.commune || null)).map((t) => <p key={t} className="dcp-alerte-texte">{t}</p>)}</div>
+              <div className="dcp-alerte-actions">
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" autoFocus data-fcp-sans-numero-corriger onClick={() => {
+                  // « Corriger » : rien n'est ajouté, la main revient au champ des suggestions
+                  setSansNumero(null); setAutre(''); setAutreChoisie(null);
+                  setTimeout(() => (document.getElementById(idAutre) as HTMLInputElement | null)?.focus(), 0);
+                }}>Corriger</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" data-fcp-sans-numero-confirmer onClick={() => {
+                  const a = sansNumero; setSansNumero(null);
+                  if (ajouter(a, true)) { setAutre(''); setAutreChoisie(null); }
+                }}>Confirmer</button>
+              </div>
+            </div>
+          </div>)}
         {etape === 'conflit' && (
           <div className="fcp-etape" role="alert" data-fcp-conflit>
             <p className="fcp-sans-marge">{questionConflitParcelle(conflits)}</p>

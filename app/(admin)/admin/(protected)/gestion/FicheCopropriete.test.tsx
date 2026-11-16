@@ -29,7 +29,8 @@ beforeEach(() => {
       posts.push(c); return json({ etat: 'ok', data: FICHE() });
     }
     // la Base Adresse Nationale (les suggestions de ChampAdresseBan)
-    if (u.startsWith('https://api-adresse.data.gouv.fr/search/')) return json({ features: u.includes('impasse') ? [{ properties: { label: '3 Impasse Neuve 75011 Paris', name: '3 Impasse Neuve', postcode: '75011', city: 'Paris' } }] : [] });
+    if (u.startsWith('https://api-adresse.data.gouv.fr/search/')) return json({ features: u.includes('impasse') ? [{ properties: { label: '3 Impasse Neuve 75011 Paris', name: '3 Impasse Neuve', postcode: '75011', city: 'Paris' } }]
+      : u.includes('lhomme') ? [{ properties: { label: 'Rue Pierre Lhomme 92400 Courbevoie', name: 'Rue Pierre Lhomme', postcode: '92400', city: 'Courbevoie' } }] : [] });
     if (u.startsWith('/api/admin/gestion/syndics?')) return json({ syndics: [{ id: 2, nom: 'Cabinet A', ville: 'Paris', nbCoproprietes: 3 }, { id: 4, nom: 'Cabinet C', ville: 'Nice', nbCoproprietes: 1 }] });
     return json({ etat: 'sans_schema' });
   }) as unknown as typeof fetch;
@@ -319,5 +320,46 @@ describe('🔴 (16/11/2026, point 3) la mise en page : le Syndic en DERNIER, cha
     expect(CSS_FICHE_COPROPRIETE).toMatch(/\.fcp-bloc\{[^}]*border:1px solid var\(--color-svv-line-strong\)[^}]*background:var\(--color-svv-surface\)/);
     expect(CSS_FICHE_COPROPRIETE).toMatch(/\.fcp-titre\{[^}]*border-bottom:1px solid var\(--color-svv-line\)/);
     expect(regle('.fcp-bloc')).not.toMatch(/#[0-9a-f]{3,6}/i);
+  });
+});
+
+describe('🔴 (16/11/2026) une adresse SANS NUMÉRO : la fenêtre d’avertissement (« Corriger » / « Confirmer »)', () => {
+  const choisirRue = async () => {
+    await ouvrir();
+    await clic('[data-fcp-plus-adresse]');
+    await saisir('[data-fcp-autre-adresse] input', 'rue pierre lhomme');
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); }); await calmer();
+    await act(async () => { $('.cab-prop').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
+    await clic('[data-fcp-ajouter-adresse]');
+  };
+  it('la fenêtre s’ouvre au moment de l’ajout, avec le même style que celle des noms de bâtiment ; rien n’est encore ajouté', async () => {
+    await choisirRue();
+    const f = $('[data-fcp-sans-numero] [role="alertdialog"]');
+    expect(f.classList.contains('dcp-alerte')).toBe(true);
+    expect(f.textContent).toContain('Adresse sans numéro');
+    expect(f.textContent).toContain('Cette adresse n’a pas de numéro : Rue Pierre Lhomme, 92400 COURBEVOIE.');
+    expect([...f.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Corriger', 'Confirmer']);
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(1);
+  });
+  it('« Corriger » : rien n’est ajouté, le champ est vidé et reprend la main', async () => {
+    await choisirRue();
+    await clic('[data-fcp-sans-numero-corriger]');
+    expect(document.querySelector('[data-fcp-sans-numero]')).toBeNull();
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(1);
+    expect(($('[data-fcp-autre-adresse] input') as HTMLInputElement).value).toBe('');
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(document.activeElement).toBe($('[data-fcp-autre-adresse] input'));
+  });
+  it('« Confirmer » : ajoutée, et la confirmation part avec « Valider »', async () => {
+    await choisirRue();
+    await clic('[data-fcp-sans-numero-confirmer]');
+    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.split(',')[0])).toEqual(['12 rue des Lilas', 'Rue Pierre Lhomme']);
+    await clic('[data-fcp-valider]');
+    expect(posts[0]).toMatchObject({ sansNumeroConfirmees: ['rue pierre lhomme'] });
+  });
+  it('une adresse numérotée : aucune fenêtre ; rien de confirmé ne part', async () => {
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    expect(posts[0]).toMatchObject({ sansNumeroConfirmees: [] });
   });
 });

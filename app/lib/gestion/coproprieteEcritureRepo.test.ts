@@ -135,6 +135,21 @@ describe('🔴🔴 (16/11/2026, option C) une nouvelle adresse est une adresse V
   });
 });
 
+describe('🔴 (16/11/2026) une adresse SANS NUMÉRO : acceptée seulement avec la confirmation de l’écran', () => {
+  const RUE = { libelle: 'Rue Pierre Lhomme', codePostal: '92400', commune: 'COURBEVOIE' };
+  it('sans confirmation : refus clair, AVANT toute écriture (et avant la vérification en ligne)', async () => {
+    expect(await enregistrerCopropriete({ ...SAISIE, adresses: [...SAISIE.adresses, RUE] }, AUTEUR))
+      .toEqual({ ok: false, motif: 'L’adresse Rue Pierre Lhomme, 92400 COURBEVOIE n’a pas de numéro : confirmez-la à l’écran (« Confirmer ») ou choisissez une adresse numérotée. Rien n’est enregistré.' });
+    expect([ecritures(), va.vues]).toEqual([[], []]);
+  });
+  it('avec la confirmation : vérifiée puis enregistrée ; une adresse sans numéro DÉJÀ rattachée n’est pas revue', async () => {
+    expect((await enregistrerCopropriete({ ...SAISIE, adresses: [...SAISIE.adresses, RUE], sansNumeroConfirmees: ['Rue Pierre Lhomme'] }, AUTEUR)).ok).toBe(true);
+    expect(va.vues.at(-1)).toContainEqual(RUE);
+    h.fiche = FICHE({ adresses: [{ cle: 'rue pierre lhomme', libelle: 'Rue Pierre Lhomme', principale: false }] });
+    expect((await enregistrerCopropriete({ ...SAISIE, adresses: [RUE] }, AUTEUR)).ok).toBe(true);
+  });
+});
+
 describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
   const D = (batiments: { libelle: string; code: string; aucun?: boolean; confirme?: boolean }[], commun?: { code: string; aucun: boolean }) =>
     ({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', ...(commun ? { commun } : {}), batiments: batiments.map((b) => ({ aucun: false, ...b })) }] });

@@ -4,7 +4,7 @@ import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, noterConflitParcelle, type ConflitAConfirmer } from './conflitParcelleRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, type AdresseSaisie, type ContactImmeubleSaisi } from './syndics';
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
-import type { FicheCopropriete } from './copropriete';
+import { adresseSansNumero, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
@@ -38,6 +38,8 @@ export interface SaisieCopropriete {
   digicodes: { cle: string; commun?: CodeSaisi; batiments: (CodeSaisi & { libelle: string; confirme: boolean })[] }[];
   /** 🔴 (16/11/2026, lot 6) « Même syndic : regrouper ? » — la copropriété (immeuble) que celle-ci REJOINT ; `null` : aucune */
   regrouperAvec: string | null;
+  /** 🔴 (16/11/2026) les adresses SANS NUMÉRO confirmées à l'écran (« Confirmer »), par clé */
+  sansNumeroConfirmees: string[];
 }
 /** Un code saisi : le code, ou « pas de digicode » (le « Non » d'avant). */
 export interface CodeSaisi { code: string; aucun: boolean }
@@ -87,7 +89,8 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
   }
   return { ok: true, saisie: { immeuble, nom: nul(texte(b.nom, 200)), horsCopropriete: typeof b.horsCopropriete === 'boolean' ? b.horsCopropriete : null,
     adresses, contacts, syndicId, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes,
-    regrouperAvec: cleImmeuble(texte(b.regrouperAvec)) === '' ? null : texte(b.regrouperAvec) } };
+    regrouperAvec: cleImmeuble(texte(b.regrouperAvec)) === '' ? null : texte(b.regrouperAvec),
+    sansNumeroConfirmees: (Array.isArray(b.sansNumeroConfirmees) ? b.sansNumeroConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } };
 }
 
 /** La copropriété (principale) d'une clé : la sienne, ou celle dont elle est une adresse en cours. */
@@ -111,7 +114,11 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   // 🔴 (16/11/2026, option C) une NOUVELLE adresse doit être retrouvée dans la Base Adresse Nationale (locale, puis service national) : elle vient de
   // la parcelle ou des suggestions, jamais d'une saisie à la main ; sinon refus clair, AVANT toute écriture (les adresses déjà là ne sont pas revues)
   const deja = new Set([lue.cle, ...lue.adresses.map((a) => a.cle)]);
-  const verif = await verifierAdresses(s.adresses.filter((a) => !deja.has(cleImmeuble(a.libelle))));
+  const nouvelles = s.adresses.filter((a) => !deja.has(cleImmeuble(a.libelle)));
+  // 🔴 (16/11/2026) une nouvelle adresse SANS NUMÉRO : seulement avec la confirmation de l'écran
+  const sansNumero = nouvelles.find((a) => adresseSansNumero(a.libelle) && !s.sansNumeroConfirmees.includes(cleImmeuble(a.libelle)));
+  if (sansNumero !== undefined) return { ok: false, motif: motifSansNumero(adresseImmeuble(sansNumero.libelle, sansNumero.codePostal || null, sansNumero.commune || null)) };
+  const verif = await verifierAdresses(nouvelles);
   if (!verif.ok) return verif;
   if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
   // 🔴 le conflit de parcelle (la même règle que la fiche syndic) : une copropriété qui reçoit un syndic, une adresse de la parcelle gérée par un

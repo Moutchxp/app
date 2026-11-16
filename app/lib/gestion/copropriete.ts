@@ -106,3 +106,16 @@ export function filtrerCoproprietes<T extends Pick<LigneCopropriete, 'cherchable
   return mots.length === 0 ? [...lignes] : lignes.filter((l) => mots.every((m) => l.cherchable.includes(m)));
 }
 export const cherchableDe = (morceaux: readonly (string | null | undefined)[]): string => plat(morceaux.filter(Boolean).join(' '));
+
+/**
+ * 🔴 (Arno, 16/11/2026) UNE ADRESSE DE COPROPRIÉTÉ SANS NUMÉRO (la rue seule, que les suggestions de la Base Adresse Nationale proposent aussi)
+ * n'est plus acceptée en silence : l'écran avertit (« Corriger » / « Confirmer ») et le serveur ne l'accepte qu'avec la confirmation. PUR.
+ */
+export const adresseSansNumero = (libelle: string): boolean => libelle.trim() !== '' && !/^\s*\d/.test(libelle);
+export const TITRE_SANS_NUMERO = 'Adresse sans numéro';
+export const texteSansNumero = (adresse: string): string[] => [
+  `Cette adresse n’a pas de numéro : ${adresse}.`,
+  'Une adresse de copropriété désigne d’ordinaire un immeuble précis (un numéro et une rue). Confirmez-vous cette adresse sans numéro ?',
+];
+export const motifSansNumero = (adresse: string): string =>
+  `L’adresse ${adresse} n’a pas de numéro : confirmez-la à l’écran (« Confirmer ») ou choisissez une adresse numérotée. Rien n’est enregistré.`;
