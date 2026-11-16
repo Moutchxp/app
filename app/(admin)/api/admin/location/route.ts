@@ -32,6 +32,7 @@ import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
+import { nomAuteurAg } from '../../../../lib/location/agCoproprieteRepo';
 import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
 import { mandatsDesProprietaires } from '../../../../lib/location/mandatBienRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
@@ -41,7 +42,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuValidationSortie, validerSortieEdls } from '../../../../lib/location/validationSortieRepo';
+import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
   envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
@@ -254,6 +255,12 @@ export async function GET(request: Request): Promise<Response> {
     if (idRetenue !== null) {
       const x = await logementDe(idRetenue);
       return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: { lotId: x.lotId, copropriete: x.copropriete } }, { headers: ENTETES });
+    }
+    // 🔴 Arno (16/11/2026, 475) — les AG de la copropriété pour « Valider la sortie » (case 20 % cochée) — LECTURE SEULE.
+    const idAgSortie = identifiant(p('agSortie'));
+    if (idAgSortie !== null) {
+      const x = await agPourSortie(idAgSortie);
+      return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: { ...x, moi: await nomAuteurAg(await auteurDeLaRequete(request)) } }, { headers: ENTETES });
     }
     const idEncart = identifiant(p('encartBail'));
     if (idEncart !== null) {
@@ -645,6 +652,8 @@ async function postLocation(request: Request): Promise<Response> {
           informerPartenaires: corps.informerPartenaires !== false,
           // 🔴 Arno (11/11/2026, 468) — les pièces jointes (identifiants inscrits) et la retenue de 20 %.
           pieceIds: idsOccupations(corps.pieceIds), retenue: corps.retenue === true, paragrapheRetenue: corps.paragrapheRetenue,
+          // 🔴 Arno (16/11/2026, 475) — les dates d'AG, la mention dans la phrase des propriétaires, la copropriété à rattacher ou à créer.
+          ag: corps.ag, mentionAg: corps.mentionAg === true, coproprieteChoix: corps.coproprieteChoix, coproprieteOui: corps.coproprieteOui === true,
         };
         return repondre(action === 'apercu-validation-sortie' ? await apercuValidationSortie(demande, auteur) : await validerSortieEdls(demande, auteur));
       }

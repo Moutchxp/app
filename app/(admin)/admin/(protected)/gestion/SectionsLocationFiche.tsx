@@ -32,6 +32,7 @@ import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from
 import type { PreavisAffiche } from '../../../../lib/location/preavis';
 import { libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage } from '../../../../lib/location/archivage';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
+import { AgCopropriete } from './AgCopropriete';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
   FicheBienLocation, FicheLocataireLocation, FicheProprietaireLocation,
@@ -804,6 +805,8 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
               );
             })}
           </dl>
+          {/* 🔴 Arno (16/11/2026, 475) — l'historique des AG de la copropriété du bien, à côté du digicode (lecture seule) */}
+          {avecAg && <AgCopropriete lotId={id} />}
           <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setEntretien(versSaisieEntretien(c.entretienAPrevoir, c.entretiens)); setMotif(null); setEdition(true); }}>Modifier</button></div>
         </>
       ) : (

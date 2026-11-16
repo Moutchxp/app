@@ -3,6 +3,8 @@ import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
 import { immeubleDeLAg, verifierDateAg } from './immeubleAg';
 import { familleDeCategorie } from './bienComplet';
+import { ajouterEntreesAg, coproprieteDeCle, entreesAg, historiqueAgDisponible } from './agCoproprieteRepo';
+import { derniereAgTenue, type OrigineAg } from './agCopropriete';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LA DERNIÈRE AG, PAR IMMEUBLE (migration 377). IMPUR (base). ════════════════════════════════════
@@ -36,8 +38,16 @@ export async function immeubleAgDuLot(lotId: number): Promise<{ cle: string; lib
   return i === null ? null : { cle: await clePrincipale(i.cle), libelle: i.libelle };
 }
 
+/* 🔴🔴 Arno (16/11/2026, 475) — UNE SEULE VÉRITÉ : l'HISTORIQUE DES AG DE LA COPROPRIÉTÉ. Avec la 475, la « Date de la dernière AG » se lit
+   (la plus récente « dernière AG tenue ») et s'écrit (une entrée de plus, jamais d'écrasement) dans `gestion_copropriete_ag`, sur la
+   copropriété de l'immeuble (sinon sous la clé de l'immeuble, « à rattacher ») ; la table 377 reste intacte. Sans la 475 : comme avant. */
+
 /** La date connue pour un immeuble (par sa clé), ou `null`. */
 export async function lireAg(cle: string): Promise<string | null> {
+  if (await historiqueAgDisponible()) {
+    const copro = await coproprieteDeCle(cle);
+    return derniereAgTenue(await entreesAg({ coproprieteId: copro?.id ?? null, cle, lotId: null }))?.date ?? null;
+  }
   if (!(await agDisponible())) return null;
   const { rows } = await query<{ d: string | null }>('SELECT derniere_ag::text AS d FROM gestion_immeuble_ag WHERE cle_immeuble = $1', [await clePrincipale(cle)]);
   return rows[0]?.d ?? null;
@@ -50,10 +60,20 @@ export async function lireAgPourAdresse(adresse: string): Promise<string | null>
 }
 
 /** Écrit la date d'AG de l'immeuble (création ou mise à jour), journalisée sur le lot d'où elle vient. */
-export async function enregistrerAg(immeuble: { cle: string; libelle: string }, brut: unknown, lotId: number, auteur: Auteur):
+export async function enregistrerAg(immeuble: { cle: string; libelle: string }, brut: unknown, lotId: number, auteur: Auteur, origine: Extract<OrigineAg, 'fiche_bien' | 'creation_bien'> = 'fiche_bien'):
   Promise<{ ok: true } | { ok: false; motif: string }> {
   const v = verifierDateAg(brut);
   if (!v.ok) return v;
+  if (await historiqueAgDisponible()) {
+    const copro = await coproprieteDeCle(immeuble.cle);
+    const avant = derniereAgTenue(await entreesAg({ coproprieteId: copro?.id ?? null, cle: immeuble.cle, lotId: null }))?.date ?? null;
+    if (avant === v.date) return { ok: true };
+    await ajouterEntreesAg(query, { coproprieteId: copro?.id ?? null, cle: immeuble.cle, lotId, sortieId: null },
+      [{ type: 'derniere', statut: 'officielle', date: v.date }], origine, auteur);
+    await query(`INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, 'location_derniere_ag', $2, $3, $4)`,
+      [lotId, `dernière AG ${copro === null ? `de l’immeuble « ${immeuble.libelle} » (à rattacher à une copropriété)` : `de la copropriété « ${copro.libelle} »`} : ${avant ?? 'non renseignée'} → ${v.date ?? 'non renseignée'} (historique des AG, partagé par ses biens)`, auteur.id, auteur.libelle]);
+    return { ok: true };
+  }
   if (!(await agDisponible())) return { ok: false, motif: 'La date de la dernière AG n’est pas encore installée (migration 377).' };
   const cle = await clePrincipale(immeuble.cle);
   const { rows } = await query<{ avant: string | null }>('SELECT derniere_ag::text AS avant FROM gestion_immeuble_ag WHERE cle_immeuble = $1', [cle]);

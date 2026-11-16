@@ -15,6 +15,7 @@
 import { adressesUniques, composerMailLocation, prenomNom, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { dateFrPreavis } from './preavis';
 import type { mentionEnvoyePar } from './mentionEnvoyePar';
+import { lignesAg } from './agCopropriete';
 
 export const COMPTE_RENDU_MAX = 20_000;
 export const PREFIXE_COPIE_INTERNE_SORTIE = '[Copie interne] ';
@@ -125,7 +126,11 @@ export interface DonneesValidationSortie {
    * 🔴 Arno (11/11/2026) — la RETENUE DE 20 % du dépôt de garantie (la case de la fenêtre) : cochée, le paragraphe (modifiable) en fin de
    * compte rendu des LOCATAIRES, la phrase courte chez les PROPRIÉTAIRES ; décochée ou absente : rien.
    */
-  retenue?: { appliquee: boolean; paragrapheLocataire: string } | null;
+  retenue?: { appliquee: boolean; paragrapheLocataire: string;
+    /** 🔴 Arno (16/11/2026, 475) — la phrase des propriétaires, avec la mention de la prochaine AG si elle a été choisie ; absente : la phrase fixe */
+    phraseProprietaire?: string;
+    /** 🔴 Arno (16/11/2026, 475) — les deux dates d'AG saisies (copie interne) */
+    ag?: { derniere: string; prochaine: string; statut: 'officielle' | 'projetee' } | null } | null;
   /** 🔴 Arno (11/11/2026) — les pièces jointes : les MÊMES à chaque mail (locataires, propriétaires, copie interne). */
   pieces?: readonly PieceJointe[];
   /** Les parties COCHÉES (un mail chacune, si elle a une adresse). */
@@ -154,7 +159,7 @@ export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'preno
   }
   return [`Bonjour ${prenomNom(p)},`,
     `L’état des lieux de sortie de votre bien situé ${d.adresse} a été réalisé le ${date}.${d.vacant ? ' Le logement est désormais libre de toute occupation.' : ''}`,
-    ...compteRendu, ...(d.retenue?.appliquee ? [PHRASE_RETENUE_PROPRIETAIRE] : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
+    ...compteRendu, ...(d.retenue?.appliquee ? [d.retenue.phraseProprietaire?.trim() || PHRASE_RETENUE_PROPRIETAIRE] : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
 }
 
 /** Le mail d'UNE partie : elle seule en destinataire, aucune copie. `null` : pas d'adresse e-mail. PUR. */
@@ -183,6 +188,8 @@ export function copieInterneSortie(d: DonneesValidationSortie, partis: readonly 
       : `Mails partis séparément (un destinataire par mail, sans copie visible) :\n${liste.join('\n')}`,
     ...(cr.length > 0 ? ['Compte rendu de l’état des lieux de sortie :', ...cr] : ['Aucun compte rendu saisi.']),
     d.retenue?.appliquee ? 'Retenue de 20 % du dépôt de garantie : appliquée (article 22).' : 'Retenue de 20 % du dépôt de garantie : non appliquée.',
+    // 🔴 Arno (16/11/2026, 475) — les deux dates d'AG saisies, avec leur statut
+    ...(d.retenue?.appliquee && d.retenue.ag ? [lignesAg(d.retenue.ag).map(([k, v]) => `${k} : ${v}`).join('\n')] : []),
     ...((d.pieces ?? []).length > 0 ? [`Pièces jointes : ${(d.pieces ?? []).map((x) => x.nom).join(', ')}.`] : []),
   ], d.qui, d.signature);
   return { sorte: 'sortie_edls_interne', de: d.expediteur, a, cc: [], objet: `${PREFIXE_COPIE_INTERNE_SORTIE}${objetValidationSortie(d.adresse)}`, texte: c.texte, html: c.html,

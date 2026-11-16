@@ -17,10 +17,12 @@ import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import {
   ALERTE_COPROPRIETE_NON_RENSEIGNEE, AVERTISSEMENT_PIECES, cleLocataire, cleProprietaire, COMPTE_RENDU_MAX, etatRetenue, MOTIF_RETENUE_IMPOSSIBLE,
-  PARAGRAPHE_RETENUE_LOCATAIRE, verifierValidation,
+  PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, verifierValidation,
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
+import { AgSortie, corpsAg, CSS_AG_SORTIE, luAgPropre, saisieAgInitiale, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
+import { avecMentionAgLocataire, avecMentionAgProprietaire, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
 /**
  * ══ 🔴🔴 « VALIDER L'ÉTAT DES LIEUX DE SORTIE » — LA FENÊTRE (spec d'Arno du 11/11/2026, lot 4) ═══════════════════════════════════════════════
@@ -39,8 +41,18 @@ import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 type FamilleVue = 'locataire' | 'proprietaire';
 interface PartieVue { cle: string; famille: FamilleVue; nom: string; email: boolean }
 interface MailPrevu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; cle: string | null; famille: FamilleVue | 'interne' | 'partenaires'; pieces?: string[] }
-interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean }
-interface Resultat { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (MailParti & { famille: MailPrevu['famille']; pieces?: string[] })[]; retenue?: boolean }
+/** 🔴 (16/11/2026, 475) les dates d'AG dites par le serveur (récapitulatif, résultat) */
+interface ResumeAg { lignes: [string, string][]; copropriete: string | null; aRattacher: boolean; motif?: string | null }
+interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean; ag?: ResumeAg }
+interface Resultat { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (MailParti & { famille: MailPrevu['famille']; pieces?: string[] })[]; retenue?: boolean; ag?: ResumeAg }
+
+/** Les lignes AG du récapitulatif et du résultat (avec la copropriété, ou « à rattacher »). */
+function LignesAg({ ag }: { ag: ResumeAg }) {
+  return <>
+    {ag.lignes.map(([k, v]) => <div key={k} data-resume-ag={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+    <div data-resume-ag-copropriete><dt>Copropriété</dt><dd>{ag.copropriete ?? 'à rattacher à une copropriété'}</dd></div>
+  </>;
+}
 type Etape = { etape: 'saisie' } | { etape: 'recap'; a: Apercu } | { etape: 'resultat'; r: Resultat };
 
 const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
@@ -82,6 +94,19 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   useEffect(() => { if (retenue === null && etatCase !== null) setRetenue(etatCase === 'possible'); }, [retenue, etatCase]);
   const retenueAppliquee = retenue === true && etatCase !== 'impossible';
   const [paragrapheRetenue, setParagrapheRetenue] = useState(PARAGRAPHE_RETENUE_LOCATAIRE);
+  // 🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d'AG de la copropriété (lues une fois, saisies ici).
+  const luAg = useLecture<LuAgSortie>(`agSortie=${l.occupationId}`, base);
+  const ag = luAg.etat.etat === 'ok' ? luAgPropre(luAg.etat.data) : null;
+  const [saisieAg, setSaisieAg] = useState<SaisieAgEcran | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (saisieAg === null && ag !== null) setSaisieAg(saisieAgInitiale(ag)); }, [saisieAg, ag]);
+  /** la saisie AG change : la mention de la prochaine AG suit dans le paragraphe des locataires (le reste du texte, modifié, est gardé) */
+  const changerAg = (n: SaisieAgEcran): void => {
+    setSaisieAg(n);
+    setParagrapheRetenue((t) => (n.mention && /^\d{4}-\d{2}-\d{2}$/.test(n.prochaine) ? avecMentionAgLocataire(t, n.prochaine) : sansMentionAg(t)));
+  };
+  const phraseProprietaires = saisieAg !== null && saisieAg.mention && /^\d{4}-\d{2}-\d{2}$/.test(saisieAg.prochaine)
+    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.prochaine) : PHRASE_RETENUE_PROPRIETAIRE;
   const parties = useMemo(() => (encart.etat.etat === 'ok' ? partiesDeLEncart(encart.etat.data) : []), [encart.etat]);
   const enGestion = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion && partenaires.etat.data.liste.length > 0;
   useEffect(() => {
@@ -90,9 +115,14 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
     return () => window.removeEventListener('keydown', clavier);
   }, [envoi, etape, onFermer]);
 
-  const verdict = verifierValidation({ realise, date, sortants, compteRendu }, jour);
+  const verdictSaisie = verifierValidation({ realise, date, sortants, compteRendu }, jour);
+  // 🔴 (16/11/2026, 475) case 20 % cochée : rien ne part sans la dernière AG, la prochaine ET son statut (l'historique installé)
+  // (lecture en cours : on attend ; lecture impossible : le serveur décide, et dit pourquoi s'il refuse)
+  const verdictAgSaisie = !retenueAppliquee || luAg.etat.etat === 'erreur' ? { ok: true as const }
+    : luAg.etat.etat === 'charge' || saisieAg === null ? { ok: false as const, motif: 'Lecture des assemblées générales en cours…', champs: [] } : verdictAg(saisieAg, ag);
+  const verdict = !verdictSaisie.ok ? verdictSaisie : verdictAgSaisie;
   const corps = { occupationId: l.occupationId, realise, date, sortants, compteRendu, destinataires, informerPartenaires: enGestion && informer,
-    pieceIds: pieces.map((p) => p.id), retenue: retenueAppliquee, paragrapheRetenue };
+    pieceIds: pieces.map((p) => p.id), retenue: retenueAppliquee, paragrapheRetenue, ...(retenueAppliquee && saisieAg !== null ? corpsAg(saisieAg, ag) : {}) };
   const basculer = (cle: string): void => setDestinataires((d) => (d.includes(cle) ? d.filter((x) => x !== cle) : [...d, cle]));
 
   const voirRecap = async (): Promise<void> => {
@@ -147,11 +177,14 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
           <p className="vse-orange" role="status" data-retenue-a-verifier>{ALERTE_COPROPRIETE_NON_RENSEIGNEE}{' '}
             {copro.etat.etat === 'ok' && <a href={`/admin/location/bien/${copro.etat.data.lotId}`} target="_blank" rel="noopener" data-lien-copropriete>Renseigner la copropriété sur la fiche du bien</a>}</p>
         )}
+        {/* 🔴 Arno (16/11/2026, 475) — sous la case cochée : les dates d'AG de la copropriété */}
+        {retenueAppliquee && (luAg.etat.etat !== 'ok' ? <EtatLecture etat={luAg.etat} />
+          : ag !== null && saisieAg !== null && <AgSortie lu={ag} s={saisieAg} onChange={changerAg} desactive={envoi} />)}
         {retenueAppliquee && (
           <label className="pvs-champ"><span className="pvs-libelle">Paragraphe ajouté aux mails des locataires (modifiable)</span>
             <textarea value={paragrapheRetenue} onChange={(e) => setParagrapheRetenue(e.target.value)} rows={6} data-retenue-paragraphe /></label>
         )}
-        {retenueAppliquee && <p className="loc-muet" data-retenue-proprietaires>Aux propriétaires : « Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété. »</p>}
+        {retenueAppliquee && <p className="loc-muet" data-retenue-proprietaires>Aux propriétaires : « {phraseProprietaires} »</p>}
       </fieldset>
       <PiecesSortie occupationId={l.occupationId} lotId={copro.etat.etat === 'ok' ? copro.etat.data.lotId : null} pieces={pieces} onChange={setPieces} desactive={envoi} />
       <fieldset className="pvv-choix vse-destinataires" data-destinataires-sortie>
@@ -175,7 +208,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         <label className="pvv-case"><input type="checkbox" checked={informer} onChange={(e) => setInformer(e.target.checked)} data-informer-partenaires />
           <span>Informer nos partenaires (bien en gestion)</span></label>
       )}
-      {!verdict.ok && (realise || compteRendu !== '') && <p className="cp-refus" role="status" data-validation-message>{verdict.motif}</p>}
+      {!verdict.ok && (realise || compteRendu !== '' || !verdictAgSaisie.ok) && <p className="cp-refus" role="status" data-validation-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-validation-refus>{refus}</p>}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => onFermer(null)} disabled={envoi} data-annuler-validation>Annuler</button>
@@ -192,6 +225,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       <dl className="mis-resume" data-resume-validation>
         <div><dt>Action</dt><dd>Sortie effective le {dateFrPreavis(a.date)} — {a.vacant ? 'le logement devient libre' : 'le logement reste loué'}</dd></div>
         <div><dt>Locataires concernés</dt><dd>{l.locataires.filter((x) => sortants.includes(x.occupationId)).map((x) => x.nom).join(', ')}</dd></div>
+        {a.ag !== undefined && <LignesAg ag={a.ag} />}
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
       <p className="pss-sous-titre" data-nombre-mails>{a.mails.length === 1 ? '1 mail partira.' : `${a.mails.length} mails partiront.`}</p>
@@ -232,8 +266,10 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         <div><dt>Sortie effective</dt><dd>le {dateFrPreavis(r.date)}</dd></div>
         <div><dt>Le logement</dt><dd>{r.vacant ? 'libre' : `reste loué à ${r.restants.join(', ')}`}</dd></div>
         <div><dt>Retenue de 20 %</dt><dd data-resultat-retenue>{r.retenue ? 'Retenue 20 % appliquée' : 'non appliquée'}</dd></div>
+        {r.ag !== undefined && <LignesAg ag={r.ag} />}
         {(r.reintegrations ?? []).map((x) => <div key={x}><dt>Regroupement</dt><dd>{x}</dd></div>)}
       </dl>
+      {r.ag?.motif && <p className="cev-alerte" role="alert" data-resultat-ag-motif>{r.ag.motif}</p>}
       <ol className="frp vse-frise" data-frise-resultat>{etapes.map((e) => (
         <li key={e.cle} className={`frp-etape frp-etape--${e.statut}`} data-etape={e.cle} data-statut-etape={e.statut}>
           <div className="frp-tete"><span className="frp-numero" aria-hidden="true" data-pastille-etape>{e.statut === 'faite' ? '✓' : e.numero}</span><span className="frp-titre"><span className="frp-lu">Étape {e.numero} : </span>{e.titre}</span>{e.cle === 'sortie' && <span className="frp-statut" data-libelle-etape>{e.libelle}</span>}</div>
@@ -247,7 +283,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const echec = etape.etape === 'resultat' && etape.r.envois.some((m) => !m.envoye);
   const boite = (
     <div className="mis-voile">
-      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_VALIDATION_SORTIE + CSS_PIECES_SORTIE}</style>
+      <style>{CSS_PARCOURS + CSS_MODALE_ISSUE + CSS_CONFIRMATION_ENVOIS + CSS_PREVISITE + CSS_VALIDATION_SORTIE + CSS_PIECES_SORTIE + CSS_AG_SORTIE}</style>
       <div className={`mis-boite pss-boite ${etape.etape === 'resultat' ? (echec ? 'mis-boite--attention' : 'mis-boite--succes') : 'pss-boite-recap'}`} role="dialog" aria-modal="true"
         aria-labelledby={titreId} data-fenetre-validation-sortie={etape.etape}>
         {contenu}

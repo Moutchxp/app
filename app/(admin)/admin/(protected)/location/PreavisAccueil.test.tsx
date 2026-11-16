@@ -3420,3 +3420,116 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
     expect(sel('A', '[data-formulaire-edls]').getAttribute('data-formulaire-edls')).toBe('planifier');
   });
 });
+
+describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 % cochée : les dates d’AG de la copropriété', () => {
+  let luAg: Record<string, unknown> = {};
+  const LU = (o: Record<string, unknown> = {}) => ({ disponible: true, lotId: 7, copropriete: { id: 7, libelle: 'Résidence Fictive' }, immeuble: 'Résidence Fictive',
+    coproprieteSaisie: true, suggestions: [], adresse: '4 rue Fictive', moi: 'Arnaud Jorel',
+    proposition: { derniere: { date: '2026-03-12', par: 'Claire Test', le: '2026-04-01T10:00:00.000Z' }, prochaine: { date: '2027-03-12', statut: null, mention: 'projection — généralement à la même période chaque année', par: null, le: null } }, ...o });
+  const ouvrir = async (): Promise<Element> => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const s = String(u);
+      if (s.includes('agSortie=')) return ok(luAg);
+      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: 'coproprieteSaisie' in luAg ? luAg.coproprieteSaisie : true });
+      if (s.includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
+      if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>; posts.push(c);
+        return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], retenue: true, mails: [],
+          ag: { lignes: [['Dernière assemblée générale', '12/03/2026'], ['Prochaine assemblée générale', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false } });
+      }
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    clic('button[data-valider-sortie]');
+    await attendre(); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-validation-sortie]')!;
+    act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    return f;
+  };
+  const q = (s: string) => document.querySelector(s) as HTMLElement;
+  const recap = () => document.querySelector('button[data-recap-validation]') as HTMLButtonElement;
+  beforeEach(() => { luAg = LU(); });
+
+  it('préremplies depuis l’historique : la dernière AG (« saisie par … le … »), la prochaine à + 1 an avec « projection — … » ; aucun statut choisi', async () => {
+    await ouvrir();
+    expect((q('input[data-ag-derniere]') as HTMLInputElement).value).toBe('2026-03-12');
+    expect(q('[data-ag-derniere-auteur]').textContent).toContain('saisie par Claire TEST le 01/04/2026');
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2027-03-12');
+    expect(q('[data-ag-projection]').textContent).toBe('projection — généralement à la même période chaque année');
+    expect([...document.querySelectorAll('[data-ag-statut-choix]')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Date projetée', 'false'], ['Date officielle', 'false']]);
+    expect(q('[data-ag-prochaine-auteur]').textContent).toBe('renseignée par Arnaud JOREL');
+    expect(q('[data-ag-copropriete]').textContent).toContain('Résidence Fictive');
+  });
+  it('🔴 statut OBLIGATOIRE : « Voir le récapitulatif » fermé, message clair, statut en rouge ; choisi : ouvert, et les dates partent avec l’aperçu', async () => {
+    await ouvrir();
+    expect(recap().disabled).toBe(true);
+    expect(q('[data-ag-message]').textContent).toBe('Choisissez le statut de la prochaine assemblée générale : « Date projetée » ou « Date officielle ».');
+    expect(q('[data-ag-statut]').className).toContain('vag-defaut');
+    act(() => q('[data-ag-statut-choix="projetee"]').click());
+    expect(recap().disabled).toBe(false);
+    act(() => q('[data-ag-confirmer]').click());
+    expect(q('[data-ag-confirmee]').textContent).toBe('✓ confirmée comme référence');
+    await act(async () => { recap().click(); }); await attendre();
+    expect(posts.at(-1)).toMatchObject({ retenue: true, ag: { derniere: '2026-03-12', derniereConfirmee: true, prochaine: '2027-03-12', statut: 'projetee' }, mentionAg: false });
+    expect([...document.querySelectorAll('[data-resume-ag]')].map((x) => x.textContent)).toEqual(['Dernière assemblée générale12/03/2026', 'Prochaine assemblée générale12/03/2027 (date projetée)']);
+    expect(q('[data-resume-ag-copropriete]').textContent).toBe('CopropriétéRésidence Fictive');
+  });
+  it('rien de connu : dernière AG vide, en rouge, bloquante ; la saisir propose la prochaine à + 1 an', async () => {
+    luAg = LU({ proposition: { derniere: null, prochaine: null } });
+    await ouvrir();
+    expect((q('input[data-ag-derniere]') as HTMLInputElement).value).toBe('');
+    expect(q('input[data-ag-derniere]').getAttribute('aria-invalid')).toBe('true');
+    expect(q('[data-ag-message]').textContent).toBe('Renseignez la date de la dernière assemblée générale connue.');
+    expect(recap().disabled).toBe(true);
+    act(() => saisir(q('input[data-ag-derniere]') as HTMLInputElement, '2026-05-20'));
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2027-05-20');
+  });
+  it('une prochaine AG OFFICIELLE déjà connue : proposée en priorité, statut officielle, avec qui l’a saisie', async () => {
+    luAg = LU({ proposition: { derniere: { date: '2026-03-12', par: 'Claire Test', le: '2026-04-01T10:00:00.000Z' }, prochaine: { date: '2027-04-02', statut: 'officielle', mention: null, par: 'Paul Syndic', le: '2026-10-01T09:00:00.000Z' } } });
+    await ouvrir();
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2027-04-02');
+    expect(q('[data-ag-statut-choix="officielle"]').getAttribute('aria-pressed')).toBe('true');
+    expect(q('[data-ag-prochaine-auteur]').textContent).toBe('date officielle déjà connue — renseignée par Paul SYNDIC le 01/10/2026');
+    expect(document.querySelector('[data-ag-projection]')).toBeNull();
+    expect(recap().disabled).toBe(false);
+  });
+  it('« Mentionner … l’assemblée générale de mars 2027 » : le paragraphe des locataires et la phrase des propriétaires la portent ; décoché : retirée', async () => {
+    await ouvrir();
+    act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale de mars 2027.');
+    expect(q('[data-retenue-proprietaires]').textContent).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale de mars 2027.');
+    act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');
+  });
+  it('un bien relié à AUCUNE copropriété : la rattacher (celles qui couvrent son adresse), en créer une, ou « à rattacher » ; copropriété non renseignée : « Immeuble en copropriété » proposé, le bandeau reste', async () => {
+    luAg = LU({ copropriete: null, coproprieteSaisie: null, suggestions: [{ id: 7, libelle: 'Résidence Fictive' }] });
+    await ouvrir();
+    expect(q('[data-retenue-a-verifier]')).not.toBeNull(); // « Copropriété non renseignée sur la fiche du bien » reste
+    act(() => (q('[data-retenue-case]') as HTMLInputElement).click()); // non renseigné : case décochée au départ
+    expect((q('[data-ag-copro-choisie="7"]') as HTMLInputElement).checked).toBe(true);
+    act(() => (q('[data-ag-copro-oui] input') as HTMLInputElement).click());
+    act(() => q('[data-ag-statut-choix="officielle"]').click());
+    await act(async () => { recap().click(); }); await attendre();
+    expect(posts.at(-1)).toMatchObject({ coproprieteChoix: { rattacher: 7 }, coproprieteOui: true, ag: { statut: 'officielle' } });
+    act(() => (document.querySelector('button[data-revenir-validation]') as HTMLButtonElement).click());
+    act(() => (q('[data-ag-copro="aucune"]') as HTMLInputElement).click());
+    expect(q('[data-ag-a-rattacher]').textContent).toBe('Les dates seront enregistrées avec la sortie, à rattacher à une copropriété.');
+    act(() => (q('[data-ag-copro="creer"]') as HTMLInputElement).click());
+    expect((q('input[data-ag-copro-nom]') as HTMLInputElement).value).toBe('4 rue Fictive');
+    expect(document.querySelectorAll('[data-fenetre-validation-sortie] select')).toHaveLength(0);
+  });
+  it('case 20 % décochée : aucune date demandée ; historique non installé : la fenêtre le dit, rien n’est bloqué', async () => {
+    await ouvrir();
+    act(() => (q('[data-retenue-case]') as HTMLInputElement).click());
+    expect(document.querySelector('[data-ag-sortie]')).toBeNull();
+    expect(recap().disabled).toBe(false);
+    act(() => root.unmount()); root = createRoot(container);
+    luAg = { disponible: false, lotId: 7 };
+    await ouvrir();
+    expect(q('[data-ag-indisponible]').textContent).toContain('migration 475');
+    expect(recap().disabled).toBe(false);
+  });
+});

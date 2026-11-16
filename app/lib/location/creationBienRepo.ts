@@ -420,7 +420,7 @@ async function creerBienInterne(s: SaisieBien & {
   let agRefus: string | null = null;
   const immeubleAg = v.famille === 'parking' ? null : immeubleDeLAg({ immeuble: v.logement.adresse, parking: false });
   if (ag.date !== null && immeubleAg !== null) {
-    const r = await enregistrerAg(immeubleAg, ag.date, cree.logementId, auteur).catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
+    const r = await enregistrerAg(immeubleAg, ag.date, cree.logementId, auteur, 'creation_bien').catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
     if (!r.ok) agRefus = `Le bien est créé, mais la date de la dernière AG n’a pas été enregistrée : ${r.motif}`;
   }
   let syndicRefus: string | null = null;
