@@ -253,9 +253,10 @@ describe('🔒 ce lot complète l’existant, il ne retire rien', () => {
     expect(a).toContain('<PastilleConflitParcelle immeuble={f.immeuble} />\n      <BoutonSyndic immeuble={f.immeuble} adresse={f.adresse} dansLaFiche lotId={f.id} />');
     expect(a).toContain('<BandeauSyndicConnuDuBien lotId={f.id} />');
   });
-  it('la fenêtre garde sa recherche, son « Rattacher cet immeuble à ce syndic », ses étapes de parcelle et de coordonnées', () => {
+  it('la fenêtre garde sa recherche, son « Rattacher cet immeuble à ce syndic » et son étape de coordonnées ; les étapes de parcelle sont dans la fiche copropriété (lot 6)', () => {
     const f = readFileSync(`${G}FicheSyndic.tsx`, 'utf8');
-    for (const t of ['Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Continuer avec un autre syndic',
-      'Enregistrer quand même', 'Valider quand même']) expect(f, t).toContain(t);
+    for (const t of ['Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Enregistrer quand même']) expect(f, t).toContain(t);
+    const c = readFileSync(`${G}FicheCopropriete.tsx`, 'utf8');
+    for (const t of ['Rattacher à {k.syndic!.nom}', 'Oui, je confirme', 'Oui, regrouper', 'Valider quand même']) expect(c, t).toContain(t);
   });
 });

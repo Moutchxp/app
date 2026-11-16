@@ -175,4 +175,67 @@ describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche s
     expect(document.querySelector('[data-fcp-meme-syndic]')).toBeNull();
     expect(posts).toHaveLength(1);
   });
+  it('🔴 conflit de parcelle : « Rattacher à X » — la copropriété rejoint celle de la parcelle, avec le syndic X (regroupement)', async () => {
+    lu = MEME();
+    await ouvrir();
+    await clic('[data-fcp-choisir-syndic]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    await clic('[data-fcp-syndic-propose="4"]');
+    await clic('[data-fcp-valider]');
+    expect($('[data-fcp-rattacher-a="9"]').textContent).toBe('Rattacher à Cabinet B');
+    await clic('[data-fcp-rattacher-a="9"]');
+    expect(posts[0]).toMatchObject({ regrouperAvec: '10 rue Voisine', syndicId: 9 });
+  });
+});
+
+describe('🔴🔴 (lot 6) AVANT de les retirer de la fiche syndic : chaque élément est présent dans la fiche copropriété', () => {
+  it('① adresses (« + », champ, autres adresses avec « × », adresses de la parcelle avec « Rattacher ») ; ③ habitants et gardien, ajout d’un contact ; ④ digicodes et AG', async () => {
+    await ouvrir();
+    expect($('[data-fcp-adresses]').textContent).toContain('12 rue des Lilas');
+    expect(document.querySelector('[data-fcp-retirer]')).not.toBeNull(); // « × » d'une autre adresse
+    await clic('[data-fcp-plus-adresse]');
+    expect(document.querySelector('[data-fcp-ajout-adresse]')).not.toBeNull(); // le champ d'adresse
+    expect($('[data-fcp-rattacher-parcelle]').textContent).toBe('Rattacher'); // « N adresses sur la même parcelle »
+    expect($('[data-fcp-contacts]').textContent).toContain('Paul');
+    expect(document.querySelector('[data-fcp-ajouter-contact]')).not.toBeNull();
+    expect(document.querySelector('[data-fcp-digicodes]')).not.toBeNull();
+    expect(document.querySelector('[data-fcp-ag]')).not.toBeNull();
+  });
+  it('② contrôles de parcelle : conflit (« Rattacher à X », « Oui, je confirme »), « Même syndic : regrouper ? », alerte « autres adresses postales »', async () => {
+    await ouvrir();
+    await clic('[data-fcp-choisir-syndic]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    await clic('[data-fcp-syndic-propose="4"]');
+    await clic('[data-fcp-valider]');
+    expect(document.querySelector('[data-fcp-rattacher-a="9"]')).not.toBeNull();
+    expect(document.querySelector('[data-fcp-conflit-oui]')).not.toBeNull();
+    // « Même syndic » et l'alerte : épreuves dédiées ci-dessus (data-fcp-meme-syndic, data-fcp-alerte-parcelle)
+  });
+});
+
+describe('🔴 (lot 6, repris du cadre « Ajouter un contact de l’immeuble » de la fiche syndic) les contrôles d’un habitant ou gardien', () => {
+  it('même NOM dans cet immeuble : bloqué ; une coordonnée déjà utilisée (ici ou ailleurs) : averti, « Valider quand même »', async () => {
+    const base = global.fetch as unknown as (u: string, i?: RequestInit) => Promise<Response>;
+    global.fetch = vi.fn(async (u: string | URL | Request, i?: RequestInit) => (String(u).startsWith('/api/admin/gestion/syndics/doublons')
+      ? json({ emails: [], noms: [], coordonnees: [{ sorte: 'email', cle: 'lea@exemple.test', proprietaire: { genre: 'syndic', contactId: 4, civilite: 'Mme', prenom: 'Léa', nom: 'Durand',
+        titre: 'Gestionnaire', syndicId: 2, syndicNom: 'Cabinet A', syndicVille: 'Paris', coproprietes: [] } }] })
+      : base(String(u), i))) as unknown as typeof fetch;
+    await ouvrir();
+    await clic('[data-fcp-ajouter-contact]');
+    await saisir('[data-fcp-prenom]', 'paul'); await saisir('[data-fcp-nom-contact]', 'LOGE');
+    expect($('[data-fcp-refus-contact]').textContent).toBe('Un contact nommé Paul LOGE existe déjà dans l’immeuble Résidence Les Tilleuls.');
+    expect(($('[data-fcp-valider-contact]') as HTMLButtonElement).disabled).toBe(true);
+    await saisir('[data-fcp-nom-contact]', 'Martin');
+    await clic('[data-fcp-plus-tel]'); await saisir('[data-fcp-coord="telephone"]', '06 11 22 33 44');
+    await clic('[data-fcp-plus-email]'); await saisir('[data-fcp-coord="email"]', 'Lea@Exemple.test');
+    await clic('[data-fcp-valider-contact]');
+    expect([...document.querySelectorAll('[data-fcp-avert-coord] span')].map((x) => x.textContent)).toEqual([
+      'Le numéro 06 11 22 33 44 est déjà utilisé par M. Paul LOGE · Gardien · Résidence Les Tilleuls.',
+      'L’adresse e-mail Lea@Exemple.test est déjà utilisée par Mme Léa DURAND · Gestionnaire · Cabinet A / Paris.']);
+    expect(document.querySelector('[data-fcp-edition-contact]')).not.toBeNull(); // rien de validé
+    expect($('[data-fcp-valider-contact]').textContent).toBe('Valider quand même');
+    await clic('[data-fcp-valider-contact]');
+    expect(document.querySelector('[data-fcp-edition-contact]')).toBeNull();
+    expect($('[data-fcp-contacts]').textContent).toContain('MARTIN');
+  });
 });

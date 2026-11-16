@@ -94,41 +94,8 @@ const monter = async (lotId: number, immeuble: string): Promise<void> => {
 const ouvrir = async (): Promise<void> => { await cliquer(document.querySelector('button.bsy')); await attendre(10); };
 
 describe('🔴🔴 RÈGLE 2 et 4 — un gardien ajouté depuis le bien A paraît sur le bien B du même immeuble', () => {
-  it('ajout depuis A (avertissement « 2 biens de l’immeuble »), puis relu depuis B — sans rien recopier', async () => {
-    await monter(1, '25 rue Edith Cavell');
-    await ouvrir();
-    await cliquer(bouton('+ Ajouter un contact'));
-    await cliquer(bouton('Habitant / gardien de l’immeuble'));
-    const edit = document.querySelector('.fsy-contact-edit') as HTMLElement;
-    await cliquer(bouton('Gardien', edit.querySelector('[aria-label="Catégorie"]') as Element));
-    const nom = [...edit.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
-    await taper(nom, 'Loge');
-    await cliquer(bouton('Valider', edit));
-    const pas = document.querySelector('.fsy-pied .svv-btn-primary');
-    if (pas?.textContent?.trim() === 'Valider quand même') await cliquer(pas);
-    await cliquer(bouton('Valider', document.querySelector('.fsy-pied') as Element));
-    /* RÈGLE 4 : depuis un bien, la fiche commune l'annonce — niveau copropriété, ses 2 biens. */
-    expect(document.querySelector('.fsy-partage')?.textContent)
-      .toContain('Cette modification s’appliquera aux 2 biens rattachés à cette fiche (copropriété : 2 biens de l’immeuble).');
-    expect(puts).toHaveLength(0);
-    await cliquer(bouton('Enregistrer', document.querySelector('.fsy-partage') as Element));
-    /* Le contact d'immeuble encore ouvert : la question existante « Enregistrer le nouveau contact … ? » suit. */
-    if (document.querySelector('.fsy-pied')?.textContent?.includes('Enregistrer le nouveau contact')) {
-      await cliquer(bouton('Oui', document.querySelector('.fsy-pied') as Element));
-    }
-    expect(puts).toHaveLength(1);
-    /* UNE écriture, sur la copropriété (le carnet de l'immeuble) — jamais sur le bien. */
-    expect((puts[0].contactsImmeuble as { immeuble: string }).immeuble).toBe('25 rue Edith Cavell');
-    expect(carnets['25 rue edith cavell']).toHaveLength(1);
-
-    /* Le bien B du même immeuble : la même fiche, le même carnet. */
-    await act(async () => { root.unmount(); });
-    root = createRoot(container);
-    await monter(2, '25 rue Edith Cavell');
-    await ouvrir();
-    expect(document.querySelector('.fsy')?.textContent).toContain('LOGE');
-    expect(document.querySelector('.fsy')?.textContent).toContain('Gardien');
-  });
+  /* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — le carnet de l'immeuble (habitants et gardien) ne s'ajoute plus depuis la fiche syndic : il vit
+     dans la fiche copropriété, la même pour tous les biens de l'immeuble (épreuves dans FicheCopropriete.test.tsx). */
   it('un bien d’un AUTRE immeuble du même cabinet ne voit JAMAIS ce gardien (le carnet appartient à sa copropriété)', async () => {
     carnets['25 rue edith cavell'] = [{ id: 100, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: null, nom: 'Loge', note: null, coordonnees: [] }];
     await monter(3, '15 rue Carle Hebert');
@@ -208,9 +175,5 @@ describe('🔴🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — «
     const contacts = (puts[0]?.contacts ?? []) as Array<{ id: number | null; nom: string; reintegre?: boolean }>;
     expect(contacts.some((c) => c.id === null && c.nom.toLowerCase().startsWith('log'))).toBe(true);
     expect(contacts.some((c) => c.id === 9)).toBe(false);
-  });
-  it('habitant / gardien : la même proposition, avant la création', async () => {
-    await saisirNouveau('Habitant / gardien de l’immeuble');
-    expect(document.querySelector('.fsy-retour')?.textContent).toContain('a travaillé ici jusqu’au 30/09/2026');
   });
 });

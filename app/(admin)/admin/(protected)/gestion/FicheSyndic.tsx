@@ -10,9 +10,9 @@ import {
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
   marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes,
-  CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu,
+  CATEGORIES_IMMEUBLE, refusContactImmeuble,
   avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue,
-  conflitAdresse, type AdresseSaisie, resumeFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  resumeFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -20,8 +20,7 @@ import {
   type ImmeubleSaisi, type SorteCoordonnee, type SyndicForm, type SyndicResume,
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
-import { DigicodeImmeuble } from './DigicodeImmeuble';
-import { AgCopropriete } from './AgCopropriete';
+import { FicheCopropriete } from './FicheCopropriete';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { chercherAdresses } from './adressesSyndic';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
@@ -176,22 +175,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * fois lu, il entre dans le formulaire ET dans son état initial (il n'est donc pas « une modification »), et voyage
    * avec la saisie. Non lu (erreur) : rien n'est envoyé — jamais une liste vide qui retirerait tout.
    */
-  const libelleDepart = immeubleDepart?.libelle.trim() ?? '';
-  const carnetLu = form.immeubleContacts != null;
-  useEffect(() => {
-    if (mode !== 'edition' || libelleDepart === '' || carnetLu) return;
-    let vivant = true;
-    void fetch(`/api/admin/gestion/coproprietes/contacts?immeuble=${encodeURIComponent(libelleDepart)}`, { cache: 'no-store' })
-      .then((r) => r.json() as Promise<{ etat?: string; contacts?: ContactImmeubleLu[] }>)
-      .then((j) => {
-        if (!vivant || j.etat !== 'ok' || !Array.isArray(j.contacts)) return;
-        const carnet = { libelle: libelleDepart, contacts: versFormulaireImmeuble(j.contacts) };
-        setForm((f) => (f.immeubleContacts ? f : { ...f, immeubleContacts: carnet }));
-        setInitial((f) => (f.immeubleContacts ? f : { ...f, immeubleContacts: carnet }));
-      })
-      .catch(() => { /* le carnet n'est simplement pas proposé */ });
-    return () => { vivant = false; };
-  }, [mode, libelleDepart, carnetLu]);
+  /* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — le carnet de l'immeuble (habitants et gardien) n'est PLUS lu ni envoyé par la fiche
+     syndic : il se gère dans la fiche copropriété. Non lu ⇒ rien n'est envoyé (jamais une liste vide qui retirerait tout). */
   const contactEnCours = edition !== null && contactModifie(origineEdition, edition.brouillon);
   const modifie = mode === 'edition' && (formulaireModifie(initial, form) || contactEnCours);
 
@@ -205,7 +190,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     const auClavier = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       // LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — une fiche ouverte PAR-DESSUS (« Voir la fiche ») se ferme seule.
-      if (ficheVueOuverte.current) return;
+      if (ficheVueOuverte.current || coprosOuvertes.n > 0) return;
       // LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — Échap DANS une tuile dépliée du catalogue la replie (son propre
       // gestionnaire), SANS fermer la fiche : on la laisse passer.
       if ((e.target as Element | null)?.closest?.('[data-echap-local]')) return;
@@ -331,28 +316,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * 🔴 Un contact en cours de modification NON validé ⇒ on demande d'abord « Valider aussi les modifications du
    * contact … ? » (`questionContact`), puis `validerAvec` reprend avec ou sans lui.
    */
-  /**
-   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — des adresses de la même parcelle restent PROPOSABLES et aucune n'a été
-   * rattachée pendant cette session : le pied le dit d'abord (jamais bloquant) — « Voir les adresses » / « Valider
-   * quand même ».
-   */
-  const [parcelle, setParcelle] = useState<RapportParcelle>(RAPPORT_VIDE);
-  const [alerteParcelle, setAlerteParcelle] = useState(false);
-  const [voirParcelle, setVoirParcelle] = useState(0);
-  /*
-   * ══ LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — LES ÉTAPES DU VALIDER ═══════════════════════════════════
-   *   ① conflit possible (une autre adresse de la parcelle est à un AUTRE syndic) : « Rattacher à … » / « Annuler » /
-   *     « Continuer avec un autre syndic », puis « Confirmez-vous … ? » — seul « Oui, je confirme » enregistre (et le
-   *     conflit est noté). Jamais interdit.
-   *   ② même syndic : « la rattacher à cette copropriété ? » Oui (regroupe) / Non (copropriété distincte).
-   *   ③ l'alerte « autres adresses postales », UNE seule fois par copropriété (marquée à l'enregistrement).
-   */
-  const [etapeParcelle, setEtapeParcelle] = useState<null | 'conflit' | 'conflit2' | 'meme'>(null);
-  const [conflitConfirme, setConflitConfirme] = useState(false);
-  const [memeTraite, setMemeTraite] = useState(false);
-  const [alerteVue, setAlerteVue] = useState(false);
-  const valider = async (passe: { parcelle?: boolean; conflit?: boolean; meme?: boolean; ignores?: DoublonIgnore[]; partage?: boolean } = {}, f: SyndicForm = form): Promise<void> => {
-    setAlerteParcelle(false);
+  const valider = async (passe: { ignores?: DoublonIgnore[]; partage?: boolean } = {}, f: SyndicForm = form): Promise<void> => {
     /* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la fiche est commune : on le dit avant d'enregistrer. */
     if (!passe.partage) {
       /* Un contact en cours de modification compte aussi : c'est lui que la question « Enregistrer … ? » ajoutera. */
@@ -362,57 +326,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     /* 🔴 LOT SYNDIC-ANTI-DOUBLON — à la création, un doublon possible non encore accepté : le pied le dit d'abord. Une
        fois accepté (« Créer quand même »), les étapes existantes du Valider (parcelle, conflit) suivent normalement. */
     if (syndicId === null && doublons.length > 0 && accepte === null && passe.ignores === undefined) { setEtapeDoublon(doublons); return; }
-    if (!passe.conflit && !conflitConfirme && parcelle.conflits.length > 0) { setEtapeParcelle('conflit'); return; }
-    if (!passe.meme && !memeTraite && parcelle.memeSyndic.length > 0) { setEtapeParcelle('meme'); return; }
-    setEtapeParcelle(null);
-    if (!passe.parcelle && !alerteVue && parcelle.alerteDue && parcelle.proposables > 0 && !parcelle.rattachee) {
-      setAlerteParcelle(true); setAlerteVue(true); return;
-    }
+    /* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — conflit de parcelle, « Même syndic : regrouper ? » et l'alerte « autres adresses
+       postales » ont QUITTÉ la fiche syndic : ils sont posés par la fiche copropriété, à son « Valider ». */
     if (contactEnCours) { setQuestionContact(true); return; }
-    await validerAvec(f, false, { conflit: passe.conflit === true || conflitConfirme, ignores: passe.ignores });
-  };
-  /** « Rattacher à SYNDIC » : l'adresse du bien devient une adresse SECONDAIRE de la copropriété existante de ce
-   *  syndic (son « Valider », par la même porte) ; la fiche en cours n'enregistre rien et se ferme. */
-  const rattacherAuSyndic = async (c: ConflitPossible): Promise<void> => {
-    if (parcelle.bien === null) return;
-    setEnvoi(true); setErreur(null);
-    try {
-      const r = await fetch(`/api/admin/gestion/syndics/${c.syndic.id}`, { cache: 'no-store' });
-      const j = (await r.json()) as { etat?: string; fiche?: Fiche };
-      if (!r.ok || j.etat !== 'ok' || !j.fiche) { setErreur('Lecture du syndic impossible.'); return; }
-      const f = versFormulaire(j.fiche);
-      const b = parcelle.bien;
-      const g = { ...f, immeubles: f.immeubles.map((im) => (cleImmeuble(im.libelle) === c.coproCle
-        ? { ...im, adresses: [...(im.adresses ?? []), { libelle: b.libelle, codePostal: b.codePostal, commune: b.commune }] } : im)) };
-      const w = await fetch(`/api/admin/gestion/syndics/${c.syndic.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(versSaisie(g)) });
-      const k = (await w.json()) as { ok?: boolean; erreur?: string };
-      if (!w.ok || k.ok !== true) { setErreur(k.erreur ?? 'Rattachement impossible.'); return; }
-      await rafraichirImmeubles();
-      onFerme();
-    } catch {
-      setErreur('Rattachement impossible : le serveur n’a pas répondu.');
-    } finally {
-      setEnvoi(false);
-    }
-  };
-  /** Même syndic, « Oui » : la copropriété du bien rejoint l'autre (ses adresses deviennent secondaires, ses contacts
-   *  la suivent), puis l'enregistrement continue. */
-  const regrouper = (): void => {
-    const cible = parcelle.memeSyndic[0];
-    const bienCle = parcelle.coproCle;
-    const bienIm = form.immeubles.find((im) => cleImmeuble(im.libelle) === bienCle);
-    if (cible === undefined || bienCle === null || bienIm === undefined) return;
-    const cleCible = cleImmeuble(cible.coproLibelle);
-    const g: SyndicForm = {
-      ...form,
-      immeubles: form.immeubles.filter((im) => im !== bienIm).map((im) => (cleImmeuble(im.libelle) === cleCible
-        ? { ...im, adresses: [...(im.adresses ?? []), { libelle: bienIm.libelle, codePostal: bienIm.codePostal, commune: bienIm.commune }, ...(bienIm.adresses ?? [])] } : im)),
-      contacts: form.contacts.map((c) => (c.immeubles.includes(bienCle)
-        ? { ...c, immeubles: [...new Set(c.immeubles.map((k) => (k === bienCle ? cleCible : k)))] } : c)),
-    };
-    setForm(g); setMemeTraite(true);
-    void valider({ meme: true, partage: true }, g);
+    await validerAvec(f, false, { ignores: passe.ignores });
   };
 
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — le serveur a renvoyé des coordonnées déjà utilisées, NON confirmées
@@ -438,15 +355,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         method: syndicId === null ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...versSaisie(f), ...(confirme ? { confirmeDoublons: true } : {}),
+          /* 🔴 LOT 6 — les adresses de la copropriété ne partent PLUS de la fiche syndic (elles se gèrent dans la fiche copropriété) :
+             un formulaire ouvert avant un ajout fait là-bas retirerait cette adresse à son « Valider ». */
+          ...sansAdressesCopro(versSaisie(f)), ...(confirme ? { confirmeDoublons: true } : {}),
           // LOT SYNDIC-ANTI-DOUBLON — « Créer quand même » : les doublons possibles montrés et acceptés.
           ...(syndicId === null && ignores !== null && ignores.length > 0 ? { doublonsSyndicIgnores: ignores } : {}),
-          // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — l'alerte montrée (plus jamais pour cette copropriété) ;
-          // les conflits confirmés (la pastille des deux cartes).
-          ...(alerteVue && parcelle.coproCle !== null ? { alerteParcelle: [parcelle.coproCle] } : {}),
-          ...((ctx.conflit === true || conflitConfirme) && parcelle.coproCle !== null && parcelle.bien !== null
-            ? { conflitsParcelle: parcelle.conflits.map((k) => ({ immeuble: (f.immeubles.find((im) => cleImmeuble(im.libelle) === parcelle.coproCle)?.libelle ?? parcelle.bien?.libelle ?? ''), autre: k.autre, parcelle: k.parcelle })) }
-            : {}),
         }),
       });
       const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[]; doublonsSyndic?: DoublonSyndic[] };
@@ -591,7 +504,6 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression} demanderSuppression={demanderSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
               ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} adresseBien={adresseBien}
-              onParcelle={setParcelle} voirParcelle={voirParcelle}
               retrait={blocRetrait} />
           )}
         </div>
@@ -609,45 +521,6 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapePartage(null)} disabled={envoi}>Revenir</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}
                 onClick={() => { setEtapePartage(null); void valider({ partage: true }); }}>Enregistrer</button>
-            </div>
-          ) : alerteParcelle ? (
-            <div className="fsy-boutons fsy-alerte-parcelle" role="group" aria-label="Adresses de la parcelle non associées">
-              <span className="fsy-question">
-                Cette copropriété possède peut-être d’autres adresses postales : {parcelle.proposables === 1
-                  ? '1 adresse sur la même parcelle cadastrale n’a pas été associée.'
-                  : `${parcelle.proposables} adresses sur la même parcelle cadastrale n’ont pas été associées.`}
-              </span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAlerteParcelle(false); setVoirParcelle((n) => n + 1); }}>Voir les adresses</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider({ parcelle: true, conflit: conflitConfirme, meme: memeTraite, partage: true })}>Valider quand même</button>
-            </div>
-          ) : etapeParcelle === 'conflit' && parcelle.bien !== null ? (
-            <div className="fsy-boutons fsy-conflit-parcelle" role="group" aria-label="Conflit possible sur la parcelle">
-              <span className="fsy-question">
-                Attention : l’adresse {parcelle.bien.affichee} semble appartenir à la même parcelle que{' '}
-                {parcelle.conflits.map((k, i) => `${i > 0 ? (i === parcelle.conflits.length - 1 ? ' et que ' : ', que ') : ''}${k.autre}, déjà rattachée au syndic ${nomAvecVille(k.syndic.nom, k.syndic.ville)}`).join('')}.
-                {' '}Vérifiez qu’il ne s’agit pas d’une erreur d’adresse ou de la même copropriété.
-              </span>
-              {[...new Map(parcelle.conflits.map((k) => [k.syndic.id, k])).values()].map((k) => (
-                <button key={k.syndic.id} type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi}
-                  onClick={() => void rattacherAuSyndic(k)}>Rattacher à {k.syndic.nom}</button>
-              ))}
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapeParcelle(null)}>Annuler</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEtapeParcelle('conflit2')}>Continuer avec un autre syndic</button>
-            </div>
-          ) : etapeParcelle === 'conflit2' && parcelle.bien !== null ? (
-            <div className="fsy-boutons fsy-conflit-parcelle" role="group" aria-label="Confirmer une copropriété distincte">
-              <span className="fsy-question">Confirmez-vous que {parcelle.bien.libelle} est une copropriété distincte, avec un syndic différent ?</span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapeParcelle('conflit')}>Non, revenir</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setConflitConfirme(true); void valider({ conflit: true, partage: true }); }}>Oui, je confirme</button>
-            </div>
-          ) : etapeParcelle === 'meme' && parcelle.memeSyndic.length > 0 ? (
-            <div className="fsy-boutons fsy-meme-syndic" role="group" aria-label="Même parcelle qu’une copropriété de ce syndic">
-              <span className="fsy-question">
-                Cette adresse est sur la même parcelle qu’une copropriété de ce syndic : la rattacher à cette copropriété ?
-                <span className="fsy-discret"> ({parcelle.memeSyndic[0].coproLibelle})</span>
-              </span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMemeTraite(true); void valider({ meme: true, conflit: conflitConfirme, partage: true }); }}>Non</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={regrouper}>Oui</button>
             </div>
           ) : etapeDoublon !== null && etapeDoublon.length > 0 ? (
             <PiedDoublonSyndic doublons={etapeDoublon} envoi={envoi} onRevenir={() => setEtapeDoublon(null)}
@@ -719,15 +592,34 @@ function questionDuContact(e: EtatEdition): string {
   return `Enregistrer les modifications de ${nom !== '' ? nom : 'ce contact'} ?`;
 }
 
-/** LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — une autre adresse de la parcelle, à un AUTRE syndic. */
-interface ConflitPossible { autre: string; affichee: string; syndic: { id: number; nom: string; ville: string | null }; coproCle: string; parcelle: string }
-/** Ce que l'écran sait de la parcelle de la copropriété du bien, pour les étapes du Valider. */
-interface RapportParcelle {
-  proposables: number; rattachee: boolean; alerteDue: boolean; coproCle: string | null;
-  conflits: ConflitPossible[]; memeSyndic: Array<{ coproLibelle: string; affichee: string }>;
-  bien: { libelle: string; codePostal: string; commune: string; affichee: string } | null;
+/**
+ * ══ 🔴🔴 LOT 6 — « OUVRIR LA FICHE COPROPRIÉTÉ » (accord d'Arno, 16/11/2026) ════════════════════════════════════════════════════════════
+ * Ce qui a quitté la fiche syndic (adresses de l'immeuble, contrôles de parcelle, habitants et gardien, digicodes, AG) vit dans la fiche
+ * copropriété : ce lien l'ouvre PAR-DESSUS la fiche syndic, qui reste ouverte dessous (Échap ferme d'abord la fiche copropriété).
+ */
+const coprosOuvertes = { n: 0 };
+function LienFicheCopropriete({ immeuble }: { immeuble: string }) {
+  const [ouverte, setOuverte] = useState(false);
+  useEffect(() => {
+    if (!ouverte) return undefined;
+    coprosOuvertes.n += 1;
+    return () => { coprosOuvertes.n -= 1; };
+  }, [ouverte]);
+  return (
+    <>
+      <button type="button" className="fsy-lien-bouton fsy-ouvrir-copro" onClick={() => setOuverte(true)} data-fsy-ouvrir-copro={cleImmeuble(immeuble)}>
+        Ouvrir la fiche copropriété
+      </button>
+      {ouverte && <FicheCopropriete immeuble={immeuble} onFerme={() => setOuverte(false)} />}
+    </>
+  );
 }
-const RAPPORT_VIDE: RapportParcelle = { proposables: 0, rattachee: false, alerteDue: false, coproCle: null, conflits: [], memeSyndic: [], bien: null };
+
+/** Les adresses secondaires des copropriétés NE PARTENT PLUS de la fiche syndic (`adresses` absent : le serveur n'y touche pas). */
+function sansAdressesCopro<T extends { immeubles: ReadonlyArray<{ adresses?: unknown }> }>(saisie: T): T {
+  // `undefined` ne part pas dans le JSON : le serveur ne voit pas `adresses`, et n'y touche pas
+  return { ...saisie, immeubles: saisie.immeubles.map((im) => ({ ...im, adresses: undefined })) };
+}
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
@@ -831,50 +723,6 @@ function TriangleAlerte() {
 }
 
 /**
- * ══ LOT COPRO-PLUSIEURS-ADRESSES — LA PETITE LIGNE « AUTRE ADRESSE » ══ l'autocomplétion existante (API Adresse, puis
- * BAN locale en repli — `chercherAdresses`), « Ajouter » / « Annuler ». Un refus (adresse déjà prise) se dit dessous.
- */
-function ChampAdresseCopro({ saisie, onSaisie, onAjouter, onAnnuler, refus }: {
-  saisie: AdresseSaisie; onSaisie: (a: AdresseSaisie) => void; onAjouter: () => void; onAnnuler: () => void; refus: string | null;
-}) {
-  const [propositions, setPropositions] = useState<AdresseBan[]>([]);
-  const [ouvert, setOuvert] = useState(true);
-  useEffect(() => {
-    if (!ouvert || saisie.libelle.trim().length < MINIMUM_ADRESSE) { setPropositions([]); return; }
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      void chercherAdresses(saisie.libelle, ctrl.signal)
-        .then((r) => setPropositions(r.adresses))
-        .catch(() => { if (!ctrl.signal.aborted) setPropositions([]); });
-    }, 250);
-    return () => { ctrl.abort(); clearTimeout(t); };
-  }, [saisie.libelle, ouvert]);
-  return (
-    <div className="fsy-ajout-adresse" role="group" aria-label="Ajouter une autre adresse à cette copropriété">
-      <div className="fsy-ligne-champ">
-        <input type="text" value={saisie.libelle} autoFocus autoComplete="off" aria-label="Autre adresse de la copropriété"
-          placeholder="ex. 3 avenue Y" onChange={(e) => { setOuvert(true); onSaisie({ libelle: e.target.value, codePostal: '', commune: '' }); }} />
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onAnnuler}>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" disabled={saisie.libelle.trim() === ''} onClick={onAjouter}>Ajouter</button>
-      </div>
-      {ouvert && propositions.length > 0 && (
-        <ul className="fsy-liste" aria-label="Adresses proposées">
-          {propositions.map((b, i) => (
-            <li key={`${i}-${b.cle}-${b.commune}`}>
-              <button type="button" className="fsy-proposition" onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { onSaisie({ libelle: b.libelle, codePostal: b.codePostal ?? '', commune: b.commune }); setOuvert(false); }}>
-                {adresseImmeuble(b.libelle, b.codePostal, b.commune)}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
-    </div>
-  );
-}
-
-/**
  * ══ 🔴 LA RUE DU SYNDIC — un choix remplit rue, code postal ET ville ═══════════════════════════════════════════════
  *
  * LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS. La CAUSE de « aucune suggestion pour 8 Rue Denfert Rochereau » :
@@ -968,11 +816,7 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
 function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, demanderSuppression, envoi, onSupprimer, tente,
-  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null, onParcelle, voirParcelle = 0 }: {
-  /** LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — l'état des propositions de la parcelle, pour l'alerte du Valider. */
-  onParcelle?: (e: RapportParcelle) => void;
-  /** Incrémenté par « Voir les adresses » : déplie la liste des propositions et y fait défiler. */
-  voirParcelle?: number;
+  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null }: {
   /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse propre du bien, si c'est une adresse secondaire de sa copropriété. */
   adresseBien?: ImmeubleSaisi | null;
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
@@ -1023,120 +867,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
     }),
   ];
   const adresseAffichee = toutesAdresses.find((a) => a.cle === cleBien)?.affichee ?? null;
-  const autresAdresses = toutesAdresses.filter((a) => a.cle !== cleBien);
-  const [ajoutAdresse, setAjoutAdresse] = useState(false);
-  const [saisieAdresse, setSaisieAdresse] = useState<AdresseSaisie>({ libelle: '', codePostal: '', commune: '' });
-  const [refusAdresse, setRefusAdresse] = useState<string | null>(null);
-  const [adressesOuvertes, setAdressesOuvertes] = useState(false);
-  const [aRetirerAdresse, setARetirerAdresse] = useState<string | null>(null);
-  /*
-   * ══ LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — LES AUTRES ADRESSES DE LA MÊME PARCELLE ══ lues à part (BAN et
-   * cadastre LOCAUX), pour TOUTES les adresses de la copropriété (plusieurs parcelles si elle en couvre plusieurs).
-   * Ce ne sont que des propositions : « Rattacher » ajoute l'adresse comme un « + » ; une adresse prise ailleurs est
-   * grisée, avec la raison. Relu dès que les adresses de la copropriété changent (une adresse retirée redevient proposable).
-   */
-  /*
-   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — les adresses de la copropriété TELLES QU'À L'ÉCRAN (enregistrées ou
-   * non) : la principale, puis chaque secondaire. Une adresse saisie librement (sans code postal ni ville) prend ceux de
-   * la principale — sinon le serveur ne pouvait pas la situer, et elle n'apportait sa parcelle qu'après réouverture.
-   */
-  const lieuDe = (libelle: string, cp: string, commune: string): { codePostal: string; commune: string } => {
-    const c = connus.find((x) => x.cle === cleImmeuble(libelle));
-    return { codePostal: c?.codePostal ?? cp ?? '', commune: c?.commune ?? commune ?? '' };
-  };
-  const lieuPrincipal = coproDuBien === null ? { codePostal: '', commune: '' } : lieuDe(coproDuBien.libelle, coproDuBien.codePostal, coproDuBien.commune);
-  const adressesCopro: AdresseSaisie[] = coproDuBien === null ? [] : [
-    { libelle: coproDuBien.libelle, ...lieuPrincipal },
-    ...(coproDuBien.adresses ?? []).map((a) => {
-      const l = lieuDe(a.libelle, a.codePostal, a.commune);
-      return { libelle: a.libelle, ...(l.codePostal === '' && l.commune === '' ? lieuPrincipal : l) };
-    }),
-  ];
-  const signatureCopro = JSON.stringify(adressesCopro);
-  const [surParcelle, setSurParcelle] = useState<AdresseSaisie[]>([]);
-  const [parcelleOuverte, setParcelleOuverte] = useState(false);
-  useEffect(() => {
-    if (adressesCopro.length === 0) { setSurParcelle([]); return; }
-    // Une seule demande vivante : la réponse d'un état DÉPASSÉ des adresses n'écrase jamais celle de l'état courant.
-    const ctrl = new AbortController();
-    void fetch(`/api/admin/gestion/coproprietes/parcelle?a=${encodeURIComponent(signatureCopro)}`, { cache: 'no-store', signal: ctrl.signal })
-      .then((r) => r.json() as Promise<{ etat?: string; adresses?: AdresseSaisie[] }>)
-      .then((j) => { if (!ctrl.signal.aborted && j.etat === 'ok') setSurParcelle(j.adresses ?? []); })
-      .catch(() => { /* aucune proposition : rien ne change */ });
-    return () => { ctrl.abort(); };
-  }, [signatureCopro]); // eslint-disable-line react-hooks/exhaustive-deps
-  const clesCopro = new Set(adressesCopro.map((a) => cleImmeuble(a.libelle)));
-  /**
-   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — une adresse déjà prise reste dans la liste, grisée, sans bouton, avec
-   * « déjà rattachée à une autre copropriété — SYNDIC / Ville » ; elle ne compte ni dans le N ni dans l'alerte du Valider.
-   */
-  const raisonPrise = (a: AdresseSaisie): string | null => {
-    if (coproDuBien === null || conflitAdresse(a, cleImmeuble(coproDuBien.libelle), form.immeubles, connus) === null) return null;
-    const k = cleImmeuble(a.libelle);
-    const c = connus.find((x) => x.cle === k);
-    const ici = form.immeubles.some((im) => cleImmeuble(im.libelle) === k || (im.adresses ?? []).some((x) => cleImmeuble(x.libelle) === k));
-    const syndic = ici ? nomAvecVille(form.nom, form.ville) : c?.syndic ? nomAvecVille(c.syndic.nom, c.syndic.ville) : null;
-    return `déjà rattachée à une autre copropriété${syndic ? ` — ${syndic}` : ''}`;
-  };
-  const propositions = coproDuBien === null ? [] : surParcelle.filter((a) => !clesCopro.has(cleImmeuble(a.libelle))).map((a) => ({
-    a, affichee: adresseImmeuble(a.libelle, a.codePostal, a.commune), raison: raisonPrise(a) }));
-  const proposables = propositions.filter((p) => p.raison === null);
-  const prisesAilleurs = propositions.length - proposables.length;
-  /** Une adresse rattachée PENDANT cette session de la fiche (par « Rattacher » ou par le « + ») : pas d'alerte au Valider. */
-  const [rattacheeIci, setRattacheeIci] = useState(false);
-  const rattacher = (a: AdresseSaisie): void => {
-    if (coproDuBien === null) return;
-    setRattacheeIci(true);
-    setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien ? { ...x, adresses: [...(x.adresses ?? []), { libelle: a.libelle, codePostal: a.codePostal, commune: a.commune }] } : x)) });
-  };
-  /*
-   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — LE « + » PULSE tant qu'il y a des propositions NON VUES : deux
-   * pulsations amples, puis une douce et lente ; vues dès que la liste est dépliée ou le « + » cliqué. Une proposition
-   * NOUVELLE (une adresse ajoutée apporte sa parcelle) relance la pulsation.
-   */
-  const [vues, setVues] = useState<ReadonlySet<string>>(new Set());
-  const pulse = proposables.some((p) => !vues.has(cleImmeuble(p.a.libelle)));
-  const marquerVues = (): void => setVues(new Set([...vues, ...proposables.map((p) => cleImmeuble(p.a.libelle))]));
-  /*
-   * LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — ce que le pied doit savoir au Valider :
-   *   · l'alerte « autres adresses » n'est DUE qu'au premier rattachement de la copropriété du bien à un syndic, et si
-   *     elle n'a jamais été montrée pour elle ;
-   *   · les adresses de la parcelle tenues par une copropriété d'un AUTRE syndic ⇒ conflit possible ;
-   *   · celles d'une autre copropriété de CE syndic ⇒ simple proposition de regroupement.
-   */
-  const nouvelleCopro = coproDuBien !== null && !(fiche?.coproprietes ?? []).some((c) => c.cle === cleImmeuble(coproDuBien.libelle));
-  const dejaAlertee = coproDuBien !== null && connus.find((x) => x.cle === cleImmeuble(coproDuBien.libelle))?.alerteParcelle === true;
-  const conflitsParcelle: ConflitPossible[] = [];
-  const memeSyndic: Array<{ coproLibelle: string; affichee: string }> = [];
-  for (const p of propositions) {
-    if (p.raison === null || coproDuBien === null) continue;
-    const k = cleImmeuble(p.a.libelle);
-    const ici = form.immeubles.find((im) => im !== coproDuBien && (cleImmeuble(im.libelle) === k || (im.adresses ?? []).some((x) => cleImmeuble(x.libelle) === k)));
-    if (ici !== undefined) { memeSyndic.push({ coproLibelle: ici.libelle, affichee: p.affichee }); continue; }
-    const c = connus.find((x) => x.cle === k);
-    if (c?.syndic && c.syndic.id !== syndicId) {
-      conflitsParcelle.push({ autre: p.a.libelle, affichee: p.affichee, syndic: { id: c.syndic.id, nom: c.syndic.nom, ville: c.syndic.ville ?? null },
-        coproCle: c.principale?.cle ?? c.cle, parcelle: (p.a as AdresseSaisie & { parcelle?: string }).parcelle ?? '' });
-    }
-  }
-  const bienLibelle = adresseBien !== null && adresseBien.libelle.trim() !== '' ? adresseBien : coproDuBien;
-  const rapport: RapportParcelle = {
-    proposables: proposables.length, rattachee: rattacheeIci, alerteDue: nouvelleCopro && !dejaAlertee,
-    coproCle: coproDuBien === null ? null : cleImmeuble(coproDuBien.libelle),
-    conflits: nouvelleCopro ? conflitsParcelle : [], memeSyndic: nouvelleCopro ? memeSyndic : [],
-    bien: bienLibelle === null ? null : { libelle: bienLibelle.libelle, codePostal: lieuDe(bienLibelle.libelle, bienLibelle.codePostal, bienLibelle.commune).codePostal,
-      commune: lieuDe(bienLibelle.libelle, bienLibelle.codePostal, bienLibelle.commune).commune, affichee: adresseAffichee ?? adresseDuBien ?? '' },
-  };
-  const signatureRapport = JSON.stringify(rapport);
-  // Le pied (alertes au Valider) connaît tout cela ; « Voir les adresses » déplie et fait défiler.
-  useEffect(() => { onParcelle?.(rapport); }, [signatureRapport]); // eslint-disable-line react-hooks/exhaustive-deps
-  const listeParcelle = useRef<HTMLUListElement | null>(null);
-  useEffect(() => {
-    if (voirParcelle === 0) return;
-    setParcelleOuverte(true);
-    marquerVues();
-    setTimeout(() => listeParcelle.current?.scrollIntoView?.({ block: 'nearest' }), 0);
-  }, [voirParcelle]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — les adresses de la copropriété (« + », champ, autres adresses, adresses de la même
+     parcelle) et les contrôles de parcelle ont QUITTÉ la fiche syndic : ils sont dans la fiche copropriété, ouverte par le lien. */
   const [lotsOuverts, setLotsOuverts] = useState(false);
   const groupes = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
     new Set((fiche?.coproprietes ?? []).flatMap((c) => [c.cle, ...(c.adresses ?? []).map((a) => a.cle)])));
@@ -1161,88 +893,9 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       <section className="fsy-cadre" aria-labelledby="fsy-bloc-1">
       <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-1">
         {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseAffichee ?? adresseDuBien}` : 'Coordonnées et contacts du cabinet'}
-        {/* LOT COPRO-PLUSIEURS-ADRESSES — le « + » discret, et la mention grise des autres adresses. */}
-        {coproDuBien !== null && (
-          <>
-            <button type="button" className={`fsy-plus-adresse${pulse ? ' fsy-plus-adresse--pulse' : ''}`} title="Ajouter une autre adresse à cette copropriété"
-              aria-label="Ajouter une autre adresse à cette copropriété" onClick={() => { marquerVues(); setAjoutAdresse(true); setSaisieAdresse({ libelle: '', codePostal: '', commune: '' }); setRefusAdresse(null); }}>
-              {/* LOT COPRO-BOUTON-PLUS-PROPRE — CE QU'IL Y AVAIT : le caractère « + » de la police, jamais tout à fait
-                  centré. Désormais deux traits SVG, centrés par construction. */}
-              <svg className="fsy-plus-adresse-icone" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
-                <path d="M5 .875V9.125M.875 5H9.125" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" />
-              </svg>
-            </button>
-            {autresAdresses.length > 0 && (
-              <button type="button" className="fsy-autres-adresses" aria-expanded={adressesOuvertes} onClick={() => setAdressesOuvertes(!adressesOuvertes)}>
-                · {autresAdresses.length === 1 ? '1 autre adresse' : `${autresAdresses.length} autres adresses`} {adressesOuvertes ? '▾' : '▸'}
-              </button>
-            )}
-            {/* LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — la mention grise des propositions de la parcelle. */}
-            {propositions.length > 0 && (
-              /* LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — N = les adresses PROPOSABLES ; les prises ailleurs en gris. */
-              <button type="button" className="fsy-autres-adresses fsy-parcelle-mention" aria-expanded={parcelleOuverte}
-                onClick={() => { if (!parcelleOuverte) marquerVues(); setParcelleOuverte(!parcelleOuverte); }}>
-                · {proposables.length > 0
-                  ? `${proposables.length === 1 ? '1 adresse' : `${proposables.length} adresses`} sur la même parcelle`
-                  : `${prisesAilleurs === 1 ? '1 adresse' : `${prisesAilleurs} adresses`} de la parcelle déjà rattachée${prisesAilleurs > 1 ? 's' : ''} ailleurs`}
-                {proposables.length > 0 && prisesAilleurs > 0 && <span className="fsy-prises-ailleurs"> (+ {prisesAilleurs} déjà rattachée{prisesAilleurs > 1 ? 's' : ''} ailleurs)</span>}
-                {' '}{parcelleOuverte ? '▾' : '▸'}
-              </button>
-            )}
-          </>
-        )}
       </h3>
-      {coproDuBien !== null && ajoutAdresse && (
-        <ChampAdresseCopro saisie={saisieAdresse} onSaisie={(a) => { setSaisieAdresse(a); setRefusAdresse(null); }} refus={refusAdresse}
-          onAnnuler={() => { setAjoutAdresse(false); setRefusAdresse(null); }}
-          onAjouter={() => {
-            const m = conflitAdresse(saisieAdresse, cleImmeuble(coproDuBien.libelle), form.immeubles, connus);
-            if (m !== null) { setRefusAdresse(m); return; }
-            setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien
-              ? { ...x, adresses: [...(x.adresses ?? []), { libelle: saisieAdresse.libelle.trim(), codePostal: saisieAdresse.codePostal, commune: saisieAdresse.commune }] } : x)) });
-            setRattacheeIci(true);
-            setAjoutAdresse(false);
-          }} />
-      )}
-      {coproDuBien !== null && parcelleOuverte && propositions.length > 0 && (
-        <ul className="fsy-suivis-liste fsy-parcelle-liste" aria-label="Adresses sur la même parcelle" ref={listeParcelle}>
-          {propositions.map((p) => (
-            <li key={cleImmeuble(p.a.libelle)} className={`fsy-adresse-copro${p.raison !== null ? ' fsy-adresse-prise' : ''}`}>
-              <span>{p.affichee}{p.raison !== null && <span className="fsy-discret"> — {p.raison}</span>}</span>
-              {p.raison === null && (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => rattacher(p.a)}>Rattacher</button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {coproDuBien !== null && adressesOuvertes && autresAdresses.length > 0 && (
-        <ul className="fsy-suivis-liste fsy-adresses-copro" aria-label="Autres adresses de cette copropriété">
-          {autresAdresses.map((a) => (
-            <li key={a.cle} className="fsy-adresse-copro">
-              {aRetirerAdresse === a.cle ? (
-                <span className="fsy-confirmer" role="group" aria-label="Confirmer le retrait de l’adresse">
-                  <span>Retirer cette adresse de la copropriété ?{a.lots.length > 0 ? ` ${a.lots.map((l) => `lot ${l}`).join(', ')} ${a.lots.length > 1 ? 'perdront' : 'perdra'} ce syndic.` : ''}</span>
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setARetirerAdresse(null)}>Non</button>
-                  <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => {
-                    setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien
-                      ? { ...x, adresses: (x.adresses ?? []).filter((y) => cleImmeuble(y.libelle) !== a.cle) } : x)) });
-                    setARetirerAdresse(null);
-                  }}>Oui</button>
-                </span>
-              ) : (
-                <>
-                  <span>{a.affichee}</span>
-                  {a.secondaire && (
-                    <button type="button" className="fsy-mini fsy-retirer-adresse" aria-label={`Retirer ${a.affichee} de la copropriété`}
-                      onClick={() => setARetirerAdresse(a.cle)}>×</button>
-                  )}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* 🔴 LOT 6 — à la place du « + », des autres adresses et des adresses de la parcelle : le lien vers la fiche copropriété. */}
+      {coproDuBien !== null && <p className="fsy-lien-copro"><LienFicheCopropriete immeuble={coproDuBien.libelle} /></p>}
       {/* 🔴 UN SYNDIC EXISTANT SANS ADRESSE COMPLÈTE reste consultable ; l'obligation vaut à la prochaine modification. */}
       {fiche !== null && adresseManquante(fiche).length > 0 && (
         <p className="fsy-alerte">Complétez code postal et ville{fiche.adresse ? '' : ', et la rue'} : ils sont obligatoires pour enregistrer une modification.</p>
@@ -1321,8 +974,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — « Contacts de cette copropriété » devient : */}
       <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contact(s) syndic de cette copropriété' : 'Contacts du cabinet'}</h4>
       {contacts.liste}
-      {/* LOT COPRO-CONTACTS-IMMEUBLE — la liste séparée du carnet de l'immeuble (absente s'il est vide). */}
-      {contacts.listeImmeuble}
+      {/* 🔴 LOT 6 — la rubrique « Habitants et gardien de l'immeuble » a quitté la fiche syndic (fiche copropriété). */}
       {contacts.bouton}
       </section>
 
@@ -1342,19 +994,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           {contacts.ajout}
         </section>
       )}
-      {/* LOT COPRO-CONTACTS-IMMEUBLE — le bloc « Ajouter un contact de l'immeuble » : même cadre, même « × Fermer »,
-          PAS de catalogue. */}
-      {contacts.ajoutImmeuble !== null && (
-        <section className="fsy-cadre fsy-cadre--ajout fsy-cadre--ajout-immeuble" aria-labelledby="fsy-bloc-ajout-immeuble">
-          <div className="fsy-cadre-tete">
-            <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-ajout-immeuble">Ajouter un contact de l’immeuble</h3>
-            <button type="button" className="fsy-lien-bouton fsy-fermer-ajout" onClick={() => setEdition(null)}
-              aria-label="Fermer l’ajout de contact de l’immeuble sans rien créer">× Fermer</button>
-          </div>
-          {contacts.ajoutImmeuble}
-        </section>
-      )}
-
+      {/* 🔴 LOT 6 — le cadre « Ajouter un contact de l'immeuble » a quitté la fiche syndic (fiche copropriété). */}
       <section className="fsy-cadre" aria-labelledby="fsy-bloc-2">
       {/* LOT SYNDIC-BLOC-PORTEFEUILLE — « Gérer ce syndic » devient « Syndic & portefeuille de gestion ». */}
       <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-2">Syndic &amp; portefeuille de gestion</h3>
@@ -1689,7 +1329,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   cleDepart: string | null; adresses: Array<{ cle: string; adresse: string }>;
   /** LOT SYNDIC-CONTACTS-ANTI-DOUBLON — pour chercher les doublons dans les AUTRES syndics. */
   syndicId: number | null;
-}): { liste: React.ReactNode; bouton: React.ReactNode; ajout: React.ReactNode | null; listeImmeuble: React.ReactNode | null; ajoutImmeuble: React.ReactNode | null } {
+}): { liste: React.ReactNode; bouton: React.ReactNode; ajout: React.ReactNode | null } {
   /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
   const [enAttente, setEnAttente] = useState<Action | null>(null);
   const [aSupprimer, setASupprimer] = useState<string | null>(null);
@@ -1974,11 +1614,8 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
           <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-choix" onClick={() => { setChoixAjout(false); demander({ genre: 'ajouter' }); }}>
             Contact du syndic de copropriété
           </button>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-choix" disabled={form.immeubleContacts == null}
-            title={form.immeubleContacts == null ? 'Les contacts de l’immeuble n’ont pas pu être lus' : undefined}
-            onClick={() => { setChoixAjout(false); demander({ genre: 'ajouterImmeuble' }); }}>
-            Habitant / gardien de l’immeuble
-          </button>
+          {/* 🔴 LOT 6 — « Habitant / gardien de l'immeuble » a quitté la fiche syndic : ils s'ajoutent dans la fiche copropriété. */}
+          {cleDepart !== null && <LienFicheCopropriete immeuble={form.immeubles.find((x) => cleImmeuble(x.libelle) === cleDepart)?.libelle ?? cleDepart} />}
         </div>
         <button type="button" className="fsy-lien-bouton fsy-choix-annuler" onClick={() => setChoixAjout(false)}>Annuler</button>
       </div>
@@ -1992,60 +1629,8 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     )
   ) : null;
 
-  /*
-   * ══ LOT COPRO-CONTACTS-IMMEUBLE — « HABITANTS ET GARDIEN DE L'IMMEUBLE » ══ une liste séparée, sous les contacts de
-   * la copropriété, visible seulement si elle a au moins un contact. Mêmes tuiles, mêmes trois états ; dans la tuile
-   * dépliée : « Retirer de l'immeuble » (et ni « Détacher », ni « Ne travaille plus ici » : actions du syndic).
-   */
-  const retirerDeLImmeuble = (cle: string): void => {
-    if (!form.immeubleContacts) return;
-    setForm({ ...form, immeubleContacts: { ...form.immeubleContacts, contacts: carnet.filter((c) => c.cle !== cle) } });
-    setOuverts(ouverts.filter((x) => x !== cle));
-    if (edition?.cle === cle) setEdition(null);
-  };
-  /** L'anti-doublon de l'immeuble : même NOM + prénom DANS CET IMMEUBLE seulement (bloquant) ; e-mails et téléphones
-   *  déjà utilisés, dans les deux carnets : avertissement (LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT). */
-  const verifierImmeuble = async (b: ContactForm): Promise<VerifDoublon> => {
-    const loc = doublonsLocaux(b, carnet.filter((x) => x.cle !== b.cle));
-    const ailleurs = await interroger(b, false);
-    return {
-      email: null, avertissement: null,
-      nom: loc.nom !== null ? { message: `Un contact nommé ${prenomNom(loc.nom.prenom, loc.nom.nom)} existe déjà dans l’immeuble ${adresseDuBienIci}.`, emails: [] } : null,
-      coordonnees: doublonsCoordonnees(b, ailleurs.coordonnees),
-    };
-  };
-  const adresseImmeubleDuBien = adresses.find((a) => a.cle === cleDepart)?.adresse ?? '';
-  const rendreImmeuble = (c: ContactForm) => (edition !== null && edition.cle === c.cle ? (
-    <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire} adresses={adresses}
-      onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
-      onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)} verifier={verifierImmeuble} />
-  ) : ouverts.includes(c.cle) ? (
-    <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
-      arrivee={arrives.includes(c.cle)} onRetirerImmeuble={() => retirerDeLImmeuble(c.cle)}
-      onModifier={() => demander({ genre: 'modifier', cle: c.cle, immeuble: true })} onSupprimer={() => undefined}
-      confirmation={null} />
-  ) : (
-    <button key={c.cle} type="button" className={`fsy-contact-replie fsy-contact-immeuble${arrives.includes(c.cle) ? ' fsy-arrivee' : ''}`}
-      aria-expanded={false} data-cle-arrivee={c.cle} onClick={() => demander({ genre: 'ouvrir', cle: c.cle, immeuble: true })}>
-      <EnteteContact c={c} />
-      <span className="fsy-fleche" aria-hidden="true">▸</span>
-    </button>
-  ));
-  const listeImmeuble = parImmeuble && carnet.length > 0 ? (
-    <>
-      <h4 className="fsy-sous-titre fsy-sous-titre--immeuble">Habitants et gardien de l’immeuble</h4>
-      {carnet.map(rendreImmeuble)}
-    </>
-  ) : null;
-  const ajoutImmeuble = edition !== null && edition.nouveau && edition.immeuble === true ? (
-    <div className="fsy-sous-cadre">
-      {propositionRetour}
-      <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
-        onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
-        onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)} verifier={verifierImmeuble} />
-    </div>
-  ) : null;
-  return { liste, bouton, ajout, listeImmeuble, ajoutImmeuble };
+  /* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — « Habitants et gardien de l'immeuble » (liste, tuiles, ajout) : dans la fiche copropriété. */
+  return { liste, bouton, ajout };
 }
 
 /** LOT SYNDIC-CONTACTS-ANTI-DOUBLON — un doublon trouvé, et ce que l'écran en dit. */
@@ -2641,11 +2226,8 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                 )}
                 {ouvert && (
                   <div className="fsy-copro-contacts">
-                    {/* Arno (21/10/2026, 396) — le DIGICODE de l'immeuble, par adresse postale : porté par l'immeuble, pas par le syndic. */}
-                    <DigicodeImmeuble voie={im.libelle} codePostal={c?.codePostal ?? im.codePostal ?? null} commune={c?.commune ?? im.commune ?? null} />
-                    {(im.adresses ?? []).map((a, i) => <DigicodeImmeuble key={`${i}-${a.libelle}`} voie={a.libelle} codePostal={a.codePostal ?? null} commune={a.commune ?? null} />)}
-                    {/* 🔴 Arno (16/11/2026, 475) — les AG de la COPROPRIÉTÉ (pas du syndic : un changement de syndic n'y change rien) */}
-                    <AgCopropriete immeuble={im.libelle} />
+                    {/* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — digicodes et AG de la copropriété : dans la fiche copropriété. */}
+                    <LienFicheCopropriete immeuble={im.libelle} />
                     {suivent.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun contact pour cet immeuble.</p>}
                     {suivent.map((x) => (
                       <div key={x.cle} className="fsy-contact-coord">
@@ -2841,6 +2423,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-adresse-copro{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
 /* LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — une adresse deja prise ailleurs : grisee, sans bouton, avec sa raison. */
 .fsy-adresse-prise{color:var(--color-svv-muted)}
+.fsy-lien-copro{margin:0 0 .2rem}
 .fsy-ajout-adresse{display:flex;flex-direction:column;gap:.3rem;margin:.1rem 0 .3rem}
 .fsy-ajout-adresse input{flex:1 1 12rem;min-width:0;min-height:36px;padding:5px 9px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit}

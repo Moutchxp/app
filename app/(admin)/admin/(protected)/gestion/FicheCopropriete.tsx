@@ -10,7 +10,7 @@ import { FicheSyndic } from './FicheSyndic';
 import {
   ALERTE_DESACCORD, estHorsCopropriete, nomAffiche, titreFicheCopropriete, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
-import { adresseImmeuble, cleImmeuble, libelleCategorieImmeuble, nomAvecVille, type CategorieImmeuble, type SyndicResume } from '../../../../lib/gestion/syndics';
+import { adresseImmeuble, cleCoordonnee, cleImmeuble, cleNom, libelleCategorieImmeuble, lignesDoublonCoordonnee, nomAvecVille, quiPorte, type CategorieImmeuble, type CoordonneeConnue, type SyndicResume } from '../../../../lib/gestion/syndics';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA FENÊTRE (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2) ═══════════════════════════════════════════
@@ -37,10 +37,36 @@ const versEdition = (f: Fiche): ContactEdit[] => f.contacts.map((c) => ({ cle: c
   coordonnees: c.coordonnees.map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle ?? '', valeur: k.valeur })) }));
 const nomContact = (c: Pick<ContactEdit, 'civilite' | 'prenom' | 'nom'>): string => [c.civilite, c.prenom.trim(), c.nom.trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
 /** Ce qui manque pour valider un contact (`null` : rien). PUR. */
-export function refusContact(c: ContactEdit): string | null {
+export function refusContact(c: ContactEdit, autres: readonly ContactEdit[] = [], immeuble = ''): string | null {
   if (c.categorie === 'personnalise' && c.libelle.trim() === '') return 'Précisez le statut personnalisé (Locataire, Femme de ménage…).';
   if (c.prenom.trim() === '' && c.nom.trim() === '') return 'Donnez au moins un nom ou un prénom.';
+  // 🔴 (lot 6, repris de la fiche syndic) même NOM dans CET immeuble seulement : bloquant
+  const n = cleNom(c.prenom, c.nom);
+  const meme = autres.find((a) => a.cle !== c.cle && cleNom(a.prenom, a.nom) === n);
+  if (meme !== undefined) return `Un contact nommé ${[meme.prenom.trim(), meme.nom.trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ')} existe déjà dans l’immeuble ${immeuble}.`;
   return null;
+}
+
+/**
+ * 🔴 (lot 6, repris de la fiche syndic) — les e-mails et téléphones DÉJÀ UTILISÉS (dans cet immeuble, ou ailleurs : syndics et immeubles,
+ * lus par la route des doublons) : un AVERTISSEMENT, jamais un blocage — « Valider quand même ». Le contact lui-même n'est jamais compté. PUR.
+ */
+export function avertissementsContact(c: ContactEdit, autres: readonly ContactEdit[], ailleurs: readonly CoordonneeConnue[], immeuble: string): string[] {
+  const out: string[] = [];
+  for (const k of c.coordonnees) {
+    const cle = cleCoordonnee(k.sorte, k.valeur);
+    if (cle === '') continue;
+    const qui = [
+      ...autres.filter((a) => a.cle !== c.cle && a.coordonnees.some((x) => x.sorte === k.sorte && cleCoordonnee(x.sorte, x.valeur) === cle))
+        .map((a) => [nomContact(a), libelleCategorieImmeuble(a.categorie, a.libelle), immeuble].filter((x) => x.trim() !== '').join(' · ')),
+      ...ailleurs.filter((x) => x.sorte === k.sorte && x.cle === cle && !(x.proprietaire.genre === 'immeuble' && c.id !== null && x.proprietaire.contactId === c.id)
+        && !(x.proprietaire.genre === 'immeuble' && autres.some((a) => a.id !== null && a.id === x.proprietaire.contactId)))
+        .map((x) => quiPorte(x.proprietaire)),
+    ];
+    const uniques = [...new Set(qui)];
+    if (uniques.length > 0) out.push(...lignesDoublonCoordonnee(k.sorte, k.valeur, uniques));
+  }
+  return out;
 }
 
 export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number | null; immeuble?: string | null; onFerme: () => void }) {
@@ -129,7 +155,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const memeSyndic = f === null || syndicVise === null || (f.declaree && (f.contacts.length > 0 || (f.nom ?? '') !== '')) ? []
     : prises.filter((p) => p.syndic !== null && p.syndic.id === syndicVise && p.copropriete !== null);
 
-  const valider = async (passe: { alerte?: boolean; conflit?: boolean; meme?: boolean; regrouperAvec?: string } = {}): Promise<void> => {
+  const valider = async (passe: { alerte?: boolean; conflit?: boolean; meme?: boolean; regrouperAvec?: string; syndicId?: number } = {}): Promise<void> => {
     if (f === null) return;
     if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
     const refusDigi = f.saisieDigicodes ? refusDigicodes(digi, f.nomenclatureEffective, f.batimentsConnus) : null;
@@ -141,7 +167,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
-        adresses, syndicId: syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adresses, syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
@@ -254,7 +280,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <button type="button" className="fcp-lien" onClick={() => setEdition({ ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) })} data-fcp-modifier-contact>Modifier</button>
         </li>))}</ul>
       {edition !== null ? (
-        <EditionContact c={edition} onChange={setEdition} onAnnuler={() => setEdition(null)}
+        <EditionContact c={edition} onChange={setEdition} onAnnuler={() => setEdition(null)} autres={contacts} immeuble={f.libelle} syndicId={f.syndic?.id ?? null}
           onRetirer={edition.id === null && !contacts.some((x) => x.cle === edition.cle) ? null : () => { setContacts((l) => l.filter((x) => x.cle !== edition.cle)); setEdition(null); }}
           onValider={() => { setContacts((l) => (l.some((x) => x.cle === edition.cle) ? l.map((x) => (x.cle === edition.cle ? edition : x)) : [...l, edition])); setEdition(null); }} />
       ) : <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setEdition({ cle: cleLocale(), id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })} data-fcp-ajouter-contact>+ Ajouter un habitant ou un gardien</button>}
@@ -274,7 +300,12 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <div className="fcp-etape" role="alert" data-fcp-conflit>
             <p className="fcp-sans-marge">Sur la même parcelle, {conflits.map((k) => `${adresseImmeuble(k.libelle, k.codePostal, k.commune)} (${k.copropriete}) est gérée par ${nomAvecVille(k.syndic!.nom, k.syndic!.ville)}`).join(' ; ')}.
               Confirmez-vous un autre syndic pour cette copropriété ?</p>
-            <div className="fcp-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape(null)}>Annuler</button>
+            <div className="fcp-actions">
+              {/* 🔴 (lot 6, déplacé de la fiche syndic) « Rattacher à X » : cette copropriété REJOINT celle de la parcelle, avec son syndic (regroupement) */}
+              {[...new Map(conflits.filter((k) => k.copropriete !== null).map((k) => [k.syndic!.id, k])).values()].map((k) => (
+                <button key={k.syndic!.id} type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} data-fcp-rattacher-a={k.syndic!.id}
+                  onClick={() => { void valider({ conflit: true, meme: true, alerte: true, regrouperAvec: k.copropriete as string, syndicId: k.syndic!.id }); }}>Rattacher à {k.syndic!.nom}</button>))}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape(null)}>Annuler</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider({ conflit: true }); }} data-fcp-conflit-oui>Oui, je confirme</button></div>
           </div>)}
         {etape === 'meme' && memeSyndic[0] !== undefined && (
@@ -304,8 +335,29 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
 }
 
-function EditionContact({ c, onChange, onAnnuler, onValider, onRetirer }: { c: ContactEdit; onChange: (c: ContactEdit) => void; onAnnuler: () => void; onValider: () => void; onRetirer: (() => void) | null }) {
-  const refus = refusContact(c);
+function EditionContact({ c, onChange, onAnnuler, onValider, onRetirer, autres = [], immeuble = '', syndicId = null }: { c: ContactEdit; onChange: (c: ContactEdit) => void; onAnnuler: () => void; onValider: () => void; onRetirer: (() => void) | null;
+  autres?: readonly ContactEdit[]; immeuble?: string; syndicId?: number | null }) {
+  const refus = refusContact(c, autres, immeuble);
+  const [avert, setAvert] = useState<{ signature: string; lignes: string[] } | null>(null);
+  const signature = JSON.stringify(c.coordonnees.map((k) => [k.sorte, k.valeur]));
+  const averti = avert !== null && avert.signature === signature && avert.lignes.length > 0;
+  /** « Valider le contact » : les coordonnées déjà utilisées sont dites d'abord (orange, non bloquant) ; « Valider quand même » valide. */
+  const validerContact = async (): Promise<void> => {
+    if (averti) { onValider(); return; }
+    const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '').map((k) => k.valeur.trim());
+    const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '').map((k) => k.valeur.trim());
+    let ailleurs: CoordonneeConnue[] = [];
+    if (emails.length + tels.length > 0) {
+      try {
+        const u = `/api/admin/gestion/syndics/doublons?syndic=${syndicId ?? ''}&prenom=&nom=&emails=${encodeURIComponent(emails.join(','))}&telephones=${encodeURIComponent(tels.join(','))}`;
+        const j = (await (await fetch(u, { cache: 'no-store' })).json()) as { coordonnees?: CoordonneeConnue[] };
+        ailleurs = j.coordonnees ?? [];
+      } catch { /* le contrôle local seul : rien n'est bloqué */ }
+    }
+    const lignes = avertissementsContact(c, autres, ailleurs, immeuble);
+    if (lignes.length === 0) { onValider(); return; }
+    setAvert({ signature, lignes });
+  };
   const coord = (i: number, k: Partial<Coord>): void => onChange({ ...c, coordonnees: c.coordonnees.map((x, j) => (j === i ? { ...x, ...k } : x)) });
   return (
     <div className="fcp-ajout" data-fcp-edition-contact>
@@ -332,10 +384,11 @@ function EditionContact({ c, onChange, onAnnuler, onValider, onRetirer }: { c: C
       </div>
       <label className="fcp-champ"><span>Note (interne)</span><input value={c.note} onChange={(e) => onChange({ ...c, note: e.target.value })} data-fcp-note /></label>
       {refus !== null && <p className="cp-refus fcp-sans-marge" data-fcp-refus-contact>{refus}</p>}
+      {averti && <p className="fcp-avert-coord fcp-sans-marge" role="alert" data-fcp-avert-coord>{avert.lignes.map((l, i) => <span key={i}>{l}</span>)}</p>}
       <div className="fcp-actions fcp-gauche">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
         {onRetirer !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetirer} data-fcp-retirer-contact>Retirer de l’immeuble</button>}
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={refus !== null} onClick={onValider} data-fcp-valider-contact>Valider le contact</button>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={refus !== null} onClick={() => { void validerContact(); }} data-fcp-valider-contact>{averti ? 'Valider quand même' : 'Valider le contact'}</button>
       </div>
     </div>
   );
@@ -382,6 +435,7 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-plus{min-width:36px;min-height:36px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:900;font-size:1.1rem;cursor:pointer}
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
 .fcp-ajout{display:flex;flex-direction:column;gap:8px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field)}
+.fcp-avert-coord{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.88rem;overflow-wrap:anywhere}
 .fcp-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
 .fcp-champ{display:flex;flex-direction:column;gap:3px;font-size:.88rem;font-weight:700;color:var(--color-svv-ink);min-width:0}
 .fcp-champ input{min-height:44px;box-sizing:border-box;width:100%;max-width:100%}
