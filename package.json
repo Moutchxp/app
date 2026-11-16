@@ -84,6 +84,7 @@
     "permis:lire-cerfa-ia": "tsx app/scripts/lire-cerfa-ia.ts",
     "bdtopo:import": "tsx app/scripts/bdtopo-import.ts",
     "permis:etat-des-lieux": "tsx app/scripts/etat-des-lieux.ts",
+    "adresses:doublons": "tsx --conditions=react-server --env-file=.env app/scripts/adresses-doublons.ts",
     "permis:banatic-poser-94": "tsx app/scripts/banatic-poser-94.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",

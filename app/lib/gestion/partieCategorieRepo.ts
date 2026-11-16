@@ -1321,6 +1321,19 @@ export async function etatDesCartes(adresses: readonly string[]): Promise<{ adre
 }
 
 /**
+ * 🔴 Arno (17/11/2026, « Adresses uniformisées », lot 1) — les ADRESSES POSTALES des cartes de contact non retirées, pour le rapport
+ * des doublons probables d'adresses (`app/scripts/adresses-doublons.ts`). Rien d'autre n'est lu. Sans la migration 304 : aucune
+ * ligne (sonde, règle du module). LECTURE SEULE.
+ */
+export async function adressesPostalesDesCartes(): Promise<{ id: number; adresse: string; codePostal: string | null }[]> {
+  if (!(await contactCarteDisponible())) return [];
+  const { rows } = await query<{ id: string; adresse: string; cp: string | null }>(
+    `SELECT id::text AS id, adresse_postale AS adresse, code_postal AS cp FROM gestion_contact_carte
+      WHERE retire_le IS NULL AND adresse_postale IS NOT NULL AND btrim(adresse_postale) <> ''`);
+  return rows.map((r) => ({ id: Number(r.id), adresse: r.adresse, codePostal: r.cp }));
+}
+
+/**
  * ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — « SYNDIC & IMMEUBLE » RANGÉ À LA MAIN, BIEN PAR BIEN ══
  * Parmi `lotCles`, les biens sur lesquels l'adresse est rangée À LA MAIN en « Syndic & immeuble » (classement local,
  * migration 344). La ligne vivante d'un bien est unique (index de la 318) et ne peut être que manuelle : c'est donc la
