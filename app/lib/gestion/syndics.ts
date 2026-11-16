@@ -92,7 +92,14 @@ export interface SyndicSaisi {
 }
 
 /** LOT COPRO-CONTACTS-IMMEUBLE — les catégories d'un contact d'immeuble, en base. */
-export type CategorieImmeuble = 'gardien' | 'conseil_syndical' | 'personnalise';
+export type CategorieImmeuble = 'gardien' | 'coproprietaire' | 'conseil_syndical' | 'personnalise';
+/** 🔴 Arno (16/11/2026, 476) — le mot d'une catégorie (« Gardien », « Copropriétaire », « Conseil syndical ») ; personnalisé : son libellé. PUR. */
+export function libelleCategorieImmeuble(categorie: string, libelle: string | null | undefined): string {
+  if (categorie === 'gardien') return 'Gardien';
+  if (categorie === 'coproprietaire') return 'Copropriétaire';
+  if (categorie === 'conseil_syndical') return 'Conseil syndical';
+  return (libelle ?? '').trim();
+}
 /** LOT COPRO-CONTACTS-IMMEUBLE — un contact PROPRE à l'immeuble (gardien, conseil syndical…), indépendant du syndic. */
 export interface ContactImmeubleSaisi {
   id: number | null; categorie: CategorieImmeuble; libelle: string; civilite: Civilite | null;
@@ -452,7 +459,7 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     for (const cb of (Array.isArray(ci.contacts) ? ci.contacts.slice(0, 100) : [])) {
       if (typeof cb !== 'object' || cb === null) continue;
       const c = cb as Record<string, unknown>;
-      const categorie = c.categorie === 'gardien' || c.categorie === 'conseil_syndical' || c.categorie === 'personnalise' ? c.categorie : null;
+      const categorie = c.categorie === 'gardien' || c.categorie === 'coproprietaire' || c.categorie === 'conseil_syndical' || c.categorie === 'personnalise' ? c.categorie : null;
       if (categorie === null) return { ok: false, motif: 'Contact de l’immeuble : choisissez une catégorie (Gardien, Conseil syndical ou Personnalisé).' };
       const libelle = categorie === 'personnalise' ? texte(c.libelle) : '';
       if (categorie === 'personnalise' && libelle === '') {
@@ -883,17 +890,20 @@ export function boutonDepart(c: ContactForm): string {
 
 /** Les catégories, telles que l'écran les montre (pilules) ; « Personnalisé » ouvre un champ libre. */
 export const CATEGORIES_IMMEUBLE = ['Gardien', 'Conseil syndical', 'Personnalisé'] as const;
+/** 🔴 Arno (16/11/2026, 476) — les statuts de la FICHE COPROPRIÉTÉ : « Copropriétaire » s'ajoute (un habitant ; usage interne seulement,
+ *  jamais visible d'un autre habitant ou client dans un envoi). */
+export const CATEGORIES_COPROPRIETE = ['Gardien', 'Copropriétaire', 'Conseil syndical', 'Personnalisé'] as const;
 
 /** Le choix de l'écran → la catégorie en base (`''` : aucune choisie — refusé par la validation). PUR. */
 export function categorieDe(choix: string): CategorieImmeuble | '' {
-  return choix === 'Gardien' ? 'gardien' : choix === 'Conseil syndical' ? 'conseil_syndical' : choix === PERSONNALISE ? 'personnalise' : '';
+  return choix === 'Gardien' ? 'gardien' : choix === 'Copropriétaire' ? 'coproprietaire' : choix === 'Conseil syndical' ? 'conseil_syndical' : choix === PERSONNALISE ? 'personnalise' : '';
 }
 
 /** Les contacts de l'immeuble relus → leurs tuiles (la catégorie dans `titreChoix`, le libellé libre dans `titreLibre`). PUR. */
 export function versFormulaireImmeuble(lus: readonly ContactImmeubleLu[]): ContactForm[] {
   return lus.map((c) => ({
     cle: cleLocale(), id: c.id,
-    titreChoix: c.categorie === 'gardien' ? 'Gardien' : c.categorie === 'conseil_syndical' ? 'Conseil syndical' : PERSONNALISE,
+    titreChoix: c.categorie === 'personnalise' ? PERSONNALISE : libelleCategorieImmeuble(c.categorie, null) || PERSONNALISE,
     titreLibre: c.categorie === 'personnalise' ? (c.libelle ?? '') : '',
     prenom: c.prenom ?? '', nom: c.nom ?? '', civilite: civiliteLue(c.civilite) ?? null, note: c.note ?? '',
     tousImmeubles: false, immeubles: [],

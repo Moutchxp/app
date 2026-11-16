@@ -4,6 +4,7 @@ import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import type { Auteur } from './gestes';
 import { ACTION_PERIODE_CONTACT } from './reintegrationContact';
 import {
+  libelleCategorieImmeuble,
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
   cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeConnue, type CoordonneeSaisie,
   type ProprietaireCoordonnee, type AdresseConnue, type ConflitParcelle,
@@ -1013,7 +1014,7 @@ async function coordonneesConnues(q: RequeteTx | typeof query): Promise<Array<Co
        FROM gestion_copropriete_contact_coordonnee k JOIN gestion_copropriete_contact ct ON ct.id = k.contact_id
        JOIN gestion_copropriete c ON c.id = ct.copropriete_id
       WHERE k.retire_le IS NULL AND ct.retire_le IS NULL`);
-  const categorie = (c: string, l: string | null): string => (c === 'gardien' ? 'Gardien' : c === 'conseil_syndical' ? 'Conseil syndical' : (l ?? '').trim());
+  const categorie = (c: string, l: string | null): string => libelleCategorieImmeuble(c, l);
   return [
     ...s.map((r): CoordonneeConnue & { coordId: number } => ({
       coordId: Number(r.coord_id), sorte: r.sorte, cle: cleCoordonnee(r.sorte, r.valeur),
@@ -1048,7 +1049,7 @@ async function doublonsDeLaSaisie(q: RequeteTx, id: number | null, saisie: Syndi
       syndicId: id, syndicNom: saisie.nom, syndicVille: nul(saisie.ville), coproprietes: c.immeubles } })),
     ...(saisie.contactsImmeuble?.contacts ?? []).map((c, rang): Porteur => ({ genre: 'immeuble', rang, contact: c, p: {
       genre: 'immeuble', contactId: c.id, civilite: c.civilite, prenom: c.prenom, nom: c.nom,
-      categorie: c.categorie === 'gardien' ? 'Gardien' : c.categorie === 'conseil_syndical' ? 'Conseil syndical' : c.libelle,
+      categorie: libelleCategorieImmeuble(c.categorie, c.libelle),
       immeubleCle: cleCarnet ?? '', immeubleAdresse: saisie.contactsImmeuble?.immeuble ?? '' } })),
   ];
   const lignes: string[] = [];

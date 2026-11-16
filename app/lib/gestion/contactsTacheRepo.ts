@@ -3,6 +3,7 @@ import { query } from '../db/client';
 import { ficheLot, type ContactAffiche, type PersonneAnnuaire } from './annuaireRepo';
 import { coordonneesDesParties, lireCartesDuBien, lireCategoriesDuBien } from './partieCategorieRepo';
 import { coproprietesDesBiens } from './partiesSyndicRepo';
+import { libelleCategorieImmeuble } from './syndics';
 import { estFamille, type ContactSource, type CoordonneeContact, type FamilleContact } from './contactsTache';
 
 /**
@@ -178,7 +179,7 @@ async function syndicEtImmeuble(lotCle: string): Promise<ContactSource[]> {
   for (const c of immeuble) {
     out.push({
       cle: `immeuble:${c.id}`, famille: 'syndic_immeuble', nom: nomDe(c.civilite, c.prenom, c.nom) || net(c.libelle) || 'Immeuble',
-      qualite: net(c.libelle) || net(c.categorie) || 'Immeuble', organisation: null, adresse: null, coordonnees: lues(c.coordonnees),
+      qualite: (c.categorie === null ? '' : libelleCategorieImmeuble(c.categorie, c.libelle)) || net(c.libelle) || 'Immeuble', organisation: null, adresse: null, coordonnees: lues(c.coordonnees),
     });
   }
   return out;

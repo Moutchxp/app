@@ -1,4 +1,4 @@
-import { cleEmail, cleTelephone, type CategorieImmeuble } from './syndics';
+import { cleEmail, cleTelephone, libelleCategorieImmeuble, type CategorieImmeuble } from './syndics';
 import { enPosteLe, type PeriodeEnPoste } from './reintegrationContact';
 
 /**
@@ -96,8 +96,7 @@ export function roleContactSyndic(titre: string | null | undefined): string {
  * ne dirait pas de quoi.
  */
 export function roleImmeuble(categorie: CategorieImmeuble | string, libelle: string | null | undefined): string {
-  if (categorie === 'gardien') return 'Gardien';
-  if (categorie === 'conseil_syndical') return 'Conseil syndical';
+  if (categorie === 'gardien' || categorie === 'coproprietaire' || categorie === 'conseil_syndical') return libelleCategorieImmeuble(categorie, null);
   const l = (libelle ?? '').trim();
   if (l === '' || l.toLowerCase() === 'contact') return 'Contact immeuble';
   return l.charAt(0).toLocaleUpperCase('fr') + l.slice(1);
