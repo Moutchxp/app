@@ -37,6 +37,8 @@ export interface CodeEnVigueur {
   depuis: string | null;
   /** plusieurs valeurs d'avant différentes, aucune choisie : la place est « à arbitrer » (la valeur lue est celle préférée, ou rien) */
   aArbitrer: CandidatAncien[];
+  /** d'où vient une valeur d'avant (« adresse … », « bien … ») ; vide pour un code unifié */
+  origines: string[];
 }
 
 const t = (iso: string): number => new Date(iso).getTime();
@@ -119,12 +121,26 @@ export function candidatsAnciens(d: DonneesAnciennes, adresseCle: string, batime
 export function codeEnVigueur(lignes: readonly LigneDigicode[], anciens: readonly CandidatAncien[], adresseCle: string, batimentCle: string, instant: Date,
   prefere: (c: CandidatAncien) => boolean = () => false): CodeEnVigueur | null {
   const l = ligneEnVigueur(lignes, adresseCle, batimentCle, instant);
-  if (l !== null) return { valeur: { digicode: l.digicode, code: l.code }, source: 'unifie', ligne: l, depuis: l.appliqueLe, aArbitrer: [] };
+  if (l !== null) return { valeur: { digicode: l.digicode, code: l.code }, source: 'unifie', ligne: l, depuis: l.appliqueLe, aArbitrer: [], origines: [] };
   if (anciens.length === 0) return null;
-  if (anciens.length === 1) return { valeur: anciens[0].valeur, source: 'ancien', ligne: null, depuis: anciens[0].depuis, aArbitrer: [] };
+  if (anciens.length === 1) return { valeur: anciens[0].valeur, source: 'ancien', ligne: null, depuis: anciens[0].depuis, aArbitrer: [], origines: anciens[0].origines };
   const p = anciens.find(prefere);
-  return { valeur: p?.valeur ?? { digicode: null, code: null }, source: 'ancien', ligne: null, depuis: p?.depuis ?? null, aArbitrer: [...anciens] };
+  return { valeur: p?.valeur ?? { digicode: null, code: null }, source: 'ancien', ligne: null, depuis: p?.depuis ?? null, aArbitrer: [...anciens], origines: p?.origines ?? [] };
 }
+
+/** La date et l'heure lisibles (heure de Paris) : « 20/11/2026 à 09:00 ». PUR. */
+export const dateHeure = (iso: string): string =>
+  new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(' ', ' à ');
+
+/** Un changement à venir, en une ligne : « nouveau code 57B83 à partir du 20/11/2026 à 09:00 » / « plus de digicode à partir du … ». PUR. */
+export function motChangementAVenir(c: { valeur: ValeurDigicode; appliqueLe: string; batiment?: string | null }): string {
+  const ou = c.batiment ? ` (bâtiment ${c.batiment})` : '';
+  const quoi = c.valeur.digicode === false ? 'plus de digicode' : `nouveau code ${c.valeur.code ?? ''}`.trim();
+  return `${quoi}${ou} à partir du ${dateHeure(c.appliqueLe)}`;
+}
+
+/** La mention d'une place « à arbitrer ». */
+export const MENTION_A_ARBITRER = 'plusieurs codes différents sont connus — à arbitrer dans la fiche Copropriété';
 
 // ── LES RÈGLES D'ÉCRITURE (le dépôt les applique dans la transaction) ───────────────────────────────────────────────────────────────────
 

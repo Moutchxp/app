@@ -14,6 +14,7 @@ import { loyerDesOccupations } from './loyerEntreeRepo';
 import { dossierDuBail } from './brancheBailDriveRepo';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDigicodeDuLot } from './digicodeImmeubleRepo';
+import { motChangementAVenir } from '../gestion/digicodes';
 import { memeBatimentQue } from './digicodeImmeuble';
 import { mandatsDesProprietaires } from './mandatBienRepo';
 import { libelleMandat, sorteDuBien } from './mandatBien';
@@ -187,6 +188,7 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       ...(repeteLePrincipal(r) ? { digicode: null, digicodeCode: null } : {
         digicode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode : digis.get(r.id)!.digicode,
         digicodeCode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode_code : digis.get(r.id)!.code,
+        digicodeSuivant: digis.get(r.id)?.aVenir?.[0] === undefined ? null : motChangementAVenir(digis.get(r.id)!.aVenir![0]),
       }),
       surfaceHabitable: r.surface_habitable_m2, surfaceCarrez: r.surface_carrez_m2, surfaceExterieure: r.surface_exterieure_m2, surface: r.surface_m2,
       construction: r.epoque_construction, chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, dpeNonSoumis: r.dpe_non_soumis,

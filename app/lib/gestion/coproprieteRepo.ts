@@ -5,6 +5,7 @@ import { adresseImmeuble, cleImmeuble } from './syndics';
 import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type LigneCopropriete, type BienCopropriete, type DigicodesAdresseFiche, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
 import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
+import { digicodesDesAdresses, digicodesUnifiesDisponibles } from './digicodesRepo';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA LECTURE (Arno, 16/11/2026, migration 476). IMPUR (base), LECTURE SEULE. ══════════════════════════════════
@@ -80,7 +81,18 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
   const adressesFiche = [{ libelle, codePostal, commune }, ...sec.map((a) => ({ libelle: a.libelle, codePostal: a.code_postal, commune: a.commune }))];
   const digicodes: DigicodesAdresseFiche[] = [];
   const connus: BatimentConnu[] = [];
-  if (await digicodeImmeubleDisponible()) {
+  if (await digicodesUnifiesDisponibles()) {
+    // 🔴🔴 (16/11/2026, « Digicodes unifiés », lot 2) la base unique : le code EN VIGUEUR de chaque place (adresse de la copropriété × bâtiment), à la
+    // clé de la copropriété — la même que celle de ses biens (repli sur les valeurs d'avant tant que la base unique n'a rien à cette place)
+    const lus = await digicodesDesAdresses(adressesFiche.map((a) => cleImmeuble(a.libelle)));
+    adressesFiche.forEach((a, i) => {
+      const d = lus[i];
+      const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null });
+      digicodes.push({ cle: d.adresseCle, voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: v(d.commun),
+        batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })) });
+      for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }
+    });
+  } else if (await digicodeImmeubleDisponible()) {
     for (const a of adressesFiche) {
       const d = await lireDigicodesAdresse({ voie: a.libelle, codePostal: a.codePostal, commune: a.commune });
       if (d === null) continue;

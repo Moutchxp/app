@@ -7,6 +7,11 @@ vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async (t: strin
 vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible: async () => true, depuisCoproprieteDisponible: async () => true,
   lireDigicodesAdresse: async (a: { voie: string }) => ({ general: { digicode: true, code: a.voie.startsWith('12') ? '1234' : null, source: 'immeuble' }, parBatiment: true,
     batiments: a.voie.startsWith('12') ? [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', nbBiens: 1, mention: '' }] : [] }) }));
+// 🔴 (16/11/2026, « Digicodes unifiés ») la base unique : absente pour les épreuves d'avant (lecture d'avant), présente pour la sienne
+const u = vi.hoisted(() => ({ avec478: false, adresses: [] as unknown[] }));
+vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => u.avec478, digicodesDesAdresses: async (cles: string[]) => { u.adresses.push(cles); return cles.map((c) => ({
+  adresseCle: c, nbBiens: 1, commun: { cle: '', libelle: null, code: c === 'residence les tilleuls' ? { valeur: { digicode: true, code: '5555' }, source: 'unifie' } : null, aVenir: [], historique: [] },
+  batiments: c === 'residence les tilleuls' ? [{ cle: 'b', libelle: 'B', code: { valeur: { digicode: true, code: 'B9' }, source: 'ancien' }, aVenir: [], historique: [] }] : [] })); } }));
 vi.mock('./contactsImmeubleRepo', () => ({ contactsDeLImmeuble: async () => [{ id: 1, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [] }] }));
 vi.mock('../db/client', () => ({
   query: async (sql: string) => {
@@ -29,7 +34,7 @@ import { cleImmeubleDuBien, ficheCopropriete, listerCoproprietes } from './copro
 
 const LOT = (id: number, immeuble: string | null, adresse: string, copropriete: boolean | null = null) => ({ id: String(id), numero: `W${id}`, immeuble, adresse, code_postal: '75011', commune: 'Paris', copropriete });
 beforeEach(() => {
-  b.avec476 = true; b.sql = []; b.registre = []; b.autres = [];
+  b.avec476 = true; b.sql = []; b.registre = []; b.autres = []; u.avec478 = false; u.adresses = [];
   b.copro = { id: '7', cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', code_postal: '75011', commune: 'Paris', nom: null, hors: false, nomenclature: null };
   b.adresses = [{ cle: '12 rue des lilas', libelle: '12 rue des Lilas', code_postal: '75011', commune: 'Paris' }];
   b.lots = [LOT(1, 'Résidence Les Tilleuls', '10 rue des Lilas', true), LOT(2, '12 rue des Lilas', '12 rue des Lilas', true), LOT(3, null, '12 rue des Lilas', null), LOT(4, 'Autre immeuble', '3 rue X', false)];
@@ -79,6 +84,14 @@ describe('la fiche Copropriété', () => {
     expect(f.digicodes.map((d) => [d.voie, d.commun.code, d.batiments.map((x) => x.libelle)])).toEqual([['Résidence Les Tilleuls', null, []], ['12 rue des Lilas', '1234', ['A']]]);
     expect(f.batimentsConnus.map((x) => [x.libelle, x.sorte])).toEqual([['A', 'lettre'], ['C', 'lettre'], ['Côté cour', 'libre']]);
     expect([f.nomenclatureEffective, f.saisieDigicodes]).toEqual(['lettres', true]);
+  });
+  it('🔴🔴 (« Digicodes unifiés », lot 2) avec la 478 : le code EN VIGUEUR de chaque place, lu à la clé de la copropriété (celle de ses biens)', async () => {
+    u.avec478 = true;
+    const f = (await ficheCopropriete('Résidence Les Tilleuls'))!;
+    expect(u.adresses).toEqual([['residence les tilleuls', '12 rue des lilas']]);
+    expect(f.digicodes.map((d) => [d.cle, d.voie, d.commun.code, d.batiments.map((x) => [x.libelle, x.code])])).toEqual([
+      ['residence les tilleuls', 'Résidence Les Tilleuls', '5555', [['B', 'B9']]], ['12 rue des lilas', '12 rue des Lilas', null, []]]);
+    expect(f.batimentsConnus.map((x) => x.libelle)).toContain('B');
   });
 });
 

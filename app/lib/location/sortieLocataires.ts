@@ -289,6 +289,8 @@ export interface EncartLogement {
   ascenseur: boolean | null;
   digicode: boolean | null;
   digicodeCode: string | null;
+  /** 🔴 (16/11/2026, 478) le changement de digicode PRÉVU, en une ligne (« nouveau code … à partir du … ») */
+  digicodeSuivant?: string | null;
   precisionAcces: string | null;
   dpeClasse: string | null;
   dpeDate: string | null;
@@ -363,8 +365,8 @@ export function lignesEncart(e: EncartLogement): LigneEncart[] {
   ajouter('exterieure', 'Surface extérieure', e.surfaceExterieure === null ? null : `${nombreFr(e.surfaceExterieure)} m²`);
   ajouter('pieces', 'Pièces', e.nombrePieces === null ? null : String(e.nombrePieces));
   ajouter('ascenseur', 'Ascenseur', e.ascenseur === null ? null : e.ascenseur ? 'oui' : 'non');
-  ajouter('digicode', 'Digicode', e.digicode === null ? (present(e.digicodeCode) ? e.digicodeCode : null)
-    : e.digicode ? (present(e.digicodeCode) ? e.digicodeCode : 'oui') : 'non');
+  const digicode = e.digicode === null ? (present(e.digicodeCode) ? e.digicodeCode : null) : e.digicode ? (present(e.digicodeCode) ? e.digicodeCode : 'oui') : 'non';
+  ajouter('digicode', 'Digicode', digicode === null && !present(e.digicodeSuivant) ? null : [digicode ?? '—', ...(present(e.digicodeSuivant) ? [e.digicodeSuivant] : [])].join(' — '));
   ajouter('acces', 'Accès', present(e.precisionAcces) ? e.precisionAcces : null);
   ajouter('dpe', 'DPE', e.dpeNonSoumis === true ? 'non soumis'
     : present(e.dpeClasse) ? `classe ${e.dpeClasse}${present(e.dpeDate) ? ` (${dateFr(e.dpeDate)})` : ''}` : null);

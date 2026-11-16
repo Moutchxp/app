@@ -274,6 +274,8 @@ export interface LotSource {
   voie: string | null; codePostal: string | null; commune: string | null;
   porte: string | null; numLotCopro: string | null; batiment: string | null; escalier: string | null; etage: string | null;
   precisionAcces: string | null; ascenseur: boolean | null; digicode: boolean | null; digicodeCode: string | null;
+  /** 🔴 (16/11/2026, 478) le code SUIVANT, s'il est connu : « nouveau code … à partir du JJ/MM/AAAA à HH:MM » (Arno) */
+  digicodeSuivant?: string | null;
   surfaceHabitable: string | null; surfaceCarrez: string | null; surfaceExterieure: string | null; surface: string | null;
   construction: string | null; chauffage: string | null;
   dpeClasse: string | null; dpeDate: string | null; dpeNonSoumis: boolean | null;
@@ -307,7 +309,9 @@ export function lignesDuLot(l: LotSource): LigneMail[] {
     : present(l.dpeClasse) ? `Classe ${l.dpeClasse.toUpperCase()}${present(l.dpeDate) ? `, du ${dateCourte(l.dpeDate)}` : ''}` : null;
   const pno = l.assurancePno === null ? null
     : l.assurancePno ? `Oui${present(l.pnoAnniversaire) ? ` · date anniversaire le ${dateCourte(l.pnoAnniversaire)}` : ''}` : 'Non';
-  const digicode = l.digicode === null ? null : l.digicode ? (present(l.digicodeCode) ? l.digicodeCode.trim() : 'Oui') : 'Non';
+  const digicodeEnVigueur = l.digicode === null ? null : l.digicode ? (present(l.digicodeCode) ? l.digicodeCode.trim() : 'Oui') : 'Non';
+  // 🔴 (16/11/2026) le code en vigueur ET, s'il est connu, le suivant avec sa date et son heure d'application
+  const digicode = digicodeEnVigueur === null && !present(l.digicodeSuivant) ? null : [digicodeEnVigueur ?? '—', ...(present(l.digicodeSuivant) ? [l.digicodeSuivant.trim()] : [])].join(' — ');
   const lignes: (LigneMail | null)[] = [
     present(l.porte) ? { mot: 'N° affiché', valeur: l.porte.trim() } : null,
     present(l.numLotCopro) ? { mot: 'N° de lot', valeur: l.numLotCopro.trim() } : null,

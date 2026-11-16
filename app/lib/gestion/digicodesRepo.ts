@@ -2,12 +2,11 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { cleBatiment, cleImmeubleAdresse, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
-import { digicodeBatimentDisponible, digicodeImmeubleDisponible } from '../location/digicodeImmeubleRepo';
 import { batimentDe } from './batimentsCopropriete';
 import { immeubleDuBien } from './copropriete';
 import { cleImmeuble } from './syndics';
 import {
-  candidatsAnciens, changementsAVenir, codeEnVigueur, lignesDeLaPlace, memeCode, MOTIF_A_ARBITRER, MOTIF_ARBITRAGE_HORS_LISTE, MOTIF_CHANGEMENT_PREVU,
+  candidatsAnciens, changementsAVenir, codeEnVigueur, dateHeure, lignesDeLaPlace, memeCode, MOTIF_A_ARBITRER, MOTIF_ARBITRAGE_HORS_LISTE, MOTIF_CHANGEMENT_PREVU,
   MOTIF_DATE_PASSEE, MOTIF_DEJA_CONNU, MOTIF_PAS_A_ARBITRER, MOTIF_RIEN_A_CORRIGER, placeBatiment, planRepriseUnifiee, valeurSaisie,
   type CodeEnVigueur, type DonneesAnciennes, type LigneDigicode, type OrigineDigicode, type PlanRepriseUnifiee,
 } from './digicodes';
@@ -65,10 +64,11 @@ export const batimentCleDuBien = (l: { batimentLieCle: string | null; batiment: 
 export async function chargerAnciens(q: RequeteTx = query): Promise<DonneesAnciennes & { lotsBruts: Awaited<ReturnType<typeof lotsActifs>> }> {
   const lots = await lotsActifs(q);
   const immeubles: DonneesAnciennes['immeubles'] = [];
-  if (await digicodeImmeubleDisponible()) {
+  // (sondes directes : ce module ne dépend pas du dépôt d'avant, qui le lit)
+  if (await colonneExisteMemo('gestion_immeuble_digicode_journal', 'immeuble_id')) {
     const { rows: im } = await q<{ id: string; cle: string; voie: string; digicode: boolean | null; code: string | null; depuis: string | null }>(
       `SELECT id::text, cle_adresse AS cle, voie, digicode, digicode_code AS code, to_json(coalesce(modifie_le, cree_le))#>>'{}' AS depuis FROM gestion_immeuble ORDER BY id`);
-    const bats = (await digicodeBatimentDisponible())
+    const bats = (await colonneExisteMemo('gestion_immeuble_digicode_journal', 'batiment_cle'))
       ? (await q<{ immeuble: string; cle: string; libelle: string; digicode: boolean | null; code: string | null; depuis: string | null }>(
         `SELECT immeuble_id::text AS immeuble, batiment_cle AS cle, batiment_libelle AS libelle, digicode, digicode_code AS code, to_json(coalesce(modifie_le, cree_le))#>>'{}' AS depuis
            FROM gestion_immeuble_batiment ORDER BY id`)).rows : [];
@@ -123,6 +123,22 @@ export interface DigicodesDuBien {
   codeBatiment: CodeEnVigueur | null;
   /** les changements prévus après l'instant demandé (commun et bâtiment du bien) */
   aVenir: ChangementAVenir[];
+  /** le nombre de biens qui lisent le code commun de l'adresse, et ceux du bâtiment (pour la mention « commun aux N biens ») */
+  nbBiensAdresse: number;
+  nbBiensBatiment: number;
+}
+
+/** La lecture d'une place (adresse de copropriété, bâtiment) à un instant, depuis ce qui est déjà chargé. */
+function lirePlaceDepuis(anciens: Awaited<ReturnType<typeof chargerAnciens>>, lignes: readonly LigneDigicode[], adresseCle: string, bCle: string, libBatBrut: string | null,
+  instant: Date, prefere: (c: { lots: number[] }) => boolean): Omit<DigicodesDuBien, 'adresse' | 'batiment'> & { libBat: string | null } {
+  const libBat = bCle === '' ? null : (lignes.find((x) => x.batimentCle === bCle)?.batimentLibelle ?? batimentDe(libBatBrut)?.libelle ?? bCle.toUpperCase());
+  const commun = codeEnVigueur(lignes, candidatsAnciens(anciens, adresseCle, ''), adresseCle, '', instant, prefere);
+  const codeBatiment = bCle === '' ? null : codeEnVigueur(lignes, candidatsAnciens(anciens, adresseCle, bCle), adresseCle, bCle, instant, prefere);
+  const aVenir = [...changementsAVenir(lignes, adresseCle, '', instant), ...(bCle === '' ? [] : changementsAVenir(lignes, adresseCle, bCle, instant))]
+    .sort((a, b) => new Date(a.appliqueLe).getTime() - new Date(b.appliqueLe).getTime())
+    .map((x) => ({ batiment: x.batimentLibelle, valeur: { digicode: x.digicode, code: x.code }, appliqueLe: x.appliqueLe }));
+  const ici = anciens.lots.filter((x) => x.adresseCle === adresseCle);
+  return { adresseCle, commun, codeBatiment, aVenir, libBat, nbBiensAdresse: ici.length, nbBiensBatiment: bCle === '' ? 0 : ici.filter((x) => x.batimentCle === bCle).length };
 }
 
 /** Les digicodes d'un BIEN à un instant (par défaut : maintenant). `null` : bien inconnu, ou sans adresse. LECTURE SEULE. */
@@ -134,15 +150,25 @@ export async function digicodesDuBien(lotId: number, instant: Date = new Date(),
   if (adresseCle === '') return null;
   const lignes = await lignesDigicodes([adresseCle], q);
   const bCle = batimentCleDuBien(l);
-  const libBat = bCle === '' ? null : (lignes.find((x) => x.batimentCle === bCle)?.batimentLibelle ?? batimentDe(l.batiment)?.libelle ?? bCle.toUpperCase());
   // à valeurs d'avant divergentes : celle que portait CE bien (son adresse, ses colonnes), comme avant — la place reste « à arbitrer »
-  const prefere = (c: { lots: number[] }): boolean => c.lots.includes(lotId);
-  const commun = codeEnVigueur(lignes, candidatsAnciens(anciens, adresseCle, ''), adresseCle, '', instant, prefere);
-  const codeBatiment = bCle === '' ? null : codeEnVigueur(lignes, candidatsAnciens(anciens, adresseCle, bCle), adresseCle, bCle, instant, prefere);
-  const aVenir = [...changementsAVenir(lignes, adresseCle, '', instant), ...(bCle === '' ? [] : changementsAVenir(lignes, adresseCle, bCle, instant))]
-    .sort((a, b) => new Date(a.appliqueLe).getTime() - new Date(b.appliqueLe).getTime())
-    .map((x) => ({ batiment: x.batimentLibelle, valeur: { digicode: x.digicode, code: x.code }, appliqueLe: x.appliqueLe }));
-  return { adresseCle, adresse: immeubleDuBien(l), batiment: bCle === '' ? null : { cle: bCle, libelle: libBat as string, lie: l.batimentLieCle !== null }, commun, codeBatiment, aVenir };
+  const p = lirePlaceDepuis(anciens, lignes, adresseCle, bCle, l.batiment, instant, (c) => c.lots.includes(lotId));
+  const { libBat, ...reste } = p;
+  return { ...reste, adresse: immeubleDuBien(l), batiment: bCle === '' ? null : { cle: bCle, libelle: libBat as string, lie: l.batimentLieCle !== null } };
+}
+
+/**
+ * Les digicodes d'une PLACE désignée par une adresse (« Immeuble » ou adresse d'un bien à créer) et un bâtiment saisi — le pré-remplissage de la
+ * création d'un bien. LECTURE SEULE.
+ */
+export async function digicodesDeLaPlace(immeubleOuAdresse: string, batimentBrut: string | null, instant: Date = new Date(), q: RequeteTx = query): Promise<DigicodesDuBien | null> {
+  const adresseCle = cleImmeuble(immeubleOuAdresse);
+  if (adresseCle === '') return null;
+  const anciens = await chargerAnciens(q);
+  const lignes = await lignesDigicodes([adresseCle], q);
+  const bCle = cleBatiment(batimentBrut);
+  const p = lirePlaceDepuis(anciens, lignes, adresseCle, bCle, batimentBrut, instant, () => false);
+  const { libBat, ...reste } = p;
+  return { ...reste, adresse: immeubleOuAdresse.trim(), batiment: bCle === '' ? null : { cle: bCle, libelle: libBat as string, lie: false } };
 }
 
 // ── L'ÉCRITURE : LE CHEMIN UNIQUE ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -170,8 +196,6 @@ export type IssueEcriture = { ok: true; change: boolean; id: number | null } | {
 /** Un refus découvert APRÈS le début des écritures : levé, pour que la transaction soit ANNULÉE (rien n'est écrit). */
 export class RefusDigicode extends Error {}
 
-/** La date lisible (Paris) d'une ligne : « 16/11/2026 à 09:30 ». PUR. */
-export const dateHeure = (iso: string): string => new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(' ', ' à ');
 
 /**
  * 🔴 LE CHEMIN SERVEUR UNIQUE, DANS LA TRANSACTION DE L'APPELANT. Les refus se décident AVANT toute écriture (piège `withTransaction`) ; une
@@ -318,4 +342,30 @@ export async function repriseDigicodesUnifies(o: { reel: boolean }): Promise<{ p
     }
   }
   return { plan, ecrites };
+}
+
+// ── LA LECTURE POUR LA FICHE COPROPRIÉTÉ ────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface PlaceFiche { cle: string; libelle: string | null; code: CodeEnVigueur | null; aVenir: LigneDigicode[]; historique: LigneDigicode[] }
+export interface DigicodesAdresseUnifies { adresseCle: string; commun: PlaceFiche; batiments: PlaceFiche[]; nbBiens: number }
+
+/**
+ * Les digicodes de CHAQUE adresse d'une copropriété, à un instant : le code commun et un code par bâtiment connu (base unique, valeurs d'avant,
+ * bâtiments de ses biens), chacun avec ses changements prévus et son historique (lignes de la base unique, annulées comprises). LECTURE SEULE.
+ */
+export async function digicodesDesAdresses(adresseCles: readonly string[], instant: Date = new Date(), q: RequeteTx = query): Promise<DigicodesAdresseUnifies[]> {
+  const anciens = await chargerAnciens(q);
+  const toutes = await lignesDigicodes(adresseCles, q);
+  return adresseCles.map((adresseCle) => {
+    const lignes = toutes.filter((l) => l.adresseCle === adresseCle);
+    const cles = new Map<string, string>();
+    for (const l of lignes) if (l.batimentCle !== '') cles.set(l.batimentCle, l.batimentLibelle ?? l.batimentCle.toUpperCase());
+    const legacy = new Set(anciens.adresses.filter((a) => a.adresseCle === adresseCle).map((a) => a.cleLegacy));
+    for (const l of anciens.lots.filter((x) => x.adresseCle === adresseCle)) { legacy.add(l.cleLegacy); if (l.batimentCle !== '' && !cles.has(l.batimentCle)) cles.set(l.batimentCle, batimentDe(anciens.lotsBruts.find((x) => x.id === l.id)?.batiment)?.libelle ?? l.batimentCle.toUpperCase()); }
+    for (const im of anciens.immeubles.filter((x) => legacy.has(x.cleLegacy))) for (const b of im.batiments) if (!cles.has(b.cle)) cles.set(b.cle, b.libelle);
+    const place = (cle: string, libelle: string | null): PlaceFiche => ({ cle, libelle, code: codeEnVigueur(lignes, candidatsAnciens(anciens, adresseCle, cle), adresseCle, cle, instant),
+      aVenir: changementsAVenir(lignes, adresseCle, cle, instant), historique: lignes.filter((l) => l.batimentCle === cle) });
+    return { adresseCle, commun: place('', null), nbBiens: anciens.lots.filter((x) => x.adresseCle === adresseCle).length,
+      batiments: [...cles.entries()].map(([cle, libelle]) => place(cle, libelle)).sort((a, b) => (a.libelle ?? '').localeCompare(b.libelle ?? '', 'fr', { numeric: true, sensitivity: 'base' })) };
+  });
 }

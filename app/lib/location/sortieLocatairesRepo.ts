@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { lireDigicodeDuLot } from './digicodeImmeubleRepo';
+import { motChangementAVenir } from '../gestion/digicodes';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { ecrireDateSortie } from './dateSortieOccupation';
 import type { Auteur } from '../gestion/gestes';
@@ -558,7 +559,9 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
     surfaceCarrez: nombre(lo.surface_carrez_m2), surfaceHabitable: nombre(lo.surface_habitable_m2), surface: nombre(lo.surface_m2),
     surfaceExterieure: nombre(lo.surface_exterieure_m2), nombrePieces: nombre(lo.nombre_pieces),
     // Arno (21/10/2026, 396) : le digicode de l'IMMEUBLE de l'adresse (sans la 396 : celui du bien, comme avant).
-    ...(digi === null ? { digicode: booleen(lo.digicode), digicodeCode: texte(lo.digicode_code) } : { digicode: digi.digicode, digicodeCode: texte(digi.code) }),
+    ...(digi === null ? { digicode: booleen(lo.digicode), digicodeCode: texte(lo.digicode_code) } : { digicode: digi.digicode, digicodeCode: texte(digi.code),
+      // 🔴 (16/11/2026, 478) le changement prévu (pré-visite, état des lieux : le code qui sera en vigueur au rendez-vous se lit ici)
+      ...(digi.aVenir?.[0] === undefined ? {} : { digicodeSuivant: motChangementAVenir(digi.aVenir[0]) }) }),
     ascenseur: booleen(lo.ascenseur), precisionAcces: texte(lo.precision_acces),
     dpeClasse: texte(lo.dpe_classe), dpeDate: texte(lo.dpe_date), dpeNonSoumis: booleen(lo.dpe_non_soumis),
     chauffage: texte(lo.chauffage), epoqueConstruction: texte(lo.epoque_construction),

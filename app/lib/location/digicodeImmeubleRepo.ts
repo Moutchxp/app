@@ -6,6 +6,8 @@ import {
   planReprise, verifierDigicode, type AdresseImmeuble, type ValeurDigicode,
 } from './digicodeImmeuble';
 import { adresseAffichee } from './mailNouvelleLocation';
+import { MENTION_A_ARBITRER, motChangementAVenir } from '../gestion/digicodes';
+import { digicodesDeLaPlace, digicodesDuBien, digicodesUnifiesDisponibles, type ChangementAVenir, type DigicodesDuBien } from '../gestion/digicodesRepo';
 
 /**
  * ══ 🔴🔴 LE DIGICODE PORTÉ PAR L'IMMEUBLE (Arno, 21/10/2026, migration 396). IMPUR (base). ═════════════════════════════════
@@ -52,6 +54,30 @@ export interface DigicodeLu extends ValeurDigicode {
    */
   batiment: string | null;
   portee: 'batiment' | 'general';
+  /** 🔴 (16/11/2026, 478) les changements PRÉVUS (commun et bâtiment du bien), et une place « à arbitrer » (valeurs d'avant différentes) */
+  aVenir?: ChangementAVenir[];
+  aArbitrer?: boolean;
+}
+
+/**
+ * ══ 🔴🔴 (Arno, 16/11/2026, « Digicodes unifiés », lot 2) — AVEC LA 478, TOUTES LES LECTURES PASSENT PAR LA BASE UNIQUE ═════════════════════
+ * Le code EN VIGUEUR maintenant (repli sur les valeurs d'avant tant que la base unique n'a rien à cette place), à la place de la copropriété — la
+ * clé UNIQUE (« Immeuble » du bien, sinon son adresse) : un code saisi dans la fiche Copropriété se lit sur chacun de ses biens. Même forme
+ * qu'avant ; la mention dit en plus le changement prévu et une place à arbitrer. PUR.
+ */
+export function versDigicodeLu(d: DigicodesDuBien, adresse: AdresseImmeuble): DigicodeLu {
+  const connu = (c: DigicodesDuBien['commun']): boolean => c !== null && (c.valeur.digicode !== null || (c.valeur.code ?? '') !== '');
+  const parBat = d.batiment !== null && connu(d.codeBatiment);
+  const c = parBat ? d.codeBatiment : d.commun;
+  const source: DigicodeLu['source'] = c === null || !connu(c) ? null : c.source === 'unifie' ? 'immeuble'
+    : c.origines.length > 0 && c.origines.every((o) => o.startsWith('bien ')) ? 'bien' : 'immeuble';
+  const base = parBat ? mentionDigicodeBatiment(adresse, d.batiment!.libelle, d.nbBiensBatiment)
+    : d.batiment === null ? mentionDigicodeBatiment(adresse, null, d.nbBiensAdresse)
+      : `${majuscule(MENTION_CODE_GENERAL)} (le bâtiment ${d.batiment.libelle} n’a pas de code propre) · ${mentionDigicodeBatiment(adresse, null, d.nbBiensAdresse)}`;
+  const aArbitrer = (d.commun?.aArbitrer.length ?? 0) > 0 || (d.codeBatiment?.aArbitrer.length ?? 0) > 0;
+  const mention = [base, ...(d.aVenir[0] !== undefined ? [motChangementAVenir(d.aVenir[0])] : []), ...(aArbitrer ? [MENTION_A_ARBITRER] : [])].join(' · ');
+  return { digicode: c?.valeur.digicode ?? null, code: c?.valeur.code ?? null, source, adresse, mention, nbBiens: parBat ? d.nbBiensBatiment : d.nbBiensAdresse,
+    batiment: d.batiment?.libelle ?? null, portee: parBat ? 'batiment' : 'general', aVenir: d.aVenir, aArbitrer };
 }
 
 /** Un bâtiment connu à une adresse (fiche immeuble / syndic) : déduit des biens, ou ajouté à la main. */
@@ -143,6 +169,10 @@ async function etatAdresse(a: AdresseImmeuble, q: RequeteTx = query) {
  * `null` sans la 396.
  */
 export async function lireDigicodeAdresse(a: AdresseImmeuble, batimentBrut: string | null = null, q: RequeteTx = query): Promise<DigicodeLu | null> {
+  if (await digicodesUnifiesDisponibles()) {
+    const d = await digicodesDeLaPlace(a.voie ?? '', batimentBrut, new Date(), q);
+    return d === null ? { digicode: null, code: null, source: null, adresse: a, mention: null, nbBiens: 0, batiment: null, portee: 'general' } : versDigicodeLu(d, a);
+  }
   if (!(await digicodeImmeubleDisponible())) return null;
   const e = await etatAdresse(a, q);
   if (e === null) return { digicode: null, code: null, source: null, adresse: a, mention: null, nbBiens: 0, batiment: null, portee: 'general' };
@@ -185,6 +215,13 @@ export async function lireDigicodesAdresse(a: AdresseImmeuble): Promise<Digicode
  * `q` : la transaction de l'appelant (lire le bâtiment qu'elle vient d'écrire).
  */
 export async function lireDigicodeDuLot(lotId: number, q: RequeteTx = query): Promise<DigicodeLu | null> {
+  if (await digicodesUnifiesDisponibles()) {
+    const d = await digicodesDuBien(lotId, new Date(), q);
+    if (d !== null) {
+      const { rows } = await q<{ voie: string | null; cp: string | null; commune: string | null }>('SELECT adresse AS voie, code_postal AS cp, commune FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
+      return versDigicodeLu(d, rows[0] === undefined ? { voie: d.adresse, codePostal: null, commune: null } : { voie: rows[0].voie, codePostal: rows[0].cp, commune: rows[0].commune });
+    }
+  }
   if (!(await digicodeImmeubleDisponible())) return null;
   const bat = (await colonneExisteMemo('gestion_annuaire_lot', 'batiment')) ? 'batiment' : 'NULL::text';
   const { rows } = await q<{ voie: string | null; cp: string | null; commune: string | null; batiment: string | null; digicode: boolean | null; code: string | null }>(
