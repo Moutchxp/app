@@ -26,6 +26,8 @@ const dg = vi.hoisted(() => ({ avec477: true, ecrits: [] as unknown[][] }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ depuisCoproprieteDisponible: async () => dg.avec477,
   enregistrerDigicodeDans: async (...a: unknown[]) => { dg.ecrits.push(a.slice(1)); return { ok: true, change: true, immeubleId: 1 }; } }));
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
+const va = vi.hoisted(() => ({ vues: [] as unknown[][], issue: { ok: true } as { ok: true } | { ok: false; motif: string } }));
+vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknown[]) => { va.vues.push(a); return va.issue; } }));
 import { enregistrerCopropriete, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -35,7 +37,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; });
+beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -116,6 +118,20 @@ describe('🔴🔴 le conflit de parcelle, depuis la fiche copropriété (la rè
     expect((await enregistrerCopropriete({ ...SAISIE, syndicId: 9 }, AUTEUR)).ok).toBe(true);
     expect((await enregistrerCopropriete({ ...SAISIE, syndicId: 2 }, AUTEUR)).ok).toBe(true);
     expect(ecritures().some((x) => x.s.startsWith('INSERT INTO gestion_copropriete_conflit'))).toBe(false);
+  });
+});
+
+describe('🔴🔴 (16/11/2026, option C) une nouvelle adresse est une adresse VÉRIFIÉE', () => {
+  it('seules les NOUVELLES adresses sont vérifiées (ni la principale, ni celles déjà rattachées)', async () => {
+    h.fiche = FICHE({ adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', principale: true }, { cle: '12 rue des lilas', libelle: '12 rue des Lilas', principale: false }] });
+    await enregistrerCopropriete({ ...SAISIE, adresses: [...SAISIE.adresses, { libelle: '14 rue des Lilas', codePostal: '75011', commune: 'Paris' }] }, AUTEUR);
+    expect(va.vues).toEqual([[{ libelle: '14 rue des Lilas', codePostal: '75011', commune: 'Paris' }]]);
+  });
+  it('introuvable (ni parcelle ni suggestions) ou service muet : REFUS clair, AVANT toute écriture — même pour un regroupement', async () => {
+    va.issue = { ok: false, motif: 'L’adresse 99 rue Imaginaire est introuvable dans la Base Adresse Nationale : … Rien n’est enregistré.' };
+    expect(await enregistrerCopropriete(SAISIE, AUTEUR)).toEqual(va.issue);
+    expect(await enregistrerCopropriete({ ...SAISIE, regrouperAvec: '10 rue Voisine' }, AUTEUR)).toEqual(va.issue);
+    expect(ecritures()).toEqual([]);
   });
 });
 

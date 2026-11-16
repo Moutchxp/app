@@ -23,17 +23,16 @@ export const TOLERANCE_PARCELLE_M = 3;
 /** La clé d'une adresse BAN, comme celle d'un immeuble du portefeuille (`cleImmeuble`). */
 const NORMALISE = (col: string): string => `btrim(regexp_replace(lower(unaccent(${col})), '[^a-z0-9]+', ' ', 'g'))`;
 
-export interface AdresseDeParcelle { cle: string; libelle: string; codePostal: string; commune: string; parcelle: string }
-
 /**
- * Les AUTRES adresses des parcelles de ces adresses (celles d'une copropriété : principale et secondaires). Une
- * adresse sans numéro, ou sans commune ni code postal, ou absente de la BAN, ne désigne aucune parcelle. LECTURE SEULE.
+ * ① Les points BAN (locaux) de ces adresses — l'adresse EXACTE (numéro, suffixe et voie normalisés, commune ou arrondissement de Paris).
+ * Une adresse sans numéro, ou sans code postal ni commune, n'est pas cherchée. Sert aussi à la vérification d'une adresse saisie
+ * (`verificationAdresseRepo`). LECTURE SEULE.
  */
-export async function adressesDeLaParcelle(adresses: readonly AdresseSaisie[]): Promise<{ parcelles: string[]; adresses: AdresseDeParcelle[] }> {
+export async function pointsBan(adresses: readonly AdresseSaisie[]): Promise<{
+  entrees: Array<{ a: AdresseSaisie; cle: string; numero: number }>; points: Array<{ cle: string; x: number; y: number }> }> {
   const entrees = adresses.map((a) => ({ a, cle: cleImmeuble(a.libelle), numero: Number(/^\s*(\d+)/.exec(a.libelle)?.[1] ?? NaN) }))
     .filter((x) => x.cle !== '' && Number.isSafeInteger(x.numero) && (/^\d{5}$/.test(x.a.codePostal.trim()) || x.a.commune.trim() !== ''));
-  if (entrees.length === 0) return { parcelles: [], adresses: [] };
-  // ① les points BAN de ces adresses (un seul passage sur la table)
+  if (entrees.length === 0) return { entrees, points: [] };
   const { rows: points } = await query<{ cle: string; x: number; y: number }>(
     `WITH c AS (SELECT * FROM unnest($1::text[], $2::int[], $3::text[], $4::text[]) AS c(cle, numero, cp, commune_n))
      SELECT DISTINCT ON (c.cle) c.cle, ST_X(b.geom) AS x, ST_Y(b.geom) AS y
@@ -42,6 +41,18 @@ export async function adressesDeLaParcelle(adresses: readonly AdresseSaisie[]): 
                   ELSE ${NORMALISE('b.nom_commune')} = c.commune_n END)
         AND ${NORMALISE("b.numero::text || ' ' || coalesce(b.suffixe, '') || ' ' || b.nom_voie")} = c.cle`,
     [entrees.map((e) => e.cle), entrees.map((e) => e.numero), entrees.map((e) => e.a.codePostal.trim()), entrees.map((e) => normaliserTexte(e.a.commune))]);
+  return { entrees, points };
+}
+
+export interface AdresseDeParcelle { cle: string; libelle: string; codePostal: string; commune: string; parcelle: string }
+
+/**
+ * Les AUTRES adresses des parcelles de ces adresses (celles d'une copropriété : principale et secondaires). Une
+ * adresse sans numéro, ou sans commune ni code postal, ou absente de la BAN, ne désigne aucune parcelle. LECTURE SEULE.
+ */
+export async function adressesDeLaParcelle(adresses: readonly AdresseSaisie[]): Promise<{ parcelles: string[]; adresses: AdresseDeParcelle[] }> {
+  const { entrees, points } = await pointsBan(adresses);
+  if (entrees.length === 0) return { parcelles: [], adresses: [] };
   // ② la parcelle la plus proche de chaque point (≤ 3 m) — le point est INLINÉ dans le KNN (règle d'AGENTS.md)
   const parcelles = new Map<number, { id: string; codePostal: string }>();
   for (const p of points) {

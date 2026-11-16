@@ -28,6 +28,8 @@ beforeEach(() => {
       if (c.action === 'parcelle') return json({ etat: 'ok', data: parcelle });
       posts.push(c); return json({ etat: 'ok', data: FICHE() });
     }
+    // la Base Adresse Nationale (les suggestions de ChampAdresseBan)
+    if (u.startsWith('https://api-adresse.data.gouv.fr/search/')) return json({ features: u.includes('impasse') ? [{ properties: { label: '3 Impasse Neuve 75011 Paris', name: '3 Impasse Neuve', postcode: '75011', city: 'Paris' } }] : [] });
     if (u.startsWith('/api/admin/gestion/syndics?')) return json({ syndics: [{ id: 2, nom: 'Cabinet A', ville: 'Paris', nbCoproprietes: 3 }, { id: 4, nom: 'Cabinet C', ville: 'Nice', nbCoproprietes: 1 }] });
     return json({ etat: 'sans_schema' });
   }) as unknown as typeof fetch;
@@ -83,18 +85,43 @@ describe('la fiche', () => {
     expect($('[data-fcp-usage-interne]').textContent).toContain('jamais communiquées à un autre client');
     expect(document.querySelectorAll('[role="dialog"] select')).toHaveLength(0);
   });
-  it('« + » : les adresses de la même parcelle (« Rattacher » ; prise par une autre copropriété : grisée avec son syndic) ; une autre adresse ; « × » retire', async () => {
+  it('« + » : les adresses de la même parcelle (« Rattacher » ; prise par une autre copropriété : grisée avec son syndic) ; une autre adresse PAR LES SUGGESTIONS ; « × » retire', async () => {
     await ouvrir();
     await clic('[data-fcp-plus-adresse]');
     expect($('[data-fcp-prise]').textContent).toContain('déjà rattachée à une autre copropriété');
     expect($('[data-fcp-prise]').textContent).toContain('Lyon');
     await clic('[data-fcp-rattacher-parcelle]');
-    await saisir('[data-fcp-rue]', '3 impasse Neuve');
+    // 🔴 (16/11/2026) plus de champs libres Rue / Code postal / Ville : le champ commun à suggestions (ChampAdresseBan)
+    expect(document.querySelector('[data-fcp-rue], [data-fcp-cp], [data-fcp-ville]')).toBeNull();
+    const champ = $('[data-fcp-autre-adresse] input.cp-saisie') as HTMLInputElement;
+    await saisir('[data-fcp-autre-adresse] input', '3 impasse neuve');
+    // tapée sans être choisie dans la liste : message clair, rien n'est ajouté
     await clic('[data-fcp-ajouter-adresse]');
-    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.replace(/ ×$/, '').split(',')[0])).toEqual(['12 rue des Lilas', '14 rue des Lilas', '3 impasse Neuve']);
+    expect($('[data-fcp-adresse-introuvable]').textContent).toBe('Adresse introuvable dans les suggestions : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.');
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(2);
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); }); await calmer();
+    await act(async () => { $('.cab-prop').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
+    expect(champ.value).toBe('3 Impasse Neuve, 75011 PARIS'); // la commune en majuscules, comme partout où ce champ sert
+    expect(document.querySelector('[data-fcp-adresse-introuvable]')).toBeNull();
+    await clic('[data-fcp-ajouter-adresse]');
+    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.replace(/ ×$/, '').split(',')[0])).toEqual(['12 rue des Lilas', '14 rue des Lilas', '3 Impasse Neuve']);
+    expect(champ.value).toBe('');
     await clic('[data-fcp-retirer]'); await clic('[data-fcp-retirer-oui]');
     await clic('[data-fcp-valider]');
-    expect((posts[0].adresses as { libelle: string }[]).map((a) => a.libelle)).toEqual(['14 rue des Lilas', '3 impasse Neuve']);
+    expect((posts[0].adresses as { libelle: string; codePostal: string }[]).map((a) => [a.libelle, a.codePostal])).toEqual([['14 rue des Lilas', '75011'], ['3 Impasse Neuve', '75011']]);
+  });
+  it('🔴 le serveur refuse une adresse non vérifiée : son message s’affiche, rien n’est enregistré', async () => {
+    const f = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    const avant = f.getMockImplementation() as (u: string | URL | Request, i?: RequestInit) => Promise<Response>;
+    f.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const c = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      if (c?.action === 'enregistrer') return json({ etat: 'refus', motif: 'L’adresse 3 Impasse Neuve, 75011 Paris est introuvable dans la Base Adresse Nationale : … Rien n’est enregistré.' });
+      return avant(url, init);
+    });
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    expect($('[data-fcp-erreur]').textContent).toContain('introuvable dans la Base Adresse Nationale');
+    expect(document.querySelector('[data-fcp-info]')).toBeNull();
   });
   it('habitants : statuts Gardien / Copropriétaire / Conseil syndical / Personnaliser (texte libre obligatoire) ; partent avec « Valider »', async () => {
     await ouvrir();

@@ -6,6 +6,7 @@ import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, ty
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import type { FicheCopropriete } from './copropriete';
 import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
+import { verifierAdresses } from './verificationAdresseRepo';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
 import { verifierDigicode } from '../location/digicodeImmeuble';
 
@@ -107,6 +108,11 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   if (lue === null) return { ok: false, motif: 'Cette copropriété n’est connue ni par un bien ni par une fiche : rechargez la page.' };
   const avec476 = await fiche476Disponible();
   if (s.horsCopropriete !== null && !avec476) return { ok: false, motif: '« Hors copropriété » demande la mise à jour de la base (migration 476) : rien n’est enregistré.' };
+  // 🔴 (16/11/2026, option C) une NOUVELLE adresse doit être retrouvée dans la Base Adresse Nationale (locale, puis service national) : elle vient de
+  // la parcelle ou des suggestions, jamais d'une saisie à la main ; sinon refus clair, AVANT toute écriture (les adresses déjà là ne sont pas revues)
+  const deja = new Set([lue.cle, ...lue.adresses.map((a) => a.cle)]);
+  const verif = await verifierAdresses(s.adresses.filter((a) => !deja.has(cleImmeuble(a.libelle))));
+  if (!verif.ok) return verif;
   if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
   // 🔴 le conflit de parcelle (la même règle que la fiche syndic) : une copropriété qui reçoit un syndic, une adresse de la parcelle gérée par un
   // AUTRE syndic — refusé sans la confirmation de l'écran, AVANT toute écriture ; confirmé, il est noté plus bas

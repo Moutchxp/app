@@ -8,6 +8,7 @@ import { AgCopropriete } from './AgCopropriete';
 import { DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
+import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
 import {
   ALERTE_DESACCORD, estHorsCopropriete, nomAffiche, titreFicheCopropriete, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
@@ -86,7 +87,12 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [digi, setDigi] = useState<DigicodesAdresseSaisis[]>([]);
   // l'interface
   const [ajoutAdresse, setAjoutAdresse] = useState(false);
-  const [nouvelle, setNouvelle] = useState<Adresse>({ libelle: '', codePostal: '', commune: '' });
+  /* 🔴 (16/11/2026) « Une autre adresse » : UNIQUEMENT par les suggestions de la Base Adresse Nationale (ChampAdresseBan, le champ commun) —
+     la frappe, et l'adresse retenue dans la liste (seule elle peut être ajoutée) */
+  const [autre, setAutre] = useState('');
+  const [autreChoisie, setAutreChoisie] = useState<ChoixAdresse | null>(null);
+  const [introuvable, setIntrouvable] = useState(false);
+  const idAutre = useId();
   const [aRetirer, setARetirer] = useState<string | null>(null);
   const [propositions, setPropositions] = useState<Proposition[]>([]);
   const [rattacheeIci, setRattacheeIci] = useState(false);
@@ -221,13 +227,21 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               {p.syndic ? ` — ${nomAvecVille(p.syndic.nom, p.syndic.ville)}` : ''}</li>)}
           </ul>
           <p className="fcp-sous-titre">Une autre adresse</p>
-          <div className="fcp-grille">
-            <label className="fcp-champ"><span>Rue</span><input value={nouvelle.libelle} onChange={(e) => setNouvelle({ ...nouvelle, libelle: e.target.value })} data-fcp-rue /></label>
-            <label className="fcp-champ"><span>Code postal</span><input value={nouvelle.codePostal} inputMode="numeric" onChange={(e) => setNouvelle({ ...nouvelle, codePostal: e.target.value })} data-fcp-cp /></label>
-            <label className="fcp-champ"><span>Ville</span><input value={nouvelle.commune} onChange={(e) => setNouvelle({ ...nouvelle, commune: e.target.value })} data-fcp-ville /></label>
+          {/* 🔴 (16/11/2026, demande expresse d'Arno) CE QU'IL Y AVAIT : trois champs libres Rue / Code postal / Ville. Ils ont disparu de cet encart
+              (doublons d'adresses : accents, abréviations) : une autre adresse se choisit UNIQUEMENT dans les suggestions, et le serveur la vérifie. */}
+          <label className="fcp-champ" htmlFor={idAutre}><span>Rechercher l’adresse, puis la choisir dans la liste</span></label>
+          <div data-fcp-autre-adresse>
+            <ChampAdresseBan id={idAutre} valeur={autre} verifiee={autreChoisie !== null} exemple="ex. 12 rue de la République, 92800 Puteaux"
+              onChange={(v) => { setAutre(v); setAutreChoisie(null); setIntrouvable(false); }}
+              onChoisir={(a) => { setAutre(adresseImmeuble(a.voie, a.codePostal || null, a.commune || null)); setAutreChoisie(a); setIntrouvable(false); }} />
           </div>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={cleImmeuble(nouvelle.libelle) === ''}
-            onClick={() => { ajouter(nouvelle); setNouvelle({ libelle: '', codePostal: '', commune: '' }); }} data-fcp-ajouter-adresse>Ajouter</button>
+          {introuvable && <p className="fcp-alerte" role="alert" data-fcp-adresse-introuvable>Adresse introuvable dans les suggestions : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.</p>}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={autre.trim() === ''}
+            onClick={() => {
+              if (autreChoisie === null) { setIntrouvable(true); return; }
+              ajouter({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune });
+              setAutre(''); setAutreChoisie(null);
+            }} data-fcp-ajouter-adresse>Ajouter</button>
         </div>
       )}
     </section>
@@ -291,6 +305,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const boite = (
     <div className="fcp-voile">
       <style>{CSS_FICHE_COPROPRIETE}</style>
+      <style>{CSS_CHAMP_ADRESSE}</style>
       <div className="fcp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fiche-copropriete={horsAffiche ? 'hors' : 'copropriete'}>
         <div className="fcp-tete">
           <h2 id={titreId} className="fcp-h2" data-fcp-titre>{titre}{f !== null ? <span className="fcp-nom"> · {nomAffiche({ nom: nom || null, libelle: f.libelle })}</span> : null}</h2>
