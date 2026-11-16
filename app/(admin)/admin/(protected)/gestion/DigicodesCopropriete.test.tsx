@@ -112,15 +112,23 @@ describe('🔴 (lot D) la fenêtre d’avertissement', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
     expect(document.activeElement).toBe($('[data-dcp-nom-batiment]'));
   });
-  it('choisir un chiffre dans le menu : même fenêtre ; changer l’intitulé après confirmation retire la confirmation', async () => {
+  it('🔴 un intitulé dont le mélange est DÉJÀ accepté dans la copropriété : le rechoisir dans le menu n’ouvre pas la fenêtre', async () => {
     const CONNUS_CH: BatimentConnu[] = [...CONNUS, { cle: '9', libelle: '9', sorte: 'chiffre' }];
     function H() { const [s, setS] = useState(saisieDigicodesInitiale(FICHE)); dernier = s; return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS_CH, nomenclature: 'lettres', desactive: false }); }
     await act(async () => { root.render(createElement(H)); });
     await clic($('[data-dcp-plus]')); await clic($('[data-dcp-nom-batiment]'));
     await clic($('[data-dcp-option="9"]'));
-    expect(container.querySelector('[data-dcp-avertissement]')).not.toBeNull();
-    await clic($('[data-dcp-confirmer]'));
-    await saisir($('[data-dcp-nom-batiment]'), '8');
-    expect(refusDigicodes(dernier, 'lettres', CONNUS_CH)).toContain('« 8 »');
+    expect(document.querySelector('[data-dcp-avertissement]')).toBeNull();
+    expect(refusDigicodes(dernier, 'lettres', CONNUS_CH)).toBeNull();
+  });
+  it('🔴 confirmé pour une adresse, rechoisi pour une autre : pas de seconde fenêtre ; un nouvel intitulé hors numérotation l’ouvre toujours ; changer l’intitulé retire la confirmation', async () => {
+    await ajouterChiffre(); await clic($('[data-dcp-confirmer]'));
+    await clic($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-plus]'));
+    await clic($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-nom-batiment]'));
+    await clic($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-option="2"]'));
+    expect(document.querySelector('[data-dcp-avertissement]')).toBeNull();
+    expect(refusDigicodes(dernier, 'lettres', CONNUS)).toBeNull();
+    await saisir($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-nom-batiment]'), '8');
+    expect(refusDigicodes(dernier, 'lettres', CONNUS)).toContain('« 8 »');
   });
 });

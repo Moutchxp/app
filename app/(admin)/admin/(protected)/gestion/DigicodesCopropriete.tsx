@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { avertissementBatiment, avertissementsDesBatiments, batimentDe, menuBatiments, refusDesBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
+import { avertissementsDesBatiments, batimentDe, menuBatiments, refusDesBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { FicheCopropriete } from '../../../../lib/gestion/copropriete';
 
@@ -77,13 +77,12 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   // 🔴 (lot D) la fenêtre d'avertissement : la ligne concernée et ce qui est dit
   const [alerte, setAlerte] = useState<{ cle: string; k: string; a: AvertissementBatiment } | null>(null);
   /** Au moment où le bâtiment est AJOUTÉ (choix dans le menu, ou nom saisi quand on quitte le champ) : la fenêtre, s'il ne suit pas la numérotation. */
-  const verifier = (cle: string, k: string, libelle: string, depuisMenu = false): void => {
+  // 🔴 Arno (16/11/2026) — seul un intitulé NOUVEAU qui ne suit pas la numérotation ouvre la fenêtre : un intitulé déjà présent dans la
+  // copropriété (déjà accepté, ou confirmé plus haut dans cette saisie pour une autre adresse) se choisit à nouveau sans fenêtre
+  const verifier = (cle: string, k: string, libelle: string): void => {
     const suivante = s.map((d) => (d.cle === cle ? { ...d, batiments: d.batiments.map((b) => (b.k === k ? { ...b, libelle } : b)) } : d));
     const ligne = suivante.find((d) => d.cle === cle)?.batiments.find((b) => b.k === k);
-    // choisi dans le MENU : même un bâtiment déjà connu de la copropriété est signalé s'il ne suit pas la numérotation en place
-    const kChoisi = batimentDe(libelle)?.cle;
-    const viaMenu = depuisMenu ? avertissementBatiment(libelle, nomenclature, connus.filter((x) => x.cle !== kChoisi)) : null;
-    const a = viaMenu !== null ? { ...viaMenu, intitules: menuBatiments(connus).map((x) => x.libelle) } : avertissementsSaisie(suivante, nomenclature, connus).get(k);
+    const a = avertissementsSaisie(suivante, nomenclature, connus).get(k);
     if (a !== undefined && ligne !== undefined && !estConfirme(ligne)) setAlerte({ cle, k, a });
   };
   // le menu : les bâtiments connus de TOUTE la copropriété, et ceux qu'on vient de saisir (autres adresses comprises)
@@ -124,7 +123,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                       {/* ce qui est tapé filtre le menu ; « Ajouter nouveau bâtiment » reste toujours proposé */}
                       {options.filter((o) => b.libelle.trim() === '' || o.cle.includes(batimentDe(b.libelle)?.cle ?? '')).map((o) => (
                         <li key={o.cle}><button type="button" role="option" aria-selected={false} className="dcp-option" onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => { majLigne(d.cle, b.k, { libelle: o.libelle, confirme: null }); setMenu(null); verifier(d.cle, b.k, o.libelle, true); }} data-dcp-option={o.libelle}>{o.libelle}</button></li>))}
+                          onClick={() => { majLigne(d.cle, b.k, { libelle: o.libelle, confirme: null }); setMenu(null); verifier(d.cle, b.k, o.libelle); }} data-dcp-option={o.libelle}>{o.libelle}</button></li>))}
                       <li><button type="button" className="dcp-option dcp-option--nouveau" onMouseDown={(e) => e.preventDefault()} onClick={() => { majLigne(d.cle, b.k, { libelle: '', confirme: null }); setMenu(null); }} data-dcp-ajouter-nouveau>Ajouter nouveau bâtiment</button></li>
                     </ul>)}
                 </> : <strong className="dcp-nom" data-dcp-nom-existant>{b.libelle}</strong>}
