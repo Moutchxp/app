@@ -132,3 +132,65 @@ describe('🔴 (lot D) la fenêtre d’avertissement', () => {
     expect(refusDigicodes(dernier, 'lettres', CONNUS)).toContain('« 8 »');
   });
 });
+
+describe('🔴🔴 (« Digicodes unifiés », lot 3) le composant unique avec la base unique (478)', () => {
+  const ETAT = (o: Record<string, unknown> = {}) => ({ connu: true, valeur: { digicode: true, code: '1234' }, depuis: '2026-11-01T10:00:00.000Z', source: 'unifie', aVenir: [], aArbitrer: [],
+    historique: [{ id: 1, digicode: true, code: '1234', appliqueLe: '2026-11-01T10:00:00.000Z', nature: 'saisie', par: 'arno', creeLe: '2026-11-01T10:00:00.000Z', annule: false }], ...o });
+  const FICHE_U = { digicodes: [
+    { cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234', etat: ETAT() },
+      batiments: [{ cle: 'a', libelle: 'A', digicode: null, code: null, etat: ETAT({ connu: false, valeur: null, source: 'ancien', historique: [],
+        aArbitrer: [{ digicode: true, code: 'A1', origines: ['bien W1'], lots: [1] }, { digicode: true, code: 'A2', origines: ['adresse 12 rue X'], lots: [] }] }) },
+      { cle: 'c', libelle: 'C', digicode: null, code: null, etat: ETAT({ connu: false, valeur: null, source: null, historique: [] }) }] }] };
+  let corrige: unknown[] = []; let arbitre: unknown[] = []; let reponse: string | null = null;
+  function HoteU() {
+    const [s, setS] = useState(saisieDigicodesInitiale(FICHE_U as never));
+    dernier = s;
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false,
+      onCorriger: async (...a: unknown[]) => { corrige.push(a); return reponse; }, onArbitrer: async (...a: unknown[]) => { arbitre.push(a); return null; } });
+  }
+  beforeEach(() => { corrige = []; arbitre = []; reponse = null; });
+  it('un code CONNU se LIT (en vigueur, depuis quand) — plus de champ à taper ; une place sans code se saisit comme avant ; rien ne part tant qu’on n’a rien saisi', async () => {
+    await act(async () => { root.render(createElement(HoteU)); });
+    expect(container.querySelector('[data-dcp-code-commun]')).toBeNull();
+    expect($('[data-dcp-commun] [data-dcp-lue-valeur]').textContent).toBe('code 1234 · en vigueur depuis le 01/11/2026 à 11:00');
+    expect(container.querySelector('[data-dcp-batiment="C"] [data-dcp-code-batiment]')).not.toBeNull();
+    expect(digicodesModifies(dernier)).toEqual([]);
+  });
+  it('« Corriger une erreur » : confirmé, immédiat (le geste part tout de suite), sans date ; « Annuler » ; un refus s’affiche', async () => {
+    await act(async () => { root.render(createElement(HoteU)); });
+    await clic($('[data-dcp-commun] [data-dcp-corriger-erreur]'));
+    expect($('[data-dcp-correction]').textContent).toContain('remplace code 1234 tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique');
+    expect(($('[data-dcp-correction-confirmer]') as HTMLButtonElement).disabled).toBe(true);
+    await saisir($('[data-dcp-correction-code]'), '1243');
+    reponse = 'Refus du serveur.';
+    await clic($('[data-dcp-correction-confirmer]'));
+    expect(corrige).toEqual([['residence les tilleuls', null, { digicode: true, code: '1243' }]]);
+    expect($('[data-dcp-correction-erreur]').textContent).toBe('Refus du serveur.');
+    reponse = null;
+    await clic($('[data-dcp-correction-confirmer]'));
+    expect(container.querySelector('[data-dcp-correction]')).toBeNull();
+    await clic($('[data-dcp-commun] [data-dcp-corriger-erreur]'));
+    await clic($('[data-dcp-correction-annuler]'));
+    expect([container.querySelector('[data-dcp-correction]'), corrige.length]).toEqual([null, 2]);
+  });
+  it('« À arbitrer » : les valeurs différentes, d’où elles viennent ; « Garder ce code » demande confirmation, puis part ; rien n’est choisi seul', async () => {
+    await act(async () => { root.render(createElement(HoteU)); });
+    expect($('[data-dcp-batiment="A"] [data-dcp-lue-a-arbitrer]').textContent).toContain('à arbitrer');
+    const z = $('[data-dcp-a-arbitrer]');
+    expect([...z.querySelectorAll('[data-dcp-candidat]')].map((x) => x.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['code A1 — bien W1 Garder ce code', 'code A2 — adresse 12 rue X Garder ce code']);
+    await clic(z.querySelectorAll('[data-dcp-garder]')[1] as HTMLElement);
+    expect(arbitre).toEqual([]);
+    await clic($('[data-dcp-garder-oui]'));
+    expect(arbitre).toEqual([['residence les tilleuls', 'A', { digicode: true, code: 'A2' }]]);
+  });
+  it('l’historique se déplie (saisies, corrections, changements…)', async () => {
+    await act(async () => { root.render(createElement(HoteU)); });
+    expect($('[data-dcp-historique] summary').textContent).toBe('Historique des digicodes (1)');
+    expect($('[data-dcp-historique-ligne="saisie"]').textContent).toContain('Résidence Les Tilleuls, digicode commun : code 1234 — saisi');
+  });
+  it('un changement prévu se lit sous le code', async () => {
+    FICHE_U.digicodes[0].commun.etat = ETAT({ aVenir: [{ digicode: true, code: '9876', appliqueLe: '2026-11-20T08:00:00.000Z' }] });
+    await act(async () => { root.render(createElement(HoteU)); });
+    expect($('[data-dcp-a-venir]').textContent).toBe('Changement prévu : code 9876 à partir du 20/11/2026 à 09:00');
+  });
+});

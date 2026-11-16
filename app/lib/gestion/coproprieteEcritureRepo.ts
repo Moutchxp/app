@@ -7,6 +7,7 @@ import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
+import { digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode } from './digicodesRepo';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
 import { verifierDigicode } from '../location/digicodeImmeuble';
 
@@ -129,6 +130,7 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     const manquants = conflitsNonConfirmes(conflits, s.conflitsParcelle);
     if (manquants.length > 0) return { ok: false, motif: motifConflitParcelle(manquants), conflitsParcelle: manquants };
   }
+  const unifie = await digicodesUnifiesDisponibles();
   const r = await withTransaction(async (q) => {
     // ── ① TOUS LES REFUS, AVANT TOUTE ÉCRITURE ─────────────────────────────────────────────────────────────────────────────────────────────
     for (const a of s.adresses) {
@@ -212,13 +214,21 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     for (const d of s.digicodes) {
       const a = lue.digicodes.find((x) => x.cle === d.cle)!;
       const adresse = { voie: a.voie, codePostal: a.codePostal, commune: a.commune };
-      if (d.commun !== undefined) {
-        const r = await enregistrerDigicodeDans(q, adresse, valeurDuCode(d.commun), auteur, 'fiche_copropriete', null, null);
-        if (!r.ok) throw new RefusCopro(r.motif);
-      }
+      // 🔴🔴 (« Digicodes unifiés », lot 3) avec la 478 : la PREMIÈRE valeur d'une place passe par le chemin serveur unique (un code connu ne se change
+      // que par « Corriger une erreur » ou « Modifier ») ; une place laissée vide n'écrit rien ; sans la 478 : comme avant
+      const ecrire = async (valeur: { digicode: boolean | null; code: string | null }, batiment: string | null): Promise<void> => {
+        if (unifie) {
+          if (valeur.digicode === null) return;
+          const w = await ecrireDigicode(q, { adresseCle: d.cle, adresseLibelle: a.voie, batiment, valeur, nature: 'saisie', origine: 'fiche_copropriete' }, auteur);
+          if (!w.ok) throw new RefusCopro(w.motif);
+          return;
+        }
+        const w = await enregistrerDigicodeDans(q, adresse, valeur, auteur, 'fiche_copropriete', null, batiment);
+        if (!w.ok) throw new RefusCopro(w.motif);
+      };
+      if (d.commun !== undefined) await ecrire(valeurDuCode(d.commun), null);
       for (const y of d.batiments) {
-        const r = await enregistrerDigicodeDans(q, adresse, valeurDuCode(y), auteur, 'fiche_copropriete', null, y.libelle);
-        if (!r.ok) throw new RefusCopro(r.motif);
+        await ecrire(valeurDuCode(y), y.libelle);
         const b = batimentDe(y.libelle);
         if (b !== null && !lue.batimentsConnus.some((x) => x.cle === b.cle) && !nouveaux.some((x) => x.cle === b.cle)) nouveaux.push(b);
       }
@@ -242,7 +252,29 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       await q('UPDATE gestion_copropriete SET alerte_parcelle_le = now(), alerte_parcelle_par_libelle = $2 WHERE id = $1 AND alerte_parcelle_le IS NULL', [coproId, auteur.libelle]);
     }
     return { ok: true as const };
-  }).catch((e: unknown) => { if (e instanceof RefusCopro) return { ok: false as const, motif: e.message }; throw e; });
+  }).catch((e: unknown) => { if (e instanceof RefusCopro || e instanceof RefusDigicode) return { ok: false as const, motif: e.message }; throw e; });
+  if (!r.ok) return r;
+  const relue = await ficheCopropriete(lue.cle);
+  return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };
+}
+
+/**
+ * ══ 🔴🔴 (« Digicodes unifiés », lot 3) « CORRIGER UNE ERREUR » ET « GARDER CE CODE » (À ARBITRER), DEPUIS LA FICHE COPROPRIÉTÉ ═════════════
+ * Deux gestes IMMÉDIATS, confirmés à l'écran, par le chemin serveur unique : la correction d'une faute de frappe (même date d'application que le
+ * code corrigé, sans mail ; l'ancienne valeur reste dans l'historique) ; le choix d'une des valeurs d'avant différentes d'une place à arbitrer
+ * (rien n'est jamais écrasé : la valeur choisie ENTRE dans la base unique, les anciennes tables ne bougent pas). Rend la fiche relue.
+ */
+export async function gesteDigicodeCopro(brut: unknown, nature: 'correction' | 'arbitrage', auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
+  const b = (brut ?? {}) as Record<string, unknown>;
+  if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478) : rien n’est enregistré.' };
+  const lue = await ficheCopropriete(texte(b.immeuble));
+  if (lue === null) return { ok: false, motif: 'Cette copropriété est introuvable : rechargez la page.' };
+  const adresse = lue.adresses.find((a) => a.cle === cleImmeuble(texte(b.adresseCle)));
+  if (adresse === undefined) return { ok: false, motif: 'Cette adresse n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
+  const batiment = texte(b.batiment, 60) === '' ? null : texte(b.batiment, 60);
+  const r = await withTransaction((q) => ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment, valeur: { digicode: b.digicode, code: b.code }, nature,
+    origine: 'fiche_copropriete', copropriete: { cle: lue.cle, libelle: lue.libelle, codePostal: lue.codePostal, commune: lue.commune } }, auteur))
+    .catch((e: unknown) => { if (e instanceof RefusDigicode) return { ok: false as const, motif: e.message }; throw e; });
   if (!r.ok) return r;
   const relue = await ficheCopropriete(lue.cle);
   return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };

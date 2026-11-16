@@ -193,6 +193,26 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     } catch { setErreur('Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
   };
 
+  /**
+   * 🔴 (« Digicodes unifiés », lot 3) « Corriger une erreur » / « Garder ce code » : IMMÉDIATS (confirmés dans le composant), par le chemin serveur
+   * unique ; seuls les digicodes de la fiche sont relus (le reste de la saisie en cours n'est pas touché). Des digicodes saisis et pas encore
+   * validés : on le dit d'abord (ils seraient perdus).
+   */
+  const gesteDigicode = async (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> => {
+    if (f === null) return 'Fiche non chargée.';
+    if (digicodesModifies(digi).length > 0) return 'Validez (ou retirez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, immeuble: f.cle, adresseCle, batiment, digicode: v.digicode, code: v.code }) });
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
+      if (d.etat !== 'ok' || !d.data) return d.motif ?? d.message ?? 'Enregistrement refusé.';
+      const nouvelle = d.data;
+      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective } }));
+      setDigi(saisieDigicodesInitiale(nouvelle));
+      setInfo(action === 'digicode-corriger' ? 'Digicode corrigé.' : 'Digicode choisi.');
+      return null;
+    } catch { return 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'; }
+  };
+
   // le titre : « Bien hors copropriété » dès que la fiche le dit, ou que le bien d'où l'on vient est noté « pas en copropriété »
   const horsAffiche = estHorsCopropriete({ horsCopropriete: hors }, lu?.coproprieteDuBien);
   const titre = titreFicheCopropriete(horsAffiche);
@@ -258,7 +278,9 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       {/* 🔴 (lot 3) la nouvelle saisie : digicode commun, « + » pour un bâtiment ou une cage, menu des bâtiments de toute la copropriété ;
           sans la 477, l'ancienne saisie par adresse reste (rien n'est perdu) */}
       {f.saisieDigicodes
-        ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} />
+        ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi}
+          {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
+            onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v) } : {})} />
         : f.adresses.map((a) => <DigicodeImmeuble key={a.cle} voie={a.libelle} codePostal={a.codePostal} commune={a.commune} />)}
     </section>
 

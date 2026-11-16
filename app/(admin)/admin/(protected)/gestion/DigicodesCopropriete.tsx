@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { avertissementsDesBatiments, batimentDe, menuBatiments, refusDesBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
-import type { FicheCopropriete } from '../../../../lib/gestion/copropriete';
+import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
+import { dateHeure } from '../../../../lib/gestion/digicodes';
 
 /**
  * ══ 🔴🔴 LES DIGICODES DE LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 3) ═══════════════════════════════════════
@@ -13,12 +14,28 @@ import type { FicheCopropriete } from '../../../../lib/gestion/copropriete';
  * premier bâtiment en LETTRE impose les lettres, le premier en CHIFFRE les chiffres (mélange refusé, message clair) ; les intitulés libres sont
  * permis en plus. Tout part avec le « Valider » de la fiche ; les lecteurs du digicode (fiche du bien, préavis, pré-visite, état des lieux,
  * mails) lisent les mêmes tables qu'avant. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
+ *
+ * 🔴🔴 (16/11/2026, « Digicodes unifiés », lot 3) LE COMPOSANT UNIQUE de la saisie des digicodes, avec la base unique (478) : un code CONNU se lit
+ * (en vigueur, depuis quand, le changement prévu) et ne se change plus en tapant dans le champ — « Corriger une erreur » (faute de frappe :
+ * immédiat, confirmé, sans date ni mail, tracé) ; les valeurs d'avant différentes d'une même place sont dans « À arbitrer » (« Garder ce code »,
+ * confirmé) ; l'historique se déplie. Une place sans code connu se saisit comme avant (première valeur, avec « Valider »).
  */
 export interface CodeLigne { code: string; aucun: boolean }
 export interface LigneBatiment extends CodeLigne { k: string; libelle: string; nouveau: boolean; initial: CodeLigne;
   /** 🔴 (lot D) l'intitulé confirmé malgré l'avertissement (sa clé) ; changer l'intitulé retire la confirmation */
-  confirme?: string | null }
-export interface DigicodesAdresseSaisis { cle: string; voie: string; codePostal: string | null; commune: string | null; commun: CodeLigne; communInitial: CodeLigne; batiments: LigneBatiment[] }
+  confirme?: string | null;
+  /** 🔴 (478) l'état de la place dans la base unique (absent sans la 478) */
+  etat?: EtatPlaceDigicode }
+export interface DigicodesAdresseSaisis { cle: string; voie: string; codePostal: string | null; commune: string | null; commun: CodeLigne; communInitial: CodeLigne; batiments: LigneBatiment[];
+  communEtat?: EtatPlaceDigicode }
+
+/** Une place se LIT (au lieu de se saisir) : son code est connu, ou elle est à arbitrer. PUR. */
+export const placeLue = (e: EtatPlaceDigicode | undefined): e is EtatPlaceDigicode => e !== undefined && (e.connu || e.aArbitrer.length > 0);
+/** Une valeur, en mots : « code 57B83 » / « pas de digicode ». PUR. */
+export const motValeur = (v: { digicode: boolean | null; code: string | null }): string => (v.digicode === false ? 'pas de digicode' : v.code ? `code ${v.code}` : 'oui (code inconnu)');
+const MOT_NATURE: Record<string, string> = { saisie: 'saisi', correction: 'corrigé (faute de frappe)', changement: 'changement de code', reprise: 'repris d’avant', arbitrage: 'choisi parmi des valeurs différentes' };
+/** Un geste immédiat (correction, arbitrage) : la place, la valeur ; rend le motif d'un refus, ou `null`. */
+export type GesteDigicode = (adresseCle: string, batiment: string | null, valeur: { digicode: boolean; code: string | null }) => Promise<string | null>;
 
 let n = 0;
 const k = (): string => `b${++n}`;
@@ -28,7 +45,8 @@ const memes = (a: CodeLigne, b: CodeLigne): boolean => a.aucun === b.aucun && a.
 /** La saisie de départ, d'après ce que la fiche a lu. PUR. */
 export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'>): DigicodesAdresseSaisis[] {
   return (f.digicodes ?? []).map((d) => ({ cle: d.cle, voie: d.voie, codePostal: d.codePostal, commune: d.commune, commun: versLigne(d.commun), communInitial: versLigne(d.commun),
-    batiments: d.batiments.map((b) => ({ k: k(), libelle: b.libelle, ...versLigne(b), nouveau: false, initial: versLigne(b) })) }));
+    ...(d.commun.etat ? { communEtat: d.commun.etat } : {}),
+    batiments: d.batiments.map((b) => ({ k: k(), libelle: b.libelle, ...versLigne(b), nouveau: false, initial: versLigne(b), ...(b.etat ? { etat: b.etat } : {}) })) }));
 }
 /** Ce qui part au serveur : seulement ce qui a changé (une ligne nouvelle part toujours). PUR. */
 const estConfirme = (b: Pick<LigneBatiment, 'libelle' | 'confirme'>): boolean => { const k = batimentDe(b.libelle)?.cle; return k !== undefined && b.confirme === k; };
@@ -70,8 +88,10 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
+  /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
+  onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
   // 🔴 (lot D) la fenêtre d'avertissement : la ligne concernée et ce qui est dit
@@ -95,9 +115,17 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
     <div className="dcp" data-digicodes-copro>
       <p className="loc-muet dcp-regle" data-dcp-regle>{nomenclature === null ? 'Aucune règle encore : le premier bâtiment créé en lettre ou en chiffre la fixera pour toute la copropriété (les intitulés libres sont toujours permis).'
         : `Règle de la copropriété : ${MOT_REGLE[nomenclature]}, plus des intitulés libres (« Côté cour »…). Un autre intitulé reste possible, après confirmation.`}</p>
+      <AArbitrer s={s} desactive={desactive} onArbitrer={onArbitrer} />
       {s.map((d) => (
         <div key={d.cle} className="dcp-adresse" data-dcp-adresse={d.cle}>
           <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>
+          {placeLue(d.communEtat) ? (
+            <div className="dcp-ligne" data-dcp-commun>
+              <PlaceDigicodeLue titre="Digicode commun" etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)} />
+              <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
+                onClick={() => { const kk = k(); maj(d.cle, (x) => ({ ...x, batiments: [...x.batiments, { k: kk, libelle: '', code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] })); setMenu(kk); }}
+                data-dcp-plus>+</button>
+            </div>) : (
           <div className="dcp-ligne" data-dcp-commun>
             <label className="dcp-champ"><span>Digicode commun</span>
               <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : 'facultatif'} maxLength={8}
@@ -107,8 +135,11 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
             <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
               onClick={() => { const kk = k(); maj(d.cle, (x) => ({ ...x, batiments: [...x.batiments, { k: kk, libelle: '', code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] })); setMenu(kk); }}
               data-dcp-plus>+</button>
-          </div>
-          {d.batiments.map((b) => (
+          </div>)}
+          {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
+            <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.libelle}>
+              <PlaceDigicodeLue titre={`Bâtiment / cage ${b.libelle}`} etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)} />
+            </div>) : (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}>
               <div className="dcp-champ dcp-champ-bat">
                 <span>Bâtiment / cage</span>
@@ -132,9 +163,10 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                 <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={8} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
-            </div>))}
+            </div>)))}
         </div>))}
       {refus !== null && <p className="cp-refus dcp-refus" role="status" data-dcp-refus>{refus}</p>}
+      <HistoriqueDigicodes s={s} />
       {alerte !== null && (
         <div className="dcp-voile" data-dcp-avertissement>
           <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="dcp-alerte-titre" aria-describedby="dcp-alerte-texte"
@@ -155,6 +187,102 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
         </div>)}
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
+  );
+}
+
+/** Une saisie de code (le nouveau code, ou « pas de digicode ») ; rend la valeur, ou `null` si rien n'est saisi. PUR. */
+export function valeurDeLaSaisie(c: CodeLigne): { digicode: boolean; code: string | null } | null {
+  if (c.aucun) return { digicode: false, code: null };
+  return c.code.trim() === '' ? null : { digicode: true, code: c.code.trim() };
+}
+
+/** 🔴 (478) Une place dont le code est CONNU (ou à arbitrer) : lue, et « Corriger une erreur » (confirmé, immédiat, sans date ni mail). */
+function PlaceDigicodeLue({ titre, etat, desactive, onCorriger }: { titre: string; etat: EtatPlaceDigicode; desactive: boolean;
+  onCorriger?: (v: { digicode: boolean; code: string | null }) => Promise<string | null> }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [saisie, setSaisie] = useState<CodeLigne>({ code: '', aucun: false });
+  const [envoi, setEnvoi] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const valeur = etat.aArbitrer.length > 0 ? null : etat.valeur;
+  const nouvelle = valeurDeLaSaisie(saisie);
+  return (
+    <div className="dcp-lue" data-dcp-lue>
+      <span className="dcp-lue-titre">{titre}</span>
+      {etat.aArbitrer.length > 0
+        ? <span className="dcp-lue-valeur dcp-a-arbitrer" data-dcp-lue-a-arbitrer>à arbitrer — plusieurs valeurs différentes sont connues (voir « À arbitrer »)</span>
+        : <span className="dcp-lue-valeur" data-dcp-lue-valeur><strong>{valeur === null ? '' : motValeur(valeur)}</strong>
+          {etat.depuis ? <span className="loc-muet"> · en vigueur depuis le {dateHeure(etat.depuis)}</span> : null}
+          {etat.source === 'ancien' ? <span className="loc-muet"> · valeur d’avant, pas encore dans la base unique</span> : null}</span>}
+      {etat.aVenir.map((x) => <span key={x.appliqueLe} className="dcp-a-venir" data-dcp-a-venir>Changement prévu : {motValeur(x)} à partir du {dateHeure(x.appliqueLe)}</span>)}
+      {etat.connu && onCorriger !== undefined && !ouvert && (
+        <button type="button" className="dcp-lien" disabled={desactive} onClick={() => { setOuvert(true); setErreur(null); setSaisie({ code: '', aucun: false }); }} data-dcp-corriger-erreur>Corriger une erreur</button>)}
+      {ouvert && onCorriger !== undefined && valeur !== null && (
+        <div className="dcp-correction" role="group" aria-label={`Corriger une erreur — ${titre}`} data-dcp-correction>
+          <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
+          <div className="dcp-ligne">
+            <label className="dcp-champ"><span>Code corrigé</span>
+              <input value={saisie.code} maxLength={8} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : 'code'} autoFocus
+                onChange={(e) => setSaisie({ ...saisie, code: e.target.value })} data-dcp-correction-code /></label>
+            <label className="dcp-aucun"><input type="checkbox" checked={saisie.aucun} disabled={envoi} onChange={(e) => setSaisie({ code: '', aucun: e.target.checked })} /><span>pas de digicode</span></label>
+          </div>
+          {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-correction-erreur>{erreur}</p>}
+          <div className="dcp-alerte-actions">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => { setOuvert(false); setErreur(null); }} data-dcp-correction-annuler>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || nouvelle === null} data-dcp-correction-confirmer onClick={() => {
+              if (nouvelle === null) return;
+              setEnvoi(true); setErreur(null);
+              void onCorriger(nouvelle).then((m) => { setEnvoi(false); if (m === null) setOuvert(false); else setErreur(m); });
+            }}>{envoi ? 'Enregistrement…' : 'Confirmer la correction'}</button>
+          </div>
+        </div>)}
+    </div>
+  );
+}
+
+/** 🔴 (478) « À ARBITRER » : les places où des valeurs d'avant DIFFÉRENTES sont connues — « Garder ce code », confirmé. Rien n'est écrasé. */
+function AArbitrer({ s, desactive, onArbitrer }: { s: readonly DigicodesAdresseSaisis[]; desactive: boolean; onArbitrer?: GesteDigicode }) {
+  const [choix, setChoix] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const places = s.flatMap((d) => [...(d.communEtat && d.communEtat.aArbitrer.length > 0 ? [{ d, batiment: null as string | null, etat: d.communEtat }] : []),
+    ...d.batiments.filter((b) => b.etat && b.etat.aArbitrer.length > 0).map((b) => ({ d, batiment: b.libelle as string | null, etat: b.etat as EtatPlaceDigicode }))]);
+  if (places.length === 0) return null;
+  return (
+    <div className="dcp-arbitrer" role="region" aria-label="Digicodes à arbitrer" data-dcp-a-arbitrer>
+      <p className="dcp-arbitrer-titre">À arbitrer</p>
+      <p className="loc-muet dcp-sans-marge">Des valeurs différentes ont été saisies pour le même digicode (fiches d’avant). Rien n’a été choisi ni effacé : gardez la bonne.</p>
+      {places.map((p) => (
+        <div key={`${p.d.cle}#${p.batiment ?? ''}`} className="dcp-arbitrer-place" data-dcp-arbitrer-place={`${p.d.cle}#${p.batiment ?? ''}`}>
+          <p className="dcp-titre">{adresseImmeuble(p.d.voie, p.d.codePostal, p.d.commune)} — {p.batiment === null ? 'digicode commun' : `bâtiment / cage ${p.batiment}`}</p>
+          <ul className="dcp-arbitrer-liste">{p.etat.aArbitrer.map((c, i) => {
+            const id = `${p.d.cle}#${p.batiment ?? ''}#${i}`;
+            const v = c.digicode === false ? { digicode: false, code: null } : c.code ? { digicode: true, code: c.code } : null;
+            return (
+              <li key={id} data-dcp-candidat={id}><strong>{motValeur(c)}</strong> <span className="loc-muet">— {c.origines.join(' ; ')}</span>{' '}
+                {onArbitrer !== undefined && v !== null && (choix === id ? <span className="dcp-confirmer">Garder {motValeur(c)} ? <button type="button" className="dcp-lien" disabled={envoi || desactive}
+                  onClick={() => { setEnvoi(true); setErreur(null); void onArbitrer(p.d.cle, p.batiment, v).then((m) => { setEnvoi(false); setChoix(null); setErreur(m); }); }} data-dcp-garder-oui>Oui</button>{' '}
+                  <button type="button" className="dcp-lien" disabled={envoi} onClick={() => setChoix(null)}>Non</button></span>
+                  : <button type="button" className="svv-btn svv-btn-outline gst-btn dcp-mini" disabled={envoi || desactive} onClick={() => setChoix(id)} data-dcp-garder>Garder ce code</button>)}</li>);
+          })}</ul>
+        </div>))}
+      {erreur !== null && <p className="cp-refus dcp-refus" role="alert">{erreur}</p>}
+    </div>
+  );
+}
+
+/** 🔴 (478) L'HISTORIQUE des digicodes de la copropriété (base unique : saisies, corrections, changements, reprises, arbitrages), le plus récent d'abord. */
+function HistoriqueDigicodes({ s }: { s: readonly DigicodesAdresseSaisis[] }) {
+  const lignes = s.flatMap((d) => [...(d.communEtat?.historique ?? []).map((h) => ({ h, d, place: 'digicode commun' })),
+    ...d.batiments.flatMap((b) => (b.etat?.historique ?? []).map((h) => ({ h, d, place: `bâtiment ${b.libelle}` })))])
+    .sort((a, b) => new Date(b.h.creeLe).getTime() - new Date(a.h.creeLe).getTime() || b.h.id - a.h.id);
+  if (lignes.length === 0) return null;
+  return (
+    <details className="dcp-historique" data-dcp-historique>
+      <summary>Historique des digicodes ({lignes.length})</summary>
+      <ul className="dcp-arbitrer-liste">{lignes.map(({ h, d, place }) => (
+        <li key={h.id} data-dcp-historique-ligne={h.nature}>{dateHeure(h.creeLe)} — {d.voie}, {place} : <strong>{motValeur(h)}</strong> — {MOT_NATURE[h.nature] ?? h.nature}
+          {h.nature === 'changement' ? `, à partir du ${dateHeure(h.appliqueLe)}` : ''}{h.annule ? ' (annulé)' : ''} <span className="loc-muet">— {h.par}</span></li>))}</ul>
+    </details>
   );
 }
 
@@ -183,5 +311,22 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-alerte-titre{margin:0;font-weight:900;font-size:1.05rem;overflow-wrap:anywhere}
 .dcp-alerte-texte{margin:0;line-height:1.45;overflow-wrap:anywhere}
 .dcp-alerte-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.dcp-lue{display:flex;flex-direction:column;gap:4px;flex:1 1 220px;min-width:0}
+.dcp-lue-titre{font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+.dcp-lue-valeur{min-height:36px;display:flex;flex-wrap:wrap;align-items:center;gap:4px;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.dcp-a-arbitrer{color:var(--color-svv-orange);font-weight:800}
+.dcp-a-venir{font-size:.85rem;font-weight:700;color:var(--color-svv-ink);padding:4px 8px;border-radius:8px;background:var(--color-svv-orange-soft)}
+.dcp-lien{align-self:flex-start;border:0;background:transparent;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer;padding:4px 0;min-height:32px;font:inherit;font-weight:700}
+.dcp-correction{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.dcp-correction-texte{margin:0;line-height:1.4;font-size:.88rem}
+.dcp-arbitrer{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);min-width:0}
+.dcp-arbitrer-titre{margin:0;font-weight:900;text-transform:uppercase;letter-spacing:.05em;font-size:.82rem;color:var(--color-svv-ink)}
+.dcp-arbitrer-place{display:flex;flex-direction:column;gap:4px}
+.dcp-arbitrer-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}
+.dcp-mini{min-height:40px}
+.dcp-confirmer{font-weight:700}
+.dcp-sans-marge{margin:0}
+.dcp-historique summary{cursor:pointer;font-weight:800;min-height:36px;display:flex;align-items:center;color:var(--color-svv-ink)}
+.dcp-historique{font-size:.88rem}
 @media (max-width:600px){.dcp-alerte-actions .svv-btn{flex:1 1 100%}}
 `;

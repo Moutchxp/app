@@ -363,3 +363,38 @@ describe('🔴 (16/11/2026) une adresse SANS NUMÉRO : la fenêtre d’avertisse
     expect(posts[0]).toMatchObject({ sansNumeroConfirmees: [] });
   });
 });
+
+describe('🔴🔴 (« Digicodes unifiés », lot 3) la fiche copropriété et les gestes immédiats', () => {
+  const ETAT = { connu: true, valeur: { digicode: true, code: '1234' }, depuis: '2026-11-01T10:00:00.000Z', source: 'unifie', aVenir: [], aArbitrer: [], historique: [] };
+  const DIGI = { saisieDigicodes: true, digicodesUnifies: true, batimentsConnus: [], nomenclatureEffective: null,
+    digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234', etat: ETAT }, batiments: [] }] };
+  it('« Corriger une erreur » part tout de suite (action « digicode-corriger », la place, la valeur) ; seuls les digicodes sont relus', async () => {
+    lu = { fiche: FICHE(DIGI), coproprieteDuBien: true };
+    const f = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    const avant = f.getMockImplementation() as (u: string | URL | Request, i?: RequestInit) => Promise<Response>;
+    f.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const c = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      if (c?.action === 'digicode-corriger') { posts.push(c); return json({ etat: 'ok', data: FICHE({ ...DIGI, digicodes: [{ ...DIGI.digicodes[0], commun: { digicode: true, code: '1243', etat: { ...ETAT, valeur: { digicode: true, code: '1243' } } } }] }) }); }
+      return avant(url, init);
+    });
+    await ouvrir();
+    await saisir('[data-fcp-nom]', 'Les Tilleuls (en cours)');
+    await clic('[data-dcp-corriger-erreur]');
+    await saisir('[data-dcp-correction-code]', '1243');
+    await clic('[data-dcp-correction-confirmer]');
+    expect(posts.at(-1)).toEqual({ action: 'digicode-corriger', immeuble: 'residence les tilleuls', adresseCle: 'residence les tilleuls', batiment: null, digicode: true, code: '1243' });
+    expect(($('[data-fcp-nom]') as HTMLInputElement).value).toBe('Les Tilleuls (en cours)'); // le reste de la saisie n'est pas perdu
+    expect($('[data-fcp-info]').textContent).toBe('Digicode corrigé.');
+    expect($('[data-dcp-lue-valeur]').textContent).toContain('code 1243');
+  });
+  it('des digicodes saisis et pas encore validés : le geste est refusé (ils seraient perdus), rien ne part', async () => {
+    lu = { fiche: FICHE({ ...DIGI, digicodes: [{ ...DIGI.digicodes[0], batiments: [{ cle: 'b', libelle: 'B', digicode: null, code: null, etat: { ...ETAT, connu: false, valeur: null } }] }] }), coproprieteDuBien: true };
+    await ouvrir();
+    await saisir('[data-dcp-batiment="B"] [data-dcp-code-batiment]', 'B1');
+    await clic('[data-dcp-corriger-erreur]');
+    await saisir('[data-dcp-correction-code]', '1243');
+    await clic('[data-dcp-correction-confirmer]');
+    expect(posts).toEqual([]);
+    expect($('[data-dcp-correction-erreur]').textContent).toContain('Validez (ou retirez) d’abord les digicodes en cours de saisie');
+  });
+});

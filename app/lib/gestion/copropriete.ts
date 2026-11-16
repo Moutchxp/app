@@ -10,11 +10,27 @@
 import type { ContactImmeubleLu } from './syndics';
 import type { BatimentConnu, Nomenclature } from './batimentsCopropriete';
 
+/**
+ * 🔴🔴 (16/11/2026, « Digicodes unifiés », lot 3) L'ÉTAT d'une place (adresse × bâtiment) dans la base unique : connue (le code en vigueur, depuis
+ * quand, d'où), les changements prévus, les valeurs d'avant À ARBITRER, l'historique (lignes de la base unique, annulées comprises). Absent sans
+ * la 478 (la saisie d'avant, inchangée).
+ */
+export interface EtatPlaceDigicode {
+  connu: boolean;
+  /** la valeur EN VIGUEUR (base unique, sinon valeur d'avant) ; `null` : rien de connu, ou à arbitrer */
+  valeur: { digicode: boolean | null; code: string | null } | null;
+  depuis: string | null;
+  source: 'unifie' | 'ancien' | null;
+  aVenir: { digicode: boolean; code: string | null; appliqueLe: string }[];
+  aArbitrer: { digicode: boolean | null; code: string | null; origines: string[]; lots: number[] }[];
+  historique: { id: number; digicode: boolean; code: string | null; appliqueLe: string; nature: string; par: string; creeLe: string; annule: boolean }[];
+}
+
 /** 🔴 (lot 3) Les digicodes d'UNE adresse de la copropriété : le commun (le « code général » de l'immeuble de l'adresse) et ceux des bâtiments. */
 export interface DigicodesAdresseFiche {
   cle: string; voie: string; codePostal: string | null; commune: string | null;
-  commun: { digicode: boolean | null; code: string | null };
-  batiments: { cle: string; libelle: string; digicode: boolean | null; code: string | null }[];
+  commun: { digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode };
+  batiments: { cle: string; libelle: string; digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode }[];
 }
 
 export interface AdresseCopropriete { cle: string; libelle: string; codePostal: string | null; commune: string | null; principale: boolean }
@@ -48,6 +64,8 @@ export interface FicheCopropriete {
   batimentsConnus: BatimentConnu[];
   nomenclatureEffective: Nomenclature | null;
   saisieDigicodes: boolean;
+  /** 🔴 (16/11/2026, 478) la base unique est en place : un code connu se lit en vigueur, ne se change que par « Corriger une erreur » (ou « Modifier ») */
+  digicodesUnifies?: boolean;
 }
 
 /**

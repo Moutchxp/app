@@ -2,10 +2,10 @@ import { query } from '../db/client';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { adresseImmeuble, cleImmeuble } from './syndics';
-import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type LigneCopropriete, type BienCopropriete, type DigicodesAdresseFiche, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
+import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type LigneCopropriete, type BienCopropriete, type DigicodesAdresseFiche, type EtatPlaceDigicode, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
 import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
-import { digicodesDesAdresses, digicodesUnifiesDisponibles } from './digicodesRepo';
+import { digicodesDesAdresses, digicodesUnifiesDisponibles, type PlaceFiche } from './digicodesRepo';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA LECTURE (Arno, 16/11/2026, migration 476). IMPUR (base), LECTURE SEULE. ══════════════════════════════════
@@ -21,6 +21,16 @@ export const cleImmeubleDuBien = (l: { immeuble: string | null; adresse: string 
 
 export function fiche476Disponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_copropriete', 'hors_copropriete');
+}
+
+/** 🔴 (« Digicodes unifiés », lot 3) l'état d'une place lue dans la base unique, pour l'écran. PUR. */
+function etatPlace(p: PlaceFiche): EtatPlaceDigicode {
+  const c = p.code;
+  const connu = c !== null && c.aArbitrer.length === 0 && (c.valeur.digicode !== null || (c.valeur.code ?? '') !== '');
+  return { connu, valeur: connu ? { digicode: c!.valeur.digicode, code: c!.valeur.code } : null, depuis: c?.depuis ?? null, source: c?.source ?? null,
+    aVenir: p.aVenir.map((l) => ({ digicode: l.digicode, code: l.code, appliqueLe: l.appliqueLe })),
+    aArbitrer: (c?.aArbitrer ?? []).map((x) => ({ digicode: x.valeur.digicode, code: x.valeur.code, origines: x.origines, lots: x.lots })),
+    historique: p.historique.map((l) => ({ id: l.id, digicode: l.digicode, code: l.code, appliqueLe: l.appliqueLe, nature: l.nature, par: l.creeParLibelle, creeLe: l.creeLe, annule: l.annuleLe !== null })) };
 }
 
 /** La fiche de la copropriété de cet immeuble (libellé ou clé). `null` : rien de connu sous ce nom. */
@@ -87,7 +97,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
     const lus = await digicodesDesAdresses(adressesFiche.map((a) => cleImmeuble(a.libelle)));
     adressesFiche.forEach((a, i) => {
       const d = lus[i];
-      const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null });
+      const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p) });
       digicodes.push({ cle: d.adresseCle, voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: v(d.commun),
         batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })) });
       for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }
@@ -111,6 +121,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
   const nomenclature = copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null;
   return {
     digicodes, batimentsConnus, nomenclatureEffective: nomenclatureDe(nomenclature, batimentsConnus), saisieDigicodes: (await depuisCoproprieteDisponible()) && digicodes.length > 0,
+    digicodesUnifies: await digicodesUnifiesDisponibles(),
     cle, declaree: copro !== undefined, id: copro === undefined ? null : Number(copro.id), libelle, nom: copro?.nom ?? null,
     horsCopropriete: copro?.hors === true, nomenclature: copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null,
     codePostal, commune,

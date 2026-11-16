@@ -25,10 +25,14 @@ vi.mock('./contactsImmeubleRepo', () => ({ enregistrerContactsImmeuble: async (_
 const dg = vi.hoisted(() => ({ avec477: true, ecrits: [] as unknown[][] }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ depuisCoproprieteDisponible: async () => dg.avec477,
   enregistrerDigicodeDans: async (...a: unknown[]) => { dg.ecrits.push(a.slice(1)); return { ok: true, change: true, immeubleId: 1 }; } }));
+// 🔴 (« Digicodes unifiés », lot 3) la base unique : absente pour les épreuves d'avant, présente pour les siennes (le chemin serveur unique simulé)
+const un = vi.hoisted(() => ({ avec478: false, ecrits: [] as Record<string, unknown>[], issue: { ok: true, change: true, id: 1 } as Record<string, unknown> }));
+vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => un.avec478, RefusDigicode: class extends Error {},
+  ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { un.ecrits.push(e); return un.issue; } }));
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
 const va = vi.hoisted(() => ({ vues: [] as unknown[][], issue: { ok: true } as { ok: true } | { ok: false; motif: string } }));
 vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknown[]) => { va.vues.push(a); return va.issue; } }));
-import { enregistrerCopropriete, validerSaisieCopropriete } from './coproprieteEcritureRepo';
+import { enregistrerCopropriete, gesteDigicodeCopro, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleuls', declaree: true, id: 7, libelle: 'Résidence Les Tilleuls', nom: null, horsCopropriete: false, nomenclature: null,
@@ -37,7 +41,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; });
+beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -212,5 +216,33 @@ describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche s
     h.fiche = FICHE({ syndic: { id: 9, nom: 'Cabinet B', ville: null, depuis: '2026-01-01' }, contacts: [] });
     expect(await enregistrerCopropriete(R({ nom: 'Les Tilleuls' }), AUTEUR)).toMatchObject({ ok: false });
     expect(ecritures()).toEqual([]);
+  });
+});
+
+describe('🔴🔴 (« Digicodes unifiés », lot 3) avec la 478 : le chemin serveur unique', () => {
+  const D = (batiments: { libelle: string; code: string; aucun?: boolean; confirme?: boolean }[], commun?: { code: string; aucun: boolean }) =>
+    ({ ...SAISIE, digicodes: [{ cle: 'Résidence Les Tilleuls', ...(commun ? { commun } : {}), batiments: batiments.map((b) => ({ aucun: false, ...b })) }] });
+  it('« Valider » : la PREMIÈRE valeur de chaque place part en « saisie » par le chemin unique (jamais dans les anciennes tables) ; une place laissée vide n’écrit rien', async () => {
+    un.avec478 = true;
+    expect((await enregistrerCopropriete(D([{ libelle: 'B', code: 'B42' }, { libelle: 'C', code: '' }], { code: '1234', aucun: false }), AUTEUR)).ok).toBe(true);
+    expect(un.ecrits.map((e) => [e.adresseCle, e.batiment, e.valeur, e.nature, e.origine])).toEqual([
+      ['residence les tilleuls', null, { digicode: true, code: '1234' }, 'saisie', 'fiche_copropriete'], ['residence les tilleuls', 'B', { digicode: true, code: 'B42' }, 'saisie', 'fiche_copropriete']]);
+    expect(dg.ecrits).toEqual([]);
+  });
+  it('un refus du chemin unique (code déjà connu) : RIEN n’est enregistré, le message est rendu', async () => {
+    un.avec478 = true; un.issue = { ok: false, motif: 'Ce digicode est déjà connu (oui · code 1111) : …' };
+    expect(await enregistrerCopropriete(D([], { code: '9999', aucun: false }), AUTEUR)).toEqual({ ok: false, motif: 'Ce digicode est déjà connu (oui · code 1111) : …' });
+  });
+  it('« Corriger une erreur » / « Garder ce code » : immédiats, à une adresse de la copropriété ; sinon refus ; sans la 478 : refus', async () => {
+    un.avec478 = true;
+    h.fiche = FICHE({ adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', principale: true }] });
+    expect((await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: 'Résidence Les Tilleuls', batiment: 'B', digicode: true, code: 'B7' }, 'correction', AUTEUR)).ok).toBe(true);
+    expect((await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', batiment: '', digicode: false }, 'arbitrage', AUTEUR)).ok).toBe(true);
+    expect(un.ecrits.map((e) => [e.adresseCle, e.batiment, e.nature, (e.copropriete as { cle: string }).cle])).toEqual([
+      ['residence les tilleuls', 'B', 'correction', 'residence les tilleuls'], ['residence les tilleuls', null, 'arbitrage', 'residence les tilleuls']]);
+    expect(await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: '99 rue Ailleurs', digicode: true, code: '1' }, 'correction', AUTEUR))
+      .toMatchObject({ ok: false, motif: expect.stringContaining('n’est pas (ou plus) une adresse de cette copropriété') });
+    un.avec478 = false;
+    expect((await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', digicode: true, code: '1' }, 'correction', AUTEUR)).ok).toBe(false);
   });
 });
