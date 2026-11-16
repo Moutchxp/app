@@ -123,6 +123,33 @@ describe('la fiche', () => {
     await clic('[data-fcp-conflit-oui]');
     expect(posts[0]).toMatchObject({ syndicId: 4, conflitsParcelle: [{ autre: '10 rue Voisine', parcelle: 'AB12' }] });
   });
+  it('🔴 la question est celle de la règle commune (mot pour mot celle de la fiche syndic) ; un refus du serveur sans confirmation s’affiche, rien n’est enregistré', async () => {
+    await ouvrir();
+    await clic('[data-fcp-choisir-syndic]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    await clic('[data-fcp-syndic-propose="4"]');
+    await clic('[data-fcp-valider]');
+    expect($('[data-fcp-conflit] p').textContent).toBe('Sur la même parcelle, 10 rue Voisine, 75011 Paris (10 rue Voisine) est gérée par Cabinet B / Lyon. Confirmez-vous un autre syndic pour cette copropriété ?');
+    await clic('[data-fcp-conflit] .svv-btn-outline:not([data-fcp-rattacher-a])'); // Annuler
+    // la parcelle a changé entre-temps : l'écran ne voit plus de conflit, le serveur, lui, le voit — il refuse, la fiche le dit
+    parcelle = [];
+    const f = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    const avant = f.getMockImplementation() as (u: string | URL | Request, i?: RequestInit) => Promise<Response>;
+    f.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const c = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+      if (c?.action === 'enregistrer') { posts.push(c); return json({ etat: 'refus', motif: 'Conflit de parcelle non confirmé pour « Résidence Les Tilleuls » : …', conflitsParcelle: [{}] }); }
+      return avant(url, init);
+    });
+    act(() => root.unmount()); root = createRoot(container);
+    await ouvrir();
+    await clic('[data-fcp-choisir-syndic]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    await clic('[data-fcp-syndic-propose="4"]');
+    await clic('[data-fcp-valider]');
+    expect(posts.at(-1)).toMatchObject({ syndicId: 4, conflitsParcelle: [] });
+    expect($('[data-fcp-erreur]').textContent).toContain('Conflit de parcelle non confirmé');
+    expect(document.querySelector('[data-fcp-info]')).toBeNull();
+  });
   it('une fiche encore à créer, d’autres adresses sur la parcelle non rattachées : l’alerte d’abord (« Voir les adresses » / « Valider quand même »)', async () => {
     lu = { fiche: FICHE({ declaree: false, id: null, syndic: null, gestionnaires: [] }), coproprieteDuBien: null };
     await ouvrir();

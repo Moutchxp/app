@@ -7,6 +7,7 @@ import { DigicodeImmeuble } from './DigicodeImmeuble';
 import { AgCopropriete } from './AgCopropriete';
 import { DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
+import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
 import {
   ALERTE_DESACCORD, estHorsCopropriete, nomAffiche, titreFicheCopropriete, type FicheCopropriete as Fiche,
 } from '../../../../lib/gestion/copropriete';
@@ -298,8 +299,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         <div className="fcp-corps">{corps}</div>
         {etape === 'conflit' && (
           <div className="fcp-etape" role="alert" data-fcp-conflit>
-            <p className="fcp-sans-marge">Sur la même parcelle, {conflits.map((k) => `${adresseImmeuble(k.libelle, k.codePostal, k.commune)} (${k.copropriete}) est gérée par ${nomAvecVille(k.syndic!.nom, k.syndic!.ville)}`).join(' ; ')}.
-              Confirmez-vous un autre syndic pour cette copropriété ?</p>
+            <p className="fcp-sans-marge">{questionConflitParcelle(conflits)}</p>
             <div className="fcp-actions">
               {/* 🔴 (lot 6, déplacé de la fiche syndic) « Rattacher à X » : cette copropriété REJOINT celle de la parcelle, avec son syndic (regroupement) */}
               {[...new Map(conflits.filter((k) => k.copropriete !== null).map((k) => [k.syndic!.id, k])).values()].map((k) => (

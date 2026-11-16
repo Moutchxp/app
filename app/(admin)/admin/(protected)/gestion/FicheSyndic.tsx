@@ -38,6 +38,8 @@ import {
   biensDeLaCopropriete, biensDuCabinet, motAvertissementPartage, niveauxModifies, type ResumeRattachement,
 } from '../../../../lib/gestion/partageSyndic';
 import { createPortal } from 'react-dom';
+/* 🔴🔴 (16/11/2026) le conflit de parcelle : la MÊME question que la fiche copropriété, posée quand le serveur la demande. */
+import { questionConflitParcelle, type ConflitAConfirmer } from '../../../../lib/gestion/conflitParcelle';
 /* 🔴🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — réintégrer un ancien contact plutôt que le recréer. */
 import { ancienDuMemeNom, motProposeReintegration, reintegrerAvecSaisie } from '../../../../lib/gestion/reintegrationContact';
 
@@ -254,6 +256,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * existante quand il est dans le même immeuble (le serveur la retrouve par l'adresse) — aucune copropriété en double.
    */
   const [confirmation, setConfirmation] = useState<ResumeRattachement | null>(null);
+  /** 🔴 (16/11/2026) le conflit de parcelle demandé par le serveur, et la reprise avec le choix « Oui, je confirme ». */
+  const [etapeConflit, setEtapeConflit] = useState<{ conflits: ConflitAConfirmer[]; reprendre: (k: ConflitAConfirmer[]) => void } | null>(null);
   /** Variante « location » : le choix est rendu au formulaire du bien, SANS écriture (le bien n'existe pas encore). */
   const choisirSansEcrire = (s: { id: number; nom: string; ville: string | null }): void => { onChoisi?.(s); onFerme(); };
   const choisirParId = async (id: number): Promise<void> => {
@@ -264,11 +268,13 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     } catch { /* repli ci-dessous */ }
     setErreur('Ce syndic n’a pas pu être lu.');
   };
-  const selectionner = async (id: number, coproCle: string | null = null): Promise<void> => {
+  const selectionner = async (id: number, coproCle: string | null = null, confirmes: readonly ConflitAConfirmer[] = []): Promise<void> => {
     if (immeubleDepart === null || immeubleDepart.libelle.trim() === '') return;
-    setEnvoi(true); setErreur(null);
-    const r = await rattacherAuBien(id, immeubleDepart, coproCle, lotDepart);
+    setEnvoi(true); setErreur(null); setEtapeConflit(null);
+    const r = await rattacherAuBien(id, immeubleDepart, coproCle, lotDepart, confirmes);
     setEnvoi(false);
+    /* 🔴 (16/11/2026) conflit de parcelle : la question est posée ; « Oui, je confirme » renvoie le rattachement avec le choix noté. */
+    if (r.conflits !== undefined) { setEtapeConflit({ conflits: r.conflits, reprendre: (k) => void selectionner(id, coproCle, k) }); return; }
     if (r.erreur !== null) { setErreur(r.erreur); return; }
     if (r.resume === null) { onFerme(); return; }
     setConfirmation(r.resume);
@@ -334,10 +340,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — le serveur a renvoyé des coordonnées déjà utilisées, NON confirmées
    *  (un chemin qui n'est pas passé par le « Valider » d'un contact) : on les montre, et on confirme ou on revient. */
-  const [avertServeur, setAvertServeur] = useState<{ lignes: string[]; f: SyndicForm; conflit?: boolean } | null>(null);
-  const validerAvec = async (f: SyndicForm, confirme = false, ctx: { conflit?: boolean; ignores?: DoublonIgnore[] } = {}): Promise<void> => {
+  const [avertServeur, setAvertServeur] = useState<{ lignes: string[]; f: SyndicForm; conflits?: ConflitAConfirmer[] } | null>(null);
+  const validerAvec = async (f: SyndicForm, confirme = false, ctx: { conflits?: ConflitAConfirmer[]; ignores?: DoublonIgnore[] } = {}): Promise<void> => {
     const ignores = ctx.ignores ?? accepte;
-    setAvertServeur(null);
+    setAvertServeur(null); setEtapeConflit(null);
     setQuestionContact(false);
     setEdition(null);
     // Rien n'a bougé sur un syndic existant ⇒ on ferme : un syndic ancien sans adresse complète reste CONSULTABLE.
@@ -360,13 +366,22 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           ...sansAdressesCopro(versSaisie(f)), ...(confirme ? { confirmeDoublons: true } : {}),
           // LOT SYNDIC-ANTI-DOUBLON — « Créer quand même » : les doublons possibles montrés et acceptés.
           ...(syndicId === null && ignores !== null && ignores.length > 0 ? { doublonsSyndicIgnores: ignores } : {}),
+          // 🔴 (16/11/2026) les conflits de parcelle confirmés (« Oui, je confirme ») : le serveur les note
+          ...(ctx.conflits !== undefined && ctx.conflits.length > 0
+            ? { conflitsParcelle: ctx.conflits.map((k) => ({ immeuble: k.immeuble, autre: k.libelle, parcelle: k.parcelle })) } : {}),
         }),
       });
-      const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[]; doublonsSyndic?: DoublonSyndic[] };
+      const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[]; doublonsSyndic?: DoublonSyndic[]; conflitsParcelle?: ConflitAConfirmer[] };
       /* LOT SYNDIC-ANTI-DOUBLON — le serveur a trouvé un doublon que l'écran n'avait pas fait accepter (l'annuaire a pu
          changer entre-temps) : on le montre, rien n'a été écrit. */
       if (Array.isArray(j.doublonsSyndic) && j.doublonsSyndic.length > 0) { setAccepte(null); setEtapeDoublon(j.doublonsSyndic); return; }
-      if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f, conflit: ctx.conflit === true }); return; }
+      if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f, conflits: ctx.conflits }); return; }
+      /* 🔴 (16/11/2026) une copropriété reçue, une adresse de la même parcelle gérée par un AUTRE syndic : la même question que la fiche
+         copropriété ; rien n'a été écrit. « Oui, je confirme » renvoie la saisie avec le choix, que le serveur note. */
+      if (Array.isArray(j.conflitsParcelle) && j.conflitsParcelle.length > 0) {
+        const conflits = j.conflitsParcelle;
+        setEtapeConflit({ conflits, reprendre: (k) => void validerAvec(f, confirme, { ...ctx, ignores: ignores ?? undefined, conflits: k }) }); return;
+      }
       if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
       await rafraichirImmeubles();
       // Variante « location » : le syndic créé (ou complété) est rendu au formulaire du bien.
@@ -529,6 +544,14 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
                 setAccepte(acc); setEtapeDoublon(null);
                 void valider({ ignores: acc });
               }} />
+          ) : etapeConflit !== null ? (
+            /* 🔴 (16/11/2026) le conflit de parcelle — la question de la fiche copropriété, mot pour mot. */
+            <div className="fsy-boutons" role="alert" aria-label="Conflit de parcelle" data-fsy-conflit-parcelle>
+              <span className="fsy-question">{questionConflitParcelle(etapeConflit.conflits)}</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapeConflit(null)} disabled={envoi}>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-fsy-conflit-oui
+                onClick={() => etapeConflit.reprendre(etapeConflit.conflits)}>Oui, je confirme</button>
+            </div>
           ) : avertServeur !== null ? (
             <div className="fsy-boutons fsy-avert-serveur" role="group" aria-label="Coordonnées déjà utilisées">
               <span className="fsy-question fsy-alerte-coord-texte">
@@ -536,7 +559,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
                 <span>Enregistrer quand même ?</span>
               </span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAvertServeur(null)}>Revenir</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void validerAvec(avertServeur.f, true, { conflit: avertServeur.conflit })}>Enregistrer quand même</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void validerAvec(avertServeur.f, true, { conflits: avertServeur.conflits })}>Enregistrer quand même</button>
             </div>
           ) : questionContact && edition !== null ? (
             <div className="fsy-boutons" role="group" aria-label="Enregistrer les modifications de ce contact ?" ref={bandeau}>

@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (corps.action === 'enregistrer') {
       const r = await enregistrerCopropriete(corps, await auteurDeLaRequete(request));
-      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif, ...(r.conflitsParcelle ? { conflitsParcelle: r.conflitsParcelle } : {}) }, { headers: ENTETES });
     }
     return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
   } catch (e) {

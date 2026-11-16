@@ -8,6 +8,7 @@ import type { ImmeubleSaisi } from '../../../../lib/gestion/syndics';
 import { nomAvecVille } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles } from './useImmeublesSyndics';
 import { motConfirmationRattachement, type ResumeRattachement } from '../../../../lib/gestion/partageSyndic';
+import type { ConflitAConfirmer } from '../../../../lib/gestion/conflitParcelle';
 
 /**
  * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — LES TROIS PROPOSITIONS DE L'ÉCRAN ═══════════════════════
@@ -46,15 +47,19 @@ export function motOrigine(s: SyndicConnuVu): string {
  * Le rattachement d'un syndic EXISTANT à l'immeuble d'un bien (la fiche ENTIÈRE, par lien). Rend l'erreur, ou le
  * résumé du partage (« Syndic X rattaché — N contacts syndic et M habitants / gardien partagés avec K autres biens »).
  */
-export async function rattacherAuBien(syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null, lotId: number | null = null):
-Promise<{ erreur: string | null; resume: ResumeRattachement | null }> {
+export async function rattacherAuBien(syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null, lotId: number | null = null,
+  /** 🔴 (16/11/2026) les conflits de parcelle confirmés (« Oui, je confirme »), renvoyés après le premier refus */
+  confirmes: readonly ConflitAConfirmer[] = []):
+Promise<{ erreur: string | null; resume: ResumeRattachement | null; conflits?: ConflitAConfirmer[] }> {
   try {
     const r = await fetch(`/api/admin/gestion/syndics/${syndicId}/rattacher-bien`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ immeuble, ...(coproCle !== null ? { coproCle } : {}), ...(lotId !== null ? { lotId } : {}) }),
+      body: JSON.stringify({ immeuble, ...(coproCle !== null ? { coproCle } : {}), ...(lotId !== null ? { lotId } : {}),
+        ...(confirmes.length > 0 ? { conflitsParcelle: confirmes.map((k) => ({ immeuble: k.immeuble, autre: k.libelle, parcelle: k.parcelle })) } : {}) }),
     });
-    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; resume?: ResumeRattachement | null };
-    if (!r.ok || j.ok !== true) return { erreur: j.erreur ?? 'Rattachement impossible.', resume: null };
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; resume?: ResumeRattachement | null; conflitsParcelle?: ConflitAConfirmer[] };
+    if (!r.ok || j.ok !== true) return { erreur: j.erreur ?? 'Rattachement impossible.', resume: null,
+      ...(Array.isArray(j.conflitsParcelle) && j.conflitsParcelle.length > 0 ? { conflits: j.conflitsParcelle } : {}) };
     await rafraichirImmeubles();
     return { erreur: null, resume: j.resume ?? null };
   } catch {

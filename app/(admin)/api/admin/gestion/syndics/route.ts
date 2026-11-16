@@ -52,7 +52,9 @@ export async function POST(request: Request): Promise<Response> {
     // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — des coordonnées déjà utilisées, non confirmées : les lignes suivent.
     if (!issue.ok) return Response.json({ erreur: issue.motif, ...(issue.avertissement ? { avertissement: issue.avertissement } : {}),
       /* 🔴 LOT SYNDIC-ANTI-DOUBLON — les syndics existants qui ressemblent à celui qu'on crée, et pourquoi. */
-      ...(issue.doublonsSyndic ? { doublonsSyndic: issue.doublonsSyndic } : {}) }, { status: 409, headers: ENTETES });
+      ...(issue.doublonsSyndic ? { doublonsSyndic: issue.doublonsSyndic } : {}),
+      /* 🔴 (16/11/2026) un conflit de parcelle non confirmé : la question à poser, rien n'est écrit. */
+      ...(issue.conflitsParcelle ? { conflitsParcelle: issue.conflitsParcelle } : {}) }, { status: 409, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/syndics] création impossible', e);

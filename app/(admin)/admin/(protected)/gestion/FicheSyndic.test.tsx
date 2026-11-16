@@ -4002,3 +4002,76 @@ describe('🔴🔴 LOT 6 — la fiche syndic allégée, le lien « Ouvrir la fic
     expect(copro.textContent).toContain('Léa');
   });
 });
+
+/**
+ * ══ 🔴🔴 LE CONFLIT DE PARCELLE, QUEL QUE SOIT LE CÔTÉ D'OÙ L'ON RATTACHE (Arno, 16/11/2026, après le lot 6) ═════════════════════════════
+ * Depuis la fiche syndic, une copropriété reçue sur une parcelle gérée par un AUTRE syndic : le serveur refuse sans confirmation (règle commune
+ * `conflitParcelleRepo`, éprouvée dans conflitParcelleSyndic.test.ts) et renvoie la question ; la fiche la pose — la même que la fiche
+ * copropriété — avec « Annuler » et « Oui, je confirme » ; le choix repart et le serveur le note. Rien d'autre n'est ajouté à la fiche syndic.
+ */
+describe('🔴🔴 conflit de parcelle depuis la fiche syndic', () => {
+  const CONFLIT = { immeuble: '12 rue X', libelle: '14 rue X', codePostal: '92400', commune: 'Courbevoie', parcelle: 'AB12', etat: 'prise',
+    copropriete: '14 rue X', syndic: { id: 9, nom: 'Cabinet B', ville: 'Paris' } };
+  const QUESTION = 'Sur la même parcelle, 14 rue X, 92400 Courbevoie (14 rue X) est gérée par Cabinet B / Paris. Confirmez-vous un autre syndic pour cette copropriété ?';
+  const FICHE_82 = { ...FICHE, id: 82, nom: '_TEST Conflit', ville: 'Paris', contacts: [],
+    coproprietes: [{ id: 6, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] }] };
+  let onFerme = vi.fn();
+  const servir82 = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const corps = init?.body ? JSON.parse(String(init.body)) as { conflitsParcelle?: unknown[] } : null;
+      appels.push({ url, methode: m, corps });
+      const rep = (j: unknown, ok = true) => ({ ok, status: ok ? 200 : 409, json: async () => j });
+      // le serveur : sans la confirmation, 409 + la question ; avec, enregistré
+      if (m !== 'GET') return (corps?.conflitsParcelle ?? []).length > 0 ? rep({ ok: true, id: 82, resume: null })
+        : rep({ erreur: 'Conflit de parcelle non confirmé pour « 12 rue X » : …', conflitsParcelle: [CONFLIT] }, false);
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: [] });
+      if (url.startsWith('/api/admin/gestion/syndics/connus')) {
+        return rep({ etat: 'ok', syndics: [{ syndic: { id: 82, nom: '_TEST Conflit', ville: 'Paris' }, copro: { cle: '12 rue x', libelle: '12 rue X' }, via: ['parcelle'], biens: [] }] });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/82')) return rep({ etat: 'ok', fiche: FICHE_82 });
+      return rep({});
+    }));
+  };
+  beforeEach(() => { onFerme = vi.fn(); servir82(); });
+  const pied = (): HTMLElement => document.querySelector('.fsy-pied') as HTMLElement;
+
+  it('« Valider » d’une copropriété ajoutée : la question est posée, rien n’est enregistré ; « Oui, je confirme » repart avec le choix, noté par le serveur', async () => {
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 82, onFerme })); }); await calmer();
+    await taper(champ('Nom du cabinet *'), '_TEST Conflit bis');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    const q = document.querySelector('[data-fsy-conflit-parcelle]') as HTMLElement;
+    expect(q.querySelector('.fsy-question')?.textContent).toBe(QUESTION);
+    expect([...q.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, je confirme']);
+    expect(onFerme).not.toHaveBeenCalled();
+    await cliquer(q.querySelector('[data-fsy-conflit-oui]') as Element);
+    const puts = appels.filter((a) => a.methode === 'PUT');
+    expect(puts).toHaveLength(2);
+    expect((puts[0].corps as { conflitsParcelle?: unknown }).conflitsParcelle).toBeUndefined();
+    expect((puts[1].corps as { conflitsParcelle?: unknown }).conflitsParcelle).toEqual([{ immeuble: '12 rue X', autre: '14 rue X', parcelle: 'AB12' }]);
+    expect(onFerme).toHaveBeenCalled();
+  });
+
+  it('« Annuler » : la question se ferme, rien n’est renvoyé, la fiche reste ouverte', async () => {
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 82, onFerme })); }); await calmer();
+    await taper(champ('Nom du cabinet *'), '_TEST Conflit bis');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    await cliquer(boutonDans(document.querySelector('[data-fsy-conflit-parcelle]'), 'Annuler'));
+    expect(document.querySelector('[data-fsy-conflit-parcelle]')).toBeNull();
+    expect(appels.filter((a) => a.methode === 'PUT')).toHaveLength(1);
+    expect(onFerme).not.toHaveBeenCalled();
+  });
+
+  it('« Le rattacher à ce bien » (rattachement depuis le bien) : la même question ; « Oui, je confirme » renvoie le rattachement avec le choix', async () => {
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: null, onFerme, lotDepart: 176,
+      immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } })); });
+    await attendre(30);
+    await cliquer(bouton('Le rattacher à ce bien'));
+    const q = document.querySelector('[data-fsy-conflit-parcelle]') as HTMLElement;
+    expect(q.querySelector('.fsy-question')?.textContent).toBe(QUESTION);
+    await cliquer(q.querySelector('[data-fsy-conflit-oui]') as Element);
+    const posts = appels.filter((a) => a.url === '/api/admin/gestion/syndics/82/rattacher-bien');
+    expect(posts.map((a) => (a.corps as { conflitsParcelle?: unknown }).conflitsParcelle)).toEqual([undefined, [{ immeuble: '12 rue X', autre: '14 rue X', parcelle: 'AB12' }]]);
+    expect(document.querySelector('[data-fsy-conflit-parcelle]')).toBeNull();
+  });
+});

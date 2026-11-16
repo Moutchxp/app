@@ -1585,7 +1585,7 @@ describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — serveur', () =
     expect(w.ok && ('alerteParcelle' in w.syndic || 'conflitsParcelle' in w.syndic)).toBe(false);
   });
 
-  it('à l’enregistrement : l’alerte est marquée (une fois) ; un conflit noté seulement si l’autre copropriété a un AUTRE syndic', async () => {
+  it('à l’enregistrement : l’alerte est marquée (une fois) ; 🔴 (16/11/2026) un conflit n’est noté que si le SERVEUR le trouve (règle commune)', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
     reponses = [
       (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
@@ -1598,13 +1598,9 @@ describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — serveur', () =
     await enregistrerSyndic(11, v.syndic, auteur);
     expect(appels.find((a) => a.sql.includes('SET alerte_parcelle_le = now()'))?.params).toEqual([['37 avenue marceau'], 'arno']);
     expect(norm(appels.find((a) => a.sql.includes('SET alerte_parcelle_le = now()'))?.sql ?? '')).toContain('AND alerte_parcelle_le IS NULL');
-    const ins = appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete_conflit'));
-    expect(ins?.params).toEqual(['41', 11, '42', '70', 'P1', 7, 'arno']);
-    expect(norm(ins?.sql ?? '')).toContain('WHERE NOT EXISTS (SELECT 1 FROM gestion_copropriete_conflit WHERE verifie_le IS NULL');
-    // l'autre copropriété est à CE syndic : pas de conflit
-    appels.length = 0;
-    reponses[2] = (sql) => (sql.includes('cs.syndic_id::text AS syndic FROM gestion_copropriete c') ? { rows: [{ id: '42', syndic: '11' }] } : undefined);
-    await enregistrerSyndic(11, v.syndic, auteur);
+    // CE QU'IL Y AVAIT : le conflit envoyé par l'écran était noté tel quel. Désormais le serveur le RECALCULE (`conflitParcelleRepo`, la même
+    // règle que la fiche copropriété) : ici la base simulée n'a aucune parcelle, donc aucun conflit — rien n'est noté. La note d'un conflit
+    // réel, confirmé, et le refus sans confirmation : conflitParcelleSyndic.test.ts.
     expect(appels.some((a) => a.sql.includes('INSERT INTO gestion_copropriete_conflit'))).toBe(false);
   });
 

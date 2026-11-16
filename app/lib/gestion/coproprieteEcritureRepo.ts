@@ -1,7 +1,7 @@
-import { query, withTransaction, type RequeteTx } from '../db/client';
+import { withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from './gestes';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
-import { adressesDeLaParcelle } from './parcelleRepo';
+import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, noterConflitParcelle, type ConflitAConfirmer } from './conflitParcelleRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, type AdresseSaisie, type ContactImmeubleSaisi } from './syndics';
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import type { FicheCopropriete } from './copropriete';
@@ -99,7 +99,7 @@ async function coproDeCle(q: RequeteTx, cle: string): Promise<{ id: string; cle:
 }
 
 /** L'enregistrement. Rend la fiche relue. */
-export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
+export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string; conflitsParcelle?: ConflitAConfirmer[] }> {
   const v = validerSaisieCopropriete(brut);
   if (!v.ok) return v;
   const s = v.saisie;
@@ -108,6 +108,14 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   const avec476 = await fiche476Disponible();
   if (s.horsCopropriete !== null && !avec476) return { ok: false, motif: '« Hors copropriété » demande la mise à jour de la base (migration 476) : rien n’est enregistré.' };
   if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
+  // 🔴 le conflit de parcelle (la même règle que la fiche syndic) : une copropriété qui reçoit un syndic, une adresse de la parcelle gérée par un
+  // AUTRE syndic — refusé sans la confirmation de l'écran, AVANT toute écriture ; confirmé, il est noté plus bas
+  let conflits: ConflitAConfirmer[] = [];
+  if (s.syndicId !== null && s.syndicId !== lue.syndic?.id) {
+    conflits = await conflitsDuRattachement(lue.libelle, [{ libelle: lue.libelle, codePostal: lue.codePostal ?? '', commune: lue.commune ?? '' }, ...s.adresses], s.syndicId);
+    const manquants = conflitsNonConfirmes(conflits, s.conflitsParcelle);
+    if (manquants.length > 0) return { ok: false, motif: motifConflitParcelle(manquants), conflitsParcelle: manquants };
+  }
   const r = await withTransaction(async (q) => {
     // ── ① TOUS LES REFUS, AVANT TOUTE ÉCRITURE ─────────────────────────────────────────────────────────────────────────────────────────────
     for (const a of s.adresses) {
@@ -184,16 +192,7 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       }
       await q('INSERT INTO gestion_copropriete_syndic (copropriete_id, syndic_id, pose_par, pose_par_libelle) VALUES ($1, $2, $3, $4)', [coproId, s.syndicId, auteur.id, auteur.libelle]);
       // un conflit de parcelle CONFIRMÉ (une adresse de la parcelle est la copropriété d'un AUTRE syndic) : noté, comme depuis la fiche syndic
-      for (const k of s.conflitsParcelle) {
-        const autre = await coproDeCle(q, cleImmeuble(k.autre));
-        if (autre === null || autre.id === coproId) continue;
-        const { rows: sb } = await q<{ syndic: string }>('SELECT syndic_id::text AS syndic FROM gestion_copropriete_syndic WHERE copropriete_id = $1 AND fin IS NULL LIMIT 1', [autre.id]);
-        if (sb[0] === undefined || Number(sb[0].syndic) === s.syndicId) continue;
-        await q(`INSERT INTO gestion_copropriete_conflit (copropriete_a, syndic_a, copropriete_b, syndic_b, parcelle, cree_par, cree_par_libelle)
-                 SELECT $1, $2, $3, $4, $5, $6, $7 WHERE NOT EXISTS (SELECT 1 FROM gestion_copropriete_conflit WHERE verifie_le IS NULL
-                   AND ((copropriete_a = $1 AND copropriete_b = $3) OR (copropriete_a = $3 AND copropriete_b = $1)))`,
-          [coproId, s.syndicId, autre.id, sb[0].syndic, k.parcelle, auteur.id, auteur.libelle]);
-      }
+      for (const k of conflits) await noterConflitParcelle(q, coproId, s.syndicId, k, auteur);
     }
     // ── ⑥ les digicodes (journal « depuis la fiche copropriété ») ; les nouveaux bâtiments entrent au registre de la copropriété ──────────────
     const nouveaux: BatimentConnu[] = [];
@@ -288,28 +287,5 @@ async function regrouper(s: SaisieCopropriete, lue: FicheCopropriete, auteur: Au
 /** Un refus découvert APRÈS le début des écritures : levé, pour que la transaction soit ANNULÉE (rien n'est écrit). */
 class RefusCopro extends Error {}
 
-/** Une adresse de la même parcelle : libre (« Rattacher »), déjà de cette copropriété, ou prise par une autre (avec son syndic). */
-export interface PropositionParcelle { libelle: string; codePostal: string; commune: string; parcelle: string; etat: 'libre' | 'prise';
-  copropriete: string | null; syndic: { id: number; nom: string; ville: string | null } | null }
-
-/** Les adresses des mêmes parcelles que celles de la copropriété (hors les siennes). LECTURE SEULE. */
-export async function propositionsParcelle(adresses: readonly AdresseSaisie[], cleCopro: string): Promise<PropositionParcelle[]> {
-  const { adresses: autour } = await adressesDeLaParcelle(adresses);
-  const siennes = new Set(adresses.map((a) => cleImmeuble(a.libelle)));
-  const out: PropositionParcelle[] = [];
-  for (const a of autour) {
-    if (siennes.has(a.cle)) continue;
-    const { rows } = await query<{ cle: string; libelle: string; syndic_id: string | null; syndic_nom: string | null; syndic_ville: string | null }>(
-      `SELECT c.cle_immeuble AS cle, c.libelle, s.id::text AS syndic_id, s.nom AS syndic_nom, s.ville AS syndic_ville
-         FROM gestion_copropriete c
-         LEFT JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
-         LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
-        WHERE c.cle_immeuble = $1 OR c.id = (SELECT x.copropriete_id FROM gestion_copropriete_adresse x WHERE x.cle_immeuble = $1 AND x.retire_le IS NULL ORDER BY x.id LIMIT 1)
-        ORDER BY (c.cle_immeuble <> $1) DESC LIMIT 1`, [a.cle]);
-    const c = rows[0];
-    const prise = c !== undefined && c.cle !== cleCopro;
-    out.push({ libelle: a.libelle, codePostal: a.codePostal, commune: a.commune, parcelle: a.parcelle, etat: prise ? 'prise' : 'libre',
-      copropriete: prise ? c.libelle : null, syndic: prise && c.syndic_id !== null ? { id: Number(c.syndic_id), nom: c.syndic_nom ?? '', ville: c.syndic_ville } : null });
-  }
-  return out;
-}
+// 🔴 (16/11/2026) les adresses de la parcelle et le conflit de parcelle : une seule règle, partagée avec la fiche syndic
+export { propositionsParcelle, type PropositionParcelle } from './conflitParcelleRepo';

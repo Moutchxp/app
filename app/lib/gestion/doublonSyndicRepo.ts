@@ -5,6 +5,7 @@ import { ficheSyndic, enregistrerSyndic, syndicsComparables } from './syndicRepo
 import { cleImmeuble, validerSyndic, versFormulaire, versSaisie, type ImmeubleSaisi } from './syndics';
 import { cleAdressePostale, memeAdressePostale } from './doublonSyndic';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
+import type { ConflitAConfirmer } from './conflitParcelle';
 import { biensDeLaCopropriete, type ResumeRattachement } from './partageSyndic';
 
 /**
@@ -245,7 +246,9 @@ export async function resumePartage(syndicId: number, cleCopro: string, lotId: n
  */
 export async function rattacherBienAuSyndic(
   syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null, auteur: Auteur, lotId: number | null = null,
-): Promise<{ ok: true; id: number; resume: ResumeRattachement | null } | { ok: false; motif: string }> {
+  /** 🔴 (16/11/2026) les conflits de parcelle confirmés à l'écran (la question posée après un premier refus) */
+  conflitsParcelle: Array<{ immeuble: string; autre: string; parcelle: string }> = [],
+): Promise<{ ok: true; id: number; resume: ResumeRattachement | null } | { ok: false; motif: string; conflitsParcelle?: ConflitAConfirmer[] }> {
   const libelle = immeuble.libelle.trim();
   if (libelle === '') return { ok: false, motif: 'Ce bien n’a pas d’« Immeuble » : il ne peut recevoir un syndic que par son immeuble.' };
   const fiche = await ficheSyndic(syndicId);
@@ -267,10 +270,10 @@ export async function rattacherBienAuSyndic(
       : f.immeubles.map((im) => (im === cible
         ? { ...im, adresses: [...(im.adresses ?? []), { libelle, codePostal: immeuble.codePostal, commune: immeuble.commune }] } : im));
   }
-  const v = validerSyndic(JSON.parse(JSON.stringify({ ...versSaisie(f), confirmeDoublons: true })));
+  const v = validerSyndic(JSON.parse(JSON.stringify({ ...versSaisie(f), confirmeDoublons: true, conflitsParcelle })));
   if (!v.ok) return { ok: false, motif: v.motif };
   const r = await enregistrerSyndic(syndicId, v.syndic, auteur);
-  if (!r.ok) return { ok: false, motif: r.motif };
+  if (!r.ok) return { ok: false, motif: r.motif, ...(r.conflitsParcelle ? { conflitsParcelle: r.conflitsParcelle } : {}) };
   const finale = dejaLa !== undefined ? dejaLa.libelle : cible !== undefined ? cible.libelle : libelle;
   const resume = await resumePartage(syndicId, finale, lotId, dejaLa === undefined && cible === undefined).catch(() => null);
   return { ok: true, id: r.id, resume };

@@ -64,6 +64,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const issue = await enregistrerSyndic(id, v.syndic, await auteurDeLaRequete(request));
     // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — des coordonnées déjà utilisées, non confirmées : 409 + les lignes.
     if (!issue.ok && issue.avertissement) return Response.json({ erreur: issue.motif, avertissement: issue.avertissement }, { status: 409, headers: ENTETES });
+    // 🔴 (16/11/2026) un conflit de parcelle non confirmé : 409 + la question à poser ; rien n'est écrit.
+    if (!issue.ok && issue.conflitsParcelle) return Response.json({ erreur: issue.motif, conflitsParcelle: issue.conflitsParcelle }, { status: 409, headers: ENTETES });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 404, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {

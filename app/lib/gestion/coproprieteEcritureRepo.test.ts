@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (16/11/2026, fiche Copropriété, lot 2) — l'écriture : refus avant toute écriture, création au premier « Valider », jamais d'effacement. */
 const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], coproDeCle: {} as Record<string, { id: string; cle: string; libelle: string }>, syndicExiste: true,
-  liens: [] as { id: string; syndic_id: string }[], enCours: [] as { id: string; cle: string; libelle: string }[], contacts: [] as unknown[], fiche: null as unknown }));
+  liens: [] as { id: string; syndic_id: string }[], enCours: [] as { id: string; cle: string; libelle: string }[], contacts: [] as unknown[], fiche: null as unknown,
+  parcelle: [] as unknown[], prise: {} as Record<string, unknown>, porteur: {} as Record<string, unknown> }));
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const norm = (x: string): string => x.replace(/\s+/g, ' ').trim();
   const s = norm(sql); h.sql.push({ s, p });
   if (s.startsWith('SELECT c.id::text, c.cle_immeuble AS cle, c.libelle FROM gestion_copropriete c')) { const x = h.coproDeCle[p[0] as string]; return { rows: x ? [x] : [] }; }
+  // le conflit de parcelle (règle commune) : la copropriété d'une adresse de la parcelle, avec son syndic ; et celle qui est notée
+  if (s.startsWith('SELECT c.cle_immeuble AS cle, c.libelle, s.id::text AS syndic_id')) { const x = h.prise[p[0] as string]; return { rows: x ? [x] : [] }; }
+  if (s.startsWith('SELECT c.id::text, cs.syndic_id::text AS syndic FROM gestion_copropriete c')) { const x = h.porteur[p[0] as string]; return { rows: x ? [x] : [] }; }
   if (s.startsWith('SELECT id::text FROM gestion_syndic WHERE id = $1')) return { rows: h.syndicExiste ? [{ id: String(p[0]) }] : [] };
   if (s.startsWith('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1')) return { rows: [{ id: '7' }] };
   if (s.startsWith('SELECT id::text, cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse')) return { rows: h.enCours };
@@ -21,7 +25,7 @@ vi.mock('./contactsImmeubleRepo', () => ({ enregistrerContactsImmeuble: async (_
 const dg = vi.hoisted(() => ({ avec477: true, ecrits: [] as unknown[][] }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ depuisCoproprieteDisponible: async () => dg.avec477,
   enregistrerDigicodeDans: async (...a: unknown[]) => { dg.ecrits.push(a.slice(1)); return { ok: true, change: true, immeubleId: 1 }; } }));
-vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: [] }) }));
+vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
 import { enregistrerCopropriete, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -31,7 +35,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); });
+beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -65,7 +69,7 @@ describe('l’enregistrement', () => {
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
   });
   it('changer de syndic depuis la fiche : l’ancien lien FERMÉ (« changement de syndic »), ses gestionnaires détachés, le nouveau ouvert ; conflit confirmé noté', async () => {
-    h.coproDeCle['10 rue voisine'] = { id: '12', cle: '10 rue voisine', libelle: '10 rue Voisine' };
+    voisineDuCabinetB();
     await enregistrerCopropriete({ ...SAISIE, syndicId: 5, conflitsParcelle: [{ autre: '10 rue Voisine', parcelle: 'AB12' }] }, AUTEUR);
     const e = ecritures().map((x) => x.s);
     expect(e.some((s) => s.includes("fin_motif = 'changement de syndic'"))).toBe(true);
@@ -83,6 +87,35 @@ describe('l’enregistrement', () => {
   it('l’alerte « autres adresses de la parcelle » marquée vue une seule fois', async () => {
     await enregistrerCopropriete({ ...SAISIE, alerteParcelleVue: true }, AUTEUR);
     expect(ecritures().some((x) => x.s.includes('SET alerte_parcelle_le = now()') && x.s.includes('alerte_parcelle_le IS NULL'))).toBe(true);
+  });
+});
+
+/** Sur la même parcelle : le 10 rue Voisine, copropriété du cabinet B (syndic 9). */
+function voisineDuCabinetB(): void {
+  h.parcelle = [{ cle: '10 rue voisine', libelle: '10 rue Voisine', codePostal: '75011', commune: 'Paris', parcelle: 'AB12' }];
+  h.prise['10 rue voisine'] = { cle: '10 rue voisine', libelle: '10 rue Voisine', syndic_id: '9', syndic_nom: 'Cabinet B', syndic_ville: null };
+  h.porteur['10 rue voisine'] = { id: '12', syndic: '9' };
+}
+
+describe('🔴🔴 le conflit de parcelle, depuis la fiche copropriété (la règle commune aux deux fiches)', () => {
+  it('conflit posé : SANS la confirmation, refus clair AVANT toute écriture, avec la question à poser', async () => {
+    voisineDuCabinetB();
+    const r = await enregistrerCopropriete({ ...SAISIE, syndicId: 5 }, AUTEUR);
+    expect(r).toMatchObject({ ok: false, motif: 'Conflit de parcelle non confirmé pour « Résidence Les Tilleuls » : sur la même parcelle, 10 rue Voisine, 75011 Paris (10 rue Voisine) est gérée par Cabinet B. Confirmez un autre syndic pour cette copropriété : rien n’est enregistré sans cette confirmation.',
+      conflitsParcelle: [{ immeuble: 'Résidence Les Tilleuls', libelle: '10 rue Voisine', parcelle: 'AB12', syndic: { id: 9, nom: 'Cabinet B' } }] });
+    expect(ecritures()).toEqual([]);
+  });
+  it('AVEC la confirmation : enregistré, le conflit noté (les deux copropriétés, leurs syndics, la parcelle)', async () => {
+    voisineDuCabinetB();
+    expect((await enregistrerCopropriete({ ...SAISIE, syndicId: 5, conflitsParcelle: [{ autre: '10 rue Voisine', parcelle: 'AB12' }] }, AUTEUR)).ok).toBe(true);
+    expect(ecritures().filter((x) => x.s.startsWith('INSERT INTO gestion_copropriete_conflit')).map((x) => x.p.slice(0, 5))).toEqual([['7', 5, '12', '9', 'AB12']]);
+  });
+  it('rattachée au syndic de la parcelle (même syndic), ou syndic inchangé : aucune question, aucun conflit noté', async () => {
+    voisineDuCabinetB();
+    h.fiche = FICHE({ contacts: [], nom: 'Les Tilleuls' });
+    expect((await enregistrerCopropriete({ ...SAISIE, syndicId: 9 }, AUTEUR)).ok).toBe(true);
+    expect((await enregistrerCopropriete({ ...SAISIE, syndicId: 2 }, AUTEUR)).ok).toBe(true);
+    expect(ecritures().some((x) => x.s.startsWith('INSERT INTO gestion_copropriete_conflit'))).toBe(false);
   });
 });
 

@@ -6,7 +6,8 @@ import { syndicsDisponibles } from '../../../../../../../lib/gestion/syndicRepo'
 
 /**
  * POST /api/admin/gestion/syndics/[id]/rattacher-bien — LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE.
- * Corps : `{ immeuble: { libelle, codePostal, commune }, coproCle?: string, lotId?: number }`.
+ * Corps : `{ immeuble: { libelle, codePostal, commune }, coproCle?: string, lotId?: number, conflitsParcelle?: [{ immeuble, autre }] }`.
+ * 🔴 (16/11/2026) un conflit de parcelle non confirmé : 409 + `conflitsParcelle` (la question à poser) ; rien n'est écrit.
  * « Sélectionner ce syndic pour ce bien », « Le rattacher à ce bien », « Rattacher » du bandeau d'un bien : le syndic
  * EXISTANT reçoit l'immeuble du bien (comme adresse de la copropriété `coproCle` quand on la connaît), par la porte
  * unique `enregistrerSyndic`. 🔴 ÉCRIT UNIQUEMENT SUR CE CLIC — jamais de rattachement automatique.
@@ -34,8 +35,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!(await syndicsDisponibles())) {
       return Response.json({ erreur: 'Annuaire des syndics non installé (migration 324).' }, { status: 409, headers: ENTETES });
     }
-    const issue = await rattacherBienAuSyndic(id, immeuble, coproCle === '' ? null : coproCle, await auteurDeLaRequete(request), lotId);
-    if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
+    const confirmes = (Array.isArray(corps.conflitsParcelle) ? corps.conflitsParcelle.slice(0, 30) : [])
+      .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+      .map((x) => ({ immeuble: texte(x.immeuble, 300), autre: texte(x.autre, 300), parcelle: texte(x.parcelle, 40) })).filter((x) => x.immeuble !== '' && x.autre !== '');
+    const issue = await rattacherBienAuSyndic(id, immeuble, coproCle === '' ? null : coproCle, await auteurDeLaRequete(request), lotId, confirmes);
+    if (!issue.ok) return Response.json({ erreur: issue.motif, ...(issue.conflitsParcelle ? { conflitsParcelle: issue.conflitsParcelle } : {}) }, { status: 409, headers: ENTETES });
     /* LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « Syndic X rattaché — N contacts syndic et M habitants / gardien partagés
        avec K autres biens », et les contacts du cabinet à proposer quand la copropriété est nouvelle. */
     return Response.json({ ok: true, id: issue.id, resume: issue.resume }, { headers: ENTETES });

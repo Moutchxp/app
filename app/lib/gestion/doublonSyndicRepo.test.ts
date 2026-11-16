@@ -123,6 +123,17 @@ describe('🔴🔴 LE RATTACHEMENT, SUR UN CLIC, PAR LA PORTE UNIQUE enregistrer
     expect((await rattacherBienAuSyndic(2, { libelle: ' ', codePostal: '', commune: '' }, null, auteur)).ok).toBe(false);
     expect(enregistrer).not.toHaveBeenCalled();
   });
+  it('🔴 conflit de parcelle (« Rattacher » depuis la fiche syndic) : le refus du serveur et la question remontent ; « Oui, je confirme » repart avec le choix', async () => {
+    const CONFLIT = { immeuble: '1 rue Ailleurs', libelle: '3 rue Ailleurs', codePostal: '75001', commune: 'PARIS', parcelle: 'AB12', etat: 'prise' as const,
+      copropriete: '3 rue Ailleurs', syndic: { id: 3, nom: 'CABINET B', ville: 'Paris' } };
+    enregistrer.mockResolvedValueOnce({ ok: false, motif: 'Conflit de parcelle non confirmé…', conflitsParcelle: [CONFLIT] } as never);
+    expect(await rattacherBienAuSyndic(2, { libelle: '1 rue Ailleurs', codePostal: '75001', commune: 'PARIS' }, null, auteur))
+      .toEqual({ ok: false, motif: 'Conflit de parcelle non confirmé…', conflitsParcelle: [CONFLIT] });
+    await rattacherBienAuSyndic(2, { libelle: '1 rue Ailleurs', codePostal: '75001', commune: 'PARIS' }, null, auteur, null,
+      [{ immeuble: '1 rue Ailleurs', autre: '3 rue Ailleurs', parcelle: 'AB12' }]);
+    const [, saisie] = enregistrer.mock.calls[1] as unknown as [number, { conflitsParcelle?: unknown[] }];
+    expect(saisie.conflitsParcelle).toEqual([{ immeuble: '1 rue Ailleurs', autre: '3 rue Ailleurs', parcelle: 'AB12' }]);
+  });
   it('⚠️ aucun accent dans le SQL du dépôt (piège du lot 19d3c67d)', () => {
     const src = readFileSync('app/lib/gestion/doublonSyndicRepo.ts', 'utf8');
     for (const sql of src.match(/`[^`]*`/g) ?? []) expect(sql, sql.slice(0, 60)).not.toMatch(/[À-ÿ]/);
