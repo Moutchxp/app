@@ -2527,6 +2527,8 @@ ${CSS_BOUTON_PILULE}
 .gst-bandeau{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;margin:0 0 1rem;font-size:.85rem;color:var(--color-svv-ink);line-height:1.45}
 .gst-btn{width:auto;flex-shrink:0;min-height:44px;padding:.55rem 1rem;font-size:.85rem;border-radius:.6rem}
 .gst-actions{display:flex;flex-wrap:wrap;gap:.5rem;flex-shrink:0}
+/* Arno (16/11/2026, lot B) : au telephone, les boutons passent a la ligne au lieu de deborder (rien de retire) */
+@media (max-width:600px){.gst-actions{flex-shrink:1;min-width:0;max-width:100%}}
 /* ── LOT 5-VEILLE — l'état de la relève AUTOMATIQUE ──
    Une seule colonne, qui se replie naturellement à 390 px ; le texte porte l'information À LUI SEUL, la bordure et la
    couleur ne font que le redire (une information tenue par la seule couleur n'existe pas pour qui ne la distingue pas). */

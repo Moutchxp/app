@@ -208,6 +208,13 @@
   .svv-page-sub{font-size:.9rem;color:var(--color-svv-muted);margin:0;line-height:1.45}
   .svv-page-actions{flex-shrink:0}
   .svv-page-note{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);color:var(--color-svv-ink);padding:.6rem .8rem;border-radius:4px;margin-top:.75rem;font-size:.9rem}
+  /* 🔴 Arno (16/11/2026, lot B) — au téléphone, l'en-tête ne dépasse plus l'écran : les actions passent sous le titre et un bouton trop
+     long revient à la ligne (rien n'est retiré ni masqué). */
+  @media (max-width:600px){
+    .svv-page-head-ligne{flex-wrap:wrap}
+    .svv-page-actions{flex-shrink:1;min-width:0;max-width:100%;margin-bottom:.5rem}
+    .svv-page-actions .svv-btn{max-width:100%;white-space:normal;overflow-wrap:anywhere;height:auto;text-align:center}
+  }
 
   /* Page /verifier — polices de marque (variables posées par app/verifier/layout.tsx, SCOPÉES à ce segment : le tunnel et
      l'admin gardent Geist). Fallbacks système si les variables sont absentes. Aucune couleur ici. */

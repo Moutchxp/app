@@ -2694,6 +2694,8 @@ export const CSS_ANNUAIRE = `
 .ann-role-capsule--proprietaire{color:var(--color-svv-red);background:var(--color-svv-red-soft);
   border-color:var(--color-svv-red)}
 .ann-tete-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-left:auto}
+/* Arno (16/11/2026, lot B) : au telephone, un bouton d'en-tete trop long (dossier Drive) revient a la ligne au lieu de deborder */
+@media (max-width:600px){.ann-tete-actions{min-width:0;max-width:100%}.ann-tete-actions .gst-btn{flex-shrink:1;max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:center}}
 
 /* ── LES BLOCS ────────────────────────────────────────────────────────────────────────────────────────────── */
 .ann-bloc{display:flex;flex-direction:column;gap:.5rem;margin-top:0}
