@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, DigicodesCopropriete, digicodesBienEnvoi, digicodesModifies, mentionNb, refusDigicodes, saisieDigicodesBien, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import type { BatimentConnu } from '../../../../lib/gestion/batimentsCopropriete';
 
 /** 🔴🔴 Arno (16/11/2026, fiche Copropriété, lot 3) — la nouvelle saisie des digicodes : commun, « + » bâtiment, menu, lettres OU chiffres. */
@@ -192,5 +192,64 @@ describe('🔴🔴 (« Digicodes unifiés », lot 3) le composant unique avec la
     FICHE_U.digicodes[0].commun.etat = ETAT({ aVenir: [{ digicode: true, code: '9876', appliqueLe: '2026-11-20T08:00:00.000Z' }] });
     await act(async () => { root.render(createElement(HoteU)); });
     expect($('[data-dcp-a-venir]').textContent).toBe('Changement prévu : code 9876 à partir du 20/11/2026 à 09:00');
+  });
+});
+
+describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu du bâtiment et le même composant', () => {
+  const ETAT = (o: Record<string, unknown> = {}) => ({ connu: false, valeur: null, depuis: null, source: null, aVenir: [], aArbitrer: [], historique: [], ...o });
+  const DONNEES = { adresseCle: 'residence les tilleuls', connus: CONNUS, nomenclature: 'lettres' as const, batiment: null, batimentLie: false, escalier: null,
+    copropriete: { cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris' },
+    adresse: { cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris',
+      commun: { digicode: true, code: '1234', nbBiens: 4, etat: ETAT({ connu: true, valeur: { digicode: true, code: '1234' }, source: 'unifie', depuis: '2026-11-01T10:00:00.000Z' }) },
+      batiments: [{ cle: 'a', libelle: 'A', digicode: null, code: null, nbBiens: 2, etat: ETAT() }] } };
+  let choix: [string, boolean][] = [];
+  let derniereSaisie: DigicodesAdresseSaisis | null = null;
+  function HoteBien({ escalier = '', batimentDepart = '' }: { escalier?: string; batimentDepart?: string }) {
+    const [bat, setBat] = useState(batimentDepart);
+    const [s, setS] = useState(() => saisieDigicodesBien(DONNEES as never));
+    derniereSaisie = s;
+    return createElement('div', null,
+      createElement(ChoixBatimentCopro, { valeur: bat, connus: CONNUS, nomenclature: 'lettres', escalier, desactive: false, onChoix: (l: string, c: boolean) => { choix.push([l, c]); setBat(l); } }),
+      createElement(DigicodesBien, { donnees: DONNEES as never, s, onChange: setS, batiment: bat, desactive: false }));
+  }
+  beforeEach(() => { choix = []; derniereSaisie = null; });
+  it('le menu : les bâtiments de TOUTE la copropriété, « Aucun bâtiment (code commun) », « Ajouter nouveau bâtiment » ; choisir A montre SA ligne', async () => {
+    await act(async () => { root.render(createElement(HoteBien)); });
+    await clic($('[data-cbc-champ]'));
+    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['A', 'C', 'Côté cour', 'Aucun bâtiment (code commun)', 'Ajouter nouveau bâtiment']);
+    await clic($('[data-cbc-option="A"]'));
+    expect(choix.at(-1)).toEqual(['A', false]);
+    expect($('[data-digicodes-bien] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');
+    expect($('[data-digicodes-bien] [data-dcp-batiment="A"] [data-dcp-code-batiment]')).not.toBeNull(); // A n'a pas de code : à saisir
+    expect(container.querySelector('[data-digicodes-bien] [data-dcp-plus]')).toBeNull(); // pas de « + » ici
+    expect($('[data-dcp-mention-commun]').textContent).toBe('Commun aux 4 biens du portefeuille de cette adresse.');
+  });
+  it('🔴 un NOUVEAU bâtiment hors numérotation : la MÊME fenêtre d’avertissement ; « Confirmer » le garde (confirmé), « Corriger » le vide', async () => {
+    await act(async () => { root.render(createElement(HoteBien)); });
+    await saisir($('[data-cbc-champ]'), '3');
+    await act(async () => { $('[data-cbc-champ]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(document.querySelector('[data-dcp-avertissement] [role="alertdialog"]')?.textContent).toContain('« 3 » est un chiffre');
+    await clic($('[data-dcp-confirmer]'));
+    expect(choix.at(-1)).toEqual(['3', true]);
+    await saisir($('[data-cbc-champ]'), '4');
+    await act(async () => { $('[data-cbc-champ]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    await clic($('[data-dcp-corriger]'));
+    expect(choix.at(-1)).toEqual(['', false]);
+  });
+  it('l’« Escalier » du bien propose le bon bâtiment (rien n’est écrasé)', async () => {
+    await act(async () => { root.render(createElement(HoteBien, { escalier: 'c' })); });
+    expect($('[data-cbc-escalier]').textContent).toBe('L’escalier « c » est un bâtiment de la copropriété : le choisir');
+    expect(choix).toEqual([]);
+    await clic($('[data-cbc-escalier]'));
+    expect(choix.at(-1)).toEqual(['C', false]);
+  });
+  it('ce qui part : le bâtiment choisi et la PREMIÈRE valeur des places sans code (jamais un code connu)', async () => {
+    await act(async () => { root.render(createElement(HoteBien, { batimentDepart: 'A' })); });
+    await saisir($('[data-digicodes-bien] [data-dcp-code-batiment]'), 'A77');
+    expect(digicodesBienEnvoi(derniereSaisie!, 'A', false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: { code: 'A77', aucun: false } });
+    expect(digicodesBienEnvoi(derniereSaisie!, '', false)).toEqual({ batiment: null, batimentConfirme: false, commun: null, codeBatiment: null });
+  });
+  it('les mentions reprises de l’ancienne saisie par adresse (« commun aux N biens »)', () => {
+    expect([mentionNb(3, null), mentionNb(1, 'B'), mentionNb(0, 'C')]).toEqual(['Commun aux 3 biens du portefeuille de cette adresse.', 'Le seul bien du portefeuille du bâtiment B le lit.', 'Aucun bien du portefeuille du bâtiment C pour l’instant.']);
   });
 });

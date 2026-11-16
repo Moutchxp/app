@@ -24,7 +24,7 @@ export function fiche476Disponible(): Promise<boolean> {
 }
 
 /** 🔴 (« Digicodes unifiés », lot 3) l'état d'une place lue dans la base unique, pour l'écran. PUR. */
-function etatPlace(p: PlaceFiche): EtatPlaceDigicode {
+export function etatPlace(p: PlaceFiche): EtatPlaceDigicode {
   const c = p.code;
   const connu = c !== null && c.aArbitrer.length === 0 && (c.valeur.digicode !== null || (c.valeur.code ?? '') !== '');
   return { connu, valeur: connu ? { digicode: c!.valeur.digicode, code: c!.valeur.code } : null, depuis: c?.depuis ?? null, source: c?.source ?? null,
@@ -97,7 +97,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
     const lus = await digicodesDesAdresses(adressesFiche.map((a) => cleImmeuble(a.libelle)));
     adressesFiche.forEach((a, i) => {
       const d = lus[i];
-      const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p) });
+      const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p), nbBiens: p.nbBiens });
       digicodes.push({ cle: d.adresseCle, voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: v(d.commun),
         batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })) });
       for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }

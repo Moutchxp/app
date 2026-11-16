@@ -346,7 +346,7 @@ export async function repriseDigicodesUnifies(o: { reel: boolean }): Promise<{ p
 
 // ── LA LECTURE POUR LA FICHE COPROPRIÉTÉ ────────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface PlaceFiche { cle: string; libelle: string | null; code: CodeEnVigueur | null; aVenir: LigneDigicode[]; historique: LigneDigicode[] }
+export interface PlaceFiche { cle: string; libelle: string | null; code: CodeEnVigueur | null; aVenir: LigneDigicode[]; historique: LigneDigicode[]; nbBiens: number }
 export interface DigicodesAdresseUnifies { adresseCle: string; commun: PlaceFiche; batiments: PlaceFiche[]; nbBiens: number }
 
 /**
@@ -363,8 +363,10 @@ export async function digicodesDesAdresses(adresseCles: readonly string[], insta
     const legacy = new Set(anciens.adresses.filter((a) => a.adresseCle === adresseCle).map((a) => a.cleLegacy));
     for (const l of anciens.lots.filter((x) => x.adresseCle === adresseCle)) { legacy.add(l.cleLegacy); if (l.batimentCle !== '' && !cles.has(l.batimentCle)) cles.set(l.batimentCle, batimentDe(anciens.lotsBruts.find((x) => x.id === l.id)?.batiment)?.libelle ?? l.batimentCle.toUpperCase()); }
     for (const im of anciens.immeubles.filter((x) => legacy.has(x.cleLegacy))) for (const b of im.batiments) if (!cles.has(b.cle)) cles.set(b.cle, b.libelle);
+    const ici = anciens.lots.filter((x) => x.adresseCle === adresseCle);
     const place = (cle: string, libelle: string | null): PlaceFiche => ({ cle, libelle, code: codeEnVigueur(lignes, candidatsAnciens(anciens, adresseCle, cle), adresseCle, cle, instant),
-      aVenir: changementsAVenir(lignes, adresseCle, cle, instant), historique: lignes.filter((l) => l.batimentCle === cle) });
+      aVenir: changementsAVenir(lignes, adresseCle, cle, instant), historique: lignes.filter((l) => l.batimentCle === cle),
+      nbBiens: cle === '' ? ici.length : ici.filter((x) => x.batimentCle === cle).length });
     return { adresseCle, commun: place('', null), nbBiens: anciens.lots.filter((x) => x.adresseCle === adresseCle).length,
       batiments: [...cles.entries()].map(([cle, libelle]) => place(cle, libelle)).sort((a, b) => (a.libelle ?? '').localeCompare(b.libelle ?? '', 'fr', { numeric: true, sensitivity: 'base' })) };
   });

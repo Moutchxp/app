@@ -398,3 +398,13 @@ describe('🔴🔴 (« Digicodes unifiés », lot 3) la fiche copropriété et l
     expect($('[data-dcp-correction-erreur]').textContent).toContain('Validez (ou retirez) d’abord les digicodes en cours de saisie');
   });
 });
+
+describe('🔴 (« Digicodes unifiés », lot 4, accord d’Arno) l’ancienne saisie par adresse est RETIRÉE', () => {
+  it('sans la mise à jour de la base : on le dit, rien ne se saisit (plus d’appel à l’ancienne saisie)', async () => {
+    lu = { fiche: FICHE({ saisieDigicodes: false }), coproprieteDuBien: true };
+    await ouvrir();
+    expect($('[data-fcp-digicodes-attente]').textContent).toContain('attend la mise à jour de la base (migrations 477 et 478)');
+    expect(document.querySelector('[data-digicode-immeuble]')).toBeNull();
+    expect((global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).includes('/immeubles/digicode'))).toBe(false);
+  });
+});

@@ -1,5 +1,6 @@
 'use client';
 
+import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from './DigicodesCopropriete';
 import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
 import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
@@ -677,7 +678,8 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
 }
 
 /** Les informations complémentaires du bien (migration 374) : saisies au formulaire complet, complétables ici. */
-function Complements({ id, c, apres, annexe = false, categorie, familleMention = null }: {
+/** (exporté pour l'épreuve des digicodes unifiés, lot 4) */
+export function Complements({ id, c, apres, annexe = false, categorie, familleMention = null }: {
   id: number; c: ComplementsFiche; apres: () => void; annexe?: boolean; categorie: string;
   /** La famille DÉDUITE (nature WIPPIMMO pour un import) — seulement pour les mentions « à renseigner », rien d'autre. */
   familleMention?: ReturnType<typeof familleDeCategorie>;
@@ -721,6 +723,30 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     }).catch(() => {});
     return () => { vivant = false; };
   }, [edition]);
+  /*
+   * 🔴🔴 (« Digicodes unifiés », lot 4) avec la 478 : LE MÊME COMPOSANT que la fiche Copropriété — le bâtiment choisi au menu de la copropriété,
+   * les codes connus lus (« Corriger une erreur »), une place sans code à saisir (avec « Enregistrer »). Sans la 478 (`null`) : comme avant.
+   */
+  const [digiBien, setDigiBien] = useState<DigicodesPourBienLu | null>(null);
+  const [digiSaisie, setDigiSaisie] = useState<DigicodesAdresseSaisis | null>(null);
+  const [batimentConfirme, setBatimentConfirme] = useState(false);
+  const [digiRelire, setDigiRelire] = useState(0);
+  useEffect(() => {
+    if (!edition) return;
+    let vivant = true;
+    void fetch(`${API}?digicodesBien=${id}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: DigicodesPourBienLu | null }>)
+      .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? d.data ?? null : null; setDigiBien(lu); setDigiSaisie(lu === null ? null : saisieDigicodesBien(lu)); })
+      .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); } });
+    return () => { vivant = false; };
+  }, [edition, id, digiRelire]);
+  const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, v.batiment, batimentConfirme) : null;
+  const gesteDigi = async (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, x: { digicode: boolean; code: string | null }): Promise<string | null> => {
+    if (digiBien === null) return 'Les digicodes ne sont pas chargés.';
+    if (digiEnvoi !== null && (digiEnvoi.commun !== null || digiEnvoi.codeBatiment !== null)) return 'Enregistrez (ou effacez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
+    const m = await envoyer({ action, immeuble: digiBien.copropriete.cle, adresseCle, batiment, digicode: x.digicode, code: x.code });
+    if (m === null) setDigiRelire((n) => n + 1);
+    return m;
+  };
   const enregistrer = async (): Promise<void> => {
     const { derniereAg, assurancePno, pnoDateAnniversaire, chargesCopro, idFiscal, copropriete, ...reste } = v;
     // L'assurance PNO (Arno, 18/10/2026) : sur le bien (pas sur une annexe) ; Non (ou non renseigné) vide la date.
@@ -728,7 +754,8 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     // « Paiement des charges » (Arno, 21/10/2026, migration 400) : sur le bien (pas une annexe), seulement si la fiche le montre.
     const charges = { ...(avecCharges ? { chargesCopro } : {}), ...(avecIdFiscal ? { idFiscal } : {}),
       ...(avecCopropriete ? { copropriete: copropriete === 'oui' ? true : copropriete === 'non' ? false : null } : {}) };
-    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno, ...charges, ...(avecEntretien ? versEnvoiEntretien(entretien) : {}) } });
+    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno, ...charges, ...(avecEntretien ? versEnvoiEntretien(entretien) : {}),
+      ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}) } });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
   };
@@ -817,9 +844,17 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
             {parking && !annexe && champ('surfaceM2', 'Surface (m²)', { inputMode: 'decimal' })}
             {!annexe && famille === 'local' && choix('typeLocal', 'Type de local', TYPES_LOCAL.map((t) => [t, LIBELLE_TYPE_LOCAL[t as TypeLocal]] as const))}
             {choix('ascenseur', 'Ascenseur', [['oui', 'Oui'], ['non', 'Non']])}
+            {digiBien !== null && digiSaisie !== null ? (
+              /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non, « Code du digicode » et la mention ; avec la
+                 478 : le composant unique (code commun et code du bâtiment, lus ou à saisir, « Corriger une erreur ») */
+              <div style={{ gridColumn: '1 / -1' }} data-digicodes-unifies><span className="loc-champ">Digicode</span>
+                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={v.batiment} desactive={false}
+                  onCorriger={(a, bt, x) => gesteDigi('digicode-corriger', a, bt, x)} onArbitrer={(a, bt, x) => gesteDigi('digicode-arbitrer', a, bt, x)} /></div>
+            ) : <>
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
             {v.digicode === 'oui' && champ('digicodeCode', 'Code du digicode')}
             {c.digicodeImmeuble?.mention && <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicode-immeuble>Digicode : {c.digicodeImmeuble.mention}. Le modifier ici le modifie pour tous ces biens.</p>}
+            </>}
             {champ('precisionAcces', 'Précision d’accès')}
           </div>
           {!annexe && <div className="loc-grille" style={{ marginTop: 10 }}>
@@ -827,7 +862,11 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
             {!parking && champ('nombrePieces', famille === 'local' ? 'Nombre de bureaux / pièces' : 'Nombre de pièces', { inputMode: 'numeric' })}
             {!parking && famille !== 'local' && choix('meuble', 'Meublé', [['oui', 'Meublé'], ['non', 'Non meublé']])}
             {!parking && champ('surfaceHabitableM2', famille === 'local' ? 'Surface (m²)' : 'Surface habitable (m²)', { inputMode: 'decimal' })}
-            {champ('batiment', 'Bâtiment')}
+            {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre ; avec la 478 : le menu de la copropriété */}
+            {digiBien !== null
+              ? <ChoixBatimentCopro valeur={v.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={v.escalier} desactive={false}
+                  onChoix={(l, conf) => { setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
+              : champ('batiment', 'Bâtiment')}
             {champ('escalier', 'Escalier')}
             {avecIdFiscal && <span data-id-fiscal>{champ('idFiscal', 'ID fiscal du bien', { inputMode: 'numeric', maxLength: 60, placeholder: 'ex. 921234567890' })}
               <small className="loc-muet">Sur l’avis de taxe foncière</small>

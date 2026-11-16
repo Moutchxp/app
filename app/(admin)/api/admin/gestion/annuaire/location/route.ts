@@ -1,5 +1,7 @@
 import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreRequete';
 import 'server-only';
+import { digicodesPourBien } from '../../../../../../lib/gestion/digicodesBienRepo';
+import { gesteDigicodeCopro } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS } from '../../../../../../lib/location/texteModifiable';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
 import { creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
@@ -74,6 +76,9 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
     }
     // Arno (21/10/2026) — L'ENCART DU BIEN MODIFIABLE : ses valeurs fraîches (une seule source), et ses modifications (Historique).
+    // 🔴🔴 (« Digicodes unifiés », lot 4) les digicodes d'un bien : le composant unique de la fiche du bien ; `null` sans la 478. LECTURE SEULE.
+    const dg = identifiant(url.searchParams.get('digicodesBien'));
+    if (dg !== null) return Response.json({ etat: 'ok', data: await digicodesPourBien({ lotId: dg }) }, { headers: ENTETES });
     const enc = identifiant(url.searchParams.get('encart'));
     if (enc !== null) return Response.json(await lireEncartBien(enc), { headers: ENTETES });
     // Arno (23/10/2026) — LA FICHE ENTIÈRE pour le formulaire « Modifier » (valeurs, annexes, statut, empreinte), et sa seule
@@ -152,6 +157,10 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
   const repondre = (x: unknown): Response => Response.json(x, { headers: ENTETES });
   const incomplet = (): Response => Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
   try {
+    // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche Copropriété
+    if (corps.action === 'digicode-corriger' || corps.action === 'digicode-arbitrer') {
+      return repondre(await gesteDigicodeCopro(corps, corps.action === 'digicode-corriger' ? 'correction' : 'arbitrage', auteur));
+    }
     switch (corps.action) {
       case 'numero-mandat':
         if (id === null) return incomplet();

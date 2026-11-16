@@ -12,6 +12,10 @@ import { sortirDuPortefeuille } from './portefeuilleRepo';
 import { avecMail } from './mailPortefeuilleRepo';
 import { resumeDuBien } from './resumeBienRepo';
 import { GROUPES_FICHE, type ValeursEncart } from './encartBien';
+import { withTransaction } from '../db/client';
+import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodesRepo';
+import { ecrireDigicodesDuBien } from '../gestion/digicodesBienRepo';
+import { validerDigicodesBien } from '../gestion/digicodes';
 import {
   changementsAnnexes, changementsFiche, empreinte, MOTIF_CONFLIT, refusFiche,
   type AnnexeLue, type AnnexeSaisie, type ChangementFiche, type SaisieFiche, type StatutLu, type TransitionSaisie,
@@ -146,9 +150,19 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   s.annexes = s.annexes.filter((a) => a.id === null || l.data.bruts.has(a.id));
   const refus = refusFiche(lu, s);
   if (refus !== null) return { etat: 'refus', motif: refus };
+  // 🔴🔴 (« Digicodes unifiés », lot 4) le bâtiment choisi au menu et les premières valeurs des digicodes : par le chemin serveur unique, d'abord
+  // (un refus — numérotation non confirmée, code déjà connu — arrête tout, rien d'autre n'est écrit)
+  const digicodesBien = (await digicodesUnifiesDisponibles()) ? validerDigicodesBien(brut.digicodesBien) : null;
+  let digicodesFaits = false;
+  if (digicodesBien !== null) {
+    const r = await withTransaction((q) => ecrireDigicodesDuBien(q, id, digicodesBien, 'fiche_bien', auteur))
+      .catch((e: unknown) => { if (e instanceof RefusDigicode) return e.message; throw e; });
+    if (r !== null) return { etat: 'refus', motif: r };
+    digicodesFaits = true;
+  }
   const changements = changementsFiche(lu, s);
-  if (changements.length === 0) return { etat: 'ok', data: { changements, notes: [] } };
-  const faits: string[] = [];
+  if (changements.length === 0) return { etat: 'ok', data: { changements, notes: digicodesFaits ? ['Bâtiment et digicodes enregistrés.'] : [] } };
+  const faits: string[] = digicodesFaits ? ['bâtiment et digicodes'] : [];
   const notes: string[] = [];
   const partiel = (motif: string): IssueFiche => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
 

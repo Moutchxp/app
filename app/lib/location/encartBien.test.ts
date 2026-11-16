@@ -99,3 +99,11 @@ describe('🔴 les contacts du syndic désignés ou créés pour ce bien (comme 
     expect(libelleValeur(ch, { ...vide, syndicContacts: contactsSyndicEnTexte({ contactsIds: [4], nouveauxContacts: [] }) })).toBe('1 contact désigné');
   });
 });
+
+describe('🔴🔴 (« Digicodes unifiés », lot 4, accord d’Arno — liste d, point 5) avec la 478 : le digicode de l’encart en AFFICHAGE SEUL', () => {
+  const f = { famille: 'logement' as const, annexe: false, avecIdFiscal: false, avecCharges: false, avecAg: false, avecEntretien: false };
+  it('« Digicode » et « Code du digicode » ne se saisissent plus dans l’encart (le composant unique les porte) ; le reste de « Situation » est inchangé', () => {
+    expect(cles('situation', f)).toEqual(['batiment', 'escalier', 'porte', 'precisionAcces', 'ascenseur', 'digicode', 'digicodeCode']);
+    expect(cles('situation', { ...f, digicodesUnifies: true })).toEqual(['batiment', 'escalier', 'porte', 'precisionAcces', 'ascenseur']);
+  });
+});

@@ -220,3 +220,25 @@ export function texteRapportRepriseUnifiee(p: PlanRepriseUnifiee, o: { reel: boo
     ...(p.aReprendre.length === 0 ? ['(aucune)'] : p.aReprendre.map((r) => `· ${place(r)} : ${masque(r.valeur)} — ${r.origines.join(' ; ')}${r.lots.length > 0 ? ` (biens ${r.lots.join(', ')})` : ''}`)),
   ].join('\n');
 }
+
+// ── LA SAISIE DEPUIS LA FICHE DU BIEN (Location : création, modification) ─────────────────────────────────────────────────────────────
+
+/**
+ * 🔴🔴 (« Digicodes unifiés », lot 4) Ce que la fiche du bien envoie avec la base unique : le BÂTIMENT choisi dans le menu de la copropriété
+ * (ou aucun), sa confirmation (numérotation différente) et, pour une place SANS code connu seulement, sa première valeur (commun, bâtiment). PUR.
+ */
+export interface DigicodesBienSaisis { batiment: string | null; batimentConfirme: boolean; commun: { code: string; aucun: boolean } | null; codeBatiment: { code: string; aucun: boolean } | null }
+export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null {
+  if (typeof brut !== 'object' || brut === null) return null;
+  const b = brut as Record<string, unknown>;
+  const code = (x: unknown): { code: string; aucun: boolean } | null => {
+    if (typeof x !== 'object' || x === null) return null;
+    const y = x as Record<string, unknown>;
+    return { code: typeof y.code === 'string' ? y.code.trim().slice(0, 20) : '', aucun: y.aucun === true };
+  };
+  const batiment = typeof b.batiment === 'string' && b.batiment.trim() !== '' ? b.batiment.replace(/\s+/g, ' ').trim().slice(0, 60) : null;
+  return { batiment, batimentConfirme: b.batimentConfirme === true, commun: code(b.commun), codeBatiment: batiment === null ? null : code(b.codeBatiment) };
+}
+/** Une première valeur saisie → la valeur à écrire, ou `null` (rien de saisi : rien n'est écrit). PUR. */
+export const premiereValeur = (c: { code: string; aucun: boolean } | null): { digicode: boolean; code: string | null } | null =>
+  (c === null ? null : c.aucun ? { digicode: false, code: null } : c.code === '' ? null : { digicode: true, code: c.code });

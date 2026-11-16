@@ -34,6 +34,8 @@ import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/loca
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
 import { nomAuteurAg } from '../../../../lib/location/agCoproprieteRepo';
 import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
+import { digicodesPourBien } from '../../../../lib/gestion/digicodesBienRepo';
+import { gesteDigicodeCopro } from '../../../../lib/gestion/coproprieteEcritureRepo';
 import { mandatsDesProprietaires } from '../../../../lib/location/mandatBienRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
@@ -330,6 +332,13 @@ export async function GET(request: Request): Promise<Response> {
       const ids = (p('mandatsProprietaires') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 12);
       return Response.json({ etat: 'ok', data: await mandatsDesProprietaires(ids) }, { headers: ENTETES });
     }
+    // 🔴🔴 (« Digicodes unifiés », lot 4) les digicodes d'un bien (`digicodesBien=<id>`) ou de la place d'un bien à créer (son adresse) : le composant
+    // unique de la fiche du bien ; `null` sans la 478. LECTURE SEULE.
+    if (p('digicodesBien') !== null || p('digicodesBienAdresse') !== null) {
+      const lot = identifiant(p('digicodesBien'));
+      return Response.json({ etat: 'ok', data: lot !== null ? await digicodesPourBien({ lotId: lot })
+        : await digicodesPourBien({ adresse: (p('digicodesBienAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10) || null, commune: (p('commune') ?? '').slice(0, 120) || null }) }, { headers: ENTETES });
+    }
     if (p('digicodePourAdresse') !== null) {
       // Arno (21/10/2026, 399) : pour le BÂTIMENT saisi (le code général sans bâtiment).
       const lu = await lireDigicodeAdresse({ voie: (p('digicodePourAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10) || null, commune: (p('commune') ?? '').slice(0, 120) || null },
@@ -428,6 +437,11 @@ async function postLocation(request: Request): Promise<Response> {
   const refusTest = (motif: string): Response => Response.json({ etat: 'refus', motif }, { status: 403, headers: ENTETES });
   const seulementMoi = (xs: readonly (number | null)[]): boolean => xs.length > 0 && xs.every((x) => x !== null && x === auteur.id);
   try {
+    // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche
+    // Copropriété (le chemin unique), avec le droit de la Location
+    if (action === 'digicode-corriger' || action === 'digicode-arbitrer') {
+      return Response.json(await gesteDigicodeCopro(corps, action === 'digicode-corriger' ? 'correction' : 'arbitrage', auteur), { headers: ENTETES });
+    }
     switch (action) {
       // ══ 🔴🔴 LE PRÉAVIS DE TEST (Arno, 14/11/2026, 473) — RÉSERVÉ AUX ADMINISTRATEURS (rôle relu en base). Bien et locataire fictifs, mails au
       //    seul créateur ; « Supprimer » annule et MASQUE (rien n'est effacé).

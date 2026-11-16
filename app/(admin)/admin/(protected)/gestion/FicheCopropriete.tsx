@@ -3,7 +3,6 @@
 import { useEffect, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
-import { DigicodeImmeuble } from './DigicodeImmeuble';
 import { AgCopropriete } from './AgCopropriete';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
@@ -281,7 +280,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi}
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v) } : {})} />
-        : f.adresses.map((a) => <DigicodeImmeuble key={a.cle} voie={a.libelle} codePostal={a.codePostal} commune={a.commune} />)}
+        /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : l'ancienne saisie par adresse (DigicodeImmeuble), en repli sans la 477 —
+           RETIRÉE : le composant unique couvre tout ce qu'elle faisait (code commun, code de chaque bâtiment, ajout d'un bâtiment, « commun aux N
+           biens », message après enregistrement). Sans la mise à jour de la base, on le dit ; rien n'est saisi. */
+        : <p className="loc-muet fcp-sans-marge" data-fcp-digicodes-attente>La saisie des digicodes attend la mise à jour de la base (migrations 477 et 478) : rien ne peut être saisi ici pour l’instant.</p>}
     </section>
 
     {/* 🔴 (16/11/2026, point 3) l'ordre : Identité, Adresses, Digicodes, AG, Habitants et gardiens, puis le Syndic EN DERNIER ; chaque partie est une

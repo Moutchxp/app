@@ -95,6 +95,9 @@ export interface PorteeEncart {
   avecPno?: boolean;
   /** 🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non », jamais sur une annexe — absent : non montrée. */
   avecCopropriete?: boolean;
+  /** 🔴🔴 (16/11/2026, « Digicodes unifiés », lot 4, accord d'Arno — liste d, point 5) la base unique (478) : « Digicode » et « Code du digicode »
+   *  passent en AFFICHAGE SEUL dans l'encart (ils se saisissent par le composant unique : fiche du bien, fiche Copropriété) */
+  digicodesUnifies?: boolean;
 }
 
 /** TOUS les groupes, dans l'ordre du formulaire « Nouveau bien ». */
@@ -127,7 +130,7 @@ export function champsDuGroupe(g: GroupeEncart, f: PorteeEncart): Champ[] {
       { cle: 'batiment', mot: 'Bâtiment' }, { cle: 'escalier', mot: 'Escalier' },
       ...(!parking ? [{ cle: 'porte' as const, mot: 'N° de porte' }] : []),
       { cle: 'precisionAcces', mot: 'Précision' }, { cle: 'ascenseur', mot: 'Ascenseur', mots: OUI_NON },
-      { cle: 'digicode', mot: 'Digicode', mots: OUI_NON }, { cle: 'digicodeCode', mot: 'Code du digicode' },
+      ...(f.digicodesUnifies === true ? [] : [{ cle: 'digicode' as const, mot: 'Digicode', mots: OUI_NON }, { cle: 'digicodeCode' as const, mot: 'Code du digicode' }]),
     ];
     case 'copropriete': return [
       { cle: 'numLotCopro', mot: 'N° de lot' },

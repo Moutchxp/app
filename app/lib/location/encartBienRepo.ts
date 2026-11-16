@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { digicodesUnifiesDisponibles } from '../gestion/digicodesRepo';
 import { colonnesTrace, traceCourante } from '../gestion/traceJournal';
 import type { Auteur } from '../gestion/gestes';
 import { familleDeCategorie, type Famille } from './bienComplet';
@@ -52,6 +53,8 @@ export async function lectureDepuisFiche(fiche: Pick<FicheBienLocation, 'bien' |
     adresseModifiable: b.creeDansLApplication === true, avecPno: !annexe && (await annexeNomPnoDisponible()),
     // 🔴 Arno (06/11/2026, 461) — « Copropriété » : sur le bien (jamais une annexe), quand la migration est là.
     avecCopropriete: !annexe && c.copropriete !== undefined,
+    // 🔴 (« Digicodes unifiés », lot 4) avec la 478 : le digicode de l'encart en affichage seul
+    digicodesUnifies: await digicodesUnifiesDisponibles(),
     digicodeImmeuble: c.digicodeImmeuble === undefined ? null : { mention: c.digicodeImmeuble.mention, source: c.digicodeImmeuble.source },
     categorie: b.categorie, adresse: b.adresse, codePostal: b.codePostal, commune: b.commune, nomAnnexe: (b as { nomAnnexe?: string | null }).nomAnnexe ?? null,
   } };

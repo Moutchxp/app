@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { avertissementsDesBatiments, batimentDe, menuBatiments, refusDesBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
+import { avertissementBatiment, avertissementsDesBatiments, batimentDe, menuBatiments, refusDesBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
 import { dateHeure } from '../../../../lib/gestion/digicodes';
@@ -24,10 +24,10 @@ export interface CodeLigne { code: string; aucun: boolean }
 export interface LigneBatiment extends CodeLigne { k: string; libelle: string; nouveau: boolean; initial: CodeLigne;
   /** 🔴 (lot D) l'intitulé confirmé malgré l'avertissement (sa clé) ; changer l'intitulé retire la confirmation */
   confirme?: string | null;
-  /** 🔴 (478) l'état de la place dans la base unique (absent sans la 478) */
-  etat?: EtatPlaceDigicode }
+  /** 🔴 (478) l'état de la place dans la base unique (absent sans la 478) ; le nombre de biens du bâtiment */
+  etat?: EtatPlaceDigicode; nb?: number }
 export interface DigicodesAdresseSaisis { cle: string; voie: string; codePostal: string | null; commune: string | null; commun: CodeLigne; communInitial: CodeLigne; batiments: LigneBatiment[];
-  communEtat?: EtatPlaceDigicode }
+  communEtat?: EtatPlaceDigicode; communNb?: number }
 
 /** Une place se LIT (au lieu de se saisir) : son code est connu, ou elle est à arbitrer. PUR. */
 export const placeLue = (e: EtatPlaceDigicode | undefined): e is EtatPlaceDigicode => e !== undefined && (e.connu || e.aArbitrer.length > 0);
@@ -45,8 +45,9 @@ const memes = (a: CodeLigne, b: CodeLigne): boolean => a.aucun === b.aucun && a.
 /** La saisie de départ, d'après ce que la fiche a lu. PUR. */
 export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'>): DigicodesAdresseSaisis[] {
   return (f.digicodes ?? []).map((d) => ({ cle: d.cle, voie: d.voie, codePostal: d.codePostal, commune: d.commune, commun: versLigne(d.commun), communInitial: versLigne(d.commun),
-    ...(d.commun.etat ? { communEtat: d.commun.etat } : {}),
-    batiments: d.batiments.map((b) => ({ k: k(), libelle: b.libelle, ...versLigne(b), nouveau: false, initial: versLigne(b), ...(b.etat ? { etat: b.etat } : {}) })) }));
+    ...(d.commun.etat ? { communEtat: d.commun.etat } : {}), ...(d.commun.nbBiens !== undefined ? { communNb: d.commun.nbBiens } : {}),
+    batiments: d.batiments.map((b) => ({ k: k(), libelle: b.libelle, ...versLigne(b), nouveau: false, initial: versLigne(b), ...(b.etat ? { etat: b.etat } : {}),
+      ...(b.nbBiens !== undefined ? { nb: b.nbBiens } : {}) })) }));
 }
 /** Ce qui part au serveur : seulement ce qui a changé (une ligne nouvelle part toujours). PUR. */
 const estConfirme = (b: Pick<LigneBatiment, 'libelle' | 'confirme'>): boolean => { const k = batimentDe(b.libelle)?.cle; return k !== undefined && b.confirme === k; };
@@ -88,10 +89,13 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, modeBien = false }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
+  /** 🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : son adresse, son code commun et celui de SON bâtiment (choisi au menu, à part) — sans
+   *  « + » ni rappel de la règle (le menu du bâtiment les porte) */
+  modeBien?: boolean;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
   // 🔴 (lot D) la fenêtre d'avertissement : la ligne concernée et ce qui est dit
@@ -113,8 +117,8 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   const refus = refusDigicodes(s, nomenclature, connus);
   return (
     <div className="dcp" data-digicodes-copro>
-      <p className="loc-muet dcp-regle" data-dcp-regle>{nomenclature === null ? 'Aucune règle encore : le premier bâtiment créé en lettre ou en chiffre la fixera pour toute la copropriété (les intitulés libres sont toujours permis).'
-        : `Règle de la copropriété : ${MOT_REGLE[nomenclature]}, plus des intitulés libres (« Côté cour »…). Un autre intitulé reste possible, après confirmation.`}</p>
+      {!modeBien && <p className="loc-muet dcp-regle" data-dcp-regle>{nomenclature === null ? 'Aucune règle encore : le premier bâtiment créé en lettre ou en chiffre la fixera pour toute la copropriété (les intitulés libres sont toujours permis).'
+        : `Règle de la copropriété : ${MOT_REGLE[nomenclature]}, plus des intitulés libres (« Côté cour »…). Un autre intitulé reste possible, après confirmation.`}</p>}
       <AArbitrer s={s} desactive={desactive} onArbitrer={onArbitrer} />
       {s.map((d) => (
         <div key={d.cle} className="dcp-adresse" data-dcp-adresse={d.cle}>
@@ -122,9 +126,9 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           {placeLue(d.communEtat) ? (
             <div className="dcp-ligne" data-dcp-commun>
               <PlaceDigicodeLue titre="Digicode commun" etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)} />
-              <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
+              {!modeBien && <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
                 onClick={() => { const kk = k(); maj(d.cle, (x) => ({ ...x, batiments: [...x.batiments, { k: kk, libelle: '', code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] })); setMenu(kk); }}
-                data-dcp-plus>+</button>
+                data-dcp-plus>+</button>}
             </div>) : (
           <div className="dcp-ligne" data-dcp-commun>
             <label className="dcp-champ"><span>Digicode commun</span>
@@ -132,13 +136,15 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                 onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code: e.target.value } }))} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
               onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { code: e.target.checked ? '' : x.commun.code, aucun: e.target.checked } }))} /><span>pas de digicode</span></label>
-            <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
+            {!modeBien && <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage — ${d.voie}`} title="Ajouter un digicode de bâtiment ou de cage"
               onClick={() => { const kk = k(); maj(d.cle, (x) => ({ ...x, batiments: [...x.batiments, { k: kk, libelle: '', code: '', aucun: false, nouveau: true, initial: { code: '', aucun: false } }] })); setMenu(kk); }}
-              data-dcp-plus>+</button>
+              data-dcp-plus>+</button>}
           </div>)}
+          {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.libelle}>
               <PlaceDigicodeLue titre={`Bâtiment / cage ${b.libelle}`} etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)} />
+              {b.nb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>{mentionNb(b.nb, b.libelle)}</p>}
             </div>) : (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}>
               <div className="dcp-champ dcp-champ-bat">
@@ -163,6 +169,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                 <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={8} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
+              {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode commun de l’adresse.</p>}
             </div>)))}
         </div>))}
       {refus !== null && <p className="cp-refus dcp-refus" role="status" data-dcp-refus>{refus}</p>}
@@ -188,6 +195,12 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
   );
+}
+
+/** « Commun aux 3 biens de cette adresse » / « … du bâtiment B » (la mention de l'ancienne saisie par adresse, reprise ici). PUR. */
+export function mentionNb(n: number, batiment: string | null): string {
+  const ou = batiment === null ? 'de cette adresse' : `du bâtiment ${batiment}`;
+  return n === 0 ? `Aucun bien du portefeuille ${ou} pour l’instant.` : n === 1 ? `Le seul bien du portefeuille ${ou} le lit.` : `Commun aux ${n} biens du portefeuille ${ou}.`;
 }
 
 /** Une saisie de code (le nouveau code, ou « pas de digicode ») ; rend la valeur, ou `null` si rien n'est saisi. PUR. */
@@ -286,6 +299,116 @@ function HistoriqueDigicodes({ s }: { s: readonly DigicodesAdresseSaisis[] }) {
   );
 }
 
+// ══ 🔴🔴 (« Digicodes unifiés », lot 4) LA FICHE DU BIEN EN LOCATION : LE MÊME COMPOSANT ═══════════════════════════════════════════════════════
+
+/** Ce que la fiche du bien lit du serveur (`digicodesPourBien`) — la forme de la fiche Copropriété pour SA place. */
+export interface DigicodesPourBienLu {
+  adresseCle: string; adresse: NonNullable<FicheCopropriete['digicodes']>[number]; connus: BatimentConnu[]; nomenclature: Nomenclature | null;
+  copropriete: { cle: string; libelle: string; codePostal: string | null; commune: string | null }; batiment: string | null; batimentLie: boolean; escalier: string | null;
+}
+
+/** La saisie de départ de la fiche du bien (sa place seulement). PUR. */
+export const saisieDigicodesBien = (d: DigicodesPourBienLu): DigicodesAdresseSaisis => saisieDigicodesInitiale({ digicodes: [d.adresse] })[0];
+
+/** La ligne du bâtiment CHOISI (celle de la place, ou une ligne nouvelle à saisir) ; `null` sans bâtiment. PUR. */
+export function ligneDuBatiment(s: DigicodesAdresseSaisis, batiment: string): LigneBatiment | null {
+  const b = batimentDe(batiment);
+  if (b === null) return null;
+  return s.batiments.find((x) => batimentDe(x.libelle)?.cle === b.cle) ?? { k: `choisi-${b.cle}`, libelle: b.libelle, code: '', aucun: false, nouveau: false, initial: { code: '', aucun: false } };
+}
+
+/**
+ * Ce que la fiche du bien ENVOIE : le bâtiment choisi (et sa confirmation), et la PREMIÈRE valeur des places sans code connu (un code connu ne
+ * part jamais d'ici : « Corriger une erreur »). PUR.
+ */
+export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, confirme: boolean): { batiment: string | null; batimentConfirme: boolean;
+  commun: CodeLigne | null; codeBatiment: CodeLigne | null } {
+  const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
+  const libre = (e: EtatPlaceDigicode | undefined, c: CodeLigne, init: CodeLigne): CodeLigne | null => (placeLue(e) || memes(c, init) ? null : { code: c.code.trim(), aucun: c.aucun });
+  return { batiment: ligne === null ? null : ligne.libelle, batimentConfirme: confirme, commun: libre(s.communEtat, s.commun, s.communInitial),
+    codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial) };
+}
+
+/**
+ * LE BÂTIMENT (ou la cage) DU BIEN, CHOISI DANS LE MENU de la copropriété — le même menu, la même règle lettres / chiffres et la même fenêtre
+ * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
+ * c'est un bâtiment connu (rien n'est écrasé).
+ */
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix }: {
+  valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; escalier: string; desactive: boolean;
+  onChoix: (libelle: string, confirme: boolean) => void;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const [alerte, setAlerte] = useState<AvertissementBatiment | null>(null);
+  const options = menuBatiments(connus);
+  const choisir = (libelle: string): void => {
+    setOuvert(false);
+    const a = libelle.trim() === '' ? null : avertissementBatiment(libelle, nomenclature, connus);
+    if (a !== null) { setAlerte(a); onChoix(libelle, false); return; }
+    onChoix(libelle.trim() === '' ? '' : batimentDe(libelle)?.libelle ?? libelle, false);
+  };
+  const proposeEscalier = valeur.trim() === '' && escalier.trim() !== '' ? options.find((o) => o.cle === batimentDe(escalier)?.cle) : undefined;
+  return (
+    <div className="dcp-champ dcp-champ-bat" data-cbc>
+      <span>Bâtiment / cage</span>
+      <input value={valeur} disabled={desactive} placeholder="Aucun (code commun) — A, 1, Côté cour…" aria-expanded={ouvert} maxLength={60}
+        onFocus={() => setOuvert(true)} onClick={() => setOuvert(true)} onChange={(e) => { onChoix(e.target.value, false); setOuvert(true); }}
+        onBlur={(e) => { const v = e.target.value; setTimeout(() => setOuvert(false), 180); if (v.trim() !== '') choisir(v); }}
+        onKeyDown={(e) => { if (e.key === 'Escape') setOuvert(false); if (e.key === 'Enter') { e.preventDefault(); choisir((e.target as HTMLInputElement).value); } }}
+        data-cbc-champ />
+      {ouvert && (
+        <ul className="dcp-menu" role="listbox" aria-label="Bâtiments connus de la copropriété" data-cbc-menu>
+          {options.filter((o) => valeur.trim() === '' || o.cle.includes(batimentDe(valeur)?.cle ?? '')).map((o) => (
+            <li key={o.cle}><button type="button" role="option" aria-selected={batimentDe(valeur)?.cle === o.cle} className="dcp-option" onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choisir(o.libelle)} data-cbc-option={o.libelle}>{o.libelle}</button></li>))}
+          <li><button type="button" className="dcp-option" onMouseDown={(e) => e.preventDefault()} onClick={() => { setOuvert(false); onChoix('', false); }} data-cbc-aucun>Aucun bâtiment (code commun)</button></li>
+          <li><button type="button" className="dcp-option dcp-option--nouveau" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChoix('', false); setOuvert(false); }} data-cbc-nouveau>Ajouter nouveau bâtiment</button></li>
+        </ul>)}
+      {proposeEscalier !== undefined && (
+        <button type="button" className="dcp-lien" disabled={desactive} onClick={() => choisir(proposeEscalier.libelle)} data-cbc-escalier>
+          L’escalier « {escalier.trim()} » est un bâtiment de la copropriété : le choisir</button>)}
+      {alerte !== null && (
+        <div className="dcp-voile" data-dcp-avertissement>
+          <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="cbc-alerte-titre" aria-describedby="cbc-alerte-texte"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); (e.currentTarget.querySelector('[data-dcp-corriger]') as HTMLButtonElement | null)?.click(); } }}>
+            <p className="dcp-alerte-titre" id="cbc-alerte-titre">{TITRE_AVERTISSEMENT}</p>
+            <div id="cbc-alerte-texte">{texteAvertissement(alerte).map((t) => <p key={t} className="dcp-alerte-texte">{t}</p>)}</div>
+            <div className="dcp-alerte-actions">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => {
+                setAlerte(null); onChoix('', false);
+                setTimeout(() => (document.querySelector('[data-cbc-champ]') as HTMLInputElement | null)?.focus(), 0);
+              }} data-dcp-corriger>Corriger</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { const a = alerte; setAlerte(null); onChoix(a.libelle, true); }} data-dcp-confirmer>Confirmer cet intitulé</button>
+            </div>
+          </div>
+        </div>)}
+      <style>{CSS_DIGICODES_COPRO}</style>
+    </div>
+  );
+}
+
+/**
+ * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
+ * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
+ */
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer }: {
+  donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
+  onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
+}) {
+  const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
+  const vue: DigicodesAdresseSaisis = { ...s, batiments: ligne === null ? [] : [ligne] };
+  const recevoir = (ns: DigicodesAdresseSaisis[]): void => {
+    const n = ns[0];
+    const l = n.batiments[0];
+    const batiments = l === undefined ? s.batiments : s.batiments.some((x) => x.k === l.k) ? s.batiments.map((x) => (x.k === l.k ? l : x)) : [...s.batiments, l];
+    onChange({ ...s, commun: n.commun, batiments });
+  };
+  return <div data-digicodes-bien>
+    <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
+      {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} />
+  </div>;
+}
+
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; telephone : les champs passent a la ligne. */
 export const CSS_DIGICODES_COPRO = `
 .dcp{display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -326,6 +449,7 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-mini{min-height:40px}
 .dcp-confirmer{font-weight:700}
 .dcp-sans-marge{margin:0}
+.dcp-mention{margin:0;font-size:.82rem;flex-basis:100%}
 .dcp-historique summary{cursor:pointer;font-weight:800;min-height:36px;display:flex;align-items:center;color:var(--color-svv-ink)}
 .dcp-historique{font-size:.88rem}
 @media (max-width:600px){.dcp-alerte-actions .svv-btn{flex:1 1 100%}}

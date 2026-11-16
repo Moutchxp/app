@@ -29,8 +29,8 @@ export interface EtatPlaceDigicode {
 /** 🔴 (lot 3) Les digicodes d'UNE adresse de la copropriété : le commun (le « code général » de l'immeuble de l'adresse) et ceux des bâtiments. */
 export interface DigicodesAdresseFiche {
   cle: string; voie: string; codePostal: string | null; commune: string | null;
-  commun: { digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode };
-  batiments: { cle: string; libelle: string; digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode }[];
+  commun: { digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode; nbBiens?: number };
+  batiments: { cle: string; libelle: string; digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode; nbBiens?: number }[];
 }
 
 export interface AdresseCopropriete { cle: string; libelle: string; codePostal: string | null; commune: string | null; principale: boolean }

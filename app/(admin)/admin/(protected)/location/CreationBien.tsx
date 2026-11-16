@@ -7,6 +7,7 @@ import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { LigneManques } from './LigneManques';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, motValeur, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from '../gestion/DigicodesCopropriete';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
@@ -353,6 +354,44 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     }, 500);
     return () => { vivant = false; clearTimeout(t); };
   }, [b.adresse, b.codePostal, b.commune, b.batiment]);
+  /*
+   * ══ 🔴🔴 (« Digicodes unifiés », lot 4) AVEC LA 478 : LE MÊME COMPOSANT QUE LA FICHE COPROPRIÉTÉ ══════════════════════════════════════════
+   * La place du bien dans sa copropriété (son adresse) : les codes DÉJÀ connus s'affichent (lus, « Corriger une erreur ») ; le bâtiment se CHOISIT
+   * dans le menu de la copropriété (même règle, même avertissement) ; une place sans code se saisit (première valeur, avec l'enregistrement).
+   * Sans la 478 (`null`) : la saisie d'avant, inchangée.
+   */
+  const [digiBien, setDigiBien] = useState<DigicodesPourBienLu | null>(null);
+  const [digiSaisie, setDigiSaisie] = useState<DigicodesAdresseSaisis | null>(null);
+  const [batimentConfirme, setBatimentConfirme] = useState(false);
+  const [digiRelire, setDigiRelire] = useState(0);
+  useEffect(() => {
+    const voie = b.adresse.trim();
+    const memeAdresse = modification !== undefined && voie === modification.lecture.encart.valeurs.adresse.trim();
+    let vivant = true;
+    const t = setTimeout(() => {
+      if (!memeAdresse && voie.length < 5) { setDigiBien(null); setDigiSaisie(null); return; }
+      const q = memeAdresse ? `digicodesBien=${modification.lotId}`
+        : `digicodesBienAdresse=${encodeURIComponent(voie)}&cp=${encodeURIComponent(b.codePostal.trim())}&commune=${encodeURIComponent(b.commune.trim())}`;
+      void fetch(`${API}?${q}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: DigicodesPourBienLu | null }>)
+        .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? d.data ?? null : null; setDigiBien(lu); setDigiSaisie(lu === null ? null : saisieDigicodesBien(lu)); })
+        .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); } });
+    }, memeAdresse || voie.length < 5 ? 0 : 500);
+    return () => { vivant = false; clearTimeout(t); };
+  }, [b.adresse, b.codePostal, b.commune, digiRelire]); // eslint-disable-line react-hooks/exhaustive-deps
+  const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme) : null;
+  /** « Corriger une erreur » / « Garder ce code » : immédiats, par le même chemin serveur que la fiche Copropriété ; les digicodes se relisent. */
+  const gesteDigi = async (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> => {
+    if (digiBien === null) return 'Les digicodes ne sont pas chargés.';
+    if (digiEnvoi !== null && (digiEnvoi.commun !== null || digiEnvoi.codeBatiment !== null)) return 'Enregistrez (ou effacez) d’abord les digicodes en cours de saisie : rien n’est enregistré.';
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, immeuble: digiBien.copropriete.cle, adresseCle, batiment, digicode: v.digicode, code: v.code }) });
+      const d = (await r.json()) as { etat?: string; motif?: string };
+      if (d.etat !== 'ok') return d.motif ?? 'Enregistrement refusé.';
+      setDigiRelire((n) => n + 1);
+      return null;
+    } catch { return 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'; }
+  };
   const idsProprietaires = proprietaires.map((p) => p.id).join(',');
   useEffect(() => {
     if (idsProprietaires === '' || continuite !== undefined) return;
@@ -443,6 +482,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     };
     const valeursDuChemin = l.encart.annexe || famille === null ? valeurs : viderHorsChemin(valeurs, famille as FamilleBien);
     return {
+      // 🔴 (« Digicodes unifiés », lot 4) le bâtiment choisi au menu et les premières valeurs, par le chemin serveur unique
+      ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}),
       version: l.version, valeurs: valeursDuChemin, statut: transition,
       annexes: annexes.map((a) => ({
         id: a.id ?? null, categorie: a.categorie, etage: a.etage, porte: a.porte, numLotCopro: a.numLotCopro, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
@@ -452,7 +493,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     };
   };
   const saisieModif = saisieModification();
-  const changementsModif = modification === undefined || saisieModif === null ? [] : changementsFiche(modification.lecture, saisieModif);
+  const changementsDigi: ChangementFiche[] = digiEnvoi === null ? [] : [
+    ...(digiEnvoi.commun !== null ? [{ cle: 'digicodeCommun', champ: 'Digicode commun (première saisie)', avant: '—', apres: motValeur(digiEnvoi.commun.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.commun.code }) }] : []),
+    ...(digiEnvoi.codeBatiment !== null ? [{ cle: 'digicodeBatiment', champ: `Digicode du bâtiment ${digiEnvoi.batiment ?? ''} (première saisie)`, avant: '—',
+      apres: motValeur(digiEnvoi.codeBatiment.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.codeBatiment.code }) }] : [])];
+  const changementsModif = modification === undefined || saisieModif === null ? [] : [...changementsFiche(modification.lecture, saisieModif), ...changementsDigi];
   const conflit = modification !== undefined && enregistre === null && modification.versionDistante !== null && modification.versionDistante !== modification.lecture.version;
   useAvertissementSortie(modification !== undefined && enregistre === null && changementsModif.length > 0);
   const annulerModification = (): void => {
@@ -601,7 +646,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 25/10/2026 — seuls les champs du chemin CHOISI partent (ceux des autres familles sont retirés de l'envoi).
       logement: restreindreAuChemin({ ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
         assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)),
-        ...(chargesCopro === null ? {} : { chargesCopro }), ...(copropriete === null ? {} : { copropriete }) } as Record<string, unknown>, famille as FamilleBien | null),
+        ...(chargesCopro === null ? {} : { chargesCopro }), ...(copropriete === null ? {} : { copropriete }),
+        ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}) } as Record<string, unknown>, famille as FamilleBien | null),
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts: continuite !== undefined ? continuite.contacts : contacts,
       annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
@@ -835,7 +881,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
         <div className="loc-sous-section">
           <h4>Situation dans l’immeuble</h4>
           <div className="loc-grille" data-ligne-situation>
-            {champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
+            {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre. Avec la 478 : le MENU des bâtiments
+                de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
+            {digiBien !== null
+              ? <ChoixBatimentCopro valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi}
+                  onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+              : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
             <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
             {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
@@ -850,6 +901,13 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             <div className="loc-acces-bloc"><span className="loc-acces-mot">Ascenseur</span>
               <Pilules etiquette="Ascenseur" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(ascenseur)}
                 onChoix={(v) => setAscenseur(v === null ? null : v === 'oui')} /></div>
+            {digiBien !== null && digiSaisie !== null ? (
+              /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non et « Code ». Avec la 478 : le composant unique —
+                 le code commun de l'adresse et celui du bâtiment choisi ; connus : lus, « Corriger une erreur » ; sinon : à saisir. */
+              <div className="loc-acces-bloc loc-acces-digicodes" data-digicode data-digicodes-unifies><span className="loc-acces-mot">Digicode</span>
+                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi}
+                  onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)} />
+              </div>) : (
             <div className="loc-acces-bloc" data-digicode><span className="loc-acces-mot">Digicode</span>
               <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}
                 onChoix={(v) => { digicodeTouche.current = true; setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} />
@@ -859,7 +917,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                   onChange={(e) => { digicodeTouche.current = true; const val = e.target.value.slice(0, 8); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
               {digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{lu !== undefined ? ' — le modifier vaut pour tout l’immeuble (son bâtiment)' : digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>
                 : lu?.digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{lu.digicodeImmeuble.mention} — le modifier vaut pour tout l’immeuble (son bâtiment).</small> : null}
-            </div>
+            </div>)}
           </div>
         </div>
       </section>

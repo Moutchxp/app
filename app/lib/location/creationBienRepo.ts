@@ -30,6 +30,9 @@ import { enregistrerMandatDans } from './mandatBienRepo';
 // 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » (module PUR).
 import { dateFr, verifierRentreOccupe } from './rentreOccupe';
 import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeAdresse, lireDigicodeDuLot } from './digicodeImmeubleRepo';
+import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodesRepo';
+import { ecrireDigicodesDuBien, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
+import { validerDigicodesBien } from '../gestion/digicodes';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -317,6 +320,10 @@ async function creerBienInterne(s: SaisieBien & {
   if ((l.idFiscal ?? null) !== null && !avec401) return { etat: 'sans_schema' };
   // Arno (21/10/2026, 396) : le digicode se pose sur l'IMMEUBLE de l'adresse (sans la 396 : sur le bien, comme avant).
   const surImmeuble = await digicodeImmeubleDisponible();
+  // 🔴🔴 (« Digicodes unifiés », lot 4) avec la 478 : le bâtiment choisi et les premières valeurs passent par le chemin serveur unique (les
+  // anciennes tables ne sont plus écrites) ; un digicode venu par l'ancien chemin serait perdu : refusé, clairement
+  const unifie = await digicodesUnifiesDisponibles();
+  const digicodesBien = unifie ? validerDigicodesBien((s.logement as Record<string, unknown> | undefined)?.digicodesBien) : null;
   // « Bien en gestion ? » (migration 390) : sans la colonne, « Non » n'est jamais perdu en silence — rien n'est créé.
   // « Oui » est la valeur par défaut de la colonne : sans elle, le bien est créé comme avant.
   const avec390 = await bienEnGestionDisponible();
@@ -361,7 +368,14 @@ async function creerBienInterne(s: SaisieBien & {
         ...statut,
         ...occupe,
       }, auteur);
-      if (surImmeuble && (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '')) {
+      if (unifie) {
+        if (digicodesBien !== null) {
+          const refus = await ecrireDigicodesDuBien(q, logementId, digicodesBien, 'nouveau_bien', auteur);
+          if (refus !== null) throw new Refus(refus);
+        } else if (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '') {
+          throw new Refus('Le digicode se saisit désormais par la saisie des digicodes de la copropriété (base unique) : rechargez la page. Rien n’est enregistré.');
+        }
+      } else if (surImmeuble && (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '')) {
         // Arno (21/10/2026, 399) : le code du BÂTIMENT du bien (le code général sans bâtiment). Écrit seulement s'il diffère de ce
         // que ce bâtiment lit déjà : le code général pré-rempli et laissé tel quel n'est jamais copié sur le bâtiment.
         const adresse = { voie: l.adresse, codePostal: l.codePostal, commune: l.commune };
@@ -397,7 +411,7 @@ async function creerBienInterne(s: SaisieBien & {
       return { logementId, annexes };
     });
   } catch (e) {
-    if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    if (e instanceof Refus || e instanceof RefusDigicode) return { etat: 'refus', motif: e.message };
     if (e instanceof DoublonTrouve) {
       return { etat: 'doublon', motif: phraseDoublon(e.bien), data: { lotId: e.bien.id, adresse: e.bien.adresse, commune: e.bien.commune, etage: e.bien.etage, porte: e.bien.porte } };
     }
@@ -597,6 +611,9 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
       // Arno (21/10/2026, 399) : le digicode que la fiche MONTRAIT (avant que le bâtiment ne change) — seul un écart à cette
       // valeur est une saisie ; un bâtiment changé avec le digicode laissé tel quel ne recopie jamais l'ancien code ailleurs.
       const montre = await lireDigicodeDuLot(id, q);
+      const unifie = await digicodesUnifiesDisponibles();
+      const { rows: av } = await q<{ batiment: string | null }>('SELECT batiment FROM gestion_annuaire_lot WHERE id = $1', [id]);
+      const batimentAvant = av[0]?.batiment ?? null;
       if (c.syndicId !== null) {
         const { rows: sy } = await q('SELECT 1 FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL', [c.syndicId]);
         if (sy.length === 0) throw new Refus('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
@@ -619,7 +636,21 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
         surImmeuble
           ? [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.precisionAcces]
           : [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.digicode, c.digicodeCode, c.precisionAcces]);
-        if (surImmeuble) {
+        if (unifie) {
+          // 🔴🔴 (« Digicodes unifiés », lot 4) le chemin serveur unique : le bâtiment choisi et les premières valeurs ; sans eux (encart), un
+          // « Bâtiment » retapé se relie au bâtiment du même nom du registre (sinon le lien est retiré) ; un digicode changé par l'ancien chemin :
+          // refusé (il serait perdu), clairement
+          const d = validerDigicodesBien(brut.digicodesBien);
+          if (d !== null) {
+            const refus = await ecrireDigicodesDuBien(q, id, d, 'fiche_bien', auteur);
+            if (refus !== null) throw new Refus(refus);
+          } else {
+            if ((c.batiment ?? null) !== batimentAvant) await realignerBatimentDuBien(q, id, c.batiment ?? null, auteur);
+            if (montre !== null && (montre.digicode !== c.digicode || (montre.code ?? null) !== (c.digicodeCode ?? null))) {
+              throw new Refus('Le digicode se modifie désormais par la saisie des digicodes (fiche du bien ou fiche Copropriété : « Corriger une erreur ») : rien n’est enregistré.');
+            }
+          }
+        } else if (surImmeuble) {
           // Arno (21/10/2026, 399) : écrit sur le BÂTIMENT du bien (le code général s'il n'en a pas) — seulement si la valeur
           // diffère de ce que la fiche montrait.
           const adresse = await adresseDuLot(id);
@@ -659,7 +690,7 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
       return r.ok ? issue : { etat: 'refus' as const, motif: `Informations enregistrées, mais pas la date de la dernière AG : ${r.motif}` };
     });
   } catch (e) {
-    if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    if (e instanceof Refus || e instanceof RefusDigicode) return { etat: 'refus', motif: e.message };
     throw e;
   }
 }
@@ -715,7 +746,7 @@ export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly
       return { etat: 'ok' as const, data: { ids } };
     });
   } catch (e) {
-    if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    if (e instanceof Refus || e instanceof RefusDigicode) return { etat: 'refus', motif: e.message };
     const m = e instanceof Error ? e.message : '';
     if (/annexe d'annexe|a déjà des annexes|gestion_lot_annexe_unique_uq|gestion_lot_annexe_soi_chk/.test(m)) {
       return { etat: 'refus', motif: 'Ce bien ne peut pas recevoir d’annexe (il est lui-même une annexe).' };
