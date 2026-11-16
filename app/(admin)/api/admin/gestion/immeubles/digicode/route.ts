@@ -1,14 +1,13 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
-import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
-import { enregistrerDigicode, journalDigicode, lireDigicodesAdresse } from '../../../../../../lib/location/digicodeImmeubleRepo';
+import { journalDigicode, lireDigicodesAdresse } from '../../../../../../lib/location/digicodeImmeubleRepo';
 
 /**
  * /api/admin/gestion/immeubles/digicode — LE DIGICODE DE L'IMMEUBLE, depuis la fiche immeuble / syndic (rose) (Arno, 21/10/2026,
  * migration 396). Au droit « Gestion ». L'immeuble est désigné par son ADRESSE POSTALE (`voie`, `cp`, `commune`), jamais par le
  * syndic : changer de syndic ne change rien au digicode.
  *   GET  `?voie=&cp=&commune=` : la valeur, la mention « Commun à tous les biens du … (N biens) », le journal.
- *   POST `{ voie, cp, commune, digicode, code }` : écrit sur l'immeuble (créé s'il n'existe pas), journalisé « fiche_syndic ».
+ *   POST : 🔴 REFUSÉ depuis le 16/11/2026 (voir plus bas) — n'écrit plus jamais.
  * Arno (21/10/2026, 399) — UN CODE PAR BÂTIMENT : le GET rend aussi `batiments` (une ligne par bâtiment connu) et `parBatiment` ;
  * le POST accepte `batiment` (absent ou vide : le code général de l'adresse).
  */
@@ -32,21 +31,17 @@ export async function GET(request: Request): Promise<Response> {
   }
 }
 
+/**
+ * 🔴🔴 (16/11/2026, « Digicodes unifiés », décision d'Arno) CE QU'IL Y AVAIT : le POST écrivait le digicode dans les ANCIENNES tables (396 / 399),
+ * pour l'ancienne saisie par adresse (DigicodeImmeuble), retirée au lot 4. Plus aucun écran ne l'appelle, et elle ne doit plus JAMAIS écrire :
+ * toute écriture est REFUSÉE, avec un message clair qui renvoie au chemin unique (base unique, migration 478). Rien n'est lu ni écrit en base.
+ * La lecture (GET) reste telle quelle.
+ */
+const MOTIF_ANCIEN_CHEMIN = 'Cette saisie du digicode n’existe plus : le digicode se saisit désormais dans la fiche Copropriété ou la fiche du bien '
+  + '(base unique des digicodes : première saisie, « Corriger une erreur », « Modifier »). Rien n’est enregistré.';
+
 export async function POST(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
-  let corps: Record<string, unknown>;
-  try {
-    corps = await request.json() as Record<string, unknown>;
-  } catch {
-    return Response.json({ etat: 'refus', motif: 'Demande illisible.' }, { status: 400, headers: ENTETES });
-  }
-  try {
-    const r = await enregistrerDigicode({ voie: texte(corps.voie, 300), codePostal: texte(corps.cp, 10), commune: texte(corps.commune, 120) },
-      { digicode: corps.digicode, code: corps.code }, await auteurDeLaRequete(request), 'fiche_syndic', null, texte(corps.batiment, 60));
-    return Response.json(r.ok ? { etat: 'ok', data: { change: r.change } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
-  } catch (e) {
-    console.error('[gestion/immeubles/digicode] écriture impossible', e);
-    return Response.json({ etat: 'erreur', message: 'Enregistrement impossible : la base n’a pas répondu. Rien n’a été modifié.' }, { status: 503, headers: ENTETES });
-  }
+  return Response.json({ etat: 'refus', motif: MOTIF_ANCIEN_CHEMIN }, { status: 410, headers: ENTETES });
 }
