@@ -151,11 +151,10 @@ describe('🔴🔴 ② les suggestions viennent de la recherche EXISTANTE', () =
    * 🔴🔴 AUCUNE SECONDE RECHERCHE (Arno) : la barre interroge la route de l'annuaire, celle de l'écran Annuaire.
    * Un filtre « maison » aurait donné deux annuaires qui ne trouvent pas les mêmes gens.
    */
-  it('🔴🔴 elle interroge `/api/admin/gestion/annuaire?q=…`, et rien d’autre', async () => {
+  it('🔴🔴 elle interroge `/api/admin/gestion/annuaire?q=…` et, depuis le 16/11/2026, la liste des copropriétés (le groupe « Copropriétés »), et rien d’autre', async () => {
     await monter();
     await taper('normandie');
-    expect(urls).toHaveLength(1);
-    expect(urls[0]).toBe('/api/admin/gestion/annuaire?q=normandie&vue=gestion');
+    expect([...urls].sort()).toEqual(['/api/admin/gestion/annuaire?q=normandie&vue=gestion', '/api/admin/gestion/coproprietes/liste?q=normandie&max=8']);
   });
 
   /**
@@ -444,7 +443,8 @@ describe('🔴🔴 ⑦ les garanties structurelles', () => {
   it('🔴🔴 une seule route interrogée, et aucun chemin de fiche écrit à la main', () => {
     const appels = [...BARRE.matchAll(/fetch\(`([^`]+)`/g)].map((m) => m[1]);
     // Arno (21/10/2026, 403) : `vue=gestion` — la Gestion écarte la location seule ; la route reste la même.
-    expect(appels).toEqual(['/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}&vue=gestion']);
+    // 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) : + le groupe « Copropriétés » (sa propre route, en lecture seule)
+    expect(appels).toEqual(['/api/admin/gestion/coproprietes/liste?q=${encodeURIComponent(t)}&max=${MAX_COPROS}', '/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}&vue=gestion']);
     expect(BARRE).not.toContain('ecran:');
     expect(BARRE).not.toContain('?fiche=');
   });

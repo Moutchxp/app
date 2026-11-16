@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALERTE_DESACCORD, biensEnDesaccord, estHorsCopropriete, nomAffiche, titreFicheCopropriete, TITRE_COPROPRIETE, TITRE_HORS_COPROPRIETE } from './copropriete';
+import { ALERTE_DESACCORD, biensEnDesaccord, cherchableDe, filtrerCoproprietes, horsDansLaListe, estHorsCopropriete, nomAffiche, titreFicheCopropriete, TITRE_COPROPRIETE, TITRE_HORS_COPROPRIETE } from './copropriete';
 import { CATEGORIES_COPROPRIETE, CATEGORIES_IMMEUBLE, categorieDe, libelleCategorieImmeuble, validerSyndic, versFormulaireImmeuble } from './syndics';
 import { roleImmeuble } from './partiesSyndic';
 
@@ -49,5 +49,23 @@ describe('le statut « Copropriétaire » des contacts de l’immeuble', () => {
     expect(versFormulaireImmeuble([{ id: 1, categorie: 'coproprietaire', libelle: null, civilite: 'Mme', prenom: 'Léa', nom: 'Martin', note: null, coordonnees: [] }])[0].titreChoix).toBe('Copropriétaire');
     expect(CATEGORIES_IMMEUBLE).toEqual(['Gardien', 'Conseil syndical', 'Personnalisé']);
     expect(CATEGORIES_COPROPRIETE).toEqual(['Gardien', 'Copropriétaire', 'Conseil syndical', 'Personnalisé']);
+  });
+});
+
+describe('🔴 (lot 4) la liste « Copropriétés »', () => {
+  it('« Bien hors copropriété » dans la liste : la fiche le dit, ou tous les biens notés le disent ; désaccord ou rien : non', () => {
+    expect(horsDansLaListe(true, [true])).toBe(true);
+    expect(horsDansLaListe(false, [false, null])).toBe(true);
+    expect(horsDansLaListe(false, [false, true])).toBe(false);
+    expect(horsDansLaListe(false, [null])).toBe(false);
+    expect(horsDansLaListe(false, [])).toBe(false);
+  });
+  it('la recherche : chaque mot, sans accents ni casse, dans le nom, les adresses ou le syndic', () => {
+    const l = [{ cherchable: cherchableDe(['Résidence Les Tilleuls', '12 rue des Lilas, 75011 Paris', 'Cabinet A']) }, { cherchable: cherchableDe(['80 rue de Normandie', null]) }];
+    expect(filtrerCoproprietes(l, 'tilleuls lilas')).toHaveLength(1);
+    expect(filtrerCoproprietes(l, 'RÉSIDENCE cabinet')).toHaveLength(1);
+    expect(filtrerCoproprietes(l, 'rue')).toHaveLength(2);
+    expect(filtrerCoproprietes(l, '  ')).toHaveLength(2);
+    expect(filtrerCoproprietes(l, 'nice')).toHaveLength(0);
   });
 });

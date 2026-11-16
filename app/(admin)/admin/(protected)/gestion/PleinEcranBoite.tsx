@@ -99,7 +99,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onTaches, tachesDuJour = 0, onPreavis, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onTaches, tachesDuJour = 0, onPreavis, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -181,6 +181,8 @@ export function PleinEcranBoite({
   evenementsOuverts?: number | null;
   /** LOT ANNUAIRE-SYNDICS — ouvre l'écran « Syndics ». Absent ⇒ aucune entrée. */
   onSyndics?: () => void;
+  /** 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — ouvre l'écran « Copropriétés », juste sous « Syndics ». Absent ⇒ aucune entrée. */
+  onCoproprietes?: () => void;
   /** 🔴 LOT GESTION-TACHES-PAGE — le raccourci « Tâches » (page pleine), entre « Événements » et « Syndics ». */
   onTaches?: () => void;
   /** Les tâches prévues AUJOURD'HUI, ni faites ni annulées (pastille rouge ; rien à 0). */
@@ -1053,6 +1055,15 @@ export function PleinEcranBoite({
                 <button type="button" className="cm-entree" onClick={() => { onSyndics(); setPanneauMobile('contenu'); }}
                   title="L’annuaire des syndics de copropriété">
                   <span className="cm-nom"><span className="cm-texte">Syndics</span></span>
+                </button>
+              </li>
+            )}
+            {/* 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — « Copropriétés », juste sous « Syndics ». Une entrée AJOUTÉE. */}
+            {onCoproprietes && (
+              <li>
+                <button type="button" className="cm-entree" onClick={() => { onCoproprietes(); setPanneauMobile('contenu'); }}
+                  title="Les copropriétés du portefeuille (adresses, digicodes, AG, habitants)" data-entree-coproprietes>
+                  <span className="cm-nom"><span className="cm-texte">Copropriétés</span></span>
                 </button>
               </li>
             )}

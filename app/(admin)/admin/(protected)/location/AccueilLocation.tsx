@@ -22,10 +22,12 @@ import { BlocPreavisAccueil } from './PreavisAccueil';
  * Les fiches sorties du portefeuille (“Anciens”) aussi, en bas, grisées. »
  * 🔴 L'espace réservé garde sa hauteur : le panneau se pose PAR-DESSUS les cases, qui ne bougent jamais.
  */
-const LIEN: Record<Groupe, (id: number) => string> = {
+const LIEN: Record<Groupe, (id: number, l?: { cle?: string | null }) => string> = {
   proprietaires: (id) => `/admin/location/proprietaire/${id}`,
   locataires: (id) => `/admin/location/locataire/${id}`,
   syndics: (id) => `/admin/location/syndic/${id}`,
+  // 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — la liste des copropriétés, la fiche de celle-ci ouverte
+  coproprietes: (_id, l) => `/admin/location/coproprietes?ouvrir=${encodeURIComponent(l?.cle ?? '')}`,
   biens: (id) => `/admin/location/bien/${id}`,
 };
 
@@ -82,7 +84,7 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
     if (e.key === 'ArrowUp') { e.preventDefault(); setActif((i) => Math.max(0, i - 1)); return; }
     if (e.key === 'Enter') {
       const l = lignes[actif >= 0 ? actif : 0];
-      if (l !== undefined) { e.preventDefault(); window.location.href = LIEN[l.groupe](l.id); }
+      if (l !== undefined) { e.preventDefault(); window.location.href = LIEN[l.groupe](l.id, l); }
     }
   };
   const premierAncien = lignes.findIndex((l) => l.ancien);
@@ -117,7 +119,7 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
                         <li key={`${l.groupe}-${l.id}`} role="presentation">
                           {i === premierAncien && <p className="loc-res-separateur">Anciens — sortis du portefeuille (réactivation depuis la fiche)</p>}
                           <a id={`loc-res-${i}`} role="option" aria-selected={i === actif} data-index={i} data-groupe={l.groupe}
-                            className={`loc-res-ligne${l.ancien ? ' loc-res-ligne--ancien' : ''}`} href={LIEN[l.groupe](l.id)}
+                            className={`loc-res-ligne${l.ancien ? ' loc-res-ligne--ancien' : ''}`} href={LIEN[l.groupe](l.id, l)}
                             onMouseEnter={() => setActif(i)}>
                             <span className={`loc-res-type loc-res-type--${l.ancien ? 'ancien' : l.groupe}`}>{l.ancien ? `Ancien · ${LIBELLE_TYPE[l.groupe]}` : LIBELLE_TYPE[l.groupe]}</span>
                             <strong className="loc-res-nom">{l.titre}</strong>
@@ -185,6 +187,7 @@ export const CSS_RESULTATS = `
 .loc-res-type--proprietaires{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .loc-res-type--locataires{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-res-type--syndics{background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border:1px solid var(--color-svv-syndic-bord)} /* rose du syndic de la Gestion (Arno, 17/10) */
+.loc-res-type--coproprietes{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)} /* la copropriete (Arno, 16/11/2026) : neutre, distincte du rose du syndic */
 .loc-res-type--biens{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
 .loc-res-type--ancien{background:var(--color-svv-field);color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong)}
 .loc-res-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;min-width:0}

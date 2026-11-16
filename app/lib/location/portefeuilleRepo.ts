@@ -11,6 +11,8 @@ import { ficheSyndic } from '../gestion/syndicRepo';
 import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
 import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
+import { listerCoproprietes } from '../gestion/coproprieteRepo';
+import { filtrerCoproprietes } from '../gestion/copropriete';
 import type { Issue } from './locationRepo';
 import { manquesClientLocation } from './cartesLocation';
 import { MOTIF_PREMIERE_CARTE } from '../gestion/carteComplete';
@@ -83,7 +85,7 @@ const LIMITE = 25;
  */
 export async function rechercherPortefeuille(brut: string, options: { proprietairesSeuls?: boolean } = {}): Promise<ResultatsAccueil> {
   const t = analyserTermePortefeuille(brut);
-  const vide: ResultatsAccueil = { proprietaires: [], locataires: [], syndics: [], biens: [], tronque: false };
+  const vide: ResultatsAccueil = { proprietaires: [], locataires: [], syndics: [], coproprietes: [], biens: [], tronque: false };
   if (t.vide) return vide;
   const coordVivante = await conditionCoordonneeVivante('c');
   const avecSortie = await sortieDisponible();
@@ -140,7 +142,7 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
       WHERE ${NEUTRE} AND ${vivanteP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('proprietaire', 'p', 1)}${parAdresseDeSesBiens})
       ORDER BY ${ancien('p')}, ${pertinence('p.nom_normalise')}, p.nom_normalise, p.id LIMIT ${LIMITE + 1}`, params);
   if (options.proprietairesSeuls === true) {
-    return { proprietaires: prop.slice(0, LIMITE).map((r) => ligneDe(r, `Propriétaire ${r.id}`)), locataires: [], syndics: [], biens: [], tronque: prop.length > LIMITE };
+    return { proprietaires: prop.slice(0, LIMITE).map((r) => ligneDe(r, `Propriétaire ${r.id}`)), locataires: [], syndics: [], coproprietes: [], biens: [], tronque: prop.length > LIMITE };
   }
   const { rows: loc } = await query<Ligne>(
     `SELECT p.id::text, p.nom, ${coordonnee('locataire', 'p', 'telephone')} AS telephone,
@@ -183,14 +185,18 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
           AND ${t.mots.map((_, i) => `coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'`).join(' AND ')}
         ORDER BY ${ancien('lo')}, lo.adresse_normalisee, lo.id LIMIT ${LIMITE + 1}`, [t.mots]);
 
+  // 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — les copropriétés : par leur nom, leurs adresses, leur syndic (mots seulement)
+  const copros = t.mots.length === 0 ? [] : filtrerCoproprietes(await listerCoproprietes().catch(() => []), t.mots.join(' '));
   const ligne = ligneDe;
   const borne = <T>(l: T[]): T[] => l.slice(0, LIMITE);
   return {
     proprietaires: borne(prop).map((r) => ligne(r, `Propriétaire ${r.id}`)),
     locataires: borne(loc).map((r) => ligne(r, `Locataire ${r.id}`)),
     syndics: borne(syn).map((r) => ligne(r, `Syndic ${r.id}`)),
+    coproprietes: borne(copros).map((c, i): LigneRecherche => ({ id: i + 1, titre: c.hors ? `${c.nom} · Bien hors copropriété` : c.nom, telephone: null, email: null,
+      adresse: c.adresses.join(' · '), detail: c.syndic === null ? null : `Syndic : ${c.syndic.nom}`, ancien: false, cle: c.immeuble })),
     biens: borne(biens).map((r) => ligne(r, `Bien ${r.id}`)),
-    tronque: [prop, loc, syn, biens].some((l) => l.length > LIMITE),
+    tronque: [prop, loc, syn, copros, biens].some((l) => l.length > LIMITE),
   };
 }
 

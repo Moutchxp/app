@@ -63,6 +63,7 @@ import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
 import { EcranSyndics } from './EcranSyndics';
+import { EcranCoproprietes } from './EcranCoproprietes';
 import { FileATrier } from './FileATrier';
 import { etatSuite } from '../../../../lib/gestion/suiteReleve';
 import { etatCopie } from '../../../../lib/gestion/copieArretee';
@@ -1517,6 +1518,9 @@ export function GestionVue({ intro, location = false }: {
               aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
             }
             : undefined} />
+      ) : ecran === 'coproprietes' ? (
+        /* 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — L'ÉCRAN « COPROPRIÉTÉS », juste sous « Syndics » */
+        <EcranCoproprietes retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut}>← Boîte</button>} />
       ) : ecran === 'historique' ? (
         /* 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — une fiche PROPRIÉTAIRE ou LOCATAIRE ouvre l'historique de
            ses échanges, avec le composant de l'historique d'un bien. Un bien et une carte gardent l'écran d'avant. */
@@ -1677,6 +1681,8 @@ export function GestionVue({ intro, location = false }: {
           evenementsOuverts={d.evenementsOuverts}
           /* 🔴 LOT ANNUAIRE-SYNDICS — l'entrée « Syndics », juste sous « Événements ». */
           onSyndics={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'syndics' }); }}
+          /* 🔴 Arno (16/11/2026) — « Copropriétés », juste sous « Syndics ». */
+          onCoproprietes={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'coproprietes' }); }}
           /* 🔴 LOT GESTION-TACHES-PAGE — « Tâches », entre « Événements » et « Syndics » ; la page pleine du module. */
           onTaches={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }}
           tachesDuJour={tachesDuJour}

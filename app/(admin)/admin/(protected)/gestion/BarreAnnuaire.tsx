@@ -1,5 +1,6 @@
 'use client';
 
+import { FicheCopropriete } from './FicheCopropriete';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import {
@@ -80,6 +81,9 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
 }) {
   const [texte, setTexte] = useState('');
   const [suggestions, setSuggestions] = useState<SuggestionAnnuaire[] | null>(null);
+  /** 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — le groupe « Copropriétés » des résultats, et la fiche ouverte depuis lui. */
+  const [copros, setCopros] = useState<CoproTrouvee[]>([]);
+  const [coproOuverte, setCoproOuverte] = useState<string | null>(null);
   const [rang, setRang] = useState(-1);
   const [occupe, setOccupe] = useState(false);
   /**
@@ -124,7 +128,7 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
   useEffect(() => {
     const t = texte.trim();
     if (t.length < MINIMUM) {
-      setSuggestions(null); setRang(-1); setTronque(false); setSansSchema(false); return;
+      setSuggestions(null); setCopros([]); setRang(-1); setTronque(false); setSansSchema(false); return;
     }
     let annule = false;
     setOccupe(true);
@@ -132,9 +136,15 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
       void (async () => {
         try {
           // Arno (21/10/2026, 403) : `vue=gestion` — l'annuaire de la Gestion écarte la location seule (jamais depuis la Location).
+          // 🔴 (16/11/2026) les copropriétés, en parallèle : une erreur ici ne retire jamais les personnes trouvées
+          const coprosLues = fetch(`/api/admin/gestion/coproprietes/liste?q=${encodeURIComponent(t)}&max=${MAX_COPROS}`, { cache: 'no-store' })
+            .then((r) => r.json() as Promise<{ etat?: string; data?: { lignes?: CoproTrouvee[] } }>).then((j) => (j.etat === 'ok' ? j.data?.lignes ?? [] : []))
+            .catch(() => [] as CoproTrouvee[]);
           const res = await fetch(`/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}&vue=gestion`, { cache: 'no-store' });
           const d = (await res.json().catch(() => ({}))) as ReponseAnnuaire;
+          const c = await coprosLues;
           if (annule) return;
+          setCopros(Array.isArray(c) ? c : []);
           /* ⚠️ LES ERREURS RENDENT UNE LISTE VIDE, pas une liste absente : l'écran dit alors « Aucun contact
              trouvé » plutôt que de laisser le champ muet. */
           /**
@@ -163,7 +173,7 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
           setTronque(d.etat === 'ok' && d.data?.tronque === true);
           setRang(-1);
         } catch {
-          if (!annule) { setSuggestions([]); setRang(-1); setTronque(false); setSansSchema(false); }
+          if (!annule) { setSuggestions([]); setCopros([]); setRang(-1); setTronque(false); setSansSchema(false); }
         } finally {
           if (!annule) setOccupe(false);
         }
@@ -198,12 +208,17 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
    * la flèche bas serait revenue sur une liste disparue.
    */
   const fermerEtVider = useCallback((): void => {
-    setTexte(''); setSuggestions(null); setRang(-1); setTronque(false); setSansSchema(false);
+    setTexte(''); setSuggestions(null); setCopros([]); setRang(-1); setTronque(false); setSansSchema(false);
   }, []);
 
   const ouvrir = (s: SuggestionAnnuaire): void => {
     fermerEtVider();
     onFiche(s.fiche);
+  };
+  /** Une ligne de la liste : une personne (sa fiche), ou une copropriété (sa fiche, en fenêtre). */
+  const ouvrirElement = (x: ElementListe): void => {
+    if (x.sorte === 'personne') { ouvrir(x.s); return; }
+    fermerEtVider(); setCoproOuverte(x.c.immeuble);
   };
 
   /**
@@ -255,7 +270,7 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
    * saisie, et la frappe suivante la rouvrait sur un terme qu'on croyait abandonné.
    */
   const auClavier = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    const liste = suggestions ?? [];
+    const liste = elementsDe(suggestions, copros);
     if (e.key === 'Escape') { fermerEtVider(); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -264,11 +279,12 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
     }
     if (e.key === 'Enter' && rang >= 0 && liste[rang] !== undefined) {
       e.preventDefault();
-      ouvrir(liste[rang]);
+      ouvrirElement(liste[rang]);
     }
   };
 
-  const liste = suggestions ?? [];
+  // 🔴 (16/11/2026) les personnes, PUIS le groupe « Copropriétés » : une seule liste, le clavier la parcourt en entier
+  const liste = elementsDe(suggestions, copros);
   return (
     <div className="gst-annuaire" ref={racine}>
       <style>{CSS_BARRE_ANNUAIRE}</style>
@@ -314,7 +330,16 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
             <ul className="gst-annuaire-liste" id={idListe} role="listbox" aria-label="Contacts trouvés"
               ref={boiteListe}
               style={hauteurListe === null ? undefined : { maxHeight: `${hauteurListe}px` }}>
-              {liste.map((s, i) => (
+              {liste.map((x, i) => x.sorte === 'copro' ? (
+                <li key={`copro-${x.c.cle}`} id={`${idListe}-${i}`} role="option" aria-selected={i === rang} data-resultat-copropriete={x.c.cle}>
+                  <button type="button" className={`gst-annuaire-item${i === rang ? ' gst-annuaire-item--vise' : ''}`}
+                    onMouseDown={(e) => { e.preventDefault(); ouvrirElement(x); }} onMouseEnter={() => setRang(i)}>
+                    <span className="gst-annuaire-nom">{x.c.nom}</span>
+                    <span className="gst-annuaire-role gst-annuaire-role--copropriete">{x.c.hors ? 'Bien hors copropriété' : 'Copropriété'}</span>
+                    <span className="gst-annuaire-lieu">{x.c.adresses.join(' · ')}</span>
+                  </button>
+                </li>
+              ) : ((s) => (
                 <li key={s.cle} id={`${idListe}-${i}`} role="option" aria-selected={i === rang}>
                   {/* ⚠️ `onMouseDown` ET NON `onClick` : le champ perd le focus au clic, ce qui referme la liste
                       avant que le clic n'aboutisse. `onMouseDown` part avant le `blur`. */}
@@ -341,7 +366,7 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
                     {s.mention !== null && <span className="gst-annuaire-lieu">{s.mention}</span>}
                   </button>
                 </li>
-              ))}
+              ))(x.s))}
               {/* ══ 🔴🔴 LOT ECRAN-ANNUAIRE-MINIMAL — UNE LISTE COUPÉE LE DIT ════════════════════════════════
                   Le serveur rend au plus 60 personnes et signale qu'il a plafonné (`tronque`). Sans cette
                   ligne, on lisait les premières en croyant les avoir toutes — le défaut mesuré par Arno le
@@ -363,8 +388,18 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
             </ul>
           )
       )}
+      {coproOuverte !== null && <FicheCopropriete immeuble={coproOuverte} onFerme={() => setCoproOuverte(null)} />}
     </div>
   );
+}
+
+/** 🔴 (16/11/2026, lot 4) une copropriété trouvée (le groupe « Copropriétés » des résultats). */
+interface CoproTrouvee { immeuble: string; cle: string; nom: string; adresses: string[]; hors: boolean }
+type ElementListe = { sorte: 'personne'; s: SuggestionAnnuaire } | { sorte: 'copro'; c: CoproTrouvee };
+const MAX_COPROS = 8;
+/** Les personnes, puis les copropriétés. PUR. */
+export function elementsDe(personnes: readonly SuggestionAnnuaire[] | null, copros: readonly CoproTrouvee[]): ElementListe[] {
+  return [...(personnes ?? []).map((s) => ({ sorte: 'personne' as const, s })), ...copros.map((c) => ({ sorte: 'copro' as const, c }))];
 }
 
 /**
@@ -423,6 +458,7 @@ const CSS_BARRE_ANNUAIRE = `
 .gst-annuaire-role--locataire{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la capsule « Ancien locataire », dans la paire tamisee violette du theme
    (lot 84 ; contrastes mesures 5,48:1 en Clair, 7,74:1 en Sombre). */
+.gst-annuaire-role--copropriete{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
 .gst-annuaire-role--ancien_locataire{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
 /* ══ LOT ECRAN-ANNUAIRE-MINIMAL — LA LIGNE « D'AUTRES CORRESPONDENT » ══

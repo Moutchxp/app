@@ -78,3 +78,31 @@ export const titreFicheCopropriete = (hors: boolean): string => (hors ? TITRE_HO
 export function biensEnDesaccord(biens: readonly Pick<BienCopropriete, 'copropriete'>[]): boolean {
   return biens.some((b) => b.copropriete === true) && biens.some((b) => b.copropriete === false);
 }
+
+/* ══ 🔴🔴 LA LISTE « COPROPRIÉTÉS » (Arno, 16/11/2026, lot 4) ══════════════════════════════════════════════════════════════════════════════════
+ * TOUS les immeubles du portefeuille (une copropriété encore non enregistrée y figure : sa fiche se crée au premier « Valider »), une ligne par
+ * copropriété : nom, adresses, syndic, nombre de biens, « Bien hors copropriété » le cas échéant. */
+export interface LigneCopropriete {
+  /** l'immeuble à ouvrir (son libellé : la fiche se lit par lui) */
+  immeuble: string;
+  cle: string;
+  nom: string;
+  adresses: string[];
+  syndic: { id: number; nom: string; ville: string | null } | null;
+  nbBiens: number;
+  hors: boolean;
+  declaree: boolean;
+  /** ce qu'on peut chercher, normalisé : nom, adresses, syndic */
+  cherchable: string;
+}
+/** « Hors copropriété » dans la liste : la fiche le dit, ou tous les biens notés le disent (des biens qui se contredisent : non). PUR. */
+export function horsDansLaListe(fiche: boolean, biens: readonly (boolean | null)[]): boolean {
+  return fiche || (biens.some((b) => b === false) && !biens.some((b) => b === true));
+}
+const plat = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/** La recherche : chaque mot tapé doit se trouver (nom, adresses, syndic), sans accents ni casse. PUR. */
+export function filtrerCoproprietes<T extends Pick<LigneCopropriete, 'cherchable'>>(lignes: readonly T[], q: string): T[] {
+  const mots = plat(q).split(' ').filter((m) => m !== '');
+  return mots.length === 0 ? [...lignes] : lignes.filter((l) => mots.every((m) => l.cherchable.includes(m)));
+}
+export const cherchableDe = (morceaux: readonly (string | null | undefined)[]): string => plat(morceaux.filter(Boolean).join(' '));

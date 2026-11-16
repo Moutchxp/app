@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (16/11/2026, 476) — la lecture de la fiche Copropriété (base simulée ; le vrai SQL a été rejoué sur la recette). */
 const b = vi.hoisted(() => ({ avec476: true, sql: [] as string[], copro: null as Record<string, unknown> | null, adresses: [] as unknown[], lots: [] as unknown[],
-  syndic: [] as unknown[], gestionnaires: [] as unknown[], registre: [] as unknown[] }));
+  syndic: [] as unknown[], gestionnaires: [] as unknown[], registre: [] as unknown[], autres: [] as unknown[] }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async (t: string) => (t === 'gestion_copropriete' ? b.avec476 : true) }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible: async () => true, depuisCoproprieteDisponible: async () => true,
   lireDigicodesAdresse: async (a: { voie: string }) => ({ general: { digicode: true, code: a.voie.startsWith('12') ? '1234' : null, source: 'immeuble' }, parBatiment: true,
@@ -11,20 +11,25 @@ vi.mock('./contactsImmeubleRepo', () => ({ contactsDeLImmeuble: async () => [{ i
 vi.mock('../db/client', () => ({
   query: async (sql: string) => {
     const s = sql.replace(/\s+/g, ' ').trim(); b.sql.push(s);
+    if (s.startsWith('SELECT cs.copropriete_id::text AS copro')) return { rows: b.syndic.map((x) => ({ ...(x as object), copro: '7' })) };
     if (s.includes('FROM gestion_copropriete c WHERE c.cle_immeuble = $1')) return { rows: b.copro ? [b.copro] : [] };
     if (s.includes('FROM gestion_copropriete_adresse WHERE copropriete_id = $1')) return { rows: b.adresses };
     if (s.includes('FROM gestion_annuaire_lot WHERE absent_le IS NULL')) return { rows: b.lots };
     if (s.includes('FROM gestion_copropriete_syndic cs JOIN gestion_syndic s')) return { rows: b.syndic };
     if (s.includes('FROM gestion_syndic_contact ct')) return { rows: b.gestionnaires };
     if (s.includes('FROM gestion_copropriete_batiment')) return { rows: b.registre };
+    // la liste (lot 4)
+    if (s.startsWith('SELECT immeuble, adresse, code_postal, commune, copropriete FROM gestion_annuaire_lot WHERE absent_le IS NULL')) return { rows: b.lots };
+    if (s.startsWith('SELECT id::text, cle_immeuble AS cle, libelle, code_postal, commune, nom, hors_copropriete AS hors FROM gestion_copropriete')) return { rows: b.copro ? [b.copro, ...b.autres] : b.autres };
+    if (s.startsWith('SELECT copropriete_id::text AS copro, cle_immeuble AS cle')) return { rows: b.adresses.map((a) => ({ ...(a as object), copro: '7' })) };
     throw new Error(`requête inattendue : ${s.slice(0, 80)}`);
   },
 }));
-import { cleImmeubleDuBien, ficheCopropriete } from './coproprieteRepo';
+import { cleImmeubleDuBien, ficheCopropriete, listerCoproprietes } from './coproprieteRepo';
 
 const LOT = (id: number, immeuble: string | null, adresse: string, copropriete: boolean | null = null) => ({ id: String(id), numero: `W${id}`, immeuble, adresse, code_postal: '75011', commune: 'Paris', copropriete });
 beforeEach(() => {
-  b.avec476 = true; b.sql = []; b.registre = [];
+  b.avec476 = true; b.sql = []; b.registre = []; b.autres = [];
   b.copro = { id: '7', cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', code_postal: '75011', commune: 'Paris', nom: null, hors: false, nomenclature: null };
   b.adresses = [{ cle: '12 rue des lilas', libelle: '12 rue des Lilas', code_postal: '75011', commune: 'Paris' }];
   b.lots = [LOT(1, 'Résidence Les Tilleuls', '10 rue des Lilas', true), LOT(2, '12 rue des Lilas', '12 rue des Lilas', true), LOT(3, null, '12 rue des Lilas', null), LOT(4, 'Autre immeuble', '3 rue X', false)];
@@ -74,5 +79,21 @@ describe('la fiche Copropriété', () => {
     expect(f.digicodes.map((d) => [d.voie, d.commun.code, d.batiments.map((x) => x.libelle)])).toEqual([['Résidence Les Tilleuls', null, []], ['12 rue des Lilas', '1234', ['A']]]);
     expect(f.batimentsConnus.map((x) => [x.libelle, x.sorte])).toEqual([['A', 'lettre'], ['C', 'lettre'], ['Côté cour', 'libre']]);
     expect([f.nomenclatureEffective, f.saisieDigicodes]).toEqual(['lettres', true]);
+  });
+});
+
+describe('🔴 (lot 4) la liste « Copropriétés »', () => {
+  it('TOUS les immeubles du portefeuille : une adresse secondaire rangée sous sa copropriété, une copropriété sans bien, un immeuble pas encore enregistré', async () => {
+    b.autres = [{ id: '8', cle: 'copro sans bien', libelle: 'Copro sans bien', code_postal: null, commune: null, nom: 'Les Acacias', hors: true }];
+    const l = await listerCoproprietes();
+    expect(l.map((x) => [x.nom, x.nbBiens, x.declaree, x.hors, x.syndic?.nom ?? null])).toEqual([
+      ['Autre immeuble', 1, false, true, null], // son seul bien est noté « pas en copropriété »
+      ['Les Acacias', 0, true, true, null],
+      ['Résidence Les Tilleuls', 3, true, false, 'Cabinet A'],
+    ]);
+    const t = l.find((x) => x.nom === 'Résidence Les Tilleuls')!;
+    expect(t.adresses).toEqual(['Résidence Les Tilleuls, 75011 Paris', '12 rue des Lilas, 75011 Paris']);
+    expect(t.immeuble).toBe('Résidence Les Tilleuls');
+    expect(b.sql.some((x) => /UPDATE|INSERT|DELETE/.test(x))).toBe(false);
   });
 });

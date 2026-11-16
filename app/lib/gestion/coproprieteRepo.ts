@@ -1,8 +1,8 @@
 import { query } from '../db/client';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
-import { cleImmeuble } from './syndics';
-import { biensEnDesaccord, immeubleDuBien, type BienCopropriete, type DigicodesAdresseFiche, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
+import { adresseImmeuble, cleImmeuble } from './syndics';
+import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type LigneCopropriete, type BienCopropriete, type DigicodesAdresseFiche, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
 import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
 
@@ -105,4 +105,54 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
     adresses: [{ cle, libelle, codePostal, commune, principale: true }, ...sec.map((a) => ({ cle: a.cle, libelle: a.libelle, codePostal: a.code_postal, commune: a.commune, principale: false }))],
     syndic, gestionnaires, contacts: await contactsDeLImmeuble(cle), biens, desaccord: biensEnDesaccord(biens), avec476,
   };
+}
+
+/**
+ * 🔴🔴 (lot 4) LA LISTE « COPROPRIÉTÉS » : tous les immeubles du portefeuille (règle « Immeuble », sinon adresse — la même que les boutons) et les
+ * copropriétés enregistrées sans bien ; une adresse SECONDAIRE est rangée sous sa copropriété. LECTURE SEULE (quatre requêtes, rangées ici).
+ */
+export async function listerCoproprietes(): Promise<LigneCopropriete[]> {
+  const avec476 = await fiche476Disponible();
+  const avec461 = await colonneExisteMemo('gestion_annuaire_lot', 'copropriete');
+  const [{ rows: lots }, { rows: copros }, { rows: sec }, { rows: syn }] = await Promise.all([
+    query<{ immeuble: string | null; adresse: string | null; code_postal: string | null; commune: string | null; copropriete: boolean | null }>(
+      `SELECT immeuble, adresse, code_postal, commune, ${avec461 ? 'copropriete' : 'NULL::boolean AS copropriete'} FROM gestion_annuaire_lot WHERE absent_le IS NULL`),
+    query<{ id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null; nom: string | null; hors: boolean | null }>(
+      `SELECT id::text, cle_immeuble AS cle, libelle, code_postal, commune, ${avec476 ? 'nom, hors_copropriete AS hors' : 'NULL::text AS nom, NULL::boolean AS hors'} FROM gestion_copropriete`),
+    query<{ copro: string; cle: string; libelle: string; code_postal: string | null; commune: string | null }>(
+      'SELECT copropriete_id::text AS copro, cle_immeuble AS cle, libelle, code_postal, commune FROM gestion_copropriete_adresse WHERE retire_le IS NULL ORDER BY id'),
+    query<{ copro: string; id: string; nom: string; ville: string | null }>(
+      `SELECT cs.copropriete_id::text AS copro, s.id::text, s.nom, s.ville FROM gestion_copropriete_syndic cs JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
+        WHERE cs.fin IS NULL`),
+  ]);
+  const parCle = new Map(copros.map((c) => [c.cle, c]));
+  const principaleDe = new Map<string, string>(); // clé d'une adresse secondaire → clé de sa copropriété
+  const coproParId = new Map(copros.map((c) => [c.id, c]));
+  for (const a of sec) { const c = coproParId.get(a.copro); if (c !== undefined && !principaleDe.has(a.cle)) principaleDe.set(a.cle, c.cle); }
+  interface Groupe { cle: string; libelle: string; cp: string | null; commune: string | null; biens: (boolean | null)[] }
+  const groupes = new Map<string, Groupe>();
+  for (const l of lots) {
+    const libelle = immeubleDuBien(l);
+    const k0 = cleImmeuble(libelle);
+    if (k0 === '') continue;
+    const k = parCle.has(k0) ? k0 : principaleDe.get(k0) ?? k0;
+    const g = groupes.get(k) ?? { cle: k, libelle: parCle.get(k)?.libelle ?? libelle, cp: null, commune: null, biens: [] };
+    if (g.cp === null && (l.code_postal ?? '').trim() !== '') g.cp = l.code_postal;
+    if (g.commune === null && (l.commune ?? '').trim() !== '') g.commune = l.commune;
+    g.biens.push(l.copropriete);
+    groupes.set(k, g);
+  }
+  for (const c of copros) if (!groupes.has(c.cle)) groupes.set(c.cle, { cle: c.cle, libelle: c.libelle, cp: c.code_postal, commune: c.commune, biens: [] });
+  const out: LigneCopropriete[] = [];
+  for (const g of groupes.values()) {
+    const c = parCle.get(g.cle);
+    const s = c === undefined ? undefined : syn.find((x) => x.copro === c.id);
+    const adresses = [adresseImmeuble(g.libelle, c?.code_postal ?? g.cp, c?.commune ?? g.commune),
+      ...(c === undefined ? [] : sec.filter((a) => a.copro === c.id).map((a) => adresseImmeuble(a.libelle, a.code_postal, a.commune)))];
+    const nom = (c?.nom ?? '').trim() || g.libelle;
+    const syndic = s === undefined ? null : { id: Number(s.id), nom: s.nom, ville: s.ville };
+    out.push({ immeuble: g.libelle, cle: g.cle, nom, adresses, syndic, nbBiens: g.biens.length, hors: horsDansLaListe(c?.hors === true, g.biens), declaree: c !== undefined,
+      cherchable: cherchableDe([nom, ...adresses, syndic?.nom, syndic?.ville]) });
+  }
+  return out.sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { numeric: true, sensitivity: 'base' }));
 }

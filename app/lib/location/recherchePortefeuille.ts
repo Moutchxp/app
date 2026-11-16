@@ -39,10 +39,11 @@ export function analyserTermePortefeuille(brut: string | null | undefined): Term
 }
 
 /** Les quatre groupes de résultats, dans l'ordre d'affichage. */
-export const GROUPES = ['proprietaires', 'locataires', 'syndics', 'biens'] as const;
+// 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — le groupe « Copropriétés », après les syndics
+export const GROUPES = ['proprietaires', 'locataires', 'syndics', 'coproprietes', 'biens'] as const;
 export type Groupe = (typeof GROUPES)[number];
 export const LIBELLE_GROUPE: Record<Groupe, string> = {
-  proprietaires: 'Propriétaires', locataires: 'Locataires', syndics: 'Syndics', biens: 'Biens',
+  proprietaires: 'Propriétaires', locataires: 'Locataires', syndics: 'Syndics', coproprietes: 'Copropriétés', biens: 'Biens',
 };
 
 export interface ResultatPortefeuille { id: number; titre: string; detail: string | null }
@@ -61,12 +62,14 @@ export interface LigneRecherche {
   /** Pour un bien : son ou ses propriétaires. */
   detail: string | null;
   ancien: boolean;
+  /** 🔴 (16/11/2026) une copropriété : l'immeuble qui ouvre sa fiche (son identifiant n'est qu'un rang) */
+  cle?: string | null;
 }
 export type ResultatsAccueil = Record<Groupe, LigneRecherche[]> & { tronque: boolean };
 export interface LigneAccueil extends LigneRecherche { groupe: Groupe }
 
 /** Le mot de la pastille de type. */
-export const LIBELLE_TYPE: Record<Groupe, string> = { proprietaires: 'Propriétaire', locataires: 'Locataire', syndics: 'Syndic', biens: 'Bien' };
+export const LIBELLE_TYPE: Record<Groupe, string> = { proprietaires: 'Propriétaire', locataires: 'Locataire', syndics: 'Syndic', coproprietes: 'Copropriété', biens: 'Bien' };
 
 /**
  * LA LISTE UNIQUE, DANS L'ORDRE D'ARNO : propriétaires, locataires, syndics, biens (chaque groupe déjà rangé par
