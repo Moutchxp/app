@@ -149,3 +149,30 @@ describe('la fiche', () => {
     expect(posts[0].digicodes).toEqual([{ cle: 'residence les tilleuls', commun: { code: '4321', aucun: false }, batiments: [{ libelle: '1', code: '', aucun: false, confirme: false }] }]);
   });
 });
+
+describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche syndic dans la fiche copropriété', () => {
+  const MEME = () => ({ fiche: FICHE({ syndic: { id: 9, nom: 'Cabinet B', ville: 'Lyon', depuis: '2026-01-01' }, contacts: [], gestionnaires: [] }), coproprieteDuBien: true });
+  it('une adresse de la parcelle est la copropriété du MÊME syndic : la question, « Oui, regrouper » envoie le regroupement', async () => {
+    lu = MEME();
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    expect($('[data-fcp-meme-syndic]').textContent).toContain('est la copropriété « 10 rue Voisine », gérée par le même syndic');
+    expect(posts).toHaveLength(0);
+    await clic('[data-fcp-meme-oui]');
+    expect(posts[0]).toMatchObject({ regrouperAvec: '10 rue Voisine' });
+  });
+  it('« Non, copropriété distincte » : enregistrée sans regroupement', async () => {
+    lu = MEME();
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    await clic('[data-fcp-meme-non]');
+    expect(posts[0].regrouperAvec).toBeUndefined();
+  });
+  it('une copropriété qui a déjà ses habitants : la question n’est pas posée (rien ne serait déplacé)', async () => {
+    lu = { fiche: FICHE({ syndic: { id: 9, nom: 'Cabinet B', ville: 'Lyon', depuis: '2026-01-01' } }), coproprieteDuBien: true };
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    expect(document.querySelector('[data-fcp-meme-syndic]')).toBeNull();
+    expect(posts).toHaveLength(1);
+  });
+});

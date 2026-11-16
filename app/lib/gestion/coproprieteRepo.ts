@@ -34,7 +34,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
        FROM gestion_copropriete c
       WHERE c.cle_immeuble = $1
          OR c.id = (SELECT a.copropriete_id FROM gestion_copropriete_adresse a WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL ORDER BY a.id LIMIT 1)
-      ORDER BY (c.cle_immeuble = $1) DESC, c.id LIMIT 1`, [demandee]);
+      ORDER BY (c.cle_immeuble <> $1) DESC, c.id LIMIT 1`, [demandee]);
   const copro = c[0];
   const cle = copro?.cle ?? demandee;
   const { rows: sec } = copro === undefined ? { rows: [] as { cle: string; libelle: string; code_postal: string | null; commune: string | null }[] }
@@ -135,14 +135,15 @@ export async function listerCoproprietes(): Promise<LigneCopropriete[]> {
     const libelle = immeubleDuBien(l);
     const k0 = cleImmeuble(libelle);
     if (k0 === '') continue;
-    const k = parCle.has(k0) ? k0 : principaleDe.get(k0) ?? k0;
+    // une adresse SECONDAIRE en cours appartient à sa copropriété, même si une copropriété homonyme existe (règle de la fiche syndic)
+    const k = principaleDe.get(k0) ?? k0;
     const g = groupes.get(k) ?? { cle: k, libelle: parCle.get(k)?.libelle ?? libelle, cp: null, commune: null, biens: [] };
     if (g.cp === null && (l.code_postal ?? '').trim() !== '') g.cp = l.code_postal;
     if (g.commune === null && (l.commune ?? '').trim() !== '') g.commune = l.commune;
     g.biens.push(l.copropriete);
     groupes.set(k, g);
   }
-  for (const c of copros) if (!groupes.has(c.cle)) groupes.set(c.cle, { cle: c.cle, libelle: c.libelle, cp: c.code_postal, commune: c.commune, biens: [] });
+  for (const c of copros) if (!groupes.has(c.cle) && !principaleDe.has(c.cle)) groupes.set(c.cle, { cle: c.cle, libelle: c.libelle, cp: c.code_postal, commune: c.commune, biens: [] });
   const out: LigneCopropriete[] = [];
   for (const g of groupes.values()) {
     const c = parCle.get(g.cle);

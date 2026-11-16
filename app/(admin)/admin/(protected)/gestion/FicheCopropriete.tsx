@@ -68,7 +68,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [q, setQ] = useState('');
   const [syndics, setSyndics] = useState<SyndicResume[]>([]);
   const [ficheSyndic, setFicheSyndic] = useState<number | null>(null);
-  const [etape, setEtape] = useState<null | 'alerte' | 'conflit'>(null);
+  const [etape, setEtape] = useState<null | 'alerte' | 'conflit' | 'meme'>(null);
+  const [memeTraite, setMemeTraite] = useState(false);
 
   const appliquer = (l: Lu): void => {
     setLu(l);
@@ -122,26 +123,33 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   };
   // les conflits : la copropriété reçoit un syndic, et une adresse de la parcelle est la copropriété d'un AUTRE syndic
   const conflits = syndicChoisi === null ? [] : prises.filter((p) => p.syndic !== null && p.syndic.id !== syndicChoisi.id);
+  // 🔴 (lot 6, déplacé de la fiche syndic) « Même syndic : regrouper ? » : une adresse de la parcelle est la copropriété du MÊME syndic ; proposé
+  // à une copropriété sans données propres (le serveur refuse sinon, rien n'est déplacé)
+  const syndicVise = syndicChoisi?.id ?? f?.syndic?.id ?? null;
+  const memeSyndic = f === null || syndicVise === null || (f.declaree && (f.contacts.length > 0 || (f.nom ?? '') !== '')) ? []
+    : prises.filter((p) => p.syndic !== null && p.syndic.id === syndicVise && p.copropriete !== null);
 
-  const valider = async (passe: { alerte?: boolean; conflit?: boolean } = {}): Promise<void> => {
+  const valider = async (passe: { alerte?: boolean; conflit?: boolean; meme?: boolean; regrouperAvec?: string } = {}): Promise<void> => {
     if (f === null) return;
     if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
     const refusDigi = f.saisieDigicodes ? refusDigicodes(digi, f.nomenclatureEffective, f.batimentsConnus) : null;
     if (refusDigi !== null) { setErreur(refusDigi); return; }
     if (!passe.conflit && conflits.length > 0) { setEtape('conflit'); return; }
+    if (!passe.meme && !memeTraite && memeSyndic.length > 0) { setEtape('meme'); return; }
     const alerteDue = !passe.alerte && libres.length > 0 && !rattacheeIci && !f.declaree;
     if (alerteDue) { setEtape('alerte'); return; }
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
-        adresses, syndicId: syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adresses, syndicId: syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
       const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
       if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Enregistrement refusé.'); return; }
-      appliquer({ fiche: d.data, coproprieteDuBien: lu?.coproprieteDuBien ?? null }); setRattacheeIci(false); setInfo('Fiche copropriété enregistrée.');
+      appliquer({ fiche: d.data, coproprieteDuBien: lu?.coproprieteDuBien ?? null }); setRattacheeIci(false); setMemeTraite(false);
+      setInfo(passe.regrouperAvec ? `Copropriété regroupée avec « ${passe.regrouperAvec} ».` : 'Fiche copropriété enregistrée.');
     } catch { setErreur('Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
   };
 
@@ -268,6 +276,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               Confirmez-vous un autre syndic pour cette copropriété ?</p>
             <div className="fcp-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape(null)}>Annuler</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider({ conflit: true }); }} data-fcp-conflit-oui>Oui, je confirme</button></div>
+          </div>)}
+        {etape === 'meme' && memeSyndic[0] !== undefined && (
+          <div className="fcp-etape" role="alert" data-fcp-meme-syndic>
+            <p className="fcp-sans-marge">Sur la même parcelle, {adresseImmeuble(memeSyndic[0].libelle, memeSyndic[0].codePostal, memeSyndic[0].commune)} est la copropriété « {memeSyndic[0].copropriete} », gérée par le même syndic.
+              La regrouper avec elle (ses adresses deviennent celles de « {memeSyndic[0].copropriete} ») ?</p>
+            <div className="fcp-actions"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMemeTraite(true); void valider({ conflit: true, meme: true }); }} data-fcp-meme-non>Non, copropriété distincte</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setMemeTraite(true); void valider({ conflit: true, meme: true, alerte: true, regrouperAvec: memeSyndic[0].copropriete as string }); }} data-fcp-meme-oui>Oui, regrouper</button></div>
           </div>)}
         {etape === 'alerte' && (
           <div className="fcp-etape" role="status" data-fcp-alerte-parcelle>

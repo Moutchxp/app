@@ -35,6 +35,8 @@ export interface SaisieCopropriete {
   conflitsParcelle: { autre: string; parcelle: string | null }[];
   /** 🔴 (lot 3) les digicodes MODIFIÉS, par adresse de la copropriété : le commun (`undefined` : inchangé ; `''` : retiré) et ceux des bâtiments */
   digicodes: { cle: string; commun?: CodeSaisi; batiments: (CodeSaisi & { libelle: string; confirme: boolean })[] }[];
+  /** 🔴 (16/11/2026, lot 6) « Même syndic : regrouper ? » — la copropriété (immeuble) que celle-ci REJOINT ; `null` : aucune */
+  regrouperAvec: string | null;
 }
 /** Un code saisi : le code, ou « pas de digicode » (le « Non » d'avant). */
 export interface CodeSaisi { code: string; aucun: boolean }
@@ -83,7 +85,8 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
     if (d.batiments.some((y) => batimentDe(y.libelle) === null)) return { ok: false, motif: 'Donnez un nom au bâtiment ou à la cage d’escalier.' };
   }
   return { ok: true, saisie: { immeuble, nom: nul(texte(b.nom, 200)), horsCopropriete: typeof b.horsCopropriete === 'boolean' ? b.horsCopropriete : null,
-    adresses, contacts, syndicId, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes } };
+    adresses, contacts, syndicId, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes,
+    regrouperAvec: cleImmeuble(texte(b.regrouperAvec)) === '' ? null : texte(b.regrouperAvec) } };
 }
 
 /** La copropriété (principale) d'une clé : la sienne, ou celle dont elle est une adresse en cours. */
@@ -91,7 +94,7 @@ async function coproDeCle(q: RequeteTx, cle: string): Promise<{ id: string; cle:
   const { rows } = await q<{ id: string; cle: string; libelle: string }>(
     `SELECT c.id::text, c.cle_immeuble AS cle, c.libelle FROM gestion_copropriete c
       WHERE c.cle_immeuble = $1 OR c.id = (SELECT a.copropriete_id FROM gestion_copropriete_adresse a WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL ORDER BY a.id LIMIT 1)
-      ORDER BY (c.cle_immeuble = $1) DESC, c.id LIMIT 1`, [cle]);
+      ORDER BY (c.cle_immeuble <> $1) DESC, c.id LIMIT 1`, [cle]);
   return rows[0] ?? null;
 }
 
@@ -104,6 +107,7 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   if (lue === null) return { ok: false, motif: 'Cette copropriété n’est connue ni par un bien ni par une fiche : rechargez la page.' };
   const avec476 = await fiche476Disponible();
   if (s.horsCopropriete !== null && !avec476) return { ok: false, motif: '« Hors copropriété » demande la mise à jour de la base (migration 476) : rien n’est enregistré.' };
+  if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
   const r = await withTransaction(async (q) => {
     // ── ① TOUS LES REFUS, AVANT TOUTE ÉCRITURE ─────────────────────────────────────────────────────────────────────────────────────────────
     for (const a of s.adresses) {
@@ -232,6 +236,55 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };
 }
 
+/**
+ * ══ 🔴🔴 « MÊME SYNDIC : REGROUPER ? » (déplacé de la fiche syndic, lot 6 ; Arno, 16/11/2026) ══════════════════════════════════════════════════
+ * Une adresse de la même parcelle est la copropriété d'un MÊME syndic : cette copropriété la REJOINT — ses adresses (principale et secondaires)
+ * deviennent des adresses de l'autre, son lien avec le syndic est fermé (« regroupement »), comme le faisait la fiche syndic. 🔴 AUCUNE DONNÉE
+ * DÉPLACÉE : si cette copropriété a déjà ses propres habitants ou gardiens, un nom, des AG ou des bâtiments, le regroupement est REFUSÉ (à faire
+ * à la main) — rien n'est ni déplacé ni masqué. Tous les refus avant toute écriture ; rien n'est effacé.
+ */
+async function regrouper(s: SaisieCopropriete, lue: FicheCopropriete, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
+  const r = await withTransaction(async (q) => {
+    const cible = await coproDeCle(q, cleImmeuble(s.regrouperAvec ?? ''));
+    if (cible === null || cible.cle === lue.cle) return { ok: false as const, motif: 'La copropriété à rejoindre est introuvable : rechargez la fiche.' };
+    const syndic = s.syndicId ?? lue.syndic?.id ?? null;
+    const { rows: sc } = await q<{ syndic: string }>('SELECT syndic_id::text AS syndic FROM gestion_copropriete_syndic WHERE copropriete_id = $1 AND fin IS NULL LIMIT 1', [cible.id]);
+    if (syndic === null || sc[0] === undefined || Number(sc[0].syndic) !== syndic) return { ok: false as const, motif: 'Le regroupement n’est possible qu’avec une copropriété du MÊME syndic.' };
+    let aDesDonnees = lue.contacts.length > 0 || (s.contacts ?? []).length > 0 || (lue.nom ?? '').trim() !== '' || (s.nom ?? '').trim() !== '';
+    if (!aDesDonnees && lue.id !== null) {
+      const { rows } = await q<{ n: string }>(
+        `SELECT (SELECT count(*) FROM gestion_copropriete_ag WHERE copropriete_id = $1) + (SELECT count(*) FROM gestion_copropriete_batiment WHERE copropriete_id = $1) AS n`, [lue.id])
+        .catch(() => ({ rows: [{ n: '0' }] }));
+      aDesDonnees = Number(rows[0]?.n ?? 0) > 0;
+    }
+    if (aDesDonnees) return { ok: false as const, motif: `La copropriété « ${lue.libelle} » a déjà ses propres habitants, gardiens, nom, AG ou bâtiments : le regroupement se fait à la main (rien n’est déplacé automatiquement).` };
+    // les adresses de cette copropriété deviennent celles de l'autre (sans doublon) ; ses adresses secondaires en cours sont retirées
+    const { rows: deja } = await q<{ cle: string }>('SELECT cle_immeuble AS cle FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND retire_le IS NULL', [cible.id]);
+    const vues = new Set([cible.cle, ...deja.map((x) => x.cle)]);
+    const adresses = [{ libelle: lue.libelle, codePostal: lue.codePostal ?? '', commune: lue.commune ?? '' }, ...s.adresses];
+    for (const a of adresses) {
+      const k = cleImmeuble(a.libelle);
+      if (k === '' || vues.has(k)) continue;
+      vues.add(k);
+      await q(`INSERT INTO gestion_copropriete_adresse (copropriete_id, cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [cible.id, k, a.libelle, nul(a.codePostal), nul(a.commune), auteur.id, auteur.libelle]);
+    }
+    if (lue.id !== null) {
+      await q('UPDATE gestion_copropriete_adresse SET retire_le = now(), retire_par_libelle = $2 WHERE copropriete_id = $1 AND retire_le IS NULL', [lue.id, auteur.libelle]);
+      const { rows: liens } = await q<{ id: string; syndic_id: string }>('SELECT id::text, syndic_id::text FROM gestion_copropriete_syndic WHERE copropriete_id = $1 AND fin IS NULL FOR UPDATE', [lue.id]);
+      for (const l of liens) {
+        await q(`UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'regroupement' WHERE id = $1`, [l.id, auteur.id, auteur.libelle]);
+        await q(`UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $3, retire_motif = 'regroupement'
+                   FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL`, [l.syndic_id, lue.id, auteur.libelle]);
+      }
+    }
+    return { ok: true as const };
+  });
+  if (!r.ok) return r;
+  const relue = await ficheCopropriete(lue.cle);
+  return relue === null ? { ok: false, motif: 'Regroupée, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };
+}
+
 /** Un refus découvert APRÈS le début des écritures : levé, pour que la transaction soit ANNULÉE (rien n'est écrit). */
 class RefusCopro extends Error {}
 
@@ -252,7 +305,7 @@ export async function propositionsParcelle(adresses: readonly AdresseSaisie[], c
          LEFT JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
          LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
         WHERE c.cle_immeuble = $1 OR c.id = (SELECT x.copropriete_id FROM gestion_copropriete_adresse x WHERE x.cle_immeuble = $1 AND x.retire_le IS NULL ORDER BY x.id LIMIT 1)
-        LIMIT 1`, [a.cle]);
+        ORDER BY (c.cle_immeuble <> $1) DESC LIMIT 1`, [a.cle]);
     const c = rows[0];
     const prise = c !== undefined && c.cle !== cleCopro;
     out.push({ libelle: a.libelle, codePostal: a.codePostal, commune: a.commune, parcelle: a.parcelle, etat: prise ? 'prise' : 'libre',

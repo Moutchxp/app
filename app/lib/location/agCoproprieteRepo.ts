@@ -34,13 +34,14 @@ export interface ContexteAgLot {
 
 type Q = RequeteTx | typeof query;
 
-/** La copropriété dont cette clé est la clé principale ou une adresse en cours ; sinon `null`. */
+/** La copropriété dont cette clé est une adresse en cours, sinon celle dont elle est la clé principale ; sinon `null`. 🔴 (16/11/2026, lot 6)
+ *  L'adresse SECONDAIRE l'emporte sur une copropriété homonyme (après un regroupement), comme dans la fiche syndic (`immeublesConnus`). */
 export async function coproprieteDeCle(cle: string, q: Q = query): Promise<CoproprieteAg | null> {
   const { rows } = await (q as typeof query)<{ id: string; libelle: string; cle: string }>(
     `SELECT c.id::text, c.libelle, c.cle_immeuble AS cle FROM gestion_copropriete c
       WHERE c.cle_immeuble = $1
          OR c.id = (SELECT a.copropriete_id FROM gestion_copropriete_adresse a WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL ORDER BY a.id LIMIT 1)
-      ORDER BY (c.cle_immeuble = $1) DESC, c.id LIMIT 1`, [cle]);
+      ORDER BY (c.cle_immeuble <> $1) DESC, c.id LIMIT 1`, [cle]);
   return rows[0] === undefined ? null : { id: Number(rows[0].id), libelle: rows[0].libelle, cle: rows[0].cle };
 }
 

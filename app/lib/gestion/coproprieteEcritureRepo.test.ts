@@ -122,3 +122,31 @@ describe('🔴 (lot 3) les digicodes depuis la fiche copropriété', () => {
     expect(dg.ecrits).toEqual([]);
   });
 });
+
+describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche syndic', () => {
+  const R = (o: Record<string, unknown> = {}) => ({ ...SAISIE, contacts: [], nom: null, regrouperAvec: '10 rue Voisine', ...o });
+  beforeEach(() => { h.coproDeCle['10 rue voisine'] = { id: '12', cle: '10 rue voisine', libelle: '10 rue Voisine' }; h.fiche = FICHE({ declaree: false, id: null, contacts: [] }); });
+  it('syndic différent : REFUS avant toute écriture', async () => {
+    expect(await enregistrerCopropriete(R(), AUTEUR)).toEqual({ ok: false, motif: 'Le regroupement n’est possible qu’avec une copropriété du MÊME syndic.' });
+    expect(ecritures()).toEqual([]);
+  });
+  it('même syndic : regroupée — adresses ajoutées à l’autre, adresses en cours retirées, lien fermé « regroupement », gestionnaires détachés', async () => {
+    h.fiche = FICHE({ contacts: [], syndic: { id: 9, nom: 'Cabinet B', ville: null, depuis: '2026-01-01' } });
+    h.liens = [{ id: '30', syndic_id: '9' }];
+    const r = await enregistrerCopropriete(R(), AUTEUR);
+    expect(r.ok).toBe(true);
+    const e = ecritures();
+    expect(e.filter((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse')).map((x) => [x.p[0], x.p[2]])).toEqual([['12', 'Résidence Les Tilleuls'], ['12', '12 rue des Lilas']]);
+    expect(e.some((x) => x.s.startsWith('UPDATE gestion_copropriete_adresse SET retire_le = now()'))).toBe(true);
+    expect(e.some((x) => x.s.includes("fin_motif = 'regroupement'"))).toBe(true);
+    expect(e.some((x) => x.s.includes("retire_motif = 'regroupement'"))).toBe(true);
+    expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
+  });
+  it('🔴 une copropriété qui a ses propres habitants (ou un nom) : REFUS — rien n’est déplacé automatiquement', async () => {
+    h.fiche = FICHE({ syndic: { id: 9, nom: 'Cabinet B', ville: null, depuis: '2026-01-01' }, contacts: [{ id: 1, categorie: 'gardien', libelle: null, civilite: null, prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [] }] });
+    expect(await enregistrerCopropriete(R(), AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('le regroupement se fait à la main') });
+    h.fiche = FICHE({ syndic: { id: 9, nom: 'Cabinet B', ville: null, depuis: '2026-01-01' }, contacts: [] });
+    expect(await enregistrerCopropriete(R({ nom: 'Les Tilleuls' }), AUTEUR)).toMatchObject({ ok: false });
+    expect(ecritures()).toEqual([]);
+  });
+});
