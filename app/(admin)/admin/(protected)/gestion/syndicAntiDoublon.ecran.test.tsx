@@ -24,6 +24,8 @@ const FICHE_4 = { id: 4, nom: 'Cabinet FONCIA', adresse: '12 bis av. des Champs-
   telephone2: null, email: 'contact@foncia.invalid', note: null, creeLe: '2026-10-12T10:00:00Z', creeParLibelle: 'banc', majLe: null, majParLibelle: null,
   contacts: [], coproprietes: [], historique: [], anciens: [] };
 let resume: unknown = null;
+/** 🔴 (16/11/2026) le serveur simulé refuse le rattachement sans confirmation du conflit de parcelle. */
+let conflitServeur: unknown[] | null = null;
 let appels: Array<{ url: string; methode: string; corps: Record<string, unknown> | null }> = [];
 let connus: SyndicConnuVu[] = [];
 let proposition: unknown = null;
@@ -31,7 +33,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  appels = []; connus = []; proposition = null; resume = null;
+  appels = []; connus = []; proposition = null; resume = null; conflitServeur = null;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const methode = init?.method ?? 'GET';
     const corps = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
@@ -40,7 +42,10 @@ beforeEach(() => {
     if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: [] });
     if (url.startsWith('/api/admin/gestion/syndics/connus')) return rep({ etat: 'ok', syndics: connus });
     if (url.startsWith('/api/admin/gestion/syndics/comparables')) return rep({ etat: 'ok', syndics: ANNUAIRE });
-    if (/\/syndics\/\d+\/rattacher-bien$/.test(url)) return rep({ ok: true, id: 4, resume });
+    if (/\/syndics\/\d+\/rattacher-bien$/.test(url)) {
+      if (conflitServeur !== null && !Array.isArray(corps?.conflitsParcelle)) return rep({ erreur: 'Conflit de parcelle non confirmé…', conflitsParcelle: conflitServeur }, false);
+      return rep({ ok: true, id: 4, resume });
+    }
     if (/\/syndics\/\d+\/affecter-contact$/.test(url)) return rep({ ok: true });
     if (url.startsWith('/api/admin/gestion/syndics/4') && methode === 'GET') return rep({ etat: 'ok', fiche: FICHE_4 });
     if (url === '/api/admin/gestion/syndics' && methode === 'POST') {
@@ -235,6 +240,24 @@ describe('🔴🔴 PARTIE 3 — le bandeau de la fiche d’un bien', () => {
     await cliquer('Rattacher');
     const r = appels.find((a) => a.methode === 'POST' && a.url.endsWith('/rattacher-bien'));
     expect(r?.corps).toEqual({ immeuble: { libelle: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, coproCle: '25 rue edith cavell', lotId: 500 });
+  });
+  it('🔴 « Rattacher » et conflit de parcelle : la question commune (« Annuler » / « Oui, je confirme ») ; rien n’est écrit avant ; le choix repart', async () => {
+    proposition = { lot: { immeuble: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, syndics: [CONNU] };
+    conflitServeur = [{ immeuble: '25 rue Edith Cavell', libelle: '27 rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie', parcelle: 'AB12', etat: 'prise',
+      copropriete: '27 rue Edith Cavell', syndic: { id: 3, nom: '_BANC Autre', ville: 'Paris' } }];
+    await monterBandeau();
+    await cliquer('Rattacher');
+    const q = container.querySelector('[data-psy-conflit-parcelle]') as HTMLElement;
+    expect(q.querySelector('p')?.textContent).toBe('Sur la même parcelle, 27 rue Edith Cavell, 92400 Courbevoie (27 rue Edith Cavell) est gérée par _BANC Autre / Paris. Confirmez-vous un autre syndic pour cette copropriété ?');
+    expect([...q.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, je confirme']);
+    expect(container.querySelector('.psy-erreur')).toBeNull();
+    await cliquer('Annuler');
+    expect(container.querySelector('[data-psy-conflit-parcelle]')).toBeNull();
+    await cliquer('Rattacher');
+    await act(async () => { (container.querySelector('[data-psy-conflit-oui]') as HTMLElement).click(); }); await calmer();
+    const posts = appels.filter((a) => a.url.endsWith('/rattacher-bien')).map((a) => a.corps?.conflitsParcelle);
+    expect(posts).toEqual([undefined, undefined, [{ immeuble: '25 rue Edith Cavell', autre: '27 rue Edith Cavell', parcelle: 'AB12' }]]);
+    expect(container.querySelector('[data-psy-conflit-parcelle]')).toBeNull();
   });
   it('« Ignorer » : mémorisé pour ce bien (le serveur ne le repropose plus), le bandeau disparaît', async () => {
     proposition = { lot: { immeuble: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, syndics: [CONNU] };

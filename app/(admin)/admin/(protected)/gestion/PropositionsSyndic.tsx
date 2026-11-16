@@ -8,7 +8,7 @@ import type { ImmeubleSaisi } from '../../../../lib/gestion/syndics';
 import { nomAvecVille } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles } from './useImmeublesSyndics';
 import { motConfirmationRattachement, type ResumeRattachement } from '../../../../lib/gestion/partageSyndic';
-import type { ConflitAConfirmer } from '../../../../lib/gestion/conflitParcelle';
+import { questionConflitParcelle, type ConflitAConfirmer } from '../../../../lib/gestion/conflitParcelle';
 
 /**
  * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — LES TROIS PROPOSITIONS DE L'ÉCRAN ═══════════════════════
@@ -256,6 +256,8 @@ export function BandeauSyndicConnuDuBien({ lotId }: { lotId: number }) {
   const [envoi, setEnvoi] = useState(false);
   const [version, setVersion] = useState(0);
   const [confirme, setConfirme] = useState<ResumeRattachement | null>(null);
+  /** 🔴 (16/11/2026) le conflit de parcelle demandé par le serveur : la question commune aux deux fiches, et le syndic à rattacher. */
+  const [conflit, setConflit] = useState<{ s: SyndicConnuVu; conflits: ConflitAConfirmer[] } | null>(null);
   useEffect(() => {
     let vivant = true;
     void fetch(`/api/admin/gestion/biens/${lotId}/syndic-connu`, { cache: 'no-store' })
@@ -268,11 +270,14 @@ export function BandeauSyndicConnuDuBien({ lotId }: { lotId: number }) {
   if (confirme !== null) return <ConfirmationRattachement resume={confirme} />;
   if (p === null || p.syndics.length === 0) return null;
   const plusieurs = new Set(p.syndics.map((s) => s.syndic.id)).size > 1;
-  const rattacher = async (s: SyndicConnuVu): Promise<void> => {
-    setEnvoi(true); setErreur(null);
+  const rattacher = async (s: SyndicConnuVu, confirmes: readonly ConflitAConfirmer[] = []): Promise<void> => {
+    setEnvoi(true); setErreur(null); setConflit(null);
     const r = await rattacherAuBien(s.syndic.id,
-      { libelle: p.lot.immeuble ?? '', codePostal: p.lot.codePostal ?? '', commune: p.lot.commune ?? '' }, s.copro.cle, lotId);
+      { libelle: p.lot.immeuble ?? '', codePostal: p.lot.codePostal ?? '', commune: p.lot.commune ?? '' }, s.copro.cle, lotId, confirmes);
     setEnvoi(false);
+    /* 🔴 (16/11/2026) conflit de parcelle : la même question que les deux fiches ; rien n'a été écrit. « Oui, je confirme » renvoie le
+       rattachement avec le choix, que le serveur note. */
+    if (r.conflits !== undefined) { setConflit({ s, conflits: r.conflits }); return; }
     if (r.erreur !== null) { setErreur(r.erreur); return; }
     if (r.resume !== null) setConfirme(r.resume);
     setVersion((n) => n + 1);
@@ -313,6 +318,16 @@ export function BandeauSyndicConnuDuBien({ lotId }: { lotId: number }) {
           </li>
         ))}
       </ul>
+      {conflit !== null && (
+        <div className="psy-question-conflit" role="alert" data-psy-conflit-parcelle>
+          <p className="psy-question-texte">{questionConflitParcelle(conflit.conflits)}</p>
+          <span className="psy-actions">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConflit(null)} disabled={envoi}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-psy-conflit-oui
+              onClick={() => void rattacher(conflit.s, conflit.conflits)}>Oui, je confirme</button>
+          </span>
+        </div>
+      )}
       {erreur !== null && <p className="psy-erreur" role="alert">{erreur}</p>}
     </div>
     </>
@@ -336,6 +351,8 @@ export const CSS_PROPOSITIONS_SYNDIC = `
 .psy-actions{display:flex;flex-wrap:wrap;gap:.4rem}
 .psy-note{margin:0;font-size:.78rem;color:var(--color-svv-muted)}
 .psy-conflit{margin:0;padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink)}
+.psy-question-conflit{display:flex;flex-direction:column;gap:.45rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft)}
+.psy-question-texte{margin:0;font-weight:600;overflow-wrap:anywhere}
 .psy-erreur{margin:0;padding:6px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .psy-pied-encadre{display:flex;justify-content:flex-end}
 .psy-bandeau--confirme{border-color:var(--color-svv-green);background:var(--color-svv-green-soft)}
