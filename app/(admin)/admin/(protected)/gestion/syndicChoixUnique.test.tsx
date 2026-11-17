@@ -52,12 +52,12 @@ describe('🔴 la ligne « Syndic » du bien : un seul bouton, la recherche d’
     const [choisi, setChoisi] = useState<SyndicChoisi | null>(null);
     return createElement(BlocSyndic, { adresse: { libelle: IMMEUBLE.libelle, codePostal: IMMEUBLE.codePostal, commune: IMMEUBLE.commune }, choisi, onChoisi: setChoisi });
   }
-  it('« Choisir le syndic » (plus de loupe ni de « + ») ouvre la RECHERCHE ; un résultat choisi est rattaché sans écriture ; le bouton dit alors « Changer de syndic »', async () => {
+  it('« Choisir / créer le syndic » (avant : « Choisir le syndic » ; plus de loupe ni de « + ») ouvre la RECHERCHE ; un résultat choisi est rattaché sans écriture ; le bouton dit alors « Changer de syndic »', async () => {
     await act(async () => { racine.render(createElement(Hote)); });
     expect(document.querySelector('[data-loupe]')).toBeNull();
     expect(document.querySelector('[data-creer-syndic]')).toBeNull();
     const b = document.querySelector('[data-choisir-syndic]') as HTMLButtonElement;
-    expect(b.textContent).toBe('Choisir le syndic');
+    expect(b.textContent).toBe('Choisir / créer le syndic'); // CE QU’IL DISAIT AVANT : « Choisir le syndic » (Arno, 17/11/2026)
     await act(async () => { b.click(); });
     await calmer();
     expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
@@ -97,7 +97,7 @@ describe('🔴 « Retirer le syndic » (le bouton qui vide le choix), avec sa fe
     await act(async () => { (document.querySelector('[data-retirer-syndic]') as HTMLButtonElement).click(); });
     await act(async () => { (document.querySelector('[data-retirer-syndic-oui]') as HTMLButtonElement).click(); });
     expect(document.querySelector('[data-syndic-choisi]')).toBeNull();
-    expect(document.querySelector('[data-choisir-syndic]')?.textContent).toBe('Choisir le syndic');
+    expect(document.querySelector('[data-choisir-syndic]')?.textContent).toBe('Choisir / créer le syndic');
     expect(ecritures).toEqual([]);
   });
 });

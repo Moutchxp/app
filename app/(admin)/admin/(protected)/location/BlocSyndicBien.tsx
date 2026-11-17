@@ -97,9 +97,11 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
     <div className="loc-pleine loc-syndic" data-syndic>
       <div className="loc-syndic-tete">
         <span className="loc-syndic-mot">Syndic</span>
-        {/* 🔴🔴 (Arno, 17/11/2026) UN SEUL BOUTON, à la place de la loupe et du « + » (accord d'Arno) : la recherche d'abord */}
+        {/* 🔴🔴 (Arno, 17/11/2026) UN SEUL BOUTON, à la place de la loupe et du « + » (accord d'Arno) : la recherche d'abord.
+            🔴 (Arno, 17/11/2026 : « le bouton « Choisir le syndic » s'appelle désormais « Choisir / créer le syndic » […] Le parcours ne change pas […] Une fois
+            un syndic choisi, le bouton garde « Changer de syndic ». ») */}
         <button type="button" className="svv-btn svv-btn-outline gst-btn loc-syndic-choisir" title={adressePrete ? 'Chercher le syndic dans l’annuaire (nom, e-mail, téléphone)' : 'Saisissez d’abord l’adresse du bien'}
-          disabled={!adressePrete} onClick={() => ouvrir('recherche')} data-choisir-syndic>{choisi === null ? 'Choisir le syndic' : 'Changer de syndic'}</button>
+          disabled={!adressePrete} onClick={() => ouvrir('recherche')} data-choisir-syndic>{choisi === null ? 'Choisir / créer le syndic' : 'Changer de syndic'}</button>
         {!adressePrete && <span className="loc-muet">Saisissez d’abord l’adresse du bien (section « Adresse et situation »).</span>}
       </div>
 

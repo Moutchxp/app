@@ -229,7 +229,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     // Syndic : libellé et UN SEUL bouton « Choisir le syndic » (Arno, 17/11/2026 : à la place de la loupe et du « + »), désactivé tant que l'adresse n'est pas saisie.
     expect(container.querySelector('[data-syndic] .loc-syndic-mot')?.textContent).toBe('Syndic');
     expect((container.querySelector('[data-choisir-syndic]') as HTMLButtonElement).disabled).toBe(true);
-    expect(container.querySelector('[data-choisir-syndic]')?.textContent).toBe('Choisir le syndic');
+    expect(container.querySelector('[data-choisir-syndic]')?.textContent).toBe('Choisir / créer le syndic'); // CE QU’IL DISAIT AVANT : « Choisir le syndic » (Arno, 17/11/2026)
     expect(container.querySelector('[data-loupe]')).toBeNull();
     expect(container.querySelector('[data-creer-syndic]')).toBeNull();
   });
