@@ -760,6 +760,10 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
   const [digiBien, setDigiBien] = useState<DigicodesPourBienLu | null>(null);
   const [digiSaisie, setDigiSaisie] = useState<DigicodesAdresseSaisis | null>(null);
   const [batimentConfirme, setBatimentConfirme] = useState(false);
+  /** 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les bâtiments créés au menu
+   *  pendant la saisie : chacun garde sa ligne de digicode et entre au registre de la copropriété à l'enregistrement */
+  const [batimentsCrees, setBatimentsCrees] = useState<{ libelle: string; confirme: boolean }[]>([]);
+  const creerBatiment = (libelle: string, confirme: boolean): void => setBatimentsCrees((x) => [...x.filter((y) => y.libelle !== libelle), { libelle, confirme }]);
   const [digiRelire, setDigiRelire] = useState(0);
   /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) tant que la lecture n'a pas répondu : ni l'ancien système ni le composant ; l'ancien système ne
      s'affiche plus QUE sur une base sans la migration 478 (le serveur répond `null`) — un bien sans adresse reçoit une place vide. */
@@ -772,7 +776,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
       .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); setDigiCharge(false); } });
     return () => { vivant = false; };
   }, [edition, id, digiRelire]);
-  const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, v.batiment, batimentConfirme) : null;
+  const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, v.batiment, batimentConfirme, batimentsCrees, digiBien.connus) : null;
   /** 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires et l'envoi, par la route de la fiche du bien. */
   const echangeDigi = async <T,>(corpsGeste: Record<string, unknown>): Promise<T | string> => {
     if (digiBien === null) return 'Les digicodes ne sont pas chargés.';
@@ -903,7 +907,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
               /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non, « Code du digicode » et la mention ; avec la
                  478 : le composant unique (code commun et code du bâtiment, lus ou à saisir, « Corriger une erreur ») */
               <div style={{ gridColumn: '1 / -1' }} data-digicodes-unifies><span className="loc-champ">Digicode</span>
-                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={v.batiment} desactive={false} tente={tenteDigi}
+                <DigicodesBien donnees={digiBien} s={digiSaisie} enAttente={batimentsCrees.map((x) => x.libelle)} onChange={setDigiSaisie} batiment={v.batiment} desactive={false} tente={tenteDigi}
                   onCorriger={(a, bt, x) => gesteDigi('digicode-corriger', a, bt, x)} onArbitrer={(a, bt, x) => gesteDigi('digicode-arbitrer', a, bt, x)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
@@ -925,7 +929,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
             {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre ; avec la 478 : le menu de la copropriété */}
             {digiBien !== null
               ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={v.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={v.escalier} desactive={false}
-                  onChoix={(l, conf) => { setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
+                  onCree={creerBatiment} onChoix={(l, conf) => { setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
               : digiCharge ? <p className="loc-muet" style={{ margin: 0 }} data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment')}
             {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « Le champ « Escalier » est RETIRÉ […] ici ET partout où un bien se crée

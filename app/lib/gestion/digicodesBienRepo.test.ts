@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 /** 🔴🔴 Arno (16/11/2026, « Digicodes unifiés », lot 4) — la fiche du bien écrit par le MÊME chemin serveur que la fiche Copropriété. Base simulée. */
 const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], ecrits: [] as Record<string, unknown>[], liens: [] as unknown[][], issue: { ok: true, change: true, id: 1 } as Record<string, unknown>,
   fiche: null as unknown }));
+const inscrits = vi.hoisted(() => [] as string[]);
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ').trim(); h.sql.push({ s, p });
   if (s.startsWith('SELECT immeuble, adresse, code_postal AS cp, commune')) return { rows: [{ immeuble: 'Résidence Les Tilleuls', adresse: '12 rue des Lilas', cp: '75011', commune: 'Paris', batiment: null }] };
@@ -16,6 +17,7 @@ vi.mock('./digicodesRepo', () => ({
   RefusDigicode: class RefusDigicode extends Error {},
   ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { h.ecrits.push(e); return h.issue; },
   relierBienAuBatiment: async (_q: unknown, ...a: unknown[]) => { h.liens.push(a); return { ok: true, change: true }; },
+  inscrireBatiment: async (_q: unknown, _c: unknown, libelle: string) => { inscrits.push(libelle); return 9; },
 }));
 import { digicodesPourBien, ecrireDigicodesDuBien, realignerBatimentDuBien } from './digicodesBienRepo';
 import { RefusDigicode } from './digicodesRepo';
@@ -23,8 +25,8 @@ import { RefusDigicode } from './digicodesRepo';
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const FICHE = { cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', nomenclatureEffective: 'lettres',
   adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls' }], batimentsConnus: [{ cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: 'b', libelle: 'B', sorte: 'lettre' }] };
-const RIEN = { batiment: null, batimentConfirme: false, commun: null, codeBatiment: null };
-beforeEach(() => { h.sql = []; h.ecrits = []; h.liens = []; h.issue = { ok: true, change: true, id: 1 }; h.fiche = FICHE; });
+const RIEN = { batiment: null, batimentConfirme: false, commun: null, codeBatiment: null, autres: [] };
+beforeEach(() => { inscrits.length = 0; h.sql = []; h.ecrits = []; h.liens = []; h.issue = { ok: true, change: true, id: 1 }; h.fiche = FICHE; });
 
 describe('le bâtiment du bien, choisi au menu de la copropriété', () => {
   it('un bâtiment CONNU : le lien sûr et le texte « Bâtiment » ; aucun : le lien est retiré', async () => {
@@ -45,7 +47,7 @@ describe('le bâtiment du bien, choisi au menu de la copropriété', () => {
 
 describe('les premières valeurs, par le chemin unique', () => {
   it('le code commun et celui du bâtiment, en « saisie », avec l’origine et le bien ; une place laissée vide n’écrit rien', async () => {
-    await ecrireDigicodesDuBien(q as never, 5, { batiment: 'A', batimentConfirme: false, commun: { code: '', aucun: true }, codeBatiment: { code: 'A12', aucun: false } }, 'nouveau_bien', AUTEUR);
+    await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, batiment: 'A', batimentConfirme: false, commun: { code: '', aucun: true }, codeBatiment: { code: 'A12', aucun: false } }, 'nouveau_bien', AUTEUR);
     expect(h.ecrits.map((e) => [e.adresseCle, e.batiment, e.valeur, e.nature, e.origine, e.lotId])).toEqual([
       ['residence les tilleuls', null, { digicode: false, code: null }, 'saisie', 'nouveau_bien', 5], ['residence les tilleuls', 'A', { digicode: true, code: 'A12' }, 'saisie', 'nouveau_bien', 5]]);
     h.ecrits = [];
@@ -71,5 +73,19 @@ describe('🔴 (Arno, 17/11/2026 — l’écart du lot 4) un bien encore SANS ad
     const d = await digicodesPourBien({ adresse: '', codePostal: null, commune: null });
     expect(d).toMatchObject({ adresseCle: '', connus: [], nomenclature: null, adresse: { cle: '', voie: '', batiments: [] } });
     expect(h.sql).toEqual([]); // rien n'est lu en base pour une place vide
+  });
+});
+
+describe('🔴 (Arno, 17/11/2026) « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante »', () => {
+  it('les AUTRES bâtiments créés entrent au registre, avec leur première valeur s’il y en a une ; le bien reste relié à SON bâtiment', async () => {
+    expect(await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, batiment: 'D', autres: [{ libelle: 'C', confirme: false, code: { code: 'C1', aucun: false } },
+      { libelle: 'E', confirme: false, code: null }] }, 'nouveau_bien', AUTEUR)).toBeNull();
+    expect(inscrits).toEqual(['C', 'E']);
+    expect(h.liens[0][2]).toBe('D');
+    expect(h.ecrits.map((e) => [e.batiment, e.valeur])).toEqual([['C', { digicode: true, code: 'C1' }]]);
+  });
+  it('la règle de numérotation vaut pour eux aussi : un « 3 » non confirmé refuse tout, rien n’est écrit', async () => {
+    expect(await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, batiment: 'C', autres: [{ libelle: '3', confirme: false, code: null }] }, 'nouveau_bien', AUTEUR)).toContain('LETTRES');
+    expect([inscrits, h.liens, h.ecrits]).toEqual([[], [], []]);
   });
 });

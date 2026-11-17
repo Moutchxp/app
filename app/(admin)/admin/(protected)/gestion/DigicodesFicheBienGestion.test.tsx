@@ -47,7 +47,7 @@ describe('🔴🔴 la fiche du bien (Gestion), avec la base unique', () => {
     await saisir($('[data-digicodes-unifies] [data-dcp-code-commun]'), '9876');
     await clic([...document.querySelectorAll('button')].find((b) => b.textContent === 'Enregistrer') as HTMLElement);
     const p = posts.find((x) => x.action === 'complements-bien') as { champs: Record<string, unknown> };
-    expect(p.champs.digicodesBien).toEqual({ batiment: 'A', batimentConfirme: false, commun: { code: '9876', aucun: false }, codeBatiment: null });
+    expect(p.champs.digicodesBien).toEqual({ batiment: 'A', batimentConfirme: false, commun: { code: '9876', aucun: false }, codeBatiment: null, autres: [] });
   });
   it('« Corriger une erreur » depuis la fiche du bien : la même action que la fiche Copropriété (la place, la valeur), tout de suite', async () => {
     await act(async () => { root.render(createElement(Complements, { id: 7, c: C, apres: () => {}, categorie: 'logement' })); }); await calmer();

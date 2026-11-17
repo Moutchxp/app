@@ -57,8 +57,30 @@ const k = (): string => `b${++n}`;
 const versLigne = (d: { digicode: boolean | null; code: string | null }): CodeLigne => ({ code: d.code ?? '', aucun: d.digicode === false });
 const memes = (a: CodeLigne, b: CodeLigne): boolean => a.aucun === b.aucun && a.code.trim() === b.code.trim();
 
-/** La saisie de départ, d'après ce que la fiche a lu. PUR. */
-export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'>): DigicodesAdresseSaisis[] {
+/**
+ * 🔴🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante (créé, connu en base ou en attente
+ * d'enregistrement). ») Les bâtiments connus (registre de la copropriété, bâtiments de ses biens) et ceux en attente d'enregistrement qui n'ont pas
+ * encore de ligne en reçoivent une, à saisir (aucune valeur inventée) ; un bâtiment qui a déjà sa ligne n'est jamais répété. PUR.
+ */
+export function avecTousLesBatiments(lignes: readonly LigneBatiment[], connus: readonly Pick<BatimentConnu, 'cle' | 'libelle'>[], deja: ReadonlySet<string> = new Set()): LigneBatiment[] {
+  const vus = new Set([...deja, ...lignes.map((b) => batimentDe(b.libelle)?.cle).filter((x): x is string => x !== undefined)]);
+  const plus: LigneBatiment[] = [];
+  for (const c of connus) {
+    if (vus.has(c.cle)) continue;
+    vus.add(c.cle);
+    plus.push({ k: `bat-${c.cle}`, libelle: c.libelle, code: '', aucun: false, nouveau: false, initial: { code: '', aucun: false } });
+  }
+  return plus.length === 0 ? [...lignes] : [...lignes, ...plus].sort((x, y) => (x.nouveau === y.nouveau ? x.libelle.localeCompare(y.libelle, 'fr', { numeric: true, sensitivity: 'base' }) : x.nouveau ? 1 : -1));
+}
+
+/** La saisie de départ, d'après ce que la fiche a lu ; les bâtiments du registre sans ligne en reçoivent une (à la première adresse). PUR. */
+export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'> & { batimentsConnus?: readonly BatimentConnu[] }): DigicodesAdresseSaisis[] {
+  const lues = saisieDigicodesLues(f);
+  if (lues.length === 0 || (f.batimentsConnus ?? []).length === 0) return lues;
+  const ailleurs = new Set(lues.slice(1).flatMap((d) => d.batiments.map((b) => batimentDe(b.libelle)?.cle).filter((x): x is string => x !== undefined)));
+  return [{ ...lues[0], batiments: avecTousLesBatiments(lues[0].batiments, f.batimentsConnus ?? [], ailleurs) }, ...lues.slice(1)];
+}
+function saisieDigicodesLues(f: Pick<FicheCopropriete, 'digicodes'>): DigicodesAdresseSaisis[] {
   return (f.digicodes ?? []).map((d) => ({ cle: d.cle, voie: d.voie, codePostal: d.codePostal, commune: d.commune, commun: versLigne(d.commun), communInitial: versLigne(d.commun),
     ...(d.commun.etat ? { communEtat: d.commun.etat } : {}), ...(d.commun.nbBiens !== undefined ? { communNb: d.commun.nbBiens } : {}),
     batiments: d.batiments.map((b) => ({ k: k(), libelle: b.libelle, ...versLigne(b), nouveau: false, initial: versLigne(b), ...(b.etat ? { etat: b.etat } : {}),
@@ -555,12 +577,29 @@ export function ligneDuBatiment(s: DigicodesAdresseSaisis, batiment: string): Li
  * Ce que la fiche du bien ENVOIE : le bâtiment choisi (et sa confirmation), et la PREMIÈRE valeur des places sans code connu (un code connu ne
  * part jamais d'ici : « Corriger une erreur »). PUR.
  */
-export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, confirme: boolean): { batiment: string | null; batimentConfirme: boolean;
-  commun: CodeLigne | null; codeBatiment: CodeLigne | null } {
+export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, confirme: boolean,
+  /** 🔴 (Arno, 17/11/2026) les bâtiments CRÉÉS au menu pendant la saisie (en attente d'enregistrement) */
+  crees: readonly { libelle: string; confirme: boolean }[] = [],
+  /** les bâtiments déjà connus de la copropriété (un créé déjà connu n'est plus « en attente ») */
+  connus: readonly BatimentConnu[] = []): { batiment: string | null; batimentConfirme: boolean;
+  commun: CodeLigne | null; codeBatiment: CodeLigne | null; autres: { libelle: string; confirme: boolean; code: CodeLigne | null }[] } {
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const libre = (e: EtatPlaceDigicode | undefined, c: CodeLigne, init: CodeLigne): CodeLigne | null => (placeLue(e) || memes(c, init) ? null : { code: c.code.trim(), aucun: c.aucun });
+  // 🔴 (Arno, 17/11/2026) les AUTRES bâtiments : chaque bâtiment créé en attente (il entre au registre de la copropriété), et la première valeur
+  // saisie sur la ligne d'un autre bâtiment sans code connu ; jamais le bâtiment du bien (il part à part), jamais un code connu
+  const choisi = ligne === null ? null : batimentDe(ligne.libelle)?.cle ?? null;
+  const enAttente = crees.filter((c) => { const b = batimentDe(c.libelle); return b !== null && !connus.some((x) => x.cle === b.cle); });
+  const toutes = avecTousLesBatiments(s.batiments, [...connus, ...enAttente.map((c) => batimentDe(c.libelle) as BatimentConnu)]);
+  const autres: { libelle: string; confirme: boolean; code: CodeLigne | null }[] = [];
+  for (const l of toutes) {
+    const cle = batimentDe(l.libelle)?.cle;
+    if (cle === undefined || cle === choisi || l.nouveau) continue;
+    const cree = enAttente.find((c) => batimentDe(c.libelle)?.cle === cle);
+    const code = libre(l.etat, l, l.initial);
+    if (cree !== undefined || code !== null) autres.push({ libelle: l.libelle, confirme: cree?.confirme ?? false, code });
+  }
   return { batiment: ligne === null ? null : ligne.libelle, batimentConfirme: confirme, commun: libre(s.communEtat, s.commun, s.communInitial),
-    codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial) };
+    codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial), autres };
 }
 
 /**
@@ -577,7 +616,8 @@ export const choixDigicodeEffectif = (choix: boolean | null, connus: boolean): b
  */
 export function envoiSelonChoixDigicode(e: ReturnType<typeof digicodesBienEnvoi>, choix: boolean | null, connus: boolean): ReturnType<typeof digicodesBienEnvoi> {
   if (choix !== false) return e;
-  return { ...e, commun: connus ? null : { code: '', aucun: true }, codeBatiment: null };
+  // les bâtiments créés entrent quand même au registre : seuls leurs codes ne partent pas
+  return { ...e, commun: connus ? null : { code: '', aucun: true }, codeBatiment: null, autres: e.autres.map((a) => ({ ...a, code: null })) };
 }
 
 /** 🔴 (Arno, 17/11/2026) la durée de la bulle de confirmation d'un bâtiment ajouté (« environ 4 secondes »). */
@@ -754,9 +794,11 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
  * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
  * c'est un bâtiment connu (rien n'est écrasé).
  */
-export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, variante = 'gestion', sansAdresse = false }: {
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false }: {
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; escalier: string; desactive: boolean;
   onChoix: (libelle: string, confirme: boolean) => void;
+  /** 🔴 (Arno, 17/11/2026) un bâtiment NOUVEAU retenu (menu, « + Ajouter le bâtiment … », encadré) — jamais une simple frappe : il garde sa ligne */
+  onCree?: (libelle: string, confirme: boolean) => void;
   /** 🔴 (17/11/2026) l'habillage de la page Location : le champ prend le gabarit des autres champs de la grille (`loc-champ`) */
   variante?: 'gestion' | 'location';
   /** 🔴 (17/11/2026) l'adresse du bien n'est pas encore choisie : la copropriété (et ses bâtiments) n'est pas connue */
@@ -773,7 +815,8 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
       {/* 🔴 (Arno, 17/11/2026) renommé « Bâtiment / cage d'escalier » ; un texte d'aide court, entier à 390 px comme à l'ordinateur */}
       <span>{LIBELLE_BATIMENT_CAGE}</span>
       <ChampBatiment valeur={valeur} connus={connus} nomenclature={nomenclature} desactive={desactive} contexte="bien" marque="cbc" avecAucun sansAdresse={sansAdresse}
-        onSaisie={(v) => onChoix(v, false)} onChoix={onChoix} placeholder="ex. A ou 1 (facultatif)" ariaLabel={LIBELLE_BATIMENT_CAGE}
+        onSaisie={(v) => onChoix(v, false)} placeholder="ex. A ou 1 (facultatif)" ariaLabel={LIBELLE_BATIMENT_CAGE}
+        onChoix={(l, c) => { onChoix(l, c); const b = batimentDe(l); if (onCree !== undefined && b !== null && !connus.some((x) => x.cle === b.cle)) onCree(l, c); }}
         {...(proposition !== undefined ? { proposition } : {})} />
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
@@ -784,18 +827,31 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
  * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
  * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
  */
-export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente }: {
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente, enAttente = [] }: {
   donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
+  /** 🔴 (Arno, 17/11/2026) les bâtiments créés au menu pendant la saisie (en attente d'enregistrement) : chacun garde sa ligne */
+  enAttente?: readonly string[];
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode; onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
   onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
   variante?: 'gestion' | 'location'; onPlusBatiment?: () => void; tente?: boolean;
 }) {
+  /* 🔴🔴 (Arno, 17/11/2026 : « BUG : après la création des bâtiments A puis B, une seule ligne de bâtiment reste affichée […]. Chaque bâtiment créé dans
+     la copropriété doit avoir SA ligne, visible et persistante (créé, connu en base ou en attente d'enregistrement). ») — CAUSE : seule la ligne du
+     bâtiment CHOISI était montrée (et seule elle revenait de la saisie). DÉSORMAIS : une ligne par bâtiment de la place, de la copropriété et en attente,
+     plus celle du bâtiment en cours de saisie dans le champ ; toutes reviennent de la saisie */
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
-  const vue: DigicodesAdresseSaisis = { ...s, batiments: ligne === null ? [] : [ligne] };
+  const enPlus = [...donnees.connus, ...enAttente.map((x) => batimentDe(x)).filter((x): x is BatimentConnu => x !== null)];
+  const avecChoisi = ligne === null || s.batiments.some((x) => x.k === ligne.k) ? s.batiments : [...s.batiments, ligne];
+  const vue: DigicodesAdresseSaisis = { ...s, batiments: avecTousLesBatiments(avecChoisi, enPlus) };
   const recevoir = (ns: DigicodesAdresseSaisis[]): void => {
     const n = ns[0];
-    const l = n.batiments[0];
-    const batiments = l === undefined ? s.batiments : s.batiments.some((x) => x.k === l.k) ? s.batiments.map((x) => (x.k === l.k ? l : x)) : [...s.batiments, l];
+    // une ligne touchée (un code saisi) entre dans la saisie ; les autres restent ce qu'elles étaient
+    let batiments = s.batiments;
+    for (const l of n.batiments) {
+      const avant = vue.batiments.find((x) => x.k === l.k);
+      if (avant !== undefined && avant.code === l.code && avant.aucun === l.aucun && batiments.some((x) => x.k === l.k) === false) continue;
+      batiments = batiments.some((x) => x.k === l.k) ? batiments.map((x) => (x.k === l.k ? l : x)) : [...batiments, l];
+    }
     onChange({ ...s, commun: n.commun, batiments });
   };
   return <div data-digicodes-bien>

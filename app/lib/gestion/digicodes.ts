@@ -232,7 +232,10 @@ export function texteRapportRepriseUnifiee(p: PlanRepriseUnifiee, o: { reel: boo
  * 🔴🔴 (« Digicodes unifiés », lot 4) Ce que la fiche du bien envoie avec la base unique : le BÂTIMENT choisi dans le menu de la copropriété
  * (ou aucun), sa confirmation (numérotation différente) et, pour une place SANS code connu seulement, sa première valeur (commun, bâtiment). PUR.
  */
-export interface DigicodesBienSaisis { batiment: string | null; batimentConfirme: boolean; commun: { code: string; aucun: boolean } | null; codeBatiment: { code: string; aucun: boolean } | null }
+export interface DigicodesBienSaisis { batiment: string | null; batimentConfirme: boolean; commun: { code: string; aucun: boolean } | null; codeBatiment: { code: string; aucun: boolean } | null;
+  /** 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les AUTRES bâtiments : créés au menu
+   *  pendant la saisie (ils entrent au registre de la copropriété), et la première valeur saisie sur leur ligne */
+  autres: { libelle: string; confirme: boolean; code: { code: string; aucun: boolean } | null }[] }
 export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null {
   if (typeof brut !== 'object' || brut === null) return null;
   const b = brut as Record<string, unknown>;
@@ -242,7 +245,13 @@ export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null 
     return { code: typeof y.code === 'string' ? y.code.trim().slice(0, 20) : '', aucun: y.aucun === true };
   };
   const batiment = typeof b.batiment === 'string' && b.batiment.trim() !== '' ? b.batiment.replace(/\s+/g, ' ').trim().slice(0, 60) : null;
-  return { batiment, batimentConfirme: b.batimentConfirme === true, commun: code(b.commun), codeBatiment: batiment === null ? null : code(b.codeBatiment) };
+  const nom = (x: unknown): string | null => (typeof x === 'string' && x.trim() !== '' ? x.replace(/\s+/g, ' ').trim().slice(0, 60) : null);
+  const autres = (Array.isArray(b.autres) ? b.autres : []).slice(0, 30).flatMap((x) => {
+    const y = (typeof x === 'object' && x !== null ? x : {}) as Record<string, unknown>;
+    const libelle = nom(y.libelle);
+    return libelle === null ? [] : [{ libelle, confirme: y.confirme === true, code: code(y.code) }];
+  });
+  return { batiment, batimentConfirme: b.batimentConfirme === true, commun: code(b.commun), codeBatiment: batiment === null ? null : code(b.codeBatiment), autres };
 }
 /** Une première valeur saisie → la valeur à écrire, ou `null` (rien de saisi : rien n'est écrit). PUR. */
 export const premiereValeur = (c: { code: string; aucun: boolean } | null): { digicode: boolean; code: string | null } | null =>

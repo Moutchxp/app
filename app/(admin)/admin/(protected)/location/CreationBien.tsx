@@ -397,6 +397,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [digiBien, setDigiBien] = useState<DigicodesPourBienLu | null>(null);
   const [digiSaisie, setDigiSaisie] = useState<DigicodesAdresseSaisis | null>(null);
   const [batimentConfirme, setBatimentConfirme] = useState(false);
+  /** 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les bâtiments créés au menu
+   *  pendant la saisie : chacun garde sa ligne de digicode et entre au registre de la copropriété à l'enregistrement */
+  const [batimentsCrees, setBatimentsCrees] = useState<{ libelle: string; confirme: boolean }[]>([]);
+  /** la copropriété lue en dernier (`undefined` : pas encore lue) */
+  const digiCleLue = useRef<string | null | undefined>(undefined);
+  const creerBatiment = (libelle: string, confirme: boolean): void => setBatimentsCrees((x) => [...x.filter((y) => y.libelle !== libelle), { libelle, confirme }]);
   const [digiRelire, setDigiRelire] = useState(0);
   /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) la lecture n'a pas encore répondu : ni l'ancien système, ni le composant ; l'ancien système (Bâtiment
      libre, Digicode Oui / Non, Code) ne s'affiche plus QUE sur une base sans la migration 478 (le serveur répond alors `null`). */
@@ -411,6 +417,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
         : `digicodesBienAdresse=${encodeURIComponent(voie.length < 5 ? '' : voie)}&cp=${encodeURIComponent(b.codePostal.trim())}&commune=${encodeURIComponent(b.commune.trim())}`;
       void fetch(`${API}?${q}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: DigicodesPourBienLu | null }>)
         .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? digicodesBienLisibles(d.data) : null; setDigiBien(lu); setDigiCharge(false);
+          // 🔴 (17/11/2026) une AUTRE copropriété : les bâtiments créés pour la précédente ne la suivent pas
+          const cle = lu?.adresseCle ?? null;
+          if (cle !== digiCleLue.current) { if (digiCleLue.current !== undefined) setBatimentsCrees([]); digiCleLue.current = cle; }
           // ce qui est déjà saisi pour une place sans code connu est REPORTÉ sur la nouvelle place (rien n'est perdu)
           setDigiSaisie((avant) => (lu === null ? null : reporterSaisieBien(avant, saisieDigicodesBien(lu)))); })
         .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); setDigiCharge(false); } });
@@ -422,7 +431,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [confirmerSansDigicode, setConfirmerSansDigicode] = useState(false);
   const digiConnus = codesConnusDuBien(digiSaisie);
   const digiChoixVu = choixDigicodeEffectif(digiChoix, digiConnus);
-  const digiEnvoi = digiBien !== null && digiSaisie !== null ? envoiSelonChoixDigicode(digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme), digiChoixVu, digiConnus) : null;
+  const digiEnvoi = digiBien !== null && digiSaisie !== null ? envoiSelonChoixDigicode(digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme, batimentsCrees, digiBien.connus), digiChoixVu, digiConnus) : null;
   /** « Corriger une erreur » / « Garder ce code » : immédiats, par le même chemin serveur que la fiche Copropriété ; les digicodes se relisent. */
   /** 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires et l'envoi, par la route de la Location. */
   const echangeDigi = async <T,>(corpsGeste: Record<string, unknown>): Promise<T | string> => {
@@ -1002,7 +1011,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                  le code commun de l'adresse et celui du bâtiment choisi ; connus : lus, « Corriger une erreur » ; sinon : à saisir. */
               /* 🔴 (Arno, 17/11/2026 : « bloc « Accès » : bien aligner tous les champs à la verticale ») — avec l'accord d'Arno : « retire le second titre « Digicode » du bloc de saisie, qui répète celui de la ligne Oui / Non » */
               <div className="loc-acces-bloc loc-acces-digicodes" data-digicode data-digicodes-unifies>
-                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi} variante="location" tente={tente}
+                <DigicodesBien donnees={digiBien} s={digiSaisie} enAttente={batimentsCrees.map((x) => x.libelle)} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi} variante="location" tente={tente}
                   onPlusBatiment={() => (document.querySelector('[data-cbc-champ]') as HTMLInputElement | null)?.focus()}
                   onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
@@ -1029,7 +1038,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
             {digiBien !== null
               ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
-                  onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+                  onCree={creerBatiment} onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
               : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]

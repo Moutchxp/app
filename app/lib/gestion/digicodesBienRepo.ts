@@ -5,7 +5,7 @@ import { batimentDe, nomenclatureDe, refusDesBatiments, type BatimentConnu, type
 import { immeubleDuBien, type DigicodesAdresseFiche } from './copropriete';
 import { etatPlace, ficheCopropriete } from './coproprieteRepo';
 import { premiereValeur, type DigicodesBienSaisis, type OrigineDigicode } from './digicodes';
-import { digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode } from './digicodesRepo';
+import { digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, inscrireBatiment, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode } from './digicodesRepo';
 import { cleImmeuble } from './syndics';
 
 /**
@@ -91,10 +91,13 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
   if (d.batiment !== null) {
     const b = batimentDe(d.batiment);
     if (b === null) return 'Donnez un nom au bâtiment ou à la cage d’escalier.';
-    if (!connus.some((x) => x.cle === b.cle)) {
-      const refus = refusDesBatiments([{ libelle: d.batiment, confirme: d.batimentConfirme }], fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus), connus);
-      if (refus !== null) return refus;
-    }
+  }
+  // 🔴 (Arno, 17/11/2026) le bâtiment du bien ET les autres bâtiments créés : la même règle de numérotation, ensemble (avant toute écriture)
+  const nouveaux = [...(d.batiment === null ? [] : [{ libelle: d.batiment, confirme: d.batimentConfirme }]), ...d.autres.map((a) => ({ libelle: a.libelle, confirme: a.confirme }))]
+    .filter((x) => { const b = batimentDe(x.libelle); return b !== null && !connus.some((y) => y.cle === b.cle); });
+  if (nouveaux.length > 0) {
+    const refus = refusDesBatiments(nouveaux, fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus), connus);
+    if (refus !== null) return refus;
   }
   const lien = await relierBienAuBatiment(q, lotId, copropriete, d.batiment, auteur);
   if (!lien.ok) return lien.motif;
@@ -107,6 +110,16 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
     const valeur = premiereValeur(c);
     if (valeur === null) continue;
     const r = await ecrireDigicode(q, { adresseCle, adresseLibelle, batiment, valeur, nature: 'saisie', origine, lotId, copropriete }, auteur);
+    if (!r.ok) throw new RefusDigicode(r.motif);
+  }
+  // ③ 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les AUTRES bâtiments : chacun
+  // entre au registre de la copropriété (s'il n'y est pas), puis sa première valeur saisie, s'il y en a une — le bien, lui, reste relié à SON bâtiment
+  for (const a of d.autres) {
+    if (batimentDe(a.libelle) === null || (d.batiment !== null && batimentDe(a.libelle)?.cle === batimentDe(d.batiment)?.cle)) continue;
+    if (await inscrireBatiment(q, copropriete, a.libelle, auteur) === null) throw new RefusDigicode('Le registre des bâtiments n’est pas installé : le bâtiment ' + a.libelle + ' ne peut pas être créé.');
+    const valeur = premiereValeur(a.code);
+    if (valeur === null) continue;
+    const r = await ecrireDigicode(q, { adresseCle, adresseLibelle, batiment: a.libelle, valeur, nature: 'saisie', origine, lotId, copropriete }, auteur);
     if (!r.ok) throw new RefusDigicode(r.motif);
   }
   return null;

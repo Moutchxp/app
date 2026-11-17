@@ -254,8 +254,10 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
   it('ce qui part : le bâtiment choisi et la PREMIÈRE valeur des places sans code (jamais un code connu)', async () => {
     await act(async () => { root.render(createElement(HoteBien, { batimentDepart: 'A' })); });
     await saisir($('[data-digicodes-bien] [data-dcp-code-batiment]'), 'A77');
-    expect(digicodesBienEnvoi(derniereSaisie!, 'A', false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: { code: 'A77', aucun: false } });
-    expect(digicodesBienEnvoi(derniereSaisie!, '', false)).toEqual({ batiment: null, batimentConfirme: false, commun: null, codeBatiment: null });
+    expect(digicodesBienEnvoi(derniereSaisie!, 'A', false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: { code: 'A77', aucun: false }, autres: [] });
+    // (17/11/2026) sans bâtiment choisi, la ligne de A reste, et le code saisi dessus part avec elle (jamais perdu)
+    expect(digicodesBienEnvoi(derniereSaisie!, '', false)).toEqual({ batiment: null, batimentConfirme: false, commun: null, codeBatiment: null,
+      autres: [{ libelle: 'A', confirme: false, code: { code: 'A77', aucun: false } }] });
   });
   it('les mentions reprises de l’ancienne saisie par adresse (« commun aux N biens »)', () => {
     expect([mentionNb(3, null), mentionNb(1, 'B'), mentionNb(0, 'C')]).toEqual(['Commun aux 3 biens du portefeuille de cette adresse.', 'Le seul bien du portefeuille du bâtiment B le lit.', 'Aucun bien du portefeuille du bâtiment C pour l’instant.']);

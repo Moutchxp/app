@@ -75,7 +75,7 @@ describe('🔴🔴 la fiche du bien en Location, avec la base unique', () => {
     const contre = document.querySelector('[data-modale-issue], [role="dialog"]')?.textContent ?? '';
     expect(contre).toContain('Digicode du bâtiment 2 (première saisie)');
     await clic($('[data-repere="confirmer-modification"]') ?? [...document.querySelectorAll('button')].find((b) => b.textContent === 'Confirmer') as HTMLElement);
-    expect(saisies[0].digicodesBien).toEqual({ batiment: '2', batimentConfirme: false, commun: null, codeBatiment: { code: '2B22', aucun: false } });
+    expect(saisies[0].digicodesBien).toEqual({ batiment: '2', batimentConfirme: false, commun: null, codeBatiment: { code: '2B22', aucun: false }, autres: [] });
     expect((saisies[0].valeurs as Record<string, string>).batiment).toBe('2');
   });
 });
@@ -194,11 +194,13 @@ describe('🔴🔴 « Digicode : Oui / Non » en premier', () => {
 describe('🔴🔴 ce qui part selon « Oui / Non » (pur)', () => {
   it('« Oui » ou rien : tel quel ; « Non » sans code connu : le commun « pas de digicode » ; « Non » avec des codes connus : AUCUN code (rien d’effacé) ; le bâtiment part toujours', async () => {
     const { envoiSelonChoixDigicode, choixDigicodeEffectif } = await import('../gestion/DigicodesCopropriete');
-    const e = { batiment: 'A', batimentConfirme: false, commun: { code: '1234', aucun: false }, codeBatiment: { code: 'A1', aucun: false } };
+    const e = { batiment: 'A', batimentConfirme: false, commun: { code: '1234', aucun: false }, codeBatiment: { code: 'A1', aucun: false },
+      autres: [{ libelle: 'B', confirme: false, code: { code: 'B1', aucun: false } }] };
     expect(envoiSelonChoixDigicode(e, true, false)).toEqual(e);
     expect(envoiSelonChoixDigicode(e, null, false)).toEqual(e);
-    expect(envoiSelonChoixDigicode(e, false, false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: { code: '', aucun: true }, codeBatiment: null });
-    expect(envoiSelonChoixDigicode(e, false, true)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: null });
+    expect(envoiSelonChoixDigicode(e, false, false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: { code: '', aucun: true }, codeBatiment: null,
+      autres: [{ libelle: 'B', confirme: false, code: null }] }); // (17/11/2026) un bâtiment créé entre au registre, sans son code
+    expect(envoiSelonChoixDigicode(e, false, true)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: null, autres: [{ libelle: 'B', confirme: false, code: null }] });
     expect([choixDigicodeEffectif(null, true), choixDigicodeEffectif(null, false), choixDigicodeEffectif(false, true)]).toEqual([true, null, false]);
   });
 });
