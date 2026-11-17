@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   adressesUniques, copiesAvis, dateFinBail, enumerer, mailAccuseConge as accuseDe, mailAdhocPreavis, mailAdhocSortie, mailsDuPreavis,
   objetAdhocSortie, prenomNom, type DonneesPreavisMails, mailSortieLocataire, mailsSortieLocataires, paragrapheCopropriete, PROVISION_NON_RENSEIGNE,
-  type LocataireAvis, type MailAvis,
+  type LocataireAvis, type MailAvis, unMailParAdresse,
 } from './mailsPreavisSortie';
 
 /** 🔴 Arno (10/11/2026, confidentialité) — l'accusé d'UN locataire (le premier, par défaut) ; le départ de même. */
@@ -364,5 +364,26 @@ describe('🔴 Arno (06/11/2026) — le mail aux partenaires de la SORTIE porte 
     const avant = mailAdhocSortie(S2)!;
     expect(avant.texte).not.toContain('Copie du mail');
     expect(avant.texte).not.toContain('le mail de départ');
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « un mail nominatif par personne et par adresse, un seul destinataire, sans copie ni copie cachée vers un autre client, même dans un couple, une colocation ». */
+describe('🔴🔴 un mail = une seule adresse (préavis, départ)', () => {
+  const COUPLE = { ...D, locataires: [{ occupationId: 11, nom: 'MARTIN', prenom: 'Léa', emails: ['lea@exemple.test', 'lea.pro@exemple.test'] }, { occupationId: 12, nom: 'MARTIN', prenom: 'Paul', emails: ['paul@exemple.test'] }] };
+  it('unMailParAdresse : un mail par adresse, sans copie ; aucune adresse : aucun mail', () => {
+    const m = { a: ['x@e.test', 'X@e.test', 'y@e.test'], cc: ['z@e.test'], objet: 'o' };
+    expect(unMailParAdresse(m).map((x) => [x.a, x.cc])).toEqual([[['x@e.test'], []], [['y@e.test'], []]]);
+    expect(unMailParAdresse({ a: [], cc: [] })).toEqual([]);
+  });
+  it('accusé de préavis à un COUPLE (Léa a deux adresses) : 3 mails, chacun une adresse, à SON nom ; la copie interne ; aux partenaires « chacun des 2 locataires »', () => {
+    const { mails } = mailsDuPreavis(COUPLE);
+    const clients = mails.filter((x) => x.sorte === 'preavis_locataires' && !x.objet.startsWith('[Copie interne]'));
+    expect(clients.map((x) => [x.a, x.cc, x.texte.includes('Bonjour Léa MARTIN') || x.texte.includes('Léa MARTIN')])).toEqual([[['lea@exemple.test'], [], true], [['lea.pro@exemple.test'], [], true], [['paul@exemple.test'], [], false]]);
+    expect(clients[2].texte).toContain('Paul MARTIN');
+    expect(mails.find((x) => x.sorte === 'preavis_adhoc')?.texte).toContain('chacun des 2 locataires');
+  });
+  it('mail de départ : un mail par adresse', () => {
+    const l = mailsSortieLocataires({ adresse: '4 rue Fictive', locataires: COUPLE.locataires, dateSortie: '2026-11-04', copropriete: false, expediteur: 'gestion@criterimmo.fr', valideur: D.valideur, signature: { html: '', texte: '' } });
+    expect(l.filter((x) => !x.objet.startsWith('[Copie interne]')).map((x) => x.a)).toEqual([['lea@exemple.test'], ['lea.pro@exemple.test'], ['paul@exemple.test']]);
   });
 });

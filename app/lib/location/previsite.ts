@@ -427,7 +427,7 @@ export function mailCompteRenduProprietaire(o: { de: string; objet: string; emai
     parties: partiesCompteRenduProprietaire({ presence: o.presence, texte: o.texte, legendesPhotos: o.legendesPhotos, plusieursLocataires: o.plusieursLocataires }),
     retouche: o.retouche, valeurs: { [REPERE_NOM_PROPRIETAIRE]: o.nomProprietaire.replace(/\s+/g, ' ').trim(), date: dateFrPreavis(o.rdv.jour), adresse: o.adresse },
     qui: o.qui, signature: o.signature });
-  return { sorte: 'previsite_compte_rendu', de: o.de, a: [o.email.trim()], cc: [], objet: o.objet, texte: c.texte, html: c.html,
+  return { sorte: 'previsite_compte_rendu', client: 'proprietaire', de: o.de, a: [o.email.trim()], cc: [], objet: o.objet, texte: c.texte, html: c.html,
     ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition };
 }
 
@@ -482,10 +482,11 @@ export function mailsAuxLocataires(o: {
   sorte: MailPrevisite['sorte']; de: string; locataires: readonly LocatairePrevisite[]; objet: string;
   paragraphesDe: (l: LocatairePrevisite) => readonly ParagrapheMail[]; qui: QuiEnvoie; signature: Signature; ics?: MailPrevisite['ics'];
 }): MailPrevisite[] {
-  return o.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => mailPrevisite({
-    sorte: o.sorte, de: o.de, a: adressesUniques(l.emails), cc: [], objet: o.objet, paragraphes: o.paragraphesDe(l),
+  // 🔴🔴 (Arno, 17/11/2026) un mail PAR ADRESSE, marqué client (le compte rendu partage sa sorte avec le mail interne)
+  return o.locataires.filter((l) => adressesUniques(l.emails).length > 0).flatMap((l) => adressesUniques(l.emails).map((x) => ({ ...mailPrevisite({
+    sorte: o.sorte, de: o.de, a: [x], cc: [], objet: o.objet, paragraphes: o.paragraphesDe(l),
     qui: o.qui, signature: o.signature, ics: o.ics ?? null,
-  }));
+  }), client: 'locataire' as const })));
 }
 
 /** La copie interne (collaborateurs) des mails partis aux locataires : à qui, puis le texte du premier, mention et signature comprises. PUR. */
@@ -510,6 +511,8 @@ export interface MailPrevisite {
   de: string; a: string[]; cc: string[]; objet: string; texte: string; html: string;
   /** L'invitation d'agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;
+  /** 🔴🔴 Arno (17/11/2026) — mail à un CLIENT (le verrou « une seule adresse » le lit quand la sorte ne le dit pas : compte rendu). */
+  client?: 'locataire' | 'proprietaire';
   /** 🔴 Arno (13/11/2026, lot B) — les photos du compte rendu, en pièces jointes (« Photo-1-légende.jpg ») ; octets relus au moment de l'envoi. */
   pieces?: readonly { id: number; nom: string; typeMime: string; taille: number; octets?: Uint8Array }[];
   /** 🔴 Arno (10/11/2026, texte modifiable) — le texte PROPOSÉ quand il a été modifié ; ce que l'éditeur montre. */

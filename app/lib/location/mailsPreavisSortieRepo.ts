@@ -15,6 +15,7 @@ import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDestinatairesDefaut } from './mailNouvelleLocationRepo';
 import type { Destinataire } from './mailNouvelleLocation';
 import { adressesUniques, copiesAvis, mailAdhocSortie, mailsAuxLocatairesSeuls, mailsSortieLocataires, mailsDuPreavis, objetAdhocSortie, prenomNom, type DonneesPreavisMails, type LocataireAvis, type MailAvis, type Signature } from './mailsPreavisSortie';
+import { familleDuMail } from './famillesMails';
 import { verifierPreavis, type ModePreavis } from './preavis';
 import { enregistrerPreavis, type IssuePreavis } from './preavisRepo';
 import { colonneExisteMemo } from './sondeLocation';
@@ -210,6 +211,13 @@ export function refusUneSeuleAdresse(m: { a: readonly string[]; cc: readonly str
     : `Envoi refusé : ce mail doit partir à UNE seule adresse, sans copie ni copie cachée (il en porte ${n}).`;
 }
 
+/** 🔴🔴 Arno (17/11/2026) — un mail part-il à un CLIENT (locataire, propriétaire) ? Le marqueur `client`, sinon la famille de sa sorte. PUR. */
+export function estMailClient(m: { sorte: string; objet: string; client?: 'locataire' | 'proprietaire' }): boolean {
+  if (m.client !== undefined) return true;
+  const f = familleDuMail({ sorte: m.sorte, objet: m.objet });
+  return f === 'locataire' || f === 'proprietaire';
+}
+
 export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
   o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur;
     /** 🔴 Arno (10/11/2026, pré-visite) — un mail qui concerne PLUSIEURS biens (récapitulatif des alertes) : envoyé UNE fois, rangé aussi dans leurs historiques. */
@@ -236,7 +244,10 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
     // 🔴🔴 Arno (17/11/2026 : « chaque mail de changement de digicode a exactement UNE adresse en destinataire, sans copie ni copie cachée, et n'est
     // jamais regroupé. Ajoute un garde-fou serveur qui refuse l'envoi si un message a plus d'une adresse (to+cc+bcc) ») — contrôlé sur le message
     // TEL QU'IL PARTIRAIT (après le périmètre de test) ; aucun envoi de copie cachée n'existe ici (cci : toujours vide au transport)
-    if (o.uneSeuleAdresse === true) {
+    // 🔴🔴 Arno (17/11/2026 : « RÈGLE GÉNÉRALE « un mail = une seule adresse » pour TOUS les envois aux CLIENTS […] Passe-les par le verrou
+    // refusUneSeuleAdresse ») — d'office pour tout mail CLIENT (marqué `client`, ou de famille locataire / propriétaire d'après sa sorte ; une
+    // « [Copie interne] » reste interne) ; les partenaires et les mails internes ne sont pas concernés
+    if (o.uneSeuleAdresse === true || estMailClient(m)) {
       const refus = refusUneSeuleAdresse(m);
       if (refus !== null) {
         for (const cible of [o, ...(o.autres ?? [])]) {
@@ -469,7 +480,7 @@ export async function apercuMailsSortie(occupationId: number, auteur: Auteur, o:
   // 🔴 Arno (06/11/2026) — le mail aux partenaires porte la copie complète du mail de départ (ou la ligne « aucun mail de départ »).
   const adhoc = prevue === null || partenaires.length === 0 ? null
     : mailAdhocSortie({ ...donneesMailSortie(prevue, qui, quand), enGestion, expediteur: config.adresseGestion, signature: sig.ecran, partenaires,
-      depart: auxSortants[0] ?? null, nDeparts: auxSortants.length, ...(o.retouches ? { retouches: o.retouches } : {}) });
+      depart: auxSortants[0] ?? null, nDeparts: auxSortants.length === 0 ? 0 : locs.filter((l) => adressesUniques(l.emails).length > 0).length, ...(o.retouches ? { retouches: o.retouches } : {}) });
   const refus = await refusRetouches([...departs, ...(adhoc === null ? [] : [adhoc])], o.retouches);
   if (refus !== null) return { etat: 'refus', motif: refus };
   const vu = (m: MailAvis) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte, ...(m.edition ? { edition: m.edition } : {}), ...(m.texteOrigine ? { modifie: true } : {}) });
@@ -530,7 +541,7 @@ export async function envoyerMailsSortie(f: SortieFaite, auteur: Auteur, deps: D
     const auxSortants = mailsAuxLocatairesSeuls(departs);
     const partenaires = informerPartenaires && logement.enGestion ? (await lireDestinatairesDefaut('sortie')).map((x) => x.adresse) : [];
     const adhoc = mailAdhocSortie({ ...donneesMailSortie(f, qui, (deps.maintenant ?? new Date()).toISOString()), enGestion: logement.enGestion,
-      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart: auxSortants[0] ?? null, nDeparts: auxSortants.length, ...(retouches ? { retouches } : {}) });
+      expediteur: config.adresseGestion, signature: sig.ecran, partenaires, depart: auxSortants[0] ?? null, nDeparts: auxSortants.length === 0 ? 0 : locs.filter((l) => adressesUniques(l.emails).length > 0).length, ...(retouches ? { retouches } : {}) });
     const mails = [...departs, ...(adhoc === null ? [] : [adhoc])];
     const refus = await refusRetouches(mails, retouches);
     if (refus !== null) return { etat: 'echec', motif: refus };

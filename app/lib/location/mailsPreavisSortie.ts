@@ -61,6 +61,16 @@ export interface MailAvis {
   texteOrigine?: string | null;
   /** 🔴 Arno (10/11/2026, texte modifiable) — ce que l'éditeur du récapitulatif montre (parties modifiables et protégées). Jamais envoyé. */
   edition?: EditionMail;
+  /** 🔴🔴 Arno (17/11/2026 : « RÈGLE GÉNÉRALE « un mail = une seule adresse » pour TOUS les envois aux CLIENTS (locataires, propriétaires, garants) : un mail nominatif par personne et par adresse, un seul destinataire, sans copie ni copie cachée vers un autre client ») — le mail part à un CLIENT : quand la sorte ne le dit pas seule (compte rendu de pré-visite), le verrou « une seule adresse » le lit ici. */
+  client?: 'locataire' | 'proprietaire';
+}
+
+/**
+ * 🔴🔴 Arno (17/11/2026 : « RÈGLE GÉNÉRALE « un mail = une seule adresse » pour TOUS les envois aux CLIENTS (locataires, propriétaires, garants) : un mail nominatif par personne et par adresse, un seul destinataire, sans copie ni copie cachée vers un autre client »).
+ * Un mail client devient UN MAIL PAR ADRESSE : chacun à cette seule adresse, sans copie ; même texte, même nom (la personne reste la même). PUR.
+ */
+export function unMailParAdresse<T extends { a: string[]; cc: string[] }>(m: T): T[] {
+  return adressesUniques(m.a).map((x) => ({ ...m, a: [x], cc: [] }));
 }
 
 export interface Signature { html: string; texte: string }
@@ -308,7 +318,8 @@ export function copieInterneLocataires(d: { sorte: MailAvis['sorte']; expediteur
 
 /** Les mails A (un par locataire qui a une adresse), puis leur copie interne. PUR. */
 export function mailsAccuseConge(d: DonneesPreavisMails): MailAvis[] {
-  const envois = d.locataires.map((l) => mailAccuseConge(d, l)).filter((m): m is MailAvis => m !== null);
+  // 🔴🔴 (Arno, 17/11/2026) un mail par adresse (un couple, une colocation, une personne à deux adresses : chacun le sien)
+  const envois = d.locataires.flatMap((l) => { const m = mailAccuseConge(d, l); return m === null ? [] : unMailParAdresse(m); });
   const copie = copieInterneLocataires({ sorte: 'preavis_locataires', expediteur: d.expediteur, valideur: d.valideur, signature: d.signature, locataires: d.locataires, envois });
   return copie === null ? envois : [...envois, copie];
 }
@@ -377,7 +388,8 @@ function copieDuMail(m: MailAvis, libelle: string): { texte: string; html: strin
 export function mailsDuPreavis(d: DonneesPreavisMails): { mails: MailAvis[]; sansEmail: string[] } {
   const accuses = mailsAccuseConge(d);
   const auxLocataires = accuses.filter((m) => !m.objet.startsWith(PREFIXE_COPIE_INTERNE));
-  const adhoc = mailAdhocPreavis(d, auxLocataires[0] ?? null, auxLocataires.length);
+  // « envoyé à chacun des N locataires » : N compte les LOCATAIRES (un locataire à deux adresses reste un locataire)
+  const adhoc = mailAdhocPreavis(d, auxLocataires[0] ?? null, auxLocataires.length === 0 ? 0 : d.locataires.filter((l) => adressesUniques(l.emails).length > 0).length);
   return {
     mails: [...accuses, ...(adhoc === null ? [] : [adhoc])],
     sansEmail: d.locataires.filter((l) => adressesUniques(l.emails).length === 0).map(prenomNom),
@@ -486,7 +498,8 @@ export function mailSortieLocataire(d: DonneesDepart, l: LocataireAvis): MailAvi
 
 /** Les mails de départ (un par sortant qui a une adresse), puis leur copie interne ; vide si aucun sortant n'a d'adresse (l'écran le signale). PUR. */
 export function mailsSortieLocataires(d: DonneesDepart): MailAvis[] {
-  const envois = d.locataires.map((l) => mailSortieLocataire(d, l)).filter((m): m is MailAvis => m !== null);
+  // 🔴🔴 (Arno, 17/11/2026) un mail par adresse
+  const envois = d.locataires.flatMap((l) => { const m = mailSortieLocataire(d, l); return m === null ? [] : unMailParAdresse(m); });
   const copie = copieInterneLocataires({ sorte: 'sortie_locataires', expediteur: d.expediteur, valideur: d.valideur, signature: d.signature, locataires: d.locataires, envois });
   return copie === null ? envois : [...envois, copie];
 }

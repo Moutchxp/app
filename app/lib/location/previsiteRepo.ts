@@ -476,8 +476,9 @@ export async function destinatairesCompteRendu(ids: readonly number[], auteur: A
   const c = await contexte([...new Set(ids)], auteur, { signatureBrute: async () => '' });
   if (c === null) return { etat: 'inconnu' };
   const internes = await collaborateursInternes();
-  const locataires = c.locataires.filter((l) => adressesUniques(l.emails).length > 0)
-    .map((l) => ({ nom: prenomNom(l), recette: mentionRecetteCourante({ a: adressesUniques(l.emails), cc: [] }, 'locataire') }));
+  // 🔴🔴 (Arno, 17/11/2026 : « les récapitulatifs « à qui sera envoyé » comptent un mail par adresse ») une ligne PAR MAIL (son nom, jamais son adresse)
+  const locataires = c.locataires.flatMap((l) => { const xs = adressesUniques(l.emails);
+    return xs.map((x, i) => ({ nom: xs.length > 1 ? `${prenomNom(l)} (adresse ${i + 1} sur ${xs.length})` : prenomNom(l), recette: mentionRecetteCourante({ a: [x], cc: [] }, 'locataire') })); });
   // 🔴 (16/11/2026) les propriétaires du bien : UNE ligne par adresse (nom en face) ; sans adresse : nommés à part (« compléter la fiche »)
   const pros = ((await partiesDuBail(ids[0]).catch(() => null)) ?? []).filter((p) => p.famille === 'proprietaire');
   const proprietaires = pros.flatMap((p) => adressesUniques(p.emails).map((email) => ({ cle: cleAdresseProprietaire(p.proprietaireId as number, email),

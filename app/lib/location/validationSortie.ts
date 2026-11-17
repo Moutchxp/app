@@ -12,7 +12,7 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-import { adressesUniques, composerMailLocation, prenomNom, type MailAvis, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, prenomNom, unMailParAdresse, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { dateFrPreavis } from './preavis';
 import type { mentionEnvoyePar } from './mentionEnvoyePar';
 import { lignesAg } from './agCopropriete';
@@ -199,7 +199,8 @@ export function copieInterneSortie(d: DonneesValidationSortie, partis: readonly 
 /** Tous les mails de la validation, dans l'ordre : LOCATAIRES, PROPRIÉTAIRES, puis la copie interne. PUR. */
 export function mailsValidationSortie(d: DonneesValidationSortie): { parties: { partie: PartieSortie; mail: MailAvis }[]; interne: MailAvis | null; sansEmail: string[] } {
   const ordre = [...d.destinataires.filter((p) => p.famille === 'locataire'), ...d.destinataires.filter((p) => p.famille === 'proprietaire')];
-  const parties = ordre.map((p) => ({ partie: p, mail: mailDeLaPartie(p, d) })).filter((x): x is { partie: PartieSortie; mail: MailAvis } => x.mail !== null);
+  // 🔴🔴 (Arno, 17/11/2026) un mail PAR ADRESSE (un couple propriétaire sur une même fiche : chacun le sien), marqué client
+  const parties = ordre.flatMap((p) => { const m = mailDeLaPartie(p, d); return m === null ? [] : unMailParAdresse({ ...m, client: p.famille }).map((mail) => ({ partie: p, mail })); });
   return { parties, interne: copieInterneSortie(d, parties), sansEmail: ordre.filter((p) => adressesUniques(p.emails).length === 0).map(prenomNom) };
 }
 

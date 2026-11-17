@@ -9,7 +9,7 @@ import { colonneExisteMemo } from './sondeLocation';
 import { destinatairesSortie, encartDuBail } from './sortieLocatairesRepo';
 import { ficheDepuisEncart, texteMission } from './ficheIntervention';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
-import { adressesUniques, copiesAvis, prenomNom } from './mailsPreavisSortie';
+import { adressesUniques, copiesAvis, prenomNom, unMailParAdresse } from './mailsPreavisSortie';
 import { locatairesAvis, logementDe, mailsAvisDisponibles, signatureEcran, type DepsAvis } from './mailsPreavisSortieRepo';
 import type { LignePreavisAccueil } from './preavis';
 import { cheminCompteRendu, cheminRetourPrevisite } from './cheminCompteRendu';
@@ -239,8 +239,9 @@ export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisi
     : paragraphesModificationLocataires({ adresse: c.adresse, locataires: [l], rdv, ancien, ...(retouche ? { retouche } : {}) }));
   // 🔴 Arno (10/11/2026, texte modifiable) — chaque locataire : SON mail, depuis les parties (la retouche vaut pour chacun, avec son nom).
   const ics = icsDuRdv(c, previsiteId, rdv, sequence, maintenant);
-  const envois = c.locataires.map((l) => mailRdvLocataire({ sorte, de: c.expediteur, objet, adresse: c.adresse, rdv, ancien, locataire: l, qui: c.qui,
-    signature: c.signature, ...(retouche ? { retouche } : {}), ics })).filter((m): m is MailPrevisite => m !== null);
+  // 🔴🔴 (Arno, 17/11/2026) un mail PAR ADRESSE
+  const envois = c.locataires.flatMap((l) => { const m = mailRdvLocataire({ sorte, de: c.expediteur, objet, adresse: c.adresse, rdv, ancien, locataire: l, qui: c.qui,
+    signature: c.signature, ...(retouche ? { retouche } : {}), ics }); return m === null ? [] : unMailParAdresse(m); });
   const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
   const copie = premier === undefined ? null : copieInterneLocataires({ sorte, de: c.expediteur, a: copiesAvis(c.expediteur, c.qui, []), objet, envois,
     locataires: c.locataires, paragraphes: paragraphesDe(premier), qui: c.qui, signature: c.signature });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { mailsAuxLocataires as mailsAuxLocatairesUn } from './previsite';
 import {
   ALERTE_TOUS_REFUSENT, CARTOUCHE_ALERTE, enAlerte, finDuRendezVous, invitationIcs, jourAlerte, objetCompteRendu, paragraphesDuTexte,
   pastillesPrevisite, replierIcs, statutPrevisite, texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, mailPrevisite,
@@ -169,5 +170,16 @@ describe('🔴 Arno (13/11/2026) — le début du rendez-vous (heure de Paris)',
     const { debutDuRendezVous } = await import('./previsite');
     expect(debutDuRendezVous('2026-11-13', '13:45').toISOString()).toBe('2026-11-13T12:45:00.000Z');
     expect(debutDuRendezVous('2026-07-01', '10:00').toISOString()).toBe('2026-07-01T08:00:00.000Z');
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « un mail nominatif par personne et par adresse, un seul destinataire […] même dans […] une colocation ». */
+describe('🔴🔴 un mail = une seule adresse (compte rendu, refus de pré-visite)', () => {
+  it('deux locataires (l’un à deux adresses) : 3 mails, chacun une adresse, à SON nom, marqués client', () => {
+    const locs = [{ occupationId: 11, nom: 'MARTIN', prenom: 'Léa', emails: ['lea@exemple.test', 'lea.pro@exemple.test'] }, { occupationId: 12, nom: 'DURAND', prenom: 'Zoé', emails: ['zoe@exemple.test'] }];
+    const m = mailsAuxLocatairesUn({ sorte: 'previsite_compte_rendu', de: 'gestion@criterimmo.fr', locataires: locs as never, objet: 'Compte rendu',
+      paragraphesDe: (l) => [`Bonjour ${l.prenom} ${l.nom},`], qui: { email: null }, signature: { html: '', texte: '' } });
+    expect(m.map((x) => [x.a, x.cc, x.client, x.texte.split('\n')[0]])).toEqual([[['lea@exemple.test'], [], 'locataire', 'Bonjour Léa MARTIN,'],
+      [['lea.pro@exemple.test'], [], 'locataire', 'Bonjour Léa MARTIN,'], [['zoe@exemple.test'], [], 'locataire', 'Bonjour Zoé DURAND,']]);
   });
 });

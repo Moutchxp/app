@@ -585,9 +585,36 @@ describe('🔴🔴 Arno (17/11/2026) — VERROU « un mail par destinataire » (
     expect(seul.envoye).toBe(true);
     expect(envoyes.map((e) => [e.a, e.cc, e.cci])).toEqual([[['alice@exemple.test'], [], []]]);
   });
-  it('sans l’option, les autres envois sont inchangés (un message à deux adresses part comme avant)', async () => {
+  it('les envois aux PARTENAIRES et les mails internes sont inchangés (plusieurs adresses, copies : partent comme avant)', async () => {
     const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
-    const [r] = await envoyerSerie([{ ...m, sorte: 'sortie_edls_locataire' as const, a: ['alice@exemple.test', 'bob@exemple.test'] }], '', { lotId: 7, occupationIds: [11], auteur: AUTEUR }, deps);
+    const [r] = await envoyerSerie([{ ...m, sorte: 'preavis_adhoc' as const, a: ['adhoc@exemple.test', 'monga@exemple.test'], cc: ['gestion@criterimmo.fr'] }], '', { lotId: 7, occupationIds: [11], auteur: AUTEUR }, deps);
+    const [i] = await envoyerSerie([{ ...m, sorte: 'sortie_edls_interne' as const, a: ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'] }], '', { lotId: 7, occupationIds: [11], auteur: AUTEUR }, deps);
+    expect([r.envoye, i.envoye]).toEqual([true, true]);
+  });
+});
+
+describe('🔴🔴 Arno (17/11/2026) — RÈGLE GÉNÉRALE « un mail = une seule adresse » : le verrou s’applique D’OFFICE à tout mail CLIENT', () => {
+  const m = { de: 'gestion@criterimmo.fr', a: ['alice@exemple.test', 'bob@exemple.test'], cc: [] as string[], objet: 'Objet', texte: 't', html: '<p>t</p>' };
+  const o = { lotId: 7, occupationIds: [11], auteur: AUTEUR };
+  it('accusé de préavis, départ, rendez-vous, refus, état des lieux (locataire, propriétaire), digicode : deux adresses → REFUSÉ, rien ne part', async () => {
+    const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
+    for (const sorte of ['preavis_locataires', 'sortie_locataires', 'previsite_locataires', 'previsite_locataires_modif', 'previsite_refus', 'sortie_edls_locataire', 'sortie_edls_proprietaire', 'digicode_locataire', 'digicode_proprietaire'] as const) {
+      const [r] = await envoyerSerie([{ ...m, sorte }], '', o, deps);
+      expect([sorte, r.envoye, r.motif?.startsWith('Envoi refusé')]).toEqual([sorte, false, true]);
+    }
+    expect(envoyes).toHaveLength(0);
+  });
+  it('le compte rendu de pré-visite : marqué client (locataire, propriétaire) → verrouillé ; le compte rendu INTERNE (même sorte, non marqué) part ; une « [Copie interne] » reste interne', async () => {
+    const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
+    const [loc] = await envoyerSerie([{ ...m, sorte: 'previsite_compte_rendu' as const, client: 'locataire' as const }], '', o, deps);
+    const [pro] = await envoyerSerie([{ ...m, sorte: 'previsite_compte_rendu' as const, client: 'proprietaire' as const }], '', o, deps);
+    const [interne] = await envoyerSerie([{ ...m, sorte: 'previsite_compte_rendu' as const, a: ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'] }], '', o, deps);
+    const [copie] = await envoyerSerie([{ ...m, sorte: 'preavis_locataires' as const, objet: '[Copie interne] Accusé', a: ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'] }], '', o, deps);
+    expect([loc.envoye, pro.envoye, interne.envoye, copie.envoye]).toEqual([false, false, true, true]);
+  });
+  it('un mail client à UNE adresse part', async () => {
+    const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
+    const [r] = await envoyerSerie([{ ...m, sorte: 'preavis_locataires' as const, a: ['alice@exemple.test'] }], '', o, deps);
     expect(r.envoye).toBe(true);
   });
 });

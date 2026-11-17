@@ -127,3 +127,13 @@ describe('🔴🔴 Arno (11/11/2026, 468) — la retenue de 20 % et les pièces 
     expect([estEtatDesLieux('EDL sortie.pdf'), estEtatDesLieux('scan.pdf', ['État des lieux']), estEtatDesLieux('bail.pdf')]).toEqual([true, true, false]);
   });
 });
+
+/** 🔴🔴 Arno (17/11/2026) : « un mail nominatif par personne et par adresse […] même dans un couple […] ou entre copropriétaires ». */
+describe('🔴🔴 un mail = une seule adresse (état des lieux de sortie)', () => {
+  it('un propriétaire à deux adresses (fiche de couple) : deux mails, chacun une adresse, marqués client, rangés pour CE propriétaire', () => {
+    const COUPLE: PartieSortie = { ...JEAN, emails: ['jean@exemple.test', 'marie.dupont@exemple.test'] };
+    const m = mailsValidationSortie(D({ destinataires: [ALICE, COUPLE] }));
+    expect(m.parties.map((x) => [x.partie.cle, x.mail.a, x.mail.cc, x.mail.client])).toEqual([
+      ['loc-11', ['alice@exemple.test'], [], 'locataire'], ['pro-5', ['jean@exemple.test'], [], 'proprietaire'], ['pro-5', ['marie.dupont@exemple.test'], [], 'proprietaire']]);
+  });
+});
