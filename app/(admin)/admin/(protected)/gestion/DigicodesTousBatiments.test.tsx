@@ -142,3 +142,35 @@ describe('🔴 « Digicode copropriété » et les lignes de bâtiment en retrai
     expect(css).toContain('@media (max-width:640px){.dcp-ligne.dcp-ligne--batiment{margin-left:8px;padding-left:10px');
   });
 });
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « « MODIFIER » INTROUVABLE […] rends la différence visible : un code DÉJÀ ENREGISTRÉ s'affiche en lecture (le code en clair, pas un
+ * champ), avec « Modifier » (changement daté, fenêtre existante) et « Corriger » ; un code EN COURS DE SAISIE reste un champ, avec la mention discrète
+ * « nouveau — enregistré avec le bien » (ou « …avec la copropriété »). »
+ */
+describe('🔴 enregistré (lu, « Modifier ») ou en cours de saisie (champ, « nouveau — … »)', () => {
+  const CONNU = ETAT({ connu: true, valeur: { digicode: true, code: 'A1' }, source: 'unifie', depuis: '2026-11-01T10:00:00.000Z' });
+  const fiche = () => saisieDigicodesInitiale({ batimentsConnus: [A, B], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières',
+    commun: { digicode: null, code: null, etat: ETAT() }, batiments: [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', etat: CONNU }] }] } as never);
+  function Hote({ modeBien }: { modeBien: boolean }) {
+    const [s, setS] = useState(fiche);
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: [A, B], nomenclature: 'lettres', desactive: false, modeBien, onPlanifier: async () => null, onCorriger: async () => null });
+  }
+  it('fiche Copropriété : A enregistré se lit (pas de champ) avec « Modifier » et « Corriger » ; B en saisie : la mention « …avec la copropriété » dès qu’on tape', async () => {
+    await act(async () => { root.render(createElement(Hote, { modeBien: false })); });
+    const a = $('[data-dcp-batiment="A"]')!;
+    expect(a.querySelector('input')).toBeNull();
+    expect(a.textContent).toContain('A1');
+    expect(a.querySelector('[data-dcp-modifier]')).not.toBeNull();
+    expect(a.textContent).toContain('Corriger');
+    expect(container.querySelector('[data-dcp-nouveau]')).toBeNull(); // rien saisi : pas de mention
+    await saisir($('[data-dcp-batiment="B"] [data-dcp-code-batiment]')!, 'B7');
+    expect($('[data-dcp-batiment="B"] [data-dcp-nouveau]')?.textContent).toBe('nouveau — enregistré avec la copropriété');
+    expect(a.querySelector('[data-dcp-nouveau]')).toBeNull();
+  });
+  it('la fiche du bien : « …avec le bien » (le code copropriété en saisie, « pas de digicode » compris)', async () => {
+    await act(async () => { root.render(createElement(Hote, { modeBien: true })); });
+    await clic($('[data-dcp-commun] .dcp-aucun input')!);
+    expect($('[data-dcp-commun] [data-dcp-nouveau]')?.textContent).toBe('nouveau — enregistré avec le bien');
+  });
+});

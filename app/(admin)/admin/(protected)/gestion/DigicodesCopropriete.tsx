@@ -163,6 +163,11 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
     const suivante = s.map((d) => (d.cle === cle ? { ...d, batiments: d.batiments.map((b) => (b.k === k ? { ...b, libelle, confirme: null } : b)) } : d));
     return avertissementsSaisie(suivante, nomenclature, connus).get(k) ?? null;
   };
+  /* 🔴🔴 (Arno, 17/11/2026 : « rends la différence visible : un code DÉJÀ ENREGISTRÉ s'affiche en lecture (le code en clair, pas un champ), avec « Modifier »
+     (changement daté, fenêtre existante) et « Corriger » ; un code EN COURS DE SAISIE reste un champ, avec la mention discrète « nouveau — enregistré avec le
+     bien » (ou « …avec la copropriété ») ») — la mention, sous un champ dès qu'on y a saisi quelque chose (un code, ou « pas de digicode ») */
+  const mentionNouveau = (c: CodeLigne): React.ReactNode => (c.code.trim() === '' && !c.aucun ? null
+    : <p className="loc-muet dcp-nouveau" data-dcp-nouveau>nouveau — enregistré avec {modeBien ? 'le bien' : 'la copropriété'}</p>);
   const maj = (cle: string, f: (d: DigicodesAdresseSaisis) => DigicodesAdresseSaisis): void => onChange(s.map((d) => (d.cle === cle ? f(d) : d)));
   const majLigne = (cle: string, kk: string, p: Partial<LigneBatiment>): void => maj(cle, (d) => ({ ...d, batiments: d.batiments.map((b) => (b.k === kk ? { ...b, ...p } : b)) }));
   const refus = refusDigicodes(s, nomenclature, connus);
@@ -201,6 +206,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { code: e.target.checked ? '' : x.commun.code, aucun: e.target.checked } }))} /><span>pas de digicode</span></label>
             {plus(d)}
             </span>
+            {mentionNouveau(d.commun)}
           </div>)}
           {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
@@ -233,6 +239,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
               </span>
+              {mentionNouveau(b)}
               {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode copropriété.</p>}
               {tente && b.nouveau && batimentDe(b.libelle) === null && <p className="dcp-ligne-erreur" role="alert" data-dcp-erreur-ligne>Donnez un nom au bâtiment ou à la cage d’escalier.</p>}
             </div>)))}
@@ -922,6 +929,7 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-adresse{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);min-width:0}
 .dcp-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .dcp-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
+.dcp-nouveau{flex:1 1 100%;margin:0;font-size:.8rem;font-style:italic}
 .dcp-ligne--concerne{outline:2px solid var(--color-svv-red);outline-offset:6px;border-radius:14px}
 /* 🔴 (Arno, 17/11/2026 : « MÈRE / FILLE : […] Les lignes « Digicode bâtiment X » sont légèrement décalées vers la droite sous la ligne copropriété (retrait
    régulier, avec un trait vertical discret à gauche qui les rattache), et restent alignées entre elles. Au téléphone 390 px, retrait réduit, rien ne déborde. ») */
