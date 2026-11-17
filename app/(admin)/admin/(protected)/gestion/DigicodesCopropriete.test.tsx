@@ -216,7 +216,7 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
   it('le menu : les bâtiments de TOUTE la copropriété, « Aucun bâtiment (code commun) », « Ajouter nouveau bâtiment » ; choisir A montre SA ligne', async () => {
     await act(async () => { root.render(createElement(HoteBien)); });
     await clic($('[data-cbc-champ]'));
-    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['A', 'C', 'Côté cour', 'Aucun bâtiment (code commun)', 'Ajouter nouveau bâtiment']);
+    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['Aucun bâtiment (code commun)', 'A', 'C', 'Côté cour', 'Ajouter nouveau bâtiment']); // (Arno, 17/11/2026) « Aucun » en tête
     await clic($('[data-cbc-option="A"]'));
     expect(choix.at(-1)).toEqual(['A', false]);
     expect($('[data-digicodes-bien] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');

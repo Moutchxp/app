@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { CSS_DIGICODES_COPRO, ChoixBatimentCopro, DigicodesCopropriete, exempleNom, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
+import { CSS_DIGICODES_COPRO, ChoixBatimentCopro, DUREE_BULLE_MS, DigicodesCopropriete, exempleNom, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import type { BatimentConnu, Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 
 /**
@@ -63,7 +63,8 @@ describe('② l’ajout PAR LA SAISIE', () => {
     await monter();
     await clic($('[data-cbc-champ]'));
     await saisir($('[data-cbc-champ]'), 'a');
-    expect(menu()[0]).toBe('A');
+    expect(menu().slice(0, 2)).toEqual(['Aucun bâtiment (code commun)', 'A']);
+    expect(menu().some((m) => m?.startsWith('+ Ajouter'))).toBe(false);
   });
 });
 
@@ -149,5 +150,47 @@ describe('le MÊME composant dans la fiche Copropriété (ligne « + »)', () =>
     expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('D');
     expect($('[data-cb-message]').textContent).toBe('Bâtiment D ajouté — il sera enregistré avec la copropriété');
     expect($('[data-dcp-code-batiment]')).not.toBeNull(); // sa ligne de digicode est là
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — deux réglages : ① la confirmation est une BULLE temporaire, superposée à la page (elle ne décale aucun champ) et qui
+ * disparaît seule après environ 4 secondes ; ② un clic dans le champ, même vide, ouvre AUSSITÔT le menu : « Aucun bâtiment (code commun) », tous
+ * les bâtiments dans l'ordre naturel (1, 2… 10 après 9 ; A, B…), les intitulés libres par ordre alphabétique, « Ajouter nouveau bâtiment » en bas.
+ */
+describe('① la bulle de confirmation', () => {
+  it('superposée (position fixe, hors du flux : aucun champ décalé) et retirée seule après 4 secondes', async () => {
+    expect(CSS_DIGICODES_COPRO).toContain('.cb-bulle{position:fixed;');
+    expect(DUREE_BULLE_MS).toBe(4000);
+    vi.useFakeTimers();
+    try {
+      await monter({ nomenclature: null });
+      await clic($('[data-cbc-champ]'));
+      await saisir($('[data-cbc-champ]'), '7');
+      await clic($('[data-cb-ajouter-saisi]'));
+      expect($('[data-cb-message]').className).toBe('cb-bulle');
+      expect($('[data-cb-message]').textContent).toBe('Bâtiment 7 ajouté — il sera enregistré avec le bien');
+      await act(async () => { vi.advanceTimersByTime(3900); });
+      expect($('[data-cb-message]')).not.toBeNull();
+      await act(async () => { vi.advanceTimersByTime(200); });
+      expect($('[data-cb-message]')).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('② le menu au clic sur le champ vide', () => {
+  const MELANGE: BatimentConnu[] = [{ cle: '10', libelle: '10', sorte: 'chiffre' }, { cle: 'b', libelle: 'B', sorte: 'lettre' }, { cle: 'cote rue', libelle: 'Côté rue', sorte: 'libre' },
+    { cle: '2', libelle: '2', sorte: 'chiffre' }, { cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: '1', libelle: '1', sorte: 'chiffre' }, { cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }];
+  it('ouvert AUSSITÔT : « Aucun », 1, 2, 10, A, B, puis Côté cour, Côté rue, et « Ajouter nouveau bâtiment » en bas', async () => {
+    await monter({ connus: MELANGE, nomenclature: null });
+    expect($('[data-cbc-menu]')).toBeNull();
+    await clic($('[data-cbc-champ]'));
+    expect(menu()).toEqual(['Aucun bâtiment (code commun)', '1', '2', '10', 'A', 'B', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
+  });
+  it('en tapant, la liste se filtre ; un nom nouveau garde « + Ajouter le bâtiment « … » » en premier', async () => {
+    await monter({ connus: MELANGE, nomenclature: null });
+    await clic($('[data-cbc-champ]'));
+    await saisir($('[data-cbc-champ]'), 'Côté');
+    expect(menu()).toEqual(['+ Ajouter le bâtiment « Côté »', 'Aucun bâtiment (code commun)', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
   });
 });

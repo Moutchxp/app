@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
@@ -527,6 +527,9 @@ export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, 
     codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial) };
 }
 
+/** 🔴 (Arno, 17/11/2026) la durée de la bulle de confirmation d'un bâtiment ajouté (« environ 4 secondes »). */
+export const DUREE_BULLE_MS = 4000;
+
 /** La règle de numérotation en une phrase, et l'exemple adapté, pour l'encadré d'ajout d'un bâtiment. PUR. */
 export const phraseRegle = (n: Nomenclature | null): string => (n === null
   ? 'Aucune règle encore : le premier bâtiment en lettre ou en chiffre la fixera pour toute la copropriété (un intitulé libre reste possible).'
@@ -573,6 +576,12 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const [message, setMessage] = useState<string | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
   const champEncadre = useRef<HTMLInputElement | null>(null);
+  // 🔴 (Arno, 17/11/2026) la confirmation est une BULLE temporaire, superposée à la page : elle disparaît seule après 4 secondes
+  useEffect(() => {
+    if (message === null) return;
+    const t = setTimeout(() => setMessage(null), DUREE_BULLE_MS);
+    return () => clearTimeout(t);
+  }, [message]);
   const A = marque === 'cbc'
     ? { champ: 'data-cbc-champ', menu: 'data-cbc-menu', option: 'data-cbc-option', aucun: 'data-cbc-aucun', nouveau: 'data-cbc-nouveau' }
     : { champ: 'data-dcp-nom-batiment', menu: 'data-dcp-menu', option: 'data-dcp-option', aucun: 'data-dcp-aucun', nouveau: 'data-dcp-ajouter-nouveau' };
@@ -598,10 +607,13 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
     if (a !== null) { setAlerte({ a, depuisEncadre }); return; }
     retenir(batimentDe(n)?.libelle ?? n, false);
   };
+  /* 🔴 (Arno, 17/11/2026) l'ordre du menu : « + Ajouter le bâtiment « … » » si le nom tapé est nouveau, « Aucun bâtiment (code commun) », TOUS les
+     bâtiments déjà enregistrés pour la copropriété dans l'ordre naturel (1, 2… 10 après 9 ; A, B…), les intitulés libres par ordre alphabétique
+     (menuBatiments), et « Ajouter nouveau bâtiment » tout en bas ; en tapant, la liste se filtre */
   const options: { k: string; mot: string; agir: () => void; attr: Record<string, string>; nouveau?: boolean; choisi?: boolean }[] = [
     ...(t !== '' && existe(t) === undefined ? [{ k: '+saisi', mot: `+ Ajouter le bâtiment « ${t} »`, agir: () => valider(t, false), attr: { 'data-cb-ajouter-saisi': '' }, nouveau: true }] : []),
-    ...tous.filter((o) => t === '' || o.cle.includes(cleT)).map((o) => ({ k: o.cle, mot: o.libelle, agir: () => valider(o.libelle, false), attr: { [A.option]: o.libelle }, choisi: cleT === o.cle })),
     ...(avecAucun ? [{ k: '∅', mot: 'Aucun bâtiment (code commun)', agir: () => { fermer(); setMessage(null); onChoix('', false); }, attr: { [A.aucun]: '' } }] : []),
+    ...tous.filter((o) => t === '' || o.cle.includes(cleT)).map((o) => ({ k: o.cle, mot: o.libelle, agir: () => valider(o.libelle, false), attr: { [A.option]: o.libelle }, choisi: cleT === o.cle })),
     { k: '+nouveau', mot: 'Ajouter nouveau bâtiment', agir: () => { fermer(); setAjout({ nom: '', erreur: null }); }, attr: { [A.nouveau]: '' }, nouveau: true },
   ];
   const idMenu = `cb-menu-${marque}-${cle}`;
@@ -642,7 +654,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
             <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => valider(ajout.nom, true)} data-cb-valider>Valider ce bâtiment</button>
           </div>
         </div>)}
-      {message !== null && <p className="cb-message" role="status" data-cb-message>{message}</p>}
+      {/* 🔴 (Arno, 17/11/2026 : le message « s'affiche aujourd'hui SOUS le champ et décale l'alignement des cases ») une bulle superposée, qui ne décale
+          aucun champ et disparaît seule ; les messages d'erreur restent à leur place */}
+      {message !== null && <p className="cb-bulle" role="status" aria-live="polite" data-cb-message>{message}</p>}
       {alerte !== null && (
         <div className="dcp-voile" data-dcp-avertissement>
           <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby={`${idMenu}-alerte-titre`}
@@ -808,7 +822,11 @@ export const CSS_DIGICODES_COPRO = `
 .cb-regle{margin:0;font-size:.85rem;line-height:1.4}
 .cb-encadre-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .cb-encadre-actions .svv-btn{min-height:44px}
-.cb-message{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-green, var(--color-svv-ink))}
+.cb-bulle{position:fixed;left:50%;top:88px;transform:translateX(-50%);z-index:120;margin:0;box-sizing:border-box;max-width:min(92vw,520px);padding:12px 18px;border-radius:14px;
+  background:var(--color-svv-ink);color:var(--color-svv-surface);font-size:.95rem;font-weight:700;line-height:1.35;text-align:center;
+  box-shadow:0 12px 32px color-mix(in srgb, var(--color-svv-ink) 30%, transparent);pointer-events:none;animation:cb-bulle-apparait .2s ease-out}
+@keyframes cb-bulle-apparait{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (prefers-reduced-motion: reduce){.cb-bulle{animation:none}}
 @media (max-width:600px){.cb-encadre-actions .svv-btn{flex:1 1 100%}}
 /* 🔴 (Arno, 17/11/2026) le champ d'un digicode et ses deux boutons (« pas de digicode », « + ») : même ligne, même hauteur, centrés */
 .dcp--location .dcp-ligne:has(> .dcp-champ){align-items:flex-end;flex-wrap:nowrap}
