@@ -853,7 +853,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                     <ModifierDigicodesLus donnees={digiBien} s={digiSaisie} batiment={c.batiment ?? ''}
                       onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                       onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
-                      onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
+                      onEnvoyer={async (a, appliqueLe, changements, proprietaires, options) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });
                         if (typeof r !== 'string') { setDigiRelire((n) => n + 1); apres(); } return r; }} />)}</dd></div>
               );
             })}
@@ -879,7 +879,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
-                  onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
+                  onEnvoyer={async (a, appliqueLe, changements, proprietaires, options) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} /></div>
             ) : digiCharge ? <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicodes-charge>Digicode : chargement…</p> : <>
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}

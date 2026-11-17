@@ -11,7 +11,7 @@ import { ficheCopropriete } from './coproprieteRepo';
 import { gesteDigicodeCopro } from './coproprieteEcritureRepo';
 import { adresseCleDuBien, batimentCleDuBien, chargerAnciens, digicodesDuBien, digicodesUnifiesDisponibles } from './digicodesRepo';
 import { placeBatiment, validerChangements } from './digicodes';
-import { bilanEnvoi, mailLocataire, mailProprietaire, proprietairesRegroupes, regleDepart, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type PersonneDest } from './digicodesEnvoi';
+import { bilanEnvoi, locataireSelectionne, mailGestion, mailLocataire, mailProprietaire, proprietairesRegroupes, regleDepart, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir, type PersonneDest } from './digicodesEnvoi';
 import { cleImmeuble } from './syndics';
 
 /**
@@ -32,6 +32,14 @@ export async function mailsDigicodeDisponibles(): Promise<boolean> {
 type Issue<T> = { ok: true; data: T } | { ok: false; motif: string };
 
 /** L'ÉCRAN DES DESTINATAIRES, pour un changement proposé (pas encore enregistré). LECTURE SEULE. */
+/** La 484 est-elle posée (le mail à la Gestion entre au journal) ? */
+export async function mailGestionDigicodeDisponible(): Promise<boolean> {
+  const { rows } = await query<{ ok: boolean }>(
+    `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%digicode_gestion%'), false) AS ok FROM pg_constraint WHERE conname = 'gestion_location_mail_avis_sorte_check'`)
+    .catch(() => ({ rows: [{ ok: false }] }));
+  return rows[0]?.ok === true;
+}
+
 export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi>> {
   if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478).' };
   const b = (brut ?? {}) as Record<string, unknown>;
@@ -71,6 +79,9 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
              ${avecCo ? 'UNION SELECT lot_id, proprietaire_id FROM gestion_annuaire_lot_proprietaire WHERE lot_id = ANY($1::bigint[]) AND jusqu_a IS NULL' : ''}) x
        JOIN gestion_annuaire_proprietaire p ON p.id = x.pid AND p.supprime_le IS NULL
       ORDER BY p.id`, [ids]);
+  // 🔴 (Arno, 17/11/2026) l'étage et la porte de chaque logement (l'en-tête de son bloc)
+  const { rows: places } = ids.length === 0 ? { rows: [] as { id: string; etage: string | null; porte: string | null }[] } : await query<{ id: string; etage: string | null; porte: string | null }>(
+    'SELECT id::text, etage::text, porte::text FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[])', [ids]);
   // ④ chaque logement : ses locataires, ses propriétaires, SES codes à la date d'application (le nouveau s'il change, sinon celui alors en vigueur)
   const logements: LogementDest[] = [];
   for (const l of lots) {
@@ -81,6 +92,7 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
     logements.push({
       lotId: l.id, libelle: [l.adresse ?? '', l.numero && !l.numero.startsWith('app-') ? `lot ${l.numero}` : ''].filter(Boolean).join(' — ') || `Bien ${l.id}`,
       batiment: d?.batiment?.libelle ?? null,
+      etage: places.find((x) => Number(x.id) === l.id)?.etage ?? null, porte: places.find((x) => Number(x.id) === l.id)?.porte ?? null,
       locataires: occ.filter((o) => Number(o.lot) === l.id).map((o) => {
         const x = locs.find((y) => y.occupationId === Number(o.id));
         const r = regleDepart(appliqueLe, o.depart);
@@ -92,7 +104,7 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
         communChange: communNouveau !== null, batimentChange: bNouveau !== undefined },
     });
   }
-  return { ok: true, data: { adresse: adresse.libelle, adresseCle, appliqueLe, logements } };
+  return { ok: true, data: { adresse: adresse.libelle, adresseCle, appliqueLe, logements, adresseGestion: (await chargerConfigGestion()).adresseGestion } };
 }
 
 
@@ -104,20 +116,27 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
  */
 export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: DepsAvis = {}): Promise<Issue<IssueEnvoi>> {
   if (!(await mailsDigicodeDisponibles())) return { ok: false, motif: 'L’envoi des mails de changement de digicode demande la mise à jour de la base (migration 479) : rien n’est enregistré ni envoyé.' };
-  const b = (brut ?? {}) as Record<string, unknown>;
+  // 🔴🔴 (Arno, 17/11/2026 : « DEUX CHOIX, obligatoires, après la saisie […] Seuls les locataires cochés reçoivent un mail […]. Ensuite, un mail à la Gestion l'informe que les locataires listés ont été prévenus. Chaque mail reste rangé dans l'historique du bien et de la personne. ») — le mail à la Gestion doit entrer au journal (484) : sans elle, rien n'est enregistré ni envoyé
+  if (!(await mailGestionDigicodeDisponible())) return { ok: false, motif: 'Le mail à la Gestion d’un changement de digicode demande la mise à jour de la base (migration 484) : rien n’est enregistré ni envoyé.' };
+  const b0 = (brut ?? {}) as Record<string, unknown>;
+  const mode: ModePrevenir = b0.mode === 'gestion' ? 'gestion' : 'locataires';
+  const decoches = new Set((Array.isArray(b0.decoches) ? b0.decoches : []).map(Number).filter((x) => Number.isSafeInteger(x) && x > 0));
+  const b = b0;
   const ap = await apercuChangement(b);
   if (!ap.ok) return ap;
   const enreg = await gesteDigicodeCopro(b, 'planification', auteur);
   if (!enreg.ok) return enreg;
   const a = ap.data;
-  const proprietaires = b.proprietaires === true;
+  const proprietaires = mode === 'locataires' && b.proprietaires === true;
   const config = await chargerConfigGestion();
   const qui = await emailDeLAuteur(auteur);
   const sig = await signatureEcran(deps);
   const contexte = { expediteur: config.adresseGestion, qui, signature: sig.ecran };
   const envois: IssueEnvoi['envois'] = [];
-  for (const l of a.logements) {
+  for (const l of mode === 'gestion' ? [] : a.logements) {
     for (const x of l.locataires) {
+      // seuls les locataires COCHÉS (un locataire décoché ne reçoit rien)
+      if (!locataireSelectionne(x, decoches)) continue;
       const m = mailLocataire(a, l, x, contexte);
       if (m === null) continue;
       for (const adresse of m.a) {
@@ -138,9 +157,18 @@ export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: D
       }
     }
   }
+  // le mail à la Gestion (A : à prévenir ; B : les locataires prévenus), rangé dans l'historique de chaque logement concerné
+  let gestion: IssueEnvoi['gestion'] = null;
+  const mg = mailGestion(a, contexte, { mode, decoches, proprietaires });
+  const [premierLot, ...autresLots] = a.logements;
+  if (mg !== null && premierLot !== undefined) {
+    const [r] = await envoyerSerie([mg], sig.brute, { lotId: premierLot.lotId, occupationIds: [], auteur, autres: autresLots.map((x) => ({ lotId: x.lotId, occupationIds: [] })) }, deps);
+    gestion = { pour: 'la Gestion', objet: r.objet, a: r.a, envoye: r.envoye, motif: r.motif };
+  }
   const bilan = bilanEnvoi(a, proprietaires);
   // un locataire sans e-mail n'est pas oublié : il est dit, comme dans l'écran (« à prévenir autrement »)
-  return { ok: true, data: { enregistre: true, envois, sansEmail: bilan.sansEmail, exclus: bilan.exclus } };
+  const nonCoches = mode === 'locataires' ? a.logements.flatMap((l) => l.locataires.filter((x) => x.inclus && x.emails.length > 0 && decoches.has(x.occupationId)).map((x) => prenomNom(x))) : [];
+  return { ok: true, data: { enregistre: true, mode, envois, gestion, sansEmail: bilan.sansEmail, exclus: bilan.exclus, nonCoches } };
 }
 
 /** Les adresses d'un aperçu, pour les épreuves : aucune autre que celles des personnes concernées. PUR. */

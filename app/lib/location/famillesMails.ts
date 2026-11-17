@@ -50,7 +50,7 @@ const SORTES: Record<string, FamilleMail> = {
   previsite_refus: 'locataire', sortie_edls_locataire: 'locataire',
   sortie_edls_proprietaire: 'proprietaire',
   // 🔴 (16/11/2026, 479) le changement de digicode
-  digicode_locataire: 'locataire', digicode_proprietaire: 'proprietaire',
+  digicode_locataire: 'locataire', digicode_proprietaire: 'proprietaire', digicode_gestion: 'interne',
   preavis_adhoc: 'partenaires', sortie_adhoc: 'partenaires', nouvelle_location: 'partenaires',
   sortie_interne: 'interne', sortie_edls_interne: 'interne', previsite_invitation: 'interne', previsite_annulation: 'interne',
   previsite_alerte: 'interne', previsite_invitation_cr: 'interne', previsite_reponse: 'interne', previsite_compte_rendu: 'interne',

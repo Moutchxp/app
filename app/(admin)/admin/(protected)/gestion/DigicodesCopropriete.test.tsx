@@ -337,15 +337,18 @@ describe('🔴🔴 (« Digicodes unifiés », lot 6) « Modifier » → l’écr
     await clic($('[data-dcp-modifier-suivant]'));
     const z = $('[data-dcp-destinataires]');
     expect([...z.querySelectorAll('[data-dcp-dest-batiment]')].map((x) => x.getAttribute('data-dcp-dest-batiment'))).toEqual(['A', 'B']);
-    expect($('[data-dcp-total]').textContent).toBe('2 logements concernés');
-    expect($('[data-dcp-dest-logement="1"]').textContent).toContain('Léa MARTIN et Paul MARTIN');
+    // 🔴 (Arno, 17/11/2026) B : un bloc par logement (adresse, bâtiment), une case par locataire, le total en direct
+    expect($('[data-dcp-total]').textContent).toBe('1 logement · 1 locataire sélectionné');
+    expect($('[data-dcp-dest-logement="1"] .dcp-dest-entete').textContent).toBe('Résidence Les Tilleuls — lot 1 · bâtiment A');
+    expect(($('[data-dcp-dest-locataire="11"]') as HTMLInputElement).checked).toBe(true);
     expect($('[data-dcp-sans-email]').textContent).toBe('Paul MARTIN — pas d’e-mail — à prévenir autrement');
     expect($('[data-dcp-exclu]').textContent).toBe('Zoé DURAND — parti le 01/05 : non prévenu');
     expect(($('[data-dcp-proprietaires]') as HTMLInputElement).checked).toBe(false); // décochée par défaut
-    expect($('[data-dcp-envoyer]').textContent).toBe('Enregistrer et envoyer 1 mail');
+    expect($('[data-dcp-envoyer]').textContent).toBe('Valider la mise à jour et envoyer');
+    expect($('[data-dcp-bilan]').textContent).toBe('1 mail aux locataires · 1 à prévenir autrement · puis 1 mail à la Gestion');
     await clic($('[data-dcp-proprietaires]'));
     expect($('[data-dcp-liste-proprietaires]').textContent).toContain('Jean PROPRIO — 2 logements (un seul mail)');
-    expect($('[data-dcp-envoyer]').textContent).toBe('Enregistrer et envoyer 2 mails');
+    expect($('[data-dcp-bilan]').textContent).toBe('1 mail aux locataires · 1 aux propriétaires · 1 à prévenir autrement · puis 1 mail à la Gestion');
   });
   it('« Enregistrer et envoyer » : le changement et la case propriétaires partent ; le compte rendu dit chaque mail et qui prévenir autrement', async () => {
     await act(async () => { root.render(createElement(HoteE)); });
@@ -354,8 +357,59 @@ describe('🔴🔴 (« Digicodes unifiés », lot 6) « Modifier » → l’écr
     await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
     await clic($('[data-dcp-modifier-suivant]'));
     await clic($('[data-dcp-envoyer]'));
-    expect(envois).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7' }], false]]);
+    expect(envois).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7' }], false, { mode: 'locataires', decoches: [] }]]);
     expect($('[data-dcp-compte-rendu]').textContent).toContain('1 mail parti sur 1');
     expect($('[data-dcp-cr-sans-email]').textContent).toBe('À prévenir autrement (pas d’e-mail) : Paul MARTIN.');
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « DEUX CHOIX, obligatoires, après la saisie : A. « Prévenir la Gestion seulement » […] B. « Écrire maintenant aux locataires » : […] une case cochée par défaut, décochable une à une ; total « N logements · M locataires sélectionnés » mis à jour en direct […] « Valider la mise à jour et envoyer ». » */
+describe('🔴🔴 les deux choix (A / B)', () => {
+  const E = { connu: true, valeur: { digicode: true, code: '1234' }, depuis: '2026-11-01T10:00:00.000Z', source: 'unifie', aVenir: [], aArbitrer: [], historique: [] };
+  const F = { digicodes: [{ cle: 'residence test', voie: 'Résidence _TEST CHANGEMENT DIGICODE', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234', etat: E }, batiments: [] }] };
+  const APERCU = { adresse: 'Résidence _TEST', adresseCle: 'residence test', appliqueLe: '2099-06-01T07:00:00.000Z', adresseGestion: 'gestion@exemple.test', logements: [
+    { lotId: 1, libelle: 'Résidence _TEST — lot 1', batiment: 'A', etage: '2', porte: '21', proprietaires: [], codes: { commun: { digicode: true, code: 'Z7' }, batiment: null, communChange: true, batimentChange: false },
+      locataires: [{ id: 1, occupationId: 11, nom: 'MARTIN', prenom: 'Léa', emails: ['l@exemple.test'], depart: null, inclus: true, raison: null },
+        { id: 2, occupationId: 12, nom: 'MARTIN', prenom: 'Paul', emails: ['p@exemple.test'], depart: null, inclus: true, raison: null }] }] };
+  let envois: unknown[][] = [];
+  function H() {
+    const [s, setS] = useState(saisieDigicodesInitiale(F as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false, onPlanifier: async () => null,
+      onApercu: async () => APERCU as never,
+      onEnvoyer: async (...a: unknown[]) => { envois.push(a); return { enregistre: true, envois: [], sansEmail: [], exclus: [], gestion: { pour: 'la Gestion', objet: 'x', a: ['gestion@exemple.test'], envoye: true, motif: null } }; } });
+  }
+  const saisirChangement = async () => {
+    await act(async () => { root.render(createElement(H)); });
+    await clic($('[data-dcp-commun] [data-dcp-modifier]'));
+    await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), 'Z7');
+    await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  beforeEach(() => { envois = []; });
+  it('les deux choix, obligatoires, après la saisie (désactivés tant qu’il manque quelque chose)', async () => {
+    await act(async () => { root.render(createElement(H)); });
+    await clic($('[data-dcp-commun] [data-dcp-modifier]'));
+    expect([...container.querySelectorAll('[data-dcp-choix-prevenir]')].map((b) => [b.textContent, (b as HTMLButtonElement).disabled]))
+      .toEqual([['A. Prévenir la Gestion seulement', true], ['B. Écrire maintenant aux locataires', true]]);
+  });
+  it('A : la liste des logements (en-tête : adresse, bâtiment, étage, porte), l’adresse de la Gestion, aucune case ; « Valider la mise à jour et prévenir la Gestion » part en mode « gestion »', async () => {
+    await saisirChangement();
+    await clic($('[data-dcp-choix-prevenir="gestion"]'));
+    expect($('[data-dcp-destinataires]').getAttribute('data-dcp-mode')).toBe('gestion');
+    expect($('.dcp-dest-entete').textContent).toBe('Résidence _TEST — lot 1 · bâtiment A · étage 2 · porte 21');
+    expect($('[data-dcp-destinataires]').textContent).toContain('gestion@exemple.test');
+    expect(container.querySelector('[data-dcp-dest-locataire]')).toBeNull();
+    expect($('[data-dcp-envoyer]').textContent).toBe('Valider la mise à jour et prévenir la Gestion');
+    await clic($('[data-dcp-envoyer]'));
+    expect(envois[0].slice(3)).toEqual([false, { mode: 'gestion', decoches: [] }]);
+    expect($('[data-dcp-cr-gestion]').textContent).toBe('Mail à la Gestion — envoyé (gestion@exemple.test)');
+  });
+  it('B : décocher un locataire met le total à jour en direct ; seuls les cochés partent (les décochés sont envoyés au serveur)', async () => {
+    await saisirChangement();
+    await clic($('[data-dcp-choix-prevenir="locataires"]'));
+    expect($('[data-dcp-total]').textContent).toBe('1 logement · 2 locataires sélectionnés');
+    await clic($('[data-dcp-dest-locataire="12"]'));
+    expect($('[data-dcp-total]').textContent).toBe('1 logement · 1 locataire sélectionné');
+    await clic($('[data-dcp-envoyer]'));
+    expect(envois[0].slice(3)).toEqual([false, { mode: 'locataires', decoches: [12] }]);
   });
 });

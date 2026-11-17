@@ -937,7 +937,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
-                  onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
+                  onEnvoyer={async (a, appliqueLe, changements, proprietaires, options) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} />
               </div>) : digiCharge ? (
               <div className="loc-acces-bloc" data-digicode data-digicodes-charge><span className="loc-acces-mot">Digicode</span><span className="loc-muet">chargement…</span></div>

@@ -4,11 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * 🔴🔴 Arno (16/11/2026, « Digicodes unifiés », lot 6) — l'écran des destinataires et l'envoi : le changement d'abord (refusé : rien ne part), puis UN
  * mail par personne, rangé dans l'historique du bien, du locataire et du propriétaire. 🔒 Base et transport simulés : rien n'est écrit ni envoyé.
  */
-const h = vi.hoisted(() => ({ avec479: true, planif: { ok: true } as Record<string, unknown>, envois: [] as { a: string[]; cc?: string[]; sorte: string; o: Record<string, unknown> }[],
+const h = vi.hoisted(() => ({ avec479: true, avec484: true, planif: { ok: true } as Record<string, unknown>, envois: [] as { a: string[]; cc?: string[]; sorte: string; o: Record<string, unknown>; texte?: string; objet?: string }[],
   occ: [] as Record<string, unknown>[], pro: [] as Record<string, unknown>[], locs: [] as Record<string, unknown>[] }));
 vi.mock('../db/client', () => ({ query: async (sql: string) => {
   const s = sql.replace(/\s+/g, ' ');
   if (s.includes("pg_get_constraintdef(oid) LIKE '%digicode_locataire%'")) return { rows: [{ ok: h.avec479 }] };
+  if (s.includes("pg_get_constraintdef(oid) LIKE '%digicode_gestion%'")) return { rows: [{ ok: h.avec484 }] };
   if (s.includes('FROM gestion_annuaire_occupation o WHERE o.lot_id')) return { rows: h.occ };
   if (s.includes('FROM gestion_annuaire_lot WHERE id = ANY')) return { rows: h.pro };
   if (s.includes('annexe_id::text AS id FROM gestion_lot_annexe')) return { rows: [] };
@@ -21,8 +22,8 @@ vi.mock('../location/mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () =>
 vi.mock('../location/mailsPreavisSortieRepo', () => ({
   signatureEcran: async () => ({ brute: '', ecran: { html: '', texte: '' } }),
   locatairesAvis: async () => h.locs,
-  envoyerSerie: async (mails: { a: string[]; cc: string[]; sorte: string; objet: string }[], _b: string, o: Record<string, unknown>) => {
-    for (const m of mails) h.envois.push({ a: m.a, cc: m.cc, sorte: m.sorte, o });
+  envoyerSerie: async (mails: { a: string[]; cc: string[]; sorte: string; objet: string; texte?: string }[], _b: string, o: Record<string, unknown>) => {
+    for (const m of mails) h.envois.push({ a: m.a, cc: m.cc, sorte: m.sorte, o, texte: m.texte, objet: m.objet });
     return mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: [], envoye: true, motif: null }));
   },
 }));
@@ -43,7 +44,7 @@ import { apercuChangement, planifierEtPrevenir } from './digicodesEnvoiRepo';
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const CORPS = { immeuble: '1 rue essai', adresseCle: '1 rue essai', appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: 'A', digicode: true, code: 'A999' }] };
 beforeEach(() => {
-  h.avec479 = true; h.planif = { ok: true }; h.envois = [];
+  h.avec479 = true; h.avec484 = true; h.planif = { ok: true }; h.envois = [];
   h.occ = [{ id: '11', lot: '1', locataire: '21', depart: null }, { id: '12', lot: '1', locataire: '22', depart: null }, { id: '13', lot: '2', locataire: '23', depart: '2026-11-01' }];
   h.locs = [{ occupationId: 11, nom: 'MARTIN', prenom: 'Léa', emails: ['lea@exemple.test'] }, { occupationId: 12, nom: 'MARTIN', prenom: 'Paul', emails: ['paul@exemple.test'] },
     { occupationId: 13, nom: 'DURAND', prenom: 'Zoé', emails: ['zoe@exemple.test'] }];
@@ -69,10 +70,10 @@ describe('enregistrer, puis prévenir', () => {
   it('un mail PAR PERSONNE, à elle seule ; rangé dans l’historique du bien et du locataire ; propriétaires seulement si cochés (un mail, ses logements, son historique)', async () => {
     const r = await planifierEtPrevenir({ ...CORPS, proprietaires: false }, AUTEUR);
     expect(r.ok && r.data.envois.map((e) => [e.pour, e.a])).toEqual([['Léa MARTIN', ['lea@exemple.test']], ['Paul MARTIN', ['paul@exemple.test']]]);
-    expect(h.envois.map((e) => [e.sorte, e.o.lotId, e.o.occupationIds])).toEqual([['digicode_locataire', 1, [11]], ['digicode_locataire', 1, [12]]]);
+    expect(h.envois.filter((e) => e.sorte !== 'digicode_gestion').map((e) => [e.sorte, e.o.lotId, e.o.occupationIds])).toEqual([['digicode_locataire', 1, [11]], ['digicode_locataire', 1, [12]]]);
     h.envois = [];
     await planifierEtPrevenir({ ...CORPS, proprietaires: true }, AUTEUR);
-    expect(h.envois.at(-1)).toMatchObject({ sorte: 'digicode_proprietaire', a: ['jean@exemple.test'], o: { lotId: 1, proprietaireIds: [31] } });
+    expect(h.envois.filter((e) => e.sorte !== 'digicode_gestion').at(-1)).toMatchObject({ sorte: 'digicode_proprietaire', a: ['jean@exemple.test'], o: { lotId: 1, proprietaireIds: [31] } });
   });
   it('🔴 le changement refusé : RIEN ne part ; sans la 479 : rien n’est enregistré ni envoyé', async () => {
     h.planif = { ok: false, motif: 'Un changement est déjà prévu …' };
@@ -91,6 +92,33 @@ describe('🔴🔴 Arno (17/11/2026) — UN MAIL PAR DESTINATAIRE, verrouillé',
     const r = await planifierEtPrevenir({ ...CORPS, proprietaires: true }, AUTEUR);
     expect(r.ok && r.data.envois.map((e) => [e.pour, e.a])).toEqual([['Léa MARTIN', ['lea@exemple.test']], ['Léa MARTIN', ['lea.pro@exemple.test']],
       ['Paul MARTIN', ['paul@exemple.test']], ['Jean PROPRIO', ['jean@exemple.test']], ['Jean PROPRIO', ['jean2@exemple.test']]]);
-    expect(h.envois.every((e) => e.a.length === 1 && (e.cc ?? []).length === 0 && e.o.uneSeuleAdresse === true)).toBe(true);
+    expect(h.envois.filter((e) => e.sorte !== 'digicode_gestion').every((e) => e.a.length === 1 && (e.cc ?? []).length === 0 && e.o.uneSeuleAdresse === true)).toBe(true);
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « DEUX CHOIX, obligatoires, après la saisie : A. « Prévenir la Gestion seulement » : un mail interne à gestion@criterimmo.fr (adresse prise dans les préférences existantes, rien en dur) […] Aucun mail aux locataires. B. « Écrire maintenant aux locataires » […] Seuls les locataires cochés reçoivent un mail […]. Ensuite, un mail à la Gestion l'informe que les locataires listés ont été prévenus. Chaque mail reste rangé dans l'historique du bien et de la personne. » */
+describe('🔴🔴 les deux choix', () => {
+  it('A : AUCUN mail aux locataires ; UN mail à la Gestion (adresse des préférences), la date et les logements concernés avec leurs locataires ; rangé dans l’historique du logement', async () => {
+    const r = await planifierEtPrevenir({ ...CORPS, mode: 'gestion', proprietaires: true }, AUTEUR);
+    expect(h.envois.map((e) => [e.sorte, e.a])).toEqual([['digicode_gestion', ['gestion@exemple.test']]]);
+    expect(h.envois[0].o).toMatchObject({ lotId: 1, occupationIds: [] });
+    expect(h.envois[0].objet).toContain('[À prévenir] Changement de digicode');
+    expect(h.envois[0].texte).toContain('AUCUN mail n’a été envoyé aux locataires');
+    expect(h.envois[0].texte).toContain('Léa MARTIN (lea@exemple.test)');
+    expect(r.ok && [r.data.mode, r.data.envois.length, r.data.gestion?.envoye]).toEqual(['gestion', 0, true]);
+  });
+  it('B : un locataire DÉCOCHÉ ne reçoit rien ; les cochés reçoivent le leur ; puis la Gestion : prévenus / décochés', async () => {
+    const r = await planifierEtPrevenir({ ...CORPS, mode: 'locataires', decoches: [12] }, AUTEUR);
+    expect(h.envois.map((e) => [e.sorte, e.a])).toEqual([['digicode_locataire', ['lea@exemple.test']], ['digicode_gestion', ['gestion@exemple.test']]]);
+    const g = h.envois[1];
+    expect(g.objet).toContain('[Locataires prévenus] Changement de digicode');
+    expect(g.texte).toContain('Léa MARTIN (lea@exemple.test) — prévenu par mail');
+    expect(g.texte).toContain('Paul MARTIN (paul@exemple.test) — NON prévenu (décoché)');
+    expect(r.ok && r.data.nonCoches).toEqual(['Paul MARTIN']);
+  });
+  it('sans la 484 : rien n’est enregistré ni envoyé', async () => {
+    h.avec484 = false;
+    expect(await planifierEtPrevenir({ ...CORPS, mode: 'gestion' }, AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('migration 484') });
+    expect(h.envois).toEqual([]);
   });
 });
