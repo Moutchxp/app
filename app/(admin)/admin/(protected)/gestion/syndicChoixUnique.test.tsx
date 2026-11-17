@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { FicheSyndic } from './FicheSyndic';
 import { PiedDoublonSyndic } from './PropositionsSyndic';
 import { BlocSyndic, type SyndicChoisi } from '../location/BlocSyndicBien';
+import { EcranSyndics } from './EcranSyndics';
 
 /**
  * 🔴🔴 Arno (17/11/2026) — « choix du syndic par UN SEUL bouton, recherche d'abord, création seulement si rien ne correspond (pour éviter les syndics en
@@ -158,5 +159,59 @@ describe('🔴 la fenêtre (variante Location) : créer seulement après la rech
     expect([choix, cree]).toEqual([[41], 1]);
     await act(async () => { racine.render(createElement(PiedDoublonSyndic, { doublons: d, onRevenir: () => {}, onCreer: () => {} })); });
     expect([...document.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Revenir', 'Créer quand même']);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « MÊME RÈGLE PARTOUT, recherche d'abord, création seulement depuis les résultats : le bouton « Créer un nouveau syndic » de la
+ * fenêtre côté Gestion (fiche du bien Gestion, cartes de l'annuaire, BoutonSyndic) et « + Créer un syndic » de l'écran « Syndics » ouvrent désormais la
+ * recherche des syndics existants ; « Créer le syndic « <texte tapé> » » n'apparaît que sous les résultats, avec le nom pré-rempli et le même garde-fou de
+ * doublon. Les boutons restent à leur place, seul leur parcours change ; libellé possible « Ajouter un syndic ». »
+ */
+describe('🔴 la Gestion : la recherche d’abord, partout', () => {
+  it('la fenêtre (depuis un bien) : « Ajouter un syndic » en tête, à sa place ; il garde la recherche (le curseur dans le champ), jamais le formulaire ; la création vient des résultats, le nom pré-rempli', async () => {
+    await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, onFerme: () => {} })); });
+    await calmer();
+    expect([...document.querySelectorAll('.fsy-tete button')].map((b) => b.textContent)).toEqual(['Ajouter un syndic', '×']);
+    expect(document.querySelector('[data-fsy-creer-recherche]')).toBeNull();
+    (document.querySelector('.fsy input[type="search"]') as HTMLInputElement).blur();
+    await act(async () => { bouton('Ajouter un syndic')!.click(); });
+    await calmer();
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    expect(document.body.textContent).not.toContain('Nom du cabinet');
+    expect(document.activeElement).toBe(document.querySelector('.fsy input[type="search"]'));
+    await taper(document.querySelector('.fsy input[type="search"]') as HTMLInputElement, '_TEST SYNDIC GESTION');
+    await act(async () => { (document.querySelector('[data-fsy-creer-recherche]') as HTMLButtonElement).click(); });
+    await calmer();
+    const nom = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Nom du cabinet'))!.querySelector('input') as HTMLInputElement;
+    expect(nom.value).toBe('_TEST SYNDIC GESTION');
+    expect(ecritures).toEqual([]);
+  });
+  it('le même garde-fou : « Ce syndic existe peut-être déjà : … », « Choisir celui-ci », la note qui cite « Non, c’est un autre syndic — créer quand même »', async () => {
+    await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, onFerme: () => {} })); });
+    await calmer();
+    await taper(document.querySelector('.fsy input[type="search"]') as HTMLInputElement, 'Cabinet _TEST SYNDIC ELYSEE S.A.S.');
+    await act(async () => { (document.querySelector('[data-fsy-creer-recherche]') as HTMLButtonElement).click(); });
+    await calmer();
+    const bandeau = document.querySelector('.psy-bandeau--doublon') as HTMLElement;
+    expect(bandeau.textContent).toContain('Ce syndic existe peut-être déjà :');
+    expect(bandeau.querySelector('[data-psy-choisir]')?.textContent?.trim()).toBe('Choisir celui-ci');
+    expect(bandeau.querySelector('.psy-note')?.textContent).toContain('« Non, c’est un autre syndic — créer quand même »');
+  });
+  it('l’écran « Syndics » : « + Ajouter un syndic » (avant : « + Créer un syndic »), à sa place, ouvre la fenêtre sur la RECHERCHE, jamais sur le formulaire', async () => {
+    await act(async () => { racine.render(createElement(EcranSyndics, {})); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 260)); }); await calmer();
+    const b = document.querySelector('[data-esy-ajouter]') as HTMLButtonElement;
+    expect(b.textContent).toBe('+ Ajouter un syndic');
+    expect(b.closest('.esy-tete')).not.toBeNull();
+    await act(async () => { b.click(); });
+    await calmer();
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    expect(document.querySelector('.fsy input[type="search"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Nom du cabinet');
+    expect(document.querySelector('[data-fsy-creer-apres-recherche]')).not.toBeNull();
+    await taper(document.querySelector('.fsy input[type="search"]') as HTMLInputElement, '_TEST SYNDIC ECRAN');
+    expect(document.querySelector('[data-fsy-creer-recherche]')?.textContent?.trim()).toBe('Créer le syndic « _TEST SYNDIC ECRAN »');
+    expect(ecritures).toEqual([]);
   });
 });

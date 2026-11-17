@@ -193,10 +193,10 @@ describe('🔴 modale syndic — variante « location »', () => {
     expect(document.querySelector('[data-form-contact-syndic]')).toBeNull();
   });
 
-  it('la GESTION est inchangée : son bouton « Créer un nouveau syndic » et son encadré à elle', async () => {
+  it('la GESTION garde son bouton d’en-tête (« Ajouter un syndic » ; avant : « Créer un nouveau syndic », Arno 17/11/2026) et son encadré à elle', async () => {
     await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, onFerme: () => {} })); });
     await calmer();
-    expect(bouton('Créer un nouveau syndic')).toBeDefined();
+    expect(bouton('Ajouter un syndic')).toBeDefined();
     expect(document.querySelector('[data-trois-boutons]')).toBeNull();
     expect(bouton('Le rattacher à ce bien')).toBeDefined();
   });

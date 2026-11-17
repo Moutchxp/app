@@ -27,7 +27,7 @@ import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 /* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — doublon possible à la création, syndic connu pour l'adresse. */
 import {
-  comparableDeLaSaisie, doublonsDuSyndic, saisieComparable, type DoublonIgnore, type DoublonSyndic, type SyndicComparable,
+  comparableDeLaSaisie, doublonsDuSyndic, MOT_CREER_MALGRE_DOUBLON, saisieComparable, type DoublonIgnore, type DoublonSyndic, type SyndicComparable,
 } from '../../../../lib/gestion/doublonSyndic';
 import {
   BandeauDoublonSyndic, ConfirmationRattachement, EncadreSyndicConnu, PiedDoublonSyndic, rattacherAuBien, useSyndicsConnus,
@@ -305,6 +305,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [etapePartage, setEtapePartage] = useState<string | null>(null);
   const connus = useSyndicsConnus(mode === 'recherche' && depuisUnBien ? immeubleDepart : null, lotDepart, ancienSyndicId);
   const [connusEcartes, setConnusEcartes] = useState(false);
+  /** 🔴 (Arno, 17/11/2026) « Ajouter un syndic » (en-tête, Gestion) : la recherche d'abord — le curseur va dans le champ de recherche. */
+  const [appelRecherche, setAppelRecherche] = useState(0);
 
   /** « Rattacher cet immeuble à ce syndic » : SA fiche s'ouvre, l'immeuble déjà ajouté (et donc à valider). */
   const rattacherA = async (id: number): Promise<void> => {
@@ -460,6 +462,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Détacher / remplacer le syndic de cette résidence</button>
   );
 
+  /** « Choisir celui-ci » (doublon) : Location — rendu au formulaire du bien, sans écriture ; Gestion depuis un bien — rattaché à son immeuble (le geste
+   *  « Sélectionner ce syndic pour ce bien » d'avant) ; sans bien (écran « Syndics ») — pas de choix. */
+  const choisirDoublon = variante === 'location' ? (id: number) => void choisirParId(id) : depuisUnBien ? (id: number) => void selectionner(id) : undefined;
   /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli) ; 🔴 (Arno, 17/11/2026) depuis la recherche, le NOM tapé pré-rempli. */
   const creer = (nom = ''): void => { setForm({ ...formulaireVide(immeubleDepart, lotDepart), nom: nom.trim() }); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); };
 
@@ -479,12 +484,17 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       <div className={`fsy${variante === 'location' ? ' fsy--location' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
         <div className="fsy-tete">
           <h2 className="fsy-titre" id="fsy-titre">{titre}</h2>
+          {/* 🔴🔴 (Arno, 17/11/2026 : « MÊME RÈGLE PARTOUT, recherche d'abord, création seulement depuis les résultats : le bouton « Créer un nouveau syndic »
+              de la fenêtre côté Gestion […] ouvre désormais la recherche des syndics existants ; « Créer le syndic « <texte tapé> » » n'apparaît que sous les
+              résultats […] Les boutons restent à leur place, seul leur parcours change ; libellé possible « Ajouter un syndic ». ») — le bouton reste dans la
+              ligne de titre ; il mène à la recherche (l'encadré « déjà connu » écarté, le curseur dans le champ), jamais au formulaire. */}
           {/* 🔴 LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT (accord d'Arno pour ce déplacement) — CE QU'IL Y AVAIT :
               « Créer un nouveau syndic » sous la liste des résultats (hors de vue d'une longue liste). Il est dans la
               ligne de TITRE, fixe, juste à gauche de la croix ; seule la liste défile. Comportement inchangé. */}
           <span className="fsy-tete-actions">
             {mode === 'recherche' && variante !== 'location' && (
-              <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-creer-tete" onClick={() => creer()}>Créer un nouveau syndic</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-creer-tete" onClick={() => { setConnusEcartes(true); setAppelRecherche((n) => n + 1); }}
+                data-fsy-ajouter-syndic>Ajouter un syndic</button>
             )}
             <button type="button" className="fsy-croix" aria-label="Annuler et fermer" onClick={annuler}>×</button>
           </span>
@@ -509,15 +519,15 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           {confirmation === null && mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
             <Recherche immeubleDepart={immeubleDepart} ancienSyndicId={ancienSyndicId}
               onRattacher={(id) => void (variante === 'location' ? choisirParId(id) : rattacherA(id))}
-              onCreer={variante === 'location' ? creer : undefined} />
+              onCreer={creer} appel={appelRecherche} />
           )}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 1 : pendant la saisie d'un NOUVEAU syndic. */}
           {confirmation === null && creation && (
             <BandeauDoublonSyndic doublons={doublons} envoi={envoi} onVoir={voirLaFiche}
               /* 🔴 (Arno, 17/11/2026) Location : « Choisir celui-ci » — le choix rendu au formulaire du bien, sans écriture (comme un résultat de la recherche) */
-              onSelectionner={variante === 'location' ? (id) => void choisirParId(id) : depuisUnBien ? (id) => void selectionner(id) : undefined}
-              motSelectionner={variante === 'location' ? 'Choisir celui-ci' : undefined}
-              motCreer={variante === 'location' ? 'Non, c’est un autre syndic — créer quand même' : undefined} />
+              onSelectionner={choisirDoublon}
+              /* 🔴 (Arno, 17/11/2026) « le même garde-fou de doublon » partout : les mêmes mots, Location et Gestion */
+              motSelectionner="Choisir celui-ci" motCreer={MOT_CREER_MALGRE_DOUBLON} />
           )}
           {confirmation === null && mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire}
@@ -544,7 +554,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             </div>
           ) : etapeDoublon !== null && etapeDoublon.length > 0 ? (
             <PiedDoublonSyndic doublons={etapeDoublon} envoi={envoi} onRevenir={() => setEtapeDoublon(null)}
-              {...(variante === 'location' ? { motCreer: 'Non, c’est un autre syndic — créer quand même', onChoisir: (id: number) => void choisirParId(id) } : {})}
+              motCreer={MOT_CREER_MALGRE_DOUBLON} onChoisir={choisirDoublon}
               onCreer={() => {
                 const acc = etapeDoublon.map((d) => ({ id: d.syndic.id, criteres: d.criteres }));
                 setAccepte(acc); setEtapeDoublon(null);
@@ -652,10 +662,12 @@ function sansAdressesCopro<T extends { immeubles: ReadonlyArray<{ adresses?: unk
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
-function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer }: {
+function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer, appel = 0 }: {
   immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void;
+  /** 🔴 (Arno, 17/11/2026) « Ajouter un syndic » a été cliqué : le curseur revient dans le champ de recherche. */
+  appel?: number;
   /** 🔴🔴 (Arno, 17/11/2026 : « Aucun résultat (ou aucun ne convient) → sous la liste, un bouton « Créer le syndic « <texte tapé> » » qui ouvre la création
-   *  existante avec le nom pré-rempli. ») — variante Location seulement ; absent : la recherche de la Gestion, inchangée. */
+   *  existante avec le nom pré-rempli. ») — Location (46a5de61), puis partout (Arno, 17/11/2026 : « MÊME RÈGLE PARTOUT »). */
   onCreer?: (nom: string) => void;
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic qu'on vient de retirer de cette copropriété : sans recherche, il
    *  passe en FIN de liste (jamais proposé en tête) ; une recherche le trouve comme les autres. */
@@ -663,6 +675,8 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer
 }) {
   const [q, setQ] = useState('');
   const [liste, setListe] = useState<SyndicResume[] | null>(null);
+  const champ = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { if (appel > 0) champ.current?.focus(); }, [appel]);
   useEffect(() => {
     let vivant = true;
     const t = setTimeout(() => {
@@ -685,7 +699,7 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer
       )}
       <label className="fsy-champ">
         <span>Chercher un syndic existant (nom, e-mail, téléphone, domaine)</span>
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ex. Citya, foncia.com…" autoFocus />
+        <input type="search" ref={champ} value={q} onChange={(e) => setQ(e.target.value)} placeholder="ex. Citya, foncia.com…" autoFocus />
       </label>
       {liste === null ? <p className="fsy-discret">Recherche…</p> : liste.length === 0 ? (
         <p className="fsy-discret">Aucun syndic {q.trim() === '' ? 'enregistré pour l’instant' : 'ne répond à cette recherche'}.</p>

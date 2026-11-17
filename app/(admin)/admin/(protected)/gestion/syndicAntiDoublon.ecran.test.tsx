@@ -93,7 +93,15 @@ const monterFiche = async (): Promise<void> => {
   });
   await attendre(10);
 };
-const nouveau = async (): Promise<void> => { await monterFiche(); await cliquer('Créer un nouveau syndic'); await attendre(10); };
+/** 🔴 (Arno, 17/11/2026 : « recherche d'abord, création seulement depuis les résultats ») — la création s'ouvre par « Créer le syndic « … » », sous la recherche. */
+const nouveau = async (): Promise<void> => {
+  await monterFiche();
+  const r = document.querySelector('.fsy input[type="search"]') as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(r, '_TEST SYNDIC'); r.dispatchEvent(new Event('input', { bubbles: true })); });
+  await attendre(260);
+  await act(async () => { (document.querySelector('[data-fsy-creer-recherche]') as HTMLButtonElement).click(); });
+  await attendre(10);
+};
 
 describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chacun des quatre critères', () => {
   it('① le nom (sans casse, accents, mots creux)', async () => {
@@ -122,11 +130,11 @@ describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chac
     await taper(document.querySelector('input[aria-label="Téléphone standard"]') as HTMLInputElement, '+33 1.42.00.00.01');
     expect(bandeau()).toContain('même téléphone (0142000001)');
   });
-  it('« Sélectionner ce syndic pour ce bien » : rattache le syndic EXISTANT à la copropriété du bien, ne crée rien, ferme', async () => {
+  it('« Choisir celui-ci » (avant : « Sélectionner ce syndic pour ce bien ») : rattache le syndic EXISTANT à la copropriété du bien, ne crée rien, ferme', async () => {
     await nouveau();
     await taper(champ('Nom du cabinet *'), 'Foncia');
     expect(bouton('Voir la fiche')).toBeTruthy();
-    await cliquer('Sélectionner ce syndic pour ce bien');
+    await cliquer('Choisir celui-ci'); // CE QU’IL DISAIT AVANT : « Sélectionner ce syndic pour ce bien » (Arno, 17/11/2026 : les mêmes mots partout)
     await attendre(10);
     const r = appels.find((a) => a.methode === 'POST' && a.url.endsWith('/rattacher-bien'));
     expect(r?.url).toBe('/api/admin/gestion/syndics/4/rattacher-bien');
@@ -134,7 +142,7 @@ describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chac
     expect(appels.some((a) => a.url === '/api/admin/gestion/syndics' && a.methode === 'POST')).toBe(false);
     expect(ferme).toBe(1);
   });
-  it('au « Valider » : le pied demande ; « Créer quand même » envoie les critères ignorés (que le serveur trace)', async () => {
+  it('au « Valider » : le pied demande ; « Non, c’est un autre syndic — créer quand même » envoie les critères ignorés (que le serveur trace)', async () => {
     await nouveau();
     await taper(champ('Nom du cabinet *'), 'Foncia');
     await taper(champ('Adresse (rue) *'), '1 rue _BANC');
@@ -143,7 +151,7 @@ describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chac
     await cliquer('Valider');
     expect(document.querySelector('.psy-pied')?.textContent).toContain('Créer quand même ?');
     expect(appels.some((a) => a.url === '/api/admin/gestion/syndics' && a.methode === 'POST')).toBe(false);
-    await cliquer('Créer quand même');
+    await cliquer('Non, c’est un autre syndic — créer quand même'); // CE QU’IL DISAIT AVANT : « Créer quand même » (Arno, 17/11/2026)
     await attendre(10);
     const post = appels.find((a) => a.url === '/api/admin/gestion/syndics' && a.methode === 'POST');
     expect(post?.corps?.doublonsSyndicIgnores).toEqual([{ id: 4, criteres: ['nom'] }]);
@@ -167,13 +175,13 @@ describe('🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « Voir la fiche » e
     expect(bandeau()).toContain('même nom');
     expect(ferme).toBe(0);
   });
-  it('« Sélectionner ce syndic pour ce bien » (autre immeuble) : le message, et « Ajouter » rattache la personne existante', async () => {
+  it('« Choisir celui-ci » (autre immeuble) : le message, et « Ajouter » rattache la personne existante', async () => {
     resume = { syndic: { id: 4, nom: 'Cabinet FONCIA', ville: 'Paris' }, copro: { cle: '25 rue edith cavell', libelle: '25 rue Edith Cavell' },
       nouvelleCopro: true, contactsSyndic: 0, habitants: 0, autresBiens: 0,
       contactsProposables: [{ id: 41, nom: 'Mme Léa DURAND', titre: 'Responsable de copropriété' }] };
     await nouveau();
     await taper(champ('Nom du cabinet *'), 'Foncia');
-    await cliquer('Sélectionner ce syndic pour ce bien');
+    await cliquer('Choisir celui-ci'); // CE QU’IL DISAIT AVANT : « Sélectionner ce syndic pour ce bien » (Arno, 17/11/2026 : les mêmes mots partout)
     await attendre(10);
     expect(ferme).toBe(0);
     const c = document.querySelector('.psy-bandeau--confirme')?.textContent ?? '';
@@ -212,7 +220,7 @@ describe('🔴🔴 PARTIE 2 — un syndic déjà connu pour cette adresse, AVANT
     await monterFiche();
     await cliquer('Non, créer un autre syndic');
     expect(document.querySelector('input[type="search"]')).not.toBeNull();
-    expect(bouton('Créer un nouveau syndic')).toBeTruthy();
+    expect(bouton('Ajouter un syndic')).toBeTruthy(); // CE QU’IL DISAIT AVANT : « Créer un nouveau syndic » (Arno, 17/11/2026)
   });
   it('plusieurs syndics : tous listés, avec l’alerte de conflit', async () => {
     connus = [AUTRE, CONNU];

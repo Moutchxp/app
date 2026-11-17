@@ -210,6 +210,8 @@ export function motDoublonSyndic(d: DoublonSyndic): string {
 }
 
 export const TITRE_DOUBLON_SYNDIC = 'Ce syndic existe peut-être déjà :';
+/** 🔴 (Arno, 17/11/2026) le bouton de création malgré un doublon possible, partout (Location et Gestion). */
+export const MOT_CREER_MALGRE_DOUBLON = 'Non, c’est un autre syndic — créer quand même';
 
 /**
  * La saisie en cours, vue par la comparaison : le cabinet, ses standards et son e-mail générique, plus les

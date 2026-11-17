@@ -167,6 +167,17 @@ const taper = async (el: HTMLInputElement, v: string): Promise<void> => {
   await act(async () => { setter?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
   await calmer();
 };
+/**
+ * 🔴 (Arno, 17/11/2026 : « MÊME RÈGLE PARTOUT, recherche d'abord, création seulement depuis les résultats ») — CE QU'IL Y AVAIT : « Créer un nouveau
+ * syndic » en tête ouvrait le formulaire. On y arrive désormais par la recherche : un texte tapé, puis « Créer le syndic « … » » sous les résultats
+ * (le nom tapé est pré-rempli ; les épreuves le remplacent ensuite par le leur).
+ */
+const creerDepuisRecherche = async (texte = '_TEST SYNDIC'): Promise<void> => {
+  const r = [...document.querySelectorAll('.fsy input[type="search"]')].at(-1) as HTMLInputElement;
+  await taper(r, texte);
+  await act(async () => { await new Promise((x) => setTimeout(x, 260)); }); await calmer();
+  await cliquer(document.querySelector('[data-fsy-creer-recherche]') as Element);
+};
 /** Un bouton par son texte exact, DANS une zone (le pied et un contact ont chacun leur « Valider »). */
 const boutonDans = (zone: Element | null, texte: string): HTMLButtonElement => {
   const b = [...(zone?.querySelectorAll('button') ?? [])].find((x) => x.textContent?.trim() === texte);
@@ -451,7 +462,7 @@ describe('LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — coordonnées générales, a
 
   it('« Valider » REFUSE sans adresse complète : message près du bouton, champs vides cerclés, rien n\'est envoyé', async () => {
     const onFerme = await ouvrir(vi.fn(), null);
-    await cliquer(bouton('Créer un nouveau syndic'));
+    await creerDepuisRecherche();
     await taper(champ('Nom du cabinet *'), '_TEST Cabinet');
     await cliquer(bouton('Valider'));
     expect(appels.some((a) => a.methode === 'POST')).toBe(false);
@@ -649,7 +660,7 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
 
   it('dès 3 caractères seulement, en tapant', async () => {
     await ouvrir(vi.fn(), null);
-    await cliquer(bouton('Créer un nouveau syndic'));
+    await creerDepuisRecherche();
     await taper(rue(), '8 ');
     await attendre(300);
     expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr'))).toBe(false);
@@ -1361,7 +1372,7 @@ describe('LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT', () => {
 
   it('COPROPRIÉTÉS : aucune → « (0) », non dépliable', async () => {
     await ouvrir(vi.fn(), null);
-    await cliquer(bouton('Créer un nouveau syndic'));
+    await creerDepuisRecherche();
     expect(ligne()?.tagName).toBe('DIV');
     expect(ligne()?.textContent).toBe('Copropriétés déjà rattachées à ce syndic (0)');
   });
@@ -2055,7 +2066,7 @@ describe('LOT SYNDIC-BLOC-PORTEFEUILLE — « Syndic & portefeuille de gestion �
   // pastille orange « en attente de validation », après l'adresse, avec son info-bulle.
   it('« en attente de validation » et PROPAGATION : un nouveau syndic créé depuis un bien liste ses lots en attente, puis les enregistre', async () => {
     await ouvrirDepuis('8 rue Abel', null);
-    await cliquer(bouton('Créer un nouveau syndic'));
+    await creerDepuisRecherche();
     await cliquer(ligneLots() as Element);
     expect(groupes()).toEqual([{ adresse: '8 rue Abel, 92400 Courbevoie',
       lots: ['lot 301 — 8 rue Abel, COURBEVOIE en attente de validationPropriétaire : M. MARTIN'] }]);
@@ -2755,11 +2766,11 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
     await cliquer(gros() as Element);
     await cliquer(bouton('Oui, retirer de cette résidence'));
     await attendre(250);
-    // Le formulaire existant : la recherche, « Créer un nouveau syndic ».
+    // Le formulaire existant : la recherche, « Ajouter un syndic » (CE QU'IL DISAIT AVANT : « Créer un nouveau syndic », Arno 17/11/2026).
     // LOT SYNDIC-TITRE-APRES-RETRAIT — CE QU'IL DISAIT AVANT : titre « Syndic de la copropriété ».
     expect(document.querySelector('#fsy-titre')?.textContent).toBe('Rattacher un nouveau syndic de copropriété');
     expect(document.body.textContent).toContain('Chercher un syndic existant');
-    expect(bouton('Créer un nouveau syndic')).toBeTruthy();
+    expect(bouton('Ajouter un syndic')).toBeTruthy();
     expect(gros()).toBeNull();
     const noms = (): string[] => [...document.querySelectorAll('.fsy-resultat strong')].map((x) => x.textContent ?? '');
     expect(noms()).toEqual(['_TEST AUTRE / Paris', '_TEST ANCIEN / Asnieres Sur Seine']);
@@ -3123,7 +3134,7 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     expect(c).toMatchObject({ nom: 'Ancien', reintegre: true, immeubles: [], coordonnees: [{ id: null, sorte: 'email', libelle: '', valeur: 'jean@test.invalid' }] });
   });
 
-  it('« Créer un nouveau syndic » dans la ligne de TITRE, juste à gauche de ×, HORS de la zone qui défile — 20 syndics ; comportement inchangé', async () => {
+  it('« Ajouter un syndic » (CE QU’IL DISAIT AVANT : « Créer un nouveau syndic ») dans la ligne de TITRE, juste à gauche de ×, HORS de la zone qui défile — 20 syndics ; il mène à la recherche', async () => {
     servir60();
     await act(async () => {
       root.render(createElement(FicheSyndic, { syndicId: null, onFerme: vi.fn(), immeubleDepart: { libelle: '9 rue Neuve', codePostal: '92400', commune: 'Courbevoie' } }));
@@ -3132,12 +3143,16 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     expect(document.querySelectorAll('.fsy-resultat')).toHaveLength(20);
     const tete = document.querySelector('.fsy-tete') as HTMLElement;
     const b = [...tete.querySelectorAll('button')].map((x) => [x.textContent, x.className]);
-    expect(b).toEqual([['Créer un nouveau syndic', 'svv-btn svv-btn-primary gst-btn fsy-creer-tete'], ['×', 'fsy-croix']]);
-    expect(document.querySelector('.fsy-corps')?.textContent).not.toContain('Créer un nouveau syndic');
+    expect(b).toEqual([['Ajouter un syndic', 'svv-btn svv-btn-primary gst-btn fsy-creer-tete'], ['×', 'fsy-croix']]);
+    expect(document.querySelector('.fsy-corps')?.textContent).not.toContain('Ajouter un syndic');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.fsy-tete-actions{flex:0 0 auto;display:flex;align-items:center;gap:.35rem;margin-left:auto}');
     expect(css).toContain('.fsy-tete{flex-wrap:wrap}');
-    await cliquer(bouton('Créer un nouveau syndic'));
+    // 🔴 (Arno, 17/11/2026) le bouton d'en-tête mène à la RECHERCHE (le curseur dans le champ), jamais au formulaire ; la création vient des résultats
+    await cliquer(bouton('Ajouter un syndic'));
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    expect(document.activeElement).toBe([...document.querySelectorAll('.fsy input[type="search"]')].at(-1));
+    await creerDepuisRecherche();
     expect(document.querySelector('#fsy-titre')?.textContent).toBe('Créer un syndic');
     expect(document.querySelector('.fsy-creer-tete')).toBeNull(); // seulement à l'étape de recherche
     expect(document.body.textContent).toContain('9 rue Neuve');
@@ -3307,7 +3322,7 @@ describe('LOT SYNDIC-TITRE-APRES-RETRAIT', () => {
     await cliquer(bouton('Oui, retirer de cette résidence'));
     await attendre(250);
     expect(titre()).toBe('Rattacher un nouveau syndic de copropriété');
-    expect([...document.querySelectorAll('.fsy-tete button')].map((b) => b.textContent)).toEqual(['Créer un nouveau syndic', '×']);
+    expect([...document.querySelectorAll('.fsy-tete button')].map((b) => b.textContent)).toEqual(['Ajouter un syndic', '×']);
     expect(boutonDans(document.querySelector('.fsy-pied'), 'Annuler')).toBeTruthy();
   });
 
@@ -3684,7 +3699,7 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
     const onFerme = vi.fn();
     await act(async () => { root.render(createElement(FicheSyndic, { syndicId: null, onFerme, immeubleDepart: { libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie' } })); });
     await attendre(250);
-    await cliquer(bouton('Créer un nouveau syndic'));
+    await creerDepuisRecherche();
     await calmer();
     await taper(champ('Nom du cabinet *'), '_TEST Normandie');
     await taper(champ('Adresse (rue) *'), '1 rue _TEST');

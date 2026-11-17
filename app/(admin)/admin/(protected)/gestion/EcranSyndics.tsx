@@ -50,7 +50,9 @@ export function EcranSyndics({ onEcrire, retour = null }: {
           Syndics {liste !== null && <span className="gst-compte">{liste.length}</span>}
         </h2>
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!disponible}
-          onClick={() => setOuvert({ id: null })}>+ Créer un syndic</button>
+          /* 🔴 (Arno, 17/11/2026 : « MÊME RÈGLE PARTOUT, recherche d'abord […] « + Créer un syndic » de l'écran « Syndics » ouvre désormais la recherche des
+             syndics existants ») — la fenêtre s'ouvre sur sa recherche ; la création ne se propose que sous ses résultats */
+          onClick={() => setOuvert({ id: null })} data-esy-ajouter>+ Ajouter un syndic</button>
       </div>
       {!disponible && <p className="esy-alerte">L’annuaire des syndics n’est pas encore installé (migration 324).</p>}
       <label className="esy-recherche">
