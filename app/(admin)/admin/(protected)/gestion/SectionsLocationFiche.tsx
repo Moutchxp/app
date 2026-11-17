@@ -1,7 +1,7 @@
 'use client';
 
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
-import { ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from './DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, useRetraitsBatiment } from './DigicodesCopropriete';
 import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
 import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
@@ -763,7 +763,10 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
   /** 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les bâtiments créés au menu
    *  pendant la saisie : chacun garde sa ligne de digicode et entre au registre de la copropriété à l'enregistrement */
   const [batimentsCrees, setBatimentsCrees] = useState<{ libelle: string; confirme: boolean }[]>([]);
-  const creerBatiment = (libelle: string, confirme: boolean): void => setBatimentsCrees((x) => [...x.filter((y) => y.libelle !== libelle), { libelle, confirme }]);
+  /* 🔴 (Arno, 17/11/2026 : « il ne propose QUE les bâtiments qui ont une ligne de digicode affichée à l'écran […] s'il est recréé, il revient. Si la valeur du
+     champ désigne un bâtiment retiré, le champ est vidé avec un message court. ») */
+  const retraitsBatiment = useRetraitsBatiment(v.batiment, () => { setV((x) => ({ ...x, batiment: '' })); setBatimentConfirme(false); });
+  const creerBatiment = (libelle: string, confirme: boolean): void => { setBatimentsCrees((x) => [...x.filter((y) => y.libelle !== libelle), { libelle, confirme }]); retraitsBatiment.reprendre(libelle); };
   const [digiRelire, setDigiRelire] = useState(0);
   /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) tant que la lecture n'a pas répondu : ni l'ancien système ni le composant ; l'ancien système ne
      s'affiche plus QUE sur une base sans la migration 478 (le serveur répond `null`) — un bien sans adresse reçoit une place vide. */
@@ -913,7 +916,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
                   onRetirer={(a, batiment) => appelDigi({ action: 'digicode-retirer', adresseCle: a, batiment, lotId: id })}
                   onRetirerBatiment={(a, batiment) => appelDigi({ action: 'digicode-retirer-batiment', adresseCle: a, batiment })}
-                  onRetirerEnAttente={(l) => setBatimentsCrees((x) => x.filter((y) => y.libelle !== l))}
+                  onRetirerEnAttente={(l) => { setBatimentsCrees((x) => x.filter((y) => y.libelle !== l)); retraitsBatiment.retirer(l); }} retires={retraitsBatiment.retires}
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
                   onEnvoyer={async (a, appliqueLe, changements, proprietaires, options) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} /></div>
@@ -932,7 +935,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
             {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre ; avec la 478 : le menu de la copropriété */}
             {digiBien !== null
               ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={v.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={v.escalier} desactive={false}
-                  onCree={creerBatiment} onChoix={(l, conf) => { setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
+                  onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} onChoix={(l, conf) => { retraitsBatiment.effacerAvis(); setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
               : digiCharge ? <p className="loc-muet" style={{ margin: 0 }} data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment')}
             {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « Le champ « Escalier » est RETIRÉ […] ici ET partout où un bien se crée

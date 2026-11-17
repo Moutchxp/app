@@ -12,7 +12,7 @@ import { AdresseBien, CSS_ADRESSE_BIEN } from './AdresseBien';
 import { FenetreCarte } from '../gestion/CartesPersonnes';
 import { TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne } from '../../../../lib/gestion/adresseSaisie';
 import { adresseBienEnLigne, adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, choixDigicodeEffectif, codesConnusDuBien, envoiSelonChoixDigicode } from '../gestion/DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, choixDigicodeEffectif, codesConnusDuBien, envoiSelonChoixDigicode, useRetraitsBatiment } from '../gestion/DigicodesCopropriete';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
@@ -402,7 +402,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [batimentsCrees, setBatimentsCrees] = useState<{ libelle: string; confirme: boolean }[]>([]);
   /** la copropriété lue en dernier (`undefined` : pas encore lue) */
   const digiCleLue = useRef<string | null | undefined>(undefined);
-  const creerBatiment = (libelle: string, confirme: boolean): void => setBatimentsCrees((x) => [...x.filter((y) => y.libelle !== libelle), { libelle, confirme }]);
+  /* 🔴 (Arno, 17/11/2026 : « il ne propose QUE les bâtiments qui ont une ligne de digicode affichée à l'écran […] s'il est recréé, il revient. Si la valeur du
+     champ désigne un bâtiment retiré, le champ est vidé avec un message court. ») */
+  const retraitsBatiment = useRetraitsBatiment(b.batiment, () => { setB((x) => ({ ...x, batiment: '' })); setBatimentConfirme(false); });
+  const creerBatiment = (libelle: string, confirme: boolean): void => { setBatimentsCrees((x) => [...x.filter((y) => y.libelle !== libelle), { libelle, confirme }]); retraitsBatiment.reprendre(libelle); };
   const [digiRelire, setDigiRelire] = useState(0);
   /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) la lecture n'a pas encore répondu : ni l'ancien système, ni le composant ; l'ancien système (Bâtiment
      libre, Digicode Oui / Non, Code) ne s'affiche plus QUE sur une base sans la migration 478 (le serveur répond alors `null`). */
@@ -1018,7 +1021,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
                   onRetirer={(a, batiment) => appelDigi({ action: 'digicode-retirer', adresseCle: a, batiment, ...(modification !== undefined ? { lotId: modification.lotId } : {}) })}
                   onRetirerBatiment={(a, batiment) => appelDigi({ action: 'digicode-retirer-batiment', adresseCle: a, batiment })}
-                  onRetirerEnAttente={(l) => setBatimentsCrees((x) => x.filter((y) => y.libelle !== l))}
+                  onRetirerEnAttente={(l) => { setBatimentsCrees((x) => x.filter((y) => y.libelle !== l)); retraitsBatiment.retirer(l); }} retires={retraitsBatiment.retires}
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
                   onEnvoyer={async (a, appliqueLe, changements, proprietaires, options) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} />
@@ -1041,7 +1044,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
             {digiBien !== null
               ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
-                  onCree={creerBatiment} onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+                  onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} onChoix={(l, c) => { retraitsBatiment.effacerAvis(); setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
               : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]

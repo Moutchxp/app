@@ -181,7 +181,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
     if (sorte === 'enregistre') return onRetirer === undefined ? null : onRetirer(cle, ligne.libelle);
     if (sorte === 'batiment') {
       const m = onRetirerBatiment === undefined ? null : await onRetirerBatiment(cle, ligne.libelle);
-      if (m === null) { majLigne(cle, ligne.k, { code: '', aucun: false }); setMasques((x) => new Set([...x, ligne.k])); }
+      if (m === null) { majLigne(cle, ligne.k, { code: '', aucun: false }); setMasques((x) => new Set([...x, ligne.k])); onLigneRetiree?.(ligne.libelle); }
       return m;
     }
     // en cours de saisie : la ligne quitte l'écran (une ligne nouvelle sort de la saisie ; une autre est vidée puis masquée)
@@ -721,6 +721,33 @@ export function envoiSelonChoixDigicode(e: ReturnType<typeof digicodesBienEnvoi>
   return { ...e, commun: connus ? null : { code: '', aucun: true }, codeBatiment: null, autres: e.autres.map((a) => ({ ...a, code: null })) };
 }
 
+/**
+ * 🔴🔴 (Arno, 17/11/2026 : « MENU « Bâtiment / cage d'escalier » : il ne propose QUE les bâtiments qui ont une ligne de digicode affichée à l'écran. Un
+ * bâtiment dont la ligne a été retirée par « − » […] n'apparaît plus dans le menu ; s'il est recréé, il revient. Si la valeur du champ désigne un bâtiment
+ * retiré, le champ est vidé avec un message court. ») La fiche du bien (« Nouveau bien », « Modifier le bien », fiche du bien Gestion) : les bâtiments dont la
+ * ligne a quitté l'écran par « − » ; `vider` : le champ « Bâtiment / cage d'escalier » de l'écran.
+ */
+export function useRetraitsBatiment(batiment: string, vider: () => void): { retires: ReadonlySet<string>; avis: string | null; retirer: (libelle: string) => void;
+  reprendre: (libelle: string) => void; effacerAvis: () => void } {
+  const [retires, setRetires] = useState<ReadonlySet<string>>(() => new Set());
+  const [avis, setAvis] = useState<string | null>(null);
+  return {
+    retires, avis, effacerAvis: () => setAvis(null),
+    retirer: (libelle) => {
+      const b = batimentDe(libelle);
+      if (b === null) return;
+      setRetires((x) => new Set([...x, b.cle]));
+      if (batimentDe(batiment)?.cle === b.cle) { vider(); setAvis(`Bâtiment ${b.libelle} retiré : choisissez un autre bâtiment (ou aucun).`); }
+    },
+    reprendre: (libelle) => {
+      const b = batimentDe(libelle);
+      if (b === null) return;
+      setRetires((x) => { if (!x.has(b.cle)) return x; const n = new Set(x); n.delete(b.cle); return n; });
+      setAvis(null);
+    },
+  };
+}
+
 /** 🔴 (Arno, 17/11/2026) la durée de la bulle de confirmation d'un bâtiment ajouté (« environ 4 secondes »). */
 export const DUREE_BULLE_MS = 4000;
 
@@ -745,7 +772,7 @@ export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ?
  *   ⑥ clavier (flèches, Entrée, Échap) et doigt ; cibles de 44 px au moins.
  */
 export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisie, onChoix, contexte, marque, cle = '', sansAdresse = false, avecAucun = false,
-  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel, replie = false }: {
+  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel, replie = false, retires }: {
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** la frappe dans le champ (le texte du bâtiment suit) */
   onSaisie: (texte: string) => void;
@@ -763,6 +790,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   placeholder: string; ariaLabel?: string;
   /** 🔴 (Arno, 17/11/2026, une ligne par bâtiment) le nom est choisi : le champ laisse la place à l'intitulé, seule la bulle de confirmation reste */
   replie?: boolean;
+  /** 🔴 (Arno, 17/11/2026 : « il ne propose QUE les bâtiments qui ont une ligne de digicode affichée à l'écran ») les clés des bâtiments dont la ligne a été
+   *  retirée par « − » : jamais proposés (un nom retiré, retapé, se propose à l'ajout : recréé, il revient) */
+  retires?: ReadonlySet<string>;
 }) {
   const [ouvert, setOuvert] = useState(ouvrirAuDebut);
   const [actif, setActif] = useState(-1);
@@ -773,6 +803,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const [alerte, setAlerte] = useState<{ a: AvertissementBatiment; depuisEncadre: boolean } | null>(null);
   const [ajoutes, setAjoutes] = useState<BatimentConnu[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  /** le bâtiment qu'annonce la bulle : retiré entre-temps par « − », la bulle se tait (elle dirait le contraire du message de retrait) */
+  const [messageCle, setMessageCle] = useState<string | null>(null);
+  const bulle = message !== null && !(messageCle !== null && retires?.has(messageCle) === true) ? message : null;
   const champ = useRef<HTMLInputElement | null>(null);
   const champEncadre = useRef<HTMLInputElement | null>(null);
   const racine = useRef<HTMLDivElement | null>(null);
@@ -793,7 +826,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const A = marque === 'cbc'
     ? { champ: 'data-cbc-champ', menu: 'data-cbc-menu', option: 'data-cbc-option', aucun: 'data-cbc-aucun', nouveau: 'data-cbc-nouveau' }
     : { champ: 'data-dcp-nom-batiment', menu: 'data-dcp-menu', option: 'data-dcp-option', aucun: 'data-dcp-aucun', nouveau: 'data-dcp-ajouter-nouveau' };
-  const tous = menuBatiments([...connus, ...ajoutes]);
+  const tous = menuBatiments([...connus, ...ajoutes]).filter((o) => retires === undefined || !retires.has(o.cle));
   const existe = (nom: string): BatimentConnu | undefined => { const c = batimentDe(nom)?.cle; return c === undefined ? undefined : tous.find((o) => o.cle === c); };
   const t = valeur.trim();
   const cleT = batimentDe(t)?.cle ?? '';
@@ -804,8 +837,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const retenir = (libelle: string, confirme: boolean): void => {
     setAjout(null); setAlerte(null);
     const b = batimentDe(libelle);
-    if (b !== null && !tous.some((o) => o.cle === b.cle)) setAjoutes((x) => [...x, b]);
+    if (b !== null && ![...connus, ...ajoutes].some((o) => o.cle === b.cle)) setAjoutes((x) => [...x, b]);
     onChoix(libelle, confirme);
+    setMessageCle(b?.cle ?? null);
     setMessage(`Bâtiment ${libelle} ajouté — il sera enregistré avec ${contexte === 'bien' ? 'le bien' : 'la copropriété'}`);
   };
   const valider = (nom: string, depuisEncadre: boolean): void => {
@@ -828,7 +862,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
     { k: '+nouveau', mot: 'Ajouter nouveau bâtiment', agir: () => { fermer(); setAjout({ nom: '', erreur: null }); }, attr: { [A.nouveau]: '' }, nouveau: true },
   ];
   const idMenu = `cb-menu-${marque}-${cle}`;
-  if (replie) return message !== null ? <p className="cb-bulle" role="status" aria-live="polite" data-cb-message>{message}</p> : null;
+  if (replie) return bulle !== null ? <p className="cb-bulle" role="status" aria-live="polite" data-cb-message>{bulle}</p> : null;
   return (
     <div className="cb" ref={racine} data-champ-batiment>
       <div className="cb-zone">
@@ -868,7 +902,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
         </div>)}
       {/* 🔴 (Arno, 17/11/2026 : le message « s'affiche aujourd'hui SOUS le champ et décale l'alignement des cases ») une bulle superposée, qui ne décale
           aucun champ et disparaît seule ; les messages d'erreur restent à leur place */}
-      {message !== null && <p className="cb-bulle" role="status" aria-live="polite" data-cb-message>{message}</p>}
+      {bulle !== null && <p className="cb-bulle" role="status" aria-live="polite" data-cb-message>{bulle}</p>}
       {alerte !== null && (
         <div className="dcp-voile" data-dcp-avertissement>
           <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby={`${idMenu}-alerte-titre`}
@@ -895,11 +929,13 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
  * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
  * c'est un bâtiment connu (rien n'est écrasé).
  */
-export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false }: {
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null }: {
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; escalier: string; desactive: boolean;
   onChoix: (libelle: string, confirme: boolean) => void;
   /** 🔴 (Arno, 17/11/2026) un bâtiment NOUVEAU retenu (menu, « + Ajouter le bâtiment … », encadré) — jamais une simple frappe : il garde sa ligne */
   onCree?: (libelle: string, confirme: boolean) => void;
+  /** 🔴 (Arno, 17/11/2026) les bâtiments dont la ligne a été retirée par « − » (jamais proposés) et le message court quand le champ en a été vidé */
+  retires?: ReadonlySet<string>; avis?: string | null;
   /** 🔴 (17/11/2026) l'habillage de la page Location : le champ prend le gabarit des autres champs de la grille (`loc-champ`) */
   variante?: 'gestion' | 'location';
   /** 🔴 (17/11/2026) l'adresse du bien n'est pas encore choisie : la copropriété (et ses bâtiments) n'est pas connue */
@@ -917,8 +953,10 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
       <span>{LIBELLE_BATIMENT_CAGE}</span>
       <ChampBatiment valeur={valeur} connus={connus} nomenclature={nomenclature} desactive={desactive} contexte="bien" marque="cbc" avecAucun sansAdresse={sansAdresse}
         onSaisie={(v) => onChoix(v, false)} placeholder="ex. A ou 1 (facultatif)" ariaLabel={LIBELLE_BATIMENT_CAGE}
-        onChoix={(l, c) => { onChoix(l, c); const b = batimentDe(l); if (onCree !== undefined && b !== null && !connus.some((x) => x.cle === b.cle)) onCree(l, c); }}
+        onChoix={(l, c) => { onChoix(l, c); const b = batimentDe(l); if (onCree !== undefined && b !== null && (!connus.some((x) => x.cle === b.cle) || retires?.has(b.cle) === true)) onCree(l, c); }}
+        {...(retires !== undefined ? { retires } : {})}
         {...(proposition !== undefined ? { proposition } : {})} />
+      {avis !== null && <p className="loc-muet dcp-avis-batiment" role="status" data-cbc-avis>{avis}</p>}
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
   );
@@ -928,7 +966,7 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
  * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
  * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
  */
-export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente, enAttente = [], onRetirer, onRetirerEnAttente, onRetirerBatiment }: {
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente, enAttente = [], onRetirer, onRetirerEnAttente, onRetirerBatiment, retires }: {
   donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
   /** 🔴 (Arno, 17/11/2026) les bâtiments créés au menu pendant la saisie (en attente d'enregistrement) : chacun garde sa ligne */
   enAttente?: readonly string[];
@@ -936,6 +974,8 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   onRetirer?: (adresseCle: string, batiment: string) => Promise<string | null>; onRetirerEnAttente?: (libelle: string) => void;
   /** 🔴 (488) le « − » d'un bâtiment enregistré sans code : retiré de la copropriété */
   onRetirerBatiment?: (adresseCle: string, batiment: string) => Promise<string | null>;
+  /** 🔴 (Arno, 17/11/2026) les bâtiments dont la ligne a été retirée par « − » pendant la saisie : plus de ligne (ni de menu) — recréés, ils reviennent */
+  retires?: ReadonlySet<string>;
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode; onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
   onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
   variante?: 'gestion' | 'location'; onPlusBatiment?: () => void; tente?: boolean;
@@ -947,7 +987,7 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const enPlus = [...donnees.connus, ...enAttente.map((x) => batimentDe(x)).filter((x): x is BatimentConnu => x !== null)];
   const avecChoisi = ligne === null || s.batiments.some((x) => x.k === ligne.k) ? s.batiments : [...s.batiments, ligne];
-  const vue: DigicodesAdresseSaisis = { ...s, batiments: avecTousLesBatiments(avecChoisi, enPlus) };
+  const vue: DigicodesAdresseSaisis = { ...s, batiments: avecTousLesBatiments(avecChoisi, enPlus).filter((l) => retires === undefined || !retires.has(batimentDe(l.libelle)?.cle ?? '')) };
   const recevoir = (ns: DigicodesAdresseSaisis[]): void => {
     const n = ns[0];
     // une ligne touchée (un code saisi) entre dans la saisie ; les autres restent ce qu'elles étaient
@@ -1006,6 +1046,7 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-adresse{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);min-width:0}
 .dcp-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .dcp-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
+.dcp-avis-batiment{margin:4px 0 0;font-size:.8rem;font-style:italic}
 .dcp-nouveau{flex:1 1 100%;margin:0;font-size:.8rem;font-style:italic}
 .dcp-ligne--concerne{outline:2px solid var(--color-svv-red);outline-offset:6px;border-radius:14px}
 /* 🔴 (Arno, 17/11/2026 : « MÈRE / FILLE : […] Les lignes « Digicode bâtiment X » sont légèrement décalées vers la droite sous la ligne copropriété (retrait
