@@ -8,8 +8,7 @@ import { cleImmeuble } from './syndics';
 import {
   candidatsAnciens, changementsAVenir, codeEnVigueur, dateHeure, lignesDeLaPlace, memeCode, MOTIF_A_ARBITRER, MOTIF_ARBITRAGE_HORS_LISTE, MOTIF_CHANGEMENT_PREVU,
   MOTIF_DATE_PASSEE, MOTIF_DEJA_CONNU, MOTIF_PAS_A_ARBITRER, MOTIF_RIEN_A_CORRIGER, placeBatiment, planRepriseUnifiee, valeurSaisie,
-  type CodeEnVigueur, type DonneesAnciennes, type LigneDigicode, type OrigineDigicode, type PlanRepriseUnifiee,
-} from './digicodes';
+  type CodeEnVigueur, type DonneesAnciennes, type LigneDigicode, type OrigineDigicode, type PlanRepriseUnifiee, MAX_CODE_DIGICODE_UNIFIE } from './digicodes';
 
 /**
  * ══ 🔴🔴 LES DIGICODES UNIFIÉS — LE CHEMIN SERVEUR UNIQUE (Arno, 16/11/2026, migration 478). IMPUR (base). ═══════════════════════════════════
@@ -202,9 +201,17 @@ export class RefusDigicode extends Error {}
  * place est verrouillée le temps de la décision (deux saisies simultanées ne font pas deux codes). Rien n'est jamais modifié ni effacé : chaque
  * écriture AJOUTE une ligne. Un bien d'où l'on écrit reçoit une ligne de journal (son historique).
  */
+/** La longueur permise d'un code dans la base unique : 15 avec la 482, 8 sans elle (la contrainte de la 478). */
+export async function longueurMaxCodeDigicode(q: RequeteTx = query): Promise<number> {
+  const { rows } = await q<{ ok: boolean }>(`SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gestion_digicode_code_longueur_chk') AS ok`)
+    .catch(() => ({ rows: [{ ok: false }] }));
+  return rows[0]?.ok === true ? MAX_CODE_DIGICODE_UNIFIE : 8;
+}
+
 export async function ecrireDigicode(q: RequeteTx, e: EcritureDigicode, auteur: Auteur, instant: Date = new Date()): Promise<IssueEcriture> {
   if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478) : rien n’est enregistré.' };
-  const v = valeurSaisie(e.valeur);
+  // 🔴 (Arno, 17/11/2026 : « saisie limitée à 15 caractères […] Un code existant plus long reste affiché tel quel, jamais tronqué en base. Même réglage partout où le composant unique sert. ») — 15 avec la 482, sinon 8 (la base d'avant les refuserait) : refus clair, avant toute écriture
+  const v = valeurSaisie(e.valeur, await longueurMaxCodeDigicode());
   if (!v.ok) return v;
   if (e.adresseCle.trim() === '' || e.adresseLibelle.trim() === '') return { ok: false, motif: 'Adresse de la copropriété non désignée : rien n’est enregistré.' };
   const place = placeBatiment(e.batiment);

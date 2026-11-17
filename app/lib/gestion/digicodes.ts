@@ -1,4 +1,4 @@
-import { cleBatiment, libelleBatiment, libelleValeur, MAX_CODE_DIGICODE, type ValeurDigicode } from '../location/digicodeImmeuble';
+import { cleBatiment, libelleBatiment, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
 
 /**
  * ══ 🔴🔴 LES DIGICODES UNIFIÉS (Arno, 16/11/2026, chantier « Digicodes unifiés », migration 478). MODULE PUR. ═══════════════════════════════
@@ -153,12 +153,17 @@ export const MOTIF_CHANGEMENT_PREVU = (le: string): string => `Un changement est
 export const MOTIF_ARBITRAGE_HORS_LISTE = 'Cette valeur ne fait pas partie des valeurs à arbitrer : rechargez la fiche. Rien n’est enregistré.';
 export const MOTIF_PAS_A_ARBITRER = 'Ce digicode n’est pas (ou plus) à arbitrer : rechargez la fiche. Rien n’est enregistré.';
 
-/** La saisie d'une valeur : oui / non, code de 8 caractères au plus et seulement avec oui ; `null` (rien) refusé — un code ne se « vide » pas. PUR. */
-export function valeurSaisie(brut: { digicode?: unknown; code?: unknown }): { ok: true; valeur: { digicode: boolean; code: string | null } } | { ok: false; motif: string } {
+/** 🔴 (Arno, 17/11/2026 : « saisie limitée à 15 caractères […] Un code existant plus long reste affiché tel quel, jamais tronqué en base. Même réglage partout où le composant unique sert. ») la base unique : 15 caractères au plus (482). Les anciennes saisies (396, 399, fiche du bien) gardent leurs 8 caractères. */
+export const MAX_CODE_DIGICODE_UNIFIE = 15;
+/** Le refus d'un code trop long. PUR. */
+export const motifCodeTropLong = (max: number): string => `Le code du digicode fait ${max} caractères au plus.`;
+
+/** La saisie d'une valeur : oui / non, code de 15 caractères au plus (`max`) et seulement avec oui ; `null` (rien) refusé — un code ne se « vide » pas. PUR. */
+export function valeurSaisie(brut: { digicode?: unknown; code?: unknown }, max: number = MAX_CODE_DIGICODE_UNIFIE): { ok: true; valeur: { digicode: boolean; code: string | null } } | { ok: false; motif: string } {
   const digicode = brut.digicode === true || brut.digicode === 'oui' ? true : brut.digicode === false || brut.digicode === 'non' ? false : null;
   if (digicode === null) return { ok: false, motif: 'Indiquez le code, ou « pas de digicode ».' };
   const code = digicode && typeof brut.code === 'string' && brut.code.trim() !== '' ? brut.code.trim() : null;
-  if (code !== null && code.length > MAX_CODE_DIGICODE) return { ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' };
+  if (code !== null && code.length > max) return { ok: false, motif: motifCodeTropLong(max) };
   if (digicode && code === null) return { ok: false, motif: 'Indiquez le code du digicode (ou « pas de digicode »).' };
   return { ok: true, valeur: { digicode, code } };
 }

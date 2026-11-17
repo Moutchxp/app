@@ -245,3 +245,28 @@ describe('① le message d’une ligne de bâtiment', () => {
     expect($('[data-dcp-menu]')).toBeNull();
   });
 });
+
+/** 🔴 Arno (17/11/2026) : « CHAMP DIGICODE plus court : largeur adaptée à 15 caractères au plus (même largeur pour le commun et pour chaque bâtiment), saisie limitée à 15 caractères ; les boutons « pas de digicode » et « + » restent alignés juste à côté, sur la même ligne. Un code existant plus long reste affiché tel quel, jamais tronqué en base. » */
+describe('② le champ du code : 15 caractères', () => {
+  const FICHE = { digicodes: [{ cle: 'residence test', voie: 'Résidence _TEST', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234' },
+    batiments: [{ cle: 'a', libelle: 'A', digicode: true, code: 'CODE-EXISTANT-DE-18' }] }] };
+  function Hote() {
+    const [s, setS] = useState<DigicodesAdresseSaisis[]>(saisieDigicodesInitiale(FICHE as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false });
+  }
+  it('commun et bâtiment : saisie bornée à 15, la MÊME largeur (classe commune) ; « pas de digicode » et « + » dans la même ligne ; un code plus long gardé tel quel', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    const commun = $('[data-dcp-code-commun]') as HTMLInputElement;
+    const bat = $('[data-dcp-code-batiment]') as HTMLInputElement;
+    expect([commun.maxLength, bat.maxLength]).toEqual([15, 15]);
+    expect([commun.closest('label')?.className, bat.closest('label')?.className]).toEqual(['dcp-champ dcp-champ-code', 'dcp-champ dcp-champ-code']);
+    expect(CSS_DIGICODES_COPRO).toContain('.dcp-champ.dcp-champ-code input{width:calc(15ch + 20px);max-width:100%}');
+    expect(CSS_DIGICODES_COPRO).toContain('.dcp-code-groupe{display:flex;flex-wrap:nowrap;');
+    expect(commun.closest('.dcp-code-groupe')?.querySelector('[data-dcp-plus]')).not.toBeNull();
+    expect(bat.closest('.dcp-code-groupe')?.querySelector('.dcp-aucun')).not.toBeNull();
+    const ligne = commun.closest('[data-dcp-commun]') as HTMLElement;
+    expect(ligne.querySelector('.dcp-aucun')).not.toBeNull();
+    expect(ligne.querySelector('[data-dcp-plus]')).not.toBeNull();
+    expect(bat.value).toBe('CODE-EXISTANT-DE-18');
+  });
+});

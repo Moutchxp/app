@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
-import { dateHeure, instantDepuisParis } from '../../../../lib/gestion/digicodes';
+import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
 import { bilanEnvoi, motCode, proprietairesRegroupes, type ApercuEnvoi, type IssueEnvoi, type LogementDest } from '../../../../lib/gestion/digicodesEnvoi';
 import { adressesUniques, prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 
@@ -155,12 +155,15 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               {plus(d)}
             </div>) : (
           <div className="dcp-ligne" data-dcp-commun>
-            <label className="dcp-champ"><span>Digicode commun</span>
-              <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : 'facultatif'} maxLength={8}
+            {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
+            <span className="dcp-code-groupe">
+            <label className="dcp-champ dcp-champ-code"><span>Digicode commun</span>
+              <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : 'facultatif'} maxLength={MAX_CODE_DIGICODE_UNIFIE}
                 onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code: e.target.value } }))} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
               onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { code: e.target.checked ? '' : x.commun.code, aucun: e.target.checked } }))} /><span>pas de digicode</span></label>
             {plus(d)}
+            </span>
           </div>)}
           {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
@@ -183,9 +186,11 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                     onChoix={(l, c) => majLigne(d.cle, b.k, { libelle: l, confirme: c ? (batimentDe(l)?.cle ?? null) : null })} />
                 </> : <strong className="dcp-nom" data-dcp-nom-existant>{b.libelle}</strong>}
               </div>
-              <label className="dcp-champ"><span>Digicode</span>
-                <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={8} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
+              <span className="dcp-code-groupe">
+              <label className="dcp-champ dcp-champ-code"><span>Digicode</span>
+                <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
+              </span>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
               {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode commun de l’adresse.</p>}
               {tente && b.nouveau && batimentDe(b.libelle) === null && <p className="dcp-ligne-erreur" role="alert" data-dcp-erreur-ligne>Donnez un nom au bâtiment ou à la cage d’escalier.</p>}
@@ -255,7 +260,7 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAn
           <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
           <div className="dcp-ligne">
             <label className="dcp-champ"><span>Code corrigé</span>
-              <input value={saisie.code} maxLength={8} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : 'code'} autoFocus
+              <input value={saisie.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : 'code'} autoFocus
                 onChange={(e) => setSaisie({ ...saisie, code: e.target.value })} data-dcp-correction-code /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={saisie.aucun} disabled={envoi} onChange={(e) => setSaisie({ code: '', aucun: e.target.checked })} /><span>pas de digicode</span></label>
           </div>
@@ -329,7 +334,7 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
               {c !== undefined && (
                 <div className="dcp-ligne">
                   <label className="dcp-champ"><span>Nouveau code</span>
-                    <input value={c.code} maxLength={8} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : 'nouveau code'}
+                    <input value={c.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : 'nouveau code'}
                       onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: e.target.value } }))} data-dcp-modifier-code /></label>
                   <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
                 </div>)}
@@ -856,11 +861,29 @@ export const CSS_DIGICODES_COPRO = `
 .dcp--location .dcp-lue{flex:1 1 260px}
 .dcp--location .dcp-lien{min-height:44px;font-size:1rem}
 .dcp--location .dcp-mention{font-size:.9rem}
+.dcp--location .dcp-code-groupe{gap:12px;align-items:flex-end}
+.dcp--location .dcp-champ.dcp-champ-code{flex:0 0 auto}
+.dcp--location .dcp-champ.dcp-champ-code input{width:calc(15ch + 40px)}
+@media (max-width:640px){
+  .dcp-code-groupe{gap:6px}
+  .dcp--location .dcp-code-groupe{gap:4px}
+  .dcp--location .dcp-champ.dcp-champ-code input{font-size:.9rem;padding:0 7px;width:calc(15ch + 16px)}
+  .dcp--location .dcp-code-groupe .dcp-aucun{padding:0 8px;gap:4px;font-size:.78rem;line-height:1.15}
+  .dcp--location .dcp-code-groupe .dcp-plus{min-width:44px;min-height:44px;width:44px}
+  .dcp-code-groupe .dcp-aucun{font-size:.85rem;line-height:1.15}
+}
 .dcp-cbc--location{position:relative}
 /* 🔴 (Arno, 17/11/2026) le choix / l'ajout d'un bâtiment : le menu PAR-DESSUS la page (il ne décale aucun champ) ; l'encadré d'ajout sous le champ */
 .cb{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
 .cb-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;margin:0;max-height:260px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
 .cb-zone{position:relative;min-width:0}
+/* 🔴 (Arno, 17/11/2026) le champ du code : une largeur pour 15 caractères, mesurée dans SA police (commun et bâtiments, même largeur) ;
+   « pas de digicode » et « + » juste à côté, dans un groupe qui ne se coupe jamais (seul le libellé peut passer sur deux lignes) */
+.dcp-code-groupe{display:flex;flex-wrap:nowrap;align-items:flex-end;gap:8px;min-width:0;max-width:100%}
+.dcp-code-groupe .dcp-aucun{flex:0 1 auto;min-width:0}
+.dcp-code-groupe .dcp-plus{flex:0 0 auto}
+.dcp-champ.dcp-champ-code{flex:0 0 auto;width:auto;min-width:0}
+.dcp-champ.dcp-champ-code input{width:calc(15ch + 20px);max-width:100%}
 .dcp-lus{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;white-space:normal}
 .dcp-lus-place{display:inline-flex;align-items:center;gap:8px;min-width:0}
 .dcp-lus .dcp-mini{min-height:44px}

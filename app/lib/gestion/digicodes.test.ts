@@ -72,10 +72,13 @@ describe('🔴 les valeurs d’AVANT (396 / 399 / colonnes du bien), rangées à
 });
 
 describe('la saisie d’une valeur', () => {
-  it('un code (8 caractères au plus) ou « pas de digicode » ; rien, ou oui sans code : refusé', () => {
+  it('un code (🔴 Arno, 17/11/2026 : 15 caractères au plus) ou « pas de digicode » ; rien, ou oui sans code : refusé', () => {
     expect(valeurSaisie({ digicode: true, code: ' 57B83 ' })).toEqual({ ok: true, valeur: { digicode: true, code: '57B83' } });
     expect(valeurSaisie({ digicode: false, code: 'X' })).toEqual({ ok: true, valeur: { digicode: false, code: null } });
-    expect(valeurSaisie({ digicode: true, code: '123456789' }).ok).toBe(false);
+    expect(valeurSaisie({ digicode: true, code: '123456789012345' })).toEqual({ ok: true, valeur: { digicode: true, code: '123456789012345' } });
+    expect(valeurSaisie({ digicode: true, code: '1234567890123456' })).toEqual({ ok: false, motif: 'Le code du digicode fait 15 caractères au plus.' });
+    // sans la 482, la base unique reste bornée à 8 : le serveur passe 8
+    expect(valeurSaisie({ digicode: true, code: '123456789' }, 8)).toEqual({ ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' });
     expect(valeurSaisie({ digicode: true }).ok).toBe(false);
     expect(valeurSaisie({}).ok).toBe(false);
     expect(memeCode({ digicode: true, code: '57b 83' }, { digicode: true, code: '57B83' })).toBe(true);
