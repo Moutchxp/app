@@ -494,7 +494,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const changerAdrAnnexe = (i: number, f: (x: AdresseBienSaisie) => AdresseBienSaisie): void => changerAnnexe(i, (x) => {
     const n = f(adrAnnexe(x));
     if (n.adresse !== x.adresse || n.nature !== x.adresseNature) sansNumeroOk.current.delete(`annexe-${i}`);
-    return { ...x, adresse: n.adresse, codePostal: n.codePostal, commune: n.commune, adresseVerifiee: n.verifiee, adresseNature: n.nature,
+    return { ...x, adresse: n.adresse, codePostal: n.codePostal, commune: n.commune, adresseVerifiee: n.verifiee, adresseNature: n.nature === 'etranger' ? null : n.nature,
       horsListeConfirme: n.horsListeConfirme, sansNumeroConfirme: n.sansNumeroConfirme };
   });
   const annexeAdresseTouchee = (a: Annexe): boolean => a.autreAdresse && a.sortir !== true && (a.id == null || a.adresseModifiable === true)

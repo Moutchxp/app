@@ -30,4 +30,15 @@ describe('l’adresse d’un bien à l’écran', () => {
     expect(metaAdresseBien({ ...rue, sansNumeroConfirme: true })).toEqual({ nature: 'liste', pays: null, horsListeConfirme: false, sansNumeroConfirme: true });
     expect(metaAdresseBien({ ...rue, nature: 'hors_liste', horsListeConfirme: true })).toMatchObject({ nature: 'hors_liste', horsListeConfirme: true });
   });
+  it('🔴 (lot 4, apporteurs) à l’étranger : adresse puis pays exigés ; pas de fenêtre « sans numéro » ; nature et pays envoyés ; changer de pays est une modification', () => {
+    const etr = { ...ADRESSE_BIEN_VIDE, nature: 'etranger' as const, adresse: 'Rue de la Loi 16', codePostal: '1000', commune: 'BRUXELLES', pays: '' };
+    expect(refusAdresseBienEcran({ ...etr, adresse: '' }, true)).toBe('Saisissez l’adresse à l’étranger.');
+    expect(refusAdresseBienEcran(etr, true)).toBe('Indiquez le pays de cette adresse à l’étranger.');
+    expect(refusAdresseBienEcran({ ...etr, pays: 'Belgique' }, true)).toBeNull();
+    expect(sansNumeroAConfirmer({ ...etr, adresse: 'Rue de la Loi' }, true)).toBe(false);
+    expect(metaAdresseBien({ ...etr, pays: ' Belgique ' })).toEqual({ nature: 'etranger', pays: 'Belgique', horsListeConfirme: false, sansNumeroConfirme: false });
+    const lue = { adresse: 'Rue de la Loi 16', codePostal: '1000', commune: 'BRUXELLES', nature: 'etranger' as const, pays: 'Belgique' };
+    expect(adresseBienTouchee({ ...etr, pays: 'Belgique' }, lue)).toBe(false);
+    expect(adresseBienTouchee({ ...etr, pays: 'Suisse' }, lue)).toBe(true);
+  });
 });

@@ -334,6 +334,9 @@ export interface Apporteur {
   remunerations?: RemunerationCollegue[];
   /** 421 — la fiche d'identité d'un externe : civilité, adresse, notes, téléphones et e-mails en plus des principaux. */
   civilite?: string | null; adresse?: string | null; notes?: string | null; telephonesAutres?: string[]; emailsAutres?: string[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 4, migration 486) le code postal et la commune remplis par le choix dans la liste, la nature
+   *  de l'adresse ('liste' / 'hors_liste' / 'etranger' ; null : d'avant) et le pays (à l'étranger) */
+  codePostal?: string | null; commune?: string | null; adresseNature?: 'liste' | 'hors_liste' | 'etranger' | null; adressePays?: string | null;
   /** La version de la fiche (dernière modification) : le contrôle de conflit. */
   version?: string | null;
   /** 419 — un INTERNE : le libellé et l'identifiant de son compte (lecture seule). */

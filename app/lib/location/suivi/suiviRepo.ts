@@ -1,4 +1,6 @@
 import 'server-only';
+import { adresseDeLaLigne, controlerAdresse } from '../../gestion/adresseSaisieRepo';
+import type { MetaAdresse } from '../../gestion/adresseSaisie';
 import { query, withTransaction, type RequeteTx } from '../../db/client';
 import { colonneExisteMemo } from '../sondeLocation';
 // 🔴 Arno (26/10/2026, 430) — le bail d'un locataire en place à la prise en gestion (jamais un bail signé par l'agence).
@@ -222,11 +224,12 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
   const avec421 = await ficheIdentiteDisponible();
   const avec422 = await colonneExisteMemo('gestion_location_apporteur', 'interne_depuis');
   const avec455 = await statutTvaDisponible();
+  const avec486 = await adresseApporteurDisponible();
   const [a, b, c, rem] = await Promise.all([
     query<{ id: string; nom: string; type: TypeApporteur; archive_le: Date | null; societe: string | null; telephone: string | null; email: string | null;
       nom_famille: string | null; prenom: string | null; compte_id: string | null; civilite: string | null; adresse: string | null; notes: string | null;
       telephones_autres: string[] | null; emails_autres: string[] | null; version: string | null; compte_libelle: string | null; compte_identifiant: string | null; interne_depuis: string | null;
-      statut_tva: string | null }>(
+      statut_tva: string | null; code_postal: string | null; commune: string | null; adresse_nature: string | null; adresse_pays: string | null }>(
       `SELECT id, nom, type, archive_le, ${avecAnnuaire ? 'societe, telephone, email' : 'NULL::text AS societe, NULL::text AS telephone, NULL::text AS email'},
               ${avecNomPrenom ? 'nom_famille, prenom' : 'NULL::text AS nom_famille, NULL::text AS prenom'},
               ${avec419 ? 'compte_id' : 'NULL::bigint AS compte_id'},
@@ -234,6 +237,7 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
               ${avecAnnuaire ? 'modifie_le::text' : 'NULL::text'} AS version,
               ${avec422 ? 'interne_depuis::text' : 'NULL::text'} AS interne_depuis,
               ${avec455 ? 'statut_tva' : 'NULL::text'} AS statut_tva,
+              ${avec486 ? 'code_postal, commune, adresse_nature, adresse_pays' : 'NULL::text AS code_postal, NULL::text AS commune, NULL::text AS adresse_nature, NULL::text AS adresse_pays'},
               ${avec419 ? `(SELECT coalesce(nullif(btrim(concat_ws(' ', u.prenom, u.nom)), ''), u.identifiant) FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_libelle,
               (SELECT u.identifiant FROM admin_utilisateur u WHERE u.id = gestion_location_apporteur.compte_id) AS compte_identifiant`
     : 'NULL::text AS compte_libelle, NULL::text AS compte_identifiant'}
@@ -289,6 +293,9 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
     compteId: numOuNull(r.compte_id), remunerations: remunerations.get(num(r.id)) ?? [],
     // 421 — la fiche d'identité ; la version (dernière modification) ; le compte d'un interne.
     civilite: r.civilite ?? null, adresse: r.adresse ?? null, notes: r.notes ?? null, telephonesAutres: r.telephones_autres ?? [], emailsAutres: r.emails_autres ?? [],
+    // 🔴 (« Adresses uniformisées », lot 4, 486) le code postal, la commune, la nature et le pays de l'adresse
+    codePostal: r.code_postal ?? null, commune: r.commune ?? null, adressePays: r.adresse_pays ?? null,
+    adresseNature: r.adresse_nature === 'liste' || r.adresse_nature === 'hors_liste' || r.adresse_nature === 'etranger' ? r.adresse_nature : null,
     version: r.version ?? null, compteLibelle: r.compte_libelle ?? null, compteIdentifiant: r.compte_identifiant ?? null,
     // 422 — le jour du passage en interne (les dossiers d'avant gardent collègue et rémunération du collègue).
     interneDepuis: r.interne_depuis ? r.interne_depuis.slice(0, 10) : null,
@@ -298,6 +305,11 @@ export async function lireApporteurs(): Promise<Apporteur[]> {
 }
 
 /** 🔴 D38 — la migration 455 (statut TVA des apporteurs, statut d'une rétrocession) est-elle appliquée ? */
+/** 🔴 (« Adresses uniformisées », lot 4) la migration 486 — code postal, commune, nature et pays de l'adresse d'un apporteur — est-elle en base ? */
+export function adresseApporteurDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_location_apporteur', 'adresse_nature');
+}
+
 export function statutTvaDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_apporteur', 'statut_tva');
 }
@@ -550,8 +562,8 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
   const b = (brut ?? {}) as Record<string, unknown>;
   const v = verifierFiche(b.fiche);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
-  const [avecNomPrenom, avec419, avec421, journal, avec455] = await Promise.all([nomPrenomDisponible(), interneDisponible(), ficheIdentiteDisponible(), journalApporteurDisponible(),
-    statutTvaDisponible()]);
+  const [avecNomPrenom, avec419, avec421, journal, avec455, avec486] = await Promise.all([nomPrenomDisponible(), interneDisponible(), ficheIdentiteDisponible(), journalApporteurDisponible(),
+    statutTvaDisponible(), adresseApporteurDisponible()]);
   const sans = await refusExterneSansCollegue(query, id);
   if (sans !== null) return { etat: 'refus', motif: sans };
   const actuel = (await lireApporteurs()).find((x) => x.id === id && !x.archive);
@@ -566,8 +578,20 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
   const f0 = avec421 ? v.fiche : { ...v.fiche, civilite: '', adresse: '', notes: '', telephonesAutres: [], emailsAutres: [] };
   // 🔴 D38 — sans la 455, le statut ne s'enregistre pas (il n'existe pas encore) ; avec elle, seul un administrateur le change
   const { statutTva: _ignore, ...sansStatut } = f0;
-  const f: FicheApporteur = avec455 ? f0 : sansStatut;
+  const f1: FicheApporteur = avec455 ? f0 : sansStatut;
+  // 🔴 (lot 4) sans la 486, code postal, commune et pays ne s'enregistrent pas (ils n'existent pas encore) : jamais un changement inventé
+  const { codePostal: _cp, commune: _co, adressePays: _pa, ...sansAdresse486 } = f1;
+  const f: FicheApporteur = avec486 ? f1 : sansAdresse486;
   const changements = changementsFiche(ficheDe(actuel), f);
+  // ce que l'écran dit de l'adresse touchée : dans la fiche (la Location et Mon espace l'envoient ainsi, sans autre chemin)
+  const metaAdresse = b.fiche !== null && typeof b.fiche === 'object' ? (b.fiche as Record<string, unknown>).adresseSaisie : undefined;
+  // 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 4) L'ADRESSE, AVANT TOUTE ÉCRITURE — la règle des personnes (lot 2) : choisie dans la liste
+  // (retrouvée), « hors liste » confirmée, à l'étranger avec son pays, « sans numéro » confirmée ; une adresse non touchée n'est ni revérifiée ni requalifiée
+  const adr = await controlerAdresse(avec486, adresseDeLaLigne({ adresse: actuel.adresse ?? null, code_postal: actuel.codePostal ?? null, commune: actuel.commune ?? null,
+    adresse_nature: actuel.adresseNature ?? null, adresse_pays: actuel.adressePays ?? null }),
+  { adresse: f.adresse, ...(f.codePostal !== undefined ? { codePostal: f.codePostal } : {}), ...(f.commune !== undefined ? { commune: f.commune } : {}) },
+  metaAdresse === undefined ? undefined : { ...(metaAdresse as MetaAdresse), pays: f.adressePays ?? null });
+  if (!adr.ok) return { etat: 'refus', motif: adr.motif };
   if (changements.length === 0) return { etat: 'ok', data: { changements: [] } };
   if (changements.some((c) => c.cle === 'statutTva') && o.administrateur === false) return { etat: 'refus', motif: MOT_STATUT_TVA_ADMIN };
   const statut: StatutTva | null = avec455 ? f.statutTva ?? actuel.statutTva ?? 'particulier' : null;
@@ -587,6 +611,11 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
         ...(avec421 ? [nul(f.civilite), nul(f.adresse), nul(f.notes), f.telephonesAutres, f.emailsAutres] : []), ...(statut !== null ? [statut] : []), version]);
     // Relu sous verrou : une modification arrivée entre la lecture et l'écriture est un conflit, rien n'est écrit.
     if ((r.rowCount ?? 0) !== 1) return { etat: 'conflit', motif: motifConflitFiche(null) } as const;
+    // 🔴 (lot 4, 486) le code postal et la commune avec l'adresse ; la nature et le pays seulement pour une adresse nouvelle ou changée
+    if (avec486) {
+      await q('UPDATE gestion_location_apporteur SET code_postal = $2, commune = $3 WHERE id = $1', [id, nul(f.codePostal ?? actuel.codePostal ?? ''), nul(f.commune ?? actuel.commune ?? '')]);
+      if (adr.ecrire) await q('UPDATE gestion_location_apporteur SET adresse_nature = $2, adresse_pays = $3 WHERE id = $1', [id, adr.nature, adr.pays]);
+    }
     if (journal) {
       for (const c of changements) {
         const tr = await colonnesTrace({ sujet: 'apporteur', champ: c.champ }, 7);

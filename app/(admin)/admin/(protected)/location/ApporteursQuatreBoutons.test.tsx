@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Apporteur } from '../../../../lib/location/suivi/suivi';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/admin/location' }));
 const { ModaleParametresLocation } = await import('./ParametresLocation');
@@ -129,7 +130,8 @@ describe('🔴 la carte à quatre boutons', () => {
     await annuaire();
     await clic(bouton(4, 'fiche'));
     const f = container.querySelector('[data-apporteur="4"] [data-panneau="fiche"]')!;
-    await saisir(f.querySelector('[data-fiche-adresse]')!, '3 rue des Essais');
+    // (« Adresses uniformisées », lot 4) l'adresse se choisit dans les suggestions
+    await choisirAdresseBan(f.querySelector('[data-fiche-adresse] .cab-enveloppe input') as HTMLInputElement, '3 rue des Essais');
     await clic(f.querySelector('[data-enregistrer-fiche]')!);
     await clic(f.querySelector('[data-recap-confirmer]')!);
     expect(f.querySelector('[data-refus-local]')?.textContent).toMatch(/modifiée par Paul Collègue.*Rien n’a été enregistré/);
@@ -145,5 +147,64 @@ describe('🔴 la carte à quatre boutons', () => {
     const r = container.querySelector('[data-apporteur="9"] [data-panneau="rattachement"]')!;
     expect(r.textContent).toBe('Apporteur interne — pas de rattachement.');
     expect(r.querySelector('input, button, [role="combobox"]')).toBeNull();
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026, « Adresses uniformisées », lot 4 « Les apporteurs, depuis la Location et Mon espace ») — l'adresse se choisit dans les suggestions
+ * (code postal et commune remplis par le choix) ; « Adresse absente de la liste ? » : saisie libre confirmée, « hors liste — à vérifier » ; « Adresse à
+ * l'étranger » : saisie libre, Pays obligatoire (Q6) ; une rue sans numéro : la même fenêtre (Q9) ; une adresse non touchée part sans rien de plus.
+ */
+describe('🔴 l’adresse d’un apporteur (Location › Fiche)', () => {
+  const fiche = async () => {
+    await annuaire();
+    await clic(bouton(4, 'fiche'));
+    return container.querySelector('[data-apporteur="4"] [data-panneau="fiche"]')!;
+  };
+  it('code postal et commune en lecture seule ; une autre modification : rien sur l’adresse dans l’envoi', async () => {
+    const f = await fiche();
+    expect((f.querySelector('[data-adresse-cp]') as HTMLInputElement).readOnly).toBe(true);
+    await saisir(f.querySelector('[data-fiche-notes]')!, 'Rencontrée au salon');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    await clic(f.querySelector('[data-recap-confirmer]')!);
+    expect((posts[0].fiche as Record<string, unknown>).adresseSaisie).toBeUndefined();
+  });
+  it('tapée sans être choisie : refusée à l’écran ; « Adresse absente de la liste ? » confirmée : « hors liste » part, code postal et commune saisis', async () => {
+    const f = await fiche();
+    await saisir(f.querySelector('[data-fiche-adresse] .cab-enveloppe input')!, '2 impasse _TEST ADRESSE');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    expect(f.querySelector('[data-refus-local]')?.textContent).toContain('Choisissez l’adresse dans la liste proposée');
+    await clic(f.querySelector('[data-adresse-hors-liste]')!);
+    await clic([...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Confirmer : adresse hors liste')!);
+    expect(f.querySelector('[data-adresse-marque]')?.textContent).toBe('hors liste — à vérifier');
+    await saisir(f.querySelector('[data-adresse-cp]')!, '92400');
+    await saisir(f.querySelector('[data-adresse-commune]')!, 'courbevoie');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    await clic(f.querySelector('[data-recap-confirmer]')!);
+    expect(posts[0].fiche).toMatchObject({ adresse: '2 impasse _TEST ADRESSE', codePostal: '92400', commune: 'COURBEVOIE',
+      adresseSaisie: { nature: 'hors_liste', horsListeConfirme: true } });
+  });
+  it('à l’étranger : saisie libre, marquée ; sans pays, refusée ; avec, « etranger » et le pays partent', async () => {
+    const f = await fiche();
+    await clic(f.querySelector('[data-adresse-etranger]')!);
+    expect(f.querySelector('[data-adresse-marque]')?.textContent).toBe('adresse à l’étranger');
+    await saisir(f.querySelector('[data-adresse-libre]')!, 'Rue de la Loi 16');
+    await saisir(f.querySelector('[data-adresse-cp]')!, '1000');
+    await saisir(f.querySelector('[data-adresse-commune]')!, 'Bruxelles');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    expect(f.querySelector('[data-refus-local]')?.textContent).toContain('Indiquez le pays');
+    await saisir(f.querySelector('[data-adresse-pays]')!, 'Belgique');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    await clic(f.querySelector('[data-recap-confirmer]')!);
+    expect(posts[0].fiche).toMatchObject({ adresse: 'Rue de la Loi 16', codePostal: '1000', adressePays: 'Belgique', adresseSaisie: { nature: 'etranger', pays: 'Belgique' } });
+  });
+  it('une rue sans numéro : la fenêtre « Adresse sans numéro » ; « Confirmer » mène au récapitulatif, confirmation jointe', async () => {
+    const f = await fiche();
+    await choisirAdresseBan(f.querySelector('[data-fiche-adresse] .cab-enveloppe input') as HTMLInputElement, 'Rue du Port');
+    await clic(f.querySelector('[data-enregistrer-fiche]')!);
+    expect(document.querySelector('[data-fenetre-carte]')?.textContent).toContain('Cette adresse n’a pas de numéro : Rue du Port, 92400 COURBEVOIE.');
+    await clic([...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Confirmer')!);
+    await clic(f.querySelector('[data-recap-confirmer]')!);
+    expect(posts[0].fiche).toMatchObject({ adresseSaisie: { nature: 'liste', sansNumeroConfirme: true } });
   });
 });

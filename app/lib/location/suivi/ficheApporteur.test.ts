@@ -53,16 +53,34 @@ describe('🔴 la fiche : lecture, vérification, récapitulatif', () => {
 describe('🔴 la fiche au serveur : conflit, journal, interne', () => {
   it('une modification : UNE écriture conditionnée à la version lue, puis une ligne de journal par champ (compte, session, écran)', async () => {
     const r = await avecTrace({ sessionId: 'jti-fictif', ecran: 'Annuaire des apporteurs' },
-      () => enregistrerFicheApporteur(4, { fiche: { ...LEA, civilite: 'Mme', adresse: '3 rue des Essais' }, version: etat.version }, AUTEUR));
-    expect(r).toEqual({ etat: 'ok', data: { changements: [{ champ: 'Civilité', avant: '—', apres: 'Mme' }, { champ: 'Adresse', avant: '—', apres: '3 rue des Essais' }] } });
-    const u = ecrit().filter((a) => a.sql.startsWith('UPDATE gestion_location_apporteur'));
+      // (« Adresses uniformisées », lot 4) une adresse hors liste confirmée à l'écran, avec son code postal et sa commune
+      () => enregistrerFicheApporteur(4, { fiche: { ...LEA, civilite: 'Mme', adresse: '3 rue des Essais', codePostal: '75011', commune: 'PARIS',
+        adresseSaisie: { nature: 'hors_liste', horsListeConfirme: true } }, version: etat.version }, AUTEUR));
+    expect(r).toEqual({ etat: 'ok', data: { changements: [{ champ: 'Civilité', avant: '—', apres: 'Mme' }, { champ: 'Adresse', avant: '—', apres: '3 rue des Essais' },
+      { champ: 'Code postal', avant: '—', apres: '75011' }, { champ: 'Commune', avant: '—', apres: 'PARIS' }] } });
+    const u = ecrit().filter((a) => a.sql.includes('modifie_le::text IS NOT DISTINCT FROM'));
     expect(u).toHaveLength(1);
+    // (lot 4, 486) puis, dans la même transaction, le code postal et la commune, et la nature de l'adresse
+    expect(ecrit().filter((a) => a.sql.startsWith('UPDATE gestion_location_apporteur SET code_postal')).map((a) => a.params)).toEqual([[4, '75011', 'PARIS']]);
+    expect(ecrit().filter((a) => a.sql.startsWith('UPDATE gestion_location_apporteur SET adresse_nature')).map((a) => a.params)).toEqual([[4, 'hors_liste', null]]);
     expect(u[0].sql).toContain('modifie_le::text IS NOT DISTINCT FROM');
     expect(u[0].params.at(-1)).toBe(etat.version);
     const j = ecrit().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal'));
     expect(j.map((x) => x.params)).toEqual([
       [4, '—', 'Mme', 'Fiche de l’apporteur — Civilité : — → Mme', 2, 'Arnaud Jorel', 'apporteur', 'Civilité', 'jti-fictif', 'Annuaire des apporteurs'],
-      [4, '—', '3 rue des Essais', 'Fiche de l’apporteur — Adresse : — → 3 rue des Essais', 2, 'Arnaud Jorel', 'apporteur', 'Adresse', 'jti-fictif', 'Annuaire des apporteurs']]);
+      [4, '—', '3 rue des Essais', 'Fiche de l’apporteur — Adresse : — → 3 rue des Essais', 2, 'Arnaud Jorel', 'apporteur', 'Adresse', 'jti-fictif', 'Annuaire des apporteurs'],
+      [4, '—', '75011', 'Fiche de l’apporteur — Code postal : — → 75011', 2, 'Arnaud Jorel', 'apporteur', 'Code postal', 'jti-fictif', 'Annuaire des apporteurs'],
+      [4, '—', 'PARIS', 'Fiche de l’apporteur — Commune : — → PARIS', 2, 'Arnaud Jorel', 'apporteur', 'Commune', 'jti-fictif', 'Annuaire des apporteurs']]);
+  });
+  it('🔴 (« Adresses uniformisées », lot 4) l’adresse : sans code postal ni commune, refusée ; à l’étranger sans pays, refusée ; avec, retenue — RIEN n’est écrit d’un refus', async () => {
+    expect(await enregistrerFicheApporteur(4, { fiche: { ...LEA, adresse: '3 rue des Essais' }, version: etat.version }, AUTEUR))
+      .toEqual({ etat: 'refus', motif: 'Une adresse française demande un code postal à 5 chiffres et une commune. Rien n’est enregistré.' });
+    expect(await enregistrerFicheApporteur(4, { fiche: { ...LEA, adresse: 'Rue de la Loi 16', codePostal: '1000', commune: 'BRUXELLES',
+      adresseSaisie: { nature: 'etranger' } }, version: etat.version }, AUTEUR)).toMatchObject({ etat: 'refus', motif: expect.stringContaining('pays') });
+    expect(ecrit()).toEqual([]);
+    expect((await enregistrerFicheApporteur(4, { fiche: { ...LEA, adresse: 'Rue de la Loi 16', codePostal: '1000', commune: 'BRUXELLES', adressePays: 'Belgique',
+      adresseSaisie: { nature: 'etranger' } }, version: etat.version }, AUTEUR)).etat).toBe('ok');
+    expect(ecrit().filter((a) => a.sql.startsWith('UPDATE gestion_location_apporteur SET adresse_nature')).map((a) => a.params)).toEqual([[4, 'etranger', 'Belgique']]);
   });
   it('🔴 conflit : la fiche a changé depuis son ouverture — refus (qui, quand), RIEN n’est écrit', async () => {
     const r = await enregistrerFicheApporteur(4, { fiche: { ...LEA, civilite: 'Mme' }, version: '2026-10-01 08:00:00+00' }, AUTEUR);

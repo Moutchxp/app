@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MesCompteurs, URL_MES_AFFAIRES } from './MesCompteurs';
 import { URL_APPORTEURS } from './MesApporteurs';
+import { choisirAdresseBan } from '../location/choisirAdresseEssai';
 
 /**
  * 🔴 MON ESPACE, LOT 9 — l'onglet « Mes apporteurs » dans le VRAI écran de « Mon espace », routes simulées (rien n'est écrit) : la liste
@@ -127,11 +128,12 @@ describe('🔴 D26 — la fiche d’un apporteur : une fenêtre, tout modifiable
     expect(container.querySelector('[data-fiche-collegue]')?.textContent).toContain('Marc');
     await saisir('[data-fiche-champ="nomFamille"]', 'NOUVELLE');
     await saisir('[data-fiche-champ="prenom"]', 'Zoé');
-    await saisir('[data-fiche-champ="adresse"]', '3 rue des Lilas');
+    // (« Adresses uniformisées », lot 4) l'adresse se choisit dans les suggestions : code postal et commune avec elle
+    await choisirAdresseBan(container.querySelector('[data-fiche-champ="adresse"] .cab-enveloppe input') as HTMLInputElement, '3 rue des Lilas', '75011', 'Paris');
     await act(async () => { await new Promise((r) => setTimeout(r, 350)); }); await calmer();
     await cliquer('[data-enregistrer-fiche]');
     expect(posts[0]).toMatchObject({ action: 'creer', apporteur: { nom: 'Zoé NOUVELLE', collegueId: 7, interne: false,
-      fiche: { nomFamille: 'NOUVELLE', prenom: 'Zoé', adresse: '3 rue des Lilas' } } });
+      fiche: { nomFamille: 'NOUVELLE', prenom: 'Zoé', adresse: '3 rue des Lilas', codePostal: '75011', commune: 'PARIS', adresseSaisie: { nature: 'liste' } } } });
     expect(fenetre()).toBeNull();
   });
   it('la fenêtre, pas la carte : sections titrées, chaque libellé au-dessus d’une vraie case de saisie, les styles des champs chargés', async () => {
@@ -141,7 +143,11 @@ describe('🔴 D26 — la fiche d’un apporteur : une fenêtre, tout modifiable
     expect(f.querySelector('[role="dialog"]')).not.toBeNull();
     expect(f.closest('[data-mon-apporteur]')).toBeNull(); // plus coincée dans la carte
     expect([...f.querySelectorAll('[data-section-fiche]')].map((x) => x.getAttribute('data-section-fiche'))).toEqual(['identite', 'contact', 'rattachement', 'notes']);
-    for (const cle of ['nomFamille', 'prenom', 'societe', 'telephone', 'email', 'adresse', 'notes']) {
+    // (« Adresses uniformisées », lot 4) l'adresse : le champ des suggestions, code postal et commune remplis par le choix
+    expect(f.querySelector('[data-fiche-champ="adresse"] .cab-enveloppe input')).not.toBeNull();
+    expect((f.querySelector('[data-fiche-champ="adresse"] [data-adresse-cp]') as HTMLInputElement).readOnly).toBe(true);
+    expect(f.querySelector('[data-fiche-champ="adresse"] [data-adresse-etranger]')).not.toBeNull();
+    for (const cle of ['nomFamille', 'prenom', 'societe', 'telephone', 'email', 'notes']) {
       const champ = f.querySelector(`[data-fiche-champ="${cle}"]`)!;
       expect(['INPUT', 'TEXTAREA']).toContain(champ.tagName);
       const libelle = champ.closest('label.plo-champ')!;
@@ -164,14 +170,15 @@ describe('🔴 D26 — la fiche d’un apporteur : une fenêtre, tout modifiable
     await saisir('[data-fiche-champ="societe"]', 'Agence du Parc');
     await saisir('[data-fiche-champ="telephone"]', '0700000000');
     await saisir('[data-fiche-champ="email"]', 'contact@parc.fr');
-    await saisir('[data-fiche-champ="adresse"]', '1 place Verte');
+    await choisirAdresseBan(container.querySelector('[data-fiche-champ="adresse"] .cab-enveloppe input') as HTMLInputElement, '1 place Verte', '75011', 'Paris');
     await cliquer('[data-ajouter-autre="emails"]');
     await saisir('[data-autre="emails-0"]', 'autre@parc.fr');
     await act(async () => { const t = container.querySelector('[data-fiche-champ="notes"]') as HTMLTextAreaElement;
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Rencontré au salon'); t.dispatchEvent(new Event('input', { bubbles: true })); }); await calmer();
-    expect(container.querySelector('[data-etat-fiche]')?.textContent).toBe('6 champ(s) modifié(s).');
+    // (lot 4) l'adresse choisie apporte son code postal et sa commune : deux champs de plus
+    expect(container.querySelector('[data-etat-fiche]')?.textContent).toBe('8 champ(s) modifié(s).');
     await cliquer('[data-enregistrer-fiche]');
-    expect(container.querySelectorAll('[data-recap-champ]').length).toBe(6);
+    expect(container.querySelectorAll('[data-recap-champ]').length).toBe(8);
     await cliquer('[data-recap-confirmer]');
     expect(posts).toEqual([{ action: 'fiche', apporteurId: 1, version: null, fiche: expect.objectContaining({ societe: 'Agence du Parc', telephone: '0700000000',
       email: 'contact@parc.fr', adresse: '1 place Verte', emailsAutres: ['autre@parc.fr'], notes: 'Rencontré au salon' }) }]);

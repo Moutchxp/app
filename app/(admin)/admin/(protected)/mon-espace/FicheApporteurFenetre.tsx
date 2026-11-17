@@ -15,6 +15,9 @@ import {
   type ModeApporteur, remunerationADate, tauxVide, TYPES_APPORTEUR,
 } from '../../../../lib/location/suivi/suivi';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
+import { AdresseBien, CSS_ADRESSE_BIEN, etatAdresseLue, FenetreSansNumero } from '../location/AdresseBien';
+import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
 import { messageDoublon, type Doublon, type MesApporteursLus } from '../../../../lib/mon-espace/apporteurs';
 
 /**
@@ -62,6 +65,10 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
   const actuel = a === undefined ? null : collegueADate(a, jour);
   const depart = a === undefined ? { ...VIDE, nomFamille: texte } : ficheDe(a);
   const [f, setF] = useState<FicheApporteur>(depart);
+  /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 4) l'adresse : ChampAdresseBan (code postal et commune remplis par le choix), « hors liste »
+     confirmée, « à l'étranger » avec son pays, « sans numéro » confirmée ; une adresse non touchée n'est ni revérifiée ni requalifiée */
+  const [adrEtat, setAdrEtat] = useState(() => etatAdresseLue(a !== undefined, a?.adresseNature ?? null));
+  const [fenetreSansNumero, setFenetreSansNumero] = useState(false);
   const [interne, setInterne] = useState(false);
   const [compteId, setCompteId] = useState('');
   const collegueDepart = creation ? String(facon?.collegueDefaut ?? lu.titulaireId) : actuel === null ? '' : String(actuel.collegueId);
@@ -98,10 +105,21 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
     && (r.reponse === 'non' || lu.avec419 === true));
   const pret = creation ? (interne ? compteId !== '' : true) && distants.length === 0 : nbChangements > 0 && rattachementPret;
   const poser = (x: Partial<FicheApporteur>): void => { setF({ ...f, ...x }); setRecap(false); setMotif(null); };
+  const adr: AdresseBienSaisie = { adresse: f.adresse, codePostal: f.codePostal ?? '', commune: f.commune ?? '', pays: f.adressePays ?? '', ...adrEtat };
+  const changerAdr = (fn: (x: AdresseBienSaisie) => AdresseBienSaisie): void => {
+    const n = fn(adr);
+    poser({ adresse: n.adresse, codePostal: n.codePostal, commune: n.commune, adressePays: n.nature === 'etranger' ? n.pays ?? '' : '' });
+    setAdrEtat({ verifiee: n.verifiee, nature: n.nature, horsListeConfirme: n.horsListeConfirme, sansNumeroConfirme: n.sansNumeroConfirme });
+  };
+  const adrTouchee = adresseBienTouchee(adr, a === undefined ? null
+    : { adresse: a.adresse ?? '', codePostal: a.codePostal ?? '', commune: a.commune ?? '', nature: a.adresseNature ?? null, pays: a.adressePays ?? '' });
+  /** la fiche telle qu'elle part : ce que l'écran dit d'une adresse touchée y voyage (`sansNumeroOk` : la confirmation donnée à l'instant) */
+  const ficheEnvoyee = (sansNumeroOk = false): FicheApporteur & { adresseSaisie?: unknown } =>
+    ({ ...f, ...(adrTouchee ? { adresseSaisie: metaAdresseBien({ ...adr, sansNumeroConfirme: adr.sansNumeroConfirme || sansNumeroOk }) } : {}) });
   const poserR = (x: Partial<SaisieRattachement>): void => { setR({ ...r, ...x }); setRecap(false); setMotif(null); };
   const pasEntree = (e: KeyboardEvent<HTMLInputElement>): void => { if (e.key === 'Enter') e.preventDefault(); };
 
-  const demander = (): void => {
+  const demander = (sansNumeroOk = false): void => {
     if (!creation && a !== undefined && a.collegues !== undefined && a.collegues.length === 0 && !rattachementChange && !estInterne(a)) {
       setMotif('Partenaire externe « à rattacher » : choisissez d’abord son collègue rattaché (section « Rattachement et rémunération »), puis enregistrez.'); return;
     }
@@ -109,18 +127,21 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
       const v = verifierFiche(f);
       if (!v.ok) { setMotif(v.motif); return; }
       if (creation && `${f.prenom} ${f.nomFamille}`.trim() === '' && f.societe.trim() === '') { setMotif('Le nom de l’apporteur est obligatoire.'); return; }
+      const ra = refusAdresseBienEcran(adr, adrTouchee);
+      if (ra !== null) { setMotif(ra); return; }
+      if (sansNumeroAConfirmer({ ...adr, sansNumeroConfirme: adr.sansNumeroConfirme || sansNumeroOk }, adrTouchee)) { setFenetreSansNumero(true); return; }
     }
     if (rattachementChange && !rattachementPret) { setMotif(r.reponse === null ? 'Répondez à la question sur les honoraires du collègue.' : 'Le rattachement est incomplet.'); return; }
     setMotif(null);
-    if (creation) { void creer(); return; }
+    if (creation) { void creer(sansNumeroOk); return; }
     setRecap(true);
   };
-  const creer = async (): Promise<void> => {
+  const creer = async (sansNumeroOk = false): Promise<void> => {
     setEnvoi(true);
     const nom = `${f.prenom} ${f.nomFamille}`.replace(/\s+/g, ' ').trim() || f.societe.trim();
     const apporteur = interne
       ? { nom: '', type: 'collaborateur', taux: '', interne: true, compteId: Number(compteId) }
-      : { nom, type: f.type, taux: '', interne: false, collegueId: r.collegueId === '' ? null : Number(r.collegueId), societe: f.societe, telephone: f.telephone, email: f.email, fiche: f };
+      : { nom, type: f.type, taux: '', interne: false, collegueId: r.collegueId === '' ? null : Number(r.collegueId), societe: f.societe, telephone: f.telephone, email: f.email, fiche: ficheEnvoyee(sansNumeroOk) };
     const x = await envoyer({ action: 'creer', apporteur });
     setEnvoi(false);
     if (x.doublons !== undefined) setDistants(x.doublons);
@@ -138,7 +159,7 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
       if (x.motif !== null) { setEnvoi(false); setRecap(false); setMotif(x.motif); setConflit(x.etat === 'conflit'); return; }
     }
     if (changements.length > 0) {
-      const x = await envoyer({ action: 'fiche', apporteurId: a.id, fiche: f, version: a.version ?? null });
+      const x = await envoyer({ action: 'fiche', apporteurId: a.id, fiche: ficheEnvoyee(), version: a.version ?? null });
       if (x.motif !== null) {
         setEnvoi(false); setRecap(false); setConflit(x.etat === 'conflit');
         setMotif(rattachementChange ? `Rattachement enregistré ; la fiche, non : ${x.motif}` : x.motif); return;
@@ -167,7 +188,11 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
 
   return (
     <div className="plo-voile" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }} data-fenetre-fiche-apporteur={a?.id ?? 'nouveau'}>
-      <style>{CSS_PARAMETRES}{CSS_ONGLETS_SUIVI}{CSS_FENETRE_FICHE}</style>
+      <style>{CSS_PARAMETRES}{CSS_ONGLETS_SUIVI}{CSS_FENETRE_FICHE}{CSS_CHAMP_ADRESSE}{CSS_ADRESSE_BIEN}</style>
+      {fenetreSansNumero && (
+        <FenetreSansNumero adresse={adr} onCorriger={() => setFenetreSansNumero(false)}
+          onConfirmer={() => { setAdrEtat((x) => ({ ...x, sansNumeroConfirme: true })); setFenetreSansNumero(false); demander(true); }} />
+      )}
       <div className="plo-fenetre mfa-fenetre" role="dialog" aria-modal="true" aria-labelledby={titreId}>
         <div className="plo-tete">
           <h2 id={titreId}>{titre}</h2>
@@ -241,7 +266,9 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
                 {lu.identite && <>
                   <ListeAutres valeurs={f.telephonesAutres} onChange={(x) => poser({ telephonesAutres: x })} mot="Autres téléphones" repere="telephones" mode="tel" />
                   <ListeAutres valeurs={f.emailsAutres} onChange={(x) => poser({ emailsAutres: x })} mot="Autres e-mails" repere="emails" mode="email" />
-                  {champTexte('Adresse', 'adresse', { large: true })}
+                  <div className="plo-champ--large" data-fiche-champ="adresse">
+                    <AdresseBien nom="apporteur" id={`mfa-adresse-${a?.id ?? 'nouveau'}`} etiquette="Adresse" valeur={adr} onChange={changerAdr} avecEtranger autonome />
+                  </div>
                 </>}
               </div>
             </section>
@@ -351,7 +378,7 @@ export function FicheApporteurFenetre({ a, lu, texte = '', envoyer, onFermer, on
                 <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void confirmer(); }} data-recap-confirmer>{envoi ? 'Enregistrement…' : 'Confirmer'}</button>
               </> : <>
                 <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-annuler-fiche>Annuler</button>
-                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!pret || envoi} onClick={demander} data-enregistrer-fiche>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!pret || envoi} onClick={() => demander()} data-enregistrer-fiche>
                   {envoi ? 'Enregistrement…' : creation ? 'Ajouter l’apporteur' : 'Enregistrer'}</button>
               </>}
             </div>

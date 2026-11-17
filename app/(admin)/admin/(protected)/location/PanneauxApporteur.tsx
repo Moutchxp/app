@@ -14,6 +14,9 @@ import {
 import { nomCorrespond } from '../../../../lib/location/suivi/apporteursInternes';
 import { CIVILITES, changementsFiche, ficheDe, type FicheApporteur, verifierFiche } from '../../../../lib/location/suivi/ficheApporteur';
 import { ChampNombre } from './ChampNombre';
+import { AdresseBien, CSS_ADRESSE_BIEN, etatAdresseLue, FenetreSansNumero } from './AdresseBien';
+import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
 
 /**
  * ══ 🔴 Arno (24/10/2026) — LES PANNEAUX D'UNE CARTE D'APPORTEUR : « FICHE », « RATTACHEMENT », « TAUX » ══════════════════════════
@@ -145,6 +148,10 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
   statutModifiable?: boolean }) {
   const [f, setF] = useState<FicheApporteur>(() => ficheDe(a));
   const [recap, setRecap] = useState(false);
+  /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 4) l'adresse : ChampAdresseBan (code postal et commune remplis par le choix), « hors liste »
+     confirmée, « à l'étranger » avec son pays, « sans numéro » confirmée ; une adresse non touchée n'est ni revérifiée ni requalifiée */
+  const [adrEtat, setAdrEtat] = useState(() => etatAdresseLue(true, a.adresseNature ?? null));
+  const [fenetreSansNumero, setFenetreSansNumero] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
   const [conflit, setConflit] = useState(false);
   const [envoi, setEnvoi] = useState(false);
@@ -165,15 +172,25 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
   }
   const changements = changementsFiche(ficheDe(a), f);
   const poser = (x: Partial<FicheApporteur>): void => { setF({ ...f, ...x }); setRecap(false); setMotif(null); };
-  const demander = (): void => {
+  const adr: AdresseBienSaisie = { adresse: f.adresse, codePostal: f.codePostal ?? '', commune: f.commune ?? '', pays: f.adressePays ?? '', ...adrEtat };
+  const changerAdr = (fn: (x: AdresseBienSaisie) => AdresseBienSaisie): void => {
+    const n = fn(adr);
+    poser({ adresse: n.adresse, codePostal: n.codePostal, commune: n.commune, adressePays: n.nature === 'etranger' ? n.pays ?? '' : '' });
+    setAdrEtat({ verifiee: n.verifiee, nature: n.nature, horsListeConfirme: n.horsListeConfirme, sansNumeroConfirme: n.sansNumeroConfirme });
+  };
+  const adrTouchee = adresseBienTouchee(adr, { adresse: a.adresse ?? '', codePostal: a.codePostal ?? '', commune: a.commune ?? '', nature: a.adresseNature ?? null, pays: a.adressePays ?? '' });
+  const demander = (sansNumeroOk = false): void => {
     if (orphelin) { setMotif(MOT_RATTACHER_DABORD); return; }
     const v = verifierFiche(f);
     if (!v.ok) { setMotif(v.motif); return; }
+    const ra = refusAdresseBienEcran(adr, adrTouchee);
+    if (ra !== null) { setMotif(ra); return; }
+    if (sansNumeroAConfirmer({ ...adr, sansNumeroConfirme: adr.sansNumeroConfirme || sansNumeroOk }, adrTouchee)) { setFenetreSansNumero(true); return; }
     setMotif(null); setRecap(true);
   };
   const confirmer = async (): Promise<void> => {
     setEnvoi(true);
-    const corps = { action: 'fiche-apporteur', apporteurId: a.id, fiche: f, version: a.version ?? null };
+    const corps = { action: 'fiche-apporteur', apporteurId: a.id, fiche: { ...f, ...(adrTouchee ? { adresseSaisie: metaAdresseBien(adr) } : {}) }, version: a.version ?? null };
     const r = envoyer !== undefined ? await envoyer(corps) : await posterSuivi(corps, { propre: true });
     setEnvoi(false); setRecap(false);
     if (r.motif !== null) { setMotif(r.motif); setConflit(r.etat === 'conflit'); return; }
@@ -210,11 +227,18 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
           <>
             <ListeAutres valeurs={f.telephonesAutres} onChange={(v) => poser({ telephonesAutres: v })} mot="Autres téléphones" repere="telephones" mode="tel" />
             <ListeAutres valeurs={f.emailsAutres} onChange={(v) => poser({ emailsAutres: v })} mot="Autres e-mails" repere="emails" mode="email" />
-            <label className="plo-champ plo-champ--large"><span>Adresse</span><input value={f.adresse} onChange={(e) => poser({ adresse: e.target.value })} data-fiche-adresse /></label>
+            <div className="plo-champ--large" data-fiche-adresse>
+              <AdresseBien nom="apporteur" id={`plo-adresse-${a.id}`} etiquette="Adresse" valeur={adr} onChange={changerAdr} avecEtranger autonome />
+            </div>
             <label className="plo-champ plo-champ--large"><span>Notes</span><textarea rows={3} value={f.notes} onChange={(e) => poser({ notes: e.target.value })} data-fiche-notes /></label>
           </>
         ) : <p className="plo-muet plo-petit-texte plo-champ--large" data-fiche-sans-421>Civilité, autres téléphones et e-mails, adresse, notes : mise à jour de la base à appliquer (migration 421).</p>}
       </div>
+      <style>{CSS_CHAMP_ADRESSE + CSS_ADRESSE_BIEN}</style>
+      {fenetreSansNumero && (
+        <FenetreSansNumero adresse={adr} onCorriger={() => setFenetreSansNumero(false)}
+          onConfirmer={() => { setAdrEtat((x) => ({ ...x, sansNumeroConfirme: true })); setFenetreSansNumero(false); demander(true); }} />
+      )}
       {recap ? (
         <div className="plo-recap" role="alertdialog" aria-label="Récapitulatif des modifications" data-recap-fiche>
           <strong>Champs modifiés ({changements.length})</strong>
@@ -227,7 +251,7 @@ export function PanneauFiche({ a, nomPrenom, identite, orphelin, onEnregistre, c
       ) : (
         <span className="plo-boutons">
           <span className="plo-muet plo-petit-texte" data-etat-fiche>{changements.length === 0 ? 'Aucune modification.' : `${changements.length} champ(s) modifié(s).`}</span>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={changements.length === 0 || envoi} onClick={demander} data-enregistrer-fiche>Enregistrer la fiche</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={changements.length === 0 || envoi} onClick={() => demander()} data-enregistrer-fiche>Enregistrer la fiche</button>
         </span>
       )}
       {motif !== null && <p className="plo-erreur" role="alert" data-refus-local>{motif}</p>}

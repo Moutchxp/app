@@ -11,6 +11,9 @@ export const CIVILITES = ['M.', 'Mme', 'M. et Mme'] as const;
 export interface FicheApporteur {
   civilite: string; nomFamille: string; prenom: string; societe: string; type: TypeApporteur;
   telephone: string; telephonesAutres: string[]; email: string; emailsAutres: string[]; adresse: string; notes: string;
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 4, migration 486) le code postal et la commune (remplis par le choix dans la liste, ou saisis :
+   *  hors liste, à l'étranger) et le pays d'une adresse à l'étranger ; absents : non envoyés (ou base sans la 486) — rien ne change. */
+  codePostal?: string; commune?: string; adressePays?: string;
   /** 🔴 D38 (455) — « Particulier » / « Professionnel » ; absent : non envoyé (ou base sans la 455) — le statut en base est gardé. */
   statutTva?: StatutTva;
 }
@@ -27,6 +30,7 @@ export function ficheDe(a: Apporteur): FicheApporteur {
     civilite: t(a.civilite), nomFamille: np?.nomFamille ?? '', prenom: np?.prenom ?? '', societe: t(a.societe), type: a.type,
     telephone: t(a.telephone), telephonesAutres: liste(a.telephonesAutres), email: t(a.email), emailsAutres: liste(a.emailsAutres),
     adresse: t(a.adresse), notes: notes(a.notes), ...(a.statutTva !== undefined ? { statutTva: a.statutTva } : {}),
+    codePostal: t(a.codePostal), commune: t(a.commune), adressePays: t(a.adressePays),
   };
 }
 
@@ -42,7 +46,9 @@ export function verifierFiche(brut: unknown): { ok: true; fiche: FicheApporteur 
   if (b.statutTva !== undefined && !(STATUTS_TVA as readonly unknown[]).includes(b.statutTva)) return { ok: false, motif: 'Le statut de l’apporteur : Particulier (sans TVA) ou Professionnel (avec TVA).' };
   const f: FicheApporteur = { civilite: civ, nomFamille: t(b.nomFamille), prenom: t(b.prenom), societe: t(b.societe), type,
     telephone: t(b.telephone), telephonesAutres: liste(b.telephonesAutres), email: t(b.email), emailsAutres: liste(b.emailsAutres), adresse: t(b.adresse), notes: notes(b.notes),
-    ...(b.statutTva !== undefined ? { statutTva: b.statutTva as StatutTva } : {}) };
+    ...(b.statutTva !== undefined ? { statutTva: b.statutTva as StatutTva } : {}),
+    ...(b.codePostal !== undefined ? { codePostal: t(b.codePostal) } : {}), ...(b.commune !== undefined ? { commune: t(b.commune) } : {}),
+    ...(b.adressePays !== undefined ? { adressePays: t(b.adressePays) } : {}) };
   if (f.nomFamille === '' && f.prenom !== '') return { ok: false, motif: 'Un prénom sans nom de famille : saisissez le nom de famille (ou videz les deux pour une structure).' };
   for (const m of [f.email, ...f.emailsAutres]) if (m !== '' && !MAIL.test(m)) return { ok: false, motif: `L’e-mail « ${m} » est mal écrit (ex. nom@exemple.fr).` };
   return { ok: true, fiche: f };
@@ -50,15 +56,19 @@ export function verifierFiche(brut: unknown): { ok: true; fiche: FicheApporteur 
 
 export const LIBELLE_CHAMP_FICHE: Record<keyof FicheApporteur, string> = {
   civilite: 'Civilité', nomFamille: 'Nom de famille', prenom: 'Prénom', societe: 'Société', type: 'Type', telephone: 'Téléphone',
-  telephonesAutres: 'Autres téléphones', email: 'E-mail', emailsAutres: 'Autres e-mails', adresse: 'Adresse', notes: 'Notes', statutTva: 'Statut TVA',
+  telephonesAutres: 'Autres téléphones', email: 'E-mail', emailsAutres: 'Autres e-mails', adresse: 'Adresse', codePostal: 'Code postal', commune: 'Commune',
+  adressePays: 'Pays', notes: 'Notes', statutTva: 'Statut TVA',
 };
 const texteChamp = (k: keyof FicheApporteur, v: FicheApporteur[keyof FicheApporteur]): string =>
-  (Array.isArray(v) ? v.join(', ') : k === 'type' ? LIBELLE_TYPE_APPORTEUR[v as TypeApporteur] : k === 'statutTva' ? (v === undefined ? '' : LIBELLE_STATUT_TVA[v as StatutTva]) : String(v)) || '—';
+  (Array.isArray(v) ? v.join(', ') : k === 'type' ? LIBELLE_TYPE_APPORTEUR[v as TypeApporteur] : k === 'statutTva' ? (v === undefined ? '' : LIBELLE_STATUT_TVA[v as StatutTva])
+    : String(v ?? '')) || '—';
 
 /** Les SEULS champs modifiés, dans l'ordre de la fiche : le récapitulatif, et une ligne de journal chacun. 🔴 D38 — un statut TVA absent de
  *  l'envoi n'est pas un changement. PUR. */
 export function changementsFiche(avant: FicheApporteur, apres: FicheApporteur): { cle: keyof FicheApporteur; champ: string; avant: string; apres: string }[] {
   return (Object.keys(LIBELLE_CHAMP_FICHE) as (keyof FicheApporteur)[])
-    .filter((k) => !(k === 'statutTva' && apres.statutTva === undefined) && JSON.stringify(avant[k]) !== JSON.stringify(apres[k]))
+    // 🔴 (lot 4) un code postal, une commune ou un pays absents de l'envoi ne sont pas un changement
+    .filter((k) => !((k === 'statutTva' || k === 'codePostal' || k === 'commune' || k === 'adressePays') && apres[k] === undefined)
+      && JSON.stringify(avant[k] ?? '') !== JSON.stringify(apres[k] ?? ''))
     .map((k) => ({ cle: k, champ: LIBELLE_CHAMP_FICHE[k], avant: texteChamp(k, avant[k]), apres: texteChamp(k, apres[k]) }));
 }
