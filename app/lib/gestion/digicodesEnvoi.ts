@@ -90,7 +90,7 @@ export function proprietairesRegroupes(a: ApercuEnvoi): { personne: PersonneDest
 }
 
 const lignesCodes = (a: ApercuEnvoi, l: LogementDest): string[] => [
-  ...(l.codes.commun !== null ? [`- Digicode commun (${a.adresse}) : ${motCode(l.codes.commun)}${l.codes.communChange ? '' : ' (inchangé)'}`] : []),
+  ...(l.codes.commun !== null ? [`- Digicode copropriété (${a.adresse}) : ${motCode(l.codes.commun)}${l.codes.communChange ? '' : ' (inchangé)'}`] : []),
   ...(l.batiment !== null && l.codes.batiment !== null ? [`- Digicode du bâtiment ${l.batiment} : ${motCode(l.codes.batiment)}${l.codes.batimentChange ? '' : ' (inchangé)'}`] : []),
 ];
 

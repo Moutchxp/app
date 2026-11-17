@@ -303,7 +303,7 @@ export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, a
         const w = await ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment: c.batiment, valeur: { digicode: c.digicode, code: c.code }, nature: 'changement',
           appliqueLe: planifies.saisie.appliqueLe, origine: 'fiche_copropriete', copropriete }, auteur);
         // tous ou aucun : un refus LEVÉ annule les changements déjà écrits de cette fenêtre
-        if (!w.ok) throw new RefusDigicode(`${c.batiment === null ? 'Digicode commun' : `Bâtiment ${c.batiment}`} : ${w.motif}`);
+        if (!w.ok) throw new RefusDigicode(`${c.batiment === null ? 'Digicode copropriété' : `Bâtiment ${c.batiment}`} : ${w.motif}`);
       }
       return { ok: true };
     }

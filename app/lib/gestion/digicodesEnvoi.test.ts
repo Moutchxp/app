@@ -26,7 +26,7 @@ describe('🔴 UN MAIL PAR PERSONNE, nominatif, sans autre destinataire, avec SE
     expect(m.objet).toBe('Changement de digicode — 1 rue Essai — à partir du 20/11/2026 à 09:00');
     expect(m.texte).toContain('Bonjour Prénom1 NOM1,');
     expect(m.texte).toContain('Le digicode de votre immeuble change à partir du 20/11/2026 à 09:00.');
-    expect(m.texte).toContain('- Digicode commun (1 rue Essai) : C0MM');
+    expect(m.texte).toContain('- Digicode copropriété (1 rue Essai) : C0MM');
     expect(m.texte).toContain('- Digicode du bâtiment A : A111 (inchangé)');
     expect(m.texte).not.toContain('B222');
     expect(m.texte).not.toContain('NOM2'); // l'autre colocataire n'y figure pas
@@ -45,7 +45,7 @@ describe('🔴 UN MAIL PAR PERSONNE, nominatif, sans autre destinataire, avec SE
     const m = mailProprietaire(b, g[0], C)!;
     expect([m.sorte, m.a]).toEqual(['digicode_proprietaire', ['jean@exemple.test']]);
     expect(m.texte).toContain('Pour vos logements :');
-    expect(m.texte).toContain('1 rue Essai — lot 1 (bâtiment A) :\n- Digicode commun (1 rue Essai) : C0MM\n- Digicode du bâtiment A : A111 (inchangé)');
+    expect(m.texte).toContain('1 rue Essai — lot 1 (bâtiment A) :\n- Digicode copropriété (1 rue Essai) : C0MM\n- Digicode du bâtiment A : A111 (inchangé)');
     expect(m.texte).toContain('1 rue Essai — lot 2 (bâtiment B) :');
     expect(bilanEnvoi(b, true).mailsProprietaires).toBe(1);
     expect(objetChangement(b)).toContain('à partir du 20/11/2026 à 09:00');

@@ -63,7 +63,7 @@ describe('② l’ajout PAR LA SAISIE', () => {
     await monter();
     await clic($('[data-cbc-champ]'));
     await saisir($('[data-cbc-champ]'), 'a');
-    expect(menu().slice(0, 2)).toEqual(['Aucun bâtiment (code commun)', 'A']);
+    expect(menu().slice(0, 2)).toEqual(['Aucun bâtiment (digicode copropriété)', 'A']);
     expect(menu().some((m) => m?.startsWith('+ Ajouter'))).toBe(false);
   });
 });
@@ -156,7 +156,7 @@ describe('le MÊME composant dans la fiche Copropriété (ligne « + »)', () =>
 
 /**
  * 🔴🔴 Arno (17/11/2026) — deux réglages : ① la confirmation est une BULLE temporaire, superposée à la page (elle ne décale aucun champ) et qui
- * disparaît seule après environ 4 secondes ; ② un clic dans le champ, même vide, ouvre AUSSITÔT le menu : « Aucun bâtiment (code commun) », tous
+ * disparaît seule après environ 4 secondes ; ② un clic dans le champ, même vide, ouvre AUSSITÔT le menu : « Aucun bâtiment (digicode copropriété) », tous
  * les bâtiments dans l'ordre naturel (1, 2… 10 après 9 ; A, B…), les intitulés libres par ordre alphabétique, « Ajouter nouveau bâtiment » en bas.
  */
 describe('① la bulle de confirmation', () => {
@@ -186,13 +186,13 @@ describe('② le menu au clic sur le champ vide', () => {
     await monter({ connus: MELANGE, nomenclature: null });
     expect($('[data-cbc-menu]')).toBeNull();
     await clic($('[data-cbc-champ]'));
-    expect(menu()).toEqual(['Aucun bâtiment (code commun)', '1', '2', '10', 'A', 'B', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
+    expect(menu()).toEqual(['Aucun bâtiment (digicode copropriété)', '1', '2', '10', 'A', 'B', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
   });
   it('en tapant, la liste se filtre ; un nom nouveau garde « + Ajouter le bâtiment « … » » en premier', async () => {
     await monter({ connus: MELANGE, nomenclature: null });
     await clic($('[data-cbc-champ]'));
     await saisir($('[data-cbc-champ]'), 'Côté');
-    expect(menu()).toEqual(['+ Ajouter le bâtiment « Côté »', 'Aucun bâtiment (code commun)', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
+    expect(menu()).toEqual(['+ Ajouter le bâtiment « Côté »', 'Aucun bâtiment (digicode copropriété)', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
   });
 });
 
@@ -205,11 +205,11 @@ describe('④ un champ déjà rempli', () => {
   it('un clic : TOUTE la liste, « A » mise en évidence ; en tapant, la liste se filtre', async () => {
     await act(async () => { root.render(createElement(HoteRempli)); });
     await clic($('[data-cbc-champ]'));
-    expect(menu()).toEqual(['Aucun bâtiment (code commun)', 'A', 'C', 'Ajouter nouveau bâtiment']);
+    expect(menu()).toEqual(['Aucun bâtiment (digicode copropriété)', 'A', 'C', 'Ajouter nouveau bâtiment']);
     expect($('[data-cbc-option="A"]').className).toContain('cb-choisi');
     expect($('[data-cbc-option="A"]').getAttribute('aria-selected')).toBe('true');
     await saisir($('[data-cbc-champ]'), 'C');
-    expect(menu()).toEqual(['Aucun bâtiment (code commun)', 'C', 'Ajouter nouveau bâtiment']);
+    expect(menu()).toEqual(['Aucun bâtiment (digicode copropriété)', 'C', 'Ajouter nouveau bâtiment']);
   });
 });
 

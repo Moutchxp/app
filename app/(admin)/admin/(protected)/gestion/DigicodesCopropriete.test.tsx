@@ -193,7 +193,7 @@ describe('🔴🔴 (« Digicodes unifiés », lot 3) le composant unique avec la
   it('l’historique se déplie (saisies, corrections, changements…)', async () => {
     await act(async () => { root.render(createElement(HoteU)); });
     expect($('[data-dcp-historique] summary').textContent).toBe('Historique des digicodes (1)');
-    expect($('[data-dcp-historique-ligne="saisie"]').textContent).toContain('Résidence Les Tilleuls, digicode commun : code 1234 — saisi');
+    expect($('[data-dcp-historique-ligne="saisie"]').textContent).toContain('Résidence Les Tilleuls, digicode copropriété : code 1234 — saisi');
   });
   it('un changement prévu se lit sous le code', async () => {
     FICHE_U.digicodes[0].commun.etat = ETAT({ aVenir: [{ digicode: true, code: '9876', appliqueLe: '2026-11-20T08:00:00.000Z' }] });
@@ -220,10 +220,10 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
       createElement(DigicodesBien, { donnees: DONNEES as never, s, onChange: setS, batiment: bat, desactive: false }));
   }
   beforeEach(() => { choix = []; derniereSaisie = null; });
-  it('le menu : les bâtiments de TOUTE la copropriété, « Aucun bâtiment (code commun) », « Ajouter nouveau bâtiment » ; choisir A montre SA ligne', async () => {
+  it('le menu : les bâtiments de TOUTE la copropriété, « Aucun bâtiment (digicode copropriété) », « Ajouter nouveau bâtiment » ; choisir A montre SA ligne', async () => {
     await act(async () => { root.render(createElement(HoteBien)); });
     await clic($('[data-cbc-champ]'));
-    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['Aucun bâtiment (code commun)', 'A', 'C', 'Côté cour', 'Ajouter nouveau bâtiment']); // (Arno, 17/11/2026) « Aucun » en tête
+    expect([...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent)).toEqual(['Aucun bâtiment (digicode copropriété)', 'A', 'C', 'Côté cour', 'Ajouter nouveau bâtiment']); // (Arno, 17/11/2026) « Aucun » en tête
     await clic($('[data-cbc-option="A"]'));
     expect(choix.at(-1)).toEqual(['A', false]);
     expect($('[data-digicodes-bien] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');

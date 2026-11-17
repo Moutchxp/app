@@ -213,7 +213,7 @@ export function planRepriseUnifiee(d: DonneesAnciennes, lignes: readonly LigneDi
 /** Le rapport de reprise, en texte (fichier et console). 🔒 Les CODES n'y figurent pas en clair (seulement « oui · code ••12 » / « non »). PUR. */
 export function texteRapportRepriseUnifiee(p: PlanRepriseUnifiee, o: { reel: boolean; ecrites: number; date: string }): string {
   const masque = (v: ValeurDigicode): string => (v.digicode === null ? 'non renseigné' : v.digicode ? (v.code ? `oui · code ${'•'.repeat(Math.max(0, v.code.length - 2))}${v.code.slice(-2)}` : 'oui (code inconnu)') : 'non (pas de digicode)');
-  const place = (x: { adresse: string; batiment: string | null }): string => `${x.adresse}${x.batiment === null ? ' — code commun' : ` — bâtiment ${x.batiment}`}`;
+  const place = (x: { adresse: string; batiment: string | null }): string => `${x.adresse}${x.batiment === null ? ' — digicode copropriété' : ` — bâtiment ${x.batiment}`}`;
   return [
     `REPRISE DES DIGICODES DANS LA BASE UNIQUE (478) — ${o.reel ? 'RÉELLE (écrite)' : 'À BLANC (rien n’est écrit)'} — ${o.date}`,
     `Places (adresse de copropriété × bâtiment) portant une valeur d’avant : ${p.places}`,

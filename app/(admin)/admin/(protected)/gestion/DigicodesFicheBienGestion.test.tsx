@@ -65,7 +65,7 @@ describe('🔴 hors édition : un « Modifier » par code connu', () => {
   it('le commun ET le bâtiment A, chacun son bouton ; celui de A ouvre la fenêtre datée avec A SEUL coché (le commun reste cochable) ; la ligne « Digicode » et le « Modifier » de la section sont inchangés', async () => {
     global.fetch = vi.fn(async (url: string | URL | Request) => (decodeURIComponent(String(url)).includes('digicodesBien=7') ? ok(DEUX) : ok([]))) as unknown as typeof fetch;
     await act(async () => { root.render(createElement(Complements, { id: 7, c: C, apres: () => {}, categorie: 'logement' })); }); await calmer();
-    expect([...document.querySelectorAll('[data-dcp-lu-place]')].map((x) => [x.getAttribute('data-dcp-lu-place'), x.textContent])).toEqual([['commun', 'Code communModifier'], ['A', 'Code du bâtiment AModifier']]);
+    expect([...document.querySelectorAll('[data-dcp-lu-place]')].map((x) => [x.getAttribute('data-dcp-lu-place'), x.textContent])).toEqual([['commun', 'Digicode copropriétéModifier'], ['A', 'Code du bâtiment AModifier']]);
     expect($('[data-dcp-modifier-lus]').closest('dd')?.textContent).toContain('oui · code A1');
     expect(sectionModifier()).not.toBeUndefined();
     await clic($('[data-dcp-lu-place="A"] [data-dcp-modifier-lu]'));

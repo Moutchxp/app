@@ -576,7 +576,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   };
   const saisieModif = saisieModification();
   const changementsDigi: ChangementFiche[] = digiEnvoi === null ? [] : [
-    ...(digiEnvoi.commun !== null ? [{ cle: 'digicodeCommun', champ: 'Digicode commun (première saisie)', avant: '—', apres: motValeur(digiEnvoi.commun.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.commun.code }) }] : []),
+    ...(digiEnvoi.commun !== null ? [{ cle: 'digicodeCommun', champ: 'Digicode copropriété (première saisie)', avant: '—', apres: motValeur(digiEnvoi.commun.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.commun.code }) }] : []),
     ...(digiEnvoi.codeBatiment !== null ? [{ cle: 'digicodeBatiment', champ: `Digicode du bâtiment ${digiEnvoi.batiment ?? ''} (première saisie)`, avant: '—',
       apres: motValeur(digiEnvoi.codeBatiment.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.codeBatiment.code }) }] : [])];
   // 🔴 (Arno, 17/11/2026) les PV d'AG en attente : dans le récapitulatif (et ils suffisent à enregistrer)

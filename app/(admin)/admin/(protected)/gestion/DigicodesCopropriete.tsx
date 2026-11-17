@@ -184,7 +184,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
             : <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>}
           {placeLue(d.communEtat) ? (
             <div className={`dcp-ligne${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
-              <PlaceDigicodeLue titre="Digicode commun" enLigne={variante === 'location'} etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
+              <PlaceDigicodeLue titre="Digicode copropriété" enLigne={variante === 'location'} etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {plus(d)}
@@ -192,7 +192,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           <div className={`dcp-ligne${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
             {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
             <span className="dcp-code-groupe">
-            <label className="dcp-champ dcp-champ-code"><span>Digicode commun</span>
+            <label className="dcp-champ dcp-champ-code"><span>Digicode copropriété</span>
               <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : 'facultatif'} maxLength={MAX_CODE_DIGICODE_UNIFIE}
                 onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code: e.target.value } }))} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
@@ -231,7 +231,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
               </span>
-              {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode commun de l’adresse.</p>}
+              {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode copropriété.</p>}
               {tente && b.nouveau && batimentDe(b.libelle) === null && <p className="dcp-ligne-erreur" role="alert" data-dcp-erreur-ligne>Donnez un nom au bâtiment ou à la cage d’escalier.</p>}
             </div>)))}
         </div>))}
@@ -339,7 +339,7 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
   const [decoches, setDecoches] = useState<Set<number>>(() => new Set());
   const [proprietaires, setProprietaires] = useState(false);
   const [fait, setFait] = useState<IssueEnvoi | null>(null);
-  const places = [...(d.communEtat?.connu ? [{ cle: '', libelle: null as string | null, titre: 'Digicode commun', etat: d.communEtat }] : []),
+  const places = [...(d.communEtat?.connu ? [{ cle: '', libelle: null as string | null, titre: 'Digicode copropriété', etat: d.communEtat }] : []),
     ...d.batiments.filter((b) => b.etat?.connu).map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, libelle: b.libelle as string | null, titre: `Bâtiment / cage ${b.libelle}`, etat: b.etat as EtatPlaceDigicode }))];
   const [coches, setCoches] = useState<Record<string, CodeLigne | undefined>>(() => (places.some((p) => p.cle === depart && p.etat.aVenir.length === 0) ? { [depart]: { code: '', aucun: false } } : {}));
   const [date, setDate] = useState(demainParis());
@@ -437,7 +437,7 @@ function EcranDestinataires({ a, mode, decoches, onDecoches, proprietaires, onPr
       <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-dest-titre" onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onRetour(); } }}>
         <p className="dcp-alerte-titre" id="dcp-dest-titre">{locataires ? 'B. Écrire maintenant aux locataires' : 'A. Prévenir la Gestion seulement'}</p>
         <p className="dcp-alerte-texte">{a.adresse} — nouveau code à partir du {dateHeure(a.appliqueLe)}. {locataires
-          ? 'Seuls les locataires cochés reçoivent SON mail, à leur nom, sans autre destinataire, avec seulement le code commun et celui de leur bâtiment (une personne qui a plusieurs adresses e-mail reçoit un mail à chacune, séparément). Ensuite, la Gestion reçoit un mail qui liste les locataires prévenus.'
+          ? 'Seuls les locataires cochés reçoivent SON mail, à leur nom, sans autre destinataire, avec seulement le digicode copropriété et celui de leur bâtiment (une personne qui a plusieurs adresses e-mail reçoit un mail à chacune, séparément). Ensuite, la Gestion reçoit un mail qui liste les locataires prévenus.'
           : `Le changement est enregistré et un mail interne part à la Gestion (${a.adresseGestion ?? 'adresse des préférences'}) avec la date et la liste des logements concernés : la Gestion écrit elle-même aux locataires. AUCUN mail aux locataires.`}</p>
         <p className="dcp-total" data-dcp-total>{locataires ? t.phrase : `${a.logements.length} logement${a.logements.length > 1 ? 's' : ''} concerné${a.logements.length > 1 ? 's' : ''}`}</p>
         <ul className="dcp-dest-blocs">{a.logements.map((l) => (
@@ -506,7 +506,7 @@ function AArbitrer({ s, desactive, onArbitrer }: { s: readonly DigicodesAdresseS
       <p className="loc-muet dcp-sans-marge">Des valeurs différentes ont été saisies pour le même digicode (fiches d’avant). Rien n’a été choisi ni effacé : gardez la bonne.</p>
       {places.map((p) => (
         <div key={`${p.d.cle}#${p.batiment ?? ''}`} className="dcp-arbitrer-place" data-dcp-arbitrer-place={`${p.d.cle}#${p.batiment ?? ''}`}>
-          <p className="dcp-titre">{adresseImmeuble(p.d.voie, p.d.codePostal, p.d.commune)} — {p.batiment === null ? 'digicode commun' : `bâtiment / cage ${p.batiment}`}</p>
+          <p className="dcp-titre">{adresseImmeuble(p.d.voie, p.d.codePostal, p.d.commune)} — {p.batiment === null ? 'digicode copropriété' : `bâtiment / cage ${p.batiment}`}</p>
           <ul className="dcp-arbitrer-liste">{p.etat.aArbitrer.map((c, i) => {
             const id = `${p.d.cle}#${p.batiment ?? ''}#${i}`;
             const v = c.digicode === false ? { digicode: false, code: null } : c.code ? { digicode: true, code: c.code } : null;
@@ -525,7 +525,7 @@ function AArbitrer({ s, desactive, onArbitrer }: { s: readonly DigicodesAdresseS
 
 /** 🔴 (478) L'HISTORIQUE des digicodes de la copropriété (base unique : saisies, corrections, changements, reprises, arbitrages), le plus récent d'abord. */
 function HistoriqueDigicodes({ s }: { s: readonly DigicodesAdresseSaisis[] }) {
-  const lignes = s.flatMap((d) => [...(d.communEtat?.historique ?? []).map((h) => ({ h, d, place: 'digicode commun' })),
+  const lignes = s.flatMap((d) => [...(d.communEtat?.historique ?? []).map((h) => ({ h, d, place: 'digicode copropriété' })),
     ...d.batiments.flatMap((b) => (b.etat?.historique ?? []).map((h) => ({ h, d, place: `bâtiment ${b.libelle}` })))])
     .sort((a, b) => new Date(b.h.creeLe).getTime() - new Date(a.h.creeLe).getTime() || b.h.id - a.h.id);
   if (lignes.length === 0) return null;
@@ -730,7 +730,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
      (menuBatiments), et « Ajouter nouveau bâtiment » tout en bas ; en tapant, la liste se filtre */
   const options: { k: string; mot: string; agir: () => void; attr: Record<string, string>; nouveau?: boolean; choisi?: boolean }[] = [
     ...(filtre !== '' && existe(filtre) === undefined ? [{ k: '+saisi', mot: `+ Ajouter le bâtiment « ${filtre} »`, agir: () => valider(filtre, false), attr: { 'data-cb-ajouter-saisi': '' }, nouveau: true }] : []),
-    ...(avecAucun ? [{ k: '∅', mot: 'Aucun bâtiment (code commun)', agir: () => { fermer(); setMessage(null); onChoix('', false); }, attr: { [A.aucun]: '' } }] : []),
+    ...(avecAucun ? [{ k: '∅', mot: 'Aucun bâtiment (digicode copropriété)', agir: () => { fermer(); setMessage(null); onChoix('', false); }, attr: { [A.aucun]: '' } }] : []),
     ...tous.filter((o) => filtre === '' || o.cle.includes(cleFiltre)).map((o) => ({ k: o.cle, mot: o.libelle, agir: () => valider(o.libelle, false), attr: { [A.option]: o.libelle }, choisi: cleT !== '' && cleT === o.cle })),
     { k: '+nouveau', mot: 'Ajouter nouveau bâtiment', agir: () => { fermer(); setAjout({ nom: '', erreur: null }); }, attr: { [A.nouveau]: '' }, nouveau: true },
   ];
@@ -882,7 +882,7 @@ export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onAper
   const [depart, setDepart] = useState<string | null>(null);
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const d: DigicodesAdresseSaisis = { ...s, batiments: ligne !== null && ligne.etat?.connu ? [ligne] : [] };
-  const places = [...(d.communEtat?.connu ? [{ cle: '', repere: 'commun', mot: 'Code commun' }] : []),
+  const places = [...(d.communEtat?.connu ? [{ cle: '', repere: 'commun', mot: 'Digicode copropriété' }] : []),
     ...d.batiments.map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, repere: b.libelle, mot: `Code du bâtiment ${b.libelle}` }))];
   if (donnees.adresseCle === '' || places.length === 0) return null;
   return (
@@ -909,6 +909,10 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .dcp-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
 .dcp-ligne--concerne{outline:2px solid var(--color-svv-red);outline-offset:6px;border-radius:14px}
+/* 🔴 (Arno, 17/11/2026 : « MÈRE / FILLE : […] Les lignes « Digicode bâtiment X » sont légèrement décalées vers la droite sous la ligne copropriété (retrait
+   régulier, avec un trait vertical discret à gauche qui les rattache), et restent alignées entre elles. Au téléphone 390 px, retrait réduit, rien ne déborde. ») */
+.dcp-ligne.dcp-ligne--batiment{margin-left:22px;padding-left:16px;border-left:2px solid var(--color-svv-line);box-sizing:border-box;max-width:calc(100% - 22px)}
+@media (max-width:640px){.dcp-ligne.dcp-ligne--batiment{margin-left:8px;padding-left:10px;max-width:calc(100% - 8px)}}
 .dcp-champ{display:flex;flex-direction:column;gap:3px;font-size:.85rem;font-weight:700;color:var(--color-svv-ink);min-width:0;flex:1 1 140px;position:relative}
 .dcp-champ input{min-height:44px;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:8px 10px;font:inherit;font-weight:400}
 .dcp-champ input:disabled{opacity:.6}

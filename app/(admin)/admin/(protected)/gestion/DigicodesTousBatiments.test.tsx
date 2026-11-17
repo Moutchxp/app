@@ -124,3 +124,21 @@ describe('🔴 le liseré des lignes qui concernent le logement', () => {
     expect(container.querySelector('[data-dcp-concerne]')).toBeNull();
   });
 });
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « MÈRE / FILLE : « Digicode commun » devient « Digicode copropriété » partout (écrans, récapitulatifs, mails, fenêtres). Les lignes
+ * « Digicode bâtiment X » sont légèrement décalées vers la droite sous la ligne copropriété (retrait régulier, avec un trait vertical discret à gauche qui
+ * les rattache), et restent alignées entre elles. Au téléphone 390 px, retrait réduit, rien ne déborde. »
+ */
+describe('🔴 « Digicode copropriété » et les lignes de bâtiment en retrait', () => {
+  it('l’intitulé « Digicode copropriété », plus aucun « commun » à l’écran ; chaque ligne de bâtiment porte le retrait (le même pour toutes)', async () => {
+    const s = saisieDigicodesInitiale({ batimentsConnus: [A, B], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières', commun: { digicode: null, code: null }, batiments: [] }] });
+    await act(async () => { root.render(createElement(DigicodesCopropriete, { s, onChange: () => {}, connus: [A, B], nomenclature: 'lettres', desactive: false })); });
+    expect($('[data-dcp-commun]')!.textContent).toContain('Digicode copropriété');
+    expect(container.textContent).not.toMatch(/[Dd]igicode commun|[Cc]ode commun/);
+    expect([...container.querySelectorAll('[data-dcp-batiment]')].every((x) => x.classList.contains('dcp-ligne--batiment'))).toBe(true);
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.dcp-ligne.dcp-ligne--batiment{margin-left:22px;padding-left:16px;border-left:2px solid var(--color-svv-line)');
+    expect(css).toContain('@media (max-width:640px){.dcp-ligne.dcp-ligne--batiment{margin-left:8px;padding-left:10px');
+  });
+});
