@@ -5,7 +5,7 @@ import { query } from '../../../../../../lib/db/client';
 import { colonneExisteMemo } from '../../../../../../lib/location/sondeLocation';
 import { ficheCopropriete } from '../../../../../../lib/gestion/coproprieteRepo';
 import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/gestion/digicodesEnvoiRepo';
-import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, propositionsParcelle } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
+import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, propositionsParcelle, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
 
@@ -72,7 +72,7 @@ export async function POST(request: Request): Promise<Response> {
     const geste = gesteDeLAction(corps.action);
     if (geste !== null) {
       const r = await gesteDigicodeCopro(corps, geste, await auteurDeLaRequete(request));
-      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+      return Response.json(reponseGesteDigicode(r), { headers: ENTETES });
     }
     return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
   } catch (e) {

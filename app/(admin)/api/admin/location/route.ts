@@ -35,7 +35,7 @@ import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
 import { nomAuteurAg, agDuBien, enregistrerPv } from '../../../../lib/location/agCoproprieteRepo';
 import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
 import { digicodesPourBien } from '../../../../lib/gestion/digicodesBienRepo';
-import { gesteDeLAction, gesteDigicodeCopro } from '../../../../lib/gestion/coproprieteEcritureRepo';
+import { gesteDeLAction, gesteDigicodeCopro, reponseGesteDigicode } from '../../../../lib/gestion/coproprieteEcritureRepo';
 import { apercuChangement, planifierEtPrevenir } from '../../../../lib/gestion/digicodesEnvoiRepo';
 import { mandatsDesProprietaires } from '../../../../lib/location/mandatBienRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
@@ -456,7 +456,7 @@ async function postLocation(request: Request): Promise<Response> {
       return Response.json(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
     }
     const geste = gesteDeLAction(action);
-    if (geste !== null) return Response.json(await gesteDigicodeCopro(corps, geste, auteur), { headers: ENTETES });
+    if (geste !== null) return Response.json(reponseGesteDigicode(await gesteDigicodeCopro(corps, geste, auteur)), { headers: ENTETES });
     switch (action) {
       // ══ 🔴🔴 LE PRÉAVIS DE TEST (Arno, 14/11/2026, 473) — RÉSERVÉ AUX ADMINISTRATEURS (rôle relu en base). Bien et locataire fictifs, mails au
       //    seul créateur ; « Supprimer » annule et MASQUE (rien n'est effacé).

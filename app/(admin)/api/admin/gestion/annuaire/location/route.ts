@@ -1,7 +1,7 @@
 import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreRequete';
 import 'server-only';
 import { digicodesPourBien } from '../../../../../../lib/gestion/digicodesBienRepo';
-import { gesteDeLAction, gesteDigicodeCopro } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
+import { gesteDeLAction, gesteDigicodeCopro, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/gestion/digicodesEnvoiRepo';
 import { lireRetouches, SORTES_MODIFIABLES_PREAVIS } from '../../../../../../lib/location/texteModifiable';
 import { estGroupeEncart, lireEncartBien, modificationsEncart, modifierEncartBien } from '../../../../../../lib/location/encartBienRepo';
@@ -164,7 +164,7 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
       return repondre(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif });
     }
     const geste = gesteDeLAction(corps.action);
-    if (geste !== null) return repondre(await gesteDigicodeCopro(corps, geste, auteur));
+    if (geste !== null) return repondre(reponseGesteDigicode(await gesteDigicodeCopro(corps, geste, auteur)));
     switch (corps.action) {
       case 'numero-mandat':
         if (id === null) return incomplet();

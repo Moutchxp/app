@@ -33,7 +33,7 @@ vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => un.
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
 const va = vi.hoisted(() => ({ vues: [] as unknown[][], issue: { ok: true } as { ok: true } | { ok: false; motif: string } }));
 vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknown[]) => { va.vues.push(a); return va.issue; } }));
-import { enregistrerCopropriete, gesteDigicodeCopro, validerSaisieCopropriete } from './coproprieteEcritureRepo';
+import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleuls', declaree: true, id: 7, libelle: 'Résidence Les Tilleuls', nom: null, horsCopropriete: false, nomenclature: null,
@@ -266,5 +266,13 @@ describe('🔴🔴 (« Digicodes unifiés », lot 5) « Modifier » : changement
     expect(un.ecrits).toEqual([]);
     expect((await gesteDigicodeCopro({ immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', ligneId: 42 }, 'annulation', AUTEUR)).ok).toBe(true);
     expect(un.ecrits).toEqual([{ annulation: 42, adresseCle: 'residence les tilleuls' }]);
+  });
+});
+
+/** 🔴 (Arno, 17/11/2026 — « Annuler ce changement ») la réponse d'un geste de digicode, la même pour toutes les routes (Location, fiche du bien, fiche Copropriété) */
+describe('🔴 la réponse d’un geste de digicode', () => {
+  it('fait : « etat: ok » (l’écran relit les codes) ; refusé : « etat: refus » avec son motif', () => {
+    expect(reponseGesteDigicode({ ok: true, fiche: { cle: 'x' } as never })).toEqual({ etat: 'ok', data: { cle: 'x' } });
+    expect(reponseGesteDigicode({ ok: false, motif: 'Refusé : …' })).toEqual({ etat: 'refus', motif: 'Refusé : …' });
   });
 });

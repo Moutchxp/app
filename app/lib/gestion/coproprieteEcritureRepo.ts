@@ -276,6 +276,15 @@ export const gesteDeLAction = (a: unknown): GesteDigicode | null => (typeof a ==
  * bâtiments) — tous ou aucun (une transaction ; un refus annule tout). Avant la date, l'ancien code reste en vigueur ; ensuite il reste dans
  * l'historique. « Annuler ce changement » : un changement encore à venir, marqué annulé (jamais effacé). Aucun envoi ici.
  */
+/**
+ * 🔴 (Arno, 17/11/2026 — « Annuler ce changement ») La RÉPONSE d'un geste de digicode, la même pour toutes les routes : `{ etat: 'ok', data }` ou
+ * `{ etat: 'refus', motif }`. Les routes de la Location et de la fiche du bien (Gestion) renvoyaient le résultat brut (`{ ok, fiche }`) : l'écran,
+ * qui lit `etat`, croyait le geste refusé (« Enregistrement refusé. ») alors qu'il était fait, et ne relisait pas les codes. PUR.
+ */
+export function reponseGesteDigicode(r: { ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }): { etat: 'ok'; data: FicheCopropriete } | { etat: 'refus'; motif: string } {
+  return r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif };
+}
+
 export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
   const b = (brut ?? {}) as Record<string, unknown>;
   if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478) : rien n’est enregistré.' };
