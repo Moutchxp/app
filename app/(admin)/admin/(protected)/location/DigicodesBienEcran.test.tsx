@@ -125,8 +125,8 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
     expect(ordre(bloc.querySelector('.loc-acces')!, bloc.querySelector('[data-ligne-situation]')!)).toBe(true);
     expect(ordre($('[data-cbc-champ]'), $('[data-precision]'))).toBe(true);
     expect(bloc.querySelector('.loc-acces [data-digicodes-unifies]')).not.toBeNull();
-    // 🔴 (Arno, 17/11/2026) « Digicode : Oui / Non » sous l’Ascenseur, puis (sur « Oui ») le bloc de saisie et son libellé
-    expect([...bloc.querySelectorAll('.loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode', 'Digicode']);
+    // 🔴 (Arno, 17/11/2026) « Digicode : Oui / Non » sous l’Ascenseur ; le second titre « Digicode » du bloc de saisie est retiré (accord d’Arno)
+    expect([...bloc.querySelectorAll('.loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode']);
     expect([...document.querySelectorAll('h4')].some((h) => h.textContent === 'Situation dans l’immeuble')).toBe(false);
   });
   it('🔴 (Arno, 17/11/2026) « Copropriété & ID fiscal » porte le bloc AG (PV d’AG) : adresse pas encore choisie, dit clairement, « + Ajouter un PV d’AG »', async () => {
@@ -200,5 +200,20 @@ describe('🔴🔴 ce qui part selon « Oui / Non » (pur)', () => {
     expect(envoiSelonChoixDigicode(e, false, false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: { code: '', aucun: true }, codeBatiment: null });
     expect(envoiSelonChoixDigicode(e, false, true)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: null });
     expect([choixDigicodeEffectif(null, true), choixDigicodeEffectif(null, false), choixDigicodeEffectif(false, true)]).toEqual([true, null, false]);
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « bloc « Accès » : bien aligner tous les champs à la verticale » — colonne d'intitulés de même largeur, boutons Oui / Non au même bord ; le commun et chaque « Digicode bâtiment X » empilés, champs de même largeur, « pas de digicode », « + », « Modifier », « Corriger » et « × » en colonnes ; le second titre « Digicode » retiré (accord d'Arno). */
+describe('🔴🔴 « Accès » aligné', () => {
+  it('un seul titre « Digicode » ; le code commun lu sur une ligne (comme les bâtiments) ; les mêmes colonnes pour chaque ligne', async () => {
+    await monter();
+    expect([...document.querySelectorAll('.loc-acces .loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode']);
+    expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-lue]').className).toContain('dcp-lue--en-ligne');
+    const { CSS_DIGICODES_COPRO } = await import('../gestion/DigicodesCopropriete');
+    expect(CSS_DIGICODES_COPRO).toContain('.dcp--location .dcp-ligne{display:grid;grid-template-columns:var(--dcp-c1) var(--dcp-c2) var(--dcp-c3);');
+    expect(CSS_DIGICODES_COPRO).toContain('.dcp--location .dcp-ligne > .dcp-lue{grid-column:1 / span 2;');
+    const { CSS_LOCATION_CREATION } = await import('./commun');
+    expect(CSS_LOCATION_CREATION).toContain('.loc-acces-mot{flex:0 0 var(--acces-mot);');
+    expect(CSS_LOCATION_CREATION).toContain('.loc-acces-digicodes{flex-direction:column;align-items:stretch;min-width:0;padding-left:calc(var(--acces-mot) + var(--acces-ecart))}');
   });
 });

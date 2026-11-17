@@ -406,11 +406,18 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-pleine{grid-column:1 / -1}
 .loc-familles{grid-template-columns:repeat(3,minmax(0,1fr))}
 .loc-familles .loc-gros-bouton{min-height:6.5rem;font-size:1.45rem}
-.loc-acces{display:flex;flex-wrap:wrap;gap:16px 36px;align-items:center}
-.loc-acces-bloc{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
-.loc-acces > .loc-acces-bloc[data-digicode-oui-non]{flex-basis:100%}
-.loc-acces-mot{font-weight:700;font-size:1.02rem;color:var(--color-svv-ink)}
-.loc-acces-digicodes{flex:1 1 100%;flex-direction:column;align-items:stretch;min-width:0}
+/* 🔴 (Arno, 17/11/2026 : « bloc « Accès » : bien aligner tous les champs à la verticale ») : une colonne d'intitulés de même largeur ; les boutons Oui / Non et le bloc des digicodes commencent au MÊME bord gauche ;
+   au téléphone, l'intitulé au-dessus et tout au même bord gauche */
+.loc-acces{--acces-mot:8.5rem;--acces-ecart:12px;display:flex;flex-direction:column;align-items:stretch;gap:16px}
+.loc-acces-bloc{display:flex;flex-wrap:wrap;align-items:center;gap:var(--acces-ecart)}
+.loc-acces > .loc-acces-bloc[data-digicode-oui-non]{flex-basis:auto}
+.loc-acces-mot{flex:0 0 var(--acces-mot);font-weight:700;font-size:1.02rem;color:var(--color-svv-ink)}
+.loc-acces-digicodes{flex-direction:column;align-items:stretch;min-width:0;padding-left:calc(var(--acces-mot) + var(--acces-ecart))}
+@media (max-width:640px){
+  .loc-acces-bloc{flex-direction:column;align-items:flex-start;gap:8px}
+  .loc-acces-mot{flex:0 0 auto}
+  .loc-acces-digicodes{padding-left:0}
+}
 .loc-acces-code{flex:1 1 16rem}
 .loc-annexe-adresse{margin:0 0 12px}
 .loc-annexe-parking{display:flex;flex-direction:column;gap:10px;margin:0 0 14px}

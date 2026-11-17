@@ -153,7 +153,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
             : <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>}
           {placeLue(d.communEtat) ? (
             <div className="dcp-ligne" data-dcp-commun>
-              <PlaceDigicodeLue titre="Digicode commun" etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
+              <PlaceDigicodeLue titre="Digicode commun" enLigne={variante === 'location'} etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {plus(d)}
@@ -895,13 +895,30 @@ export const CSS_DIGICODES_COPRO = `
 .dcp--location .dcp-lue{flex:1 1 260px}
 .dcp--location .dcp-lien{min-height:44px;font-size:1rem}
 .dcp--location .dcp-mention{font-size:.9rem}
+/* 🔴 (Arno, 17/11/2026 : « bloc « Accès » : bien aligner tous les champs à la verticale ») (fiche du bien seulement : variante « location ») — chaque ligne sur la MÊME grille : le champ (ou le code lu), « pas de digicode »,
+   puis « + » / « × » ; « Modifier » / « Corriger » au même endroit dans chaque code lu ; même espacement vertical */
+.dcp--location{--dcp-c1:13.5rem;--dcp-c2:20rem;--dcp-c3:54px;--dcp-ecart:12px}
+.dcp--location .dcp-ligne{display:grid;grid-template-columns:var(--dcp-c1) var(--dcp-c2) var(--dcp-c3);column-gap:var(--dcp-ecart);row-gap:8px;align-items:end;justify-content:start}
+.dcp--location .dcp-ligne > .dcp-lue{grid-column:1 / span 2;width:auto;min-width:0}
+.dcp--location .dcp-ligne > .dcp-code-groupe{display:contents}
+.dcp--location .dcp-champ.dcp-champ-code{grid-column:1;width:100%}
+.dcp--location .dcp-champ.dcp-champ-code input{width:100%}
+.dcp--location .dcp-code-groupe .dcp-aucun{grid-column:2;justify-self:start;box-sizing:border-box;max-width:100%}
+.dcp--location .dcp-ligne > .dcp-plus,.dcp--location .dcp-code-groupe .dcp-plus,.dcp--location .dcp-code-groupe .dcp-retirer,.dcp--location .dcp-ligne > .dcp-retirer{grid-column:3;justify-self:start}
+.dcp--location .dcp-ligne > .dcp-lue + .dcp-plus{align-self:center}
+.dcp--location .dcp-ligne > p,.dcp--location .dcp-ligne > .dcp-champ-bat{grid-column:1 / -1}
+.dcp--location .dcp-lue--en-ligne{grid-template-columns:minmax(0,1fr) auto}
+.dcp--location .dcp-lue--en-ligne > .dcp-gestes{justify-self:end}
 .dcp--location .dcp-code-groupe{gap:12px;align-items:flex-end}
 .dcp--location .dcp-champ.dcp-champ-code{flex:0 0 auto}
-.dcp--location .dcp-champ.dcp-champ-code input{width:calc(15ch + 40px)}
 @media (max-width:640px){
   .dcp-code-groupe{gap:6px}
   .dcp--location .dcp-code-groupe{gap:4px}
-  .dcp--location .dcp-champ.dcp-champ-code input{font-size:.9rem;padding:0 7px;width:calc(15ch + 16px)}
+  .dcp--location .dcp-champ.dcp-champ-code input{font-size:.9rem;padding:0 7px;width:100%}
+  .dcp--location{--dcp-c1:9.9rem;--dcp-c2:6.4rem;--dcp-c3:44px;--dcp-ecart:4px}
+  .dcp--location .dcp-code-groupe .dcp-aucun{width:100%}
+  .dcp--location .dcp-lue--en-ligne{grid-template-columns:minmax(0,1fr)}
+  .dcp--location .dcp-lue--en-ligne > .dcp-gestes{justify-self:start}
   .dcp--location .dcp-code-groupe .dcp-aucun{padding:0 8px;gap:4px;font-size:.78rem;line-height:1.15}
   .dcp--location .dcp-code-groupe .dcp-plus{min-width:44px;min-height:44px;width:44px}
   .dcp-code-groupe .dcp-aucun{font-size:.85rem;line-height:1.15}
