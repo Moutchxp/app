@@ -111,6 +111,19 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
     expect([...document.querySelectorAll('[data-digicode] button')].some((b) => b.textContent === 'Oui')).toBe(false);
     expect([...document.querySelectorAll('.loc-champ')].some((l) => l.firstChild?.textContent === 'Bâtiment')).toBe(false);
   });
+  it('🔴 (Arno, 17/11/2026) « Situation et accès dans l’immeuble » : l’Accès (Ascenseur, Digicode) JUSTE SOUS le titre, au-dessus de « Bâtiment / cage d’escalier · Étage · N° de porte » ; Précision après ; rien de retiré', async () => {
+    reponse = DIGI;
+    await monterNouveau();
+    const bloc = $('[data-situation-acces]');
+    expect([...bloc.querySelectorAll(':scope > h4')].map((h) => h.textContent)).toEqual(['Situation et accès dans l’immeuble', 'Accès']);
+    const ordre = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(ordre(bloc.querySelector('h4')!, bloc.querySelector('.loc-acces')!)).toBe(true);
+    expect(ordre(bloc.querySelector('.loc-acces')!, bloc.querySelector('[data-ligne-situation]')!)).toBe(true);
+    expect(ordre($('[data-cbc-champ]'), $('[data-precision]'))).toBe(true);
+    expect(bloc.querySelector('.loc-acces [data-digicodes-unifies]')).not.toBeNull();
+    expect([...bloc.querySelectorAll('.loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode']);
+    expect([...document.querySelectorAll('h4')].some((h) => h.textContent === 'Situation dans l’immeuble')).toBe(false);
+  });
   it('🔴 (Arno, 17/11/2026) UN SEUL CHAMP : « Bâtiment / cage d’escalier » (texte d’aide court) ; le champ « Escalier » est retiré', async () => {
     reponse = DIGI;
     await monterNouveau();

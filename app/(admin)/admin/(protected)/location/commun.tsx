@@ -345,6 +345,7 @@ export const CSS_LOCATION_CREATION = `
 .loc-section-phrase{margin:-8px 0 0;color:var(--color-svv-muted);font-size:1rem}
 .loc-sous-section{display:flex;flex-direction:column;gap:14px;padding-top:6px}
 .loc-sous-section > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
+.loc-sous-section > h4.loc-sous-titre-acces{font-size:.95rem;font-weight:700;color:var(--color-svv-muted);margin-bottom:-6px}
 .loc-ample .loc-grille{grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:18px 22px}
 .loc-ample .loc-champ{font-size:1rem;gap:8px;color:var(--color-svv-ink);font-weight:600}
 .loc-ample .loc-champ input,.loc-ample .loc-champ select,.loc-ample .loc-champ textarea{min-height:58px;font-size:1.1rem;font-weight:400;border-radius:16px;border:2px solid var(--color-svv-line);padding:0 16px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-family:inherit;box-sizing:border-box;width:100%}

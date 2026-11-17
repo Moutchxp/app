@@ -896,29 +896,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           <p className="mfb-note" data-note-drive-adresse>Le dossier Drive du bien garde son nom et sa place : un changement d’adresse ne le renomme ni ne le déplace.</p>
         )}
         {manqueDe('adresse')}
-        <div className="loc-sous-section">
-          <h4>Situation dans l’immeuble</h4>
-          <div className="loc-grille" data-ligne-situation>
-            {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre. Avec la 478 : le MENU des bâtiments
-                de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
-            {digiBien !== null
-              ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
-                  onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
-              : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
-              : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
-            {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]
-                Le champ « Escalier » est RETIRÉ […] ici ET partout où un bien se crée ou se modifie ») : sa valeur reste en base et repart telle quelle ;
-                notée, elle est PROPOSÉE dans le menu « Bâtiment / cage d'escalier » (jamais écrite toute seule). Sans la 478, le champ reste. */}
-            {digiBien === null && !digiCharge && champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
-            <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
-            {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
-            <label className="loc-champ loc-pleine" data-precision>Précision
-              <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
-                placeholder="ex. À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
-          </div>
-        </div>
-        <div className="loc-sous-section">
-          <h4>Accès</h4>
+        {/* 🔴 (Arno, 17/11/2026 : « le titre « Situation dans l'immeuble » devient « Situation et accès dans l'immeuble ». Le bloc « Accès » (Ascenseur
+            Oui/Non + Digicode […]) remonte JUSTE SOUS ce titre, au-dessus de la ligne « Bâtiment / cage d'escalier · Étage · N° de porte ». Précision reste
+            après. Rien n'est retiré. ») — l'intertitre « Accès » reste au-dessus de son bloc */}
+        <div className="loc-sous-section" data-situation-acces>
+          <h4>Situation et accès dans l’immeuble</h4>
+          <h4 className="loc-sous-titre-acces">Accès</h4>
           <div className="loc-acces">
             <div className="loc-acces-bloc"><span className="loc-acces-mot">Ascenseur</span>
               <Pilules etiquette="Ascenseur" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(ascenseur)}
@@ -948,6 +931,24 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               {digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{lu !== undefined ? ' — le modifier vaut pour tout l’immeuble (son bâtiment)' : digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>
                 : lu?.digicodeImmeuble?.mention ? <small className="loc-aide loc-aide--long" data-digicode-immeuble>{lu.digicodeImmeuble.mention} — le modifier vaut pour tout l’immeuble (son bâtiment).</small> : null}
             </div>)}
+          </div>
+          <div className="loc-grille" data-ligne-situation>
+            {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre. Avec la 478 : le MENU des bâtiments
+                de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
+            {digiBien !== null
+              ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
+                  onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+              : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
+              : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
+            {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]
+                Le champ « Escalier » est RETIRÉ […] ici ET partout où un bien se crée ou se modifie ») : sa valeur reste en base et repart telle quelle ;
+                notée, elle est PROPOSÉE dans le menu « Bâtiment / cage d'escalier » (jamais écrite toute seule). Sans la 478, le champ reste. */}
+            {digiBien === null && !digiCharge && champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
+            <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
+            {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
+            <label className="loc-champ loc-pleine" data-precision>Précision
+              <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
+                placeholder="ex. À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
           </div>
         </div>
       </section>
