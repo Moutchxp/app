@@ -1,4 +1,5 @@
 import { query, type RequeteTx } from '../db/client';
+import { batimentsRetires } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { batimentDe, nomenclatureDe, refusDesBatiments, type BatimentConnu, type Nomenclature } from './batimentsCopropriete';
@@ -60,10 +61,13 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
   }
   const fiche = await ficheCopropriete(immeuble);
   const [d] = await digicodesDesAdresses([adresseCle]);
+  const retires = await batimentsRetires(fiche?.id ?? null);
   const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p), nbBiens: p.nbBiens });
   const voie = fiche?.adresses.find((a) => a.cle === adresseCle)?.libelle ?? immeuble;
   const adresse: DigicodesAdresseFiche = { cle: adresseCle, voie, codePostal: fiche?.adresses.find((a) => a.cle === adresseCle)?.codePostal ?? cp, commune: fiche?.adresses.find((a) => a.cle === adresseCle)?.commune ?? commune,
-    commun: v(d.commun), batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })) };
+    commun: v(d.commun), batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) }))
+      // 🔴 (Arno, 17/11/2026, 488) un bâtiment RETIRÉ de la copropriété, sans code, ne revient pas
+      .filter((b) => !(retires.has(b.cle) && b.digicode === null && (b.code ?? '') === '')) };
   const connus = fiche?.batimentsConnus ?? d.batiments.map((b) => batimentDe(b.libelle)).filter((b): b is BatimentConnu => b !== null);
   return { adresseCle, adresse, connus, nomenclature: fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus),
     copropriete: { cle: fiche?.cle ?? adresseCle, libelle: fiche?.libelle ?? immeuble, codePostal: fiche?.codePostal ?? cp, commune: fiche?.commune ?? commune },

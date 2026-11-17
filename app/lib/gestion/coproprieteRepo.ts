@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { batimentsRetires, etatBatimentDisponible, sqlBatimentActif } from './batimentRetraitRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { adresseImmeuble, cleImmeuble } from './syndics';
@@ -114,8 +115,16 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
   for (const l of siens) { const x = batimentDe(l.batiment); if (x !== null) connus.push(x); }
   if (copro !== undefined && avec476) {
     const { rows: reg } = await query<{ cle: string; libelle: string; sorte: BatimentConnu['sorte'] }>(
-      'SELECT batiment_cle AS cle, batiment_libelle AS libelle, sorte FROM gestion_copropriete_batiment WHERE copropriete_id = $1 ORDER BY cree_le, id', [copro.id]);
+      `SELECT b.batiment_cle AS cle, b.batiment_libelle AS libelle, b.sorte FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1
+         ${(await etatBatimentDisponible()) ? `AND ${sqlBatimentActif('b')}` : ''} ORDER BY b.cree_le, b.id`, [copro.id]);
     connus.push(...reg);
+  }
+  /* 🔴🔴 (Arno, 17/11/2026, 488 : « le bâtiment est marqué retiré (date, auteur), jamais effacé ; il ne revient plus à la réouverture ni dans le menu des
+     bâtiments ») un bâtiment RETIRÉ sans code ne revient ni dans les lignes ni dans le menu (un code en vigueur, lui, se lit toujours) */
+  const retires = await batimentsRetires(copro === undefined ? null : Number(copro.id));
+  if (retires.size > 0) {
+    for (const d of digicodes) d.batiments = d.batiments.filter((b) => !(retires.has(b.cle) && b.digicode === null && (b.code ?? '') === ''));
+    for (let i = connus.length - 1; i >= 0; i -= 1) if (retires.has(connus[i].cle) && !digicodes.some((d) => d.batiments.some((b) => b.cle === connus[i].cle))) connus.splice(i, 1);
   }
   const batimentsConnus = [...new Map(connus.map((b) => [b.cle, b])).values()];
   const nomenclature = copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null;

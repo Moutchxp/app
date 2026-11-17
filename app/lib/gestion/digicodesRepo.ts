@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { reprendreSiRetire } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { cleBatiment, cleImmeubleAdresse, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
@@ -326,6 +327,8 @@ export async function inscrireBatiment(q: RequeteTx, c: CoproprieteDuCode, libel
   if (cp[0] === undefined) throw new RefusDigicode('Copropriété introuvable après sa création.');
   await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [cp[0].id, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
+  // 🔴 (Arno, 17/11/2026, 488) un bâtiment retiré, recréé : il est REPRIS (il reprend sa ligne)
+  await reprendreSiRetire(q, cp[0].id, b.cle, auteur);
   const { rows } = await q<{ id: string }>('SELECT id::text FROM gestion_copropriete_batiment WHERE copropriete_id = $1 AND batiment_cle = $2', [cp[0].id, b.cle]);
   return rows[0] === undefined ? null : Number(rows[0].id);
 }

@@ -1,4 +1,5 @@
 import { withTransaction, type RequeteTx } from '../db/client';
+import { reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, noterConflitParcelle, type ConflitAConfirmer } from './conflitParcelleRepo';
@@ -238,6 +239,8 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       for (const b of nouveaux) {
         await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
                  ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [coproId, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
+        // 🔴 (Arno, 17/11/2026, 488) un bâtiment retiré, recréé par « Ajouter nouveau bâtiment » : il est REPRIS (il reprend sa ligne)
+        await reprendreSiRetire(q, coproId, b.cle, auteur);
       }
       // la référence : le premier nouveau bâtiment en lettre ou en chiffre qui n'est pas une exception (une exception confirmée ne la change pas)
       const avert = avertissementsDesBatiments(nouveaux.map((b) => b.libelle), lue.nomenclatureEffective, lue.batimentsConnus);
@@ -269,7 +272,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
 export const ACTIONS_DIGICODE = { 'digicode-corriger': 'correction', 'digicode-arbitrer': 'arbitrage', 'digicode-planifier': 'planification',
   'digicode-annuler-changement': 'annulation',
   /** 🔴 (Arno, 17/11/2026, 487) le « − » d'un code de bâtiment enregistré : le code est RETIRÉ (jamais effacé) */
-  'digicode-retirer': 'retrait' } as const;
+  'digicode-retirer': 'retrait',
+  /** 🔴 (Arno, 17/11/2026, 488) le « − » d'un bâtiment enregistré SANS code : le bâtiment est retiré de la copropriété (jamais effacé) */
+  'digicode-retirer-batiment': 'retrait_batiment' } as const;
 export type GesteDigicode = (typeof ACTIONS_DIGICODE)[keyof typeof ACTIONS_DIGICODE];
 export const gesteDeLAction = (a: unknown): GesteDigicode | null => (typeof a === 'string' && a in ACTIONS_DIGICODE ? ACTIONS_DIGICODE[a as keyof typeof ACTIONS_DIGICODE] : null);
 
@@ -303,6 +308,10 @@ export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, a
   if (nature === 'planification') { planifies = validerChangements(b); if (!planifies.ok) return planifies; }
   const r = await withTransaction(async (q): Promise<{ ok: true } | { ok: false; motif: string }> => {
     if (nature === 'annulation') return annulerChangement(q, adresse.cle, Number(b.ligneId), auteur);
+    if (nature === 'retrait_batiment') {
+      if (batiment === null) return { ok: false, motif: 'Bâtiment non désigné : rien n’est enregistré.' };
+      return retirerBatiment(q, { coproprieteCle: lue.cle, adresseCles: lue.adresses.map((a) => a.cle) }, batiment, auteur);
+    }
     if (nature === 'retrait') {
       // depuis la fiche d'un bien existant : le bien (de CETTE adresse) reçoit la ligne de son journal ; « Nouveau bien » : pas encore de bien, pas de journal
       const lotId = depuis === 'fiche_bien' && Number.isSafeInteger(Number(b.lotId)) && Number(b.lotId) > 0 ? Number(b.lotId) : null;

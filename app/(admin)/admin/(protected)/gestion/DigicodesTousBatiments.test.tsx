@@ -255,3 +255,38 @@ describe('🔴 « pas de digicode » garde la valeur tapée', () => {
     expect(val('[data-dcp-code-commun]')).toBe('');
   });
 });
+
+/**
+ * 🔴🔴 Décision d'Arno (17/11/2026, 488) — « Le « − » sur un bâtiment déjà enregistré dans la copropriété mais SANS code : après confirmation (« Retirer le
+ * bâtiment X de la copropriété ? Il ne sera plus proposé ; il reste dans l'historique »), le bâtiment est marqué retiré […]. Refus clair si un bien est encore
+ * relié à ce bâtiment (dire lesquels). »
+ */
+describe('🔴 le « − » d’un bâtiment enregistré sans code : retiré de la copropriété', () => {
+  let appels: [string, string][] = [];
+  let reponse: string | null = null;
+  function Hote() {
+    const [s, setS] = useState(() => saisieDigicodesInitiale({ batimentsConnus: [A, B], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières',
+      commun: { digicode: null, code: null }, batiments: [] }] }));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: [A, B], nomenclature: 'lettres', desactive: false,
+      onRetirerBatiment: async (a: string, b: string) => { appels.push([a, b]); return reponse; } });
+  }
+  beforeEach(() => { appels = []; reponse = null; });
+  it('la fenêtre : « Retirer le bâtiment B de la copropriété ? — Il ne sera plus proposé ; il reste dans l’historique. » ; un refus est dit, la ligne reste ; accepté : la ligne quitte l’écran', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    expect($('[data-dcp-batiment="B"] [data-dcp-moins]')?.getAttribute('data-dcp-moins')).toBe('batiment');
+    await clic($('[data-dcp-batiment="B"] [data-dcp-moins]')!);
+    const f = document.querySelector('[data-dcp-fenetre-retirer="batiment"]');
+    expect(f?.textContent).toContain('Retirer le bâtiment B de la copropriété ?');
+    expect(f?.textContent).toContain('Il ne sera plus proposé ; il reste dans l’historique.');
+    reponse = 'Le bâtiment B est encore relié à un bien : 7 rue X — lot W12. Changez d’abord leur bâtiment. Rien n’est retiré.';
+    await clic(document.querySelector('[data-dcp-retirer-oui]')!);
+    await act(async () => { await Promise.resolve(); });
+    expect(document.querySelector('[data-dcp-retirer-erreur]')?.textContent).toContain('7 rue X — lot W12');
+    expect($('[data-dcp-batiment="B"]')).not.toBeNull();
+    reponse = null;
+    await clic(document.querySelector('[data-dcp-retirer-oui]')!);
+    await act(async () => { await Promise.resolve(); });
+    expect(appels).toEqual([['7 rue x', 'B'], ['7 rue x', 'B']]);
+    expect($('[data-dcp-batiment="B"]')).toBeNull();
+  });
+});

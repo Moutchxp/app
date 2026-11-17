@@ -22,6 +22,8 @@ vi.mock('../db/client', () => ({
     if (s.includes('FROM gestion_annuaire_lot WHERE absent_le IS NULL')) return { rows: b.lots };
     if (s.includes('FROM gestion_copropriete_syndic cs JOIN gestion_syndic s')) return { rows: b.syndic };
     if (s.includes('FROM gestion_syndic_contact ct')) return { rows: b.gestionnaires };
+    // (Arno, 17/11/2026, 488) les bâtiments retirés : aucun ici
+    if (s.includes('FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1 AND NOT (')) return { rows: [] };
     if (s.includes('FROM gestion_copropriete_batiment')) return { rows: b.registre };
     // la liste (lot 4)
     if (s.startsWith('SELECT immeuble, adresse, code_postal, commune, copropriete FROM gestion_annuaire_lot WHERE absent_le IS NULL')) return { rows: b.lots };

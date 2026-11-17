@@ -128,7 +128,7 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne, onRetirer, onLigneRetiree }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne, onRetirer, onLigneRetiree, onRetirerBatiment }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
@@ -152,11 +152,13 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   onRetirer?: (adresseCle: string, batiment: string) => Promise<string | null>;
   /** une ligne en cours de saisie retirée de l'écran (la fiche du bien : un bâtiment créé au menu n'est plus en attente) */
   onLigneRetiree?: (libelle: string) => void;
+  /** 🔴 (Arno, 17/11/2026, 488) le « − » d'un bâtiment enregistré SANS code : le bâtiment est retiré de la copropriété (jamais effacé) */
+  onRetirerBatiment?: (adresseCle: string, batiment: string) => Promise<string | null>;
 }) {
   /* 🔴🔴 (Arno, 17/11/2026 : « BOUTON ROND « − » au bout de chaque ligne de bâtiment (même colonne que « + », même taille) : ligne en cours de saisie :
      fenêtre de confirmation (« Retirer la ligne Digicode bâtiment X et son code ? »), puis retrait de l'écran ; code déjà enregistré : fenêtre de
      confirmation qui dit clairement que le code est RETIRÉ […] ; la ligne copropriété n'a pas de « − » (on utilise « pas de digicode »). ») */
-  const [retirer, setRetirer] = useState<{ cle: string; ligne: LigneBatiment; enregistre: boolean } | null>(null);
+  const [retirer, setRetirer] = useState<{ cle: string; ligne: LigneBatiment; sorte: SorteRetrait } | null>(null);
   const [masques, setMasques] = useState<ReadonlySet<string>>(() => new Set());
   /* 🔴 (Arno, 17/11/2026 : « « pas de digicode » : cocher vide le champ, mais la valeur tapée est gardée en mémoire ; décocher la fait réapparaître. Même chose
      pour le copropriété et chaque bâtiment. ») la valeur tapée de chaque ligne (adresse + « copro » ou la ligne), le temps de la saisie */
@@ -165,13 +167,23 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
     if (coche) { setMemoire((m) => ({ ...m, [cleMemoire]: c.code })); return { code: '', aucun: true }; }
     return { code: memoire[cleMemoire] ?? '', aucun: false };
   };
-  const moins = (cle: string, b: LigneBatiment, enregistre: boolean): React.ReactNode => (enregistre && onRetirer === undefined ? null : (
-    <button type="button" className="dcp-plus dcp-moins" disabled={desactive} aria-label={`Retirer — ${intituleDigicodeBatiment(b.libelle || '…')}`} title={enregistre ? 'Retirer ce digicode' : 'Retirer cette ligne'}
-      onClick={() => setRetirer({ cle, ligne: b, enregistre })} data-dcp-moins={enregistre ? 'enregistre' : 'saisie'}>−</button>));
+  /* 🔴 (Arno, 17/11/2026, 488 : « Le « − » sur un bâtiment déjà enregistré dans la copropriété mais SANS code : après confirmation (« Retirer le bâtiment X de
+     la copropriété ? Il ne sera plus proposé ; il reste dans l'historique »), le bâtiment est marqué retiré ») — la sorte d'un « − » de ligne à saisir : un
+     bâtiment connu de la copropriété (sans code) se RETIRE ; une ligne nouvelle ou un bâtiment créé pendant la saisie quitte seulement l'écran */
+  const sorteDeSaisie = (b: LigneBatiment): SorteRetrait => (!b.nouveau && onRetirerBatiment !== undefined && connus.some((c) => c.cle === batimentDe(b.libelle)?.cle) ? 'batiment' : 'saisie');
+  const moins = (cle: string, b: LigneBatiment, sorte: SorteRetrait): React.ReactNode => (sorte === 'enregistre' && onRetirer === undefined ? null : (
+    <button type="button" className="dcp-plus dcp-moins" disabled={desactive} aria-label={`Retirer — ${intituleDigicodeBatiment(b.libelle || '…')}`}
+      title={sorte === 'enregistre' ? 'Retirer ce digicode' : sorte === 'batiment' ? 'Retirer ce bâtiment de la copropriété' : 'Retirer cette ligne'}
+      onClick={() => setRetirer({ cle, ligne: b, sorte })} data-dcp-moins={sorte}>−</button>));
   const confirmerRetrait = async (): Promise<string | null> => {
     if (retirer === null) return null;
-    const { cle, ligne, enregistre } = retirer;
-    if (enregistre) return onRetirer === undefined ? null : onRetirer(cle, ligne.libelle);
+    const { cle, ligne, sorte } = retirer;
+    if (sorte === 'enregistre') return onRetirer === undefined ? null : onRetirer(cle, ligne.libelle);
+    if (sorte === 'batiment') {
+      const m = onRetirerBatiment === undefined ? null : await onRetirerBatiment(cle, ligne.libelle);
+      if (m === null) { majLigne(cle, ligne.k, { code: '', aucun: false }); setMasques((x) => new Set([...x, ligne.k])); }
+      return m;
+    }
     // en cours de saisie : la ligne quitte l'écran (une ligne nouvelle sort de la saisie ; une autre est vidée puis masquée)
     if (ligne.nouveau) maj(cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== ligne.k) }));
     else { majLigne(cle, ligne.k, { code: '', aucun: false }); setMasques((m) => new Set([...m, ligne.k])); onLigneRetiree?.(ligne.libelle); }
@@ -243,7 +255,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <PlaceDigicodeLue titre={intituleDigicodeBatiment(b.libelle)} enLigne etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: batimentDe(b.libelle)?.cle ?? '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
-              {moins(d.cle, b, true)}
+              {moins(d.cle, b, 'enregistre')}
               {b.nb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>{mentionNb(b.nb, b.libelle)}</p>}
             </div>) : (
             <div key={b.k} className={`dcp-ligne dcp-ligne--batiment${b.nouveau ? '' : lisere(batimentDe(b.libelle)?.cle ?? '').className}`} data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}
@@ -267,7 +279,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                 <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, pasDeDigicode(`${d.cle}#${b.k}`, b, e.target.checked))} data-dcp-aucun-batiment /><span>pas de digicode</span></label>
               {/* 🔴 (Arno, 17/11/2026) le « − » rond, dans la colonne du « + » (il remplace le « × » d'une ligne nouvelle : la même action, confirmée) */}
-              {moins(d.cle, b, false)}
+              {moins(d.cle, b, sorteDeSaisie(b))}
               </span>
               {mentionNouveau(b)}
               {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode copropriété.</p>}
@@ -278,7 +290,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
       {tente && refus !== null && !s.some((d) => d.batiments.some((b) => b.nouveau && batimentDe(b.libelle) === null))
         && <p className="dcp-ligne-erreur" role="alert" data-dcp-refus>{refus}</p>}
       <HistoriqueDigicodes s={s} />
-      {retirer !== null && <FenetreRetirer ligne={retirer.ligne} enregistre={retirer.enregistre} onNon={() => setRetirer(null)} onOui={async () => { const m = await confirmerRetrait(); if (m === null) setRetirer(null); return m; }} />}
+      {retirer !== null && <FenetreRetirer ligne={retirer.ligne} sorte={retirer.sorte} onNon={() => setRetirer(null)} onOui={async () => { const m = await confirmerRetrait(); if (m === null) setRetirer(null); return m; }} />}
       {modifier !== null && onPlanifier !== undefined && s.find((d) => d.cle === modifier.cle) !== undefined && (
         <FenetreModifier d={s.find((d) => d.cle === modifier.cle) as DigicodesAdresseSaisis} depart={modifier.place} onFermer={() => setModifier(null)}
           onValider={(appliqueLe, changements) => onPlanifier(modifier.cle, appliqueLe, changements)}
@@ -369,25 +381,28 @@ const demainParis = (): string => new Date(Date.now() + 86400000).toLocaleDateSt
  * reste dans l'historique. Aucun envoi ici (l'écran des destinataires vient ensuite).
  */
 /** 🔴 (Arno, 17/11/2026) la fenêtre de confirmation du « − » : une ligne en cours de saisie, ou un code enregistré RETIRÉ (dit clairement). */
-function FenetreRetirer({ ligne, enregistre, onOui, onNon }: { ligne: LigneBatiment; enregistre: boolean; onOui: () => Promise<string | null>; onNon: () => void }) {
+type SorteRetrait = 'saisie' | 'enregistre' | 'batiment';
+function FenetreRetirer({ ligne, sorte, onOui, onNon }: { ligne: LigneBatiment; sorte: SorteRetrait; onOui: () => Promise<string | null>; onNon: () => void }) {
+  const enregistre = sorte === 'enregistre';
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const nom = ligne.libelle.trim() === '' ? '…' : ligne.libelle;
   return (
-    <div className="dcp-voile" data-dcp-fenetre-retirer={enregistre ? 'enregistre' : 'saisie'}>
+    <div className="dcp-voile" data-dcp-fenetre-retirer={sorte}>
       <div className="dcp-alerte dcp-fenetre" role="alertdialog" aria-modal="true" aria-labelledby="dcp-retirer-titre"
         onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onNon(); } }}>
-        <p className="dcp-alerte-titre" id="dcp-retirer-titre">{enregistre ? `Retirer le digicode du bâtiment ${nom} ?` : 'Retirer cette ligne ?'}</p>
+        <p className="dcp-alerte-titre" id="dcp-retirer-titre">{enregistre ? `Retirer le digicode du bâtiment ${nom} ?`
+          : sorte === 'batiment' ? `Retirer le bâtiment ${nom} de la copropriété ?` : 'Retirer cette ligne ?'}</p>
         <p className="dcp-alerte-texte" data-dcp-retirer-texte>{enregistre
           ? `Le bâtiment ${nom} n’aura plus de digicode à partir de maintenant ; l’ancien code reste dans l’historique. Ses biens liront le seul digicode copropriété.`
-          : `Retirer la ligne ${intituleDigicodeBatiment(nom)} et son code ?`}</p>
+          : sorte === 'batiment' ? 'Il ne sera plus proposé ; il reste dans l’historique.' : `Retirer la ligne ${intituleDigicodeBatiment(nom)} et son code ?`}</p>
         {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-retirer-erreur>{erreur}</p>}
         <div className="dcp-alerte-actions">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={onNon} data-dcp-retirer-non>Annuler</button>
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-dcp-retirer-oui onClick={() => {
             setEnvoi(true); setErreur(null);
             void onOui().then((m) => { setEnvoi(false); if (m !== null) setErreur(m); });
-          }}>{envoi ? 'Enregistrement…' : enregistre ? 'Retirer le code' : 'Retirer la ligne'}</button>
+          }}>{envoi ? 'Enregistrement…' : enregistre ? 'Retirer le code' : sorte === 'batiment' ? 'Retirer le bâtiment' : 'Retirer la ligne'}</button>
         </div>
       </div>
     </div>
@@ -913,12 +928,14 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
  * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
  * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
  */
-export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente, enAttente = [], onRetirer, onRetirerEnAttente }: {
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente, enAttente = [], onRetirer, onRetirerEnAttente, onRetirerBatiment }: {
   donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
   /** 🔴 (Arno, 17/11/2026) les bâtiments créés au menu pendant la saisie (en attente d'enregistrement) : chacun garde sa ligne */
   enAttente?: readonly string[];
   /** 🔴 (Arno, 17/11/2026) le « − » : un code enregistré retiré ; un bâtiment créé au menu qui n'est plus en attente */
   onRetirer?: (adresseCle: string, batiment: string) => Promise<string | null>; onRetirerEnAttente?: (libelle: string) => void;
+  /** 🔴 (488) le « − » d'un bâtiment enregistré sans code : retiré de la copropriété */
+  onRetirerBatiment?: (adresseCle: string, batiment: string) => Promise<string | null>;
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode; onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
   onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
   variante?: 'gestion' | 'location'; onPlusBatiment?: () => void; tente?: boolean;
@@ -945,7 +962,7 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   return <div data-digicodes-bien>
     <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
       concerne={ligne === null ? null : batimentDe(ligne.libelle)?.cle ?? null}
-      {...(onRetirer ? { onRetirer } : {})} {...(onRetirerEnAttente ? { onLigneRetiree: onRetirerEnAttente } : {})}
+      {...(onRetirer ? { onRetirer } : {})} {...(onRetirerEnAttente ? { onLigneRetiree: onRetirerEnAttente } : {})} {...(onRetirerBatiment ? { onRetirerBatiment } : {})}
       {...(variante ? { variante } : {})} {...(onPlusBatiment ? { onPlusBatiment } : {})} tente={tente === true}
       {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} {...(onPlanifier ? { onPlanifier } : {})} {...(onAnnulerChangement ? { onAnnulerChangement } : {})}
       {...(onApercu ? { onApercu } : {})} {...(onEnvoyer ? { onEnvoyer } : {})} />
@@ -999,6 +1016,8 @@ export const CSS_DIGICODES_COPRO = `
    retrait (22 px + trait 2 px + 16 px ; au téléphone 8 + 2 + 10) : sa première colonne en est réduite d'autant, pour que le « − » tombe sous le « + » */
 .dcp--location .dcp-ligne.dcp-ligne--batiment{grid-template-columns:calc(var(--dcp-c1) - 40px) var(--dcp-c2) var(--dcp-c3)}
 .dcp-ligne--batiment > .dcp-lue{flex-basis:150px}
+/* 🔴 (Arno, 17/11/2026 : « rien ne déborde ») un intitulé de bâtiment long (« Digicode bâtiment _TEST RETRAIT BATIMENT ») passe à la ligne au lieu de déborder */
+.dcp--location .dcp-champ > span[data-dcp-intitule-batiment]{white-space:normal;overflow-wrap:anywhere}
 @media (max-width:640px){.dcp--location .dcp-ligne.dcp-ligne--batiment{grid-template-columns:calc(var(--dcp-c1) - 20px) var(--dcp-c2) var(--dcp-c3)}}
 .dcp-champ{display:flex;flex-direction:column;gap:3px;font-size:.85rem;font-weight:700;color:var(--color-svv-ink);min-width:0;flex:1 1 140px;position:relative}
 .dcp-champ input{min-height:44px;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:8px 10px;font:inherit;font-weight:400}
