@@ -126,7 +126,7 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
@@ -143,7 +143,13 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   onPlusBatiment?: () => void;
   /** 🔴 (Arno, 17/11/2026 : « Le message n'apparaît qu'après une tentative de validation, sous la ligne, entièrement lisible ») une validation a été tentée */
   tente?: boolean;
+  /** 🔴 (Arno, 17/11/2026 : LISERÉ) la fiche du bien : le bâtiment choisi (sa clé ; `null` : aucun) — sa ligne et celle de la copropriété sont entourées ;
+   *  absent (fiche Copropriété) : aucun liseré */
+  concerne?: string | null;
 }) {
+  /** la ligne touche-t-elle le logement ? (la copropriété : toujours, dès qu'il y a un bien ; un bâtiment : le sien) */
+  const lisere = (cle: string | null): { className: string; 'data-dcp-concerne'?: '' } => (concerne === undefined || (cle !== null && cle !== concerne)
+    ? { className: '' } : { className: ' dcp-ligne--concerne', 'data-dcp-concerne': '' });
   const [menu, setMenu] = useState<string | null>(null);
   // 🔴 (lot 5) la fenêtre « Modifier » : l'adresse et le code d'où on l'a ouverte (pré-coché)
   const [modifier, setModifier] = useState<{ cle: string; place: string } | null>(null);
@@ -177,13 +183,13 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
             ? <p className="loc-muet dcp-titre-vide" data-dcp-sans-adresse>Choisissez l’adresse du bien : les codes déjà connus de sa copropriété s’afficheront ici. Sinon, saisissez-les.</p>
             : <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>}
           {placeLue(d.communEtat) ? (
-            <div className="dcp-ligne" data-dcp-commun>
+            <div className={`dcp-ligne${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               <PlaceDigicodeLue titre="Digicode commun" enLigne={variante === 'location'} etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {plus(d)}
             </div>) : (
-          <div className="dcp-ligne" data-dcp-commun>
+          <div className={`dcp-ligne${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
             {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
             <span className="dcp-code-groupe">
             <label className="dcp-champ dcp-champ-code"><span>Digicode commun</span>
@@ -196,13 +202,15 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           </div>)}
           {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
-            <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.libelle}>
+            <div key={b.k} className={`dcp-ligne dcp-ligne--batiment${lisere(batimentDe(b.libelle)?.cle ?? '').className}`} data-dcp-batiment={b.libelle}
+              {...(lisere(batimentDe(b.libelle)?.cle ?? '')['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               <PlaceDigicodeLue titre={intituleDigicodeBatiment(b.libelle)} enLigne etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: batimentDe(b.libelle)?.cle ?? '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {b.nb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>{mentionNb(b.nb, b.libelle)}</p>}
             </div>) : (
-            <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}>
+            <div key={b.k} className={`dcp-ligne dcp-ligne--batiment${b.nouveau ? '' : lisere(batimentDe(b.libelle)?.cle ?? '').className}`} data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}
+              {...(!b.nouveau && lisere(batimentDe(b.libelle)?.cle ?? '')['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               {/* 🔴 (Arno, 17/11/2026 : « UNE LIGNE PAR BÂTIMENT […] supprime l'en-tête « Bâtiment / cage » et la ligne qui affiche le nom seul (ex. « 1 »). L'intitulé du champ devient « Digicode bâtiment 1 » […] Pour une nouvelle ligne pas encore nommée, l'intitulé reste le menu de choix du bâtiment, puis devient « Digicode bâtiment X » une fois validé. ») */}
               {b.nouveau && <div className={b.choisi === true ? 'dcp-champ-bat-replie' : 'dcp-champ dcp-champ-bat'}>
                 {b.choisi !== true && <span>Bâtiment / cage</span>}
@@ -856,6 +864,7 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   };
   return <div data-digicodes-bien>
     <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
+      concerne={ligne === null ? null : batimentDe(ligne.libelle)?.cle ?? null}
       {...(variante ? { variante } : {})} {...(onPlusBatiment ? { onPlusBatiment } : {})} tente={tente === true}
       {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} {...(onPlanifier ? { onPlanifier } : {})} {...(onAnnulerChangement ? { onAnnulerChangement } : {})}
       {...(onApercu ? { onApercu } : {})} {...(onEnvoyer ? { onEnvoyer } : {})} />
@@ -899,6 +908,7 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-adresse{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field);min-width:0}
 .dcp-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .dcp-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
+.dcp-ligne--concerne{outline:2px solid var(--color-svv-red);outline-offset:6px;border-radius:14px}
 .dcp-champ{display:flex;flex-direction:column;gap:3px;font-size:.85rem;font-weight:700;color:var(--color-svv-ink);min-width:0;flex:1 1 140px;position:relative}
 .dcp-champ input{min-height:44px;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:8px 10px;font:inherit;font-weight:400}
 .dcp-champ input:disabled{opacity:.6}

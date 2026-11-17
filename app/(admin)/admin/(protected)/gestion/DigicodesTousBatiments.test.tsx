@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, saisieDigicodesBien, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, DigicodesCopropriete, digicodesBienEnvoi, saisieDigicodesBien, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import type { BatimentConnu } from '../../../../lib/gestion/batimentsCopropriete';
 
 /**
@@ -87,5 +87,40 @@ describe('🔴 la fiche du bien : chaque bâtiment de la copropriété a sa lign
     await saisir($('[data-cbc-champ]')!, '');
     expect(lignes()).toEqual(['A']);
     expect(envoi?.autres).toEqual([]);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « LISERÉ : quand on choisit le bâtiment du logement dans « Bâtiment / cage d'escalier » (lettre, chiffre ou intitulé
+ * personnalisé), la ligne « Digicode bâtiment X » correspondante est entourée d'un liseré rouge […], ainsi que la ligne du digicode copropriété […]. Le
+ * liseré suit le choix en direct ; sans bâtiment choisi, seule la ligne copropriété est entourée. »
+ */
+describe('🔴 le liseré des lignes qui concernent le logement', () => {
+  const DONNEES = { adresseCle: '7 rue x', connus: [A, B, { cle: 'cote cour', libelle: 'Côté cour', sorte: 'libre' }], nomenclature: 'lettres' as const, batiment: null, batimentLie: false, escalier: null,
+    copropriete: { cle: '7 rue x', libelle: '7 rue X', codePostal: '92600', commune: 'Asnières' },
+    adresse: { cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières', commun: { digicode: null, code: null, etat: ETAT() }, batiments: [] } };
+  function Hote() {
+    const [bat, setBat] = useState('');
+    const [s, setS] = useState<DigicodesAdresseSaisis>(() => saisieDigicodesBien(DONNEES as never));
+    return createElement('div', null,
+      createElement(ChoixBatimentCopro, { valeur: bat, connus: DONNEES.connus as BatimentConnu[], nomenclature: 'lettres', escalier: '', desactive: false, onChoix: (l: string) => setBat(l) }),
+      createElement(DigicodesBien, { donnees: DONNEES as never, s, onChange: setS, batiment: bat, desactive: false }));
+  }
+  const entourees = () => [...container.querySelectorAll('[data-digicodes-bien] [data-dcp-concerne]')].map((x) => x.getAttribute('data-dcp-batiment') ?? 'copropriété');
+  it('sans bâtiment : la copropriété seule ; puis B, A, « Côté cour » : la copropriété et ce bâtiment, en direct', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    expect(entourees()).toEqual(['copropriété']);
+    for (const [option, attendu] of [['B', 'B'], ['A', 'A'], ['Côté cour', 'Côté cour']]) {
+      await clic($('[data-cbc-champ]')!);
+      await clic($(`[data-cbc-option="${option}"]`)!);
+      expect(entourees()).toEqual(['copropriété', attendu]);
+    }
+    expect(container.querySelector('[data-dcp-concerne]')?.classList.contains('dcp-ligne--concerne')).toBe(true);
+  });
+  it('la fiche Copropriété (aucun logement) : aucun liseré', async () => {
+    const s = saisieDigicodesInitiale({ batimentsConnus: [A, B], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières', commun: { digicode: null, code: null }, batiments: [] }] });
+    await act(async () => { root.render(createElement(DigicodesCopropriete, { s, onChange: () => {}, connus: [A, B], nomenclature: 'lettres', desactive: false })); });
+    expect(container.querySelectorAll('[data-dcp-batiment]')).toHaveLength(2);
+    expect(container.querySelector('[data-dcp-concerne]')).toBeNull();
   });
 });
