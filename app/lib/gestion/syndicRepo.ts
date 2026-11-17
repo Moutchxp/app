@@ -288,9 +288,12 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
   const secondairesListe = await adressesSecondaires();
   const { rows } = await query<{
     id: string; nom: string; email: string | null; telephone: string | null; ville: string | null;
-    cles: string[] | null; emails: string[] | null;
+    cles: string[] | null; emails: string[] | null; telephone_2?: string | null; tels?: string[] | null;
   }>(
-    `SELECT s.id::text, s.nom, s.email, s.telephone, s.ville,
+    `SELECT s.id::text, s.nom, s.email, s.telephone, s.telephone_2, s.ville,
+            (SELECT array_agg(k.valeur) FROM gestion_syndic_contact ct
+               JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
+              WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte = 'telephone') AS tels,
             (SELECT array_agg(c.cle_immeuble) FROM gestion_copropriete_syndic cs
                JOIN gestion_copropriete c ON c.id = cs.copropriete_id
               WHERE cs.syndic_id = s.id AND cs.fin IS NULL) AS cles,
@@ -312,6 +315,8 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
       nbCoproprietes: cles.length, nbBiens,
       // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — la ville se cherche aussi : « foncia courbevoie ».
       cherchable: normaliserTexte([r.nom, r.ville ?? '', ...emails, ...domaines].join(' ')),
+      // 🔴 (Arno, 17/11/2026) les téléphones se cherchent aussi : standards et contacts, en clé
+      telephones: [...new Set([r.telephone, r.telephone_2 ?? null, ...(r.tels ?? [])].map((t) => cleTelephone(t)).filter((t) => t.length >= 4))],
     };
   });
 }

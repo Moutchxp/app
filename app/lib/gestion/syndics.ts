@@ -153,6 +153,8 @@ export interface SyndicResume {
   nbCoproprietes: number; nbBiens: number;
   /** Tout ce qu'on peut chercher : nom, e-mails (génériques et des contacts), domaines. Déjà normalisé. */
   cherchable: string;
+  /** 🔴 (Arno, 17/11/2026 : « la recherche des syndics existants (nom, e-mail, téléphone […]) ») — ses téléphones (standards ET contacts), en clé (chiffres seuls, +33 → 0) */
+  telephones?: readonly string[];
 }
 
 export interface FicheSyndic {
@@ -533,11 +535,13 @@ export function motBiensEnGestion(n: number): string {
   return n === 1 ? '1 bien en gestion à cette adresse' : `${n} biens en gestion à cette adresse`;
 }
 
-/** Les syndics qui répondent à une recherche (nom, e-mail, domaine). PUR. */
+/** Les syndics qui répondent à une recherche (nom, e-mail, domaine ; 🔴 Arno, 17/11/2026 : le téléphone). PUR. */
 export function syndicsQuiRepondent(q: string, syndics: readonly SyndicResume[]): SyndicResume[] {
   const n = normaliserTexte(q);
   if (n === '') return [...syndics];
-  return syndics.filter((s) => s.cherchable.includes(n));
+  // 🔴 (Arno, 17/11/2026) un TÉLÉPHONE tapé (chiffres, espaces, points, +33…) : comparé chiffre à chiffre à ses téléphones (au moins 4 chiffres)
+  const tel = /^[\d\s.+()/-]+$/.test(q.trim()) ? cleTelephone(q) : '';
+  return syndics.filter((s) => s.cherchable.includes(n) || (tel.length >= 4 && (s.telephones ?? []).some((t) => t.includes(tel))));
 }
 
 // ══ LOT SYNDIC-CONTACT-CIVILITE ═══════════════════════════════════════════════════════════════════════════════════

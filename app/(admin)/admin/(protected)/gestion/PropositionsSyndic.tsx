@@ -129,8 +129,12 @@ export function ConfirmationRattachement({ resume }: { resume: ResumeRattachemen
 
 /* ══ ① LE BANDEAU DE LA FENÊTRE DE CRÉATION ═══════════════════════════════════════════════════════════════════════ */
 
-export function BandeauDoublonSyndic({ doublons, onVoir, onSelectionner, envoi = false }: {
+export function BandeauDoublonSyndic({ doublons, onVoir, onSelectionner, envoi = false, motSelectionner = 'Sélectionner ce syndic pour ce bien', motCreer = 'Créer quand même' }: {
+  /** 🔴 (Arno, 17/11/2026) le mot du bouton de création au « Valider », cité dans la note (Location : « Non, c'est un autre syndic — créer quand même »). */
+  motCreer?: string;
   doublons: readonly DoublonSyndic[];
+  /** 🔴 (Arno, 17/11/2026) le mot du bouton de choix ; la fiche du bien Location dit « Choisir celui-ci ». Absent : inchangé. */
+  motSelectionner?: string;
   onVoir: (id: number) => void;
   /** Absent : la création n'est pas partie d'un bien (écran « Syndics ») — pas de « Sélectionner ». */
   onSelectionner?: (id: number) => void;
@@ -152,23 +156,27 @@ export function BandeauDoublonSyndic({ doublons, onVoir, onSelectionner, envoi =
                 Voir la fiche
               </button>
               {onSelectionner !== undefined && (
-                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => onSelectionner(d.syndic.id)} disabled={envoi}>
-                  Sélectionner ce syndic pour ce bien
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => onSelectionner(d.syndic.id)} disabled={envoi} data-psy-choisir>
+                  {motSelectionner}
                 </button>
               )}
             </span>
           </li>
         ))}
       </ul>
-      <p className="psy-note">Deux cabinets peuvent partager une adresse ou un standard : « Créer quand même » reste possible au moment de valider.</p>
+      <p className="psy-note">Deux cabinets peuvent partager une adresse ou un standard : « {motCreer} » reste possible au moment de valider.</p>
     </div>
     </>
   );
 }
 
 /** Le pied du « Valider » : les doublons à accepter avant de créer quand même. */
-export function PiedDoublonSyndic({ doublons, onRevenir, onCreer, envoi = false }: {
+export function PiedDoublonSyndic({ doublons, onRevenir, onCreer, envoi = false, motCreer = 'Créer quand même', onChoisir }: {
   doublons: readonly DoublonSyndic[]; onRevenir: () => void; onCreer: () => void; envoi?: boolean;
+  /** 🔴 (Arno, 17/11/2026) Location : « Non, c'est un autre syndic — créer quand même » ; absent : inchangé. */
+  motCreer?: string;
+  /** 🔴 (Arno, 17/11/2026) Location : « Choisir celui-ci » (un seul syndic trouvé ; plusieurs : le choix se fait dans le bandeau, ligne par ligne). */
+  onChoisir?: (id: number) => void;
 }) {
   return (
     <>
@@ -179,7 +187,9 @@ export function PiedDoublonSyndic({ doublons, onRevenir, onCreer, envoi = false 
         {TITRE_DOUBLON_SYNDIC} {doublons.map((d) => motDoublonSyndic(d)).join(' · ')}. Créer quand même ?
       </span>
       <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRevenir} disabled={envoi}>Revenir</button>
-      <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onCreer} disabled={envoi}>Créer quand même</button>
+      {onChoisir !== undefined && doublons.length === 1 && (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onChoisir(doublons[0].syndic.id)} disabled={envoi} data-psy-pied-choisir>Choisir celui-ci</button>)}
+      <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onCreer} disabled={envoi} data-psy-pied-creer>{motCreer}</button>
     </div>
     </>
   );

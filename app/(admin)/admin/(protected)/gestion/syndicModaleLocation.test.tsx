@@ -9,7 +9,8 @@ import { TITRES_CONTACT } from '../../../../lib/gestion/syndics';
  * 🔴 MODALE « SYNDIC DE LA COPROPRIÉTÉ » DU FORMULAIRE DU BIEN (variante « location », Arno 17/10/2026) — et la Gestion
  * inchangée : un seul bouton de création ; 3 boutons sur une ligne sous l'encadré « déjà connu » ; « Voir le détail »
  * déplie les informations de l'annuaire (lecture seule) ; le rattachement depuis le détail est rendu au formulaire SANS
- * écriture ; « Non, créer un autre syndic » ouvre la création. Routes simulées : rien n'est écrit.
+ * écriture ; « Non, chercher un autre syndic » mène à la RECHERCHE (Arno, 17/11/2026 : « La création n'est JAMAIS accessible sans être passé par
+ * la recherche. »). Routes simulées : rien n'est écrit.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -61,7 +62,7 @@ describe('🔴 modale syndic — variante « location »', () => {
     await calmer();
     expect(bouton('Créer un nouveau syndic')).toBeUndefined();
     expect(document.querySelector('[data-syndic-connu]')?.textContent).toContain('Un syndic est déjà connu pour cette adresse');
-    expect([...document.querySelectorAll('[data-trois-boutons] button')].map((b) => b.textContent)).toEqual(['Le rattacher à ce bien', 'Voir le détail', 'Non, créer un autre syndic']);
+    expect([...document.querySelectorAll('[data-trois-boutons] button')].map((b) => b.textContent)).toEqual(['Le rattacher à ce bien', 'Voir le détail', 'Non, chercher un autre syndic']);
     await act(async () => { bouton('Voir le détail')!.click(); });
     await calmer();
     const detail = document.querySelector('[data-detail-syndic]') as HTMLElement;
@@ -81,13 +82,14 @@ describe('🔴 modale syndic — variante « location »', () => {
     expect(ecritures).toEqual([]);
   });
 
-  it('« Non, créer un autre syndic » bascule sur le formulaire de création', async () => {
+  it('« Non, chercher un autre syndic » mène à la RECHERCHE (jamais directement à la création)', async () => {
     await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, variante: 'location', onFerme: () => {} })); });
     await calmer();
-    await act(async () => { bouton('Non, créer un autre syndic')!.click(); });
+    await act(async () => { bouton('Non, chercher un autre syndic')!.click(); });
     await calmer();
-    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Créer un syndic');
-    expect(document.body.textContent).toContain('Nom du cabinet');
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    expect(document.querySelector('input[type="search"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Nom du cabinet');
   });
 
   it('DÉTAIL : 3 blocs titrés et encadrés ; biens PAR ADRESSE triés commune → voie → numéro ; zone limitée à 3 adresses', async () => {

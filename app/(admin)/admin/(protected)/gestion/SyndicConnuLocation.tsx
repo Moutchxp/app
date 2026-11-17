@@ -15,6 +15,8 @@ import { clesDeLAdresse, grouperBiensParAdresse, ordonnerContactsSyndic, type No
  * (blanc). “Voir le détail” déplie DANS la modale toutes les informations déjà connues de ce syndic dans l'annuaire de la
  * Gestion — lecture seule. “Masquer le détail” replie ; les 3 boutons restent. » (Arno) — et lui seul (le bouton en double du
  * détail est retiré). Le lien « Ouvrir la fiche syndic ↗ » est retiré du détail (accord d'Arno, 18/10/2026).
+ * 🔴 (Arno, 17/11/2026 : « La création n'est JAMAIS accessible sans être passé par la recherche. ») — le 3e bouton devient « Non, chercher un
+ * autre syndic » : il mène à la recherche ; la création se propose sous ses résultats.
  */
 export function EncadreSyndicConnuLocation({ syndics, onRattacher, onNon, envoi = false }: {
   syndics: readonly SyndicConnuVu[];
@@ -49,7 +51,7 @@ export function EncadreSyndicConnuLocation({ syndics, onRattacher, onNon, envoi 
         <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => onRattacher(courant)} disabled={envoi}>Le rattacher à ce bien</button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setDetail((x) => !x)} aria-expanded={detail}>
           {detail ? 'Masquer le détail' : 'Voir le détail'}</button>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onNon} disabled={envoi}>Non, créer un autre syndic</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onNon} disabled={envoi} data-syl-non>Non, chercher un autre syndic</button>
       </div>
       {detail && <DetailSyndicLecture syndicId={courant.syndic.id} coproCle={courant.copro.cle} />}
     </>

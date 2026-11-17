@@ -430,6 +430,7 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 /* Arno (17/10/2026) — LE SYNDIC DU BIEN : libellé, loupe, « + » rouge cerclé de rouge ; suggestions ; contacts du cabinet. */
 .loc-syndic{display:flex;flex-direction:column;gap:12px}
 .loc-syndic-tete{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.loc-syndic-choisir{min-height:46px;white-space:normal;text-align:center}
 .loc-syndic-mot{font-weight:700;font-size:1rem;color:var(--color-svv-ink)}
 .loc-picto{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.6rem;font-weight:800;line-height:1;cursor:pointer}
 .loc-picto--plus{border-color:var(--color-svv-red);color:var(--color-svv-red)}

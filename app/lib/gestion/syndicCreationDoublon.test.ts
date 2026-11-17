@@ -59,3 +59,18 @@ describe('🔴🔴 la création d’un syndic qui ressemble à un syndic existan
     expect(appels.some((a) => a.sql.includes('syndic_cree_malgre_doublon'))).toBe(false);
   });
 });
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « Garde-fou de doublon dans la création : si le nom (à accents, majuscules, ponctuation et formes juridiques près), l'e-mail ou le
+ * téléphone correspond à un syndic existant, afficher « Ce syndic existe peut-être déjà : … » […] Même contrôle côté serveur (refus sans la confirmation). »
+ */
+describe('🔴 refus serveur sans la confirmation — nom à accents, ponctuation et forme juridique près ; e-mail seul', () => {
+  it('« S.A.S. Cabinet Fönçia » = « Cabinet FONCIA » : refusé, rien n’est écrit ; un e-mail seul suffit aussi', async () => {
+    const r = await enregistrerSyndic(null, saisie({ nom: 'S.A.S. Cabinet Fönçia', telephone: '', adresse: '9 rue _TEST SYNDIC', codePostal: '92600', ville: 'Asnières' }), auteur);
+    expect(!r.ok && r.motif).toBe('Ce syndic existe peut-être déjà.');
+    expect(!r.ok && r.doublonsSyndic?.map((d) => [d.syndic.id, d.criteres])).toEqual([[4, ['nom']]]);
+    const e = await enregistrerSyndic(null, saisie({ nom: '_TEST SYNDIC AUTRE NOM', telephone: '', email: 'CONTACT@foncia.invalid', adresse: '9 rue _TEST SYNDIC', codePostal: '92600', ville: 'Asnières' }), auteur);
+    expect(!e.ok && e.doublonsSyndic?.map((d) => [d.syndic.id, d.criteres])).toEqual([[4, ['email']]]);
+    expect(ecritures()).toEqual([]);
+  });
+});

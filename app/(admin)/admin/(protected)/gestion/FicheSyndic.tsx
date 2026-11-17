@@ -460,8 +460,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Détacher / remplacer le syndic de cette résidence</button>
   );
 
-  /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli). */
-  const creer = (): void => { setForm(formulaireVide(immeubleDepart, lotDepart)); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); };
+  /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli) ; 🔴 (Arno, 17/11/2026) depuis la recherche, le NOM tapé pré-rempli. */
+  const creer = (nom = ''): void => { setForm({ ...formulaireVide(immeubleDepart, lotDepart), nom: nom.trim() }); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); };
 
   // LOT SYNDIC-TITRE-APRES-RETRAIT — juste après « Supprimer ce syndic de cette résidence » (l'hôte passe l'ancien
   // syndic), la recherche s'intitule « Rattacher un nouveau syndic de copropriété » ; par tout autre chemin, inchangé.
@@ -484,7 +484,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               ligne de TITRE, fixe, juste à gauche de la croix ; seule la liste défile. Comportement inchangé. */}
           <span className="fsy-tete-actions">
             {mode === 'recherche' && variante !== 'location' && (
-              <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-creer-tete" onClick={creer}>Créer un nouveau syndic</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-creer-tete" onClick={() => creer()}>Créer un nouveau syndic</button>
             )}
             <button type="button" className="fsy-croix" aria-label="Annuler et fermer" onClick={annuler}>×</button>
           </span>
@@ -501,18 +501,23 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           {confirmation === null && mode === 'recherche' && depuisUnBien && connus === null && <p className="fsy-discret">Recherche des syndics connus pour cette adresse…</p>}
           {confirmation === null && mode === 'recherche' && connus !== null && connus.length > 0 && !connusEcartes && (variante === 'location'
             ? <EncadreSyndicConnuLocation syndics={connus} envoi={envoi}
-              onRattacher={(c) => choisirSansEcrire({ id: c.syndic.id, nom: c.syndic.nom, ville: c.syndic.ville })} onNon={creer} />
+              /* 🔴🔴 (Arno, 17/11/2026 : « La création n'est JAMAIS accessible sans être passé par la recherche. ») — « Non » mène à la recherche */
+              onRattacher={(c) => choisirSansEcrire({ id: c.syndic.id, nom: c.syndic.nom, ville: c.syndic.ville })} onNon={() => setConnusEcartes(true)} />
             : <EncadreSyndicConnu syndics={connus} envoi={envoi}
               onRattacher={(c) => void selectionner(c.syndic.id, c.copro.cle)} onNon={() => setConnusEcartes(true)} />
           )}
           {confirmation === null && mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
             <Recherche immeubleDepart={immeubleDepart} ancienSyndicId={ancienSyndicId}
-              onRattacher={(id) => void (variante === 'location' ? choisirParId(id) : rattacherA(id))} />
+              onRattacher={(id) => void (variante === 'location' ? choisirParId(id) : rattacherA(id))}
+              onCreer={variante === 'location' ? creer : undefined} />
           )}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 1 : pendant la saisie d'un NOUVEAU syndic. */}
           {confirmation === null && creation && (
             <BandeauDoublonSyndic doublons={doublons} envoi={envoi} onVoir={voirLaFiche}
-              onSelectionner={depuisUnBien ? (id) => void selectionner(id) : undefined} />
+              /* 🔴 (Arno, 17/11/2026) Location : « Choisir celui-ci » — le choix rendu au formulaire du bien, sans écriture (comme un résultat de la recherche) */
+              onSelectionner={variante === 'location' ? (id) => void choisirParId(id) : depuisUnBien ? (id) => void selectionner(id) : undefined}
+              motSelectionner={variante === 'location' ? 'Choisir celui-ci' : undefined}
+              motCreer={variante === 'location' ? 'Non, c’est un autre syndic — créer quand même' : undefined} />
           )}
           {confirmation === null && mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire}
@@ -539,6 +544,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             </div>
           ) : etapeDoublon !== null && etapeDoublon.length > 0 ? (
             <PiedDoublonSyndic doublons={etapeDoublon} envoi={envoi} onRevenir={() => setEtapeDoublon(null)}
+              {...(variante === 'location' ? { motCreer: 'Non, c’est un autre syndic — créer quand même', onChoisir: (id: number) => void choisirParId(id) } : {})}
               onCreer={() => {
                 const acc = etapeDoublon.map((d) => ({ id: d.syndic.id, criteres: d.criteres }));
                 setAccepte(acc); setEtapeDoublon(null);
@@ -646,8 +652,11 @@ function sansAdressesCopro<T extends { immeubles: ReadonlyArray<{ adresses?: unk
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
-function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null }: {
+function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer }: {
   immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void;
+  /** 🔴🔴 (Arno, 17/11/2026 : « Aucun résultat (ou aucun ne convient) → sous la liste, un bouton « Créer le syndic « <texte tapé> » » qui ouvre la création
+   *  existante avec le nom pré-rempli. ») — variante Location seulement ; absent : la recherche de la Gestion, inchangée. */
+  onCreer?: (nom: string) => void;
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic qu'on vient de retirer de cette copropriété : sans recherche, il
    *  passe en FIN de liste (jamais proposé en tête) ; une recherche le trouve comme les autres. */
   ancienSyndicId?: number | null;
@@ -675,7 +684,7 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null }: {
         <p className="fsy-discret">Ce bien n’a pas d’« Immeuble » dans l’export WIPPIMMO : il ne recevra un syndic que par son immeuble.</p>
       )}
       <label className="fsy-champ">
-        <span>Chercher un syndic existant (nom, e-mail, domaine)</span>
+        <span>Chercher un syndic existant (nom, e-mail, téléphone, domaine)</span>
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ex. Citya, foncia.com…" autoFocus />
       </label>
       {liste === null ? <p className="fsy-discret">Recherche…</p> : liste.length === 0 ? (
@@ -696,6 +705,10 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null }: {
           ))}
         </ul>
       )}
+      {onCreer !== undefined && (q.trim() === ''
+        ? <p className="fsy-discret" data-fsy-creer-apres-recherche>Tapez le nom, l’e-mail ou le téléphone du syndic : s’il n’est pas dans la liste, vous pourrez le créer.</p>
+        : liste !== null && <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-creer-recherche" onClick={() => onCreer(q)} data-fsy-creer-recherche>
+          Créer le syndic « {q.trim()} »</button>)}
     </div>
   );
 }
@@ -2334,6 +2347,7 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-tete{flex-wrap:wrap}
 .fsy-tete > .fsy-titre{flex:1 1 10rem}
 .fsy-creer-tete{min-height:34px;padding:.25rem .7rem;font-size:.82rem;white-space:nowrap}
+.fsy-creer-recherche{display:block;width:100%;box-sizing:border-box;margin-top:10px;white-space:normal;overflow-wrap:anywhere;text-align:center}
 .fsy-croix{flex:0 0 auto;min-width:44px;min-height:44px;border:0;background:transparent;font-size:1.4rem;color:var(--color-svv-muted);cursor:pointer}
 .fsy-corps{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 16px 12px}
 .fsy-pied{flex:0 0 auto;display:flex;flex-direction:column;gap:.4rem;padding:10px 16px;border-top:1px solid var(--color-svv-line);

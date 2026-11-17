@@ -19,6 +19,10 @@ import type { NouveauContactSyndic, SyndicSuggere } from '../../../../lib/locati
  * modale de création du syndic (mêmes champs que la Gestion) avec ses contacts internes. Syndic choisi : ses contacts
  * internes déjà connus, en désigner un ou plusieurs pour ce bien, et “+ Ajouter un contact” qui enrichit l'annuaire du
  * syndic. » (Arno)
+ * 🔴🔴 (Arno, 17/11/2026 : « choix du syndic par UN SEUL bouton, recherche d'abord, création seulement si rien ne correspond (pour éviter les syndics en
+ * double). […] les deux boutons ronds (loupe et « + ») sont REMPLACÉS, avec l'accord d'Arno, par un seul bouton « Choisir le syndic » (« Changer de
+ * syndic » s'il y en a déjà un). Il ouvre la recherche des syndics existants […] La création n'est JAMAIS accessible sans être passé par la recherche. »)
+ * — le bouton ouvre la modale sur la RECHERCHE ; la création ne s'y propose que sous ses résultats, le nom tapé pré-rempli.
  * 🔴 LA LOUPE ET LE « + » OUVRENT LA MODALE DE LA GESTION (`FicheSyndic`), telle quelle — recherche, création, contacts,
  * rattachement de l'immeuble du bien à la copropriété du syndic. Le reste (désignation des contacts, nouveaux contacts)
  * est enregistré AVEC le bien, par les fonctions de la Gestion (`syndicLocationRepo`).
@@ -40,7 +44,7 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
   onChoisi: (s: SyndicChoisi | null) => void;
 }) {
   const [suggestions, setSuggestions] = useState<SyndicSuggere[]>([]);
-  const [modale, setModale] = useState<null | 'recherche' | 'creation'>(null);
+  const [modale, setModale] = useState<null | 'recherche'>(null);
   const [fiche, setFiche] = useState<DonneesSyndic | null>(null);
   const [ajout, setAjout] = useState<NouveauContactSyndic | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
@@ -79,7 +83,7 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
     return () => { vivant = false; };
   }, [choisi?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ouvrir = (m: 'recherche' | 'creation'): void => { setModale(m); };
+  const ouvrir = (m: 'recherche'): void => { setModale(m); };
   const fermer = (): void => { setModale(null); setN((x) => x + 1); };
   const valider = (c: NouveauContactSyndic): string | null => {
     if ((c.nom ?? '').trim() === '') return 'Le nom du contact est obligatoire.';
@@ -91,12 +95,9 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
     <div className="loc-pleine loc-syndic" data-syndic>
       <div className="loc-syndic-tete">
         <span className="loc-syndic-mot">Syndic</span>
-        <button type="button" className="loc-picto" aria-label="Chercher un syndic dans l’annuaire de la Gestion" title={adressePrete ? 'Chercher dans l’annuaire des syndics' : 'Saisissez d’abord l’adresse du bien'}
-          disabled={!adressePrete} onClick={() => ouvrir('recherche')} data-loupe>
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2.4" /><path d="M15.5 15.5 21 21" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" /></svg>
-        </button>
-        <button type="button" className="loc-picto loc-picto--plus" aria-label="Créer un syndic" title={adressePrete ? 'Créer un syndic' : 'Saisissez d’abord l’adresse du bien'}
-          disabled={!adressePrete} onClick={() => ouvrir('creation')} data-creer-syndic>+</button>
+        {/* 🔴🔴 (Arno, 17/11/2026) UN SEUL BOUTON, à la place de la loupe et du « + » (accord d'Arno) : la recherche d'abord */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn loc-syndic-choisir" title={adressePrete ? 'Chercher le syndic dans l’annuaire (nom, e-mail, téléphone)' : 'Saisissez d’abord l’adresse du bien'}
+          disabled={!adressePrete} onClick={() => ouvrir('recherche')} data-choisir-syndic>{choisi === null ? 'Choisir le syndic' : 'Changer de syndic'}</button>
         {!adressePrete && <span className="loc-muet">Saisissez d’abord l’adresse du bien (section « Adresse et situation »).</span>}
       </div>
 
@@ -164,7 +165,7 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
       )}
 
       {modale !== null && typeof document !== 'undefined' && createPortal(
-        <FicheSyndic syndicId={null} departCreation={modale === 'creation'} variante="location"
+        <FicheSyndic syndicId={null} variante="location"
           onChoisi={(x) => onChoisi({ id: x.id, nom: x.nom, ville: x.ville, contactsIds: [], nouveauxContacts: [] })}
           immeubleDepart={{ libelle: adresse.libelle.trim(), codePostal: adresse.codePostal, commune: adresse.commune }}
           onFerme={fermer} />,

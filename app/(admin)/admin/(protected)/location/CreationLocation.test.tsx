@@ -226,10 +226,12 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect([...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace(/^\d/, '').replace('*', '').trim()))
       .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété & ID fiscal', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires', 'Statut du bien']);
     expect(container.querySelector('[data-collant] button[type="submit"]')?.textContent).toBe('Enregistrer le bien');
-    // Syndic : libellé, loupe et « + » (désactivés tant que l'adresse n'est pas saisie).
+    // Syndic : libellé et UN SEUL bouton « Choisir le syndic » (Arno, 17/11/2026 : à la place de la loupe et du « + »), désactivé tant que l'adresse n'est pas saisie.
     expect(container.querySelector('[data-syndic] .loc-syndic-mot')?.textContent).toBe('Syndic');
-    expect((container.querySelector('[data-loupe]') as HTMLButtonElement).disabled).toBe(true);
-    expect((container.querySelector('[data-creer-syndic]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-choisir-syndic]') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('[data-choisir-syndic]')?.textContent).toBe('Choisir le syndic');
+    expect(container.querySelector('[data-loupe]')).toBeNull();
+    expect(container.querySelector('[data-creer-syndic]')).toBeNull();
   });
 
   it('obligatoires : sans adresse ni type, « Enregistrer le bien » dit ce qui manque et n’envoie rien', async () => {
@@ -358,7 +360,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(container.querySelector('[data-suggestions-syndic]')).toBeNull();
     expect(document.querySelector('.fsy')).not.toBeNull();
     expect(container.querySelector('[data-syndic-choisi]')).toBeNull();
-    expect((container.querySelector('[data-loupe]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-choisir-syndic]') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('ANNEXES : un parking a les options du parking nu ; « Autre adresse » fait apparaître une adresse', async () => {
