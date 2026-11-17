@@ -202,12 +202,22 @@ export async function journaliserAvis(m: MailAvis, o: { lotId: number; occupatio
  * ENVOIE une série de mails, dans l'ordre, chacun une seule fois ; chaque issue est journalisée. Ne lève jamais. La signature
  * part avec ses images INCORPORÉES (`cid:`) ; une image introuvable est retirée, jamais un carré barré.
  */
+/** 🔴🔴 Arno (17/11/2026) — le verrou « un mail par destinataire » : `null` si le message a EXACTEMENT une adresse (destinataire + copie + copie cachée), sinon le refus. PUR. */
+export function refusUneSeuleAdresse(m: { a: readonly string[]; cc: readonly string[]; cci?: readonly string[] }): string | null {
+  const n = m.a.length + m.cc.length + (m.cci ?? []).length;
+  if (n === 1 && m.a.length === 1) return null;
+  return n === 0 ? 'Envoi refusé : ce mail n’a aucune adresse.'
+    : `Envoi refusé : ce mail doit partir à UNE seule adresse, sans copie ni copie cachée (il en porte ${n}).`;
+}
+
 export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
   o: { lotId: number; occupationIds: readonly number[]; auteur: Auteur;
     /** 🔴 Arno (10/11/2026, pré-visite) — un mail qui concerne PLUSIEURS biens (récapitulatif des alertes) : envoyé UNE fois, rangé aussi dans leurs historiques. */
     autres?: readonly { lotId: number; occupationIds: readonly number[] }[];
     /** 🔴 Arno (11/11/2026, 467) — les propriétaires que ces mails concernent (historique du propriétaire). */
-    proprietaireIds?: readonly number[] }, deps: DepsAvis): Promise<EnvoiAvis[]> {
+    proprietaireIds?: readonly number[];
+    /** 🔴🔴 Arno (17/11/2026) — VERROU « un mail par destinataire » : le message part à UNE seule adresse (destinataire + copie + copie cachée), sinon il est REFUSÉ avant le transport. */
+    uneSeuleAdresse?: boolean }, deps: DepsAvis): Promise<EnvoiAvis[]> {
   const issues: EnvoiAvis[] = [];
   for (const m0 of mails) {
     // 🔴 Arno (14/11/2026, 473) — PRÉAVIS DE TEST : le mail est ramené AVANT l'envoi à ce qui peut partir (le seul créateur, « [TEST] ») ; le
@@ -223,6 +233,19 @@ export async function envoyerSerie(mails: readonly MailAvis[], brute: string,
     }
     const m = f === null ? m0 : { ...m0, a: f.message.a, cc: f.message.cc, objet: f.message.objet };
     const base = { sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, texte: m.texte };
+    // 🔴🔴 Arno (17/11/2026 : « chaque mail de changement de digicode a exactement UNE adresse en destinataire, sans copie ni copie cachée, et n'est
+    // jamais regroupé. Ajoute un garde-fou serveur qui refuse l'envoi si un message a plus d'une adresse (to+cc+bcc) ») — contrôlé sur le message
+    // TEL QU'IL PARTIRAIT (après le périmètre de test) ; aucun envoi de copie cachée n'existe ici (cci : toujours vide au transport)
+    if (o.uneSeuleAdresse === true) {
+      const refus = refusUneSeuleAdresse(m);
+      if (refus !== null) {
+        for (const cible of [o, ...(o.autres ?? [])]) {
+          await journaliserAvis(m, { lotId: cible.lotId, occupationIds: cible.occupationIds, auteur: o.auteur, statut: 'echec', erreur: refus, messageId: null });
+        }
+        issues.push({ ...base, envoye: false, motif: refus });
+        continue;
+      }
+    }
     try {
       const domaine = m.de.split('@')[1] ?? 'criterimmo.fr';
       const alea = randomBytes(12).toString('hex');

@@ -6,7 +6,7 @@ import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis } from '../../../../lib/gestion/digicodes';
 import { bilanEnvoi, motCode, proprietairesRegroupes, type ApercuEnvoi, type IssueEnvoi, type LogementDest } from '../../../../lib/gestion/digicodesEnvoi';
-import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
+import { adressesUniques, prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 
 /**
  * ══ 🔴🔴 LES DIGICODES DE LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 3) ═══════════════════════════════════════
@@ -381,7 +381,7 @@ function EcranDestinataires({ a, proprietaires, onProprietaires, envoi, erreur, 
     <div className="dcp-voile" data-dcp-destinataires>
       <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-dest-titre" onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onRetour(); } }}>
         <p className="dcp-alerte-titre" id="dcp-dest-titre">Qui sera prévenu ?</p>
-        <p className="dcp-alerte-texte">{a.adresse} — nouveau code à partir du {dateHeure(a.appliqueLe)}. Chaque personne reçoit SON mail, à son nom, sans autre destinataire, avec seulement le code commun et celui de son bâtiment.</p>
+        <p className="dcp-alerte-texte">{a.adresse} — nouveau code à partir du {dateHeure(a.appliqueLe)}. Chaque personne reçoit SON mail, à son nom, sans autre destinataire, avec seulement le code commun et celui de son bâtiment. Une personne qui a plusieurs adresses e-mail reçoit un mail à chacune, séparément.</p>
         <p className="dcp-total" data-dcp-total>{a.logements.length} logement{a.logements.length > 1 ? 's' : ''} concerné{a.logements.length > 1 ? 's' : ''}</p>
         {[...groupes.entries()].sort(([x], [y]) => x.localeCompare(y, 'fr', { numeric: true })).map(([bat, ls]) => (
           <div key={bat} className="dcp-dest-groupe" data-dcp-dest-batiment={bat === '' ? 'sans' : bat}>
@@ -400,7 +400,7 @@ function EcranDestinataires({ a, proprietaires, onProprietaires, envoi, erreur, 
         <label className="dcp-aucun"><input type="checkbox" checked={proprietaires} disabled={envoi} onChange={(e) => onProprietaires(e.target.checked)} data-dcp-proprietaires />
           <span>Prévenir aussi les propriétaires</span></label>
         {proprietaires && <ul className="dcp-arbitrer-liste" data-dcp-liste-proprietaires>{proprietairesRegroupes(a).map((p) => (
-          <li key={p.personne.id}>{prenomNom(p.personne)} — {p.logements.length} logement{p.logements.length > 1 ? 's' : ''} (un seul mail){p.personne.emails.length === 0 ? <span className="dcp-a-arbitrer"> — pas d’e-mail — à prévenir autrement</span> : null}</li>))}</ul>}
+          <li key={p.personne.id}>{prenomNom(p.personne)} — {p.logements.length} logement{p.logements.length > 1 ? 's' : ''} ({adressesUniques(p.personne.emails).length > 1 ? `${adressesUniques(p.personne.emails).length} mails, un par adresse` : 'un seul mail'}){p.personne.emails.length === 0 ? <span className="dcp-a-arbitrer"> — pas d’e-mail — à prévenir autrement</span> : null}</li>))}</ul>}
         <p className="dcp-total" data-dcp-bilan>{b.mailsLocataires} mail{b.mailsLocataires > 1 ? 's' : ''} aux locataires{proprietaires ? ` · ${b.mailsProprietaires} aux propriétaires` : ''}{b.sansEmail.length > 0 ? ` · ${b.sansEmail.length} à prévenir autrement` : ''}</p>
         {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-envoi-erreur>{erreur}</p>}
         <div className="dcp-alerte-actions">

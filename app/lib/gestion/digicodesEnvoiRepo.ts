@@ -99,6 +99,8 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
 /**
  * ENREGISTRER LE CHANGEMENT, PUIS PRÉVENIR : rien ne part si le changement est refusé (rien n'est écrit non plus) ; ensuite UN MAIL PAR PERSONNE
  * (chacun à son seul nom), chacun enregistré dans l'historique du bien et du locataire (et du propriétaire). Ne lève pas : chaque échec est dit.
+ * 🔴🔴 Arno (17/11/2026 : « chaque mail de changement de digicode a exactement UNE adresse en destinataire, sans copie ni copie cachée, et n'est jamais
+ * regroupé ») : une personne qui a deux adresses reçoit DEUX mails, un par adresse ; chaque envoi passe le verrou `uneSeuleAdresse` d'`envoyerSerie`.
  */
 export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: DepsAvis = {}): Promise<Issue<IssueEnvoi>> {
   if (!(await mailsDigicodeDisponibles())) return { ok: false, motif: 'L’envoi des mails de changement de digicode demande la mise à jour de la base (migration 479) : rien n’est enregistré ni envoyé.' };
@@ -118,8 +120,10 @@ export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: D
     for (const x of l.locataires) {
       const m = mailLocataire(a, l, x, contexte);
       if (m === null) continue;
-      const [r] = await envoyerSerie([m], sig.brute, { lotId: l.lotId, occupationIds: [x.occupationId], auteur }, deps);
-      envois.push({ pour: prenomNom(x), objet: r.objet, a: r.a, envoye: r.envoye, motif: r.motif });
+      for (const adresse of m.a) {
+        const [r] = await envoyerSerie([{ ...m, a: [adresse], cc: [] }], sig.brute, { lotId: l.lotId, occupationIds: [x.occupationId], auteur, uneSeuleAdresse: true }, deps);
+        envois.push({ pour: prenomNom(x), objet: r.objet, a: r.a, envoye: r.envoye, motif: r.motif });
+      }
     }
   }
   if (proprietaires) {
@@ -127,9 +131,11 @@ export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: D
       const m = mailProprietaire(a, p, contexte);
       if (m === null) continue;
       const [premier, ...autres] = p.logements;
-      const [r] = await envoyerSerie([m], sig.brute, { lotId: premier.lotId, occupationIds: [], auteur, proprietaireIds: [p.personne.id],
-        autres: autres.map((x) => ({ lotId: x.lotId, occupationIds: [] })) }, deps);
-      envois.push({ pour: prenomNom(p.personne), objet: r.objet, a: r.a, envoye: r.envoye, motif: r.motif });
+      for (const adresse of m.a) {
+        const [r] = await envoyerSerie([{ ...m, a: [adresse], cc: [] }], sig.brute, { lotId: premier.lotId, occupationIds: [], auteur, proprietaireIds: [p.personne.id],
+          autres: autres.map((x) => ({ lotId: x.lotId, occupationIds: [] })), uneSeuleAdresse: true }, deps);
+        envois.push({ pour: prenomNom(p.personne), objet: r.objet, a: r.a, envoye: r.envoye, motif: r.motif });
+      }
     }
   }
   const bilan = bilanEnvoi(a, proprietaires);

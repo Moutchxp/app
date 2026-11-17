@@ -47,8 +47,9 @@ export function bilanEnvoi(a: ApercuEnvoi, proprietaires: boolean): { logements:
   const locs = a.logements.flatMap((l) => l.locataires);
   return {
     logements: a.logements.length,
-    mailsLocataires: locs.filter((x) => x.inclus && adressesUniques(x.emails).length > 0).length,
-    mailsProprietaires: proprietaires ? proprietairesRegroupes(a).filter((p) => adressesUniques(p.personne.emails).length > 0).length : 0,
+    // 🔴🔴 Arno (17/11/2026 : « chaque mail de changement de digicode a exactement UNE adresse en destinataire ») : un mail PAR ADRESSE — le décompte suit
+    mailsLocataires: locs.filter((x) => x.inclus).reduce((n, x) => n + adressesUniques(x.emails).length, 0),
+    mailsProprietaires: proprietaires ? proprietairesRegroupes(a).reduce((n, p) => n + adressesUniques(p.personne.emails).length, 0) : 0,
     sansEmail: [...locs.filter((x) => x.inclus && adressesUniques(x.emails).length === 0).map((x) => prenomNom(x)),
       ...(proprietaires ? proprietairesRegroupes(a).filter((p) => adressesUniques(p.personne.emails).length === 0).map((p) => prenomNom(p.personne)) : [])],
     exclus: locs.filter((x) => !x.inclus).map((x) => `${prenomNom(x)} — ${x.raison}`),

@@ -561,3 +561,33 @@ describe('🔴🔴 Arno (14/11/2026, 473) — PRÉAVIS DE TEST : dans son périm
     }
   });
 });
+
+describe('🔴🔴 Arno (17/11/2026) — VERROU « un mail par destinataire » (`uneSeuleAdresse`) : plus d’une adresse (à + copie + copie cachée), l’envoi est REFUSÉ', () => {
+  const m = { sorte: 'digicode_locataire' as const, de: 'gestion@criterimmo.fr', a: ['alice@exemple.test'], cc: [] as string[], objet: 'Changement de digicode', texte: 't', html: '<p>t</p>' };
+  it('le contrôle pur : une seule adresse en destinataire passe ; deux destinataires, une copie, une copie cachée, aucune adresse : refusés', async () => {
+    const { refusUneSeuleAdresse } = await import('./mailsPreavisSortieRepo');
+    expect(refusUneSeuleAdresse({ a: ['x@e.test'], cc: [] })).toBeNull();
+    expect(refusUneSeuleAdresse({ a: ['x@e.test', 'y@e.test'], cc: [] })).toContain('il en porte 2');
+    expect(refusUneSeuleAdresse({ a: ['x@e.test'], cc: ['y@e.test'] })).toContain('UNE seule adresse');
+    expect(refusUneSeuleAdresse({ a: ['x@e.test'], cc: [], cci: ['y@e.test'] })).toContain('UNE seule adresse');
+    expect(refusUneSeuleAdresse({ a: [], cc: ['y@e.test'] })).not.toBeNull();
+    expect(refusUneSeuleAdresse({ a: [], cc: [] })).toContain('aucune adresse');
+  });
+  it('au serveur : deux adresses ou une copie → RIEN ne part (le transport n’est pas appelé), l’échec est dit et journalisé ; une seule adresse → part', async () => {
+    const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
+    const o = { lotId: 7, occupationIds: [11], auteur: AUTEUR, uneSeuleAdresse: true };
+    const [deux] = await envoyerSerie([{ ...m, a: ['alice@exemple.test', 'bob@exemple.test'] }], '', o, deps);
+    const [copie] = await envoyerSerie([{ ...m, cc: ['bob@exemple.test'] }], '', o, deps);
+    expect([deux, copie].map((r) => [r.envoye, r.motif?.startsWith('Envoi refusé')])).toEqual([[false, true], [false, true]]);
+    expect(envoyes).toHaveLength(0);
+    expect(journalAvis().map((e) => e.params.includes('echec'))).toEqual([true, true]);
+    const [seul] = await envoyerSerie([m], '', o, deps);
+    expect(seul.envoye).toBe(true);
+    expect(envoyes.map((e) => [e.a, e.cc, e.cci])).toEqual([[['alice@exemple.test'], [], []]]);
+  });
+  it('sans l’option, les autres envois sont inchangés (un message à deux adresses part comme avant)', async () => {
+    const { envoyerSerie } = await import('./mailsPreavisSortieRepo');
+    const [r] = await envoyerSerie([{ ...m, sorte: 'sortie_edls_locataire' as const, a: ['alice@exemple.test', 'bob@exemple.test'] }], '', { lotId: 7, occupationIds: [11], auteur: AUTEUR }, deps);
+    expect(r.envoye).toBe(true);
+  });
+});

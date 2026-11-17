@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * 🔴🔴 Arno (16/11/2026, « Digicodes unifiés », lot 6) — l'écran des destinataires et l'envoi : le changement d'abord (refusé : rien ne part), puis UN
  * mail par personne, rangé dans l'historique du bien, du locataire et du propriétaire. 🔒 Base et transport simulés : rien n'est écrit ni envoyé.
  */
-const h = vi.hoisted(() => ({ avec479: true, planif: { ok: true } as Record<string, unknown>, envois: [] as { a: string[]; sorte: string; o: Record<string, unknown> }[],
+const h = vi.hoisted(() => ({ avec479: true, planif: { ok: true } as Record<string, unknown>, envois: [] as { a: string[]; cc?: string[]; sorte: string; o: Record<string, unknown> }[],
   occ: [] as Record<string, unknown>[], pro: [] as Record<string, unknown>[], locs: [] as Record<string, unknown>[] }));
 vi.mock('../db/client', () => ({ query: async (sql: string) => {
   const s = sql.replace(/\s+/g, ' ');
@@ -21,8 +21,8 @@ vi.mock('../location/mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () =>
 vi.mock('../location/mailsPreavisSortieRepo', () => ({
   signatureEcran: async () => ({ brute: '', ecran: { html: '', texte: '' } }),
   locatairesAvis: async () => h.locs,
-  envoyerSerie: async (mails: { a: string[]; sorte: string; objet: string }[], _b: string, o: Record<string, unknown>) => {
-    for (const m of mails) h.envois.push({ a: m.a, sorte: m.sorte, o });
+  envoyerSerie: async (mails: { a: string[]; cc: string[]; sorte: string; objet: string }[], _b: string, o: Record<string, unknown>) => {
+    for (const m of mails) h.envois.push({ a: m.a, cc: m.cc, sorte: m.sorte, o });
     return mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: [], envoye: true, motif: null }));
   },
 }));
@@ -81,5 +81,16 @@ describe('enregistrer, puis prévenir', () => {
     h.avec479 = false; h.planif = { ok: true };
     expect((await planifierEtPrevenir(CORPS, AUTEUR)).ok).toBe(false);
     expect(h.envois).toEqual([]);
+  });
+});
+
+describe('🔴🔴 Arno (17/11/2026) — UN MAIL PAR DESTINATAIRE, verrouillé', () => {
+  it('une personne à DEUX adresses : DEUX mails, chacun à UNE adresse, sans copie, chacun avec le verrou `uneSeuleAdresse` ; le propriétaire aussi', async () => {
+    h.locs[0] = { ...h.locs[0], emails: ['lea@exemple.test', 'lea.pro@exemple.test'] };
+    h.pro = [{ lot: '1', id: '31', nom: 'PROPRIO', prenom: 'Jean', emails: ['jean@exemple.test', 'jean2@exemple.test'] }];
+    const r = await planifierEtPrevenir({ ...CORPS, proprietaires: true }, AUTEUR);
+    expect(r.ok && r.data.envois.map((e) => [e.pour, e.a])).toEqual([['Léa MARTIN', ['lea@exemple.test']], ['Léa MARTIN', ['lea.pro@exemple.test']],
+      ['Paul MARTIN', ['paul@exemple.test']], ['Jean PROPRIO', ['jean@exemple.test']], ['Jean PROPRIO', ['jean2@exemple.test']]]);
+    expect(h.envois.every((e) => e.a.length === 1 && (e.cc ?? []).length === 0 && e.o.uneSeuleAdresse === true)).toBe(true);
   });
 });

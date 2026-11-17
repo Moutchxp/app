@@ -51,3 +51,12 @@ describe('🔴 UN MAIL PAR PERSONNE, nominatif, sans autre destinataire, avec SE
     expect(objetChangement(b)).toContain('à partir du 20/11/2026 à 09:00');
   });
 });
+
+describe('🔴🔴 Arno (17/11/2026) — un mail PAR ADRESSE : le décompte de l’écran des destinataires le dit', () => {
+  it('un locataire à deux adresses compte pour DEUX mails ; un propriétaire à deux adresses aussi', () => {
+    const x = { id: 1, occupationId: 11, nom: 'MARTIN', prenom: 'Léa', emails: ['lea@exemple.test', 'lea.pro@exemple.test'], depart: null, inclus: true, raison: null };
+    const p = { id: 9, nom: 'PROPRIO', prenom: 'Jean', emails: ['jean@exemple.test', 'jean2@exemple.test'] };
+    const a: ApercuEnvoi = { adresse: '1 rue Essai', adresseCle: '1 rue essai', appliqueLe: '2026-11-20T08:00:00.000Z', logements: [L({ locataires: [x as never], proprietaires: [p] })] };
+    expect(bilanEnvoi(a, true)).toMatchObject({ mailsLocataires: 2, mailsProprietaires: 2 });
+  });
+});
