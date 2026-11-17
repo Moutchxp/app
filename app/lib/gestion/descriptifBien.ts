@@ -95,7 +95,8 @@ export function descriptifDuBien(b: BienDecrit): LigneDescriptif[] {
   // (module sans import : le même libellé et le même repli que `batimentOuCage` / `LIBELLE_BATIMENT_CAGE` de batimentsCopropriete.ts)
   ajouter('Bâtiment / cage d’escalier', propre(b.batiment) !== '' ? b.batiment : b.escalier);
   // ⚠️ LE BÂTIMENT N'EST ÉCRIT QUE S'IL APPREND QUELQUE CHOSE : 283 lots sur 365 portent `immeuble` = `adresse`.
-  if (!immeubleRepeteLAdresse(b)) ajouter('Bâtiment', b.immeuble);
+  // 🔴 (Arno, 17/11/2026 : « la ligne qui donne l'immeuble est renommée « Immeuble », pour ne plus la confondre avec « Bâtiment / cage d'escalier » »)
+  if (!immeubleRepeteLAdresse(b)) ajouter('Immeuble', b.immeuble);
   // ③ QUI.
   ajouter('Propriétaire', (b.proprietaires ?? []).map(propre).filter((x) => x !== '').join(', '));
   for (const o of b.occupants ?? []) {

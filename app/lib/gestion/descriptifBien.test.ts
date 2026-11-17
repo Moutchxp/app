@@ -101,12 +101,13 @@ describe('🔴🔴 ① tout ce que la base sait, et rien de plus', () => {
  */
 describe('⚠️ ② le bâtiment, seulement s’il apprend quelque chose', () => {
   it('⚠️ un bâtiment qui répète l’adresse n’est pas écrit', () => {
-    expect(libelles(LOT_360)).not.toContain('Bâtiment');
+    expect(libelles(LOT_360)).not.toContain('Immeuble');
     expect(immeubleRepeteLAdresse(LOT_360)).toBe(true);
   });
 
-  it('🔴 un vrai bâtiment est écrit', () => {
-    expect(valeur({ ...LOT_360, immeuble: 'Bât. B — escalier 2' }, 'Bâtiment')).toBe('Bât. B — escalier 2');
+  it('🔴 un vrai bâtiment est écrit — sous « Immeuble » (Arno, 17/11/2026 : pour ne plus le confondre avec « Bâtiment / cage d’escalier »)', () => {
+    expect(valeur({ ...LOT_360, immeuble: 'Bât. B — escalier 2' }, 'Immeuble')).toBe('Bât. B — escalier 2');
+    expect(libelles({ ...LOT_360, immeuble: 'Bât. B — escalier 2' })).not.toContain('Bâtiment');
   });
 
   it('⚠️ un bâtiment absent n’est pas un bâtiment différent', () => {
