@@ -71,6 +71,36 @@ describe('🔴 la ligne « Syndic » du bien : un seul bouton, la recherche d’
   });
 });
 
+/** 🔴 Arno (17/11/2026) — « Le second bouton « Changer de syndic » du bloc du syndic choisi (celui qui vide le choix) est RENOMMÉ « Retirer le syndic », avec
+ *  une fenêtre de confirmation (« Retirer le syndic de ce bien ? Le syndic reste dans l'annuaire. »). Le bouton du haut garde « Changer de syndic ». » */
+describe('🔴 « Retirer le syndic » (le bouton qui vide le choix), avec sa fenêtre', () => {
+  function Hote() {
+    const [choisi, setChoisi] = useState<SyndicChoisi | null>({ id: 41, nom: '_TEST SYNDIC Élysée', ville: 'Asnières', contactsIds: [], nouveauxContacts: [] });
+    return createElement(BlocSyndic, { adresse: { libelle: IMMEUBLE.libelle, codePostal: IMMEUBLE.codePostal, commune: IMMEUBLE.commune }, choisi, onChoisi: setChoisi });
+  }
+  it('le haut dit « Changer de syndic » ; le bloc dit « Retirer le syndic » ; « Annuler » garde le syndic ; « Retirer le syndic » le retire du bien, rien n’est écrit', async () => {
+    await act(async () => { racine.render(createElement(Hote)); });
+    await calmer();
+    expect(document.querySelector('[data-choisir-syndic]')?.textContent).toBe('Changer de syndic');
+    const bloc = document.querySelector('[data-syndic-choisi]')!;
+    expect([...bloc.querySelectorAll('button')].map((b) => b.textContent)).toContain('Retirer le syndic');
+    expect([...bloc.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('Changer de syndic');
+    await act(async () => { (bloc.querySelector('[data-retirer-syndic]') as HTMLButtonElement).click(); });
+    const f = document.querySelector('[data-fenetre-retirer-syndic]') as HTMLElement;
+    expect(f.getAttribute('role')).toBe('alertdialog');
+    expect(f.textContent).toContain('Retirer le syndic de ce bien ?');
+    expect(f.textContent).toContain('Le syndic reste dans l’annuaire.');
+    await act(async () => { (f.querySelector('[data-retirer-syndic-non]') as HTMLButtonElement).click(); });
+    expect(document.querySelector('[data-fenetre-retirer-syndic]')).toBeNull();
+    expect(document.querySelector('[data-syndic-choisi]')?.textContent).toContain('_TEST SYNDIC Élysée');
+    await act(async () => { (document.querySelector('[data-retirer-syndic]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-retirer-syndic-oui]') as HTMLButtonElement).click(); });
+    expect(document.querySelector('[data-syndic-choisi]')).toBeNull();
+    expect(document.querySelector('[data-choisir-syndic]')?.textContent).toBe('Choisir le syndic');
+    expect(ecritures).toEqual([]);
+  });
+});
+
 describe('🔴 la fenêtre (variante Location) : créer seulement après la recherche', () => {
   const ouvrir = async (onChoisi: (s: unknown) => void = () => {}) => {
     await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, variante: 'location', onChoisi, onFerme: () => {} })); });

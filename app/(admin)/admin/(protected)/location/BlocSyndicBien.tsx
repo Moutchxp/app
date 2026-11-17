@@ -49,6 +49,8 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
   const [ajout, setAjout] = useState<NouveauContactSyndic | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [n, setN] = useState(0);
+  /** 🔴 (Arno, 17/11/2026) la fenêtre « Retirer le syndic de ce bien ? » */
+  const [retrait, setRetrait] = useState(false);
   /** Les adresses pour lesquelles la modale s'est déjà ouverte d'elle-même (une seule fois chacune). */
   const dejaOuverte = useRef(new Set<string>());
   const adressePrete = adresse.libelle.trim().length >= 5;
@@ -106,7 +108,10 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
       {choisi !== null && (
         <div className="loc-syndic-choisi" data-syndic-choisi>
           <p className="loc-syndic-nom"><strong>{choisi.nom}</strong>{choisi.ville ? <span className="loc-muet"> — {choisi.ville}</span> : null}
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onChoisi(null)}>Changer de syndic</button></p>
+            {/* 🔴🔴 (Arno, 17/11/2026 : « Le second bouton « Changer de syndic » du bloc du syndic choisi (celui qui vide le choix) est RENOMMÉ « Retirer le
+                syndic », avec une fenêtre de confirmation (« Retirer le syndic de ce bien ? Le syndic reste dans l'annuaire. »). Le bouton du haut garde
+                « Changer de syndic » (ouvre la recherche). ») */}
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRetrait(true)} data-retirer-syndic>Retirer le syndic</button></p>
           <p className="loc-muet" style={{ margin: 0 }}>Rattaché au bien à l’enregistrement (par son immeuble, comme dans la Gestion). Ses contacts pour ce bien :</p>
           {fiche === null ? <p className="gst-info">Chargement des contacts…</p> : liste(fiche.contacts).length === 0
             ? <p className="loc-muet" style={{ margin: 0 }}>Aucun contact interne connu pour ce syndic.</p> : (
@@ -162,6 +167,21 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
             </div>
           )}
         </div>
+      )}
+
+      {retrait && choisi !== null && typeof document !== 'undefined' && createPortal(
+        <div className="loc-retrait-syndic-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) setRetrait(false); }}>
+          <div className="loc-retrait-syndic" role="alertdialog" aria-modal="true" aria-labelledby="loc-retrait-syndic-titre" data-fenetre-retirer-syndic
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRetrait(false); } }}>
+            <p className="loc-retrait-syndic-titre" id="loc-retrait-syndic-titre">Retirer le syndic de ce bien ?</p>
+            <p className="loc-muet loc-retrait-syndic-texte">Le syndic reste dans l’annuaire.</p>
+            <div className="loc-retrait-syndic-actions">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRetrait(false)} autoFocus data-retirer-syndic-non>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setRetrait(false); onChoisi(null); }} data-retirer-syndic-oui>Retirer le syndic</button>
+            </div>
+          </div>
+        </div>,
+        document.querySelector('.svv-adm-root') ?? document.body,
       )}
 
       {modale !== null && typeof document !== 'undefined' && createPortal(

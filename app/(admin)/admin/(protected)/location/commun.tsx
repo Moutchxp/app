@@ -431,6 +431,13 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-syndic{display:flex;flex-direction:column;gap:12px}
 .loc-syndic-tete{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
 .loc-syndic-choisir{min-height:46px;white-space:normal;text-align:center}
+.loc-retrait-syndic-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+.loc-retrait-syndic{width:min(440px,100%);box-sizing:border-box;padding:18px;border-radius:16px;background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line);box-shadow:0 18px 48px color-mix(in srgb, var(--color-svv-ink) 25%, transparent)}
+.loc-retrait-syndic-titre{margin:0 0 6px;font-weight:800;font-size:1.05rem}
+.loc-retrait-syndic-texte{margin:0 0 14px}
+.loc-retrait-syndic-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px}
+.loc-retrait-syndic .svv-btn-primary{color:var(--color-svv-surface)}
+@media (max-width:480px){.loc-retrait-syndic-actions > *{flex:1 1 100%}}
 .loc-syndic-mot{font-weight:700;font-size:1rem;color:var(--color-svv-ink)}
 .loc-picto{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.6rem;font-weight:800;line-height:1;cursor:pointer}
 .loc-picto--plus{border-color:var(--color-svv-red);color:var(--color-svv-red)}
