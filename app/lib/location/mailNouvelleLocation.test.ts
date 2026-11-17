@@ -169,6 +169,11 @@ describe('🔴 le bien loué : même adresse / adresses différentes, lots regro
     expect(html.indexOf('📍 12 rue Victor Hugo')).toBeLessThan(html.indexOf('📍 14 rue Victor Hugo'));
     expect(html).toContain('Parking · box simple');
   });
+  it('🔴 (Arno, 17/11/2026) un bien sans bâtiment mais avec un ancien escalier : la ligne « Bâtiment / cage d’escalier » le reprend', () => {
+    const l = lotDuMail({ ...VIDE, batiment: null, escalier: '2' }, ADR);
+    expect(l.lignes.map((x) => `${x.mot}=${x.valeur}`)).toContain('Bâtiment / cage d’escalier=2');
+    expect(l.lignes.some((x) => x.mot === 'Escalier' || x.mot === 'Bâtiment')).toBe(false);
+  });
   it('le lot principal : grand encart, type et pièces, étiquette meublé, une caractéristique par ligne, digicode en gras', () => {
     const l = lotDuMail({ ...VIDE, porte: 'Porte gauche', numLotCopro: '47', batiment: 'B', escalier: '2', etage: '3', precisionAcces: 'À droite', ascenseur: true,
       digicode: true, digicodeCode: '57B83', surfaceHabitable: '64.2', surfaceCarrez: '61.8', surfaceExterieure: '8', construction: '1975 – 1996', chauffage: 'Individuel gaz',
@@ -176,7 +181,7 @@ describe('🔴 le bien loué : même adresse / adresses différentes, lots regro
     expect(l.titre).toBe('Lot principal · Appartement 3 pièces');
     expect(l.etiquette).toBe('NON MEUBLÉ');
     expect(l.lignes.map((x) => `${x.mot}=${x.valeur}`)).toEqual([
-      'N° affiché=Porte gauche', 'N° de lot=47', 'Bâtiment=B', 'Escalier=2', 'Étage=3ᵉ', 'Précision=À droite', 'Ascenseur=Oui', 'Digicode=57B83', 'Pièces=3',
+      'N° affiché=Porte gauche', 'N° de lot=47', 'Bâtiment / cage d’escalier=B', 'Étage=3ᵉ', 'Précision=À droite', 'Ascenseur=Oui', 'Digicode=57B83', 'Pièces=3',
       'Surface habitable=64,2 m²', 'Surface Carrez/Boutin=61,8 m²', 'Surface extérieure=8 m²', 'Construction=1975 – 1996', 'Chauffage=Individuel gaz',
       'DPE=Classe D, du 12/03/2024', 'Syndic=FONCIA', 'Dernière AG=12/06/2026', 'Assurance PNO=Oui · date anniversaire le 01/01/2027', 'Entretiens=Chaudière',
     ]);

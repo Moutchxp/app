@@ -9,6 +9,7 @@ import { libelleEntretien } from '../../../../lib/location/entretien';
 import type { ResumeBien } from '../../../../lib/location/resumeBienRepo';
 import { DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS, PAYEES_PAR } from '../../../../lib/location/bienComplet';
 import { libelleEtage } from '../../../../lib/location/locationBien';
+import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../../../../lib/gestion/batimentsCopropriete';
 import { lignesResume } from '../../../../lib/location/resumeBienLignes';
 import { CSS_EDITION_ENCART, useRelectureBien, useVersionBien } from './EditionEncart';
 import { adresseModifier } from '../../../../lib/gestion/ficheBienAdresses';
@@ -170,8 +171,9 @@ export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir
         <div className="rb-detail" id={idDetail} data-detail-bien aria-hidden={!deplie} inert={!deplie}>
           <div className="rb-detail-dedans">
             <Groupe titre="Situation et accès" cle="situation" vide={situationVide}>
-              <dt>Bâtiment</dt><dd data-rb="batiment">{s?.batiment ?? rien()}</dd>
-              <dt>Escalier</dt><dd data-rb="escalier">{s?.escalier ?? rien()}</dd>
+              {/* 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») une seule ligne : le bâtiment / cage du
+                  bien, avec repli sur l'ancien escalier */}
+              <dt>{LIBELLE_BATIMENT_CAGE}</dt><dd data-rb="batiment">{(s === undefined ? null : batimentOuCage(s)) ?? rien()}</dd>
               {!parking && <><dt>N° de porte</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd></>}
               <dt>Précision</dt><dd data-rb="precision">{s?.precisionAcces ?? rien('non renseignée')}</dd>
               <dt>Ascenseur</dt><dd data-rb="ascenseur">{ouiNon(s?.ascenseur)}</dd>

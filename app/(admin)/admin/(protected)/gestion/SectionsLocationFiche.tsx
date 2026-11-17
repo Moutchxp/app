@@ -889,7 +889,9 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                   onChoix={(l, conf) => { setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
               : digiCharge ? <p className="loc-muet" style={{ margin: 0 }} data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment')}
-            {champ('escalier', 'Escalier')}
+            {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « Le champ « Escalier » est RETIRÉ […] ici ET partout où un bien se crée
+                ou se modifie ») : la valeur reste en base et repart telle quelle ; notée, elle est proposée dans le menu du bâtiment. Sans la 478, le champ reste. */}
+            {digiBien === null && !digiCharge && champ('escalier', 'Escalier')}
             {avecIdFiscal && <span data-id-fiscal>{champ('idFiscal', 'ID fiscal du bien', { inputMode: 'numeric', maxLength: 60, placeholder: 'ex. 921234567890' })}
               <small className="loc-muet">Sur l’avis de taxe foncière</small>
               {idFiscalInhabituel(v.idFiscal) && <small className="loc-muet" role="status" style={{ display: 'block', color: 'var(--color-svv-amber)', fontWeight: 600 }} data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}</span>}

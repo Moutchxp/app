@@ -51,4 +51,12 @@ describe('🔴 le mail « Nouvelle location » (ADHOC et MONGA) et l’encart du
     const e = { ...vide, lotId: 1, lots: [], bail: { entree: null, loyerHc: null, provisions: null, taux: null, base: null }, digicode: true, digicodeCode: 'A1', digicodeSuivant: suivant } as never;
     expect(lignesEncart(e).find((l: { cle: string }) => l.cle === 'digicode')).toMatchObject({ valeur: `A1 — ${suivant}` });
   });
+  it('🔴 (Arno, 17/11/2026) encart du logement : UNE ligne « Bâtiment / cage d’escalier », le bâtiment ou, à défaut, l’ancien escalier', () => {
+    const vide = Object.fromEntries(['adresse', 'type', 'meuble', 'etage', 'porte', 'numLotCopro', 'numeroLot', 'batiment', 'escalier', 'surfaceCarrez', 'surfaceHabitable', 'surface',
+      'surfaceExterieure', 'nombrePieces', 'ascenseur', 'precisionAcces', 'dpeClasse', 'dpeDate', 'dpeNonSoumis', 'chauffage', 'epoqueConstruction', 'proprietaire', 'syndic'].map((k) => [k, null]));
+    const base = { ...vide, lotId: 1, lots: [], bail: { entree: null, loyerHc: null, provisions: null, taux: null, base: null }, digicode: null, digicodeCode: null };
+    const lignes = (o: Record<string, unknown>) => lignesEncart({ ...base, ...o } as never).filter((l: { cle: string } | null) => l !== null && (l.cle === 'batiment' || l.cle === 'escalier'));
+    expect(lignes({ batiment: 'B', escalier: '2' })).toEqual([{ cle: 'batiment', libelle: 'Bâtiment / cage d’escalier', valeur: 'B' }]);
+    expect(lignes({ batiment: null, escalier: '2' })).toEqual([{ cle: 'batiment', libelle: 'Bâtiment / cage d’escalier', valeur: '2' }]);
+  });
 });

@@ -99,3 +99,17 @@ export function menuBatiments(connus: readonly BatimentConnu[]): BatimentConnu[]
   const rang = (b: BatimentConnu): number => (b.sorte === 'libre' ? 1 : 0);
   return uniques.sort((a, b) => rang(a) - rang(b) || a.libelle.localeCompare(b.libelle, 'fr', { numeric: true, sensitivity: 'base' }));
 }
+
+/** 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») le libellé du champ unique. */
+export const LIBELLE_BATIMENT_CAGE = 'Bâtiment / cage d’escalier';
+
+/**
+ * Ce que les fiches, mails et documents AFFICHENT désormais à la place de « Bâtiment » et « Escalier » : le bâtiment / cage du bien (son texte
+ * « Bâtiment », écrit avec le lien sûr vers le registre de la copropriété), avec repli sur l'ANCIEN escalier s'il n'y en a pas. PUR.
+ */
+export function batimentOuCage(b: { batiment?: string | null; escalier?: string | null }): string | null {
+  const bat = (b.batiment ?? '').trim();
+  if (bat !== '') return bat;
+  const esc = (b.escalier ?? '').trim();
+  return esc === '' ? null : esc;
+}

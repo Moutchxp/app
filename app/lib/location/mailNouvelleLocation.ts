@@ -15,6 +15,7 @@ import { estGarantme, GLI_GARANTME, LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBEL
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 import { libelleTrimestre, SIGLE_INDICE, valeurIndiceTexte, type TypeIndice } from './indicesLoyers';
 import { PAYEES_PAR } from './bienComplet';
+import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../gestion/batimentsCopropriete';
 import { estModifie, partiesDuMail, texteDeLaPartie, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -315,8 +316,8 @@ export function lignesDuLot(l: LotSource): LigneMail[] {
   const lignes: (LigneMail | null)[] = [
     present(l.porte) ? { mot: 'N° affiché', valeur: l.porte.trim() } : null,
     present(l.numLotCopro) ? { mot: 'N° de lot', valeur: l.numLotCopro.trim() } : null,
-    present(l.batiment) ? { mot: 'Bâtiment', valeur: l.batiment.trim() } : null,
-    present(l.escalier) ? { mot: 'Escalier', valeur: l.escalier.trim() } : null,
+    // 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») une ligne : le bâtiment / cage, repli sur l'escalier
+    batimentOuCage(l) !== null ? { mot: LIBELLE_BATIMENT_CAGE, valeur: batimentOuCage(l) as string } : null,
     etageAffiche(l.etage) === null ? null : { mot: l.principal ? 'Étage' : 'Niveau', valeur: etageAffiche(l.etage) as string },
     present(l.precisionAcces) ? { mot: 'Précision', valeur: l.precisionAcces.trim() } : null,
     ouiNon(l.ascenseur) === null ? null : { mot: 'Ascenseur', valeur: ouiNon(l.ascenseur) as string },

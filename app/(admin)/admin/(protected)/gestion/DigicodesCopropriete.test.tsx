@@ -238,7 +238,8 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
   });
   it('l’« Escalier » du bien propose le bon bâtiment (rien n’est écrasé)', async () => {
     await act(async () => { root.render(createElement(HoteBien, { escalier: 'c' })); });
-    expect($('[data-cbc-escalier]').textContent).toBe('L’escalier « c » est un bâtiment de la copropriété : le choisir');
+    // (Arno, 17/11/2026 : le champ « Escalier » est retiré ; l'escalier noté est proposé)
+    expect($('[data-cbc-escalier]').textContent).toBe('Escalier noté : c — choisir ce bâtiment ?');
     expect(choix).toEqual([]);
     await clic($('[data-cbc-escalier]'));
     expect(choix.at(-1)).toEqual(['C', false]);

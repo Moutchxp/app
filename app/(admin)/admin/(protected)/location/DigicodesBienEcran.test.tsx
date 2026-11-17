@@ -61,7 +61,7 @@ describe('🔴🔴 la fiche du bien en Location, avec la base unique', () => {
     await monter();
     expect(lectures).toContain('/api/admin/location?digicodesBien=7');
     expect($('[data-cbc-champ]')).not.toBeNull();
-    expect($('[data-cbc-escalier]').textContent).toContain('L’escalier « 2 » est un bâtiment de la copropriété');
+    expect($('[data-cbc-escalier]').textContent).toBe('Escalier noté : 2 — choisir ce bâtiment ?');
     expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');
     expect(document.querySelector('[data-digicode] [aria-label="Code du digicode"]')).toBeNull(); // l'ancien « Oui / Non + Code » n'est plus là
   });
@@ -110,6 +110,13 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
     expect(document.querySelector('[aria-label="Code du digicode"]')).toBeNull();
     expect([...document.querySelectorAll('[data-digicode] button')].some((b) => b.textContent === 'Oui')).toBe(false);
     expect([...document.querySelectorAll('.loc-champ')].some((l) => l.firstChild?.textContent === 'Bâtiment')).toBe(false);
+  });
+  it('🔴 (Arno, 17/11/2026) UN SEUL CHAMP : « Bâtiment / cage d’escalier » (texte d’aide court) ; le champ « Escalier » est retiré', async () => {
+    reponse = DIGI;
+    await monterNouveau();
+    expect($('[data-cbc] > span').textContent).toBe('Bâtiment / cage d’escalier');
+    expect(($('[data-cbc-champ]') as HTMLInputElement).placeholder).toBe('ex. A ou 1 (facultatif)');
+    expect([...document.querySelectorAll('label')].some((l) => (l.firstChild?.textContent ?? '').trim() === 'Escalier')).toBe(false);
   });
   it('un code saisi AVANT l’adresse est REPORTÉ sur la place (sans code connu) quand l’adresse arrive', async () => {
     reponse = INCONNUE;

@@ -106,7 +106,8 @@ describe('🔴 l’encart du bien : résumé toujours visible, détail dépliabl
 
   it('DÉTAIL (logement) : situation et accès (sans « Étage », il est au résumé), copropriété, DPE, UNE ligne « Entretiens à prévoir », commentaire entier', async () => {
     await rendre(LOUE);
-    expect(lignes('situation')).toEqual(['Bâtiment', 'Escalier', 'N° de porte', 'Précision', 'Ascenseur', 'Digicode']);
+    // (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») une seule ligne
+    expect(lignes('situation')).toEqual(['Bâtiment / cage d’escalier', 'N° de porte', 'Précision', 'Ascenseur', 'Digicode']);
     expect(lignes('copropriete')).toEqual(['N° de lot', 'Syndic', 'Dernière AG']);
     expect(lignes('dpe')).toEqual(['DPE', 'Entretiens à prévoir']);
     expect([dd('digicode'), dd('syndic'), dd('dpe'), dd('entretiens')]).toEqual(['oui — code 57B83', 'CABINET SYNDIC ESSAI', 'classe D — du 01/03/2024', 'oui — Chaudière (15/01/2027)']);

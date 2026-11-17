@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { avertissementBatiment, avertissementsDesBatiments, batimentDe, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
+import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis } from '../../../../lib/gestion/digicodes';
@@ -577,11 +577,16 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
     if (a !== null) { setAlerte(a); onChoix(libelle, false); return; }
     onChoix(libelle.trim() === '' ? '' : batimentDe(libelle)?.libelle ?? libelle, false);
   };
-  const proposeEscalier = valeur.trim() === '' && escalier.trim() !== '' ? options.find((o) => o.cle === batimentDe(escalier)?.cle) : undefined;
+  /* 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information » — le champ « Escalier » est retiré) un bien qui
+     a un escalier noté et pas encore de bâtiment : sa valeur est PROPOSÉE (« Escalier noté : 2 — choisir ce bâtiment ? »), jamais écrite toute seule ;
+     un bâtiment connu de la copropriété est repris tel qu'au registre, sinon c'est un nouveau bâtiment (même avertissement de numérotation) */
+  const proposeEscalier = valeur.trim() === '' && escalier.trim() !== ''
+    ? (options.find((o) => o.cle === batimentDe(escalier)?.cle) ?? { libelle: escalier.trim() }) : undefined;
   return (
     <div className={`${variante === 'location' ? 'loc-champ dcp-cbc--location ' : ''}dcp-champ dcp-champ-bat`} data-cbc>
-      <span>Bâtiment / cage</span>
-      <input value={valeur} disabled={desactive} placeholder="Aucun (code commun) — A, 1, Côté cour…" aria-expanded={ouvert} maxLength={60}
+      {/* 🔴 (Arno, 17/11/2026) renommé « Bâtiment / cage d'escalier » ; un texte d'aide court, entier à 390 px comme à l'ordinateur */}
+      <span>{LIBELLE_BATIMENT_CAGE}</span>
+      <input value={valeur} disabled={desactive} placeholder="ex. A ou 1 (facultatif)" aria-expanded={ouvert} maxLength={60} aria-label={LIBELLE_BATIMENT_CAGE}
         onFocus={() => setOuvert(true)} onClick={() => setOuvert(true)} onChange={(e) => { onChoix(e.target.value, false); setOuvert(true); }}
         onBlur={(e) => { const v = e.target.value; setTimeout(() => setOuvert(false), 180); if (v.trim() !== '') choisir(v); }}
         onKeyDown={(e) => { if (e.key === 'Escape') setOuvert(false); if (e.key === 'Enter') { e.preventDefault(); choisir((e.target as HTMLInputElement).value); } }}
@@ -596,7 +601,7 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
         </ul>)}
       {proposeEscalier !== undefined && (
         <button type="button" className="dcp-lien" disabled={desactive} onClick={() => choisir(proposeEscalier.libelle)} data-cbc-escalier>
-          L’escalier « {escalier.trim()} » est un bâtiment de la copropriété : le choisir</button>)}
+          Escalier noté : {escalier.trim()} — choisir ce bâtiment ?</button>)}
       {alerte !== null && (
         <div className="dcp-voile" data-dcp-avertissement>
           <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="cbc-alerte-titre" aria-describedby="cbc-alerte-texte"
@@ -715,5 +720,21 @@ export const CSS_DIGICODES_COPRO = `
 .dcp--location .dcp-lien{min-height:44px;font-size:1rem}
 .dcp--location .dcp-mention{font-size:.9rem}
 .dcp-cbc--location{position:relative}
+/* 🔴 (Arno, 17/11/2026) le champ d'un digicode et ses deux boutons (« pas de digicode », « + ») : même ligne, même hauteur, centrés */
+.dcp--location .dcp-ligne:has(> .dcp-champ){align-items:flex-end;flex-wrap:nowrap}
+.dcp--location .dcp-ligne:has(> .dcp-champ) > .dcp-champ{flex:1 1 auto;min-width:0}
+.dcp--location .dcp-ligne:has(> .dcp-champ) > .dcp-aucun,.dcp--location .dcp-ligne:has(> .dcp-champ) > .dcp-plus,.dcp--location .dcp-ligne:has(> .dcp-champ) > .dcp-retirer{flex:0 0 auto;box-sizing:border-box;height:58px;min-height:58px;align-self:flex-end;display:inline-flex;align-items:center;justify-content:center}
+.dcp--location .dcp-ligne:has(> .dcp-champ) > .dcp-plus{width:58px;padding:0}
+.dcp--location .dcp-aucun{white-space:nowrap}
+.dcp--location .dcp-ligne.dcp-ligne--batiment:has(> .dcp-champ){flex-wrap:wrap}
+.dcp--location .dcp-ligne.dcp-ligne--batiment > .dcp-champ.dcp-champ-bat{flex:1 1 100%}
+.dcp--location .dcp-ligne.dcp-ligne--batiment > .dcp-champ:not(.dcp-champ-bat){flex:1 1 0;min-width:110px}
+.dcp--location .dcp-ligne--batiment > .dcp-mention{flex:1 1 100%}
+@media (max-width:600px){
+  .dcp--location .dcp-aucun{padding:0 10px;font-size:.86rem;gap:6px;white-space:normal;line-height:1.1;max-width:7.2rem;text-align:left}
+  .dcp--location .dcp-ligne:has(> .dcp-champ){gap:8px}
+  .dcp--location .dcp-champ input{padding:0 12px}
+  .dcp--location .dcp-champ > span{white-space:nowrap}
+}
 .dcp-cbc--location > span{font-size:1rem;font-weight:600;color:var(--color-svv-ink)}
 `;

@@ -906,7 +906,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                   onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
               : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
-            {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
+            {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]
+                Le champ « Escalier » est RETIRÉ […] ici ET partout où un bien se crée ou se modifie ») : sa valeur reste en base et repart telle quelle ;
+                notée, elle est PROPOSÉE dans le menu « Bâtiment / cage d'escalier » (jamais écrite toute seule). Sans la 478, le champ reste. */}
+            {digiBien === null && !digiCharge && champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
             <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
             {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
             <label className="loc-champ loc-pleine" data-precision>Précision

@@ -17,6 +17,7 @@
  */
 
 import { mentionEnvoyePar } from './mentionEnvoyePar';
+import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../gestion/batimentsCopropriete';
 
 /** Un résultat de la recherche des occupants (en place à la date du jour). */
 export interface OccupantTrouve {
@@ -355,8 +356,8 @@ export function lignesEncart(e: EncartLogement): LigneEncart[] {
   ajouter('type', 'Type', type === '' ? null : type);
   ajouter('etage', 'Étage', etageFr(e.etage));
   ajouter('porte', 'Porte', present(e.porte) ? e.porte : null);
-  ajouter('batiment', 'Bâtiment', present(e.batiment) ? e.batiment : null);
-  ajouter('escalier', 'Escalier', present(e.escalier) ? e.escalier : null);
+  // 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») une ligne : le bâtiment / cage, repli sur l'escalier
+  ajouter('batiment', LIBELLE_BATIMENT_CAGE, batimentOuCage(e));
   ajouter('copro', 'Lot de copropriété', present(e.numLotCopro) ? `n° ${e.numLotCopro}` : null);
   ajouter('lot', 'N° de lot', present(e.numeroLot) ? e.numeroLot : null);
   ajouter('carrez', 'Surface Carrez/Boutin m²', e.surfaceCarrez === null ? null : `${nombreFr(e.surfaceCarrez)} m²`);
