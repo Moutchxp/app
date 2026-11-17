@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   avecMentionAgLocataire, avecMentionAgProprietaire, derniereAgTenue, entreesAAjouter, ligneEntreeAg, lignesAg, moisAnnee, propositionAg, prochaineAgOfficielle,
-  sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
+  sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, mentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
 import { mailsValidationSortie, PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, type DonneesValidationSortie } from './validationSortie';
 
 /** 🔴🔴 Arno (16/11/2026, 475) — les dates d'AG de la copropriété dans « Valider la sortie » (case 20 % cochée) : les règles pures. */
@@ -70,25 +70,25 @@ describe('ce qui entre dans l’historique à la confirmation (ajout seul)', () 
 describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »', () => {
   it('les deux dates avec leur statut', () => {
     expect(lignesAg({ derniere: '2026-03-12', prochaine: '2027-03-12', statut: 'projetee' })).toEqual([
-      ['Dernière assemblée générale', '12/03/2026'], ['Prochaine assemblée générale', '12/03/2027 (date projetée)']]);
+      ['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']]);
     expect(lignesAg({ derniere: '2026-03-12', prochaine: '2027-04-02', statut: 'officielle' })[1][1]).toBe('02/04/2027 (date officielle)');
   });
   it('une entrée de la fiche : date, type, statut, qui, quand, d’où ; « à rattacher » si aucune copropriété', () => {
     expect(ligneEntreeAg(E({ type: 'prochaine', statut: 'projetee', date: '2027-03-12', origine: 'sortie', sortieId: 12, saisieLe: '2026-11-16T10:00:00Z', saisiePar: 'Arnaud JOREL' })))
-      .toBe('12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12)');
+      .toBe('12/03/2027 — prochaine AGO, projetée — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12)');
     expect(ligneEntreeAg(E({ origine: 'reprise', confirmation: true, aRattacher: true })))
       .toBe('12/03/2026 — dernière AG tenue (AGO) (confirmée comme référence) — saisie par Claire Test le 01/04/2026 (reprise (ancienne saisie)) — à rattacher à une copropriété');
   });
   it('la mention de la prochaine AG dans le paragraphe des locataires et la phrase des propriétaires ; retirée sans trace ; texte modifié gardé', () => {
     expect(moisAnnee('2027-03-12')).toBe('mars 2027');
     const p = avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-03-12');
-    expect(p).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale de mars 2027. Une régularisation');
+    expect(p).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale ordinaire de mars 2027. Une régularisation');
     expect(avecMentionAgLocataire(p, '2027-06-01')).toContain('de juin 2027.');
     expect(avecMentionAgLocataire(p, '2027-06-01')).not.toContain('mars 2027');
     expect(sansMentionAg(p)).toBe(PARAGRAPHE_RETENUE_LOCATAIRE);
-    expect(avecMentionAgLocataire('Provision gardée jusqu’à l’approbation des comptes. Merci.', '2027-03-12')).toBe('Provision gardée jusqu’à l’approbation des comptes, prévue en principe lors de l’assemblée générale de mars 2027. Merci.');
+    expect(avecMentionAgLocataire('Provision gardée jusqu’à l’approbation des comptes. Merci.', '2027-03-12')).toBe('Provision gardée jusqu’à l’approbation des comptes, prévue en principe lors de l’assemblée générale ordinaire de mars 2027. Merci.');
     expect(avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2027-03-12'))
-      .toBe('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale de mars 2027.');
+      .toBe('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
   });
   it('les mails : la phrase des propriétaires avec la mention ; la copie interne porte les deux dates ; sans date : texte actuel inchangé', () => {
     const d: DonneesValidationSortie = { adresse: '4 rue X', date: '2026-11-10', compteRendu: '', vacant: true, copropriete: true, destinataires: [
@@ -99,9 +99,9 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     retenue: { appliquee: true, paragrapheLocataire: avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-03-12'),
       phraseProprietaire: avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2027-03-12'), ag: { derniere: '2026-03-12', prochaine: '2027-03-12', statut: 'projetee' } } };
     const m = mailsValidationSortie(d);
-    expect(m.parties[0].mail.texte).toContain('assemblée générale de mars 2027');
-    expect(m.parties[1].mail.texte).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale de mars 2027.');
-    expect(m.interne!.texte).toContain('Dernière assemblée générale : 12/03/2026\nProchaine assemblée générale : 12/03/2027 (date projetée)');
+    expect(m.parties[0].mail.texte).toContain('assemblée générale ordinaire de mars 2027');
+    expect(m.parties[1].mail.texte).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
+    expect(m.interne!.texte).toContain('Dernière AGO (assemblée générale ordinaire) : 12/03/2026\nProchaine AGO : 12/03/2027 (date projetée)');
     const sans = mailsValidationSortie({ ...d, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } });
     expect(sans.parties[1].mail.texte).toContain(PHRASE_RETENUE_PROPRIETAIRE);
     expect(sans.parties[0].mail.texte).not.toContain('assemblée générale');
@@ -130,5 +130,33 @@ describe('🔴🔴 les PV d’AG de la fiche copropriété', () => {
     expect(ligneEntreeAg(E({}))).toContain('dernière AG tenue (AGO)');
     expect(ligneEntreeAg(E({ corrige: { id: 9, date: '2015-03-12', nature: 'ago', note: null } }))).toContain('corrige la saisie d’avant : 12/03/2015, AGO');
     expect(LIBELLE_NATURE_AG).toEqual({ ago: 'AGO (assemblée générale ordinaire)', age: 'AGE (assemblée générale extraordinaire)' });
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « RETENUE DES 20 % […] seule l'AGO compte, car c'est elle qui clôture les comptes. […] Le pré-remplissage ne lit QUE les AGO de la copropriété (jamais une AGE). […] La mention dans le paragraphe « 20 % » parle d'« assemblée générale ordinaire ». » */
+describe('🔴🔴 la retenue des 20 % : seule l’AGO compte', () => {
+  const E = (o: Partial<EntreeAg>): EntreeAg => ({ id: 1, type: 'derniere', statut: 'officielle', date: '2024-03-12', confirmation: false, origine: 'fiche_copropriete',
+    saisieLe: '2026-11-17T10:00:00.000Z', saisiePar: 'Arnaud JOREL', sortieId: null, aRattacher: false, ...o });
+  it('une AGE n’est JAMAIS lue, même plus récente', () => {
+    expect(derniereAgTenue([E({ id: 1, date: '2025-06-01', nature: 'age' }), E({ id: 2, date: '2024-03-12', nature: 'ago' })])?.id).toBe(2);
+    expect(derniereAgTenue([E({ id: 1, date: '2025-06-01', nature: 'age' })])).toBeNull();
+    expect(propositionAg([E({ id: 1, date: '2025-06-01', nature: 'age' })], '2026-11-17')).toEqual({ derniere: null, prochaine: null });
+  });
+  it('les PV saisis dans le désordre : la plus récente DATE ; face à une saisie de la fiche du bien, la plus récente des deux dates', () => {
+    const pvs = [E({ id: 1, date: '2024-03-12', saisieLe: '2026-11-17T12:00:00.000Z' }), E({ id: 2, date: '2015-03-12', saisieLe: '2026-11-17T13:00:00.000Z' })];
+    expect(derniereAgTenue(pvs)?.date).toBe('2024-03-12');
+    expect(derniereAgTenue([...pvs, E({ id: 3, origine: 'fiche_bien', date: '2025-04-01', saisieLe: '2026-11-17T09:00:00.000Z' })])?.date).toBe('2025-04-01');
+    expect(derniereAgTenue([...pvs, E({ id: 3, origine: 'fiche_bien', date: null, saisieLe: '2026-11-17T14:00:00.000Z' })])?.date).toBe('2024-03-12');
+    expect(propositionAg(pvs, '2026-11-17').derniere?.date).toBe('2024-03-12');
+  });
+  it('la mention « 20 % » dit « assemblée générale ordinaire » ; l’ancienne mention est retirée ou remplacée de même', () => {
+    expect(mentionAg('2027-03-12')).toBe(', prévue en principe lors de l’assemblée générale ordinaire de mars 2027');
+    expect(sansMentionAg('comptes, prévue en principe lors de l’assemblée générale de mars 2027. Fin')).toBe('comptes. Fin');
+    expect(avecMentionAgProprietaire('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale de mars 2026.', '2027-03-12'))
+      .toBe('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
+  });
+  it('les libellés et la phrase d’aide, mot pour mot', () => {
+    expect([LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO]).toEqual(['Dernière AGO connue (assemblée générale ordinaire) *', 'Prochaine AGO *',
+      'Seule l’AGO compte : c’est l’assemblée qui clôture les comptes de la copropriété.']);
   });
 });

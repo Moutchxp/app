@@ -2,6 +2,7 @@
 
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, unAnApres, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
+  AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 
@@ -113,20 +114,22 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
           <span>Immeuble en copropriété (le renseigner sur la fiche du bien)</span></label>)}
 
       {/* a) la dernière AG connue */}
-      <label className={`pvs-champ${enDefaut('derniere') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">Dernière assemblée générale connue *</span>
+      {/* 🔴 (Arno, 17/11/2026) « Seule l'AGO compte : c'est l'assemblée qui clôture les comptes de la copropriété. » */}
+      <p className="loc-muet vag-aide" data-ag-aide-ago>{AIDE_AGO}</p>
+      <label className={`pvs-champ${enDefaut('derniere') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_DERNIERE_AGO}</span>
         <input type="date" value={s.derniere} disabled={desactive} aria-invalid={enDefaut('derniere')} onChange={(e) => changerDerniere(e.target.value)} data-ag-derniere /></label>
       {derniereConnue !== null && (
         <p className="loc-muet vag-auteur" data-ag-derniere-auteur>saisie par {prenomNom(derniereConnue.par)} le {jourFrDe(derniereConnue.le)}{' '}
           {s.derniereConfirmee ? <span className="vag-confirmee" data-ag-confirmee>✓ confirmée comme référence</span>
             : <button type="button" className="svv-btn svv-btn-outline gst-btn vag-mini" disabled={desactive} onClick={() => onChange({ ...s, derniereConfirmee: true })} data-ag-confirmer>Confirmer cette date comme référence</button>}</p>)}
-      {p.derniere === null && s.derniere === '' && <p className="loc-muet" data-ag-derniere-vide>Aucune AG connue pour cette copropriété : saisissez la dernière.</p>}
+      {p.derniere === null && s.derniere === '' && <p className="loc-muet" data-ag-derniere-vide>Aucune AGO connue pour cette copropriété : saisissez la dernière.</p>}
 
       {/* b) la prochaine AG et son statut */}
-      <label className={`pvs-champ${enDefaut('prochaine') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">Prochaine assemblée générale *</span>
+      <label className={`pvs-champ${enDefaut('prochaine') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_PROCHAINE_AGO}</span>
         <input type="date" value={s.prochaine} disabled={desactive} aria-invalid={enDefaut('prochaine')}
           onChange={(e) => onChange({ ...s, prochaine: e.target.value, prochaineTouchee: true, statut: officielleConnue !== null && s.statut === 'officielle' ? null : s.statut })} data-ag-prochaine /></label>
       {projection && <p className="loc-muet" data-ag-projection>{MENTION_PROJECTION}</p>}
-      <div className={`vag-statut${enDefaut('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine assemblée générale" data-ag-statut={s.statut ?? 'aucun'}>
+      <div className={`vag-statut${enDefaut('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine AGO" data-ag-statut={s.statut ?? 'aucun'}>
         {(['projetee', 'officielle'] as const).map((x) => (
           <button key={x} type="button" className="pva-segment" aria-pressed={s.statut === x} disabled={desactive} onClick={() => onChange({ ...s, statut: x })} data-ag-statut-choix={x}>
             {x === 'projetee' ? 'Date projetée' : 'Date officielle'}</button>))}
@@ -141,7 +144,7 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
       {/* e) la mention de la prochaine AG dans le paragraphe « 20 % » (proposée, modifiable) */}
       {s.prochaine !== '' && /^\d{4}-\d{2}-\d{2}$/.test(s.prochaine) && (
         <label className="pvv-case" data-ag-mention><input type="checkbox" checked={s.mention} disabled={desactive} onChange={(e) => onChange({ ...s, mention: e.target.checked })} />
-          <span>Mentionner dans le paragraphe « 20 % » l’assemblée générale de {moisAnnee(s.prochaine)} ({dateFr(s.prochaine)})</span></label>)}
+          <span>Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire de {moisAnnee(s.prochaine)} ({dateFr(s.prochaine)})</span></label>)}
     </div>
   );
 }

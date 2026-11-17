@@ -144,7 +144,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     h.query.mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : sql.includes('RETURNING id') ? { rows: [{ id: '41' }] } : { rows: [] }));
   });
   it('dernière AG vide, ou prochaine sans statut : REFUS avant toute écriture (champ « ag ») ; sans la 475 : rien n’est demandé', async () => {
-    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '' } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag', motif: 'Renseignez la date de la dernière assemblée générale connue.' });
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '' } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag', motif: 'Renseignez la date de la dernière AGO connue (assemblée générale ordinaire).' });
     expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, statut: null } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag' });
     expect(h.enregistrerSortie).not.toHaveBeenCalled();
     ag.dispo = false;
@@ -156,9 +156,9 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
   it('l’aperçu dit les deux dates avec leur statut et la copropriété ; la phrase des propriétaires porte la mention si elle est choisie', async () => {
     const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(r.etat);
-    expect(r.data.ag).toEqual({ lignes: [['Dernière assemblée générale', '12/03/2026'], ['Prochaine assemblée générale', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false });
-    expect(r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('prévue en principe lors de l’assemblée générale de mars 2027.');
-    expect(r.data.mails.find((m) => m.famille === 'interne')!.texte).toContain('Prochaine assemblée générale : 12/03/2027 (date projetée)');
+    expect(r.data.ag).toEqual({ lignes: [['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false });
+    expect(r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
+    expect(r.data.mails.find((m) => m.famille === 'interne')!.texte).toContain('Prochaine AGO : 12/03/2027 (date projetée)');
     expect(ag.ajouts).toEqual([]); // l'aperçu n'écrit rien
   });
   it('la confirmation : APRÈS la sortie, la dernière AG et la PROJETÉE rangées sur la copropriété avec le numéro de la sortie', async () => {

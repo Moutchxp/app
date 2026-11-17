@@ -57,15 +57,24 @@ export const TITRE_BLOC_AG = 'AG de la copropriété';
 
 const recentes = (e: readonly EntreeAg[]): EntreeAg[] => [...e].sort((a, b) => b.saisieLe.localeCompare(a.saisieLe) || b.id - a.id);
 
-/** La dernière AG TENUE en cours : la plus récente saisie « dernière » (sa date peut avoir été retirée : `null`). PUR. */
+/**
+ * La dernière AGO TENUE : 🔴 (Arno, 17/11/2026 : « seule l'AGO compte, car c'est elle qui clôture les comptes […] Le pré-remplissage ne lit QUE les AGO de la copropriété (jamais une AGE) »).
+ * Les PV de la fiche Copropriété (481) sont un HISTORIQUE daté, saisi dans n'importe quel ordre : le plus récent par sa DATE ; les autres
+ * saisies (fiche du bien, sortie, reprise) gardent leur règle d'avant — la plus récente saisie vaut (une date retirée ensuite : plus rien) ;
+ * la plus récente des deux dates l'emporte. Une AGE n'est jamais lue. Sans PV : exactement la règle d'avant. PUR.
+ */
 export function derniereAgTenue(entrees: readonly EntreeAg[]): EntreeAg | null {
-  const d = recentes(entrees).find((e) => e.type === 'derniere');
-  return d === undefined || d.date === null ? null : d;
+  const ago = entrees.filter((e) => e.type === 'derniere' && natureDe(e) === 'ago');
+  const pvs = ago.filter((e) => e.origine === 'fiche_copropriete' && e.date !== null);
+  const autre = recentes(ago.filter((e) => e.origine !== 'fiche_copropriete'))[0];
+  const candidats = [...pvs, ...(autre !== undefined && autre.date !== null ? [autre] : [])];
+  if (candidats.length === 0) return null;
+  return [...candidats].sort((a, b) => (b.date as string).localeCompare(a.date as string) || b.saisieLe.localeCompare(a.saisieLe) || b.id - a.id)[0];
 }
 
 /** La prochaine AG OFFICIELLE À VENIR (date ≥ aujourd'hui), la plus récemment saisie ; sinon `null`. PUR. */
 export function prochaineAgOfficielle(entrees: readonly EntreeAg[], aujourdhui: string): EntreeAg | null {
-  return recentes(entrees).find((e) => e.type === 'prochaine' && e.statut === 'officielle' && e.date !== null && e.date >= aujourdhui) ?? null;
+  return recentes(entrees).find((e) => e.type === 'prochaine' && natureDe(e) === 'ago' && e.statut === 'officielle' && e.date !== null && e.date >= aujourdhui) ?? null;
 }
 
 /** La date + 1 an (le 29 février devient le 28). PUR. */
@@ -106,9 +115,13 @@ export function propositionAg(entrees: readonly EntreeAg[], aujourdhui: string):
 /** La saisie de la fenêtre. */
 export interface SaisieAg { derniere: string; derniereConfirmee: boolean; prochaine: string; statut: StatutAg | null }
 export type ChampAg = 'derniere' | 'prochaine' | 'statut';
-export const MOTIF_AG_DERNIERE = 'Renseignez la date de la dernière assemblée générale connue.';
-export const MOTIF_AG_PROCHAINE = 'Renseignez la date de la prochaine assemblée générale.';
-export const MOTIF_AG_STATUT = 'Choisissez le statut de la prochaine assemblée générale : « Date projetée » ou « Date officielle ».';
+export const MOTIF_AG_DERNIERE = 'Renseignez la date de la dernière AGO connue (assemblée générale ordinaire).';
+export const MOTIF_AG_PROCHAINE = 'Renseignez la date de la prochaine AGO.';
+export const MOTIF_AG_STATUT = 'Choisissez le statut de la prochaine AGO : « Date projetée » ou « Date officielle ».';
+/** 🔴 (Arno, 17/11/2026) les libellés de la fenêtre « Valider la sortie » et la phrase d'aide, mot pour mot */
+export const LIBELLE_DERNIERE_AGO = 'Dernière AGO connue (assemblée générale ordinaire) *';
+export const LIBELLE_PROCHAINE_AGO = 'Prochaine AGO *';
+export const AIDE_AGO = 'Seule l’AGO compte : c’est l’assemblée qui clôture les comptes de la copropriété.';
 
 const estJour = (x: unknown): x is string => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)
   && (() => { const [a, m, j] = x.split('-').map(Number); const d = new Date(Date.UTC(a, m - 1, j)); return a >= 1900 && d.getUTCMonth() === m - 1 && d.getUTCDate() === j; })();
@@ -120,7 +133,7 @@ export function verifierSaisieAg(s: { derniere?: unknown; prochaine?: unknown; s
   if (!estJour(s.prochaine)) champs.push('prochaine');
   if (s.statut !== 'officielle' && s.statut !== 'projetee') champs.push('statut');
   if (champs.length === 0 && (s.prochaine as string) <= (s.derniere as string)) {
-    return { ok: false, motif: 'La prochaine assemblée générale doit être après la dernière.', champs: ['prochaine'] };
+    return { ok: false, motif: 'La prochaine AGO doit être après la dernière.', champs: ['prochaine'] };
   }
   if (champs.length === 0) return { ok: true };
   const motif = champs[0] === 'derniere' ? MOTIF_AG_DERNIERE : champs[0] === 'prochaine' ? MOTIF_AG_PROCHAINE : MOTIF_AG_STATUT;
@@ -152,17 +165,19 @@ export function entreesAAjouter(s: SaisieAg, connue: PropositionAg): { type: Typ
 
 /** « Dernière AG : 12/03/2026 » / « Prochaine AG : 12/03/2027 (projetée) » : les deux lignes du récapitulatif et des mails internes. PUR. */
 export function lignesAg(s: Pick<SaisieAg, 'derniere' | 'prochaine' | 'statut'>): [string, string][] {
-  return [['Dernière assemblée générale', dateFr(s.derniere)],
-    ['Prochaine assemblée générale', `${dateFr(s.prochaine)} (${s.statut === null ? 'statut à choisir' : `date ${LIBELLE_STATUT_AG[s.statut]}`})`]];
+  return [['Dernière AGO (assemblée générale ordinaire)', dateFr(s.derniere)],
+    ['Prochaine AGO', `${dateFr(s.prochaine)} (${s.statut === null ? 'statut à choisir' : `date ${LIBELLE_STATUT_AG[s.statut]}`})`]];
 }
 
 // ── Le paragraphe « 20 % » : la mention de la prochaine AG (proposée, modifiable) ──────────────────────────────────────────────────────
 
 const ANCRE_LOCATAIRE = 'couvrant votre période d’occupation';
 const ANCRE_PROPRIETAIRE = 'jusqu’à l’approbation des comptes de la copropriété';
-/** « , prévue en principe lors de l’assemblée générale de mars 2027 » */
-export const mentionAg = (jour: string): string => `, prévue en principe lors de l’assemblée générale de ${moisAnnee(jour)}`;
-const RE_MENTION = /, prévue en principe lors de l’assemblée générale de [a-zéû]+ \d{4}/g;
+/** « , prévue en principe lors de l’assemblée générale ordinaire de mars 2027 » — 🔴 (Arno, 17/11/2026 : « La mention dans le paragraphe
+ *  « 20 % » parle d'« assemblée générale ordinaire » ») */
+export const mentionAg = (jour: string): string => `, prévue en principe lors de l’assemblée générale ordinaire de ${moisAnnee(jour)}`;
+/** la mention, celle d'avant (« … l'assemblée générale de … ») comprise : retirée ou remplacée de même */
+const RE_MENTION = /, prévue en principe lors de l’assemblée générale (?:ordinaire )?de [a-zéû]+ \d{4}/g;
 
 /** Le texte SANS mention de l'AG (pour la retirer, ou la remplacer). PUR. */
 export const sansMentionAg = (texte: string): string => texte.replace(RE_MENTION, '');
@@ -187,7 +202,7 @@ export function avecMentionAgProprietaire(phrase: string, jour: string): string 
 
 /** La ligne d'une entrée sur la fiche : « 12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12) ». PUR. */
 export function ligneEntreeAg(e: EntreeAg): string {
-  const quoi = e.type === 'derniere' ? `dernière AG tenue (${SIGLE_NATURE_AG[natureDe(e)]})` : `prochaine AG, ${LIBELLE_STATUT_AG[e.statut]}`;
+  const quoi = e.type === 'derniere' ? `dernière AG tenue (${SIGLE_NATURE_AG[natureDe(e)]})` : `prochaine AGO, ${LIBELLE_STATUT_AG[e.statut]}`;
   const date = e.date === null ? 'date retirée' : dateFr(e.date);
   const ou = e.origine === 'sortie' && e.sortieId !== null ? `sortie n° ${e.sortieId}` : LIBELLE_ORIGINE_AG[e.origine];
   return `${date} — ${quoi}${e.confirmation ? ' (confirmée comme référence)' : ''} — saisie par ${e.saisiePar} le ${jourFrDe(e.saisieLe)} (${ou})${e.aRattacher ? ` — ${A_RATTACHER}` : ''}${e.corrige ? ` — ${traceCorrection(e.corrige)}` : ''}`;

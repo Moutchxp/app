@@ -29,8 +29,8 @@ describe('AgCopropriete', () => {
     expect(container.querySelector('.agc-titre')?.textContent).toBe('AG de la copropriété — Résidence Fictive');
     const lignes = [...container.querySelectorAll('[data-agc-entree]')];
     expect(lignes.map((x) => x.textContent)).toEqual([
-      '02/04/2027 — prochaine AG, officielle — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12)',
-      '12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 15/11/2026 (sortie n° 11)',
+      '02/04/2027 — prochaine AGO, officielle — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12)',
+      '12/03/2027 — prochaine AGO, projetée — saisie par Arnaud JOREL le 15/11/2026 (sortie n° 11)',
       '12/03/2026 — dernière AG tenue (AGO) — saisie par Claire Test le 01/04/2026 (fiche du bien)']);
     expect(lignes.map((x) => x.className)).toEqual(['agc-entree agc-entree--officielle', 'agc-entree agc-entree--projetee', 'agc-entree agc-entree--tenue']);
     const css = container.querySelector('style')!.textContent!;

@@ -3436,7 +3436,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
       if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>; posts.push(c);
         return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], retenue: true, mails: [],
-          ag: { lignes: [['Dernière assemblée générale', '12/03/2026'], ['Prochaine assemblée générale', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false } });
+          ag: { lignes: [['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false } });
       }
       return base(u, init);
     }) as unknown as typeof fetch;
@@ -3453,6 +3453,13 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
   const recap = () => document.querySelector('button[data-recap-validation]') as HTMLButtonElement;
   beforeEach(() => { luAg = LU(); });
 
+  it('🔴 (Arno, 17/11/2026) « Dernière AGO connue (assemblée générale ordinaire) * », « Prochaine AGO * » et la phrase d’aide « Seule l’AGO compte … »', async () => {
+    await ouvrir();
+    expect([...document.querySelectorAll('[data-ag-sortie] .pvs-libelle')].map((x) => x.textContent).filter((t) => /AGO/.test(t ?? '')))
+      .toEqual(['Dernière AGO connue (assemblée générale ordinaire) *', 'Prochaine AGO *']);
+    expect(q('[data-ag-aide-ago]').textContent).toBe('Seule l’AGO compte : c’est l’assemblée qui clôture les comptes de la copropriété.');
+  });
+
   it('préremplies depuis l’historique : la dernière AG (« saisie par … le … »), la prochaine à + 1 an avec « projection — … » ; aucun statut choisi', async () => {
     await ouvrir();
     expect((q('input[data-ag-derniere]') as HTMLInputElement).value).toBe('2026-03-12');
@@ -3466,7 +3473,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
   it('🔴 statut OBLIGATOIRE : « Voir le récapitulatif » fermé, message clair, statut en rouge ; choisi : ouvert, et les dates partent avec l’aperçu', async () => {
     await ouvrir();
     expect(recap().disabled).toBe(true);
-    expect(q('[data-ag-message]').textContent).toBe('Choisissez le statut de la prochaine assemblée générale : « Date projetée » ou « Date officielle ».');
+    expect(q('[data-ag-message]').textContent).toBe('Choisissez le statut de la prochaine AGO : « Date projetée » ou « Date officielle ».');
     expect(q('[data-ag-statut]').className).toContain('vag-defaut');
     act(() => q('[data-ag-statut-choix="projetee"]').click());
     expect(recap().disabled).toBe(false);
@@ -3474,7 +3481,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(q('[data-ag-confirmee]').textContent).toBe('✓ confirmée comme référence');
     await act(async () => { recap().click(); }); await attendre();
     expect(posts.at(-1)).toMatchObject({ retenue: true, ag: { derniere: '2026-03-12', derniereConfirmee: true, prochaine: '2027-03-12', statut: 'projetee' }, mentionAg: false });
-    expect([...document.querySelectorAll('[data-resume-ag]')].map((x) => x.textContent)).toEqual(['Dernière assemblée générale12/03/2026', 'Prochaine assemblée générale12/03/2027 (date projetée)']);
+    expect([...document.querySelectorAll('[data-resume-ag]')].map((x) => x.textContent)).toEqual(['Dernière AGO (assemblée générale ordinaire)12/03/2026', 'Prochaine AGO12/03/2027 (date projetée)']);
     expect(q('[data-resume-ag-copropriete]').textContent).toBe('CopropriétéRésidence Fictive');
   });
   it('rien de connu : dernière AG vide, en rouge, bloquante ; la saisir propose la prochaine à + 1 an', async () => {
@@ -3482,7 +3489,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     await ouvrir();
     expect((q('input[data-ag-derniere]') as HTMLInputElement).value).toBe('');
     expect(q('input[data-ag-derniere]').getAttribute('aria-invalid')).toBe('true');
-    expect(q('[data-ag-message]').textContent).toBe('Renseignez la date de la dernière assemblée générale connue.');
+    expect(q('[data-ag-message]').textContent).toBe('Renseignez la date de la dernière AGO connue (assemblée générale ordinaire).');
     expect(recap().disabled).toBe(true);
     act(() => saisir(q('input[data-ag-derniere]') as HTMLInputElement, '2026-05-20'));
     expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2027-05-20');
@@ -3499,8 +3506,8 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
   it('« Mentionner … l’assemblée générale de mars 2027 » : le paragraphe des locataires et la phrase des propriétaires la portent ; décoché : retirée', async () => {
     await ouvrir();
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
-    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale de mars 2027.');
-    expect(q('[data-retenue-proprietaires]').textContent).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale de mars 2027.');
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
+    expect(q('[data-retenue-proprietaires]').textContent).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');
   });
