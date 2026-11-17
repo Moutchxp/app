@@ -77,3 +77,54 @@ describe('🔴🔴 la fiche du bien en Location, avec la base unique', () => {
     expect((saisies[0].valeurs as Record<string, string>).batiment).toBe('2');
   });
 });
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — L'ÉCART DU LOT 4 : « Nouveau bien » (/admin/location/nouveau-bien) montrait ENCORE l'ancien système (« Bâtiment » libre,
+ * « Digicode » Oui / Non, « Code ») tant que l'adresse n'était pas saisie. Désormais : le composant unique dès l'ouverture, adresse vide comprise ;
+ * ce qui est saisi est REPORTÉ quand l'adresse arrive ; les codes connus de la copropriété s'affichent dès l'adresse choisie (« Modifier »,
+ * « Corriger une erreur »).
+ */
+describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
+  const VIDE = { ...DIGI, adresseCle: '', connus: [], nomenclature: null, escalier: null, copropriete: { cle: '', libelle: '', codePostal: null, commune: null },
+    adresse: { cle: '', voie: '', codePostal: null, commune: null, commun: { digicode: null, code: null }, batiments: [] } };
+  const INCONNUE = { ...DIGI, adresse: { ...DIGI.adresse, commun: { digicode: null, code: null, nbBiens: 0, etat: ETAT() }, batiments: [] } };
+  let reponse: unknown;
+  const monterNouveau = async () => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      const u = decodeURIComponent(String(url)); lectures.push(u);
+      if (u.startsWith('/api/admin/location?digicodesBienAdresse=&')) return ok(VIDE);
+      if (u.startsWith('/api/admin/location?digicodesBienAdresse=15 rue Fictive')) return ok(reponse);
+      return ok([]);
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await calmer();
+  };
+  const adresse = async () => { await saisir($('#loc-adresse-bien, [data-champ-adresse-bien] input, input[aria-autocomplete]'), '15 rue Fictive'); await act(async () => { await new Promise((r) => setTimeout(r, 650)); }); await calmer(); };
+  it('adresse VIDE : le composant unique (menu du bâtiment, digicode commun à saisir, « + ») — ni « Bâtiment » libre, ni Oui / Non, ni « Code »', async () => {
+    reponse = DIGI;
+    await monterNouveau();
+    expect($('[data-cbc-champ]')).not.toBeNull();
+    expect($('[data-digicodes-unifies] [data-dcp-sans-adresse]').textContent).toContain('Choisissez l’adresse du bien');
+    expect($('[data-digicodes-unifies] [data-dcp-code-commun]')).not.toBeNull();
+    expect($('[data-digicodes-unifies] [data-dcp-plus]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Code du digicode"]')).toBeNull();
+    expect([...document.querySelectorAll('[data-digicode] button')].some((b) => b.textContent === 'Oui')).toBe(false);
+    expect([...document.querySelectorAll('.loc-champ')].some((l) => l.firstChild?.textContent === 'Bâtiment')).toBe(false);
+  });
+  it('un code saisi AVANT l’adresse est REPORTÉ sur la place (sans code connu) quand l’adresse arrive', async () => {
+    reponse = INCONNUE;
+    await monterNouveau();
+    await saisir($('[data-dcp-code-commun]'), '9999'); await calmer();
+    await adresse();
+    expect(lectures.some((u) => u.startsWith('/api/admin/location?digicodesBienAdresse=15 rue Fictive'))).toBe(true);
+    expect(($('[data-dcp-code-commun]') as HTMLInputElement).value).toBe('9999');
+  });
+  it('l’adresse d’une copropriété dont les codes sont connus : le code se LIT, avec « Modifier » et « Corriger une erreur »', async () => {
+    reponse = DIGI;
+    await monterNouveau();
+    await adresse();
+    expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');
+    expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-modifier]')).not.toBeNull();
+    expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-corriger-erreur]')).not.toBeNull();
+  });
+});

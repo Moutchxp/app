@@ -17,7 +17,7 @@ vi.mock('./digicodesRepo', () => ({
   ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { h.ecrits.push(e); return h.issue; },
   relierBienAuBatiment: async (_q: unknown, ...a: unknown[]) => { h.liens.push(a); return { ok: true, change: true }; },
 }));
-import { ecrireDigicodesDuBien, realignerBatimentDuBien } from './digicodesBienRepo';
+import { digicodesPourBien, ecrireDigicodesDuBien, realignerBatimentDuBien } from './digicodesBienRepo';
 import { RefusDigicode } from './digicodesRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -63,5 +63,13 @@ describe('un « Bâtiment » RETAPÉ dans l’encart (sans menu)', () => {
     await realignerBatimentDuBien(q as never, 5, 'b', AUTEUR);
     await realignerBatimentDuBien(q as never, 5, 'Z', AUTEUR);
     expect(h.liens.map((l) => l[2])).toEqual(['b', null]);
+  });
+});
+
+describe('🔴 (Arno, 17/11/2026 — l’écart du lot 4) un bien encore SANS adresse', () => {
+  it('une place VIDE, jamais `null` (`null` = base sans la 478) : le composant unique s’affiche, les codes arrivent avec l’adresse', async () => {
+    const d = await digicodesPourBien({ adresse: '', codePostal: null, commune: null });
+    expect(d).toMatchObject({ adresseCle: '', connus: [], nomenclature: null, adresse: { cle: '', voie: '', batiments: [] } });
+    expect(h.sql).toEqual([]); // rien n'est lu en base pour une place vide
   });
 });

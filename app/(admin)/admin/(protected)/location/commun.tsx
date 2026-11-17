@@ -408,6 +408,7 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-acces{display:flex;flex-wrap:wrap;gap:16px 36px;align-items:center}
 .loc-acces-bloc{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
 .loc-acces-mot{font-weight:700;font-size:1.02rem;color:var(--color-svv-ink)}
+.loc-acces-digicodes{flex:1 1 100%;flex-direction:column;align-items:stretch;min-width:0}
 .loc-acces-code{flex:1 1 16rem}
 .loc-annexe-adresse{margin:0 0 12px}
 .loc-annexe-parking{display:flex;flex-direction:column;gap:10px;margin:0 0 14px}

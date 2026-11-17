@@ -139,6 +139,8 @@ describe('🔴 UN seul « Modifier » mène à la page « Ajouter un nouveau bie
     expect(champ('Surface habitable (m²)').value).toBe('64,2');
     expect(champ('Code postal').value).toBe('92400');
     expect(champ('Commune').value).toBe('COURBEVOIE');
+    // (17/11/2026) le bâtiment attend la lecture des digicodes (« chargement… ») : on attend qu'elle ait répondu
+    for (let i = 0; i < 40 && q('[data-digicodes-charge]') !== null; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 25)); });
     expect(champ('Bâtiment').value).toBe('B');
     expect(champ('Escalier').value).toBe('2');
     expect(champ('N° de lot (règlement de copropriété)').value).toBe('12');

@@ -8,7 +8,7 @@ import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { LigneManques } from './LigneManques';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, motValeur, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from '../gestion/DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from '../gestion/DigicodesCopropriete';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
@@ -365,17 +365,22 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [digiSaisie, setDigiSaisie] = useState<DigicodesAdresseSaisis | null>(null);
   const [batimentConfirme, setBatimentConfirme] = useState(false);
   const [digiRelire, setDigiRelire] = useState(0);
+  /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) la lecture n'a pas encore répondu : ni l'ancien système, ni le composant ; l'ancien système (Bâtiment
+     libre, Digicode Oui / Non, Code) ne s'affiche plus QUE sur une base sans la migration 478 (le serveur répond alors `null`). */
+  const [digiCharge, setDigiCharge] = useState(true);
   useEffect(() => {
     const voie = b.adresse.trim();
     const memeAdresse = modification !== undefined && voie === modification.lecture.encart.valeurs.adresse.trim();
     let vivant = true;
     const t = setTimeout(() => {
-      if (!memeAdresse && voie.length < 5) { setDigiBien(null); setDigiSaisie(null); return; }
+      // une adresse encore vide ou trop courte : la place VIDE (le composant s'affiche quand même ; les codes connus arrivent avec l'adresse)
       const q = memeAdresse ? `digicodesBien=${modification.lotId}`
-        : `digicodesBienAdresse=${encodeURIComponent(voie)}&cp=${encodeURIComponent(b.codePostal.trim())}&commune=${encodeURIComponent(b.commune.trim())}`;
+        : `digicodesBienAdresse=${encodeURIComponent(voie.length < 5 ? '' : voie)}&cp=${encodeURIComponent(b.codePostal.trim())}&commune=${encodeURIComponent(b.commune.trim())}`;
       void fetch(`${API}?${q}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: DigicodesPourBienLu | null }>)
-        .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? d.data ?? null : null; setDigiBien(lu); setDigiSaisie(lu === null ? null : saisieDigicodesBien(lu)); })
-        .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); } });
+        .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? digicodesBienLisibles(d.data) : null; setDigiBien(lu); setDigiCharge(false);
+          // ce qui est déjà saisi pour une place sans code connu est REPORTÉ sur la nouvelle place (rien n'est perdu)
+          setDigiSaisie((avant) => (lu === null ? null : reporterSaisieBien(avant, saisieDigicodesBien(lu)))); })
+        .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); setDigiCharge(false); } });
     }, memeAdresse || voie.length < 5 ? 0 : 500);
     return () => { vivant = false; clearTimeout(t); };
   }, [b.adresse, b.codePostal, b.commune, digiRelire]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -897,8 +902,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre. Avec la 478 : le MENU des bâtiments
                 de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
             {digiBien !== null
-              ? <ChoixBatimentCopro valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi}
+              ? <ChoixBatimentCopro valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
                   onChoix={(l, c) => { setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+              : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
             <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
@@ -918,14 +924,17 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non et « Code ». Avec la 478 : le composant unique —
                  le code commun de l'adresse et celui du bâtiment choisi ; connus : lus, « Corriger une erreur » ; sinon : à saisir. */
               <div className="loc-acces-bloc loc-acces-digicodes" data-digicode data-digicodes-unifies><span className="loc-acces-mot">Digicode</span>
-                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi}
+                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi} variante="location"
+                  onPlusBatiment={() => (document.querySelector('[data-cbc-champ]') as HTMLInputElement | null)?.focus()}
                   onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
                   onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} />
-              </div>) : (
+              </div>) : digiCharge ? (
+              <div className="loc-acces-bloc" data-digicode data-digicodes-charge><span className="loc-acces-mot">Digicode</span><span className="loc-muet">chargement…</span></div>
+            ) : (
             <div className="loc-acces-bloc" data-digicode><span className="loc-acces-mot">Digicode</span>
               <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}
                 onChoix={(v) => { digicodeTouche.current = true; setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} />

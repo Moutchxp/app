@@ -1,7 +1,7 @@
 'use client';
 
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from './DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from './DigicodesCopropriete';
 import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
 import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
@@ -732,12 +732,15 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
   const [digiSaisie, setDigiSaisie] = useState<DigicodesAdresseSaisis | null>(null);
   const [batimentConfirme, setBatimentConfirme] = useState(false);
   const [digiRelire, setDigiRelire] = useState(0);
+  /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) tant que la lecture n'a pas répondu : ni l'ancien système ni le composant ; l'ancien système ne
+     s'affiche plus QUE sur une base sans la migration 478 (le serveur répond `null`) — un bien sans adresse reçoit une place vide. */
+  const [digiCharge, setDigiCharge] = useState(true);
   useEffect(() => {
     if (!edition) return;
     let vivant = true;
     void fetch(`${API}?digicodesBien=${id}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: DigicodesPourBienLu | null }>)
-      .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? d.data ?? null : null; setDigiBien(lu); setDigiSaisie(lu === null ? null : saisieDigicodesBien(lu)); })
-      .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); } });
+      .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? digicodesBienLisibles(d.data) : null; setDigiBien(lu); setDigiCharge(false); setDigiSaisie(lu === null ? null : saisieDigicodesBien(lu)); })
+      .catch(() => { if (vivant) { setDigiBien(null); setDigiSaisie(null); setDigiCharge(false); } });
     return () => { vivant = false; };
   }, [edition, id, digiRelire]);
   const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, v.batiment, batimentConfirme) : null;
@@ -868,7 +871,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
                   onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} /></div>
-            ) : <>
+            ) : digiCharge ? <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicodes-charge>Digicode : chargement…</p> : <>
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
             {v.digicode === 'oui' && champ('digicodeCode', 'Code du digicode')}
             {c.digicodeImmeuble?.mention && <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicode-immeuble>Digicode : {c.digicodeImmeuble.mention}. Le modifier ici le modifie pour tous ces biens.</p>}
@@ -884,6 +887,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
             {digiBien !== null
               ? <ChoixBatimentCopro valeur={v.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={v.escalier} desactive={false}
                   onChoix={(l, conf) => { setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
+              : digiCharge ? <p className="loc-muet" style={{ margin: 0 }} data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment')}
             {champ('escalier', 'Escalier')}
             {avecIdFiscal && <span data-id-fiscal>{champ('idFiscal', 'ID fiscal du bien', { inputMode: 'numeric', maxLength: 60, placeholder: 'ex. 921234567890' })}

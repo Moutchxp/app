@@ -51,7 +51,13 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
     immeuble = o.adresse.trim(); cp = o.codePostal; commune = o.commune;
   }
   const adresseCle = cleImmeuble(immeuble);
-  if (adresseCle === '') return null;
+  /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4 : « Nouveau bien » montrait encore « Bâtiment » libre, « Digicode » Oui / Non et « Code » tant que
+     l'adresse n'était pas saisie) : SANS ADRESSE, une place VIDE — le composant unique s'affiche quand même ; `null` ne veut plus dire que
+     « base sans la 478 ». Les codes connus arrivent dès l'adresse choisie. */
+  if (adresseCle === '') {
+    return { adresseCle: '', adresse: { cle: '', voie: '', codePostal: cp, commune, commun: { digicode: null, code: null }, batiments: [] }, connus: [], nomenclature: null,
+      copropriete: { cle: '', libelle: '', codePostal: cp, commune }, batiment, batimentLie, escalier };
+  }
   const fiche = await ficheCopropriete(immeuble);
   const [d] = await digicodesDesAdresses([adresseCle]);
   const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p), nbBiens: p.nbBiens });
