@@ -23,14 +23,17 @@ export function EcranProprietairesBiens() {
           légende, puis moteur de recherche → 3 grosses cases). D'où les MÊMES classes d'en-tête que l'accueil (`svv-page-*`,
           celles d'`EnTetePage`), puis le MÊME espace réservé que sous le moteur (`loc-zone-resultats`, vide). */}
       <header className="svv-page-head loc-tete-comme-accueil">
-        <div className="svv-page-head-ligne"><h1 className="svv-page-title">Propriétaires et biens</h1></div>
+        <div className="svv-page-head-ligne"><h1 className="svv-page-title">Propriétaires et biens</h1>
+          {/* 🔴 RÉTABLI le 17/11/2026, demande d'Arno : « Remets tout ce qu'ont retiré c29fd324 et 55819ac4 : le bouton « + Nouveau propriétaire
+              + bien » dans l'écran « Propriétaires et biens » […] Garde AUSSI les parcours ajoutés depuis […] : rien n'est retiré. » */}
+          <div className="svv-page-actions"><a className="svv-btn svv-btn-primary gst-btn" href="/admin/location/nouveau" data-geste="nouveau">+ Nouveau propriétaire + bien</a></div></div>
         <p className="svv-page-sub">Créer un propriétaire avec son bien et ses annexes ; « supprimer » = sortir du portefeuille (rien n’est effacé).</p>
       </header>
       <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-accueil />
       {/* « 2 GROS BOUTONS côte à côte, chacun la moitié de la largeur (empilés au téléphone) », avec le MÊME effet 3D que les
-          3 cases de l'accueil. Retirés sur décision d'Arno (17/10/2026) : le bouton « + Nouveau propriétaire + bien » (doublon de
-          ces 2 boutons) et le tableau Propriétaires / Biens (onglets, Actifs / Anciens, liste paginée) — les fiches, anciens
-          compris, s'ouvrent par le moteur de recherche de l'accueil. */}
+          3 cases de l'accueil. ⚠️ Le commit c29fd324 (17/10/2026) avait retiré le bouton « + Nouveau propriétaire + bien » et le tableau
+          Propriétaires / Biens en les disant retirés « sur décision d'Arno » ; Arno déclare n'avoir jamais demandé ces retraits (17/11/2026).
+          Le bouton est rétabli (en-tête ci-dessus). */}
       {/* Arno (18/10/2026) : TROIS grosses cases — « Supprimer un propriétaire / un bien » (NOUVELLE, en première position, SEULE à porter
           la trame rouge), puis « Créer un nouveau propriétaire » et « Ajouter un nouveau bien », en blanc. Effet 3D sur les trois. */}
       <ul className="loc-gros-boutons loc-gros-boutons--3d loc-gros-boutons--trois" aria-label="Propriétaires et biens">
