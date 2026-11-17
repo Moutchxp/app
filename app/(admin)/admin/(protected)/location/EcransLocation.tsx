@@ -8,6 +8,7 @@ import { TableauBordSuivi } from './TableauBordSuivi';
 import { PAGE_PARAMETRES } from './parametresAdresse';
 import { aRattacher, type Apporteur } from '../../../../lib/location/suivi/suivi';
 import { useEffect, useState } from 'react';
+import { ListeLocation } from './ListesLocation';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES TROIS ÉCRANS DE L'ACCUEIL (refonte du 17/10/2026) ════════════════════════════════════
@@ -15,6 +16,8 @@ import { useEffect, useState } from 'react';
  * Ce qui était sur l'ancien accueil (onglets, listes, boutons) est ICI, déplacé, pas perdu.
  */
 export function EcranProprietairesBiens() {
+  // 🔴 RÉTABLI le 17/11/2026 (demande d'Arno, voir le tableau ci-dessous) : l'onglet du tableau Propriétaires / Biens
+  const [onglet, setOnglet] = useState<'proprietaires' | 'biens'>('proprietaires');
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
@@ -33,7 +36,7 @@ export function EcranProprietairesBiens() {
       {/* « 2 GROS BOUTONS côte à côte, chacun la moitié de la largeur (empilés au téléphone) », avec le MÊME effet 3D que les
           3 cases de l'accueil. ⚠️ Le commit c29fd324 (17/10/2026) avait retiré le bouton « + Nouveau propriétaire + bien » et le tableau
           Propriétaires / Biens en les disant retirés « sur décision d'Arno » ; Arno déclare n'avoir jamais demandé ces retraits (17/11/2026).
-          Le bouton est rétabli (en-tête ci-dessus). */}
+          Le bouton (en-tête ci-dessus) et le tableau (sous les cases) sont rétablis. */}
       {/* Arno (18/10/2026) : TROIS grosses cases — « Supprimer un propriétaire / un bien » (NOUVELLE, en première position, SEULE à porter
           la trame rouge), puis « Créer un nouveau propriétaire » et « Ajouter un nouveau bien », en blanc. Effet 3D sur les trois. */}
       <ul className="loc-gros-boutons loc-gros-boutons--3d loc-gros-boutons--trois" aria-label="Propriétaires et biens">
@@ -44,6 +47,15 @@ export function EcranProprietairesBiens() {
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
           Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>
       </ul>
+      {/* 🔴 RÉTABLI le 17/11/2026, demande d'Arno : « Remets tout ce qu'ont retiré c29fd324 et 55819ac4 : […] le tableau Propriétaires / Biens
+          (onglets, Actifs / Anciens, liste paginée) […] rien n'est retiré. » — le tableau d'avant c29fd324, tel quel (ListeLocation, gardé). */}
+      <section className="loc-bloc" data-tableau-proprietaires-biens>
+        <div className="loc-onglets" role="tablist">
+          <button type="button" role="tab" aria-selected={onglet === 'proprietaires'} onClick={() => setOnglet('proprietaires')}>Propriétaires</button>
+          <button type="button" role="tab" aria-selected={onglet === 'biens'} onClick={() => setOnglet('biens')}>Biens</button>
+        </div>
+        <ListeLocation key={onglet} sorte={onglet} />
+      </section>
       {/* 🔴 Arno (25/10/2026, 425) — le filtre « Origine à compléter » (replié) : les propriétaires dont l'origine du contact reste à compléter. */}
       <FiltreOrigineACompleter lien={(id) => `/admin/location/proprietaire/${id}`} />
     </div>
