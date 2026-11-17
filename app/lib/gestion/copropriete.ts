@@ -72,6 +72,10 @@ export interface FicheCopropriete {
   /** 🔴 (lot 3) les digicodes de chaque adresse, les bâtiments connus de toute la copropriété, la règle effective, et si la saisie est possible (477) */
   digicodes: DigicodesAdresseFiche[];
   batimentsConnus: BatimentConnu[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») le registre s'écrit-il par adresse (490) ? — chaque bâtiment est alors sous SON adresse */
+  batimentsParAdresse?: boolean;
+  /** 🔴 (Arno, 17/11/2026) les bâtiments du registre dont l'adresse est « à préciser » (choix par Arno, jamais deviné) */
+  batimentsAPreciser?: { id: number; libelle: string }[];
   nomenclatureEffective: Nomenclature | null;
   saisieDigicodes: boolean;
   /** 🔴 (16/11/2026, 478) la base unique est en place : un code connu se lit en vigueur, ne se change que par « Corriger une erreur » (ou « Modifier ») */

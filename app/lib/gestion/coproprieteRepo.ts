@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { batimentsRetires, estRetire, etatBatimentDisponible, sqlBatimentActif } from './batimentRetraitRepo';
+import { batimentsRetires, cleBatimentAdresse, estRetire, etatBatimentDisponible, registreParAdresse, sqlBatimentActif } from './batimentRetraitRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { adresseImmeuble, cleImmeuble } from './syndics';
@@ -104,7 +104,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
       const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p), nbBiens: p.nbBiens });
       digicodes.push({ cle: d.adresseCle, voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: v(d.commun),
         batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })), mailsGestion: mails.get(d.adresseCle) ?? [] });
-      for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }
+      for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push({ ...x, adresseCle: d.adresseCle }); }
     });
   } else if (await digicodeImmeubleDisponible()) {
     for (const a of adressesFiche) {
@@ -112,17 +112,24 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
       if (d === null) continue;
       digicodes.push({ cle: cleImmeuble(a.libelle), voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: { digicode: d.general.source === 'immeuble' ? d.general.digicode : null, code: d.general.source === 'immeuble' ? d.general.code : null },
         batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle, digicode: b.digicode, code: b.code })) });
-      for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }
+      for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push({ ...x, adresseCle: cleImmeuble(a.libelle) }); }
     }
   }
-  for (const l of siens) { const x = batimentDe(l.batiment); if (x !== null) connus.push(x); }
+  // 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 4) chaque bâtiment connu porte SON adresse : celle de son code, de son bien, du registre
+  for (const l of siens) { const x = batimentDe(l.batiment); if (x !== null) connus.push({ ...x, adresseCle: cleImmeubleDuBien(l) }); }
+  const parAdr = await registreParAdresse();
+  const aPreciser: { id: number; libelle: string }[] = [];
   if (copro !== undefined && avec476) {
     // 🔴 (lot 3) l'adresse de chaque bâtiment du registre (489)
     const avecAdresse = await colonneExisteMemo('gestion_copropriete_batiment', 'adresse_cle');
-    const { rows: reg } = await query<{ cle: string; libelle: string; sorte: BatimentConnu['sorte']; adresseCle: string | null }>(
-      `SELECT b.batiment_cle AS cle, b.batiment_libelle AS libelle, b.sorte, ${avecAdresse ? 'b.adresse_cle' : 'NULL::text'} AS "adresseCle" FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1
+    const { rows: reg } = await query<{ id: string; cle: string; libelle: string; sorte: BatimentConnu['sorte']; adresseCle: string | null }>(
+      `SELECT b.id::text, b.batiment_cle AS cle, b.batiment_libelle AS libelle, b.sorte, ${avecAdresse ? 'b.adresse_cle' : 'NULL::text'} AS "adresseCle" FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1
          ${(await etatBatimentDisponible()) ? `AND ${sqlBatimentActif('b')}` : ''} ORDER BY b.cree_le, b.id`, [copro.id]);
-    connus.push(...reg);
+    for (const r of reg) {
+      // 🔴 (Arno, 17/11/2026 : « Bâtiment dont l'adresse n'est pas déductible → « adresse à préciser » sur la fiche Copropriété, choix par Arno ; jamais deviné »)
+      if (parAdr && r.adresseCle === null) aPreciser.push({ id: Number(r.id), libelle: r.libelle });
+      connus.push({ cle: r.cle, libelle: r.libelle, sorte: r.sorte, adresseCle: r.adresseCle });
+    }
   }
   /* 🔴🔴 (Arno, 17/11/2026, 488 : « le bâtiment est marqué retiré (date, auteur), jamais effacé ; il ne revient plus à la réouverture ni dans le menu des
      bâtiments ») un bâtiment RETIRÉ sans code ne revient ni dans les lignes ni dans le menu (un code en vigueur, lui, se lit toujours) */
@@ -135,11 +142,12 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
       if (estRetire(retires, k.adresseCle ?? null, k.cle) && !digicodes.some((d) => (k.adresseCle == null || d.cle === k.adresseCle) && d.batiments.some((b) => b.cle === k.cle))) connus.splice(i, 1);
     }
   }
-  const batimentsConnus = [...new Map(connus.map((b) => [b.cle, b])).values()];
+  // 🔴 (lot 4) par adresse : le « A » du 1 rue et celui du 3 rue sont deux bâtiments (sans la 490 : un nom pour toute la copropriété, comme avant)
+  const batimentsConnus = [...new Map(connus.map((b) => [parAdr ? cleBatimentAdresse(b.adresseCle, b.cle) : b.cle, b])).values()];
   const nomenclature = copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null;
   return {
     digicodes, batimentsConnus, nomenclatureEffective: nomenclatureDe(nomenclature, batimentsConnus), saisieDigicodes: (await depuisCoproprieteDisponible()) && digicodes.length > 0,
-    digicodesUnifies: await digicodesUnifiesDisponibles(),
+    digicodesUnifies: await digicodesUnifiesDisponibles(), batimentsParAdresse: parAdr, batimentsAPreciser: aPreciser,
     cle, declaree: copro !== undefined, id: copro === undefined ? null : Number(copro.id), libelle, nom: copro?.nom ?? null,
     horsCopropriete: copro?.hors === true, nomenclature: copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null,
     codePostal, commune,

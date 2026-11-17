@@ -217,9 +217,27 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const d = (await r.json()) as { etat?: string; data?: { fiche: Fiche | null } };
       const nouvelle = d.data?.fiche;
       if (d.etat !== 'ok' || !nouvelle) return;
-      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective } }));
+      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective,
+        batimentsParAdresse: nouvelle.batimentsParAdresse, batimentsAPreciser: nouvelle.batimentsAPreciser } }));
       setDigi(saisieDigicodesInitiale(nouvelle));
     } catch { /* la fiche se relira à la prochaine ouverture */ }
+  };
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») le choix de l'adresse d'un bâtiment « à préciser » */
+  const [aPreciser, setAPreciser] = useState<Record<number, string>>({});
+  const preciserAdresse = async (batimentId: number): Promise<void> => {
+    if (f === null) return;
+    setErreur(null); setInfo(null);
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'batiment-adresse', immeuble: f.cle, batimentId, adresseCle: aPreciser[batimentId] ?? '' }) });
+      const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string };
+      if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? 'Enregistrement refusé.'); return; }
+      const nouvelle = d.data;
+      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus,
+        nomenclatureEffective: nouvelle.nomenclatureEffective, batimentsParAdresse: nouvelle.batimentsParAdresse, batimentsAPreciser: nouvelle.batimentsAPreciser } }));
+      setDigi(saisieDigicodesInitiale(nouvelle));
+      setInfo('Adresse du bâtiment enregistrée.');
+    } catch { setErreur('Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); }
   };
   const gesteDigicode = (action: 'digicode-corriger' | 'digicode-arbitrer', adresseCle: string, batiment: string | null, v: { digicode: boolean; code: string | null }): Promise<string | null> =>
     appelDigicode({ action, adresseCle, batiment, digicode: v.digicode, code: v.code });
@@ -232,7 +250,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
       if (d.etat !== 'ok' || !d.data) return d.motif ?? d.message ?? 'Enregistrement refusé.';
       const nouvelle = d.data;
-      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective } }));
+      setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, digicodes: nouvelle.digicodes, batimentsConnus: nouvelle.batimentsConnus, nomenclatureEffective: nouvelle.nomenclatureEffective,
+        batimentsParAdresse: nouvelle.batimentsParAdresse, batimentsAPreciser: nouvelle.batimentsAPreciser } }));
       setDigi(saisieDigicodesInitiale(nouvelle));
       setInfo(action === 'digicode-corriger' ? 'Digicode corrigé.' : action === 'digicode-arbitrer' ? 'Digicode choisi.' : action === 'digicode-planifier' ? 'Changement de digicode enregistré.' : 'Changement annulé.');
       return null;
@@ -301,10 +320,27 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
 
     <section className="fcp-bloc" data-fcp-digicodes>
       <h3 className="fcp-titre">Digicodes</h3>
+      {/* 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété » : « Bâtiment dont l'adresse n'est pas déductible → « adresse à préciser » sur la
+          fiche Copropriété, choix par Arno ; jamais deviné. ») */}
+      {(f.batimentsAPreciser ?? []).length > 0 && (
+        <div className="fcp-etape" role="group" aria-label="Bâtiments dont l’adresse est à préciser" data-fcp-a-preciser>
+          <p className="fcp-sans-marge"><strong>Adresse à préciser</strong> — choisissez l’adresse de chaque bâtiment (rien n’est deviné).</p>
+          <ul className="fcp-liste">{(f.batimentsAPreciser ?? []).map((x) => (
+            <li key={x.id} className="fcp-a-preciser" data-fcp-a-preciser-batiment={x.libelle}>
+              <span>Bâtiment <strong>{x.libelle}</strong></span>
+              <label className="fcp-champ fcp-a-preciser-choix"><span className="fcp-sr">Adresse du bâtiment {x.libelle}</span>
+                <select value={aPreciser[x.id] ?? ''} onChange={(e) => setAPreciser((m) => ({ ...m, [x.id]: e.target.value }))} disabled={envoi} data-fcp-a-preciser-adresse>
+                  <option value="">— choisir l’adresse —</option>
+                  {f.adresses.map((a) => <option key={a.cle} value={a.cle}>{adresseImmeuble(a.libelle, a.codePostal, a.commune)}</option>)}
+                </select></label>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={envoi || (aPreciser[x.id] ?? '') === ''}
+                onClick={() => { void preciserAdresse(x.id); }} data-fcp-a-preciser-valider>Rattacher à cette adresse</button>
+            </li>))}</ul>
+        </div>)}
       {/* 🔴 (lot 3) la nouvelle saisie : digicode commun, « + » pour un bâtiment ou une cage, menu des bâtiments de toute la copropriété ;
           sans la 477, l'ancienne saisie par adresse reste (rien n'est perdu) */}
       {f.saisieDigicodes
-        ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
+        ? <DigicodesCopropriete parAdresse={f.batimentsParAdresse === true} s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
             onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),
@@ -548,6 +584,10 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-sous-titre{margin:4px 0 0;font-weight:800;font-size:.9rem;color:var(--color-svv-ink)}
 .fcp-plus{min-width:36px;min-height:36px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:900;font-size:1.1rem;cursor:pointer}
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.fcp-a-preciser{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px 0}
+.fcp-a-preciser-choix{flex:1 1 220px}
+.fcp-a-preciser-choix select{min-height:44px;width:100%;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;padding:6px 10px}
+.fcp-sr{position:absolute;top:0;left:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .fcp-ajout{display:flex;flex-direction:column;gap:8px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field)}
 .fcp-avert-coord{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.88rem;overflow-wrap:anywhere}
 .fcp-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}

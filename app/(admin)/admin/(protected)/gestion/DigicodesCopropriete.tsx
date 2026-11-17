@@ -77,10 +77,13 @@ export function avecTousLesBatiments(lignes: readonly LigneBatiment[], connus: r
   return plus.length === 0 ? [...lignes] : [...lignes, ...plus].sort((x, y) => (x.nouveau === y.nouveau ? x.libelle.localeCompare(y.libelle, 'fr', { numeric: true, sensitivity: 'base' }) : x.nouveau ? 1 : -1));
 }
 
-/** La saisie de départ, d'après ce que la fiche a lu ; les bâtiments du registre sans ligne en reçoivent une (à la première adresse). PUR. */
-export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'> & { batimentsConnus?: readonly BatimentConnu[] }): DigicodesAdresseSaisis[] {
+/** La saisie de départ, d'après ce que la fiche a lu ; les bâtiments du registre sans ligne en reçoivent une — 🔴🔴 (Arno, 17/11/2026, « Adresses multiples
+ *  d'une copropriété » : « BÂTIMENTS RATTACHÉS À LEUR ADRESSE ») sous SON adresse ; un bâtiment « à préciser » n'est sous aucune (il se choisit à part) ;
+ *  sans la 490 : à la première adresse, comme avant. PUR. */
+export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'> & { batimentsConnus?: readonly BatimentConnu[]; batimentsParAdresse?: boolean }): DigicodesAdresseSaisis[] {
   const lues = saisieDigicodesLues(f);
   if (lues.length === 0 || (f.batimentsConnus ?? []).length === 0) return lues;
+  if (f.batimentsParAdresse === true) return lues.map((d) => ({ ...d, batiments: avecTousLesBatiments(d.batiments, (f.batimentsConnus ?? []).filter((c) => c.adresseCle === d.cle)) }));
   const ailleurs = new Set(lues.slice(1).flatMap((d) => d.batiments.map((b) => batimentDe(b.libelle)?.cle).filter((x): x is string => x !== undefined)));
   return [{ ...lues[0], batiments: avecTousLesBatiments(lues[0].batiments, f.batimentsConnus ?? [], ailleurs) }, ...lues.slice(1)];
 }
@@ -131,8 +134,12 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne, onRetirer, onLigneRetiree, onRetirerBatiment }: {
+export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = false, s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false, concerne, onRetirer, onLigneRetiree, onRetirerBatiment }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») les bâtiments sont à leur adresse (490) : le menu d'un bloc ne propose que ceux de SON adresse */
+  parAdresse?: boolean;
+  /** 🔴 (Arno, 17/11/2026) la copropriété a plusieurs adresses (la fiche du bien n'en montre qu'une) : l'adresse est dite */
+  plusieursAdresses?: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
   /** 🔴 (lot 5) « Modifier » (changement daté) et « Annuler ce changement » ; absents : non proposés */
@@ -282,7 +289,8 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
                   {/* 🔴 (Arno, 17/11/2026) le COMPOSANT UNIQUE du choix / de l'ajout d'un bâtiment (menu superposé, « + Ajouter le bâtiment … »,
                       encadré « Ajouter nouveau bâtiment », avertissement de numérotation) */}
                   <ChampBatiment cle={b.k} marque="dcp" contexte="copropriete" valeur={b.libelle} desactive={desactive} nomenclature={nomenclature} ouvrirAuDebut={menu === b.k}
-                    connus={[...connus, ...s.flatMap((x) => x.batiments.filter((y) => y.k !== b.k).map((y) => batimentDe(y.libelle))).filter((y): y is BatimentConnu => y !== null)]}
+                    connus={[...(parAdresse ? connus.filter((c) => c.adresseCle === d.cle) : connus),
+                      ...(parAdresse ? [d] : s).flatMap((x) => x.batiments.filter((y) => y.k !== b.k).map((y) => batimentDe(y.libelle))).filter((y): y is BatimentConnu => y !== null)]}
                     avertir={(nom) => avertirLigne(d.cle, b.k, nom)} placeholder="A, 1, Côté cour…"
                     onSaisie={(v) => majLigne(d.cle, b.k, { libelle: v, confirme: null, choisi: false })}
                     onChoix={(l, c) => majLigne(d.cle, b.k, { libelle: l, confirme: c ? (batimentDe(l)?.cle ?? null) : null, choisi: batimentDe(l) !== null })}
@@ -305,7 +313,8 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
       {tente && refus !== null && !s.some((d) => d.batiments.some((b) => b.nouveau && batimentDe(b.libelle) === null))
         && <p className="dcp-ligne-erreur" role="alert" data-dcp-refus>{refus}</p>}
       <HistoriqueDigicodes s={s} />
-      {retirer !== null && <FenetreRetirer ligne={retirer.ligne} sorte={retirer.sorte} onNon={() => setRetirer(null)} onOui={async () => { const m = await confirmerRetrait(); if (m === null) setRetirer(null); return m; }} />}
+      {retirer !== null && <FenetreRetirer ligne={retirer.ligne} sorte={retirer.sorte}
+        adresse={(s.length > 1 || plusieursAdresses) ? ((d) => (d === undefined ? null : adresseImmeuble(d.voie, d.codePostal, d.commune)))(s.find((x) => x.cle === retirer.cle)) : null} onNon={() => setRetirer(null)} onOui={async () => { const m = await confirmerRetrait(); if (m === null) setRetirer(null); return m; }} />}
       {modifier !== null && onPlanifier !== undefined && s.find((d) => d.cle === modifier.cle) !== undefined && (
         <FenetreModifier d={s.find((d) => d.cle === modifier.cle) as DigicodesAdresseSaisis} depart={modifier.place} onFermer={() => setModifier(null)}
           onValider={(appliqueLe, changements) => onPlanifier(modifier.cle, appliqueLe, changements)}
@@ -400,7 +409,10 @@ const demainParis = (): string => new Date(Date.now() + 86400000).toLocaleDateSt
  */
 /** 🔴 (Arno, 17/11/2026) la fenêtre de confirmation du « − » : une ligne en cours de saisie, ou un code enregistré RETIRÉ (dit clairement). */
 type SorteRetrait = 'saisie' | 'enregistre' | 'batiment';
-function FenetreRetirer({ ligne, sorte, onOui, onNon }: { ligne: LigneBatiment; sorte: SorteRetrait; onOui: () => Promise<string | null>; onNon: () => void }) {
+function FenetreRetirer({ ligne, sorte, onOui, onNon, adresse = null }: { ligne: LigneBatiment; sorte: SorteRetrait; onOui: () => Promise<string | null>; onNon: () => void;
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse du bâtiment, dite quand la copropriété en a plusieurs */
+  adresse?: string | null }) {
+  const ou = adresse !== null && adresse.trim() !== '' ? ` du ${adresse}` : '';
   const enregistre = sorte === 'enregistre';
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -409,8 +421,8 @@ function FenetreRetirer({ ligne, sorte, onOui, onNon }: { ligne: LigneBatiment; 
     <div className="dcp-voile" data-dcp-fenetre-retirer={sorte}>
       <div className="dcp-alerte dcp-fenetre" role="alertdialog" aria-modal="true" aria-labelledby="dcp-retirer-titre"
         onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onNon(); } }}>
-        <p className="dcp-alerte-titre" id="dcp-retirer-titre">{enregistre ? `Retirer le digicode du bâtiment ${nom} ?`
-          : sorte === 'batiment' ? `Retirer le bâtiment ${nom} de la copropriété ?` : 'Retirer cette ligne ?'}</p>
+        <p className="dcp-alerte-titre" id="dcp-retirer-titre">{enregistre ? `Retirer le digicode du bâtiment ${nom}${ou} ?`
+          : sorte === 'batiment' ? (ou !== '' ? `Retirer le bâtiment ${nom}${ou} ?` : `Retirer le bâtiment ${nom} de la copropriété ?`) : 'Retirer cette ligne ?'}</p>
         <p className="dcp-alerte-texte" data-dcp-retirer-texte>{enregistre
           ? `Le bâtiment ${nom} n’aura plus de digicode à partir de maintenant ; l’ancien code reste dans l’historique. Ses biens liront le seul digicode copropriété.`
           : sorte === 'batiment' ? 'Il ne sera plus proposé ; il reste dans l’historique.' : `Retirer la ligne ${intituleDigicodeBatiment(nom)} et son code ?`}</p>
@@ -662,6 +674,8 @@ function HistoriqueDigicodes({ s }: { s: readonly DigicodesAdresseSaisis[] }) {
 export interface DigicodesPourBienLu {
   adresseCle: string; adresse: NonNullable<FicheCopropriete['digicodes']>[number]; connus: BatimentConnu[]; nomenclature: Nomenclature | null;
   copropriete: { cle: string; libelle: string; codePostal: string | null; commune: string | null }; batiment: string | null; batimentLie: boolean; escalier: string | null;
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») la copropriété a plusieurs adresses : l'adresse des bâtiments est dite */
+  plusieursAdresses?: boolean;
 }
 
 /** Une réponse du serveur est-elle bien des digicodes d'un bien (sinon : `null`, comme une base sans la 478) ? PUR. */
@@ -953,7 +967,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
  * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
  * c'est un bâtiment connu (rien n'est écrasé).
  */
-export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null }: {
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null, adresse = null }: {
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse du bien, dite quand la copropriété en a plusieurs (le menu ne propose que ses bâtiments) */
+  adresse?: string | null;
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; escalier: string; desactive: boolean;
   onChoix: (libelle: string, confirme: boolean) => void;
   /** 🔴 (Arno, 17/11/2026) un bâtiment NOUVEAU retenu (menu, « + Ajouter le bâtiment … », encadré) — jamais une simple frappe : il garde sa ligne */
@@ -981,6 +997,7 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
         {...(retires !== undefined ? { retires } : {})}
         {...(proposition !== undefined ? { proposition } : {})} />
       {avis !== null && <p className="loc-muet dcp-avis-batiment" role="status" data-cbc-avis>{avis}</p>}
+      {adresse !== null && adresse.trim() !== '' && <p className="loc-muet dcp-avis-batiment" data-cbc-adresse>Bâtiments de l’adresse {adresse}</p>}
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
   );
@@ -1024,7 +1041,7 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
     onChange({ ...s, commun: n.commun, batiments });
   };
   return <div data-digicodes-bien>
-    <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
+    <DigicodesCopropriete plusieursAdresses={donnees.plusieursAdresses === true} s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
       concerne={ligne === null ? null : batimentDe(ligne.libelle)?.cle ?? null}
       {...(onRetirer ? { onRetirer } : {})} {...(onRetirerEnAttente ? { onLigneRetiree: onRetirerEnAttente } : {})} {...(onRetirerBatiment ? { onRetirerBatiment } : {})}
       {...(variante ? { variante } : {})} {...(onPlusBatiment ? { onPlusBatiment } : {})} tente={tente === true}
@@ -1045,7 +1062,9 @@ export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onAper
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const d: DigicodesAdresseSaisis = { ...s, batiments: ligne !== null && ligne.etat?.connu ? [ligne] : [] };
   const places = [...(d.communEtat?.connu ? [{ cle: '', repere: 'commun', mot: 'Digicode copropriété', etat: d.communEtat }] : []),
-    ...d.batiments.map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, repere: b.libelle, mot: `Code du bâtiment ${b.libelle}`, etat: b.etat }))];
+    ...d.batiments.map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, repere: b.libelle,
+      // 🔴 (Arno, 17/11/2026 : « toujours affiché avec son adresse quand il y a plusieurs adresses »)
+      mot: `Code du bâtiment ${b.libelle}${donnees.plusieursAdresses === true ? ` — ${adresseImmeuble(d.voie, d.codePostal, d.commune)}` : ''}`, etat: b.etat }))];
   if (donnees.adresseCle === '' || places.length === 0) return null;
   return (
     <span className="dcp-lus" data-dcp-modifier-lus>

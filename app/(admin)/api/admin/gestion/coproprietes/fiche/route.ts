@@ -5,7 +5,7 @@ import { query } from '../../../../../../lib/db/client';
 import { colonneExisteMemo } from '../../../../../../lib/location/sondeLocation';
 import { ficheCopropriete } from '../../../../../../lib/gestion/coproprieteRepo';
 import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/gestion/digicodesEnvoiRepo';
-import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, propositionsParcelle, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
+import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, preciserAdresseBatiment, propositionsParcelle, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
 
@@ -58,6 +58,11 @@ export async function POST(request: Request): Promise<Response> {
       const adresses = (Array.isArray(corps.adresses) ? corps.adresses.slice(0, 30) : []).map((x) => (x ?? {}) as Record<string, unknown>)
         .map((a) => ({ libelle: t(a.libelle, 200), codePostal: t(a.codePostal, 10), commune: t(a.commune, 120) }));
       return Response.json({ etat: 'ok', data: await propositionsParcelle(adresses, cleImmeuble(t(corps.cle, 300))) }, { headers: ENTETES });
+    }
+    // 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse d'un bâtiment « à préciser », choisie par Arno
+    if (corps.action === 'batiment-adresse') {
+      const r = await preciserAdresseBatiment(corps, await auteurDeLaRequete(request));
+      return Response.json(r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
     }
     if (corps.action === 'enregistrer') {
       const r = await enregistrerCopropriete(corps, await auteurDeLaRequete(request));

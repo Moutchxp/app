@@ -1,5 +1,6 @@
 'use client';
 
+import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, useRetraitsBatiment } from './DigicodesCopropriete';
 import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
@@ -934,7 +935,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
             {!parking && champ('surfaceHabitableM2', famille === 'local' ? 'Surface (m²)' : 'Surface habitable (m²)', { inputMode: 'decimal' })}
             {/* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Bâtiment » en texte libre ; avec la 478 : le menu de la copropriété */}
             {digiBien !== null
-              ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} valeur={v.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={v.escalier} desactive={false}
+              ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} adresse={digiBien.plusieursAdresses === true ? adresseImmeuble(digiBien.adresse.voie, digiBien.adresse.codePostal, digiBien.adresse.commune) : null} valeur={v.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={v.escalier} desactive={false}
                   onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} onChoix={(l, conf) => { retraitsBatiment.effacerAvis(); setV((x) => ({ ...x, batiment: l })); setBatimentConfirme(conf); }} />
               : digiCharge ? <p className="loc-muet" style={{ margin: 0 }} data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment')}

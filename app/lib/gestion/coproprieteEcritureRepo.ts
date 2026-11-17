@@ -402,3 +402,35 @@ class RefusCopro extends Error {}
 
 // 🔴 (16/11/2026) les adresses de la parcelle et le conflit de parcelle : une seule règle, partagée avec la fiche syndic
 export { propositionsParcelle, type PropositionParcelle } from './conflitParcelleRepo';
+
+/**
+ * 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété » : « 1. Bâtiment dont l'adresse n'est pas déductible → « adresse à préciser » sur la fiche
+ * Copropriété, choix par Arno ; jamais deviné. ») CHOISIR L'ADRESSE d'un bâtiment « à préciser » : l'adresse (une des adresses de SA copropriété) est
+ * notée sur le bâtiment — seulement s'il n'en avait pas (jamais réécrite). Refus clairs, rien d'écrit : bâtiment inconnu ou déjà précisé ; adresse qui
+ * n'est pas une adresse de la copropriété ; un bâtiment du même nom existe déjà à cette adresse (dit). Sans la 490 : refus.
+ */
+export async function preciserAdresseBatiment(brut: unknown, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
+  const b = (brut ?? {}) as Record<string, unknown>;
+  if (!(await registreParAdresse())) return { ok: false, motif: 'Les bâtiments par adresse demandent la mise à jour de la base (migration 490) : rien n’est enregistré.' };
+  const lue = await ficheCopropriete(texte(b.immeuble));
+  if (lue === null || lue.id === null) return { ok: false, motif: 'Cette copropriété est introuvable : rechargez la page.' };
+  const id = Number(b.batimentId);
+  const batiment = (lue.batimentsAPreciser ?? []).find((x) => x.id === id);
+  if (batiment === undefined) return { ok: false, motif: 'Ce bâtiment n’est pas (ou plus) « à préciser » : rechargez la fiche. Rien n’est enregistré.' };
+  const adresse = lue.adresses.find((a) => a.cle === cleImmeuble(texte(b.adresseCle)));
+  if (adresse === undefined) return { ok: false, motif: 'Choisissez une adresse de cette copropriété. Rien n’est enregistré.' };
+  const coproId = lue.id;
+  const r = await withTransaction(async (q): Promise<{ ok: true } | { ok: false; motif: string }> => {
+    const { rows: deja } = await q<{ n: number }>(
+      `SELECT count(*)::int AS n FROM gestion_copropriete_batiment x JOIN gestion_copropriete_batiment b ON b.id = $1
+        WHERE x.copropriete_id = $2 AND x.adresse_cle = $3 AND x.batiment_cle = b.batiment_cle`, [id, coproId, adresse.cle]);
+    if ((deja[0]?.n ?? 0) > 0) return { ok: false, motif: `Le bâtiment ${batiment.libelle} existe déjà au ${adresseImmeuble(adresse.libelle, adresse.codePostal, adresse.commune)} : choisissez une autre adresse. Rien n’est enregistré.` };
+    const u = await q('UPDATE gestion_copropriete_batiment SET adresse_cle = $3 WHERE id = $1 AND copropriete_id = $2 AND adresse_cle IS NULL', [id, coproId, adresse.cle]);
+    if ((u as { rowCount?: number }).rowCount !== 1) return { ok: false, motif: 'Ce bâtiment a déjà son adresse : rechargez la fiche. Rien n’est enregistré.' };
+    return { ok: true };
+  });
+  if (!r.ok) return r;
+  const relue = await ficheCopropriete(lue.cle);
+  return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };
+}
+

@@ -18,13 +18,22 @@ import { cleImmeuble } from './syndics';
  * change d'un côté se voit aussitôt de l'autre. SANS LA 478 : `null`, la fiche garde sa saisie d'avant.
  */
 
+/**
+ * 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 4 : « Le menu d'un bien ne propose QUE les bâtiments de l'adresse de ce bien ») les
+ * bâtiments connus de l'ADRESSE du bien (sans la 490 : ceux de toute la copropriété, comme avant). PUR.
+ */
+export const connusDeLAdresse = (fiche: { batimentsParAdresse?: boolean; batimentsConnus: BatimentConnu[] } | null, adresseCle: string): BatimentConnu[] =>
+  fiche === null ? [] : fiche.batimentsParAdresse === true ? fiche.batimentsConnus.filter((x) => x.adresseCle === adresseCle) : fiche.batimentsConnus;
+
 export interface DigicodesPourBien {
   /** la place (adresse de la copropriété) du bien */
   adresseCle: string;
   /** ses digicodes, comme la fiche Copropriété les montre (le code commun et ceux des bâtiments, chacun avec son état) */
   adresse: DigicodesAdresseFiche;
-  /** les bâtiments connus de TOUTE la copropriété (menu) et la règle effective */
+  /** les bâtiments connus de l'ADRESSE du bien (menu ; 🔴 lot 4 — sans la 490 : ceux de toute la copropriété) et la règle effective (toute la copropriété) */
   connus: BatimentConnu[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») la copropriété a plusieurs adresses : l'écran dit l'adresse des bâtiments */
+  plusieursAdresses?: boolean;
   nomenclature: Nomenclature | null;
   /** la copropriété (pour « Corriger une erreur » / « Garder ce code » : la même route que la fiche Copropriété) */
   copropriete: CoproprieteDuCode;
@@ -70,8 +79,10 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
       .filter((b) => !(estRetire(retires, adresseCle, b.cle) && b.digicode === null && (b.code ?? '') === '')),
     // 🔴 (Arno, 17/11/2026) les mails à la Gestion des changements de digicode de l'adresse (historique)
     mailsGestion: (await mailsGestionDesAdresses([adresseCle])).get(adresseCle) ?? [] };
-  const connus = fiche?.batimentsConnus ?? d.batiments.map((b) => batimentDe(b.libelle)).filter((b): b is BatimentConnu => b !== null);
+  const connus = fiche !== null ? connusDeLAdresse(fiche, adresseCle) : d.batiments.map((b) => batimentDe(b.libelle)).filter((b): b is BatimentConnu => b !== null);
   return { adresseCle, adresse, connus, nomenclature: fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus),
+    // 🔴 (lot 4) la copropriété a plusieurs adresses : l'écran dit l'adresse des bâtiments proposés
+    plusieursAdresses: (fiche?.adresses.length ?? 1) > 1,
     copropriete: { cle: fiche?.cle ?? adresseCle, libelle: fiche?.libelle ?? immeuble, codePostal: fiche?.codePostal ?? cp, commune: fiche?.commune ?? commune },
     batiment, batimentLie, escalier };
 }
@@ -92,7 +103,9 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
   if (adresseCle === '') return 'Ce bien n’a ni immeuble ni adresse : son digicode ne peut pas être rangé.';
   const fiche = await ficheCopropriete(immeuble);
   const copropriete: CoproprieteDuCode = { cle: fiche?.cle ?? adresseCle, libelle: fiche?.libelle ?? immeuble, codePostal: fiche?.codePostal ?? l.cp, commune: fiche?.commune ?? l.commune };
+  // 🔴 (lot 4) un bâtiment est NOUVEAU à l'adresse du bien (le « A » d'une autre adresse ne compte pas) ; la règle de numérotation, elle, vaut pour toute la copropriété
   const connus = fiche?.batimentsConnus ?? [];
+  const connusIci = connusDeLAdresse(fiche, adresseCle);
   // ① le bâtiment : un NOUVEAU qui ne suit pas la numérotation demande la confirmation de l'écran (le même avertissement que la fiche Copropriété)
   if (d.batiment !== null) {
     const b = batimentDe(d.batiment);
@@ -100,7 +113,7 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
   }
   // 🔴 (Arno, 17/11/2026) le bâtiment du bien ET les autres bâtiments créés : la même règle de numérotation, ensemble (avant toute écriture)
   const nouveaux = [...(d.batiment === null ? [] : [{ libelle: d.batiment, confirme: d.batimentConfirme }]), ...d.autres.map((a) => ({ libelle: a.libelle, confirme: a.confirme }))]
-    .filter((x) => { const b = batimentDe(x.libelle); return b !== null && !connus.some((y) => y.cle === b.cle); });
+    .filter((x) => { const b = batimentDe(x.libelle); return b !== null && !connusIci.some((y) => y.cle === b.cle); });
   if (nouveaux.length > 0) {
     const refus = refusDesBatiments(nouveaux, fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus), connus);
     if (refus !== null) return refus;
@@ -145,7 +158,7 @@ export async function realignerBatimentDuBien(q: RequeteTx, lotId: number, texte
   const immeuble = immeubleDuBien(l);
   const fiche = await ficheCopropriete(immeuble);
   const b = batimentDe(texte);
-  const connu = b !== null && (fiche?.batimentsConnus ?? []).some((x) => x.cle === b.cle);
+  const connu = b !== null && connusDeLAdresse(fiche, cleImmeuble(immeuble)).some((x) => x.cle === b.cle);
   const copropriete: CoproprieteDuCode = { cle: fiche?.cle ?? cleImmeuble(immeuble), libelle: fiche?.libelle ?? immeuble, codePostal: fiche?.codePostal ?? l.cp, commune: fiche?.commune ?? l.commune };
   await relierBienAuBatiment(q, lotId, copropriete, connu ? texte : null, auteur);
 }
