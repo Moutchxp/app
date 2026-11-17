@@ -227,6 +227,14 @@ export async function enregistrerPv(brut: unknown, auteur: Auteur): Promise<{ ok
 // d'AG de la copropriété, partagée avec la fiche Copropriété et « Valider la sortie » ; si l'adresse n'est pas encore choisie ou si le bien n'est
 // relié à aucune copropriété : le dire clairement ; un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement. »
 
+/** La 483 est-elle posée (l'origine « fiche du bien » d'un PV) ? */
+export async function origineFicheBienPvDisponible(q: Q = query): Promise<boolean> {
+  const { rows } = await (q as typeof query)<{ ok: boolean }>(
+    `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%fiche_bien_pv%'), false) AS ok FROM pg_constraint WHERE conname = 'gestion_copropriete_ag_origine_chk'`)
+    .catch(() => ({ rows: [{ ok: false }] }));
+  return rows[0]?.ok === true;
+}
+
 /** Ce que le bloc AG du bien lit : sa copropriété (s'il en a une), ses AG, et si la saisie des PV est installée (481). LECTURE SEULE. */
 export interface AgDuBienLu { copropriete: { libelle: string; cle: string } | null; immeuble: string | null; entrees: EntreeAg[]; pv: boolean }
 export async function agDuBien(o: { lotId: number } | { immeuble: string }): Promise<AgDuBienLu | null> {
@@ -272,11 +280,13 @@ export async function ajouterPvsDuBien(q: Q, lotId: number, pvs: readonly { date
   const c = await contexteAgDuLot(lotId, q);
   if (c === null) return 0;
   const qui = await nomAuteurAg(auteur);
+  // 🔴 (Arno, 17/11/2026 : « un PV saisi depuis « Nouveau bien » ou « Modifier le bien » doit apparaître dans l'historique comme « (fiche du bien) » », migration 483) ; sans la 483 : « fiche copropriété », comme avant
+  const origine = (await origineFicheBienPvDisponible(q)) ? 'fiche_bien_pv' : 'fiche_copropriete';
   for (const p of pvs) {
     await (q as typeof query)(
       `INSERT INTO gestion_copropriete_ag (copropriete_id, cle_immeuble, lot_id, type_ag, statut, date_ag, origine, saisie_par, saisie_par_libelle, nature_ag, note)
-       VALUES ($1, $2, $3, 'derniere', 'officielle', $4::date, 'fiche_copropriete', $5, $6, $7, $8)`,
-      [c.copropriete?.id ?? null, c.copropriete === null ? (c.immeuble?.cle ?? null) : null, c.copropriete === null ? lotId : null, p.date, auteur.id, qui, p.nature, p.note]);
+       VALUES ($1, $2, $3, 'derniere', 'officielle', $4::date, $9, $5, $6, $7, $8)`,
+      [c.copropriete?.id ?? null, c.copropriete === null ? (c.immeuble?.cle ?? null) : null, c.copropriete === null ? lotId : null, p.date, auteur.id, qui, p.nature, p.note, origine]);
   }
   return pvs.length;
 }

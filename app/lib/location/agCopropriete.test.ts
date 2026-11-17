@@ -183,3 +183,13 @@ describe('🔴🔴 la projection périmée', () => {
     expect(verifierSaisieAg({ ...base, prochaine: '', statut: 'projetee' }, '2026-11-17')).toMatchObject({ ok: false, champs: ['prochaine'] });
   });
 });
+
+/** 🔴 Arno (17/11/2026) : « un PV saisi depuis « Nouveau bien » ou « Modifier le bien » doit apparaître dans l'historique comme « (fiche du bien) ». » */
+describe('🔴 le PV saisi sur la fiche du bien (483)', () => {
+  const E = (o: Partial<EntreeAg>): EntreeAg => ({ id: 1, type: 'derniere', statut: 'officielle', date: '2024-03-12', confirmation: false, origine: 'fiche_bien_pv',
+    saisieLe: '2026-11-17T10:00:00.000Z', saisiePar: 'Arnaud JOREL', sortieId: null, aRattacher: false, ...o });
+  it('lu « (fiche du bien) » ; c’est un PV (la plus récente DATE compte, comme ceux de la fiche Copropriété)', () => {
+    expect(ligneEntreeAg(E({}))).toContain('(fiche du bien)');
+    expect(derniereAgTenue([E({ id: 1, date: '2024-03-12' }), E({ id: 2, date: '2015-03-12', saisieLe: '2026-11-17T12:00:00.000Z' })])?.date).toBe('2024-03-12');
+  });
+});

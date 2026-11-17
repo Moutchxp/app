@@ -17,7 +17,9 @@
 
 export type TypeAg = 'derniere' | 'prochaine';
 export type StatutAg = 'officielle' | 'projetee';
-export type OrigineAg = 'reprise' | 'sortie' | 'fiche_bien' | 'creation_bien' | 'fiche_copropriete';
+export type OrigineAg = 'reprise' | 'sortie' | 'fiche_bien' | 'creation_bien' | 'fiche_copropriete'
+  /** 🔴 (Arno, 17/11/2026 : « un PV saisi depuis « Nouveau bien » ou « Modifier le bien » doit apparaître dans l'historique comme « (fiche du bien) » », migration 483) : un PV saisi sur la fiche du bien */
+  | 'fiche_bien_pv';
 /** 🔴 (Arno, 17/11/2026, migration 481) AGO : l'assemblée ordinaire, qui clôture les comptes ; AGE : extraordinaire (un PV seulement). */
 export type NatureAg = 'ago' | 'age';
 
@@ -47,7 +49,9 @@ export interface EntreeAg {
 export const LIBELLE_TYPE_AG: Record<TypeAg, string> = { derniere: 'Dernière AG tenue', prochaine: 'Prochaine AG' };
 export const LIBELLE_STATUT_AG: Record<StatutAg, string> = { officielle: 'officielle', projetee: 'projetée' };
 export const LIBELLE_ORIGINE_AG: Record<OrigineAg, string> = { reprise: 'reprise (ancienne saisie)', sortie: 'sortie', fiche_bien: 'fiche du bien', creation_bien: 'création du bien',
-  fiche_copropriete: 'fiche copropriété' };
+  fiche_copropriete: 'fiche copropriété', fiche_bien_pv: 'fiche du bien' };
+/** Les origines d'un PV (historique daté) : saisi sur la fiche Copropriété, ou sur la fiche du bien (483). PUR. */
+export const estOriginePv = (o: OrigineAg): boolean => o === 'fiche_copropriete' || o === 'fiche_bien_pv';
 export const LIBELLE_NATURE_AG: Record<NatureAg, string> = { ago: 'AGO (assemblée générale ordinaire)', age: 'AGE (assemblée générale extraordinaire)' };
 export const SIGLE_NATURE_AG: Record<NatureAg, string> = { ago: 'AGO', age: 'AGE' };
 export const natureDe = (e: Pick<EntreeAg, 'nature'>): NatureAg => (e.nature === 'age' ? 'age' : 'ago');
@@ -65,8 +69,8 @@ const recentes = (e: readonly EntreeAg[]): EntreeAg[] => [...e].sort((a, b) => b
  */
 export function derniereAgTenue(entrees: readonly EntreeAg[]): EntreeAg | null {
   const ago = entrees.filter((e) => e.type === 'derniere' && natureDe(e) === 'ago');
-  const pvs = ago.filter((e) => e.origine === 'fiche_copropriete' && e.date !== null);
-  const autre = recentes(ago.filter((e) => e.origine !== 'fiche_copropriete'))[0];
+  const pvs = ago.filter((e) => estOriginePv(e.origine) && e.date !== null);
+  const autre = recentes(ago.filter((e) => !estOriginePv(e.origine)))[0];
   const candidats = [...pvs, ...(autre !== undefined && autre.date !== null ? [autre] : [])];
   if (candidats.length === 0) return null;
   return [...candidats].sort((a, b) => (b.date as string).localeCompare(a.date as string) || b.saisieLe.localeCompare(a.saisieLe) || b.id - a.id)[0];
