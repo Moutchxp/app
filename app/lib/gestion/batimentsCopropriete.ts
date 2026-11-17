@@ -10,7 +10,10 @@ import { cleBatiment, libelleBatiment } from '../location/digicodeImmeuble';
 
 export type SorteBatiment = 'lettre' | 'chiffre' | 'libre';
 export type Nomenclature = 'lettres' | 'chiffres';
-export interface BatimentConnu { cle: string; libelle: string; sorte: SorteBatiment }
+export interface BatimentConnu { cle: string; libelle: string; sorte: SorteBatiment;
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse du bâtiment (clé d'une adresse de sa copropriété) ; absente / `null` : inconnue
+   *  (à préciser, ou un bâtiment connu par un bien ou une valeur d'avant) */
+  adresseCle?: string | null }
 
 /** La sorte d'un intitulé : une lettre seule, un nombre seul, ou un intitulé libre. PUR. */
 export function sorteBatiment(brut: string | null | undefined): SorteBatiment | null {

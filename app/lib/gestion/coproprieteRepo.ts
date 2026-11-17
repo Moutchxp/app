@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { batimentsRetires, etatBatimentDisponible, sqlBatimentActif } from './batimentRetraitRepo';
+import { batimentsRetires, estRetire, etatBatimentDisponible, sqlBatimentActif } from './batimentRetraitRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { adresseImmeuble, cleImmeuble } from './syndics';
@@ -117,8 +117,10 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
   }
   for (const l of siens) { const x = batimentDe(l.batiment); if (x !== null) connus.push(x); }
   if (copro !== undefined && avec476) {
-    const { rows: reg } = await query<{ cle: string; libelle: string; sorte: BatimentConnu['sorte'] }>(
-      `SELECT b.batiment_cle AS cle, b.batiment_libelle AS libelle, b.sorte FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1
+    // 🔴 (lot 3) l'adresse de chaque bâtiment du registre (489)
+    const avecAdresse = await colonneExisteMemo('gestion_copropriete_batiment', 'adresse_cle');
+    const { rows: reg } = await query<{ cle: string; libelle: string; sorte: BatimentConnu['sorte']; adresseCle: string | null }>(
+      `SELECT b.batiment_cle AS cle, b.batiment_libelle AS libelle, b.sorte, ${avecAdresse ? 'b.adresse_cle' : 'NULL::text'} AS "adresseCle" FROM gestion_copropriete_batiment b WHERE b.copropriete_id = $1
          ${(await etatBatimentDisponible()) ? `AND ${sqlBatimentActif('b')}` : ''} ORDER BY b.cree_le, b.id`, [copro.id]);
     connus.push(...reg);
   }
@@ -126,8 +128,12 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
      bâtiments ») un bâtiment RETIRÉ sans code ne revient ni dans les lignes ni dans le menu (un code en vigueur, lui, se lit toujours) */
   const retires = await batimentsRetires(copro === undefined ? null : Number(copro.id));
   if (retires.size > 0) {
-    for (const d of digicodes) d.batiments = d.batiments.filter((b) => !(retires.has(b.cle) && b.digicode === null && (b.code ?? '') === ''));
-    for (let i = connus.length - 1; i >= 0; i -= 1) if (retires.has(connus[i].cle) && !digicodes.some((d) => d.batiments.some((b) => b.cle === connus[i].cle))) connus.splice(i, 1);
+    // 🔴 (lot 3) retiré À SON ADRESSE (un bâtiment retiré sans adresse : partout, comme avant)
+    for (const d of digicodes) d.batiments = d.batiments.filter((b) => !(estRetire(retires, d.cle, b.cle) && b.digicode === null && (b.code ?? '') === ''));
+    for (let i = connus.length - 1; i >= 0; i -= 1) {
+      const k = connus[i];
+      if (estRetire(retires, k.adresseCle ?? null, k.cle) && !digicodes.some((d) => (k.adresseCle == null || d.cle === k.adresseCle) && d.batiments.some((b) => b.cle === k.cle))) connus.splice(i, 1);
+    }
   }
   const batimentsConnus = [...new Map(connus.map((b) => [b.cle, b])).values()];
   const nomenclature = copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null;

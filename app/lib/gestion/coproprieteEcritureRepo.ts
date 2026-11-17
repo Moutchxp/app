@@ -1,5 +1,5 @@
 import { withTransaction, type RequeteTx } from '../db/client';
-import { reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
+import { registreParAdresse, reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, noterConflitParcelle, type ConflitAConfirmer } from './conflitParcelleRepo';
@@ -212,7 +212,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       for (const k of conflits) await noterConflitParcelle(q, coproId, s.syndicId, k, auteur);
     }
     // ── ⑥ les digicodes (journal « depuis la fiche copropriété ») ; les nouveaux bâtiments entrent au registre de la copropriété ──────────────
-    const nouveaux: BatimentConnu[] = [];
+    // 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 3) un bâtiment est nouveau À SON ADRESSE (le « A » du 9 n'est pas celui du 7)
+    const parAdr = await registreParAdresse(q);
+    const nouveaux: (BatimentConnu & { adresseCle: string })[] = [];
     for (const d of s.digicodes) {
       const a = lue.digicodes.find((x) => x.cle === d.cle)!;
       const adresse = { voie: a.voie, codePostal: a.codePostal, commune: a.commune };
@@ -232,15 +234,21 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       for (const y of d.batiments) {
         await ecrire(valeurDuCode(y), y.libelle);
         const b = batimentDe(y.libelle);
-        if (b !== null && !lue.batimentsConnus.some((x) => x.cle === b.cle) && !nouveaux.some((x) => x.cle === b.cle)) nouveaux.push(b);
+        const memeAdresse = (x: { adresseCle?: string | null }) => !parAdr || (x.adresseCle ?? null) === d.cle;
+        if (b !== null && !lue.batimentsConnus.some((x) => x.cle === b.cle && memeAdresse(x)) && !nouveaux.some((x) => x.cle === b.cle && memeAdresse(x))) nouveaux.push({ ...b, adresseCle: d.cle });
       }
     }
     if (avec476 && nouveaux.length > 0) {
       for (const b of nouveaux) {
-        await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [coproId, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
-        // 🔴 (Arno, 17/11/2026, 488) un bâtiment retiré, recréé par « Ajouter nouveau bâtiment » : il est REPRIS (il reprend sa ligne)
-        await reprendreSiRetire(q, coproId, b.cle, auteur);
+        if (parAdr) {
+          await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle, adresse_cle) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (copropriete_id, adresse_cle, batiment_cle) WHERE adresse_cle IS NOT NULL DO NOTHING`, [coproId, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle, b.adresseCle]);
+        } else {
+          await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
+                   ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [coproId, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
+        }
+        // 🔴 (Arno, 17/11/2026, 488) un bâtiment retiré, recréé par « Ajouter nouveau bâtiment » : il est REPRIS (il reprend sa ligne) — à son adresse
+        await reprendreSiRetire(q, coproId, b.cle, auteur, parAdr ? b.adresseCle : null);
       }
       // la référence : le premier nouveau bâtiment en lettre ou en chiffre qui n'est pas une exception (une exception confirmée ne la change pas)
       const avert = avertissementsDesBatiments(nouveaux.map((b) => b.libelle), lue.nomenclatureEffective, lue.batimentsConnus);
@@ -310,7 +318,7 @@ export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, a
     if (nature === 'annulation') return annulerChangement(q, adresse.cle, Number(b.ligneId), auteur);
     if (nature === 'retrait_batiment') {
       if (batiment === null) return { ok: false, motif: 'Bâtiment non désigné : rien n’est enregistré.' };
-      return retirerBatiment(q, { coproprieteCle: lue.cle, adresseCles: lue.adresses.map((a) => a.cle) }, batiment, auteur);
+      return retirerBatiment(q, { coproprieteCle: lue.cle, adresseCles: lue.adresses.map((a) => a.cle), adresseCle: adresse.cle }, batiment, auteur);
     }
     if (nature === 'retrait') {
       // depuis la fiche d'un bien existant : le bien (de CETTE adresse) reçoit la ligne de son journal ; « Nouveau bien » : pas encore de bien, pas de journal

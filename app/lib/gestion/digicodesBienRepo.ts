@@ -1,5 +1,5 @@
 import { query, type RequeteTx } from '../db/client';
-import { batimentsRetires } from './batimentRetraitRepo';
+import { batimentsRetires, estRetire } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { batimentDe, nomenclatureDe, refusDesBatiments, type BatimentConnu, type Nomenclature } from './batimentsCopropriete';
@@ -67,7 +67,7 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
   const adresse: DigicodesAdresseFiche = { cle: adresseCle, voie, codePostal: fiche?.adresses.find((a) => a.cle === adresseCle)?.codePostal ?? cp, commune: fiche?.adresses.find((a) => a.cle === adresseCle)?.commune ?? commune,
     commun: v(d.commun), batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) }))
       // 🔴 (Arno, 17/11/2026, 488) un bâtiment RETIRÉ de la copropriété, sans code, ne revient pas
-      .filter((b) => !(retires.has(b.cle) && b.digicode === null && (b.code ?? '') === '')),
+      .filter((b) => !(estRetire(retires, adresseCle, b.cle) && b.digicode === null && (b.code ?? '') === '')),
     // 🔴 (Arno, 17/11/2026) les mails à la Gestion des changements de digicode de l'adresse (historique)
     mailsGestion: (await mailsGestionDesAdresses([adresseCle])).get(adresseCle) ?? [] };
   const connus = fiche?.batimentsConnus ?? d.batiments.map((b) => batimentDe(b.libelle)).filter((b): b is BatimentConnu => b !== null);
@@ -122,7 +122,7 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
   // entre au registre de la copropriété (s'il n'y est pas), puis sa première valeur saisie, s'il y en a une — le bien, lui, reste relié à SON bâtiment
   for (const a of d.autres) {
     if (batimentDe(a.libelle) === null || (d.batiment !== null && batimentDe(a.libelle)?.cle === batimentDe(d.batiment)?.cle)) continue;
-    if (await inscrireBatiment(q, copropriete, a.libelle, auteur) === null) throw new RefusDigicode('Le registre des bâtiments n’est pas installé : le bâtiment ' + a.libelle + ' ne peut pas être créé.');
+    if (await inscrireBatiment(q, { ...copropriete, adresseCle }, a.libelle, auteur) === null) throw new RefusDigicode('Le registre des bâtiments n’est pas installé : le bâtiment ' + a.libelle + ' ne peut pas être créé.');
     const valeur = premiereValeur(a.code);
     if (valeur === null) continue;
     const r = await ecrireDigicode(q, { adresseCle, adresseLibelle, batiment: a.libelle, valeur, nature: 'saisie', origine, lotId, copropriete }, auteur);

@@ -1,5 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { reprendreSiRetire } from './batimentRetraitRepo';
+import { registreParAdresse, reprendreSiRetire } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { cleBatiment, cleImmeubleAdresse, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
@@ -179,7 +179,9 @@ export async function digicodesDeLaPlace(immeubleOuAdresse: string, batimentBrut
 
 // ── L'ÉCRITURE : LE CHEMIN UNIQUE ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export interface CoproprieteDuCode { cle: string; libelle: string; codePostal: string | null; commune: string | null }
+export interface CoproprieteDuCode { cle: string; libelle: string; codePostal: string | null; commune: string | null;
+  /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 3) l'ADRESSE de la copropriété où se trouve le bâtiment (sa clé) */
+  adresseCle?: string | null }
 
 export interface EcritureDigicode {
   adresseCle: string;
@@ -266,7 +268,7 @@ export async function ecrireDigicode(q: RequeteTx, e: EcritureDigicode, auteur: 
       }
     }
   }
-  if (place.cle !== '' && e.copropriete) await inscrireBatiment(q, e.copropriete, place.libelle as string, auteur);
+  if (place.cle !== '' && e.copropriete) await inscrireBatiment(q, { ...e.copropriete, adresseCle: e.adresseCle }, place.libelle as string, auteur);
   const id = await inserer(q, e, place, v.valeur, appliqueLe, nature, e.origine, nature === 'correction' ? corrige : null, e.lotId ?? null, auteur);
   if (e.lotId) {
     const quoi = `${nature === 'changement' ? `changement prévu le ${dateHeure(appliqueLe)} — ` : nature === 'correction' ? 'correction — ' : ''}digicode ${place.libelle === null ? 'commun' : `du bâtiment ${place.libelle}`} de ${e.adresseLibelle}`;
@@ -331,6 +333,21 @@ export async function inscrireBatiment(q: RequeteTx, c: CoproprieteDuCode, libel
     [c.cle, c.libelle, c.codePostal, c.commune, auteur.id, auteur.libelle]);
   const { rows: cp } = await q<{ id: string }>('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1', [c.cle]);
   if (cp[0] === undefined) throw new RefusDigicode('Copropriété introuvable après sa création.');
+  // 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 3 : « un « A » est accepté à une autre adresse de la même copropriété, refusé une
+  // seconde fois à la même adresse ») le bâtiment entre au registre À SON ADRESSE (le même nom, à une autre adresse : un autre bâtiment) ; sans la 490 : comme avant
+  const adresse = (c.adresseCle ?? '').trim() === '' ? null : (c.adresseCle as string);
+  if (await registreParAdresse(q)) {
+    await q(adresse === null
+      ? `INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (copropriete_id, batiment_cle) WHERE adresse_cle IS NULL DO NOTHING`
+      : `INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle, adresse_cle) VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (copropriete_id, adresse_cle, batiment_cle) WHERE adresse_cle IS NOT NULL DO NOTHING`,
+    [cp[0].id, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle, ...(adresse === null ? [] : [adresse])]);
+    await reprendreSiRetire(q, cp[0].id, b.cle, auteur, adresse);
+    const { rows } = await q<{ id: string }>('SELECT id::text FROM gestion_copropriete_batiment WHERE copropriete_id = $1 AND batiment_cle = $2 AND adresse_cle IS NOT DISTINCT FROM $3',
+      [cp[0].id, b.cle, adresse]);
+    return rows[0] === undefined ? null : Number(rows[0].id);
+  }
   await q(`INSERT INTO gestion_copropriete_batiment (copropriete_id, batiment_cle, batiment_libelle, sorte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (copropriete_id, batiment_cle) DO NOTHING`, [cp[0].id, b.cle, b.libelle, b.sorte, auteur.id, auteur.libelle]);
   // 🔴 (Arno, 17/11/2026, 488) un bâtiment retiré, recréé : il est REPRIS (il reprend sa ligne)
@@ -345,10 +362,12 @@ export async function inscrireBatiment(q: RequeteTx, c: CoproprieteDuCode, libel
  */
 export async function relierBienAuBatiment(q: RequeteTx, lotId: number, c: CoproprieteDuCode, libelleBrut: string | null, auteur: Auteur): Promise<{ ok: true; change: boolean } | { ok: false; motif: string }> {
   if (!(await colonneExisteMemo('gestion_annuaire_lot', 'copropriete_batiment_id'))) return { ok: false, motif: 'Le lien du bien à son bâtiment n’est pas encore installé (migration 478) : rien n’est enregistré.' };
-  const { rows: avant } = await q<{ id: string | null; libelle: string | null }>(
-    `SELECT l.copropriete_batiment_id::text AS id, cb.batiment_libelle AS libelle FROM gestion_annuaire_lot l LEFT JOIN gestion_copropriete_batiment cb ON cb.id = l.copropriete_batiment_id WHERE l.id = $1 FOR UPDATE OF l`, [lotId]);
+  const { rows: avant } = await q<{ id: string | null; libelle: string | null; immeuble: string | null; adresse: string | null }>(
+    `SELECT l.copropriete_batiment_id::text AS id, cb.batiment_libelle AS libelle, l.immeuble, l.adresse FROM gestion_annuaire_lot l LEFT JOIN gestion_copropriete_batiment cb ON cb.id = l.copropriete_batiment_id WHERE l.id = $1 FOR UPDATE OF l`, [lotId]);
   if (avant[0] === undefined) return { ok: false, motif: 'Ce bien n’existe pas.' };
-  const id = libelleBrut === null || cleBatiment(libelleBrut) === '' ? null : await inscrireBatiment(q, c, libelleBrut, auteur);
+  // 🔴 (lot 3) le bâtiment du bien est à l'ADRESSE DU BIEN (son « Immeuble », sinon son adresse — la règle de sa copropriété)
+  const adresseDuBien = c.adresseCle ?? (adresseCleDuBien({ immeuble: avant[0].immeuble ?? null, adresse: avant[0].adresse ?? null }) || null);
+  const id = libelleBrut === null || cleBatiment(libelleBrut) === '' ? null : await inscrireBatiment(q, { ...c, adresseCle: adresseDuBien }, libelleBrut, auteur);
   if (libelleBrut !== null && cleBatiment(libelleBrut) !== '' && id === null) return { ok: false, motif: 'Le registre des bâtiments n’est pas installé (migration 476) : rien n’est enregistré.' };
   if (String(id ?? '') === String(avant[0].id ?? '')) return { ok: true, change: false };
   await q('UPDATE gestion_annuaire_lot SET copropriete_batiment_id = $2 WHERE id = $1', [lotId, id]);

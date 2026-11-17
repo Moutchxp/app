@@ -70,7 +70,7 @@ describe('🔴 retirer un bâtiment sans code', () => {
     expect(ecritures()).toEqual([]);
   });
   it('les clés des bâtiments retirés d’une copropriété (vide sans copropriété ou sans la 488)', async () => {
-    expect([...(await batimentsRetires(7, tx))]).toEqual(['c']);
+    expect([...(await batimentsRetires(7, tx))]).toEqual(['#c']); // 🔴 (lot 3) la clé à son adresse : « adresse#nom » (sans adresse : « #nom », partout)
     expect([...(await batimentsRetires(null, tx))]).toEqual([]);
     h.avec488 = false;
     expect([...(await batimentsRetires(7, tx))]).toEqual([]);
