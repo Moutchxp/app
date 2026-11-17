@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, unAnApres, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
-  AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO,
+  AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 
@@ -36,11 +37,16 @@ export interface SaisieAgEcran {
   prochaineTouchee: boolean;
   statut: StatutAg | null;
   mention: boolean;
+  /** 🔴 (Arno, 17/11/2026) la fenêtre d'alerte « projection périmée » : la date calculée (ou projetée tapée) déjà passée ; `null` : fermée */
+  alerte: { date: string; sorte: 'calculee' | 'saisie' } | null;
   copro: 'rattacher' | 'creer' | 'aucune';
   rattacher: number | null;
   creer: string;
   coproOui: boolean;
 }
+
+/** Aujourd'hui à Paris, « AAAA-MM-JJ ». */
+export const aujourdhuiParis = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
 
 /** Une réponse lisible (un serveur plus ancien que l'écran : l'historique est dit « non installé », jamais d'erreur). PUR. */
 export function luAgPropre(x: unknown): LuAgSortie {
@@ -48,14 +54,17 @@ export function luAgPropre(x: unknown): LuAgSortie {
   const p = (o.proposition ?? {}) as Partial<PropositionAg>;
   return { disponible: o.disponible === true && typeof o.lotId === 'number', lotId: typeof o.lotId === 'number' ? o.lotId : 0, copropriete: o.copropriete ?? null,
     immeuble: o.immeuble ?? null, coproprieteSaisie: o.coproprieteSaisie ?? null, suggestions: Array.isArray(o.suggestions) ? o.suggestions : [],
-    proposition: { derniere: p.derniere ?? null, prochaine: p.prochaine ?? null }, adresse: o.adresse ?? null, moi: typeof o.moi === 'string' ? o.moi : '' };
+    proposition: { derniere: p.derniere ?? null, prochaine: p.prochaine ?? null, projectionPerimee: typeof p.projectionPerimee === 'string' ? p.projectionPerimee : null },
+    adresse: o.adresse ?? null, moi: typeof o.moi === 'string' ? o.moi : '' };
 }
 
 /** La saisie de départ, d'après ce que la copropriété connaît. PUR. */
 export function saisieAgInitiale(lu: LuAgSortie): SaisieAgEcran {
   const p = lu.proposition;
   return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine: p.prochaine?.date ?? '', prochaineTouchee: false,
-    statut: p.prochaine?.statut ?? null, mention: false, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
+    statut: p.prochaine?.statut ?? null, mention: false,
+    // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre
+    alerte: p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
     creer: lu.adresse ?? '', coproOui: false };
 }
 
@@ -70,7 +79,7 @@ export function corpsAg(s: SaisieAgEcran, lu: LuAgSortie | null): Record<string,
 /** Le contrôle de la fenêtre (le serveur le refait). PUR. */
 export function verdictAg(s: SaisieAgEcran, lu: LuAgSortie | null): { ok: true } | { ok: false; motif: string; champs: ChampAg[] } {
   if (lu === null || !lu.disponible) return { ok: true };
-  const v = verifierSaisieAg(s);
+  const v = verifierSaisieAg(s, aujourdhuiParis());
   if (!v.ok) return v;
   if (lu.copropriete === null && s.copro === 'creer' && s.creer.trim() === '') return { ok: false, motif: 'Donnez un nom à la copropriété à créer.', champs: [] };
   return { ok: true };
@@ -84,10 +93,17 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
   const derniereConnue = p.derniere !== null && p.derniere.date === s.derniere ? p.derniere : null;
   const officielleConnue = p.prochaine !== null && p.prochaine.statut === 'officielle' && p.prochaine.date === s.prochaine ? p.prochaine : null;
   const projection = !s.prochaineTouchee && officielleConnue === null && s.derniere !== '' && unAnApres(s.derniere) === s.prochaine;
+  const jour = aujourdhuiParis();
   const changerDerniere = (d: string): void => {
-    const suite = !s.prochaineTouchee && officielleConnue === null ? (unAnApres(d) ?? s.prochaine) : s.prochaine;
+    const suit = !s.prochaineTouchee && officielleConnue === null;
+    // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : pas conservée, la fenêtre d'alerte s'ouvre
+    const perimee = suit && d !== '' ? projectionPassee(d, jour) : null;
+    if (perimee !== null) { onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: '', statut: s.statut === 'officielle' ? s.statut : null, alerte: { date: perimee, sorte: 'calculee' } }); return; }
+    const suite = suit ? (unAnApres(d) ?? s.prochaine) : s.prochaine;
     onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: d === '' && !s.prochaineTouchee ? '' : suite });
   };
+  /** une date PROJETÉE déjà passée (tapée, ou le statut « projetée » choisi sur une date passée) : même contrôle, même fenêtre */
+  const projeteePassee = (date: string, statut: StatutAg | null): boolean => statut === 'projetee' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < jour;
   return (
     <div className="vag" data-ag-sortie>
       {/* la copropriété du bien, ou de quoi l'y rattacher */}
@@ -127,11 +143,18 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
       {/* b) la prochaine AG et son statut */}
       <label className={`pvs-champ${enDefaut('prochaine') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_PROCHAINE_AGO}</span>
         <input type="date" value={s.prochaine} disabled={desactive} aria-invalid={enDefaut('prochaine')}
-          onChange={(e) => onChange({ ...s, prochaine: e.target.value, prochaineTouchee: true, statut: officielleConnue !== null && s.statut === 'officielle' ? null : s.statut })} data-ag-prochaine /></label>
+          onChange={(e) => {
+            const statut = officielleConnue !== null && s.statut === 'officielle' ? null : s.statut;
+            if (projeteePassee(e.target.value, statut)) { onChange({ ...s, prochaine: '', prochaineTouchee: true, statut, alerte: { date: e.target.value, sorte: 'saisie' } }); return; }
+            onChange({ ...s, prochaine: e.target.value, prochaineTouchee: true, statut });
+          }} data-ag-prochaine /></label>
       {projection && <p className="loc-muet" data-ag-projection>{MENTION_PROJECTION}</p>}
       <div className={`vag-statut${enDefaut('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine AGO" data-ag-statut={s.statut ?? 'aucun'}>
         {(['projetee', 'officielle'] as const).map((x) => (
-          <button key={x} type="button" className="pva-segment" aria-pressed={s.statut === x} disabled={desactive} onClick={() => onChange({ ...s, statut: x })} data-ag-statut-choix={x}>
+          <button key={x} type="button" className="pva-segment" aria-pressed={s.statut === x} disabled={desactive} onClick={() => {
+            if (projeteePassee(s.prochaine, x)) { onChange({ ...s, prochaine: '', prochaineTouchee: true, statut: x, alerte: { date: s.prochaine, sorte: 'saisie' } }); return; }
+            onChange({ ...s, statut: x });
+          }} data-ag-statut-choix={x}>
             {x === 'projetee' ? 'Date projetée' : 'Date officielle'}</button>))}
       </div>
       {s.prochaine !== '' && (
@@ -145,6 +168,44 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
       {s.prochaine !== '' && /^\d{4}-\d{2}-\d{2}$/.test(s.prochaine) && (
         <label className="pvv-case" data-ag-mention><input type="checkbox" checked={s.mention} disabled={desactive} onChange={(e) => onChange({ ...s, mention: e.target.checked })} />
           <span>Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire de {moisAnnee(s.prochaine)} ({dateFr(s.prochaine)})</span></label>)}
+      {s.alerte !== null && <AlerteProjection alerte={s.alerte} derniere={s.derniere} jour={jour}
+        onFermer={() => onChange({ ...s, alerte: null })}
+        onReporter={(date, statut) => onChange({ ...s, prochaine: date, statut, prochaineTouchee: true, alerte: null })} />}
+    </div>
+  );
+}
+
+/**
+ * 🔴🔴 (Arno, 17/11/2026) LA FENÊTRE D'ALERTE « PROJECTION PÉRIMÉE » : l'incohérence dite mot pour mot, la date à saisir à la main avec le choix
+ * « Date projetée » (à venir) ou « Date officielle » ; « Fermer » laisse le champ VIDE (la sortie reste bloquée tant qu'une date valable manque).
+ */
+function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { alerte: { date: string; sorte: 'calculee' | 'saisie' }; derniere: string; jour: string;
+  onFermer: () => void; onReporter: (date: string, statut: StatutAg) => void }) {
+  const [date, setDate] = useState('');
+  const [statut, setStatut] = useState<StatutAg | null>(null);
+  const [tente, setTente] = useState(false);
+  const v = verifierSaisieAg({ derniere, prochaine: date, statut }, jour);
+  const motif = v.ok ? null : v.motif;
+  return (
+    <div className="vag-voile" data-ag-alerte-projection>
+      <div className="vag-alerte" role="alertdialog" aria-modal="true" aria-labelledby="vag-alerte-titre" aria-describedby="vag-alerte-texte"
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFermer(); } }}>
+        <p className="vag-alerte-titre" id="vag-alerte-titre">Prochaine AGO à saisir</p>
+        <p className="vag-alerte-texte" id="vag-alerte-texte" data-ag-alerte-texte>{texteAlerteProjection(alerte.date, alerte.sorte)}</p>
+        <p className="loc-muet vag-alerte-consigne">{CONSIGNE_ALERTE_PROJECTION}</p>
+        <label className={`pvs-champ${tente && motif !== null && !v.ok && v.champs.includes('prochaine') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_PROCHAINE_AGO}</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-ag-alerte-date autoFocus /></label>
+        <div className={`vag-statut${tente && !v.ok && v.champs.includes('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine AGO">
+          {(['projetee', 'officielle'] as const).map((x) => (
+            <button key={x} type="button" className="pva-segment" aria-pressed={statut === x} onClick={() => setStatut(x)} data-ag-alerte-statut={x}>
+              {x === 'projetee' ? 'Date projetée' : 'Date officielle'}</button>))}
+        </div>
+        {tente && motif !== null && <p className="cp-refus" role="alert" data-ag-alerte-motif>{motif}</p>}
+        <div className="vag-alerte-actions">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-ag-alerte-fermer>Fermer (le champ reste vide)</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setTente(true); if (v.ok && statut !== null) onReporter(date, statut); }} data-ag-alerte-reporter>Reporter cette date</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -161,4 +222,13 @@ export const CSS_AG_SORTIE = `
 .vag-statut.vag-defaut{outline:2px solid var(--color-svv-red)}
 .vag-mini{min-height:36px;padding:4px 10px;font-size:.85rem}
 .vag-confirmee{color:var(--color-svv-green-ink);font-weight:800}
+.vag-aide{margin:0}
+.vag-voile{position:fixed;inset:0;z-index:300;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:16px}
+.vag-alerte{width:100%;max-width:460px;box-sizing:border-box;max-height:calc(100vh - 32px);overflow:auto;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:14px;background:var(--color-svv-surface);color:var(--color-svv-ink);border-top:4px solid var(--color-svv-orange)}
+.vag-alerte-titre{margin:0;font-weight:800;font-size:1.05rem}
+.vag-alerte-texte{margin:0;font-weight:700}
+.vag-alerte-consigne{margin:0}
+.vag-alerte input[type=date]{min-height:44px;box-sizing:border-box;max-width:100%}
+.vag-alerte-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.vag-alerte-actions .svv-btn{min-height:44px}
 `;

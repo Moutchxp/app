@@ -3494,6 +3494,41 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     act(() => saisir(q('input[data-ag-derniere]') as HTMLInputElement, '2026-05-20'));
     expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2027-05-20');
   });
+  it('🔴 (Arno, 17/11/2026) projection PÉRIMÉE (dernière AGO 12/03/2015) : champ VIDE, la fenêtre d’alerte, sortie bloquée ; « Fermer » laisse vide ; une projetée passée refusée dans la fenêtre ; une officielle reportée', async () => {
+    luAg = LU({ proposition: { derniere: { date: '2015-03-12', par: 'Claire Test', le: '2026-04-01T10:00:00.000Z' }, prochaine: null, projectionPerimee: '2016-03-12' } });
+    await ouvrir();
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('');
+    expect(q('[data-ag-alerte-projection] [aria-modal="true"]')).not.toBeNull();
+    expect(q('[data-ag-alerte-texte]').textContent).toBe('La prochaine AGO calculée, le 12/03/2016, est déjà passée : une AGO plus récente a sans doute eu lieu.');
+    expect(recap().disabled).toBe(true);
+    act(() => { q('[data-ag-alerte-fermer]').click(); });
+    expect(q('[data-ag-alerte-projection]')).toBeNull();
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('');
+    expect(recap().disabled).toBe(true);
+    // la même fenêtre si l’on tape soi-même une date projetée déjà passée
+    act(() => { q('[data-ag-statut-choix="projetee"]').click(); });
+    act(() => saisir(q('input[data-ag-prochaine]') as HTMLInputElement, '2016-03-12'));
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('');
+    expect(q('[data-ag-alerte-texte]').textContent).toContain('La date projetée de la prochaine AGO, le 12/03/2016, est déjà passée');
+    // dans la fenêtre : une projetée passée refusée ; une officielle (même passée) reportée dans le champ
+    act(() => saisir(q('input[data-ag-alerte-date]') as HTMLInputElement, '2016-03-12'));
+    act(() => { q('[data-ag-alerte-statut="projetee"]').click(); });
+    act(() => { q('[data-ag-alerte-reporter]').click(); });
+    expect(q('[data-ag-alerte-motif]').textContent).toContain('Une date projetée doit être à venir');
+    act(() => { q('[data-ag-alerte-statut="officielle"]').click(); });
+    act(() => { q('[data-ag-alerte-reporter]').click(); });
+    expect(q('[data-ag-alerte-projection]')).toBeNull();
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2016-03-12');
+    expect(q('[data-ag-statut-choix="officielle"]').getAttribute('aria-pressed')).toBe('true');
+    expect(recap().disabled).toBe(false);
+  });
+  it('🔴 (Arno, 17/11/2026) saisir une dernière AGO ancienne : la projection passée n’est pas reprise, la fenêtre s’ouvre', async () => {
+    luAg = LU({ proposition: { derniere: null, prochaine: null } });
+    await ouvrir();
+    act(() => saisir(q('input[data-ag-derniere]') as HTMLInputElement, '2015-03-12'));
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('');
+    expect(q('[data-ag-alerte-texte]').textContent).toBe('La prochaine AGO calculée, le 12/03/2016, est déjà passée : une AGO plus récente a sans doute eu lieu.');
+  });
   it('une prochaine AG OFFICIELLE déjà connue : proposée en priorité, statut officielle, avec qui l’a saisie', async () => {
     luAg = LU({ proposition: { derniere: { date: '2026-03-12', par: 'Claire Test', le: '2026-04-01T10:00:00.000Z' }, prochaine: { date: '2027-04-02', statut: 'officielle', mention: null, par: 'Paul Syndic', le: '2026-10-01T09:00:00.000Z' } } });
     await ouvrir();

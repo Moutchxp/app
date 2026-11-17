@@ -102,6 +102,9 @@ export const jourFrDe = (iso: string): string => new Date(iso).toLocaleDateStrin
 export interface PropositionAg {
   derniere: { date: string; par: string; le: string } | null;
   prochaine: { date: string; statut: StatutAg | null; mention: string | null; par: string | null; le: string | null } | null;
+  /** 🔴 (Arno, 17/11/2026 : « PROJECTION PÉRIMÉE : si « dernière AGO + 1 an » tombe à une date déjà passée (ex. dernière AGO 12/03/2015 → 12/03/2016), la date projetée n'est PAS conservée. Une fenêtre d'alerte explique l'incohérence […] et demande de saisir à la main la date, avec le choix « Date projetée » ou « Date officielle » ; le champ reste vide et la sortie ne peut pas être validée tant qu'une date future (projetée) ou une date officielle n'a pas été saisie. Même contrôle si l'utilisateur tape lui-même une date projetée déjà passée. »)
+   *  la projection « dernière AGO + 1 an » déjà PASSÉE (elle n'est pas proposée : la fenêtre d'alerte la dit) ; sinon absente */
+  projectionPerimee?: string | null;
 }
 export function propositionAg(entrees: readonly EntreeAg[], aujourdhui: string): PropositionAg {
   const d = derniereAgTenue(entrees);
@@ -109,8 +112,25 @@ export function propositionAg(entrees: readonly EntreeAg[], aujourdhui: string):
   const derniere = d === null ? null : { date: d.date as string, par: d.saisiePar, le: d.saisieLe };
   if (o !== null) return { derniere, prochaine: { date: o.date as string, statut: 'officielle', mention: null, par: o.saisiePar, le: o.saisieLe } };
   const p = derniere === null ? null : unAnApres(derniere.date);
+  // la projection déjà passée n'est PAS conservée : le champ reste vide, la fenêtre d'alerte la dit
+  if (p !== null && p < aujourdhui) return { derniere, prochaine: null, projectionPerimee: p };
   return { derniere, prochaine: p === null ? null : { date: p, statut: null, mention: MENTION_PROJECTION, par: null, le: null } };
 }
+
+/** La projection « dernière AGO + 1 an » si elle est déjà PASSÉE, sinon `null`. PUR. */
+export function projectionPassee(derniere: string, aujourdhui: string): string | null {
+  const p = unAnApres(derniere);
+  return p !== null && p < aujourdhui ? p : null;
+}
+
+/** La fenêtre d'alerte : l'explication de l'incohérence, mot pour mot (la date calculée, ou la date projetée tapée). PUR. */
+export function texteAlerteProjection(date: string, sorte: 'calculee' | 'saisie'): string {
+  return sorte === 'calculee'
+    ? `La prochaine AGO calculée, le ${dateFr(date)}, est déjà passée : une AGO plus récente a sans doute eu lieu.`
+    : `La date projetée de la prochaine AGO, le ${dateFr(date)}, est déjà passée : une AGO plus récente a sans doute eu lieu.`;
+}
+export const CONSIGNE_ALERTE_PROJECTION = 'Saisissez à la main la date de la prochaine AGO, puis choisissez « Date projetée » (une date à venir) ou « Date officielle ».';
+export const MOTIF_AG_PROJETEE_PASSEE = 'Une date projetée doit être à venir : saisissez une date future, ou choisissez « Date officielle » si la date est connue.';
 
 /** La saisie de la fenêtre. */
 export interface SaisieAg { derniere: string; derniereConfirmee: boolean; prochaine: string; statut: StatutAg | null }
@@ -127,7 +147,7 @@ const estJour = (x: unknown): x is string => typeof x === 'string' && /^\d{4}-\d
   && (() => { const [a, m, j] = x.split('-').map(Number); const d = new Date(Date.UTC(a, m - 1, j)); return a >= 1900 && d.getUTCMonth() === m - 1 && d.getUTCDate() === j; })();
 
 /** Le contrôle (la fenêtre et le serveur) : les champs en défaut, et le motif du premier. PUR. */
-export function verifierSaisieAg(s: { derniere?: unknown; prochaine?: unknown; statut?: unknown }): { ok: true } | { ok: false; motif: string; champs: ChampAg[] } {
+export function verifierSaisieAg(s: { derniere?: unknown; prochaine?: unknown; statut?: unknown }, aujourdhui?: string): { ok: true } | { ok: false; motif: string; champs: ChampAg[] } {
   const champs: ChampAg[] = [];
   if (!estJour(s.derniere)) champs.push('derniere');
   if (!estJour(s.prochaine)) champs.push('prochaine');
@@ -135,15 +155,19 @@ export function verifierSaisieAg(s: { derniere?: unknown; prochaine?: unknown; s
   if (champs.length === 0 && (s.prochaine as string) <= (s.derniere as string)) {
     return { ok: false, motif: 'La prochaine AGO doit être après la dernière.', champs: ['prochaine'] };
   }
+  // 🔴 (Arno, 17/11/2026 : « PROJECTION PÉRIMÉE : si « dernière AGO + 1 an » tombe à une date déjà passée (ex. dernière AGO 12/03/2015 → 12/03/2016), la date projetée n'est PAS conservée. Une fenêtre d'alerte explique l'incohérence […] et demande de saisir à la main la date, avec le choix « Date projetée » ou « Date officielle » ; le champ reste vide et la sortie ne peut pas être validée tant qu'une date future (projetée) ou une date officielle n'a pas été saisie. Même contrôle si l'utilisateur tape lui-même une date projetée déjà passée. »)
+  if (champs.length === 0 && aujourdhui !== undefined && s.statut === 'projetee' && (s.prochaine as string) < aujourdhui) {
+    return { ok: false, motif: MOTIF_AG_PROJETEE_PASSEE, champs: ['prochaine'] };
+  }
   if (champs.length === 0) return { ok: true };
   const motif = champs[0] === 'derniere' ? MOTIF_AG_DERNIERE : champs[0] === 'prochaine' ? MOTIF_AG_PROCHAINE : MOTIF_AG_STATUT;
   return { ok: false, motif, champs };
 }
 
 /** La saisie propre (après `verifierSaisieAg`) : `null` si elle ne tient pas. PUR. */
-export function saisieAgPropre(brut: unknown): SaisieAg | null {
+export function saisieAgPropre(brut: unknown, aujourdhui?: string): SaisieAg | null {
   const o = (brut ?? {}) as Record<string, unknown>;
-  const v = verifierSaisieAg(o);
+  const v = verifierSaisieAg(o, aujourdhui);
   if (!v.ok) return null;
   return { derniere: o.derniere as string, derniereConfirmee: o.derniereConfirmee === true, prochaine: o.prochaine as string, statut: o.statut as StatutAg };
 }

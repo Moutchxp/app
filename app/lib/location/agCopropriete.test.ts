@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   avecMentionAgLocataire, avecMentionAgProprietaire, derniereAgTenue, entreesAAjouter, ligneEntreeAg, lignesAg, moisAnnee, propositionAg, prochaineAgOfficielle,
-  sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, mentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
+  sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, mentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO, projectionPassee, texteAlerteProjection, MOTIF_AG_PROJETEE_PASSEE, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
 import { mailsValidationSortie, PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, type DonneesValidationSortie } from './validationSortie';
 
 /** 🔴🔴 Arno (16/11/2026, 475) — les dates d'AG de la copropriété dans « Valider la sortie » (case 20 % cochée) : les règles pures. */
@@ -158,5 +158,28 @@ describe('🔴🔴 la retenue des 20 % : seule l’AGO compte', () => {
   it('les libellés et la phrase d’aide, mot pour mot', () => {
     expect([LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO]).toEqual(['Dernière AGO connue (assemblée générale ordinaire) *', 'Prochaine AGO *',
       'Seule l’AGO compte : c’est l’assemblée qui clôture les comptes de la copropriété.']);
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « PROJECTION PÉRIMÉE : si « dernière AGO + 1 an » tombe à une date déjà passée […], la date projetée n'est PAS conservée. Une fenêtre d'alerte explique l'incohérence […] ; le champ reste vide et la sortie ne peut pas être validée tant qu'une date future (projetée) ou une date officielle n'a pas été saisie. Même contrôle si l'utilisateur tape lui-même une date projetée déjà passée. » */
+describe('🔴🔴 la projection périmée', () => {
+  const E = (o: Partial<EntreeAg>): EntreeAg => ({ id: 1, type: 'derniere', statut: 'officielle', date: '2015-03-12', confirmation: false, origine: 'reprise',
+    saisieLe: '2026-11-17T10:00:00.000Z', saisiePar: 'Arnaud JOREL', sortieId: null, aRattacher: false, ...o });
+  it('dernière AGO 12/03/2015 → 12/03/2016 déjà passée : AUCUNE prochaine proposée, la projection périmée dite ; à venir : proposée comme avant', () => {
+    expect(propositionAg([E({})], '2026-11-17')).toEqual({ derniere: { date: '2015-03-12', par: 'Arnaud JOREL', le: '2026-11-17T10:00:00.000Z' }, prochaine: null, projectionPerimee: '2016-03-12' });
+    expect(propositionAg([E({ date: '2026-03-12' })], '2026-11-17').prochaine).toMatchObject({ date: '2027-03-12', statut: null });
+    expect(projectionPassee('2015-03-12', '2026-11-17')).toBe('2016-03-12');
+    expect(projectionPassee('2026-03-12', '2026-11-17')).toBeNull();
+  });
+  it('le texte de la fenêtre, mot pour mot', () => {
+    expect(texteAlerteProjection('2016-03-12', 'calculee')).toBe('La prochaine AGO calculée, le 12/03/2016, est déjà passée : une AGO plus récente a sans doute eu lieu.');
+    expect(texteAlerteProjection('2016-03-12', 'saisie')).toContain('le 12/03/2016, est déjà passée');
+  });
+  it('le contrôle : projetée passée refusée ; projetée à venir et officielle passée admises ; sans date : refusé', () => {
+    const base = { derniere: '2015-03-12' };
+    expect(verifierSaisieAg({ ...base, prochaine: '2016-03-12', statut: 'projetee' }, '2026-11-17')).toMatchObject({ ok: false, motif: MOTIF_AG_PROJETEE_PASSEE, champs: ['prochaine'] });
+    expect(verifierSaisieAg({ ...base, prochaine: '2027-03-12', statut: 'projetee' }, '2026-11-17')).toEqual({ ok: true });
+    expect(verifierSaisieAg({ ...base, prochaine: '2016-03-12', statut: 'officielle' }, '2026-11-17')).toEqual({ ok: true });
+    expect(verifierSaisieAg({ ...base, prochaine: '', statut: 'projetee' }, '2026-11-17')).toMatchObject({ ok: false, champs: ['prochaine'] });
   });
 });

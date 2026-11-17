@@ -157,7 +157,8 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   // 🔴 Arno (16/11/2026, 475) — case 20 % cochée : la dernière AG et la prochaine (date ET statut) sont OBLIGATOIRES ; refus avant tout.
   let ag: Preparation['ag'] = null;
   if (retenue && (await historiqueAgDisponible())) {
-    const va = verifierSaisieAg((d.ag ?? {}) as Record<string, unknown>);
+    // 🔴 (Arno, 17/11/2026) une date PROJETÉE déjà passée est refusée (une officielle passée reste admise)
+    const va = verifierSaisieAg((d.ag ?? {}) as Record<string, unknown>, jour);
     if (!va.ok) return { etat: 'refus', motif: va.motif, champ: 'ag' };
     const h = await entreesAgDuLot(logement.lotId);
     if (h === null) return { etat: 'inconnu' };
@@ -165,7 +166,7 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
     if (choix?.sorte === 'rattacher' && !(await coproprietesPourLot(h.contexte)).some((c) => c.id === choix.id)) {
       return { etat: 'refus', motif: 'Cette copropriété ne couvre pas l’adresse du bien : rechargez la fenêtre.', champ: 'ag' };
     }
-    ag = { saisie: saisieAgPropre(d.ag) as SaisieAg, connue: propositionAg(h.entrees, jour), contexte: h.contexte, choix,
+    ag = { saisie: saisieAgPropre(d.ag, jour) as SaisieAg, connue: propositionAg(h.entrees, jour), contexte: h.contexte, choix,
       coproprieteOui: d.coproprieteOui === true && logement.copropriete === null };
   }
   const phraseProprietaire = ag !== null && d.mentionAg === true ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, ag.saisie.prochaine) : undefined;

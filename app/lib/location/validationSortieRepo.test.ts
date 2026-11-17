@@ -153,6 +153,12 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     ag.dispo = true;
     expect((await apercuValidationSortie({ ...DEMANDE, retenue: false }, AUTEUR)).etat).toBe('ok');
   });
+  it('🔴 (Arno, 17/11/2026) une date PROJETÉE déjà passée : REFUS au serveur avant toute écriture ; une date OFFICIELLE passée reste admise', async () => {
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'projetee' } }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'ag', motif: expect.stringContaining('Une date projetée doit être à venir') });
+    expect(h.enregistrerSortie).not.toHaveBeenCalled();
+    expect((await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'officielle' } }, AUTEUR)).etat).toBe('ok');
+  });
   it('l’aperçu dit les deux dates avec leur statut et la copropriété ; la phrase des propriétaires porte la mention si elle est choisie', async () => {
     const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(r.etat);
