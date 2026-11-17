@@ -408,6 +408,7 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-familles .loc-gros-bouton{min-height:6.5rem;font-size:1.45rem}
 .loc-acces{display:flex;flex-wrap:wrap;gap:16px 36px;align-items:center}
 .loc-acces-bloc{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.loc-acces > .loc-acces-bloc[data-digicode-oui-non]{flex-basis:100%}
 .loc-acces-mot{font-weight:700;font-size:1.02rem;color:var(--color-svv-ink)}
 .loc-acces-digicodes{flex:1 1 100%;flex-direction:column;align-items:stretch;min-width:0}
 .loc-acces-code{flex:1 1 16rem}

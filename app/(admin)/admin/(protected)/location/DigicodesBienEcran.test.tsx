@@ -48,6 +48,8 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); document.b
 const calmer = async () => { await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); }); await act(async () => { await new Promise((r) => setTimeout(r, 50)); }); };
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 const clic = async (el: HTMLElement) => { await act(async () => { el.click(); }); await calmer(); };
+/** 🔴 (Arno, 17/11/2026) « Digicode : Oui / Non » en premier : le bloc de saisie n'apparaît que sur « Oui » */
+const oui = async (): Promise<void> => { await clic([...document.querySelectorAll('[data-digicode-oui-non] button')].find((b) => b.textContent === 'Oui') as HTMLElement); };
 const saisir = async (el: HTMLElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
 const monter = async () => {
   await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [], modification: { lotId: 7, lecture: LECTURE, versionDistante: null, onFermer: () => {}, onEnregistre: () => {},
@@ -103,6 +105,7 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
   it('adresse VIDE : le composant unique (menu du bâtiment, digicode commun à saisir, « + ») — ni « Bâtiment » libre, ni Oui / Non, ni « Code »', async () => {
     reponse = DIGI;
     await monterNouveau();
+    await oui();
     expect($('[data-cbc-champ]')).not.toBeNull();
     expect($('[data-digicodes-unifies] [data-dcp-sans-adresse]').textContent).toContain('Choisissez l’adresse du bien');
     expect($('[data-digicodes-unifies] [data-dcp-code-commun]')).not.toBeNull();
@@ -114,6 +117,7 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
   it('🔴 (Arno, 17/11/2026) « Situation et accès dans l’immeuble » : l’Accès (Ascenseur, Digicode) JUSTE SOUS le titre, au-dessus de « Bâtiment / cage d’escalier · Étage · N° de porte » ; Précision après ; rien de retiré', async () => {
     reponse = DIGI;
     await monterNouveau();
+    await oui();
     const bloc = $('[data-situation-acces]');
     expect([...bloc.querySelectorAll(':scope > h4')].map((h) => h.textContent)).toEqual(['Situation et accès dans l’immeuble', 'Accès']);
     const ordre = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -121,7 +125,8 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
     expect(ordre(bloc.querySelector('.loc-acces')!, bloc.querySelector('[data-ligne-situation]')!)).toBe(true);
     expect(ordre($('[data-cbc-champ]'), $('[data-precision]'))).toBe(true);
     expect(bloc.querySelector('.loc-acces [data-digicodes-unifies]')).not.toBeNull();
-    expect([...bloc.querySelectorAll('.loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode']);
+    // 🔴 (Arno, 17/11/2026) « Digicode : Oui / Non » sous l’Ascenseur, puis (sur « Oui ») le bloc de saisie et son libellé
+    expect([...bloc.querySelectorAll('.loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode', 'Digicode']);
     expect([...document.querySelectorAll('h4')].some((h) => h.textContent === 'Situation dans l’immeuble')).toBe(false);
   });
   it('🔴 (Arno, 17/11/2026) « Copropriété & ID fiscal » porte le bloc AG (PV d’AG) : adresse pas encore choisie, dit clairement, « + Ajouter un PV d’AG »', async () => {
@@ -142,6 +147,7 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
   it('un code saisi AVANT l’adresse est REPORTÉ sur la place (sans code connu) quand l’adresse arrive', async () => {
     reponse = INCONNUE;
     await monterNouveau();
+    await oui();
     await saisir($('[data-dcp-code-commun]'), '9999'); await calmer();
     await adresse();
     expect(lectures.some((u) => u.startsWith('/api/admin/location?digicodesBienAdresse=15 rue Fictive'))).toBe(true);
@@ -154,5 +160,45 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
     expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-lue-valeur]').textContent).toContain('code 1234');
     expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-modifier]')).not.toBeNull();
     expect($('[data-digicodes-unifies] [data-dcp-commun] [data-dcp-corriger-erreur]')).not.toBeNull();
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « DIGICODE OUI / NON EN PREMIER : dans « Accès », sous « Ascenseur Oui / Non », une ligne « Digicode » avec les mêmes boutons « Oui / Non ». Le bloc de saisie […] n'apparaît que sur « Oui ». « Non » enregistre l'immeuble sans digicode […]. Si la copropriété a déjà des codes connus, « Oui » est sélectionné d'office […]. Choisir « Non » alors ouvre une confirmation […], et aucun code n'est effacé. » */
+describe('🔴🔴 « Digicode : Oui / Non » en premier', () => {
+  it('sous « Ascenseur » ; rien choisi : pas de bloc ; « Oui » : le bloc (« pas de digicode » disponible) ; « Non » : plus de bloc', async () => {
+    const VIDE = { ...DIGI, adresseCle: '', connus: [], nomenclature: null, escalier: null, copropriete: { cle: '', libelle: '', codePostal: null, commune: null },
+      adresse: { cle: '', voie: '', codePostal: null, commune: null, commun: { digicode: null, code: null }, batiments: [] } };
+    global.fetch = vi.fn(async (url: string | URL | Request) => (decodeURIComponent(String(url)).startsWith('/api/admin/location?digicodesBienAdresse=') ? ok(VIDE) : ok([]))) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); }); await calmer();
+    expect([...document.querySelectorAll('.loc-acces > .loc-acces-bloc > .loc-acces-mot')].map((x) => x.textContent).slice(0, 2)).toEqual(['Ascenseur', 'Digicode']);
+    expect($('[data-digicodes-unifies]')).toBeNull();
+    await oui();
+    expect($('[data-digicodes-unifies] [data-dcp-code-commun]')).not.toBeNull();
+    expect($('[data-digicodes-unifies] [data-dcp-commun] .dcp-aucun')).not.toBeNull();
+    await clic([...document.querySelectorAll('[data-digicode-oui-non] button')].find((b) => b.textContent === 'Non') as HTMLElement);
+    expect($('[data-digicodes-unifies]')).toBeNull();
+    expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull();
+  });
+  it('des codes CONNUS : « Oui » d’office, le bloc avec ces codes ; « Non » : la confirmation (rien d’effacé) ; « Revenir » garde « Oui »', async () => {
+    await monter();
+    const oui = [...document.querySelectorAll('[data-digicode-oui-non] button')].find((b) => b.textContent === 'Oui') as HTMLElement;
+    expect(oui.getAttribute('aria-pressed')).toBe('true');
+    expect($('[data-digicodes-unifies]')).not.toBeNull();
+    await clic([...document.querySelectorAll('[data-digicode-oui-non] button')].find((b) => b.textContent === 'Non') as HTMLElement);
+    expect(document.body.textContent).toContain('Cette copropriété a des digicodes connus : les retirer ne se fait que par « Modifier » / « Corriger » sur chaque code.');
+    await clic(document.querySelector('[data-repere="digicode-non-revenir"], button[data-digicode-non-revenir]') as HTMLElement ?? [...document.querySelectorAll('button')].find((b) => b.textContent === 'Revenir') as HTMLElement);
+    expect($('[data-digicodes-unifies]')).not.toBeNull();
+  });
+});
+
+describe('🔴🔴 ce qui part selon « Oui / Non » (pur)', () => {
+  it('« Oui » ou rien : tel quel ; « Non » sans code connu : le commun « pas de digicode » ; « Non » avec des codes connus : AUCUN code (rien d’effacé) ; le bâtiment part toujours', async () => {
+    const { envoiSelonChoixDigicode, choixDigicodeEffectif } = await import('../gestion/DigicodesCopropriete');
+    const e = { batiment: 'A', batimentConfirme: false, commun: { code: '1234', aucun: false }, codeBatiment: { code: 'A1', aucun: false } };
+    expect(envoiSelonChoixDigicode(e, true, false)).toEqual(e);
+    expect(envoiSelonChoixDigicode(e, null, false)).toEqual(e);
+    expect(envoiSelonChoixDigicode(e, false, false)).toEqual({ batiment: 'A', batimentConfirme: false, commun: { code: '', aucun: true }, codeBatiment: null });
+    expect(envoiSelonChoixDigicode(e, false, true)).toEqual({ batiment: 'A', batimentConfirme: false, commun: null, codeBatiment: null });
+    expect([choixDigicodeEffectif(null, true), choixDigicodeEffectif(null, false), choixDigicodeEffectif(false, true)]).toEqual([true, null, false]);
   });
 });

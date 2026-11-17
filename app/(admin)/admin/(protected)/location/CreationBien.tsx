@@ -8,7 +8,7 @@ import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { LigneManques } from './LigneManques';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from '../gestion/DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, choixDigicodeEffectif, codesConnusDuBien, envoiSelonChoixDigicode } from '../gestion/DigicodesCopropriete';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
@@ -388,7 +388,12 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     }, memeAdresse || voie.length < 5 ? 0 : 500);
     return () => { vivant = false; clearTimeout(t); };
   }, [b.adresse, b.codePostal, b.commune, digiRelire]); // eslint-disable-line react-hooks/exhaustive-deps
-  const digiEnvoi = digiBien !== null && digiSaisie !== null ? digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme) : null;
+  // 🔴🔴 (Arno, 17/11/2026) « Digicode : Oui / Non » en premier ; « Oui » d'office quand la copropriété a des codes connus
+  const [digiChoix, setDigiChoix] = useState<boolean | null>(null);
+  const [confirmerSansDigicode, setConfirmerSansDigicode] = useState(false);
+  const digiConnus = codesConnusDuBien(digiSaisie);
+  const digiChoixVu = choixDigicodeEffectif(digiChoix, digiConnus);
+  const digiEnvoi = digiBien !== null && digiSaisie !== null ? envoiSelonChoixDigicode(digicodesBienEnvoi(digiSaisie, b.batiment, batimentConfirme), digiChoixVu, digiConnus) : null;
   /** « Corriger une erreur » / « Garder ce code » : immédiats, par le même chemin serveur que la fiche Copropriété ; les digicodes se relisent. */
   /** 🔴 (« Digicodes unifiés », lot 6) l'écran des destinataires et l'envoi, par la route de la Location. */
   const echangeDigi = async <T,>(corpsGeste: Record<string, unknown>): Promise<T | string> => {
@@ -915,7 +920,13 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             <div className="loc-acces-bloc"><span className="loc-acces-mot">Ascenseur</span>
               <Pilules etiquette="Ascenseur" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(ascenseur)}
                 onChoix={(v) => setAscenseur(v === null ? null : v === 'oui')} /></div>
-            {digiBien !== null && digiSaisie !== null ? (
+            {/* 🔴🔴 (Arno, 17/11/2026 : « DIGICODE OUI / NON EN PREMIER : dans « Accès », sous « Ascenseur Oui / Non », une ligne « Digicode » avec les
+                mêmes boutons « Oui / Non ». Le bloc de saisie (digicode commun, « + », lignes de bâtiment) n'apparaît que sur « Oui ». ») */}
+            {digiBien !== null && digiSaisie !== null && (
+              <div className="loc-acces-bloc" data-digicode-oui-non><span className="loc-acces-mot">Digicode</span>
+                <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digiChoixVu)}
+                  onChoix={(v) => { if (v === 'non' && digiConnus) { setConfirmerSansDigicode(true); return; } setDigiChoix(v === null ? null : v === 'oui'); }} /></div>)}
+            {digiBien !== null && digiSaisie !== null ? (digiChoixVu !== true ? null :
               /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non et « Code ». Avec la 478 : le composant unique —
                  le code commun de l'adresse et celui du bâtiment choisi ; connus : lus, « Corriger une erreur » ; sinon : à saisir. */
               <div className="loc-acces-bloc loc-acces-digicodes" data-digicode data-digicodes-unifies><span className="loc-acces-mot">Digicode</span>
@@ -1225,6 +1236,13 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           {envoi ? 'Enregistrement…' : enregistre !== null ? '✓ Bien enregistré' : 'Enregistrer le bien'}</button>
       </div>
       )}
+      {/* 🔴🔴 (Arno, 17/11/2026) « Choisir « Non » alors ouvre une confirmation (« Cette copropriété a des digicodes connus : les retirer ne se fait que
+          par « Modifier » / « Corriger » sur chaque code »), et aucun code n'est effacé par ce choix. » */}
+      {confirmerSansDigicode && (
+        <ModaleIssue sorte="attention" titre="Digicode : « Non » ?" onFermer={() => setConfirmerSansDigicode(false)}
+          notes={['Cette copropriété a des digicodes connus : les retirer ne se fait que par « Modifier » / « Corriger » sur chaque code.', 'Choisir « Non » n’efface aucun code.']}
+          actions={[{ libelle: 'Revenir', onClick: () => setConfirmerSansDigicode(false), repere: 'digicode-non-revenir' },
+            { libelle: 'Confirmer « Non »', onClick: () => { setDigiChoix(false); setConfirmerSansDigicode(false); }, principal: true, repere: 'digicode-non-confirmer' }]} />)}
       {modification !== undefined && issue !== null && (issue.sorte === 'contre' ? (
         <ModaleIssue sorte="attention" titre="Valider les modifications ?" onFermer={() => setIssue(null)} notes={issue.notes}
           actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), repere: 'revenir-saisie' },

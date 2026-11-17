@@ -537,6 +537,23 @@ export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, 
     codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial) };
 }
 
+/**
+ * 🔴🔴 (Arno, 17/11/2026 : « DIGICODE OUI / NON EN PREMIER […] « Non » enregistre l'immeuble sans digicode (même effet que « pas de digicode » sur le
+ * code commun). Si la copropriété a déjà des codes connus, « Oui » est sélectionné d'office […]. Choisir « Non » alors ouvre une confirmation […], et
+ * aucun code n'est effacé par ce choix. ») La copropriété du bien a-t-elle des codes CONNUS (commun ou bâtiment) ? PUR.
+ */
+export const codesConnusDuBien = (s: DigicodesAdresseSaisis | null): boolean => s !== null && (placeLue(s.communEtat) || s.batiments.some((b) => placeLue(b.etat)));
+/** Le choix « Digicode : Oui / Non » de la fiche du bien : `null` (rien choisi) — « Oui » d'office quand des codes sont connus. PUR. */
+export const choixDigicodeEffectif = (choix: boolean | null, connus: boolean): boolean | null => choix ?? (connus ? true : null);
+/**
+ * Ce qui part selon ce choix : « Oui » (ou rien choisi) : la saisie telle quelle ; « Non » sans code connu : le commun « pas de digicode », aucun code de
+ * bâtiment ; « Non » avec des codes connus : AUCUN code (rien n'est effacé). Le bâtiment choisi part toujours. PUR.
+ */
+export function envoiSelonChoixDigicode(e: ReturnType<typeof digicodesBienEnvoi>, choix: boolean | null, connus: boolean): ReturnType<typeof digicodesBienEnvoi> {
+  if (choix !== false) return e;
+  return { ...e, commun: connus ? null : { code: '', aucun: true }, codeBatiment: null };
+}
+
 /** 🔴 (Arno, 17/11/2026) la durée de la bulle de confirmation d'un bâtiment ajouté (« environ 4 secondes »). */
 export const DUREE_BULLE_MS = 4000;
 
