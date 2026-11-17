@@ -103,7 +103,7 @@ describe('🔴🔴 les deux choix', () => {
     const r = await planifierEtPrevenir({ ...CORPS, mode: 'gestion', proprietaires: true }, AUTEUR);
     expect(h.envois.map((e) => [e.sorte, e.a])).toEqual([['digicode_gestion', ['gestion@exemple.test']]]);
     expect(h.envois[0].o).toMatchObject({ lotId: 1, occupationIds: [] });
-    expect(h.envois[0].objet).toContain('[À prévenir] Changement de digicode');
+    expect(h.envois[0].objet).toContain('[À prévenir] Changement des digicodes');
     expect(h.envois[0].texte).toContain('AUCUN mail n’a été envoyé aux locataires');
     expect(h.envois[0].texte).toContain('Léa MARTIN (lea@exemple.test)');
     expect(r.ok && [r.data.mode, r.data.envois.length, r.data.gestion?.envoye]).toEqual(['gestion', 0, true]);
@@ -112,7 +112,7 @@ describe('🔴🔴 les deux choix', () => {
     const r = await planifierEtPrevenir({ ...CORPS, mode: 'locataires', decoches: [12] }, AUTEUR);
     expect(h.envois.map((e) => [e.sorte, e.a])).toEqual([['digicode_locataire', ['lea@exemple.test']], ['digicode_gestion', ['gestion@exemple.test']]]);
     const g = h.envois[1];
-    expect(g.objet).toContain('[Locataires prévenus] Changement de digicode');
+    expect(g.objet).toContain('[Locataires prévenus] Changement des digicodes');
     expect(g.texte).toContain('Léa MARTIN (lea@exemple.test) — prévenu par mail');
     expect(g.texte).toContain('Paul MARTIN (paul@exemple.test) — NON prévenu (décoché)');
     expect(r.ok && r.data.nonCoches).toEqual(['Paul MARTIN']);

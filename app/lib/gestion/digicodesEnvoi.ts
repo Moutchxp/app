@@ -17,7 +17,9 @@ import { quandChangement } from './digicodes';
  */
 
 export interface ValeurCode { digicode: boolean | null; code: string | null }
-export interface PersonneDest { id: number; nom: string; prenom: string | null; emails: string[] }
+export interface PersonneDest { id: number; nom: string; prenom: string | null; emails: string[];
+  /** 🔴 (Arno, 17/11/2026) la civilité de l'annuaire (« Bonjour Madame MARTIN, ») ; absente : inconnue */
+  civilite?: string | null }
 export interface LocataireDest extends PersonneDest { occupationId: number; depart: string | null; inclus: boolean; raison: string | null }
 export interface LogementDest {
   lotId: number; libelle: string; batiment: string | null;
@@ -125,14 +127,14 @@ export const codesEnLigne = (a: ApercuEnvoi, l: LogementDest): string =>
  */
 const lignesCodes = (a: ApercuEnvoi, l: LogementDest, avecDates = false): string[] => {
   const change: string[] = []; const inchange: string[] = [];
-  const quand = (le: string | undefined, h: boolean | undefined): string => (avecDates ? ` — à partir du ${quandChangement(le ?? a.appliqueLe, h ?? true)}` : '');
+  const quand = (le: string | undefined, h: boolean | undefined): string => (avecDates ? `, à partir du ${quandChangement(le ?? a.appliqueLe, h ?? true)}` : '');
   if (l.codes.commun !== null) {
-    if (l.codes.communChange) change.push(`Digicode copropriété : ${motCode(l.codes.commun)}${quand(l.codes.communLe, l.codes.communAvecHeure)}`);
-    else inchange.push(`Digicode copropriété : ${motCode(l.codes.commun)} (inchangé)`);
+    if (l.codes.communChange) change.push(`Digicode de la copropriété : ${motCode(l.codes.commun)}${quand(l.codes.communLe, l.codes.communAvecHeure)}`);
+    else inchange.push(`Digicode de la copropriété : ${motCode(l.codes.commun)} (inchangé)`);
   }
   if (l.batiment !== null && l.codes.batiment !== null) {
-    if (l.codes.batimentChange) change.push(`Digicode bâtiment ${l.batiment} : ${motCode(l.codes.batiment)}${quand(l.codes.batimentLe, l.codes.batimentAvecHeure)}`);
-    else inchange.push(`Digicode bâtiment ${l.batiment} : ${motCode(l.codes.batiment)} (inchangé)`);
+    if (l.codes.batimentChange) change.push(`Digicode du bâtiment ${l.batiment} : ${motCode(l.codes.batiment)}${quand(l.codes.batimentLe, l.codes.batimentAvecHeure)}`);
+    else inchange.push(`Digicode du bâtiment ${l.batiment} : ${motCode(l.codes.batiment)} (inchangé)`);
   }
   return [...change, ...inchange];
 };
@@ -144,12 +146,21 @@ const lignesCodes = (a: ApercuEnvoi, l: LogementDest, avecDates = false): string
 const enTete = (a: ApercuEnvoi, dates: readonly string[]): ParagrapheMail[] =>
   [{ texte: a.adresse, gras: true }, ...(dates.length <= 1 ? [`À partir du ${dates[0] ?? quandChangement(a.appliqueLe, true)}`] : [])];
 
-/** L'objet : « Changement de digicode — 12 rue … — à partir du 20/11/2026 à 09:00 » ; plusieurs dates : « Changement de digicodes — … — à partir du
- *  {la première} » ; `logements` : ceux dont parle le mail (tous par défaut). PUR. */
-export const objetChangement = (a: ApercuEnvoi, logements: readonly LogementDest[] = a.logements): string => {
-  const d = datesDe(a, logements);
-  return `Changement de digicode${d.length > 1 ? 's' : ''} — ${a.adresse} — à partir du ${d[0] ?? quandChangement(a.appliqueLe, true)}`;
-};
+/** 🔴🔴 (Arno, 17/11/2026) L'objet : « Changement des digicodes de votre immeuble — <adresse> — à partir du <première date> » (`pour` : « de votre immeuble »
+ *  aux locataires, « de l'immeuble » aux propriétaires et à la Gestion) ; `logements` : ceux dont parle le mail (tous par défaut). PUR. */
+export const objetChangement = (a: ApercuEnvoi, logements: readonly LogementDest[] = a.logements, pour: 'locataire' | 'autre' = 'autre'): string =>
+  `Changement des digicodes ${pour === 'locataire' ? 'de votre immeuble' : 'de l’immeuble'} — ${a.adresse} — à partir du ${datesDe(a, logements)[0] ?? quandChangement(a.appliqueLe, true)}`;
+
+/** 🔴 (Arno, 17/11/2026 : « « Bonjour <Madame / Monsieur> <NOM>, » (civilité et nom de famille ; sans civilité connue : « Bonjour <Prénom> <NOM>, ») ») PUR. */
+export function bonjour(p: { nom: string; prenom: string | null; civilite?: string | null }): string {
+  const c = (p.civilite ?? '').trim().toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ');
+  const nom = p.nom.replace(/\s+/g, ' ').trim();
+  const appel = ['madame', 'mme', 'mlle', 'mademoiselle'].includes(c) ? 'Madame' : ['monsieur', 'm', 'mr'].includes(c) ? 'Monsieur'
+    : ['m et mme', 'mme et m', 'monsieur et madame', 'madame et monsieur'].includes(c) ? 'Madame, Monsieur' : null;
+  return `Bonjour ${appel !== null && nom !== '' ? `${appel} ${nom}` : prenomNom(p)},`;
+}
+const SERVICE_GESTION = 'Notre service Gestion reste à votre disposition pour toute question, par simple retour de ce mail.';
+const REMERCIEMENTS = 'Nous vous remercions de votre attention et vous souhaitons une très bonne journée.';
 
 export interface ContexteMail { expediteur: string; qui: IdentiteEnvoi; signature: Signature }
 
@@ -160,10 +171,14 @@ export function mailLocataire(a: ApercuEnvoi, l: LogementDest, x: LocataireDest,
   // 🔴🔴 (Arno, 17/11/2026 : « chaque locataire reçoit UN SEUL mail, à une seule adresse, qui regroupe tous les nouveaux codes qui le concernent (copropriété
   // + son bâtiment), chacun avec sa date (et son heure si elle existe), jamais les codes d'un autre bâtiment. »)
   const d = datesDe(a, [l]);
-  const paras: ParagrapheMail[] = [`Bonjour ${prenomNom(x)},`, ...enTete(a, d), lignesCodes(a, l, d.length > 1).join('\n'),
-    d.length > 1 ? 'Jusqu’à ces dates, les codes actuels restent valables.' : 'Jusqu’à cette date, le code actuel reste valable.', 'Bien cordialement,'];
+  // 🔴🔴 (Arno, 17/11/2026 : « MAIL DE CHANGEMENT DE DIGICODE, trop sec : réécris-le pour un être humain » — le modèle d'Arno, mot pour mot)
+  const paras: ParagrapheMail[] = [bonjour(x),
+    'Nous souhaitons vous informer que les codes d’accès de votre immeuble vont prochainement changer. Afin que vous puissiez continuer à accéder à votre logement sans difficulté, voici les nouveaux codes qui vous concernent :',
+    ...enTete(a, d), lignesCodes(a, l, d.length > 1).join('\n'),
+    `Jusqu’à ${d.length > 1 ? 'ces dates' : 'cette date'}, vos codes actuels restent valables. Pour la sécurité de tous les occupants, nous vous remercions de ne communiquer ces codes qu’aux personnes de confiance.`,
+    SERVICE_GESTION, REMERCIEMENTS, 'Bien cordialement,'];
   const m = composerMailLocation(paras, c.qui, c.signature);
-  return { sorte: 'digicode_locataire', de: c.expediteur, a: dest, cc: [], objet: objetChangement(a, [l]), texte: m.texte, html: m.html };
+  return { sorte: 'digicode_locataire', de: c.expediteur, a: dest, cc: [], objet: objetChangement(a, [l], 'locataire'), texte: m.texte, html: m.html };
 }
 
 /** LE MAIL D'UN PROPRIÉTAIRE : ses logements concernés, chacun avec SES codes seulement. `null` : pas d'e-mail. PUR. */
@@ -172,9 +187,9 @@ export function mailProprietaire(a: ApercuEnvoi, p: { personne: PersonneDest; lo
   if (dest.length === 0) return null;
   const d = datesDe(a, p.logements);
   const blocs = p.logements.map((l) => `${l.libelle}${l.batiment !== null ? ` (bâtiment ${l.batiment})` : ''} :\n${lignesCodes(a, l, d.length > 1).join('\n')}`);
-  const paras: ParagrapheMail[] = [`Bonjour ${prenomNom(p.personne)},`, ...enTete(a, d),
-    `Pour votre information, le digicode change. ${p.logements.length > 1 ? 'Pour vos logements' : 'Pour votre logement'} :`,
-    ...blocs, 'Vos locataires en place en ont été informés.', 'Bien cordialement,'];
+  const paras: ParagrapheMail[] = [bonjour(p.personne),
+    'Nous souhaitons vous informer que les codes d’accès vont prochainement changer dans l’immeuble où se situe votre bien. Pour votre information, voici les nouveaux codes :',
+    ...enTete(a, d), ...blocs, 'Vos locataires en place en ont été informés.', SERVICE_GESTION, REMERCIEMENTS, 'Bien cordialement,'];
   const m = composerMailLocation(paras, c.qui, c.signature);
   return { sorte: 'digicode_proprietaire', de: c.expediteur, a: dest, cc: [], objet: objetChangement(a, p.logements), texte: m.texte, html: m.html };
 }
@@ -212,9 +227,9 @@ export function mailGestion(a: ApercuEnvoi, c: ContexteMail, o: { mode: ModePrev
   });
   const t = totalSelection(a, o.decoches);
   const paras: ParagrapheMail[] = o.mode === 'gestion'
-    ? ['Bonjour,', ...enTete(a, datesDe(a, a.logements)), `Le changement est enregistré ; AUCUN mail n’a été envoyé aux locataires : merci de les prévenir.`,
+    ? ['Bonjour,', ...enTete(a, datesDe(a, a.logements)), `Les digicodes de cet immeuble vont changer. Le changement est enregistré ; AUCUN mail n’a été envoyé aux locataires : merci de les prévenir.`,
       `Logements concernés (${a.logements.length}) :\n${blocs.join('\n')}`, 'Bien cordialement,']
-    : ['Bonjour,', ...enTete(a, datesDe(a, a.logements)), `Le changement est enregistré et les locataires listés ci-dessous comme « prévenus par mail » ont reçu chacun leur mail (${t.phrase}).${o.proprietaires ? ' Les propriétaires ont aussi été prévenus.' : ''}`,
+    : ['Bonjour,', ...enTete(a, datesDe(a, a.logements)), `Les digicodes de cet immeuble vont changer. Le changement est enregistré et les locataires listés ci-dessous comme « prévenus par mail » ont reçu chacun leur mail (${t.phrase}).${o.proprietaires ? ' Les propriétaires ont aussi été prévenus.' : ''}`,
       `Logements concernés (${a.logements.length}) :\n${blocs.join('\n')}`, 'Bien cordialement,'];
   const m = composerMailLocation(paras, c.qui, c.signature);
   return { sorte: 'digicode_gestion', de: c.expediteur, a: dest, cc: [], objet: objetGestion(a, o.mode), texte: m.texte, html: m.html };

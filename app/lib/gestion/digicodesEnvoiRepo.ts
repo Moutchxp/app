@@ -71,8 +71,8 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
   // ③ les propriétaires (le principal et les co-propriétaires en cours), avec leurs e-mails en vigueur
   const vivante = await conditionCoordonneeVivante('c');
   const avecCo = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
-  const { rows: pro } = ids.length === 0 ? { rows: [] as { lot: string; id: string; nom: string; prenom: string | null; emails: string[] }[] } : await query<{ lot: string; id: string; nom: string; prenom: string | null; emails: string[] }>(
-    `SELECT x.lot::text, p.id::text, coalesce(nullif(btrim(p.nom), ''), p.nom_complet) AS nom, p.prenom,
+  const { rows: pro } = ids.length === 0 ? { rows: [] as { lot: string; id: string; nom: string; prenom: string | null; civilite: string | null; emails: string[] }[] } : await query<{ lot: string; id: string; nom: string; prenom: string | null; civilite: string | null; emails: string[] }>(
+    `SELECT x.lot::text, p.id::text, coalesce(nullif(btrim(p.nom), ''), p.nom_complet) AS nom, p.prenom, p.civilite,
             array(SELECT coalesce(nullif(btrim(c.valeur_brute), ''), c.valeur) FROM gestion_annuaire_contact c
                    WHERE c.sujet = 'proprietaire' AND c.sujet_id = p.id AND c.sorte = 'email' AND c.absent_le IS NULL${vivante} ORDER BY c.rang NULLS LAST, c.id) AS emails
        FROM (SELECT id AS lot, proprietaire_id AS pid FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) AND proprietaire_id IS NOT NULL
@@ -98,9 +98,10 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
       locataires: occ.filter((o) => Number(o.lot) === l.id).map((o) => {
         const x = locs.find((y) => y.occupationId === Number(o.id));
         const r = regleDepart(appliqueLe, o.depart);
-        return { id: Number(o.locataire), occupationId: Number(o.id), nom: x?.nom ?? `Locataire ${o.locataire}`, prenom: x?.prenom ?? null, emails: x?.emails ?? [], depart: o.depart, ...r };
+        return { id: Number(o.locataire), occupationId: Number(o.id), nom: x?.nom ?? `Locataire ${o.locataire}`, prenom: x?.prenom ?? null, civilite: x?.civilite ?? null,
+          emails: x?.emails ?? [], depart: o.depart, ...r };
       }),
-      proprietaires: pro.filter((p) => Number(p.lot) === l.id).map((p): PersonneDest => ({ id: Number(p.id), nom: p.nom, prenom: p.prenom, emails: (p.emails ?? []).filter((e) => typeof e === 'string') })),
+      proprietaires: pro.filter((p) => Number(p.lot) === l.id).map((p): PersonneDest => ({ id: Number(p.id), nom: p.nom, prenom: p.prenom, civilite: p.civilite ?? null, emails: (p.emails ?? []).filter((e) => typeof e === 'string') })),
       codes: { commun: communNouveau !== null ? { digicode: communNouveau.digicode, code: communNouveau.code } : lu(d?.commun),
         batiment: bNouveau !== undefined ? { digicode: bNouveau.digicode, code: bNouveau.code } : bCle === '' ? null : lu(d?.codeBatiment),
         communChange: communNouveau !== null, batimentChange: bNouveau !== undefined,
