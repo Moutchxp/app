@@ -194,3 +194,20 @@ describe('② le menu au clic sur le champ vide', () => {
     expect(menu()).toEqual(['+ Ajouter le bâtiment « Côté »', 'Aucun bâtiment (code commun)', 'Côté cour', 'Côté rue', 'Ajouter nouveau bâtiment']);
   });
 });
+
+/** 🔴 Arno (17/11/2026) : « un clic dans le champ qui contient déjà une valeur montre TOUTE la liste (la valeur actuelle mise en évidence) ; le filtre ne s'applique que lorsqu'on tape. » */
+describe('④ un champ déjà rempli', () => {
+  function HoteRempli() {
+    const [bat, setBat] = useState('A');
+    return createElement(ChoixBatimentCopro, { valeur: bat, connus: CONNUS, nomenclature: 'lettres', escalier: '', desactive: false, onChoix: (l: string) => setBat(l) });
+  }
+  it('un clic : TOUTE la liste, « A » mise en évidence ; en tapant, la liste se filtre', async () => {
+    await act(async () => { root.render(createElement(HoteRempli)); });
+    await clic($('[data-cbc-champ]'));
+    expect(menu()).toEqual(['Aucun bâtiment (code commun)', 'A', 'C', 'Ajouter nouveau bâtiment']);
+    expect($('[data-cbc-option="A"]').className).toContain('cb-choisi');
+    expect($('[data-cbc-option="A"]').getAttribute('aria-selected')).toBe('true');
+    await saisir($('[data-cbc-champ]'), 'C');
+    expect(menu()).toEqual(['Aucun bâtiment (code commun)', 'C', 'Ajouter nouveau bâtiment']);
+  });
+});

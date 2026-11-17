@@ -570,6 +570,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
 }) {
   const [ouvert, setOuvert] = useState(ouvrirAuDebut);
   const [actif, setActif] = useState(-1);
+  // 🔴 (Arno, 17/11/2026 : « un clic dans le champ qui contient déjà une valeur montre TOUTE la liste (la valeur actuelle mise en évidence) ; le filtre ne
+  // s'applique que lorsqu'on tape ») : vrai dès qu'on tape, remis à faux à chaque ouverture du menu
+  const [tape, setTape] = useState(false);
   const [ajout, setAjout] = useState<{ nom: string; erreur: string | null } | null>(null);
   const [alerte, setAlerte] = useState<{ a: AvertissementBatiment; depuisEncadre: boolean } | null>(null);
   const [ajoutes, setAjoutes] = useState<BatimentConnu[]>([]);
@@ -589,6 +592,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const existe = (nom: string): BatimentConnu | undefined => { const c = batimentDe(nom)?.cle; return c === undefined ? undefined : tous.find((o) => o.cle === c); };
   const t = valeur.trim();
   const cleT = batimentDe(t)?.cle ?? '';
+  // le filtre : seulement ce qui est TAPÉ depuis l'ouverture du menu
+  const filtre = tape ? t : '';
+  const cleFiltre = tape ? cleT : '';
   const fermer = (): void => { setOuvert(false); setActif(-1); };
   const retenir = (libelle: string, confirme: boolean): void => {
     setAjout(null); setAlerte(null);
@@ -611,9 +617,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
      bâtiments déjà enregistrés pour la copropriété dans l'ordre naturel (1, 2… 10 après 9 ; A, B…), les intitulés libres par ordre alphabétique
      (menuBatiments), et « Ajouter nouveau bâtiment » tout en bas ; en tapant, la liste se filtre */
   const options: { k: string; mot: string; agir: () => void; attr: Record<string, string>; nouveau?: boolean; choisi?: boolean }[] = [
-    ...(t !== '' && existe(t) === undefined ? [{ k: '+saisi', mot: `+ Ajouter le bâtiment « ${t} »`, agir: () => valider(t, false), attr: { 'data-cb-ajouter-saisi': '' }, nouveau: true }] : []),
+    ...(filtre !== '' && existe(filtre) === undefined ? [{ k: '+saisi', mot: `+ Ajouter le bâtiment « ${filtre} »`, agir: () => valider(filtre, false), attr: { 'data-cb-ajouter-saisi': '' }, nouveau: true }] : []),
     ...(avecAucun ? [{ k: '∅', mot: 'Aucun bâtiment (code commun)', agir: () => { fermer(); setMessage(null); onChoix('', false); }, attr: { [A.aucun]: '' } }] : []),
-    ...tous.filter((o) => t === '' || o.cle.includes(cleT)).map((o) => ({ k: o.cle, mot: o.libelle, agir: () => valider(o.libelle, false), attr: { [A.option]: o.libelle }, choisi: cleT === o.cle })),
+    ...tous.filter((o) => filtre === '' || o.cle.includes(cleFiltre)).map((o) => ({ k: o.cle, mot: o.libelle, agir: () => valider(o.libelle, false), attr: { [A.option]: o.libelle }, choisi: cleT !== '' && cleT === o.cle })),
     { k: '+nouveau', mot: 'Ajouter nouveau bâtiment', agir: () => { fermer(); setAjout({ nom: '', erreur: null }); }, attr: { [A.nouveau]: '' }, nouveau: true },
   ];
   const idMenu = `cb-menu-${marque}-${cle}`;
@@ -622,8 +628,8 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
       <div className="cb-zone">
       <input ref={champ} value={valeur} disabled={desactive} placeholder={placeholder} maxLength={60} role="combobox" aria-expanded={ouvert} aria-controls={idMenu}
         aria-autocomplete="list" aria-label={ariaLabel} aria-activedescendant={ouvert && actif >= 0 ? `${idMenu}-${actif}` : undefined} {...{ [A.champ]: marque === 'dcp' ? cle : '' }}
-        onFocus={() => setOuvert(true)} onClick={() => setOuvert(true)}
-        onChange={(e) => { setMessage(null); onSaisie(e.target.value); setOuvert(true); setActif(-1); }}
+        onFocus={() => { setOuvert(true); setTape(false); }} onClick={() => { if (!ouvert) setTape(false); setOuvert(true); }}
+        onChange={(e) => { setMessage(null); onSaisie(e.target.value); setOuvert(true); setTape(true); setActif(-1); }}
         onBlur={(e) => { const v = e.target.value; setTimeout(fermer, 180); if (v.trim() !== '' && existe(v)?.libelle !== v.trim()) valider(v, false); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setOuvert(true); setActif((i) => Math.min(i + 1, options.length - 1)); }
@@ -636,7 +642,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
           {sansAdresse && <li className="cb-sans-adresse loc-muet" data-cb-sans-adresse>Choisissez d’abord l’adresse du bien pour voir ses bâtiments</li>}
           {options.map((o, i) => (
             <li key={o.k}><button type="button" role="option" id={`${idMenu}-${i}`} aria-selected={i === actif || o.choisi === true}
-              className={`dcp-option${o.nouveau ? ' dcp-option--nouveau' : ''}${i === actif ? ' cb-actif' : ''}`} onMouseDown={(e) => e.preventDefault()} onClick={o.agir} {...o.attr}>{o.mot}</button></li>))}
+              className={`dcp-option${o.nouveau ? ' dcp-option--nouveau' : ''}${i === actif ? ' cb-actif' : ''}${o.choisi ? ' cb-choisi' : ''}`} onMouseDown={(e) => e.preventDefault()} onClick={o.agir} {...o.attr}>{o.mot}</button></li>))}
         </ul>)}
       </div>
       {proposition !== undefined && t === '' && (
@@ -813,6 +819,8 @@ export const CSS_DIGICODES_COPRO = `
 .cb-zone{position:relative;min-width:0}
 .cb-zone > input{width:100%;box-sizing:border-box}
 .cb-menu .dcp-option{min-height:44px;display:flex;align-items:center}
+.cb-menu .cb-choisi{font-weight:800;background:color-mix(in srgb, var(--color-svv-red) 10%, transparent)}
+.cb-menu .cb-choisi::before{content:"✓ "}
 .cb-menu .cb-actif{background:var(--color-svv-field);outline:2px solid var(--color-svv-ink);outline-offset:-2px}
 .cb-sans-adresse{padding:8px 10px;font-size:.88rem;line-height:1.35}
 .cb-encadre{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-surface)}
