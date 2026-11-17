@@ -286,15 +286,20 @@ describe('🔴🔴 (« Digicodes unifiés », lot 5) « Modifier » : la fenêtr
     expect(($('[data-dcp-modifier-valider]') as HTMLButtonElement).disabled).toBe(true);
     expect($('[data-dcp-modifier-manque]').textContent).toContain('Saisissez le nouveau code');
   });
-  it('le commun ET A changent à la même date et heure (Paris) : un seul envoi, nouveau code en face de chaque actuel', async () => {
+  it('🔴 (Arno, 17/11/2026) le commun ET A, CHACUN sa date (l’heure facultative) : un seul envoi, nouveau code en face de chaque actuel', async () => {
     await act(async () => { root.render(createElement(HoteM)); });
     await clic($('[data-dcp-batiment="A"] [data-dcp-modifier]'));
     await clic($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-coche]'));
     await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), 'Z7Z6');
     await saisir($('[data-dcp-modifier-place="A"] [data-dcp-modifier-code]'), 'A9');
-    await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { const d = $('[data-dcp-modifier-place="commun"] [data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { const d = $('[data-dcp-modifier-place="commun"] [data-dcp-modifier-heure]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '09:00'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { const d = $('[data-dcp-modifier-place="A"] [data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-05'); d.dispatchEvent(new Event('input', { bubbles: true })); });
     await clic($('[data-dcp-modifier-valider]'));
-    expect(planifies).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7Z6' }, { batiment: 'A', digicode: true, code: 'A9' }]]]);
+    // le premier instant en tête ; A sans heure : le début de sa journée (Paris), « avecHeure: false » (le mail n'affichera que la date)
+    expect(planifies).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [
+      { batiment: null, digicode: true, code: 'Z7Z6', appliqueLe: '2099-06-01T07:00:00.000Z', avecHeure: true },
+      { batiment: 'A', digicode: true, code: 'A9', appliqueLe: '2099-06-04T22:00:00.000Z', avecHeure: false }]]]);
     expect(container.querySelector('[data-dcp-fenetre-modifier]')).toBeNull();
   });
   it('une date passée : refusée à l’écran', async () => {
@@ -302,7 +307,7 @@ describe('🔴🔴 (« Digicodes unifiés », lot 5) « Modifier » : la fenêtr
     await clic($('[data-dcp-commun] [data-dcp-modifier]'));
     await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), '1');
     await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2020-01-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
-    expect($('[data-dcp-modifier-manque]').textContent).toBe('La date et l’heure d’application doivent être à venir.');
+    expect($('[data-dcp-modifier-manque]').textContent).toBe('La date (et l’heure) d’activation de chaque code doivent être à venir.');
   });
   it('« Annuler ce changement » demande confirmation, puis part', async () => {
     await act(async () => { root.render(createElement(HoteM)); });
@@ -357,9 +362,10 @@ describe('🔴🔴 (« Digicodes unifiés », lot 6) « Modifier » → l’écr
     await clic($('[data-dcp-commun] [data-dcp-modifier]'));
     await saisir($('[data-dcp-modifier-place="commun"] [data-dcp-modifier-code]'), 'Z7');
     await act(async () => { const d = $('[data-dcp-modifier-date]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '2099-06-01'); d.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { const d = $('[data-dcp-modifier-heure]') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(d, '09:00'); d.dispatchEvent(new Event('input', { bubbles: true })); });
     await clic($('[data-dcp-modifier-suivant]'));
     await clic($('[data-dcp-envoyer]'));
-    expect(envois).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7' }], false, { mode: 'locataires', decoches: [] }]]);
+    expect(envois).toEqual([['residence les tilleuls', '2099-06-01T07:00:00.000Z', [{ batiment: null, digicode: true, code: 'Z7', appliqueLe: '2099-06-01T07:00:00.000Z', avecHeure: true }], false, { mode: 'locataires', decoches: [] }]]);
     expect($('[data-dcp-compte-rendu]').textContent).toContain('1 mail parti sur 1');
     expect($('[data-dcp-cr-sans-email]').textContent).toBe('À prévenir autrement (pas d’e-mail) : Paul MARTIN.');
   });

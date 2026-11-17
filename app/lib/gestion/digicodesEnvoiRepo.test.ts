@@ -56,7 +56,8 @@ describe('l’écran des destinataires (lecture seule)', () => {
     const r = await apercuChangement(CORPS);
     if (!r.ok) throw new Error(r.motif);
     expect(r.data.logements.map((l) => [l.lotId, l.batiment, l.locataires.map((x) => x.prenom)])).toEqual([[1, 'A', ['Léa', 'Paul']]]);
-    expect(r.data.logements[0].codes).toEqual({ commun: { digicode: true, code: 'OLD0' }, batiment: { digicode: true, code: 'A999' }, communChange: false, batimentChange: true });
+    expect(r.data.logements[0].codes).toMatchObject({ commun: { digicode: true, code: 'OLD0' }, batiment: { digicode: true, code: 'A999' }, communChange: false, batimentChange: true });
+    expect(r.data.logements[0].codes).not.toHaveProperty('communLe'); // le commun ne change pas : pas de date à lui
   });
   it('le commun change : toute l’adresse ; un locataire parti plus de 7 jours avant : exclu avec la raison', async () => {
     const r = await apercuChangement({ ...CORPS, changements: [{ batiment: null, digicode: true, code: 'N3W0' }] });

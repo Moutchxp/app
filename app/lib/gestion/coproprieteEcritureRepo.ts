@@ -301,7 +301,8 @@ export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, a
     if (nature === 'planification' && planifies !== null && planifies.ok) {
       for (const c of planifies.saisie.changements) {
         const w = await ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment: c.batiment, valeur: { digicode: c.digicode, code: c.code }, nature: 'changement',
-          appliqueLe: planifies.saisie.appliqueLe, origine: 'fiche_copropriete', copropriete }, auteur);
+          // 🔴 (Arno, 17/11/2026 : « Chaque code bascule à sa propre date. »)
+          appliqueLe: c.appliqueLe, origine: 'fiche_copropriete', copropriete }, auteur);
         // tous ou aucun : un refus LEVÉ annule les changements déjà écrits de cette fenêtre
         if (!w.ok) throw new RefusDigicode(`${c.batiment === null ? 'Digicode copropriété' : `Bâtiment ${c.batiment}`} : ${w.motif}`);
       }

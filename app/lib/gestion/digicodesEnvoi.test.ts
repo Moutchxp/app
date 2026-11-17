@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bilanEnvoi, mailLocataire, mailProprietaire, objetChangement, proprietairesRegroupes, regleDepart, type ApercuEnvoi, type LogementDest } from './digicodesEnvoi';
+import { bilanEnvoi, codesEnLigne, mailGestion, mailLocataire, resumeChangements, mailProprietaire, objetChangement, proprietairesRegroupes, regleDepart, type ApercuEnvoi, type LogementDest } from './digicodesEnvoi';
 
 /** 🔴🔴 Arno (16/11/2026, « Digicodes unifiés », lot 6) — les destinataires et les mails du changement de digicode. */
 const L = (o: Partial<LogementDest>): LogementDest => ({ lotId: 1, libelle: '1 rue Essai — lot 1', batiment: 'A', locataires: [], proprietaires: [],
@@ -58,5 +58,50 @@ describe('🔴🔴 Arno (17/11/2026) — un mail PAR ADRESSE : le décompte de l
     const p = { id: 9, nom: 'PROPRIO', prenom: 'Jean', emails: ['jean@exemple.test', 'jean2@exemple.test'] };
     const a: ApercuEnvoi = { adresse: '1 rue Essai', adresseCle: '1 rue essai', appliqueLe: '2026-11-20T08:00:00.000Z', logements: [L({ locataires: [x as never], proprietaires: [p] })] };
     expect(bilanEnvoi(a, true)).toMatchObject({ mailsLocataires: 2, mailsProprietaires: 2 });
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « PLUSIEURS CODES DANS UN SEUL MAIL : […] pour CHACUN son nouveau code, sa date d'activation et une heure facultative (sans heure :
+ * début de journée, et le mail n'affiche que la date). […] Avec le choix B, chaque locataire reçoit UN SEUL mail, à une seule adresse, qui regroupe tous les
+ * nouveaux codes qui le concernent (copropriété + son bâtiment), chacun avec sa date (et son heure si elle existe), jamais les codes d'un autre bâtiment. Avec
+ * le choix A, un seul mail à la Gestion, qui récapitule tous les changements. »
+ */
+describe('🔴 deux codes, deux dates : un seul mail par locataire, chaque code avec SA date', () => {
+  // la copropriété le 20/11 à 09:00 ; le bâtiment A le 26/11, sans heure (début de journée)
+  const DEUX = { communChange: true, communLe: '2026-11-20T08:00:00.000Z', communAvecHeure: true };
+  const a = A([
+    L({ locataires: [loc(1)], codes: { commun: { digicode: true, code: 'C2' }, batiment: { digicode: true, code: 'A2' }, ...DEUX, batimentChange: true, batimentLe: '2026-11-25T23:00:00.000Z', batimentAvecHeure: false } }),
+    L({ lotId: 2, libelle: '1 rue Essai — lot 2', batiment: 'B', locataires: [loc(2)], codes: { commun: { digicode: true, code: 'C2' }, batiment: { digicode: true, code: 'B111' }, ...DEUX, batimentChange: false } })]);
+  it('bâtiment A : le code copropriété ET celui de A, chacun à sa date (sans heure : la date seule)', () => {
+    const m = mailLocataire(a, a.logements[0], a.logements[0].locataires[0], C)!;
+    expect(m.a).toEqual(['p1@exemple.test']);
+    expect(m.objet).toBe('Changement de digicodes — 1 rue Essai — à partir du 20/11/2026 à 09:00');
+    expect(m.texte).toContain('Les digicodes de votre immeuble changent. Voici les codes valables pour votre logement, chacun à partir de sa date :');
+    expect(m.texte).toContain('- Digicode copropriété (1 rue Essai) : C2 — à partir du 20/11/2026 à 09:00');
+    expect(m.texte).toContain('- Digicode du bâtiment A : A2 — à partir du 26/11/2026');
+    expect(m.texte).not.toContain('26/11/2026 à');
+    expect(m.texte).toContain('Jusqu’à ces dates, les codes actuels restent valables.');
+  });
+  it('bâtiment B : le seul code copropriété (une date), jamais celui de A', () => {
+    const m = mailLocataire(a, a.logements[1], a.logements[1].locataires[0], C)!;
+    expect(m.objet).toBe('Changement de digicode — 1 rue Essai — à partir du 20/11/2026 à 09:00');
+    expect(m.texte).toContain('Le digicode de votre immeuble change à partir du 20/11/2026 à 09:00.');
+    expect(m.texte).not.toContain('A2');
+    expect(m.texte).toContain('- Digicode du bâtiment B : B111 (inchangé)');
+  });
+  it('l’écran des destinataires : chaque code avec sa date, en tête et par logement ; « copropriété », jamais « commun »', () => {
+    expect(resumeChangements(a)).toBe('nouveaux codes : copropriété à partir du 20/11/2026 à 09:00, bâtiment A à partir du 26/11/2026');
+    expect(codesEnLigne(a, a.logements[0])).toBe('codes : copropriété C2 (20/11/2026 à 09:00) ; bâtiment A A2 (26/11/2026)');
+    expect(codesEnLigne(a, a.logements[1])).toBe('codes : copropriété C2 (20/11/2026 à 09:00) ; bâtiment B B111');
+    expect(resumeChangements(A([a.logements[1]]))).toBe('nouveau code à partir du 20/11/2026 à 09:00');
+  });
+  it('choix A : UN mail à la Gestion, qui récapitule tous les changements, chacun à sa date', () => {
+    const m = mailGestion({ ...a, adresseGestion: 'gestion@exemple.test' }, C, { mode: 'gestion', decoches: new Set(), proprietaires: false })!;
+    expect(m.a).toEqual(['gestion@exemple.test']);
+    expect(m.objet).toBe('[À prévenir] Changement de digicodes — 1 rue Essai — à partir du 20/11/2026 à 09:00');
+    expect(m.texte).toContain('Les digicodes changent, chacun à sa date (ci-dessous) — 1 rue Essai.');
+    expect(m.texte).toContain('- Digicode du bâtiment A : A2 — à partir du 26/11/2026');
+    expect(m.texte.match(/Digicode copropriété \(1 rue Essai\) : C2 — à partir du 20\/11\/2026 à 09:00/g)).toHaveLength(2);
   });
 });

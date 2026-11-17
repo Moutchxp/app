@@ -118,9 +118,20 @@ describe('🔴 (lot 5) « Modifier » : la date et l’heure de PARIS, et ce qui
   it('au moins un code ; chaque nouveau code valide ; pas deux fois le même digicode ; la date est requise', async () => {
     const { validerChangements } = await import('./digicodes');
     expect(validerChangements({ appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: null, digicode: true, code: 'Z7' }, { batiment: 'Bât. B', digicode: false }] }))
-      .toEqual({ ok: true, saisie: { appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: null, digicode: true, code: 'Z7' }, { batiment: 'Bât. B', digicode: false, code: null }] } });
+      .toEqual({ ok: true, saisie: { appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: null, digicode: true, code: 'Z7', appliqueLe: '2026-11-20T08:00:00.000Z', avecHeure: true },
+        { batiment: 'Bât. B', digicode: false, code: null, appliqueLe: '2026-11-20T08:00:00.000Z', avecHeure: true }] } });
     expect(validerChangements({ appliqueLe: '2026-11-20T08:00:00.000Z', changements: [] })).toMatchObject({ ok: false, motif: 'Choisissez au moins un digicode qui change.' });
     expect(validerChangements({ changements: [{ digicode: true, code: '1' }] }).ok).toBe(false);
     expect(validerChangements({ appliqueLe: '2026-11-20T08:00:00.000Z', changements: [{ batiment: 'B', digicode: true, code: '1' }, { batiment: 'bâtiment b', digicode: true, code: '2' }] }).ok).toBe(false);
+  });
+  it('🔴 (Arno, 17/11/2026) CHAQUE code sa date, et une heure facultative : la date générale est la PREMIÈRE ; un code sans date (et sans date générale) : refusé', async () => {
+    const { validerChangements, quandChangement } = await import('./digicodes');
+    const v = validerChangements({ changements: [{ batiment: 'A', digicode: true, code: 'A2', appliqueLe: '2026-11-25T23:00:00.000Z', avecHeure: false },
+      { batiment: null, digicode: true, code: 'C2', appliqueLe: '2026-11-20T08:00:00.000Z', avecHeure: true }] });
+    expect(v).toMatchObject({ ok: true, saisie: { appliqueLe: '2026-11-20T08:00:00.000Z', changements: [
+      { batiment: 'A', appliqueLe: '2026-11-25T23:00:00.000Z', avecHeure: false }, { batiment: null, appliqueLe: '2026-11-20T08:00:00.000Z', avecHeure: true }] } });
+    expect(validerChangements({ changements: [{ batiment: 'A', digicode: true, code: 'A2' }] })).toEqual({ ok: false, motif: 'Indiquez la date d’application de chaque nouveau code.' });
+    // sans heure : la date seule (début de journée à Paris) ; avec : la date et l'heure
+    expect([quandChangement('2026-11-25T23:00:00.000Z', false), quandChangement('2026-11-20T08:00:00.000Z', true)]).toEqual(['26/11/2026', '20/11/2026 à 09:00']);
   });
 });

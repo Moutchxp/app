@@ -84,8 +84,10 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
     'SELECT id::text, etage::text, porte::text FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[])', [ids]);
   // ④ chaque logement : ses locataires, ses propriétaires, SES codes à la date d'application (le nouveau s'il change, sinon celui alors en vigueur)
   const logements: LogementDest[] = [];
+  // 🔴 (Arno, 17/11/2026 : « Chaque code bascule à sa propre date. ») un code qui ne change pas : celui en vigueur quand TOUS auront basculé
+  const dernier = changements.map((c) => c.appliqueLe).sort().at(-1) ?? appliqueLe;
   for (const l of lots) {
-    const d = await digicodesDuBien(l.id, new Date(appliqueLe));
+    const d = await digicodesDuBien(l.id, new Date(dernier));
     const bCle = batimentCleDuBien(l);
     const bNouveau = bCle === '' ? undefined : batimentsNouveaux.get(bCle);
     const lu = (c: { valeur: { digicode: boolean | null; code: string | null } } | null | undefined) => (c ? c.valeur : null);
@@ -101,7 +103,9 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
       proprietaires: pro.filter((p) => Number(p.lot) === l.id).map((p): PersonneDest => ({ id: Number(p.id), nom: p.nom, prenom: p.prenom, emails: (p.emails ?? []).filter((e) => typeof e === 'string') })),
       codes: { commun: communNouveau !== null ? { digicode: communNouveau.digicode, code: communNouveau.code } : lu(d?.commun),
         batiment: bNouveau !== undefined ? { digicode: bNouveau.digicode, code: bNouveau.code } : bCle === '' ? null : lu(d?.codeBatiment),
-        communChange: communNouveau !== null, batimentChange: bNouveau !== undefined },
+        communChange: communNouveau !== null, batimentChange: bNouveau !== undefined,
+        ...(communNouveau !== null ? { communLe: communNouveau.appliqueLe, communAvecHeure: communNouveau.avecHeure } : {}),
+        ...(bNouveau !== undefined ? { batimentLe: bNouveau.appliqueLe, batimentAvecHeure: bNouveau.avecHeure } : {}) },
     });
   }
   return { ok: true, data: { adresse: adresse.libelle, adresseCle, appliqueLe, logements, adresseGestion: (await chargerConfigGestion()).adresseGestion } };

@@ -278,11 +278,23 @@ export function instantDepuisParis(date: string, heure: string): string | null {
 }
 
 /** Ce que la fenêtre « Modifier » envoie : la date d'application, et pour chaque code qui change, sa place et sa nouvelle valeur. PUR. */
-export interface ChangementsSaisis { appliqueLe: string; changements: { batiment: string | null; digicode: boolean; code: string | null }[] }
+/**
+ * 🔴🔴 (Arno, 17/11/2026 : « PLUSIEURS CODES DANS UN SEUL MAIL : dans la fenêtre « Modifier », on peut cocher un ou plusieurs codes (copropriété et/ou
+ * bâtiments), avec pour CHACUN son nouveau code, sa date d'activation et une heure facultative (sans heure : début de journée, et le mail n'affiche que la
+ * date). […] Chaque code bascule à sa propre date. ») Un changement : sa place, sa valeur, SA date (instant) et si une heure a été donnée.
+ */
+export interface ChangementDigicode { batiment: string | null; digicode: boolean; code: string | null; appliqueLe: string; avecHeure: boolean }
+/** `appliqueLe` : le PREMIER des instants (la règle des 7 jours, l'objet du mail) ; chaque changement porte le sien. */
+export interface ChangementsSaisis { appliqueLe: string; changements: ChangementDigicode[] }
+/** « 20/11/2026 » (heure de Paris). PUR. */
+export const dateJour = (iso: string): string => new Date(iso).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' });
+/** La date d'un changement, en mots : « 20/11/2026 à 09:00 », ou « 20/11/2026 » sans heure donnée. PUR. */
+export const quandChangement = (iso: string, avecHeure: boolean): string => (avecHeure ? dateHeure(iso) : dateJour(iso));
 export function validerChangements(brut: unknown): { ok: true; saisie: ChangementsSaisis } | { ok: false; motif: string } {
   const b = (brut ?? {}) as Record<string, unknown>;
-  const appliqueLe = typeof b.appliqueLe === 'string' && !Number.isNaN(new Date(b.appliqueLe).getTime()) ? new Date(b.appliqueLe).toISOString() : null;
-  if (appliqueLe === null) return { ok: false, motif: 'Indiquez la date et l’heure d’application du nouveau code.' };
+  const instant = (x: unknown): string | null => (typeof x === 'string' && !Number.isNaN(new Date(x).getTime()) ? new Date(x).toISOString() : null);
+  // la date générale d'avant (un seul instant pour tous) vaut pour un changement qui n'a pas la sienne
+  const general = instant(b.appliqueLe);
   const changements: ChangementsSaisis['changements'] = [];
   const vues = new Set<string>();
   for (const x of Array.isArray(b.changements) ? b.changements.slice(0, 40) : []) {
@@ -293,8 +305,11 @@ export function validerChangements(brut: unknown): { ok: true; saisie: Changemen
     const k = placeBatiment(batiment).cle;
     if (vues.has(k)) return { ok: false, motif: 'Le même digicode figure deux fois dans le changement.' };
     vues.add(k);
-    changements.push({ batiment, ...v.valeur });
+    const le = instant(c.appliqueLe) ?? general;
+    if (le === null) return { ok: false, motif: 'Indiquez la date d’application de chaque nouveau code.' };
+    changements.push({ batiment, ...v.valeur, appliqueLe: le, avecHeure: c.avecHeure !== false });
   }
   if (changements.length === 0) return { ok: false, motif: 'Choisissez au moins un digicode qui change.' };
+  const appliqueLe = changements.map((c) => c.appliqueLe).sort()[0];
   return { ok: true, saisie: { appliqueLe, changements } };
 }

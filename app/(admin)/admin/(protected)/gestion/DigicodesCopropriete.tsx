@@ -5,7 +5,7 @@ import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
-import { bilanEnvoi, enteteLogement, locataireCochable, motCode, proprietairesRegroupes, totalSelection, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir } from '../../../../lib/gestion/digicodesEnvoi';
+import { bilanEnvoi, codesEnLigne, enteteLogement, locataireCochable, proprietairesRegroupes, resumeChangements, totalSelection, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir } from '../../../../lib/gestion/digicodesEnvoi';
 import { adressesUniques, prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 
 /**
@@ -43,11 +43,13 @@ const MOT_NATURE: Record<string, string> = { saisie: 'saisi', correction: 'corri
 /** Un geste immédiat (correction, arbitrage) : la place, la valeur ; rend le motif d'un refus, ou `null`. */
 export type GesteDigicode = (adresseCle: string, batiment: string | null, valeur: { digicode: boolean; code: string | null }) => Promise<string | null>;
 /** 🔴 (lot 5) « Modifier » : la date d'application (ISO) et les codes qui changent ; « Annuler ce changement » : la ligne prévue. */
-export type PlanifierDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null>;
+/** 🔴 (Arno, 17/11/2026) un code qui change : sa place, sa valeur, SA date (instant) et si une heure a été donnée */
+export type ChangementEcran = { batiment: string | null; digicode: boolean; code: string | null; appliqueLe: string; avecHeure: boolean };
+export type PlanifierDigicodes = (adresseCle: string, appliqueLe: string, changements: ChangementEcran[]) => Promise<string | null>;
 export type AnnulerChangementDigicode = (adresseCle: string, ligneId: number) => Promise<string | null>;
 /** 🔴 (lot 6) l'écran des destinataires d'un changement proposé, puis « Enregistrer et envoyer » ; un `string` : le refus. */
-export type ApercuDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<ApercuEnvoi | string>;
-export type EnvoyerDigicodes = (adresseCle: string, appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[], proprietaires: boolean,
+export type ApercuDigicodes = (adresseCle: string, appliqueLe: string, changements: ChangementEcran[]) => Promise<ApercuEnvoi | string>;
+export type EnvoyerDigicodes = (adresseCle: string, appliqueLe: string, changements: ChangementEcran[], proprietaires: boolean,
   /** 🔴🔴 (Arno, 17/11/2026 : « DEUX CHOIX, obligatoires, après la saisie : A. « Prévenir la Gestion seulement » […] B. « Écrire maintenant aux locataires » : affiche la liste des destinataires, regroupée par logement (un bloc par logement, avec son adresse, son bâtiment et son étage/porte) ; dans chaque bloc, une ligne par locataire avec une case cochée par défaut, décochable une à une ; total « N logements · M locataires sélectionnés » mis à jour en direct […] En bas : « Valider la mise à jour et envoyer ». ») le choix et les locataires décochés (leurs occupations) */
   options?: OptionsPrevenir) => Promise<IssueEnvoi | string>;
 export interface OptionsPrevenir { mode: ModePrevenir; decoches: number[] }
@@ -328,8 +330,13 @@ const demainParis = (): string => new Date(Date.now() + 86400000).toLocaleDateSt
  * d'application (heure de Paris). Le nouveau code ne remplace l'ancien qu'à partir de cette date ; avant, l'ancien reste en vigueur ; ensuite il
  * reste dans l'historique. Aucun envoi ici (l'écran des destinataires vient ensuite).
  */
+/** La saisie d'un code coché : le nouveau code, sa date d'activation, une heure facultative. */
+type SaisieCode = CodeLigne & { date: string; heure: string };
+/** L'instant d'activation d'une saisie : la date et l'heure de Paris ; sans heure, le début de la journée. PUR. */
+const instantDeLaSaisie = (c: SaisieCode): string | null => instantDepuisParis(c.date, c.heure.trim() === '' ? '00:00' : c.heure);
+
 function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }: { d: DigicodesAdresseSaisis; depart: string; onFermer: () => void;
-  onValider: (appliqueLe: string, changements: { batiment: string | null; digicode: boolean; code: string | null }[]) => Promise<string | null>;
+  onValider: (appliqueLe: string, changements: ChangementEcran[]) => Promise<string | null>;
   onApercu?: (appliqueLe: string, changements: Parameters<ApercuDigicodes>[2]) => Promise<ApercuEnvoi | string>;
   onEnvoyer?: (appliqueLe: string, changements: Parameters<ApercuDigicodes>[2], proprietaires: boolean, options?: OptionsPrevenir) => Promise<IssueEnvoi | string> }) {
   // 🔴 (lot 6) les étapes : la saisie, l'écran des destinataires, le compte rendu de l'envoi
@@ -341,15 +348,22 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
   const [fait, setFait] = useState<IssueEnvoi | null>(null);
   const places = [...(d.communEtat?.connu ? [{ cle: '', libelle: null as string | null, titre: 'Digicode copropriété', etat: d.communEtat }] : []),
     ...d.batiments.filter((b) => b.etat?.connu).map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, libelle: b.libelle as string | null, titre: `Bâtiment / cage ${b.libelle}`, etat: b.etat as EtatPlaceDigicode }))];
-  const [coches, setCoches] = useState<Record<string, CodeLigne | undefined>>(() => (places.some((p) => p.cle === depart && p.etat.aVenir.length === 0) ? { [depart]: { code: '', aucun: false } } : {}));
-  const [date, setDate] = useState(demainParis());
-  const [heure, setHeure] = useState('09:00');
+  /* 🔴🔴 (Arno, 17/11/2026 : « PLUSIEURS CODES DANS UN SEUL MAIL : dans la fenêtre « Modifier », on peut cocher un ou plusieurs codes (copropriété et/ou
+     bâtiments), avec pour CHACUN son nouveau code, sa date d'activation et une heure facultative (sans heure : début de journée, et le mail n'affiche que la
+     date). Un seul enregistrement, un seul écran de destinataires. […] Chaque code bascule à sa propre date. ») */
+  const nouvelleSaisie = (): SaisieCode => ({ code: '', aucun: false, date: demainParis(), heure: '' });
+  const [coches, setCoches] = useState<Record<string, SaisieCode | undefined>>(() => (places.some((p) => p.cle === depart && p.etat.aVenir.length === 0) ? { [depart]: nouvelleSaisie() } : {}));
   const [envoi, setEnvoi] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [ouverture] = useState(() => Date.now()); // l'heure d'ouverture de la fenêtre (le serveur revérifie au moment d'enregistrer)
-  const appliqueLe = instantDepuisParis(date, heure);
   const choisis = places.filter((p) => coches[p.cle] !== undefined);
-  const changementsSaisis = () => choisis.map((p) => ({ batiment: p.libelle, ...(valeurDeLaSaisie(coches[p.cle] as CodeLigne) as { digicode: boolean; code: string | null }) }));
+  const instants = choisis.map((p) => instantDeLaSaisie(coches[p.cle] as SaisieCode));
+  // le premier instant (la règle des 7 jours, l'objet du mail) ; chaque code part avec le sien
+  const appliqueLe = instants.length === 0 || instants.some((x) => x === null) ? null : (instants as string[]).slice().sort()[0];
+  const changementsSaisis = (): ChangementEcran[] => choisis.map((p) => {
+    const c = coches[p.cle] as SaisieCode;
+    return { batiment: p.libelle, ...(valeurDeLaSaisie(c) as { digicode: boolean; code: string | null }), appliqueLe: instantDeLaSaisie(c) as string, avecHeure: c.heure.trim() !== '' };
+  });
   if (fait !== null) return <CompteRenduEnvoi fait={fait} onFermer={onFermer} />;
   if (apercu !== null && appliqueLe !== null && onEnvoyer !== undefined) {
     return <EcranDestinataires a={apercu} mode={choix} decoches={decoches} onDecoches={setDecoches} proprietaires={proprietaires} onProprietaires={setProprietaires} envoi={envoi} erreur={erreur}
@@ -359,36 +373,36 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
   }
   const manque = choisis.length === 0 ? 'Cochez au moins un digicode qui change.'
     : choisis.some((p) => valeurDeLaSaisie(coches[p.cle] as CodeLigne) === null) ? 'Saisissez le nouveau code de chaque digicode coché (ou « pas de digicode »).'
-      : appliqueLe === null ? 'Indiquez la date et l’heure d’application.'
-        : new Date(appliqueLe).getTime() <= ouverture ? 'La date et l’heure d’application doivent être à venir.' : null;
+      : instants.some((x) => x === null) ? 'Indiquez la date d’activation de chaque code coché (l’heure est facultative).'
+        : instants.some((x) => new Date(x as string).getTime() <= ouverture) ? 'La date (et l’heure) d’activation de chaque code doivent être à venir.' : null;
   return (
     <div className="dcp-voile" data-dcp-fenetre-modifier>
       <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-modifier-titre"
         onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onFermer(); } }}>
         <p className="dcp-alerte-titre" id="dcp-modifier-titre">Modifier un digicode — {adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>
-        <p className="dcp-alerte-texte loc-muet">Cochez le ou les codes qui changent, saisissez le nouveau code en face de l’actuel, puis la date et l’heure d’application. Jusque-là, le code actuel reste en vigueur ; ensuite, il reste dans l’historique.</p>
+        <p className="dcp-alerte-texte loc-muet">Cochez le ou les codes qui changent ; pour chacun, saisissez le nouveau code, sa date d’activation et, si besoin, l’heure (sans heure : il change en début de journée). Jusque-là, le code actuel reste en vigueur ; ensuite, il reste dans l’historique.</p>
         <ul className="dcp-arbitrer-liste">{places.map((p) => {
           const prevu = p.etat.aVenir[0];
           const c = coches[p.cle];
           return (
             <li key={p.cle} className="dcp-modifier-ligne" data-dcp-modifier-place={p.libelle ?? 'commun'}>
               <label className="dcp-aucun"><input type="checkbox" checked={c !== undefined} disabled={envoi || prevu !== undefined}
-                onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: e.target.checked ? { code: '', aucun: false } : undefined }))} data-dcp-modifier-coche />
+                onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: e.target.checked ? nouvelleSaisie() : undefined }))} data-dcp-modifier-coche />
                 <span><strong>{p.titre}</strong> — actuel : {p.etat.valeur ? motValeur(p.etat.valeur) : '—'}</span></label>
               {prevu !== undefined && <span className="loc-muet">Un changement est déjà prévu le {dateHeure(prevu.appliqueLe)} : annulez-le d’abord.</span>}
               {c !== undefined && (
-                <div className="dcp-ligne">
+                <div className="dcp-modifier-champs" data-dcp-modifier-champs>
                   <label className="dcp-champ"><span>Nouveau code</span>
                     <input value={c.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : 'nouveau code'}
                       onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: e.target.value } }))} data-dcp-modifier-code /></label>
-                  <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
+                  <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
+                  <label className="dcp-champ"><span>Date d’activation</span>
+                    <input type="date" value={c.date} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, date: e.target.value } }))} data-dcp-modifier-date /></label>
+                  <label className="dcp-champ"><span>Heure (facultative)</span>
+                    <input type="time" value={c.heure} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, heure: e.target.value } }))} data-dcp-modifier-heure /></label>
                 </div>)}
             </li>);
         })}</ul>
-        <div className="dcp-ligne">
-          <label className="dcp-champ"><span>Date d’application</span><input type="date" value={date} disabled={envoi} onChange={(e) => setDate(e.target.value)} data-dcp-modifier-date /></label>
-          <label className="dcp-champ"><span>Heure (Paris)</span><input type="time" value={heure} disabled={envoi} onChange={(e) => setHeure(e.target.value)} data-dcp-modifier-heure /></label>
-        </div>
         {erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-dcp-modifier-erreur>{erreur}</p>}
         {manque !== null && erreur === null && <p className="loc-muet dcp-sans-marge" data-dcp-modifier-manque>{manque}</p>}
         <div className="dcp-alerte-actions">
@@ -436,14 +450,14 @@ function EcranDestinataires({ a, mode, decoches, onDecoches, proprietaires, onPr
     <div className="dcp-voile" data-dcp-destinataires data-dcp-mode={mode}>
       <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-dest-titre" onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onRetour(); } }}>
         <p className="dcp-alerte-titre" id="dcp-dest-titre">{locataires ? 'B. Écrire maintenant aux locataires' : 'A. Prévenir la Gestion seulement'}</p>
-        <p className="dcp-alerte-texte">{a.adresse} — nouveau code à partir du {dateHeure(a.appliqueLe)}. {locataires
+        <p className="dcp-alerte-texte">{a.adresse} — {resumeChangements(a)}. {locataires
           ? 'Seuls les locataires cochés reçoivent SON mail, à leur nom, sans autre destinataire, avec seulement le digicode copropriété et celui de leur bâtiment (une personne qui a plusieurs adresses e-mail reçoit un mail à chacune, séparément). Ensuite, la Gestion reçoit un mail qui liste les locataires prévenus.'
           : `Le changement est enregistré et un mail interne part à la Gestion (${a.adresseGestion ?? 'adresse des préférences'}) avec la date et la liste des logements concernés : la Gestion écrit elle-même aux locataires. AUCUN mail aux locataires.`}</p>
         <p className="dcp-total" data-dcp-total>{locataires ? t.phrase : `${a.logements.length} logement${a.logements.length > 1 ? 's' : ''} concerné${a.logements.length > 1 ? 's' : ''}`}</p>
         <ul className="dcp-dest-blocs">{a.logements.map((l) => (
           <li key={l.lotId} className="dcp-dest-logement" data-dcp-dest-logement={l.lotId} data-dcp-dest-batiment={l.batiment ?? 'sans'}>
             <p className="dcp-dest-entete"><strong>{enteteLogement(l)}</strong></p>
-            <span className="loc-muet dcp-dest-codes">codes : commun {motCode(l.codes.commun)}{l.batiment !== null ? ` ; bâtiment ${l.batiment} ${motCode(l.codes.batiment)}` : ''}</span>
+            <span className="loc-muet dcp-dest-codes">{codesEnLigne(a, l)}</span>
             {l.locataires.length === 0 && <span className="loc-muet">aucun locataire en place</span>}
             {l.locataires.map((x) => !x.inclus
               ? <span key={x.occupationId} className="loc-muet" data-dcp-exclu>{prenomNom(x)} — {x.raison} : non prévenu</span>
@@ -960,6 +974,10 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-dest-codes{font-size:.85rem}
 .dcp-fenetre{width:min(560px,100%);max-height:calc(100dvh - 32px);overflow-y:auto}
 .dcp-modifier-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-bottom:1px solid var(--color-svv-line)}
+/* 🔴 (Arno, 17/11/2026) chaque code coché : nouveau code, « plus de digicode », date d'activation, heure facultative — en ligne, repliés au besoin (jamais de débordement) */
+.dcp-modifier-champs{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;min-width:0}
+.dcp-modifier-champs > .dcp-champ{flex:1 1 150px;min-width:0;width:auto}
+.dcp-modifier-champs > .dcp-aucun{flex:0 1 auto;max-width:100%}
 .dcp-historique summary{cursor:pointer;font-weight:800;min-height:36px;display:flex;align-items:center;color:var(--color-svv-ink)}
 .dcp-historique{font-size:.88rem}
 @media (max-width:600px){.dcp-alerte-actions .svv-btn{flex:1 1 100%}}
