@@ -228,3 +228,30 @@ describe('🔴 le « − » des lignes de bâtiment', () => {
     expect(retraits).toEqual([]);
   });
 });
+
+/** 🔴🔴 Arno (17/11/2026) — « « pas de digicode » : cocher vide le champ, mais la valeur tapée est gardée en mémoire ; décocher la fait réapparaître. Même chose pour le
+ *  copropriété et chaque bâtiment. » */
+describe('🔴 « pas de digicode » garde la valeur tapée', () => {
+  function Hote() {
+    const [s, setS] = useState(() => saisieDigicodesInitiale({ batimentsConnus: [A], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières',
+      commun: { digicode: null, code: null }, batiments: [] }] }));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: [A], nomenclature: 'lettres', desactive: false });
+  }
+  const val = (sel: string) => ($(sel) as HTMLInputElement).value;
+  it('copropriété et bâtiment : cocher vide le champ ; décocher rend la valeur ; vidée puis cochée : rien ne revient', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    await saisir($('[data-dcp-code-commun]')!, 'C123');
+    await saisir($('[data-dcp-batiment="A"] [data-dcp-code-batiment]')!, 'A456');
+    await clic($('[data-dcp-aucun-commun]')!);
+    await clic($('[data-dcp-aucun-batiment]')!);
+    expect([val('[data-dcp-code-commun]'), val('[data-dcp-code-batiment]')]).toEqual(['', '']);
+    expect(($('[data-dcp-code-commun]') as HTMLInputElement).placeholder).toBe('pas de digicode');
+    await clic($('[data-dcp-aucun-commun]')!);
+    await clic($('[data-dcp-aucun-batiment]')!);
+    expect([val('[data-dcp-code-commun]'), val('[data-dcp-code-batiment]')]).toEqual(['C123', 'A456']);
+    await saisir($('[data-dcp-code-commun]')!, '');
+    await clic($('[data-dcp-aucun-commun]')!);
+    await clic($('[data-dcp-aucun-commun]')!);
+    expect(val('[data-dcp-code-commun]')).toBe('');
+  });
+});

@@ -158,6 +158,13 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
      confirmation qui dit clairement que le code est RETIRÉ […] ; la ligne copropriété n'a pas de « − » (on utilise « pas de digicode »). ») */
   const [retirer, setRetirer] = useState<{ cle: string; ligne: LigneBatiment; enregistre: boolean } | null>(null);
   const [masques, setMasques] = useState<ReadonlySet<string>>(() => new Set());
+  /* 🔴 (Arno, 17/11/2026 : « « pas de digicode » : cocher vide le champ, mais la valeur tapée est gardée en mémoire ; décocher la fait réapparaître. Même chose
+     pour le copropriété et chaque bâtiment. ») la valeur tapée de chaque ligne (adresse + « copro » ou la ligne), le temps de la saisie */
+  const [memoire, setMemoire] = useState<Readonly<Record<string, string>>>({});
+  const pasDeDigicode = (cleMemoire: string, c: CodeLigne, coche: boolean): CodeLigne => {
+    if (coche) { setMemoire((m) => ({ ...m, [cleMemoire]: c.code })); return { code: '', aucun: true }; }
+    return { code: memoire[cleMemoire] ?? '', aucun: false };
+  };
   const moins = (cle: string, b: LigneBatiment, enregistre: boolean): React.ReactNode => (enregistre && onRetirer === undefined ? null : (
     <button type="button" className="dcp-plus dcp-moins" disabled={desactive} aria-label={`Retirer — ${intituleDigicodeBatiment(b.libelle || '…')}`} title={enregistre ? 'Retirer ce digicode' : 'Retirer cette ligne'}
       onClick={() => setRetirer({ cle, ligne: b, enregistre })} data-dcp-moins={enregistre ? 'enregistre' : 'saisie'}>−</button>));
@@ -224,7 +231,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : 'facultatif'} maxLength={MAX_CODE_DIGICODE_UNIFIE}
                 onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code: e.target.value } }))} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
-              onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { code: e.target.checked ? '' : x.commun.code, aucun: e.target.checked } }))} /><span>pas de digicode</span></label>
+              onChange={(e) => { const v = pasDeDigicode(`${d.cle}#copro`, d.commun, e.target.checked); maj(d.cle, (x) => ({ ...x, commun: v })); }} data-dcp-aucun-commun /><span>pas de digicode</span></label>
             {plus(d)}
             </span>
             {mentionNouveau(d.commun)}
@@ -258,7 +265,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <span className="dcp-code-groupe">
               <label className="dcp-champ dcp-champ-code"><span data-dcp-intitule-batiment={b.nouveau && b.choisi !== true ? undefined : b.libelle}>{b.nouveau && b.choisi !== true ? 'Digicode' : intituleDigicodeBatiment(b.libelle)}</span>
                 <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
-              <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
+              <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, pasDeDigicode(`${d.cle}#${b.k}`, b, e.target.checked))} data-dcp-aucun-batiment /><span>pas de digicode</span></label>
               {/* 🔴 (Arno, 17/11/2026) le « − » rond, dans la colonne du « + » (il remplace le « × » d'une ligne nouvelle : la même action, confirmée) */}
               {moins(d.cle, b, false)}
               </span>
