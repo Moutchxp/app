@@ -4090,3 +4090,18 @@ describe('🔴🔴 conflit de parcelle depuis la fiche syndic', () => {
     expect(document.querySelector('[data-fsy-conflit-parcelle]')).toBeNull();
   });
 });
+
+/**
+ * 🔴🔴 Arno (17/11/2026, « Adresses multiples d'une copropriété », lot 1) — « la fiche syndic les affiche » : chaque copropriété du syndic avec ses autres
+ * adresses (« + N adresses ») et les biens de TOUTES ses adresses. Les adresses viennent de la copropriété (une seule source) : rien n'est saisi ici.
+ */
+describe('🔴 la fiche syndic affiche les adresses de ses copropriétés', () => {
+  it('la copropriété « 3 av Y » : « + 2 adresses » ; aucun champ d’adresse de copropriété à saisir ici (les biens de toutes ses adresses : épreuve serveur coproprieteAdressesSyndic)', async () => {
+    await ouvrir(vi.fn(), 40);
+    await deplierCopros();
+    const ligne = [...document.querySelectorAll('.fsy-copro')].find((x) => x.textContent?.includes('3 av Y')) as HTMLElement;
+    expect(ligne.querySelector('.fsy-plus-adresses')?.textContent).toBe(' + 2 adresses');
+    expect(document.querySelector('.fsy input[placeholder*="adresse de la copropriété" i]')).toBeNull();
+  });
+});
+
