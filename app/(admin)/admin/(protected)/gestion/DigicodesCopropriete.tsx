@@ -193,6 +193,16 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   const lisere = (cle: string | null): { className: string; 'data-dcp-concerne'?: '' } => (concerne === undefined || (cle !== null && cle !== concerne)
     ? { className: '' } : { className: ' dcp-ligne--concerne', 'data-dcp-concerne': '' });
   const [menu, setMenu] = useState<string | null>(null);
+  /** 🔴 (Arno, 17/11/2026 : LISIBILITÉ) l'encadré ÉTROIT (moins de 330 px : la fiche du bien Gestion au téléphone) — mesuré sur le composant lui-même */
+  const racine = useRef<HTMLDivElement | null>(null);
+  const [etroit, setEtroit] = useState(false);
+  useEffect(() => {
+    const el = racine.current;
+    if (el === null || typeof ResizeObserver === 'undefined') return undefined;
+    const o = new ResizeObserver(() => setEtroit(el.getBoundingClientRect().width < LARGEUR_ETROITE_DCP));
+    o.observe(el);
+    return () => o.disconnect();
+  }, []);
   // 🔴 (lot 5) la fenêtre « Modifier » : l'adresse et le code d'où on l'a ouverte (pré-coché)
   const [modifier, setModifier] = useState<{ cle: string; place: string } | null>(null);
   /** L'avertissement d'un NOUVEL intitulé pour une ligne (la fenêtre s'ouvre dans le champ du bâtiment), s'il ne suit pas la numérotation. */
@@ -220,7 +230,7 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
       }}
       data-dcp-plus>+</button>));
   return (
-    <div className={`dcp${variante === 'location' ? ' dcp--location' : ''}`} data-digicodes-copro>
+    <div ref={racine} className={`dcp${variante === 'location' ? ' dcp--location' : ''}${etroit ? ' dcp--etroit' : ''}`} data-digicodes-copro>
       {!modeBien && <p className="loc-muet dcp-regle" data-dcp-regle>{nomenclature === null ? 'Aucune règle encore : le premier bâtiment créé en lettre ou en chiffre la fixera pour toute la copropriété (les intitulés libres sont toujours permis).'
         : `Règle de la copropriété : ${MOT_REGLE[nomenclature]}, plus des intitulés libres (« Côté cour »…). Un autre intitulé reste possible, après confirmation.`}</p>}
       <AArbitrer s={s} desactive={desactive} onArbitrer={onArbitrer} />
@@ -230,11 +240,13 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
             ? <p className="loc-muet dcp-titre-vide" data-dcp-sans-adresse>Choisissez l’adresse du bien : les codes déjà connus de sa copropriété s’afficheront ici. Sinon, saisissez-les.</p>
             : <p className="dcp-titre">{adresseImmeuble(d.voie, d.codePostal, d.commune)}</p>}
           {placeLue(d.communEtat) ? (
-            <div className={`dcp-ligne${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
+            <div className={`dcp-ligne dcp-ligne--lue${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               <PlaceDigicodeLue titre="Digicode copropriété" enLigne={variante === 'location'} etat={d.communEtat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, null, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {plus(d)}
+              {/* 🔴 (Arno, 17/11/2026 : « LISIBILITÉ […] puis les mentions (« Enregistré le … par … », « Commun aux N biens… ») ») — DANS l'encadré */}
+              {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
             </div>) : (
           <div className={`dcp-ligne${lisere(null).className}`} data-dcp-commun {...(lisere(null)['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
             {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
@@ -247,10 +259,10 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
             {plus(d)}
             </span>
             {mentionNouveau(d.commun)}
+            {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           </div>)}
-          {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.filter((b) => !masques.has(b.k)).map((b) => (placeLue(b.etat) && !b.nouveau ? (
-            <div key={b.k} className={`dcp-ligne dcp-ligne--batiment${lisere(batimentDe(b.libelle)?.cle ?? '').className}`} data-dcp-batiment={b.libelle}
+            <div key={b.k} className={`dcp-ligne dcp-ligne--batiment dcp-ligne--lue${lisere(batimentDe(b.libelle)?.cle ?? '').className}`} data-dcp-batiment={b.libelle}
               {...(lisere(batimentDe(b.libelle)?.cle ?? '')['data-dcp-concerne'] !== undefined ? { 'data-dcp-concerne': '' } : {})}>
               <PlaceDigicodeLue titre={intituleDigicodeBatiment(b.libelle)} enLigne etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: batimentDe(b.libelle)?.cle ?? '' })}
@@ -1046,6 +1058,9 @@ export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onAper
   );
 }
 
+/** 🔴 (Arno, 17/11/2026 : LISIBILITÉ) en dessous, le composant passe en disposition étroite (dcp--etroit). */
+export const LARGEUR_ETROITE_DCP = 330;
+
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; telephone : les champs passent a la ligne. */
 export const CSS_DIGICODES_COPRO = `
 .dcp{display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -1189,6 +1204,11 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-lus{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;white-space:normal}
 .dcp-lus-place{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 .dcp-lus-place > .dcp-mention{flex:1 1 100%;margin-top:-4px}
+/* 🔴 (Arno, 17/11/2026 : « chaque digicode […] a son propre encadré ») — hors édition aussi (fiche du bien Gestion) : un encadré par code, l'intitulé et
+   « Modifier » sur une ligne, la mention dessous */
+.dcp-lus{flex-direction:column;align-items:stretch;gap:10px}
+.dcp-lus-place{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-radius:14px;background:var(--color-svv-surface)}
+.dcp-lus-place > .dcp-mention{margin-top:0}
 .dcp-lus .dcp-mini{min-height:44px}
 /* 🔴 (Arno, 17/11/2026) un message d'erreur sous sa ligne, entièrement lisible en clair et en sombre (jetons rouge foncé sur fond rouge pâle), jamais recouvert */
 .dcp-ligne-erreur{flex:1 1 100%;margin:4px 0 0;padding:8px 12px;border-radius:10px;border-left:4px solid var(--color-svv-red);background:var(--color-svv-red-soft);
@@ -1229,4 +1249,56 @@ export const CSS_DIGICODES_COPRO = `
   .dcp--location .dcp-champ > span{white-space:nowrap}
 }
 .dcp-cbc--location > span{font-size:1rem;font-weight:600;color:var(--color-svv-ink)}
+
+/* 🔴🔴 (Arno, 17/11/2026 : « LISIBILITÉ : chaque digicode (copropriété et chaque bâtiment) a son propre encadré, nettement séparé des autres (bordure ou fond
+   distinct, espacement régulier). Dans chaque encadré, la même disposition partout : intitulé, code avec « en vigueur depuis… », puis sur une même ligne
+   « Modifier » et « Corriger une erreur », puis les mentions (« Enregistré le … par … », « Commun aux N biens… »), avec le « − » / « + » aligné en colonne.
+   Les bâtiments gardent leur retrait sous la copropriété. ») — EN FIN DE FEUILLE : ces règles l'emportent sur les précédentes. Chaque ligne est un encadré ;
+   le « − » / « + » est au bord droit de chaque encadré (une colonne commune) ; un code enregistré se lit dans une grille unique (son contenu y entre). */
+.dcp{--dcp-retrait:22px;--dcp-pm:44px}
+.dcp .dcp-adresse{gap:12px}
+.dcp .dcp-ligne{box-sizing:border-box;padding:12px;border:1px solid var(--color-svv-line-strong);border-radius:14px;background:var(--color-svv-surface);max-width:100%;min-width:0}
+.dcp .dcp-ligne.dcp-ligne--batiment{margin-left:var(--dcp-retrait);padding-left:12px;border-left:3px solid var(--color-svv-line-strong);max-width:calc(100% - var(--dcp-retrait))}
+.dcp .dcp-ligne.dcp-ligne--concerne{outline-offset:3px}
+.dcp .dcp-ligne.dcp-ligne--lue{display:grid;grid-template-columns:minmax(0,1fr) var(--dcp-pm);column-gap:10px;row-gap:6px;align-items:start}
+.dcp .dcp-ligne--lue > .dcp-lue{display:contents}
+.dcp .dcp-ligne--lue > .dcp-lue > *{grid-column:1 / -1;min-width:0}
+.dcp .dcp-ligne--lue > .dcp-lue > .dcp-lue-titre,.dcp .dcp-ligne--lue > .dcp-lue > .dcp-lue-valeur{grid-column:1}
+.dcp .dcp-ligne--lue > .dcp-plus{grid-column:2;grid-row:1 / span 2;align-self:center;justify-self:end}
+.dcp .dcp-ligne--lue > .dcp-mention{grid-column:1 / -1}
+.dcp .dcp-ligne--lue .dcp-gestes{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:8px 16px;justify-self:start;max-width:100%}
+.dcp .dcp-ligne--lue .dcp-gestes > *{flex:0 0 auto}
+.dcp .dcp-ligne--lue .dcp-gestes > .svv-btn{width:auto;max-width:100%}
+.dcp .dcp-ligne--lue .dcp-gestes > .dcp-lien{align-self:center}
+.dcp:not(.dcp--location) .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe{flex:1 1 100%}
+.dcp:not(.dcp--location) .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe > .dcp-plus{margin-left:auto}
+.dcp--location{--dcp-pm:54px}
+.dcp--location .dcp-ligne:not(.dcp-ligne--lue){grid-template-columns:var(--dcp-c1) var(--dcp-c2) minmax(var(--dcp-pm),1fr)}
+.dcp--location .dcp-ligne.dcp-ligne--batiment:not(.dcp-ligne--lue){grid-template-columns:calc(var(--dcp-c1) - var(--dcp-retrait) - 2px) var(--dcp-c2) minmax(var(--dcp-pm),1fr)}
+.dcp--location .dcp-ligne:not(.dcp-ligne--lue) .dcp-plus{justify-self:end}
+@media (max-width:640px){
+  .dcp{--dcp-retrait:8px}
+  .dcp .dcp-ligne{padding:10px}
+  .dcp .dcp-ligne.dcp-ligne--batiment{padding-left:10px}
+  .dcp--location{--dcp-c1:8.2rem;--dcp-c2:6.2rem;--dcp-pm:44px}
+  .dcp--location .dcp-ligne--lue > .dcp-plus{min-width:44px;width:44px;min-height:44px;height:44px}
+  .dcp .dcp-ligne--lue .dcp-gestes{gap:6px 10px}
+  .dcp .dcp-ligne--lue .dcp-mini,.dcp--location .dcp-ligne--lue .dcp-mini{padding:0 12px;min-height:44px;font-size:.92rem}
+  .dcp .dcp-ligne--lue .dcp-lien,.dcp--location .dcp-ligne--lue .dcp-lien{font-size:.88rem;min-height:44px}
+}
+/* l'encadré ÉTROIT (fiche du bien Gestion au téléphone : moins de 330 px de large) — selon la largeur MESURÉE du composant (dcp--etroit), pas de
+   l'écran : « Modifier » et « Corriger une erreur » restent sur une ligne ; une ligne en saisie empile le code et « pas de digicode », le « − » / « + »
+   reste dans la colonne */
+.dcp.dcp--etroit .dcp-ligne--lue .dcp-gestes{gap:6px}
+.dcp.dcp--etroit .dcp-ligne--lue .dcp-gestes > .svv-btn.dcp-mini{padding:0 10px;font-size:.86rem}
+.dcp.dcp--etroit .dcp-ligne--lue .dcp-gestes > .dcp-lien{font-size:.8rem}
+.dcp.dcp--etroit .dcp-ligne{padding:10px 8px}
+.dcp.dcp--etroit .dcp-ligne.dcp-ligne--batiment{padding-left:8px}
+.dcp.dcp--location.dcp--etroit .dcp-ligne:not(.dcp-ligne--lue),.dcp.dcp--location.dcp--etroit .dcp-ligne.dcp-ligne--batiment:not(.dcp-ligne--lue){grid-template-columns:minmax(0,1fr) var(--dcp-pm);grid-auto-flow:row dense}
+.dcp.dcp--location.dcp--etroit .dcp-ligne:not(.dcp-ligne--lue) .dcp-champ.dcp-champ-code{grid-column:1;width:100%}
+.dcp.dcp--location.dcp--etroit .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe .dcp-aucun{grid-column:1;justify-self:start;width:auto}
+.dcp.dcp--location.dcp--etroit .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe .dcp-plus{grid-column:2}
+.dcp.dcp--etroit:not(.dcp--location) .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe{display:grid;grid-template-columns:minmax(0,1fr) var(--dcp-pm);grid-auto-flow:row dense;column-gap:10px;row-gap:6px;width:100%}
+.dcp.dcp--etroit:not(.dcp--location) .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe > .dcp-champ,.dcp.dcp--etroit:not(.dcp--location) .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe > .dcp-aucun{grid-column:1;min-width:0}
+.dcp.dcp--etroit:not(.dcp--location) .dcp-ligne:not(.dcp-ligne--lue) .dcp-code-groupe > .dcp-plus{grid-column:2;margin-left:0;justify-self:end}
 `;
