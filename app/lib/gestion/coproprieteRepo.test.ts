@@ -32,7 +32,7 @@ vi.mock('../db/client', () => ({
     throw new Error(`requête inattendue : ${s.slice(0, 80)}`);
   },
 }));
-import { cleImmeubleDuBien, ficheCopropriete, listerCoproprietes } from './coproprieteRepo';
+import { cleImmeubleDuBien, etatPlace, ficheCopropriete, listerCoproprietes } from './coproprieteRepo';
 
 const LOT = (id: number, immeuble: string | null, adresse: string, copropriete: boolean | null = null) => ({ id: String(id), numero: `W${id}`, immeuble, adresse, code_postal: '75011', commune: 'Paris', copropriete });
 beforeEach(() => {
@@ -114,5 +114,20 @@ describe('🔴 (lot 4) la liste « Copropriétés »', () => {
     expect(t.adresses).toEqual(['Résidence Les Tilleuls, 75011 Paris', '12 rue des Lilas, 75011 Paris']);
     expect(t.immeuble).toBe('Résidence Les Tilleuls');
     expect(b.sql.some((x) => /UPDATE|INSERT|DELETE/.test(x))).toBe(false);
+  });
+});
+
+/** 🔴 Arno (17/11/2026) — la mention « Enregistré le … par … » et celle du changement prévu partent avec l'état de chaque place (toutes les fiches la lisent). */
+describe('🔴 l’état d’une place porte qui a enregistré le code', () => {
+  const ligne = (o: Record<string, unknown>) => ({ id: 1, adresseCle: '7 rue x', adresseLibelle: '7 rue X', batimentCle: 'a', batimentLibelle: 'A', digicode: true, code: 'A1',
+    appliqueLe: '2026-11-01T10:00:00.000Z', nature: 'saisie', origine: 'fiche_copropriete', lotId: null, corrigeId: null, annuleLe: null, creeLe: '2026-11-01T10:00:00.000Z',
+    creeParLibelle: 'a.jorel@sansvisavis.com', creeParNom: 'Arnaud JOREL', ...o }) as never;
+  it('un code enregistré et un changement prévu : les deux mentions ; rien d’enregistré : aucune', () => {
+    const l = ligne({});
+    const e = etatPlace({ cle: 'a', libelle: 'A', nbBiens: 0, historique: [l], code: { valeur: { digicode: true, code: 'A1' }, source: 'unifie', ligne: l, depuis: '2026-11-01T10:00:00.000Z', aArbitrer: [], origines: [] },
+      aVenir: [ligne({ id: 2, nature: 'changement', code: 'A2', appliqueLe: '2026-11-20T08:00:00.000Z', creeLe: '2026-11-16T15:00:00.000Z' })] });
+    expect(e.enregistre).toBe('Enregistré le 01/11/2026 à 11:00 par Arnaud JOREL');
+    expect(e.aVenir.map((x) => x.prevu)).toEqual(['Nouveau code prévu le 20/11/2026 à 09:00 — saisi le 16/11/2026 par Arnaud JOREL']);
+    expect(etatPlace({ cle: 'a', libelle: 'A', nbBiens: 0, historique: [], code: null, aVenir: [] }).enregistre).toBeNull();
   });
 });

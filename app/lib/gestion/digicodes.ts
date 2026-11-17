@@ -23,6 +23,8 @@ export interface LigneDigicode {
   id: number; adresseCle: string; adresseLibelle: string; batimentCle: string; batimentLibelle: string | null;
   digicode: boolean; code: string | null; appliqueLe: string; nature: NatureDigicode; origine: OrigineDigicode;
   lotId: number | null; corrigeId: number | null; annuleLe: string | null; creeLe: string; creeParLibelle: string;
+  /** « Prénom NOM » du compte qui a écrit la ligne (lu de son compte) ; absent : inconnu (on lit alors `creeParLibelle`) */
+  creeParNom?: string | null;
 }
 
 /** Une valeur d'avant (396 / 399 / colonnes du bien), d'où elle vient, et les biens qui la portent. */
@@ -134,6 +136,44 @@ export function codeEnVigueur(lignes: readonly LigneDigicode[], anciens: readonl
 /** La date et l'heure lisibles (heure de Paris) : « 20/11/2026 à 09:00 ». PUR. */
 export const dateHeure = (iso: string): string =>
   new Date(iso).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(' ', ' à ');
+
+/**
+ * ══ 🔴🔴 QUI A ENREGISTRÉ LE CODE (Arno, 17/11/2026) ══════════════════════════════════════════════════════════════════════════════════════════
+ * « sous chaque digicode DÉJÀ ENREGISTRÉ (copropriété et chaque bâtiment), une mention discrète « Enregistré le JJ/MM/AAAA à HH:MM par Prénom NOM », où
+ * l'auteur est l'utilisateur connecté qui a fait la saisie, la modification ou la correction la plus récente du code en vigueur (« Corrigé le … par … » si
+ * c'est une correction). Si un changement daté est prévu, une seconde ligne : « Nouveau code prévu le JJ/MM/AAAA[ à HH:MM] — saisi le JJ/MM/AAAA par Prénom
+ * NOM ». […] Les données viennent de l'historique existant (auteur, date) ; pour les codes repris sans auteur connu : « Enregistré le JJ/MM/AAAA (auteur
+ * inconnu — reprise) ». » Rien n'est écrit : tout se lit des lignes de la base unique (cree_le, cree_par).
+ */
+/** Une ligne écrite par la reprise automatique (aucun auteur humain). PUR. */
+const estReprise = (l: Pick<LigneDigicode, 'nature' | 'origine'>): boolean => l.nature === 'reprise' || l.origine === 'reprise';
+/** L'auteur d'une ligne : « Prénom NOM » de son compte, sinon l'identifiant noté ; `null` : inconnu (une reprise). PUR. */
+export function auteurDigicode(l: Pick<LigneDigicode, 'nature' | 'origine' | 'creeParLibelle' | 'creeParNom'>): string | null {
+  if (estReprise(l)) return null;
+  const nom = (l.creeParNom ?? '').replace(/\s+/g, ' ').trim();
+  if (nom !== '') return nom;
+  const lib = (l.creeParLibelle ?? '').replace(/\s+/g, ' ').trim();
+  return lib === '' ? null : lib;
+}
+/** La date d'un changement prévu : sans heure saisie, il est à minuit (heure de Paris) — la date seule ; sinon « … à HH:MM ». PUR. */
+export const quandPrevu = (iso: string): string =>
+  quandChangement(iso, new Date(iso).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' }) !== '00:00');
+/** La mention sous un code déjà enregistré ; `null` : rien de connu. PUR. */
+export function mentionEnregistre(c: Pick<CodeEnVigueur, 'source' | 'ligne' | 'depuis'> | null): string | null {
+  if (c === null) return null;
+  const l = c.ligne ?? null;
+  if (l === null || estReprise(l)) {
+    const le = l !== null ? l.appliqueLe : c.depuis;
+    return le === null ? 'Enregistré (auteur inconnu — reprise)' : `Enregistré le ${dateJour(le)} (auteur inconnu — reprise)`;
+  }
+  const qui = auteurDigicode(l);
+  return `${l.nature === 'correction' ? 'Corrigé' : 'Enregistré'} le ${dateHeure(l.creeLe)}${qui === null ? ' (auteur inconnu)' : ` par ${qui}`}`;
+}
+/** La seconde ligne, pour un changement prévu. PUR. */
+export function mentionPrevu(l: Pick<LigneDigicode, 'digicode' | 'appliqueLe' | 'creeLe' | 'nature' | 'origine' | 'creeParLibelle' | 'creeParNom'>): string {
+  const qui = auteurDigicode(l);
+  return `${l.digicode === false ? 'Fin du digicode prévue' : 'Nouveau code prévu'} le ${quandPrevu(l.appliqueLe)} — saisi le ${dateJour(l.creeLe)}${qui === null ? ' (auteur inconnu)' : ` par ${qui}`}`;
+}
 
 /** Un changement à venir, en une ligne : « nouveau code 57B83 à partir du 20/11/2026 à 09:00 » / « plus de digicode à partir du … ». PUR. */
 export function motChangementAVenir(c: { valeur: ValeurDigicode; appliqueLe: string; batiment?: string | null }): string {

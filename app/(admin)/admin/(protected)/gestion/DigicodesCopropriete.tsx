@@ -348,6 +348,9 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAn
           {onModifier !== undefined && <button type="button" className="svv-btn svv-btn-outline gst-btn dcp-mini" disabled={desactive} onClick={onModifier} data-dcp-modifier>Modifier</button>}
           {onCorriger !== undefined && <button type="button" className="dcp-lien" disabled={desactive} onClick={() => { setOuvert(true); setErreur(null); setSaisie({ code: '', aucun: false }); }} data-dcp-corriger-erreur>Corriger une erreur</button>}
         </span>)}
+      {/* 🔴🔴 (Arno, 17/11/2026) sous le code enregistré : qui l'a enregistré (ou corrigé), quand ; puis chaque changement prévu, saisi quand et par qui */}
+      {etat.connu && (etat.enregistre ?? null) !== null && <span className="loc-muet dcp-mention" data-dcp-enregistre>{etat.enregistre}</span>}
+      {etat.aVenir.map((x) => (x.prevu === undefined ? null : <span key={`m${x.id}`} className="loc-muet dcp-mention" data-dcp-prevu-mention>{x.prevu}</span>))}
       {ouvert && onCorriger !== undefined && valeur !== null && (
         <div className="dcp-correction" role="group" aria-label={`Corriger une erreur — ${titre}`} data-dcp-correction>
           <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
@@ -468,6 +471,7 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
               <label className="dcp-aucun"><input type="checkbox" checked={c !== undefined} disabled={envoi || prevu !== undefined}
                 onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: e.target.checked ? nouvelleSaisie() : undefined }))} data-dcp-modifier-coche />
                 <span><strong>{p.titre}</strong> — actuel : {p.etat.valeur ? motValeur(p.etat.valeur) : '—'}</span></label>
+              {(p.etat.enregistre ?? null) !== null && <span className="loc-muet dcp-mention" data-dcp-modifier-enregistre>{p.etat.enregistre}</span>}
               {prevu !== undefined && <span className="loc-muet">Un changement est déjà prévu le {dateHeure(prevu.appliqueLe)} : annulez-le d’abord.</span>}
               {c !== undefined && (
                 <div className="dcp-modifier-champs" data-dcp-modifier-champs>
@@ -1020,8 +1024,8 @@ export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onAper
   const [depart, setDepart] = useState<string | null>(null);
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const d: DigicodesAdresseSaisis = { ...s, batiments: ligne !== null && ligne.etat?.connu ? [ligne] : [] };
-  const places = [...(d.communEtat?.connu ? [{ cle: '', repere: 'commun', mot: 'Digicode copropriété' }] : []),
-    ...d.batiments.map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, repere: b.libelle, mot: `Code du bâtiment ${b.libelle}` }))];
+  const places = [...(d.communEtat?.connu ? [{ cle: '', repere: 'commun', mot: 'Digicode copropriété', etat: d.communEtat }] : []),
+    ...d.batiments.map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, repere: b.libelle, mot: `Code du bâtiment ${b.libelle}`, etat: b.etat }))];
   if (donnees.adresseCle === '' || places.length === 0) return null;
   return (
     <span className="dcp-lus" data-dcp-modifier-lus>
@@ -1029,6 +1033,9 @@ export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onAper
         <span key={p.repere} className="dcp-lus-place" data-dcp-lu-place={p.repere}>
           <span className="loc-muet">{p.mot}</span>
           <button type="button" className="svv-btn svv-btn-outline gst-btn dcp-mini" onClick={() => setDepart(p.cle)} aria-label={`Modifier — ${p.mot.toLowerCase()}`} data-dcp-modifier-lu>Modifier</button>
+          {/* 🔴🔴 (Arno, 17/11/2026) sous le code : qui l'a enregistré, quand ; puis chaque changement prévu */}
+          {(p.etat?.enregistre ?? null) !== null && <span className="loc-muet dcp-mention" data-dcp-enregistre>{p.etat?.enregistre}</span>}
+          {(p.etat?.aVenir ?? []).map((x) => (x.prevu === undefined ? null : <span key={`m${x.id}`} className="loc-muet dcp-mention" data-dcp-prevu-mention>{x.prevu}</span>))}
         </span>))}
       {depart !== null && (
         <FenetreModifier d={d} depart={depart} onFermer={() => setDepart(null)} onValider={(appliqueLe, changements) => onPlanifier(d.cle, appliqueLe, changements)}
@@ -1100,7 +1107,8 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-lue--en-ligne{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:14px;row-gap:4px}
 .dcp-lue--en-ligne > .dcp-lue-titre{grid-column:1 / -1}
 .dcp-lue--en-ligne > .dcp-gestes{justify-self:start}
-.dcp-lue--en-ligne > .dcp-a-venir,.dcp-lue--en-ligne > .dcp-correction,.dcp-lue--en-ligne > .cp-refus{grid-column:1 / -1}
+.dcp-lue--en-ligne > .dcp-a-venir,.dcp-lue--en-ligne > .dcp-correction,.dcp-lue--en-ligne > .cp-refus,.dcp-lue--en-ligne > .dcp-mention{grid-column:1 / -1}
+.dcp-mention{display:block;margin:0;font-size:.8rem;font-style:italic;line-height:1.35;color:var(--color-svv-muted);overflow-wrap:anywhere;min-width:0}
 .dcp-total{margin:0;font-weight:800;color:var(--color-svv-ink)}
 .dcp-dest-groupe{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field)}
 .dcp-dest-logement{display:flex;flex-direction:column;gap:2px;padding:4px 0}
@@ -1179,7 +1187,8 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-champ.dcp-champ-code{flex:0 0 auto;width:auto;min-width:0}
 .dcp-champ.dcp-champ-code input{width:calc(15ch + 20px);max-width:100%}
 .dcp-lus{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;white-space:normal}
-.dcp-lus-place{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.dcp-lus-place{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.dcp-lus-place > .dcp-mention{flex:1 1 100%;margin-top:-4px}
 .dcp-lus .dcp-mini{min-height:44px}
 /* 🔴 (Arno, 17/11/2026) un message d'erreur sous sa ligne, entièrement lisible en clair et en sombre (jetons rouge foncé sur fond rouge pâle), jamais recouvert */
 .dcp-ligne-erreur{flex:1 1 100%;margin:4px 0 0;padding:8px 12px;border-radius:10px;border-left:4px solid var(--color-svv-red);background:var(--color-svv-red-soft);

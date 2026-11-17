@@ -7,6 +7,7 @@ import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type L
 import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
 import { digicodesDesAdresses, digicodesUnifiesDisponibles, type PlaceFiche } from './digicodesRepo';
+import { mentionEnregistre, mentionPrevu } from './digicodes';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — LA LECTURE (Arno, 16/11/2026, migration 476). IMPUR (base), LECTURE SEULE. ══════════════════════════════════
@@ -29,7 +30,8 @@ export function etatPlace(p: PlaceFiche): EtatPlaceDigicode {
   const c = p.code;
   const connu = c !== null && c.aArbitrer.length === 0 && (c.valeur.digicode !== null || (c.valeur.code ?? '') !== '');
   return { connu, valeur: connu ? { digicode: c!.valeur.digicode, code: c!.valeur.code } : null, depuis: c?.depuis ?? null, source: c?.source ?? null,
-    aVenir: p.aVenir.map((l) => ({ id: l.id, digicode: l.digicode, code: l.code, appliqueLe: l.appliqueLe })),
+    enregistre: connu ? mentionEnregistre(c) : null,
+    aVenir: p.aVenir.map((l) => ({ id: l.id, digicode: l.digicode, code: l.code, appliqueLe: l.appliqueLe, prevu: mentionPrevu(l) })),
     aArbitrer: (c?.aArbitrer ?? []).map((x) => ({ digicode: x.valeur.digicode, code: x.valeur.code, origines: x.origines, lots: x.lots })),
     historique: p.historique.map((l) => ({ id: l.id, digicode: l.digicode, code: l.code, appliqueLe: l.appliqueLe, nature: l.nature, par: l.creeParLibelle, creeLe: l.creeLe, annule: l.annuleLe !== null })) };
 }

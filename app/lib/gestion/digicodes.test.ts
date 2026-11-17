@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  candidatsAnciens, changementsAVenir, codeEnVigueur, ligneEnVigueur, memeCode, placeBatiment, planRepriseUnifiee, texteRapportRepriseUnifiee, valeurSaisie,
+  auteurDigicode, candidatsAnciens, changementsAVenir, codeEnVigueur, ligneEnVigueur, memeCode, mentionEnregistre, mentionPrevu, quandPrevu, placeBatiment, planRepriseUnifiee, texteRapportRepriseUnifiee, valeurSaisie,
   type DonneesAnciennes, type LigneDigicode,
 } from './digicodes';
 
@@ -133,5 +133,44 @@ describe('🔴 (lot 5) « Modifier » : la date et l’heure de PARIS, et ce qui
     expect(validerChangements({ changements: [{ batiment: 'A', digicode: true, code: 'A2' }] })).toEqual({ ok: false, motif: 'Indiquez la date d’application de chaque nouveau code.' });
     // sans heure : la date seule (début de journée à Paris) ; avec : la date et l'heure
     expect([quandChangement('2026-11-25T23:00:00.000Z', false), quandChangement('2026-11-20T08:00:00.000Z', true)]).toEqual(['26/11/2026', '20/11/2026 à 09:00']);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « sous chaque digicode DÉJÀ ENREGISTRÉ […] « Enregistré le JJ/MM/AAAA à HH:MM par Prénom NOM » […] (« Corrigé le … par … » si c'est
+ * une correction). Si un changement daté est prévu, une seconde ligne : « Nouveau code prévu le JJ/MM/AAAA[ à HH:MM] — saisi le JJ/MM/AAAA par Prénom NOM ». […]
+ * pour les codes repris sans auteur connu : « Enregistré le JJ/MM/AAAA (auteur inconnu — reprise) ». »
+ */
+describe('🔴 qui a enregistré le code, et quand', () => {
+  const ARNO = { creeParNom: 'Arnaud JOREL', creeParLibelle: 'a.jorel@sansvisavis.com' };
+  const vigueur = (lignes: LigneDigicode[]) => codeEnVigueur(lignes, [], '12 rue x', '', LE_15);
+  it('une saisie : « Enregistré le JJ/MM/AAAA à HH:MM par Prénom NOM » (la date de la saisie, heure de Paris)', () => {
+    expect(mentionEnregistre(vigueur([L({ ...ARNO, creeLe: '2026-11-03T08:15:00.000Z' })]))).toBe('Enregistré le 03/11/2026 à 09:15 par Arnaud JOREL');
+  });
+  it('la modification la plus récente : le changement appliqué, à la date où il a été SAISI ; une correction : « Corrigé le … par … »', () => {
+    const saisie = L({ creeParLibelle: 'autre', appliqueLe: '2026-11-01T10:00:00.000Z' });
+    const changement = L({ ...ARNO, nature: 'changement', code: 'B2', appliqueLe: '2026-11-10T08:00:00.000Z', creeLe: '2026-11-05T14:00:00.000Z' });
+    expect(mentionEnregistre(vigueur([saisie, changement]))).toBe('Enregistré le 05/11/2026 à 15:00 par Arnaud JOREL');
+    const correction = L({ ...ARNO, nature: 'correction', code: 'B3', corrigeId: changement.id, appliqueLe: '2026-11-12T09:30:00.000Z', creeLe: '2026-11-12T09:30:00.000Z' });
+    expect(mentionEnregistre(vigueur([saisie, changement, correction]))).toBe('Corrigé le 12/11/2026 à 10:30 par Arnaud JOREL');
+  });
+  it('sans compte connu : l’identifiant noté ; un code repris : « Enregistré le JJ/MM/AAAA (auteur inconnu — reprise) » ; une valeur d’avant : pareil', () => {
+    expect(mentionEnregistre(vigueur([L({ creeParNom: null, creeParLibelle: 'a.jorel@sansvisavis.com', creeLe: '2026-11-03T08:15:00.000Z' })])))
+      .toBe('Enregistré le 03/11/2026 à 09:15 par a.jorel@sansvisavis.com');
+    const reprise = L({ origine: 'reprise', creeParLibelle: 'reprise des digicodes dans la base unique (automatique)', appliqueLe: '2025-04-02T10:00:00.000Z', creeLe: '2026-11-16T10:00:00.000Z' });
+    expect(mentionEnregistre(vigueur([reprise]))).toBe('Enregistré le 02/04/2025 (auteur inconnu — reprise)');
+    expect(auteurDigicode(reprise)).toBeNull();
+    expect(mentionEnregistre({ source: 'ancien', ligne: null, depuis: '2024-06-30T22:30:00.000Z' })).toBe('Enregistré le 01/07/2024 (auteur inconnu — reprise)');
+    expect(mentionEnregistre({ source: 'ancien', ligne: null, depuis: null })).toBe('Enregistré (auteur inconnu — reprise)');
+    expect(mentionEnregistre(null)).toBeNull();
+  });
+  it('un changement prévu : « Nouveau code prévu le JJ/MM/AAAA[ à HH:MM] — saisi le JJ/MM/AAAA par Prénom NOM » ; sans heure saisie (minuit à Paris) : la date seule', () => {
+    expect(mentionPrevu(L({ ...ARNO, nature: 'changement', appliqueLe: '2026-11-20T08:00:00.000Z', creeLe: '2026-11-16T15:00:00.000Z' })))
+      .toBe('Nouveau code prévu le 20/11/2026 à 09:00 — saisi le 16/11/2026 par Arnaud JOREL');
+    expect(mentionPrevu(L({ ...ARNO, nature: 'changement', appliqueLe: '2026-11-19T23:00:00.000Z', creeLe: '2026-11-16T15:00:00.000Z' })))
+      .toBe('Nouveau code prévu le 20/11/2026 — saisi le 16/11/2026 par Arnaud JOREL');
+    expect(quandPrevu('2026-07-19T22:00:00.000Z')).toBe('20/07/2026'); // l'heure d'été
+    expect(mentionPrevu(L({ ...ARNO, nature: 'changement', digicode: false, code: null, appliqueLe: '2026-11-20T08:00:00.000Z', creeLe: '2026-11-16T15:00:00.000Z' })))
+      .toBe('Fin du digicode prévue le 20/11/2026 à 09:00 — saisi le 16/11/2026 par Arnaud JOREL');
   });
 });

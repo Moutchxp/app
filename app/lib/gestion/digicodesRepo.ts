@@ -25,12 +25,18 @@ export function digicodesUnifiesDisponibles(): Promise<boolean> {
 }
 
 const COLONNES = `id::text, adresse_cle, adresse_libelle, batiment_cle, batiment_libelle, digicode, code, to_json(applique_le)#>>'{}' AS applique_le, nature, origine,
-  lot_id::text, corrige_id::text, to_json(annule_le)#>>'{}' AS annule_le, to_json(cree_le)#>>'{}' AS cree_le, cree_par_libelle`;
+  lot_id::text, corrige_id::text, to_json(annule_le)#>>'{}' AS annule_le, to_json(cree_le)#>>'{}' AS cree_le, cree_par_libelle,
+  (SELECT u.prenom FROM admin_utilisateur u WHERE u.id = gestion_digicode.cree_par) AS par_prenom, (SELECT u.nom FROM admin_utilisateur u WHERE u.id = gestion_digicode.cree_par) AS par_nom`;
 interface LigneSql { id: string; adresse_cle: string; adresse_libelle: string; batiment_cle: string; batiment_libelle: string | null; digicode: boolean; code: string | null;
-  applique_le: string; nature: LigneDigicode['nature']; origine: OrigineDigicode; lot_id: string | null; corrige_id: string | null; annule_le: string | null; cree_le: string; cree_par_libelle: string }
+  applique_le: string; nature: LigneDigicode['nature']; origine: OrigineDigicode; lot_id: string | null; corrige_id: string | null; annule_le: string | null; cree_le: string; cree_par_libelle: string;
+  par_prenom?: string | null; par_nom?: string | null }
+/** « Prénom NOM » d'un compte (le nom en capitales) ; `null` : aucun des deux. PUR. */
+const prenomNomCompte = (prenom: string | null | undefined, nom: string | null | undefined): string | null =>
+  [(prenom ?? '').replace(/\s+/g, ' ').trim(), (nom ?? '').replace(/\s+/g, ' ').trim().toLocaleUpperCase('fr-FR')].filter((x) => x !== '').join(' ') || null;
 const versLigne = (r: LigneSql): LigneDigicode => ({ id: Number(r.id), adresseCle: r.adresse_cle, adresseLibelle: r.adresse_libelle, batimentCle: r.batiment_cle, batimentLibelle: r.batiment_libelle,
   digicode: r.digicode, code: r.code, appliqueLe: r.applique_le, nature: r.nature, origine: r.origine, lotId: r.lot_id === null ? null : Number(r.lot_id),
-  corrigeId: r.corrige_id === null ? null : Number(r.corrige_id), annuleLe: r.annule_le, creeLe: r.cree_le, creeParLibelle: r.cree_par_libelle });
+  corrigeId: r.corrige_id === null ? null : Number(r.corrige_id), annuleLe: r.annule_le, creeLe: r.cree_le, creeParLibelle: r.cree_par_libelle,
+  creeParNom: prenomNomCompte(r.par_prenom, r.par_nom) });
 
 /** Toutes les lignes (annulées comprises : l'historique les montre) des adresses données. `[]` sans la 478. LECTURE SEULE. */
 export async function lignesDigicodes(adresseCles: readonly string[], q: RequeteTx = query): Promise<LigneDigicode[]> {

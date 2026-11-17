@@ -21,7 +21,11 @@ export interface EtatPlaceDigicode {
   valeur: { digicode: boolean | null; code: string | null } | null;
   depuis: string | null;
   source: 'unifie' | 'ancien' | null;
-  aVenir: { id: number; digicode: boolean; code: string | null; appliqueLe: string }[];
+  aVenir: { id: number; digicode: boolean; code: string | null; appliqueLe: string;
+    /** 🔴 (Arno, 17/11/2026) « Nouveau code prévu le … — saisi le … par Prénom NOM » */
+    prevu?: string }[];
+  /** 🔴 (Arno, 17/11/2026) « Enregistré le … par Prénom NOM » (« Corrigé le … », « … (auteur inconnu — reprise) ») ; `null` : rien d'enregistré */
+  enregistre?: string | null;
   aArbitrer: { digicode: boolean | null; code: string | null; origines: string[]; lots: number[] }[];
   historique: { id: number; digicode: boolean; code: string | null; appliqueLe: string; nature: string; par: string; creeLe: string; annule: boolean }[];
 }

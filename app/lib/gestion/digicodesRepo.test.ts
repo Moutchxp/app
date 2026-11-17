@@ -28,7 +28,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible: async () => true, digicodeBatimentDisponible: async () => true }));
-import { annulerChangement, digicodesDuBien, ecrireDigicode as ecrire, relierBienAuBatiment as relier, retirerDigicode } from './digicodesRepo';
+import { annulerChangement, digicodesDuBien, ecrireDigicode as ecrire, lignesDigicodes, relierBienAuBatiment as relier, retirerDigicode } from './digicodesRepo';
 import { codeEnVigueur } from './digicodes';
 import type { RequeteTx } from '../db/client';
 const ecrireDigicode = (_q: unknown, ...a: Parameters<typeof ecrire> extends [unknown, ...infer R] ? R : never) => ecrire(q as unknown as RequeteTx, ...a);
@@ -170,5 +170,15 @@ describe('🔴 retirer le digicode d’un bâtiment', () => {
     const anciens = [{ valeur: { digicode: true, code: 'OLD' }, depuis: null, origines: [] }] as never;
     expect(codeEnVigueur([l({}), l({ id: 2, digicode: false, code: null, nature: 'retrait', appliqueLe: '2026-11-10T10:00:00.000Z' })], anciens, '12 rue x', 'a', MAINTENANT)).toBeNull();
     expect(codeEnVigueur([l({})], anciens, '12 rue x', 'a', MAINTENANT)?.valeur.code).toBe('TA10');
+  });
+});
+
+/** 🔴 Arno (17/11/2026) — l'auteur d'une ligne : « Prénom NOM » lu de son compte (aucune écriture). */
+describe('🔴 l’auteur des lignes, lu du compte', () => {
+  it('« Arnaud JOREL » (le nom en capitales) ; sans compte : rien (l’identifiant reste lu)', async () => {
+    h.lignes = [{ ...ligne({}), par_prenom: ' Arnaud ', par_nom: 'Jorel' }, { ...ligne({}), par_prenom: null, par_nom: null }];
+    const l = await lignesDigicodes(['12 rue x']);
+    expect(l.map((x) => [x.creeParNom, x.creeParLibelle])).toEqual([['Arnaud JOREL', 'x'], [null, 'x']]);
+    expect(h.sql.some((x) => x.s.includes('FROM admin_utilisateur u WHERE u.id = gestion_digicode.cree_par'))).toBe(true);
   });
 });
