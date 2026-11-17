@@ -1,0 +1,153 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { act, createElement, useState } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { CSS_DIGICODES_COPRO, ChoixBatimentCopro, DigicodesCopropriete, exempleNom, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
+import type { BatimentConnu, Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « impossible d'ajouter un bâtiment. Cliquer sur « Ajouter nouveau bâtiment » referme le menu et ramène dans le champ :
+ * on tourne en rond. Le menu pousse aussi « Étage » et « N° de porte » vers le bas. » — le COMPOSANT UNIQUE du choix / de l'ajout d'un bâtiment.
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let container: HTMLDivElement; let root: Root; let choix: [string, boolean][];
+const CONNUS: BatimentConnu[] = [{ cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: 'c', libelle: 'C', sorte: 'lettre' }];
+beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); choix = []; });
+afterEach(() => { act(() => { root.unmount(); }); container.remove(); });
+const $ = (s: string) => container.querySelector(s) as HTMLElement;
+const saisir = async (el: HTMLElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
+const clic = async (el: HTMLElement) => { await act(async () => { el.click(); }); };
+const touche = async (el: HTMLElement, key: string) => { await act(async () => { el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); }); };
+const menu = () => [...container.querySelectorAll('[data-cbc-menu] button')].map((b) => b.textContent);
+
+function HoteBien({ nomenclature = 'lettres' as Nomenclature | null, sansAdresse = false, connus = CONNUS }) {
+  const [bat, setBat] = useState('');
+  return createElement(ChoixBatimentCopro, { valeur: bat, connus, nomenclature, escalier: '', desactive: false, sansAdresse,
+    onChoix: (l: string, c: boolean) => { choix.push([l, c]); setBat(l); } });
+}
+const monter = async (p: Parameters<typeof HoteBien>[0] = {}) => { await act(async () => { root.render(createElement(HoteBien, p)); }); };
+
+describe('① le menu PAR-DESSUS la page', () => {
+  it('superposé (position absolue, ombre) : il ne décale aucun champ', () => {
+    expect(CSS_DIGICODES_COPRO).toContain('.cb-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40');
+    expect(CSS_DIGICODES_COPRO).toContain('box-shadow');
+  });
+});
+
+describe('② l’ajout PAR LA SAISIE', () => {
+  it('un nom qui n’existe pas : « + Ajouter le bâtiment « 1 » » EN PREMIER ; choisi, il est ajouté au menu et le message le confirme', async () => {
+    await monter({ nomenclature: null });
+    await clic($('[data-cbc-champ]'));
+    await saisir($('[data-cbc-champ]'), '1');
+    expect(menu()[0]).toBe('+ Ajouter le bâtiment « 1 »');
+    await clic($('[data-cb-ajouter-saisi]'));
+    expect(choix.at(-1)).toEqual(['1', false]);
+    expect($('[data-cb-message]').textContent).toBe('Bâtiment 1 ajouté — il sera enregistré avec le bien');
+    await clic($('[data-cbc-champ]'));
+    await saisir($('[data-cbc-champ]'), '');
+    expect(menu()).toContain('1');
+  });
+  it('au clavier : flèche bas puis Entrée choisit la première proposition ; Échap referme', async () => {
+    await monter({ nomenclature: null });
+    await clic($('[data-cbc-champ]'));
+    await saisir($('[data-cbc-champ]'), 'Z');
+    await touche($('[data-cbc-champ]'), 'ArrowDown');
+    expect($('.cb-actif').textContent).toBe('+ Ajouter le bâtiment « Z »');
+    await touche($('[data-cbc-champ]'), 'Enter');
+    expect(choix.at(-1)).toEqual(['Z', false]);
+    await clic($('[data-cbc-champ]'));
+    await touche($('[data-cbc-champ]'), 'Escape');
+    expect($('[data-cbc-menu]')).toBeNull();
+  });
+  it('un nom existant (« a ») : pas de proposition d’ajout, le bâtiment connu', async () => {
+    await monter();
+    await clic($('[data-cbc-champ]'));
+    await saisir($('[data-cbc-champ]'), 'a');
+    expect(menu()[0]).toBe('A');
+  });
+});
+
+describe('③ « Ajouter nouveau bâtiment » : l’ENCADRÉ, qui ne se referme pas tout seul', () => {
+  it('nom, exemple adapté à la règle, la règle en une phrase, « Valider ce bâtiment » / « Annuler » ; Entrée = Valider', async () => {
+    await monter();
+    await clic($('[data-cbc-champ]'));
+    await clic($('[data-cbc-nouveau]'));
+    expect($('[data-cb-encadre]')).not.toBeNull();
+    expect(($('[data-cb-encadre-nom]') as HTMLInputElement).placeholder).toBe('ex. A');
+    expect($('[data-cb-regle]').textContent).toContain('bâtiments en lettres (A, B, C…)');
+    expect([$('[data-cb-valider]').textContent, $('[data-cb-annuler]').textContent]).toEqual(['Valider ce bâtiment', 'Annuler']);
+    expect([exempleNom('chiffres'), exempleNom(null)]).toEqual(['ex. 1', 'ex. A, 1 ou Côté cour']);
+    await saisir($('[data-cb-encadre-nom]'), 'D');
+    await touche($('[data-cb-encadre-nom]'), 'Enter');
+    expect(choix.at(-1)).toEqual(['D', false]);
+    expect($('[data-cb-encadre]')).toBeNull();
+    expect($('[data-cb-message]').textContent).toBe('Bâtiment D ajouté — il sera enregistré avec le bien');
+  });
+  it('🔴 annulation : « Annuler » ou Échap referme l’encadré, rien n’est choisi', async () => {
+    await monter();
+    await clic($('[data-cbc-champ]')); await clic($('[data-cbc-nouveau]'));
+    await saisir($('[data-cb-encadre-nom]'), 'D');
+    await clic($('[data-cb-annuler]'));
+    expect($('[data-cb-encadre]')).toBeNull();
+    await clic($('[data-cbc-champ]')); await clic($('[data-cbc-nouveau]'));
+    await touche($('[data-cb-encadre-nom]'), 'Escape');
+    expect($('[data-cb-encadre]')).toBeNull();
+    expect(choix).toEqual([]);
+  });
+  it('nom vide : refusé avec un message (l’encadré reste ouvert) ; DOUBLON (« c ») : simplement choisi, sans message d’ajout', async () => {
+    await monter();
+    await clic($('[data-cbc-champ]')); await clic($('[data-cbc-nouveau]'));
+    await clic($('[data-cb-valider]'));
+    expect($('[data-cb-erreur]').textContent).toBe('Donnez un nom au bâtiment ou à la cage.');
+    expect($('[data-cb-encadre]')).not.toBeNull();
+    await saisir($('[data-cb-encadre-nom]'), 'c');
+    await clic($('[data-cb-valider]'));
+    expect(choix.at(-1)).toEqual(['C', false]);
+    expect($('[data-cb-message]')).toBeNull();
+  });
+  it('hors numérotation (« 1 » parmi des lettres) : la fenêtre d’avertissement ; « Corriger » ramène à l’encadré vide ; « Confirmer » le choisit, confirmé', async () => {
+    await monter();
+    await clic($('[data-cbc-champ]')); await clic($('[data-cbc-nouveau]'));
+    await saisir($('[data-cb-encadre-nom]'), '1');
+    await clic($('[data-cb-valider]'));
+    expect(document.querySelector('[data-dcp-avertissement]')).not.toBeNull();
+    await clic($('[data-dcp-corriger]'));
+    expect(($('[data-cb-encadre-nom]') as HTMLInputElement).value).toBe('');
+    expect(choix).toEqual([]);
+    await saisir($('[data-cb-encadre-nom]'), '1');
+    await clic($('[data-cb-valider]'));
+    await clic($('[data-dcp-confirmer]'));
+    expect(choix.at(-1)).toEqual(['1', true]);
+    expect($('[data-cb-message]').textContent).toBe('Bâtiment 1 ajouté — il sera enregistré avec le bien');
+  });
+});
+
+describe('⑤ adresse du bien pas encore choisie', () => {
+  it('le menu le dit ; l’encadré reste utilisable', async () => {
+    await monter({ nomenclature: null, sansAdresse: true, connus: [] });
+    await clic($('[data-cbc-champ]'));
+    expect($('[data-cb-sans-adresse]').textContent).toBe('Choisissez d’abord l’adresse du bien pour voir ses bâtiments');
+    await clic($('[data-cbc-nouveau]'));
+    await saisir($('[data-cb-encadre-nom]'), 'B');
+    await clic($('[data-cb-valider]'));
+    expect(choix.at(-1)).toEqual(['B', false]);
+  });
+});
+
+describe('le MÊME composant dans la fiche Copropriété (ligne « + »)', () => {
+  const FICHE = { digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234' }, batiments: [] }] };
+  function Hote() {
+    const [s, setS] = useState<DigicodesAdresseSaisis[]>(saisieDigicodesInitiale(FICHE as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false });
+  }
+  it('« + » puis « Ajouter nouveau bâtiment » : l’encadré ; validé, le bâtiment est choisi dans la ligne, « …avec la copropriété »', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    await clic($('[data-dcp-plus]'));
+    await clic($('[data-dcp-ajouter-nouveau]'));
+    await saisir($('[data-cb-encadre-nom]'), 'D');
+    await clic($('[data-cb-valider]'));
+    expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('D');
+    expect($('[data-cb-message]').textContent).toBe('Bâtiment D ajouté — il sera enregistré avec la copropriété');
+    expect($('[data-dcp-code-batiment]')).not.toBeNull(); // sa ligne de digicode est là
+  });
+});

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
@@ -116,20 +116,14 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   const [menu, setMenu] = useState<string | null>(null);
   // 🔴 (lot 5) la fenêtre « Modifier » : l'adresse et le code d'où on l'a ouverte (pré-coché)
   const [modifier, setModifier] = useState<{ cle: string; place: string } | null>(null);
-  // 🔴 (lot D) la fenêtre d'avertissement : la ligne concernée et ce qui est dit
-  const [alerte, setAlerte] = useState<{ cle: string; k: string; a: AvertissementBatiment } | null>(null);
-  /** Au moment où le bâtiment est AJOUTÉ (choix dans le menu, ou nom saisi quand on quitte le champ) : la fenêtre, s'il ne suit pas la numérotation. */
+  /** L'avertissement d'un NOUVEL intitulé pour une ligne (la fenêtre s'ouvre dans le champ du bâtiment), s'il ne suit pas la numérotation. */
   // 🔴 Arno (16/11/2026) — seul un intitulé NOUVEAU qui ne suit pas la numérotation ouvre la fenêtre : un intitulé déjà présent dans la
-  // copropriété (déjà accepté, ou confirmé plus haut dans cette saisie pour une autre adresse) se choisit à nouveau sans fenêtre
-  const verifier = (cle: string, k: string, libelle: string): void => {
-    const suivante = s.map((d) => (d.cle === cle ? { ...d, batiments: d.batiments.map((b) => (b.k === k ? { ...b, libelle } : b)) } : d));
-    const ligne = suivante.find((d) => d.cle === cle)?.batiments.find((b) => b.k === k);
-    const a = avertissementsSaisie(suivante, nomenclature, connus).get(k);
-    if (a !== undefined && ligne !== undefined && !estConfirme(ligne)) setAlerte({ cle, k, a });
+  // copropriété (déjà accepté, ou saisi plus haut pour une autre adresse) se choisit à nouveau sans fenêtre ; la saisie en cours compte
+  // (le premier bâtiment saisi peut fixer la règle)
+  const avertirLigne = (cle: string, k: string, libelle: string): AvertissementBatiment | null => {
+    const suivante = s.map((d) => (d.cle === cle ? { ...d, batiments: d.batiments.map((b) => (b.k === k ? { ...b, libelle, confirme: null } : b)) } : d));
+    return avertissementsSaisie(suivante, nomenclature, connus).get(k) ?? null;
   };
-  // le menu : les bâtiments connus de TOUTE la copropriété, et ceux qu'on vient de saisir (autres adresses comprises)
-  const saisis = s.flatMap((d) => d.batiments.map((b) => batimentDe(b.libelle))).filter((b): b is BatimentConnu => b !== null);
-  const options = menuBatiments([...connus, ...saisis]);
   const maj = (cle: string, f: (d: DigicodesAdresseSaisis) => DigicodesAdresseSaisis): void => onChange(s.map((d) => (d.cle === cle ? f(d) : d)));
   const majLigne = (cle: string, kk: string, p: Partial<LigneBatiment>): void => maj(cle, (d) => ({ ...d, batiments: d.batiments.map((b) => (b.k === kk ? { ...b, ...p } : b)) }));
   const refus = refusDigicodes(s, nomenclature, connus);
@@ -178,19 +172,13 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <div className="dcp-champ dcp-champ-bat">
                 <span>Bâtiment / cage</span>
                 {b.nouveau ? <>
-                  <input value={b.libelle} disabled={desactive} placeholder="A, 1, Côté cour…" aria-expanded={menu === b.k}
-                    onFocus={() => setMenu(b.k)} onClick={() => setMenu(b.k)} onChange={(e) => { majLigne(d.cle, b.k, { libelle: e.target.value, confirme: null }); setMenu(b.k); }}
-                    onBlur={(e) => { const v = e.target.value; setTimeout(() => setMenu((m) => (m === b.k ? null : m)), 180); if (v.trim() !== '') verifier(d.cle, b.k, v); }}
-                    onKeyDown={(e) => { if (e.key === 'Escape') setMenu(null); if (e.key === 'Enter') { e.preventDefault(); setMenu(null); verifier(d.cle, b.k, (e.target as HTMLInputElement).value); } }}
-                    data-dcp-nom-batiment={b.k} />
-                  {menu === b.k && (
-                    <ul className="dcp-menu" role="listbox" aria-label="Bâtiments connus de la copropriété" data-dcp-menu>
-                      {/* ce qui est tapé filtre le menu ; « Ajouter nouveau bâtiment » reste toujours proposé */}
-                      {options.filter((o) => b.libelle.trim() === '' || o.cle.includes(batimentDe(b.libelle)?.cle ?? '')).map((o) => (
-                        <li key={o.cle}><button type="button" role="option" aria-selected={false} className="dcp-option" onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => { majLigne(d.cle, b.k, { libelle: o.libelle, confirme: null }); setMenu(null); verifier(d.cle, b.k, o.libelle); }} data-dcp-option={o.libelle}>{o.libelle}</button></li>))}
-                      <li><button type="button" className="dcp-option dcp-option--nouveau" onMouseDown={(e) => e.preventDefault()} onClick={() => { majLigne(d.cle, b.k, { libelle: '', confirme: null }); setMenu(null); }} data-dcp-ajouter-nouveau>Ajouter nouveau bâtiment</button></li>
-                    </ul>)}
+                  {/* 🔴 (Arno, 17/11/2026) le COMPOSANT UNIQUE du choix / de l'ajout d'un bâtiment (menu superposé, « + Ajouter le bâtiment … »,
+                      encadré « Ajouter nouveau bâtiment », avertissement de numérotation) */}
+                  <ChampBatiment cle={b.k} marque="dcp" contexte="copropriete" valeur={b.libelle} desactive={desactive} nomenclature={nomenclature} ouvrirAuDebut={menu === b.k}
+                    connus={[...connus, ...s.flatMap((x) => x.batiments.filter((y) => y.k !== b.k).map((y) => batimentDe(y.libelle))).filter((y): y is BatimentConnu => y !== null)]}
+                    avertir={(nom) => avertirLigne(d.cle, b.k, nom)} placeholder="A, 1, Côté cour…"
+                    onSaisie={(v) => majLigne(d.cle, b.k, { libelle: v, confirme: null })}
+                    onChoix={(l, c) => majLigne(d.cle, b.k, { libelle: l, confirme: c ? (batimentDe(l)?.cle ?? null) : null })} />
                 </> : <strong className="dcp-nom" data-dcp-nom-existant>{b.libelle}</strong>}
               </div>
               <label className="dcp-champ"><span>Digicode</span>
@@ -207,24 +195,6 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           onValider={(appliqueLe, changements) => onPlanifier(modifier.cle, appliqueLe, changements)}
           {...(onApercu && onEnvoyer ? { onApercu: (appliqueLe: string, ch: Parameters<ApercuDigicodes>[2]) => onApercu(modifier.cle, appliqueLe, ch),
             onEnvoyer: (appliqueLe: string, ch: Parameters<ApercuDigicodes>[2], p: boolean) => onEnvoyer(modifier.cle, appliqueLe, ch, p) } : {})} />)}
-      {alerte !== null && (
-        <div className="dcp-voile" data-dcp-avertissement>
-          <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="dcp-alerte-titre" aria-describedby="dcp-alerte-texte"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); (e.currentTarget.querySelector('[data-dcp-corriger]') as HTMLButtonElement | null)?.click(); } }}>
-            <p className="dcp-alerte-titre" id="dcp-alerte-titre">{TITRE_AVERTISSEMENT}</p>
-            <div id="dcp-alerte-texte">{texteAvertissement(alerte.a).map((t) => <p key={t} className="dcp-alerte-texte">{t}</p>)}</div>
-            <div className="dcp-alerte-actions">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => {
-                // « Corriger » : rien n'est gardé, la main revient au champ
-                const { cle, k: kk } = alerte; setAlerte(null); majLigne(cle, kk, { libelle: '', confirme: null });
-                setTimeout(() => (document.querySelector(`[data-dcp-nom-batiment="${kk}"]`) as HTMLInputElement | null)?.focus(), 0);
-              }} data-dcp-corriger>Corriger</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => {
-                const { cle, k: kk, a } = alerte; setAlerte(null); majLigne(cle, kk, { libelle: a.libelle, confirme: batimentDe(a.libelle)?.cle ?? null });
-              }} data-dcp-confirmer>Confirmer cet intitulé</button>
-            </div>
-          </div>
-        </div>)}
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
   );
@@ -557,66 +527,169 @@ export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, 
     codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial) };
 }
 
+/** La règle de numérotation en une phrase, et l'exemple adapté, pour l'encadré d'ajout d'un bâtiment. PUR. */
+export const phraseRegle = (n: Nomenclature | null): string => (n === null
+  ? 'Aucune règle encore : le premier bâtiment en lettre ou en chiffre la fixera pour toute la copropriété (un intitulé libre reste possible).'
+  : `Règle de la copropriété : ${MOT_REGLE[n]} ; un autre intitulé reste possible, après confirmation.`);
+export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ? 'ex. A' : n === 'chiffres' ? 'ex. 1' : 'ex. A, 1 ou Côté cour');
+
+/**
+ * ══ 🔴🔴 LE CHAMP DU BÂTIMENT / CAGE — CHOISIR OU AJOUTER (Arno, 17/11/2026 : « impossible d'ajouter un bâtiment. Cliquer sur « Ajouter nouveau
+ * bâtiment » referme le menu et ramène dans le champ : on tourne en rond. Le menu pousse aussi « Étage » et « N° de porte » vers le bas. ») ══
+ * Le COMPOSANT UNIQUE du choix d'un bâtiment : fiche Copropriété (ligne « + »), « Nouveau bien », « Modifier le bien », l'annexe et la fiche du
+ * bien côté Gestion.
+ *   ① le menu s'ouvre PAR-DESSUS la page (superposé, ombre légère) : il ne décale aucun champ ;
+ *   ② un nom tapé qui n'existe pas : « + Ajouter le bâtiment « 1 » » en premier, puis les bâtiments connus qui correspondent ;
+ *   ③ « Ajouter nouveau bâtiment » ouvre SOUS le champ un encadré qui ne se referme pas tout seul (nom, règle, « Valider ce bâtiment » /
+ *      « Annuler » ; Entrée = Valider, Échap = Annuler) ;
+ *   ④ validation : nom vide refusé ; nom existant simplement choisi ; hors numérotation → la fenêtre d'avertissement (Confirmer / Corriger) ;
+ *      le bâtiment est alors CHOISI, ajouté au menu, et un message le confirme ;
+ *   ⑤ adresse inconnue : le menu le dit, l'encadré reste utilisable ;
+ *   ⑥ clavier (flèches, Entrée, Échap) et doigt ; cibles de 44 px au moins.
+ */
+export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisie, onChoix, contexte, marque, cle = '', sansAdresse = false, avecAucun = false,
+  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel }: {
+  valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
+  /** la frappe dans le champ (le texte du bâtiment suit) */
+  onSaisie: (texte: string) => void;
+  /** un bâtiment CHOISI ou AJOUTÉ (`confirme` : l'intitulé hors numérotation a été confirmé dans la fenêtre) */
+  onChoix: (libelle: string, confirme: boolean) => void;
+  /** où il sera enregistré : « avec le bien » ou « avec la copropriété » */
+  contexte: 'bien' | 'copropriete';
+  /** les repères de l'écran (épreuves) : ceux du champ du bien (`cbc`) ou de la ligne « + » de la fiche Copropriété (`dcp`) */
+  marque: 'cbc' | 'dcp';
+  cle?: string; sansAdresse?: boolean; avecAucun?: boolean; ouvrirAuDebut?: boolean;
+  /** l'avertissement de numérotation d'un NOUVEL intitulé (par défaut : la règle de la copropriété et les bâtiments connus) */
+  avertir?: (nom: string) => AvertissementBatiment | null;
+  /** une valeur à proposer (l'escalier noté du bien) */
+  proposition?: { texte: string; nom: string };
+  placeholder: string; ariaLabel?: string;
+}) {
+  const [ouvert, setOuvert] = useState(ouvrirAuDebut);
+  const [actif, setActif] = useState(-1);
+  const [ajout, setAjout] = useState<{ nom: string; erreur: string | null } | null>(null);
+  const [alerte, setAlerte] = useState<{ a: AvertissementBatiment; depuisEncadre: boolean } | null>(null);
+  const [ajoutes, setAjoutes] = useState<BatimentConnu[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
+  const champ = useRef<HTMLInputElement | null>(null);
+  const champEncadre = useRef<HTMLInputElement | null>(null);
+  const A = marque === 'cbc'
+    ? { champ: 'data-cbc-champ', menu: 'data-cbc-menu', option: 'data-cbc-option', aucun: 'data-cbc-aucun', nouveau: 'data-cbc-nouveau' }
+    : { champ: 'data-dcp-nom-batiment', menu: 'data-dcp-menu', option: 'data-dcp-option', aucun: 'data-dcp-aucun', nouveau: 'data-dcp-ajouter-nouveau' };
+  const tous = menuBatiments([...connus, ...ajoutes]);
+  const existe = (nom: string): BatimentConnu | undefined => { const c = batimentDe(nom)?.cle; return c === undefined ? undefined : tous.find((o) => o.cle === c); };
+  const t = valeur.trim();
+  const cleT = batimentDe(t)?.cle ?? '';
+  const fermer = (): void => { setOuvert(false); setActif(-1); };
+  const retenir = (libelle: string, confirme: boolean): void => {
+    setAjout(null); setAlerte(null);
+    const b = batimentDe(libelle);
+    if (b !== null && !tous.some((o) => o.cle === b.cle)) setAjoutes((x) => [...x, b]);
+    onChoix(libelle, confirme);
+    setMessage(`Bâtiment ${libelle} ajouté — il sera enregistré avec ${contexte === 'bien' ? 'le bien' : 'la copropriété'}`);
+  };
+  const valider = (nom: string, depuisEncadre: boolean): void => {
+    const n = nom.trim();
+    if (n === '') { if (depuisEncadre) setAjout((x) => (x === null ? x : { ...x, erreur: 'Donnez un nom au bâtiment ou à la cage.' })); return; }
+    fermer();
+    const deja = existe(n);
+    if (deja !== undefined) { setAjout(null); setMessage(null); onChoix(deja.libelle, false); return; }
+    const a = (avertir ?? ((x: string) => avertissementBatiment(x, nomenclature, [...connus, ...ajoutes])))(n);
+    if (a !== null) { setAlerte({ a, depuisEncadre }); return; }
+    retenir(batimentDe(n)?.libelle ?? n, false);
+  };
+  const options: { k: string; mot: string; agir: () => void; attr: Record<string, string>; nouveau?: boolean; choisi?: boolean }[] = [
+    ...(t !== '' && existe(t) === undefined ? [{ k: '+saisi', mot: `+ Ajouter le bâtiment « ${t} »`, agir: () => valider(t, false), attr: { 'data-cb-ajouter-saisi': '' }, nouveau: true }] : []),
+    ...tous.filter((o) => t === '' || o.cle.includes(cleT)).map((o) => ({ k: o.cle, mot: o.libelle, agir: () => valider(o.libelle, false), attr: { [A.option]: o.libelle }, choisi: cleT === o.cle })),
+    ...(avecAucun ? [{ k: '∅', mot: 'Aucun bâtiment (code commun)', agir: () => { fermer(); setMessage(null); onChoix('', false); }, attr: { [A.aucun]: '' } }] : []),
+    { k: '+nouveau', mot: 'Ajouter nouveau bâtiment', agir: () => { fermer(); setAjout({ nom: '', erreur: null }); }, attr: { [A.nouveau]: '' }, nouveau: true },
+  ];
+  const idMenu = `cb-menu-${marque}-${cle}`;
+  return (
+    <div className="cb" data-champ-batiment>
+      <div className="cb-zone">
+      <input ref={champ} value={valeur} disabled={desactive} placeholder={placeholder} maxLength={60} role="combobox" aria-expanded={ouvert} aria-controls={idMenu}
+        aria-autocomplete="list" aria-label={ariaLabel} aria-activedescendant={ouvert && actif >= 0 ? `${idMenu}-${actif}` : undefined} {...{ [A.champ]: marque === 'dcp' ? cle : '' }}
+        onFocus={() => setOuvert(true)} onClick={() => setOuvert(true)}
+        onChange={(e) => { setMessage(null); onSaisie(e.target.value); setOuvert(true); setActif(-1); }}
+        onBlur={(e) => { const v = e.target.value; setTimeout(fermer, 180); if (v.trim() !== '' && existe(v)?.libelle !== v.trim()) valider(v, false); }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOuvert(true); setActif((i) => Math.min(i + 1, options.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setActif((i) => Math.max(i - 1, 0)); }
+          else if (e.key === 'Escape') fermer();
+          else if (e.key === 'Enter') { e.preventDefault(); if (ouvert && actif >= 0) options[actif].agir(); else valider((e.target as HTMLInputElement).value, false); }
+        }} />
+      {ouvert && !desactive && (
+        <ul className="dcp-menu cb-menu" role="listbox" id={idMenu} aria-label="Bâtiments connus de la copropriété" {...{ [A.menu]: '' }}>
+          {sansAdresse && <li className="cb-sans-adresse loc-muet" data-cb-sans-adresse>Choisissez d’abord l’adresse du bien pour voir ses bâtiments</li>}
+          {options.map((o, i) => (
+            <li key={o.k}><button type="button" role="option" id={`${idMenu}-${i}`} aria-selected={i === actif || o.choisi === true}
+              className={`dcp-option${o.nouveau ? ' dcp-option--nouveau' : ''}${i === actif ? ' cb-actif' : ''}`} onMouseDown={(e) => e.preventDefault()} onClick={o.agir} {...o.attr}>{o.mot}</button></li>))}
+        </ul>)}
+      </div>
+      {proposition !== undefined && t === '' && (
+        <button type="button" className="dcp-lien" disabled={desactive} onClick={() => valider(proposition.nom, false)} data-cbc-escalier>{proposition.texte}</button>)}
+      {ajout !== null && (
+        <div className="cb-encadre" role="group" aria-label="Ajouter un bâtiment ou une cage" data-cb-encadre>
+          <label className="dcp-champ cb-encadre-champ"><span>Nom du bâtiment / cage</span>
+            <input ref={champEncadre} value={ajout.nom} placeholder={exempleNom(nomenclature)} maxLength={60} data-cb-encadre-nom autoFocus
+              onChange={(e) => setAjout({ nom: e.target.value, erreur: null })}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); valider(ajout.nom, true); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAjout(null); champ.current?.focus(); } }} /></label>
+          <p className="loc-muet cb-regle" data-cb-regle>{phraseRegle(nomenclature)}</p>
+          {ajout.erreur !== null && <p className="cp-refus dcp-refus" role="alert" data-cb-erreur>{ajout.erreur}</p>}
+          <div className="cb-encadre-actions">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAjout(null); champ.current?.focus(); }} data-cb-annuler>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => valider(ajout.nom, true)} data-cb-valider>Valider ce bâtiment</button>
+          </div>
+        </div>)}
+      {message !== null && <p className="cb-message" role="status" data-cb-message>{message}</p>}
+      {alerte !== null && (
+        <div className="dcp-voile" data-dcp-avertissement>
+          <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby={`${idMenu}-alerte-titre`}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); (e.currentTarget.querySelector('[data-dcp-corriger]') as HTMLButtonElement | null)?.click(); } }}>
+            <p className="dcp-alerte-titre" id={`${idMenu}-alerte-titre`}>{TITRE_AVERTISSEMENT}</p>
+            <div>{texteAvertissement(alerte.a).map((x) => <p key={x} className="dcp-alerte-texte">{x}</p>)}</div>
+            <div className="dcp-alerte-actions">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => {
+                // « Corriger » : rien n'est gardé ; la main revient à l'encadré (s'il y était) ou au champ, vidé
+                const depuis = alerte.depuisEncadre; setAlerte(null);
+                if (depuis) { setAjout({ nom: '', erreur: null }); setTimeout(() => champEncadre.current?.focus(), 0); }
+                else { onSaisie(''); setTimeout(() => champ.current?.focus(), 0); }
+              }} data-dcp-corriger>Corriger</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => retenir(alerte.a.libelle, true)} data-dcp-confirmer>Confirmer cet intitulé</button>
+            </div>
+          </div>
+        </div>)}
+    </div>
+  );
+}
+
 /**
  * LE BÂTIMENT (ou la cage) DU BIEN, CHOISI DANS LE MENU de la copropriété — le même menu, la même règle lettres / chiffres et la même fenêtre
  * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
  * c'est un bâtiment connu (rien n'est écrasé).
  */
-export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, variante = 'gestion' }: {
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, variante = 'gestion', sansAdresse = false }: {
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; escalier: string; desactive: boolean;
   onChoix: (libelle: string, confirme: boolean) => void;
   /** 🔴 (17/11/2026) l'habillage de la page Location : le champ prend le gabarit des autres champs de la grille (`loc-champ`) */
   variante?: 'gestion' | 'location';
+  /** 🔴 (17/11/2026) l'adresse du bien n'est pas encore choisie : la copropriété (et ses bâtiments) n'est pas connue */
+  sansAdresse?: boolean;
 }) {
-  const [ouvert, setOuvert] = useState(false);
-  const [alerte, setAlerte] = useState<AvertissementBatiment | null>(null);
-  const options = menuBatiments(connus);
-  const choisir = (libelle: string): void => {
-    setOuvert(false);
-    const a = libelle.trim() === '' ? null : avertissementBatiment(libelle, nomenclature, connus);
-    if (a !== null) { setAlerte(a); onChoix(libelle, false); return; }
-    onChoix(libelle.trim() === '' ? '' : batimentDe(libelle)?.libelle ?? libelle, false);
-  };
   /* 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information » — le champ « Escalier » est retiré) un bien qui
      a un escalier noté et pas encore de bâtiment : sa valeur est PROPOSÉE (« Escalier noté : 2 — choisir ce bâtiment ? »), jamais écrite toute seule ;
      un bâtiment connu de la copropriété est repris tel qu'au registre, sinon c'est un nouveau bâtiment (même avertissement de numérotation) */
-  const proposeEscalier = valeur.trim() === '' && escalier.trim() !== ''
-    ? (options.find((o) => o.cle === batimentDe(escalier)?.cle) ?? { libelle: escalier.trim() }) : undefined;
+  const connu = menuBatiments(connus).find((o) => o.cle === batimentDe(escalier)?.cle);
+  const proposition = valeur.trim() === '' && escalier.trim() !== ''
+    ? { texte: `Escalier noté : ${escalier.trim()} — choisir ce bâtiment ?`, nom: connu?.libelle ?? escalier.trim() } : undefined;
   return (
     <div className={`${variante === 'location' ? 'loc-champ dcp-cbc--location ' : ''}dcp-champ dcp-champ-bat`} data-cbc>
       {/* 🔴 (Arno, 17/11/2026) renommé « Bâtiment / cage d'escalier » ; un texte d'aide court, entier à 390 px comme à l'ordinateur */}
       <span>{LIBELLE_BATIMENT_CAGE}</span>
-      <input value={valeur} disabled={desactive} placeholder="ex. A ou 1 (facultatif)" aria-expanded={ouvert} maxLength={60} aria-label={LIBELLE_BATIMENT_CAGE}
-        onFocus={() => setOuvert(true)} onClick={() => setOuvert(true)} onChange={(e) => { onChoix(e.target.value, false); setOuvert(true); }}
-        onBlur={(e) => { const v = e.target.value; setTimeout(() => setOuvert(false), 180); if (v.trim() !== '') choisir(v); }}
-        onKeyDown={(e) => { if (e.key === 'Escape') setOuvert(false); if (e.key === 'Enter') { e.preventDefault(); choisir((e.target as HTMLInputElement).value); } }}
-        data-cbc-champ />
-      {ouvert && (
-        <ul className="dcp-menu" role="listbox" aria-label="Bâtiments connus de la copropriété" data-cbc-menu>
-          {options.filter((o) => valeur.trim() === '' || o.cle.includes(batimentDe(valeur)?.cle ?? '')).map((o) => (
-            <li key={o.cle}><button type="button" role="option" aria-selected={batimentDe(valeur)?.cle === o.cle} className="dcp-option" onMouseDown={(e) => e.preventDefault()}
-              onClick={() => choisir(o.libelle)} data-cbc-option={o.libelle}>{o.libelle}</button></li>))}
-          <li><button type="button" className="dcp-option" onMouseDown={(e) => e.preventDefault()} onClick={() => { setOuvert(false); onChoix('', false); }} data-cbc-aucun>Aucun bâtiment (code commun)</button></li>
-          <li><button type="button" className="dcp-option dcp-option--nouveau" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChoix('', false); setOuvert(false); }} data-cbc-nouveau>Ajouter nouveau bâtiment</button></li>
-        </ul>)}
-      {proposeEscalier !== undefined && (
-        <button type="button" className="dcp-lien" disabled={desactive} onClick={() => choisir(proposeEscalier.libelle)} data-cbc-escalier>
-          Escalier noté : {escalier.trim()} — choisir ce bâtiment ?</button>)}
-      {alerte !== null && (
-        <div className="dcp-voile" data-dcp-avertissement>
-          <div className="dcp-alerte" role="alertdialog" aria-modal="true" aria-labelledby="cbc-alerte-titre" aria-describedby="cbc-alerte-texte"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); (e.currentTarget.querySelector('[data-dcp-corriger]') as HTMLButtonElement | null)?.click(); } }}>
-            <p className="dcp-alerte-titre" id="cbc-alerte-titre">{TITRE_AVERTISSEMENT}</p>
-            <div id="cbc-alerte-texte">{texteAvertissement(alerte).map((t) => <p key={t} className="dcp-alerte-texte">{t}</p>)}</div>
-            <div className="dcp-alerte-actions">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => {
-                setAlerte(null); onChoix('', false);
-                setTimeout(() => (document.querySelector('[data-cbc-champ]') as HTMLInputElement | null)?.focus(), 0);
-              }} data-dcp-corriger>Corriger</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { const a = alerte; setAlerte(null); onChoix(a.libelle, true); }} data-dcp-confirmer>Confirmer cet intitulé</button>
-            </div>
-          </div>
-        </div>)}
+      <ChampBatiment valeur={valeur} connus={connus} nomenclature={nomenclature} desactive={desactive} contexte="bien" marque="cbc" avecAucun sansAdresse={sansAdresse}
+        onSaisie={(v) => onChoix(v, false)} onChoix={onChoix} placeholder="ex. A ou 1 (facultatif)" ariaLabel={LIBELLE_BATIMENT_CAGE}
+        {...(proposition !== undefined ? { proposition } : {})} />
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
   );
@@ -720,6 +793,23 @@ export const CSS_DIGICODES_COPRO = `
 .dcp--location .dcp-lien{min-height:44px;font-size:1rem}
 .dcp--location .dcp-mention{font-size:.9rem}
 .dcp-cbc--location{position:relative}
+/* 🔴 (Arno, 17/11/2026) le choix / l'ajout d'un bâtiment : le menu PAR-DESSUS la page (il ne décale aucun champ) ; l'encadré d'ajout sous le champ */
+.cb{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
+.cb-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;margin:0;max-height:260px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
+.cb-zone{position:relative;min-width:0}
+.cb-zone > input{width:100%;box-sizing:border-box}
+.cb-menu .dcp-option{min-height:44px;display:flex;align-items:center}
+.cb-menu .cb-actif{background:var(--color-svv-field);outline:2px solid var(--color-svv-ink);outline-offset:-2px}
+.cb-sans-adresse{padding:8px 10px;font-size:.88rem;line-height:1.35}
+.cb-encadre{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-surface)}
+.cb-encadre-champ{flex:1 1 auto}
+.dcp-champ-bat:has(.cb-encadre){flex:1 1 100%}
+.cb-encadre .cb-encadre-champ input{max-width:420px}
+.cb-regle{margin:0;font-size:.85rem;line-height:1.4}
+.cb-encadre-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.cb-encadre-actions .svv-btn{min-height:44px}
+.cb-message{margin:0;font-size:.88rem;font-weight:700;color:var(--color-svv-green, var(--color-svv-ink))}
+@media (max-width:600px){.cb-encadre-actions .svv-btn{flex:1 1 100%}}
 /* 🔴 (Arno, 17/11/2026) le champ d'un digicode et ses deux boutons (« pas de digicode », « + ») : même ligne, même hauteur, centrés */
 .dcp--location .dcp-ligne:has(> .dcp-champ){align-items:flex-end;flex-wrap:nowrap}
 .dcp--location .dcp-ligne:has(> .dcp-champ) > .dcp-champ{flex:1 1 auto;min-width:0}
