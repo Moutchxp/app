@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { CreationLocataire } from './CreationLocataire';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX (« Enregistrer le bien » semblait ne rien faire en production) :
@@ -54,7 +55,7 @@ const rendreBien = async () => { await act(async () => { root.render(createEleme
 const parkingComplet = async () => {
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '27 rue Royer Bendélé');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '27 rue Royer Bendélé');
   await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'En gestion')!);
 };
 
@@ -132,7 +133,8 @@ describe('🔴 « Nouveau bien » — jamais de silence', () => {
     expect(texte('h2')).toBe('✓ Bien enregistré');
     expect([...modale()!.querySelectorAll('[data-resume] dt')].map((d) => d.textContent)).toEqual(['Propriétaire', 'Adresse', 'Bien']);
     expect(texte('[data-resume] div:nth-child(1) dd')).toBe('CHALAH Ramdane');
-    expect(texte('[data-resume] div:nth-child(2) dd')).toBe('27 rue Royer Bendélé');
+    // (« Adresses uniformisées », lot 3) l'adresse choisie dans la liste : son code postal et sa commune viennent avec elle
+    expect(texte('[data-resume] div:nth-child(2) dd')).toBe('27 rue Royer Bendélé, 92400 COURBEVOIE');
     expect(modale()!.querySelector('[data-voir-fiche-bien]')?.getAttribute('href')).toBe('/admin/location/bien/9');
     expect(modale()!.querySelector('[data-creer-autre]')?.getAttribute('href')).toBe('/admin/location/nouveau-bien');
     expect(window.location.href).toBe('');

@@ -1,4 +1,5 @@
 import { refusNomAnnexe } from './bienComplet';
+import type { MetaAdresse } from '../gestion/adresseSaisie';
 import { resumeAnnexe } from './annexeLocation';
 import { libelleEtage, type Categorie } from './locationBien';
 import { LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_PARKING } from './bienComplet';
@@ -33,10 +34,14 @@ export interface AnnexeLue {
   autreAdresse: boolean; adresse: string; codePostal: string; commune: string;
   /** Créée dans l'application : son adresse se modifie (celle d'une annexe importée est tenue par WIPPIMMO). */
   adresseModifiable: boolean;
+  /** 🔴 (« Adresses uniformisées », lot 3, migration 485) la nature de son « Autre adresse » : 'hors_liste' se montre « hors liste — à vérifier » */
+  adresseNature?: 'liste' | 'hors_liste' | null;
 }
 
 /** Une annexe de la saisie : `id` = une annexe existante ; `null` = une annexe NOUVELLE. `sortir` : à sortir du portefeuille. */
-export interface AnnexeSaisie extends Omit<AnnexeLue, 'id' | 'adresseModifiable'> { id: number | null; sortir?: boolean }
+export interface AnnexeSaisie extends Omit<AnnexeLue, 'id' | 'adresseModifiable' | 'adresseNature'> { id: number | null; sortir?: boolean;
+  /** 🔴 (« Adresses uniformisées », lot 3) ce que l'écran dit de l'« Autre adresse » saisie : sa nature et les confirmations */
+  adresseSaisie?: MetaAdresse }
 
 /** Le statut du bien, lu (migration 403) : ses gestes permis ; aucun pour une annexe rattachée (elle suit son bien principal). */
 export interface StatutLu { statut: StatutBien; depuis: string | null; gestes: GesteStatut[]; disponible: boolean; suitLot: { id: number; adresse: string | null } | null }
@@ -54,6 +59,8 @@ export interface SaisieFiche {
   confirmeOccupation?: boolean;
   /** 🔴 (Arno, 17/11/2026) les PV d'AG saisis dans le formulaire, enregistrés avec le bien (dans la base officielle des PV de sa copropriété) */
   pvAg?: { date: string; nature: 'ago' | 'age'; note: string | null }[];
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) ce que l'écran dit de l'adresse du bien, quand elle a été touchée */
+  adresseSaisie?: MetaAdresse;
 }
 
 const LIBELLE_ANNEXE: Record<string, string> = { cave: 'Cave', parking: 'Parking', box: 'Box', autre: 'Autre annexe' };

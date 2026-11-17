@@ -21,6 +21,9 @@ import {
   changementsAnnexes, changementsFiche, empreinte, MOTIF_CONFLIT, refusFiche,
   type AnnexeLue, type AnnexeSaisie, type ChangementFiche, type SaisieFiche, type StatutLu, type TransitionSaisie,
 } from './ficheBienEntiere';
+import { titreAnnexeSaisie } from './ficheBienEntiere';
+import { metaPropre } from '../gestion/adresseSaisie';
+import { controlerAdresseBien, controlerAdresseBienExistant, type ControleAdresseBien } from './adresseBienRepo';
 
 /**
  * ══ 🔴🔴 LA FICHE DU BIEN MODIFIÉE EN ENTIER — LECTURE, EMPREINTE ET ÉCRITURE (Arno, 23/10/2026). IMPUR (base, Drive, mail). ════════
@@ -57,6 +60,7 @@ function annexeLue(a: BienLocation, parent: BienLocation): AnnexeLue {
     annotation: t(a.annotation), detachee: a.detachee === true, parkingSituation: t(a.parkingSituation), parkingType: t(a.parkingType),
     autreAdresse: autre, adresse: t(autre ? a.adresse : parent.adresse), codePostal: t(autre ? a.codePostal : parent.codePostal),
     commune: t(autre ? a.commune : parent.commune), adresseModifiable: a.creeDansLApplication === true,
+    adresseNature: autre ? a.adresseNature ?? null : parent.adresseNature ?? null,
   };
 }
 
@@ -106,6 +110,7 @@ function lireAnnexe(b: unknown): AnnexeSaisie | null {
     nomAnnexe: s('nomAnnexe', 80), annotation: s('annotation', 2000), detachee: a.detachee === true, parkingSituation: s('parkingSituation', 40),
     parkingType: s('parkingType', 40), autreAdresse: a.autreAdresse === true, adresse: s('adresse', 300), codePostal: s('codePostal', 10), commune: s('commune', 120),
     ...(a.sortir === true ? { sortir: true } : {}),
+    ...(metaPropre(a.adresseSaisie) !== undefined ? { adresseSaisie: metaPropre(a.adresseSaisie) } : {}),
   };
 }
 
@@ -132,6 +137,7 @@ export function lireSaisie(brut: Record<string, unknown>, valeursLues: ValeursEn
     annexes: Array.isArray(brut.annexes) ? brut.annexes.slice(0, 40).map(lireAnnexe).filter((a): a is AnnexeSaisie => a !== null) : [],
     statut: lireTransition(brut.statut),
     ...(brut.confirmeOccupation === true ? { confirmeOccupation: true } : {}),
+    ...(metaPropre(brut.adresseSaisie) !== undefined ? { adresseSaisie: metaPropre(brut.adresseSaisie) } : {}),
   };
 }
 
@@ -151,6 +157,10 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   s.annexes = s.annexes.filter((a) => a.id === null || l.data.bruts.has(a.id));
   const refus = refusFiche(lu, s);
   if (refus !== null) return { etat: 'refus', motif: refus };
+  // 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) TOUTES les adresses touchées — celle du bien, les « Autre adresse » des annexes existantes
+  // et nouvelles — contrôlées AVANT toute écriture : un refus n'a rien écrit (ni digicodes, ni PV, ni bien)
+  const adr = await controlerAdressesFiche(id, lu, s);
+  if (!adr.ok) return { etat: 'refus', motif: adr.motif };
   // 🔴🔴 (« Digicodes unifiés », lot 4) le bâtiment choisi au menu et les premières valeurs des digicodes : par le chemin serveur unique, d'abord
   // (un refus — numérotation non confirmée, code déjà connu — arrête tout, rien d'autre n'est écrit)
   const digicodesBien = (await digicodesUnifiesDisponibles()) ? validerDigicodesBien(brut.digicodesBien) : null;
@@ -173,7 +183,7 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   const partiel = (motif: string): IssueFiche => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
 
   // ① LE BIEN — tous les groupes de l'encart, par l'écriture de l'encart (mêmes contrôles, une ligne d'Historique par groupe).
-  const v = await modifierEncartBien(id, GROUPES_FICHE, s.valeurs as unknown as Record<string, unknown>, auteur);
+  const v = await modifierEncartBien(id, GROUPES_FICHE, s.valeurs as unknown as Record<string, unknown>, auteur, adr.bien);
   if (v.etat !== 'ok') return v.etat === 'refus' ? partiel(v.motif) : v;
   faits.push(...v.data.changements.map((c) => c.champ));
   const adresseChangee = lu.encart.adresseModifiable && v.data.changements.some((c) => c.cle === 'adresse' || c.cle === 'codePostal' || c.cle === 'commune');
@@ -199,7 +209,7 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
           categorie: brute.categorie, adresse: autre ? a.adresse : t(brute.adresse), codePostal: autre ? a.codePostal : t(brute.codePostal), commune: autre ? a.commune : t(brute.commune),
           etage: a.etage, porte: a.porte, numLotCopro: a.numLotCopro, surfaceCarrezM2: t(brute.surfaceCarrezM2), surfaceExterieureM2: t(brute.surfaceExterieureM2),
           nomAnnexe: a.nomAnnexe, annotation: a.annotation,
-        }, auteur);
+        }, auteur, adr.annexes.get(a.id));
         if (r.etat !== 'ok') return partiel('motif' in r && typeof r.motif === 'string' ? r.motif : 'L’annexe n’a pas pu être modifiée.');
       }
       if (avant.parkingSituation !== a.parkingSituation || avant.parkingType !== a.parkingType) {
@@ -218,7 +228,7 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   // ③ LES ANNEXES NOUVELLES — l'écriture de « Nouveau bien ».
   const nouvelles = s.annexes.filter((a) => a.id === null && a.sortir !== true);
   if (nouvelles.length > 0) {
-    const r = await ajouterAnnexesCompletes(id, nouvelles as unknown as Record<string, unknown>[], auteur);
+    const r = await ajouterAnnexesCompletes(id, nouvelles as unknown as Record<string, unknown>[], auteur, adr.nouvelles);
     if (r.etat !== 'ok') return r.etat === 'refus' ? partiel(r.motif) : r;
     const lignes = changementsAnnexes([], nouvelles);
     await journaliser(id, { titre: 'Annexes' }, lignes, auteur);
@@ -238,4 +248,34 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
       : `Statut enregistré, mais le dossier Drive n’a pas été déplacé : ${d.drive.motif ?? 'le Drive n’a pas répondu'}. « Déplacer maintenant » (sur la fiche) le rejoue.`);
   }
   return { etat: 'ok', data: { changements, notes } };
+}
+
+/**
+ * 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) LES ADRESSES DE LA FICHE, contrôlées avant toute écriture : celle du bien (si elle se
+ * modifie ici), l'« Autre adresse » de chaque annexe existante modifiable, celle de chaque annexe nouvelle. Le premier refus dit laquelle.
+ * Rend les contrôles à passer aux écritures (le service national n'est interrogé qu'une fois).
+ */
+async function controlerAdressesFiche(id: number, lu: Lu['publique'], s: SaisieFiche): Promise<
+  { ok: true; bien: ControleAdresseBien | undefined; annexes: Map<number, ControleAdresseBien>; nouvelles: (ControleAdresseBien | undefined)[] } | { ok: false; motif: string }> {
+  const bien = lu.encart.adresseModifiable
+    ? await controlerAdresseBienExistant(id, { adresse: s.valeurs.adresse, codePostal: s.valeurs.codePostal, commune: s.valeurs.commune }, s.adresseSaisie)
+    : undefined;
+  if (bien !== undefined && !bien.ok) return bien;
+  const annexes = new Map<number, ControleAdresseBien>();
+  for (const a of s.annexes) {
+    if (a.id === null || a.sortir === true) continue;
+    const avant = lu.annexes.find((x) => x.id === a.id);
+    if (avant === undefined || !avant.autreAdresse || !avant.adresseModifiable) continue;
+    const r = await controlerAdresseBienExistant(a.id, { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }, a.adresseSaisie);
+    if (!r.ok) return { ok: false, motif: `Annexe ${titreAnnexeSaisie(a)} : ${r.motif}` };
+    annexes.set(a.id, r);
+  }
+  const nouvelles: (ControleAdresseBien | undefined)[] = [];
+  for (const a of s.annexes.filter((x) => x.id === null && x.sortir !== true)) {
+    if (!a.autreAdresse) { nouvelles.push(undefined); continue; }
+    const r = await controlerAdresseBien(null, { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }, a.adresseSaisie);
+    if (!r.ok) return { ok: false, motif: `Annexe ${titreAnnexeSaisie(a)} : ${r.motif}` };
+    nouvelles.push(r);
+  }
+  return { ok: true, bien, annexes, nouvelles };
 }

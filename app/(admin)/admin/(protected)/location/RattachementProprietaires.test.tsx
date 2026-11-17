@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { CartesDuBloc } from './RattachementProprietaires';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 « Ajouter un nouveau bien » — BLOC 1 : rattacher les personnes UNE À UNE (Arno, 18/10/2026). Les VRAIS composants,
@@ -91,7 +92,7 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
     await act(async () => { (container.querySelector('[data-famille="logement"]') as HTMLButtonElement).click(); });
     await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(adr, '3 rue du Port'); adr.dispatchEvent(new Event('input', { bubbles: true })); });
+    await choisirAdresseBan(adr, '3 rue du Port');
     // Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires pour un logement (classe D, date, Non).
     await act(async () => { [...container.querySelectorAll('[aria-label="Classe DPE"] button')].find((b) => b.textContent === 'D')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     const dpeDate = container.querySelector('[data-dpe-date] input') as HTMLInputElement;

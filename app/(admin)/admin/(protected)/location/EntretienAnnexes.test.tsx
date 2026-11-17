@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { SectionLocationBien, SectionLocationProprietaire } from '../gestion/SectionsLocationFiche';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Retouches d'Arno (18/10/2026) : bloc 6 aligné et « Entretien à prévoir » ; annexes annotées, Supprimer / Détacher / Fermer
@@ -85,7 +86,7 @@ const saisir = async (el: HTMLInputElement | HTMLTextAreaElement, v: string) => 
 const remplirMinimum = async () => {
   await act(async () => { (container.querySelector('[data-famille="logement"]') as HTMLButtonElement).click(); });
   await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
   await remplirDpeEntretien();
 };
 /** Arno (18/10/2026) : DPE et « Entretien à prévoir » sont obligatoires pour un logement / local — remplis ici (classe D, date, Non). */

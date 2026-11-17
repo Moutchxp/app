@@ -6,6 +6,8 @@ import type { ContactRattache } from './rattachements';
 import { preavisOuverts } from './preavisRepo';
 import type { PreavisAffiche } from './preavis';
 import { colonneExisteMemo } from './sondeLocation';
+import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
+import { controlerAdresseBienExistant, ecrireNatureAdresseBien, type ControleAdresseBien } from './adresseBienRepo';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { normaliserTexte } from '../gestion/annuaire';
@@ -156,6 +158,7 @@ interface LigneBienSql {
   adresse_autre?: boolean | null; parking_situation?: string | null; parking_type?: string | null;
   nom_annexe?: string | null;
   annotation?: string | null; detachee?: boolean | null; detachee_le?: string | null;
+  adresse_nature?: string | null;
 }
 
 const versBien = (r: LigneBienSql): BienLocation => ({
@@ -174,6 +177,8 @@ const versBien = (r: LigneBienSql): BienLocation => ({
   annotation: r.annotation ?? null,
   detachee: r.detachee === true,
   detacheeLe: r.detachee_le ?? null,
+  // 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3, migration 485) la nature de l'adresse : « hors liste — à vérifier » se montre
+  adresseNature: r.adresse_nature === 'liste' || r.adresse_nature === 'hors_liste' ? r.adresse_nature : null,
 });
 
 async function lireBiens(where: string, params: unknown[], suffixe = ''): Promise<BienLocation[]> {
@@ -185,6 +190,7 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
             ${(await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre')) ? 'lo.adresse_autre, lo.parking_situation, lo.parking_type'
     : 'NULL::boolean AS adresse_autre, NULL::text AS parking_situation, NULL::text AS parking_type'},
             ${(await annexeNomPnoDisponible()) ? 'lo.nom_annexe' : 'NULL::text AS nom_annexe'},
+            ${(await natureAdresseDisponible('gestion_annuaire_lot')) ? 'lo.adresse_nature' : 'NULL::text AS adresse_nature'},
             ${(await entretienDisponible()) ? 'lo.annotation, lo.annexe_detachee_le IS NOT NULL AS detachee, lo.annexe_detachee_le::text AS detachee_le' : 'NULL::text AS annotation, false AS detachee, NULL::text AS detachee_le'},
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             (SELECT l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
@@ -427,11 +433,17 @@ export async function enregistrerMandat(proprietaireId: number, brut: unknown, a
  * Les caractéristiques d'un bien. 🔴 L'ADRESSE n'est modifiable que pour un bien CRÉÉ DANS L'APPLICATION : celle d'un bien
  * importé est tenue par WIPPIMMO, et l'import la réécrirait sans le dire.
  */
-export async function modifierBien(lotId: number, brut: Record<string, unknown>, auteur: Auteur): Promise<Issue> {
+export async function modifierBien(lotId: number, brut: Record<string, unknown>, auteur: Auteur,
+  /** 🔴 (lot 3) le contrôle d'adresse déjà fait par l'appelant (la fiche entière contrôle tout AVANT toute écriture) ; absent : fait ici */
+  controleAdresse?: ControleAdresseBien): Promise<Issue> {
   if (!(await locationDisponible())) return { etat: 'sans_schema' };
   const v = verifierChampsBien(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const c = v.valeurs;
+  // 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3, migration 485) l'adresse d'un bien créé ici, nouvelle ou changée : choisie dans la
+  // liste (retrouvée), ou « hors liste » confirmée ; une adresse non touchée n'est ni revérifiée ni requalifiée — AVANT toute écriture
+  const adr = controleAdresse ?? await controlerAdresseBienExistant(lotId, c, brut.adresseSaisie);
+  if (!adr.ok) return { etat: 'refus', motif: adr.motif };
   // Le NOM d'une annexe « Autre » (migration 378) : envoyé par la fiche qui le montre ; obligatoire pour elle.
   const avecNom = Object.prototype.hasOwnProperty.call(brut, 'nomAnnexe') && (await annexeNomPnoDisponible());
   const refusNom = avecNom ? refusNomAnnexe(c.categorie, brut.nomAnnexe) : null;
@@ -451,6 +463,7 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
         WHERE id = $1`,
       [lotId, c.categorie, c.etage, c.porte, c.numLotCopro, c.surfaceCarrezM2, c.surfaceExterieureM2,
         ...(app ? [c.adresse, c.codePostal, c.commune, normaliserTexte([c.adresse, c.commune].filter((x) => x !== null).join(' '))] : [])]);
+    if (app && adr.ecrire) await ecrireNatureAdresseBien(q, lotId, adr.nature);
     if (avecNom) await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [lotId, nomAnnexe]);
     // L'annotation d'une annexe (migration 379) : envoyée par la carte qui la montre.
     if (avecAnnotation) await q('UPDATE gestion_annuaire_lot SET annotation = $2 WHERE id = $1', [lotId, annotationPropre(brut.annotation)]);

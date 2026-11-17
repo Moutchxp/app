@@ -34,6 +34,8 @@ import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodes
 import { ecrireDigicodesDuBien, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
 import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
+import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
+import { controlerAdresseBien, type ControleAdresseBien } from './adresseBienRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -307,6 +309,15 @@ async function creerBienInterne(s: SaisieBien & {
   const entretien = verifierEntretiens((s.logement ?? {}).entretienAPrevoir, (s.logement ?? {}).entretiens);
   if (!entretien.ok) return { etat: 'refus', motif: entretien.motif };
   const l = v.logement;
+  // 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3, migration 485) l'adresse du bien et l'« Autre adresse » de chaque annexe : choisies dans
+  // la liste (retrouvées), ou « hors liste » confirmées ; « sans numéro » confirmée — AVANT toute écriture
+  const adrBien = await controlerAdresseBien(null, { adresse: l.adresse, codePostal: l.codePostal, commune: l.commune },
+    (s.logement as Record<string, unknown> | undefined)?.adresseSaisie);
+  if (!adrBien.ok) return { etat: 'refus', motif: adrBien.motif };
+  const adrAnnexes = await controlesAdressesAnnexes(v.annexes, Array.isArray(s.annexes) ? s.annexes as Record<string, unknown>[] : []);
+  if (!adrAnnexes.ok) return { etat: 'refus', motif: adrAnnexes.motif };
+  const avec485 = await natureAdresseDisponible('gestion_annuaire_lot');
+  const natureBien = adrBien.ecrire ? adrBien.nature : null;
   const avec378 = await annexeNomPnoDisponible();
   const avec379 = await entretienDisponible();
   // « Non soumis » ne s'écrit que dans la colonne de la migration 382 : sans elle, rien n'est créé (jamais un DPE perdu en silence).
@@ -369,6 +380,7 @@ async function creerBienInterne(s: SaisieBien & {
         ...(avec400 ? { charges_copro: l.chargesCopro ?? null } : {}),
         ...(avec461 ? { copropriete: l.copropriete ?? null } : {}),
         ...(avec401 ? { id_fiscal: l.idFiscal ?? null } : {}),
+        ...(avec485 && natureBien !== null ? { adresse_nature: natureBien } : {}),
         ...statut,
         ...occupe,
       }, auteur);
@@ -394,13 +406,15 @@ async function creerBienInterne(s: SaisieBien & {
       // Le mandat, sur la fiche de chaque propriétaire du bien (les champs existants), dans la même transaction que le bien.
       if (mandat !== null) mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
       const annexes: number[] = [];
-      for (const a of v.annexes) {
+      for (const [i, a] of v.annexes.entries()) {
         // « Même adresse » (par défaut) : l'annexe hérite de l'adresse du logement / local. « Autre adresse » : la sienne.
         const adresse = a.autreAdresse ? { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }
           : { adresse: l.adresse, codePostal: l.codePostal, commune: l.commune };
+        const nature = a.autreAdresse ? adrAnnexes.natures[i] : natureBien;
         const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
           adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
           ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
+          ...(avec485 && nature !== null ? { adresse_nature: nature } : {}),
           // Une annexe suit le statut de son logement / local : elle est louée et gérée avec lui (et entre dans le suivi à la même date).
           ...statut,
           ...(ro.dateEffet !== null ? { statut_bien_depuis: ro.dateEffet } : {}),
@@ -707,11 +721,17 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
  * un bien EXISTANT : ses propriétaires (titulaire et co-propriétaires en cours), son adresse pour « Même adresse », son « en
  * gestion » (une annexe suit son bien). Une transaction ; journalisé sur le bien. Un bien qui est lui-même une annexe n'en a pas.
  */
-export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly Record<string, unknown>[], auteur: Auteur): Promise<Issue<{ ids: number[] }>> {
+export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly Record<string, unknown>[], auteur: Auteur,
+  /** 🔴 (« Adresses uniformisées », lot 3) les contrôles d'adresse déjà faits par l'appelant (un par annexe, `undefined` pour « Même adresse ») */
+  controles?: readonly (ControleAdresseBien | undefined)[]): Promise<Issue<{ ids: number[] }>> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierAnnexesSaisies(brutes.slice(0, 20));
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   if (v.annexes.length === 0) return { etat: 'ok', data: { ids: [] } };
+  // 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) l'« Autre adresse » de chaque annexe : contrôlée AVANT toute écriture
+  const adresses = await controlesAdressesAnnexes(v.annexes, brutes, controles);
+  if (!adresses.ok) return { etat: 'refus', motif: adresses.motif };
+  const avec485 = await natureAdresseDisponible('gestion_annuaire_lot');
   const avec378 = await annexeNomPnoDisponible();
   const avec379 = await entretienDisponible();
   const avec390 = await bienEnGestionDisponible();
@@ -719,8 +739,9 @@ export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q<{ proprietaire_id: string | null; nom: string | null; adresse: string | null; code_postal: string | null; commune: string | null;
-        en_gestion: boolean | null; categorie: string | null }>(
+        en_gestion: boolean | null; categorie: string | null; adresse_nature: string | null }>(
         `SELECT lo.proprietaire_id::text, p.nom_complet AS nom, lo.adresse, lo.code_postal, lo.commune, lo.categorie,
+                ${avec485 ? 'lo.adresse_nature' : 'NULL::text AS adresse_nature'},
                 ${avec390 ? 'lo.en_gestion' : 'NULL::boolean AS en_gestion'}
            FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire p ON p.id = lo.proprietaire_id
           WHERE lo.id = $1 FOR UPDATE OF lo`, [parentId]);
@@ -735,12 +756,15 @@ export async function ajouterAnnexesCompletes(parentId: number, brutes: readonly
       const proprietaires = [{ id: Number(parent.proprietaire_id), nom: parent.nom ?? '' }, ...co.map((c) => ({ id: Number(c.id), nom: c.nom }))];
       const statut = avec390 && parent.en_gestion !== null ? { en_gestion: parent.en_gestion } : {};
       const ids: number[] = [];
-      for (const a of v.annexes) {
+      for (const [i, a] of v.annexes.entries()) {
         const adresse = a.autreAdresse ? { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }
           : { adresse: parent.adresse, codePostal: parent.code_postal, commune: parent.commune };
+        // la nature : celle de l'« Autre adresse » contrôlée, ou celle de l'adresse du bien (« Même adresse »)
+        const nature = a.autreAdresse ? adresses.natures[i] : parent.adresse_nature === 'liste' || parent.adresse_nature === 'hors_liste' ? parent.adresse_nature : null;
         const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
           adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
           ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
+          ...(avec485 && nature !== null ? { adresse_nature: nature } : {}),
           ...statut,
           ...(avec379 ? { annotation: a.annotation ?? null, ...(a.detachee === true ? { annexe_detachee_le: new Date().toISOString(), annexe_detachee_par_libelle: auteur.libelle } : {}) } : {}),
         }, auteur);
@@ -776,4 +800,20 @@ export async function enregistrerEnGestion(proprietaireId: number, valeur: unkno
     await journaliser(q, 'annuaire', proprietaireId, 'location_en_gestion', `en gestion : ${mot(rows[0].avant)} → ${mot(v)} (fiche commune)`, auteur);
     return { etat: 'ok' as const, data: undefined };
   });
+}
+
+/**
+ * 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) L'« AUTRE ADRESSE » DES ANNEXES À CRÉER : chacune contrôlée comme l'adresse du bien (ce que
+ * l'écran en dit voyage dans `adresseSaisie` de l'annexe brute, au même rang) ; « Même adresse » : rien à contrôler. Rend la nature de chacune.
+ */
+async function controlesAdressesAnnexes(annexes: readonly { autreAdresse: boolean; adresse: string | null; codePostal: string | null; commune: string | null }[],
+  brutes: readonly Record<string, unknown>[], deja?: readonly (ControleAdresseBien | undefined)[]): Promise<{ ok: true; natures: ('liste' | 'hors_liste' | null)[] } | { ok: false; motif: string }> {
+  const natures: ('liste' | 'hors_liste' | null)[] = [];
+  for (const [i, a] of annexes.entries()) {
+    if (!a.autreAdresse) { natures.push(null); continue; }
+    const r = deja?.[i] ?? await controlerAdresseBien(null, { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }, brutes[i]?.adresseSaisie);
+    if (!r.ok) return { ok: false, motif: `Annexe ${i + 1} (autre adresse) : ${r.motif}` };
+    natures.push(r.ecrire && (r.nature === 'liste' || r.nature === 'hors_liste') ? r.nature : null);
+  }
+  return { ok: true, natures };
 }

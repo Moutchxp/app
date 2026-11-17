@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (18/10/2026) : à la création d'un LOGEMENT ou d'un LOCAL (« Ajouter un nouveau bien », et le même formulaire
@@ -88,7 +89,7 @@ const logementMinimal = async (f: 'logement' | 'local' = 'logement') => {
   await famille(f);
   if (f === 'logement') await clic(container.querySelectorAll('[aria-label="Type de logement"] button')[0]);
   else await clic([...container.querySelectorAll('[aria-label="Type de local"] button')][1]);
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
 };
 const rendre = async (props: Parameters<typeof CreationBien>[0] = { proprietairesInitiaux: [1] }) => {
   await act(async () => { root.render(createElement(CreationBien, props)); });
@@ -197,7 +198,7 @@ describe('🔴 « Ajouter un nouveau bien » : DPE et entretien obligatoires (lo
     await rendre();
     await famille('parking');
     await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-    await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+    await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
     expect(container.querySelector('[data-dpe]')).toBeNull();
     expect(container.querySelector('[data-entretien-bloc]')).toBeNull();
     expect(barre()).toBe('Tout l’obligatoire est renseigné.');

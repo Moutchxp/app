@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import type { ControleAdresseBien } from './adresseBienRepo';
 import { digicodesUnifiesDisponibles } from '../gestion/digicodesRepo';
 import { colonnesTrace, traceCourante } from '../gestion/traceJournal';
 import type { Auteur } from '../gestion/gestes';
@@ -32,7 +33,9 @@ export interface LectureEncart extends PorteeEncart {
 export const GROUPES_ENCART: readonly GroupeEncart[] = GROUPES_FICHE;
 export const estGroupeEncart = (x: unknown): x is GroupeEncart => typeof x === 'string' && (GROUPES_ENCART as readonly string[]).includes(x);
 
-export type LectureEncartComplete = LectureEncart & { categorie: string; adresse: string | null; codePostal: string | null; commune: string | null; nomAnnexe: string | null };
+export type LectureEncartComplete = LectureEncart & { categorie: string; adresse: string | null; codePostal: string | null; commune: string | null; nomAnnexe: string | null;
+  /** 🔴 (« Adresses uniformisées », lot 3, migration 485) 'hors_liste' : saisie libre confirmée, à vérifier ; null : d'avant */
+  adresseNature?: 'liste' | 'hors_liste' | null };
 
 export async function lireEncartBien(id: number): Promise<Issue<LectureEncartComplete>> {
   const f = await ficheBienLocation(id);
@@ -57,6 +60,7 @@ export async function lectureDepuisFiche(fiche: Pick<FicheBienLocation, 'bien' |
     digicodesUnifies: await digicodesUnifiesDisponibles(),
     digicodeImmeuble: c.digicodeImmeuble === undefined ? null : { mention: c.digicodeImmeuble.mention, source: c.digicodeImmeuble.source },
     categorie: b.categorie, adresse: b.adresse, codePostal: b.codePostal, commune: b.commune, nomAnnexe: (b as { nomAnnexe?: string | null }).nomAnnexe ?? null,
+    adresseNature: b.adresseNature ?? null,
   } };
 }
 
@@ -71,7 +75,9 @@ function entretiensEnvoi(v: ValeursEncart): { entretienAPrevoir: boolean | null;
  * Un groupe (l'ancien « Modifier » d'un bloc) ou PLUSIEURS — la fiche entière, Arno (23/10/2026) : les mêmes écritures, une ligne
  * d'Historique par groupe et par écriture.
  */
-export async function modifierEncartBien(id: number, quoi: GroupeEncart | readonly GroupeEncart[], brut: Record<string, unknown>, auteur: Auteur): Promise<Issue<{ changements: ChangementEncart[] }>> {
+export async function modifierEncartBien(id: number, quoi: GroupeEncart | readonly GroupeEncart[], brut: Record<string, unknown>, auteur: Auteur,
+  /** 🔴 (« Adresses uniformisées », lot 3) le contrôle de l'adresse du bien, fait par l'appelant avant toute écriture (sinon : `modifierBien` le fait) */
+  controleAdresse?: ControleAdresseBien): Promise<Issue<{ changements: ChangementEncart[] }>> {
   const lu = await lireEncartBien(id);
   if (lu.etat !== 'ok') return lu;
   const e = lu.data;
@@ -142,7 +148,8 @@ export async function modifierEncartBien(id: number, quoi: GroupeEncart | readon
       categorie: apres.categorie || e.categorie, adresse: e.adresseModifiable ? apres.adresse : e.adresse ?? '',
       codePostal: e.adresseModifiable ? apres.codePostal : e.codePostal ?? '', commune: e.adresseModifiable ? apres.commune : e.commune ?? '', nomAnnexe: e.nomAnnexe ?? '',
       etage: apres.etage, porte: apres.porte, numLotCopro: apres.numLotCopro, surfaceCarrezM2: apres.surfaceCarrezM2, surfaceExterieureM2: apres.surfaceExterieureM2,
-    }, auteur);
+      ...(e.adresseModifiable && brut.adresseSaisie !== undefined ? { adresseSaisie: brut.adresseSaisie } : {}),
+    }, auteur, controleAdresse);
     if (r.etat !== 'ok') {
       if (enregistres.length === 0 || !('motif' in r)) return r;
       return { ...r, motif: `${r.motif} Ont été enregistrés : ${enregistres.map((c) => c.champ).join(', ')}.` };

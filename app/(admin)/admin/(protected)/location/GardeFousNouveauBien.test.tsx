@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (21/10/2026) — GARDE-FOUS DE « NOUVEAU BIEN » (cas CHALAH, production) :
@@ -47,7 +48,7 @@ const soumettre = async () => { await act(async () => { (container.querySelector
 const parkingComplet = async () => {
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '25 Rue Henri Barbusse');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '25 Rue Henri Barbusse');
   await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'En gestion')!);
 };
 const chercherChalah = async () => {

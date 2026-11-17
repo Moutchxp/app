@@ -21,6 +21,11 @@ import {
 } from '../../../../lib/location/bienComplet';
 import { aRenseignerDuBien, AVERTISSEMENT_ID_FISCAL, CHARGES_COPRO, idFiscalInhabituel, DPE_NON_SOUMIS, LIBELLE_CHARGES_COPRO, LIBELLE_DPE_NON_SOUMIS, PAYEES_PAR, titreAnnexe } from '../../../../lib/location/bienComplet';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
+import { AdresseBien, CSS_ADRESSE_BIEN } from '../location/AdresseBien';
+import { CSS_CHAMP_ADRESSE } from './ChampAdresseBan';
+import { FenetreCarte } from './CartesPersonnes';
+import { TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne } from '../../../../lib/gestion/adresseSaisie';
+import { adresseBienEnLigne, adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from '../location/ZoneAuto';
@@ -617,6 +622,18 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
   const [motif, setMotif] = useState<string | null>(null);
+  /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) l'adresse d'un bien créé ici : ChampAdresseBan tel quel (code postal et commune remplis
+     par le choix), « hors liste » confirmée, « sans numéro » confirmée ; une adresse non touchée n'est ni revérifiée ni requalifiée */
+  const adrInitial = { verifiee: true, nature: b.adresseNature ?? null, horsListeConfirme: false, sansNumeroConfirme: false };
+  const [adrEtat, setAdrEtat] = useState<Omit<AdresseBienSaisie, 'adresse' | 'codePostal' | 'commune'>>(adrInitial);
+  const [fenetreSansNumero, setFenetreSansNumero] = useState(false);
+  const adr: AdresseBienSaisie = { adresse: v.adresse, codePostal: v.codePostal, commune: v.commune, ...adrEtat };
+  const changerAdr = (f: (x: AdresseBienSaisie) => AdresseBienSaisie): void => {
+    const n = f(adr);
+    setV((x) => ({ ...x, adresse: n.adresse, codePostal: n.codePostal, commune: n.commune }));
+    setAdrEtat({ verifiee: n.verifiee, nature: n.nature, horsListeConfirme: n.horsListeConfirme, sansNumeroConfirme: n.sansNumeroConfirme });
+  };
+  const adrTouchee = b.creeDansLApplication && adresseBienTouchee(adr, { adresse: initial.adresse, codePostal: initial.codePostal, commune: initial.commune, nature: b.adresseNature ?? null });
   /* 🔴 Arno (25/10/2026) — choix en cascade remis à zéro : quitter « Autre annexe » vide son nom (le message le dit) ; seul le chemin choisi part. */
   const [nomEfface, setNomEfface] = useState(false);
   const changerCategorie = (val: string): void => {
@@ -626,10 +643,15 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
   const champ = (k: keyof typeof initial, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="loc-champ">{mot}{props.inputMode === 'decimal' ? <ChampNombre value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /> : <input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} />}</label>
   );
-  const enregistrer = async (): Promise<void> => {
+  const enregistrer = async (sansNumeroOk = adr.sansNumeroConfirme): Promise<void> => {
     const verdict = verifierChampsBien(v);
     if (!verdict.ok) { setMotif(verdict.motif); return; }
-    const m = await envoyer({ action: 'modifier-bien', id: b.id, champs: v.categorie === 'autre' ? v : { ...v, nomAnnexe: '' } });
+    const refusAdr = refusAdresseBienEcran(adr, adrTouchee);
+    if (refusAdr !== null) { setMotif(refusAdr); return; }
+    if (sansNumeroAConfirmer({ ...adr, sansNumeroConfirme: sansNumeroOk }, adrTouchee)) { setFenetreSansNumero(true); return; }
+    const champs = { ...(v.categorie === 'autre' ? v : { ...v, nomAnnexe: '' }),
+      ...(adrTouchee ? { adresseSaisie: metaAdresseBien({ ...adr, sansNumeroConfirme: sansNumeroOk }) } : {}) };
+    const m = await envoyer({ action: 'modifier-bien', id: b.id, champs });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
   };
@@ -648,7 +670,7 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
                 <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
               ))}
           </dl>
-          {modifiable && <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setEdition(true); }}>Modifier</button></div>}
+          {modifiable && <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setAdrEtat(adrInitial); setEdition(true); }}>Modifier</button></div>}
         </>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
@@ -664,8 +686,8 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
             {champ('numLotCopro', 'N° de lot de copropriété')}
             {champ('surfaceCarrezM2', 'Surface Carrez/Boutin m²', { inputMode: 'decimal' })}
             {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' })}
-            {b.creeDansLApplication && <>{champ('adresse', 'Adresse')}{champ('codePostal', 'Code postal', { inputMode: 'numeric' })}{champ('commune', 'Commune')}</>}
           </div>
+          {b.creeDansLApplication && <AdresseBien nom="caracteristiques" id={`loc-adresse-car-${b.id}`} etiquette="Adresse" valeur={adr} onChange={changerAdr} />}
           {!b.creeDansLApplication && <p className="loc-muet">L’adresse de ce bien est tenue par WIPPIMMO : elle se corrige là-bas.</p>}
           <div className="loc-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition(false)}>Annuler</button>
@@ -674,6 +696,13 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
         </form>
       )}
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      {fenetreSansNumero && (
+        <FenetreCarte titre={TITRE_SANS_NUMERO_PERSONNE} lignes={texteSansNumeroPersonne(adresseBienEnLigne(adr))}
+          boutons={[{ mot: 'Corriger', onClic: () => setFenetreSansNumero(false) },
+            { mot: 'Confirmer', principal: true, onClic: () => { setAdrEtat((x) => ({ ...x, sansNumeroConfirme: true })); setFenetreSansNumero(false); void enregistrer(true); } }]}
+          onFermer={() => setFenetreSansNumero(false)} />
+      )}
+      {edition && b.creeDansLApplication && <style>{CSS_CHAMP_ADRESSE + CSS_ADRESSE_BIEN}</style>}
     </section>
   );
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (25/10/2026) — CHOIX EN CASCADE REMIS À ZÉRO (« Nouveau bien ») : Local → Local commercial → Logement → Local : rien n'est
@@ -56,7 +57,7 @@ describe('🔴 Nouveau bien — le choix principal remet ses sous-choix à zéro
     await monter();
     await famille('logement');
     expect(message()).toBeNull();
-    await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+    await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
     await saisir(champ('Surface habitable'), '41,8');
     await clic(container.querySelector('[aria-label="Type de logement"] button')!);
     await famille('parking');
@@ -72,7 +73,7 @@ describe('🔴 Nouveau bien — le choix principal remet ses sous-choix à zéro
     await saisir(champ('Surface habitable'), '41,8');
     await famille('parking');
     await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-    await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+    await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
     await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'Location seule')!);
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     await calmer();

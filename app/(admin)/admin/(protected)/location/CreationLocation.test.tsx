@@ -6,6 +6,7 @@ import { renderToString } from 'react-dom/server';
 import { CreationProprietaires } from './CreationProprietaires';
 import { CreationBien } from './CreationBien';
 import { CreationLocataire, LotsLoues } from './CreationLocataire';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 TUILE LOCATION — « Créer un nouveau propriétaire » et « Ajouter un nouveau bien » (Arno, 17/10/2026).
@@ -322,7 +323,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(ag()?.closest('.loc-section')?.querySelector('h3')?.textContent).toContain('Caractéristiques complémentaires');
     expect(ag()?.value).toBe('');
     const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(adr, '15 rue Carle Hebert'); adr.dispatchEvent(new Event('input', { bubbles: true })); });
+    await choisirAdresseBan(adr, '15 rue Carle Hebert');
     await act(async () => { await new Promise((r) => setTimeout(r, 600)); });
     await calmer();
     expect(ag()?.value).toBe('2026-03-12');

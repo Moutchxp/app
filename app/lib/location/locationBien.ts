@@ -117,6 +117,8 @@ export interface BienLocation {
   proprietaire: string | null;
   locataireEnPlace: string | null;
   creeDansLApplication: boolean;
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3, migration 485) 'hors_liste' : saisie libre confirmée, à vérifier ; null : d'avant (ou sans la 485). */
+  adresseNature?: 'liste' | 'hors_liste' | null;
   /** Sorti du portefeuille (migration 373) : reste visible, marqué « sorti ». */
   sorti?: boolean;
   /** Annexe à une autre adresse que son logement / local (migration 376). */

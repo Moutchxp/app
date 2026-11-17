@@ -13,6 +13,7 @@ import { gestesPour } from '../../../../lib/gestion/statutBien';
 import type { ComplementsFiche } from '../../../../lib/location/bienComplet';
 import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
 import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo';
+import { choisirAdresseBan } from '../location/choisirAdresseEssai';
 
 /**
  * 🔴 Arno (23/10/2026, réponse « B », puis sa précision du même jour : la PAGE « Ajouter un nouveau bien », à l'identique, sans le bloc
@@ -394,5 +395,55 @@ describe('🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non » dans l
     lecture = { ...LECTURE, encart: { ...LECTURE.encart, avecCopropriete: false } };
     await ouvrir();
     expect(q('[data-copropriete]')).toBeNull();
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026, « Adresses uniformisées », lot 3) — « les adresses des biens (« Nouveau bien », « Modifier le bien », annexes à une autre
+ * adresse) passent sur ChampAdresseBan réutilisé tel quel ; plus de Code postal / Commune tapés à la main ; […] aucune adresse existante réécrite. »
+ */
+describe('🔴 « Modifier le bien » : l’adresse se choisit dans la liste ; une adresse non touchée part sans rien de plus', () => {
+  it('code postal et commune en lecture seule ; une autre modification : l’adresse part telle quelle, sans « adresseSaisie » (jamais requalifiée)', async () => {
+    await ouvrir();
+    expect((q('[data-adresse-bien="bien"] [data-adresse-cp]') as HTMLInputElement).readOnly).toBe(true);
+    expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).readOnly).toBe(true);
+    await saisir(commentaire(), 'Après.');
+    await clic('[data-valider-modification]');
+    await clic('[data-confirmer-modification]');
+    const saisie = JSON.parse(String(posts()[0].init?.body)).saisie;
+    expect(saisie).not.toHaveProperty('adresseSaisie');
+    expect(saisie.valeurs).toMatchObject({ adresse: '15 rue Carle Hebert', codePostal: '92400', commune: 'COURBEVOIE' });
+  });
+
+  it('une adresse tapée sans être choisie : refusée à l’écran, rien n’est envoyé ; choisie : code postal et commune remplis, « liste » envoyée', async () => {
+    await ouvrir();
+    await saisir(q('[data-adresse-bien="bien"] .cab-enveloppe input') as HTMLInputElement, '17 rue Carle Hebert');
+    expect(q('[data-adresse-bien="bien"] [data-adresse-a-choisir]')?.textContent).toContain('Adresse absente de la liste ?');
+    await clic('[data-valider-modification]');
+    expect(modale()?.textContent).toContain('Choisissez l’adresse dans la liste proposée');
+    expect(posts()).toHaveLength(0);
+    await clic([...document.querySelectorAll('.mis-boite button')].at(-1) as HTMLElement);
+    await choisirAdresseBan(q('[data-adresse-bien="bien"] .cab-enveloppe input') as HTMLInputElement, '17 Rue Carle Hebert', '92400', 'Courbevoie');
+    expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).value).toBe('COURBEVOIE');
+    await clic('[data-valider-modification]');
+    await clic('[data-confirmer-modification]');
+    const saisie = JSON.parse(String(posts()[0].init?.body)).saisie;
+    expect(saisie.adresseSaisie).toEqual({ nature: 'liste', pays: null, horsListeConfirme: false, sansNumeroConfirme: false });
+    expect(saisie.valeurs).toMatchObject({ adresse: '17 Rue Carle Hebert', codePostal: '92400', commune: 'COURBEVOIE' });
+  });
+
+  it('une adresse « hors liste » lue : saisie libre, marquée « hors liste — à vérifier »', async () => {
+    lecture = { ...LECTURE, encart: { ...LECTURE.encart, adresseNature: 'hors_liste' } };
+    await ouvrir();
+    expect(q('[data-adresse-bien="bien"] [data-adresse-marque]')?.textContent).toBe('hors liste — à vérifier');
+    expect((q('[data-adresse-bien="bien"] [data-adresse-libre]') as HTMLInputElement).value).toBe('15 rue Carle Hebert');
+    expect((q('[data-adresse-bien="bien"] [data-adresse-cp]') as HTMLInputElement).readOnly).toBe(false);
+  });
+
+  it('un bien importé de WIPPIMMO : l’adresse reste montrée, figée, comme avant', async () => {
+    lecture = { ...LECTURE, encart: { ...LECTURE.encart, adresseModifiable: false } };
+    await ouvrir();
+    expect(q('[data-adresse-figee]')).not.toBeNull();
+    expect(q('[data-adresse-bien="bien"]')).toBeNull();
   });
 });

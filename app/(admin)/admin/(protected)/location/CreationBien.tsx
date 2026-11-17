@@ -7,7 +7,11 @@ import { ModaleIssue } from './ModaleIssue';
 import { causeDeLaReponse, explicationEchec, explicationEchecDe, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
 import { LigneManques } from './LigneManques';
-import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { AdresseBien, CSS_ADRESSE_BIEN } from './AdresseBien';
+import { FenetreCarte } from '../gestion/CartesPersonnes';
+import { TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne } from '../../../../lib/gestion/adresseSaisie';
+import { adresseBienEnLigne, adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
 import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, motValeur, reporterSaisieBien, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, choixDigicodeEffectif, codesConnusDuBien, envoiSelonChoixDigicode } from '../gestion/DigicodesCopropriete';
 import {
   AVERTISSEMENT_ID_FISCAL, CHAUFFAGES, DPE_NON_SOUMIS, idFiscalInhabituel, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
@@ -85,6 +89,10 @@ interface Annexe {
   annotation: string; detachee: boolean; fermee: boolean; aConfirmer: boolean;
   parkingSituation: SituationParking | null; parkingType: TypeParking | null;
   autreAdresse: boolean; adresse: string; codePostal: string; commune: string; adresseVerifiee: boolean;
+  /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) la nature de l'« Autre adresse » (« hors liste » confirmée) et la confirmation « sans numéro » ;
+   *  l'adresse lue (une annexe existante) : une adresse non touchée n'est ni revérifiée ni requalifiée */
+  adresseNature: 'liste' | 'hors_liste' | null; horsListeConfirme: boolean; sansNumeroConfirme: boolean;
+  adresseLue?: { adresse: string; codePostal: string; commune: string; nature: 'liste' | 'hors_liste' | null };
   /** « Modifier » la fiche (Arno, 23/10/2026) : l'annexe EXISTANTE (son identifiant), à sortir du portefeuille, et si son adresse se modifie. */
   id?: number | null; sortir?: boolean; adresseModifiable?: boolean;
 }
@@ -201,6 +209,8 @@ function etatDepuisLecture(l: LectureFiche) {
       detachee: a.detachee, fermee: true, aConfirmer: false, parkingSituation: (a.parkingSituation || null) as SituationParking | null,
       parkingType: (a.parkingType || null) as TypeParking | null, autreAdresse: a.autreAdresse, adresse: a.adresse, codePostal: a.codePostal, commune: a.commune,
       adresseVerifiee: true, adresseModifiable: a.adresseModifiable, sortir: false,
+      adresseNature: a.adresseNature ?? null, horsListeConfirme: false, sansNumeroConfirme: false,
+      adresseLue: { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune, nature: a.adresseNature ?? null },
     })),
   };
 }
@@ -223,7 +233,26 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [meuble, setMeuble] = useState<boolean | null>(init?.meuble ?? null);
   const [ascenseur, setAscenseur] = useState<boolean | null>(init?.ascenseur ?? null);
   const [digicode, setDigicode] = useState<boolean | null>(init?.digicode ?? null);
-  const [adresseVerifiee, setAdresseVerifiee] = useState(init !== null);
+  /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) l'adresse du bien : ses trois champs restent dans `b` (la copropriété, les digicodes connus,
+     les PV d'AG et le syndic s'en nourrissent, comme avant) ; ici, le choix dans la liste, la nature et les confirmations. Une adresse lue est réputée choisie. */
+  const [adrEtat, setAdrEtat] = useState<Omit<AdresseBienSaisie, 'adresse' | 'codePostal' | 'commune'>>(() => ({
+    verifiee: init !== null, nature: modification?.lecture.encart.adresseNature ?? null, horsListeConfirme: false, sansNumeroConfirme: false }));
+  const adrBien: AdresseBienSaisie = { adresse: b.adresse, codePostal: b.codePostal, commune: b.commune, ...adrEtat };
+  const changerAdrBien = (f: (x: AdresseBienSaisie) => AdresseBienSaisie): void => {
+    const n = f(adrBien);
+    if (n.adresse !== adrBien.adresse || n.nature !== adrBien.nature) sansNumeroOk.current.delete('bien');
+    setB((x) => ({ ...x, adresse: n.adresse, codePostal: n.codePostal, commune: n.commune }));
+    setAdrEtat({ verifiee: n.verifiee, nature: n.nature, horsListeConfirme: n.horsListeConfirme, sansNumeroConfirme: n.sansNumeroConfirme });
+  };
+  /** l'adresse lue (« Modifier le bien ») : comparée à la saisie ; un bien à créer : `null` */
+  const adrBienLue = modification === undefined ? null : { adresse: modification.lecture.encart.valeurs.adresse, codePostal: modification.lecture.encart.valeurs.codePostal,
+    commune: modification.lecture.encart.valeurs.commune, nature: modification.lecture.encart.adresseNature ?? null };
+  const adrBienTouchee = (modification === undefined || modification.lecture.encart.adresseModifiable) && adresseBienTouchee(adrBien, adrBienLue);
+  /** La fenêtre « Adresse sans numéro » (Q9 : la même fenêtre partout) : l'adresse à confirmer (« bien » ou « annexe-i »), puis l'enregistrement relancé. */
+  const [fenetreSansNumero, setFenetreSansNumero] = useState<string | null>(null);
+  /** les « sans numéro » confirmées, lues AUSSITÔT par l'enregistrement relancé (l'état, lui, ne sera à jour qu'au rendu suivant) */
+  const sansNumeroOk = useRef<Set<string>>(new Set());
+  const avecConfirmation = (cle: string, x: AdresseBienSaisie): AdresseBienSaisie => (sansNumeroOk.current.has(cle) ? { ...x, sansNumeroConfirme: true } : x);
   /* 🔴 Arno (25/10/2026) — CHOIX EN CASCADE REMIS À ZÉRO : quitter une famille vide ses sous-choix et ses champs propres (type, meublé,
      pièces, surfaces, type de local, parking) ; les champs communs ne bougent pas. Le message dit ce qui a été effacé. */
   const [effaces, setEffaces] = useState<FamilleBien | null>(null);
@@ -457,7 +486,19 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '', nomAnnexe: '', annotation: '', detachee: false, fermee: false, aConfirmer: false,
     parkingSituation: null, parkingType: null,
     autreAdresse: false, adresse: '', codePostal: '', commune: '', adresseVerifiee: false,
+    adresseNature: null, horsListeConfirme: false, sansNumeroConfirme: false,
   }]);
+  // 🔴 (« Adresses uniformisées », lot 3) l'« Autre adresse » d'une annexe, vue comme une adresse de bien
+  const adrAnnexe = (a: Annexe): AdresseBienSaisie => ({ adresse: a.adresse, codePostal: a.codePostal, commune: a.commune, verifiee: a.adresseVerifiee,
+    nature: a.adresseNature, horsListeConfirme: a.horsListeConfirme, sansNumeroConfirme: a.sansNumeroConfirme });
+  const changerAdrAnnexe = (i: number, f: (x: AdresseBienSaisie) => AdresseBienSaisie): void => changerAnnexe(i, (x) => {
+    const n = f(adrAnnexe(x));
+    if (n.adresse !== x.adresse || n.nature !== x.adresseNature) sansNumeroOk.current.delete(`annexe-${i}`);
+    return { ...x, adresse: n.adresse, codePostal: n.codePostal, commune: n.commune, adresseVerifiee: n.verifiee, adresseNature: n.nature,
+      horsListeConfirme: n.horsListeConfirme, sansNumeroConfirme: n.sansNumeroConfirme };
+  });
+  const annexeAdresseTouchee = (a: Annexe): boolean => a.autreAdresse && a.sortir !== true && (a.id == null || a.adresseModifiable === true)
+    && adresseBienTouchee(adrAnnexe(a), a.id == null ? null : a.adresseLue ?? null);
 
   const nom = famille === null ? 'bien' : NOM_FAMILLE[famille];
   /** En modification : ce que la fiche montre (une annexe n'a pas d'annexes ; l'ID fiscal, la PNO… seulement là où le serveur les écrit). */
@@ -513,10 +554,14 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}),
       version: l.version, valeurs: valeursDuChemin, statut: transition,
       ...(pvEnAttente.length > 0 ? { pvAg: pvEnAttente } : {}),
+      // 🔴 (« Adresses uniformisées », lot 3) ce que l'écran dit d'une adresse TOUCHÉE (une adresse non touchée part sans : jamais requalifiée)
+      // (la confirmation « sans numéro » y est par l'état : la contre-validation sépare la fenêtre de l'envoi)
+      ...(adrBienTouchee ? { adresseSaisie: metaAdresseBien(adrBien) } : {}),
       annexes: annexes.map((a) => ({
         id: a.id ?? null, categorie: a.categorie, etage: a.etage, porte: a.porte, numLotCopro: a.numLotCopro, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
         detachee: a.detachee, parkingSituation: a.parkingSituation ?? '', parkingType: a.parkingType ?? '', autreAdresse: a.autreAdresse,
         adresse: a.adresse, codePostal: a.codePostal, commune: a.commune, ...(a.sortir === true ? { sortir: true } : {}),
+        ...(annexeAdresseTouchee(a) ? { adresseSaisie: metaAdresseBien(adrAnnexe(a)) } : {}),
       })),
     };
   };
@@ -549,11 +594,39 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     window.addEventListener('keydown', surTouche);
     return () => window.removeEventListener('keydown', surTouche);
   }, [modification]);
+  /**
+   * 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) LES ADRESSES TOUCHÉES, avant tout envoi (le serveur refait les mêmes contrôles) : une adresse
+   * tapée sans être choisie est refusée (sauf « hors liste » confirmée) ; une rue sans numéro ouvre la fenêtre de confirmation (Q9), puis l'enregistrement
+   * reprend. Vrai : on peut envoyer.
+   */
+  const adressesPretes = (): boolean => {
+    const liste = [
+      { cle: 'bien', quoi: '', s: avecConfirmation('bien', adrBien), touchee: adrBienTouchee },
+      ...(avecAnnexes ? annexes.map((a, i) => ({ cle: `annexe-${i}`, quoi: `Annexe ${titreAnnexeSaisie({ ...a, parkingSituation: a.parkingSituation ?? '', parkingType: a.parkingType ?? '' })} : `,
+        s: avecConfirmation(`annexe-${i}`, adrAnnexe(a)), touchee: annexeAdresseTouchee(a) })) : []),
+    ];
+    for (const x of liste) {
+      const r = refusAdresseBienEcran(x.s, x.touchee);
+      if (r !== null) { setIssue({ sorte: 'erreur', cause: 'saisie', motif: `${x.quoi}${r}` }); return false; }
+    }
+    const sn = liste.find((x) => sansNumeroAConfirmer(x.s, x.touchee));
+    if (sn !== undefined) { setFenetreSansNumero(sn.cle); return false; }
+    return true;
+  };
+  // « Confirmer » dans la fenêtre « Adresse sans numéro » : la confirmation posée, l'enregistrement reprend
+  const confirmerSansNumero = (cle: string): void => {
+    sansNumeroOk.current.add(cle);
+    if (cle === 'bien') setAdrEtat((x) => ({ ...x, sansNumeroConfirme: true }));
+    else changerAnnexe(Number(cle.slice('annexe-'.length)), (x) => ({ ...x, sansNumeroConfirme: true }));
+    setFenetreSansNumero(null);
+    void enregistrer();
+  };
   const validerModification = async (): Promise<void> => {
     if (modification === undefined || saisieModif === null || enCours.current || enregistre !== null) return;
     if (changementsModif.length === 0) { setIssue({ sorte: 'aucune' }); return; }
     const refus = refusFiche(modification.lecture, saisieModif);
     if (refus !== null) { setIssue({ sorte: 'erreur', cause: 'saisie', motif: refus }); return; }
+    if (!adressesPretes()) return;
     // « Supprimer » une annexe LOUÉE : l'avertissement de la fiche, dit dans la contre-validation (la sortie clôt ses locations).
     const occupation: string[] = [];
     for (const a of saisieModif.annexes.filter((x) => x.id !== null && x.sortir === true)) {
@@ -653,6 +726,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     }
     const v = verifierChampsBien(b);
     if (!v.ok) { setMotif(v.motif); setIssue({ sorte: 'erreur', cause: 'saisie', motif: v.motif }); journalEchec('saisie', v.motif); return; }
+    if (!adressesPretes()) return;
     enCours.current = true;
     setEnvoi(true);
     // Continuité : les fiches d'abord (une seule fois), puis le bien.
@@ -679,14 +753,19 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       logement: restreindreAuChemin({ ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
         assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)),
         ...(chargesCopro === null ? {} : { chargesCopro }), ...(copropriete === null ? {} : { copropriete }),
-        ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}) } as Record<string, unknown>, famille as FamilleBien | null),
+        ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}),
+        // 🔴 (« Adresses uniformisées », lot 3) ce que l'écran dit de l'adresse : choisie dans la liste, ou « hors liste » confirmée ; « sans numéro » confirmée
+        ...(adrBienTouchee ? { adresseSaisie: metaAdresseBien(avecConfirmation('bien', adrBien)) } : {}) } as Record<string, unknown>, famille as FamilleBien | null),
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts: continuite !== undefined ? continuite.contacts : contacts,
-      annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
-        categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, annotation, detachee,
-        ...(categorie === 'autre' ? { nomAnnexe } : {}),
-        ...(autreAdresse ? { adresse, codePostal, commune } : {}),
-      })) : [],
+      annexes: avecAnnexes ? annexes.map((a, i) => {
+        const { categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune } = a;
+        return {
+          categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, annotation, detachee,
+          ...(categorie === 'autre' ? { nomAnnexe } : {}),
+          ...(autreAdresse ? { adresse, codePostal, commune, adresseSaisie: metaAdresseBien(avecConfirmation(`annexe-${i}`, adrAnnexe(a))) } : {}),
+        };
+      }) : [],
     });
     enCours.current = false;
     setEnvoi(false);
@@ -744,7 +823,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     // noValidate : les refus sont ceux de la règle (`bienComplet.ts`), dits sous chaque champ — jamais la bulle du navigateur
     // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
     <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE + CSS_RENTRE_OCCUPE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_ADRESSE_BIEN + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE + CSS_RENTRE_OCCUPE}</style>
       {modification !== undefined ? (
         <>
           {/* Arno (23/10/2026) : la page « Ajouter un nouveau bien », à l'identique, sans le bloc « Propriétaire(s) » (le bien y est
@@ -895,16 +974,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             {champ('commune', 'Commune', { disabled: true })}
           </div>
         ) : (
-        <div className="loc-grille">
-          <label className="loc-champ loc-pleine">
-            <span>Adresse <span className="loc-oblig">*</span></span>
-            <ChampAdresseBan exemple="ex. 12 rue de l’Église" valeur={b.adresse} verifiee={adresseVerifiee}
-              onChange={(v) => { setB((x) => ({ ...x, adresse: v })); setAdresseVerifiee(false); }}
-              onChoisir={(a) => { setB((x) => ({ ...x, adresse: a.voie, codePostal: a.codePostal, commune: a.commune })); setAdresseVerifiee(true); }} />
-          </label>
-          {champ('codePostal', 'Code postal', { inputMode: 'numeric', maxLength: 5 })}
-          {champ('commune', 'Commune')}
-        </div>
+        /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) ChampAdresseBan tel quel : le code postal et la commune remplis par le choix */
+        <AdresseBien nom="bien" id="loc-adresse-bien" etiquette={<>Adresse <span className="loc-oblig">*</span></>} valeur={adrBien} onChange={changerAdrBien} />
         )}
         {lu !== undefined && lu.adresseModifiable && (b.adresse !== lu.valeurs.adresse || b.codePostal !== lu.valeurs.codePostal || b.commune !== lu.valeurs.commune) && (
           <p className="mfb-note" data-note-drive-adresse>Le dossier Drive du bien garde son nom et sa place : un changement d’adresse ne le renomme ni ne le déplace.</p>
@@ -1063,17 +1134,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 </div>
                 )}
                 {a.autreAdresse && (a.id == null || a.adresseModifiable === true) && (
-                  <div className="loc-grille" data-autre-adresse>
-                    <label className="loc-champ loc-pleine">
-                      <span>Adresse de l’annexe <span className="loc-oblig">*</span></span>
-                      <ChampAdresseBan exemple="ex. 12 rue de l’Église" valeur={a.adresse} verifiee={a.adresseVerifiee}
-                        onChange={(v) => changerAnnexe(i, (x) => ({ ...x, adresse: v, adresseVerifiee: false }))}
-                        onChoisir={(ad) => changerAnnexe(i, (x) => ({ ...x, adresse: ad.voie, codePostal: ad.codePostal, commune: ad.commune, adresseVerifiee: true }))} />
-                    </label>
-                    <label className="loc-champ">Code postal<input value={a.codePostal} inputMode="numeric" maxLength={5}
-                      onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, codePostal: val })); }} /></label>
-                    <label className="loc-champ">Commune<input value={a.commune}
-                      onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, commune: val })); }} /></label>
+                  <div data-autre-adresse>
+                    <AdresseBien nom={`annexe-${i}`} id={`loc-adresse-annexe-${a.cle}`} etiquette={<>Adresse de l’annexe <span className="loc-oblig">*</span></>}
+                      valeur={adrAnnexe(a)} onChange={(f) => changerAdrAnnexe(i, f)} />
                   </div>
                 )}
                 {manqueDe(`annexe-${i}`)}
@@ -1237,6 +1300,18 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           {envoi ? 'Enregistrement…' : enregistre !== null ? '✓ Bien enregistré' : 'Enregistrer le bien'}</button>
       </div>
       )}
+      {/* 🔴 (Arno, 17/11/2026, « Adresses uniformisées », Q9) une rue sans numéro : la même fenêtre de confirmation partout */}
+      {fenetreSansNumero !== null && (() => {
+        const a = fenetreSansNumero === 'bien' ? adrBien : annexes[Number(fenetreSansNumero.slice('annexe-'.length))] !== undefined
+          ? adrAnnexe(annexes[Number(fenetreSansNumero.slice('annexe-'.length))]) : null;
+        if (a === null) return null;
+        return (
+          <FenetreCarte titre={TITRE_SANS_NUMERO_PERSONNE} lignes={texteSansNumeroPersonne(adresseBienEnLigne(a))}
+            boutons={[{ mot: 'Corriger', onClic: () => setFenetreSansNumero(null) },
+              { mot: 'Confirmer', principal: true, onClic: () => confirmerSansNumero(fenetreSansNumero) }]}
+            onFermer={() => setFenetreSansNumero(null)} />
+        );
+      })()}
       {/* 🔴🔴 (Arno, 17/11/2026) « Choisir « Non » alors ouvre une confirmation (« Cette copropriété a des digicodes connus : les retirer ne se fait que
           par « Modifier » / « Corriger » sur chaque code »), et aucun code n'est effacé par ce choix. » */}
       {confirmerSansDigicode && (

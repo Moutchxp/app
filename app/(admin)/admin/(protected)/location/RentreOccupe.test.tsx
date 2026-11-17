@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { CreationLocataire } from './CreationLocataire';
 import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (26/10/2026, 430) — « LE BIEN EST-IL LOUÉ AU MOMENT DE LA PRISE EN GESTION ? »
@@ -67,7 +68,7 @@ const bienEnGestion = async () => {
   await calmer();
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '25 Rue Henri Barbusse');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '25 Rue Henri Barbusse');
   await clic(statut('En gestion'));
 };
 

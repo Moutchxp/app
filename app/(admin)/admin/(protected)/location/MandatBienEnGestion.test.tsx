@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (21/10/2026, 397) — « Nouveau bien », bloc « Bien en gestion ? » : Oui ouvre « Mandat de gestion », Non ouvre « Mandat
@@ -46,7 +47,7 @@ const rendre = async () => {
   await calmer(); await act(async () => { await new Promise((r) => setTimeout(r, 5)); }); await calmer();
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
 };
 
 describe('🔴 « Bien en gestion ? » → la ligne du mandat', () => {

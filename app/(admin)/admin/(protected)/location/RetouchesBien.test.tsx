@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { CreationProprietaires } from './CreationProprietaires';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Retouches d'Arno (18/10/2026) sur « Ajouter un nouveau bien » : nom d'une annexe « Autre », flèches ▲ ▼ (étage, pièces),
@@ -52,7 +53,7 @@ const famille = async (f: string) => { await act(async () => { (container.queryS
 const remplirMinimum = async () => {
   await famille('logement');
   await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
   await remplirDpeEntretien();
 };
 /** Arno (18/10/2026) : DPE et « Entretien à prévoir » sont obligatoires pour un logement / local — remplis ici (classe D, date, Non). */

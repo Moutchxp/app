@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
 import { CSS_DPE_PNO } from './BlocDpe';
 import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
+import { choisirAdresseBan } from './choisirAdresseEssai';
 
 /**
  * 🔴 Arno (21/10/2026, migration 400) — « Nouveau bien », bloc 6 : l'encadré « PAIEMENT DES CHARGES » (Propriétaire / Agence), même
@@ -49,7 +50,7 @@ const rendre = async () => { await act(async () => { root.render(createElement(C
 const parkingComplet = async () => {
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
-  await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+  await choisirAdresseBan(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
   await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'En gestion')!);
 };
 

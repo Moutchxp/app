@@ -102,7 +102,8 @@ describe('🔴 chaque partie par le geste qui l’écrivait déjà', () => {
     expect(modifierEncartBien.mock.calls[0][2]).toMatchObject({ commentaire: 'Après.', adresse: '15 rue Carle Hebert' });
     // ② l'annexe existante : sa base (étage) avec SES surfaces et son adresse (importée : jamais réécrite), puis « Détachée »
     expect(modifierBien.mock.calls[0]).toEqual([31, { categorie: 'cave', adresse: '15 rue Carle Hebert', codePostal: '92400', commune: 'COURBEVOIE', etage: '-2', porte: '',
-      numLotCopro: '40', surfaceCarrezM2: '', surfaceExterieureM2: '', nomAnnexe: '', annotation: '' }, AUTEUR]);
+      numLotCopro: '40', surfaceCarrezM2: '', surfaceExterieureM2: '', nomAnnexe: '', annotation: '' }, AUTEUR,
+      undefined]); // (« Adresses uniformisées », lot 3) aucun contrôle d'adresse à passer : l'annexe est à l'adresse du bien
     expect(detacherAnnexe.mock.calls[0]).toEqual([31, true, AUTEUR]);
     // ③ la nouvelle : l'écriture de « Nouveau bien »
     expect(ajouterAnnexesCompletes.mock.calls[0][0]).toBe(7);
