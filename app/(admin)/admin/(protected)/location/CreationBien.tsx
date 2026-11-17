@@ -10,6 +10,7 @@ import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTe
 import { LigneManques } from './LigneManques';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { AdresseBien, CSS_ADRESSE_BIEN } from './AdresseBien';
+import { PropositionRattachement } from './PropositionRattachement';
 import { FenetreCarte } from '../gestion/CartesPersonnes';
 import { TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne } from '../../../../lib/gestion/adresseSaisie';
 import { adresseBienEnLigne, adresseBienTouchee, metaAdresseBien, refusAdresseBienEcran, sansNumeroAConfirmer, type AdresseBienSaisie } from '../../../../lib/location/adresseBienSaisie';
@@ -988,7 +989,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           </div>
         ) : (
         /* 🔴🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 3) ChampAdresseBan tel quel : le code postal et la commune remplis par le choix */
+        <>
         <AdresseBien nom="bien" id="loc-adresse-bien" etiquette={<>Adresse <span className="loc-oblig">*</span></>} valeur={adrBien} onChange={changerAdrBien} />
+        {/* 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») « Rattacher à la copropriété <nom> — <adresses> ? » ; rattachée : ses digicodes relus */}
+        <PropositionRattachement adresse={{ libelle: b.adresse, codePostal: b.codePostal, commune: b.commune }} onRattache={() => setDigiRelire((n) => n + 1)} />
+        </>
         )}
         {lu !== undefined && lu.adresseModifiable && (b.adresse !== lu.valeurs.adresse || b.codePostal !== lu.valeurs.codePostal || b.commune !== lu.valeurs.commune) && (
           <p className="mfb-note" data-note-drive-adresse>Le dossier Drive du bien garde son nom et sa place : un changement d’adresse ne le renomme ni ne le déplace.</p>

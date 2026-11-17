@@ -1,4 +1,5 @@
 import { dansLePerimetreDuTest } from '../../../../lib/location/perimetreRequete';
+import { propositionsRattachement, rattacherAdresse, refuserRattachement } from '../../../../lib/gestion/rattachementParcelleRepo';
 import { messageEcritureImpossible } from '../../../../lib/location/erreurEcriture';
 import 'server-only';
 import { deposerVocal, dicterCompteRendu, transcrirePieceVocale } from '../../../../lib/location/vocauxCompteRenduRepo';
@@ -356,6 +357,12 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', data: await lireAgPourAdresse((p('agPourAdresse') ?? '').slice(0, 300)) }, { headers: ENTETES });
     }
     if (p('syndics') !== null) return Response.json({ etat: 'ok', data: await syndicsConnus() }, { headers: ENTETES });
+    // 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 5) « Rattacher à la copropriété <nom> — <adresses> ? » — LECTURE SEULE
+    if (p('rattachementAdresse') !== null) {
+      return Response.json({ etat: 'ok', data: await propositionsRattachement({
+        libelle: (p('rattachementAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10), commune: (p('commune') ?? '').slice(0, 120),
+      }) }, { headers: ENTETES });
+    }
     // « Syndic déjà connu pour cette adresse » (fonction de la Gestion) — LECTURE SEULE, jamais de rattachement sans clic.
     if (p('syndicPourAdresse') !== null) {
       return Response.json({ etat: 'ok', data: await syndicsPourAdresse({
@@ -450,6 +457,15 @@ async function postLocation(request: Request): Promise<Response> {
     if (action === 'pv-ag') {
       const r = await enregistrerPv(corps, auteur);
       return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+    }
+    // 🔴🔴 (Arno, 17/11/2026, lot 5) le rattachement de l'adresse du bien à la copropriété de sa parcelle — APRÈS confirmation ; « Non » mémorisé
+    if (action === 'copro-rattacher-adresse') {
+      const r = await rattacherAdresse(corps, auteur);
+      return Response.json(r.ok ? { etat: 'ok', data: { message: r.message } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+    }
+    if (action === 'copro-refuser-rattachement') {
+      const r = await refuserRattachement(corps, auteur);
+      return Response.json(r.ok ? { etat: 'ok', data: { memorise: r.memorise } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
     }
     if (action === 'digicode-apercu-envoi' || action === 'digicode-planifier-envoyer') {
       const r = action === 'digicode-apercu-envoi' ? await apercuChangement(corps) : await planifierEtPrevenir(corps, auteur);

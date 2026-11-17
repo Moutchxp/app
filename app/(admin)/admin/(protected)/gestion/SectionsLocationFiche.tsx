@@ -1,5 +1,6 @@
 'use client';
 
+import { PropositionRattachement } from '../location/PropositionRattachement';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
 import { ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu, useRetraitsBatiment } from './DigicodesCopropriete';
@@ -689,6 +690,8 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
             {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' })}
           </div>
           {b.creeDansLApplication && <AdresseBien nom="caracteristiques" id={`loc-adresse-car-${b.id}`} etiquette="Adresse" valeur={adr} onChange={changerAdr} />}
+          {/* 🔴🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») « Rattacher à la copropriété <nom> — <adresses> ? » */}
+          {b.creeDansLApplication && <PropositionRattachement adresse={{ libelle: v.adresse, codePostal: v.codePostal, commune: v.commune }} />}
           {!b.creeDansLApplication && <p className="loc-muet">L’adresse de ce bien est tenue par WIPPIMMO : elle se corrige là-bas.</p>}
           <div className="loc-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition(false)}>Annuler</button>
