@@ -269,6 +269,41 @@ export async function ecrireDigicode(q: RequeteTx, e: EcritureDigicode, auteur: 
   return { ok: true, change: true, id };
 }
 
+/** 🔴 (Arno, 17/11/2026) la migration 487 (la nature 'retrait') est-elle en base ? */
+export async function retraitDigicodeDisponible(q: RequeteTx = query): Promise<boolean> {
+  const { rows } = await q<{ ok: boolean }>(
+    `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%retrait%'), false) AS ok FROM pg_constraint WHERE conname = 'gestion_digicode_nature_check'`);
+  return rows[0]?.ok === true;
+}
+
+/**
+ * ══ 🔴🔴 RETIRER LE DIGICODE D'UN BÂTIMENT (Arno, 17/11/2026, migration 487) ═════════════════════════════════════════════════════════════════════
+ * « code déjà enregistré : fenêtre de confirmation qui dit clairement que le code est RETIRÉ (« Le bâtiment X n'aura plus de digicode à partir de
+ * maintenant ; l'ancien code reste dans l'historique ») ; il est marqué retiré, avec la date et l'auteur, jamais effacé de la base ; les biens de ce
+ * bâtiment lisent alors le seul digicode copropriété ; la ligne copropriété n'a pas de « − » (on utilise « pas de digicode »). »
+ * Dans la transaction de l'appelant : une ligne 'retrait' (maintenant, l'auteur, sans code) — l'ajout seul ; rien n'est effacé ni modifié.
+ */
+export async function retirerDigicode(q: RequeteTx, e: { adresseCle: string; adresseLibelle: string; batiment: string | null; origine: OrigineDigicode; lotId?: number | null },
+  auteur: Auteur, instant: Date = new Date()): Promise<IssueEcriture> {
+  if (!(await retraitDigicodeDisponible(q))) return { ok: false, motif: 'Retirer un digicode demande la mise à jour de la base (migration 487) : rien n’est enregistré.' };
+  const place = placeBatiment(e.batiment);
+  if (place.cle === '') return { ok: false, motif: 'Le digicode copropriété ne se retire pas : cochez « pas de digicode ». Rien n’est enregistré.' };
+  await q('SELECT pg_advisory_xact_lock(hashtext($1))', [`digicode#${e.adresseCle}#${place.cle}`]);
+  const lignes = (await lignesDigicodes([e.adresseCle], q)).filter((l) => l.batimentCle === place.cle);
+  const en = codeEnVigueur(lignes, candidatsAnciens(await chargerAnciens(q), e.adresseCle, place.cle), e.adresseCle, place.cle, instant);
+  if (en === null || (en.valeur.digicode === null && (en.valeur.code ?? '') === '')) return { ok: false, motif: `Le bâtiment ${place.libelle} n’a pas de digicode enregistré : rien à retirer.` };
+  if (en.aArbitrer.length > 0) return { ok: false, motif: MOTIF_A_ARBITRER };
+  const prevu = changementsAVenir(lignes, e.adresseCle, place.cle, instant)[0];
+  if (prevu !== undefined) return { ok: false, motif: MOTIF_CHANGEMENT_PREVU(dateHeure(prevu.appliqueLe)) };
+  const id = await inserer(q, { adresseCle: e.adresseCle, adresseLibelle: e.adresseLibelle, batiment: e.batiment, valeur: {}, nature: 'saisie', origine: e.origine },
+    place, { digicode: false, code: null }, instant.toISOString(), 'retrait', e.origine, null, e.lotId ?? null, auteur);
+  if (e.lotId) {
+    await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, 'digicode', $2, $3, $4, $5, $6)`,
+      [e.lotId, libelleValeur(en.valeur), 'retiré', `digicode du bâtiment ${place.libelle} de ${e.adresseLibelle} retiré : ses biens lisent le digicode copropriété`, auteur.id, auteur.libelle]);
+  }
+  return { ok: true, change: true, id };
+}
+
 async function inserer(q: RequeteTx, e: EcritureDigicode, place: { cle: string; libelle: string | null }, v: { digicode: boolean; code: string | null }, appliqueLe: string,
   nature: LigneDigicode['nature'], origine: OrigineDigicode, corrige: number | null, lotId: number | null, auteur: Auteur): Promise<number> {
   const { rows } = await q<{ id: string }>(

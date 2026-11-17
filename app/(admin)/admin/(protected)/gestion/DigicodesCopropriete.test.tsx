@@ -133,7 +133,9 @@ describe('🔴 (lot D) la fenêtre d’avertissement', () => {
     expect(document.querySelector('[data-dcp-avertissement]')).toBeNull();
     expect(refusDigicodes(dernier, 'lettres', CONNUS)).toBeNull();
     // 🔴 (Arno, 17/11/2026) un nom validé devient l'intitulé : le changer = « × » puis une nouvelle ligne (jamais confirmée d'office)
-    await clic($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-retirer-ligne]'));
+    // (17/11/2026) le « × » est devenu le « − » rond : retirer la ligne se confirme
+    await clic($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-batiment="nouveau"] [data-dcp-moins]'));
+    await act(async () => { (document.querySelector('[data-dcp-retirer-oui]') as HTMLElement).click(); await Promise.resolve(); });
     await clic($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-plus]'));
     await saisir($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-nom-batiment]'), '8');
     expect(refusDigicodes(dernier, 'lettres', CONNUS)).toContain('« 8 »');

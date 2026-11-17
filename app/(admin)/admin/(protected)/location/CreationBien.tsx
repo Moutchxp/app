@@ -1016,6 +1016,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                   onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
+                  onRetirer={(a, batiment) => appelDigi({ action: 'digicode-retirer', adresseCle: a, batiment })}
+                  onRetirerEnAttente={(l) => setBatimentsCrees((x) => x.filter((y) => y.libelle !== l))}
                   onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
                   onEnvoyer={async (a, appliqueLe, changements, proprietaires, options) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });
                     if (typeof r !== 'string') setDigiRelire((n) => n + 1); return r; }} />

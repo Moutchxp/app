@@ -15,7 +15,8 @@ import { cleBatiment, libelleBatiment, libelleValeur, type ValeurDigicode } from
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 
-export type NatureDigicode = 'saisie' | 'correction' | 'changement' | 'reprise' | 'arbitrage';
+/** 🔴 (Arno, 17/11/2026, migration 487) 'retrait' : le bâtiment n'a plus de code propre (ses biens lisent le digicode copropriété) — l'ancien code reste dans l'historique */
+export type NatureDigicode = 'saisie' | 'correction' | 'changement' | 'reprise' | 'arbitrage' | 'retrait';
 export type OrigineDigicode = 'fiche_copropriete' | 'fiche_bien' | 'nouveau_bien' | 'reprise';
 
 export interface LigneDigicode {
@@ -121,6 +122,8 @@ export function candidatsAnciens(d: DonneesAnciennes, adresseCle: string, batime
 export function codeEnVigueur(lignes: readonly LigneDigicode[], anciens: readonly CandidatAncien[], adresseCle: string, batimentCle: string, instant: Date,
   prefere: (c: CandidatAncien) => boolean = () => false): CodeEnVigueur | null {
   const l = ligneEnVigueur(lignes, adresseCle, batimentCle, instant);
+  // 🔴 (Arno, 17/11/2026) un code RETIRÉ : plus de code propre à cette place — jamais une valeur d'avant qui reviendrait (les biens lisent le copropriété)
+  if (l !== null && l.nature === 'retrait') return null;
   if (l !== null) return { valeur: { digicode: l.digicode, code: l.code }, source: 'unifie', ligne: l, depuis: l.appliqueLe, aArbitrer: [], origines: [] };
   if (anciens.length === 0) return null;
   if (anciens.length === 1) return { valeur: anciens[0].valeur, source: 'ancien', ligne: null, depuis: anciens[0].depuis, aArbitrer: [], origines: anciens[0].origines };

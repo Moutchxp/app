@@ -5,10 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * d'écriture dans les anciennes tables. 🔒 Base simulée : aucune lecture ni écriture réelle.
  */
 const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], lignes: [] as Record<string, unknown>[], immeubles: [] as Record<string, unknown>[],
-  lots: [] as Record<string, unknown>[], copros: [] as Record<string, unknown>[], prochainId: 100 }));
+  lots: [] as Record<string, unknown>[], copros: [] as Record<string, unknown>[], prochainId: 100, avec487: true }));
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ').trim();
   h.sql.push({ s, p });
+  if (s.includes("conname = 'gestion_digicode_nature_check'")) return { rows: [{ ok: h.avec487 }] };
   if (s.startsWith('SELECT id::text, adresse_cle')) return { rows: h.lignes.filter((l) => (p[0] as string[]).includes(l.adresse_cle as string)) };
   if (s.startsWith('SELECT l.id::text, l.wippimmo_id')) return { rows: h.lots };
   if (s.startsWith('SELECT id::text, cle_adresse AS cle')) return { rows: h.immeubles };
@@ -27,7 +28,8 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible: async () => true, digicodeBatimentDisponible: async () => true }));
-import { annulerChangement, digicodesDuBien, ecrireDigicode as ecrire, relierBienAuBatiment as relier } from './digicodesRepo';
+import { annulerChangement, digicodesDuBien, ecrireDigicode as ecrire, relierBienAuBatiment as relier, retirerDigicode } from './digicodesRepo';
+import { codeEnVigueur } from './digicodes';
 import type { RequeteTx } from '../db/client';
 const ecrireDigicode = (_q: unknown, ...a: Parameters<typeof ecrire> extends [unknown, ...infer R] ? R : never) => ecrire(q as unknown as RequeteTx, ...a);
 const relierBienAuBatiment = (_q: unknown, ...a: Parameters<typeof relier> extends [unknown, ...infer R] ? R : never) => relier(q as unknown as RequeteTx, ...a);
@@ -126,5 +128,40 @@ describe('🔴 (lot 5) annuler un changement PRÉVU', () => {
     expect(u.p).toEqual([7, '12 rue x', AUTEUR.libelle]);
     expect(r).toMatchObject({ ok: false, motif: expect.stringContaining('n’est plus annulable') });
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (17/11/2026, migration 487) — « code déjà enregistré : […] le code est RETIRÉ (« Le bâtiment X n'aura plus de digicode à partir de maintenant ;
+ * l'ancien code reste dans l'historique ») ; il est marqué retiré, avec la date et l'auteur, jamais effacé de la base ; les biens de ce bâtiment lisent alors
+ * le seul digicode copropriété ; la ligne copropriété n'a pas de « − » (on utilise « pas de digicode »). »
+ */
+describe('🔴 retirer le digicode d’un bâtiment', () => {
+  const BAT = { ...BASE, batiment: 'A' };
+  beforeEach(() => { h.avec487 = true; });
+  it('un code enregistré : UNE ligne « retrait » ajoutée (maintenant, l’auteur, sans code) ; rien d’effacé ni de modifié ; ensuite, plus de code propre', async () => {
+    h.lignes = [ligne({ batiment_cle: 'a', batiment_libelle: 'A', code: 'TA10' })];
+    expect(await retirerDigicode(q as unknown as RequeteTx, BAT, AUTEUR, MAINTENANT)).toMatchObject({ ok: true, change: true });
+    expect(ecritures().map((x) => x.s.slice(0, 28))).toEqual(['INSERT INTO gestion_digicode']);
+    const r = h.lignes.at(-1)!;
+    expect([r.batiment_cle, r.digicode, r.code, r.nature, r.applique_le, r.cree_par_libelle]).toEqual(['a', false, null, 'retrait', MAINTENANT.toISOString(), 'a.jorel@sansvisavis.com']);
+    expect(h.lignes[0].code).toBe('TA10'); // l'ancien code reste (historique)
+  });
+  it('refus clairs, rien d’écrit : le digicode copropriété ; un bâtiment sans code ; un changement déjà prévu ; sans la 487', async () => {
+    h.lignes = [ligne({ code: 'C1' })];
+    expect(await retirerDigicode(q as unknown as RequeteTx, BASE, AUTEUR, MAINTENANT)).toMatchObject({ ok: false, motif: expect.stringContaining('« pas de digicode »') });
+    expect(await retirerDigicode(q as unknown as RequeteTx, BAT, AUTEUR, MAINTENANT)).toMatchObject({ ok: false, motif: expect.stringContaining('rien à retirer') });
+    h.lignes = [ligne({ batiment_cle: 'a', batiment_libelle: 'A', code: 'TA10' }), ligne({ batiment_cle: 'a', batiment_libelle: 'A', code: 'TA11', nature: 'changement', applique_le: '2026-11-20T08:00:00.000Z' })];
+    expect(await retirerDigicode(q as unknown as RequeteTx, BAT, AUTEUR, MAINTENANT)).toMatchObject({ ok: false, motif: expect.stringContaining('déjà prévu') });
+    h.avec487 = false; h.lignes = [ligne({ batiment_cle: 'a', batiment_libelle: 'A', code: 'TA10' })];
+    expect(await retirerDigicode(q as unknown as RequeteTx, BAT, AUTEUR, MAINTENANT)).toMatchObject({ ok: false, motif: expect.stringContaining('migration 487') });
+    expect(ecritures()).toEqual([]);
+  });
+  it('après un retrait : aucun code propre — jamais une valeur d’avant qui reviendrait (les biens lisent le copropriété)', () => {
+    const l = (o: Partial<Parameters<typeof codeEnVigueur>[0][number]>) => ({ id: 1, adresseCle: '12 rue x', adresseLibelle: '12 rue X', batimentCle: 'a', batimentLibelle: 'A', digicode: true,
+      code: 'TA10', appliqueLe: '2026-11-01T10:00:00.000Z', nature: 'saisie' as const, origine: 'fiche_copropriete' as const, lotId: null, corrigeId: null, annuleLe: null, creeLe: '', creeParLibelle: 'x', ...o });
+    const anciens = [{ valeur: { digicode: true, code: 'OLD' }, depuis: null, origines: [] }] as never;
+    expect(codeEnVigueur([l({}), l({ id: 2, digicode: false, code: null, nature: 'retrait', appliqueLe: '2026-11-10T10:00:00.000Z' })], anciens, '12 rue x', 'a', MAINTENANT)).toBeNull();
+    expect(codeEnVigueur([l({})], anciens, '12 rue x', 'a', MAINTENANT)?.valeur.code).toBe('TA10');
   });
 });

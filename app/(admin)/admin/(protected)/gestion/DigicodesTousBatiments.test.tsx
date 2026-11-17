@@ -174,3 +174,57 @@ describe('🔴 enregistré (lu, « Modifier ») ou en cours de saisie (champ, «
     expect($('[data-dcp-commun] [data-dcp-nouveau]')?.textContent).toBe('nouveau — enregistré avec le bien');
   });
 });
+
+/**
+ * 🔴🔴 Arno (17/11/2026) — « BOUTON ROND « − » au bout de chaque ligne de bâtiment (même colonne que « + », même taille) : ligne en cours de saisie : fenêtre de
+ * confirmation (« Retirer la ligne Digicode bâtiment X et son code ? »), puis retrait de l'écran ; code déjà enregistré : fenêtre de confirmation qui dit
+ * clairement que le code est RETIRÉ […] ; la ligne copropriété n'a pas de « − » (on utilise « pas de digicode »). »
+ */
+describe('🔴 le « − » des lignes de bâtiment', () => {
+  const CONNU = ETAT({ connu: true, valeur: { digicode: true, code: 'A1' }, source: 'unifie', depuis: '2026-11-01T10:00:00.000Z' });
+  let retraits: [string, string][] = [];
+  let reponse: string | null = null;
+  function Hote() {
+    const [s, setS] = useState(() => saisieDigicodesInitiale({ batimentsConnus: [A, B], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières',
+      commun: { digicode: null, code: null, etat: ETAT() }, batiments: [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', etat: CONNU }] }] } as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: [A, B], nomenclature: 'lettres', desactive: false, onPlanifier: async () => null,
+      onRetirer: async (a: string, b: string) => { retraits.push([a, b]); return reponse; } });
+  }
+  beforeEach(() => { retraits = []; reponse = null; });
+  const fenetre = () => document.querySelector('[data-dcp-fenetre-retirer]');
+  it('la ligne copropriété n’a pas de « − » ; chaque ligne de bâtiment en a un, rond, de la classe du « + »', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    expect($('[data-dcp-commun] [data-dcp-moins]')).toBeNull();
+    expect($('[data-dcp-batiment="A"] [data-dcp-moins]')?.getAttribute('data-dcp-moins')).toBe('enregistre');
+    expect($('[data-dcp-batiment="B"] [data-dcp-moins]')?.getAttribute('data-dcp-moins')).toBe('saisie');
+    expect($('[data-dcp-batiment="A"] [data-dcp-moins]')?.classList.contains('dcp-plus')).toBe(true);
+  });
+  it('code enregistré : la fenêtre dit qu’il est RETIRÉ ; « Annuler » ne fait rien ; « Retirer le code » appelle le retrait (place, bâtiment) ; un refus est dit', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    await clic($('[data-dcp-batiment="A"] [data-dcp-moins]')!);
+    expect(fenetre()?.textContent).toContain('Retirer le digicode du bâtiment A ?');
+    expect(fenetre()?.textContent).toContain('Le bâtiment A n’aura plus de digicode à partir de maintenant ; l’ancien code reste dans l’historique.');
+    await clic(document.querySelector('[data-dcp-retirer-non]')!);
+    expect([fenetre(), retraits]).toEqual([null, []]);
+    reponse = 'Refus d’essai.';
+    await clic($('[data-dcp-batiment="A"] [data-dcp-moins]')!);
+    await clic(document.querySelector('[data-dcp-retirer-oui]')!);
+    await act(async () => { await Promise.resolve(); });
+    expect(document.querySelector('[data-dcp-retirer-erreur]')?.textContent).toBe('Refus d’essai.');
+    reponse = null;
+    await clic(document.querySelector('[data-dcp-retirer-oui]')!);
+    await act(async () => { await Promise.resolve(); });
+    expect(retraits).toEqual([['7 rue x', 'A'], ['7 rue x', 'A']]);
+    expect(fenetre()).toBeNull();
+  });
+  it('ligne en cours de saisie : « Retirer la ligne Digicode bâtiment B et son code ? », puis elle quitte l’écran ; aucun retrait en base', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    await saisir($('[data-dcp-batiment="B"] [data-dcp-code-batiment]')!, 'B7');
+    await clic($('[data-dcp-batiment="B"] [data-dcp-moins]')!);
+    expect(fenetre()?.textContent).toContain('Retirer la ligne Digicode bâtiment B et son code ?');
+    await clic(document.querySelector('[data-dcp-retirer-oui]')!);
+    await act(async () => { await Promise.resolve(); });
+    expect($('[data-dcp-batiment="B"]')).toBeNull();
+    expect(retraits).toEqual([]);
+  });
+});

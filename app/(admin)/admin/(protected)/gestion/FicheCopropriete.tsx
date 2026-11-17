@@ -309,6 +309,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
             onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),
             onAnnulerChangement: (a: string, ligneId: number) => appelDigicode({ action: 'digicode-annuler-changement', adresseCle: a, ligneId }),
+            // 🔴 (Arno, 17/11/2026, 487) le « − » d'un code de bâtiment enregistré : retiré (jamais effacé)
+            onRetirer: (a: string, batiment: string) => appelDigicode({ action: 'digicode-retirer', adresseCle: a, batiment }),
             onApercu: (a: string, appliqueLe: string, changements: unknown[]) => echangeEnvoi<ApercuEnvoi>({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements }),
             onEnvoyer: async (a: string, appliqueLe: string, changements: unknown[], proprietaires: boolean, options?: { mode: string; decoches: number[] }) => {
               const r = await echangeEnvoi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires, ...(options ?? {}) });

@@ -7,7 +7,7 @@ import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
-import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode } from './digicodesRepo';
+import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
 import { validerChangements } from './digicodes';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
 import { verifierDigicode } from '../location/digicodeImmeuble';
@@ -267,7 +267,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
  */
 /** Les gestes immédiats des digicodes, par action de route — les mêmes dans les trois routes (fiche Copropriété, Location, fiche du bien). */
 export const ACTIONS_DIGICODE = { 'digicode-corriger': 'correction', 'digicode-arbitrer': 'arbitrage', 'digicode-planifier': 'planification',
-  'digicode-annuler-changement': 'annulation' } as const;
+  'digicode-annuler-changement': 'annulation',
+  /** 🔴 (Arno, 17/11/2026, 487) le « − » d'un code de bâtiment enregistré : le code est RETIRÉ (jamais effacé) */
+  'digicode-retirer': 'retrait' } as const;
 export type GesteDigicode = (typeof ACTIONS_DIGICODE)[keyof typeof ACTIONS_DIGICODE];
 export const gesteDeLAction = (a: unknown): GesteDigicode | null => (typeof a === 'string' && a in ACTIONS_DIGICODE ? ACTIONS_DIGICODE[a as keyof typeof ACTIONS_DIGICODE] : null);
 
@@ -298,6 +300,7 @@ export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, a
   if (nature === 'planification') { planifies = validerChangements(b); if (!planifies.ok) return planifies; }
   const r = await withTransaction(async (q): Promise<{ ok: true } | { ok: false; motif: string }> => {
     if (nature === 'annulation') return annulerChangement(q, adresse.cle, Number(b.ligneId), auteur);
+    if (nature === 'retrait') return retirerDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment, origine: 'fiche_copropriete' }, auteur);
     if (nature === 'planification' && planifies !== null && planifies.ok) {
       for (const c of planifies.saisie.changements) {
         const w = await ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment: c.batiment, valeur: { digicode: c.digicode, code: c.code }, nature: 'changement',

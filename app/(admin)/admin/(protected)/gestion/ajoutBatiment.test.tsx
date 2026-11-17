@@ -300,7 +300,7 @@ describe('🔴🔴 une ligne par bâtiment', () => {
     expect(nouvelle().querySelector('[data-dcp-nom-batiment]')).not.toBeNull();
     expect(nouvelle().querySelector('.dcp-champ-code > span')?.textContent).toBe('Digicode');
     const groupe = nouvelle().querySelector('.dcp-code-groupe') as HTMLElement;
-    expect([!!groupe.querySelector('[data-dcp-code-batiment]'), !!groupe.querySelector('.dcp-aucun'), !!groupe.querySelector('[data-dcp-retirer-ligne]')]).toEqual([true, true, true]);
+    expect([!!groupe.querySelector('[data-dcp-code-batiment]'), !!groupe.querySelector('.dcp-aucun'), !!groupe.querySelector('[data-dcp-moins="saisie"]')]).toEqual([true, true, true]); // (17/11/2026) le « × » est devenu le « − » rond, confirmé
     await clic($('[data-dcp-ajouter-nouveau]'));
     await saisir($('[data-cb-encadre-nom]'), 'D');
     await clic($('[data-cb-valider]'));
