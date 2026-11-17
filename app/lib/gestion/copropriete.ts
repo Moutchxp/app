@@ -30,10 +30,16 @@ export interface EtatPlaceDigicode {
   historique: { id: number; digicode: boolean; code: string | null; appliqueLe: string; nature: string; par: string; creeLe: string; annule: boolean }[];
 }
 
+/** 🔴 (Arno, 17/11/2026 : « Le mail à la Gestion est rangé dans l'historique de la copropriété et des biens concernés. ») un mail à la Gestion d'un
+ *  changement de digicode, tel que l'historique des digicodes le dit (une fois, même s'il est rangé dans plusieurs biens) */
+export interface MailGestionHisto { cle: string; objet: string; le: string | null; statut: string }
+
 /** 🔴 (lot 3) Les digicodes d'UNE adresse de la copropriété : le commun (le « code général » de l'immeuble de l'adresse) et ceux des bâtiments. */
 export interface DigicodesAdresseFiche {
   cle: string; voie: string; codePostal: string | null; commune: string | null;
   commun: { digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode; nbBiens?: number };
+  /** 🔴 (Arno, 17/11/2026) les mails à la Gestion des changements de digicode de cette adresse (historique) */
+  mailsGestion?: MailGestionHisto[];
   batiments: { cle: string; libelle: string; digicode: boolean | null; code: string | null; etat?: EtatPlaceDigicode; nbBiens?: number }[];
 }
 

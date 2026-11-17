@@ -399,7 +399,7 @@ describe('🔴🔴 les deux choix (A / B)', () => {
     await act(async () => { root.render(createElement(H)); });
     await clic($('[data-dcp-commun] [data-dcp-modifier]'));
     expect([...container.querySelectorAll('[data-dcp-choix-prevenir]')].map((b) => [b.textContent, (b as HTMLButtonElement).disabled]))
-      .toEqual([['A. Prévenir la Gestion seulement', true], ['B. Écrire maintenant aux locataires', true]]);
+      .toEqual([['A. Prévenir la Gestion seulement', true], ['B. Prévenir la Gestion et les locataires', true]]); // CE QU’IL DISAIT : « B. Écrire maintenant aux locataires » (Arno, 17/11/2026)
   });
   it('A : la liste des logements (en-tête : adresse, bâtiment, étage, porte), l’adresse de la Gestion, aucune case ; « Valider la mise à jour et prévenir la Gestion » part en mode « gestion »', async () => {
     await saisirChangement();

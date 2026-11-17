@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
-import type { EtatPlaceDigicode, FicheCopropriete } from '../../../../lib/gestion/copropriete';
+import type { EtatPlaceDigicode, FicheCopropriete, MailGestionHisto } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
 import { bilanEnvoi, codesEnLigne, enteteLogement, locataireCochable, proprietairesRegroupes, resumeChangements, totalSelection, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir } from '../../../../lib/gestion/digicodesEnvoi';
 import { adressesUniques, prenomNom } from '../../../../lib/location/mailsPreavisSortie';
@@ -33,7 +33,9 @@ export interface LigneBatiment extends CodeLigne { k: string; libelle: string; n
 /** L'intitulé d'une ligne de bâtiment : « Digicode bâtiment 1 », « Digicode bâtiment Côté cour ». PUR. */
 export const intituleDigicodeBatiment = (libelle: string): string => `Digicode bâtiment ${libelle}`;
 export interface DigicodesAdresseSaisis { cle: string; voie: string; codePostal: string | null; commune: string | null; commun: CodeLigne; communInitial: CodeLigne; batiments: LigneBatiment[];
-  communEtat?: EtatPlaceDigicode; communNb?: number }
+  communEtat?: EtatPlaceDigicode; communNb?: number;
+  /** 🔴 (Arno, 17/11/2026) les mails à la Gestion des changements de cette adresse : l'historique des digicodes les dit */
+  mailsGestion?: MailGestionHisto[] }
 
 /** Une place se LIT (au lieu de se saisir) : son code est connu, ou elle est à arbitrer. PUR. */
 export const placeLue = (e: EtatPlaceDigicode | undefined): e is EtatPlaceDigicode => e !== undefined && (e.connu || e.aArbitrer.length > 0);
@@ -85,6 +87,7 @@ export function saisieDigicodesInitiale(f: Pick<FicheCopropriete, 'digicodes'> &
 function saisieDigicodesLues(f: Pick<FicheCopropriete, 'digicodes'>): DigicodesAdresseSaisis[] {
   return (f.digicodes ?? []).map((d) => ({ cle: d.cle, voie: d.voie, codePostal: d.codePostal, commune: d.commune, commun: versLigne(d.commun), communInitial: versLigne(d.commun),
     ...(d.commun.etat ? { communEtat: d.commun.etat } : {}), ...(d.commun.nbBiens !== undefined ? { communNb: d.commun.nbBiens } : {}),
+    ...(d.mailsGestion !== undefined ? { mailsGestion: d.mailsGestion } : {}),
     batiments: d.batiments.map((b) => ({ k: k(), libelle: b.libelle, ...versLigne(b), nouveau: false, initial: versLigne(b), ...(b.etat ? { etat: b.etat } : {}),
       ...(b.nbBiens !== undefined ? { nb: b.nbBiens } : {}) })) }));
 }
@@ -510,7 +513,7 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
                   if (appliqueLe === null) return;
                   setEnvoi(true); setErreur(null); setChoix(m);
                   void onApercu(appliqueLe, changementsSaisis()).then((r) => { setEnvoi(false); if (typeof r === 'string') setErreur(r); else { setApercu(r); setDecoches(new Set()); } });
-                }}>{envoi && choix === m ? 'Lecture…' : m === 'gestion' ? 'A. Prévenir la Gestion seulement' : 'B. Écrire maintenant aux locataires'}</button>))
+                }}>{envoi && choix === m ? 'Lecture…' : m === 'gestion' ? 'A. Prévenir la Gestion seulement' : MOT_CHOIX_B}</button>))
           ) : (
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi || manque !== null} data-dcp-modifier-valider onClick={() => {
             if (appliqueLe === null) return;
@@ -544,7 +547,7 @@ function EcranDestinataires({ a, mode, decoches, onDecoches, proprietaires, onPr
   return (
     <div className="dcp-voile" data-dcp-destinataires data-dcp-mode={mode}>
       <div className="dcp-alerte dcp-fenetre" role="dialog" aria-modal="true" aria-labelledby="dcp-dest-titre" onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onRetour(); } }}>
-        <p className="dcp-alerte-titre" id="dcp-dest-titre">{locataires ? 'B. Écrire maintenant aux locataires' : 'A. Prévenir la Gestion seulement'}</p>
+        <p className="dcp-alerte-titre" id="dcp-dest-titre">{locataires ? MOT_CHOIX_B : 'A. Prévenir la Gestion seulement'}</p>
         <p className="dcp-alerte-texte">{a.adresse} — {resumeChangements(a)}. {locataires
           ? 'Seuls les locataires cochés reçoivent SON mail, à leur nom, sans autre destinataire, avec seulement le digicode copropriété et celui de leur bâtiment (une personne qui a plusieurs adresses e-mail reçoit un mail à chacune, séparément). Ensuite, la Gestion reçoit un mail qui liste les locataires prévenus.'
           : `Le changement est enregistré et un mail interne part à la Gestion (${a.adresseGestion ?? 'adresse des préférences'}) avec la date et la liste des logements concernés : la Gestion écrit elle-même aux locataires. AUCUN mail aux locataires.`}</p>
@@ -637,10 +640,15 @@ function HistoriqueDigicodes({ s }: { s: readonly DigicodesAdresseSaisis[] }) {
   const lignes = s.flatMap((d) => [...(d.communEtat?.historique ?? []).map((h) => ({ h, d, place: 'digicode copropriété' })),
     ...d.batiments.flatMap((b) => (b.etat?.historique ?? []).map((h) => ({ h, d, place: `bâtiment ${b.libelle}` })))])
     .sort((a, b) => new Date(b.h.creeLe).getTime() - new Date(a.h.creeLe).getTime() || b.h.id - a.h.id);
-  if (lignes.length === 0) return null;
+  // 🔴 (Arno, 17/11/2026 : « Le mail à la Gestion est rangé dans l'historique de la copropriété et des biens concernés. ») les mails à la Gestion
+  const mails = s.flatMap((d) => (d.mailsGestion ?? []).map((m) => ({ m, d })));
+  if (lignes.length === 0 && mails.length === 0) return null;
   return (
     <details className="dcp-historique" data-dcp-historique>
-      <summary>Historique des digicodes ({lignes.length})</summary>
+      <summary>Historique des digicodes ({lignes.length + mails.length})</summary>
+      {mails.length > 0 && <ul className="dcp-arbitrer-liste" data-dcp-historique-mails>{mails.map(({ m, d }) => (
+        <li key={`${d.cle}#${m.cle}`} data-dcp-historique-mail-gestion>{m.le !== null ? dateHeure(m.le) : 'date inconnue'} — {d.voie}, mail à la Gestion : <strong>{m.objet}</strong>
+          {m.statut !== 'envoye' ? <span className="loc-muet"> — non parti ({m.statut})</span> : null}</li>))}</ul>}
       <ul className="dcp-arbitrer-liste">{lignes.map(({ h, d, place }) => (
         <li key={h.id} data-dcp-historique-ligne={h.nature}>{dateHeure(h.creeLe)} — {d.voie}, {place} : <strong>{h.nature === 'retrait' ? 'code retiré' : motValeur(h)}</strong> — {MOT_NATURE[h.nature] ?? h.nature}
           {h.nature === 'changement' ? `, à partir du ${dateHeure(h.appliqueLe)}` : ''}{h.annule ? ' (annulé)' : ''} <span className="loc-muet">— {h.par}</span></li>))}</ul>
@@ -1057,6 +1065,9 @@ export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onAper
     </span>
   );
 }
+
+/** 🔴 (Arno, 17/11/2026 : « « B. Prévenir la Gestion et les locataires » ») CE QU'IL DISAIT : « B. Écrire maintenant aux locataires ». */
+export const MOT_CHOIX_B = 'B. Prévenir la Gestion et les locataires';
 
 /** 🔴 (Arno, 17/11/2026 : LISIBILITÉ) en dessous, le composant passe en disposition étroite (dcp--etroit). */
 export const LARGEUR_ETROITE_DCP = 330;

@@ -9,9 +9,10 @@ import { envoyerSerie, locatairesAvis, signatureEcran, type DepsAvis } from '../
 import { adressesUniques, prenomNom } from '../location/mailsPreavisSortie';
 import { ficheCopropriete } from './coproprieteRepo';
 import { gesteDigicodeCopro } from './coproprieteEcritureRepo';
-import { adresseCleDuBien, batimentCleDuBien, chargerAnciens, digicodesDuBien, digicodesUnifiesDisponibles } from './digicodesRepo';
+import { adresseCleDuBien, batimentCleDuBien, chargerAnciens, digicodesDesAdresses, digicodesDuBien, digicodesUnifiesDisponibles } from './digicodesRepo';
 import { placeBatiment, validerChangements } from './digicodes';
-import { bilanEnvoi, locataireSelectionne, mailGestion, mailLocataire, mailProprietaire, proprietairesRegroupes, regleDepart, type ApercuEnvoi, type IssueEnvoi, type LogementDest, type ModePrevenir, type PersonneDest } from './digicodesEnvoi';
+import { batimentDe } from './batimentsCopropriete';
+import { bilanEnvoi, locataireSelectionne, mailGestion, mailLocataire, mailProprietaire, proprietairesRegroupes, regleDepart, type ApercuEnvoi, type CodeChange, type IssueEnvoi, type LogementDest, type ModePrevenir, type PersonneDest } from './digicodesEnvoi';
 import { cleImmeuble } from './syndics';
 
 /**
@@ -109,7 +110,17 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
         ...(bNouveau !== undefined ? { batimentLe: bNouveau.appliqueLe, batimentAvecHeure: bNouveau.avecHeure } : {}) },
     });
   }
-  return { ok: true, data: { adresse: adresse.libelle, adresseCle, appliqueLe, logements, adresseGestion: (await chargerConfigGestion()).adresseGestion } };
+  // 🔴 (Arno, 17/11/2026 : « chaque code changé (ancien → nouveau) ») l'ancien : le code en vigueur AUJOURD'HUI à cette place
+  const [maintenant] = await digicodesDesAdresses([adresseCle]);
+  const valeur = (c: { valeur: { digicode: boolean | null; code: string | null } } | null | undefined) => (c ? { digicode: c.valeur.digicode, code: c.valeur.code } : null);
+  const codesChanges: CodeChange[] = changements.map((c) => {
+    const cle = placeBatiment(c.batiment).cle;
+    const lib = cle === '' ? null : batimentDe(c.batiment)?.libelle ?? c.batiment;
+    const ancien = cle === '' ? valeur(maintenant?.commun.code) : valeur(maintenant?.batiments.find((x) => x.cle === cle)?.code);
+    return { place: lib === null ? 'Digicode de la copropriété' : `Digicode du bâtiment ${lib}`, ancien, nouveau: { digicode: c.digicode, code: c.code }, le: c.appliqueLe, avecHeure: c.avecHeure };
+  });
+  return { ok: true, data: { adresse: adresse.libelle, adresseCle, appliqueLe, logements, adresseGestion: (await chargerConfigGestion()).adresseGestion,
+    copropriete: fiche.nom ?? null, changements: codesChanges } };
 }
 
 
@@ -138,6 +149,8 @@ export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: D
   const sig = await signatureEcran(deps);
   const contexte = { expediteur: config.adresseGestion, qui, signature: sig.ecran };
   const envois: IssueEnvoi['envois'] = [];
+  /** 🔴 (Arno, 17/11/2026) occupation → au moins un de ses mails est parti (un « échec d'envoi » le dit à la Gestion) */
+  const resultats = new Map<number, boolean>();
   for (const l of mode === 'gestion' ? [] : a.logements) {
     for (const x of l.locataires) {
       // seuls les locataires COCHÉS (un locataire décoché ne reçoit rien)
@@ -147,6 +160,7 @@ export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: D
       for (const adresse of m.a) {
         const [r] = await envoyerSerie([{ ...m, a: [adresse], cc: [] }], sig.brute, { lotId: l.lotId, occupationIds: [x.occupationId], auteur, uneSeuleAdresse: true }, deps);
         envois.push({ pour: prenomNom(x), objet: r.objet, a: r.a, envoye: r.envoye, motif: r.motif });
+        resultats.set(x.occupationId, resultats.get(x.occupationId) === true || r.envoye);
       }
     }
   }
@@ -162,9 +176,11 @@ export async function planifierEtPrevenir(brut: unknown, auteur: Auteur, deps: D
       }
     }
   }
-  // le mail à la Gestion (A : à prévenir ; B : les locataires prévenus), rangé dans l'historique de chaque logement concerné
+  // 🔴🔴 (Arno, 17/11/2026 : « GESTION TOUJOURS PRÉVENUE ») le mail à la Gestion — A : alerte ; B : information si tous les locataires concernés ont été
+  // prévenus, sinon alerte (décoché, pas d'e-mail, échec d'envoi) — APRÈS les mails aux locataires ; rangé dans l'historique de chaque logement
+  // concerné (et, par eux, dans l'historique des digicodes de la copropriété)
   let gestion: IssueEnvoi['gestion'] = null;
-  const mg = mailGestion(a, contexte, { mode, decoches, proprietaires });
+  const mg = mailGestion(a, contexte, { mode, decoches, proprietaires, ...(mode === 'locataires' ? { resultats } : {}) });
   const [premierLot, ...autresLots] = a.logements;
   if (mg !== null && premierLot !== undefined) {
     const [r] = await envoyerSerie([mg], sig.brute, { lotId: premierLot.lotId, occupationIds: [], auteur, autres: autresLots.map((x) => ({ lotId: x.lotId, occupationIds: [] })) }, deps);

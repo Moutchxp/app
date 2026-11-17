@@ -9,7 +9,7 @@ vi.mock('../location/digicodeImmeubleRepo', () => ({ digicodeImmeubleDisponible:
     batiments: a.voie.startsWith('12') ? [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', nbBiens: 1, mention: '' }] : [] }) }));
 // 🔴 (16/11/2026, « Digicodes unifiés ») la base unique : absente pour les épreuves d'avant (lecture d'avant), présente pour la sienne
 const u = vi.hoisted(() => ({ avec478: false, adresses: [] as unknown[] }));
-vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => u.avec478, digicodesDesAdresses: async (cles: string[]) => { u.adresses.push(cles); return cles.map((c) => ({
+vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => u.avec478, mailsGestionDesAdresses: async (cles: string[]) => new Map(cles.map((c) => [c, []])), digicodesDesAdresses: async (cles: string[]) => { u.adresses.push(cles); return cles.map((c) => ({
   adresseCle: c, nbBiens: 1, commun: { cle: '', libelle: null, code: c === 'residence les tilleuls' ? { valeur: { digicode: true, code: '5555' }, source: 'unifie', depuis: '2026-11-01T10:00:00.000Z', aArbitrer: [], origines: [] } : null, aVenir: [], historique: [] },
   batiments: c === 'residence les tilleuls' ? [{ cle: 'b', libelle: 'B', code: { valeur: { digicode: true, code: 'B9' }, source: 'ancien', depuis: null, aArbitrer: [{ valeur: { digicode: true, code: 'B9' }, origines: ['bien W1'], lots: [1] }, { valeur: { digicode: true, code: 'B8' }, origines: ['adresse x'], lots: [] }], origines: ['bien W1'] }, aVenir: [], historique: [] }] : [] })); } }));
 vi.mock('./contactsImmeubleRepo', () => ({ contactsDeLImmeuble: async () => [{ id: 1, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [] }] }));

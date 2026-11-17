@@ -70,3 +70,20 @@ describe('🔴 « Enregistré le … par … » sous chaque code enregistré', (
       ['A', true, 'Enregistré le 01/11/2026 à 11:00 par Arnaud JOREL', ['Nouveau code prévu le 20/11/2026 à 09:00 — saisi le 16/11/2026 par Arnaud JOREL']]]);
   });
 });
+
+/** 🔴 Arno (17/11/2026) — « Le mail à la Gestion est rangé dans l'historique de la copropriété et des biens concernés. » */
+describe('🔴 l’historique des digicodes dit les mails à la Gestion', () => {
+  it('chaque mail une fois, avec sa date et son objet ; un mail qui n’est pas parti le dit', async () => {
+    const s = saisieDigicodesInitiale({ batimentsConnus: [A, B], digicodes: [{ cle: '7 rue x', voie: '7 rue X', codePostal: '92600', commune: 'Asnières',
+      commun: { digicode: true, code: 'C1', etat: COMMUN }, batiments: [],
+      mailsGestion: [{ cle: 'm1', objet: '[ALERTE] Digicode modifié sans que les locataires aient été prévenus — 7 rue X', le: '2026-11-17T17:30:00.000Z', statut: 'envoye' },
+        { cle: 'm2', objet: '[Information] Digicodes mis à jour — 7 rue X — à compter du 20/11/2026', le: null, statut: 'echec' }] }] } as never);
+    await act(async () => { root.render(createElement(DigicodesCopropriete, { s, onChange: () => {}, connus: [A, B], nomenclature: 'lettres', desactive: false })); });
+    const h = document.querySelector('[data-dcp-historique]')!;
+    expect(h.querySelector('summary')?.textContent).toBe('Historique des digicodes (2)');
+    expect([...h.querySelectorAll('[data-dcp-historique-mail-gestion]')].map((x) => x.textContent)).toEqual([
+      '17/11/2026 à 18:30 — 7 rue X, mail à la Gestion : [ALERTE] Digicode modifié sans que les locataires aient été prévenus — 7 rue X',
+      'date inconnue — 7 rue X, mail à la Gestion : [Information] Digicodes mis à jour — 7 rue X — à compter du 20/11/2026 — non parti (echec)']);
+  });
+});
+

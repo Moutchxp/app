@@ -6,7 +6,7 @@ import { adresseImmeuble, cleImmeuble } from './syndics';
 import { biensEnDesaccord, cherchableDe, horsDansLaListe, immeubleDuBien, type LigneCopropriete, type BienCopropriete, type DigicodesAdresseFiche, type EtatPlaceDigicode, type FicheCopropriete, type GestionnaireSyndic } from './copropriete';
 import { batimentDe, nomenclatureDe, type BatimentConnu } from './batimentsCopropriete';
 import { depuisCoproprieteDisponible, digicodeImmeubleDisponible, lireDigicodesAdresse } from '../location/digicodeImmeubleRepo';
-import { digicodesDesAdresses, digicodesUnifiesDisponibles, type PlaceFiche } from './digicodesRepo';
+import { digicodesDesAdresses, digicodesUnifiesDisponibles, mailsGestionDesAdresses, type PlaceFiche } from './digicodesRepo';
 import { mentionEnregistre, mentionPrevu } from './digicodes';
 
 /**
@@ -98,11 +98,12 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
     // 🔴🔴 (16/11/2026, « Digicodes unifiés », lot 2) la base unique : le code EN VIGUEUR de chaque place (adresse de la copropriété × bâtiment), à la
     // clé de la copropriété — la même que celle de ses biens (repli sur les valeurs d'avant tant que la base unique n'a rien à cette place)
     const lus = await digicodesDesAdresses(adressesFiche.map((a) => cleImmeuble(a.libelle)));
+    const mails = await mailsGestionDesAdresses(adressesFiche.map((a) => cleImmeuble(a.libelle)));
     adressesFiche.forEach((a, i) => {
       const d = lus[i];
       const v = (p: typeof d.commun) => ({ digicode: p.code?.valeur.digicode ?? null, code: p.code?.valeur.code ?? null, etat: etatPlace(p), nbBiens: p.nbBiens });
       digicodes.push({ cle: d.adresseCle, voie: a.libelle, codePostal: a.codePostal, commune: a.commune, commun: v(d.commun),
-        batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })) });
+        batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) })), mailsGestion: mails.get(d.adresseCle) ?? [] });
       for (const b of d.batiments) { const x = batimentDe(b.libelle); if (x !== null) connus.push(x); }
     });
   } else if (await digicodeImmeubleDisponible()) {

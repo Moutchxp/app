@@ -34,7 +34,13 @@ export interface LogementDest {
 }
 export interface ApercuEnvoi { adresse: string; adresseCle: string; appliqueLe: string; logements: LogementDest[];
   /** 🔴 (Arno, 17/11/2026) l'adresse de la Gestion (préférences), destinataire du mail interne */
-  adresseGestion?: string }
+  adresseGestion?: string;
+  /** 🔴 (Arno, 17/11/2026) le nom de la copropriété, s'il existe (le mail à la Gestion le dit) */
+  copropriete?: string | null;
+  /** 🔴 (Arno, 17/11/2026 : « chaque code changé (ancien → nouveau), sa date (et heure) d'application ») les codes qui changent, place par place */
+  changements?: CodeChange[] }
+/** Un code qui change : sa place (« Digicode de la copropriété », « Digicode du bâtiment A »), l'ancien (en vigueur aujourd'hui), le nouveau, sa date. */
+export interface CodeChange { place: string; ancien: ValeurCode | null; nouveau: ValeurCode; le: string; avecHeure: boolean }
 
 /** 🔴🔴 (Arno, 17/11/2026 : « DEUX CHOIX, obligatoires, après la saisie : A. « Prévenir la Gestion seulement » […] B. « Écrire maintenant aux locataires » […] Seuls les locataires cochés reçoivent un mail […]. Ensuite, un mail à la Gestion l'informe que les locataires listés ont été prévenus. ») les deux choix. */
 export type ModePrevenir = 'gestion' | 'locataires';
@@ -201,36 +207,87 @@ export interface IssueEnvoi { enregistre: boolean; envois: EnvoiDigicode[]; sans
   mode?: ModePrevenir; gestion?: EnvoiDigicode | null; nonCoches?: string[] }
 
 
-/** L'objet du mail à la Gestion. PUR. */
-export const objetGestion = (a: ApercuEnvoi, mode: ModePrevenir): string =>
-  `${mode === 'gestion' ? '[À prévenir] ' : '[Locataires prévenus] '}${objetChangement(a)}`;
+/**
+ * ══ 🔴🔴 LA GESTION TOUJOURS PRÉVENUE (Arno, 17/11/2026) ═══════════════════════════════════════════════════════════════════════════════════════
+ * « GESTION TOUJOURS PRÉVENUE, pour une MODIFICATION de digicode uniquement (jamais pour une première saisie). Deux choix, l'un OBLIGATOIRE, libellés :
+ * « A. Prévenir la Gestion seulement » → la Gestion (adresse des préférences, gestion@criterimmo.fr, rien en dur) reçoit un MAIL D'ALERTE : « Digicode
+ * modifié sans que les locataires aient été prévenus », avec l'adresse et le nom de la copropriété (s'il existe), chaque code changé (ancien → nouveau), sa
+ * date (et heure) d'application, et la liste des logements et locataires concernés, tous marqués « non prévenu ». « B. Prévenir la Gestion et les
+ * locataires » → les mails nominatifs partent (un par personne, une seule adresse), puis la Gestion reçoit : si TOUS les locataires concernés ont été
+ * prévenus : un MAIL D'INFORMATION « Les digicodes de <nom de la copropriété> — <adresse> sont mis à jour à compter du <date[ heure]> ; tous les locataires
+ * concernés ont été prévenus par des mails individuels. », avec les codes et la liste des locataires prévenus ; sinon (un locataire décoché, sans e-mail
+ * ou en échec d'envoi) : un MAIL D'ALERTE qui le dit en objet et en tête, avec, logement par logement, les locataires PRÉVENUS et ceux NON PRÉVENUS (avec
+ * la raison : décoché, pas d'e-mail, échec d'envoi). »
+ * Un locataire « concerné » : en place, préavis compris selon la règle des 7 jours (`inclus`) ; un locataire parti avant n'est jamais destinataire et
+ * ne compte pas parmi les non prévenus (il est dit « non concerné »).
+ */
+export type RaisonNonPrevenu = 'choix A' | 'décoché' | 'pas d’e-mail' | 'échec d’envoi';
+/** Le sort d'un locataire concerné : prévenu, ou la raison. `resultats` : occupation → au moins un mail parti (après l'envoi). PUR. */
+export function sortLocataire(x: LocataireDest, mode: ModePrevenir, decoches: ReadonlySet<number>, resultats?: ReadonlyMap<number, boolean>): { prevenu: true } | { prevenu: false; raison: RaisonNonPrevenu } {
+  if (mode === 'gestion') return { prevenu: false, raison: 'choix A' };
+  if (adressesUniques(x.emails).length === 0) return { prevenu: false, raison: 'pas d’e-mail' };
+  if (decoches.has(x.occupationId)) return { prevenu: false, raison: 'décoché' };
+  if (resultats !== undefined && resultats.get(x.occupationId) !== true) return { prevenu: false, raison: 'échec d’envoi' };
+  return { prevenu: true };
+}
+/** Le nom du lieu : « <nom de la copropriété> — <adresse> », ou l'adresse seule. PUR. */
+const lieuDe = (a: ApercuEnvoi): string => ((a.copropriete ?? '').trim() !== '' && (a.copropriete as string).trim() !== a.adresse.trim() ? `${(a.copropriete as string).trim()} — ${a.adresse}` : a.adresse);
+/** La première date d'application, en mots. PUR. */
+const premiereDate = (a: ApercuEnvoi): string => datesDe(a, a.logements)[0]
+  ?? (a.changements !== undefined && a.changements.length > 0 ? quandChangement([...a.changements].sort((x, y) => x.le.localeCompare(y.le))[0].le, a.changements[0].avecHeure) : quandChangement(a.appliqueLe, true));
+/** « Digicode du bâtiment A : TA10 → TA72, à partir du 20/11/2026 » — chaque code changé, ancien → nouveau. PUR. */
+export const lignesAncienNouveau = (a: ApercuEnvoi): string[] => (a.changements ?? []).map((c) =>
+  `${c.place} : ${motCode(c.ancien)} → ${motCode(c.nouveau)}, à partir du ${quandChangement(c.le, c.avecHeure)}`);
+
+/** Le verdict du mail à la Gestion : A ; B tous prévenus ; B avec des non prévenus (leur nombre). PUR. */
+export function verdictGestion(a: ApercuEnvoi, mode: ModePrevenir, decoches: ReadonlySet<number>, resultats?: ReadonlyMap<number, boolean>): { sorte: 'alerte_a' | 'information' | 'alerte_b'; nonPrevenus: number } {
+  const concernes = a.logements.flatMap((l) => l.locataires.filter((x) => x.inclus));
+  const non = concernes.filter((x) => !sortLocataire(x, mode, decoches, resultats).prevenu).length;
+  return mode === 'gestion' ? { sorte: 'alerte_a', nonPrevenus: non } : non === 0 ? { sorte: 'information', nonPrevenus: 0 } : { sorte: 'alerte_b', nonPrevenus: non };
+}
+
+/** L'objet du mail à la Gestion : l'alerte le dit en objet. PUR. */
+export function objetGestion(a: ApercuEnvoi, mode: ModePrevenir, decoches: ReadonlySet<number> = new Set(), resultats?: ReadonlyMap<number, boolean>): string {
+  const v = verdictGestion(a, mode, decoches, resultats);
+  if (v.sorte === 'alerte_a') return `[ALERTE] Digicode modifié sans que les locataires aient été prévenus — ${lieuDe(a)}`;
+  if (v.sorte === 'alerte_b') return `[ALERTE] Digicode modifié : ${v.nonPrevenus} locataire${v.nonPrevenus > 1 ? 's' : ''} non prévenu${v.nonPrevenus > 1 ? 's' : ''} — ${lieuDe(a)}`;
+  return `[Information] Digicodes mis à jour — ${lieuDe(a)} — à compter du ${premiereDate(a)}`;
+}
 
 /**
- * 🔴🔴 (Arno, 17/11/2026 : « DEUX CHOIX, obligatoires, après la saisie : A. « Prévenir la Gestion seulement » […] B. « Écrire maintenant aux locataires » […] Seuls les locataires cochés reçoivent un mail […]. Ensuite, un mail à la Gestion l'informe que les locataires listés ont été prévenus. ») LE MAIL À LA GESTION (adresse des préférences ; interne : jamais un client). A : le changement, la date et la liste des logements
- * concernés, avec leurs locataires à prévenir (nom et e-mail) — la Gestion leur écrit elle-même ; B : les locataires prévenus, et ceux qui ne l'ont pas
- * été (décochés, sans e-mail, partis). `null` : pas d'adresse de Gestion. PUR.
+ * LE MAIL À LA GESTION (après les mails aux locataires, quand ils partent : `resultats` dit lesquels sont partis). `null` : pas d'adresse de Gestion. PUR.
  */
-export function mailGestion(a: ApercuEnvoi, c: ContexteMail, o: { mode: ModePrevenir; decoches: ReadonlySet<number>; proprietaires: boolean }): MailAvis | null {
+export function mailGestion(a: ApercuEnvoi, c: ContexteMail, o: { mode: ModePrevenir; decoches: ReadonlySet<number>; proprietaires: boolean; resultats?: ReadonlyMap<number, boolean> }): MailAvis | null {
   const dest = adressesUniques([a.adresseGestion ?? '']);
   if (dest.length === 0) return null;
+  const v = verdictGestion(a, o.mode, o.decoches, o.resultats);
   const plusieurs = datesDe(a, a.logements).length > 1;
-  const ligneLogement = (l: LogementDest): string => `· ${enteteLogement(l)}\n${lignesCodes(a, l, plusieurs).map((x) => `  ${x}`).join('\n')}`;
   const nomEtMail = (x: LocataireDest): string => `${prenomNom(x)}${adressesUniques(x.emails).length > 0 ? ` (${adressesUniques(x.emails).join(', ')})` : ''}`;
-  const blocs = a.logements.map((l) => {
-    const loc = l.locataires.map((x) => {
-      if (!x.inclus) return `  – ${prenomNom(x)} — ${x.raison ?? 'parti'} : non concerné`;
-      if (o.mode === 'gestion') return `  – ${nomEtMail(x)}${adressesUniques(x.emails).length === 0 ? ' — pas d’e-mail : à prévenir autrement' : ''}`;
-      if (adressesUniques(x.emails).length === 0) return `  – ${prenomNom(x)} — pas d’e-mail : à prévenir autrement`;
-      return locataireSelectionne(x, o.decoches) ? `  – ${nomEtMail(x)} — prévenu par mail` : `  – ${nomEtMail(x)} — NON prévenu (décoché)`;
-    });
-    return [ligneLogement(l), ...(loc.length > 0 ? loc : ['  – aucun locataire en place'])].join('\n');
-  });
-  const t = totalSelection(a, o.decoches);
-  const paras: ParagrapheMail[] = o.mode === 'gestion'
-    ? ['Bonjour,', ...enTete(a, datesDe(a, a.logements)), `Les digicodes de cet immeuble vont changer. Le changement est enregistré ; AUCUN mail n’a été envoyé aux locataires : merci de les prévenir.`,
-      `Logements concernés (${a.logements.length}) :\n${blocs.join('\n')}`, 'Bien cordialement,']
-    : ['Bonjour,', ...enTete(a, datesDe(a, a.logements)), `Les digicodes de cet immeuble vont changer. Le changement est enregistré et les locataires listés ci-dessous comme « prévenus par mail » ont reçu chacun leur mail (${t.phrase}).${o.proprietaires ? ' Les propriétaires ont aussi été prévenus.' : ''}`,
-      `Logements concernés (${a.logements.length}) :\n${blocs.join('\n')}`, 'Bien cordialement,'];
+  const ligneLocataire = (x: LocataireDest): string => {
+    if (!x.inclus) return `  – ${prenomNom(x)} — ${x.raison ?? 'parti'} : non concerné`;
+    const r = sortLocataire(x, o.mode, o.decoches, o.resultats);
+    return r.prevenu ? `  – ${nomEtMail(x)} — prévenu par mail` : `  – ${nomEtMail(x)} — NON PRÉVENU${r.raison === 'choix A' ? '' : ` (${r.raison})`}`;
+  };
+  const bloc = (l: LogementDest, filtre: (x: LocataireDest) => boolean = () => true): string => {
+    const loc = l.locataires.filter(filtre).map(ligneLocataire);
+    return [`· ${enteteLogement(l)}`, ...lignesCodes(a, l, plusieurs).map((x) => `  ${x}`), ...(loc.length > 0 ? loc : ['  – aucun locataire en place'])].join('\n');
+  };
+  const codes = lignesAncienNouveau(a);
+  const paraCodes: ParagrapheMail[] = codes.length > 0 ? [`Code${codes.length > 1 ? 's' : ''} modifié${codes.length > 1 ? 's' : ''} (ancien → nouveau) :\n${codes.join('\n')}`] : [];
+  const prop = o.proprietaires ? ' Les propriétaires ont aussi été prévenus.' : '';
+  const lieu = lieuDe(a);
+  const paras: ParagrapheMail[] = v.sorte === 'alerte_a'
+    ? ['Bonjour,', { texte: 'ALERTE : digicode modifié sans que les locataires aient été prévenus.', gras: true }, { texte: lieu, gras: true }, ...paraCodes,
+      `Le changement est enregistré ; AUCUN mail n’a été envoyé aux locataires : merci de les prévenir.`,
+      `Logements et locataires concernés (${a.logements.length}) :\n${a.logements.map((l) => bloc(l)).join('\n')}`, 'Bien cordialement,']
+    : v.sorte === 'information'
+      ? ['Bonjour,', { texte: lieu, gras: true },
+        `Les digicodes de ${lieu} sont mis à jour à compter du ${premiereDate(a)} ; tous les locataires concernés ont été prévenus par des mails individuels.${prop}`,
+        ...paraCodes, `Locataires prévenus, logement par logement (${a.logements.length}) :\n${a.logements.map((l) => bloc(l)).join('\n')}`, 'Bien cordialement,']
+      : ['Bonjour,', { texte: `ALERTE : ${v.nonPrevenus} locataire${v.nonPrevenus > 1 ? 's' : ''} concerné${v.nonPrevenus > 1 ? 's' : ''} n’${v.nonPrevenus > 1 ? 'ont' : 'a'} pas été prévenu${v.nonPrevenus > 1 ? 's' : ''} du changement de digicode.`, gras: true },
+        { texte: lieu, gras: true }, ...paraCodes,
+        `Le changement est enregistré, à compter du ${premiereDate(a)}. Les locataires marqués « NON PRÉVENU » sont à prévenir autrement.${prop}`,
+        `Logement par logement, les locataires prévenus et non prévenus (${a.logements.length}) :\n${a.logements.map((l) => bloc(l)).join('\n')}`, 'Bien cordialement,'];
   const m = composerMailLocation(paras, c.qui, c.signature);
-  return { sorte: 'digicode_gestion', de: c.expediteur, a: dest, cc: [], objet: objetGestion(a, o.mode), texte: m.texte, html: m.html };
+  return { sorte: 'digicode_gestion', de: c.expediteur, a: dest, cc: [], objet: objetGestion(a, o.mode, o.decoches, o.resultats), texte: m.texte, html: m.html };
 }

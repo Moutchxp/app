@@ -4,7 +4,7 @@ import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { cleBatiment, cleImmeubleAdresse, libelleValeur, type ValeurDigicode } from '../location/digicodeImmeuble';
 import { batimentDe } from './batimentsCopropriete';
-import { immeubleDuBien } from './copropriete';
+import { immeubleDuBien, type MailGestionHisto } from './copropriete';
 import { cleImmeuble } from './syndics';
 import {
   candidatsAnciens, changementsAVenir, codeEnVigueur, dateHeure, lignesDeLaPlace, memeCode, MOTIF_A_ARBITRER, MOTIF_ARBITRAGE_HORS_LISTE, MOTIF_CHANGEMENT_PREVU,
@@ -434,4 +434,26 @@ export async function annulerChangement(q: RequeteTx, adresseCle: string, ligneI
       WHERE id = $1 AND adresse_cle = $2 AND nature = 'changement' AND annule_le IS NULL AND applique_le > now() RETURNING id::text`, [ligneId, adresseCle, auteur.libelle]);
   return rows[0] === undefined ? { ok: false, motif: 'Ce changement n’est plus annulable (déjà appliqué ou déjà annulé) : rechargez la fiche. Rien n’est enregistré.' }
     : { ok: true, change: true, id: ligneId };
+}
+
+/**
+ * 🔴 (Arno, 17/11/2026 : « Le mail à la Gestion est rangé dans l'historique de la copropriété et des biens concernés. ») Les mails à la Gestion des
+ * changements de digicode, adresse par adresse : ceux rangés dans les biens de l'adresse (le même mail, rangé dans plusieurs biens, ne compte qu'une
+ * fois), les plus récents d'abord. Vide sans la 484. LECTURE SEULE.
+ */
+export async function mailsGestionDesAdresses(adresseCles: readonly string[], q: RequeteTx = query): Promise<Map<string, MailGestionHisto[]>> {
+  const out = new Map<string, MailGestionHisto[]>(adresseCles.map((c) => [c, []]));
+  if (adresseCles.length === 0 || !(await colonneExisteMemo('gestion_location_mail_avis', 'sorte'))) return out;
+  const lots = (await chargerAnciens(q)).lotsBruts.map((l) => ({ id: l.id, cle: adresseCleDuBien(l) })).filter((l) => out.has(l.cle));
+  if (lots.length === 0) return out;
+  const { rows } = await q<{ lot: string; cle: string; objet: string; le: string | null; statut: string }>(
+    `SELECT lot_id::text AS lot, coalesce(message_id, objet || '#' || coalesce(envoye_le::text, id::text)) AS cle, objet, to_json(envoye_le)#>>'{}' AS le, statut
+       FROM gestion_location_mail_avis WHERE sorte = 'digicode_gestion' AND lot_id = ANY($1::bigint[]) ORDER BY envoye_le DESC NULLS LAST, id DESC`, [lots.map((l) => l.id)]);
+  for (const r of rows) {
+    const adresse = lots.find((l) => l.id === Number(r.lot))?.cle;
+    if (adresse === undefined) continue;
+    const liste = out.get(adresse)!;
+    if (!liste.some((m) => m.cle === r.cle)) liste.push({ cle: r.cle, objet: r.objet, le: r.le, statut: r.statut });
+  }
+  return out;
 }

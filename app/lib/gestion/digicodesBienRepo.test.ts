@@ -13,7 +13,7 @@ vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeo
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('./coproprieteRepo', () => ({ ficheCopropriete: async () => h.fiche, etatPlace: () => null }));
 vi.mock('./digicodesRepo', () => ({
-  digicodesUnifiesDisponibles: async () => true, digicodesDesAdresses: async () => [],
+  digicodesUnifiesDisponibles: async () => true, digicodesDesAdresses: async () => [], mailsGestionDesAdresses: async () => new Map(),
   RefusDigicode: class RefusDigicode extends Error {},
   ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { h.ecrits.push(e); return h.issue; },
   relierBienAuBatiment: async (_q: unknown, ...a: unknown[]) => { h.liens.push(a); return { ok: true, change: true }; },

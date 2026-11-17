@@ -98,9 +98,11 @@ describe('🔴 deux codes, deux dates : un seul mail par locataire, chaque code 
   it('choix A : UN mail à la Gestion, qui récapitule tous les changements, chacun à sa date', () => {
     const m = mailGestion({ ...a, adresseGestion: 'gestion@exemple.test' }, C, { mode: 'gestion', decoches: new Set(), proprietaires: false })!;
     expect(m.a).toEqual(['gestion@exemple.test']);
-    expect(m.objet).toBe('[À prévenir] Changement des digicodes de l’immeuble — 1 rue Essai — à partir du 20/11/2026 à 09:00');
-    // la même présentation : l'adresse en gras, pas de ligne commune (deux dates), un code par ligne avec sa date, l'inchangé en dernier
-    expect(m.texte).toContain('Bonjour,\n\n1 rue Essai\n\nLes digicodes de cet immeuble vont changer. Le changement est enregistré ; AUCUN mail');
+    // 🔴 (Arno, 17/11/2026) CE QU'IL DISAIT : « [À prévenir] Changement des digicodes de l’immeuble — … » ; désormais l'ALERTE, dite en objet et en tête
+    expect(m.objet).toBe('[ALERTE] Digicode modifié sans que les locataires aient été prévenus — 1 rue Essai');
+    // l'adresse en gras, un code par ligne avec sa date, l'inchangé en dernier
+    expect(m.texte).toContain('Bonjour,\n\nALERTE : digicode modifié sans que les locataires aient été prévenus.\n\n1 rue Essai');
+    expect(m.texte).toContain('AUCUN mail n’a été envoyé aux locataires');
     expect(m.html).toContain('<strong>1 rue Essai</strong>');
     expect(m.texte).toContain('  Digicode de la copropriété : C2, à partir du 20/11/2026 à 09:00\n  Digicode du bâtiment A : A2, à partir du 26/11/2026');
     expect(m.texte).toContain('  Digicode de la copropriété : C2, à partir du 20/11/2026 à 09:00\n  Digicode du bâtiment B : B111 (inchangé)');

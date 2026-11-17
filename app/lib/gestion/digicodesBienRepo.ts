@@ -6,7 +6,7 @@ import { batimentDe, nomenclatureDe, refusDesBatiments, type BatimentConnu, type
 import { immeubleDuBien, type DigicodesAdresseFiche } from './copropriete';
 import { etatPlace, ficheCopropriete } from './coproprieteRepo';
 import { premiereValeur, type DigicodesBienSaisis, type OrigineDigicode } from './digicodes';
-import { digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, inscrireBatiment, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode } from './digicodesRepo';
+import { digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, inscrireBatiment, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode, mailsGestionDesAdresses } from './digicodesRepo';
 import { cleImmeuble } from './syndics';
 
 /**
@@ -67,7 +67,9 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
   const adresse: DigicodesAdresseFiche = { cle: adresseCle, voie, codePostal: fiche?.adresses.find((a) => a.cle === adresseCle)?.codePostal ?? cp, commune: fiche?.adresses.find((a) => a.cle === adresseCle)?.commune ?? commune,
     commun: v(d.commun), batiments: d.batiments.map((b) => ({ cle: b.cle, libelle: b.libelle as string, ...v(b) }))
       // 🔴 (Arno, 17/11/2026, 488) un bâtiment RETIRÉ de la copropriété, sans code, ne revient pas
-      .filter((b) => !(retires.has(b.cle) && b.digicode === null && (b.code ?? '') === '')) };
+      .filter((b) => !(retires.has(b.cle) && b.digicode === null && (b.code ?? '') === '')),
+    // 🔴 (Arno, 17/11/2026) les mails à la Gestion des changements de digicode de l'adresse (historique)
+    mailsGestion: (await mailsGestionDesAdresses([adresseCle])).get(adresseCle) ?? [] };
   const connus = fiche?.batimentsConnus ?? d.batiments.map((b) => batimentDe(b.libelle)).filter((b): b is BatimentConnu => b !== null);
   return { adresseCle, adresse, connus, nomenclature: fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus),
     copropriete: { cle: fiche?.cle ?? adresseCle, libelle: fiche?.libelle ?? immeuble, codePostal: fiche?.codePostal ?? cp, commune: fiche?.commune ?? commune },
