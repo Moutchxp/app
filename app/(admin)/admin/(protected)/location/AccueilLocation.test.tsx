@@ -66,7 +66,7 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === texte) as HTMLButtonElement;
 
 describe('🔴 /admin/location ne plante plus', () => {
-  it('① écran Propriétaires et biens : les 3 grosses cases dans l’ordre (effet 3D), le bouton « + Nouveau propriétaire + bien » et le tableau Propriétaires / Biens rétablis (Arno, 17/11/2026)', async () => {
+  it('① écran Propriétaires et biens : les 3 grosses cases dans l’ordre (effet 3D), sans l’ancien bouton ni le tableau (retraits décidés par Arno)', async () => {
     await act(async () => { root.render(createElement(EcranProprietairesBiens)); });
     await calmer();
     // Arno (18/10/2026) : « Supprimer un propriétaire » EN PREMIER et SEUL en rouge, puis « Créer… » et « Ajouter un nouveau bien » en blanc.
@@ -75,11 +75,9 @@ describe('🔴 /admin/location ne plante plus', () => {
       .toEqual(['/admin/location/proprietaires/supprimer', '/admin/location/nouveau-proprietaire', '/admin/location/nouveau-bien']);
     expect(cases.map((x) => x.firstChild?.textContent)).toEqual(['Supprimer un propriétaire / un bien', 'Créer un nouveau propriétaire', 'Ajouter un nouveau bien']);
     expect(cases.map((x) => x.classList.contains('loc-gros-bouton--plein'))).toEqual([true, false, false]);
-    // 🔴 RÉTABLI (Arno, 17/11/2026 : « Remets tout ce qu'ont retiré c29fd324 et 55819ac4 ») : le bouton de l'en-tête, vers la page « Nouveau propriétaire + bien »
-    expect(container.querySelector('.svv-page-head .svv-page-actions a[href="/admin/location/nouveau"]')?.textContent).toBe('+ Nouveau propriétaire + bien');
-    // 🔴 RÉTABLI (Arno, 17/11/2026) : le tableau Propriétaires / Biens, onglets compris, sous les cases
-    expect([...container.querySelectorAll('[data-tableau-proprietaires-biens] [role="tablist"] [role="tab"]')].map((t) => t.textContent)).toEqual(['Propriétaires', 'Biens']);
-    expect(container.querySelector('[data-tableau-proprietaires-biens] a[href="/admin/location/proprietaire/1"]')?.textContent).toBe('EXEMPLE Claire');
+    expect(container.querySelector('a[href="/admin/location/nouveau"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.textContent).not.toContain('EXEMPLE Claire');
     // Même en-tête que l'accueil (classes d'EnTetePage), puis le même espace réservé que sous le moteur.
     expect(container.querySelector('.svv-page-head .svv-page-title')?.textContent).toBe('Propriétaires et biens');
     expect(container.querySelector('[data-espace-accueil]')?.className).toBe('loc-zone-resultats loc-zone-resultats--vide');
