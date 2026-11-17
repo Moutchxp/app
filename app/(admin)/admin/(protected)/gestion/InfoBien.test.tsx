@@ -136,6 +136,14 @@ describe('🔴🔴 (a) la bulle n’est plus coupée : elle sort de son bloc', (
     expect(lien()?.textContent).toBe('Ouvrir la fiche du bien');
     expect(lien()?.getAttribute('target')).toBe('_blank');
   });
+  it('🔴 (Arno, 17/11/2026) une seule ligne « Bâtiment / cage d’escalier » : le bâtiment du bien, à défaut l’ancien escalier', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ etat: 'ok', data: { ...FICHE, batiment: null, escalier: '2' } }) })));
+    const c = monter(unBien());
+    await ouvrirAuSurvol(c);
+    expect(laBulle()?.textContent).toContain('Bâtiment / cage d’escalier');
+    expect(laBulle()?.textContent).toContain('2');
+    expect(laBulle()?.textContent).not.toMatch(/Escalier(?!\u2019)/);
+  });
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

@@ -104,6 +104,13 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4, accord d’Arno — liste d
   const f = { famille: 'logement' as const, annexe: false, avecIdFiscal: false, avecCharges: false, avecAg: false, avecEntretien: false };
   it('« Digicode » et « Code du digicode » ne se saisissent plus dans l’encart (le composant unique les porte) ; le reste de « Situation » est inchangé', () => {
     expect(cles('situation', f)).toEqual(['batiment', 'escalier', 'porte', 'precisionAcces', 'ascenseur', 'digicode', 'digicodeCode']);
-    expect(cles('situation', { ...f, digicodesUnifies: true })).toEqual(['batiment', 'escalier', 'porte', 'precisionAcces', 'ascenseur']);
+    // 🔴 (Arno, 17/11/2026) avec la 478 : une seule ligne « Bâtiment / cage d’escalier » (l'escalier n'est plus saisi)
+    expect(cles('situation', { ...f, digicodesUnifies: true })).toEqual(['batiment', 'porte', 'precisionAcces', 'ascenseur']);
+  });
+  it('🔴 (Arno, 17/11/2026) le récapitulatif des modifications : « Bâtiment / cage d’escalier », le bâtiment ou, à défaut, l’ancien escalier', () => {
+    const ch = champsDuGroupe('situation', { ...f, digicodesUnifies: true }).find((c) => c.cle === 'batiment')!;
+    expect(ch.mot).toBe('Bâtiment / cage d’escalier');
+    const v = (o: Record<string, string>) => o as unknown as ValeursEncart;
+    expect(changementsEncart([ch], v({ batiment: '', escalier: '2' }), v({ batiment: 'B', escalier: '2' }))).toEqual([{ cle: 'batiment', champ: 'Bâtiment / cage d’escalier', avant: '2', apres: 'B' }]);
   });
 });

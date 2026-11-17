@@ -84,7 +84,7 @@ describe('🔴🔴 ① tout ce que la base sait, et rien de plus', () => {
       escalier: 'Escalier B',
     });
     expect(l.map((x) => x.libelle)).toEqual([
-      'Nature', 'Type', 'Nombre de pièces', 'Surface', 'Annexes', 'Adresse', 'Étage', 'Escalier',
+      'Nature', 'Type', 'Nombre de pièces', 'Surface', 'Annexes', 'Adresse', 'Étage', 'Bâtiment / cage d’escalier',
       'Propriétaire', 'Locataire en place', 'Date d’entrée', 'N° de lot', 'En gestion depuis', 'Dossier Drive',
     ]);
   });
@@ -171,6 +171,15 @@ describe('🔴🔴 ③ ce qui est déjà sur la ligne n’est pas répété', ()
 
   it('⚠️ une fiche entièrement vide ne rend aucune ligne', () => {
     expect(descriptifHorsLigne(descriptifDuBien({}), 'quoi que ce soit')).toEqual([]);
+  });
+});
+
+describe('🔴 (Arno, 17/11/2026) une seule ligne « Bâtiment / cage d’escalier »', () => {
+  it('le bâtiment du bien ; à défaut, l’ancien escalier ; jamais deux lignes', () => {
+    const lignes = (o: Record<string, string | null>) => descriptifDuBien({ ...LOT_360, ...o }).filter((x) => /Bâtiment \/ cage|Escalier/.test(x.libelle));
+    expect(lignes({ batiment: 'B', escalier: '2' })).toEqual([{ libelle: 'Bâtiment / cage d’escalier', valeur: 'B' }]);
+    expect(lignes({ batiment: null, escalier: '2' })).toEqual([{ libelle: 'Bâtiment / cage d’escalier', valeur: '2' }]);
+    expect(lignes({ batiment: null, escalier: null })).toEqual([]);
   });
 });
 

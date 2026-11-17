@@ -22,6 +22,7 @@
  */
 
 /** Une ligne du descriptif : un libellé, une valeur. Jamais de valeur vide — c'est la règle du module. */
+
 export interface LigneDescriptif {
   libelle: string;
   valeur: string;
@@ -38,6 +39,8 @@ export interface BienDecrit {
   pieces?: string | null;
   annexes?: string | null;
   escalier?: string | null;
+  /** 🔴 (Arno, 17/11/2026) le bâtiment / cage du bien (son texte « Bâtiment », écrit avec le lien sûr vers le registre de la copropriété). */
+  batiment?: string | null;
   immeuble?: string | null;
   adresse?: string | null;
   codePostal?: string | null;
@@ -88,7 +91,9 @@ export function descriptifDuBien(b: BienDecrit): LigneDescriptif[] {
   // ② OÙ IL EST.
   ajouter('Adresse', adresseEntiere(b));
   ajouter('Étage', b.etage);
-  ajouter('Escalier', b.escalier);
+  // 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») une ligne : le bâtiment, à défaut l'ancien escalier
+  // (module sans import : le même libellé et le même repli que `batimentOuCage` / `LIBELLE_BATIMENT_CAGE` de batimentsCopropriete.ts)
+  ajouter('Bâtiment / cage d’escalier', propre(b.batiment) !== '' ? b.batiment : b.escalier);
   // ⚠️ LE BÂTIMENT N'EST ÉCRIT QUE S'IL APPREND QUELQUE CHOSE : 283 lots sur 365 portent `immeuble` = `adresse`.
   if (!immeubleRepeteLAdresse(b)) ajouter('Bâtiment', b.immeuble);
   // ③ QUI.

@@ -1201,6 +1201,8 @@ export interface FicheLot {
   statut?: StatutBien; finStatut?: string | null; archiveLe?: string | null;
   /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
+  /** 🔴 (Arno, 17/11/2026) le bâtiment / cage du bien et l'ancien escalier (« Info bien » : une ligne « Bâtiment / cage d'escalier ») */
+  batiment?: string | null; escalier?: string | null;
   /**
    * Le dossier Drive qu'ouvre le bien (Arno, 19/10/2026) : son dossier attitré (migration 388), à défaut celui de son
    * propriétaire — jamais un dossier de l'ancienne arborescence (avant : « 2 Biens immobiliers », lu dans l'arbre). `null` :
@@ -2023,9 +2025,11 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     adresse: string | null; commune: string | null; code_postal: string | null; gestion_debut: string | null;
     gestion_fin: string | null; absent_le: string | null; proprietaire_id: string | null;
     proprietaire_cle: string | null; proprietaire_nom: string; dossier_bien?: string | null; dossier_proprietaire?: string | null;
-    hors_gestion: boolean; statut: string; fin_statut: string | null; archive: string | null;
+    hors_gestion: boolean; statut: string; fin_statut: string | null; archive: string | null; batiment: string | null; escalier: string | null;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.nature, lo.type_bien, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
+            ${(await colonneExisteMemo('gestion_annuaire_lot', 'batiment')) ? 'lo.batiment' : 'NULL::text'} AS batiment,
+            ${(await colonneExisteMemo('gestion_annuaire_lot', 'escalier')) ? 'lo.escalier' : 'NULL::text'} AS escalier,
             lo.gestion_debut::text, (${await sqlFinAffichee('lo')})::text AS gestion_fin, lo.absent_le::text,
             ${await sqlHorsGestion('lo')} AS hors_gestion, ${await sqlStatutBien('lo')} AS statut,
             ${(await statutBienDisponible()) ? 'lo.statut_bien_depuis::text' : 'NULL::text'} AS fin_statut, (${await sqlArchiveBien('lo')})::text AS archive,
@@ -2094,7 +2098,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
       debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null, horsGestion: l.hors_gestion === true,
       statut: l.statut as StatutBien, finStatut: l.fin_statut, archiveLe: l.archive,
-      surfaceM2: null,
+      surfaceM2: null, batiment: l.batiment, escalier: l.escalier,
       ...champsDossierDuBien(l, await racineDrive()),
       proprietaireId: l.proprietaire_id === null ? null : Number(l.proprietaire_id),
       proprietaireCle: l.proprietaire_cle,

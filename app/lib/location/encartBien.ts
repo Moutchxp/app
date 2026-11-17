@@ -3,6 +3,7 @@ import {
   type ComplementsFiche, type Famille,
 } from './bienComplet';
 import type { BienLocation } from './locationBien';
+import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../gestion/batimentsCopropriete';
 
 /**
  * ══ 🔴🔴 L'ENCART DU BIEN MODIFIABLE SUR PLACE (Arno, 21/10/2026). PUR. ═════════════════════════════════════════════════════════
@@ -127,7 +128,10 @@ export function champsDuGroupe(g: GroupeEncart, f: PorteeEncart): Champ[] {
           { cle: 'epoqueConstruction' as const, mot: 'Époque de construction' }, { cle: 'chauffage' as const, mot: 'Chauffage' }]),
     ];
     case 'situation': return [
-      { cle: 'batiment', mot: 'Bâtiment' }, { cle: 'escalier', mot: 'Escalier' },
+      // 🔴 (Arno, 17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information ») une seule ligne, le bâtiment relié, à défaut
+      //   l'ancien escalier ; sans la 478 (l'escalier reste saisissable), les deux lignes d'avant
+      ...(f.digicodesUnifies === true ? [{ cle: 'batiment' as const, mot: LIBELLE_BATIMENT_CAGE }]
+        : [{ cle: 'batiment' as const, mot: 'Bâtiment' }, { cle: 'escalier' as const, mot: 'Escalier' }]),
       ...(!parking ? [{ cle: 'porte' as const, mot: 'N° de porte' }] : []),
       { cle: 'precisionAcces', mot: 'Précision' }, { cle: 'ascenseur', mot: 'Ascenseur', mots: OUI_NON },
       ...(f.digicodesUnifies === true ? [] : [{ cle: 'digicode' as const, mot: 'Digicode', mots: OUI_NON }, { cle: 'digicodeCode' as const, mot: 'Code du digicode' }]),
@@ -165,6 +169,7 @@ export function libelleValeur(ch: Champ, v: ValeursEncart): string {
     const l = (() => { try { return JSON.parse(x || '[]') as { sorte: string; nom: string | null; dateAnniversaire: string | null }[]; } catch { return []; } })();
     return l.length === 0 ? 'aucun' : l.map((e) => `${e.sorte === 'chaudiere' ? 'Chaudière' : e.sorte === 'ramonage' ? 'Ramonage' : e.nom ?? 'Autre'}${e.dateAnniversaire ? ` (${dateFr(e.dateAnniversaire)})` : ''}`).join(' · ');
   }
+  if (ch.cle === 'batiment' && ch.mot === LIBELLE_BATIMENT_CAGE) return batimentOuCage(v) ?? 'non renseigné';
   if (x === '') return 'non renseigné';
   if (ch.cle === 'dpeClasse' && x === DPE_NON_SOUMIS) return LIBELLE_DPE_NON_SOUMIS;
   if (ch.mots) return ch.mots[x] ?? x;

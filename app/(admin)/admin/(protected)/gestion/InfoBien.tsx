@@ -379,6 +379,8 @@ export function InfoBien({ cle, titre, surLaLigne, lignes: lignesFournies, aide 
   const lignes: LigneDescriptif[] = fiche === null ? [] : descriptifDuBien({
     cle: fiche.numero,
     nature: fiche.nature, typeBien: fiche.typeBien, immeuble: fiche.immeuble,
+    // 🔴 (Arno, 17/11/2026) le bâtiment / cage d'escalier (bâtiment relié, à défaut l'ancien escalier)
+    batiment: fiche.batiment ?? null, escalier: fiche.escalier ?? null,
     adresse: fiche.adresse, codePostal: fiche.codePostal, commune: fiche.commune,
     gestionDebut: fiche.debut, gestionFin: fiche.fin,
     // ⚠️ `surfaceM2` EST TOUJOURS `null` EN BASE (aucune colonne de surface n'existe) : la ligne ne s'affiche
