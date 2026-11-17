@@ -147,7 +147,8 @@ describe('le MÊME composant dans la fiche Copropriété (ligne « + »)', () =>
     await clic($('[data-dcp-ajouter-nouveau]'));
     await saisir($('[data-cb-encadre-nom]'), 'D');
     await clic($('[data-cb-valider]'));
-    expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('D');
+    // 🔴 (Arno, 17/11/2026) validé : l'intitulé « Digicode bâtiment D » (le menu laisse la place)
+    expect($('[data-dcp-intitule-batiment="D"]').textContent).toBe('Digicode bâtiment D');
     expect($('[data-cb-message]').textContent).toBe('Bâtiment D ajouté — il sera enregistré avec la copropriété');
     expect($('[data-dcp-code-batiment]')).not.toBeNull(); // sa ligne de digicode est là
   });
@@ -268,5 +269,43 @@ describe('② le champ du code : 15 caractères', () => {
     expect(ligne.querySelector('.dcp-aucun')).not.toBeNull();
     expect(ligne.querySelector('[data-dcp-plus]')).not.toBeNull();
     expect(bat.value).toBe('CODE-EXISTANT-DE-18');
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026) : « UNE LIGNE PAR BÂTIMENT […] supprime l'en-tête « Bâtiment / cage » et la ligne qui affiche le nom seul (ex. « 1 »). L'intitulé du champ devient « Digicode bâtiment 1 » […] avec le champ de 15 caractères, « pas de digicode », « Modifier » / « Corriger » et « × » sur la même ligne. Pour une nouvelle ligne pas encore nommée, l'intitulé reste le menu de choix du bâtiment, puis devient « Digicode bâtiment X » une fois validé. » */
+describe('🔴🔴 une ligne par bâtiment', () => {
+  const ETAT = (o: Record<string, unknown> = {}) => ({ connu: true, valeur: { digicode: true, code: 'A1' }, depuis: '2026-11-01T10:00:00.000Z', source: 'unifie', aVenir: [], aArbitrer: [], historique: [], ...o });
+  const FICHE = { digicodes: [{ cle: 'residence test digicode', voie: 'Résidence _TEST DIGICODE', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234', etat: ETAT({ valeur: { digicode: true, code: '1234' } }) },
+    batiments: [{ cle: 'a', libelle: 'A', digicode: true, code: 'A1', etat: ETAT() }, { cle: 'b', libelle: 'B', digicode: null, code: null, etat: ETAT({ connu: false, valeur: null }) }] }] };
+  function Hote() {
+    const [s, setS] = useState<DigicodesAdresseSaisis[]>(saisieDigicodesInitiale(FICHE as never));
+    return createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false, onCorriger: async () => null, onPlanifier: async () => null });
+  }
+  it('code connu : « Digicode bâtiment A », la valeur puis « Modifier » / « Corriger » sur la même ligne ; à saisir : « Digicode bâtiment B » — plus d’en-tête « Bâtiment / cage » ni de nom seul', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    const a = $('[data-dcp-batiment="A"] [data-dcp-lue]');
+    expect(a.className).toContain('dcp-lue--en-ligne');
+    expect(a.querySelector('.dcp-lue-titre')?.textContent).toBe('Digicode bâtiment A');
+    expect(a.querySelector('[data-dcp-modifier]')).not.toBeNull();
+    expect(a.querySelector('[data-dcp-corriger-erreur]')).not.toBeNull();
+    expect($('[data-dcp-batiment="B"] [data-dcp-intitule-batiment="B"]').textContent).toBe('Digicode bâtiment B');
+    expect([...container.querySelectorAll('[data-dcp-batiment] span')].some((x) => x.textContent === 'Bâtiment / cage')).toBe(false);
+    expect(container.querySelector('[data-dcp-nom-existant]')).toBeNull();
+    expect(CSS_DIGICODES_COPRO).toContain('.dcp-lue--en-ligne{display:grid;grid-template-columns:auto 1fr;');
+  });
+  it('nouvelle ligne : l’intitulé est le MENU tant qu’aucun nom n’est choisi ; choisi : « Digicode bâtiment D », la bulle reste ; « × » et « pas de digicode » dans le même groupe que le champ', async () => {
+    await act(async () => { root.render(createElement(Hote)); });
+    await clic($('[data-dcp-plus]'));
+    const nouvelle = () => $('[data-dcp-batiment="nouveau"]');
+    expect(nouvelle().querySelector('[data-dcp-nom-batiment]')).not.toBeNull();
+    expect(nouvelle().querySelector('.dcp-champ-code > span')?.textContent).toBe('Digicode');
+    const groupe = nouvelle().querySelector('.dcp-code-groupe') as HTMLElement;
+    expect([!!groupe.querySelector('[data-dcp-code-batiment]'), !!groupe.querySelector('.dcp-aucun'), !!groupe.querySelector('[data-dcp-retirer-ligne]')]).toEqual([true, true, true]);
+    await clic($('[data-dcp-ajouter-nouveau]'));
+    await saisir($('[data-cb-encadre-nom]'), 'D');
+    await clic($('[data-cb-valider]'));
+    expect(nouvelle().querySelector('[data-dcp-nom-batiment]')).toBeNull();
+    expect(nouvelle().querySelector('[data-dcp-intitule-batiment="D"]')?.textContent).toBe('Digicode bâtiment D');
+    expect($('[data-cb-message]').textContent).toBe('Bâtiment D ajouté — il sera enregistré avec la copropriété');
   });
 });

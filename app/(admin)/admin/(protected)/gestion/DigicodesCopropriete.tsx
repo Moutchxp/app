@@ -27,7 +27,11 @@ export interface LigneBatiment extends CodeLigne { k: string; libelle: string; n
   /** 🔴 (lot D) l'intitulé confirmé malgré l'avertissement (sa clé) ; changer l'intitulé retire la confirmation */
   confirme?: string | null;
   /** 🔴 (478) l'état de la place dans la base unique (absent sans la 478) ; le nombre de biens du bâtiment */
-  etat?: EtatPlaceDigicode; nb?: number }
+  etat?: EtatPlaceDigicode; nb?: number;
+  /** 🔴 (Arno, 17/11/2026 : « UNE LIGNE PAR BÂTIMENT […] supprime l'en-tête « Bâtiment / cage » et la ligne qui affiche le nom seul (ex. « 1 »). L'intitulé du champ devient « Digicode bâtiment 1 » […] Pour une nouvelle ligne pas encore nommée, l'intitulé reste le menu de choix du bâtiment, puis devient « Digicode bâtiment X » une fois validé. ») : le nom d'une NOUVELLE ligne a été choisi (menu, « + Ajouter … », encadré) — l'intitulé devient « Digicode bâtiment X » */
+  choisi?: boolean }
+/** L'intitulé d'une ligne de bâtiment : « Digicode bâtiment 1 », « Digicode bâtiment Côté cour ». PUR. */
+export const intituleDigicodeBatiment = (libelle: string): string => `Digicode bâtiment ${libelle}`;
 export interface DigicodesAdresseSaisis { cle: string; voie: string; codePostal: string | null; commune: string | null; commun: CodeLigne; communInitial: CodeLigne; batiments: LigneBatiment[];
   communEtat?: EtatPlaceDigicode; communNb?: number }
 
@@ -168,30 +172,32 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
           {d.communNb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-commun>{mentionNb(d.communNb, null)}</p>}
           {d.batiments.map((b) => (placeLue(b.etat) && !b.nouveau ? (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.libelle}>
-              <PlaceDigicodeLue titre={`Bâtiment / cage ${b.libelle}`} etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)}
+              <PlaceDigicodeLue titre={intituleDigicodeBatiment(b.libelle)} enLigne etat={b.etat} desactive={desactive} onCorriger={onCorriger === undefined ? undefined : (v) => onCorriger(d.cle, b.libelle, v)}
                 onModifier={onPlanifier === undefined ? undefined : () => setModifier({ cle: d.cle, place: batimentDe(b.libelle)?.cle ?? '' })}
                 onAnnulerChangement={onAnnulerChangement === undefined ? undefined : (id) => onAnnulerChangement(d.cle, id)} />
               {b.nb !== undefined && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>{mentionNb(b.nb, b.libelle)}</p>}
             </div>) : (
             <div key={b.k} className="dcp-ligne dcp-ligne--batiment" data-dcp-batiment={b.nouveau ? 'nouveau' : b.libelle}>
-              <div className="dcp-champ dcp-champ-bat">
-                <span>Bâtiment / cage</span>
-                {b.nouveau ? <>
+              {/* 🔴 (Arno, 17/11/2026 : « UNE LIGNE PAR BÂTIMENT […] supprime l'en-tête « Bâtiment / cage » et la ligne qui affiche le nom seul (ex. « 1 »). L'intitulé du champ devient « Digicode bâtiment 1 » […] Pour une nouvelle ligne pas encore nommée, l'intitulé reste le menu de choix du bâtiment, puis devient « Digicode bâtiment X » une fois validé. ») */}
+              {b.nouveau && <div className={b.choisi === true ? 'dcp-champ-bat-replie' : 'dcp-champ dcp-champ-bat'}>
+                {b.choisi !== true && <span>Bâtiment / cage</span>}
+                <>
                   {/* 🔴 (Arno, 17/11/2026) le COMPOSANT UNIQUE du choix / de l'ajout d'un bâtiment (menu superposé, « + Ajouter le bâtiment … »,
                       encadré « Ajouter nouveau bâtiment », avertissement de numérotation) */}
                   <ChampBatiment cle={b.k} marque="dcp" contexte="copropriete" valeur={b.libelle} desactive={desactive} nomenclature={nomenclature} ouvrirAuDebut={menu === b.k}
                     connus={[...connus, ...s.flatMap((x) => x.batiments.filter((y) => y.k !== b.k).map((y) => batimentDe(y.libelle))).filter((y): y is BatimentConnu => y !== null)]}
                     avertir={(nom) => avertirLigne(d.cle, b.k, nom)} placeholder="A, 1, Côté cour…"
-                    onSaisie={(v) => majLigne(d.cle, b.k, { libelle: v, confirme: null })}
-                    onChoix={(l, c) => majLigne(d.cle, b.k, { libelle: l, confirme: c ? (batimentDe(l)?.cle ?? null) : null })} />
-                </> : <strong className="dcp-nom" data-dcp-nom-existant>{b.libelle}</strong>}
-              </div>
+                    onSaisie={(v) => majLigne(d.cle, b.k, { libelle: v, confirme: null, choisi: false })}
+                    onChoix={(l, c) => majLigne(d.cle, b.k, { libelle: l, confirme: c ? (batimentDe(l)?.cle ?? null) : null, choisi: batimentDe(l) !== null })}
+                    replie={b.choisi === true} />
+                </>
+              </div>}
               <span className="dcp-code-groupe">
-              <label className="dcp-champ dcp-champ-code"><span>Digicode</span>
+              <label className="dcp-champ dcp-champ-code"><span data-dcp-intitule-batiment={b.nouveau && b.choisi !== true ? undefined : b.libelle}>{b.nouveau && b.choisi !== true ? 'Digicode' : intituleDigicodeBatiment(b.libelle)}</span>
                 <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
-              </span>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
+              </span>
               {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode commun de l’adresse.</p>}
               {tente && b.nouveau && batimentDe(b.libelle) === null && <p className="dcp-ligne-erreur" role="alert" data-dcp-erreur-ligne>Donnez un nom au bâtiment ou à la cage d’escalier.</p>}
             </div>)))}
@@ -223,7 +229,9 @@ export function valeurDeLaSaisie(c: CodeLigne): { digicode: boolean; code: strin
 }
 
 /** 🔴 (478) Une place dont le code est CONNU (ou à arbitrer) : lue, et « Corriger une erreur » (confirmé, immédiat, sans date ni mail). */
-function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAnnulerChangement }: { titre: string; etat: EtatPlaceDigicode; desactive: boolean;
+function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAnnulerChangement, enLigne = false }: { titre: string; etat: EtatPlaceDigicode; desactive: boolean;
+  /** 🔴 (Arno, 17/11/2026 : « UNE LIGNE PAR BÂTIMENT […] supprime l'en-tête « Bâtiment / cage » et la ligne qui affiche le nom seul (ex. « 1 »). L'intitulé du champ devient « Digicode bâtiment 1 » […] Pour une nouvelle ligne pas encore nommée, l'intitulé reste le menu de choix du bâtiment, puis devient « Digicode bâtiment X » une fois validé. ») : la valeur et « Modifier » / « Corriger » sur la MÊME ligne (lignes de bâtiment) */
+  enLigne?: boolean;
   onCorriger?: (v: { digicode: boolean; code: string | null }) => Promise<string | null>; onModifier?: () => void; onAnnulerChangement?: (id: number) => Promise<string | null> }) {
   const [annuler, setAnnuler] = useState<number | null>(null);
   const [erreurAnnulation, setErreurAnnulation] = useState<string | null>(null);
@@ -234,7 +242,7 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAn
   const valeur = etat.aArbitrer.length > 0 ? null : etat.valeur;
   const nouvelle = valeurDeLaSaisie(saisie);
   return (
-    <div className="dcp-lue" data-dcp-lue>
+    <div className={`dcp-lue${enLigne ? ' dcp-lue--en-ligne' : ''}`} data-dcp-lue>
       <span className="dcp-lue-titre">{titre}</span>
       {etat.aArbitrer.length > 0
         ? <span className="dcp-lue-valeur dcp-a-arbitrer" data-dcp-lue-a-arbitrer>à arbitrer — plusieurs valeurs différentes sont connues (voir « À arbitrer »)</span>
@@ -578,7 +586,7 @@ export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ?
  *   ⑥ clavier (flèches, Entrée, Échap) et doigt ; cibles de 44 px au moins.
  */
 export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisie, onChoix, contexte, marque, cle = '', sansAdresse = false, avecAucun = false,
-  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel }: {
+  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel, replie = false }: {
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** la frappe dans le champ (le texte du bâtiment suit) */
   onSaisie: (texte: string) => void;
@@ -594,6 +602,8 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   /** une valeur à proposer (l'escalier noté du bien) */
   proposition?: { texte: string; nom: string };
   placeholder: string; ariaLabel?: string;
+  /** 🔴 (Arno, 17/11/2026, une ligne par bâtiment) le nom est choisi : le champ laisse la place à l'intitulé, seule la bulle de confirmation reste */
+  replie?: boolean;
 }) {
   const [ouvert, setOuvert] = useState(ouvrirAuDebut);
   const [actif, setActif] = useState(-1);
@@ -659,6 +669,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
     { k: '+nouveau', mot: 'Ajouter nouveau bâtiment', agir: () => { fermer(); setAjout({ nom: '', erreur: null }); }, attr: { [A.nouveau]: '' }, nouveau: true },
   ];
   const idMenu = `cb-menu-${marque}-${cle}`;
+  if (replie) return message !== null ? <p className="cb-bulle" role="status" aria-live="polite" data-cb-message>{message}</p> : null;
   return (
     <div className="cb" ref={racine} data-champ-batiment>
       <div className="cb-zone">
@@ -849,6 +860,12 @@ export const CSS_DIGICODES_COPRO = `
 .dcp-sans-marge{margin:0}
 .dcp-mention{margin:0;font-size:.82rem;flex-basis:100%}
 .dcp-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+/* 🔴 (Arno, 17/11/2026) une ligne par bâtiment : la valeur puis « Modifier » / « Corriger » sur la même ligne */
+.dcp-champ-bat-replie{display:contents}
+.dcp-lue--en-ligne{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:14px;row-gap:4px}
+.dcp-lue--en-ligne > .dcp-lue-titre{grid-column:1 / -1}
+.dcp-lue--en-ligne > .dcp-gestes{justify-self:start}
+.dcp-lue--en-ligne > .dcp-a-venir,.dcp-lue--en-ligne > .dcp-correction,.dcp-lue--en-ligne > .cp-refus{grid-column:1 / -1}
 .dcp-total{margin:0;font-weight:800;color:var(--color-svv-ink)}
 .dcp-dest-groupe{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:var(--color-svv-field)}
 .dcp-dest-logement{display:flex;flex-direction:column;gap:2px;padding:4px 0}

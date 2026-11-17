@@ -27,7 +27,9 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
   it('lu tel quel : le commun, ses bâtiments ; « Non » d’avant = « pas de digicode » ; la règle de la copropriété est dite', async () => {
     await act(async () => { root.render(createElement(Hote)); });
     expect(($('[data-dcp-code-commun]') as HTMLInputElement).value).toBe('1234');
-    expect($('[data-dcp-nom-existant]').textContent).toBe('A');
+    // 🔴 (Arno, 17/11/2026) une ligne par bâtiment : le nom dans l'intitulé « Digicode bâtiment A » (plus de ligne au nom seul)
+    expect($('[data-dcp-intitule-batiment="A"]').textContent).toBe('Digicode bâtiment A');
+    expect(container.querySelector('[data-dcp-nom-existant]')).toBeNull();
     expect(($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-code-commun]') as HTMLInputElement).placeholder).toBe('pas de digicode');
     expect($('[data-dcp-regle]').textContent).toContain('bâtiments en lettres (A, B, C…)');
     expect(digicodesModifies(dernier)).toEqual([]); // rien touché : rien ne part
@@ -38,7 +40,9 @@ describe('par adresse : le digicode commun, et « + » pour un bâtiment ou une 
     await clic($('[data-dcp-nom-batiment]'));
     expect([...container.querySelectorAll('[data-dcp-menu] button')].map((b) => b.textContent)).toEqual(['A', 'C', 'Côté cour', 'Ajouter nouveau bâtiment']);
     await clic($('[data-dcp-option="C"]'));
-    expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('C');
+    // 🔴 (Arno, 17/11/2026) le nom validé : le menu devient l'intitulé « Digicode bâtiment C »
+    expect(container.querySelector('[data-dcp-adresse="12 rue des lilas"] [data-dcp-nom-batiment]')).toBeNull();
+    expect($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-intitule-batiment="C"]').textContent).toBe('Digicode bâtiment C');
     expect(container.querySelector('[data-dcp-menu]')).toBeNull();
     await saisir($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-code-batiment]'), 'C77');
     expect(digicodesModifies(dernier)).toEqual([{ cle: '12 rue des lilas', batiments: [{ libelle: 'C', code: 'C77', aucun: false, confirme: false }] }]);
@@ -128,6 +132,9 @@ describe('🔴 (lot D) la fenêtre d’avertissement', () => {
     await clic($('[data-dcp-adresse="12 rue des lilas"] [data-dcp-option="2"]'));
     expect(document.querySelector('[data-dcp-avertissement]')).toBeNull();
     expect(refusDigicodes(dernier, 'lettres', CONNUS)).toBeNull();
+    // 🔴 (Arno, 17/11/2026) un nom validé devient l'intitulé : le changer = « × » puis une nouvelle ligne (jamais confirmée d'office)
+    await clic($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-retirer-ligne]'));
+    await clic($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-plus]'));
     await saisir($('[data-dcp-adresse="residence les tilleuls"] [data-dcp-nom-batiment]'), '8');
     expect(refusDigicodes(dernier, 'lettres', CONNUS)).toContain('« 8 »');
   });
