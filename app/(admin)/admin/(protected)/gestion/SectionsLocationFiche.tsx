@@ -1,7 +1,7 @@
 'use client';
 
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
-import { ChoixBatimentCopro, DigicodesBien, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from './DigicodesCopropriete';
+import { ChoixBatimentCopro, DigicodesBien, ModifierDigicodesLus, digicodesBienEnvoi, digicodesBienLisibles, saisieDigicodesBien, type DigicodesAdresseSaisis, type DigicodesPourBienLu } from './DigicodesCopropriete';
 import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
 import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
@@ -735,8 +735,8 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
   /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4) tant que la lecture n'a pas répondu : ni l'ancien système ni le composant ; l'ancien système ne
      s'affiche plus QUE sur une base sans la migration 478 (le serveur répond `null`) — un bien sans adresse reçoit une place vide. */
   const [digiCharge, setDigiCharge] = useState(true);
+  // 🔴 (Arno, 17/11/2026) lus AUSSI hors édition : chaque code connu y porte son « Modifier » (ModifierDigicodesLus)
   useEffect(() => {
-    if (!edition) return;
     let vivant = true;
     void fetch(`${API}?digicodesBien=${id}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: DigicodesPourBienLu | null }>)
       .then((d) => { if (!vivant) return; const lu = d.etat === 'ok' ? digicodesBienLisibles(d.data) : null; setDigiBien(lu); setDigiCharge(false); setDigiSaisie(lu === null ? null : saisieDigicodesBien(lu)); })
@@ -847,7 +847,14 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
               const mention = val === null ? mentionDe(mot) : null;
               return (
                 <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                  {val ?? (mention !== null ? <span className="loc-a-renseigner" data-a-renseigner={mot}>{mention}</span> : <span className="loc-muet">non renseigné</span>)}</dd></div>
+                  {val ?? (mention !== null ? <span className="loc-a-renseigner" data-a-renseigner={mot}>{mention}</span> : <span className="loc-muet">non renseigné</span>)}
+                  {/* 🔴 (Arno, 17/11/2026) à côté du digicode affiché : un « Modifier » par code connu (commun, bâtiment), la même fenêtre datée */}
+                  {mot === 'Digicode' && digiBien !== null && digiSaisie !== null && (
+                    <ModifierDigicodesLus donnees={digiBien} s={digiSaisie} batiment={c.batiment ?? ''}
+                      onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
+                      onApercu={(a, appliqueLe, changements) => echangeDigi({ action: 'digicode-apercu-envoi', adresseCle: a, appliqueLe, changements })}
+                      onEnvoyer={async (a, appliqueLe, changements, proprietaires) => { const r = await echangeDigi<IssueEnvoi>({ action: 'digicode-planifier-envoyer', adresseCle: a, appliqueLe, changements, proprietaires });
+                        if (typeof r !== 'string') { setDigiRelire((n) => n + 1); apres(); } return r; }} />)}</dd></div>
               );
             })}
           </dl>

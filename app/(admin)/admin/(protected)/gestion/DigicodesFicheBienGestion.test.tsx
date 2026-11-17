@@ -33,12 +33,14 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); document.b
 const calmer = async () => { await act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); }); };
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 const clic = async (el: HTMLElement) => { await act(async () => { el.click(); }); await calmer(); };
+/** le « Modifier » de la SECTION (les « Modifier » de chaque digicode lu sont avant lui dans la page) */
+const sectionModifier = () => [...document.querySelectorAll('.loc-boutons button')].find((b) => b.textContent === 'Modifier') as HTMLElement;
 const saisir = async (el: HTMLElement, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
 
 describe('🔴🔴 la fiche du bien (Gestion), avec la base unique', () => {
   it('« Modifier » : le bâtiment au menu, le code du bâtiment lu, le commun à saisir ; « Enregistrer » envoie la première valeur par le chemin unique', async () => {
     await act(async () => { root.render(createElement(Complements, { id: 7, c: C, apres: () => {}, categorie: 'logement' })); }); await calmer();
-    await clic([...document.querySelectorAll('button')].find((b) => b.textContent === 'Modifier') as HTMLElement);
+    await clic(sectionModifier());
     expect(($('[data-cbc-champ]') as HTMLInputElement).value).toBe('A');
     expect($('[data-digicodes-unifies] [data-dcp-batiment="A"] [data-dcp-lue-valeur]').textContent).toContain('code A1');
     expect(document.querySelector('[data-digicode-immeuble]')).toBeNull();
@@ -49,10 +51,35 @@ describe('🔴🔴 la fiche du bien (Gestion), avec la base unique', () => {
   });
   it('« Corriger une erreur » depuis la fiche du bien : la même action que la fiche Copropriété (la place, la valeur), tout de suite', async () => {
     await act(async () => { root.render(createElement(Complements, { id: 7, c: C, apres: () => {}, categorie: 'logement' })); }); await calmer();
-    await clic([...document.querySelectorAll('button')].find((b) => b.textContent === 'Modifier') as HTMLElement);
+    await clic(sectionModifier());
     await clic($('[data-dcp-corriger-erreur]'));
     await saisir($('[data-dcp-correction-code]'), 'A2');
     await clic($('[data-dcp-correction-confirmer]'));
     expect(posts.at(-1)).toEqual({ action: 'digicode-corriger', immeuble: '15 rue fictive', adresseCle: '15 rue fictive', batiment: 'A', digicode: true, code: 'A2' });
+  });
+});
+
+/** 🔴 Arno (17/11/2026) : « Fiche du bien côté Gestion, hors édition : à côté de chaque digicode affiché (commun et bâtiment), un bouton « Modifier » directement visible, qui ouvre la même fenêtre de changement daté avec ce code présélectionné. Rien d'autre ne change dans la section. » */
+describe('🔴 hors édition : un « Modifier » par code connu', () => {
+  const DEUX = { ...DIGI, adresse: { ...DIGI.adresse, commun: { digicode: true, code: 'C0', nbBiens: 2, etat: ETAT({ connu: true, valeur: { digicode: true, code: 'C0' }, source: 'unifie', depuis: '2026-11-01T10:00:00.000Z' }) } } };
+  it('le commun ET le bâtiment A, chacun son bouton ; celui de A ouvre la fenêtre datée avec A SEUL coché (le commun reste cochable) ; la ligne « Digicode » et le « Modifier » de la section sont inchangés', async () => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => (decodeURIComponent(String(url)).includes('digicodesBien=7') ? ok(DEUX) : ok([]))) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(Complements, { id: 7, c: C, apres: () => {}, categorie: 'logement' })); }); await calmer();
+    expect([...document.querySelectorAll('[data-dcp-lu-place]')].map((x) => [x.getAttribute('data-dcp-lu-place'), x.textContent])).toEqual([['commun', 'Code communModifier'], ['A', 'Code du bâtiment AModifier']]);
+    expect($('[data-dcp-modifier-lus]').closest('dd')?.textContent).toContain('oui · code A1');
+    expect(sectionModifier()).not.toBeUndefined();
+    await clic($('[data-dcp-lu-place="A"] [data-dcp-modifier-lu]'));
+    expect([...document.querySelectorAll('[data-dcp-modifier-place]')].map((l) => [l.getAttribute('data-dcp-modifier-place'), (l.querySelector('[data-dcp-modifier-coche]') as HTMLInputElement).checked]))
+      .toEqual([['commun', false], ['A', true]]);
+    await clic($('[data-dcp-modifier-annuler]'));
+    expect(document.querySelector('[data-dcp-fenetre-modifier]')).toBeNull();
+    await clic($('[data-dcp-lu-place="commun"] [data-dcp-modifier-lu]'));
+    expect((document.querySelector('[data-dcp-modifier-place="commun"] [data-dcp-modifier-coche]') as HTMLInputElement).checked).toBe(true);
+  });
+  it('aucun code connu : aucun bouton (rien d’autre n’apparaît)', async () => {
+    const AUCUN = { ...DIGI, adresse: { ...DIGI.adresse, batiments: [] } };
+    global.fetch = vi.fn(async () => ok(AUCUN)) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(Complements, { id: 7, c: C, apres: () => {}, categorie: 'logement' })); }); await calmer();
+    expect(document.querySelector('[data-dcp-modifier-lus]')).toBeNull();
   });
 });

@@ -755,6 +755,36 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   </div>;
 }
 
+/**
+ * 🔴🔴 (Arno, 17/11/2026 : « Fiche du bien côté Gestion, hors édition : à côté de chaque digicode affiché (commun et bâtiment), un bouton « Modifier »
+ * directement visible, qui ouvre la même fenêtre de changement daté avec ce code présélectionné. Rien d'autre ne change dans la section. »)
+ * Les codes CONNUS du bien (le commun de son adresse, celui de son bâtiment), chacun avec son « Modifier » : la MÊME fenêtre que partout ailleurs.
+ */
+export function ModifierDigicodesLus({ donnees, s, batiment, onPlanifier, onApercu, onEnvoyer }: {
+  donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; batiment: string; onPlanifier: PlanifierDigicodes; onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
+}) {
+  const [depart, setDepart] = useState<string | null>(null);
+  const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
+  const d: DigicodesAdresseSaisis = { ...s, batiments: ligne !== null && ligne.etat?.connu ? [ligne] : [] };
+  const places = [...(d.communEtat?.connu ? [{ cle: '', repere: 'commun', mot: 'Code commun' }] : []),
+    ...d.batiments.map((b) => ({ cle: batimentDe(b.libelle)?.cle ?? b.libelle, repere: b.libelle, mot: `Code du bâtiment ${b.libelle}` }))];
+  if (donnees.adresseCle === '' || places.length === 0) return null;
+  return (
+    <span className="dcp-lus" data-dcp-modifier-lus>
+      {places.map((p) => (
+        <span key={p.repere} className="dcp-lus-place" data-dcp-lu-place={p.repere}>
+          <span className="loc-muet">{p.mot}</span>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn dcp-mini" onClick={() => setDepart(p.cle)} aria-label={`Modifier — ${p.mot.toLowerCase()}`} data-dcp-modifier-lu>Modifier</button>
+        </span>))}
+      {depart !== null && (
+        <FenetreModifier d={d} depart={depart} onFermer={() => setDepart(null)} onValider={(appliqueLe, changements) => onPlanifier(d.cle, appliqueLe, changements)}
+          {...(onApercu && onEnvoyer ? { onApercu: (appliqueLe: string, ch: Parameters<ApercuDigicodes>[2]) => onApercu(d.cle, appliqueLe, ch),
+            onEnvoyer: (appliqueLe: string, ch: Parameters<ApercuDigicodes>[2], p: boolean) => onEnvoyer(d.cle, appliqueLe, ch, p) } : {})} />)}
+      <style>{CSS_DIGICODES_COPRO}</style>
+    </span>
+  );
+}
+
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; telephone : les champs passent a la ligne. */
 export const CSS_DIGICODES_COPRO = `
 .dcp{display:flex;flex-direction:column;gap:10px;min-width:0}
@@ -831,6 +861,9 @@ export const CSS_DIGICODES_COPRO = `
 .cb{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
 .cb-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;margin:0;max-height:260px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
 .cb-zone{position:relative;min-width:0}
+.dcp-lus{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;white-space:normal}
+.dcp-lus-place{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.dcp-lus .dcp-mini{min-height:44px}
 /* 🔴 (Arno, 17/11/2026) un message d'erreur sous sa ligne, entièrement lisible en clair et en sombre (jetons rouge foncé sur fond rouge pâle), jamais recouvert */
 .dcp-ligne-erreur{flex:1 1 100%;margin:4px 0 0;padding:8px 12px;border-radius:10px;border-left:4px solid var(--color-svv-red);background:var(--color-svv-red-soft);
   color:var(--color-svv-red-dark);font-size:.9rem;font-weight:700;line-height:1.4;position:relative;z-index:1}
