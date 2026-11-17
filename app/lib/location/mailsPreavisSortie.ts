@@ -160,12 +160,16 @@ const libelleDuree = (d: DureeMois): string => `${d} mois`;
 export interface ParagrapheBouton { texte: string; bouton: string; lien: string; avant?: string }
 /** 🔴 Arno (15/11/2026, 7e retour) — un ENCADRÉ (« ATTENTION ») : une table encadrée dans le HTML ; la version texte garde `texte`. */
 export interface ParagrapheEncadre { texte: string; encadre: { titre: string; paragraphes: readonly string[] } }
-export type ParagrapheMail = string | ParagrapheBouton | ParagrapheEncadre;
+/** 🔴 Arno (17/11/2026, mail de changement de digicode) — un paragraphe EN GRAS dans le HTML (« l'adresse de la copropriété sur sa propre ligne (en
+ *  gras) ») ; la version texte garde `texte`, tel quel. */
+export interface ParagrapheGras { texte: string; gras: true }
+export type ParagrapheMail = string | ParagrapheBouton | ParagrapheEncadre | ParagrapheGras;
 const texteDu = (p: ParagrapheMail): string => (typeof p === 'string' ? p : p.texte);
 
 const paragrapheHtml = (p: string): string => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1a1f26">${echapper(p).replace(/\n/g, '<br>')}</p>`;
 const paragraphesHtml = (paras: readonly ParagrapheMail[]): string =>
   paras.map((p) => (typeof p === 'string' ? paragrapheHtml(p)
+    : 'gras' in p ? `<p style="margin:0 0 12px;font-size:15px;line-height:1.5;color:#1a1f26"><strong>${echapper(p.texte).replace(/\n/g, '<br>')}</strong></p>`
     : 'encadre' in p ? encadreMailHtml(p.encadre.titre, p.encadre.paragraphes)
       : lienBoutonValide(p.lien) ? `${p.avant !== undefined ? paragrapheHtml(p.avant) : ''}${boutonMailHtml(p.bouton, p.lien)}` : paragrapheHtml(p.texte))).join('');
 
