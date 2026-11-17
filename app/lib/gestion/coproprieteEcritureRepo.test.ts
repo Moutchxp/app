@@ -16,6 +16,10 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   if (s.startsWith('SELECT id::text, cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse')) return { rows: h.enCours };
   if (s.startsWith('SELECT id::text, syndic_id::text FROM gestion_copropriete_syndic')) return { rows: h.liens };
   if (s.startsWith('SELECT syndic_id::text AS syndic FROM gestion_copropriete_syndic')) return { rows: [{ syndic: '9' }] };
+  if (s.startsWith('SELECT immeuble, adresse, code_postal AS cp, commune FROM gestion_annuaire_lot WHERE id = $1')) {
+    return { rows: p[0] === 451 ? [{ immeuble: 'Résidence Les Tilleuls', adresse: '3 allée des Tilleuls', cp: '75011', commune: 'Paris' }]
+      : p[0] === 9 ? [{ immeuble: '99 rue Ailleurs', adresse: '99 rue Ailleurs', cp: '75011', commune: 'Paris' }] : [] };
+  }
   if (s.startsWith('SELECT id::text, immeuble FROM gestion_annuaire_lot')) return { rows: [{ id: '1', immeuble: '12 rue des Lilas' }] };
   return { rows: [] };
 });
@@ -29,7 +33,8 @@ vi.mock('../location/digicodeImmeubleRepo', () => ({ depuisCoproprieteDisponible
 const un = vi.hoisted(() => ({ avec478: false, ecrits: [] as Record<string, unknown>[], issue: { ok: true, change: true, id: 1 } as Record<string, unknown> }));
 vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => un.avec478, RefusDigicode: class extends Error {},
   ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { un.ecrits.push(e); return typeof un.issue === 'function' ? (un.issue as (x: unknown) => unknown)(e) : un.issue; },
-  annulerChangement: async (_q: unknown, adresseCle: string, id: number) => { un.ecrits.push({ annulation: id, adresseCle }); return { ok: true, change: true, id }; } }));
+  annulerChangement: async (_q: unknown, adresseCle: string, id: number) => { un.ecrits.push({ annulation: id, adresseCle }); return { ok: true, change: true, id }; },
+  retirerDigicode: async (_q: unknown, e: Record<string, unknown>) => { un.ecrits.push({ retrait: e }); return { ok: true, change: true, id: 3 }; } }));
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
 const va = vi.hoisted(() => ({ vues: [] as unknown[][], issue: { ok: true } as { ok: true } | { ok: false; motif: string } }));
 vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknown[]) => { va.vues.push(a); return va.issue; } }));
@@ -274,5 +279,28 @@ describe('🔴 la réponse d’un geste de digicode', () => {
   it('fait : « etat: ok » (l’écran relit les codes) ; refusé : « etat: refus » avec son motif', () => {
     expect(reponseGesteDigicode({ ok: true, fiche: { cle: 'x' } as never })).toEqual({ etat: 'ok', data: { cle: 'x' } });
     expect(reponseGesteDigicode({ ok: false, motif: 'Refusé : …' })).toEqual({ etat: 'refus', motif: 'Refusé : …' });
+  });
+});
+
+/**
+ * 🔴🔴 Décision d'Arno (17/11/2026) — « Un retrait de code fait depuis la fiche du bien (« Nouveau bien », « Modifier le bien », fiche du bien Gestion) est noté
+ * avec l'origine « fiche du bien » ET écrit une ligne dans le journal propre du bien (même logique que les PV d'AG, ec7ee478). »
+ */
+describe('🔴 le retrait d’un code : l’origine et le bien, dits par la route', () => {
+  const R = { immeuble: 'Résidence Les Tilleuls', adresseCle: 'residence les tilleuls', batiment: 'B' };
+  beforeEach(() => { un.avec478 = true; un.ecrits = []; h.fiche = FICHE({ adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', principale: true }] }); });
+  it('fiche Copropriété : origine « fiche_copropriete », aucun bien (même si le corps en nomme un)', async () => {
+    expect((await gesteDigicodeCopro({ ...R, lotId: 451 }, 'retrait', AUTEUR)).ok).toBe(true);
+    expect(un.ecrits).toEqual([{ retrait: expect.objectContaining({ batiment: 'B', origine: 'fiche_copropriete', lotId: null }) }]);
+  });
+  it('fiche du bien (« Modifier le bien », fiche du bien Gestion) : origine « fiche_bien » et le bien (son journal) ; « Nouveau bien » (pas encore de bien) : origine « fiche_bien », sans journal', async () => {
+    expect((await gesteDigicodeCopro({ ...R, lotId: 451 }, 'retrait', AUTEUR, 'fiche_bien')).ok).toBe(true);
+    expect((await gesteDigicodeCopro(R, 'retrait', AUTEUR, 'fiche_bien')).ok).toBe(true);
+    expect(un.ecrits).toEqual([{ retrait: expect.objectContaining({ origine: 'fiche_bien', lotId: 451 }) }, { retrait: expect.objectContaining({ origine: 'fiche_bien', lotId: null }) }]);
+  });
+  it('un bien d’une autre adresse (ou inconnu) : refus, rien n’est écrit', async () => {
+    expect(await gesteDigicodeCopro({ ...R, lotId: 9 }, 'retrait', AUTEUR, 'fiche_bien')).toEqual({ ok: false, motif: 'Ce bien n’est pas à cette adresse : rechargez la fiche. Rien n’est enregistré.' });
+    expect((await gesteDigicodeCopro({ ...R, lotId: 12345 }, 'retrait', AUTEUR, 'fiche_bien')).ok).toBe(false);
+    expect(un.ecrits).toEqual([]);
   });
 });

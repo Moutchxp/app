@@ -147,6 +147,13 @@ describe('🔴 retirer le digicode d’un bâtiment', () => {
     expect([r.batiment_cle, r.digicode, r.code, r.nature, r.applique_le, r.cree_par_libelle]).toEqual(['a', false, null, 'retrait', MAINTENANT.toISOString(), 'a.jorel@sansvisavis.com']);
     expect(h.lignes[0].code).toBe('TA10'); // l'ancien code reste (historique)
   });
+  it('🔴 (Arno, 17/11/2026) depuis la fiche du bien : origine « fiche_bien » sur la ligne, et UNE ligne dans le journal propre du bien', async () => {
+    h.lignes = [ligne({ batiment_cle: 'a', batiment_libelle: 'A', code: 'TA10' })];
+    expect((await retirerDigicode(q as unknown as RequeteTx, { ...BAT, origine: 'fiche_bien', lotId: 451 }, AUTEUR, MAINTENANT)).ok).toBe(true);
+    expect(h.lignes.at(-1)!.origine).toBe('fiche_bien');
+    const j = ecritures().filter((x) => x.s.startsWith('INSERT INTO gestion_journal'));
+    expect(j.map((x) => x.p)).toEqual([[451, 'oui · code TA10', 'retiré', 'digicode du bâtiment A de 12 rue X retiré : ses biens lisent le digicode copropriété', 2, 'a.jorel@sansvisavis.com']]);
+  });
   it('refus clairs, rien d’écrit : le digicode copropriété ; un bâtiment sans code ; un changement déjà prévu ; sans la 487', async () => {
     h.lignes = [ligne({ code: 'C1' })];
     expect(await retirerDigicode(q as unknown as RequeteTx, BASE, AUTEUR, MAINTENANT)).toMatchObject({ ok: false, motif: expect.stringContaining('« pas de digicode »') });

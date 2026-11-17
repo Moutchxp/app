@@ -4,7 +4,7 @@ import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, noterConflitParcelle, type ConflitAConfirmer } from './conflitParcelleRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, type AdresseSaisie, type ContactImmeubleSaisi } from './syndics';
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
-import { adresseSansNumero, motifSansNumero, type FicheCopropriete } from './copropriete';
+import { adresseSansNumero, immeubleDuBien, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
 import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
@@ -287,7 +287,10 @@ export function reponseGesteDigicode(r: { ok: true; fiche: FicheCopropriete } | 
   return r.ok ? { etat: 'ok', data: r.fiche } : { etat: 'refus', motif: r.motif };
 }
 
-export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, auteur: Auteur): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
+export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, auteur: Auteur,
+  /** 🔴 (Arno, 17/11/2026 : « Un retrait de code fait depuis la fiche du bien (« Nouveau bien », « Modifier le bien », fiche du bien Gestion) est noté avec
+   *  l'origine « fiche du bien » ET écrit une ligne dans le journal propre du bien ») d'où vient le geste — dit par la ROUTE, jamais par le corps */
+  depuis: 'fiche_copropriete' | 'fiche_bien' = 'fiche_copropriete'): Promise<{ ok: true; fiche: FicheCopropriete } | { ok: false; motif: string }> {
   const b = (brut ?? {}) as Record<string, unknown>;
   if (!(await digicodesUnifiesDisponibles())) return { ok: false, motif: 'La base unique des digicodes n’est pas encore installée (migration 478) : rien n’est enregistré.' };
   const lue = await ficheCopropriete(texte(b.immeuble));
@@ -300,7 +303,16 @@ export async function gesteDigicodeCopro(brut: unknown, nature: GesteDigicode, a
   if (nature === 'planification') { planifies = validerChangements(b); if (!planifies.ok) return planifies; }
   const r = await withTransaction(async (q): Promise<{ ok: true } | { ok: false; motif: string }> => {
     if (nature === 'annulation') return annulerChangement(q, adresse.cle, Number(b.ligneId), auteur);
-    if (nature === 'retrait') return retirerDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment, origine: 'fiche_copropriete' }, auteur);
+    if (nature === 'retrait') {
+      // depuis la fiche d'un bien existant : le bien (de CETTE adresse) reçoit la ligne de son journal ; « Nouveau bien » : pas encore de bien, pas de journal
+      const lotId = depuis === 'fiche_bien' && Number.isSafeInteger(Number(b.lotId)) && Number(b.lotId) > 0 ? Number(b.lotId) : null;
+      if (lotId !== null) {
+        const { rows } = await q<{ immeuble: string | null; adresse: string | null; cp: string | null; commune: string | null }>(
+          'SELECT immeuble, adresse, code_postal AS cp, commune FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
+        if (rows[0] === undefined || cleImmeuble(immeubleDuBien(rows[0])) !== adresse.cle) return { ok: false, motif: 'Ce bien n’est pas à cette adresse : rechargez la fiche. Rien n’est enregistré.' };
+      }
+      return retirerDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment, origine: depuis, lotId }, auteur);
+    }
     if (nature === 'planification' && planifies !== null && planifies.ok) {
       for (const c of planifies.saisie.changements) {
         const w = await ecrireDigicode(q, { adresseCle: adresse.cle, adresseLibelle: adresse.libelle, batiment: c.batiment, valeur: { digicode: c.digicode, code: c.code }, nature: 'changement',

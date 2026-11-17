@@ -164,7 +164,7 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
       return repondre(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif });
     }
     const geste = gesteDeLAction(corps.action);
-    if (geste !== null) return repondre(reponseGesteDigicode(await gesteDigicodeCopro(corps, geste, auteur)));
+    if (geste !== null) return repondre(reponseGesteDigicode(await gesteDigicodeCopro(corps, geste, auteur, 'fiche_bien')));
     switch (corps.action) {
       case 'numero-mandat':
         if (id === null) return incomplet();
