@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   avecMentionAgLocataire, avecMentionAgProprietaire, derniereAgTenue, entreesAAjouter, ligneEntreeAg, lignesAg, moisAnnee, propositionAg, prochaineAgOfficielle,
-  sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg,
-} from './agCopropriete';
+  sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
 import { mailsValidationSortie, PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, type DonneesValidationSortie } from './validationSortie';
 
 /** 🔴🔴 Arno (16/11/2026, 475) — les dates d'AG de la copropriété dans « Valider la sortie » (case 20 % cochée) : les règles pures. */
@@ -78,7 +77,7 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     expect(ligneEntreeAg(E({ type: 'prochaine', statut: 'projetee', date: '2027-03-12', origine: 'sortie', sortieId: 12, saisieLe: '2026-11-16T10:00:00Z', saisiePar: 'Arnaud JOREL' })))
       .toBe('12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12)');
     expect(ligneEntreeAg(E({ origine: 'reprise', confirmation: true, aRattacher: true })))
-      .toBe('12/03/2026 — dernière AG tenue (confirmée comme référence) — saisie par Claire Test le 01/04/2026 (reprise (ancienne saisie)) — à rattacher à une copropriété');
+      .toBe('12/03/2026 — dernière AG tenue (AGO) (confirmée comme référence) — saisie par Claire Test le 01/04/2026 (reprise (ancienne saisie)) — à rattacher à une copropriété');
   });
   it('la mention de la prochaine AG dans le paragraphe des locataires et la phrase des propriétaires ; retirée sans trace ; texte modifié gardé', () => {
     expect(moisAnnee('2027-03-12')).toBe('mars 2027');
@@ -107,5 +106,29 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     expect(sans.parties[1].mail.texte).toContain(PHRASE_RETENUE_PROPRIETAIRE);
     expect(sans.parties[0].mail.texte).not.toContain('assemblée générale');
     expect(sans.interne!.texte).not.toContain('assemblée générale');
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026, 481) : « + Ajouter un PV d'AG » : date du PV (obligatoire), type obligatoire AGO / AGE, note facultative ; QUE des dates OFFICIELLES ; historique du plus récent au plus ancien ; « Corriger » avec trace. */
+describe('🔴🔴 les PV d’AG de la fiche copropriété', () => {
+  const E = (o: Partial<EntreeAg>): EntreeAg => ({ id: 1, type: 'derniere', statut: 'officielle', date: '2024-03-12', confirmation: false, origine: 'fiche_copropriete',
+    saisieLe: '2026-11-17T10:00:00.000Z', saisiePar: 'Arnaud JOREL', sortieId: null, aRattacher: false, ...o });
+  it('le contrôle : date obligatoire, jamais à venir (aujourd’hui accepté) ; type obligatoire ; note bornée et nettoyée', () => {
+    expect(verifierPv({ nature: 'ago' }, '2026-11-17')).toMatchObject({ ok: false, motif: MOTIF_PV_DATE, champs: ['date'] });
+    expect(verifierPv({ date: '2026-11-18', nature: 'ago' }, '2026-11-17')).toMatchObject({ ok: false, motif: MOTIF_PV_FUTUR });
+    expect(verifierPv({ date: '2026-11-17' }, '2026-11-17')).toMatchObject({ ok: false, motif: MOTIF_PV_NATURE, champs: ['nature'] });
+    expect(verifierPv({ date: '2026-11-17', nature: 'age', note: 'x'.repeat(501) }, '2026-11-17')).toMatchObject({ ok: false, champs: ['note'] });
+    expect(verifierPv({ date: '2026-11-17', nature: 'age', note: '  vote   des travaux ' }, '2026-11-17')).toEqual({ ok: true, saisie: { date: '2026-11-17', nature: 'age', note: 'vote des travaux' } });
+    expect(verifierPv({ date: '2015-03-12', nature: 'ago', note: '' }, '2026-11-17')).toEqual({ ok: true, saisie: { date: '2015-03-12', nature: 'ago', note: null } });
+  });
+  it('l’historique des PV : du plus RÉCENT au plus ancien (date du PV), quel que soit l’ordre de saisie ; sans les prochaines AG ni les dates retirées', () => {
+    const l = pvsDeLaCopropriete([E({ id: 1, date: '2015-03-12' }), E({ id: 2, date: '2024-03-12' }), E({ id: 3, type: 'prochaine', statut: 'projetee', date: '2027-03-12' }), E({ id: 4, date: null }), E({ id: 5, date: '2019-06-01', nature: 'age' })]);
+    expect(l.map((e) => e.id)).toEqual([2, 5, 1]);
+  });
+  it('la ligne dit le type (AGO / AGE ; avant la 481 : AGO) et la trace d’une correction', () => {
+    expect(ligneEntreeAg(E({ nature: 'age' }))).toContain('dernière AG tenue (AGE)');
+    expect(ligneEntreeAg(E({}))).toContain('dernière AG tenue (AGO)');
+    expect(ligneEntreeAg(E({ corrige: { id: 9, date: '2015-03-12', nature: 'ago', note: null } }))).toContain('corrige la saisie d’avant : 12/03/2015, AGO');
+    expect(LIBELLE_NATURE_AG).toEqual({ ago: 'AGO (assemblée générale ordinaire)', age: 'AGE (assemblée générale extraordinaire)' });
   });
 });

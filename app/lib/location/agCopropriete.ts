@@ -17,7 +17,9 @@
 
 export type TypeAg = 'derniere' | 'prochaine';
 export type StatutAg = 'officielle' | 'projetee';
-export type OrigineAg = 'reprise' | 'sortie' | 'fiche_bien' | 'creation_bien';
+export type OrigineAg = 'reprise' | 'sortie' | 'fiche_bien' | 'creation_bien' | 'fiche_copropriete';
+/** 🔴 (Arno, 17/11/2026, migration 481) AGO : l'assemblée ordinaire, qui clôture les comptes ; AGE : extraordinaire (un PV seulement). */
+export type NatureAg = 'ago' | 'age';
 
 /** Une entrée de l'historique, telle que lue. */
 export interface EntreeAg {
@@ -34,11 +36,21 @@ export interface EntreeAg {
   sortieId: number | null;
   /** `true` : saisie pour un bien relié à aucune copropriété, et sa clé n'en est toujours pas une */
   aRattacher: boolean;
+  /** 🔴 (481) AGO / AGE ; avant la 481 (ou absente) : AGO */
+  nature?: NatureAg;
+  /** 🔴 (481) la note facultative du PV */
+  note?: string | null;
+  /** 🔴 (481) « Corriger » : ce que cette entrée a CORRIGÉ (la ligne d'avant reste en base, intacte) */
+  corrige?: { id: number; date: string | null; nature: NatureAg; note: string | null } | null;
 }
 
 export const LIBELLE_TYPE_AG: Record<TypeAg, string> = { derniere: 'Dernière AG tenue', prochaine: 'Prochaine AG' };
 export const LIBELLE_STATUT_AG: Record<StatutAg, string> = { officielle: 'officielle', projetee: 'projetée' };
-export const LIBELLE_ORIGINE_AG: Record<OrigineAg, string> = { reprise: 'reprise (ancienne saisie)', sortie: 'sortie', fiche_bien: 'fiche du bien', creation_bien: 'création du bien' };
+export const LIBELLE_ORIGINE_AG: Record<OrigineAg, string> = { reprise: 'reprise (ancienne saisie)', sortie: 'sortie', fiche_bien: 'fiche du bien', creation_bien: 'création du bien',
+  fiche_copropriete: 'fiche copropriété' };
+export const LIBELLE_NATURE_AG: Record<NatureAg, string> = { ago: 'AGO (assemblée générale ordinaire)', age: 'AGE (assemblée générale extraordinaire)' };
+export const SIGLE_NATURE_AG: Record<NatureAg, string> = { ago: 'AGO', age: 'AGE' };
+export const natureDe = (e: Pick<EntreeAg, 'nature'>): NatureAg => (e.nature === 'age' ? 'age' : 'ago');
 export const MENTION_PROJECTION = 'projection — généralement à la même période chaque année';
 export const A_RATTACHER = 'à rattacher à une copropriété';
 export const TITRE_BLOC_AG = 'AG de la copropriété';
@@ -175,8 +187,45 @@ export function avecMentionAgProprietaire(phrase: string, jour: string): string 
 
 /** La ligne d'une entrée sur la fiche : « 12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12) ». PUR. */
 export function ligneEntreeAg(e: EntreeAg): string {
-  const quoi = e.type === 'derniere' ? 'dernière AG tenue' : `prochaine AG, ${LIBELLE_STATUT_AG[e.statut]}`;
+  const quoi = e.type === 'derniere' ? `dernière AG tenue (${SIGLE_NATURE_AG[natureDe(e)]})` : `prochaine AG, ${LIBELLE_STATUT_AG[e.statut]}`;
   const date = e.date === null ? 'date retirée' : dateFr(e.date);
   const ou = e.origine === 'sortie' && e.sortieId !== null ? `sortie n° ${e.sortieId}` : LIBELLE_ORIGINE_AG[e.origine];
-  return `${date} — ${quoi}${e.confirmation ? ' (confirmée comme référence)' : ''} — saisie par ${e.saisiePar} le ${jourFrDe(e.saisieLe)} (${ou})${e.aRattacher ? ` — ${A_RATTACHER}` : ''}`;
+  return `${date} — ${quoi}${e.confirmation ? ' (confirmée comme référence)' : ''} — saisie par ${e.saisiePar} le ${jourFrDe(e.saisieLe)} (${ou})${e.aRattacher ? ` — ${A_RATTACHER}` : ''}${e.corrige ? ` — ${traceCorrection(e.corrige)}` : ''}`;
+}
+
+// ── 🔴🔴 LES PV D'AG DE LA FICHE COPROPRIÉTÉ (Arno, 17/11/2026, migration 481) ─────────────────────────────────────────────────────────────
+// Demande d'Arno : « Ajoute « + Ajouter un PV d'AG » : date du PV (obligatoire), type obligatoire « AGO (assemblée générale ordinaire) » ou
+// « AGE (assemblée générale extraordinaire) », note facultative. Dans cette fiche, on ne saisit QUE des dates OFFICIELLES de PV (aucune date
+// projetée). Historique des PV du plus récent au plus ancien, avec le type, l'auteur et la date de saisie ; modifier une erreur se fait par
+// « Corriger » (avec trace), sans jamais effacer. »
+
+/** « corrige l'entrée d'avant : 12/03/2015, AGO » : la trace d'une correction. PUR. */
+export function traceCorrection(c: NonNullable<EntreeAg['corrige']>): string {
+  return `corrige la saisie d’avant : ${c.date === null ? 'date retirée' : dateFr(c.date)}, ${SIGLE_NATURE_AG[c.nature]}${c.note ? `, note « ${c.note} »` : ''}`;
+}
+
+/** Les PV (dernières AG tenues, datées), du plus RÉCENT au plus ancien (date du PV, puis saisie). PUR. */
+export function pvsDeLaCopropriete(entrees: readonly EntreeAg[]): EntreeAg[] {
+  return entrees.filter((e) => e.type === 'derniere' && e.date !== null)
+    .sort((a, b) => (b.date as string).localeCompare(a.date as string) || b.saisieLe.localeCompare(a.saisieLe) || b.id - a.id);
+}
+
+export interface SaisiePv { date: string; nature: NatureAg; note: string | null }
+export type ChampPv = 'date' | 'nature' | 'note';
+export const MOTIF_PV_DATE = 'Renseignez la date du PV.';
+export const MOTIF_PV_FUTUR = 'Le PV d’une AG porte une date déjà passée (ou celle d’aujourd’hui) : une date à venir n’est pas un PV.';
+export const MOTIF_PV_NATURE = 'Choisissez le type : AGO (assemblée générale ordinaire) ou AGE (assemblée générale extraordinaire).';
+export const MOTIF_PV_NOTE = 'La note ne doit pas dépasser 500 caractères.';
+export const NOTE_PV_MAX = 500;
+
+/** Le contrôle d'un PV (la fiche et le serveur) : date valide et OFFICIELLE (passée ou du jour), type choisi, note bornée. PUR. */
+export function verifierPv(s: { date?: unknown; nature?: unknown; note?: unknown }, aujourdhui: string): { ok: true; saisie: SaisiePv } | { ok: false; motif: string; champs: ChampPv[] } {
+  const champs: ChampPv[] = [];
+  let motif: string | null = null;
+  if (!estJour(s.date)) { champs.push('date'); motif = MOTIF_PV_DATE; } else if ((s.date as string) > aujourdhui) { champs.push('date'); motif = MOTIF_PV_FUTUR; }
+  if (s.nature !== 'ago' && s.nature !== 'age') { champs.push('nature'); motif ??= MOTIF_PV_NATURE; }
+  const note = typeof s.note === 'string' ? s.note.replace(/\s+/g, ' ').trim() : '';
+  if (note.length > NOTE_PV_MAX) { champs.push('note'); motif ??= MOTIF_PV_NOTE; }
+  if (champs.length > 0) return { ok: false, motif: motif as string, champs };
+  return { ok: true, saisie: { date: s.date as string, nature: s.nature as NatureAg, note: note === '' ? null : note } };
 }

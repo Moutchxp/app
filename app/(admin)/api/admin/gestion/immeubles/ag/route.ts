@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
-import { coproprieteDeCle, entreesAg, entreesAgDuLot, historiqueAgDisponible } from '../../../../../../lib/location/agCoproprieteRepo';
+import { coproprieteDeCle, enregistrerPv, entreesAg, entreesAgDuLot, historiqueAgDisponible, pvAgDisponible } from '../../../../../../lib/location/agCoproprieteRepo';
+import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 
 /**
@@ -9,6 +10,8 @@ import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
  *   GET `?lotId=` : la copropriété du bien (ou son immeuble, « à rattacher ») et ses AG ;
  *   GET `?immeuble=` : la copropriété de cet immeuble (fiche syndic) et ses AG.
  * Le syndic n'intervient jamais : les AG sont celles de la copropriété.
+ *   🔴 (Arno, 17/11/2026, migration 481) POST `{ action: 'pv', immeuble, date, nature, note?, corrige? }` : « + Ajouter un PV d'AG » et
+ *   « Corriger » de la fiche Copropriété (date officielle passée ou du jour, AGO / AGE, note ; ajout seul, la saisie corrigée reste en base).
  */
 export const runtime = 'nodejs';
 
@@ -31,10 +34,25 @@ export async function GET(request: Request): Promise<Response> {
     const cle = cleImmeuble(immeuble);
     if (cle === '') return Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
     const copro = await coproprieteDeCle(cle);
-    return Response.json({ etat: 'ok', data: { copropriete: copro?.libelle ?? null, immeuble, applicable: true,
+    return Response.json({ etat: 'ok', data: { copropriete: copro?.libelle ?? null, immeuble, applicable: true, pv: copro !== null && (await pvAgDisponible()),
       entrees: await entreesAg({ coproprieteId: copro?.id ?? null, cle, lotId: null }) } }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/immeubles/ag] lecture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
+  }
+}
+
+export async function POST(request: Request): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  let corps: Record<string, unknown>;
+  try { corps = await request.json() as Record<string, unknown>; } catch { return Response.json({ etat: 'refus', motif: 'Demande illisible.' }, { status: 400, headers: ENTETES }); }
+  if (corps.action !== 'pv') return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
+  try {
+    const r = await enregistrerPv(corps, await auteurDeLaRequete(request));
+    return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+  } catch (e) {
+    console.error('[gestion/immeubles/ag] PV non enregistré', e);
+    return Response.json({ etat: 'erreur', message: 'Le PV n’a pas été enregistré : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
   }
 }

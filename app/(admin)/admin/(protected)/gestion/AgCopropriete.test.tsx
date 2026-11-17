@@ -31,7 +31,7 @@ describe('AgCopropriete', () => {
     expect(lignes.map((x) => x.textContent)).toEqual([
       '02/04/2027 — prochaine AG, officielle — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12)',
       '12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 15/11/2026 (sortie n° 11)',
-      '12/03/2026 — dernière AG tenue — saisie par Claire Test le 01/04/2026 (fiche du bien)']);
+      '12/03/2026 — dernière AG tenue (AGO) — saisie par Claire Test le 01/04/2026 (fiche du bien)']);
     expect(lignes.map((x) => x.className)).toEqual(['agc-entree agc-entree--officielle', 'agc-entree agc-entree--projetee', 'agc-entree agc-entree--tenue']);
     const css = container.querySelector('style')!.textContent!;
     expect(css).toContain('.agc-entree--projetee{border-style:dashed;font-style:italic}');
@@ -47,5 +47,73 @@ describe('AgCopropriete', () => {
     await act(async () => { root.render(createElement(AgCopropriete, { lotId: 8 })); });
     await calmer();
     expect(container.querySelector('[data-ag-copropriete-bloc]')).toBeNull();
+  });
+});
+
+/** 🔴🔴 Arno (17/11/2026, 481) : « FICHE COPROPRIÉTÉ, bloc « AG » : […] Ajoute « + Ajouter un PV d'AG » : date du PV (obligatoire), type obligatoire AGO / AGE, note facultative. […] modifier une erreur se fait par « Corriger » (avec trace), sans jamais effacer. » */
+describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « Corriger »', () => {
+  let posts: Record<string, unknown>[];
+  const saisir = async (el: Element, v: string) => { await act(async () => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
+  const clic = async (el: Element) => { await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
+  const $ = (s: string) => container.querySelector(s) as HTMLElement;
+  beforeEach(() => {
+    posts = [];
+    const lu = { etat: 'ok', data: { copropriete: 'Résidence _TEST AG', immeuble: 'Résidence _TEST AG', applicable: true, pv: true, entrees: [
+      ENTREE({ id: 3, type: 'prochaine', statut: 'projetee', date: '2027-03-12', origine: 'sortie', sortieId: 11 }),
+      ENTREE({ id: 2, date: '2015-03-12', origine: 'reprise', nature: 'ago' }),
+      ENTREE({ id: 1, date: '2024-06-01', nature: 'age', note: 'travaux de façade', origine: 'fiche_copropriete' })] } };
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return json({ etat: 'ok', data: { entrees: [ENTREE({ id: 9, date: '2026-03-12', nature: 'ago', origine: 'fiche_copropriete' })] } }); }
+      return json(lu);
+    }) as unknown as typeof fetch;
+  });
+  it('les PV du plus récent au plus ancien (type, auteur, date de saisie, note), chacun avec « Corriger » ; les autres dates restent, en dessous', async () => {
+    await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    expect([...container.querySelectorAll('[data-agc-pv]')].map((l) => [l.querySelector('[data-agc-pv-date]')?.textContent, l.querySelector('[data-agc-pv-type]')?.textContent]))
+      .toEqual([['01/06/2024', 'AGE (assemblée générale extraordinaire)'], ['12/03/2015', 'AGO (assemblée générale ordinaire)']]);
+    expect($('[data-agc-pv="1"]').textContent).toContain('saisie par Claire Test le 01/04/2026 (fiche copropriété)');
+    expect($('[data-agc-pv="1"] [data-agc-pv-note]').textContent).toBe('Note : travaux de façade');
+    expect(container.querySelectorAll('[data-agc-corriger]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-agc-autres] [data-agc-entree]')).toHaveLength(1);
+  });
+  it('« + Ajouter un PV d’AG » : aucun message avant une tentative ; date et type obligatoires ; puis l’envoi (date, AGO, note) et l’historique relu', async () => {
+    await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    await clic($('[data-agc-ajouter-pv]'));
+    expect($('[data-agc-form="ajout"]')).not.toBeNull();
+    expect($('[data-agc-pv-erreur]')).toBeNull();
+    expect(container.querySelector('[data-agc-pv-type-choix][aria-pressed="true"]')).toBeNull();
+    await clic($('[data-agc-pv-enregistrer]'));
+    expect($('[data-agc-pv-erreur]').textContent).toBe('Renseignez la date du PV.');
+    expect(posts).toEqual([]);
+    await saisir($('[data-agc-pv-date-saisie]'), '2026-03-12');
+    await clic($('[data-agc-pv-enregistrer]'));
+    expect($('[data-agc-pv-erreur]').textContent).toContain('Choisissez le type');
+    await clic($('[data-agc-pv-type-choix="ago"]'));
+    await saisir($('[data-agc-pv-note-saisie]'), 'PV reçu du syndic');
+    await clic($('[data-agc-pv-enregistrer]'));
+    expect(posts).toEqual([{ action: 'pv', immeuble: 'Résidence _TEST AG', date: '2026-03-12', nature: 'ago', note: 'PV reçu du syndic' }]);
+    expect($('[data-agc-form]')).toBeNull();
+    expect([...container.querySelectorAll('[data-agc-pv-date]')].map((x) => x.textContent)).toEqual(['12/03/2026']);
+  });
+  it('« Corriger » : le formulaire prérempli (date, type, note), envoyé avec la saisie corrigée ; « Annuler » ne change rien', async () => {
+    await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    await clic($('[data-agc-corriger="2"]'));
+    expect(($('[data-agc-form="correction"] [data-agc-pv-date-saisie]') as HTMLInputElement).value).toBe('2015-03-12');
+    expect($('[data-agc-pv-type-choix="ago"]').getAttribute('aria-pressed')).toBe('true');
+    await clic($('[data-agc-pv-annuler]'));
+    expect($('[data-agc-form]')).toBeNull();
+    expect(posts).toEqual([]);
+    await clic($('[data-agc-corriger="2"]'));
+    await clic($('[data-agc-pv-type-choix="age"]'));
+    await clic($('[data-agc-pv-enregistrer]'));
+    expect(posts).toEqual([{ action: 'pv', immeuble: 'Résidence _TEST AG', date: '2015-03-12', nature: 'age', note: null, corrige: 2 }]);
+  });
+  it('hors de la fiche Copropriété (sans `edition`) : la lecture seule d’avant, aucun bouton', async () => {
+    await act(async () => { root.render(createElement(AgCopropriete, { lotId: 7 })); }); await calmer();
+    expect(container.querySelector('[data-agc-ajouter-pv]')).toBeNull();
+    expect(container.querySelector('[data-agc-corriger]')).toBeNull();
+    expect(container.querySelectorAll('[data-agc-entree]')).toHaveLength(3);
   });
 });

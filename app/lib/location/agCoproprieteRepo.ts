@@ -1,10 +1,10 @@
-import { query, type RequeteTx } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { cleImmeuble } from '../gestion/syndics';
 import { colonneExisteMemo } from './sondeLocation';
 import { immeubleDeLAg } from './immeubleAg';
 import { familleDeCategorie } from './bienComplet';
-import type { EntreeAg, OrigineAg, StatutAg, TypeAg } from './agCopropriete';
+import { verifierPv, type EntreeAg, type NatureAg, type OrigineAg, type StatutAg, type TypeAg } from './agCopropriete';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { nomCollaborateur } from './texteCompteRendu';
 
@@ -19,6 +19,10 @@ import { nomCollaborateur } from './texteCompteRendu';
 
 export function historiqueAgDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_copropriete_ag', 'type_ag');
+}
+/** 🔴 (Arno, 17/11/2026) la 481 : AGO / AGE, note, « Corriger » avec trace. Sans elle : toute date est une AGO, le bloc reste en lecture. */
+export function pvAgDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_copropriete_ag', 'corrige_id');
 }
 
 export interface CoproprieteAg { id: number; libelle: string; cle: string }
@@ -74,18 +78,26 @@ async function clesDeLaCopropriete(id: number, q: Q = query): Promise<string[]> 
 export async function entreesAg(cible: { coproprieteId: number | null; cle: string | null; lotId: number | null }, q: Q = query): Promise<EntreeAg[]> {
   if (!(await historiqueAgDisponible())) return [];
   const cles = cible.coproprieteId !== null ? await clesDeLaCopropriete(cible.coproprieteId, q) : [];
+  // 🔴 (Arno, 17/11/2026, 481) AGO / AGE, note ; une entrée CORRIGÉE n'est plus lue que dans la trace de celle qui la corrige (elle reste en base)
+  const avec481 = await pvAgDisponible();
   const { rows } = await (q as typeof query)<{ id: string; type_ag: TypeAg; statut: StatutAg; date_ag: string | null; confirmation: boolean; origine: OrigineAg;
-    saisie_le: string; saisie_par_libelle: string; sortie_validee_id: string | null; copropriete_id: string | null }>(
+    saisie_le: string; saisie_par_libelle: string; sortie_validee_id: string | null; copropriete_id: string | null; nature_ag: NatureAg | null; note: string | null;
+    c_id: string | null; c_date: string | null; c_nature: NatureAg | null; c_note: string | null }>(
     `SELECT h.id::text, h.type_ag, h.statut, h.date_ag::text, h.confirmation, h.origine, h.saisie_le::text AS saisie_le, h.saisie_par_libelle,
-            h.sortie_validee_id::text, h.copropriete_id::text
+            h.sortie_validee_id::text, h.copropriete_id::text,
+            ${avec481 ? `h.nature_ag, h.note, c.id::text AS c_id, c.date_ag::text AS c_date, c.nature_ag AS c_nature, c.note AS c_note`
+              : `NULL::text AS nature_ag, NULL::text AS note, NULL::text AS c_id, NULL::text AS c_date, NULL::text AS c_nature, NULL::text AS c_note`}
        FROM gestion_copropriete_ag h
-      WHERE ($1::bigint IS NOT NULL AND (h.copropriete_id = $1 OR (h.copropriete_id IS NULL AND h.cle_immeuble = ANY($2::text[]))))
-         OR ($1::bigint IS NULL AND h.copropriete_id IS NULL AND (h.cle_immeuble = $3 OR h.lot_id = $4))
+       ${avec481 ? 'LEFT JOIN gestion_copropriete_ag c ON c.id = h.corrige_id' : ''}
+      WHERE (($1::bigint IS NOT NULL AND (h.copropriete_id = $1 OR (h.copropriete_id IS NULL AND h.cle_immeuble = ANY($2::text[]))))
+          OR ($1::bigint IS NULL AND h.copropriete_id IS NULL AND (h.cle_immeuble = $3 OR h.lot_id = $4)))
+        ${avec481 ? 'AND NOT EXISTS (SELECT 1 FROM gestion_copropriete_ag x WHERE x.corrige_id = h.id)' : ''}
       ORDER BY h.saisie_le DESC, h.id DESC`,
     [cible.coproprieteId, cles, cible.cle, cible.lotId]);
   return rows.map((r) => ({ id: Number(r.id), type: r.type_ag, statut: r.statut, date: r.date_ag, confirmation: r.confirmation, origine: r.origine,
     saisieLe: new Date(r.saisie_le).toISOString(), saisiePar: r.saisie_par_libelle, sortieId: r.sortie_validee_id === null ? null : Number(r.sortie_validee_id),
-    aRattacher: cible.coproprieteId === null }));
+    aRattacher: cible.coproprieteId === null, nature: r.nature_ag === 'age' ? 'age' : 'ago', note: r.note,
+    corrige: r.c_id === null ? null : { id: Number(r.c_id), date: r.c_date, nature: r.c_nature === 'age' ? 'age' : 'ago', note: r.c_note } }));
 }
 
 /** L'historique d'un bien (par sa copropriété, sinon par son immeuble). */
@@ -169,4 +181,43 @@ export async function creerCoproprietePourLot(q: Q, c: ContexteAgLot, nom: strin
     await journal(q, c.lotId, 'location_copropriete_creee', `copropriété « ${libelle} » créée depuis « Valider la sortie »`, auteur);
   }
   return rattacherLotACopropriete(q, c, id, auteur);
+}
+
+/** Aujourd'hui à Paris, « AAAA-MM-JJ ». */
+const aujourdhuiParis = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+
+/**
+ * ══ 🔴🔴 « + Ajouter un PV d'AG » et « Corriger » (Arno, 17/11/2026, migration 481), depuis la FICHE COPROPRIÉTÉ ═══════════════════════════
+ * Un PV = une date OFFICIELLE d'AG tenue (jamais une date à venir), AGO ou AGE, note facultative ; ajout seul ; « Corriger » ajoute une ligne
+ * qui désigne celle qu'elle corrige (une seule correction vivante par ligne ; la ligne corrigée reste en base). Contrôles refaits ici.
+ */
+export async function enregistrerPv(brut: unknown, auteur: Auteur): Promise<{ ok: true; entrees: EntreeAg[] } | { ok: false; motif: string }> {
+  if (!(await pvAgDisponible())) return { ok: false, motif: 'La saisie des PV d’AG attend la mise à jour de la base (migration 481) : rien n’est enregistré.' };
+  const b = (brut ?? {}) as Record<string, unknown>;
+  const cle = cleImmeuble(typeof b.immeuble === 'string' ? b.immeuble.slice(0, 300) : '');
+  if (cle === '') return { ok: false, motif: 'Demande incomplète : la copropriété manque.' };
+  const v = verifierPv(b, aujourdhuiParis());
+  if (!v.ok) return { ok: false, motif: v.motif };
+  const corrige = b.corrige === undefined || b.corrige === null ? null : Number(b.corrige);
+  if (corrige !== null && !(Number.isSafeInteger(corrige) && corrige > 0)) return { ok: false, motif: 'Demande illisible : la saisie à corriger est inconnue.' };
+  const copro = await coproprieteDeCle(cle);
+  if (copro === null) return { ok: false, motif: 'Cette copropriété n’a pas encore de fiche : enregistrez-la d’abord.' };
+  const qui = await nomAuteurAg(auteur);
+  const r = await withTransaction(async (q) => {
+    if (corrige !== null) {
+      const actives = await entreesAg({ coproprieteId: copro.id, cle: null, lotId: null }, q);
+      const cible = actives.find((e) => e.id === corrige);
+      const { rows: verrou } = await q<{ id: string }>('SELECT id::text FROM gestion_copropriete_ag WHERE id = $1 FOR UPDATE', [corrige]);
+      if (verrou[0] === undefined || cible === undefined || cible.type !== 'derniere') return { ok: false as const, motif: 'Cette saisie a déjà été corrigée (ou n’est pas un PV de cette copropriété) : rechargez la fiche.' };
+      const { rows: deja } = await q<{ n: string }>('SELECT count(*)::text AS n FROM gestion_copropriete_ag WHERE corrige_id = $1', [corrige]);
+      if (Number(deja[0]?.n ?? 0) > 0) return { ok: false as const, motif: 'Cette saisie a déjà été corrigée : rechargez la fiche.' };
+      if (cible.date === v.saisie.date && (cible.nature ?? 'ago') === v.saisie.nature && (cible.note ?? null) === v.saisie.note) return { ok: false as const, motif: 'Rien n’a changé : modifiez la date, le type ou la note.' };
+    }
+    await q(`INSERT INTO gestion_copropriete_ag (copropriete_id, type_ag, statut, date_ag, origine, saisie_par, saisie_par_libelle, nature_ag, note, corrige_id)
+             VALUES ($1, 'derniere', 'officielle', $2::date, 'fiche_copropriete', $3, $4, $5, $6, $7)`,
+      [copro.id, v.saisie.date, auteur.id, qui, v.saisie.nature, v.saisie.note, corrige]);
+    return { ok: true as const };
+  });
+  if (!r.ok) return r;
+  return { ok: true, entrees: await entreesAg({ coproprieteId: copro.id, cle, lotId: null }) };
 }

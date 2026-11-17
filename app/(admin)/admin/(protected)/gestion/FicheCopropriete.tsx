@@ -326,7 +326,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         (absents d'un immeuble « hors copropriété »). */}
     {!horsAffiche && <section className="fcp-bloc" data-fcp-ag>
       <h3 className="fcp-titre">AG</h3>
-      {f.declaree ? <AgCopropriete immeuble={f.cle} /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>}
+      {/* 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » et « Corriger » : dans cette fiche seulement */}
+      {f.declaree ? <AgCopropriete immeuble={f.cle} edition /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>}
 
     <section className="fcp-bloc" data-fcp-contacts>
       <h3 className="fcp-titre">Habitants et gardiens</h3>
