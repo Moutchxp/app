@@ -169,11 +169,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const memeSyndic = f === null || syndicVise === null || (f.declaree && (f.contacts.length > 0 || (f.nom ?? '') !== '')) ? []
     : prises.filter((p) => p.syndic !== null && p.syndic.id === syndicVise && p.copropriete !== null);
 
+  const [tenteDigi, setTenteDigi] = useState(false);
   const valider = async (passe: { alerte?: boolean; conflit?: boolean; meme?: boolean; regrouperAvec?: string; syndicId?: number } = {}): Promise<void> => {
     if (f === null) return;
     if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
     const refusDigi = f.saisieDigicodes ? refusDigicodes(digi, f.nomenclatureEffective, f.batimentsConnus) : null;
-    if (refusDigi !== null) { setErreur(refusDigi); return; }
+    // 🔴 (Arno, 17/11/2026) la tentative fait apparaître le message SOUS la ligne concernée
+    if (refusDigi !== null) { setTenteDigi(true); setErreur(refusDigi); return; }
     if (!passe.conflit && conflits.length > 0) { setEtape('conflit'); return; }
     if (!passe.meme && !memeTraite && memeSyndic.length > 0) { setEtape('meme'); return; }
     const alerteDue = !passe.alerte && libres.length > 0 && !rattacheeIci && !f.declaree;
@@ -302,7 +304,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       {/* 🔴 (lot 3) la nouvelle saisie : digicode commun, « + » pour un bâtiment ou une cage, menu des bâtiments de toute la copropriété ;
           sans la 477, l'ancienne saisie par adresse reste (rien n'est perdu) */}
       {f.saisieDigicodes
-        ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi}
+        ? <DigicodesCopropriete s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
             onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),

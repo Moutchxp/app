@@ -211,3 +211,37 @@ describe('④ un champ déjà rempli', () => {
     expect(menu()).toEqual(['Aucun bâtiment (code commun)', 'C', 'Ajouter nouveau bâtiment']);
   });
 });
+
+/** 🔴 Arno (17/11/2026) : « le message rouge […] est illisible : le menu « Ajouter nouveau bâtiment » le recouvre et il s'affiche avant toute saisie. Le message n'apparaît qu'après une tentative de validation, sous la ligne, entièrement lisible […]. Le menu se ferme dès qu'on clique ailleurs. » */
+describe('① le message d’une ligne de bâtiment', () => {
+  const FICHE = { digicodes: [{ cle: 'residence les tilleuls', voie: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', commun: { digicode: true, code: '1234' }, batiments: [] }] };
+  function Hote({ tente }: { tente: boolean }) {
+    const [s, setS] = useState<DigicodesAdresseSaisis[]>(saisieDigicodesInitiale(FICHE as never));
+    return createElement('div', null, createElement(DigicodesCopropriete, { s, onChange: setS, connus: CONNUS, nomenclature: 'lettres', desactive: false, tente }),
+      createElement('button', { type: 'button', 'data-ailleurs': '' }, 'ailleurs'));
+  }
+  it('« + » : AUCUN message avant une tentative de validation', async () => {
+    await act(async () => { root.render(createElement(Hote, { tente: false })); });
+    await clic($('[data-dcp-plus]'));
+    expect($('[data-dcp-erreur-ligne]')).toBeNull();
+    expect($('[data-dcp-refus]')).toBeNull();
+  });
+  it('après une tentative : le message SOUS la ligne (dans la ligne du bâtiment, sa propre boîte lisible), une seule fois', async () => {
+    await act(async () => { root.render(createElement(Hote, { tente: true })); });
+    await clic($('[data-dcp-plus]'));
+    const m = $('[data-dcp-erreur-ligne]');
+    expect(m.textContent).toBe('Donnez un nom au bâtiment ou à la cage d’escalier.');
+    expect(m.closest('[data-dcp-batiment]')).not.toBeNull();
+    expect(m.className).toBe('dcp-ligne-erreur');
+    expect(container.querySelectorAll('[data-dcp-refus]')).toHaveLength(0);
+    expect(CSS_DIGICODES_COPRO).toContain('.dcp-ligne-erreur{flex:1 1 100%');
+    expect(CSS_DIGICODES_COPRO).toContain('background:var(--color-svv-red-soft);\n  color:var(--color-svv-red-dark)');
+  });
+  it('le menu se ferme dès qu’on clique ailleurs (même ouvert par le « + », sans focus dans le champ)', async () => {
+    await act(async () => { root.render(createElement(Hote, { tente: false })); });
+    await clic($('[data-dcp-plus]'));
+    expect($('[data-dcp-menu]')).not.toBeNull();
+    await act(async () => { $('[data-ailleurs]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect($('[data-dcp-menu]')).toBeNull();
+  });
+});

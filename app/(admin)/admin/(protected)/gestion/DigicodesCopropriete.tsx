@@ -97,7 +97,7 @@ export function texteAvertissement(a: AvertissementBatiment): string[] {
 export const TITRE_AVERTISSEMENT = 'Intitulé différent des autres bâtiments';
 const MOT_REGLE: Record<Nomenclature, string> = { lettres: 'bâtiments en lettres (A, B, C…)', chiffres: 'bâtiments en chiffres (1, 2, 3…)' };
 
-export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment }: {
+export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, modeBien = false, variante = 'gestion', onPlusBatiment, tente = false }: {
   s: DigicodesAdresseSaisis[]; onChange: (s: DigicodesAdresseSaisis[]) => void; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** 🔴 (478) les gestes immédiats ; absents : la place connue se lit seulement */
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode;
@@ -112,6 +112,8 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
   variante?: 'gestion' | 'location';
   /** 🔴 (17/11/2026) en mode bien : le « + » (bâtiment ou cage) ouvre le menu du bâtiment du bien — le bien n'a qu'un bâtiment, choisi au menu */
   onPlusBatiment?: () => void;
+  /** 🔴 (Arno, 17/11/2026 : « Le message n'apparaît qu'après une tentative de validation, sous la ligne, entièrement lisible ») une validation a été tentée */
+  tente?: boolean;
 }) {
   const [menu, setMenu] = useState<string | null>(null);
   // 🔴 (lot 5) la fenêtre « Modifier » : l'adresse et le code d'où on l'a ouverte (pré-coché)
@@ -186,9 +188,12 @@ export function DigicodesCopropriete({ s, onChange, connus, nomenclature, desact
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, { aucun: e.target.checked, code: e.target.checked ? '' : b.code })} /><span>pas de digicode</span></label>
               {b.nouveau && <button type="button" className="dcp-retirer" aria-label="Retirer cette ligne (rien n'est encore enregistré)" onClick={() => maj(d.cle, (x) => ({ ...x, batiments: x.batiments.filter((y) => y.k !== b.k) }))} data-dcp-retirer-ligne>×</button>}
               {b.etat !== undefined && !b.nouveau && <p className="loc-muet dcp-mention" data-dcp-mention-batiment>Sans code propre : ses biens lisent le digicode commun de l’adresse.</p>}
+              {tente && b.nouveau && batimentDe(b.libelle) === null && <p className="dcp-ligne-erreur" role="alert" data-dcp-erreur-ligne>Donnez un nom au bâtiment ou à la cage d’escalier.</p>}
             </div>)))}
         </div>))}
-      {refus !== null && <p className="cp-refus dcp-refus" role="status" data-dcp-refus>{refus}</p>}
+      {/* le refus d'ensemble (ex. numérotation non confirmée) : seulement après une tentative ; le nom manquant se dit sous SA ligne */}
+      {tente && refus !== null && !s.some((d) => d.batiments.some((b) => b.nouveau && batimentDe(b.libelle) === null))
+        && <p className="dcp-ligne-erreur" role="alert" data-dcp-refus>{refus}</p>}
       <HistoriqueDigicodes s={s} />
       {modifier !== null && onPlanifier !== undefined && s.find((d) => d.cle === modifier.cle) !== undefined && (
         <FenetreModifier d={s.find((d) => d.cle === modifier.cle) as DigicodesAdresseSaisis} depart={modifier.place} onFermer={() => setModifier(null)}
@@ -579,6 +584,15 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const [message, setMessage] = useState<string | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
   const champEncadre = useRef<HTMLInputElement | null>(null);
+  const racine = useRef<HTMLDivElement | null>(null);
+  // 🔴 (Arno, 17/11/2026 : « Le menu se ferme dès qu'on clique ailleurs ») — même ouvert sans que le champ ait le focus (le « + » de la fiche Copropriété)
+  useEffect(() => {
+    if (!ouvert) return;
+    const ailleurs = (e: Event): void => { if (racine.current !== null && !racine.current.contains(e.target as Node)) { setOuvert(false); setActif(-1); } };
+    document.addEventListener('mousedown', ailleurs);
+    document.addEventListener('touchstart', ailleurs);
+    return () => { document.removeEventListener('mousedown', ailleurs); document.removeEventListener('touchstart', ailleurs); };
+  }, [ouvert]);
   // 🔴 (Arno, 17/11/2026) la confirmation est une BULLE temporaire, superposée à la page : elle disparaît seule après 4 secondes
   useEffect(() => {
     if (message === null) return;
@@ -624,7 +638,7 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   ];
   const idMenu = `cb-menu-${marque}-${cle}`;
   return (
-    <div className="cb" data-champ-batiment>
+    <div className="cb" ref={racine} data-champ-batiment>
       <div className="cb-zone">
       <input ref={champ} value={valeur} disabled={desactive} placeholder={placeholder} maxLength={60} role="combobox" aria-expanded={ouvert} aria-controls={idMenu}
         aria-autocomplete="list" aria-label={ariaLabel} aria-activedescendant={ouvert && actif >= 0 ? `${idMenu}-${actif}` : undefined} {...{ [A.champ]: marque === 'dcp' ? cle : '' }}
@@ -719,11 +733,11 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
  * LES DIGICODES DU BIEN : le composant unique (`DigicodesCopropriete`, mode « bien ») sur SA place — le code commun de l'adresse et celui de SON
  * bâtiment ; un code connu se lit (« Corriger une erreur »), une place sans code se saisit (première valeur, avec l'enregistrement du bien).
  */
-export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment }: {
+export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCorriger, onArbitrer, onPlanifier, onAnnulerChangement, onApercu, onEnvoyer, variante, onPlusBatiment, tente }: {
   donnees: DigicodesPourBienLu; s: DigicodesAdresseSaisis; onChange: (s: DigicodesAdresseSaisis) => void; batiment: string; desactive: boolean;
   onCorriger?: GesteDigicode; onArbitrer?: GesteDigicode; onPlanifier?: PlanifierDigicodes; onAnnulerChangement?: AnnulerChangementDigicode;
   onApercu?: ApercuDigicodes; onEnvoyer?: EnvoyerDigicodes;
-  variante?: 'gestion' | 'location'; onPlusBatiment?: () => void;
+  variante?: 'gestion' | 'location'; onPlusBatiment?: () => void; tente?: boolean;
 }) {
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const vue: DigicodesAdresseSaisis = { ...s, batiments: ligne === null ? [] : [ligne] };
@@ -735,7 +749,7 @@ export function DigicodesBien({ donnees, s, onChange, batiment, desactive, onCor
   };
   return <div data-digicodes-bien>
     <DigicodesCopropriete s={[vue]} onChange={recevoir} connus={donnees.connus} nomenclature={donnees.nomenclature} desactive={desactive} modeBien
-      {...(variante ? { variante } : {})} {...(onPlusBatiment ? { onPlusBatiment } : {})}
+      {...(variante ? { variante } : {})} {...(onPlusBatiment ? { onPlusBatiment } : {})} tente={tente === true}
       {...(onCorriger ? { onCorriger } : {})} {...(onArbitrer ? { onArbitrer } : {})} {...(onPlanifier ? { onPlanifier } : {})} {...(onAnnulerChangement ? { onAnnulerChangement } : {})}
       {...(onApercu ? { onApercu } : {})} {...(onEnvoyer ? { onEnvoyer } : {})} />
   </div>;
@@ -817,6 +831,9 @@ export const CSS_DIGICODES_COPRO = `
 .cb{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
 .cb-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;margin:0;max-height:260px;box-shadow:0 10px 28px color-mix(in srgb, var(--color-svv-ink) 18%, transparent)}
 .cb-zone{position:relative;min-width:0}
+/* 🔴 (Arno, 17/11/2026) un message d'erreur sous sa ligne, entièrement lisible en clair et en sombre (jetons rouge foncé sur fond rouge pâle), jamais recouvert */
+.dcp-ligne-erreur{flex:1 1 100%;margin:4px 0 0;padding:8px 12px;border-radius:10px;border-left:4px solid var(--color-svv-red);background:var(--color-svv-red-soft);
+  color:var(--color-svv-red-dark);font-size:.9rem;font-weight:700;line-height:1.4;position:relative;z-index:1}
 .cb-zone > input{width:100%;box-sizing:border-box}
 .cb-menu .dcp-option{min-height:44px;display:flex;align-items:center}
 .cb-menu .cb-choisi{font-weight:800;background:color-mix(in srgb, var(--color-svv-red) 10%, transparent)}

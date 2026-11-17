@@ -927,7 +927,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non et « Code ». Avec la 478 : le composant unique —
                  le code commun de l'adresse et celui du bâtiment choisi ; connus : lus, « Corriger une erreur » ; sinon : à saisir. */
               <div className="loc-acces-bloc loc-acces-digicodes" data-digicode data-digicodes-unifies><span className="loc-acces-mot">Digicode</span>
-                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi} variante="location"
+                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={b.batiment} desactive={envoi} variante="location" tente={tente}
                   onPlusBatiment={() => (document.querySelector('[data-cbc-champ]') as HTMLInputElement | null)?.focus()}
                   onCorriger={(a, bt, v) => gesteDigi('digicode-corriger', a, bt, v)} onArbitrer={(a, bt, v) => gesteDigi('digicode-arbitrer', a, bt, v)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}

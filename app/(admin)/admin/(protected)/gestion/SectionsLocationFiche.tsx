@@ -763,7 +763,10 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
     if (m === null) setDigiRelire((n) => n + 1);
     return m;
   };
+  // 🔴 (Arno, 17/11/2026) les messages du digicode n'apparaissent qu'après une tentative d'enregistrement
+  const [tenteDigi, setTenteDigi] = useState(false);
   const enregistrer = async (): Promise<void> => {
+    setTenteDigi(true);
     const { derniereAg, assurancePno, pnoDateAnniversaire, chargesCopro, idFiscal, copropriete, ...reste } = v;
     // L'assurance PNO (Arno, 18/10/2026) : sur le bien (pas sur une annexe) ; Non (ou non renseigné) vide la date.
     const pno = annexe ? {} : { assurancePno, pnoDateAnniversaire: assurancePno === 'oui' ? pnoDateAnniversaire : '' };
@@ -864,7 +867,7 @@ export function Complements({ id, c, apres, annexe = false, categorie, familleMe
               /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : « Digicode » Oui / Non, « Code du digicode » et la mention ; avec la
                  478 : le composant unique (code commun et code du bâtiment, lus ou à saisir, « Corriger une erreur ») */
               <div style={{ gridColumn: '1 / -1' }} data-digicodes-unifies><span className="loc-champ">Digicode</span>
-                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={v.batiment} desactive={false}
+                <DigicodesBien donnees={digiBien} s={digiSaisie} onChange={setDigiSaisie} batiment={v.batiment} desactive={false} tente={tenteDigi}
                   onCorriger={(a, bt, x) => gesteDigi('digicode-corriger', a, bt, x)} onArbitrer={(a, bt, x) => gesteDigi('digicode-arbitrer', a, bt, x)}
                   onPlanifier={(a, appliqueLe, changements) => appelDigi({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements })}
                   onAnnulerChangement={(a, ligneId) => appelDigi({ action: 'digicode-annuler-changement', adresseCle: a, ligneId })}
