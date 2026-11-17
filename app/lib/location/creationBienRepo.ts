@@ -32,6 +32,7 @@ import { dateFr, verifierRentreOccupe } from './rentreOccupe';
 import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeAdresse, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodesRepo';
 import { ecrireDigicodesDuBien, realignerBatimentDuBien } from '../gestion/digicodesBienRepo';
+import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
 
 /**
@@ -324,6 +325,9 @@ async function creerBienInterne(s: SaisieBien & {
   // anciennes tables ne sont plus écrites) ; un digicode venu par l'ancien chemin serait perdu : refusé, clairement
   const unifie = await digicodesUnifiesDisponibles();
   const digicodesBien = unifie ? validerDigicodesBien((s.logement as Record<string, unknown> | undefined)?.digicodesBien) : null;
+  // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement ») : contrôlés AVANT toute écriture, écrits dans la transaction du bien
+  const pvAg = await pvsDuBienValides((s as unknown as { pvAg?: unknown }).pvAg);
+  if (!pvAg.ok) return { etat: 'refus', motif: pvAg.motif };
   // « Bien en gestion ? » (migration 390) : sans la colonne, « Non » n'est jamais perdu en silence — rien n'est créé.
   // « Oui » est la valeur par défaut de la colonne : sans elle, le bien est créé comme avant.
   const avec390 = await bienEnGestionDisponible();
@@ -385,6 +389,8 @@ async function creerBienInterne(s: SaisieBien & {
           if (!d.ok) throw new Refus(d.motif);
         }
       }
+      // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement »)
+      await ajouterPvsDuBien(q, logementId, pvAg.pvs, auteur);
       // Le mandat, sur la fiche de chaque propriétaire du bien (les champs existants), dans la même transaction que le bien.
       if (mandat !== null) mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
       const annexes: number[] = [];

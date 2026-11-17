@@ -124,6 +124,14 @@ describe('🔴🔴 « Nouveau bien » : jamais l’ancien système', () => {
     expect([...bloc.querySelectorAll('.loc-acces-mot')].map((x) => x.textContent)).toEqual(['Ascenseur', 'Digicode']);
     expect([...document.querySelectorAll('h4')].some((h) => h.textContent === 'Situation dans l’immeuble')).toBe(false);
   });
+  it('🔴 (Arno, 17/11/2026) « Copropriété & ID fiscal » porte le bloc AG (PV d’AG) : adresse pas encore choisie, dit clairement, « + Ajouter un PV d’AG »', async () => {
+    reponse = DIGI;
+    await monterNouveau();
+    const bloc = document.querySelector('[aria-labelledby="loc-b4"] [data-ag-bien]') as HTMLElement;
+    expect(bloc).not.toBeNull();
+    expect(bloc.querySelector('[data-ag-bien-sans-adresse]')?.textContent).toBe('Choisissez d’abord l’adresse du bien : les PV d’AG de sa copropriété s’afficheront ici.');
+    expect(bloc.querySelector('[data-agc-ajouter-pv]')?.textContent).toBe('+ Ajouter un PV d’AG');
+  });
   it('🔴 (Arno, 17/11/2026) UN SEUL CHAMP : « Bâtiment / cage d’escalier » (texte d’aide court) ; le champ « Escalier » est retiré', async () => {
     reponse = DIGI;
     await monterNouveau();

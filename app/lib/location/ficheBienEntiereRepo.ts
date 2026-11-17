@@ -15,6 +15,7 @@ import { GROUPES_FICHE, type ValeursEncart } from './encartBien';
 import { withTransaction } from '../db/client';
 import { digicodesUnifiesDisponibles, RefusDigicode } from '../gestion/digicodesRepo';
 import { ecrireDigicodesDuBien } from '../gestion/digicodesBienRepo';
+import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
 import {
   changementsAnnexes, changementsFiche, empreinte, MOTIF_CONFLIT, refusFiche,
@@ -160,10 +161,15 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
     if (r !== null) return { etat: 'refus', motif: r };
     digicodesFaits = true;
   }
+  // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement ») : contrôlés avant, écrits dans leur transaction (ajout seul)
+  const pvAg = await pvsDuBienValides(brut.pvAg);
+  if (!pvAg.ok) return { etat: 'refus', motif: pvAg.motif };
+  const pvFaits = pvAg.pvs.length > 0 ? await withTransaction((q) => ajouterPvsDuBien(q, id, pvAg.pvs, auteur)) : 0;
   const changements = changementsFiche(lu, s);
-  if (changements.length === 0) return { etat: 'ok', data: { changements, notes: digicodesFaits ? ['Bâtiment et digicodes enregistrés.'] : [] } };
-  const faits: string[] = digicodesFaits ? ['bâtiment et digicodes'] : [];
-  const notes: string[] = [];
+  const notesPv = pvFaits > 0 ? [`${pvFaits === 1 ? 'PV d’AG enregistré' : `${pvFaits} PV d’AG enregistrés`} dans la copropriété.`] : [];
+  if (changements.length === 0) return { etat: 'ok', data: { changements, notes: [...(digicodesFaits ? ['Bâtiment et digicodes enregistrés.'] : []), ...notesPv] } };
+  const faits: string[] = [...(digicodesFaits ? ['bâtiment et digicodes'] : []), ...(pvFaits > 0 ? ['PV d’AG'] : [])];
+  const notes: string[] = [...notesPv];
   const partiel = (motif: string): IssueFiche => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
 
   // ① LE BIEN — tous les groupes de l'encart, par l'écriture de l'encart (mêmes contrôles, une ligne d'Historique par groupe).

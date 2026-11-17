@@ -221,3 +221,62 @@ export async function enregistrerPv(brut: unknown, auteur: Auteur): Promise<{ ok
   if (!r.ok) return r;
   return { ok: true, entrees: await entreesAg({ coproprieteId: copro.id, cle, lotId: null }) };
 }
+
+// ══ 🔴🔴 LES PV D'AG DANS « NOUVEAU BIEN » ET « MODIFIER LE BIEN » (Arno, 17/11/2026) ═══════════════════════════════════════════════════════
+// Demande d'Arno : « AG DANS « Copropriété & ID fiscal » : ajoute le module PV d'AG déjà créé […] la saisie va dans la MÊME base officielle des PV
+// d'AG de la copropriété, partagée avec la fiche Copropriété et « Valider la sortie » ; si l'adresse n'est pas encore choisie ou si le bien n'est
+// relié à aucune copropriété : le dire clairement ; un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement. »
+
+/** Ce que le bloc AG du bien lit : sa copropriété (s'il en a une), ses AG, et si la saisie des PV est installée (481). LECTURE SEULE. */
+export interface AgDuBienLu { copropriete: { libelle: string; cle: string } | null; immeuble: string | null; entrees: EntreeAg[]; pv: boolean }
+export async function agDuBien(o: { lotId: number } | { immeuble: string }): Promise<AgDuBienLu | null> {
+  const pv = await pvAgDisponible();
+  if (!(await historiqueAgDisponible())) return { copropriete: null, immeuble: null, entrees: [], pv: false };
+  if ('lotId' in o) {
+    const h = await entreesAgDuLot(o.lotId);
+    if (h === null) return null;
+    return { copropriete: h.contexte.copropriete === null ? null : { libelle: h.contexte.copropriete.libelle, cle: h.contexte.copropriete.cle },
+      immeuble: h.contexte.immeuble?.libelle ?? null, entrees: h.entrees, pv };
+  }
+  const cle = cleImmeuble(o.immeuble.slice(0, 300));
+  if (cle === '') return { copropriete: null, immeuble: null, entrees: [], pv };
+  const copro = await coproprieteDeCle(cle);
+  return { copropriete: copro === null ? null : { libelle: copro.libelle, cle: copro.cle }, immeuble: o.immeuble,
+    entrees: copro === null ? [] : await entreesAg({ coproprieteId: copro.id, cle, lotId: null }), pv };
+}
+
+/** Les PV en attente (saisis avant l'enregistrement du bien) : contrôlés AVANT toute écriture ; 10 au plus. */
+export const PV_EN_ATTENTE_MAX = 10;
+export async function pvsDuBienValides(brut: unknown): Promise<{ ok: true; pvs: { date: string; nature: NatureAg; note: string | null }[] } | { ok: false; motif: string }> {
+  const liste = Array.isArray(brut) ? brut : [];
+  if (liste.length === 0) return { ok: true, pvs: [] };
+  if (liste.length > PV_EN_ATTENTE_MAX) return { ok: false, motif: `${PV_EN_ATTENTE_MAX} PV d’AG au plus par enregistrement.` };
+  if (!(await pvAgDisponible())) return { ok: false, motif: 'La saisie des PV d’AG attend la mise à jour de la base (migration 481) : rien n’est enregistré.' };
+  const jour = aujourdhuiParis();
+  const pvs: { date: string; nature: NatureAg; note: string | null }[] = [];
+  for (const x of liste) {
+    const v = verifierPv((x ?? {}) as Record<string, unknown>, jour);
+    if (!v.ok) return { ok: false, motif: `PV d’AG : ${v.motif}` };
+    pvs.push(v.saisie);
+  }
+  return { ok: true, pvs };
+}
+
+/**
+ * À l'enregistrement du bien, DANS SA TRANSACTION : les PV en attente vont dans la base officielle des PV de la copropriété du bien (sa copropriété ;
+ * sans copropriété : la clé de son immeuble et le bien, « à rattacher à une copropriété », qui rejoignent d'eux-mêmes la copropriété dès que cette
+ * clé en devient une adresse). AJOUT SEUL. Rend le nombre de PV écrits.
+ */
+export async function ajouterPvsDuBien(q: Q, lotId: number, pvs: readonly { date: string; nature: NatureAg; note: string | null }[], auteur: Auteur): Promise<number> {
+  if (pvs.length === 0) return 0;
+  const c = await contexteAgDuLot(lotId, q);
+  if (c === null) return 0;
+  const qui = await nomAuteurAg(auteur);
+  for (const p of pvs) {
+    await (q as typeof query)(
+      `INSERT INTO gestion_copropriete_ag (copropriete_id, cle_immeuble, lot_id, type_ag, statut, date_ag, origine, saisie_par, saisie_par_libelle, nature_ag, note)
+       VALUES ($1, $2, $3, 'derniere', 'officielle', $4::date, 'fiche_copropriete', $5, $6, $7, $8)`,
+      [c.copropriete?.id ?? null, c.copropriete === null ? (c.immeuble?.cle ?? null) : null, c.copropriete === null ? lotId : null, p.date, auteur.id, qui, p.nature, p.note]);
+  }
+  return pvs.length;
+}

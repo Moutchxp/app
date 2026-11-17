@@ -117,3 +117,67 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     expect(container.querySelectorAll('[data-agc-entree]')).toHaveLength(3);
   });
 });
+
+/** 🔴🔴 Arno (17/11/2026) : « AG DANS « Copropriété & ID fiscal » : ajoute le module PV d'AG déjà créé, réutilisé tel quel […] si ce dernier est une AGE, afficher AUSSI la dernière AGO, pour information […] si l'adresse n'est pas encore choisie ou si le bien n'est relié à aucune copropriété : le dire clairement ; un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement. » */
+describe('🔴🔴 le bloc AG de « Nouveau bien » / « Modifier le bien »', () => {
+  let posts: { url: string; corps: Record<string, unknown> }[]; let lu: unknown; let enAttente: unknown[];
+  const $ = (s: string) => container.querySelector(s) as HTMLElement;
+  const clic = async (el: Element) => { await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
+  const saisir = async (el: Element, v: string) => { await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
+  const COPRO = { copropriete: { libelle: 'Résidence _TEST AG', cle: 'residence test ag' }, immeuble: 'Résidence _TEST AG', pv: true, entrees: [
+    ENTREE({ id: 2, date: '2025-06-01', nature: 'age', origine: 'fiche_copropriete' }), ENTREE({ id: 1, date: '2024-03-12', nature: 'ago', origine: 'fiche_copropriete' })] };
+  beforeEach(() => {
+    posts = []; enAttente = []; lu = COPRO;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      urls.push(String(url));
+      if (init?.method === 'POST') { posts.push({ url: String(url), corps: JSON.parse(String(init.body)) as Record<string, unknown> }); return json({ etat: 'ok', data: { entrees: [] } }); }
+      return json({ etat: 'ok', data: lu });
+    }) as unknown as typeof fetch;
+  });
+  const monter = async (p: Record<string, unknown>) => {
+    const { AgDuBien } = await import('./AgCopropriete');
+    await act(async () => { root.render(createElement(AgDuBien, { immeuble: null, sansAdresse: false, enAttente: enAttente as never, onEnAttente: (x: unknown[]) => { enAttente = x; }, ...p } as never)); });
+    await calmer();
+  };
+  it('le dernier PV (date, nature) ; une AGE : AUSSI la dernière AGO, pour information ; lu par la route de la Location', async () => {
+    await monter({ immeuble: 'residence test ag' });
+    expect(urls.at(-1)).toBe('/api/admin/location?agImmeuble=residence%20test%20ag');
+    expect($('[data-ag-bien-dernier]').textContent).toBe('Dernier PV : 01/06/2025 — AGE (assemblée générale extraordinaire)');
+    expect($('[data-ag-bien-derniere-ago]').textContent).toBe('Dernière AGO, pour information : 12/03/2024');
+  });
+  it('« Nouveau bien » : le PV saisi est GARDÉ (rien n’est envoyé), rattaché à l’enregistrement', async () => {
+    await monter({ immeuble: 'residence test ag' });
+    await clic($('[data-agc-ajouter-pv]'));
+    await saisir($('[data-agc-pv-date-saisie]'), '2026-03-12');
+    await clic($('[data-agc-pv-type-choix="ago"]'));
+    await clic($('[data-agc-pv-enregistrer]'));
+    expect(posts).toEqual([]);
+    expect(enAttente).toEqual([{ date: '2026-03-12', nature: 'ago', note: null }]);
+  });
+  it('« Modifier le bien » relié à sa copropriété : le PV est écrit tout de suite, par la route de la Location (« pv-ag »), dans la copropriété', async () => {
+    await monter({ lotId: 449 });
+    expect(urls.at(-1)).toBe('/api/admin/location?agBien=449');
+    await clic($('[data-agc-ajouter-pv]'));
+    await saisir($('[data-agc-pv-date-saisie]'), '2026-03-12');
+    await clic($('[data-agc-pv-type-choix="age"]'));
+    await clic($('[data-agc-pv-enregistrer]'));
+    expect(posts).toEqual([{ url: '/api/admin/location', corps: { action: 'pv-ag', immeuble: 'residence test ag', date: '2026-03-12', nature: 'age', note: null } }]);
+  });
+  it('adresse pas encore choisie, ou aucune copropriété : le dire ; sans la 481 : aucun bloc', async () => {
+    await monter({ sansAdresse: true });
+    expect($('[data-ag-bien-sans-adresse]').textContent).toBe('Choisissez d’abord l’adresse du bien : les PV d’AG de sa copropriété s’afficheront ici.');
+    lu = { copropriete: null, immeuble: '1 rue _TEST AG', pv: true, entrees: [] };
+    await monter({ immeuble: '1 rue test ag' });
+    expect($('[data-ag-bien-sans-copro]').textContent).toContain('Ce bien n’est relié à aucune copropriété');
+    lu = { ...COPRO, pv: false };
+    await monter({ immeuble: 'residence test ag 2' });
+    expect($('[data-ag-bien]')).toBeNull();
+  });
+  it('les PV en attente : listés « à enregistrer avec le bien », « Retirer » les ôte', async () => {
+    enAttente = [{ date: '2026-03-12', nature: 'ago', note: '_TEST AG' }];
+    await monter({ immeuble: 'residence test ag' });
+    expect($('[data-ag-bien-en-attente]').textContent).toContain('12/03/2026 — AGO (assemblée générale ordinaire) — _TEST AGà enregistrer avec le bien');
+    await clic($('[data-ag-bien-retirer="0"]'));
+    expect(enAttente).toEqual([]);
+  });
+});

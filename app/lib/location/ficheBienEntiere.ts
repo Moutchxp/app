@@ -52,6 +52,8 @@ export interface SaisieFiche {
   statut: TransitionSaisie | null;
   /** « Sortir » une annexe louée : l'avertissement a été lu et confirmé (la règle de la fiche). */
   confirmeOccupation?: boolean;
+  /** 🔴 (Arno, 17/11/2026) les PV d'AG saisis dans le formulaire, enregistrés avec le bien (dans la base officielle des PV de sa copropriété) */
+  pvAg?: { date: string; nature: 'ago' | 'age'; note: string | null }[];
 }
 
 const LIBELLE_ANNEXE: Record<string, string> = { cave: 'Cave', parking: 'Parking', box: 'Box', autre: 'Autre annexe' };

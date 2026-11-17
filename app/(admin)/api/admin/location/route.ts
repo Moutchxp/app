@@ -32,7 +32,7 @@ import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
-import { nomAuteurAg } from '../../../../lib/location/agCoproprieteRepo';
+import { nomAuteurAg, agDuBien, enregistrerPv } from '../../../../lib/location/agCoproprieteRepo';
 import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
 import { digicodesPourBien } from '../../../../lib/gestion/digicodesBienRepo';
 import { gesteDeLAction, gesteDigicodeCopro } from '../../../../lib/gestion/coproprieteEcritureRepo';
@@ -346,6 +346,12 @@ export async function GET(request: Request): Promise<Response> {
         (p('batiment') ?? '').slice(0, 60) || null);
       return Response.json({ etat: 'ok', data: lu }, { headers: ENTETES });
     }
+    // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement ») — le bloc AG de « Nouveau bien » / « Modifier le bien » : `agBien=<id>` ou `agImmeuble=<clé de la copropriété>`. LECTURE SEULE.
+    if (p('agBien') !== null || p('agImmeuble') !== null) {
+      const lot = identifiant(p('agBien'));
+      const x = lot !== null ? await agDuBien({ lotId: lot }) : await agDuBien({ immeuble: (p('agImmeuble') ?? '').slice(0, 300) });
+      return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: x }, { headers: ENTETES });
+    }
     if (p('agPourAdresse') !== null) {
       return Response.json({ etat: 'ok', data: await lireAgPourAdresse((p('agPourAdresse') ?? '').slice(0, 300)) }, { headers: ENTETES });
     }
@@ -440,6 +446,11 @@ async function postLocation(request: Request): Promise<Response> {
   try {
     // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche
     // Copropriété (le chemin unique), avec le droit de la Location
+    // 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » d'un bien DÉJÀ enregistré et relié à sa copropriété : la même écriture que la fiche Copropriété
+    if (action === 'pv-ag') {
+      const r = await enregistrerPv(corps, auteur);
+      return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
+    }
     if (action === 'digicode-apercu-envoi' || action === 'digicode-planifier-envoyer') {
       const r = action === 'digicode-apercu-envoi' ? await apercuChangement(corps) : await planifierEtPrevenir(corps, auteur);
       return Response.json(r.ok ? { etat: 'ok', data: r.data } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });

@@ -45,6 +45,8 @@ import type { LectureFiche } from '../../../../lib/location/ficheBienEntiereRepo
 import { LIBELLE_DESTINATION } from '../../../../lib/gestion/statutBien';
 import { ORDRE_BOUTONS_CHARGES } from '../../../../lib/location/chargesDesLots';
 import { ChampNombre } from './ChampNombre';
+import { AgDuBien } from '../gestion/AgCopropriete';
+import { dateFr as dateFrAg, SIGLE_NATURE_AG, type SaisiePv } from '../../../../lib/location/agCopropriete';
 import { CHAMPS_DU_CHEMIN, champsRemplisDuChemin, messageEffacement, restreindreAuChemin, viderHorsChemin, type FamilleBien } from '../../../../lib/location/cheminsBien';
 
 /**
@@ -284,6 +286,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const [chargesCopro, setChargesCopro] = useState<ChargesCopro | null>(init?.chargesCopro ?? null);
   /** 🔴 Arno (06/11/2026, 461) — « Copropriété : Oui / Non » : proposée, jamais obligatoire ; non choisie = « non renseigné ». */
   const [copropriete, setCopropriete] = useState<boolean | null>(init?.copropriete ?? null);
+  /** 🔴 (Arno, 17/11/2026) les PV d'AG saisis avant l'enregistrement (rattachés à la copropriété à l'enregistrement du bien) */
+  const [pvEnAttente, setPvEnAttente] = useState<SaisiePv[]>([]);
   /** L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : Non vide le tout. */
   const [entretien, setEntretien] = useState<SaisieEntretien>(init?.entretien ?? ENTRETIEN_VIDE);
   /**
@@ -503,6 +507,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 (« Digicodes unifiés », lot 4) le bâtiment choisi au menu et les premières valeurs, par le chemin serveur unique
       ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}),
       version: l.version, valeurs: valeursDuChemin, statut: transition,
+      ...(pvEnAttente.length > 0 ? { pvAg: pvEnAttente } : {}),
       annexes: annexes.map((a) => ({
         id: a.id ?? null, categorie: a.categorie, etage: a.etage, porte: a.porte, numLotCopro: a.numLotCopro, nomAnnexe: a.nomAnnexe, annotation: a.annotation,
         detachee: a.detachee, parkingSituation: a.parkingSituation ?? '', parkingType: a.parkingType ?? '', autreAdresse: a.autreAdresse,
@@ -515,7 +520,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     ...(digiEnvoi.commun !== null ? [{ cle: 'digicodeCommun', champ: 'Digicode commun (première saisie)', avant: '—', apres: motValeur(digiEnvoi.commun.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.commun.code }) }] : []),
     ...(digiEnvoi.codeBatiment !== null ? [{ cle: 'digicodeBatiment', champ: `Digicode du bâtiment ${digiEnvoi.batiment ?? ''} (première saisie)`, avant: '—',
       apres: motValeur(digiEnvoi.codeBatiment.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.codeBatiment.code }) }] : [])];
-  const changementsModif = modification === undefined || saisieModif === null ? [] : [...changementsFiche(modification.lecture, saisieModif), ...changementsDigi];
+  // 🔴 (Arno, 17/11/2026) les PV d'AG en attente : dans le récapitulatif (et ils suffisent à enregistrer)
+  const changementsPv: ChangementFiche[] = pvEnAttente.map((x, i) => ({ cle: `pvAg${i}`, champ: 'PV d’AG de la copropriété', avant: '—', apres: `${dateFrAg(x.date)} — ${SIGLE_NATURE_AG[x.nature]}${x.note ? ` (${x.note})` : ''}` }));
+  const changementsModif = modification === undefined || saisieModif === null ? [] : [...changementsFiche(modification.lecture, saisieModif), ...changementsDigi, ...changementsPv];
   const conflit = modification !== undefined && enregistre === null && modification.versionDistante !== null && modification.versionDistante !== modification.lecture.version;
   useAvertissementSortie(modification !== undefined && enregistre === null && changementsModif.length > 0);
   const annulerModification = (): void => {
@@ -655,6 +662,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 Arno (26/10/2026, 430) — la réponse, et la date du mandat (Oui) : la date d'entrée de la gestion dans le suivi.
       ...(questionOccupe && occupeDisponible && entreOccupe !== null ? { entreOccupe, ...(entreOccupe ? { dateMandat: dateMandatVue } : {}) } : {}),
       ...(options.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
+      // 🔴 (Arno, 17/11/2026) les PV d'AG saisis avant l'enregistrement : rattachés à la copropriété du bien, dans sa transaction
+      ...(pvEnAttente.length > 0 ? { pvAg: pvEnAttente } : {}),
       // Seul le mandat du choix FINAL (Oui → gestion, Non → transaction locative) ; rien s'il n'est pas saisi.
       ...(continuite === undefined && enGestionSaisi !== null ? (() => {
         const sorte: SorteMandat = enGestionSaisi ? 'gestion' : 'transaction';
@@ -969,6 +978,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           </label>}
           <BlocSyndic adresse={{ libelle: b.adresse, codePostal: b.codePostal, commune: b.commune }} choisi={syndic} onChoisi={setSyndic} />
         </div>
+        {/* 🔴 (Arno, 17/11/2026) le module PV d'AG de la copropriété (le même que la fiche Copropriété) ; bien « hors copropriété » : pas de bloc */}
+        {copropriete !== false && !ficheAnnexe && (
+          <AgDuBien {...(modification !== undefined ? { lotId: modification.lotId } : {})} immeuble={digiBien?.copropriete.cle ?? null}
+            sansAdresse={b.adresse.trim() === ''} enAttente={pvEnAttente} onEnAttente={setPvEnAttente} />)}
       </section>
 
       {avecAnnexes && (

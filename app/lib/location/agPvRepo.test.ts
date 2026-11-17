@@ -57,3 +57,18 @@ describe('🔴🔴 enregistrer un PV d’AG', () => {
     expect(insertions()).toEqual([]);
   });
 });
+
+/** 🔴🔴 Arno (17/11/2026) : « la saisie va dans la MÊME base officielle des PV d'AG de la copropriété […] un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement. » */
+describe('🔴🔴 les PV saisis avec le bien (« Nouveau bien », « Modifier le bien »)', () => {
+  it('le contrôle AVANT toute écriture : rien → rien ; une date à venir, un type manquant, plus de 10, sans la 481 : refus', async () => {
+    const { pvsDuBienValides } = await import('./agCoproprieteRepo');
+    expect(await pvsDuBienValides(undefined)).toEqual({ ok: true, pvs: [] });
+    expect(await pvsDuBienValides([{ date: '2999-01-01', nature: 'ago' }])).toMatchObject({ ok: false, motif: expect.stringContaining('PV d’AG : Le PV d’une AG porte une date déjà passée') });
+    expect(await pvsDuBienValides([{ date: '2024-03-12' }])).toMatchObject({ ok: false, motif: expect.stringContaining('Choisissez le type') });
+    expect(await pvsDuBienValides(Array.from({ length: 11 }, () => ({ date: '2024-03-12', nature: 'ago' })))).toMatchObject({ ok: false });
+    h.avec481 = false;
+    expect(await pvsDuBienValides([{ date: '2024-03-12', nature: 'ago' }])).toMatchObject({ ok: false, motif: expect.stringContaining('migration 481') });
+    h.avec481 = true;
+    expect(await pvsDuBienValides([{ date: '2024-03-12', nature: 'age', note: ' travaux ' }])).toEqual({ ok: true, pvs: [{ date: '2024-03-12', nature: 'age', note: 'travaux' }] });
+  });
+});
