@@ -11,11 +11,16 @@ const norme = (s: string): string => s.replace(/\s+/g, ' ');
 /** Le lot 7, bail du 01/09/2022 : Alice (occ 11) et Paul (occ 12) ; Alice occupe aussi la cave (lot 8, occ 21). */
 let occupationsEnPlace: { id: string; locataire_id: string; nom: string; entree: string | null }[] = [];
 let groupe: { id: string; locataire_id: string; lot_id: string; entree: string | null; sortie: string | null }[] = [];
+/** 🔴 (18/11/2026) le réglage « collaborateurs prévenus » (gestion_config) et les comptes actifs — vides par défaut, comme avant. */
+let reglage: string | null = null;
+let comptes: { identifiant: string }[] = [];
 
 function repondre(sql: string, params: unknown[]): { rows: unknown[]; rowCount: number } {
   appels.push({ sql: norme(sql), params });
   const s = norme(sql);
   if (s.includes('AS j')) return { rows: [{ j: '2026-10-19' }], rowCount: 1 };
+  if (s.startsWith('SELECT collaborateurs_prevenus AS v FROM gestion_config')) return { rows: [{ v: reglage }], rowCount: 1 };
+  if (s.includes('FROM admin_utilisateur WHERE actif')) return { rows: comptes, rowCount: comptes.length };
   if (s.startsWith('SELECT o.lot_id::text, o.entree::text') && s.includes('FROM gestion_annuaire_occupation o WHERE o.id = $1')) {
     return params[0] === 404 ? { rows: [], rowCount: 0 } : { rows: [{ lot_id: '7', entree: '2022-09-01', bail_id: null }], rowCount: 1 };
   }
@@ -72,6 +77,7 @@ beforeEach(() => {
     { id: '12', locataire_id: '102', nom: 'BERNARD Paul', entree: '2022-09-01' },
   ];
   groupe = [];
+  reglage = null; comptes = [];
 });
 
 describe('la recherche : les seuls OCCUPANTS en place à la date du jour', () => {
@@ -222,6 +228,32 @@ describe('le mail : envoyé après, jamais bloquant, jamais un faux « envoyé �
     expect(r).toMatchObject({ envoye: false, motif: 'Gmail injoignable' });
     expect(appels.some((a) => a.sql.startsWith('UPDATE'))).toBe(false);
     expect(appels.some((a) => a.sql.startsWith('INSERT INTO gestion_journal') && a.params[1] === 'echec')).toBe(true);
+  });
+
+  /** 🔴 Arno (18/11/2026) — « Sortie enregistrée » : le réglage « collaborateurs prévenus » remplace la règle des comptes. */
+  const QUATRE = ['a.jorel@sansvisavis.com', 'jb.pons@sansvisavis.com', 'c.jullien@sansvisavis.com', 'gestion@criterimmo.fr'];
+  const COMPTES = [{ identifiant: 'a.jorel@sansvisavis.com' }, { identifiant: 'a.dasilva@sansvisavis.com' }, { identifiant: 'jb.pons@sansvisavis.com' }];
+  const transportQuiGarde = (envois: { a: string[] }[]) => ({ envoyer: vi.fn(async (m: { a: string[] }) => { envois.push(m); return { ok: true as const, id: null, factice: true }; }) });
+
+  it('🔴 AVEC le réglage : part aux QUATRE adresses (gestion@criterimmo.fr compris), sans a.dasilva, sans l’auteur ni la règle des comptes', async () => {
+    reglage = QUATRE.join(', '); comptes = COMPTES;
+    const envois: { a: string[] }[] = [];
+    const r = await notifierSortie(FAITE, AUTEUR, { transport: transportQuiGarde(envois) as never });
+    expect(r.envoye).toBe(true);
+    expect(envois[0].a).toEqual(QUATRE);
+    expect(r.destinataires).toEqual(QUATRE);
+    expect(envois[0].a).not.toContain('a.dasilva@sansvisavis.com');
+    expect(appels.some((a) => a.sql.includes('FROM admin_utilisateur WHERE actif'))).toBe(false);
+  });
+
+  it('🔴 SANS le réglage (vide, ou invalide) : la règle actuelle — l’auteur puis les comptes actifs, a.dasilva comprise', async () => {
+    for (const valeur of [null, '', 'a.jorel@sansvisavis.com, pas-une-adresse']) {
+      reglage = valeur; comptes = COMPTES; appels.length = 0;
+      const envois: { a: string[] }[] = [];
+      await notifierSortie(FAITE, AUTEUR, { transport: transportQuiGarde(envois) as never });
+      expect(envois[0].a).toEqual(['arno@exemple.fr', 'a.jorel@sansvisavis.com', 'a.dasilva@sansvisavis.com', 'jb.pons@sansvisavis.com']);
+      expect(appels.some((a) => a.sql.includes('FROM admin_utilisateur WHERE actif'))).toBe(true);
+    }
   });
 
   it('un transport qui LÈVE ne remonte pas d’exception', async () => {

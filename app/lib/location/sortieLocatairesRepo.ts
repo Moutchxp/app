@@ -12,6 +12,7 @@ import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { bailDisponible } from './bailRepo';
 import { colonneExisteMemo } from './sondeLocation';
+import { lireCollaborateursPrevenus } from '../gestion/collaborateursPrevenusRepo';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
 import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
 import { locatairesEnPreavis } from './preavisEnCoursRepo';
@@ -379,6 +380,12 @@ export interface IssueMailSortie { envoye: boolean; motif: string | null; destin
 
 /** Les destinataires : l'auteur, puis tout compte ACTIF ayant la tuile Location OU la tuile Gestion (un administrateur a tout). */
 export async function destinatairesSortie(emailAuteur: string | null): Promise<string[]> {
+  /* 🔴 Arno (18/11/2026) — le réglage « collaborateurs prévenus » (gestion_config, migration 493) REMPLACE cette règle pour les mails
+     internes de la Location qui passent ici (alertes « aucune pré-visite fixée », copies du compte rendu et du refus de pré-visite,
+     « Sortie enregistrée », mail interne du parcours préavis / sortie) : exactement ses adresses, rien de plus. Absent, vide ou
+     invalide : la règle des comptes ci-dessous, inchangée. */
+  const reglage = await lireCollaborateursPrevenus();
+  if (reglage !== null) return reglage;
   const location = (await colonneExisteMemo('admin_utilisateur', 'perm_location')) ? ' OR perm_location IS TRUE' : '';
   const { rows } = await query<{ identifiant: string }>(
     `SELECT identifiant FROM admin_utilisateur WHERE actif AND (role = 'administrateur' OR perm_gestion IS TRUE${location}) ORDER BY id`);
