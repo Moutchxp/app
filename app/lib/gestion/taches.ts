@@ -141,6 +141,10 @@ export type Rappel =
 /** Une tâche telle que les écrans la lisent. */
 export interface Tache {
   id: number;
+  /** 🔴 Arno (18/11/2026) — la tâche porte une pré-visite ou un état des lieux de sortie : l'heure se choisit dans les minutes du réglage. */
+  rdvPreavis?: boolean;
+  /** Les minutes autorisées (réglage `gestion_config.minutes_rdv`), seulement pour un rendez-vous de préavis. */
+  minutesRdv?: number[];
   /** 🔴 LOT GESTION-TACHES-SANS-BIEN (migration 368) — `null` = tâche SANS bien. */
   lotId: number | null;
   /** Le numéro WIPPIMMO du bien — sert à relire la fiche, jamais affiché dans l'agenda (décision d'Arno). `null` sans bien. */

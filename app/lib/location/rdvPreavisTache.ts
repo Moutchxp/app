@@ -1,0 +1,38 @@
+import { query } from '../db/client';
+import { minutesRdvAutorisees } from './minutesRdvRepo';
+import { refusMinutesRdv } from './minutesRdv';
+
+/**
+ * ══ 🔴🔴 LES TÂCHES QUI SONT UN RENDEZ-VOUS DE PRÉAVIS (Arno, 18/11/2026) ═════════════════════════════════════════════════════════════════════
+ * Arno : « Module Tâches : applique la même limite (minutes de gestion_config.minutes_rdv) UNIQUEMENT quand la tâche est un rendez-vous de préavis
+ * (pré-visite ou état des lieux de sortie), dans la fenêtre de tâche ET dans le décalage, côté écran ET côté serveur. Les autres tâches restent
+ * libres. » Une tâche est un rendez-vous de préavis quand une pré-visite (464) ou un état des lieux planifié (385) la porte. Sans ces tables : aucune.
+ */
+
+/** Les tâches, parmi `ids`, qui portent une pré-visite ou un état des lieux de sortie. LECTURE ; ne lève jamais (en erreur : aucune). */
+export async function tachesRdvPreavis(ids: readonly number[]): Promise<Set<number>> {
+  if (ids.length === 0) return new Set();
+  try {
+    const { rows: t } = await query<{ p: boolean; e: boolean }>(
+      `SELECT to_regclass('public.gestion_location_previsite') IS NOT NULL AS p, to_regclass('public.gestion_location_edls') IS NOT NULL AS e`);
+    const parts = [t[0]?.p ? 'SELECT tache_id FROM gestion_location_previsite WHERE tache_id = ANY($1::bigint[])' : null,
+      t[0]?.e ? 'SELECT tache_id FROM gestion_location_edls WHERE tache_id = ANY($1::bigint[])' : null].filter((x): x is string => x !== null);
+    if (parts.length === 0) return new Set();
+    const { rows } = await query<{ tache_id: string }>(`SELECT DISTINCT tache_id::text FROM (${parts.join(' UNION ALL ')}) x`, [[...ids]]);
+    return new Set(rows.map((r) => Number(r.tache_id)));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Le refus du serveur pour une heure choisie hors des minutes du réglage — seulement si la tâche est un rendez-vous de préavis ET que l'heure
+ * CHANGE (une tâche existante à 09h53 qu'on ne touche pas, ou dont on ne change que la note, n'est jamais refusée). Sinon `null`.
+ */
+export async function refusMinutesTachePreavis(tacheId: number, heure: string | null): Promise<string | null> {
+  if (heure === null || heure.trim() === '') return null;
+  if (!(await tachesRdvPreavis([tacheId])).has(tacheId)) return null;
+  const { rows } = await query<{ heure: string | null }>(`SELECT to_char(heure, 'HH24:MI') AS heure FROM gestion_tache WHERE id = $1`, [tacheId]);
+  if ((rows[0]?.heure ?? null) === heure.slice(0, 5)) return null;
+  return refusMinutesRdv({ debut: heure, fin: '' }, await minutesRdvAutorisees());
+}

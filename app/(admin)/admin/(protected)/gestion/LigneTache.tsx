@@ -1,5 +1,7 @@
 'use client';
 
+import { ChoixHeure } from '../location/ChoixHeure';
+import { MINUTES_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
@@ -235,10 +237,16 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
           <span className="tch-etiquette">Date</span>
           <input type="date" value={jour} onChange={(e) => setJour(e.target.value)} />
         </label>
+        {/* 🔴 Arno (18/11/2026) — un rendez-vous de préavis : l'heure et les minutes du réglage ; les autres tâches, le champ de toujours */}
+        {tache.rdvPreavis === true ? (
+          <span className="tch-champ-court">
+            <ChoixHeure libelle="Heure (facultative)" valeur={heure} minutes={tache.minutesRdv ?? MINUTES_RDV_DEFAUT} donnees="data-decaler-heure" onChange={setHeure} />
+          </span>
+        ) : (
         <label className="tch-champ-court">
           <span className="tch-etiquette">Heure (facultative)</span>
           <input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} />
-        </label>
+        </label>)}
         {/* 🔴 LOT DECALER-DUREE — « Durée », seulement pour un rendez-vous (une heure saisie), comme à la création. */}
         {heure !== '' && tache.dureeMinutes !== undefined && (
           <label className="tch-champ-court">

@@ -1,5 +1,14 @@
 'use client';
 
+import { ChoixHeure } from '../location/ChoixHeure';
+import { MINUTES_RDV_DEFAUT, minuteDe } from '../../../../lib/location/minutesRdv';
+
+/** 🔴 Arno (18/11/2026) — la fenêtre d'un rendez-vous de préavis : les minutes du réglage, PLUS celle de l'heure d'origine (09h53 reste tel quel tant
+ *  qu'on ne le change pas ; le serveur refuse une nouvelle heure hors réglage). PUR. */
+const minutesFenetre = (reglage: readonly number[], origine: string | null): number[] => {
+  const m = origine === null ? null : minuteDe(origine);
+  return [...new Set([...reglage, ...(m === null ? [] : [m])])].sort((a, b) => a - b);
+};
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useEffect, useRef, useState } from 'react';
@@ -486,8 +495,13 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             <label className="tchf-champ">
               <span className="tch-etiquette">{estRdv ? 'Heure de début *' : 'Heure (facultative)'}</span>
               <span className="tchf-heure">
-                <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
-                  onChange={(e) => changerHeure(e.target.value)} data-champ-heure />
+                {/* 🔴 Arno (18/11/2026) — un rendez-vous de préavis (pré-visite, état des lieux) : l'heure et les minutes du réglage ; les autres tâches,
+                    le champ d'heure de toujours */}
+                {tache?.rdvPreavis === true
+                  ? <ChoixHeure libelle="Heure de début" valeur={saisie.heure ?? ''} minutes={minutesFenetre(tache.minutesRdv ?? MINUTES_RDV_DEFAUT, tache.heure)} donnees="data-champ-heure"
+                    desactive={lectureSeule} onChange={(v) => changerHeure(v)} />
+                  : <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
+                    onChange={(e) => changerHeure(e.target.value)} data-champ-heure />}
                 {/* 🔴 Arno (11/11/2026) — « Effacer l'heure » : toujours là pour une tâche, la vide en un clic. */}
                 {!estRdv && (
                   <button type="button" className="svv-btn svv-btn-outline gst-btn tchf-effacer-heure" disabled={lectureSeule || saisie.heure === null}
