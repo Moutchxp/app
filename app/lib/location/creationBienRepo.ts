@@ -5,7 +5,7 @@ import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { normaliserTexte } from '../gestion/annuaire';
 import { estDoublon, phraseDoublon, type BienComparable } from './doublonBien';
 import { verifierCoordonnees, type CoordonneeSaisie } from '../gestion/annuaireEdition';
-import { creerPersonne, type ChampsPersonne } from '../gestion/annuaireEditionRepo';
+import { apresCreationPersonne, creerPersonne, creerPersonneDans, preparerPersonne, type ChampsPersonne, type PersonnePreparee } from '../gestion/annuaireEditionRepo';
 import type { Auteur } from '../gestion/gestes';
 import { verifierAnnexesSaisies, verifierBienComplet, verifierComplements, type ComplementsBien, type ComplementsFiche, type SaisieBien } from './bienComplet';import { origineProprietaireDisponible } from './origineProprietaireRepo';
 import { verifierOrigineProprietaire, type OrigineProprietaire } from './origineProprietaire';
@@ -156,6 +156,21 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
   }
   // 🔴 Arno (18/10/2026) : la famille garde au moins UNE carte client complète — une carte saisie, ou une fiche retenue.
   if (!(await familleAUneCarteComplete('proprietaire', cartes, existants))) return { etat: 'refus', motif: MOTIF_PREMIERE_CARTE };
+  /* 🔴🔴 Arno (18/11/2026, « Mandat par bien », décision 1) — « Un propriétaire n'a PLUS de statut « en gestion » : la question « Propriétaire(s) en
+     gestion ? » est RETIRÉE de la création du propriétaire » ; le n° de mandat est porté par chaque bien. La page ne l'envoie plus : les fiches sont
+     créées sans statut ni mandat. Un appel d'avant qui l'envoie garde la règle d'avant. */
+  if (o.enGestion === undefined || o.enGestion === null) {
+    const prepa = await verifierEtPreparerCartes(o, cartes);
+    if (!prepa.ok) return { etat: 'refus', motif: prepa.motif };
+    const ids: number[] = [];
+    for (const [i, p] of prepa.preparees.entries()) {
+      const cree = await withTransaction(async (q) => creerPersonneDans(q, p, auteur)).catch((e: unknown) => e as Error);
+      if (cree instanceof Error) return { etat: 'refus', motif: ids.length === 0 ? `Carte ${i + 1} : ${cree.message}` : `${ids.length} fiche(s) créée(s), mais la carte ${i + 1} a échoué : ${cree.message}` };
+      ids.push(cree);
+      await apresCreationPersonne(p);
+    }
+    return { etat: 'ok', data: { ids: [...ids, ...existants] } };
+  }
   if (typeof o.enGestion !== 'boolean') return { etat: 'refus', motif: 'Répondez à « Propriétaire(s) en gestion ? » (Oui ou Non).' };
   if (!(await enGestionDisponible())) return { etat: 'sans_schema' };
   // « Non » : aucun N° de mandat n'est gardé, même s'il avait été saisi avant de changer d'avis.
@@ -204,6 +219,49 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
 
 // ── ② LE BIEN COMPLET ─────────────────────────────────────────────────────────────────────────────────────────────
 
+/** L'origine (obligatoire avec la 425) et la PRÉPARATION de chaque carte (contrôles de la création commune), AVANT toute écriture. */
+async function verifierEtPreparerCartes(o: CartesProprietaires, cartes: CartesProprietaires['cartes']):
+  Promise<{ ok: true; preparees: PersonnePreparee[] } | { ok: false; motif: string }> {
+  let origine: OrigineProprietaire | null = null;
+  if (cartes.length > 0 && await origineProprietaireDisponible()) {
+    const v = verifierOrigineProprietaire(o.origine);
+    if (!v.ok) return { ok: false, motif: v.motif };
+    origine = v.valeur;
+  }
+  const preparees: PersonnePreparee[] = [];
+  for (const [i, c] of cartes.entries()) {
+    const p = await preparerPersonne('proprietaire', { ...c, nom: (c.nom ?? '').trim() }, { origine });
+    if (!p.ok) return { ok: false, motif: `Carte ${i + 1} : ${p.refus.etat === 'refus' ? p.refus.motif : 'l’annuaire n’est pas modifiable'}` };
+    preparees.push(p);
+  }
+  return { ok: true, preparees };
+}
+
+/**
+ * ══ 🔴🔴 « SOUHAITEZ-VOUS CRÉER UN BIEN IMMÉDIATEMENT ? » OUI — LE PROPRIÉTAIRE ET SON BIEN, TOUT OU RIEN (Arno, 18/11/2026, « Mandat par bien », 3) ══
+ * « Un seul « Enregistrer » crée le propriétaire et le bien ensemble (tout ou rien). » Les cartes sont contrôlées comme `creerProprietaires` (la carte
+ * complète, les fiches retenues, l'origine), puis LES FICHES ET LE BIEN SONT ÉCRITS DANS LA MÊME TRANSACTION : un refus du bien (doublon, mandat,
+ * digicode…) n'a créé aucune fiche. Les propriétaires sont « rattachés d'office » : les fiches créées (dans l'ordre des cartes), puis les retenues.
+ */
+export async function creerProprietairesEtBien(o: CartesProprietaires, s: SaisieBienComplete, auteur: Auteur): Promise<IssueBien | IssueDoublon | IssueMandatAConfirmer> {
+  const cartes = Array.isArray(o.cartes) ? o.cartes : [];
+  const existants = [...new Set((o.existants ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (cartes.length + existants.length === 0) return { etat: 'refus', motif: 'Ajoutez au moins un propriétaire.' };
+  for (const [i, c] of cartes.entries()) {
+    const manque = Object.values(manquesClientLocation({ nom: c.nom, coordonnees: c.coordonnees }));
+    if (manque.length > 0) return { etat: 'refus', motif: `Carte ${i + 1} : ${manque.join(' ')}` };
+  }
+  if (!(await familleAUneCarteComplete('proprietaire', cartes, existants))) return { etat: 'refus', motif: MOTIF_PREMIERE_CARTE };
+  const prepa = await verifierEtPreparerCartes(o, cartes);
+  if (!prepa.ok) return { etat: 'refus', motif: prepa.motif };
+  const r = await creerBienInterne({ ...s, proprietaireIds: existants, nouveauxProprietaires: prepa.preparees }, auteur);
+  if (r.etat === 'ok') for (const p of prepa.preparees) await apresCreationPersonne(p);
+  return r;
+}
+
+/** L'identifiant réservé qui tient la place des fiches à créer dans les contrôles d'avant la transaction (jamais un vrai propriétaire). */
+const PLACE_NOUVEAUX = 2147483647;
+
 async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string }[], c: ChampsBien, categorie: Categorie,
   complet: Record<string, unknown> | null, auteur: Auteur): Promise<number> {
   const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -235,7 +293,7 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
  */
 type SaisieBienComplete = SaisieBien & {
   contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null; contactsExistants?: number[]; mandat?: unknown; confirmeDoublon?: boolean;
-  entreOccupe?: unknown; dateMandat?: unknown;
+  entreOccupe?: unknown; dateMandat?: unknown; confirmeMandat?: boolean;
 };
 type IssueBien = Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
   mandatRefus?: string | null }>;
@@ -265,6 +323,8 @@ async function creerBienInterne(s: SaisieBien & {
   confirmeDoublon?: boolean;
   /** 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Confirmer » dans la fenêtre « Le mandat n° X est déjà utilisé pour … de ce propriétaire. L'utiliser aussi pour ce bien ? » */
   confirmeMandat?: boolean;
+  /** 🔴🔴 Arno (18/11/2026, « Mandat par bien », 3) — les fiches propriétaires à créer DANS la transaction du bien (tout ou rien), déjà contrôlées. */
+  nouveauxProprietaires?: PersonnePreparee[];
   /** 🔴 Arno (26/10/2026, 430) — loué au moment de la prise en gestion (Oui / Non) et, si Oui, la date du mandat de gestion. */
   entreOccupe?: unknown;
   dateMandat?: unknown;
@@ -272,7 +332,9 @@ async function creerBienInterne(s: SaisieBien & {
   Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
     mandatRefus?: string | null }> | IssueDoublon | IssueMandatAConfirmer> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
-  const v = verifierBienComplet(s);
+  // les fiches à créer tiennent leur place (un ensemble de propriétaires NEUF : aucun bien ne l'a) dans les contrôles d'avant la transaction
+  const nouveaux = s.nouveauxProprietaires ?? [];
+  const v = verifierBienComplet(nouveaux.length > 0 ? { ...s, proprietaireIds: [...(s.proprietaireIds ?? []), PLACE_NOUVEAUX] } : s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   // Les CONTACTS DU PROPRIÉTAIRE saisis à la création : vérifiés AVANT toute écriture, posés une fois le bien créé.
   const contacts = Array.isArray(s.contacts) ? s.contacts.slice(0, 20) : [];
@@ -360,20 +422,25 @@ async function creerBienInterne(s: SaisieBien & {
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
   let cree: { logementId: number; annexes: number[] };
+  let ids: number[] = v.proprietaireIds;
   try {
     cree = await withTransaction(async (q) => {
+      // 🔴🔴 (Arno, 18/11/2026) les fiches nouvelles, écrites ICI (même transaction que le bien) : en tête, dans l'ordre des cartes
+      const crees: number[] = [];
+      for (const p of nouveaux) crees.push(await creerPersonneDans(q, p, auteur));
+      ids = [...crees, ...v.proprietaireIds.filter((x) => x !== PLACE_NOUVEAUX)];
       const { rows } = await q<{ id: string; nom: string }>(
         `SELECT p.id::text, p.nom_complet AS nom FROM gestion_annuaire_proprietaire p
-          WHERE p.id = ANY($1::bigint[]) AND ${vivante}${portefeuille} FOR UPDATE`, [v.proprietaireIds]);
-      const proprietaires = v.proprietaireIds.map((id) => rows.find((r) => Number(r.id) === id)).filter((r) => r !== undefined)
+          WHERE p.id = ANY($1::bigint[]) AND ${vivante}${portefeuille} FOR UPDATE`, [ids]);
+      const proprietaires = ids.map((id) => rows.find((r) => Number(r.id) === id)).filter((r) => r !== undefined)
         .map((r) => ({ id: Number(r.id), nom: r.nom }));
-      if (proprietaires.length !== v.proprietaireIds.length) {
+      if (proprietaires.length !== ids.length) {
         throw new Refus('Un propriétaire choisi n’existe plus, est archivé ou est sorti du portefeuille : retirez-le ou réactivez-le.');
       }
       /* 🔴 ANTI-DOUBLON (Arno, 21/10/2026) — APRÈS le verrou des propriétaires (FOR UPDATE ci-dessus) : deux envois simultanés pour
          le même propriétaire passent l'un après l'autre, et le second voit le bien du premier. « Créer quand même » le saute. */
       if (s.confirmeDoublon !== true) {
-        const existant = await bienExistantPareil(q, v.proprietaireIds, { adresse: l.adresse, commune: l.commune, etage: l.etage, porte: l.porte, categorie: v.famille });
+        const existant = await bienExistantPareil(q, ids, { adresse: l.adresse, commune: l.commune, etage: l.etage, porte: l.porte, categorie: v.famille });
         if (existant !== null) throw new DoublonTrouve(existant);
       }
       if (l.syndicId !== null) {
@@ -419,8 +486,8 @@ async function creerBienInterne(s: SaisieBien & {
       // 🔴🔴 (Arno, 18/11/2026, 492) le mandat, SUR LE BIEN (le logement ou local ; ses annexes lisent le sien), dans la même transaction que le bien ;
       // sans la 492 : sur la fiche de chaque propriétaire du bien, comme avant.
       if (mandat !== null) {
-        if (parBien) await ecrireMandatDuBien(q, logementId, mandat, v.proprietaireIds, confirmeMandat, auteur, 'à la création du bien (« Nouveau bien »)');
-        else mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
+        if (parBien) await ecrireMandatDuBien(q, logementId, mandat, ids, confirmeMandat, auteur, 'à la création du bien (« Nouveau bien »)');
+        else mandatRefus = await enregistrerMandatDans(q, ids, mandat, logementId, auteur);
       }
       const annexes: number[] = [];
       for (const [i, a] of v.annexes.entries()) {
@@ -462,7 +529,7 @@ async function creerBienInterne(s: SaisieBien & {
   let existants: { ok: true; n: number } | { ok: false; motif: string } = { ok: true, n: 0 };
   if (contactsExistants.length > 0) {
     const { rows: cle } = await query<{ cle: string }>('SELECT wippimmo_id AS cle FROM gestion_annuaire_lot WHERE id = $1', [cree.logementId]);
-    existants = await rattacherContactsExistants(cle[0].cle, contactsExistants, v.proprietaireIds, auteur);
+    existants = await rattacherContactsExistants(cle[0].cle, contactsExistants, ids, auteur);
   }
   let entretienRefus: string | null = null;
   if (entretien.aPrevoir !== null && v.famille !== 'parking') {

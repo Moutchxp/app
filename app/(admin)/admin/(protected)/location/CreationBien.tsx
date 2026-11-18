@@ -122,10 +122,14 @@ export interface Continuite {
   /** Le rappel, en lecture seule : les propriétaires et les contacts saisis à l'écran. */
   proprietaires: { nom: string }[];
   contacts: ChampsSaisis[];
-  /** Crée les fiches (une seule fois : un second appel rend les mêmes identifiants), ou rend le motif du refus. */
-  creerFiches: () => Promise<{ ids: number[] } | { motif: string }>;
-  /** « Propriétaire(s) en gestion ? » de l'écran du dessus : le statut du bien créé avec eux (Arno, 20/10/2026). */
-  enGestion?: boolean | null;
+  /**
+   * 🔴🔴 Arno (18/11/2026, « Mandat par bien », 3) — les fiches à créer (cartes, fiches retenues, origine) : envoyées AVEC le bien, en UN seul
+   * enregistrement (« tout ou rien ») ; plus de statut « en gestion » du propriétaire : « Bien en gestion ? » et son mandat se posent ici, comme
+   * dans « Nouveau bien ».
+   */
+  proprietairesACreer: { cartes: unknown[]; existants: number[]; origine: unknown };
+  /** Ce qui empêche encore d'enregistrer, dit par l'écran du dessus (une carte encore ouverte, aucune carte client, l'origine) ; `null` : rien. */
+  empeche?: string | null;
 }
 
 /**
@@ -328,11 +332,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
    * posée : la réponse du dessus (toujours donnée avant que ce formulaire s'ouvre), sinon rien (« en gestion » par défaut).
    */
   const [enGestionSaisi, setEnGestion] = useState<boolean | null>(null);
-  const enGestion: boolean | null | undefined = continuite !== undefined ? continuite.enGestion ?? undefined : enGestionSaisi;
+  const enGestion: boolean | null | undefined = enGestionSaisi;
   /* 🔴 Arno (26/10/2026, 430) — « LOUÉ AU MOMENT DE LA PRISE EN GESTION ? » : obligatoire pour un bien en gestion (création seulement).
      La date du mandat est le champ EXISTANT « Mandat de gestion — date de signature » (hors continuité, où ce champ n'existe pas). */
   const [entreOccupe, setEntreOccupe] = useState<boolean | null>(null);
-  const [dateMandatContinuite, setDateMandatContinuite] = useState('');
   const schemaOccupe = useLecture<boolean>(modification === undefined ? 'rentreOccupeDisponible' : null);
   const occupeDisponible = schemaOccupe.etat.etat === 'ok' && schemaOccupe.etat.data === true;
 
@@ -704,10 +707,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   // En continuité, les propriétaires sont ceux qu'on vient de saisir (au moins un, vérifié par l'écran du dessus).
   // En modification : le bien a ses propriétaires, et son statut ne se « choisit » pas (il change par une transition) ; une annexe
   // n'a pas de famille à choisir. « Reste à renseigner » y est une INFORMATION, jamais un blocage.
-  const questionOccupe = modification === undefined && enGestion !== false && (continuite !== undefined || enGestionSaisi === true);
-  const dateMandatVue = continuite !== undefined ? dateMandatContinuite : (mandats.gestion.signeLe ?? '');
+  const questionOccupe = modification === undefined && enGestionSaisi === true;
+  const dateMandatVue = mandats.gestion.signeLe ?? '';
   const poserDateMandat = (d: string): void => {
-    if (continuite !== undefined) { setDateMandatContinuite(d); return; }
     mandatTouche.current.gestion = true;
     setMandats((x) => ({ ...x, gestion: { ...x.gestion, signeLe: d === '' ? null : d } }));
   };
@@ -736,6 +738,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const enregistrer = async (options: { confirmeDoublon?: boolean; confirmeMandat?: boolean } = {}): Promise<void> => {
     if (modification !== undefined) { await validerModification(); return; }
     if (enCours.current || enregistre !== null) return;
+    // 🔴🔴 (Arno, 18/11/2026) continuité : ce que l'écran du dessus exige d'abord (une carte client enregistrée, aucune carte ouverte, l'origine)
+    if (continuite !== undefined && (continuite.empeche ?? null) !== null) {
+      setMotif(continuite.empeche ?? null); setIssue({ sorte: 'erreur', cause: 'champs', motif: continuite.empeche ?? null }); return;
+    }
     // Une sélection cochée mais pas rattachée : jamais d'enregistrement silencieux sans elle (Arno, 21/10/2026).
     if (enChoix !== null && selectionEnAttente.current !== null) {
       setIssue({ sorte: 'selection' });
@@ -767,15 +773,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     if (!adressesPretes()) return;
     enCours.current = true;
     setEnvoi(true);
-    // Continuité : les fiches d'abord (une seule fois), puis le bien.
-    let proprietaireIds = proprietaires.map((p) => p.id);
-    if (continuite !== undefined) {
-      const f = await continuite.creerFiches();
-      if ('motif' in f) { enCours.current = false; setEnvoi(false); setMotif(f.motif); setIssue({ sorte: 'erreur', cause: 'saisie', motif: f.motif }); return; }
-      proprietaireIds = f.ids;
-    }
+    // 🔴🔴 (Arno, 18/11/2026) continuité : les fiches ET le bien, en UN seul enregistrement (tout ou rien) ; ce que l'écran du dessus exige d'abord
     const r = await envoyer({
-      action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id), enGestion,
+      ...(continuite !== undefined ? { action: 'creer-proprietaires-et-bien', proprietaires: continuite.proprietairesACreer }
+        : { action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id) }),
+      contactsExistants: contactsExistants.map((c) => c.id), enGestion,
       // 🔴 Arno (26/10/2026, 430) — la réponse, et la date du mandat (Oui) : la date d'entrée de la gestion dans le suivi.
       ...(questionOccupe && occupeDisponible && entreOccupe !== null ? { entreOccupe, ...(entreOccupe ? { dateMandat: dateMandatVue } : {}) } : {}),
       ...(options.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
@@ -783,7 +785,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 (Arno, 17/11/2026) les PV d'AG saisis avant l'enregistrement : rattachés à la copropriété du bien, dans sa transaction
       ...(pvEnAttente.length > 0 ? { pvAg: pvEnAttente } : {}),
       // Seul le mandat du choix FINAL (Oui → gestion, Non → transaction locative) ; rien s'il n'est pas saisi.
-      ...(continuite === undefined && enGestionSaisi !== null ? (() => {
+      ...(enGestionSaisi !== null ? (() => {
         const sorte: SorteMandat = enGestionSaisi ? 'gestion' : 'transaction';
         const m = mandats[sorte];
         return (m.numero ?? '').trim() !== '' || m.signeLe !== null ? { mandat: { sorte, numero: (m.numero ?? '').trim(), signeLe: m.signeLe ?? '' } } : {};
@@ -820,9 +822,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       return;
     }
     if (r.motif !== null) {
-      const dit = continuite !== undefined
-        ? `Les fiches des propriétaires sont créées, mais le bien n’est pas encore enregistré : ${r.motif} Corrigez puis enregistrez à nouveau (les fiches ne seront pas recréées).`
-        : r.motif;
+      const dit = continuite !== undefined ? `${r.motif} Rien n’est enregistré : ni les propriétaires, ni le bien.` : r.motif;
       setMotif(dit);
       setIssue({ sorte: 'erreur', cause: r.cause ?? 'saisie', motif: dit });
       return;
@@ -859,8 +859,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
   // Arno (23/10/2026) : en modification, le bloc 1 « Propriétaire(s) » n'apparaît pas, et les suivants GARDENT leur numéro (2, 3, 4…).
-  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
-    ...(continuite !== undefined ? (enGestion !== false ? ['occupe'] : []) : ['gestion'])];
+  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires', 'gestion'];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
@@ -1302,7 +1301,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               : { sorte: sorteMandatBien, valeur: mandatBienSaisi, lu: mandatBienLu, onChange: setMandatBienSaisi }} />
           {modification.blocApres?.(n('gestion') + 1)}
         </>
-      ) : continuite === undefined && (
+      ) : (
         <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Statut du bien" sorte="bien" obligatoire valeur={enGestionSaisi}
           libelles={{ oui: 'En gestion', non: 'Location seule' }}
           onChoix={setEnGestion}>{manqueDe('enGestion')}
@@ -1311,15 +1310,6 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           {questionOccupe && <QuestionRentreOccupe valeur={entreOccupe} onChoix={choisirOccupe} dateMandat={dateMandatVue} onDateMandat={poserDateMandat}
             disponible={occupeDisponible} aujourdhui={aujourdhui} memeQueMandat manque={<>{manqueDe('entreOccupe')}{manqueDe('dateMandat')}</>} />}</QuestionEnGestion>
       )}
-      {/* 🔴 Arno (26/10/2026, 430) — depuis « Nouveau propriétaire » (le statut vient de l'écran du dessus) : la question a sa propre section. */}
-      {continuite !== undefined && questionOccupe && (
-        <section className="loc-section" aria-labelledby="loc-b9">
-          <h3 id="loc-b9"><span className="loc-num">{n('occupe')}</span>Prise en gestion</h3>
-          <QuestionRentreOccupe valeur={entreOccupe} onChoix={choisirOccupe} dateMandat={dateMandatVue} onDateMandat={poserDateMandat}
-            disponible={occupeDisponible} aujourdhui={aujourdhui} manque={<>{manqueDe('entreOccupe')}{manqueDe('dateMandat')}</>} />
-        </section>
-      )}
-
       {modification === undefined && mailEchec !== null && (
         <div className="loc-alerte loc-alerte--orange" role="alert" data-mail-echec>
           <p style={{ margin: '0 0 8px' }}>{mailEchec.phrase}</p>

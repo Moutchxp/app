@@ -166,52 +166,36 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     // La carte client vide est annulée : il ne reste que le contact (validé).
     await act(async () => { [...(container.querySelector('[data-sorte="client"] .cp-form') as HTMLElement).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Annuler')!.click(); });
     expect(container.querySelectorAll('[data-recap="contact"]')).toHaveLength(1);
+    // 🔴 (Arno, 18/11/2026) « Souhaitez-vous créer un bien immédiatement ? » Non → « Enregistrer le propriétaire (sans bien) »
     await act(async () => { bouton('Non').click(); });
-    await transaction('MT 2026-041');
-    await act(async () => { bouton('Ajouter un bien à ce nouveau propriétaire').click(); });
+    await act(async () => { bouton('Enregistrer le propriétaire (sans bien)').click(); });
     expect(container.textContent).toContain('Un contact n’est pas un client : ajoutez au moins une carte « Propriétaire (client) ».');
     expect(posts).toEqual([]);
   });
 
-  it('« Propriétaire(s) en gestion ? » : rien sans réponse ; Oui → mandat de gestion puis bouton ; Non → mandat de TRANSACTION puis bouton ; changer d’avis vide l’autre', async () => {
+  // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « la question « Propriétaire(s) en gestion ? » est RETIRÉE de la création du propriétaire, avec l'accord
+  // d'Arno […] À la place de l'ancienne question : « Souhaitez-vous créer un bien immédiatement ? » Oui / Non (aucun choix par défaut). »
+  it('« Souhaitez-vous créer un bien immédiatement ? » : aucun choix par défaut ; Oui → le formulaire du bien dessous ; Non → « Enregistrer le propriétaire (sans bien) » ; plus aucun statut ni mandat sur la page', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
-    const mandat = () => container.querySelector('[data-mandat] input') as HTMLInputElement | null;
-    const gros = () => container.querySelector('[data-continuer]');
-    // Pas de choix : ni mandat, ni gros bouton.
-    expect(container.querySelector('[data-question-gestion]')).not.toBeNull();
-    expect(mandat()).toBeNull();
-    expect(gros()).toBeNull();
-    // Oui : le champ mandat ; le gros bouton seulement une fois le mandat rempli.
+    const q = () => container.querySelector('[data-question-gestion="creer-bien"]');
+    expect(q()?.querySelector('h3')?.textContent).toContain('Souhaitez-vous créer un bien immédiatement ?');
+    expect([...(q()?.querySelectorAll('button') ?? [])].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Oui', 'false'], ['Non', 'false']]);
+    expect(container.querySelector('[data-formulaire-bien]')).toBeNull();
+    expect(container.querySelector('[data-enregistrer-proprietaire]')).toBeNull();
+    // plus aucune question « en gestion » du propriétaire, plus de mandat sur la page, plus de gros bouton « Ajouter un bien à ce nouveau propriétaire »
+    expect(container.querySelector('[data-question-gestion="proprietaires"]')).toBeNull();
+    expect(container.querySelector('[data-mandat], [data-mandat-transaction], [data-continuer]')).toBeNull();
+    expect(container.textContent).not.toContain('Propriétaire(s) en gestion ?');
     await act(async () => { bouton('Oui').click(); });
-    expect(bouton('✓ Oui').getAttribute('aria-pressed')).toBe('true');
-    expect(mandat()).not.toBeNull();
-    expect(gros()).toBeNull();
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(mandat(), 'MG 2026-041');
-      mandat()!.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(gros()).not.toBeNull();
-    expect(gros()?.className).toContain('loc-gros-bouton--centre');
-    // Non : plus de mandat de gestion ; le bloc « Mandat de transaction locative », et le gros bouton seulement une fois rempli.
+    expect(container.querySelector('[data-formulaire-bien]')).not.toBeNull();
+    expect(container.querySelector('[data-enregistrer-proprietaire]')).toBeNull();
+    expect(container.querySelector('[data-creer-bien-aide]')?.textContent).toContain('un seul « Enregistrer » crée le propriétaire et le bien ensemble (tout ou rien)');
+    // le formulaire du bien, sans la recherche de propriétaire
+    expect(container.querySelector('[data-formulaire-bien] [data-proprietaires]')).toBeNull();
     await act(async () => { bouton('Non').click(); });
-    expect(mandat()).toBeNull();
-    const mt = () => container.querySelector('[data-mandat-transaction] input') as HTMLInputElement | null;
-    expect(container.querySelector('[data-mandat-transaction] h3')?.textContent).toBe('3Mandat de transaction locative');
-    expect(mt()?.placeholder).toBe('ex. MT 2026-041');
-    expect(container.querySelector('[data-mandat-transaction] label')?.firstChild?.textContent).toBe('N° de mandat de transaction locative (texte libre)');
-    expect(gros()).toBeNull();
-    await transaction('MT 2026-041');
-    expect(gros()).not.toBeNull();
-    // Repasser à Oui : le mandat de transaction disparaît (vidé), le mandat de gestion est VIDE ; et inversement.
-    await act(async () => { bouton('Oui').click(); });
-    expect(mt()).toBeNull();
-    expect(mandat()?.value).toBe('');
-    expect(gros()).toBeNull();
-    await act(async () => { bouton('Non').click(); });
-    expect(mt()?.value).toBe('');
-    await transaction('MT 2026-041');
-    // Le gros bouton refuse tant qu'aucune carte n'est enregistrée, et le dit — rien n'est envoyé.
-    await act(async () => { bouton('Ajouter un bien à ce nouveau propriétaire').click(); });
+    expect(container.querySelector('[data-formulaire-bien]')).toBeNull();
+    // « Non » sans carte enregistrée : refusé, et dit — rien n'est envoyé
+    await act(async () => { bouton('Enregistrer le propriétaire (sans bien)').click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte');
     expect(posts).toEqual([]);
   });

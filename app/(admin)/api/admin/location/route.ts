@@ -27,7 +27,7 @@ import {
   sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
 } from '../../../../lib/location/portefeuilleRepo';
 import {
-  creerBienVerifie, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
+  creerBienVerifie, creerProprietaires, creerProprietairesEtBien, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
 } from '../../../../lib/location/creationBienRepo';
 import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo';
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
@@ -404,6 +404,7 @@ export async function GET(request: Request): Promise<Response> {
  */
 const ECRAN_DE: Record<string, string> = {
   'creer-bien': 'nouveau-bien', 'creer-locataires': 'nouveau-locataire', 'apercu-lots': 'nouveau-locataire', 'creer-proprietaires': 'nouveau-proprietaire',
+  'creer-proprietaires-et-bien': 'nouveau-proprietaire',
 };
 const estCreation = (a: string): boolean => Object.prototype.hasOwnProperty.call(ECRAN_DE, a);
 function journaliserEchec(compte: string, action: string, ecranDemande: unknown, cause: string, raison: string | null): void {
@@ -559,26 +560,22 @@ async function postLocation(request: Request): Promise<Response> {
         if (id === null) return incomplet();
         return repondre(await detacherAnnexe(id, corps.detacher === true, auteur));
       case 'creer-bien': {
-        const r = await creerBienVerifie({
-          proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
-          logement: (corps.logement ?? {}) as Record<string, unknown>,
-          annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
-          contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
-          syndic: corps.syndic !== null && typeof corps.syndic === 'object' ? corps.syndic as SyndicDuBien : null,
-          contactsExistants: Array.isArray(corps.contactsExistants) ? (corps.contactsExistants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [],
-          // « Bien en gestion ? » (Arno, 20/10/2026) : envoyé par l'écran, Oui / Non exigé ; absent = « en gestion ».
-          enGestion: corps.enGestion,
-          // Arno (21/10/2026, 397) — le mandat du choix final (gestion ou transaction locative), facultatif.
-          ...(corps.mandat !== undefined ? { mandat: corps.mandat } : {}),
-          // Arno (21/10/2026) — « Créer quand même » après l'avertissement « Ce bien semble déjà exister ».
-          ...(corps.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
-          // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Confirmer » : le n° déjà utilisé pour un autre bien du même propriétaire, aussi pour celui-ci.
-          ...(corps.confirmeMandat === true ? { confirmeMandat: true } : {}),
-          // 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » et la date du mandat (Oui).
-          ...(corps.entreOccupe !== undefined ? { entreOccupe: corps.entreOccupe, dateMandat: corps.dateMandat } : {}),
-        }, auteur);
+        const r = await creerBienVerifie(saisieBienDuCorps(corps), auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
         // Arno (21/10/2026, 404) : le dossier Drive du bien, créé dans l'arbre de son statut, APRÈS l'enregistrement.
+        return repondre(await avecDossierDrive(await avecMail(r, r.etat !== 'ok' ? null : {
+          sens: 'entree', proprietaireId: null, lotIds: [r.data.logementId, ...r.data.annexes], origine: null, exigerEnGestion: true }, { auteur, tuile: 'Location' }),
+          r.etat === 'ok' ? r.data.logementId : null, auteur.libelle));
+      }
+      // 🔴🔴 Arno (18/11/2026, « Mandat par bien », 3) — « Souhaitez-vous créer un bien immédiatement ? » Oui : les fiches des cartes ET le bien, UN seul
+      // enregistrement, tout ou rien ; les mêmes suites que « Nouveau bien » (le mail « nouveau mandat », le dossier Drive), après.
+      case 'creer-proprietaires-et-bien': {
+        const pr = (corps.proprietaires ?? {}) as Record<string, unknown>;
+        const r = await creerProprietairesEtBien({
+          cartes: Array.isArray(pr.cartes) ? (pr.cartes as ContactSaisi[]).slice(0, 12) : [],
+          existants: Array.isArray(pr.existants) ? (pr.existants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
+          origine: pr.origine,
+        }, saisieBienDuCorps(corps), auteur);
         return repondre(await avecDossierDrive(await avecMail(r, r.etat !== 'ok' ? null : {
           sens: 'entree', proprietaireId: null, lotIds: [r.data.logementId, ...r.data.annexes], origine: null, exigerEnGestion: true }, { auteur, tuile: 'Location' }),
           r.etat === 'ok' ? r.data.logementId : null, auteur.libelle));
@@ -892,6 +889,28 @@ async function postLocation(request: Request): Promise<Response> {
  * 🔴🔴 Arno (14/11/2026, 473) — toute écriture de la Location s'exécute dans le PÉRIMÈTRE du préavis de test qu'elle touche (mails au seul
  * créateur du test, agenda du seul créateur) ; un test mêlé à de vrais biens : refus. Les droits sont vérifiés avant (garde), puis dans la route.
  */
+/** La saisie d'un bien envoyée par « Nouveau bien » (et par « Créer un nouveau propriétaire », Oui) : la MÊME lecture pour les deux. */
+function saisieBienDuCorps(corps: Record<string, unknown>): Parameters<typeof creerBienVerifie>[0] {
+  return {
+    proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
+    logement: (corps.logement ?? {}) as Record<string, unknown>,
+    annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
+    contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
+    syndic: corps.syndic !== null && typeof corps.syndic === 'object' ? corps.syndic as SyndicDuBien : null,
+    contactsExistants: Array.isArray(corps.contactsExistants) ? (corps.contactsExistants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [],
+    // « Bien en gestion ? » (Arno, 20/10/2026) : envoyé par l'écran, Oui / Non exigé ; absent = « en gestion ».
+    enGestion: corps.enGestion,
+    // Arno (21/10/2026, 397) — le mandat du choix final (gestion ou transaction locative), facultatif.
+    ...(corps.mandat !== undefined ? { mandat: corps.mandat } : {}),
+    // Arno (21/10/2026) — « Créer quand même » après l'avertissement « Ce bien semble déjà exister ».
+    ...(corps.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
+    // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Confirmer » : le n° déjà utilisé pour un autre bien du même propriétaire, aussi pour celui-ci.
+    ...(corps.confirmeMandat === true ? { confirmeMandat: true } : {}),
+    // 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » et la date du mandat (Oui).
+    ...(corps.entreOccupe !== undefined ? { entreOccupe: corps.entreOccupe, dateMandat: corps.dateMandat } : {}),
+  };
+}
+
 export async function POST(request: Request): Promise<Response> {
   const garde = await exigerLocation(request);
   if ('refus' in garde) return postLocation(request);

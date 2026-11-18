@@ -33,7 +33,7 @@ beforeEach(() => {
       const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
       posts.push(corps);
       if (corps.action === 'creer-proprietaires') return ok({ ids: [41, 42] });
-      if (corps.action === 'creer-bien' && bienRefuse) return refus('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
+      if ((corps.action === 'creer-bien' || corps.action === 'creer-proprietaires-et-bien') && bienRefuse) return refus('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
       return ok({ logementId: 9 });
     }
     if (u.includes('cartesProprietaires=')) return ok([{ id: 1, nom: 'DUPONT Paul', telephone: null, email: null, biens: [] }]);
@@ -160,44 +160,60 @@ describe('🔴 « Créer un nouveau propriétaire » → le bien sur la même pa
     // Première carte client : un téléphone ET un e-mail (Arno, 18/10/2026).
     await saisir(form.querySelectorAll('.cp-saisie--valeur')[1] as HTMLInputElement, 'martin@exemple.test');
     await act(async () => { (form.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
-    await act(async () => { bouton('Non').click(); });
-    await saisir(container.querySelector('[data-mandat-transaction] input') as HTMLInputElement, 'MT 2026-041');
+  };
+  // 🔴🔴 (Arno, 18/11/2026) « Souhaitez-vous créer un bien immédiatement ? » Oui : le formulaire du bien, dessous ; « Bien en gestion ? » s'y pose
+  const oui = async () => { await act(async () => { bouton('Oui').click(); }); };
+  const locationSeule = async () => {
+    await act(async () => { [...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'Location seule')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await saisir(container.querySelector('[data-mandat-numero="transaction"]') as HTMLInputElement, 'MT 2026-041');
   };
 
-  it('le formulaire s’ouvre dessous, sans bloc « Propriétaire(s) », numéroté depuis « Le bien » ; un seul enregistrement crée les fiches puis le bien', async () => {
+  it('« Oui » : le formulaire s’ouvre dessous, sans bloc « Propriétaire(s) », numéroté depuis « Le bien », avec « Statut du bien » et son mandat ; UN seul enregistrement crée les fiches ET le bien', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     await carteClient();
     expect(container.querySelector('[data-formulaire-bien]')).toBeNull();
-    await act(async () => { (container.querySelector('[data-continuer]') as HTMLButtonElement).click(); });
+    await oui();
     expect(posts).toEqual([]);
     const f = container.querySelector('[data-formulaire-bien]') as HTMLElement;
     expect(f).not.toBeNull();
     expect(f.textContent).not.toContain('Chercher un propriétaire');
     expect([...f.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace('*', '').trim()))
-      .toEqual(['Le bien de ce nouveau propriétaire', '1Le bien', '2Adresse et situation', '3Copropriété & ID fiscal', '4Annexes', '5Caractéristiques complémentaires', '6Commentaires']);
+      .toEqual(['Le bien de ce nouveau propriétaire', '1Le bien', '2Adresse et situation', '3Copropriété & ID fiscal', '4Annexes', '5Caractéristiques complémentaires', '6Commentaires', '7Statut du bien']);
     expect(f.querySelector('[data-rappel-proprietaires]')?.textContent).toContain('MARTIN');
     expect(f.querySelector('[data-rappel-proprietaires] input')).toBeNull();
     await remplirMinimum();
+    await locationSeule();
     await soumettre();
-    expect(posts.map((p) => p.action)).toEqual(['creer-proprietaires', 'creer-bien']);
-    expect(posts[0]).toMatchObject({ enGestion: false, numeroMandatTransaction: 'MT 2026-041', numeroMandat: '' });
-    expect(posts[1]).toMatchObject({ proprietaireIds: [41, 42] });
+    expect(posts.map((p) => p.action)).toEqual(['creer-proprietaires-et-bien']);
+    expect(posts[0]).toMatchObject({ enGestion: false, mandat: { sorte: 'transaction', numero: 'MT 2026-041' }, proprietaires: { existants: [] } });
+    expect((posts[0].proprietaires as { cartes: { nom: string }[] }).cartes.map((c) => c.nom)).toEqual(['MARTIN']);
+    expect(posts[0]).not.toHaveProperty('proprietaireIds');
     // Arno (21/10/2026) : plus de départ silencieux — la modale « ✓ Bien enregistré » mène à la fiche du bien.
     expect(window.location.href).toBe('');
     expect(document.querySelector('[data-modale-issue="succes"] [data-voir-fiche-bien]')?.getAttribute('href')).toBe('/admin/location/bien/9');
   });
 
-  it('si le bien est refusé, les fiches restent créées, le message le dit, et le nouvel essai ne les recrée pas', async () => {
+  it('🔴 TOUT OU RIEN : le bien refusé → rien n’est enregistré (ni les propriétaires, ni le bien), le message le dit ; le nouvel essai renvoie les fiches avec le bien', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     await carteClient();
-    await act(async () => { (container.querySelector('[data-continuer]') as HTMLButtonElement).click(); });
+    await oui();
     await remplirMinimum();
+    await locationSeule();
     bienRefuse = true;
     await soumettre();
-    expect(container.textContent).toContain('Les fiches des propriétaires sont créées, mais le bien n’est pas encore enregistré : Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
+    expect(container.textContent).toContain('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion. Rien n’est enregistré : ni les propriétaires, ni le bien.');
     bienRefuse = false;
     await soumettre();
-    expect(posts.map((p) => p.action)).toEqual(['creer-proprietaires', 'creer-bien', 'creer-bien']);
-    expect(posts[2]).toMatchObject({ proprietaireIds: [41, 42] });
+    expect(posts.map((p) => p.action)).toEqual(['creer-proprietaires-et-bien', 'creer-proprietaires-et-bien']);
+    expect(posts[1]).toMatchObject({ proprietaires: { existants: [] } });
+  });
+  it('une carte encore ouverte : le seul « Enregistrer » du bien le dit, rien n’est envoyé', async () => {
+    await act(async () => { root.render(createElement(CreationProprietaires)); });
+    await oui();
+    await remplirMinimum();
+    await locationSeule();
+    await soumettre();
+    expect(posts).toEqual([]);
+    expect(document.body.textContent).toContain('Remplissez et enregistrez au moins une carte');
   });
 });

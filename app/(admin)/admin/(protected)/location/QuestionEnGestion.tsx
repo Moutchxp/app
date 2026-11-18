@@ -22,8 +22,8 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
   titre: string;
   valeur: boolean | null;
   onChoix: (oui: boolean) => void;
-  /** `data-question-gestion` : « proprietaires » ou « bien ». */
-  sorte: 'proprietaires' | 'bien';
+  /** `data-question-gestion` : « proprietaires », « bien », ou « creer-bien » (« Souhaitez-vous créer un bien immédiatement ? », Arno, 18/11/2026). */
+  sorte: 'proprietaires' | 'bien' | 'creer-bien';
   /** L'astérisque des champs obligatoires, après le titre. */
   obligatoire?: boolean;
   /**

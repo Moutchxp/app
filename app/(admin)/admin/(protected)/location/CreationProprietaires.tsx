@@ -31,21 +31,25 @@ import { explicationEchecDe, type CauseEchec } from '../../../../lib/location/is
  * formulaire « Ajouter un nouveau bien » lui-même (`CreationBien`, mode `continuite`, sans le bloc « Propriétaire(s) »), et
  * descend jusqu'à lui en douceur. Son « Enregistrer le bien » crée les fiches (une seule fois, même après un refus du bien)
  * puis le bien, avec les contacts saisis.
+ *
+ * 🔴🔴 Arno, 18/11/2026 (« Mandat par bien ») — « 1. Un propriétaire n'a PLUS de statut « en gestion » : la question « Propriétaire(s) en gestion ? »
+ * est RETIRÉE de la création du propriétaire, avec l'accord d'Arno. […] 3. À la place de l'ancienne question : « Souhaitez-vous créer un bien
+ * immédiatement ? » Oui / Non (aucun choix par défaut). Non → seul le propriétaire est enregistré. Oui → le formulaire COMPLET « Nouveau bien »
+ * s'affiche dans la continuité de la même page […] Un seul « Enregistrer » crée le propriétaire et le bien ensemble (tout ou rien). » ; « 8. « Non » :
+ * les contacts attendent le premier bien […] reprendre le chemin « Enregistrer le propriétaire (sans bien) » avec sa fenêtre est validée. » Le n° de
+ * mandat se saisit désormais sous « Bien en gestion ? », sur le bien.
  */
 export function CreationProprietaires() {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
-  const [mandat, setMandat] = useState('');
-  /** Arno, 18/10/2026 : Non ⇒ le N° de mandat de TRANSACTION LOCATIVE (même règle que le mandat de gestion). */
-  const [transaction, setTransaction] = useState('');
-  /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
-  const [enGestion, setEnGestion] = useState<boolean | null>(null);
+  /** « Souhaitez-vous créer un bien immédiatement ? » — `null` tant qu'on n'a pas répondu (aucun choix par défaut). */
+  const [creerBien, setCreerBien] = useState<boolean | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   /** 🔴 Arno (25/10/2026, 425) — l'origine du contact des propriétaires créés ici (obligatoire ; « Origine inconnue » est un choix). */
   const [origine, setOrigine] = useState<SaisieOrigineProprietaire>(ORIGINE_PROPRIETAIRE_VIDE);
   const choixOrigine = useOrigineProprietaire(origine, (v) => { setOrigine(v); setMotif(null); });
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
-  /** Le formulaire du bien est-il ouvert sous les cartes ? */
-  const [formulaire, setFormulaire] = useState(false);
+  /** Le formulaire du bien est-il ouvert sous les cartes ? (« Oui ») */
+  const formulaire = creerBien === true;
   /** Les fiches déjà créées (un refus du bien ne les fait pas recréer). */
   const idsCrees = useRef<number[] | null>(null);
   const ancre = useRef<HTMLDivElement | null>(null);
@@ -63,18 +67,12 @@ export function CreationProprietaires() {
     : etat.ouvertes > 0 ? 'Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'
       : etat.clients.length > 0 && choixOrigine.disponible === true ? manqueOrigineProprietaire(origine) : null;
 
-  const continuer = (): void => {
-    if (empeche !== null) { setMotif(empeche); return; }
-    if (formulaire) { ancre.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); return; }
-    setFormulaire(true);
-  };
-
-  /** Crée les fiches des cartes, UNE seule fois : appelé par « Enregistrer le bien » du formulaire du dessous. */
+  /** Crée les fiches des cartes, UNE seule fois : « Non » → « Enregistrer le propriétaire (sans bien) ». */
   const creerFiches = async (): Promise<{ ids: number[] } | { motif: string; cause?: CauseEchec }> => {
     if (idsCrees.current !== null) return { ids: idsCrees.current };
     if (empeche !== null) return { motif: empeche, cause: 'champs' };
     const r = await envoyer({
-      action: 'creer-proprietaires', numeroMandat: enGestion ? mandat : '', numeroMandatTransaction: enGestion === false ? transaction : '', enGestion,
+      action: 'creer-proprietaires',
       cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine),
     });
     if (r.motif !== null) return { motif: r.motif, cause: r.cause };
@@ -123,41 +121,14 @@ export function CreationProprietaires() {
         <h3 id="loc-p1"><span className="loc-num">1</span>Le ou les propriétaires</h3>
         <p className="loc-section-phrase">« + Ajouter… » : un <strong>propriétaire (client)</strong> ou un <strong>contact du propriétaire</strong> (conjoint,
           artisan, avocat, voisin…). « Enregistrer » valide la carte sur cette page ; tout est enregistré au gros bouton du bas
-          (les contacts, avec le bien). Un téléphone ou un e-mail déjà connu est signalé : rien n’est jamais fusionné.</p>
+          (les contacts, avec le bien) — sans bien, par « Enregistrer le propriétaire (sans bien) » ; avec, par le seul « Enregistrer » du bien. Un téléphone ou un e-mail déjà connu est signalé : rien n’est jamais fusionné.</p>
         <SaisieCartes cote="proprietaire" onChange={surCartes} />
       </section>
-
-      {/* Arno (17/10/2026) : « Propriétaire(s) en gestion ? » — Oui / Non, deux gros boutons ; on peut changer d'avis.
-          Oui ⇒ le N° de mandat de gestion, Non ⇒ le N° de mandat de transaction locative (Arno, 18/10/2026) ; le gros bouton
-          n'apparaît qu'une fois le numéro rempli ; changer d'avis vide le champ de l'autre choix. Le bloc est
-          `QuestionEnGestion`, le même que « Bien en gestion ? » de l'écran « Nouveau bien » (Arno, 20/10/2026). */}
-      <QuestionEnGestion id="loc-p2" numero={2} titre="Propriétaire(s) en gestion ?" sorte="proprietaires" valeur={enGestion}
-        onChoix={(oui) => { setEnGestion(oui); if (oui) setTransaction(''); else setMandat(''); setMotif(null); }} />
-
-      {enGestion === true && (
-        <section className="loc-section" aria-labelledby="loc-p3" data-mandat>
-          <h3 id="loc-p3"><span className="loc-num">3</span>Mandat de gestion</h3>
-          <div className="loc-grille">
-            <label className="loc-champ">N° de mandat de gestion (texte libre)
-              <input value={mandat} onChange={(e) => setMandat(e.target.value)} placeholder="ex. MG 2026-041" maxLength={80} autoFocus /></label>
-          </div>
-        </section>
-      )}
-
-      {enGestion === false && (
-        <section className="loc-section" aria-labelledby="loc-p3t" data-mandat-transaction>
-          <h3 id="loc-p3t"><span className="loc-num">3</span>Mandat de transaction locative</h3>
-          <div className="loc-grille">
-            <label className="loc-champ">N° de mandat de transaction locative (texte libre)
-              <input value={transaction} onChange={(e) => setTransaction(e.target.value)} placeholder="ex. MT 2026-041" maxLength={80} autoFocus /></label>
-          </div>
-        </section>
-      )}
 
       {/* 🔴 Arno (25/10/2026, 425) — L'ORIGINE DU CONTACT, obligatoire pour toute fiche créée ici ; reprise ensuite par ses biens et locations. */}
       {etat.clients.length > 0 && choixOrigine.disponible === true && (
         <section className="loc-section" aria-labelledby="loc-p4" data-origine-proprietaire>
-          <h3 id="loc-p4"><span className="loc-num">4</span>Origine du contact</h3>
+          <h3 id="loc-p4"><span className="loc-num">2</span>Origine du contact</h3>
           <p className="loc-section-phrase">D’où vient ce propriétaire : elle sera <strong>reprise</strong> pour chacun de ses biens et chaque nouvelle location
             (modifiable sur la location). Inconnue pour l’instant : « Origine inconnue — à compléter ».</p>
           <div className="loc-grille loc-suivi-ligne loc-suivi-ligne--deux">{choixOrigine.champs}</div>
@@ -166,18 +137,20 @@ export function CreationProprietaires() {
         </section>
       )}
 
+      {/* 🔴🔴 Arno (18/11/2026) — À LA PLACE de « Propriétaire(s) en gestion ? » et du gros bouton « Ajouter un bien à ce nouveau propriétaire » :
+          « Souhaitez-vous créer un bien immédiatement ? » Oui / Non, aucun choix par défaut ; on peut changer d'avis. Le même bloc que « Bien en gestion ? ». */}
+      <QuestionEnGestion id="loc-p3" numero={etat.clients.length > 0 && choixOrigine.disponible === true ? 3 : 2} titre="Souhaitez-vous créer un bien immédiatement ?"
+        sorte="creer-bien" valeur={creerBien} onChoix={(oui) => { setCreerBien(oui); setMotif(null); }}>
+        {creerBien === true && <p className="loc-section-phrase" style={{ margin: 0 }} data-creer-bien-aide>Le formulaire du bien s’ouvre juste en dessous, avec
+          {nbProprietaires > 1 ? ` les ${nbProprietaires} propriétaires` : ' le propriétaire'} rattaché{nbProprietaires > 1 ? 's' : ''} d’office : un seul « Enregistrer » crée
+          {nbProprietaires > 1 ? ' les propriétaires' : ' le propriétaire'} et le bien ensemble (tout ou rien).</p>}
+      </QuestionEnGestion>
+
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
-      {((enGestion === false && transaction.trim() !== '') || (enGestion === true && mandat.trim() !== '')) && (
-      <button type="button" className="loc-gros-bouton loc-gros-bouton--plein loc-gros-bouton--centre" onClick={continuer}
-        title={empeche ?? undefined} data-continuer aria-expanded={formulaire}>
-        {formulaire ? 'Le bien de ce nouveau propriétaire ↓' : 'Ajouter un bien à ce nouveau propriétaire'}
-        <small>{empeche ?? `Ouvre juste en dessous le formulaire du bien, avec ${nbProprietaires > 1 ? `les ${nbProprietaires} propriétaires` : 'le propriétaire'} déjà rattaché${nbProprietaires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''} ; un seul « Enregistrer le bien » crée les fiches puis le bien.`}</small>
-      </button>
-      )}
-      {/* Arno (21/10/2026) — enregistrer le propriétaire SEUL (sans bien), confirmé par une modale. */}
-      {((enGestion === false && transaction.trim() !== '') || (enGestion === true && mandat.trim() !== '')) && idsCrees.current === null && (
+      {/* Arno (21/10/2026) — « Non » : enregistrer le propriétaire SEUL (sans bien), confirmé par une modale (le chemin validé par Arno le 18/11/2026). */}
+      {creerBien === false && idsCrees.current === null && (
         <p className="loc-boutons" style={{ justifyContent: 'center' }}>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { void enregistrerProprietaire(); }} disabled={envoiProprietaire}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrerProprietaire(); }} disabled={envoiProprietaire}
             aria-busy={envoiProprietaire} data-enregistrer-proprietaire>{envoiProprietaire ? 'Enregistrement…' : 'Enregistrer le propriétaire (sans bien)'}</button>
         </p>
       )}
@@ -203,7 +176,8 @@ export function CreationProprietaires() {
         <div ref={ancre} className="loc-suite-bien" data-formulaire-bien>
           <CreationBien proprietairesInitiaux={[]} continuite={{
             proprietaires: [...etat.clients.map((c) => ({ nom: nomDeCarte(c) })), ...etat.existants.map((x) => ({ nom: x.nom }))],
-            contacts: etat.contacts, creerFiches, enGestion,
+            contacts: etat.contacts, empeche,
+            proprietairesACreer: { cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine) },
           }} />
         </div>
       )}

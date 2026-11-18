@@ -817,22 +817,45 @@ export async function creerPersonne(
    *  en attente de la décision d'Arno — on n'y touche pas) garde la saisie d'avant. */
   options: { origine?: OrigineProprietaire | null; controleAdresse?: boolean } = {},
 ): Promise<IssueEdition<{ id: number }>> {
-  if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
+  const prepa = await preparerPersonne(sujet, o, options);
+  if (!prepa.ok) return prepa.refus;
+  const issue = await withTransaction(async (q) => ({ etat: 'ok' as const, data: { id: await creerPersonneDans(q, prepa, auteur) } }));
+  await apresCreationPersonne(prepa);
+  return issue;
+}
+
+/**
+ * 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », lot 4) LA CRÉATION D'UNE PERSONNE EN TROIS TEMPS, pour qu'un appelant l'écrive DANS SA transaction
+ * (« Un seul « Enregistrer » crée le propriétaire et le bien ensemble (tout ou rien) ») : les contrôles, AVANT toute transaction (un refus n'a rien
+ * commencé) ; l'écriture, dans la transaction donnée ; les suites (le courrier rendu reconnaissable), après. `creerPersonne` les enchaîne, comme avant.
+ */
+export type PersonnePreparee = { ok: true; sujet: Sujet; o: ChampsPersonne & { nom: string }; nom: string; retenues: Extract<ReturnType<typeof verifierCoordonnees>, { ok: true }>;
+  controle: ControleAdresse; options: { origine?: OrigineProprietaire | null; controleAdresse?: boolean } };
+
+export async function preparerPersonne(sujet: Sujet, o: ChampsPersonne & { nom: string },
+  options: { origine?: OrigineProprietaire | null; controleAdresse?: boolean } = {}): Promise<PersonnePreparee | { ok: false; refus: IssueEdition<{ id: number }> }> {
+  const refus = (r: IssueEdition<{ id: number }>) => ({ ok: false as const, refus: r });
+  if (!await annuaireModifiableDisponible()) return refus({ etat: 'sans_schema' });
   const nom = texteOuRien(o.nom, 200);
-  if (nom === null) return { etat: 'refus', motif: 'Le nom est obligatoire.' };
+  if (nom === null) return refus({ etat: 'refus', motif: 'Le nom est obligatoire.' });
 
   /**
    * ⚠️ LES COORDONNÉES SONT VÉRIFIÉES AVANT D'OUVRIR LA TRANSACTION, comme pour une modification : un refus ne
    * doit rien avoir commencé — surtout pas créer une fiche à moitié, qu'il faudrait ensuite retrouver.
    */
   const retenues = verifierCoordonnees(o.coordonnees ?? []);
-  if (!retenues.ok) return { etat: 'refus', motif: retenues.motif, rang: retenues.rang };
+  if (!retenues.ok) return refus({ etat: 'refus', motif: retenues.motif, rang: retenues.rang });
   // 🔴 (lot 2) l'adresse, AVANT d'ouvrir la transaction : un refus n'a rien commencé
   const controle: ControleAdresse = options.controleAdresse === false ? { ok: true, ecrire: false }
     : await controlerAdresse(await natureAdresseDisponible(TABLE[sujet]), AUCUNE_ADRESSE, o, o.adresseSaisie);
-  if (!controle.ok) return { etat: 'refus', motif: controle.motif };
+  if (!controle.ok) return refus({ etat: 'refus', motif: controle.motif });
 
-  const issue = await withTransaction(async (q) => {
+  return { ok: true, sujet, o, nom, retenues, controle, options };
+}
+
+/** L'ÉCRITURE de la personne préparée, dans la transaction de l'appelant : la fiche, ses coordonnées, ses verrous, le journal, l'origine. Rend son id. */
+export async function creerPersonneDans(q: RequeteTx, prepa: PersonnePreparee, auteur: Auteur): Promise<number> {
+  const { sujet, o, nom, retenues, controle, options } = prepa;
     const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const civilite = texteOuRien(o.civilite, 40);
     const prenom = texteOuRien(o.prenom, 120);
@@ -889,16 +912,19 @@ export async function creerPersonne(
       await ecrireOrigineProprietaireTx(q as unknown as Parameters<typeof ecrireOrigineProprietaireTx>[0], id, options.origine, auteur,
         'origine du contact saisie à la création du propriétaire');
     }
-    return { etat: 'ok' as const, data: { id } };
-  });
+    return id;
+}
 
+/** Les suites d'une création (hors transaction) : la fiche rend reconnaissables ses adresses et son nom dans le courrier passé. */
+export async function apresCreationPersonne(prepa: PersonnePreparee): Promise<void> {
+  const { sujet, o, nom, retenues } = prepa;
   /**
    * 🔴 UNE FICHE CRÉÉE REND RECONNAISSABLES DES ADRESSES QUI NE L'ÉTAIENT PAS — y compris sur des mails VIEUX de
    * plusieurs mois. C'est le cas le plus utile du lot : on crée la fiche d'un correspondant, et son courrier
    * passé rejoint aussitôt le bon dossier.
    */
-  const emails = retenues.ok ? retenues.retenues.filter((c) => c.sorte === 'email').map((c) => c.valeur) : [];
-  if (issue.etat === 'ok') {
+  const emails = retenues.retenues.filter((c) => c.sorte === 'email').map((c) => c.valeur);
+  {
     try {
       if (emails.length > 0) await rafraichirPourAdresses(emails);
       // 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — une fiche créée rend un NOM reconnaissable dans tout le courrier passé.
@@ -907,7 +933,6 @@ export async function creerPersonne(
       console.error('[annuaire] recalcul des propositions impossible après création d’une fiche %s', sujet, e);
     }
   }
-  return issue;
 }
 
 /**

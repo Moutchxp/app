@@ -76,14 +76,15 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     expect([bouton('En gestion'), bouton('Location seule')].map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
   });
 
-  it('le MÊME bloc que « Propriétaire(s) en gestion ? » : même composant, mêmes classes, même structure', async () => {
+  // 🔴 (Arno, 18/11/2026) « Propriétaire(s) en gestion ? » est retirée ; à sa place, « Souhaitez-vous créer un bien immédiatement ? » — le MÊME composant.
+  it('le MÊME bloc que « Souhaitez-vous créer un bien immédiatement ? » : même composant, mêmes classes, même structure', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
-    const proprietaires = container.querySelector('[data-question-gestion="proprietaires"]') as HTMLElement;
+    const proprietaires = container.querySelector('[data-question-gestion="creer-bien"]') as HTMLElement;
     // Arno (21/10/2026, 397) : sous les boutons du BIEN, les lignes du mandat (gestion / transaction) — un ajout de ce bloc seul,
     // éprouvé à part (`MandatBienEnGestion.test.tsx`) ; la QUESTION reste le même composant.
     const sansMandat = (s: Element): Element => { const c = s.cloneNode(true) as Element; c.querySelector('.lmd-bloc')?.remove(); return c; };
     const rendu = (s0: Element) => sansMandat(s0).outerHTML.replace(/ (id|aria-labelledby|aria-label|data-question-gestion)="[^"]*"/g, '')
-      .replace(/Propriétaire\(s\) en gestion \?|Statut du bien/g, 'TITRE').replace(/<span class="loc-num">\d<\/span>/, '')
+      .replace(/Souhaitez-vous créer un bien immédiatement \?|Statut du bien/g, 'TITRE').replace(/<span class="loc-num">\d<\/span>/, '')
       .replace(/ <span class="loc-oblig">\*<\/span>/, '')
       // Arno (21/10/2026, 403) : seuls les MOTS des boutons diffèrent (« En gestion » / « Location seule ») — même composant.
       .replace('>En gestion<', '>Oui<').replace('>Location seule<', '>Non<');
@@ -153,21 +154,28 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     expect(posts.at(-1)).toMatchObject({ action: 'creer-bien', enGestion: true });
   });
 
-  it('en continuité de « Créer un nouveau propriétaire » : la question n’est pas reposée, le bien prend la réponse du dessus', async () => {
-    const creerFiches = vi.fn(async () => ({ ids: [41] }));
-    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [], continuite: { proprietaires: [{ nom: 'NOUVEAU Jean' }], contacts: [], creerFiches, enGestion: false } })); });
+  // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Un propriétaire n'a PLUS de statut « en gestion » » : en continuité, « Bien en gestion ? » et son
+  // mandat se posent ICI, comme dans « Nouveau bien » ; les fiches et le bien partent en UN seul enregistrement (tout ou rien).
+  it('en continuité de « Créer un nouveau propriétaire » : « Bien en gestion ? » est posé, obligatoire ; le mandat part avec le bien, en un seul envoi', async () => {
+    const proprietairesACreer = { cartes: [{ nom: 'NOUVEAU', prenom: 'Jean' }], existants: [], origine: { origine: 'inconnue' } };
+    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [], continuite: { proprietaires: [{ nom: 'NOUVEAU Jean' }], contacts: [], proprietairesACreer } })); });
     await calmer();
-    expect(bloc()).toBeNull();
-    expect(container.querySelector('[data-question-gestion]')).toBeNull();
+    expect(bloc()).not.toBeNull();
     await parkingComplet();
+    expect(barre()).not.toBe('Tout l’obligatoire est renseigné.');
+    await clic(bouton('Location seule'));
+    await saisir(container.querySelector('[data-mandat-numero="transaction"]') as HTMLInputElement, 'MT 9');
     expect(barre()).toBe('Tout l’obligatoire est renseigné.');
     await soumettre();
-    expect(posts[0]).toMatchObject({ action: 'creer-bien', proprietaireIds: [41], enGestion: false });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ action: 'creer-proprietaires-et-bien', proprietaires: proprietairesACreer, enGestion: false, mandat: { sorte: 'transaction', numero: 'MT 9' } });
+    expect(posts[0]).not.toHaveProperty('proprietaireIds');
   });
 
-  it('l’écran « Créer un nouveau propriétaire » transmet sa réponse au formulaire du bien en dessous', () => {
-    const src = readFileSync('app/(admin)/admin/(protected)/location/CreationProprietaires.tsx', 'utf8');
-    expect(src.replace(/\s+/g, ' ')).toContain('contacts: etat.contacts, creerFiches, enGestion,');
+  it('l’écran « Créer un nouveau propriétaire » transmet ses cartes au formulaire du bien en dessous (plus aucun statut « en gestion »)', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/CreationProprietaires.tsx', 'utf8').replace(/\s+/g, ' ');
+    expect(src).toContain('proprietairesACreer: { cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine) },');
+    expect(src).not.toContain('titre="Propriétaire(s) en gestion ?"');
   });
 });
 

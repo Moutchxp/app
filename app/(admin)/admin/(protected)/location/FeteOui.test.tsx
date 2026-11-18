@@ -59,7 +59,7 @@ describe('① les exemples du champ « Qualité »', () => {
 });
 
 describe('② la fête du « Oui »', () => {
-  it('au passage à Oui : la fête (canvas) DANS le bouton, sous le libellé, le mandat tout de suite ; 4 s puis « ✓ Oui » normal', async () => {
+  it('au passage à Oui : la fête (canvas) DANS le bouton, sous le libellé, le formulaire du bien tout de suite ; 4 s puis « ✓ Oui » normal', async () => {
     vi.useFakeTimers();
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     await act(async () => { oui().click(); });
@@ -74,7 +74,8 @@ describe('② la fête du « Oui »', () => {
     expect(fete?.querySelector('canvas')).not.toBeNull();
     expect(document.querySelectorAll('canvas')).toHaveLength(1);
     expect(DUREE_FETE_MS).toBe(4000);
-    expect(container.querySelector('[data-mandat]')).not.toBeNull();
+    // 🔴 (Arno, 18/11/2026) le « Oui » de « Souhaitez-vous créer un bien immédiatement ? » : le formulaire du bien tout de suite (plus de mandat sur la page)
+    expect(container.querySelector('[data-formulaire-bien]')).not.toBeNull();
     expect(oui().textContent).toBe('✓ Oui');
     await act(async () => { vi.advanceTimersByTime(DUREE_FETE_MS - 10); });
     expect(container.querySelector('[data-fete]')).not.toBeNull();
@@ -102,7 +103,8 @@ describe('② la fête du « Oui »', () => {
     await act(async () => { oui().click(); });
     expect(container.querySelector('[data-fete]')).toBeNull();
     expect(oui().getAttribute('aria-pressed')).toBe('true');
-    expect(container.querySelector('[data-mandat]')).not.toBeNull();
+    // 🔴 (Arno, 18/11/2026) le « Oui » de « Souhaitez-vous créer un bien immédiatement ? » : le formulaire du bien tout de suite (plus de mandat sur la page)
+    expect(container.querySelector('[data-formulaire-bien]')).not.toBeNull();
   });
 
   it('légère : canvas sans bibliothèque, aucun son, coupée par « mouvement réduit », dans le bouton et sous le libellé', () => {

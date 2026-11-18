@@ -206,20 +206,21 @@ describe('🔴 « Ajouter un nouveau bien » : DPE et entretien obligatoires (lo
     expect(posts).toHaveLength(1);
   });
 
-  it('le même formulaire enchaîné après « Créer un nouveau propriétaire » applique la même règle', async () => {
-    const creerFiches = vi.fn(async () => ({ ids: [41] }));
-    await rendre({ proprietairesInitiaux: [], continuite: { proprietaires: [{ nom: 'NOUVEAU Jean' }], contacts: [], creerFiches } });
+  it('le même formulaire enchaîné après « Créer un nouveau propriétaire » applique la même règle (et rien ne part avant)', async () => {
+    const proprietairesACreer = { cartes: [{ nom: 'NOUVEAU', prenom: 'Jean' }], existants: [], origine: { origine: 'inconnue' } };
+    await rendre({ proprietairesInitiaux: [], continuite: { proprietaires: [{ nom: 'NOUVEAU Jean' }], contacts: [], proprietairesACreer } });
     await logementMinimal();
+    // 🔴 (Arno, 18/11/2026) « Bien en gestion ? » se pose désormais ici aussi
+    await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'Location seule')!);
     await soumettre();
-    expect(creerFiches).not.toHaveBeenCalled();
     expect(posts).toEqual([]);
     expect(container.textContent).toContain('pour un logement ou un local, le DPE et l’entretien à prévoir');
     await clic(dpe('A'));
     await saisir(dateDpe(), '2025-06-01');
     await clic(entretien('non'));
     await soumettre();
-    expect(creerFiches).toHaveBeenCalledTimes(1);
-    expect(posts[0]).toMatchObject({ action: 'creer-bien', proprietaireIds: [41] });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ action: 'creer-proprietaires-et-bien', proprietaires: proprietairesACreer });
   });
 });
 

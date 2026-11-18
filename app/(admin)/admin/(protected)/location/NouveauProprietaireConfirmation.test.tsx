@@ -44,8 +44,8 @@ const preparer = async () => {
   });
   await act(async () => { (form.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
   await calmer();
-  await act(async () => { bouton('Oui').click(); });
-  await act(async () => { set(container.querySelector('[data-mandat] input') as HTMLInputElement, 'MG 2026-041'); });
+  // 🔴 (Arno, 18/11/2026) « Souhaitez-vous créer un bien immédiatement ? » Non → « Enregistrer le propriétaire (sans bien) » (plus de statut ni de mandat)
+  await act(async () => { bouton('Non').click(); });
   await calmer();
 };
 
@@ -57,7 +57,9 @@ describe('🔴 « Nouveau propriétaire » — « ✓ Propriétaire enregistré 
     await act(async () => { b.click(); });
     await calmer();
     expect(posts).toHaveLength(1);
-    expect(posts[0]).toMatchObject({ action: 'creer-proprietaires', enGestion: true, numeroMandat: 'MG 2026-041' });
+    expect(posts[0]).toMatchObject({ action: 'creer-proprietaires' });
+    expect(posts[0]).not.toHaveProperty('enGestion');
+    expect(posts[0]).not.toHaveProperty('numeroMandat');
     expect(modale()?.getAttribute('data-modale-issue')).toBe('succes');
     expect(modale()?.querySelector('h2')?.textContent).toBe('✓ Propriétaire enregistré');
     expect([...modale()!.querySelectorAll('[data-resume] div')].map((d) => d.textContent)).toEqual(['PropriétaireDUPONT', 'Téléphone06 12 34 56 78', 'E-mailpaul.dupont@exemple.test']);
@@ -69,7 +71,8 @@ describe('🔴 « Nouveau propriétaire » — « ✓ Propriétaire enregistré 
     expect(modale()).toBeNull();
     // Déjà créé : plus de second « Enregistrer le propriétaire » ; le parcours du bien reste, sans recréer les fiches.
     expect(container.querySelector('[data-enregistrer-proprietaire]')).toBeNull();
-    expect(container.querySelector('[data-continuer]')).not.toBeNull();
+    // 🔴 (Arno, 18/11/2026) le gros bouton « Ajouter un bien à ce nouveau propriétaire » est remplacé par « Souhaitez-vous créer un bien immédiatement ? »
+    expect(container.querySelector('[data-continuer]')).toBeNull();
   });
 
   it('pendant l’envoi : « Enregistrement… », inactif ; un DOUBLE CLIC n’envoie qu’une fois', async () => {
