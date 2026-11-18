@@ -124,10 +124,22 @@ describe('🔴 (2e lot) « Locataires non invités » et la phrase du récapitul
     expect(notificationApres(null, e)).toBeNull(); // aucun mail interne pour un « Non »
   });
   it('le récapitulatif dit clairement si les locataires seront invités ou non', () => {
-    expect(phraseRecapLocataires({ choix: 'non', invites: [], sansEmail: [], impossible: null, texte: null })).toBe('Les locataires ne seront PAS invités : aucun mail ne leur partira.');
+    expect(phraseRecapLocataires({ choix: 'non', invites: [], sansEmail: [], impossible: null, texte: null })).toBe('Les locataires ne seront pas sollicités : le rendez-vous sera considéré comme confirmé.');
     expect(phraseRecapLocataires({ choix: 'oui', invites: ['Paul ESSAIPREAVIS'], sansEmail: [], impossible: null, texte: null }))
       .toBe('Les locataires seront invités (1) : Paul ESSAIPREAVIS — avec « J’accepte le rendez-vous » / « Je refuse ».');
     expect(phraseRecapLocataires({ choix: 'oui', invites: [], sansEmail: [], impossible: 'migration absente.', texte: null })).toBe('Les locataires ne pourront pas être invités : migration absente.');
+  });
+});
+
+describe('🔴 Arno (18/11/2026) — le libellé du choix et le cartouche « sans demande »', () => {
+  it('libellé de la question ; « Non » + validation : « Confirmé sans demande aux locataires (par X) » ; validation à la main ordinaire inchangée', async () => {
+    const { QUESTION_INVITER_LOCATAIRES, MOTIF_CHOIX_LOCATAIRES } = await import('./reponsesRdv');
+    expect(QUESTION_INVITER_LOCATAIRES).toBe('Envoyer une demande de confirmation au(x) locataire(s)');
+    expect(MOTIF_CHOIX_LOCATAIRES).toBe('Choisissez « Oui » ou « Non » pour « Envoyer une demande de confirmation au(x) locataire(s) ».');
+    const e = etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z'), ev('validation_main', null, '2026-11-18T10:00:01Z', 'Arnaud Jorel')])!;
+    expect(motCartoucheLocataires(e)).toBe('Confirmé sans demande aux locataires (par Arnaud Jorel)');
+    expect(motCartoucheLocataires(etatReponsesRdv([], [ev('validation_main', null, '2026-11-18T10:00:00Z', 'Arnaud Jorel')])!)).toBe('Locataires : Confirmé à la main par Arnaud Jorel');
+    expect(motCartoucheLocataires(etatReponsesRdv([PAUL], [ev('validation_main', null, '2026-11-18T10:00:00Z', 'Arnaud Jorel')])!)).toBe('Locataires : Confirmé à la main par Arnaud Jorel');
   });
 });
 

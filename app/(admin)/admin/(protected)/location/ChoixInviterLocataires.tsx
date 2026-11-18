@@ -28,7 +28,7 @@ export function ChoixInviterLocataires({ valeur, onChange, desactive, manque }: 
       </div>
       <p id={`${id}-aide`} className="loc-muet cil-aide" data-choix-locataires-aide>
         {valeur === 'oui' ? 'Chaque locataire recevra l’invitation, avec « J’accepte le rendez-vous » / « Je refuse ».'
-          : valeur === 'non' ? 'Aucun mail aux locataires : le rendez-vous est planifié quand même.'
+          : valeur === 'non' ? 'Aucun mail aux locataires : le rendez-vous est considéré comme confirmé.'
             : 'Choisissez « Oui » ou « Non ».'}
       </p>
     </fieldset>
@@ -38,8 +38,9 @@ export function ChoixInviterLocataires({ valeur, onChange, desactive, manque }: 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; aucune animation (prefers-reduced-motion sans objet). */
 export const CSS_CHOIX_LOCATAIRES = `
 .cil{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:6px}
-.cil-boutons{display:flex;gap:8px;flex-wrap:wrap}
-.cil-bouton{min-height:44px;min-width:88px;padding:0 18px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
+/* 🔴 Arno (18/11/2026) — les deux boutons sur TOUTE la largeur de la colonne (comme les autres champs), même largeur, côte à côte */
+.cil-boutons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;box-sizing:border-box}
+.cil-bouton{width:100%;box-sizing:border-box;min-height:44px;min-width:0;padding:0 12px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
 .cil-bouton--choisi{border-color:var(--color-svv-ink);background:var(--color-svv-ink);color:var(--color-svv-surface)}
 .cil-bouton:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
 .cil-aide{margin:0}

@@ -47,7 +47,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { apercuLocatairesEdls, avecReponsesRdv, envoyerMailLocatairesEdls, marquerNonInvites, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
+import { apercuLocatairesEdls, avecReponsesRdv, confirmerSansDemande, envoyerMailLocatairesEdls, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
 import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/location/reponsesRdv';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
@@ -781,8 +781,8 @@ async function postLocation(request: Request): Promise<Response> {
         const statut = r.demandes?.[0]?.statut ?? r.demande?.statut ?? null;
         // 🔴 Arno (18/11/2026, 495) — l'invitation des LOCATAIRES (ou sa modification), avec leurs boutons, si le réglage est allumé ; un échec
         //    n'annule jamais le geste. « Confier à quelqu'un d'autre » ne change pas la date : aucun nouvel envoi.
-        //    🔴 (2e lot) « Non » : aucun mail aux locataires — le choix est journalisé (cartouche « Locataires non invités »).
-        if (choixEdls === 'non') await marquerNonInvites('edl', r.tacheId, auteur);
+        //    🔴 Arno (18/11/2026) « Non » : aucun mail aux locataires — le rendez-vous est CONFIRMÉ côté locataires (validation à la main, auteur journalisé).
+        if (choixEdls === 'non') await confirmerSansDemande('edl', r.tacheId, occs, auteur);
         const locataires = action === 'reattribuer-edls' || choixEdls === 'non' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesEdls(r.tacheId, occs, auteur);
         return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim(), locataires: locataires.envois, sansEmail: locataires.sansEmail, choixLocataires: choixEdls } });
       }
@@ -830,8 +830,8 @@ async function postLocation(request: Request): Promise<Response> {
         if (r.etat !== 'ok') return repondre(r);
         const collegues = await envoyerAuxInvites(request, r.demandes);
         const agenda = await synchroniserApresGeste(r.data.tacheId);
-        // 🔴 (2e lot) « Non » : aucun mail aux locataires — le choix est journalisé (cartouche « Locataires non invités »).
-        if (choixP === 'non') await marquerNonInvites('previsite', r.data.tacheId, auteur);
+        // 🔴 Arno (18/11/2026) « Non » : aucun mail aux locataires — le rendez-vous est CONFIRMÉ côté locataires (validation à la main, auteur journalisé).
+        if (choixP === 'non') await confirmerSansDemande('previsite', r.data.tacheId, occs, auteur);
         const locataires = action === 'reaffecter-previsite' || choixP === 'non' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur, {}, rtP.retouches);
         // 🔴 Arno (14/11/2026, 473) — préavis de TEST : l'invitation de début de pré-visite part À L'HEURE DE DÉBUT (sans attendre la minuterie).
         if (test !== null && action !== 'reaffecter-previsite' && r.data.rdv) planifierInvitationTest(r.data.rdv);

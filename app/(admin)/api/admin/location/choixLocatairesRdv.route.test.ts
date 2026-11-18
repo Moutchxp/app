@@ -14,7 +14,7 @@ vi.mock('../../../../lib/location/preavisTestRepo', () => ({
 }));
 const h = vi.hoisted(() => ({
   planifierEdls: vi.fn(), deplacerEdls: vi.fn(), programmerPrevisite: vi.fn(), deplacerPrevisite: vi.fn(),
-  envoyerMailLocatairesEdls: vi.fn(), envoyerMailLocatairesPrevisite: vi.fn(), marquerNonInvites: vi.fn(), envoyerAuxInvites: vi.fn(), envoyerSiAutorise: vi.fn(),
+  envoyerMailLocatairesEdls: vi.fn(), envoyerMailLocatairesPrevisite: vi.fn(), confirmerSansDemande: vi.fn(), envoyerAuxInvites: vi.fn(), envoyerSiAutorise: vi.fn(),
 }));
 vi.mock('../../../../lib/location/edlsRepo', () => ({
   planifierEdls: (...a: unknown[]) => h.planifierEdls(...a), deplacerEdls: (...a: unknown[]) => h.deplacerEdls(...a), reattribuerEdls: vi.fn(), confiablesEdls: vi.fn(), apercuEdls: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('../../../../lib/location/previsiteRepo', () => ({
   destinatairesCompteRendu: vi.fn(), envoyerCompteRendu: vi.fn(), envoyerRefus: vi.fn(), texteRefusPropose: vi.fn(),
 }));
 vi.mock('../../../../lib/location/reponsesRdvRepo', () => ({
-  envoyerMailLocatairesEdls: (...a: unknown[]) => h.envoyerMailLocatairesEdls(...a), marquerNonInvites: (...a: unknown[]) => h.marquerNonInvites(...a),
+  envoyerMailLocatairesEdls: (...a: unknown[]) => h.envoyerMailLocatairesEdls(...a), confirmerSansDemande: (...a: unknown[]) => h.confirmerSansDemande(...a),
   apercuLocatairesEdls: vi.fn(), avecReponsesRdv: vi.fn(), validerRdvALaMain: vi.fn(), versionRdv: vi.fn(),
 }));
 vi.mock('../../../../lib/gestion/acceptationAutorisee', () => ({
@@ -58,7 +58,7 @@ beforeEach(() => {
   h.envoyerMailLocatairesPrevisite.mockResolvedValue({ envois: [{ sorte: 'previsite_locataires', objet: 'o', a: ['paul@exemple.test'], cc: [], envoye: true, motif: null }], sansEmail: [] });
   h.envoyerSiAutorise.mockResolvedValue('envoye');
   h.envoyerAuxInvites.mockResolvedValue([{ destinataire: 'Collègue ESSAI', etat: 'envoye' }]);
-  h.marquerNonInvites.mockResolvedValue(true);
+  h.confirmerSansDemande.mockResolvedValue(true);
 });
 
 describe.each(GESTES)('🔴 « $action » (mêmes règles pour la pré-visite et pour l’état des lieux)', (g) => {
@@ -69,20 +69,24 @@ describe.each(GESTES)('🔴 « $action » (mêmes règles pour la pré-visite et
     expect(g.ecriture()).not.toHaveBeenCalled();
     expect(g.envoi()).not.toHaveBeenCalled();
   });
-  it('« Non » : le rendez-vous est planifié, AUCUN mail aux locataires, le choix est journalisé ; le collègue est prévenu comme avant', async () => {
+  it('« Non » : le rendez-vous est planifié, AUCUN mail aux locataires, il est confirmé côté locataires (auteur journalisé) ; le collègue reçoit toujours son invitation', async () => {
     const r = await post({ action: g.action, ...g.corps, locataires: 'non' });
-    expect(await r.json()).toMatchObject({ etat: 'ok', data: { locataires: [], choixLocataires: 'non' } });
+    const d = await r.json() as { etat: string; data: Record<string, unknown> };
+    expect(d).toMatchObject({ etat: 'ok', data: { locataires: [], choixLocataires: 'non' } });
+    // 🔴 le COLLÈGUE (un autre que soi) reste « En attente » : son invitation Accepter / Refuser part comme avant
+    if (g.sorte === 'edl') expect(d.data.statut).toBe('en_attente');
+    else expect(d.data.collegues).toEqual([{ destinataire: 'Collègue ESSAI', etat: 'envoye' }]);
     expect(g.ecriture()).toHaveBeenCalledOnce();
     expect(g.envoi()).not.toHaveBeenCalled();
-    expect(h.marquerNonInvites).toHaveBeenCalledWith(g.sorte, g.sorte === 'edl' ? 60 : 34, { id: 2, libelle: 'Arnaud Jorel' });
+    expect(h.confirmerSansDemande).toHaveBeenCalledWith(g.sorte, g.sorte === 'edl' ? 60 : 34, [553], { id: 2, libelle: 'Arnaud Jorel' });
     expect(h.envoyerSiAutorise.mock.calls.length + h.envoyerAuxInvites.mock.calls.length).toBe(1);
   });
-  it('« Oui » : l’invitation des locataires part (avec leurs boutons), rien n’est marqué « non invités »', async () => {
+  it('« Oui » : l’invitation des locataires part (avec leurs boutons), rien n’est confirmé d’office (comportement inchangé)', async () => {
     const r = await post({ action: g.action, ...g.corps, locataires: 'oui' });
     const d = await r.json() as { etat: string; data: { locataires: { a: string[] }[] } };
     expect(d.etat).toBe('ok');
     expect(d.data.locataires.map((m) => m.a)).toEqual([['paul@exemple.test']]);
     expect(g.envoi()).toHaveBeenCalledOnce();
-    expect(h.marquerNonInvites).not.toHaveBeenCalled();
+    expect(h.confirmerSansDemande).not.toHaveBeenCalled();
   });
 });

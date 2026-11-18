@@ -251,6 +251,25 @@ export async function validerRdvALaMain(d: { sorte: SorteRdv; tacheId: number; o
   return { etat: 'ok', data: { etat: apres } };
 }
 
+/**
+ * 🔴🔴 Arno (18/11/2026) — « Envoyer une demande de confirmation au(x) locataire(s) : Non » : le rendez-vous est CONSIDÉRÉ COMME CONFIRMÉ côté
+ * locataires dès sa planification — EXACTEMENT le geste « Valider le rendez-vous sans prévenir les locataires » (même écriture, même auteur
+ * journalisé, même mail interne en devenant confirmé, même « Annuler la validation à la main »). Avec la 497, le choix « Non » est aussi noté
+ * (cartouche « Confirmé sans demande aux locataires (par X) ») ; sans elle, le cartouche dit « Confirmé à la main par X ». Aucun mail aux
+ * locataires. Un déplacement change le créneau : les réponses d'avant sont caduques (règle existante), le nouveau créneau est confirmé sans eux.
+ * Ne lève jamais : un échec n'annule pas le rendez-vous.
+ */
+export async function confirmerSansDemande(sorte: SorteRdv, tacheId: number, occupationIds: readonly number[], auteur: Auteur, deps: DepsAvis = {}): Promise<boolean> {
+  try {
+    await marquerNonInvites(sorte, tacheId, auteur);
+    const r = await validerRdvALaMain({ sorte, tacheId, occupationIds }, auteur, deps);
+    return r.etat === 'ok';
+  } catch (e) {
+    console.error('[réponses rdv] confirmé sans demande', (e as Error)?.message);
+    return false;
+  }
+}
+
 // ══ LE MAIL INTERNE (confirmé, ou refusé par tous) ════════════════════════════════════════════════════════════════════════════════════
 
 /** La personne qui a fixé le rendez-vous, ou qui l'a déplacé en dernier (son adresse de compte), ou `null`. */

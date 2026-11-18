@@ -47,6 +47,11 @@ export interface EtatLocataires {
   /** Qui a confirmé : le locataire (« Paul ESSAIPREAVIS ») ou, à la main, le collaborateur. `null` hors « Confirmé ». */
   par: string | null;
   main: boolean;
+  /**
+   * 🔴 Arno (18/11/2026) — la validation à la main posée PAR LE CHOIX « Non » en fixant ou en déplaçant le rendez-vous (aucun locataire sollicité
+   * pour ce créneau) : « Confirmé sans demande aux locataires (par X) ». Repéré par l'événement « non_invite » (497) ; sans la 497 : `false`.
+   */
+  sansDemande?: boolean;
   /** La réponse COURANTE de chaque locataire invité pour ce créneau (`null` : pas encore répondu). */
   reponses: { occupationId: number; nom: string; reponse: 'accepte' | 'refuse' | null; le: string | null }[];
 }
@@ -71,7 +76,9 @@ export function etatReponsesRdv(invites: readonly LocataireInvite[], evenements:
     const d = [...tries].reverse().find((e) => e.occupationId === i.occupationId && (e.nature === 'accepte' || e.nature === 'refuse'));
     return { occupationId: i.occupationId, nom: i.nom, reponse: d === undefined ? null : (d.nature as 'accepte' | 'refuse'), le: d?.le ?? null };
   });
-  if (main !== null) return { etat: 'confirme', par: main.parLibelle, main: true, reponses };
+  if (main !== null) {
+    return { etat: 'confirme', par: main.parLibelle, main: true, reponses, sansDemande: invites.length === 0 && tries.some((e) => e.nature === 'non_invite') };
+  }
   const acceptes = reponses.filter((r) => r.reponse === 'accepte').sort((a, b) => (a.le ?? '').localeCompare(b.le ?? ''));
   if (acceptes.length > 0) return { etat: 'confirme', par: acceptes[0].nom, main: false, reponses };
   if (reponses.length > 0 && reponses.every((r) => r.reponse === 'refuse')) return { etat: 'refuse', par: null, main: false, reponses };
@@ -80,6 +87,7 @@ export function etatReponsesRdv(invites: readonly LocataireInvite[], evenements:
 
 /** Le MOT du cartouche des locataires (le mot est toujours écrit, jamais la seule couleur). PUR. */
 export function motCartoucheLocataires(e: EtatLocataires): string {
+  if (e.etat === 'confirme' && e.main && e.sansDemande === true) return `Confirmé sans demande aux locataires (par ${e.par ?? '—'})`;
   if (e.etat === 'confirme') return e.main ? `Locataires : Confirmé à la main par ${e.par ?? '—'}` : `Locataires : Confirmé (par ${e.par ?? '—'})`;
   if (e.etat === 'non_invites') return 'Locataires non invités';
   return e.etat === 'refuse' ? 'Locataires : Refusé' : 'Locataires : En attente';
@@ -209,8 +217,9 @@ export const nomInvite = (l: { nom: string; prenom: string | null }): string => 
 // Obligatoire en fixant ou en déplaçant un rendez-vous (pré-visite comme état des lieux), AUCUNE réponse pré-cochée ; « Non » : aucun mail aux
 // locataires, le rendez-vous est planifié quand même. Le serveur refuse un geste sans choix (le formulaire aussi).
 export type ChoixLocataires = 'oui' | 'non';
-export const QUESTION_INVITER_LOCATAIRES = 'Envoyer l’invitation aux locataires';
-export const MOTIF_CHOIX_LOCATAIRES = 'Choisissez « Oui » ou « Non » pour « Envoyer l’invitation aux locataires ».';
+/** 🔴 Arno (18/11/2026) — le libellé de la question (remplace « Envoyer l'invitation aux locataires »). */
+export const QUESTION_INVITER_LOCATAIRES = 'Envoyer une demande de confirmation au(x) locataire(s)';
+export const MOTIF_CHOIX_LOCATAIRES = `Choisissez « Oui » ou « Non » pour « ${QUESTION_INVITER_LOCATAIRES} ».`;
 export const lireChoixLocataires = (x: unknown): ChoixLocataires | null => (x === 'oui' || x === 'non' ? x : null);
 
 /** Ce que le récapitulatif dit des locataires (avant « Confirmer et envoyer »). */
@@ -228,7 +237,8 @@ export interface ApercuLocataires {
 
 /** La phrase du récapitulatif sur les locataires. PUR. */
 export function phraseRecapLocataires(a: ApercuLocataires): string {
-  if (a.choix === 'non') return 'Les locataires ne seront PAS invités : aucun mail ne leur partira.';
+  // 🔴 Arno (18/11/2026) — « Non » = le rendez-vous est CONFIRMÉ côté locataires, sans les solliciter
+  if (a.choix === 'non') return 'Les locataires ne seront pas sollicités : le rendez-vous sera considéré comme confirmé.';
   if (a.impossible !== null) return `Les locataires ne pourront pas être invités : ${a.impossible}`;
   if (a.invites.length === 0) return 'Aucun locataire n’a d’adresse e-mail : aucune invitation ne leur partira.';
   return `Les locataires seront invités (${a.invites.length}) : ${a.invites.join(', ')} — avec « ${BOUTON_ACCEPTER} » / « ${BOUTON_REFUSER} ».`;

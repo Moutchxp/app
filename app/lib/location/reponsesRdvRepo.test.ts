@@ -86,7 +86,7 @@ vi.mock('./previsiteBase', async (orig) => ({
       { occupationId: 554, nom: 'ESSAIPREAVIS', prenom: 'Alice', civilite: null, emails: ['alice@exemple.test'], entree: null, sortie: null }] }),
 }));
 
-import { apercuLocatairesEdls, creerJetons, envoyerMailLocatairesEdls, etatsDesRdv, lireJetonRdv, marquerNonInvites, repondreParJeton, validerRdvALaMain, versionRdv } from './reponsesRdvRepo';
+import { apercuLocatairesEdls, confirmerSansDemande, creerJetons, envoyerMailLocatairesEdls, etatsDesRdv, lireJetonRdv, marquerNonInvites, repondreParJeton, validerRdvALaMain, versionRdv } from './reponsesRdvRepo';
 
 const AUTEUR = { id: 2, libelle: 'Arnaud Jorel' };
 const AVANT = new Date('2026-11-19T12:00:00Z');
@@ -235,6 +235,38 @@ describe('🔴 (18/11/2026) « Valider sans prévenir » sur un rendez-vous qui 
     h.tacheDuPreavis = false;
     expect(await valider()).toEqual({ etat: 'refus', motif: 'Ce rendez-vous n’est plus d’actualité pour ce préavis : rechargez la page.' });
     expect(ecrituresReponses()).toEqual([]);
+  });
+});
+
+describe.each(['previsite', 'edl'] as const)('🔴 Arno (18/11/2026) — « Non » = rendez-vous CONFIRMÉ côté locataires (%s)', (sorte) => {
+  const tache = sorte === 'previsite' ? 34 : 60;
+  const etatDe = async () => (await etatsDesRdv([{ sorte, tacheId: tache, jour: h.tache.jour, heure: h.tache.heure }])).get(`${sorte}:${tache}`) ?? null;
+  it('« Non » : « Confirmé sans demande aux locataires (par X) », auteur journalisé, AUCUN mail aux locataires (seulement le mail interne)', async () => {
+    expect(await confirmerSansDemande(sorte, tache, [553, 554], AUTEUR)).toBe(true);
+    const e = await etatDe();
+    expect(e).toMatchObject({ etat: 'confirme', main: true, par: 'Arnaud Jorel', sansDemande: true });
+    const { motCartoucheLocataires } = await import('./reponsesRdv');
+    expect(motCartoucheLocataires(e!)).toBe('Confirmé sans demande aux locataires (par Arnaud Jorel)');
+    expect(h.evts.find((x) => x.nature === 'validation_main')?.par_libelle).toBe('Arnaud Jorel');
+    expect(h.envois.flatMap((m) => m.a).some((a) => a.includes('exemple.test'))).toBe(false);
+    expect(h.envois.map((m) => m.sorte)).toEqual(['rdv_confirmation_interne']);
+    expect(h.jetons).toEqual([]);
+  });
+  it('« Annuler la validation à la main » ramène l’état d’avant (non sollicités, plus confirmé) ; aucun nouveau mail', async () => {
+    await confirmerSansDemande(sorte, tache, [553, 554], AUTEUR);
+    expect(await validerRdvALaMain({ sorte, tacheId: tache, occupationIds: [553, 554], annuler: true }, AUTEUR)).toMatchObject({ etat: 'ok' });
+    expect((await etatDe())?.etat).toBe('non_invites');
+    expect(h.envois).toHaveLength(1);
+  });
+  it('déplacé avec « Non » après des réponses : les réponses d’avant sont caduques, le nouveau créneau est confirmé sans les locataires', async () => {
+    const liens = await creerJetons({ tacheId: tache, sorte, rdv: { jour: '2026-11-20', heure: '10:00', dureeMinutes: 60 }, occupationIds: [553],
+      locataires: [{ occupationId: 553, emails: ['paul@exemple.test'] }], auteur: AUTEUR });
+    await repondreParJeton(jetonDe(liens.get(553)!.refuser), 'refuser', { maintenant: AVANT });
+    h.tache = { ...h.tache, jour: '2026-11-22' };
+    await confirmerSansDemande(sorte, tache, [553], AUTEUR);
+    expect(await etatDe()).toMatchObject({ etat: 'confirme', sansDemande: true, reponses: [] });
+    expect(await lireJetonRdv(jetonDe(liens.get(553)!.accepter), AVANT)).toMatchObject({ ok: false, cause: 'caduc' });
+    expect(h.evts.some((x) => x.nature === 'refuse')).toBe(true); // la réponse d'avant reste au journal
   });
 });
 
