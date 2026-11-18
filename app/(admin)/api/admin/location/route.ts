@@ -47,6 +47,7 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
+import { avecReponsesRdv, envoyerMailLocatairesEdls, validerRdvALaMain } from '../../../../lib/location/reponsesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
@@ -172,7 +173,8 @@ export async function GET(request: Request): Promise<Response> {
     // 🔴 Arno (14/11/2026, 473) — + les préavis de TEST de la personne connectée (badge « TEST »), jamais ceux des autres.
     if (p('preavisEnCours') !== null) {
       const moi = await auteurDeLaRequete(request);
-      const lignes = await avecPrevisites(await preavisEnCours({ tests: { visiteur: moi.id } }));
+      // 🔴 Arno (18/11/2026, 495) — + la réponse des LOCATAIRES à chaque rendez-vous (cartouche « Locataires : … ») ; sans la 495 : telles quelles.
+      const lignes = await avecReponsesRdv(await avecPrevisites(await preavisEnCours({ tests: { visiteur: moi.id } })));
       const administrateur = !('refus' in (await exigerAdministrateur(request)));
       return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() } } }, { headers: ENTETES });
     }
@@ -766,7 +768,19 @@ async function postLocation(request: Request): Promise<Response> {
         const agenda = await synchroniserApresGeste(r.tacheId);
         // Le statut de la demande posée (« en attente », ou « acceptée » d'office quand on se la confie) : la ligne change aussitôt.
         const statut = r.demandes?.[0]?.statut ?? r.demande?.statut ?? null;
-        return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim() } });
+        // 🔴 Arno (18/11/2026, 495) — l'invitation des LOCATAIRES (ou sa modification), avec leurs boutons, si le réglage est allumé ; un échec
+        //    n'annule jamais le geste. « Confier à quelqu'un d'autre » ne change pas la date : aucun nouvel envoi.
+        const locataires = action === 'reattribuer-edls' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesEdls(r.tacheId, occs, auteur);
+        return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim(), locataires: locataires.envois, sansEmail: locataires.sansEmail } });
+      }
+      // 🔴 Arno (18/11/2026, 495) — « Valider le rendez-vous sans prévenir les locataires » (et l'annuler) : journalisé, aucun mail aux locataires.
+      case 'valider-rdv-main':
+      case 'annuler-validation-rdv-main': {
+        const sorteRdv = corps.sorte === 'edl' ? 'edl' : corps.sorte === 'previsite' ? 'previsite' : null;
+        const tacheRdv = identifiant(corps.tacheId);
+        const occs = idsOccupations(corps.occupationIds);
+        if (sorteRdv === null || tacheRdv === null || occs.length === 0) return incomplet();
+        return repondre(await validerRdvALaMain({ sorte: sorteRdv, tacheId: tacheRdv, occupationIds: occs, annuler: action === 'annuler-validation-rdv-main' }, auteur));
       }
       // ══ 🔴🔴 LA PRÉ-VISITE (Arno, 10/11/2026) — ouverte aux comptes Location. Aperçu (lecture : rien n'est écrit, rien ne part), puis le
       //    geste ; après l'écriture, les mails des collègues (module de tâches, droit d'envoi relu, mode RECETTE) et ceux des locataires.

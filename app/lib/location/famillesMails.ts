@@ -54,6 +54,8 @@ const SORTES: Record<string, FamilleMail> = {
   preavis_adhoc: 'partenaires', sortie_adhoc: 'partenaires', nouvelle_location: 'partenaires',
   sortie_interne: 'interne', sortie_edls_interne: 'interne', previsite_invitation: 'interne', previsite_annulation: 'interne',
   previsite_alerte: 'interne', previsite_invitation_cr: 'interne', previsite_reponse: 'interne', previsite_compte_rendu: 'interne',
+  // 🔴 Arno (18/11/2026, 495) — l'invitation des locataires à l'état des lieux ; le mail interne d'un rendez-vous confirmé / refusé
+  edls_locataires: 'locataire', edls_locataires_modif: 'locataire', rdv_confirmation_interne: 'interne', rdv_refus_interne: 'interne',
 };
 
 /**

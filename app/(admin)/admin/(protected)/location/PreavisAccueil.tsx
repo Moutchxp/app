@@ -32,6 +32,7 @@ import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
 import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
+import { motCartoucheLocataires, type EtatLocataires } from '../../../../lib/location/reponsesRdv';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
 import { BandeauPreavisTest, CreerPreavisTest, CSS_PREAVIS_TEST } from './PreavisTest';
 import { BADGE_TEST } from '../../../../lib/location/preavisTest';
@@ -283,9 +284,11 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 // 🔴 (15/11/2026) la mission du rendez-vous affiché : « confié à Prénom NOM » + l'état de la tâche
                 const missionDe = (r: typeof rdv) => (r.sorte === 'previsite' || r.sorte === 'edl' ? missionDeLigne(l, r.sorte) : null);
                 const mission = missionDe(rdv);
-                const missionHtml = (m: ReturnType<typeof missionDe>) => m && <>
+                const missionHtml = (m: ReturnType<typeof missionDe>, sorte?: string) => <>{m && <>
                   <span className="pva-confie" title={`confié à ${m.qui}`}>confié à {m.qui}</span>
-                  <span className={`pva-etat-mission pva-etat-mission--${m.etat}`} data-etat-mission={m.etat}>{LIBELLE_ETAT_MISSION[m.etat]}</span></>;
+                  <span className={`pva-etat-mission pva-etat-mission--${m.etat}`} data-etat-mission={m.etat}>{LIBELLE_ETAT_MISSION[m.etat]}</span></>}
+                  {/* 🔴 Arno (18/11/2026, option A) — le cartouche des LOCATAIRES, juste à côté de celui du collègue (qui ne change pas) */}
+                  {(sorte === 'previsite' || sorte === 'edl') && <CartoucheLocataires e={l.reponsesRdv?.[sorte]} />}</>;
                 const dateHtml = (r: typeof rdv) => <>
                   <span className="pva-rdv-date">{r.texte}</span>
                   {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
@@ -313,11 +316,11 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                             <span className="pva-col-rdv pva-col-rdv--deux" data-col-rdv="deux">
                               {rdvs.map((r) => { const m = missionDe(r); return [
                                 <span key={`${r.sorte}-d`} className={`pva-rdv-item pva-col-rdv--${r.sorte}`} data-rdv-item={r.sorte}>{dateHtml(r)}</span>,
-                                <span key={`${r.sorte}-m`} className="pva-col-mission" data-col-mission={m?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(m)}</span>]; })}
+                                <span key={`${r.sorte}-m`} className="pva-col-mission" data-col-mission={m?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(m, r.sorte)}</span>]; })}
                             </span>
                           ) : <>
                           <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{dateHtml(rdv)}</span>
-                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{missionHtml(mission)}</span></>}
+                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{missionHtml(mission, rdv.sorte)}</span></>}
                           <span className="pva-col-details pva-detail" title={details} data-col-details>{details}</span>
                         </span>
                       </div>
@@ -354,6 +357,49 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
       )}
     </section>
     </ContextePreavis.Provider>
+  );
+}
+
+/** 🔴 Arno (18/11/2026, 495) — le cartouche « Locataires : … » (le mot toujours écrit ; jetons du thème). Rien à montrer : rien. */
+function CartoucheLocataires({ e }: { e: EtatLocataires | null | undefined }) {
+  if (e === null || e === undefined) return null;
+  return <span className={`pva-loc pva-loc--${e.etat}${e.main ? ' pva-loc--main' : ''}`} data-cartouche-locataires={e.main ? 'main' : e.etat} title={motCartoucheLocataires(e)}>{motCartoucheLocataires(e)}</span>;
+}
+
+/**
+ * 🔴 Arno (18/11/2026, 495) — sous le rendez-vous (pré-visite ou état des lieux) : la réponse de chaque locataire, le cartouche, et « Valider le
+ * rendez-vous sans prévenir les locataires » (réversible : « Annuler la validation à la main ») — aucun mail aux locataires, l'auteur au journal.
+ */
+function ValidationRdvLocataires({ l, sorte, apres }: { l: LignePreavisAccueil; sorte: 'previsite' | 'edl'; apres: () => void }) {
+  const { ecriture } = useContextePreavis();
+  const [envoi, setEnvoi] = useState(false);
+  const [motif, setMotif] = useState<string | null>(null);
+  const tacheId = sorte === 'previsite' ? (l.previsite?.rdv ? l.previsite.tacheId : null) : l.edls?.tacheId ?? null;
+  if (l.reponsesRdv?.disponible !== true || tacheId === null || tacheId === undefined) return null;
+  const e = l.reponsesRdv[sorte];
+  const main = e?.etat === 'confirme' && e.main;
+  const agir = async (): Promise<void> => {
+    setEnvoi(true); setMotif(null);
+    const r = await envoyer({ action: main ? 'annuler-validation-rdv-main' : 'valider-rdv-main', sorte, tacheId, occupationIds: l.occupationIds });
+    setEnvoi(false);
+    if (r.motif !== null) { setMotif(r.motif); return; }
+    apres();
+  };
+  return (
+    <div className="pva-bloc pva-rdv-locataires" data-rdv-locataires={sorte}>
+      <p className="pva-rdv-loc-tete"><CartoucheLocataires e={e} />{e === null || e === undefined
+        ? <span className="loc-muet">Locataires : aucune invitation avec réponse en ligne pour ce rendez-vous.</span> : null}</p>
+      {e && e.reponses.length > 0 && (
+        <ul className="pva-rdv-loc-liste">{e.reponses.map((x) => (
+          <li key={x.occupationId} data-reponse-locataire={x.reponse ?? 'attente'}>{x.nom} : {x.reponse === 'accepte' ? 'accepte' : x.reponse === 'refuse' ? 'refuse' : 'pas encore répondu'}</li>))}</ul>)}
+      <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!ecriture || envoi} onClick={() => { void agir(); }}
+          data-valider-rdv-main={main ? 'annuler' : 'valider'}>
+          {envoi ? 'Enregistrement…' : main ? 'Annuler la validation à la main' : 'Valider le rendez-vous sans prévenir les locataires'}</button>
+      </div>
+      {!ecriture && <MentionReserveLocation />}
+      {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+    </div>
   );
 }
 
@@ -397,8 +443,8 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
               <span className="frp-statut" data-libelle-etape>{lignesSousTitre(e, l, { planification }).map((x, i) => (
                 <span key={i} className="frp-ligne" data-ligne-etape>{x}</span>))}</span>
             </div>
-            {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} />}
-            {e.cle === 'edls' && (planification ? <BlocEdls l={l} edlsPose={edlsPose} /> : (
+            {e.cle === 'previsite' && <><BlocPrevisite l={l} apres={apres} /><ValidationRdvLocataires l={l} sorte="previsite" apres={apres} /></>}
+            {e.cle === 'edls' && (planification ? <><BlocEdls l={l} edlsPose={edlsPose} /><ValidationRdvLocataires l={l} sorte="edl" apres={apres} /></> : (
       <div className="pva-bloc" data-bloc-edl>
         <div className="frp-infos">
         <label className="pvs-champ">
@@ -740,6 +786,16 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-etat-mission--attente{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
 .pva-etat-mission--confirme{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pva-etat-mission--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+/* 🔴 Arno (18/11/2026, 495) — le cartouche des LOCATAIRES, à côté de celui du collègue : même forme, le mot toujours écrit, jetons du thème */
+.pva-loc{flex:0 1 auto;min-width:0;display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:.76rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1px dashed currentColor;margin-left:6px}
+.pva-loc--attente{background:var(--color-svv-field);color:var(--color-svv-muted)}
+.pva-loc--confirme{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.pva-loc--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+.pva-rdv-locataires{display:grid;gap:8px}
+.pva-rdv-loc-tete{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pva-rdv-loc-tete .pva-loc{margin-left:0;white-space:normal}
+.pva-rdv-loc-liste{margin:0;padding-left:18px;color:var(--color-svv-ink);font-size:.9rem}
+.pva-rdv-locataires .gst-btn{min-height:44px}
 .pva-col-fin,.pva-col-rdv,.pva-col-details{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pva-col-fin{color:var(--color-svv-muted)}
 .pva-col-rdv{font-weight:800;display:flex;flex-direction:column;justify-content:center}

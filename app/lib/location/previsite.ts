@@ -15,6 +15,7 @@ import { paragraphesDesParties, partiesDuMail, type EditionMail, type PartieText
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
 import { heureFr, minutesDe, plageFr } from './edls';
 import { instantParis } from '../temps/paris';
+import { paragraphesBoutonsRdv, partiesEdlsLocataires, partiesEdlsLocatairesModif, type LiensReponse } from './reponsesRdv';
 
 // ══ LES STATUTS ═════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -286,12 +287,19 @@ export function paragraphesModificationLocataires(d: { adresse: string; locatair
  * 🔴 Arno (10/11/2026, texte modifiable) — la confirmation / modification d'UN locataire, depuis ses parties (retouche appliquée, chacun son
  * nom) : le texte PROPOSÉ gardé quand il est modifié, et ce que l'éditeur montre. PUR.
  */
-export function mailRdvLocataire(o: { sorte: 'previsite_locataires' | 'previsite_locataires_modif'; de: string; objet: string; adresse: string; rdv: RdvPrevisite;
-  ancien: RdvPrevisite | null; locataire: LocatairePrevisite; qui: QuiEnvoie; signature: Signature; retouche?: Retouche; ics?: MailPrevisite['ics'] }): MailPrevisite | null {
+export function mailRdvLocataire(o: { sorte: 'previsite_locataires' | 'previsite_locataires_modif' | 'edls_locataires' | 'edls_locataires_modif'; de: string; objet: string; adresse: string; rdv: RdvPrevisite;
+  ancien: RdvPrevisite | null; locataire: LocatairePrevisite; qui: QuiEnvoie; signature: Signature; retouche?: Retouche; ics?: MailPrevisite['ics'];
+  /** 🔴 Arno (18/11/2026) — les deux boutons « J'accepte le rendez-vous » / « Je refuse » de CE locataire (ses liens personnels) ; absents : le mail d'avant. */
+  boutons?: LiensReponse | null }): MailPrevisite | null {
   const a = adressesUniques(o.locataire.emails);
   if (a.length === 0) return null;
-  const c = corpsDepuisParties({ cle: o.sorte, objet: o.objet, parties: o.ancien === null ? partiesConfirmationLocataires() : partiesModificationLocataires(),
-    retouche: o.retouche, valeurs: valeursRdv(o, prenomNom(o.locataire)), qui: o.qui, signature: o.signature });
+  // 🔴 (18/11/2026) l'état des lieux : ses propres parties (sur le modèle de la pré-visite)
+  const edls = o.sorte === 'edls_locataires' || o.sorte === 'edls_locataires_modif';
+  const parties = edls ? (o.ancien === null ? partiesEdlsLocataires() : partiesEdlsLocatairesModif())
+    : o.ancien === null ? partiesConfirmationLocataires() : partiesModificationLocataires();
+  const c = corpsDepuisParties({ cle: o.sorte, objet: o.objet, parties,
+    retouche: o.retouche, valeurs: valeursRdv(o, prenomNom(o.locataire)), qui: o.qui, signature: o.signature,
+    ...(o.boutons ? { apres: paragraphesBoutonsRdv(o.boutons) } : {}) });
   return { sorte: o.sorte, de: o.de, a, cc: [], objet: o.objet, texte: c.texte, html: c.html, ...(o.ics ? { ics: o.ics } : {}),
     ...(c.texteOrigine !== null ? { texteOrigine: c.texteOrigine } : {}), edition: c.edition };
 }
@@ -516,7 +524,9 @@ export function copieInterneLocataires(o: {
 /** Un mail de pré-visite prêt : ce que le récapitulatif montre et ce qui part, à l'identique. */
 export interface MailPrevisite {
   sorte: 'previsite_alerte' | 'previsite_locataires' | 'previsite_locataires_modif' | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus'
-    | 'previsite_annulation';
+    | 'previsite_annulation'
+    // 🔴 Arno (18/11/2026, 495) — l'invitation des locataires à l'état des lieux, et le mail interne d'un rendez-vous confirmé / refusé
+    | 'edls_locataires' | 'edls_locataires_modif' | 'rdv_confirmation_interne' | 'rdv_refus_interne';
   de: string; a: string[]; cc: string[]; objet: string; texte: string; html: string;
   /** L'invitation d'agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;

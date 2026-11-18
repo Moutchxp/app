@@ -44,7 +44,9 @@ export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adh
   // 🔴 Arno (16/11/2026, migration 479) — le CHANGEMENT DE DIGICODE (`digicodesEnvoi.ts`).
   | 'digicode_locataire' | 'digicode_proprietaire'
   // 🔴 Arno (17/11/2026, migration 484) — le mail à la Gestion d'un changement de digicode
-  | 'digicode_gestion';
+  | 'digicode_gestion'
+  // 🔴 Arno (18/11/2026, migration 495) — l'invitation des locataires à l'état des lieux, et le mail interne d'un rendez-vous confirmé / refusé
+  | 'edls_locataires' | 'edls_locataires_modif' | 'rdv_confirmation_interne' | 'rdv_refus_interne';
 
 /** Un mail prêt : ce que l'aperçu montre et ce qui part, à l'identique. */
 export interface MailAvis {
@@ -198,9 +200,11 @@ export const REPERE_NOM = 'nom du locataire';
  */
 export function corpsDepuisParties(o: { cle: string; objet: string; parties: readonly PartieTexte[]; retouche: Retouche | null | undefined;
   valeurs: Readonly<Record<string, string>>; qui: Parameters<typeof mentionEnvoyePar>[0] | { mention: string | null }; signature: Signature;
-  copie?: { texte: string; html: string; libelle: string } | null }): { texte: string; html: string; texteOrigine: string | null; edition: EditionMail } {
+  copie?: { texte: string; html: string; libelle: string } | null;
+  /** 🔴 Arno (18/11/2026) — des paragraphes APRÈS le texte (avant la mention et la signature) : les boutons de réponse d'un rendez-vous. */
+  apres?: readonly ParagrapheMail[] }): { texte: string; html: string; texteOrigine: string | null; edition: EditionMail } {
   const construire = (r: Retouche | null | undefined) => {
-    const c = composerMailLocation(paragraphesDesParties(o.parties, r, o.valeurs), o.qui, o.signature);
+    const c = composerMailLocation([...paragraphesDesParties(o.parties, r, o.valeurs), ...(o.apres ?? [])], o.qui, o.signature);
     return o.copie ? { texte: `${c.texte}\n\n${o.copie.texte}`, html: c.html.replace(/<\/div>$/, `${o.copie.html}</div>`) } : c;
   };
   const m = construire(o.retouche);

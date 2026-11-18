@@ -100,6 +100,11 @@ const LIBELLE_AVIS: Record<string, string> = {
   previsite_compte_rendu: 'Pré-visite — compte rendu',
   previsite_refus: 'Pré-visite — refus / absence (locataires)',
   previsite_annulation: 'Pré-visite — annulation (collègues)',
+  // 🔴 Arno (18/11/2026, 495) — les réponses des locataires aux rendez-vous
+  edls_locataires: 'État des lieux de sortie — invitation des locataires',
+  edls_locataires_modif: 'État des lieux de sortie — rendez-vous déplacé (locataires)',
+  rdv_confirmation_interne: 'Rendez-vous confirmé (copie interne)',
+  rdv_refus_interne: 'Rendez-vous refusé par les locataires (copie interne)',
   // 🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie ».
   sortie_edls_locataire: 'État des lieux de sortie — compte rendu (locataire)',
   sortie_edls_proprietaire: 'État des lieux de sortie — compte rendu (propriétaire)',

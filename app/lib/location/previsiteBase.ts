@@ -21,6 +21,7 @@ import {
   type FaitsPrevisite, type MailPrevisite, type RdvPrevisite, type ReponseDuCollegue,
 } from './previsite';
 import type { Retouches } from './texteModifiable';
+import type { LiensReponse } from './reponsesRdv';
 
 /**
  * ══ 🔴🔴 LA PRÉ-VISITE — LA BASE COMMUNE DU DÉPÔT (Arno, 10/11/2026) ════════════════════════════════════════════════════════════
@@ -230,7 +231,9 @@ export function icsDuRdv(c: Contexte, previsiteId: number, rdv: RdvPrevisite, se
  * étaient en copie visible avant). Vide si aucun locataire n'a d'adresse. PUR (le contexte est lu).
  */
 export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisite, sequence: number, ancien: RdvPrevisite | null, maintenant: Date,
-  retouches?: Retouches): MailPrevisite[] {
+  retouches?: Retouches,
+  /** 🔴 Arno (18/11/2026) — les liens personnels « J'accepte » / « Je refuse » de chaque locataire (par occupation) ; absents : le mail d'avant. */
+  liens?: ReadonlyMap<number, LiensReponse>): MailPrevisite[] {
   const sorte = ancien === null ? 'previsite_locataires' as const : 'previsite_locataires_modif' as const;
   const objet = ancien === null ? objetConfirmationLocataires(c.adresse, rdv) : objetModificationLocataires(c.adresse, rdv);
   const retouche = retouches?.[sorte];
@@ -241,7 +244,7 @@ export function mailLocataires(c: Contexte, previsiteId: number, rdv: RdvPrevisi
   const ics = icsDuRdv(c, previsiteId, rdv, sequence, maintenant);
   // 🔴🔴 (Arno, 17/11/2026) un mail PAR ADRESSE
   const envois = c.locataires.flatMap((l) => { const m = mailRdvLocataire({ sorte, de: c.expediteur, objet, adresse: c.adresse, rdv, ancien, locataire: l, qui: c.qui,
-    signature: c.signature, ...(retouche ? { retouche } : {}), ics }); return m === null ? [] : unMailParAdresse(m); });
+    signature: c.signature, ...(retouche ? { retouche } : {}), ics, boutons: liens?.get(l.occupationId) ?? null }); return m === null ? [] : unMailParAdresse(m); });
   const premier = c.locataires.find((l) => adressesUniques(l.emails).length > 0);
   const copie = premier === undefined ? null : copieInterneLocataires({ sorte, de: c.expediteur, a: copiesAvis(c.expediteur, c.qui, []), objet, envois,
     locataires: c.locataires, paragraphes: paragraphesDe(premier), qui: c.qui, signature: c.signature });

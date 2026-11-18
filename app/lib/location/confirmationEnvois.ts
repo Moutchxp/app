@@ -50,6 +50,11 @@ export const LIBELLE_MAIL: Record<string, string> = {
   previsite_compte_rendu: 'Compte rendu de pré-visite',
   previsite_refus: 'Refus / absence de pré-visite (locataires)',
   previsite_annulation: 'Annulation de la pré-visite (collègues)',
+  // 🔴 Arno (18/11/2026, 495) — les réponses des locataires aux rendez-vous
+  edls_locataires: 'Invitation des locataires à l’état des lieux de sortie',
+  edls_locataires_modif: 'Modification du rendez-vous d’état des lieux (locataires)',
+  rdv_confirmation_interne: 'Rendez-vous confirmé (copie interne)',
+  rdv_refus_interne: 'Rendez-vous refusé par les locataires (copie interne)',
   // 🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie ».
   sortie_edls_locataire: 'Compte rendu de l’état des lieux de sortie (locataire)',
   sortie_edls_proprietaire: 'Compte rendu de l’état des lieux de sortie (propriétaire)',

@@ -13,6 +13,7 @@
 import { rangStatutLigne } from './statutLignePreavis';
 import type { EdlsAffiche } from './edls';
 import type { PrevisiteAffiche } from './previsite';
+import type { EtatLocataires } from './reponsesRdv';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -173,6 +174,11 @@ export interface LignePreavisAccueil {
   /** 🔴 Arno (14/11/2026, 473) — un PRÉAVIS DE TEST (badge « TEST », hors compteurs) et son numéro ; absent = un vrai préavis. */
   test?: boolean;
   testId?: number;
+  /**
+   * 🔴 Arno (18/11/2026, 495) — la réponse des LOCATAIRES à la pré-visite et à l'état des lieux (cartouche « Locataires : … », à côté de celui du
+   * collègue, qui ne change pas) ; absente sans la 495. `null` : rien à montrer pour ce rendez-vous.
+   */
+  reponsesRdv?: { previsite: EtatLocataires | null; edl: EtatLocataires | null; disponible: boolean };
 }
 
 /** 🔴 Arno (10/11/2026) — + le statut de pré-visite (ordre d'Arno), la date du rendez-vous de pré-visite et la date de réception (pleine page). */

@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { preavisEnCours } from '../../../../../lib/location/preavisRepo';
 import { avecPrevisites } from '../../../../../lib/location/previsiteRepo';
+import { avecReponsesRdv } from '../../../../../lib/location/reponsesRdvRepo';
 import { encartDuBail } from '../../../../../lib/location/sortieLocatairesRepo';
 
 /**
@@ -24,7 +25,8 @@ export async function GET(request: Request): Promise<Response> {
   if (refus) return refus;
   const p = new URL(request.url).searchParams;
   try {
-    if (p.get('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await avecPrevisites(await preavisEnCours()) }, { headers: ENTETES });
+    // 🔴 Arno (18/11/2026, 495) — + la réponse des locataires à chaque rendez-vous (le même cartouche qu'en Location ; sans la 495 : rien de plus)
+    if (p.get('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await avecReponsesRdv(await avecPrevisites(await preavisEnCours())) }, { headers: ENTETES });
     const brut = p.get('encartBail') ?? '';
     if (/^[1-9]\d{0,15}$/.test(brut) && Number.isSafeInteger(Number(brut))) {
       const e = await encartDuBail(Number(brut));

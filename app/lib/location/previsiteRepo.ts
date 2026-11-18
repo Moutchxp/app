@@ -3,6 +3,8 @@ import { refusSansEmailLocataire } from './emailLocataireRequisRepo';
 import type { Auteur } from '../gestion/gestes';
 import { rappelsParDefaut, type SaisieTache } from '../gestion/taches';
 import { annulerTache, creerTache, decalerTache, listerCollaborateurs, marquerFaite, modifierTache, type Collaborateur, type IssueTache } from '../gestion/tachesRepo';
+import { creerJetons, reponsesRdvActives } from './reponsesRdvRepo';
+import { LIENS_APERCU } from './reponsesRdv';
 import { renvoyerInvitation } from '../gestion/invitesRepo';
 import { mailTache } from '../gestion/mailTache';
 import { colonneExisteMemo } from './sondeLocation';
@@ -145,7 +147,9 @@ export async function apercuRdvPrevisite(
     texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien, note)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
   }, 'interne', c, { pieces: [NOM_FICHIER_ICS] }));
   // 🔴 Arno (10/11/2026, texte modifiable) — les retouches : CONTRÔLÉES ici comme à l'envoi (même code) ; refusées, rien n'est montré comme parti.
-  const auxLocataires = mailLocataires(c, 0, rdv, 0, ancien, new Date(), d.retouches);
+  // 🔴 Arno (18/11/2026, 495) — réglage allumé : l'aperçu montre les deux boutons (les liens personnels sont créés à l'envoi)
+  const apercuBoutons = (await reponsesRdvActives()) ? new Map(c.locataires.map((l) => [l.occupationId, LIENS_APERCU] as const)) : undefined;
+  const auxLocataires = mailLocataires(c, 0, rdv, 0, ancien, new Date(), d.retouches, apercuBoutons);
   const refus = await refusRetouches(auxLocataires, d.retouches);
   if (refus !== null) return { etat: 'refus', motif: refus };
   for (const loc of auxLocataires) {
@@ -306,9 +310,16 @@ export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Aut
     if (!(await mailsAvisDisponibles())) return { envois: [], sansEmail: [] };
     const c = await contexte(r.occupationIds, auteur, deps);
     if (c === null) return { envois: [], sansEmail: [] };
-    const m = mailLocataires(c, r.previsiteId, r.rdv, await sequenceTache(r.tacheId), r.ancien, deps.maintenant ?? new Date(), retouches);
-    const refus = await refusRetouches(m, retouches);
+    const sequence = await sequenceTache(r.tacheId);
+    const m0 = mailLocataires(c, r.previsiteId, r.rdv, sequence, r.ancien, deps.maintenant ?? new Date(), retouches);
+    const refus = await refusRetouches(m0, retouches);
     if (refus !== null) return { envois: [{ sorte: r.ancien === null ? 'previsite_locataires' : 'previsite_locataires_modif', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: refus }], sansEmail: [] };
+    // 🔴 Arno (18/11/2026, 495) — réglage allumé : chaque locataire reçoit SES boutons « J'accepte le rendez-vous » / « Je refuse » (un lien
+    //    personnel pour CE créneau ; un déplacement en crée de nouveaux, les anciens deviennent caducs)
+    const m = (await reponsesRdvActives())
+      ? mailLocataires(c, r.previsiteId, r.rdv, sequence, r.ancien, deps.maintenant ?? new Date(), retouches,
+        await creerJetons({ tacheId: r.tacheId, sorte: 'previsite', rdv: r.rdv, occupationIds: r.occupationIds, locataires: c.locataires, auteur }))
+      : m0;
     return { envois: m.length === 0 ? [] : await envoyerSerie(m, c.brute, { lotId: c.lotId, occupationIds: r.occupationIds, auteur }, deps), sansEmail: sansEmail(c) };
   } catch (e) {
     return { envois: [{ sorte: 'previsite_locataires', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: (e as Error)?.message || 'erreur inattendue' }], sansEmail: [] };
