@@ -58,53 +58,80 @@ describe('① les exemples du champ « Qualité »', () => {
   });
 });
 
-describe('② la fête du « Oui »', () => {
-  it('au passage à Oui : la fête (canvas) DANS le bouton, sous le libellé, le formulaire du bien tout de suite ; 4 s puis « ✓ Oui » normal', async () => {
+describe('② la fête champagne : retirée du « Oui » de la question 2, gardée sur « En gestion » (Arno, 18/11/2026)', () => {
+  /** « Souhaitez-vous créer un bien immédiatement ? » — le premier bloc de question de la page. */
+  const q2Oui = () => container.querySelector('[data-question-gestion="creer-bien"] button') as HTMLButtonElement;
+  /** « Statut du bien » du formulaire du bien ouvert par le « Oui » : son premier bouton, « En gestion ». */
+  const enGestion = () => container.querySelector('[data-question-gestion="bien"] button') as HTMLButtonElement;
+
+  it('🔴 « Oui » de la question 2 : AUCUNE fête (ni toile, ni reflet), mais le même état coché, le même mot et la même action', async () => {
     vi.useFakeTimers();
     await act(async () => { root.render(createElement(CreationProprietaires)); });
-    await act(async () => { oui().click(); });
+    expect(q2Oui().textContent).toBe('Oui');
+    await act(async () => { q2Oui().click(); });
+    expect(q2Oui().querySelector('[data-fete]')).toBeNull();
+    expect(q2Oui().querySelector('canvas')).toBeNull();
+    expect(q2Oui().querySelector('.fete-reflet')).toBeNull();
+    // Le bouton est inchangé : coché, « ✓ Oui », mêmes classes ; le formulaire du bien s'ouvre juste en dessous.
+    expect(q2Oui().getAttribute('aria-pressed')).toBe('true');
+    expect(q2Oui().textContent).toBe('✓ Oui');
+    expect(q2Oui().className).toBe('loc-gros-bouton loc-gros-bouton--centre fete-hote');
+    expect(container.querySelector('[data-formulaire-bien]')).not.toBeNull();
+    expect(container.querySelector('[data-creer-bien-aide]')).not.toBeNull();
+    // Non puis Oui : toujours aucune fête, toujours l'action.
+    await act(async () => { bouton('Non').click(); });
+    await act(async () => { q2Oui().click(); });
+    expect(q2Oui().querySelector('[data-fete]')).toBeNull();
+    expect(q2Oui().getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('« En gestion » (Statut du bien) : la fête (canvas) DANS le bouton, sous le libellé ; 4 s puis « ✓ En gestion » normal', async () => {
+    vi.useFakeTimers();
+    await act(async () => { root.render(createElement(CreationProprietaires)); });
+    await act(async () => { q2Oui().click(); });
+    expect(enGestion()).not.toBeNull();
+    await act(async () => { enGestion().click(); });
     const fete = container.querySelector('[data-fete]');
     expect(fete).not.toBeNull();
     // Rien hors du bouton : la fête et tous ses éléments sont ses descendants ; le bouton masque le débordement.
-    expect(oui().contains(fete)).toBe(true);
+    expect(enGestion().contains(fete)).toBe(true);
     expect(document.querySelectorAll('[data-fete]')).toHaveLength(1);
-    expect(oui().className).toContain('fete-hote');
+    expect(enGestion().className).toContain('fete-hote');
     expect(fete?.getAttribute('aria-hidden')).toBe('true');
-    expect(oui().querySelectorAll('canvas')).toHaveLength(1);
-    expect(fete?.querySelector('canvas')).not.toBeNull();
+    expect(enGestion().querySelectorAll('canvas')).toHaveLength(1);
     expect(document.querySelectorAll('canvas')).toHaveLength(1);
     expect(DUREE_FETE_MS).toBe(4000);
-    // 🔴 (Arno, 18/11/2026) le « Oui » de « Souhaitez-vous créer un bien immédiatement ? » : le formulaire du bien tout de suite (plus de mandat sur la page)
-    expect(container.querySelector('[data-formulaire-bien]')).not.toBeNull();
-    expect(oui().textContent).toBe('✓ Oui');
+    expect(enGestion().querySelector('.fete-texte')?.textContent).toBe('✓ En gestion');
     await act(async () => { vi.advanceTimersByTime(DUREE_FETE_MS - 10); });
     expect(container.querySelector('[data-fete]')).not.toBeNull();
     await act(async () => { vi.advanceTimersByTime(20); });
     expect(container.querySelector('[data-fete]')).toBeNull();
-    expect(oui().textContent).toBe('✓ Oui');
+    expect(enGestion().querySelector('.fete-texte')?.textContent).toBe('✓ En gestion');
   });
 
-  it('Oui déjà choisi : pas de nouvelle fête ; Non puis Oui : la fête revient', async () => {
+  it('« En gestion » déjà choisi : pas de nouvelle fête ; « Location seule » puis « En gestion » : la fête revient', async () => {
     vi.useFakeTimers();
     await act(async () => { root.render(createElement(CreationProprietaires)); });
-    await act(async () => { oui().click(); });
+    await act(async () => { q2Oui().click(); });
+    await act(async () => { enGestion().click(); });
     await act(async () => { vi.advanceTimersByTime(DUREE_FETE_MS + 10); });
-    await act(async () => { oui().click(); });
+    await act(async () => { enGestion().click(); });
     expect(container.querySelector('[data-fete]')).toBeNull();
-    await act(async () => { bouton('Non').click(); });
+    const seule = container.querySelectorAll('[data-question-gestion="bien"] button')[1] as HTMLButtonElement;
+    await act(async () => { seule.click(); });
     expect(container.querySelector('[data-fete]')).toBeNull();
-    await act(async () => { oui().click(); });
+    await act(async () => { enGestion().click(); });
     expect(container.querySelector('[data-fete]')).not.toBeNull();
   });
 
-  it('« réduire les animations » : aucune fête, le reste inchangé', async () => {
+  it('« réduire les animations » : aucune fête sur « En gestion », le reste inchangé', async () => {
     reduit = true;
     await act(async () => { root.render(createElement(CreationProprietaires)); });
-    await act(async () => { oui().click(); });
+    await act(async () => { q2Oui().click(); });
+    await act(async () => { enGestion().click(); });
     expect(container.querySelector('[data-fete]')).toBeNull();
-    expect(oui().getAttribute('aria-pressed')).toBe('true');
-    // 🔴 (Arno, 18/11/2026) le « Oui » de « Souhaitez-vous créer un bien immédiatement ? » : le formulaire du bien tout de suite (plus de mandat sur la page)
-    expect(container.querySelector('[data-formulaire-bien]')).not.toBeNull();
+    expect(enGestion().getAttribute('aria-pressed')).toBe('true');
+    expect(q2Oui().getAttribute('aria-pressed')).toBe('true');
   });
 
   it('légère : canvas sans bibliothèque, aucun son, coupée par « mouvement réduit », dans le bouton et sous le libellé', () => {

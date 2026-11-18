@@ -157,6 +157,8 @@ export function CreationProprietaires() {
           « Souhaitez-vous créer un bien immédiatement ? » Oui / Non, aucun choix par défaut ; on peut changer d'avis. Le même bloc que « Bien en gestion ? ». */}
       <QuestionEnGestion id="loc-p3" numero={etat.clients.length > 0 && choixOrigine.disponible === true ? 3 : 2} titre="Souhaitez-vous créer un bien immédiatement ?"
         sorte="creer-bien" valeur={creerBien} legendeNon="(Sauvegarde du propriétaire)" desactiveNon={envoiProprietaire}
+        /* 🔴 Arno (18/11/2026) — plus de fête champagne sur ce « Oui » (elle reste sur « En gestion » du Statut du bien). */
+        fete={false}
         onChoix={(oui) => { setCreerBien(oui); setMotif(null); if (!oui) void enregistrerProprietaire(); }}>
         {creerBien === true && <p className="loc-section-phrase" style={{ margin: 0 }} data-creer-bien-aide>Le formulaire du bien s’ouvre juste en dessous, avec
           {nbProprietaires > 1 ? ` les ${nbProprietaires} propriétaires` : ' le propriétaire'} rattaché{nbProprietaires > 1 ? 's' : ''} d’office : un seul « Enregistrer » crée

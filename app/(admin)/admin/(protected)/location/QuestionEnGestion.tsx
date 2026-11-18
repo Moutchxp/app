@@ -15,7 +15,7 @@ import { FeteOui } from './FeteOui';
  * joue au seul PASSAGE à Oui, dans le bouton. Le style vient de l'écran hôte (`CSS_LOCATION_CREATION` + `CSS_FETE`).
  * Ce que le choix entraîne ailleurs (vider un mandat, effacer un refus) reste à l'écran hôte, par `onChoix`.
  */
-export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, obligatoire = false, libelles = { oui: 'Oui', non: 'Non' }, legendeNon, desactiveNon = false, children }: {
+export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, obligatoire = false, libelles = { oui: 'Oui', non: 'Non' }, legendeNon, desactiveNon = false, fete: avecFete = true, children }: {
   /** L'identifiant du titre (`aria-labelledby`). */
   id: string;
   numero: number;
@@ -35,6 +35,12 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
   legendeNon?: string;
   /** Le « Non » inactif (un enregistrement en cours : jamais deux envois). */
   desactiveNon?: boolean;
+  /**
+   * 🔴 Arno (18/11/2026) — la FÊTE du « Oui » (champagne, rebond, reflet doré). Jouée par défaut (« Statut du bien » : « En
+   * gestion ») ; `false` = aucun effet de célébration, le bouton inchangé sinon (même clic, même état, mêmes mots, même rendu).
+   * Retirée sur « Souhaitez-vous créer un bien immédiatement ? », et là seulement (accord d'Arno pour ce bouton).
+   */
+  fete?: boolean;
   /** Sous les boutons : le message « ce qui manque » de l'écran hôte. */
   children?: ReactNode;
 }) {
@@ -46,9 +52,9 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
       <div className="loc-gros-boutons loc-oui-non" role="group" aria-label={titre}>
         {/* Arno (18/10/2026) : la FÊTE du Oui — au passage à Oui seulement, contenue dans le bouton, 3 s, sans son. */}
         <button type="button" className="loc-gros-bouton loc-gros-bouton--centre fete-hote" aria-pressed={valeur === true}
-          onClick={() => { if (valeur !== true) setFete((n) => n + 1); onChoix(true); }}>
+          onClick={() => { if (avecFete && valeur !== true) setFete((n) => n + 1); onChoix(true); }}>
           <span className="fete-texte">{valeur === true ? `✓ ${libelles.oui}` : libelles.oui}</span>
-          {fete > 0 && <FeteOui key={fete} />}
+          {avecFete && fete > 0 && <FeteOui key={fete} />}
         </button>
         <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={valeur === false} disabled={desactiveNon} aria-busy={desactiveNon || undefined}
           onClick={() => onChoix(false)}>{valeur === false ? `✓ ${libelles.non}` : libelles.non}
