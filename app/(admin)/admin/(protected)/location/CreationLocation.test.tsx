@@ -179,7 +179,7 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     const q = () => container.querySelector('[data-question-gestion="creer-bien"]');
     expect(q()?.querySelector('h3')?.textContent).toContain('Souhaitez-vous créer un bien immédiatement ?');
-    expect([...(q()?.querySelectorAll('button') ?? [])].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Oui', 'false'], ['Non', 'false']]);
+    expect([...(q()?.querySelectorAll('button') ?? [])].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Oui', 'false'], ['Non(Sauvegarde du propriétaire)', 'false']]);
     expect(container.querySelector('[data-formulaire-bien]')).toBeNull();
     expect(container.querySelector('[data-enregistrer-proprietaire]')).toBeNull();
     // plus aucune question « en gestion » du propriétaire, plus de mandat sur la page, plus de gros bouton « Ajouter un bien à ce nouveau propriétaire »
@@ -192,9 +192,11 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     expect(container.querySelector('[data-creer-bien-aide]')?.textContent).toContain('un seul « Enregistrer » crée le propriétaire et le bien ensemble (tout ou rien)');
     // le formulaire du bien, sans la recherche de propriétaire
     expect(container.querySelector('[data-formulaire-bien] [data-proprietaires]')).toBeNull();
+    // 🔴 (Arno, 18/11/2026) « Non » enregistre le propriétaire : sans carte enregistrée, refusé et dit en rouge — rien n'est envoyé, aucune modale
     await act(async () => { bouton('Non').click(); });
     expect(container.querySelector('[data-formulaire-bien]')).toBeNull();
-    // « Non » sans carte enregistrée : refusé, et dit — rien n'est envoyé
+    expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte');
+    expect(document.querySelector('[data-modale-issue]')).toBeNull();
     await act(async () => { bouton('Enregistrer le propriétaire (sans bien)').click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte');
     expect(posts).toEqual([]);

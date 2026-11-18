@@ -333,6 +333,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-gros-bouton--centre{align-items:center;text-align:center}
 .loc-oui-non .loc-gros-bouton{min-height:7rem;font-size:1.6rem}
 .loc-gros-bouton[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);box-shadow:0 0 0 4px var(--color-svv-red-soft)}
+.loc-gros-bouton .loc-legende-bouton{font-size:.85rem;font-weight:500;line-height:1.3;margin-top:-4px;color:var(--color-svv-muted)}
+.loc-gros-bouton[aria-pressed="true"] .loc-legende-bouton{color:var(--color-svv-surface)}
 /* Le « Enregistrer » des cartes de contact (composant de la Gestion, inchangé là-bas) : ICI un vrai bouton, même taille
    que « Annuler », couleur du bouton principal du thème (Arno, 17/10/2026). */
 .loc-ample .cp-form-boutons{flex-wrap:nowrap}

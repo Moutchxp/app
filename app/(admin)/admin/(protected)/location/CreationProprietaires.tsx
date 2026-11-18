@@ -78,6 +78,7 @@ export function CreationProprietaires() {
     if (r.motif !== null) return { motif: r.motif, cause: r.cause };
     const ids = (r.data as { ids?: number[] } | undefined)?.ids ?? [];
     idsCrees.current = ids;
+    setEnregistres(ids);
     return { ids };
   };
 
@@ -89,15 +90,24 @@ export function CreationProprietaires() {
    */
   const [issue, setIssue] = useState<{ sorte: 'succes'; ids: number[] } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null } | null>(null);
   const [envoiProprietaire, setEnvoiProprietaire] = useState(false);
+  /** 🔴 Arno (18/11/2026) — les fiches déjà enregistrées par « Non » : jamais recréées (ni par un second « Non », ni par « Oui » puis le bien). */
+  const [enregistres, setEnregistres] = useState<number[] | null>(null);
   const enCours = useRef(false);
+  /**
+   * 🔴🔴 Arno (18/11/2026) — « lorsque l'on clic sur non, cela enregistre le profil du propriétaire et ouvre une modale de validation pour dire que le nouveau
+   * propriétaire est bien enregistré. » Les mêmes contrôles qu'avant ; il manque quelque chose : rien n'est enregistré, les manques en rouge, PAS de modale
+   * (un refus du serveur garde sa modale rouge, comme avant). Un seul envoi à la fois ; une fois enregistré, plus aucune création n'est renvoyée.
+   */
   const enregistrerProprietaire = async (): Promise<void> => {
     if (enCours.current) return;
-    if (empeche !== null) { setMotif(empeche); setIssue({ sorte: 'erreur', cause: 'champs', motif: empeche }); return; }
+    if (idsCrees.current === null && empeche !== null) { setMotif(empeche); return; }
     enCours.current = true;
     setEnvoiProprietaire(true);
     try {
       const r = await creerFiches();
+      // un refus du SERVEUR (une coordonnée déjà sur une autre fiche…) n'est pas un manque : sa modale rouge, comme avant
       if ('motif' in r) { setMotif(r.motif); setIssue({ sorte: 'erreur', cause: r.cause ?? 'saisie', motif: r.motif }); return; }
+      setMotif(null);
       if (etat.contacts.length > 0) poserContactsEnAttente(r.ids, etat.contacts);
       setIssue({ sorte: 'succes', ids: r.ids });
     } finally {
@@ -107,7 +117,13 @@ export function CreationProprietaires() {
   };
   const premier = etat.clients[0];
   const coordonnee = (sorte: string): string | null => premier?.coordonnees?.find((c) => c.sorte === sorte)?.valeur ?? null;
-  const nomsEnregistres = (): string[] => [...etat.clients.map((c) => nomDeCarte(c)), ...etat.existants.map((x) => x.nom)];
+  /** « Prénom NOM » (la phrase de la modale d'Arno). */
+  const prenomNom = (c: { nom?: string | null; prenom?: string | null }): string => [c.prenom, (c.nom ?? '').toUpperCase()].filter((x) => (x ?? '').trim() !== '').join(' ');
+  const phraseEnregistre = (): string => {
+    const noms = etat.clients.length > 0 ? etat.clients.map(prenomNom) : etat.existants.map((x) => x.nom);
+    const liste = noms.length <= 1 ? (noms[0] ?? '') : `${noms.slice(0, -1).join(', ')} et ${noms[noms.length - 1]}`;
+    return noms.length > 1 ? `Les nouveaux propriétaires ${liste} sont bien enregistrés.` : `Le nouveau propriétaire ${liste} est bien enregistré.`;
+  };
   const nomDeCarte = (c: { civilite?: string | null; nom?: string | null; prenom?: string | null }): string =>
     [c.civilite, (c.nom ?? '').toUpperCase(), c.prenom].filter((x) => (x ?? '') !== '').join(' ');
 
@@ -140,7 +156,8 @@ export function CreationProprietaires() {
       {/* 🔴🔴 Arno (18/11/2026) — À LA PLACE de « Propriétaire(s) en gestion ? » et du gros bouton « Ajouter un bien à ce nouveau propriétaire » :
           « Souhaitez-vous créer un bien immédiatement ? » Oui / Non, aucun choix par défaut ; on peut changer d'avis. Le même bloc que « Bien en gestion ? ». */}
       <QuestionEnGestion id="loc-p3" numero={etat.clients.length > 0 && choixOrigine.disponible === true ? 3 : 2} titre="Souhaitez-vous créer un bien immédiatement ?"
-        sorte="creer-bien" valeur={creerBien} onChoix={(oui) => { setCreerBien(oui); setMotif(null); }}>
+        sorte="creer-bien" valeur={creerBien} legendeNon="(Sauvegarde du propriétaire)" desactiveNon={envoiProprietaire}
+        onChoix={(oui) => { setCreerBien(oui); setMotif(null); if (!oui) void enregistrerProprietaire(); }}>
         {creerBien === true && <p className="loc-section-phrase" style={{ margin: 0 }} data-creer-bien-aide>Le formulaire du bien s’ouvre juste en dessous, avec
           {nbProprietaires > 1 ? ` les ${nbProprietaires} propriétaires` : ' le propriétaire'} rattaché{nbProprietaires > 1 ? 's' : ''} d’office : un seul « Enregistrer » crée
           {nbProprietaires > 1 ? ' les propriétaires' : ' le propriétaire'} et le bien ensemble (tout ou rien).</p>}
@@ -155,17 +172,24 @@ export function CreationProprietaires() {
         </p>
       )}
       {issue?.sorte === 'succes' && (
-        <ModaleIssue sorte="succes" titre={`Propriétaire${issue.ids.length > 1 ? 's' : ''} enregistré${issue.ids.length > 1 ? 's' : ''}`} onFermer={() => setIssue(null)}
-          lignes={[['Propriétaire' + (nomsEnregistres().length > 1 ? 's' : ''), nomsEnregistres().join(', ')],
-            ...(coordonnee('telephone') !== null ? [['Téléphone', coordonnee('telephone')!] as [string, string]] : []),
-            ...(coordonnee('email') !== null ? [['E-mail', coordonnee('email')!] as [string, string]] : [])]}
+        /* 🔴 Arno (18/11/2026) — « une modale s'ouvre : titre « Propriétaire enregistré », texte « Le nouveau propriétaire Prénom NOM est bien enregistré. »,
+           un bouton « Ouvrir la fiche du propriétaire » (va sur sa fiche) » ; les gestes qui y étaient déjà restent, en second. */
+        <ModaleIssue sorte="succes" titre="Propriétaire enregistré" onFermer={() => setIssue(null)}
           notes={etat.contacts.length > 0 ? [`${etat.contacts.length === 1 ? 'Le contact saisi sera enregistré' : `Les ${etat.contacts.length} contacts saisis seront enregistrés`} avec le premier bien (« Ajouter un bien à ce propriétaire »).`] : []}
           actions={[
-            { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
-            { libelle: 'Voir la fiche', href: `/admin/location/proprietaire/${issue.ids[0]}`, repere: 'voir-fiche-proprietaire' },
+            { libelle: 'Ouvrir la fiche du propriétaire', href: `/admin/location/proprietaire/${issue.ids[0]}`, principal: true, repere: 'voir-fiche-proprietaire' },
+            { libelle: 'Ajouter un bien à ce propriétaire', href: `/admin/location/nouveau-bien?proprietaires=${issue.ids.join(',')}`, repere: 'ajouter-bien-proprietaire' },
             { libelle: 'Créer un autre propriétaire', href: '/admin/location/nouveau-proprietaire', repere: 'creer-autre-proprietaire' },
-            { libelle: 'Ajouter un bien à ce propriétaire', href: `/admin/location/nouveau-bien?proprietaires=${issue.ids.join(',')}`, principal: true, repere: 'ajouter-bien-proprietaire' },
-          ]} />
+            { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
+          ]}>
+          <p style={{ margin: 0, overflowWrap: 'anywhere' }} data-proprietaire-enregistre-texte>{phraseEnregistre()}</p>
+          {/* le téléphone et l'e-mail, comme avant (la présentation des lignes de la modale), après la phrase d'Arno */}
+          {(coordonnee('telephone') !== null || coordonnee('email') !== null) && (
+            <dl className="mis-resume" data-resume>
+              {coordonnee('telephone') !== null && <div><dt>Téléphone</dt><dd>{coordonnee('telephone')}</dd></div>}
+              {coordonnee('email') !== null && <div><dt>E-mail</dt><dd>{coordonnee('email')}</dd></div>}
+            </dl>)}
+        </ModaleIssue>
       )}
       {issue?.sorte === 'erreur' && (
         <ModaleIssue sorte="erreur" titre="Propriétaire non enregistré" onFermer={() => setIssue(null)}
@@ -176,8 +200,10 @@ export function CreationProprietaires() {
         <div ref={ancre} className="loc-suite-bien" data-formulaire-bien>
           <CreationBien proprietairesInitiaux={[]} continuite={{
             proprietaires: [...etat.clients.map((c) => ({ nom: nomDeCarte(c) })), ...etat.existants.map((x) => ({ nom: x.nom }))],
-            contacts: etat.contacts, empeche,
-            proprietairesACreer: { cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine) },
+            // 🔴 (Arno, 18/11/2026) déjà enregistrés par « Non » : le bien se rattache à CES fiches, jamais recréées
+            contacts: etat.contacts, empeche: enregistres !== null ? null : empeche,
+            proprietairesACreer: enregistres !== null ? { cartes: [], existants: enregistres, origine: corpsOrigineProprietaire(origine) }
+              : { cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine) },
           }} />
         </div>
       )}

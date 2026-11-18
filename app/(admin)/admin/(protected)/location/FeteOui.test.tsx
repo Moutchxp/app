@@ -31,7 +31,7 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); });
 
-const bouton = (t: string) => [...container.querySelectorAll('[data-question-gestion] button')].find((b) => b.textContent?.trim() === t || b.querySelector('.fete-texte')?.textContent === t) as HTMLButtonElement;
+const bouton = (t: string) => [...container.querySelectorAll('[data-question-gestion] button')].find((b) => b.textContent?.trim() === t || b.firstChild?.textContent === t || b.querySelector('.fete-texte')?.textContent === t) as HTMLButtonElement;
 const oui = () => container.querySelector('[data-question-gestion] button') as HTMLButtonElement;
 
 describe('① les exemples du champ « Qualité »', () => {

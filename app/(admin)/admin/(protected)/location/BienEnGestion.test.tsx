@@ -84,6 +84,7 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     // éprouvé à part (`MandatBienEnGestion.test.tsx`) ; la QUESTION reste le même composant.
     const sansMandat = (s: Element): Element => { const c = s.cloneNode(true) as Element; c.querySelector('.lmd-bloc')?.remove(); return c; };
     const rendu = (s0: Element) => sansMandat(s0).outerHTML.replace(/ (id|aria-labelledby|aria-label|data-question-gestion)="[^"]*"/g, '')
+      .replace(/<small class="loc-legende-bouton" data-legende-non="[^"]*">[^<]*<\/small>/, '') // 🔴 (Arno, 18/11/2026) la légende du « Non » de la page propriétaire seule
       .replace(/Souhaitez-vous créer un bien immédiatement \?|Statut du bien/g, 'TITRE').replace(/<span class="loc-num">\d<\/span>/, '')
       .replace(/ <span class="loc-oblig">\*<\/span>/, '')
       // Arno (21/10/2026, 403) : seuls les MOTS des boutons diffèrent (« En gestion » / « Location seule ») — même composant.
@@ -174,7 +175,9 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
 
   it('l’écran « Créer un nouveau propriétaire » transmet ses cartes au formulaire du bien en dessous (plus aucun statut « en gestion »)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/CreationProprietaires.tsx', 'utf8').replace(/\s+/g, ' ');
-    expect(src).toContain('proprietairesACreer: { cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine) },');
+    expect(src).toContain(': { cartes: etat.clients, existants: etat.existants.map((x) => x.id), origine: corpsOrigineProprietaire(origine) },');
+    // 🔴 (Arno, 18/11/2026) déjà enregistrés par « Non » : le bien se rattache à ces fiches, jamais recréées
+    expect(src).toContain('proprietairesACreer: enregistres !== null ? { cartes: [], existants: enregistres, origine: corpsOrigineProprietaire(origine) }');
     expect(src).not.toContain('titre="Propriétaire(s) en gestion ?"');
   });
 });

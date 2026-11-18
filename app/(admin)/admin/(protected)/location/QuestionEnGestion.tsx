@@ -15,7 +15,7 @@ import { FeteOui } from './FeteOui';
  * joue au seul PASSAGE à Oui, dans le bouton. Le style vient de l'écran hôte (`CSS_LOCATION_CREATION` + `CSS_FETE`).
  * Ce que le choix entraîne ailleurs (vider un mandat, effacer un refus) reste à l'écran hôte, par `onChoix`.
  */
-export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, obligatoire = false, libelles = { oui: 'Oui', non: 'Non' }, children }: {
+export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, obligatoire = false, libelles = { oui: 'Oui', non: 'Non' }, legendeNon, desactiveNon = false, children }: {
   /** L'identifiant du titre (`aria-labelledby`). */
   id: string;
   numero: number;
@@ -31,6 +31,10 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
    * seule » — le statut du bien. Même composant, même rendu, même fête sur le premier.
    */
   libelles?: { oui: string; non: string };
+  /** 🔴 Arno (18/11/2026) — sous le mot du bouton « Non », une légende plus petite (« (Sauvegarde du propriétaire) ») ; le « Oui » ne change pas. */
+  legendeNon?: string;
+  /** Le « Non » inactif (un enregistrement en cours : jamais deux envois). */
+  desactiveNon?: boolean;
   /** Sous les boutons : le message « ce qui manque » de l'écran hôte. */
   children?: ReactNode;
 }) {
@@ -46,8 +50,9 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
           <span className="fete-texte">{valeur === true ? `✓ ${libelles.oui}` : libelles.oui}</span>
           {fete > 0 && <FeteOui key={fete} />}
         </button>
-        <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={valeur === false}
-          onClick={() => onChoix(false)}>{valeur === false ? `✓ ${libelles.non}` : libelles.non}</button>
+        <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={valeur === false} disabled={desactiveNon} aria-busy={desactiveNon || undefined}
+          onClick={() => onChoix(false)}>{valeur === false ? `✓ ${libelles.non}` : libelles.non}
+          {legendeNon !== undefined && <small className="loc-legende-bouton" data-legende-non>{legendeNon}</small>}</button>
       </div>
       {children}
     </section>
