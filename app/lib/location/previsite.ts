@@ -9,7 +9,7 @@
  * Ce module décide : le statut d'un préavis, l'alerte, les compteurs des pastilles, la saisie d'un rendez-vous, l'objet et le texte de
  * chaque mail, et l'invitation d'agenda (.ics) jointe. Le dépôt (`previsiteRepo.ts`) lit, écrit et envoie.
  */
-import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, prenomNom, REPERE_NOM, type ParagrapheEncadre, type ParagrapheMail, type Signature } from './mailsPreavisSortie';
+import { adressesUniques, composerMailLocation, corpsDepuisParties, enumerer, PREFIXE_COPIE_INTERNE, prenomNom, REPERE_NOM, type ParagrapheEncadre, type ParagrapheMail, type Signature } from './mailsPreavisSortie';
 import { encadreMailTexte } from '../email/encadreMail';
 import { paragraphesDesParties, partiesDuMail, type EditionMail, type PartieTexte, type Retouche } from './texteModifiable';
 import { dateFrPreavis, dateIsoValide, verifierEtatDesLieux } from './preavis';
@@ -331,6 +331,15 @@ export function paragraphesAnnulationCollegues(d: { adresse: string; locataires:
 /** L'objet prérempli, mot pour mot celui d'Arno. PUR. */
 export function objetCompteRendu(r: Pick<RdvPrevisite, 'jour' | 'heure'>): string {
   return `Compte rendu de pré-visite d’état des lieux de sortie effectuée le ${dateFrPreavis(r.jour)} à ${heureFr(r.heure)}`;
+}
+
+/**
+ * 🔴 Arno (18/11/2026) — l'objet de la seule COPIE INTERNE du compte rendu (aux collaborateurs prévenus) : « [Copie interne] » devant
+ * l'objet des mails aux clients, comme la copie du refus et celles des rendez-vous. Il la distingue des mails aux locataires et aux
+ * propriétaires, qui gardent `objetCompteRendu` tel quel, et permet de la ranger en « courrier automatique » dans la boîte Gestion. PUR.
+ */
+export function objetCopieInterneCompteRendu(r: Pick<RdvPrevisite, 'jour' | 'heure'>): string {
+  return `${PREFIXE_COPIE_INTERNE}${objetCompteRendu(r)}`;
 }
 
 export const CORPS_MAX = 20_000;

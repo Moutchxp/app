@@ -37,7 +37,7 @@ import { mentionRecetteCourante } from './mentionRecetteMail';
 import { dateFrPreavis } from './preavis';
 import { plageFr } from './edls';
 import {
-  CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
+  CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetCopieInterneCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
   CLE_EDITION_CR_PROPRIETAIRE, copieInterneLocataires, introCompteRenduInterne, mailCompteRenduProprietaire, mailsAuxLocataires, paragraphesCompteRenduLocataire, personnaliserTexte,
   texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
@@ -443,7 +443,9 @@ async function mailCompteRendu(ids: readonly number[], corps: string, aussiLocat
   const tete = phrase === '' ? [] : [phrase];
   // 🔴 Arno (15/11/2026) — les NOTES de présence (internes) : dans le mail interne SEULEMENT, jamais dans ceux des locataires
   // 🔴 Arno (15/11/2026, 6e retour) — INTERNE : une introduction courte et factuelle, puis « En présence de … », le texte, les pièces, les notes
-  const interne = avecPhotos(mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCompteRendu(rdv),
+  // 🔴 Arno (18/11/2026) — la copie interne porte « [Copie interne] » (rangée en courrier automatique dans la Gestion) ; les mails aux
+  //   locataires et aux propriétaires, ci-dessous, gardent `objetCompteRendu` sans changement
+  const interne = avecPhotos(mailPrevisite({ sorte: 'previsite_compte_rendu', de: c.expediteur, a: internes, cc: [], objet: objetCopieInterneCompteRendu(rdv),
     paragraphes: [introCompteRenduInterne(c.adresse, rdv), ...tete, ...paragraphesDuTexte(texte), ...photosP, ...paragraphesNotesPresence(presents)], qui: c.qui, signature: c.signature }));
   // 🔴 Arno (15/11/2026, 6e retour) — LOCATAIRES : un mail soigné (appel, introduction avec la présence, points à tirets, photos annoncées,
   // clôture, politesse) ; jamais les notes internes ni une coordonnée du propriétaire

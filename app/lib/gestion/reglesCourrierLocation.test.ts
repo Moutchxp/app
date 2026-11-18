@@ -25,6 +25,7 @@ const INTERNES = {
   alerte: P.objetAlertePrevisite(ADRESSE),
   recapitulatif: P.objetRecapAlertes(3),
   refusCopie: `${M.PREFIXE_COPIE_INTERNE}${P.objetRefusPrevisite(ADRESSE)}`,
+  compteRenduCopie: P.objetCopieInterneCompteRendu(RDV),
   sortieEnregistree: objetMailSortie({ adresse: ADRESSE, lotId: 7 }),
 };
 /** Tous les AUTRES objets de la Location — mails aux clients, aux partenaires, et autres copies internes. */
@@ -46,7 +47,7 @@ describe('🔴 les règles « courrier automatique » des mails internes de la L
   it('chaque règle : gabarit d’objet, sens « envoyé » seulement, et sa valeur est le gabarit réel d’une copie interne', () => {
     for (const r of REGLES_COURRIER_LOCATION) expect(r).toMatchObject({ type: 'gabarit_objet', sens: 'envoye' });
     expect(REGLES_COURRIER_LOCATION.map((r) => r.valeur)).toEqual([
-      normaliserObjet(INTERNES.alerte), normaliserObjet(INTERNES.refusCopie), normaliserObjet(INTERNES.sortieEnregistree),
+      normaliserObjet(INTERNES.alerte), normaliserObjet(INTERNES.refusCopie), normaliserObjet(INTERNES.compteRenduCopie), normaliserObjet(INTERNES.sortieEnregistree),
     ]);
     expect(normaliserObjet(INTERNES.recapitulatif)).toBe(normaliserObjet(INTERNES.alerte));
   });
@@ -55,7 +56,16 @@ describe('🔴 les règles « courrier automatique » des mails internes de la L
     for (const [quoi, objet] of Object.entries(INTERNES)) expect(range(GESTION, objet), quoi).toBe(true);
   });
 
-  it('🔴 le mail AU CLIENT n’est pas rangé, ni aucun autre mail de la Location (compte rendu compris)', () => {
+  it('🔴 compte rendu : la COPIE INTERNE porte le préfixe et est rangée, quelle que soit la date ; le mail aux clients, sans préfixe, ne l’est pas', () => {
+    for (const r of [{ jour: '2026-12-01', heure: '10:00' }, { jour: '2027-01-31', heure: '18:45' }] as never[]) {
+      expect(P.objetCopieInterneCompteRendu(r)).toBe(`[Copie interne] ${P.objetCompteRendu(r)}`);
+      expect(range(GESTION, P.objetCopieInterneCompteRendu(r))).toBe(true);
+      expect(P.objetCompteRendu(r).startsWith('[Copie interne]')).toBe(false);
+      expect(range(GESTION, P.objetCompteRendu(r))).toBe(false);
+    }
+  });
+
+  it('🔴 le mail AU CLIENT n’est pas rangé, ni aucun autre mail de la Location (compte rendu aux clients compris)', () => {
     for (const [quoi, objet] of Object.entries(AUTRES)) expect(range(GESTION, objet), quoi).toBe(false);
   });
 

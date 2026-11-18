@@ -288,7 +288,8 @@ describe('🔴 Règle 5 — le compte rendu fait passer en « Pré-visite effect
     expect(r).toMatchObject({ etat: 'ok', data: { statut: 'effectuee' } });
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; objet: string; texte: string }[]];
     expect(mails[0].a).toEqual(INTERNES);
-    expect(mails[0].objet).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 12/11/2026 à 10h00');
+    // 🔴 Arno (18/11/2026) — la copie INTERNE porte « [Copie interne] » (rangée en courrier automatique dans la Gestion)
+    expect(mails[0].objet).toBe('[Copie interne] Compte rendu de pré-visite d’état des lieux de sortie effectuée le 12/11/2026 à 10h00');
     // 🔴 (15/11/2026, 6e retour) — le mail interne commence par une introduction courte et factuelle
     expect(mails[0].texte).toBe('Compte rendu de la pré-visite du 12/11/2026 — 4 rue Fictive, 92800 Puteaux\n\nLogement propre.\n\nRepeindre la chambre.\n\nMail envoyé par Arno TEST (arno@exemple.test)');
     expect(suivi?.effectuee_le).toBe(MAINTENANT);
@@ -297,8 +298,11 @@ describe('🔴 Règle 5 — le compte rendu fait passer en « Pré-visite effect
   it('🔴 « Envoyer aussi aux locataires » : un mail interne aux collaborateurs, et UN mail par locataire (seul destinataire, sans copie, sans adresse de collaborateur)', async () => {
     programmee();
     await envoyerCompteRendu({ occupationIds: OCC, corps: 'CR', aussiLocataires: true }, AUTEUR);
-    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string }[]];
+    const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ a: string[]; cc: string[]; texte: string; objet: string }[]];
     expect(mails.map((x) => [x.a, x.cc])).toEqual([[INTERNES, []], [['alice@exemple.test'], []], [['bruno@exemple.test'], []]]);
+    // 🔴 Arno (18/11/2026) — seule la copie interne porte le préfixe ; chaque locataire reçoit l'objet d'avant, sans changement
+    expect(mails[0].objet).toBe('[Copie interne] Compte rendu de pré-visite d’état des lieux de sortie effectuée le 12/11/2026 à 10h00');
+    for (const x of mails.slice(1)) expect(x.objet).toBe('Compte rendu de pré-visite d’état des lieux de sortie effectuée le 12/11/2026 à 10h00');
     for (const x of mails.slice(1)) {
       expect(x.texte).toContain('Mail envoyé par Arno TEST (arno@exemple.test)');
       for (const adr of INTERNES.filter((a) => a !== 'arno@exemple.test')) expect(x.texte).not.toContain(adr);

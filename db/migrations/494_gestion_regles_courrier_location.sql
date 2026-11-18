@@ -5,14 +5,16 @@
 -- Garde-fous : une réponse humaine (locataire, propriétaire, collègue) reste dans la Réception ; le mail envoyé au client n'est pas
 -- caché, seule la copie interne est rangée.
 --
--- CE QU'ELLE FAIT, EN AJOUT SEUL : trois règles « gabarit d'objet », sens « envoyé » seulement, chacune posée UNE fois (l'index
+-- CE QU'ELLE FAIT, EN AJOUT SEUL : quatre règles « gabarit d'objet », sens « envoyé » seulement, chacune posée UNE fois (l'index
 -- unique (type, lower(valeur), sens) de la 228 ; `WHERE NOT EXISTS` la rend rejouable). Les gabarits sont ceux que calcule
 -- `normaliserObjet` (objet sans « RE: », coupé au premier « — ») ; chacun n'appartient qu'à une copie interne (mesuré sur tous
 -- les objets de la Location, épreuve reglesCourrierLocation.test.ts) :
 --   · « Alerte préavis »                                         — les deux alertes « aucune pré-visite fixée » ;
 --   · « [Copie interne] Pré-visite d’état des lieux de sortie »  — la copie interne du refus / absence de pré-visite ;
+--   · « [Copie interne] Compte rendu de pré-visite d’état des lieux de sortie… » — la copie interne du compte rendu de pré-visite
+--     (préfixée depuis le 18/11/2026, option 1 d'Arno ; le gabarit est coupé à 70 caractères avant la date, d'où les « … ») ;
 --   · « Sortie de locataire »                                    — « Sortie enregistrée » et le mail interne du parcours préavis / sortie.
--- 🔴 LE COMPTE RENDU DE PRÉ-VISITE N'Y EST PAS : sa copie interne a le même objet que les mails aux locataires et aux propriétaires.
+-- Les mails aux locataires et aux propriétaires (refus, compte rendu) n'ont pas le préfixe : ils restent visibles.
 -- Une règle ne supprime rien : le message est enregistré, tenu hors de la file, et revient par « Afficher aussi le courrier
 -- automatique ». Une règle ne s'applique qu'aux messages relevés APRÈS elle. Aucune ligne existante touchée.
 -- Pas de BEGIN/COMMIT : l'appel l'enveloppe dans UNE transaction (psql -1). IDEMPOTENTE.
@@ -24,6 +26,8 @@ SELECT v.type, v.valeur, v.sens, true, v.motif
      'Alerte interne de la Location « aucune pré-visite fixée » (individuelle ou récapitulative), envoyée aux collaborateurs prévenus.'),
     ('gabarit_objet', '[Copie interne] Pré-visite d’état des lieux de sortie', 'envoye',
      'Copie interne du mail « Refus / absence de pré-visite » de la Location (le mail aux locataires, lui, reste visible).'),
+    ('gabarit_objet', '[Copie interne] Compte rendu de pré-visite d’état des lieux de sortie…', 'envoye',
+     'Copie interne du compte rendu de pré-visite de la Location (les mails aux locataires et aux propriétaires, eux, restent visibles).'),
     ('gabarit_objet', 'Sortie de locataire', 'envoye',
      'Mail interne de la Location « Sortie de locataire » (sortie enregistrée, parcours préavis / sortie), envoyé aux collaborateurs prévenus.')
   ) AS v (type, valeur, sens, motif)
