@@ -1,5 +1,6 @@
 'use client';
 
+import type { MandatDUnBien } from '../../../../lib/location/mandatParBienRepo';
 import { PropositionRattachement } from '../location/PropositionRattachement';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
@@ -258,7 +259,12 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
 export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId: number }) {
   const { lu, relire } = useFiche<FicheProprietaireLocation>(`proprietaire=${proprietaireId}`);
   const resume = lu.etat === 'ok'
-    ? [lu.data.statutsBiens ? mentionEnGestionProprietaire(lu.data.statutsBiens) : null, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
+    ? lu.data.mandatsBiens !== undefined
+      // 🔴🔴 (Arno, 18/11/2026, « Mandat par bien ») les n° de SES BIENS
+      ? [lu.data.statutsBiens ? mentionEnGestionProprietaire(lu.data.statutsBiens) : null,
+        ...[...new Set(lu.data.mandatsBiens.filter((m) => m.numero !== null).map((m) => `${m.sorte === 'transaction' ? 'mandat de transaction' : 'mandat'} ${m.numero}`))],
+        lu.data.sortie === null ? null : `archivé${lu.data.sortie.origine ? ` — ${lu.data.sortie.origine}` : ''}`].filter((x) => x).join(' · ')
+      : [lu.data.statutsBiens ? mentionEnGestionProprietaire(lu.data.statutsBiens) : null, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
       lu.data.numeroMandatTransaction ? `mandat de transaction ${lu.data.numeroMandatTransaction}` : null,
       lu.data.mandatGestionSigneLe ? `mandat de gestion signé le ${lu.data.mandatGestionSigneLe.split('-').reverse().join('/')}` : null,
       lu.data.mandatTransactionSigneLe ? `mandat de transaction signé le ${lu.data.mandatTransactionSigneLe.split('-').reverse().join('/')}` : null,
@@ -271,9 +277,17 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
           {/* Arno (21/10/2026) — la bascule « en gestion » (une colonne plus lue) est remplacée par la mention CALCULÉE sur les
               statuts de ses biens, en lecture seule (accord d'Arno pour ce retrait ; la colonne reste en base). */}
           <EnGestionCalcule comptes={d.statutsBiens} />
-          {d.location372 && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandat} apres={relire} signeLe={d.mandatGestionSigneLe} />}
-          {d.location372 && d.numeroMandatTransaction !== undefined
-            && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" signeLe={d.mandatTransactionSigneLe} />}
+          {/* 🔴🔴 Arno (18/11/2026, « Mandat par bien », réponse 2) — « les champs « N° de mandat de gestion / de transaction » deviennent, avec l'accord
+              d'Arno, la liste en lecture seule des n° de ses biens (chacun modifiable sur son bien) » ; sans la 492 : les champs d'avant. */}
+          {d.mandatsBiens !== undefined ? (
+            <MandatsDesBiens mandats={d.mandatsBiens} ancien={{ gestion: d.numeroMandat, transaction: d.numeroMandatTransaction ?? null }} />
+          ) : (
+            <>
+              {d.location372 && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandat} apres={relire} signeLe={d.mandatGestionSigneLe} />}
+              {d.location372 && d.numeroMandatTransaction !== undefined
+                && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" signeLe={d.mandatTransactionSigneLe} />}
+            </>
+          )}
           <BlocSortie sujet="proprietaire" id={proprietaireId} sortie={d.sortie ?? null} apres={relire}
             explication="Le propriétaire sort avec ses biens encore dans le portefeuille (et leurs annexes) ; un bien qu’un autre propriétaire actif détient aussi reste." />
           <p className="loc-muet" style={{ margin: 0 }}>
@@ -282,6 +296,31 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
         </>
       )}</Lecture>
     </Repli>
+  );
+}
+
+/**
+ * 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — LES N° DE MANDAT DE SES BIENS, en lecture seule : chacun avec son bien (lien vers la fiche, où il se
+ * modifie). Un n° encore sur la fiche du propriétaire (d'avant le mandat par bien, pas encore repris sur ses biens) est dit, jamais perdu.
+ */
+function MandatsDesBiens({ mandats, ancien }: { mandats: MandatDUnBien[]; ancien: { gestion: string | null; transaction: string | null } }) {
+  const date = (d: string | null): string => (d === null ? '' : `, signé le ${d.split('-').reverse().join('/')}`);
+  const repris = (sorte: 'gestion' | 'transaction', n: string | null): boolean => n === null || mandats.some((m) => m.sorte === sorte && m.numero === n);
+  return (
+    <section className="loc-bloc" data-mandats-des-biens>
+      <h3>N° de mandat de ses biens</h3>
+      {mandats.length === 0 ? <p className="loc-muet" style={{ margin: 0 }}>Aucun n° de mandat sur ses biens.</p> : (
+        <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {mandats.map((m) => (
+            <li key={`${m.lotId}-${m.sorte}`} data-mandat-du-bien={m.lotId} style={{ overflowWrap: 'anywhere' }}>
+              {m.sorte === 'transaction' ? 'Mandat de transaction locative' : 'Mandat de gestion'}{m.numero ? ` n° ${m.numero}` : ''}{date(m.signeLe)} — <a href={`/admin/location/bien/${m.lotId}`}>{m.adresse}</a>
+            </li>))}
+        </ul>
+      )}
+      {!repris('gestion', ancien.gestion) && <p className="loc-muet" style={{ margin: 0 }} data-mandat-ancien="gestion">N° de mandat de gestion encore sur la fiche du propriétaire (d’avant le mandat par bien) : {ancien.gestion}</p>}
+      {!repris('transaction', ancien.transaction) && <p className="loc-muet" style={{ margin: 0 }} data-mandat-ancien="transaction">N° de mandat de transaction locative encore sur la fiche du propriétaire (d’avant le mandat par bien) : {ancien.transaction}</p>}
+      <p className="loc-muet" style={{ margin: 0 }}>Chaque n° se modifie sur la fiche de son bien (« Modifier le bien »).</p>
+    </section>
   );
 }
 

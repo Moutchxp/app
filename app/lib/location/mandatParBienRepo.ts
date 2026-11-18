@@ -159,3 +159,39 @@ export async function mandatsDuMemeEnsemble(ids: readonly number[]): Promise<{ i
     gestion: g === undefined ? { numero: null, signeLe: null } : { numero: g.mg, signeLe: g.dg },
     transaction: t === undefined ? { numero: null, signeLe: null } : { numero: t.mt, signeLe: t.dt } }];
 }
+
+/** Un n° de mandat d'un bien d'un propriétaire (sa fiche : « la liste en lecture seule des n° de ses biens »). */
+export interface MandatDUnBien { lotId: number; adresse: string; sorte: SorteMandat; numero: string | null; signeLe: string | null }
+
+/**
+ * 🔴🔴 Arno (18/11/2026, « Mandat par bien », réponse 2) — « Fiche propriétaire : les champs « N° de mandat de gestion / de transaction » deviennent […]
+ * la liste en lecture seule des n° de ses biens (chacun modifiable sur son bien). » Les biens où il est titulaire ou copropriétaire actif ; une annexe
+ * rattachée porte le n° de son logement (elle n'apparaît pas à part). LECTURE SEULE. Vide sans la 492.
+ */
+export async function mandatsDesBiensDuProprietaire(proprietaireId: number): Promise<MandatDUnBien[]> {
+  if (!(await mandatParBienDisponible())) return [];
+  const avecCo = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'lot_id');
+  const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
+  const { rows } = await query<{ id: string; adresse: string | null; cp: string | null; commune: string | null; mg: string | null; dg: string | null; mt: string | null; dt: string | null }>(
+    `SELECT l.id::text, l.adresse, l.code_postal AS cp, l.commune, l.mandat_gestion_numero AS mg, l.mandat_gestion_signe_le::text AS dg,
+            l.mandat_transaction_numero AS mt, l.mandat_transaction_signe_le::text AS dt
+       FROM gestion_annuaire_lot l
+      WHERE (l.proprietaire_id = $1${avecCo ? ' OR l.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = $1 AND lp.jusqu_a IS NULL)' : ''})
+        AND (l.mandat_gestion_numero IS NOT NULL OR l.mandat_transaction_numero IS NOT NULL OR l.mandat_gestion_signe_le IS NOT NULL OR l.mandat_transaction_signe_le IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe ax WHERE ax.annexe_id = l.id${avecDetache ? ' AND l.annexe_detachee_le IS NULL' : ''})
+      ORDER BY l.adresse NULLS LAST, l.id`, [proprietaireId]);
+  const out: MandatDUnBien[] = [];
+  for (const r of rows) {
+    const adresse = [r.adresse, [r.cp, r.commune].filter((x) => (x ?? '').trim() !== '').join(' ')].filter((x) => (x ?? '').trim() !== '').join(', ') || `bien n° ${r.id}`;
+    if (r.mg !== null || r.dg !== null) out.push({ lotId: Number(r.id), adresse, sorte: 'gestion', numero: r.mg, signeLe: r.dg });
+    if (r.mt !== null || r.dt !== null) out.push({ lotId: Number(r.id), adresse, sorte: 'transaction', numero: r.mt, signeLe: r.dt });
+  }
+  return out;
+}
+
+/** Le mandat d'UN bien (son logement s'il est une annexe rattachée), ou `null` sans la 492 : le lecteur garde alors l'ancienne source. */
+export async function mandatDuBien(lotId: number): Promise<{ gestion: Mandat; transaction: Mandat } | null> {
+  if (!(await mandatParBienDisponible())) return null;
+  const m = (await mandatsDesBiens([lotId]))[0];
+  return m === undefined ? { gestion: { numero: null, signeLe: null }, transaction: { numero: null, signeLe: null } } : { gestion: m.gestion, transaction: m.transaction };
+}

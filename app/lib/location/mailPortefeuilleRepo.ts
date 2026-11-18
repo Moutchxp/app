@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { mandatParBienDisponible } from './mandatParBienRepo';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
@@ -173,9 +174,24 @@ export async function donneesDuMail(ev: EvenementPortefeuille, auteur: { nom: st
     `SELECT p.id::text, p.nom_complet AS nom, ${coord('telephone')} AS tel, ${coord('email')} AS email,
             nullif(concat_ws(', ', p.adresse, nullif(concat_ws(' ', p.code_postal, p.commune), '')), '') AS adresse, ${mandat} AS mg, ${transaction} AS mt
        FROM gestion_annuaire_proprietaire p WHERE p.id = ANY($1::bigint[]) ORDER BY p.nom_complet`, [proprietaires]);
-  const props: ProprietaireMail[] = pr.map((p) => ({
-    nom: p.nom ?? `Propriétaire ${p.id}`, telephone: p.tel, email: p.email, adresse: p.adresse, mandatGestion: p.mg, mandatTransaction: p.mt,
-  }));
+  /* 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) le n° est porté par chaque BIEN : pour chaque propriétaire, les n° des biens de CE mouvement qui sont
+     les siens ; un propriétaire dont aucun de ces biens n'en porte encore (avant la reprise) garde l'ancienne lecture. */
+  const parBien = await mandatParBienDisponible();
+  const numerosDe = async (pid: string): Promise<{ mg: string | null; mt: string | null } | null> => {
+    if (!parBien) return null;
+    const { rows } = await query<{ mg: string | null; mt: string | null }>(
+      `SELECT string_agg(DISTINCT l.mandat_gestion_numero, ', ') AS mg, string_agg(DISTINCT l.mandat_transaction_numero, ', ') AS mt
+         FROM gestion_annuaire_lot l WHERE l.id = ANY($1::bigint[])
+          AND (l.proprietaire_id = $2 OR l.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = $2 AND lp.jusqu_a IS NULL))`,
+      [tetes.map((t) => Number(t.id)), Number(pid)]);
+    return rows[0] ?? null;
+  };
+  const props: ProprietaireMail[] = [];
+  for (const p of pr) {
+    const n = await numerosDe(p.id);
+    props.push({ nom: p.nom ?? `Propriétaire ${p.id}`, telephone: p.tel, email: p.email, adresse: p.adresse,
+      mandatGestion: n?.mg ?? p.mg, mandatTransaction: n?.mt ?? p.mt });
+  }
   // SORTIE D'UNE ANNEXE SEULE (Arno, 18/10/2026) : une seule tête, qui est l'annexe d'un logement resté hors de la sortie.
   let annexe: { libelle: string; logement: string } | null = null;
   if (ev.sens === 'sortie' && tetes.length === 1 && tetes[0].parent !== null) {

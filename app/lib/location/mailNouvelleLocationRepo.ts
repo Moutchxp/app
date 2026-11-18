@@ -1,4 +1,5 @@
 import { sqlStatutBien, statutBienDisponible } from '../gestion/statutBienRepo';
+import { mandatDuBien } from './mandatParBienRepo';
 import { randomBytes } from 'node:crypto';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
@@ -252,6 +253,10 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       const g = (await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [Number(principalId)]))
         .rows[0]?.s !== 'location_seule';
       const sorte = sorteDuBien(g) ?? 'gestion';
+      // 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) le mandat PORTÉ PAR LE BIEN ; sans (avant la reprise) : l'ancienne lecture
+      const duBien = await mandatDuBien(Number(principalId));
+      const ligne = duBien === null ? null : libelleMandat(sorte, duBien[sorte]);
+      if (ligne !== null) return [ligne];
       return (await mandatsDesProprietaires(pr.map((p) => Number(p.id)))).map((p) => libelleMandat(sorte, p[sorte])).filter((x): x is string => x !== null);
     })(),
   });

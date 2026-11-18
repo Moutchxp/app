@@ -40,7 +40,7 @@ export async function principalDeLAnnexe(lotId: number, date: string): Promise<A
             concat_ws(' — ', nullif(btrim(coalesce(p.nature, '')), ''), nullif(btrim(coalesce(p.adresse, '')), '')) AS libelle,
             ${avecTransitions ? `(SELECT t.apres FROM gestion_bien_statut_transition t WHERE t.lot_id = p.id AND t.effet_le <= $2::date ORDER BY t.effet_le DESC, t.id DESC LIMIT 1)` : 'NULL::text'} AS statut_date,
             ${avecStatut ? 'p.statut_bien' : "CASE WHEN p.en_gestion THEN 'en_gestion' END"} AS statut_actuel,
-            pr.numero_mandat_gestion AS mandat
+            ${(await colonneExisteMemo('gestion_annuaire_lot', 'mandat_gestion_numero')) ? 'coalesce(p.mandat_gestion_numero, pr.numero_mandat_gestion)' : 'pr.numero_mandat_gestion'} AS mandat
        FROM gestion_lot_annexe a JOIN gestion_annuaire_lot p ON p.id = a.parent_id
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = p.proprietaire_id
       WHERE a.annexe_id = $1`, [lotId, date])).rows[0];

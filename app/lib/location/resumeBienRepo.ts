@@ -1,4 +1,5 @@
 import { sqlStatutBien } from '../gestion/statutBienRepo';
+import { mandatDuBien } from './mandatParBienRepo';
 import { query } from '../db/client';
 import { mandatsDesProprietaires } from './mandatBienRepo';
 import { libelleMandat, sorteDuBien, type SorteMandat } from './mandatBien';
@@ -134,7 +135,11 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
   const contacts = await contactsRattachesDuBien(lotId);
   const proprietaires = await proprietairesDuBien(lotId);
   const sorteMandat = sorteDuBien(enGestionBien ?? true);
-  const lignesMandat = sorteMandat === null ? [] : [...new Set((await mandatsDesProprietaires(proprietaires.map((p) => p.id)))
+  // 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) le mandat PORTÉ PAR LE BIEN (une annexe rattachée : celui de son logement) ; un bien qui n'en porte
+  // pas encore (avant la reprise) garde l'ancienne lecture, sur la fiche de ses propriétaires — rien ne disparaît.
+  const duBien = sorteMandat === null ? null : await mandatDuBien(lotId);
+  const ligneDuBien = sorteMandat === null || duBien === null ? null : libelleMandat(sorteMandat, duBien[sorteMandat]);
+  const lignesMandat = sorteMandat === null ? [] : ligneDuBien !== null ? [ligneDuBien] : [...new Set((await mandatsDesProprietaires(proprietaires.map((p) => p.id)))
     .map((p) => libelleMandat(sorteMandat, p[sorteMandat])).filter((x): x is string => x !== null))];
   const familleCle = famille;
   return {

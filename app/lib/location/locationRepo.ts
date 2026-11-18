@@ -1,4 +1,5 @@
 import type { ComptesStatuts } from '../gestion/statutBien';
+import { mandatParBienDisponible, mandatsDesBiensDuProprietaire, type MandatDUnBien } from './mandatParBienRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dateMandatDisponible, mandatsDesProprietaires } from './mandatBienRepo';
 import { contactsRattachesDuLocataire } from './rattachementsRepo';
@@ -107,7 +108,11 @@ export async function listeProprietaires(page: number, filtre = '', anciens = fa
   const avecMandat = await locationDisponible();
   const motif = `%${normaliserTexte(filtre)}%`;
   const { rows } = await query<{ id: string; nom: string; biens: number; mandat: string | null; total: number }>(
-    `SELECT p.id::text, p.nom_complet AS nom, ${avecMandat ? 'p.numero_mandat_gestion' : 'NULL::text'} AS mandat,
+    `SELECT p.id::text, p.nom_complet AS nom, ${!avecMandat ? 'NULL::text' : !(await mandatParBienDisponible()) ? 'p.numero_mandat_gestion'
+      // 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) les n° de ses biens ; sans (avant la reprise) : l'ancien n° de sa fiche
+      : `coalesce((SELECT string_agg(DISTINCT l.mandat_gestion_numero, ', ') FROM gestion_annuaire_lot l WHERE l.mandat_gestion_numero IS NOT NULL
+           AND (l.proprietaire_id = p.id OR l.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = p.id AND lp.jusqu_a IS NULL))),
+         p.numero_mandat_gestion)`} AS mandat,
             (SELECT count(*)::int FROM gestion_annuaire_lot l WHERE l.proprietaire_id = p.id) AS biens,
             count(*) OVER ()::int AS total
        FROM gestion_annuaire_proprietaire p
@@ -239,6 +244,8 @@ export interface FicheProprietaireLocation {
   statutsBiens: ComptesStatuts;
   /** Arno (21/10/2026, 397) — les dates de signature des mandats (`undefined` sans la migration). */
   mandatGestionSigneLe?: string | null;
+  /** 🔴🔴 Arno (18/11/2026, « Mandat par bien », 492) — les n° de mandat de SES BIENS (lecture seule) ; `undefined` sans la 492. */
+  mandatsBiens?: MandatDUnBien[];
   mandatTransactionSigneLe?: string | null;
   /** Ses biens EN ARBRE (logement puis annexes), lus avec les caractéristiques de la Location. */
   biens: BienLocation[];
@@ -268,7 +275,9 @@ export async function ficheProprietaireLocation(id: number): Promise<Issue<Fiche
     if (b.annexeDe != null && b.detachee !== true) continue;   // une annexe rattachée suit son bien : elle ne compte pas à part
     statutsBiens[b.statut ?? (b.fin === null ? 'en_gestion' : 'ancienne_gestion')] += 1;
   }
-  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, statutsBiens, biens, location372: avec372,
+  // 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) « la liste en lecture seule des n° de ses biens (chacun modifiable sur son bien) »
+  const mandatsBiens = (await mandatParBienDisponible()) ? await mandatsDesBiensDuProprietaire(id) : undefined;
+  return { etat: 'ok', data: { ...(mandatsBiens !== undefined ? { mandatsBiens } : {}), fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, statutsBiens, biens, location372: avec372,
     ...(avecDates ? { mandatGestionSigneLe: dates?.gestion.signeLe ?? null, mandatTransactionSigneLe: dates?.transaction.signeLe ?? null } : {}) } };
 }
 
