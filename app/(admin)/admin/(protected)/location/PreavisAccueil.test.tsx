@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { BlocPreavisAccueil, CLE_TRI, CSS_PREAVIS_ACCUEIL } from './PreavisAccueil';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
@@ -155,7 +156,18 @@ async function revenirSurLocation(): Promise<void> {
 }
 const ordre = (): string[] => [...container.querySelectorAll('[data-ligne-preavis]')].map((li) => li.getAttribute('data-ligne-preavis')!);
 const clic = (sel: string): void => act(() => (container.querySelector(sel) as HTMLButtonElement).click());
+/** 🔴 Arno (18/11/2026) — l'heure d'un rendez-vous se choisit en deux listes (heure, minutes) : « saisir » les remplit. */
+function choisirHeure(el: Element, v: string): void {
+  const [h, m] = v.split(':');
+  for (const [sel, x] of [['[data-heure]', h], ['[data-minute]', m]] as const) {
+    const champ = el.querySelector(sel) as HTMLElement;
+    flushSync(() => champ.click()); // la liste s'ouvre tout de suite (le choix suit dans le même geste)
+    const o = champ.closest('.lch')!.querySelector(`li[data-option="${x ?? ''}"]`) as HTMLElement;
+    flushSync(() => o.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  }
+}
 function saisir(el: HTMLInputElement, v: string): void {
+  if (el.hasAttribute('data-choix-heure')) { choisirHeure(el, v); return; }
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -483,7 +495,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await ouvrirPlanif();
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
-    expect(champ('fin').value).toBe('11:00');
+    expect(champ('fin').getAttribute('data-valeur')).toBe('11:00');
     act(() => saisir(champ('fin'), '09:30'));
     expect(container.querySelector('[data-edls-message]')?.textContent).toBe('L’heure de fin doit être après l’heure de début.');
     expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
@@ -529,7 +541,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     clic('button[data-deplacer-edls]');
     await attendre();
     expect(champ('jour').value).toBe('2099-11-05');
-    expect(champ('fin').value).toBe('11:00');
+    expect(champ('fin').getAttribute('data-valeur')).toBe('11:00');
     act(() => saisir(champ('jour'), '2099-11-06'));
     act(() => saisir(champ('debut'), '14:00'));
     act(() => saisir(champ('fin'), '15:30'));
@@ -1681,7 +1693,7 @@ describe('🔴🔴 Arno (14/11/2026, 473) — le PRÉAVIS DE TEST à l’écran'
     clic('[data-ligne-depliee="T"] [data-rdv-previsite]'); await attendre(); await attendre();
     act(() => (document.querySelector('[data-previsite-deux-minutes]') as HTMLButtonElement).click());
     expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect((document.querySelector('[data-previsite-debut]') as HTMLInputElement).value).toMatch(/^\d{2}:\d{2}$/);
+    expect(document.querySelector('[data-previsite-debut]')?.getAttribute('data-valeur')).toMatch(/^\d{2}:\d{2}$/);
     const choix = document.querySelector('[data-previsite-destinataires]')!.textContent ?? '';
     expect(choix).toContain('Moi (Arno)');
     expect(choix).not.toContain('Claire Test');
@@ -3669,3 +3681,63 @@ describe('🔴 Arno (18/11/2026) — le statut des LOCATAIRES dans la ligne repl
   });
 });
 
+
+describe('🔴 Arno (18/11/2026) — minutes 00/15/30/45, « Locataires : Non sollicités », « Fixer une pré-visite » après un refus', () => {
+  const ouvrirC = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); };
+  it('le formulaire de l’état des lieux : l’heure 00 à 23, les minutes 00, 15, 30 et 45 seulement (début ET fin), plus de sélecteur natif', async () => {
+    planification = true;
+    await ouvrirC();
+    clic('[data-planifier-edls]'); await attendre();
+    const f = container.querySelector('[data-formulaire-edls]')!;
+    expect(f.querySelectorAll('input[type="time"]')).toHaveLength(0);
+    for (const sel of ['[data-edls-debut]', '[data-edls-fin]']) {
+      const m = f.querySelector(`${sel} [data-minute]`) as HTMLElement;
+      act(() => m.click());
+      expect([...m.closest('.lch')!.querySelectorAll('li[data-option]')].map((x) => x.getAttribute('data-option'))).toEqual(['', '00', '15', '30', '45']);
+      act(() => m.click());
+      const h = f.querySelector(`${sel} [data-heure]`) as HTMLElement;
+      act(() => h.click());
+      expect(h.closest('.lch')!.querySelectorAll('li[data-option]')).toHaveLength(25);
+      act(() => h.click());
+    }
+  });
+  it('un rendez-vous existant à 09h53 s’affiche tel quel ; en le déplaçant, la minute est à choisir parmi les quatre (aucun arrondi)', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { edlsId: 1, tacheId: 41, jour: '2099-01-06', heure: '09:53', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4,
+      statut: 'en_attente', reponduPar: null, motifRefus: null } } : l));
+    await ouvrirC();
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-rdv-date')?.textContent).toContain('09h53');
+    expect(container.querySelector('[data-edls-cartouche]')?.textContent).toContain('09h53');
+    clic('[data-deplacer-edls]'); await attendre();
+    const d = container.querySelector('[data-edls-debut]')!;
+    expect(d.querySelector('[data-heure]')?.getAttribute('data-valeur')).toBe('09');
+    expect(d.querySelector('[data-minute]')?.getAttribute('data-valeur')).toBe('');
+    expect(d.getAttribute('data-valeur')).toBe('');
+    expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('ligne repliée : « Locataires : Non sollicités » (gris) pour un rendez-vous non sollicité et non confirmé, sans nom', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { statut: 'programmee', rdv: { jour: '2099-01-05', heure: '10:00', dureeMinutes: 60 }, tacheId: 40, collegues: [],
+      tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null }, reponsesRdv: { previsite: { etat: 'non_invites', par: null, main: false, reponses: [] }, edl: null, disponible: true } } as unknown as LignePreavisAccueil : l));
+    await rendre();
+    const c = container.querySelector('[data-ligne-preavis="C"] [data-cartouche-locataires-court]')!;
+    expect(c.textContent).toBe('Locataires : Non sollicités');
+    expect(c.className).toContain('pva-loc--non_invites');
+    expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-loc--non_invites\{[^}]*color:var\(--color-svv-muted\)/);
+  });
+  it('après un « Refus / absence » : « Fixer une pré-visite » (le formulaire habituel, avec le choix Oui / Non) ; fixée ensuite : la mention discrète', async () => {
+    const refusee = { statut: 'refusee', rdv: null, tacheId: null, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null, refusLe: '2026-11-15T09:00:00Z', rdvFixeLe: null };
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: refusee } as unknown as LignePreavisAccueil : l));
+    await ouvrirC();
+    const b = container.querySelector('[data-rdv-previsite]') as HTMLButtonElement;
+    expect(b.textContent).toBe('Fixer une pré-visite');
+    act(() => b.click()); await attendre();
+    expect(document.querySelector('[data-fenetre-previsite] [data-choix-locataires]')).not.toBeNull();
+    expect(document.querySelector('[data-fenetre-previsite] [data-previsite-debut][data-choix-heure]')).not.toBeNull();
+    act(() => root.unmount()); root = createRoot(container); document.querySelectorAll('.mis-voile').forEach((n) => n.remove());
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: { ...refusee, statut: 'programmee', rdv: { jour: '2099-01-05', heure: '10:00', dureeMinutes: 60 }, tacheId: 40,
+      rdvFixeLe: '2026-11-18T21:00:00Z' } } as unknown as LignePreavisAccueil : l));
+    await ouvrirC();
+    expect(container.querySelector('[data-refus-avant]')?.textContent).toBe('Refus / absence signalé le 15/11/2026 — pré-visite fixée ensuite le 18/11/2026');
+    expect(container.querySelector('[data-rdv-previsite]')).toBeNull(); // programmée : « Déplacer la pré-visite », comme d'habitude
+  });
+});

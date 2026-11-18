@@ -150,7 +150,8 @@ describe('🔴 Arno (18/11/2026) — la ligne repliée et l’encart « ① LOCA
     expect(motCourtLocataires(etatReponsesRdv([PAUL], [ev('accepte', 553, '2026-11-18T10:00:00Z')]))).toBe('Locataires : Confirmé');
     expect(motCourtLocataires(etatReponsesRdv([PAUL], [ev('refuse', 553, '2026-11-18T10:00:00Z')]))).toBe('Locataires : Refusé');
     expect(motCourtLocataires(etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z'), ev('validation_main', null, '2026-11-18T10:00:01Z', 'Arnaud Jorel')]))).toBe('Locataires : Confirmé');
-    expect(motCourtLocataires(etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z')]))).toBeNull();
+    // 🔴 Arno (18/11/2026) — non sollicités et non confirmés (après « Annuler la validation à la main ») : « Locataires : Non sollicités »
+    expect(motCourtLocataires(etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z')]))).toBe('Locataires : Non sollicités');
     expect(motCourtLocataires(null)).toBeNull();
   });
   it('encart : chaque locataire son état, daté, avec le rendez-vous ; un locataire non sollicité : « Non sollicité » ; la validation à la main une fois', async () => {

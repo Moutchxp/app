@@ -90,3 +90,20 @@ describe.each(GESTES)('🔴 « $action » (mêmes règles pour la pré-visite et
     expect(h.confirmerSansDemande).not.toHaveBeenCalled();
   });
 });
+
+describe.each(GESTES)('🔴 Arno (18/11/2026) — « $action » : seules les minutes 00, 15, 30 et 45 sont acceptées par le serveur', (g) => {
+  it('une autre minute (début ou fin) : refusé (400), RIEN n’est écrit ni envoyé', async () => {
+    for (const [debut, fin] of [['09:53', '11:00'], ['10:00', '11:10']]) {
+      const r = await post({ action: g.action, ...g.corps, debut, fin, locataires: 'oui' });
+      expect(r.status).toBe(400);
+      expect(await r.json()).toMatchObject({ etat: 'refus', champ: 'heure' });
+    }
+    expect(g.ecriture()).not.toHaveBeenCalled();
+    expect(g.envoi()).not.toHaveBeenCalled();
+  });
+  it('00, 15, 30, 45 : accepté', async () => {
+    const r = await post({ action: g.action, ...g.corps, debut: '10:45', fin: '11:15', locataires: 'oui' });
+    expect(await r.json()).toMatchObject({ etat: 'ok' });
+  });
+});
+

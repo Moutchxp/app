@@ -120,6 +120,12 @@ export interface PrevisiteAffiche {
   alerteEnvoyeeLe: string | null;
   /** 🔴 Arno (13/11/2026) — un compte rendu a été saisi (au moins un envoi journalisé) : « Voir le compte rendu » ; absent : inconnu. */
   compteRendu?: boolean;
+  /**
+   * 🔴 Arno (18/11/2026) — le mail de « Refus / absence » envoyé (instant ISO), et la dernière fois que le rendez-vous a été fixé ou déplacé : une
+   * pré-visite peut être FIXÉE APRÈS un refus (le locataire a répondu), le refus reste au journal et la carte le mentionne discrètement.
+   */
+  refusLe?: string | null;
+  rdvFixeLe?: string | null;
 }
 
 /** Tous les collègues invités ont refusé (au moins un invité). PUR. */

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { BlocPreavisAccueil, CLE_TRI } from './PreavisAccueil';
 import { PageCompteRendu } from './PageCompteRendu';
@@ -91,7 +92,18 @@ const rendre = async (): Promise<void> => { await act(async () => { root.render(
 const clic = async (el: Element | null): Promise<void> => { if (el === null) throw new Error('élément absent'); await act(async () => { (el as HTMLElement).click(); }); await attendre(); };
 const ordre = (): string[] => [...container.querySelectorAll('[data-ligne-preavis]')].map((li) => li.getAttribute('data-ligne-preavis')!);
 const fenetre = (): HTMLElement | null => document.querySelector('[data-fenetre-previsite]');
+/** 🔴 Arno (18/11/2026) — l'heure d'un rendez-vous se choisit en deux listes (heure, minutes) : « saisir » les remplit. */
+function choisirHeure(el: Element, v: string): void {
+  const [h, m] = v.split(':');
+  for (const [sel, x] of [['[data-heure]', h], ['[data-minute]', m]] as const) {
+    const champ = el.querySelector(sel) as HTMLElement;
+    flushSync(() => champ.click()); // la liste s'ouvre tout de suite (le choix suit dans le même geste)
+    const o = champ.closest('.lch')!.querySelector(`li[data-option="${x ?? ''}"]`) as HTMLElement;
+    flushSync(() => o.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  }
+}
 function saisir(el: Element | null, v: string): void {
+  if (el?.hasAttribute('data-choix-heure')) { act(() => choisirHeure(el, v)); return; }
   const e = el as HTMLInputElement | HTMLTextAreaElement;
   const proto = e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   act(() => { Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -160,7 +172,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(document.querySelector('[data-destinataire="4"]'));
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
     saisir(document.querySelector('[data-previsite-debut]'), '10:00');
-    expect((document.querySelector('[data-previsite-fin]') as HTMLInputElement).value).toBe('11:00');
+    expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
     await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', occupationIds: [41], jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3, 4] });
@@ -183,7 +195,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
     await clic(container.querySelector('[data-deplacer-previsite]'));
     expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toBe('2026-11-20');
-    expect((document.querySelector('[data-previsite-fin]') as HTMLInputElement).value).toBe('11:00');
+    expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
     expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('statuts remis à zéro');
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-25');
     await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
@@ -345,7 +357,9 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
       const grille = document.querySelector('[data-previsite-champs]')!;
       expect(grille.className).toBe('pvv-grille');
       expect([...grille.querySelectorAll('.pvs-libelle')].map((x) => x.textContent)).toEqual(['Date *', 'Début *', 'Fin *']);
-      expect([...grille.querySelectorAll('input')].map((x) => x.getAttribute('type'))).toEqual(['date', 'time', 'time']);
+      // 🔴 Arno (18/11/2026) — Début et Fin : l'heure (00 à 23) et les minutes du réglage (00, 15, 30, 45), plus le sélecteur natif
+      expect([...grille.querySelectorAll('input')].map((x) => x.getAttribute('type'))).toEqual(['date']);
+      expect([...grille.querySelectorAll('[data-choix-heure]')].map((x) => x.hasAttribute('data-previsite-debut') ? 'debut' : 'fin')).toEqual(['debut', 'fin']);
       if (geste === 'rdv') expect(grille.compareDocumentPosition(document.querySelector('[data-previsite-destinataires]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
   }

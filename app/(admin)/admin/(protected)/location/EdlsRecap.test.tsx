@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { BlocPreavisAccueil } from './PreavisAccueil';
 import type { LignePreavisAccueil } from '../../../../lib/location/preavis';
@@ -56,7 +57,17 @@ beforeEach(() => {
 afterEach(() => { act(() => r.unmount()); c.remove(); document.querySelectorAll('.mis-voile').forEach((n) => n.remove()); vi.restoreAllMocks(); });
 const calmer = async () => { for (let i = 0; i < 6; i++) await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
 const clic = async (el: Element | null) => { if (el === null) throw new Error('élément absent'); await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
-const saisir = (el: Element | null, v: string) => act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); (el as HTMLElement).dispatchEvent(new Event('input', { bubbles: true })); });
+/** 🔴 Arno (18/11/2026) — l'heure d'un rendez-vous se choisit en deux listes (heure, minutes) : « saisir » les remplit. */
+function choisirHeure(el: Element, v: string): void {
+  const [h, m] = v.split(':');
+  for (const [sel, x] of [['[data-heure]', h], ['[data-minute]', m]] as const) {
+    const champ = el.querySelector(sel) as HTMLElement;
+    flushSync(() => champ.click()); // la liste s'ouvre tout de suite (le choix suit dans le même geste)
+    const o = champ.closest('.lch')!.querySelector(`li[data-option="${x ?? ''}"]`) as HTMLElement;
+    flushSync(() => o.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  }
+}
+const saisir = (el: Element | null, v: string) => act(() => { if (el?.hasAttribute('data-choix-heure')) { choisirHeure(el, v); return; } Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); (el as HTMLElement).dispatchEvent(new Event('input', { bubbles: true })); });
 
 describe('🔴 l’état des lieux de sortie : récapitulatif, « Revenir », résultat', () => {
   it('planifier : le récapitulatif (Claire Test, 1 invitation, son texte) ; « Revenir » garde la saisie ; confirmer : le résultat, échec en rouge', async () => {

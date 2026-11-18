@@ -251,13 +251,15 @@ export function phraseRecapLocataires(a: ApercuLocataires): string {
 
 /**
  * Le cartouche de la LIGNE REPLIÉE : « Locataires : En attente / Confirmé / Refusé » — AUCUN NOM. « Non » (confirmé sans demande) et la
- * validation à la main donnent « Locataires : Confirmé ». Rien à montrer (aucun état, ou non sollicités sans confirmation) : `null`. PUR.
+ * validation à la main donnent « Locataires : Confirmé ». 🔴 Arno (18/11/2026) — non sollicités et non confirmés (après « Annuler la validation à
+ * la main ») : « Locataires : Non sollicités » (gris). Aucun état : `null`. PUR.
  */
 export function motCourtLocataires(e: EtatLocataires | null | undefined): string | null {
   if (e === null || e === undefined) return null;
   if (e.etat === 'confirme') return 'Locataires : Confirmé';
   if (e.etat === 'refuse') return 'Locataires : Refusé';
   if (e.etat === 'attente') return 'Locataires : En attente';
+  if (e.etat === 'non_invites') return 'Locataires : Non sollicités';
   return null;
 }
 

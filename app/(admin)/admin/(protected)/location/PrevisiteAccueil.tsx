@@ -5,6 +5,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
+import { ChoixHeure } from './ChoixHeure';
+import { MINUTES_RDV_DEFAUT, minuteDe } from '../../../../lib/location/minutesRdv';
 import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
@@ -101,6 +103,9 @@ export function MentionReserveLocation() {
   return <p className="pvv-reserve" role="note" data-reserve-location>{MENTION_RESERVE_LOCATION}</p>;
 }
 
+/** « 18/11/2026 », à l'heure de Paris, d'un instant ISO. PUR. */
+const jourFrIso = (iso: string): string => new Date(iso).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' });
+
 /** Le bloc « Pré-visite » de la ligne dépliée. */
 export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil; apres: () => void;
   /** 🔴 Arno (18/11/2026) — sous les informations du rendez-vous (pleine largeur de la carte) : le bloc des LOCATAIRES ; absent : rien. */
@@ -127,6 +132,9 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
       {p.statut !== 'recu' && <p className={`pvv-etat pvv-etat--${p.statut}`} role="status" data-previsite-etat>
         {LIBELLE_STATUT_PREVISITE[p.statut]}{p.rdv && (p.statut === 'programmee' || p.statut === 'effectuee') ? ` — le ${creneauFr(p.rdv)}` : ''}</p>}
       <CartouchesPrevisite p={p} />
+      {/* 🔴 Arno (18/11/2026) — une pré-visite fixée APRÈS un refus / une absence : la mention discrète (le refus reste au journal) */}
+      {p.refusLe && p.statut !== 'refusee' && p.rdvFixeLe && p.rdvFixeLe > p.refusLe && (
+        <p className="loc-muet pvv-refus-avant" data-refus-avant>Refus / absence signalé le {jourFrIso(p.refusLe)} — pré-visite fixée ensuite le {jourFrIso(p.rdvFixeLe)}</p>)}
       {p.collegues.length > 0 && p.statut === 'programmee' && (
         <ul className="pvv-collegues" data-previsite-collegues>
           {p.collegues.map((c, i) => (
@@ -138,7 +146,10 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
       </div>
       <div className="frp-actions">
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-        {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>RDV pré-visite</button>}
+        {/* 🔴 Arno (18/11/2026) — après un « Refus / absence », le locataire peut finalement demander une pré-visite : « Fixer une pré-visite »
+            (le même geste, le même formulaire) ; partout ailleurs le libellé ne change pas */}
+        {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>
+          {p.statut === 'refusee' ? 'Fixer une pré-visite' : 'RDV pré-visite'}</button>}
         {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Déplacer la pré-visite</button>}
         {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
         {/* 🔴🔴 Arno (15/11/2026, 9e retour) — le bouton ouvre la FENÊTRE du compte rendu (le brouillon en cours, lecture seule) ; « Continuer la
@@ -273,6 +284,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [retouches, setRetouches] = useState<Retouches>({});
   const deplacement = geste === 'deplacer';
   const avecDate = geste === 'rdv' || geste === 'deplacer';
+  const minutesReglage = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const avecCollegues = geste === 'rdv' || geste === 'reaffecter';
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » (fixer, déplacer) : obligatoire, rien de pré-coché
   const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
@@ -435,6 +447,13 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   // 🔴 Arno (11/11/2026) — un RENDEZ-VOUS (programmer, déplacer, réaffecter) demande l'e-mail d'au moins un locataire ; le refus et le compte
   // rendu n'y sont pas soumis. Relu au retour sur la fenêtre.
   const emails = useEmailsLocataires(l, geste === 'rdv' || geste === 'deplacer' || geste === 'reaffecter');
+  // 🔴 Arno (18/11/2026) — préavis de TEST : le bouton existant « Dans 2 minutes » pose une minute quelconque (l'invitation part à l'heure de
+  //    début) ; elle est proposée en plus des minutes du réglage, pour ce préavis de test seulement (le serveur l'accepte aussi, test seul)
+  const minutesRdv = useMemo(() => {
+    if (!l.test) return minutesReglage;
+    const en = [debut, fin].map(minuteDe).filter((x): x is number => x !== null);
+    return [...new Set([...minutesReglage, ...en])].sort((a, b) => a - b);
+  }, [l.test, minutesReglage, debut, fin]);
   const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true && choixLoc !== null : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
   const corpsCommun = { occupationIds: l.occupationIds };
   const rdvActuel = p.rdv;
@@ -517,10 +536,10 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <div className="pvv-grille" data-previsite-champs>
           <label className="pvs-champ"><span className="pvs-libelle">{'Date\u00a0*'}</span>
             <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(e) => { setJour(e.target.value); setRefus(null); }} data-previsite-jour /></label>
-          <label className="pvs-champ"><span className="pvs-libelle">{'Début\u00a0*'}</span>
-            <input type="time" value={debut} onChange={(e) => { setDebut(e.target.value); if (!finTouchee) setFin(heureFinProposee(e.target.value)); setRefus(null); }} data-previsite-debut /></label>
-          <label className="pvs-champ"><span className="pvs-libelle">{'Fin\u00a0*'}</span>
-            <input type="time" value={fin} onChange={(e) => { setFin(e.target.value); setFinTouchee(true); setRefus(null); }} data-previsite-fin /></label>
+          {/* 🔴 Arno (18/11/2026) — l'heure en deux listes : 00 à 23 h, et les minutes du réglage (00, 15, 30, 45 par défaut) */}
+          <ChoixHeure libelle={'Début\u00a0*'} valeur={debut} minutes={minutesRdv} donnees="data-previsite-debut"
+            onChange={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }} />
+          <ChoixHeure libelle={'Fin\u00a0*'} valeur={fin} minutes={minutesRdv} donnees="data-previsite-fin" onChange={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }} />
         </div>
       )}
       {avecDate && l.test && (

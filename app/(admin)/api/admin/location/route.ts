@@ -49,6 +49,8 @@ import {
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
 import { apercuLocatairesEdls, avecReponsesRdv, confirmerSansDemande, envoyerMailLocatairesEdls, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
 import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/location/reponsesRdv';
+import { refusMinutesRdv } from '../../../../lib/location/minutesRdv';
+import { minutesRdvAutorisees } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
@@ -179,7 +181,8 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 Arno (18/11/2026, 495) — + la réponse des LOCATAIRES à chaque rendez-vous (cartouche « Locataires : … ») ; sans la 495 : telles quelles.
       const lignes = await avecReponsesRdv(await avecPrevisites(await preavisEnCours({ tests: { visiteur: moi.id } })));
       const administrateur = !('refus' in (await exigerAdministrateur(request)));
-      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() } } }, { headers: ENTETES });
+      // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage 498 ; sans lui : 00, 15, 30, 45)
+      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() }, minutesRdv: await minutesRdvAutorisees() } }, { headers: ENTETES });
     }
     // 🔴 Arno (10/11/2026) — les collègues destinataires d'une pré-visite (accès Gestion et/ou Location, Workspace ; moi en tête) — LECTURE SEULE.
     if (p('previsiteCollegues') !== null) {
@@ -454,6 +457,13 @@ async function postLocation(request: Request): Promise<Response> {
     return Response.json(x, { headers: ENTETES });
   };
   const incomplet = (): Response => Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
+  /** 🔴 Arno (18/11/2026) — l'heure de début ou de fin d'un rendez-vous hors des minutes du réglage : refus (400), rien n'est écrit. */
+  const refusMinutes = async (c: Record<string, unknown>): Promise<Response | null> => {
+    // préavis de TEST : le bouton existant « Dans 2 minutes » pose une minute quelconque — accepté pour un test, et pour lui seul
+    if (test !== null) return null;
+    const motif = refusMinutesRdv({ debut: typeof c.debut === 'string' ? c.debut : '', fin: typeof c.fin === 'string' ? c.fin : '' }, await minutesRdvAutorisees());
+    return motif === null ? null : Response.json({ etat: 'refus', motif, champ: 'heure' }, { status: 400, headers: ENTETES });
+  };
   // 🔴 Arno (14/11/2026, 473) — dans un préavis de TEST, la pré-visite et l'état des lieux ne se confient qu'à son créateur (vous) : jamais un collègue.
   const test = perimetreCourant();
   const refusTest = (motif: string): Response => Response.json({ etat: 'refus', motif }, { status: 403, headers: ENTETES });
@@ -742,6 +752,8 @@ async function postLocation(request: Request): Promise<Response> {
       case 'apercu-edls': {
         const occs = idsOccupations(corps.occupationIds);
         const geste = corps.geste === 'deplacer' || corps.geste === 'reattribuer' ? corps.geste : 'planifier';
+        // 🔴 Arno (18/11/2026) — les minutes du réglage seulement (00, 15, 30, 45 par défaut) ; « Confier » ne change pas l'heure
+        if (geste !== 'reattribuer') { const m = await refusMinutes(corps); if (m !== null) return m; }
         const r = await apercuEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA: identifiant(corps.confieA),
           commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null, geste }, auteur);
         if (r.etat !== 'ok') return repondre(r);
@@ -761,6 +773,8 @@ async function postLocation(request: Request): Promise<Response> {
         const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
         const confieA = identifiant(corps.confieA);
         if (test !== null && !seulementMoi([confieA])) return refusTest('Préavis de test : l’état des lieux ne se confie qu’à vous (créateur du test).');
+        // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture
+        if (action !== 'reattribuer-edls') { const m = await refusMinutes(corps); if (m !== null) return m; }
         // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).
         const choixEdls = lireChoixLocataires(corps.locataires);
         if (action !== 'reattribuer-edls' && choixEdls === null) return Response.json({ etat: 'refus', motif: MOTIF_CHOIX_LOCATAIRES, champ: 'locataires' }, { status: 400, headers: ENTETES });
@@ -799,6 +813,9 @@ async function postLocation(request: Request): Promise<Response> {
       //    geste ; après l'écriture, les mails des collègues (module de tâches, droit d'envoi relu, mode RECETTE) et ceux des locataires.
       case 'apercu-previsite': {
         const occs = idsOccupations(corps.occupationIds);
+        // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, pour fixer ou déplacer (ces deux gestes portent le choix « Oui / Non » des
+        //    locataires) ; l'aperçu de « Réaffecter » reprend l'heure du rendez-vous tel qu'il est (peut-être 09h53) : jamais refusé pour ça
+        if (corps.locataires !== undefined) { const m = await refusMinutes(corps); if (m !== null) return m; }
         const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREVISITE);
         if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
         return repondre(await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
@@ -811,6 +828,8 @@ async function postLocation(request: Request): Promise<Response> {
         if (test !== null && action !== 'deplacer-previsite' && !seulementMoi(idsOccupations(corps.destinataires))) {
           return refusTest('Préavis de test : la pré-visite ne se confie qu’à vous (créateur du test) — jamais à un collègue.');
         }
+        // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture (« Réaffecter » ne change pas l'heure)
+        if (action !== 'reaffecter-previsite') { const m = await refusMinutes(corps); if (m !== null) return m; }
         // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).
         const choixP = lireChoixLocataires(corps.locataires);
         if (action !== 'reaffecter-previsite' && choixP === null) return Response.json({ etat: 'refus', motif: MOTIF_CHOIX_LOCATAIRES, champ: 'locataires' }, { status: 400, headers: ENTETES });

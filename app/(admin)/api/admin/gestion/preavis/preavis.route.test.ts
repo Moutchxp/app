@@ -25,7 +25,8 @@ describe('la lecture des préavis côté Gestion', () => {
   it('compte Gestion : la même donnée que la Location (preavisEnCours + avecPrevisites)', async () => {
     const r = await get('preavisEnCours=1');
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ etat: 'ok', data: { ...LIGNES, previsite: true } });
+    // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (sans la 498 : 00, 15, 30, 45)
+    expect(await r.json()).toEqual({ etat: 'ok', data: { ...LIGNES, previsite: true, minutesRdv: [0, 15, 30, 45] } });
     expect(preavisEnCours).toHaveBeenCalledTimes(1);
     expect(avecPrevisites).toHaveBeenCalledWith(LIGNES);
   });

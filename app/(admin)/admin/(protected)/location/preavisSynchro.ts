@@ -21,8 +21,10 @@ export const API_PREAVIS_LOCATION = '/api/admin/location';
 export const MENTION_RESERVE_LOCATION = 'Réservé aux comptes Location';
 
 /** Ce que tout le bloc sait : d'où il lit, et si le compte peut écrire (droit « Location »). */
-export const ContextePreavis = createContext<{ base: string; ecriture: boolean }>({ base: API_PREAVIS_LOCATION, ecriture: true });
-export const useContextePreavis = (): { base: string; ecriture: boolean } => useContext(ContextePreavis);
+/** 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage `gestion_config.minutes_rdv`, rendu par le serveur ; défaut 00/15/30/45). */
+export interface ValeurContextePreavis { base: string; ecriture: boolean; minutesRdv?: readonly number[] }
+export const ContextePreavis = createContext<ValeurContextePreavis>({ base: API_PREAVIS_LOCATION, ecriture: true });
+export const useContextePreavis = (): ValeurContextePreavis => useContext(ContextePreavis);
 export const INTERVALLE_PREAVIS_MS = 30_000;
 
 /** Après un geste (préavis, pré-visite, état des lieux, sortie) : tous les lecteurs de la page relisent. */

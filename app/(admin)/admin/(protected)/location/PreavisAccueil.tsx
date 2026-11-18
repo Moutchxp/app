@@ -33,6 +33,8 @@ import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis, useVeilleRdv } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
+import { ChoixHeure } from './ChoixHeure';
+import { lireMinutesRdv, MINUTES_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
@@ -71,6 +73,8 @@ function memoriserTri(t: TriPreavis, cle: string = CLE_TRI): void {
 }
 
 interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: boolean; lignes: LignePreavisAccueil[];
+  /** 🔴 Arno (18/11/2026) — les minutes autorisées des rendez-vous (réglage 498) ; absent : 00, 15, 30, 45. */
+  minutesRdv?: number[];
   /** 🔴 Arno (10/11/2026) — la pré-visite est-elle installée (migration 464) ? */
   previsite?: boolean;
   /** 🔴 Arno (14/11/2026, 473) — le bouton « Préavis de test » : compte administrateur, table 473 installée. */
@@ -100,9 +104,12 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   lecture?: 'location' | 'gestion'; ecriture?: boolean;
 }) {
   const base = lecture === 'gestion' ? API_PREAVIS_GESTION : API_PREAVIS_LOCATION;
-  const contexte = useMemo(() => ({ base, ecriture }), [base, ecriture]);
   const [version, setVersion] = useState(0);
   const lu = useLecture<Donnees>(`preavisEnCours=1&v=${version}`, base);
+  // 🔴 Arno (18/11/2026) — les minutes autorisées des rendez-vous (réglage rendu avec les lignes ; sans lui : 00, 15, 30, 45)
+  const minutesLues = lu.etat.etat === 'ok' ? lu.etat.data.minutesRdv : undefined;
+  const minutesRdv = useMemo(() => lireMinutesRdv(minutesLues), [JSON.stringify(minutesLues ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const contexte = useMemo(() => ({ base, ecriture, minutesRdv }), [base, ecriture, minutesRdv]);
   // Relecture DOUCE (mêmes paramètres : l'affichage reste en place, une ligne dépliée et une fenêtre ouverte aussi).
   const relireRef = useRef(lu.rafraichir);
   relireRef.current = lu.rafraichir;
@@ -644,6 +651,7 @@ function ChoixPersonne({ valeur, onChange, exclure }: { valeur: number | null; o
 function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   l: LignePreavisAccueil; e: EdlsAffiche | null; onAnnuler: () => void; onFait: (x: EdlsAffiche, phrase: string) => void;
 }) {
+  const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const debutInitial = e?.heure ?? '';
   const [jour, setJour] = useState(e?.jour ?? '');
   const [debut, setDebut] = useState(debutInitial);
@@ -704,10 +712,10 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
       <div className="pva-grille-edls">
         <label className="pvs-champ"><span className="pvs-libelle">Date de l’EDLS *</span>
           <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(ev) => { setJour(ev.target.value); setRefus(null); }} data-edls-jour /></label>
-        <label className="pvs-champ"><span className="pvs-libelle">Heure de début *</span>
-          <input type="time" value={debut} onChange={(ev) => { setDebut(ev.target.value); if (!finTouchee) setFin(heureFinProposee(ev.target.value)); setRefus(null); }} data-edls-debut /></label>
-        <label className="pvs-champ"><span className="pvs-libelle">Heure de fin *</span>
-          <input type="time" value={fin} onChange={(ev) => { setFin(ev.target.value); setFinTouchee(true); setRefus(null); }} data-edls-fin /></label>
+        {/* 🔴 Arno (18/11/2026) — l'heure en deux listes : 00 à 23 h, et les minutes du réglage (00, 15, 30, 45 par défaut) */}
+        <ChoixHeure libelle="Heure de début *" valeur={debut} minutes={minutesRdv} donnees="data-edls-debut"
+          onChange={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }} />
+        <ChoixHeure libelle="Heure de fin *" valeur={fin} minutes={minutesRdv} donnees="data-edls-fin" onChange={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }} />
       </div>
       <ChoixPersonne valeur={confieA} onChange={setConfieA} />
       {e === null && (

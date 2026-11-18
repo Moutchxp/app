@@ -181,6 +181,8 @@ export async function avecPrevisites<T extends { disponible: boolean; lignes: Li
       rdvPasse: rdv !== null && debutDuRendezVous(rdv.jour, rdv.heure).getTime() <= maintenant.getTime(),
       alerteEnvoyeeLe: s?.alerte_envoyee_le ?? null,
       compteRendu: s !== null && avecCr.has(s.id),
+      refusLe: s?.refus_le ?? null,
+      rdvFixeLe: rdv === null ? null : s?.rdv_modifie_le ?? s?.rdv_saisi_le ?? null,
     };
   }
   return { ...r, previsite: true };

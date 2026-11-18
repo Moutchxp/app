@@ -1037,3 +1037,18 @@ describe('🔴🔴 (16/11/2026, responsable location) — « ABSENCE DE LA PARTI
     expect(r.etat === 'ok' && r.data.collaborateur).toBe('Arno TEST');
   });
 });
+
+describe('🔴 Arno (18/11/2026) — après un « Refus / absence », on peut FIXER une pré-visite et reprendre le process normal', () => {
+  it('refus envoyé, puis pré-visite fixée : statut « RDV pré-visite fixé » (programmée), le refus reste au journal et sur la ligne (date)', async () => {
+    expect(await envoyerRefus({ occupationIds: OCC, texte: 'Bonjour,' }, AUTEUR)).toMatchObject({ etat: 'ok', data: { statut: 'refusee' } });
+    // dans la réalité le rendez-vous est fixé PLUS TARD que le refus (le locataire a répondu entre-temps)
+    suivi!.refus_le = '2026-11-10T08:00:00Z';
+    expect((await avecPrevisites({ disponible: true, lignes: [{ ...LIGNE }] }, new Date(MAINTENANT))).lignes[0].previsite?.statut).toBe('refusee');
+    const r = await programmerPrevisite({ occupationIds: OCC, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3] }, AUTEUR);
+    expect(r.etat).toBe('ok');
+    const p = (await avecPrevisites({ disponible: true, lignes: [{ ...LIGNE }] }, new Date(MAINTENANT))).lignes[0].previsite!;
+    expect(p).toMatchObject({ statut: 'programmee', refusLe: '2026-11-10T08:00:00Z', rdvFixeLe: MAINTENANT });
+    expect(journal().map((a) => a.params[1])).toEqual(['location_previsite_refusee', 'location_previsite_refusee', 'location_previsite_programmee', 'location_previsite_programmee']);
+    expect(ecritures().some((a) => a.sql.startsWith('DELETE'))).toBe(false);
+  });
+});
