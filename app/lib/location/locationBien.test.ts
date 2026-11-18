@@ -57,7 +57,7 @@ describe('🔴 gardes de la tuile Location', () => {
   // `FicheBienLocation` / `FichePersonneLocation` n'existent plus. Les écrans PROPRES à la Location (accueil, listes,
   // formulaires de création) ne parlent toujours qu'à leur route.
   it('les écrans propres à la Location vivent sous /admin/location et ne parlent qu’à leur route', () => {
-    for (const f of ['AccueilLocation.tsx', 'EcransLocation.tsx', 'ListesLocation.tsx', 'CreationProprietaireBien.tsx',
+    for (const f of ['AccueilLocation.tsx', 'EcransLocation.tsx', 'ListesLocation.tsx',
       'CreationProprietaires.tsx', 'CreationBien.tsx', 'CreationLocataire.tsx']) {
       const src = readFileSync(`app/(admin)/admin/(protected)/location/${f}`, 'utf8');
       expect(src, f).not.toMatch(/\/api\/admin\/gestion\b/);

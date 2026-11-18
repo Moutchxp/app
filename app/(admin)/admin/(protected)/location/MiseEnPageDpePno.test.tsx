@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationBien } from './CreationBien';
-import { CreationProprietaireBien } from './CreationProprietaireBien';
 import { CSS_DPE_PNO } from './BlocDpe';
 
 /**
@@ -117,45 +116,5 @@ describe('🔴 DPE et assurance PNO : deux blocs, rangées partagées', () => {
       .toEqual(['⚠ Location interdite depuis le 01/01/2025 pour un nouveau bail', '⚠ DPE de plus de 10 ans : il n’est plus valable']);
     expect(container.querySelector('[data-dpe] .loc-dpe-pno-date [data-alerte-dpe]')).toBeNull();
     expect(container.querySelector('[data-dpe] .loc-dpe-pno-choix [data-alerte-dpe]')).toBeNull();
-  });
-});
-
-describe('🔴 ancienne page « Nouveau propriétaire + bien » (/admin/location/nouveau) : mêmes règles obligatoires', () => {
-  const ouvrir = async () => {
-    await act(async () => { root.render(createElement(CreationProprietaireBien, { proprietaireInitial: { id: 5, nom: 'EXEMPLE Claire' } })); });
-    await calmer();
-    await saisir([...container.querySelectorAll('label')].find((l) => l.textContent?.startsWith('Adresse *'))!.querySelector('input')!, '3 rue du Port');
-  };
-  const enregistrer = async () => { await act(async () => { (container.querySelector('button[type="submit"]') as HTMLButtonElement).click(); }); await calmer(); };
-
-  it('sans DPE ni entretien : rien n’est envoyé, mêmes messages sous les champs ; libellés « * »', async () => {
-    await ouvrir();
-    expect(container.querySelector('[data-bloc-dpe-entretien] [data-dpe] h4')?.textContent).toBe('DPE *');
-    expect(container.querySelector('[data-bloc-dpe-entretien] [data-entretien-bloc] h4')?.textContent).toBe('Entretien à prévoir *');
-    expect([...container.querySelectorAll('[aria-label="Classe DPE"] button')].map((b) => b.textContent)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'Non soumis']);
-    await enregistrer();
-    expect(posts).toEqual([]);
-    expect([...container.querySelectorAll('.loc-manque')].map((x) => x.textContent)).toEqual([
-      'Choisissez la classe DPE (A à G) ou « Non soumis ».', 'La date du DPE est obligatoire (sauf « Non soumis »).', 'Entretien à prévoir : répondez Oui ou Non.']);
-    expect(container.querySelector('.cp-refus')?.textContent).toContain('Reste à renseigner');
-  });
-
-  it('Oui sans entretien bloqué ; classe + date + Non envoyés ; « Non soumis » sans date accepté', async () => {
-    await ouvrir();
-    await clic(dpe('C'));
-    await saisir(container.querySelector('[data-dpe-date] input') as HTMLInputElement, '2023-05-10');
-    await clic(container.querySelector('[data-entretien-reponse="oui"]')!);
-    await enregistrer();
-    expect(posts).toEqual([]);
-    expect(container.querySelector('[data-entretien-bloc] .loc-manque')?.textContent).toContain('cochez ou ajoutez au moins un entretien');
-    await clic(container.querySelector('[data-entretien-reponse="non"]')!);
-    await enregistrer();
-    expect(posts).toHaveLength(1);
-    expect(posts[0]).toMatchObject({ action: 'creer', proprietaireId: 5,
-      logement: { adresse: '3 rue du Port', categorie: 'logement', dpeClasse: 'C', dpeDate: '2023-05-10', entretienAPrevoir: false, entretiens: [] } });
-    await clic(dpe('Non soumis'));
-    await enregistrer();
-    expect(posts).toHaveLength(2);
-    expect(posts[1].logement).toMatchObject({ dpeClasse: 'non_soumis', dpeDate: '' });
   });
 });

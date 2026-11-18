@@ -581,6 +581,9 @@ export interface CreationProprietaireBien {
  *   ② le logement, ses annexes et le N° de mandat, en UNE transaction.
  * Si ② échoue, la fiche ① reste (rien ne se supprime) et le motif le dit — le même partage que « Ajouter un occupant ».
  */
+/* 🔴 (Arno, 18/11/2026, « Mandat par bien », réponse 9) l'ancienne page « Nouveau propriétaire + bien » (/admin/location/nouveau) est RETIRÉE : plus aucun
+   écran ni aucune route n'appelle cette fonction ; elle reste pour les épreuves d'intégration qui s'en servent pour poser leurs données. La création
+   d'un propriétaire et de son bien passe par « Créer un nouveau propriétaire » (`creerProprietairesEtBien`, tout ou rien). */
 export async function creerProprietaireEtBiens(o: CreationProprietaireBien, auteur: Auteur): Promise<Issue<{ proprietaireId: number; logementId: number }>> {
   if (!(await locationDisponible())) return { etat: 'sans_schema' };
   const logement = verifierChampsBien(o.logement);

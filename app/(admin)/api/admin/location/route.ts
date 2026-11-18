@@ -18,9 +18,9 @@ import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdit
 import { archiverPersonne, modifierPersonne, separerPersonne } from '../../../../lib/gestion/annuaireEditionRepo';
 import { enregistrerConditions } from '../../../../lib/gestion/honorairesGestionRepo';
 import {
-  ajouterAnnexe, chercherDoublons, creerProprietaireEtBiens, enregistrerMandat, ficheBienLocation,
+  ajouterAnnexe, chercherDoublons, enregistrerMandat, ficheBienLocation,
   ficheLocataireLocation, ficheProprietaireLocation, listeBiens, listeLocataires, listeProprietaires, modifierBien,
-  rattacherAnnexe, type CreationProprietaireBien,
+  rattacherAnnexe,
 } from '../../../../lib/location/locationRepo';
 import {
   apercuArchivage, apercuSortieBiens, biensPourLocataire, biensPourSortie, sortirBiensDuPortefeuille, creerLocataireSurBien, creerLocatairesSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
@@ -525,20 +525,6 @@ async function postLocation(request: Request): Promise<Response> {
         const annexe = identifiant(corps.annexeId);
         if (id === null || annexe === null) return incomplet();
         return repondre(await rattacherAnnexe(id, annexe, auteur));
-      }
-      case 'creer': {
-        const r = await creerProprietaireEtBiens({
-          proprietaireId: identifiant(corps.proprietaireId),
-          proprietaire: (corps.proprietaire ?? {}) as CreationProprietaireBien['proprietaire'],
-          logement: (corps.logement ?? {}) as Record<string, unknown>,
-          annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
-          origine: corps.origine,
-        }, auteur);
-        // Nouveau mandat de gestion : un mail SEULEMENT si un propriétaire est « en gestion = Oui » (Arno, 18/10/2026).
-        // Arno (21/10/2026, 404) : le dossier Drive du bien, créé dans l'arbre de son statut, APRÈS l'enregistrement.
-        return repondre(await avecDossierDrive(await avecMail(r, r.etat !== 'ok' ? null : {
-          sens: 'entree', proprietaireId: r.data.proprietaireId, lotIds: [r.data.logementId], origine: null, exigerEnGestion: true, avecAnnexes: true }, { auteur, tuile: 'Location' }),
-          r.etat === 'ok' ? r.data.logementId : null, auteur.libelle));
       }
       case 'creer-locataire':
         return repondre(await creerLocataireSurBien({

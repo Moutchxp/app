@@ -50,7 +50,6 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'location/nouveau-bien': [RETOUR_LOCATION, { fichier: `${L}/CreationBien.tsx`, lien: '<EnTeteLocation titre="Ajouter un nouveau bien"' }],
   'location/nouveau-locataire': [RETOUR_LOCATION, { fichier: `${L}/CreationLocataire.tsx`, lien: '<EnTeteLocation titre="Nouveau locataire"' }],
   'location/nouveau-proprietaire': [RETOUR_LOCATION, { fichier: `${L}/CreationProprietaires.tsx`, lien: '<EnTeteLocation titre="Créer un nouveau propriétaire"' }],
-  'location/nouveau': [RETOUR_LOCATION, { fichier: `${L}/CreationProprietaireBien.tsx`, lien: '<EnTeteLocation titre="Nouveau propriétaire + bien"' }],
   'location/outils': [RETOUR_LOCATION, { fichier: `${L}/EcransLocation.tsx`, lien: '<EnTeteLocation titre="Outils de suivi"' }],
   // Arno (23/10/2026) — les deux briques des « Outils de suivi » : retour vers les outils.
   'location/outils/mois': [{ fichier: `${L}/EcransLocation.tsx`, lien: '<LienRetour href="/admin/location/outils" mot="Outils de suivi" />' }],

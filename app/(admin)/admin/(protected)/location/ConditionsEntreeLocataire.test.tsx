@@ -601,7 +601,7 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
 
   it('« Surface Carrez » devient « Surface Carrez/Boutin m² » partout (fiche, Nouveau bien, cartes) — la donnée ne change pas', () => {
     const lire = (f: string) => readFileSync(f, 'utf8');
-    for (const f of ['app/(admin)/admin/(protected)/location/CreationBien.tsx', 'app/(admin)/admin/(protected)/location/CreationProprietaireBien.tsx',
+    for (const f of ['app/(admin)/admin/(protected)/location/CreationBien.tsx',
       'app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'app/lib/location/sortieLocataires.ts']) {
       expect(lire(f), f).toContain('Surface Carrez/Boutin m²');
       expect(lire(f), f).not.toMatch(/'Surface Carrez \(m²\)'|'Surface Carrez'|'Surface \(Carrez\)'/);
