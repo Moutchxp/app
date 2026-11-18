@@ -143,3 +143,30 @@ describe('🔴 Arno (18/11/2026) — le libellé du choix et le cartouche « san
   });
 });
 
+describe('🔴 Arno (18/11/2026) — la ligne repliée et l’encart « ① LOCATAIRE » (même calcul que la frise)', () => {
+  it('ligne repliée : En attente / Confirmé / Refusé, sans nom ; « Non » et validation à la main : Confirmé ; rien d’autre', async () => {
+    const { motCourtLocataires } = await import('./reponsesRdv');
+    expect(motCourtLocataires(etatReponsesRdv([PAUL], []))).toBe('Locataires : En attente');
+    expect(motCourtLocataires(etatReponsesRdv([PAUL], [ev('accepte', 553, '2026-11-18T10:00:00Z')]))).toBe('Locataires : Confirmé');
+    expect(motCourtLocataires(etatReponsesRdv([PAUL], [ev('refuse', 553, '2026-11-18T10:00:00Z')]))).toBe('Locataires : Refusé');
+    expect(motCourtLocataires(etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z'), ev('validation_main', null, '2026-11-18T10:00:01Z', 'Arnaud Jorel')]))).toBe('Locataires : Confirmé');
+    expect(motCourtLocataires(etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z')]))).toBeNull();
+    expect(motCourtLocataires(null)).toBeNull();
+  });
+  it('encart : chaque locataire son état, daté, avec le rendez-vous ; un locataire non sollicité : « Non sollicité » ; la validation à la main une fois', async () => {
+    const { reponsesDeLEncart } = await import('./reponsesRdv');
+    const e = etatReponsesRdv([PAUL], [ev('accepte', 553, '2026-11-18T21:40:00.000Z'), ev('validation_main', null, '2026-11-18T22:05:00.000Z', 'Arnaud Jorel')]);
+    const r = reponsesDeLEncart([{ sorte: 'previsite', jour: '2026-11-16', heure: '09:53', etat: e }], [553, 554]);
+    expect(r.parLocataire.get(553)).toEqual(['Pré-visite du 16/11 à 09h53 : A accepté le rendez-vous — le 18/11 à 22h40']);
+    expect(r.parLocataire.get(554)).toEqual(['Pré-visite du 16/11 à 09h53 : Non sollicité']);
+    expect(r.mentions).toEqual(['Pré-visite du 16/11 à 09h53 : confirmé à la main par Arnaud Jorel le 18/11 à 23h05']);
+  });
+  it('encart : aucun locataire sollicité → une SEULE mention pour l’encart, avec qui l’a confirmé ; aucun état → rien', async () => {
+    const { reponsesDeLEncart } = await import('./reponsesRdv');
+    const e = etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T22:00:00.000Z'), ev('validation_main', null, '2026-11-18T22:01:00.000Z', 'Arnaud Jorel')]);
+    const r = reponsesDeLEncart([{ sorte: 'edl', jour: '2026-11-25', heure: '14:00', etat: e }, { sorte: 'previsite', jour: '2026-11-20', heure: '10:00', etat: null }], [553, 554]);
+    expect(r.mentions).toEqual(['État des lieux de sortie du 25/11 à 14h00 : locataires non sollicités — confirmé par Arnaud Jorel le 18/11 à 23h01']);
+    expect([...r.parLocataire.values()].flat()).toEqual([]);
+  });
+});
+

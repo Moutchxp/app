@@ -10,7 +10,9 @@ import { NON_RENSEIGNE, nomFiche, type FicheIntervention, type PersonneFiche } f
  * « non renseigné », avec le lien vers la fiche du bien pour la compléter. Les autres informations connues du logement suivent (rien
  * n'est retiré). Interne à l'agence : ces coordonnées ne sortent jamais vers un locataire ou un propriétaire. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention; lienBien: string }) {
+export function FicheInterventionPreavis({ f, lienBien, reponses }: { f: FicheIntervention; lienBien: string;
+  /** 🔴 Arno (18/11/2026) — la réponse de chaque locataire aux rendez-vous en cours (sous ses coordonnées) et ce qui vaut pour tous (une fois) ; absent : rien. */
+  reponses?: { parLocataire: ReadonlyMap<number, readonly string[]>; mentions: readonly string[] } }) {
   // « non renseigné » + le lien pour compléter : la fiche du BIEN pour le logement ; 🔴 Arno (11/11/2026, lot 5) — pour un locataire ou un
   // propriétaire, SA fiche (« compléter la fiche du locataire / du propriétaire »), la même adresse que les liens « Voir la fiche » de l'écran.
   const manqueVers = (href: string, quoi: string) => <span className="fip-manque" data-non-renseigne>{NON_RENSEIGNE} — <a href={href} data-lien-completer>compléter la fiche {quoi}</a></span>;
@@ -34,8 +36,11 @@ export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention
             <p className="fip-nom">{nomFiche(p)}</p>
             <p className="fip-entree" data-date-entree>Entré(e) dans le logement le <strong>{p.entree ? dateFrPreavis(p.entree) : NON_RENSEIGNE}</strong></p>
             {coords(p, p.locataireId !== undefined ? manqueVers(`/admin/location/locataire/${p.locataireId}`, 'du locataire') : manque)}
+            {p.occupationId !== undefined && (reponses?.parLocataire.get(p.occupationId) ?? []).map((t) => (
+              <p key={t} className="fip-reponse-rdv" data-reponse-rdv-locataire={p.occupationId}>{t}</p>))}
           </div>
         ))}
+        {(reponses?.mentions ?? []).map((t) => <p key={t} className="fip-reponse-rdv fip-reponse-rdv--tous" data-reponse-rdv-tous>{t}</p>)}
       </section>
       <section className="fip-bloc" data-bloc-fiche="proprietaires" aria-labelledby={`fip-pro-${f.lotId}`}>
         <h4 id={`fip-pro-${f.lotId}`} className="fip-titre">② {f.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire'}</h4>
@@ -77,6 +82,8 @@ export function FicheInterventionPreavis({ f, lienBien }: { f: FicheIntervention
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_FICHE_INTERVENTION = `
+.fip-reponse-rdv{margin:4px 0 0;font-size:.88rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.fip-reponse-rdv--tous{margin-top:8px;font-weight:600;color:var(--color-svv-muted)}
 .fip{grid-column:1 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-width:0}
 @media (max-width:900px){.fip{grid-template-columns:1fr}}
 .fip-bloc{border:1px solid var(--color-svv-line-strong);border-radius:12px;padding:10px 12px;background:var(--color-svv-surface);min-width:0;display:flex;flex-direction:column;gap:8px}

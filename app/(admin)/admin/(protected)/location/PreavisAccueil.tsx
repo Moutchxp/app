@@ -34,7 +34,7 @@ import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RES
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
-import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, type ChoixLocataires, type EtatLocataires } from '../../../../lib/location/reponsesRdv';
+import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
 import { BandeauPreavisTest, CreerPreavisTest, CSS_PREAVIS_TEST } from './PreavisTest';
 import { BADGE_TEST } from '../../../../lib/location/preavisTest';
@@ -288,11 +288,12 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                 // 🔴 (15/11/2026) la mission du rendez-vous affiché : « confié à Prénom NOM » + l'état de la tâche
                 const missionDe = (r: typeof rdv) => (r.sorte === 'previsite' || r.sorte === 'edl' ? missionDeLigne(l, r.sorte) : null);
                 const mission = missionDe(rdv);
-                const missionHtml = (m: ReturnType<typeof missionDe>, sorte?: string) => <>{m && <>
+                const missionHtml = (m: ReturnType<typeof missionDe>) => m && <>
                   <span className="pva-confie" title={`confié à ${m.qui}`}>confié à {m.qui}</span>
-                  <span className={`pva-etat-mission pva-etat-mission--${m.etat}`} data-etat-mission={m.etat}>{LIBELLE_ETAT_MISSION[m.etat]}</span></>}
-                  {/* 🔴 Arno (18/11/2026, option A) — le cartouche des LOCATAIRES, juste à côté de celui du collègue (qui ne change pas) */}
-                  {(sorte === 'previsite' || sorte === 'edl') && <CartoucheLocataires e={l.reponsesRdv?.[sorte]} />}</>;
+                  <span className={`pva-etat-mission pva-etat-mission--${m.etat}`} data-etat-mission={m.etat}>{LIBELLE_ETAT_MISSION[m.etat]}</span></>;
+                /* 🔴 Arno (18/11/2026) — le statut des LOCATAIRES du rendez-vous, dans SA colonne, à droite de celle du collègue (qui ne change pas) :
+                   « Locataires : En attente / Confirmé / Refusé », aucun nom ; rien sans rendez-vous fixé. Même calcul que la frise. */
+                const locHtml = (sorte: string) => (sorte === 'previsite' || sorte === 'edl') && <CartoucheLocataires e={l.reponsesRdv?.[sorte]} court />;
                 const dateHtml = (r: typeof rdv) => <>
                   <span className="pva-rdv-date">{r.texte}</span>
                   {/* 🔴 (16/11/2026) la date passée sans que l'étape soit faite : petite mention rouge, juste sous la date */}
@@ -320,11 +321,13 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
                             <span className="pva-col-rdv pva-col-rdv--deux" data-col-rdv="deux">
                               {rdvs.map((r) => { const m = missionDe(r); return [
                                 <span key={`${r.sorte}-d`} className={`pva-rdv-item pva-col-rdv--${r.sorte}`} data-rdv-item={r.sorte}>{dateHtml(r)}</span>,
-                                <span key={`${r.sorte}-m`} className="pva-col-mission" data-col-mission={m?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(m, r.sorte)}</span>]; })}
+                                <span key={`${r.sorte}-m`} className="pva-col-mission" data-col-mission={m?.etat ?? 'aucune'} data-mission-de={r.sorte}>{missionHtml(m)}</span>,
+                                <span key={`${r.sorte}-l`} className="pva-col-loc" data-col-loc={r.sorte}>{locHtml(r.sorte)}</span>]; })}
                             </span>
                           ) : <>
                           <span className={`pva-col-rdv pva-col-rdv--${rdv.sorte}`} data-col-rdv={rdv.sorte}>{dateHtml(rdv)}</span>
-                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{missionHtml(mission, rdv.sorte)}</span></>}
+                          <span className="pva-col-mission" data-col-mission={mission?.etat ?? 'aucune'}>{missionHtml(mission)}</span>
+                          <span className="pva-col-loc" data-col-loc={rdv.sorte}>{locHtml(rdv.sorte)}</span></>}
                           <span className="pva-col-details pva-detail" title={details} data-col-details>{details}</span>
                         </span>
                       </div>
@@ -365,9 +368,14 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
 }
 
 /** 🔴 Arno (18/11/2026, 495) — le cartouche « Locataires : … » (le mot toujours écrit ; jetons du thème). Rien à montrer : rien. */
-function CartoucheLocataires({ e }: { e: EtatLocataires | null | undefined }) {
+function CartoucheLocataires({ e, court }: { e: EtatLocataires | null | undefined;
+  /** 🔴 Arno (18/11/2026) — la LIGNE REPLIÉE : « Locataires : En attente / Confirmé / Refusé », sans aucun nom (même calcul, autre mot). */
+  court?: boolean }) {
   if (e === null || e === undefined) return null;
-  return <span className={`pva-loc pva-loc--${e.etat}${e.main ? ' pva-loc--main' : ''}`} data-cartouche-locataires={e.main ? 'main' : e.etat} title={motCartoucheLocataires(e)}>{motCartoucheLocataires(e)}</span>;
+  const mot = court === true ? motCourtLocataires(e) : motCartoucheLocataires(e);
+  if (mot === null) return null;
+  return <span className={`pva-loc pva-loc--${e.etat}${e.main ? ' pva-loc--main' : ''}`} data-cartouche-locataires={e.main ? 'main' : e.etat}
+    {...(court === true ? { 'data-cartouche-locataires-court': e.etat } : {})} title={mot}>{mot}</span>;
 }
 
 /**
@@ -524,13 +532,22 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
  * annexes), lue dans l'encart du logement du bail (le même que l'écran de sortie, enrichi), puis les dates du préavis. Tout ce que l'encart
  * montrait reste (dans le bloc ③ et ses « autres informations »). Le lien « compléter » mène à la fiche du bien (Location ou Gestion).
  */
+/** 🔴 Arno (18/11/2026) — les rendez-vous EN COURS de la ligne (pré-visite programmée, état des lieux planifié) et l'état de leur créneau. PUR. */
+function rdvsEnCours(l: LignePreavisAccueil): RdvEnCours[] {
+  const r: RdvEnCours[] = [];
+  if (l.previsite?.statut === 'programmee' && l.previsite.rdv) r.push({ sorte: 'previsite', jour: l.previsite.rdv.jour, heure: l.previsite.rdv.heure, etat: l.reponsesRdv?.previsite ?? null });
+  if (l.edls) r.push({ sorte: 'edl', jour: l.edls.jour, heure: l.edls.heure, etat: l.reponsesRdv?.edl ?? null });
+  return r;
+}
+
 function InfosDuLogement({ l }: { l: LignePreavisAccueil }) {
   const { base } = useContextePreavis();
   const lu = useLecture<EncartLogement>(`encartBail=${l.occupationId}`, base);
   const lienBien = base === API_PREAVIS_LOCATION ? `/admin/location/bien/${l.lotId}` : `/admin/gestion?ecran=annuaire&fiche=lot-${l.lotId}`;
   return (
     <div className="pva-logement" data-infos-logement>
-      {lu.etat.etat === 'ok' ? <FicheInterventionPreavis f={ficheDepuisEncart(lu.etat.data)} lienBien={lienBien} /> : <EtatLecture etat={lu.etat} />}
+      {lu.etat.etat === 'ok' ? <FicheInterventionPreavis f={ficheDepuisEncart(lu.etat.data)} lienBien={lienBien} reponses={reponsesDeLEncart(rdvsEnCours(l), l.occupationIds)} />
+        : <EtatLecture etat={lu.etat} />}
       <p className="pva-dates-preavis" data-dates-preavis>Préavis : recommandé reçu le {dateFrPreavis(l.recuLe)} — fin du préavis le {dateFrPreavis(l.dateMax)}</p>
     </div>
   );
@@ -799,7 +816,10 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-l1{display:flex;align-items:baseline;gap:10px;min-width:0;white-space:nowrap}
 .pva-l1 .pva-noms{flex:0 1 auto}
 .pva-adresse{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
-.pva-l2{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem}
+.pva-l2{display:grid;grid-template-columns:11.75rem 16rem minmax(0,21rem) max-content minmax(0,1fr);align-items:center;column-gap:12px;min-width:0;font-size:.88rem}
+/* 🔴 Arno (18/11/2026) — la colonne des LOCATAIRES, a droite de la mission : jamais tronquee (le mot toujours entier), jamais un nom */
+.pva-col-loc{display:flex;align-items:center;min-width:0}
+.pva-col-loc .pva-loc{margin-left:0;flex:0 0 auto;overflow:visible}
 /* la mission du rendez-vous : « confie a Prenom NOM » puis l'etat (orange doux : en attente ; vert doux : confirme ; rouge doux : refuse) */
 .pva-col-mission{display:flex;align-items:center;gap:6px;min-width:0}
 .pva-confie{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-svv-ink)}
@@ -831,7 +851,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-col-details{color:var(--color-svv-muted)}
 /* 🔴 Arno (16/11/2026) : DEUX rendez-vous fixes (pre-visite puis etat des lieux), l'un sous l'autre : une sous-grille sur les colonnes B
    (rendez-vous) et C (mission), alignee sur celles des autres lignes ; la ligne est un peu plus haute */
-.pva-col-rdv--deux{grid-column:span 2;display:grid;grid-template-columns:subgrid;row-gap:3px;align-items:center}
+.pva-col-rdv--deux{grid-column:span 3;display:grid;grid-template-columns:subgrid;row-gap:3px;align-items:center}
 .pva-rdv-item{min-width:0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
 .pva-col-rdv--deux .pva-col-mission{font-weight:400}
 .pva-ligne--deux-rdv{height:6.25rem;grid-template-columns:minmax(min(52rem,calc(100% - 16rem)),1fr) auto auto}
@@ -858,6 +878,8 @@ export const CSS_PREAVIS_ACCUEIL = `
   .pva-l2{grid-template-columns:minmax(0,1fr);row-gap:2px}
   .pva-col-rdv{order:-2}
   .pva-col-mission{order:-1;min-height:1.2rem}
+  .pva-col-loc{order:-1}
+  .pva-col-loc:empty{display:none}
   /* deux rendez-vous : pre-visite et sa mission, puis etat des lieux et sa mission, en tete ; la ligne s'allonge d'autant */
   .pva-col-rdv--deux{grid-column:auto;row-gap:2px}
   .pva-col-rdv--deux > *{order:0}

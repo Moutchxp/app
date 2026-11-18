@@ -52,6 +52,8 @@ export interface EtatLocataires {
    * pour ce créneau) : « Confirmé sans demande aux locataires (par X) ». Repéré par l'événement « non_invite » (497) ; sans la 497 : `false`.
    */
   sansDemande?: boolean;
+  /** 🔴 (18/11/2026) — l'heure de la validation à la main en vigueur (ISO), ou `null`. */
+  parLe?: string | null;
   /** La réponse COURANTE de chaque locataire invité pour ce créneau (`null` : pas encore répondu). */
   reponses: { occupationId: number; nom: string; reponse: 'accepte' | 'refuse' | null; le: string | null }[];
 }
@@ -77,7 +79,7 @@ export function etatReponsesRdv(invites: readonly LocataireInvite[], evenements:
     return { occupationId: i.occupationId, nom: i.nom, reponse: d === undefined ? null : (d.nature as 'accepte' | 'refuse'), le: d?.le ?? null };
   });
   if (main !== null) {
-    return { etat: 'confirme', par: main.parLibelle, main: true, reponses, sansDemande: invites.length === 0 && tries.some((e) => e.nature === 'non_invite') };
+    return { etat: 'confirme', par: main.parLibelle, main: true, reponses, sansDemande: invites.length === 0 && tries.some((e) => e.nature === 'non_invite'), parLe: main.le };
   }
   const acceptes = reponses.filter((r) => r.reponse === 'accepte').sort((a, b) => (a.le ?? '').localeCompare(b.le ?? ''));
   if (acceptes.length > 0) return { etat: 'confirme', par: acceptes[0].nom, main: false, reponses };
@@ -242,5 +244,69 @@ export function phraseRecapLocataires(a: ApercuLocataires): string {
   if (a.impossible !== null) return `Les locataires ne pourront pas être invités : ${a.impossible}`;
   if (a.invites.length === 0) return 'Aucun locataire n’a d’adresse e-mail : aucune invitation ne leur partira.';
   return `Les locataires seront invités (${a.invites.length}) : ${a.invites.join(', ')} — avec « ${BOUTON_ACCEPTER} » / « ${BOUTON_REFUSER} ».`;
+}
+
+// ══ 🔴🔴 LA LIGNE REPLIÉE ET L'ENCART « ① LOCATAIRE » (Arno, 18/11/2026) ═══════════════════════════════════════════════════════════════════
+// Même calcul que le cartouche de la frise (`etatReponsesRdv`) : rien n'est recalculé à part, seul le MOT change selon l'endroit.
+
+/**
+ * Le cartouche de la LIGNE REPLIÉE : « Locataires : En attente / Confirmé / Refusé » — AUCUN NOM. « Non » (confirmé sans demande) et la
+ * validation à la main donnent « Locataires : Confirmé ». Rien à montrer (aucun état, ou non sollicités sans confirmation) : `null`. PUR.
+ */
+export function motCourtLocataires(e: EtatLocataires | null | undefined): string | null {
+  if (e === null || e === undefined) return null;
+  if (e.etat === 'confirme') return 'Locataires : Confirmé';
+  if (e.etat === 'refuse') return 'Locataires : Refusé';
+  if (e.etat === 'attente') return 'Locataires : En attente';
+  return null;
+}
+
+/** « 18/11 à 22h40 », à l'heure de Paris, d'un instant ISO. PUR. */
+export function jourHeureParis(iso: string): string {
+  const p = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(iso));
+  const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+  return `${v('day')}/${v('month')} à ${v('hour')}h${v('minute')}`;
+}
+
+/** Un rendez-vous en cours de la ligne, et l'état côté locataires de SON créneau (les réponses d'un ancien créneau n'y sont pas). */
+export interface RdvEnCours { sorte: SorteRdv; jour: string; heure: string | null; etat: EtatLocataires | null }
+export const ETAT_REPONSE_LOCATAIRE = {
+  attente: 'En attente de réponse', accepte: 'A accepté le rendez-vous', refuse: 'A refusé le rendez-vous', non: 'Non sollicité',
+} as const;
+
+/** « Pré-visite du 16/11 à 09h53 ». PUR. */
+export function libelleRdvEnCours(r: Pick<RdvEnCours, 'sorte' | 'jour' | 'heure'>): string {
+  const [, m, j] = r.jour.slice(0, 10).split('-');
+  return `${r.sorte === 'previsite' ? 'Pré-visite' : 'État des lieux de sortie'} du ${j}/${m}${r.heure ? ` à ${heureFr(r.heure)}` : ''}`;
+}
+
+/**
+ * L'encart « ① LOCATAIRE » : pour CHAQUE locataire, sa réponse à chaque rendez-vous en cours (avec la date et l'heure de la réponse) ; et UNE
+ * fois pour l'encart, ce qui vaut pour tous : « locataires non sollicités » et/ou « confirmé à la main par X le … ». Un locataire de la ligne
+ * qui n'a pas été sollicité alors que d'autres l'ont été : « Non sollicité ». Un rendez-vous sans aucun état : rien. PUR.
+ */
+export function reponsesDeLEncart(rdvs: readonly RdvEnCours[], occupationIds: readonly number[]): { parLocataire: Map<number, string[]>; mentions: string[] } {
+  const parLocataire = new Map<number, string[]>(occupationIds.map((o) => [o, []]));
+  const mentions: string[] = [];
+  for (const r of rdvs) {
+    const e = r.etat;
+    if (e === null) continue;
+    const quoi = libelleRdvEnCours(r);
+    const confirmeMain = e.etat === 'confirme' && e.main ? `confirmé à la main par ${e.par ?? '—'}${e.parLe ? ` le ${jourHeureParis(e.parLe)}` : ''}` : null;
+    if (e.reponses.length === 0) {
+      mentions.push(`${quoi} : locataires non sollicités${confirmeMain ? ` — ${confirmeMain.replace('à la main ', '')}` : ''}`);
+      continue;
+    }
+    if (confirmeMain) mentions.push(`${quoi} : ${confirmeMain}`);
+    for (const o of occupationIds) {
+      const x = e.reponses.find((y) => y.occupationId === o);
+      const t = x === undefined ? ETAT_REPONSE_LOCATAIRE.non
+        : x.reponse === null ? ETAT_REPONSE_LOCATAIRE.attente
+          : `${x.reponse === 'accepte' ? ETAT_REPONSE_LOCATAIRE.accepte : ETAT_REPONSE_LOCATAIRE.refuse}${x.le ? ` — le ${jourHeureParis(x.le)}` : ''}`;
+      parLocataire.get(o)?.push(`${quoi} : ${t}`);
+    }
+  }
+  return { parLocataire, mentions };
 }
 

@@ -270,3 +270,19 @@ describe.each(['previsite', 'edl'] as const)('🔴 Arno (18/11/2026) — « Non 
   });
 });
 
+describe('🔴 Arno (18/11/2026) — l’encart « ① LOCATAIRE » après un déplacement', () => {
+  it('seules les réponses au NOUVEAU créneau s’affichent ; les anciennes restent au journal', async () => {
+    const { reponsesDeLEncart } = await import('./reponsesRdv');
+    const liens = await inviter();
+    await repondreParJeton(jetonDe(liens.get(553)!.accepter), 'accepter', { maintenant: AVANT });
+    h.tache = { ...h.tache, jour: '2026-11-22' };
+    const nouveaux = await creerJetons({ tacheId: 34, sorte: 'previsite', rdv: { jour: '2026-11-22', heure: '10:00', dureeMinutes: 60 }, occupationIds: [553, 554],
+      locataires: [{ occupationId: 553, emails: ['paul@exemple.test'] }, { occupationId: 554, emails: ['alice@exemple.test'] }], auteur: AUTEUR });
+    await repondreParJeton(jetonDe(nouveaux.get(554)!.refuser), 'refuser', { maintenant: AVANT });
+    const r = reponsesDeLEncart([{ sorte: 'previsite', jour: '2026-11-22', heure: '10:00', etat: await etat() }], [553, 554]);
+    expect(r.parLocataire.get(553)).toEqual(['Pré-visite du 22/11 à 10h00 : En attente de réponse']);
+    expect(r.parLocataire.get(554)?.[0]).toMatch(/^Pré-visite du 22\/11 à 10h00 : A refusé le rendez-vous — le /);
+    expect(h.evts.filter((x) => x.nature === 'accepte')).toHaveLength(1); // l'acceptation de l'ancien créneau reste au journal
+  });
+});
+
