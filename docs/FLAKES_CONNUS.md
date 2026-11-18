@@ -211,3 +211,37 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 - **Dépassement au-delà de 30 s** : mesurer la durée du test dans la suite qui a échoué avant d'allonger ; un écran qui boucle
   (rendu sans fin) est un vrai défaut — cf. la note « suite figée = boucle de rendu ».
 - **Assertion fausse** : ce n'est pas ce flake ; c'est un écart de calcul ou d'écran à instruire.
+
+---
+
+## Turbopack (`next dev`) — « does not support external modules (request: node:fs) » sur `/admin/mon-espace` (18/11/2026)
+
+- **Où** : serveur de développement (`next dev`, Next.js 16.4.6, Turbopack), page `/admin/mon-espace`. Ce n'est pas un
+  test de la suite : c'est une panne de construction de page, consignée ici parce qu'elle est intermittente et non expliquée.
+- **Symptôme (rapporté par Arno, 18/11/2026 vers 11h21)** : `GET /admin/mon-espace` → **500** ; Turbopack s'arrête sur une
+  erreur FATAL : « Failed to write app endpoint /(admin)/admin/(protected)/mon-espace/page — the chunking context (unknown)
+  does not support external modules (request: node:fs) ».
+
+### ✅ PROUVÉ
+
+- **Non reproduite** : peu après, Arno a rouvert `/admin/mon-espace`, connecté, sur le même serveur : la page s'affiche
+  normalement, sans erreur. Le processus `next dev` lancé le 17/11/2026 à 18h49 était toujours vivant et en écoute.
+- **Aucun import de `node:fs` dans le graphe de la page** : graphe esbuild depuis `mon-espace/page.tsx` (258 fichiers,
+  même méthode que `app/lib/garde/clientBoundary.guard.test.ts`) — aucun fichier du dépôt n'y importe `node:fs` / `fs` ;
+  côté navigateur (au-delà de chaque frontière `'use client'`), les seuls paquets atteints sont `react`, `react-dom` et
+  `next/navigation`.
+- **La page compile sans erreur** sous Turbopack : `next build --experimental-build-mode compile --debug-build-paths
+  "app/(admin)/admin/(protected)/mon-espace/page.tsx"` → « Compiled successfully » (18/11/2026, code de `1f3a7e7b`).
+- L'erreur n'apparaît pas dans `.next/dev/logs/next-development.log` (seulement dans le terminal du serveur).
+
+### ❓ NON ÉTABLI — la cause
+
+- Aucune cause n'est établie. Le code ne fait entrer `node:fs` nulle part dans la page : rien n'indique un défaut du dépôt,
+  et rien ne prouve non plus un état interne du serveur de développement. Ne pas promouvoir l'une ou l'autre en cause.
+
+### Conduite à tenir si elle revient
+
+- **Copier l'erreur ENTIÈRE du terminal** (avec l'heure et la trace d'imports si Turbopack en donne une) avant toute relance.
+- Rejouer le graphe d'imports de la page (frontière client, recherche de `node:` / `fs`) et la compilation ciblée ci-dessus
+  sur le code du moment ; si les deux sont propres, relancer `next dev` et consigner l'occurrence ici.
+- Ne rien « corriger » dans le code sans une reproduction : une modification sans panne reproduite ne prouve rien.
