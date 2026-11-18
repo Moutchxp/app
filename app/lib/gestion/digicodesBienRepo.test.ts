@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (16/11/2026, « Digicodes unifiés », lot 4) — la fiche du bien écrit par le MÊME chemin serveur que la fiche Copropriété. Base simulée. */
 const h = vi.hoisted(() => ({ sql: [] as { s: string; p: unknown[] }[], ecrits: [] as Record<string, unknown>[], liens: [] as unknown[][], issue: { ok: true, change: true, id: 1 } as Record<string, unknown>,
-  fiche: null as unknown }));
+  fiche: null as unknown, change: true }));
 const inscrits = vi.hoisted(() => [] as string[]);
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ').trim(); h.sql.push({ s, p });
@@ -16,7 +16,7 @@ vi.mock('./digicodesRepo', () => ({
   digicodesUnifiesDisponibles: async () => true, digicodesDesAdresses: async () => [], mailsGestionDesAdresses: async () => new Map(),
   RefusDigicode: class RefusDigicode extends Error {},
   ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { h.ecrits.push(e); return h.issue; },
-  relierBienAuBatiment: async (_q: unknown, ...a: unknown[]) => { h.liens.push(a); return { ok: true, change: true }; },
+  relierBienAuBatiment: async (_q: unknown, ...a: unknown[]) => { h.liens.push(a); return { ok: true, change: h.change }; },
   inscrireBatiment: async (_q: unknown, _c: unknown, libelle: string) => { inscrits.push(libelle); return 9; },
 }));
 import { digicodesPourBien, ecrireDigicodesDuBien, realignerBatimentDuBien } from './digicodesBienRepo';
@@ -26,7 +26,7 @@ const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const FICHE = { cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls', codePostal: '75011', commune: 'Paris', nomenclatureEffective: 'lettres',
   adresses: [{ cle: 'residence les tilleuls', libelle: 'Résidence Les Tilleuls' }], batimentsConnus: [{ cle: 'a', libelle: 'A', sorte: 'lettre' }, { cle: 'b', libelle: 'B', sorte: 'lettre' }] };
 const RIEN = { batiment: null, batimentConfirme: false, commun: null, codeBatiment: null, autres: [] };
-beforeEach(() => { inscrits.length = 0; h.sql = []; h.ecrits = []; h.liens = []; h.issue = { ok: true, change: true, id: 1 }; h.fiche = FICHE; });
+beforeEach(() => { inscrits.length = 0; h.sql = []; h.ecrits = []; h.liens = []; h.issue = { ok: true, change: true, id: 1 }; h.fiche = FICHE; h.change = true; });
 
 describe('le bâtiment du bien, choisi au menu de la copropriété', () => {
   it('un bâtiment CONNU : le lien sûr et le texte « Bâtiment » ; aucun : le lien est retiré', async () => {
@@ -87,5 +87,27 @@ describe('🔴 (Arno, 17/11/2026) « Chaque bâtiment créé dans la copropriét
   it('la règle de numérotation vaut pour eux aussi : un « 3 » non confirmé refuse tout, rien n’est écrit', async () => {
     expect(await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, batiment: 'C', autres: [{ libelle: '3', confirme: false, code: null }] }, 'nouveau_bien', AUTEUR)).toContain('LETTRES');
     expect([inscrits, h.liens, h.ecrits]).toEqual([[], [], []]);
+  });
+});
+
+/** 🔴 Arno (18/11/2026) — « Le message « Bâtiment et digicodes enregistrés. » de « Modifier le bien » ne doit s'afficher que si un bâtiment ou un digicode a réellement été écrit » : le compte des écritures réelles. */
+describe('🔴 ce qui a RÉELLEMENT été écrit', () => {
+  it('rien de changé (le même lien, aucun bâtiment, aucune première valeur) : zéro', async () => {
+    h.change = false;
+    const compte = { ecrit: 0 };
+    expect(await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, commun: { code: '', aucun: false } }, 'fiche_bien', AUTEUR, compte)).toBeNull();
+    expect(compte.ecrit).toBe(0);
+  });
+  it('le lien du bien changé, son texte « Bâtiment », une première valeur, un NOUVEAU bâtiment : chacun compte ; un bâtiment déjà connu ajouté de nouveau, non', async () => {
+    const lien = { ecrit: 0 };
+    await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, batiment: 'A' }, 'fiche_bien', AUTEUR, lien);
+    expect(lien.ecrit).toBe(2); // le lien et le texte « Bâtiment »
+    h.change = false;
+    const code = { ecrit: 0 };
+    await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, commun: { code: '1234', aucun: false } }, 'fiche_bien', AUTEUR, code);
+    expect(code.ecrit).toBe(1);
+    const autres = { ecrit: 0 };
+    await ecrireDigicodesDuBien(q as never, 5, { ...RIEN, autres: [{ libelle: 'C', confirme: false, code: null }, { libelle: 'B', confirme: false, code: null }] }, 'fiche_bien', AUTEUR, autres);
+    expect(autres.ecrit).toBe(1); // C est nouveau ; B est déjà au registre
   });
 });

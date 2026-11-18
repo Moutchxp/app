@@ -194,10 +194,12 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   const digicodesBien = (await digicodesUnifiesDisponibles()) ? validerDigicodesBien(brut.digicodesBien) : null;
   let digicodesFaits = false;
   if (digicodesBien !== null) {
-    const r = await withTransaction((q) => ecrireDigicodesDuBien(q, id, digicodesBien, 'fiche_bien', auteur))
+    // 🔴 Arno (18/11/2026) — « Bâtiment et digicodes enregistrés. » seulement si un bâtiment ou un digicode a RÉELLEMENT été écrit ; sinon, aucun message
+    const compte = { ecrit: 0 };
+    const r = await withTransaction((q) => ecrireDigicodesDuBien(q, id, digicodesBien, 'fiche_bien', auteur, compte))
       .catch((e: unknown) => { if (e instanceof RefusDigicode) return e.message; throw e; });
     if (r !== null) return { etat: 'refus', motif: r };
-    digicodesFaits = true;
+    digicodesFaits = compte.ecrit > 0;
   }
   // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement ») : contrôlés avant, écrits dans leur transaction (ajout seul)
   const pvAg = await pvsDuBienValides(brut.pvAg);

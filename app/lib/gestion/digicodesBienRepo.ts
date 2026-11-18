@@ -93,7 +93,10 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
  * des places sans code connu (« saisie »). Un code connu ne se change pas d'ici (« Corriger une erreur », ou « Modifier »). Rend le refus, ou `null`.
  */
 export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: DigicodesBienSaisis, origine: Extract<OrigineDigicode, 'nouveau_bien' | 'fiche_bien'>,
-  auteur: Auteur): Promise<string | null> {
+  auteur: Auteur,
+  /** 🔴 Arno (18/11/2026) — ce qui a RÉELLEMENT été écrit (le lien du bien, son texte « Bâtiment », un code, un nouveau bâtiment) : « Modifier le bien » ne
+   *  dit « Bâtiment et digicodes enregistrés. » que si c'est le cas. */
+  compte?: { ecrit: number }): Promise<string | null> {
   const { rows } = await q<{ immeuble: string | null; adresse: string | null; cp: string | null; commune: string | null; batiment: string | null }>(
     'SELECT immeuble, adresse, code_postal AS cp, commune, batiment FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
   const l = rows[0];
@@ -120,9 +123,11 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
   }
   const lien = await relierBienAuBatiment(q, lotId, copropriete, d.batiment, auteur);
   if (!lien.ok) return lien.motif;
+  const ecrit = (): void => { if (compte !== undefined) compte.ecrit += 1; };
+  if (lien.change) ecrit();
   // ⚠️ à partir d'ici, un refus est LEVÉ (la transaction est annulée : le lien ci-dessus ne reste pas écrit — piège `withTransaction`)
   const texte = d.batiment === null ? null : batimentDe(d.batiment)?.libelle ?? d.batiment;
-  if ((l.batiment ?? null) !== texte) await q('UPDATE gestion_annuaire_lot SET batiment = $2 WHERE id = $1', [lotId, texte]);
+  if ((l.batiment ?? null) !== texte) { await q('UPDATE gestion_annuaire_lot SET batiment = $2 WHERE id = $1', [lotId, texte]); ecrit(); }
   // ② les premières valeurs (places sans code connu)
   const adresseLibelle = fiche?.adresses.find((a) => a.cle === adresseCle)?.libelle ?? immeuble;
   for (const [batiment, c] of [[null, d.commun], [d.batiment, d.codeBatiment]] as const) {
@@ -130,16 +135,19 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
     if (valeur === null) continue;
     const r = await ecrireDigicode(q, { adresseCle, adresseLibelle, batiment, valeur, nature: 'saisie', origine, lotId, copropriete }, auteur);
     if (!r.ok) throw new RefusDigicode(r.motif);
+    ecrit();
   }
   // ③ 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les AUTRES bâtiments : chacun
   // entre au registre de la copropriété (s'il n'y est pas), puis sa première valeur saisie, s'il y en a une — le bien, lui, reste relié à SON bâtiment
   for (const a of d.autres) {
     if (batimentDe(a.libelle) === null || (d.batiment !== null && batimentDe(a.libelle)?.cle === batimentDe(d.batiment)?.cle)) continue;
+    if (!connusIci.some((y) => y.cle === batimentDe(a.libelle)?.cle)) ecrit(); // un bâtiment NOUVEAU à cette adresse (un déjà connu n'écrit rien)
     if (await inscrireBatiment(q, { ...copropriete, adresseCle }, a.libelle, auteur) === null) throw new RefusDigicode('Le registre des bâtiments n’est pas installé : le bâtiment ' + a.libelle + ' ne peut pas être créé.');
     const valeur = premiereValeur(a.code);
     if (valeur === null) continue;
     const r = await ecrireDigicode(q, { adresseCle, adresseLibelle, batiment: a.libelle, valeur, nature: 'saisie', origine, lotId, copropriete }, auteur);
     if (!r.ok) throw new RefusDigicode(r.motif);
+    ecrit();
   }
   return null;
 }
