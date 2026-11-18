@@ -208,6 +208,7 @@ export const CSS_LOCATION_ECRANS = `
 .loc-pastille{display:inline-block;border-radius:999px;padding:1px 9px;font-size:.75rem;font-weight:700;background:var(--color-svv-field);color:var(--color-svv-muted)}
 .loc-pastille--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-pastille--violet{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
+.loc-pastille--bleu{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 .loc-arbre{list-style:none;margin:0;padding:0}
 .loc-arbre > li{border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:center}
 .loc-arbre > li.loc-enfant{margin-left:28px;position:relative}

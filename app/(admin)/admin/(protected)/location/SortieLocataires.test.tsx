@@ -170,7 +170,8 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(verifierPreavis({ recuLe: '', choix: { mode: 'mois', duree: 1 }, entrees: [] }, '2026-10-19').ok).toBe(false);
   });
 
-  it('la recherche, au gabarit de l’écran des biens : résultats VERTS avec le mot « occupant »', async () => {
+  // 🔴 Arno (18/11/2026) — le mot « occupant » devient celui des trois états de la fiche : « Locataire » en vert (en place).
+  it('la recherche, au gabarit de l’écran des biens : résultats VERTS avec le mot « Locataire »', async () => {
     vi.useFakeTimers();
     await rendre((u) => (u.includes('occupants=') ? ok([{ occupationId: 31, locataireId: 301, nom: 'MARTIN Léa', telephone: null, email: null,
       lotId: 9, adresse: '9 rue Autre', etage: null, porte: null, proprietaire: 'DURAND Paul' }]) : ok(BAIL)));
@@ -178,8 +179,22 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     await act(async () => { vi.advanceTimersByTime(250); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const res = container.querySelector('button[data-occupation="31"]')!;
-    expect(res.querySelector('.loc-res-type--locataires')?.textContent).toBe('occupant');
+    expect(res.querySelector('.loc-res-type--locataires')?.textContent).toBe('Locataire');
     expect(res.textContent).toContain('MARTIN Léa');
+  });
+
+  it('🔴 un occupant en préavis : « Locataire en préavis » en bleu ; une sortie déjà datée : « Ancien locataire » en violet', async () => {
+    vi.useFakeTimers();
+    const occ = (occupationId: number, nom: string, statut: string) => ({ occupationId, locataireId: occupationId + 270, nom, telephone: null, email: null,
+      lotId: 9, adresse: '9 rue Autre', etage: null, porte: null, proprietaire: null, statut });
+    await rendre((u) => (u.includes('occupants=') ? ok([occ(32, 'MARTIN Léa', 'en_preavis'), occ(33, 'MARTIN Paul', 'ancien')]) : ok(BAIL)));
+    act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, 'mar'));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('button[data-occupation="32"] .loc-res-type--preavis')?.textContent).toBe('Locataire en préavis');
+    expect(container.querySelector('button[data-occupation="33"] .loc-res-type--ancien-locataire')?.textContent).toBe('Ancien locataire');
+    // Aucun résultat retiré : les deux occupants sont là.
+    expect(container.querySelectorAll('button[data-occupation]').length).toBe(2);
   });
 });
 

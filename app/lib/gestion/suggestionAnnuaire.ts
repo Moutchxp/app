@@ -1,6 +1,7 @@
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR, lu aussi par la
    fiche propriétaire). */
 import { compterBiensEnGestion } from './bienEnGestion';
+import { MOT_STATUT_LOCATAIRE } from './historiqueBien';
 
 /**
  * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — LES SUGGESTIONS DE LA BARRE ANNUAIRE ════════════════════════════
@@ -41,6 +42,8 @@ export interface PersonnePourSuggestion {
   roles: readonly RoleSuggere[];
   /** La fiche SECONDAIRE, quand la personne en porte deux. `null` sinon. */
   autreFicheId: number | null;
+  /** 🔴 Arno (18/11/2026) — son rôle de locataire est « en préavis » (`statutLocataire`). Absent = non. */
+  preavis?: boolean;
   /**
    * 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — `fin` VOYAGE AVEC CHAQUE BIEN : c'est elle qui dit s'il est encore en
    * gestion, et c'est la MÊME règle que la fiche propriétaire (`bienEnGestion`).
@@ -53,6 +56,11 @@ export interface SuggestionAnnuaire {
   cle: string;
   nom: string;
   role: RoleSuggere;
+  /**
+   * 🔴 Arno (18/11/2026) — le TON de la capsule (suffixe de `gst-annuaire-role--…`) : le rôle, sauf un locataire EN PRÉAVIS
+   * (« preavis », le bleu de la capsule de sa fiche). Les trois états de la fiche : vert, bleu, violet.
+   */
+  ton: RoleSuggere | 'preavis';
   /** Le MOT du rôle, tel qu'il s'affiche. */
   mot: string;
   /** « 67 rue de Normandie, COURBEVOIE » — SANS numéro de lot (Arno). `null` quand on n'en connaît aucune. */
@@ -75,11 +83,14 @@ export interface SuggestionAnnuaire {
   fiche: { sorte: 'proprietaire' | 'locataire'; id: number };
 }
 
-/** Le mot d'un rôle, tel qu'il s'affiche. Écrit une seule fois : la liste et le lecteur d'écran le partagent. */
-export function motRoleSuggere(r: RoleSuggere): string {
+/**
+ * Le mot d'un rôle, tel qu'il s'affiche. Écrit une seule fois : la liste et le lecteur d'écran le partagent.
+ * 🔴 Arno (18/11/2026) — les mots d'un locataire sont ceux des trois états de la fiche (`MOT_STATUT_LOCATAIRE`).
+ */
+export function motRoleSuggere(r: RoleSuggere, preavis = false): string {
   if (r === 'proprietaire') return 'Propriétaire';
-  if (r === 'locataire') return 'Locataire';
-  return 'Ancien locataire';
+  if (r === 'locataire') return MOT_STATUT_LOCATAIRE[preavis ? 'en_preavis' : 'en_place'];
+  return MOT_STATUT_LOCATAIRE.ancien;
 }
 
 /**
@@ -126,7 +137,8 @@ export function suggestionsAnnuaire(
       cle: `${role}-${fiche.sorte}-${fiche.id}`,
       nom: p.nomAffiche,
       role,
-      mot: motRoleSuggere(role),
+      ton: role === 'locataire' && p.preavis === true ? 'preavis' : role,
+      mot: motRoleSuggere(role, p.preavis === true),
       lieu: lieuDe(p),
       mention: mentionBiens(p, role),
       fiche,

@@ -64,7 +64,7 @@ import { BlocHistoriqueEchanges, useFichePersonne } from './BlocHistoriqueEchang
 import { bienDuNouveauMessageLocataire } from '../../../../lib/gestion/bienNouveauMessageLocataire';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », et l'ordre des
    anciens. La fiche ne les réécrit pas : elle les appelle, comme le dépôt et comme l'encart Parties. */
-import { estAncienLocataire, estLocataireEnPlace, parEntreeLaPlusRecente,
+import { estAncienLocataire, estLocataireEnPlace, parEntreeLaPlusRecente, statutLocataire,
   type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
   type PeriodePartie } from '../../../../lib/gestion/historiqueBien';
 /**
@@ -2238,6 +2238,8 @@ function VueLocataire({
   const passes = f.logements.filter(estAncienLocataire).sort(parEntreeLaPlusRecente);
   /** Le logement dont on montre les échanges : celui qu'il occupe. Le plus récent s'il en occupe plusieurs. */
   const logementDesMails = enCours[0] ?? null;
+  /* 🔴 Arno (18/11/2026) — les trois états de la capsule : LA fonction partagée avec les recherches et les listes. */
+  const statut = statutLocataire(f.logements, f.preavis?.[String(f.id)] !== undefined);
   return (
     <>
       <header className="ann-tete">
@@ -2252,11 +2254,11 @@ function VueLocataire({
                 c'est un ancien locataire : les teintes « locataire » et « ancien locataire » de la légende de l'historique.
                 Le statut vient de la règle en place (`estLocataireEnPlace`), et le MOT reste écrit. */}
             {/* Arno (19/10/2026) — EN PRÉAVIS : la capsule passe au BLEU, et le mot le dit. */}
-            {enCours.length > 0 && f.preavis?.[String(f.id)] !== undefined ? (
+            {statut === 'en_preavis' ? (
               <span className="ann-role-capsule ann-role-capsule--preavis" data-statut="en_preavis">Locataire en préavis</span>
             ) : (
-              <span className={`ann-role-capsule${enCours.length > 0 ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>
-                {enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}
+              <span className={`ann-role-capsule${statut === 'en_place' ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>
+                {statut === 'en_place' ? 'Locataire en place' : 'Ancien locataire'}
               </span>
             )}
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}

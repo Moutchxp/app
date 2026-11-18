@@ -11,7 +11,8 @@ import { ficheSyndic } from '../gestion/syndicRepo';
 import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
 import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
-import { locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from '../gestion/historiqueBien';
+import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
+import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import { listerCoproprietes } from '../gestion/coproprieteRepo';
 import { filtrerCoproprietes } from '../gestion/copropriete';
 import type { Issue } from './locationRepo';
@@ -193,10 +194,13 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
   const copros = t.mots.length === 0 ? [] : filtrerCoproprietes(await listerCoproprietes().catch(() => []), t.mots.join(' '));
   const ligne = ligneDe;
   const borne = <T>(l: T[]): T[] => l.slice(0, LIMITE);
+  // 🔴 Arno (18/11/2026) — les trois états de la fiche : le préavis ouvert, lu par le même module que la fiche.
+  const preavis = await locatairesEnPreavis(borne(loc).map((r) => Number(r.id)));
   return {
     proprietaires: borne(prop).map((r) => ligne(r, `Propriétaire ${r.id}`)),
-    // 🔴 Arno (18/11/2026) — le statut « en place / ancien locataire » de la FICHE : la règle unique (`locataireEnPlace`).
-    locataires: borne(loc).map((r) => ({ ...ligne(r, `Locataire ${r.id}`), enPlace: locataireEnPlace(occupationsDesSorties(r.sorties)) })),
+    // 🔴 Arno (18/11/2026) — le statut de la FICHE (en place / en préavis / ancien) : la règle unique (`statutLocataire`).
+    locataires: borne(loc).map((r) => ({ ...ligne(r, `Locataire ${r.id}`),
+      statut: statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.id))] !== undefined) })),
     syndics: borne(syn).map((r) => ligne(r, `Syndic ${r.id}`)),
     coproprietes: borne(copros).map((c, i): LigneRecherche => ({ id: i + 1, titre: c.hors ? `${c.nom} · Bien hors copropriété` : c.nom, telephone: null, email: null,
       adresse: c.adresses.join(' · '), detail: c.syndic === null ? null : `Syndic : ${c.syndic.nom}`, ancien: false, cle: c.immeuble })),

@@ -121,7 +121,7 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
                           <a id={`loc-res-${i}`} role="option" aria-selected={i === actif} data-index={i} data-groupe={l.groupe}
                             className={`loc-res-ligne${l.ancien ? ' loc-res-ligne--ancien' : ''}`} href={LIEN[l.groupe](l.id, l)}
                             onMouseEnter={() => setActif(i)}>
-                            {/* 🔴 Arno (18/11/2026) — un ancien locataire : « Ancien locataire » en violet, comme sur sa fiche. */}
+                            {/* 🔴 Arno (18/11/2026) — un locataire : « Locataire » vert, « Locataire en préavis » bleu, « Ancien locataire » violet, comme sur sa fiche. */}
                             <span className={`loc-res-type loc-res-type--${pastilleRecherche(l).ton}`} data-pastille={pastilleRecherche(l).ton}>{pastilleRecherche(l).mot}</span>
                             <strong className="loc-res-nom">{l.titre}</strong>
                             <span className="loc-res-infos">
@@ -192,6 +192,7 @@ export const CSS_RESULTATS = `
 .loc-res-type--biens{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
 .loc-res-type--ancien{background:var(--color-svv-field);color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong)}
 .loc-res-type--ancien-locataire{background:var(--color-svv-violet-soft);color:var(--color-svv-violet);border:1px solid var(--color-svv-violet)} /* la capsule « Ancien locataire » de la fiche (Arno, 18/11/2026) */
+.loc-res-type--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border:1px solid var(--color-svv-blue)} /* la capsule « Locataire en préavis » de la fiche (Arno, 18/11/2026) */
 .loc-res-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;min-width:0}
 .loc-res-infos{display:grid;grid-template-columns:minmax(0,9rem) minmax(0,1.2fr) minmax(0,1.6fr);gap:12px;min-width:0;color:var(--color-svv-muted);font-size:.9rem}
 .loc-res-infos > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}

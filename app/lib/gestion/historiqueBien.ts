@@ -1590,6 +1590,27 @@ export function sqlSortiesDuLocataire(alias: string): string {
              FROM gestion_annuaire_occupation o_st WHERE o_st.locataire_id = ${alias}.id)`;
 }
 
+/**
+ * ══ 🔴🔴 LES TROIS ÉTATS DE LA FICHE — EN PLACE, EN PRÉAVIS, ANCIEN LOCATAIRE. PURE. ═══════════════════════════════════
+ *
+ * Arno (18/11/2026) : « la recherche (Location, Gestion, liste « Ajouter / supprimer un locataire ») doit afficher les trois
+ * états de la fiche, avec exactement les mêmes mots et les mêmes couleurs : « Locataire » en vert, « Locataire en préavis »
+ * en bleu, « Ancien locataire » en violet. » La fiche décide ainsi (Annuaire.tsx, capsule de tête) : ancien si aucune
+ * occupation n'est en place (`locataireEnPlace`) ; sinon en préavis si un préavis OUVERT court (`locatairesEnPreavis`, ou le
+ * préavis de l'occupation lue) ; sinon en place. Un ancien locataire n'est jamais « en préavis » : son départ est acté.
+ */
+export type StatutLocataire = 'en_place' | 'en_preavis' | 'ancien';
+
+export function statutLocataire(occupations: readonly { sortie: string | null }[], enPreavis: boolean): StatutLocataire {
+  if (!locataireEnPlace(occupations)) return 'ancien';
+  return enPreavis ? 'en_preavis' : 'en_place';
+}
+
+/** Le MOT de chaque état dans les listes et les recherches (la capsule de la fiche dit « Locataire en place »). */
+export const MOT_STATUT_LOCATAIRE: Record<StatutLocataire, string> = {
+  en_place: 'Locataire', en_preavis: 'Locataire en préavis', ancien: 'Ancien locataire',
+};
+
 /** Ce que rend `sqlSortiesDuLocataire` (un tableau, `null` toléré) → des occupations pour `locataireEnPlace`. PURE. */
 export function occupationsDesSorties(sorties: readonly (string | null)[] | null | undefined): { sortie: string | null }[] {
   return (sorties ?? []).map((sortie) => ({ sortie }));

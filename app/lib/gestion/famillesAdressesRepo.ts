@@ -6,7 +6,7 @@ import { chargerAdressesExternes } from './envoiPartiesRepo';
 import { cleAdresse, famillesDesSuggestions, type FamilleAdresse, type FamillesConnues } from './familleAdresse';
 import { biensEtCotesDesContacts } from './partieCategorieRepo';
 import { ecrireDepuisLeBien } from './suggestionsBienRepo';
-import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from './historiqueBien';
 
 /**
  * ══ 🔴🔴 LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — LA FAMILLE DE CHAQUE ADRESSE DES CHAMPS À / Cc / Cci ═════════
@@ -35,18 +35,17 @@ export async function famillesDesAdresses(adresses: readonly string[], lotId: nu
 
   // ② Les clients de l'annuaire : l'e-mail PROPRE d'un propriétaire ou d'un locataire (en place, sinon ancien).
   if (reste().length > 0) {
-    const { rows } = await query<{ adresse: string; sujet: string; nom: string | null; en_place: boolean }>(
+    const { rows: lus } = await query<{ adresse: string; sujet: string; nom: string | null; sorties: (string | null)[] | null }>(
       `SELECT lower(btrim(c.valeur)) AS adresse, c.sujet,
               nullif(btrim(concat_ws(' ', coalesce(pr.nom, lo.nom), coalesce(pr.prenom, lo.prenom))), '') AS nom,
-              (c.sujet = 'locataire' AND EXISTS (
-                 SELECT 1 FROM gestion_annuaire_occupation o
-                  WHERE o.locataire_id = c.sujet_id AND o.absent_le IS NULL
-                    AND (o.sortie IS NULL OR o.sortie >= ${SQL_AUJOURDHUI_PARIS}))) AS en_place
+              ${sqlSortiesDuLocataire('lo')} AS sorties
          FROM gestion_annuaire_contact c
          LEFT JOIN gestion_annuaire_proprietaire pr ON c.sujet = 'proprietaire' AND pr.id = c.sujet_id
          LEFT JOIN gestion_annuaire_locataire lo ON c.sujet = 'locataire' AND lo.id = c.sujet_id
         WHERE c.sorte = 'email' AND c.absent_le IS NULL AND lower(btrim(c.valeur)) = ANY($1::text[])
               ${await conditionCoordonneeVivante('c')}`, [reste()]);
+    // 🔴 Arno (18/11/2026) — en place ou ancien locataire : la règle unique de la fiche (`locataireEnPlace`).
+    const rows = lus.map((r) => ({ ...r, en_place: r.sujet === 'locataire' && locataireEnPlace(occupationsDesSorties(r.sorties)) }));
     const rang = (r: { sujet: string; en_place: boolean }): number => (r.sujet === 'proprietaire' ? 0 : r.en_place ? 1 : 2);
     for (const r of [...rows].sort((x, y) => rang(x) - rang(y))) {
       const ton = r.sujet === 'proprietaire' ? 'proprietaire' : r.en_place ? 'locataire' : 'ancien_locataire';

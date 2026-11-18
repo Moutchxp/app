@@ -286,11 +286,13 @@ describe('🔴🔴 ④ la capsule « Ancien locataire »', () => {
   it('🔴🔴 l’en-tête d’une fiche de locataire porte le violet quand il est parti', () => {
     expect(ANNUAIRE).toContain(
       /* LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC — et VERT quand il occupe un logement. */
-      "<span className={`ann-role-capsule${enCours.length > 0 ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>");
+      "<span className={`ann-role-capsule${statut === 'en_place' ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>");
+    /* 🔴 Arno (18/11/2026) — l'état vient de LA fonction partagée avec les recherches et les listes. */
+    expect(ANNUAIRE).toContain("const statut = statutLocataire(f.logements, f.preavis?.[String(f.id)] !== undefined);");
     expect(ANNUAIRE).toContain(
       '.ann-role-capsule--ancien{color:var(--color-svv-violet);background:var(--color-svv-violet-soft);');
     /* 🔴 LE MOT RESTE : « Ancien locataire », écrit, à côté de la couleur. */
-    expect(ANNUAIRE).toContain("{enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}");
+    expect(ANNUAIRE).toContain("{statut === 'en_place' ? 'Locataire en place' : 'Ancien locataire'}");
   });
 });
 

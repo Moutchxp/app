@@ -35,7 +35,7 @@ const LOCATAIRE: PersonnePourSuggestion = {
 describe('🔴🔴 ① une suggestion par rôle, avec le bon lien', () => {
   it('🔴 un PROPRIÉTAIRE mène à sa fiche propriétaire', () => {
     expect(suggestionsAnnuaire([PROPRIO])).toEqual([{
-      cle: 'proprietaire-proprietaire-12', nom: 'Mme ABDELLATIF Névine', role: 'proprietaire',
+      cle: 'proprietaire-proprietaire-12', nom: 'Mme ABDELLATIF Névine', role: 'proprietaire', ton: 'proprietaire',
       mot: 'Propriétaire', lieu: '67 rue de Normandie, COURBEVOIE',
       /* 🔴 UN SEUL BIEN ⇒ AUCUNE MENTION (Arno : « rien si X = 1 »). */
       mention: null,
@@ -47,6 +47,15 @@ describe('🔴🔴 ① une suggestion par rôle, avec le bon lien', () => {
     const [s] = suggestionsAnnuaire([LOCATAIRE]);
     expect(s.mot).toBe('Locataire');
     expect(s.fiche).toEqual({ sorte: 'locataire', id: 45 });
+  });
+
+  /** 🔴 Arno (18/11/2026) — les trois états de la fiche : « Locataire » vert, « Locataire en préavis » bleu, « Ancien locataire » violet. */
+  it('🔴 un locataire EN PRÉAVIS : « Locataire en préavis », ton bleu ; même rôle, même fiche, même ordre', () => {
+    const [s] = suggestionsAnnuaire([{ ...LOCATAIRE, preavis: true }]);
+    expect(s).toMatchObject({ role: 'locataire', ton: 'preavis', mot: 'Locataire en préavis', fiche: { sorte: 'locataire', id: 45 } });
+    const [t] = suggestionsAnnuaire([LOCATAIRE]);
+    expect(t).toMatchObject({ ton: 'locataire', mot: 'Locataire' });
+    expect(motRoleSuggere('ancien_locataire', true)).toBe('Ancien locataire');
   });
 
   /**
@@ -236,7 +245,7 @@ describe('🔴🔴 ⑦ le classement : les rôles sont MÊLÉS, c’est la perti
    * alphabétique », quel que soit le rôle.
    */
   const sug = (nom: string, role: RoleSuggere, id: number): SuggestionAnnuaire => ({
-    cle: `${role}-${id}`, nom, role, mot: motRoleSuggere(role), lieu: null, mention: null,
+    cle: `${role}-${id}`, nom, role, ton: role, mot: motRoleSuggere(role), lieu: null, mention: null,
     fiche: { sorte: role === 'proprietaire' ? 'proprietaire' : 'locataire', id },
   });
 

@@ -48,7 +48,7 @@ import type { TermeRecherche } from './annuaireRecherche';
 import { adressesRapprochables } from './adresseInterne';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », module PUR. Le
    dépôt ne la réécrit pas : il l'appelle, comme la fiche, l'encart Parties et les capsules de pièces jointes. */
-import { estAncienLocataire, estLocataireEnPlace, locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from './historiqueBien';
+import { estAncienLocataire, estLocataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from './historiqueBien';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « un evenement ouvert » ne se demande plus a la colonne `etat` : il se DEDUIT
    des cartes de borne de la frise. Le cartouche orange et les capsules de la fiche lisent donc la meme regle
    que l'etiquette des mails et que le bloc Evenements. */
@@ -2314,6 +2314,11 @@ export interface PersonneTrouvee {
    * `null` = cette personne ne partage son bien avec personne d'autre dans CE résultat.
    */
   groupe: string | null;
+  /**
+   * 🔴 Arno (18/11/2026) — VRAI quand son rôle de locataire est « en préavis » (les trois états de la fiche, `statutLocataire`) :
+   * la capsule dit alors « Locataire en préavis », en bleu. Absent ou faux sinon ; le rôle reste `locataire`.
+   */
+  preavis?: boolean;
 }
 
 export interface ResultatsPersonnes {
@@ -2447,8 +2452,12 @@ export async function rechercherPersonnes(
          OR lc.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')
          OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
                      WHERE o.locataire_id = lc.id))${filtreLocataire}`, params);
-  // 🔴 Arno (18/11/2026) — « en place / ancien locataire » : la règle unique de la fiche (`locataireEnPlace`), jamais un SQL à part.
-  const locs: LocBrut[] = locsBruts.map(({ sorties, ...l }) => ({ ...l, en_place: locataireEnPlace(occupationsDesSorties(sorties)) }));
+  // 🔴 Arno (18/11/2026) — en place / en préavis / ancien locataire : la règle unique de la fiche (`statutLocataire`), jamais un SQL à part.
+  const preavis = await locatairesEnPreavis(locsBruts.map((l) => Number(l.id)));
+  const locs: LocBrut[] = locsBruts.map(({ sorties, ...l }) => {
+    const statut = statutLocataire(occupationsDesSorties(sorties), preavis[String(Number(l.id))] !== undefined);
+    return { ...l, en_place: statut !== 'ancien', en_preavis: statut === 'en_preavis' };
+  });
 
   return assemblerPersonnes(proprios, locs, o.avecArchivees === true, horsLS);
 }
@@ -2462,6 +2471,8 @@ interface ProprioBrut {
 interface LocBrut {
   id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_normalise: string;
   archive: boolean; par_nom: boolean; en_place: boolean; lot_vise: string | null; lot_vise_en_cours: boolean;
+  /** 🔴 (18/11/2026) en préavis (`statutLocataire`) ; absent = non. */
+  en_preavis?: boolean;
 }
 
 /**
@@ -2585,6 +2596,7 @@ async function assemblerPersonnes(
       biens: biens.get(cle) ?? [],
       raison: p.par_nom || p.lot_vise === null ? null : `propriétaire du lot ${p.lot_vise}`,
       groupe: null,
+      ...(loc?.en_preavis === true ? { preavis: true } : {}),
       pertinence: p.par_nom ? 0 : 1,
     });
   }
@@ -2604,6 +2616,7 @@ async function assemblerPersonnes(
         ? null
         : `${l.lot_vise_en_cours ? 'locataire en place' : 'ancien locataire'} du lot ${l.lot_vise}`,
       groupe: null,
+      ...(l.en_preavis === true ? { preavis: true } : {}),
       pertinence: l.par_nom ? 0 : 1,
     });
   }

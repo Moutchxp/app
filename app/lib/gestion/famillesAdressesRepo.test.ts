@@ -22,11 +22,12 @@ const { famillesDesAdresses } = await import('./famillesAdressesRepo');
 
 beforeEach(() => {
   query.mockReset().mockResolvedValue({ rows: [
-    { adresse: 'proprio@x.fr', sujet: 'proprietaire', nom: 'DUPONT Jean', en_place: false },
-    { adresse: 'loc@x.fr', sujet: 'locataire', nom: 'ROI Léa', en_place: true },
-    { adresse: 'ancien@x.fr', sujet: 'locataire', nom: 'HIRSCH Thibaut', en_place: false },
-    { adresse: 'double@x.fr', sujet: 'locataire', nom: 'ROI Léa', en_place: true },
-    { adresse: 'double@x.fr', sujet: 'proprietaire', nom: 'DUPONT Jean', en_place: false },
+    // 🔴 (18/11/2026) la base rend les dates de sortie ; la règle de la fiche (`locataireEnPlace`) juge.
+    { adresse: 'proprio@x.fr', sujet: 'proprietaire', nom: 'DUPONT Jean', sorties: [] },
+    { adresse: 'loc@x.fr', sujet: 'locataire', nom: 'ROI Léa', sorties: [null] },
+    { adresse: 'ancien@x.fr', sujet: 'locataire', nom: 'HIRSCH Thibaut', sorties: ['2025-03-31'] },
+    { adresse: 'double@x.fr', sujet: 'locataire', nom: 'ROI Léa', sorties: [null] },
+    { adresse: 'double@x.fr', sujet: 'proprietaire', nom: 'DUPONT Jean', sorties: [] },
   ] });
   ecrireDepuisLeBien.mockReset().mockResolvedValue({ groupes: [
     { cle: 'immeuble', titre: 'I', lignes: [{ adresse: 'Double@x.fr', nom: 'Gardienne', role: 'Gardien', ton: 'immeuble', propre: true, civilite: null, nomFamille: null }] },
@@ -70,10 +71,20 @@ describe('famillesDesAdresses', () => {
     expect(f['mixte@x.fr']?.ton).toBe('proprietaire');
   });
   it('une adresse DE L’AGENCE n’est pas « inconnue » : grise, « Adresse de l’agence » — mais un client de nos domaines garde sa famille', async () => {
-    query.mockResolvedValue({ rows: [{ adresse: 'c.client@sansvisavis.com', sujet: 'proprietaire', nom: 'JULLIEN Cédric', en_place: false }] });
+    query.mockResolvedValue({ rows: [{ adresse: 'c.client@sansvisavis.com', sujet: 'proprietaire', nom: 'JULLIEN Cédric', sorties: [] }] });
     const f = await famillesDesAdresses(['administration@sansvisavis.com', 'c.client@sansvisavis.com'], null);
     expect(f['administration@sansvisavis.com']).toEqual({ ton: 'neutre', propre: true, nom: null, role: 'Adresse de l’agence' });
     expect(f['c.client@sansvisavis.com']?.ton).toBe('proprietaire');
+  });
+  it('🔴 (18/11/2026) la règle de la FICHE : une sortie datée DANS LE FUTUR fait un ancien locataire ; un bail fini + un en cours, en place', async () => {
+    const demain = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    query.mockResolvedValue({ rows: [
+      { adresse: 'futur@x.fr', sujet: 'locataire', nom: 'PART Bientôt', sorties: [demain] },
+      { adresse: 'deux@x.fr', sujet: 'locataire', nom: 'DEUX Baux', sorties: ['2024-06-30', null] },
+    ] });
+    const f = await famillesDesAdresses(['futur@x.fr', 'deux@x.fr'], null);
+    expect(f['futur@x.fr']).toMatchObject({ ton: 'ancien_locataire', role: 'Ancien locataire' });
+    expect(f['deux@x.fr']).toMatchObject({ ton: 'locataire', role: 'Locataire' });
   });
   it('lecture BORNÉE aux adresses demandées (paramètre lié), rien sans adresse', async () => {
     await famillesDesAdresses(['proprio@x.fr'], null);

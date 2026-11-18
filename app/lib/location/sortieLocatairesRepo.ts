@@ -13,6 +13,8 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { bailDisponible } from './bailRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
+import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
+import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import {
   LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING,
   type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
@@ -100,8 +102,8 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
   // Le préavis (migration 383, sondée) : un locataire en préavis reste OCCUPANT — il figure ici, avec sa date maximale.
   const avecPreavis = await colonneExisteMemo('gestion_location_preavis', 'date_max');
   const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; telephone: string | null; email: string | null;
-    lot_id: string; adresse: string | null; etage: string | null; porte: string | null; proprietaire: string | null; preavis_date_max: string | null }>(
-    `SELECT o.id::text AS occupation_id, l.id::text AS locataire_id, l.nom, ${coordonnee('telephone')} AS telephone, ${coordonnee('email')} AS email,
+    lot_id: string; adresse: string | null; etage: string | null; porte: string | null; proprietaire: string | null; preavis_date_max: string | null; sorties?: (string | null)[] | null }>(
+    `SELECT o.id::text AS occupation_id, l.id::text AS locataire_id, l.nom, ${sqlSortiesDuLocataire('l')} AS sorties, ${coordonnee('telephone')} AS telephone, ${coordonnee('email')} AS email,
             lo.id::text AS lot_id, nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS adresse,
             ${s.etage} AS etage, ${s.porte} AS porte, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             ${avecPreavis ? `(SELECT p.date_max::text FROM gestion_location_preavis p WHERE p.occupation_id = o.id AND p.remplace_le IS NULL AND p.annule_le IS NULL LIMIT 1)` : 'NULL::text'} AS preavis_date_max
@@ -118,10 +120,14 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
       ORDER BY l.nom_normalise, lo.adresse_normalisee NULLS LAST, o.id
       LIMIT ${LIMITE}`,
     [t.chiffres ?? '', t.email ?? '', t.mots]);
+  // 🔴 Arno (18/11/2026) — l'état de la FICHE de chaque personne : toutes ses occupations, son préavis lu par le même module que la fiche.
+  const preavis = await locatairesEnPreavis(rows.map((r) => Number(r.locataire_id)));
   return rows.map((r) => ({
     occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom, telephone: r.telephone, email: r.email,
     lotId: Number(r.lot_id), adresse: r.adresse, etage: r.etage, porte: r.porte, proprietaire: r.proprietaire,
     preavisDateMax: r.preavis_date_max ?? null,
+    // 🔴 Arno (18/11/2026) — l'état de la fiche de cette personne : la règle unique (`statutLocataire`).
+    statut: statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.locataire_id))] !== undefined),
   }));
 }
 

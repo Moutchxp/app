@@ -357,7 +357,7 @@ export function BarreAnnuaire({ onFiche, focusAuMontage = false }: {
                         locataire” (aujourd'hui verte) passe en violet ». Le vert reste donc au locataire EN
                         PLACE, et le rôle `ancien` — que le module pur distinguait DÉJÀ — porte enfin sa couleur.
                         Le MOT, lui, ne change pas d'un caractère : c'est lui qui porte l'information. */}
-                    <span className={`gst-annuaire-role gst-annuaire-role--${s.role}`}>{s.mot}</span>
+                    <span className={`gst-annuaire-role gst-annuaire-role--${s.ton}`}>{s.mot}</span>
                     {/* 🔴 L'ADRESSE DISTINGUE LES HOMONYMES, et elle ne porte PAS le numéro de lot (Arno). */}
                     {s.lieu !== null && <span className="gst-annuaire-lieu">{s.lieu}</span>}
                     {/* 🔴🔴 LOT ANNUAIRE-MENTION-PARENTHESES — « (Propriétaire de X biens au total) », APRÈS
@@ -460,6 +460,8 @@ const CSS_BARRE_ANNUAIRE = `
    (lot 84 ; contrastes mesures 5,48:1 en Clair, 7,74:1 en Sombre). */
 .gst-annuaire-role--copropriete{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
 .gst-annuaire-role--ancien_locataire{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
+/* 🔴 Arno (18/11/2026) — « Locataire en préavis » : le bleu de la capsule de la fiche. */
+.gst-annuaire-role--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 .gst-annuaire-lieu{font-size:.82rem;color:var(--color-svv-muted)}
 /* ══ LOT ECRAN-ANNUAIRE-MINIMAL — LA LIGNE « D'AUTRES CORRESPONDENT » ══
    DISCRETE (Arno) : le gris des adresses, un filet au-dessus pour la detacher des suggestions, et aucun relief

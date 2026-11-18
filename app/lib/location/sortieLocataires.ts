@@ -17,6 +17,7 @@
  */
 
 import { mentionEnvoyePar } from './mentionEnvoyePar';
+import type { StatutLocataire } from '../gestion/historiqueBien';
 import { batimentOuCage, LIBELLE_BATIMENT_CAGE } from '../gestion/batimentsCopropriete';
 
 /** Un résultat de la recherche des occupants (en place à la date du jour). */
@@ -25,6 +26,8 @@ export interface OccupantTrouve {
   lotId: number; adresse: string | null; etage: string | null; porte: string | null; proprietaire: string | null;
   /** En préavis : la date maximale de sortie (AAAA-MM-JJ) ; `null` sinon (ou sans la migration 383). */
   preavisDateMax?: string | null;
+  /** 🔴 Arno (18/11/2026) — les trois états de la FICHE de cette personne (`statutLocataire`). Absent = « en place ». */
+  statut?: StatutLocataire;
 }
 
 export interface LocataireDuBail {

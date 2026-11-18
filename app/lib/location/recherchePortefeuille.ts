@@ -10,6 +10,7 @@
  * par leur seule adresse, et seulement s'ils sont dans le portefeuille.
  */
 import { normaliserTexte } from '../gestion/annuaire';
+import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../gestion/historiqueBien';
 
 export interface TermePortefeuille {
   /** Les mots normalisés (minuscules, sans accent), pour le nom et l'adresse. Vide = rien à chercher par les mots. */
@@ -63,11 +64,11 @@ export interface LigneRecherche {
   detail: string | null;
   ancien: boolean;
   /**
-   * 🔴 Arno (18/11/2026) — un LOCATAIRE seulement : en place (vrai) ou ancien locataire (faux), d'après la règle unique de la
-   * fiche (`locataireEnPlace`, historiqueBien.ts). Absent pour les autres groupes. ⚠️ Rien à voir avec `ancien` (fiche
+   * 🔴 Arno (18/11/2026) — un LOCATAIRE seulement : en place, en préavis ou ancien locataire, d'après la règle unique de la
+   * fiche (`statutLocataire`, historiqueBien.ts). Absent pour les autres groupes. ⚠️ Rien à voir avec `ancien` (fiche
    * SORTIE DU PORTEFEUILLE) : un ancien locataire reste à sa place dans la liste, seul son statut est écrit.
    */
-  enPlace?: boolean;
+  statut?: StatutLocataire;
   /** 🔴 (16/11/2026) une copropriété : l'immeuble qui ouvre sa fiche (son identifiant n'est qu'un rang) */
   cle?: string | null;
 }
@@ -77,20 +78,20 @@ export interface LigneAccueil extends LigneRecherche { groupe: Groupe }
 /** Le mot de la pastille de type. */
 export const LIBELLE_TYPE: Record<Groupe, string> = { proprietaires: 'Propriétaire', locataires: 'Locataire', syndics: 'Syndic', coproprietes: 'Copropriété', biens: 'Bien' };
 
-/** Le mot de la capsule « ancien locataire » de la fiche (Annuaire.tsx), repris tel quel. */
-export const LIBELLE_ANCIEN_LOCATAIRE = 'Ancien locataire';
+/** Le ton (suffixe de classe) de chaque état d'un locataire — les couleurs de la capsule de sa fiche. */
+const TON_STATUT: Record<StatutLocataire, string> = { en_place: 'locataires', en_preavis: 'preavis', ancien: 'ancien-locataire' };
 
 /**
  * LA PASTILLE D'UNE LIGNE : son MOT et son TON (suffixe de la classe `loc-res-type--…`). PUR.
  *   · fiche sortie du portefeuille → « Ancien · <type> », grisée (inchangé) ;
- *   · 🔴 Arno (18/11/2026) — un locataire dont tous les baux sont terminés → « Ancien locataire », en VIOLET, le mot ET la
- *     couleur de la capsule de sa fiche ; un locataire en place garde « Locataire », en vert ;
+ *   · 🔴 Arno (18/11/2026) — un locataire : les trois états de sa fiche, mêmes mots et mêmes couleurs : « Locataire » en vert,
+ *     « Locataire en préavis » en bleu, « Ancien locataire » en violet (`MOT_STATUT_LOCATAIRE`) ;
  *   · sinon le type.
  * Le mot change toujours avec la couleur : jamais une information portée par la seule couleur.
  */
 export function pastilleRecherche(l: LigneAccueil): { mot: string; ton: string } {
   if (l.ancien) return { mot: `Ancien · ${LIBELLE_TYPE[l.groupe]}`, ton: 'ancien' };
-  if (l.groupe === 'locataires' && l.enPlace === false) return { mot: LIBELLE_ANCIEN_LOCATAIRE, ton: 'ancien-locataire' };
+  if (l.groupe === 'locataires' && l.statut !== undefined) return { mot: MOT_STATUT_LOCATAIRE[l.statut], ton: TON_STATUT[l.statut] };
   return { mot: LIBELLE_TYPE[l.groupe], ton: l.groupe };
 }
 

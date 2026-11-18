@@ -6,6 +6,10 @@ import { useState } from 'react';
 import { EtatLecture, liste, useLecture } from './commun';
 import { LIBELLE_CATEGORIE, resumeBien, type BienLocation } from '../../../../lib/location/locationBien';
 import type { LigneLocataire, LigneProprietaire, PageListe } from '../../../../lib/location/locationRepo';
+import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
+
+/** La couleur de chaque état d'un locataire (`loc-pastille--…`, jetons du thème) : vert, bleu, violet. */
+const PASTILLE_STATUT: Record<StatutLocataire, string> = { en_place: 'vert', en_preavis: 'bleu', ancien: 'violet' };
 
 /**
  * ══ TUILE LOCATION — LES LISTES (déplacées de l'ancien accueil, refonte du 17/10/2026) ═══════════════════════════════
@@ -47,7 +51,8 @@ export function ListeLocation({ sorte }: { sorte: SorteListe }) {
                 <li key={l.id}>
                   <span>
                     <a href={`/admin/location/locataire/${l.id}`}>{l.nom}</a>{' '}
-                    <span className={`loc-pastille${l.enPlace ? ' loc-pastille--vert' : ' loc-pastille--violet'}`}>{l.enPlace ? 'en place' : 'ancien'}</span>
+                    {/* 🔴 Arno (18/11/2026) — les trois états de la fiche, mêmes mots, mêmes couleurs (vert, bleu, violet). */}
+                    <span className={`loc-pastille loc-pastille--${PASTILLE_STATUT[l.statut]}`} data-statut={l.statut}>{MOT_STATUT_LOCATAIRE[l.statut]}</span>
                   </span>
                   <span className="loc-muet">{l.logement ?? ''}</span>
                 </li>

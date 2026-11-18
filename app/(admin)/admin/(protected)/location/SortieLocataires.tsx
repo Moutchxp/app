@@ -4,6 +4,10 @@ import { LienRetour } from '../_composants/NavigationRetour';
 import { useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, phrasesMailsAvis, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
+import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
+
+/** Le ton de la pastille d'un occupant (`loc-res-type--…`, défini dans CSS_RESULTATS) : vert, bleu, violet. */
+const TON_OCCUPANT: Record<StatutLocataire, string> = { en_place: 'locataires', en_preavis: 'preavis', ancien: 'ancien-locataire' };
 import { ModaleEnvois } from './ConfirmationEnvois';
 import { ParcoursPreavisSortie, ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
 import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
@@ -280,7 +284,8 @@ function BarreOccupants({ texte, setTexte, etat, choisir }: {
                     {etat.data.map((o) => (
                       <li key={o.occupationId} role="presentation">
                         <button type="button" role="option" aria-selected={false} className="loc-res-ligne arc-res-ligne" data-occupation={o.occupationId} onClick={() => choisir(o)}>
-                          <span className="loc-res-type loc-res-type--locataires" data-statut="occupant">occupant</span>
+                          {/* 🔴 Arno (18/11/2026) — les trois états de la fiche, mêmes mots et mêmes couleurs que la recherche de l'accueil. */}
+                          <span className={`loc-res-type loc-res-type--${TON_OCCUPANT[o.statut ?? 'en_place']}`} data-statut={o.statut ?? 'en_place'}>{MOT_STATUT_LOCATAIRE[o.statut ?? 'en_place']}</span>
                           <strong className="loc-res-nom">{o.nom}{o.preavisDateMax ? <>{' '}<MentionPreavis p={{ dateMax: o.preavisDateMax }} jour={aujourdhuiParisEcran()} /></> : null}</strong>
                           <span className="loc-res-infos">
                             <span className="loc-res-tel">{descriptionEtage(o.etage, o.porte)}</span>

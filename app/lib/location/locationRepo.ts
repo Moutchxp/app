@@ -19,7 +19,8 @@ import {
   type FicheLocataire, type FicheLot, type FicheProprietaire, type PersonneTrouvee,
 } from '../gestion/annuaireRepo';
 import { analyserTerme } from '../gestion/annuaireRecherche';
-import { locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from '../gestion/historiqueBien';
+import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire, type StatutLocataire } from '../gestion/historiqueBien';
+import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
 import type { Auteur } from '../gestion/gestes';
@@ -102,7 +103,9 @@ async function filtreSortie(alias: string, anciens: boolean): Promise<string> {
 
 export interface PageListe<T> { lignes: T[]; total: number; page: number }
 export interface LigneProprietaire { id: number; nom: string; biens: number; numeroMandat: string | null }
-export interface LigneLocataire { id: number; nom: string; enPlace: boolean; logement: string | null; lotId: number | null }
+export interface LigneLocataire { id: number; nom: string; enPlace: boolean; logement: string | null; lotId: number | null;
+  /** 🔴 Arno (18/11/2026) — les trois états de la fiche (`statutLocataire`) : en place, en préavis, ancien. */
+  statut: StatutLocataire }
 
 export async function listeProprietaires(page: number, filtre = '', anciens = false): Promise<PageListe<LigneProprietaire>> {
   const vivante = (await sqlPersonneVivante('p')) + await filtreSortie('p', anciens);
@@ -140,9 +143,13 @@ export async function listeLocataires(page: number, filtre = '', anciens = false
       WHERE ${vivante} AND p.nom_normalise LIKE $1
       ORDER BY (o.id IS NULL), p.nom_normalise, p.id
       LIMIT ${TAILLE_PAGE} OFFSET $2`, [motif, page * TAILLE_PAGE]);
+  // 🔴 Arno (18/11/2026) — en place / en préavis / ancien : la règle unique de la fiche (`statutLocataire`).
+  const preavis = await locatairesEnPreavis(rows.map((r) => Number(r.id)));
   return {
-    // 🔴 Arno (18/11/2026) — « en place / ancien » : la règle unique de la fiche (`locataireEnPlace`).
-    lignes: rows.map((r) => ({ id: Number(r.id), nom: r.nom, enPlace: locataireEnPlace(occupationsDesSorties(r.sorties)), logement: r.logement, lotId: num(r.lot_id) })),
+    lignes: rows.map((r) => {
+      const statut = statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.id))] !== undefined);
+      return { id: Number(r.id), nom: r.nom, enPlace: statut !== 'ancien', statut, logement: r.logement, lotId: num(r.lot_id) };
+    }),
     total: rows[0]?.total ?? 0, page,
   };
 }

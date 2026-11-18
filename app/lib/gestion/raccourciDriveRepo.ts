@@ -2,7 +2,7 @@ import { query } from '../db/client';
 import { sqlLiensDuBien } from './rattachement';
 import { rattachementsDisponibles } from './schema';
 import { adressesRapprochables } from './adresseInterne';
-import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { locataireEnPlace } from './historiqueBien';
 /* 🔴🔴 `gestion_contact_carte` NE SE NOMME QUE DEPUIS `partieCategorieRepo` — un garde du module le tient. On
    passe donc par sa fonction, jamais par une requête à nous : une table à une seule porte le reste. */
 import { biensEtCotesDesContacts } from './partieCategorieRepo';
@@ -162,8 +162,8 @@ async function sujetDeLAdresse(
  * plus récent, sans quoi la même vignette apparaîtrait deux fois.
  */
 async function biensDuLocataire(locataireId: number): Promise<BienPourLaFenetre[]> {
-  const { rows } = await query<LigneLot & { en_cours: boolean }>(
-    `SELECT ${CHAMPS_LOT}, (o.sortie IS NULL OR o.sortie >= ${SQL_AUJOURDHUI_PARIS}) AS en_cours
+  const { rows } = await query<LigneLot & { sortie: string | null }>(
+    `SELECT ${CHAMPS_LOT}, o.sortie::text AS sortie
        FROM (
          SELECT DISTINCT ON (oc.lot_wippimmo_id) oc.lot_wippimmo_id, oc.sortie, oc.entree
            FROM gestion_annuaire_occupation oc
@@ -175,7 +175,9 @@ async function biensDuLocataire(locataireId: number): Promise<BienPourLaFenetre[
        ${JOINTURES_LOT}
       ORDER BY coalesce(o.sortie, 'infinity'::date) DESC, o.entree DESC NULLS LAST, lo.wippimmo_id
       LIMIT 20`, [locataireId]);
-  return rows.map((r) => enBien(r, r.en_cours ? 'locataire' : 'ancien_locataire'));
+  // 🔴 Arno (18/11/2026) — locataire ou ancien locataire de ce bien : la règle unique de la fiche (une date de sortie renseignée,
+  //   même à venir, fait un ancien locataire), et non plus « sortie à venir = encore là ».
+  return rows.map((r) => enBien(r, locataireEnPlace([{ sortie: r.sortie }]) ? 'locataire' : 'ancien_locataire'));
 }
 
 /**
