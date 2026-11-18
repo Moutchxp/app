@@ -605,10 +605,11 @@ describe('🔴🔴 Arno (11/11/2026, lot 5) — retouches de PRÉSENTATION de la
       expect(frise.querySelector(`[data-etape="${cle}"] .frp-actions ${bouton}`), `${bouton} dans la zone des boutons`).not.toBeNull();
     }
     expect(frise.querySelector('[data-etape="edls"] .frp-actions button')).not.toBeNull();
-    // Le CSS : une grille partagée (subgrid) — en-tête, informations, boutons à la même hauteur d'une case à l'autre ; boutons pleine largeur.
+    // Le CSS : une grille partagée (subgrid) pour les EN-TÊTES ; boutons pleine largeur.
     const css = CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ');
-    expect(css).toContain('.frp-etape{display:grid;grid-row:span 3;grid-template-rows:subgrid;');
-    expect(css).toContain('.frp-etape > .pva-bloc{grid-row:2 / span 2;display:grid;grid-template-rows:subgrid;');
+    // 🔴 Arno (18/11/2026, option A) — seuls les EN-TÊTES partagent leur rangée ; le contenu se range en haut de sa case, sans trou.
+    expect(css).toContain('.frp-etape{display:grid;grid-row:span 2;grid-template-rows:subgrid;');
+    expect(css).toContain('.frp-etape > .pva-bloc{grid-row:2;align-self:start;display:flex;flex-direction:column;');
     expect(css).toMatch(/\.frp-actions \.loc-boutons \.svv-btn\{width:100%;min-height:48px;[^}]*justify-content:center;text-align:center/);
   });
 
@@ -3600,3 +3601,35 @@ describe('🔴 Arno (18/11/2026) — le bloc des LOCATAIRES sous les information
     }
   });
 });
+
+describe('🔴 Arno (18/11/2026, option 1) — « Valider le rendez-vous sans prévenir les locataires » : seulement tant que le rendez-vous est à venir', () => {
+  const etat = () => ({ etat: 'attente', par: null, main: false, reponses: [{ occupationId: 11, nom: 'Alice BERNARD', reponse: null, le: null }] } as const);
+  const poser = (pv: 'avenir' | 'passe' | 'effectuee', jourEdl: string) => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l,
+      previsite: { statut: pv === 'effectuee' ? 'effectuee' : 'programmee', rdv: { jour: pv === 'avenir' ? '2099-01-05' : '2020-01-05', heure: '10:00', dureeMinutes: 60 },
+        tacheId: 40, collegues: [], tousRefusent: false, rdvPasse: pv !== 'avenir', alerteEnvoyeeLe: null },
+      edls: { edlsId: 1, tacheId: 41, jour: jourEdl, heure: '14:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente', reponduPar: null, motifRefus: null },
+      reponsesRdv: { previsite: { ...etat(), reponses: [...etat().reponses] }, edl: { ...etat(), reponses: [...etat().reponses] }, disponible: true } } : l));
+  };
+  const voir = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); };
+  it('à venir : le bouton est là (pré-visite et état des lieux)', async () => {
+    poser('avenir', '2099-01-06');
+    await voir();
+    for (const s of ['previsite', 'edl']) expect(container.querySelector(`[data-rdv-locataires="${s}"] [data-valider-rdv-main]`), s).not.toBeNull();
+  });
+  it('effectuée, ou passé : plus de bouton ; le cartouche et la liste des réponses restent', async () => {
+    for (const pv of ['effectuee', 'passe'] as const) {
+      poser(pv, '2020-01-06');
+      await voir();
+      for (const s of ['previsite', 'edl']) {
+        const b = container.querySelector(`[data-rdv-locataires="${s}"]`)!;
+        expect(b.querySelector('[data-valider-rdv-main]'), `${pv} ${s}`).toBeNull();
+        expect(b.querySelector('[data-cartouche-locataires]')?.textContent).toBe('Locataires : En attente');
+        expect(b.querySelector('[data-reponse-locataire]')?.textContent).toBe('Alice BERNARD : pas encore répondu');
+      }
+      act(() => root.unmount()); root = createRoot(container);
+    }
+  });
+});
+
