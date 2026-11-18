@@ -1,5 +1,6 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
@@ -973,7 +974,12 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
  * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
  * c'est un bâtiment connu (rien n'est écrasé).
  */
-export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null, adresse = null }: {
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null, adresse = null, zoneLegendes = null }: {
+  /**
+   * 🔴 Arno (18/11/2026) — « ne déplace pas le champ de saisie, mais déplace plutôt l'affichage de la ligne du dessous (on garde tous les champs de saisie
+   * sur la même ligne) » : la ligne (pleine largeur) SOUS la rangée où vont les légendes du champ ; `null` : sous le champ, comme avant.
+   */
+  zoneLegendes?: HTMLElement | null;
   /** 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété ») l'adresse du bien, dite quand la copropriété en a plusieurs (le menu ne propose que ses bâtiments) */
   adresse?: string | null;
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; escalier: string; desactive: boolean;
@@ -993,6 +999,13 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
   const connu = menuBatiments(connus).find((o) => o.cle === batimentDe(escalier)?.cle);
   const proposition = valeur.trim() === '' && escalier.trim() !== ''
     ? { texte: `Escalier noté : ${escalier.trim()} — choisir ce bâtiment ?`, nom: connu?.libelle ?? escalier.trim() } : undefined;
+  // les légendes du champ (texte et comportement inchangés) : sous le champ, ou dans la ligne sous la rangée quand l'écran la fournit
+  const legendes = (
+    <>
+      {avis !== null && <p className="loc-muet dcp-avis-batiment" role="status" data-cbc-avis>{avis}</p>}
+      {adresse !== null && adresse.trim() !== '' && <p className="loc-muet dcp-avis-batiment" data-cbc-adresse>Bâtiments de l’adresse {adresse}</p>}
+    </>
+  );
   return (
     <div className={`${variante === 'location' ? 'loc-champ dcp-cbc--location ' : ''}dcp-champ dcp-champ-bat`} data-cbc>
       {/* 🔴 (Arno, 17/11/2026) renommé « Bâtiment / cage d'escalier » ; un texte d'aide court, entier à 390 px comme à l'ordinateur */}
@@ -1002,8 +1015,7 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
         onChoix={(l, c) => { onChoix(l, c); const b = batimentDe(l); if (onCree !== undefined && b !== null && (!connus.some((x) => x.cle === b.cle) || retires?.has(b.cle) === true)) onCree(l, c); }}
         {...(retires !== undefined ? { retires } : {})}
         {...(proposition !== undefined ? { proposition } : {})} />
-      {avis !== null && <p className="loc-muet dcp-avis-batiment" role="status" data-cbc-avis>{avis}</p>}
-      {adresse !== null && adresse.trim() !== '' && <p className="loc-muet dcp-avis-batiment" data-cbc-adresse>Bâtiments de l’adresse {adresse}</p>}
+      {zoneLegendes === null ? legendes : createPortal(legendes, zoneLegendes)}
       <style>{CSS_DIGICODES_COPRO}</style>
     </div>
   );

@@ -395,6 +395,15 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 /* Arno (17/10/2026) — les champs d'une même ligne ALIGNÉS au même niveau : libellés courts, et si l'un passe sur deux
    lignes, les champs restent alignés EN BAS ; l'aide (« balcon, terrasse, jardin ») se pose SOUS le champ sans le décaler. */
 .loc-ample .loc-grille{align-items:end;row-gap:30px}
+/* 🔴 Arno (18/11/2026) — la rangée « Bâtiment / cage d'escalier — Étage — N° de porte » : titres et champs toujours à la même hauteur (alignés en haut,
+   quoi que la case Bâtiment affiche sous son champ) ; ses légendes dans la ligne pleine largeur dessous (vide : aucune place) ; au téléphone, champs
+   empilés, la ligne vient juste sous le champ Bâtiment. */
+.loc-grille[data-ligne-situation]{align-items:start}
+.loc-legendes-ligne{grid-column:1/-1;display:flex;flex-direction:column;gap:4px;min-width:0}
+.loc-ample .loc-legendes-ligne{margin-top:-18px}
+.loc-legendes-ligne:empty{display:none}
+.loc-legendes-ligne > p{margin:0;overflow-wrap:anywhere}
+@media (max-width:560px){ .loc-grille[data-ligne-situation] > *{order:3} .loc-grille[data-ligne-situation] > [data-cbc]{order:1} .loc-grille[data-ligne-situation] > .loc-legendes-ligne{order:2;margin-top:-12px} }
 .loc-ample .loc-champ{position:relative}
 .loc-aide{position:absolute;top:100%;left:0;margin-top:4px;font-size:.82rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap}
 /* Une aide en phrase (dernière AG) : dans le flux, elle passe à la ligne — jamais de débordement au téléphone. */

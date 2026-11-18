@@ -530,6 +530,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   /** « Entretien à prévoir » : dans le bloc des caractéristiques complémentaires (pas pour un parking), là où la fiche le porte. */
   const avecEntretienEncadre = avecComplements && montre('avecEntretien');
   const [transition, setTransition] = useState<TransitionSaisie | null>(null);
+  /** 🔴 Arno (18/11/2026) — la ligne sous la rangée « Bâtiment / cage d'escalier — Étage — N° de porte », où vont ses légendes. */
+  const [zoneLegendesSituation, setZoneLegendesSituation] = useState<HTMLDivElement | null>(null);
   /* 🔴🔴 Arno (18/11/2026, « Mandat par bien », 492) — en modification, le mandat PORTÉ PAR LE BIEN, modifiable (« chacun modifiable sur son bien ») :
      celui de son statut actuel (en gestion → mandat de gestion ; location seule → mandat de transaction locative). */
   const mandatBienLu = modification?.lecture.mandatBien ?? null;
@@ -1079,7 +1081,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
             {digiBien !== null
               ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} adresse={digiBien.plusieursAdresses === true ? adresseImmeuble(digiBien.adresse.voie, digiBien.adresse.codePostal, digiBien.adresse.commune) : null} valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
-                  onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} onChoix={(l, c) => { retraitsBatiment.effacerAvis(); setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+                  onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} zoneLegendes={zoneLegendesSituation} onChoix={(l, c) => { retraitsBatiment.effacerAvis(); setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
               : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]
@@ -1088,6 +1090,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
             {digiBien === null && !digiCharge && champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
             <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
             {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
+            {/* 🔴 Arno (18/11/2026) — les légendes de la rangée (« Bâtiment A retiré : choisissez un autre bâtiment (ou aucun). », « Bâtiments de l'adresse … »)
+                SOUS la rangée entière, sur toute la largeur : les trois titres et les trois champs restent alignés ; c'est « Précision » qui descend. Sur
+                téléphone, où les champs s'empilent, la ligne reste juste sous le champ Bâtiment. */}
+            <div className="loc-legendes-ligne" ref={setZoneLegendesSituation} data-legendes-situation />
             <label className="loc-champ loc-pleine" data-precision>Précision
               <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
                 placeholder="ex. À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
