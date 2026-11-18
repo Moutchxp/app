@@ -19,16 +19,18 @@ vi.mock('../db/client', () => ({
   query: async (sql: string, p: unknown[] = []) => {
     const s = sql.replace(/\s+/g, ' ');
     h.sql.push(s);
-    if (s.startsWith('SELECT reponses_rdv_actives')) return { rows: [{ v: true }] };
     if (s.startsWith('INSERT INTO gestion_rdv_jeton')) {
       h.jetons.push({ id: h.jetons.length + 1, tache_id: p[0] as number, sorte: p[1] as string, occupation_id: p[2] as number, occupation_ids: p[3] as number[],
         creneau: p[4] as string, duree: p[5] as number | null, empreinte: p[6] as string, expire_le: p[7] as string, cree: h.horloge++ });
       return { rows: [] };
     }
     if (s.startsWith('INSERT INTO gestion_rdv_reponse')) {
+      // le choix « Non » : la nature est écrite dans la requête ('non_invite'), l'auteur suit
+      const nonInvite = s.includes("'non_invite'");
       const jeton = s.includes('jeton_id, occupation_id, par_libelle') ? { jeton_id: p[4] as number, occupation_id: p[5] as number, par_libelle: p[6] as string }
-        : s.includes('par_id, par_libelle') ? { jeton_id: null, occupation_id: null, par_libelle: p[5] as string } : { jeton_id: null, occupation_id: null, par_libelle: p[4] as string };
-      h.evts.push({ id: h.evts.length + 1, tache_id: p[0] as number, sorte: p[1] as string, creneau: p[2] as string, nature: p[3] as string, ...jeton,
+        : nonInvite ? { jeton_id: null, occupation_id: null, par_libelle: p[4] as string }
+          : s.includes('par_id, par_libelle') ? { jeton_id: null, occupation_id: null, par_libelle: p[5] as string } : { jeton_id: null, occupation_id: null, par_libelle: p[4] as string };
+      h.evts.push({ id: h.evts.length + 1, tache_id: p[0] as number, sorte: p[1] as string, creneau: p[2] as string, nature: nonInvite ? 'non_invite' : p[3] as string, ...jeton,
         le: new Date(Date.UTC(2026, 10, 18, 10, 0, h.horloge++)).toISOString() });
       return { rows: [] };
     }
@@ -50,9 +52,15 @@ vi.mock('../db/client', () => ({
     if (s.includes('FROM gestion_tache WHERE id = $1')) return { rows: [{ ...h.tache }] };
     if (s.includes('FROM gestion_tache_action a JOIN admin_utilisateur')) return { rows: [{ identifiant: 'jb.pons@sansvisavis.com' }] };
     if (s.includes('FROM gestion_location_previsite x JOIN gestion_tache') || s.includes('FROM gestion_location_edls x JOIN gestion_tache')) return { rows: [{ n: 1 }] };
-    if (s.startsWith("SELECT creneau, duree_minutes AS duree, (creneau = $2) AS deja FROM gestion_rdv_jeton")) {
-      return { rows: h.jetons.filter((j) => j.tache_id === p[0] && j.sorte === 'edl').sort((a, b) => b.cree - a.cree).map((j) => ({ creneau: j.creneau, duree: j.duree, deja: j.creneau === p[1] })) };
+    if (s.startsWith('SELECT count(*)::int AS n FROM gestion_rdv_jeton')) {
+      return { rows: [{ n: h.jetons.filter((j) => j.tache_id === p[0] && j.sorte === 'edl' && j.creneau === p[1]).length }] };
     }
+    if (s.startsWith('SELECT creneau, duree_minutes AS duree FROM gestion_rdv_jeton')) {
+      return { rows: h.jetons.filter((j) => j.tache_id === p[0] && j.sorte === 'edl').sort((a, b) => b.cree - a.cree).slice(0, 1).map((j) => ({ creneau: j.creneau, duree: j.duree })) };
+    }
+    if (s.includes('FROM pg_constraint')) return { rows: [{ ok: true }] };
+    if (s.startsWith('SELECT e.tache_id::text FROM gestion_location_edls')) return { rows: [{ tache_id: '60' }] };
+    if (s.startsWith('SELECT coalesce(max(id), 0)::text AS v FROM gestion_rdv_reponse')) return { rows: [{ v: String(h.evts.length) }] };
     return { rows: [] };
   },
 }));
@@ -73,7 +81,7 @@ vi.mock('./previsiteBase', async (orig) => ({
       { occupationId: 554, nom: 'ESSAIPREAVIS', prenom: 'Alice', civilite: null, emails: ['alice@exemple.test'], entree: null, sortie: null }] }),
 }));
 
-import { creerJetons, envoyerMailLocatairesEdls, etatsDesRdv, lireJetonRdv, repondreParJeton, validerRdvALaMain } from './reponsesRdvRepo';
+import { apercuLocatairesEdls, creerJetons, envoyerMailLocatairesEdls, etatsDesRdv, lireJetonRdv, marquerNonInvites, repondreParJeton, validerRdvALaMain, versionRdv } from './reponsesRdvRepo';
 
 const AUTEUR = { id: 2, libelle: 'Arnaud Jorel' };
 const AVANT = new Date('2026-11-19T12:00:00Z');
@@ -177,3 +185,38 @@ describe('🔴 l’invitation des locataires à l’état des lieux', () => {
     expect(h.envois.find((m) => m.sorte === 'edls_locataires_modif')!.texte).toContain('prévu le 25/11/2026 de 14h00 à 15h00, est déplacé au 27/11/2026 de 14h00 à 15h00');
   });
 });
+
+describe('🔴 (2e lot) le choix « Envoyer l’invitation aux locataires : Non »', () => {
+  it('« Non » : le cartouche dit « Locataires non invités » (jamais « En attente ») ; aucun lien, aucun mail', async () => {
+    expect(await marquerNonInvites('previsite', 34, AUTEUR)).toBe(true);
+    expect(await etat()).toMatchObject({ etat: 'non_invites' });
+    expect(h.jetons).toEqual([]);
+    expect(h.envois).toEqual([]);
+  });
+  it('« Non » sur l’ancien créneau, puis déplacé avec « Oui » : « En attente » pour le nouveau créneau', async () => {
+    await marquerNonInvites('previsite', 34, AUTEUR);
+    h.tache = { ...h.tache, jour: '2026-11-21' };
+    await creerJetons({ tacheId: 34, sorte: 'previsite', rdv: { jour: '2026-11-21', heure: '10:00', dureeMinutes: 60 }, occupationIds: [553],
+      locataires: [{ occupationId: 553, emails: ['paul@exemple.test'] }], auteur: AUTEUR });
+    expect((await etat())?.etat).toBe('attente');
+  });
+  it('le récapitulatif de l’état des lieux : « Non » → personne ; « Oui » → les locataires avec une adresse, le texte (boutons à l’envoi), jamais la copie', async () => {
+    expect(await apercuLocatairesEdls({ occupationIds: [553, 554], jour: '2026-11-25', debut: '14:00', fin: '15:00', deplacer: false, choix: 'non' }, AUTEUR))
+      .toEqual({ choix: 'non', invites: [], sansEmail: [], impossible: null, texte: null });
+    const oui = await apercuLocatairesEdls({ occupationIds: [553, 554], jour: '2026-11-25', debut: '14:00', fin: '15:30', deplacer: false, choix: 'oui' }, AUTEUR);
+    expect(oui).toMatchObject({ choix: 'oui', invites: ['Paul ESSAIPREAVIS', 'Alice ESSAIPREAVIS'], impossible: null });
+    expect(oui.texte).toContain('le 25/11/2026 de 14h00 à 15h30');
+    expect(oui.texte).toContain('J’accepte le rendez-vous : [lien personnel créé à l’envoi]');
+    expect(h.sql.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false); // LECTURE seule
+  });
+});
+
+describe('🔴 (2e lot) la mise à jour immédiate des cartouches', () => {
+  it('l’empreinte change dès qu’un locataire répond (l’écran ouvert relit alors ses lignes)', async () => {
+    const liens = await inviter();
+    const avant = await versionRdv();
+    await repondreParJeton(jetonDe(liens.get(553)!.accepter), 'accepter', { maintenant: AVANT });
+    expect(await versionRdv()).not.toBe(avant);
+  });
+});
+

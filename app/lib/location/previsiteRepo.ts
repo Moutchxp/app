@@ -3,8 +3,8 @@ import { refusSansEmailLocataire } from './emailLocataireRequisRepo';
 import type { Auteur } from '../gestion/gestes';
 import { rappelsParDefaut, type SaisieTache } from '../gestion/taches';
 import { annulerTache, creerTache, decalerTache, listerCollaborateurs, marquerFaite, modifierTache, type Collaborateur, type IssueTache } from '../gestion/tachesRepo';
-import { creerJetons, reponsesRdvActives } from './reponsesRdvRepo';
-import { LIENS_APERCU } from './reponsesRdv';
+import { boutonsRdvPossibles, creerJetons } from './reponsesRdvRepo';
+import { LIENS_APERCU, type ApercuLocataires, type ChoixLocataires } from './reponsesRdv';
 import { renvoyerInvitation } from '../gestion/invitesRepo';
 import { mailTache } from '../gestion/mailTache';
 import { colonneExisteMemo } from './sondeLocation';
@@ -115,8 +115,11 @@ export interface ResultatRdv { previsiteId: number; tacheId: number; rdv: RdvPre
 
 /** L'APERÇU d'un rendez-vous (programmer ou déplacer) : les textes intégraux, sans rien écrire ni envoyer. */
 export async function apercuRdvPrevisite(
-  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; destinataires?: readonly number[]; deplacer?: boolean; retouches?: Retouches }, auteur: Auteur, deps: DepsAvis = {},
-): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[] }>> {
+  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; destinataires?: readonly number[]; deplacer?: boolean; retouches?: Retouches;
+    /** 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires » ; « non » : aucun mail aux locataires dans le récapitulatif. */
+    locataires?: ChoixLocataires | null },
+  auteur: Auteur, deps: DepsAvis = {},
+): Promise<IssuePrevisite<{ mails: MailApercu[]; sansEmail: string[]; locataires?: ApercuLocataires }>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const ids = [...new Set(d.occupationIds)];
   // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : refus AVANT toute écriture (ni rendez-vous, ni tâche, ni mail).
@@ -147,16 +150,22 @@ export async function apercuRdvPrevisite(
     texte: `${texteInvitationCollegue(c, rdv, l, libelles, ancien, note)}\n\n${c.qui.email ? `Mail envoyé par ${c.qui.nom} (${c.qui.email})` : ''}`.trim(),
   }, 'interne', c, { pieces: [NOM_FICHIER_ICS] }));
   // 🔴 Arno (10/11/2026, texte modifiable) — les retouches : CONTRÔLÉES ici comme à l'envoi (même code) ; refusées, rien n'est montré comme parti.
-  // 🔴 Arno (18/11/2026, 495) — réglage allumé : l'aperçu montre les deux boutons (les liens personnels sont créés à l'envoi)
-  const apercuBoutons = (await reponsesRdvActives()) ? new Map(c.locataires.map((l) => [l.occupationId, LIENS_APERCU] as const)) : undefined;
+  // 🔴 Arno (18/11/2026, 495) — avec la 495 : l'aperçu montre les deux boutons (les liens personnels sont créés à l'envoi)
+  const apercuBoutons = (await boutonsRdvPossibles()) ? new Map(c.locataires.map((l) => [l.occupationId, LIENS_APERCU] as const)) : undefined;
   const auxLocataires = mailLocataires(c, 0, rdv, 0, ancien, new Date(), d.retouches, apercuBoutons);
   const refus = await refusRetouches(auxLocataires, d.retouches);
   if (refus !== null) return { etat: 'refus', motif: refus };
-  for (const loc of auxLocataires) {
+  // 🔴 Arno (18/11/2026, 2e lot) — « Non » : aucun mail aux locataires (ni leur copie interne) ; le récapitulatif le dit
+  const choix = d.locataires ?? null;
+  const resume: ApercuLocataires | undefined = choix === null ? undefined : {
+    choix, invites: choix === 'oui' ? c.locataires.filter((l) => l.emails.some((x) => x.trim() !== '')).map((l) => [l.prenom, l.nom].filter(Boolean).join(' ')) : [],
+    sansEmail: choix === 'oui' ? sansEmail(c) : [], impossible: null, texte: null,
+  };
+  for (const loc of choix === 'non' ? [] : auxLocataires) {
     mails.push(etiqueterApercu({ sorte: loc.sorte, objet: loc.objet, a: loc.a, cc: loc.cc, texte: loc.texte, piece: loc.ics ? NOM_FICHIER_ICS : null,
       ...(loc.edition ? { edition: loc.edition } : {}), ...(loc.texteOrigine ? { modifie: true } : {}) }, familleDuMail(loc), c, { pieces: loc.ics ? [NOM_FICHIER_ICS] : [] }));
   }
-  return { etat: 'ok', data: { mails, sansEmail: sansEmail(c) } };
+  return { etat: 'ok', data: { mails, sansEmail: choix === 'non' ? [] : sansEmail(c), ...(resume ? { locataires: resume } : {}) } };
 }
 
 /** PROGRAMMER la pré-visite : la tâche (rendez-vous) et ses invités, le suivi (date de PREMIÈRE saisie), le journal. */
@@ -314,9 +323,9 @@ export async function envoyerMailLocatairesPrevisite(r: ResultatRdv, auteur: Aut
     const m0 = mailLocataires(c, r.previsiteId, r.rdv, sequence, r.ancien, deps.maintenant ?? new Date(), retouches);
     const refus = await refusRetouches(m0, retouches);
     if (refus !== null) return { envois: [{ sorte: r.ancien === null ? 'previsite_locataires' : 'previsite_locataires_modif', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: refus }], sansEmail: [] };
-    // 🔴 Arno (18/11/2026, 495) — réglage allumé : chaque locataire reçoit SES boutons « J'accepte le rendez-vous » / « Je refuse » (un lien
+    // 🔴 Arno (18/11/2026, 495) — avec la 495 : chaque locataire reçoit SES boutons « J'accepte le rendez-vous » / « Je refuse » (un lien
     //    personnel pour CE créneau ; un déplacement en crée de nouveaux, les anciens deviennent caducs)
-    const m = (await reponsesRdvActives())
+    const m = (await boutonsRdvPossibles())
       ? mailLocataires(c, r.previsiteId, r.rdv, sequence, r.ancien, deps.maintenant ?? new Date(), retouches,
         await creerJetons({ tacheId: r.tacheId, sorte: 'previsite', rdv: r.rdv, occupationIds: r.occupationIds, locataires: c.locataires, auteur }))
       : m0;

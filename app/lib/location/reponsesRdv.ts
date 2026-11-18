@@ -21,7 +21,8 @@ import { prenomNom, REPERE_NOM, type ParagrapheMail } from './mailsPreavisSortie
 import { partiesDuMail, type PartieTexte } from './texteModifiable';
 
 export type SorteRdv = 'previsite' | 'edl';
-export type NatureEvenementRdv = 'accepte' | 'refuse' | 'validation_main' | 'annulation_validation' | 'notifie_confirme' | 'notifie_refus';
+/** 🔴 Arno (18/11/2026, 2e lot, migration 497) — + `non_invite` : « Envoyer l'invitation aux locataires : Non » pour CE créneau. */
+export type NatureEvenementRdv = 'accepte' | 'refuse' | 'validation_main' | 'annulation_validation' | 'notifie_confirme' | 'notifie_refus' | 'non_invite';
 export type Decision = 'accepter' | 'refuser';
 
 /** Le nom d'un rendez-vous dans une phrase. */
@@ -40,7 +41,7 @@ export const jetonRdvBienForme = (j: unknown): j is string => typeof j === 'stri
 
 export interface LocataireInvite { occupationId: number; nom: string }
 export interface EvenementRdv { nature: NatureEvenementRdv; occupationId: number | null; parLibelle: string; le: string }
-export type EtatRdvLocataires = 'attente' | 'confirme' | 'refuse';
+export type EtatRdvLocataires = 'attente' | 'confirme' | 'refuse' | 'non_invites';
 export interface EtatLocataires {
   etat: EtatRdvLocataires;
   /** Qui a confirmé : le locataire (« Paul ESSAIPREAVIS ») ou, à la main, le collaborateur. `null` hors « Confirmé ». */
@@ -55,14 +56,17 @@ export interface EtatLocataires {
  *   · une validation à la main en vigueur (la dernière des « validation » / « annulation ») → Confirmé à la main ;
  *   · sinon au moins un locataire dont la réponse courante est « accepte » → Confirmé (par le premier qui a accepté) ;
  *   · sinon tous les invités ont refusé → Refusé ;
- *   · sinon En attente.
- * `null` : rien à montrer (aucun locataire invité par lien, aucune validation à la main). PUR.
+ *   · sinon En attente ;
+ *   · 🔴 (2e lot) aucun locataire invité par lien, mais « Non » choisi pour ce créneau → Locataires non invités (jamais « En attente »).
+ * `null` : rien à montrer (aucun locataire invité par lien, aucun choix « Non », aucune validation à la main). PUR.
  */
 export function etatReponsesRdv(invites: readonly LocataireInvite[], evenements: readonly EvenementRdv[]): EtatLocataires | null {
   const tries = [...evenements].sort((a, b) => a.le.localeCompare(b.le));
   const derniereValidation = [...tries].reverse().find((e) => e.nature === 'validation_main' || e.nature === 'annulation_validation');
   const main = derniereValidation?.nature === 'validation_main' ? derniereValidation : null;
-  if (invites.length === 0 && main === null) return null;
+  if (invites.length === 0 && main === null) {
+    return tries.some((e) => e.nature === 'non_invite') ? { etat: 'non_invites', par: null, main: false, reponses: [] } : null;
+  }
   const reponses = invites.map((i) => {
     const d = [...tries].reverse().find((e) => e.occupationId === i.occupationId && (e.nature === 'accepte' || e.nature === 'refuse'));
     return { occupationId: i.occupationId, nom: i.nom, reponse: d === undefined ? null : (d.nature as 'accepte' | 'refuse'), le: d?.le ?? null };
@@ -77,6 +81,7 @@ export function etatReponsesRdv(invites: readonly LocataireInvite[], evenements:
 /** Le MOT du cartouche des locataires (le mot est toujours écrit, jamais la seule couleur). PUR. */
 export function motCartoucheLocataires(e: EtatLocataires): string {
   if (e.etat === 'confirme') return e.main ? `Locataires : Confirmé à la main par ${e.par ?? '—'}` : `Locataires : Confirmé (par ${e.par ?? '—'})`;
+  if (e.etat === 'non_invites') return 'Locataires non invités';
   return e.etat === 'refuse' ? 'Locataires : Refusé' : 'Locataires : En attente';
 }
 
@@ -199,3 +204,33 @@ export function paragraphesInterneRdv(o: { sorte: SorteRdv; quoi: 'confirme' | '
 
 /** Le nom affiché d'un locataire invité (« Paul ESSAIPREAVIS »). PUR. */
 export const nomInvite = (l: { nom: string; prenom: string | null }): string => prenomNom(l);
+
+// ══ 🔴🔴 LE CHOIX « ENVOYER L'INVITATION AUX LOCATAIRES : OUI / NON » (Arno, 18/11/2026, 2e lot) ═══════════════════════════════════════════════
+// Obligatoire en fixant ou en déplaçant un rendez-vous (pré-visite comme état des lieux), AUCUNE réponse pré-cochée ; « Non » : aucun mail aux
+// locataires, le rendez-vous est planifié quand même. Le serveur refuse un geste sans choix (le formulaire aussi).
+export type ChoixLocataires = 'oui' | 'non';
+export const QUESTION_INVITER_LOCATAIRES = 'Envoyer l’invitation aux locataires';
+export const MOTIF_CHOIX_LOCATAIRES = 'Choisissez « Oui » ou « Non » pour « Envoyer l’invitation aux locataires ».';
+export const lireChoixLocataires = (x: unknown): ChoixLocataires | null => (x === 'oui' || x === 'non' ? x : null);
+
+/** Ce que le récapitulatif dit des locataires (avant « Confirmer et envoyer »). */
+export interface ApercuLocataires {
+  choix: ChoixLocataires;
+  /** Les locataires qui recevront l'invitation (« Oui ») ; vide pour « Non ». */
+  invites: string[];
+  /** Ceux qui n'ont pas d'adresse e-mail (« Oui ») : ils ne recevront rien. */
+  sansEmail: string[];
+  /** « Oui » mais l'envoi est impossible sur ce serveur (la raison) ; `null` sinon. */
+  impossible: string | null;
+  /** Le texte reçu par le premier locataire (« Oui »), ou `null`. */
+  texte: string | null;
+}
+
+/** La phrase du récapitulatif sur les locataires. PUR. */
+export function phraseRecapLocataires(a: ApercuLocataires): string {
+  if (a.choix === 'non') return 'Les locataires ne seront PAS invités : aucun mail ne leur partira.';
+  if (a.impossible !== null) return `Les locataires ne pourront pas être invités : ${a.impossible}`;
+  if (a.invites.length === 0) return 'Aucun locataire n’a d’adresse e-mail : aucune invitation ne leur partira.';
+  return `Les locataires seront invités (${a.invites.length}) : ${a.invites.join(', ')} — avec « ${BOUTON_ACCEPTER} » / « ${BOUTON_REFUSER} ».`;
+}
+

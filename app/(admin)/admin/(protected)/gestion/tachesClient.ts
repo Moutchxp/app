@@ -11,6 +11,8 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
+import type { ApercuLocataires } from '../../../../lib/location/reponsesRdv';
+import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import type { EditionMail, Retouches } from '../../../../lib/location/texteModifiable';
 import {
   refusDuServeur, type ChampTache, type PieceTache, type RaccourciDecalage, type Rappel, type Tache, type TraceTache,
@@ -56,7 +58,9 @@ export function ecouterDepliageBien(lotId: number, f: () => void): () => void {
 export interface EnvoiCollaborateur { destinataire: string; etat: string; objet?: string }
 export interface EnvoiContactExterne { nom: string; email: string | null; sorte: 'invitation' | 'modification' | 'annulation'; envoye: boolean; motif: string | null; objet?: string }
 export type IssueGeste =
-  | { ok: true; message: string; id?: number; collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[] }
+  | { ok: true; message: string; id?: number; collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[];
+      /** 🔴 Arno (18/11/2026) — les mails aux LOCATAIRES d'un rendez-vous de préavis (absent ailleurs : rien de plus). */
+      locataires?: MailParti[] }
   | { ok: false; message: string; champ?: ChampTache | null };
 
 async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): Promise<IssueGeste> {
@@ -88,6 +92,8 @@ export interface ApercuEnvois {
   total: number; texteCollaborateur: string | null; texteExterieur: string | null;
   /** 🔴 Arno (10/11/2026, texte modifiable) — une édition par sorte de mail extérieur qui part (« Modifier le texte »). */
   editions?: EditionMail[];
+  /** 🔴 Arno (18/11/2026) — un rendez-vous de préavis : ce qui part aux LOCATAIRES (choix « Oui / Non ») ; absent ailleurs. */
+  locataires?: ApercuLocataires;
 }
 export async function lireApercuEnvois(corps: Record<string, unknown>): Promise<ApercuEnvois | { erreur: string }> {
   try {

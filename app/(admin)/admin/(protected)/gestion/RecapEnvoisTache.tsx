@@ -11,6 +11,7 @@ import { CSS_MODALE_ISSUE } from '../location/ModaleIssue';
 import { CSS_PARCOURS, TexteDuMail } from '../location/ParcoursPreavisSortie';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from '../location/ConfirmationEnvois';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
+import { phraseRecapLocataires } from '../../../../lib/location/reponsesRdv';
 
 /**
  * ══ 🔴🔴 LE RÉCAPITULATIF AVANT TOUT ENVOI, PUIS LE RÉSULTAT — TOUS LES GESTES D'UNE TÂCHE (Arno, 10/11/2026) ═════════════════════════
@@ -50,6 +51,7 @@ export function mailsDuResultat(r: IssueGeste): MailParti[] {
     ...(r.collaborateurs ?? []).map((c) => ({ sorte: 'tache_collaborateur', objet: c.objet ?? null, a: [c.destinataire], cc: [], envoye: ETATS_PARTIS.has(c.etat),
       motif: ETATS_PARTIS.has(c.etat) ? null : MOTIF_ETAT[c.etat] ?? c.etat })),
     ...(r.exterieurs ?? []).map((e) => ({ sorte: e.sorte === 'annulation' ? 'tache_exterieur_annulation' : 'tache_exterieur', objet: e.objet ?? null, a: [e.email ? `${e.nom} <${e.email}>` : e.nom], cc: [], envoye: e.envoye, motif: e.motif })),
+    ...(r.locataires ?? []),
   ];
 }
 
@@ -59,7 +61,8 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
   const demander = useCallback((d: Demande) => new Promise<IssueGeste | null>((resoudre) => {
     void (async () => {
       const a = await (d.lireApercu ?? (() => lireApercuEnvois(d.apercu)))();
-      if (!('erreur' in a) && a.collaborateurs.length === 0 && a.exterieurs.length === 0) {
+      // 🔴 Arno (18/11/2026) — un rendez-vous de préavis montre TOUJOURS la fenêtre : elle dit si les locataires seront invités ou non
+      if (!('erreur' in a) && a.collaborateurs.length === 0 && a.exterieurs.length === 0 && a.locataires === undefined) {
         resoudre(await d.action()); // aucun envoi prévu : le geste, sans fenêtre
         return;
       }
@@ -118,6 +121,15 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
           {a.collaborateurs.length === 0 ? <p className="loc-muet">Aucun.</p> : <ul className="rce-liste">{a.collaborateurs.map((c, i) => (
             <li key={`${i}-${c.libelle}`} data-mail={c.mail ? 'oui' : 'non'}>{c.libelle}{c.mail ? ' — invitation par mail' : ` — aucun mail${c.motif ? ` (${c.motif})` : ''}`}</li>))}</ul>}
         </div>
+        {a.locataires !== undefined && (
+          <div className="rce-groupe" data-recap-locataires={a.locataires.choix}>
+            <p className="rce-mot">Locataires</p>
+            <p className={a.locataires.choix === 'oui' && a.locataires.impossible === null && a.locataires.invites.length > 0 ? 'rce-loc' : 'rce-loc rce-loc--non'} data-phrase-locataires>
+              {phraseRecapLocataires(a.locataires)}</p>
+            {a.locataires.sansEmail.map((n) => <p key={n} className="loc-muet">{n} n’a pas d’adresse e-mail : il ne recevra rien.</p>)}
+            {a.locataires.texte !== null && <><p className="rce-mot">Texte reçu par un locataire</p><TexteDuMail texte={a.locataires.texte} ouvert={false} /></>}
+          </div>
+        )}
         <div className="rce-groupe" data-recap-exterieurs>
           <p className="rce-mot">Contacts extérieurs ({a.exterieurs.length})</p>
           {a.exterieurs.length === 0 ? <p className="loc-muet">Aucun : un contact ne reçoit rien sans sa case « Envoyer une invitation ».</p>
@@ -171,4 +183,6 @@ export const CSS_RECAP_ENVOIS = `
 .rce-mot{margin:0;font-weight:800}
 .rce-liste{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
 .rce-liste li[data-mail="non"]{color:var(--color-svv-muted)}
+.rce-loc{margin:0;font-weight:700;color:var(--color-svv-green-ink)}
+.rce-loc--non{color:var(--color-svv-ink)}
 `;

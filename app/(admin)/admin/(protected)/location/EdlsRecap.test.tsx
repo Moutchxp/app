@@ -66,6 +66,7 @@ describe('🔴 l’état des lieux de sortie : récapitulatif, « Revenir », r�
     saisir(c.querySelector('[data-edls-jour]'), '2026-11-20');
     saisir(c.querySelector('[data-edls-debut]'), '10:00');
     await calmer();
+    await clic(c.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(c.querySelector('[data-valider-edls]'));
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-edls', geste: 'planifier', jour: '2026-11-20', debut: '10:00' });
     const f = document.querySelector('[data-fenetre-envois="recap"]')!;

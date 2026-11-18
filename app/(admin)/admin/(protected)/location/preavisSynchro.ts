@@ -30,6 +30,39 @@ export function signalerPreavis(): void {
   try { window.dispatchEvent(new Event(EVENEMENT_PREAVIS)); } catch { /* sans fenêtre : rien */ }
 }
 
+/** 🔴 Arno (18/11/2026, 2e lot) — la VEILLE des rendez-vous : « en quelques secondes au plus, sans recharger la page ». */
+export const INTERVALLE_VEILLE_RDV_MS = 4_000;
+
+/**
+ * Toutes les 4 s (onglet VISIBLE seulement), l'empreinte des rendez-vous (`?rdvVersion=1`, trois compteurs) : quand un locataire ou un collègue
+ * répond — ou qu'un rendez-vous bouge, dans n'importe quelle session — elle change, et les lignes sont relues (relecture DOUCE : la ligne
+ * dépliée et la fenêtre ouverte restent en place). Sans réseau ou sans la route : rien, la relecture des 30 s continue.
+ */
+export function useVeilleRdv(base: string, relire: () => void, actif = true, intervalle = INTERVALLE_VEILLE_RDV_MS): void {
+  useEffect(() => {
+    if (!actif) return undefined;
+    let vivant = true;
+    let derniere: string | null = null;
+    let enCours = false;
+    const lire = async (): Promise<void> => {
+      if (enCours || document.visibilityState === 'hidden') return;
+      enCours = true;
+      try {
+        const r = await fetch(`${base}?rdvVersion=1`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        const d = (await r.json().catch(() => null)) as { etat?: string; data?: { version?: unknown } } | null;
+        const v = d?.etat === 'ok' && typeof d.data?.version === 'string' ? d.data.version : null;
+        if (vivant && v !== null) {
+          if (derniere !== null && v !== derniere) relire();
+          derniere = v;
+        }
+      } catch { /* réseau : la prochaine fois */ } finally { enCours = false; }
+    };
+    void lire();
+    const minuterie = window.setInterval(() => { void lire(); }, intervalle);
+    return () => { vivant = false; window.clearInterval(minuterie); };
+  }, [base, relire, actif, intervalle]);
+}
+
 /** Relit toutes les 30 s, au retour sur l'onglet, et à chaque geste signalé. */
 export function useRafraichissementPreavis(relire: () => void, actif = true): void {
   useEffect(() => {

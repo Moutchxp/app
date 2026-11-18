@@ -161,6 +161,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
     saisir(document.querySelector('[data-previsite-debut]'), '10:00');
     expect((document.querySelector('[data-previsite-fin]') as HTMLInputElement).value).toBe('11:00');
+    await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', occupationIds: [41], jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3, 4] });
     expect(fenetre()?.getAttribute('data-fenetre-previsite')).toBe('recap');
@@ -185,6 +186,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     expect((document.querySelector('[data-previsite-fin]') as HTMLInputElement).value).toBe('11:00');
     expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('statuts remis à zéro');
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-25');
+    await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', deplacer: true, jour: '2026-11-25' });
     await clic(document.querySelector('[data-confirmer-previsite]'));
@@ -286,6 +288,7 @@ describe('🔴🔴 Arno (10/11/2026) — « Modifier le texte » sous la confirm
     await clic(container.querySelector('[data-rdv-previsite]'));
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
     saisir(document.querySelector('[data-previsite-debut]'), '10:00');
+    await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
     expect([...document.querySelectorAll('[data-modifier-texte]')].map((b) => b.closest('[data-mail-prevu]')?.getAttribute('data-mail-prevu'))).toEqual(['previsite_locataires']);
     await clic(document.querySelector('[data-modifier-texte]'));
@@ -319,6 +322,7 @@ describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » s’ouvre VISIB
       await clic(container.querySelector(bouton));
       if (geste === 'rdv') { saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20'); saisir(document.querySelector('[data-previsite-debut]'), '10:00'); }
       else saisir(document.querySelector('[data-previsite-jour]'), '2026-11-25');
+      await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
       await clic(document.querySelector('[data-recap-previsite]'));
       const f = fenetre()!;
       const b = f.querySelector(`[data-modifier-texte="${sorte}"]`) as HTMLButtonElement;
@@ -366,6 +370,7 @@ describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec
     await clic(container.querySelector('[data-rdv-previsite]'));
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
     saisir(document.querySelector('[data-previsite-debut]'), '10:00');
+    await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     expect(blocage()?.textContent).toContain(MOTIF);
     expect(blocage()?.getAttribute('role')).toBe('alert');
     const lien = blocage()!.querySelector('[data-completer-fiche-locataire="410"]')!;
@@ -386,6 +391,7 @@ describe('🔴🔴 Arno (11/11/2026) — RÈGLE BLOQUANTE : aucun locataire avec
     await clic(container.querySelector('[data-rdv-previsite]'));
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
     saisir(document.querySelector('[data-previsite-debut]'), '10:00');
+    await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
     expect(fenetre()?.getAttribute('data-fenetre-previsite')).toBe('recap');
     expect((document.querySelector('[data-confirmer-previsite]') as HTMLButtonElement).disabled).toBe(false);

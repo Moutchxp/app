@@ -30,9 +30,11 @@ import { Icone } from './IconesCompteRendu';
 import { useRecapEnvois } from '../gestion/RecapEnvoisTache';
 import type { ApercuEnvois, IssueGeste } from '../gestion/tachesClient';
 import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE, detailPrevisite, FiltresStatutLigne, MentionReserveLocation } from './PrevisiteAccueil';
-import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis } from './preavisSynchro';
+import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis, useVeilleRdv } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
-import { motCartoucheLocataires, type EtatLocataires } from '../../../../lib/location/reponsesRdv';
+import { ChoixInviterLocataires } from './ChoixInviterLocataires';
+import type { MailParti } from '../../../../lib/location/confirmationEnvois';
+import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, type ChoixLocataires, type EtatLocataires } from '../../../../lib/location/reponsesRdv';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
 import { BandeauPreavisTest, CreerPreavisTest, CSS_PREAVIS_TEST } from './PreavisTest';
 import { BADGE_TEST } from '../../../../lib/location/preavisTest';
@@ -106,6 +108,8 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   relireRef.current = lu.rafraichir;
   const relire = useCallback(() => relireRef.current(), []);
   useRafraichissementPreavis(relire);
+  // 🔴 Arno (18/11/2026, 2e lot) — une réponse (locataire ou collègue) change les cartouches en quelques secondes, sans recharger la page
+  useVeilleRdv(base, relire);
   /** Après un geste : relire ici, et le dire au reste de la page (l'autre bloc, la pastille du menu). */
   const apresGeste = (): void => { setVersion((v) => v + 1); signalerPreavis(); };
   const cleTri = plein ? CLE_TRI_PLEINE_PAGE : CLE_TRI;
@@ -573,13 +577,15 @@ async function lireApercuEdls(corps: Record<string, unknown>): Promise<ApercuEnv
   const r = await envoyer({ ...corps, action: 'apercu-edls' }, { propre: true });
   if (r.motif !== null) return { erreur: r.motif };
   const d = (r.data ?? {}) as Partial<ApercuEnvois>;
-  return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null };
+  return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null,
+    ...(d.locataires ? { locataires: d.locataires } : {}) };
 }
 /** La réponse d'un geste de l'état des lieux, en issue de la fenêtre de résultat (les mails tels que le serveur les rend). */
 function issueEdls(r: Awaited<ReturnType<typeof envoyer>>, mot: string): IssueGeste {
   if (r.motif !== null) return { ok: false, message: r.motif };
-  const d = (r.data ?? {}) as { mails?: { destinataire: string; etat: string; objet?: string }[] };
-  return { ok: true, message: phraseGeste(mot, r.data), collaborateurs: d.mails ?? [], exterieurs: [] };
+  const d = (r.data ?? {}) as { mails?: { destinataire: string; etat: string; objet?: string }[]; locataires?: MailParti[] };
+  // 🔴 Arno (18/11/2026, 2e lot) — + les mails des LOCATAIRES (choix « Oui »), tels que le serveur les rend
+  return { ok: true, message: phraseGeste(mot, r.data), collaborateurs: d.mails ?? [], exterieurs: [], locataires: d.locataires ?? [] };
 }
 
 /** La phrase après un geste : la tâche, ses mails (canal du module de tâches) et l'agenda. */
@@ -621,6 +627,9 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   const [commentaire, setCommentaire] = useState('');
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire, rien de pré-coché
+  const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
+  const [manqueChoix, setManqueChoix] = useState(false);
   // Pour un déplacement, la fin d'origine (durée de la tâche) est reprise.
   useEffect(() => {
     if (e?.heure && e.dureeMinutes !== null) {
@@ -640,10 +649,11 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   const recap = useRecapEnvois();
   const valider = async (): Promise<void> => {
     if (!verdict.ok) { setRefus(verdict.motif); return; }
+    if (choixLoc === null) { setManqueChoix(true); setRefus(MOTIF_CHOIX_LOCATAIRES); return; }
     setEnvoi(true); setRefus(null);
     const corps = e === null
-      ? { action: 'planifier-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, commentaire }
-      : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA };
+      ? { action: 'planifier-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, commentaire, locataires: choixLoc }
+      : { action: 'deplacer-edls', occupationIds: l.occupationIds, jour, debut, fin, confieA, locataires: choixLoc };
     const tenu: { r: Awaited<ReturnType<typeof envoyer>> | null } = { r: null };
     const issue = await recap.demander({
       titre: e === null ? 'État des lieux de sortie planifié' : 'Rendez-vous déplacé', apercu: {},
@@ -677,6 +687,7 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
         <label className="pvs-champ"><span className="pvs-libelle">Commentaire (facultatif)</span>
           <textarea value={commentaire} onChange={(ev) => setCommentaire(ev.target.value)} rows={2} placeholder="ex. clés chez le gardien" data-edls-commentaire /></label>
       )}
+      <ChoixInviterLocataires valeur={choixLoc} onChange={(c) => { setChoixLoc(c); setManqueChoix(false); setRefus(null); }} desactive={envoi} manque={manqueChoix} />
       <BlocageEmailLocataires e={emails} />
       {!verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-edls-message>{verdict.motif}</p>}
       {refus !== null && <p className="cp-refus" role="alert" data-edls-refus>{refus}</p>}
@@ -791,6 +802,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-loc--attente{background:var(--color-svv-field);color:var(--color-svv-muted)}
 .pva-loc--confirme{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pva-loc--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
+.pva-loc--non_invites{background:var(--color-svv-surface);color:var(--color-svv-muted)}
 .pva-rdv-locataires{display:grid;gap:8px}
 .pva-rdv-loc-tete{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pva-rdv-loc-tete .pva-loc{margin-left:0;white-space:normal}

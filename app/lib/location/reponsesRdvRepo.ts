@@ -16,15 +16,17 @@ import type { LignePreavisAccueil } from './preavis';
 import {
   NOM_FICHIER_ICS_EDLS, creneauDe, etatReponsesRdv, jetonRdvBienForme, liensReponseRdv, notificationApres, objetEdlsLocataires, objetEdlsLocatairesModif,
   objetInterneRdv, paragraphesInterneRdv, partiesEdlsLocataires, partiesEdlsLocatairesModif, uidEdls, verdictJetonRdv,
-  type CauseRefusJeton, type Decision, type EtatLocataires, type EvenementRdv, type LiensReponse, type NatureEvenementRdv, type SorteRdv,
+  LIENS_APERCU, type ApercuLocataires, type CauseRefusJeton, type ChoixLocataires, type Decision, type EtatLocataires, type EvenementRdv, type LiensReponse,
+  type NatureEvenementRdv, type SorteRdv,
 } from './reponsesRdv';
 
 /**
  * ══ 🔴🔴 LA RÉPONSE DES LOCATAIRES À UN RENDEZ-VOUS — LE DÉPÔT (Arno, 18/11/2026, migration 495). ═══════════════════════════════════════════
  * Les liens personnels (empreinte seule en base), le journal des réponses en ajout seul, l'état des rendez-vous pour les lignes de préavis, la
  * validation à la main, les mails internes et l'invitation des locataires à l'état des lieux. Les règles sont dans `reponsesRdv.ts` (PUR).
- * Sans la 495 : rien ne change (aucun lien, aucun cartouche, les mails d'avant) ; le réglage `reponses_rdv_actives` (éteint par défaut) décide
- * seul des NOUVEAUX ENVOIS aux locataires. Aucun DELETE, aucun UPDATE : tout s'ajoute.
+ * Sans la 495 : rien ne change (aucun lien, aucun cartouche, les mails d'avant). Aucun DELETE, aucun UPDATE : tout s'ajoute.
+ * 🔴 Arno (18/11/2026, 2e lot) — c'est le CHOIX « Envoyer l'invitation aux locataires : Oui / Non », fait à chaque rendez-vous fixé ou déplacé,
+ * qui décide des envois aux locataires. Le réglage `gestion_config.reponses_rdv_actives` (495) n'est PLUS lu : il est remplacé par ce choix.
  */
 
 export const AUTEUR_REPONSES_RDV: Auteur = { id: null, libelle: 'Réponse des locataires (rendez-vous)' };
@@ -32,13 +34,40 @@ export const AUTEUR_REPONSES_RDV: Auteur = { id: null, libelle: 'Réponse des lo
 export const reponsesRdvDisponible = async (): Promise<boolean> =>
   (await colonneExisteMemo('gestion_rdv_reponse', 'nature')) && (await colonneExisteMemo('gestion_rdv_jeton', 'jeton_empreinte'));
 
-/** Les NOUVEAUX ENVOIS aux locataires (boutons, invitation à l'état des lieux) sont-ils allumés ? Sans la 495, ou réglage éteint : non. */
-export async function reponsesRdvActives(): Promise<boolean> {
+/** Les boutons de réponse peuvent-ils partir (liens personnels) ? Avec la 495. Ne lève jamais. */
+export async function boutonsRdvPossibles(): Promise<boolean> {
+  try { return await reponsesRdvDisponible(); } catch { return false; }
+}
+
+/** 🔴 (497) — le journal accepte-t-il le choix « Non » (`non_invite`) ? Lu une fois par processus. */
+let non497: boolean | null = null;
+export async function nonInvitesDisponible(): Promise<boolean> {
+  if (non497 === true) return true;
   try {
-    if (!(await reponsesRdvDisponible()) || !(await colonneExisteMemo('gestion_config', 'reponses_rdv_actives'))) return false;
-    const { rows } = await query<{ v: boolean | null }>('SELECT reponses_rdv_actives AS v FROM gestion_config WHERE id = 1');
-    return rows[0]?.v === true;
+    if (!(await reponsesRdvDisponible())) return false;
+    const { rows } = await query<{ ok: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gestion_rdv_reponse_nature_check' AND pg_get_constraintdef(oid) LIKE '%non_invite%') AS ok`);
+    non497 = rows[0]?.ok === true;
+    return non497;
   } catch { return false; }
+}
+
+/**
+ * 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Non » : le choix est JOURNALISÉ pour le créneau du rendez-vous (cartouche
+ * « Locataires non invités ») ; aucun mail. Sans la 497 : rien n'est écrit (et aucun mail ne part quand même). Ne lève jamais.
+ */
+export async function marquerNonInvites(sorte: SorteRdv, tacheId: number, auteur: Auteur): Promise<boolean> {
+  try {
+    if (!(await nonInvitesDisponible())) return false;
+    const t = await tacheDuRdv(tacheId);
+    if (t === null || t.jour === null) return false;
+    await query(`INSERT INTO gestion_rdv_reponse (tache_id, sorte, creneau, nature, par_id, par_libelle) VALUES ($1, $2, $3, 'non_invite', $4, $5)`,
+      [tacheId, sorte, creneauDe(t.jour, t.heure), auteur.id, auteur.libelle]);
+    return true;
+  } catch (e) {
+    console.error('[réponses rdv] choix « Non »', (e as Error)?.message);
+    return false;
+  }
 }
 
 const empreinte = (jeton: string): string => createHash('sha256').update(jeton).digest('hex');
@@ -279,25 +308,64 @@ export function mailsLocatairesEdls(c: Contexte, o: { tacheId: number; rdv: RdvP
   return copie === null ? envois : [...envois, copie];
 }
 
+export const MOTIF_EDLS_SANS_495 = 'l’invitation des locataires à l’état des lieux n’est pas encore installée sur ce serveur (migration 495 non appliquée).';
+
+/** Le dernier créneau pour lequel les locataires ont été invités à l'état des lieux de cette tâche (l'« ancien » d'une modification), ou `null`. */
+async function dernierCreneauInvite(tacheId: number): Promise<RdvPrevisite | null> {
+  const { rows } = await query<{ creneau: string; duree: number | null }>(
+    `SELECT creneau, duree_minutes AS duree FROM gestion_rdv_jeton WHERE tache_id = $1 AND sorte = 'edl' ORDER BY cree_le DESC, id DESC LIMIT 1`, [tacheId]);
+  const p = rows[0];
+  return p === undefined ? null : { jour: p.creneau.slice(0, 10), heure: p.creneau.slice(11, 16), dureeMinutes: p.duree ?? 60 };
+}
+
+const minutesDe = (h: string): number | null => { const m = /^(\d{2}):(\d{2})/.exec(h); return m === null ? null : Number(m[1]) * 60 + Number(m[2]); };
+
 /**
- * APRÈS « Planifier » ou « Déplacer » l'état des lieux : l'invitation (ou la modification) aux locataires, avec leurs boutons — seulement si le
- * réglage `reponses_rdv_actives` est allumé. Un créneau déjà invité n'est jamais réinvité (« Confier à quelqu'un d'autre » ne change pas la
- * date). Ne lève jamais : un échec n'annule pas le geste.
+ * 🔴 Arno (18/11/2026, 2e lot) — ce que le RÉCAPITULATIF de l'état des lieux dit des locataires, selon le choix « Oui / Non » (LECTURE : rien
+ * n'est écrit, rien ne part ; les liens personnels sont montrés comme « créés à l'envoi »).
+ */
+export async function apercuLocatairesEdls(d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string; deplacer: boolean; choix: ChoixLocataires },
+  auteur: Auteur, deps: DepsAvis = {}): Promise<ApercuLocataires> {
+  const vide: ApercuLocataires = { choix: d.choix, invites: [], sansEmail: [], impossible: null, texte: null };
+  if (d.choix === 'non') return vide;
+  if (!(await reponsesRdvDisponible())) return { ...vide, impossible: MOTIF_EDLS_SANS_495 };
+  const ids = [...new Set(d.occupationIds)];
+  const c = await contexte(ids, auteur, deps);
+  if (c === null) return vide;
+  const a = minutesDe(d.debut);
+  const b = minutesDe(d.fin);
+  const rdv: RdvPrevisite = { jour: d.jour, heure: d.debut.slice(0, 5), dureeMinutes: a !== null && b !== null && b > a ? b - a : 60 };
+  let ancien: RdvPrevisite | null = null;
+  if (d.deplacer) {
+    const { rows } = await query<{ tache_id: string }>(
+      `SELECT e.tache_id::text FROM gestion_location_edls e JOIN gestion_tache t ON t.id = e.tache_id
+        WHERE e.clos_le IS NULL AND t.etat = 'a_faire' AND e.occupation_ids && $1::bigint[] ORDER BY e.id DESC LIMIT 1`, [ids]);
+    if (rows[0]) ancien = await dernierCreneauInvite(Number(rows[0].tache_id));
+  }
+  const liens = new Map(c.locataires.map((l) => [l.occupationId, LIENS_APERCU] as const));
+  const mails = mailsLocatairesEdls(c, { tacheId: 0, rdv, ancien, sequence: 0, maintenant: new Date(), liens }).filter((m) => !m.objet.startsWith('[Copie interne]'));
+  const invites = c.locataires.filter((l) => adressesUniques(l.emails).length > 0).map((l) => prenomNom(l));
+  return { choix: 'oui', invites, sansEmail: sansEmail(c), impossible: null, texte: mails[0]?.texte ?? null };
+}
+
+/**
+ * APRÈS « Planifier » ou « Déplacer » l'état des lieux, avec « Envoyer l'invitation aux locataires : Oui » : l'invitation (ou la modification)
+ * aux locataires, avec leurs boutons. Un créneau déjà invité n'est jamais réinvité (double clic). Ne lève jamais : un échec n'annule pas le geste.
  */
 export async function envoyerMailLocatairesEdls(tacheId: number, occupationIds: readonly number[], auteur: Auteur,
   deps: DepsAvis & { maintenant?: Date } = {}): Promise<{ envois: EnvoiAvis[]; sansEmail: string[] }> {
   try {
-    if (!(await reponsesRdvActives()) || !(await mailsAvisDisponibles())) return { envois: [], sansEmail: [] };
+    if (!(await reponsesRdvDisponible()) || !(await mailsAvisDisponibles())) {
+      return { envois: [{ sorte: 'edls_locataires', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: MOTIF_EDLS_SANS_495 }], sansEmail: [] };
+    }
     const t = await tacheDuRdv(tacheId);
     if (t === null || t.etat !== 'a_faire' || t.jour === null || t.heure === null) return { envois: [], sansEmail: [] };
     const rdv: RdvPrevisite = { jour: t.jour, heure: t.heure, dureeMinutes: t.duree ?? 60 };
     const creneau = creneauDe(rdv.jour, rdv.heure);
-    const { rows: avant } = await query<{ creneau: string; duree: number | null; deja: boolean }>(
-      `SELECT creneau, duree_minutes AS duree, (creneau = $2) AS deja FROM gestion_rdv_jeton WHERE tache_id = $1 AND sorte = 'edl' ORDER BY cree_le DESC, id DESC`, [tacheId, creneau]);
-    if (avant.some((x) => x.deja)) return { envois: [], sansEmail: [] };
-    const precedent = avant[0];
-    const ancien: RdvPrevisite | null = precedent === undefined ? null
-      : { jour: precedent.creneau.slice(0, 10), heure: precedent.creneau.slice(11, 16), dureeMinutes: precedent.duree ?? 60 };
+    const { rows: deja } = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM gestion_rdv_jeton WHERE tache_id = $1 AND sorte = 'edl' AND creneau = $2`, [tacheId, creneau]);
+    if (Number(deja[0]?.n ?? 0) > 0) return { envois: [], sansEmail: [] };
+    const ancien = await dernierCreneauInvite(tacheId);
     const ids = [...new Set(occupationIds)];
     const c = await contexte(ids, auteur, deps);
     if (c === null) return { envois: [], sansEmail: [] };
@@ -307,4 +375,33 @@ export async function envoyerMailLocatairesEdls(tacheId: number, occupationIds: 
   } catch (e) {
     return { envois: [{ sorte: 'edls_locataires', objet: 'Mail aux locataires', a: [], cc: [], envoye: false, motif: (e as Error)?.message || 'erreur inattendue' }], sansEmail: [] };
   }
+}
+
+// ══ 🔴🔴 LA MISE À JOUR IMMÉDIATE DES CARTOUCHES (Arno, 18/11/2026, 2e lot) ═══════════════════════════════════════════════════════════════════
+// « Dès qu'un collègue ou un locataire répond, les cartouches changent sur les écrans ouverts en quelques secondes au plus, sans recharger la
+// page. » Technique retenue : l'écran ouvert lit, toutes les quelques secondes (onglet visible seulement), cette EMPREINTE — trois compteurs
+// légers (index de clé primaire, petites tables) — et ne relit les lignes que lorsqu'elle change. Pas de connexion tenue ouverte : rien à
+// reprendre après une mise en veille du téléphone, rien qui tienne une connexion de la base par écran ouvert.
+
+/** L'empreinte de l'état des rendez-vous : change dès qu'un locataire répond, qu'un collègue accepte ou refuse, ou qu'un rendez-vous bouge. LECTURE. */
+export async function versionRdv(): Promise<string> {
+  const parts: string[] = [];
+  try {
+    if (await reponsesRdvDisponible()) {
+      const { rows } = await query<{ v: string }>('SELECT coalesce(max(id), 0)::text AS v FROM gestion_rdv_reponse');
+      parts.push(`r${rows[0]?.v ?? 0}`);
+    }
+    if (await colonneExisteMemo('gestion_tache_demande', 'repondu_le')) {
+      const { rows } = await query<{ v: string }>(
+        `SELECT count(*)::text || '-' || coalesce(to_char(max(greatest(cree_le, repondu_le, remplacee_le)) AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS'), '0') AS v FROM gestion_tache_demande`);
+      parts.push(`d${rows[0]?.v ?? 0}`);
+    }
+    if (await colonneExisteMemo('gestion_tache_action', 'action')) {
+      const { rows } = await query<{ v: string }>('SELECT coalesce(max(id), 0)::text AS v FROM gestion_tache_action');
+      parts.push(`a${rows[0]?.v ?? 0}`);
+    }
+  } catch (e) {
+    console.error('[réponses rdv] empreinte', (e as Error)?.message);
+  }
+  return parts.join('.');
 }

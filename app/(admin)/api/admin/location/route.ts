@@ -47,7 +47,8 @@ import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
-import { avecReponsesRdv, envoyerMailLocatairesEdls, validerRdvALaMain } from '../../../../lib/location/reponsesRdvRepo';
+import { apercuLocatairesEdls, avecReponsesRdv, envoyerMailLocatairesEdls, marquerNonInvites, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
+import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/location/reponsesRdv';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
@@ -171,6 +172,8 @@ export async function GET(request: Request): Promise<Response> {
     // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
     // 🔴 Arno (10/11/2026, 464) — avec le statut de pré-visite de chaque ligne (sans la 464 : les lignes telles quelles).
     // 🔴 Arno (14/11/2026, 473) — + les préavis de TEST de la personne connectée (badge « TEST »), jamais ceux des autres.
+    // 🔴 Arno (18/11/2026, 2e lot) — l'empreinte des rendez-vous (réponses des locataires et des collègues) : l'écran ne relit que si elle change.
+    if (p('rdvVersion') !== null) return Response.json({ etat: 'ok', data: { version: await versionRdv() } }, { headers: ENTETES });
     if (p('preavisEnCours') !== null) {
       const moi = await auteurDeLaRequete(request);
       // 🔴 Arno (18/11/2026, 495) — + la réponse des LOCATAIRES à chaque rendez-vous (cartouche « Locataires : … ») ; sans la 495 : telles quelles.
@@ -741,7 +744,12 @@ async function postLocation(request: Request): Promise<Response> {
         const geste = corps.geste === 'deplacer' || corps.geste === 'reattribuer' ? corps.geste : 'planifier';
         const r = await apercuEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA: identifiant(corps.confieA),
           commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null, geste }, auteur);
-        return repondre(r.etat === 'ok' ? { etat: 'ok', data: r.data } : r);
+        if (r.etat !== 'ok') return repondre(r);
+        // 🔴 Arno (18/11/2026, 2e lot) — le récapitulatif dit si les LOCATAIRES seront invités (choix « Oui / Non ») ; leurs invitations comptent
+        const choixE = geste === 'reattribuer' ? null : lireChoixLocataires(corps.locataires);
+        if (choixE === null) return repondre({ etat: 'ok', data: r.data });
+        const loc = await apercuLocatairesEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), deplacer: geste === 'deplacer', choix: choixE }, auteur);
+        return repondre({ etat: 'ok', data: { ...r.data, total: r.data.total + (loc.impossible === null ? loc.invites.length : 0), locataires: loc } });
       }
       case 'planifier-edls':
       case 'deplacer-edls':
@@ -753,6 +761,9 @@ async function postLocation(request: Request): Promise<Response> {
         const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
         const confieA = identifiant(corps.confieA);
         if (test !== null && !seulementMoi([confieA])) return refusTest('Préavis de test : l’état des lieux ne se confie qu’à vous (créateur du test).');
+        // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).
+        const choixEdls = lireChoixLocataires(corps.locataires);
+        if (action !== 'reattribuer-edls' && choixEdls === null) return Response.json({ etat: 'refus', motif: MOTIF_CHOIX_LOCATAIRES, champ: 'locataires' }, { status: 400, headers: ENTETES });
         const r = action === 'planifier-edls'
           ? await planifierEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA, commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null }, auteur)
           : action === 'deplacer-edls'
@@ -770,8 +781,10 @@ async function postLocation(request: Request): Promise<Response> {
         const statut = r.demandes?.[0]?.statut ?? r.demande?.statut ?? null;
         // 🔴 Arno (18/11/2026, 495) — l'invitation des LOCATAIRES (ou sa modification), avec leurs boutons, si le réglage est allumé ; un échec
         //    n'annule jamais le geste. « Confier à quelqu'un d'autre » ne change pas la date : aucun nouvel envoi.
-        const locataires = action === 'reattribuer-edls' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesEdls(r.tacheId, occs, auteur);
-        return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim(), locataires: locataires.envois, sansEmail: locataires.sansEmail } });
+        //    🔴 (2e lot) « Non » : aucun mail aux locataires — le choix est journalisé (cartouche « Locataires non invités »).
+        if (choixEdls === 'non') await marquerNonInvites('edl', r.tacheId, auteur);
+        const locataires = action === 'reattribuer-edls' || choixEdls === 'non' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesEdls(r.tacheId, occs, auteur);
+        return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim(), locataires: locataires.envois, sansEmail: locataires.sansEmail, choixLocataires: choixEdls } });
       }
       // 🔴 Arno (18/11/2026, 495) — « Valider le rendez-vous sans prévenir les locataires » (et l'annuler) : journalisé, aucun mail aux locataires.
       case 'valider-rdv-main':
@@ -789,7 +802,7 @@ async function postLocation(request: Request): Promise<Response> {
         const rt = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREVISITE);
         if (!rt.ok) return Response.json({ etat: 'refus', motif: rt.motif }, { status: 400, headers: ENTETES });
         return repondre(await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
-          destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true, retouches: rt.retouches }, auteur));
+          destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true, retouches: rt.retouches, locataires: lireChoixLocataires(corps.locataires) }, auteur));
       }
       case 'programmer-previsite':
       case 'deplacer-previsite':
@@ -798,10 +811,13 @@ async function postLocation(request: Request): Promise<Response> {
         if (test !== null && action !== 'deplacer-previsite' && !seulementMoi(idsOccupations(corps.destinataires))) {
           return refusTest('Préavis de test : la pré-visite ne se confie qu’à vous (créateur du test) — jamais à un collègue.');
         }
+        // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).
+        const choixP = lireChoixLocataires(corps.locataires);
+        if (action !== 'reaffecter-previsite' && choixP === null) return Response.json({ etat: 'refus', motif: MOTIF_CHOIX_LOCATAIRES, champ: 'locataires' }, { status: 400, headers: ENTETES });
         // 🔴 Arno (10/11/2026) — le texte modifié du mail aux locataires : lu, puis CONTRÔLÉ (même code que l'aperçu) AVANT d'écrire le rendez-vous.
         const rtP = lireRetouches(corps.retouches, SORTES_MODIFIABLES_PREVISITE);
         if (!rtP.ok) return Response.json({ etat: 'refus', motif: rtP.motif }, { status: 400, headers: ENTETES });
-        if (action !== 'reaffecter-previsite' && Object.keys(rtP.retouches).length > 0) {
+        if (action !== 'reaffecter-previsite' && choixP === 'oui' && Object.keys(rtP.retouches).length > 0) {
           const a = await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
             destinataires: idsOccupations(corps.destinataires), deplacer: action === 'deplacer-previsite', retouches: rtP.retouches }, auteur);
           if (a.etat === 'refus') return Response.json(a, { status: 400, headers: ENTETES });
@@ -814,10 +830,12 @@ async function postLocation(request: Request): Promise<Response> {
         if (r.etat !== 'ok') return repondre(r);
         const collegues = await envoyerAuxInvites(request, r.demandes);
         const agenda = await synchroniserApresGeste(r.data.tacheId);
-        const locataires = action === 'reaffecter-previsite' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur, {}, rtP.retouches);
+        // 🔴 (2e lot) « Non » : aucun mail aux locataires — le choix est journalisé (cartouche « Locataires non invités »).
+        if (choixP === 'non') await marquerNonInvites('previsite', r.data.tacheId, auteur);
+        const locataires = action === 'reaffecter-previsite' || choixP === 'non' ? { envois: [], sansEmail: [] } : await envoyerMailLocatairesPrevisite(r.data, auteur, {}, rtP.retouches);
         // 🔴 Arno (14/11/2026, 473) — préavis de TEST : l'invitation de début de pré-visite part À L'HEURE DE DÉBUT (sans attendre la minuterie).
         if (test !== null && action !== 'reaffecter-previsite' && r.data.rdv) planifierInvitationTest(r.data.rdv);
-        return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim() } });
+        return repondre({ etat: 'ok', data: { rdv: r.data.rdv, ancien: r.data.ancien, collegues, locataires: locataires.envois, sansEmail: locataires.sansEmail, agenda: agenda.trim(), choixLocataires: choixP } });
       }
       case 'apercu-compte-rendu-previsite': {
         // 🔴 (16/11/2026) le texte modifié du mail aux propriétaires (seule sorte modifiable de ce récapitulatif)

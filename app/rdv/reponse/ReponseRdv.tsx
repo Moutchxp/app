@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BOUTON_ACCEPTER, BOUTON_REFUSER, LIBELLE_SORTE_RDV, type SorteRdv } from "../../lib/location/reponsesRdv";
+import { BOUTON_ACCEPTER, BOUTON_REFUSER, type SorteRdv } from "../../lib/location/reponsesRdv";
 
 /**
  * La réponse d'un locataire à un rendez-vous (pré-visite ou état des lieux de sortie), par le lien de son mail (Arno, 18/11/2026). Sans connexion.
@@ -22,6 +22,7 @@ type Ecran =
   | { sorte: "refus_lien"; v: Vue }
   | { sorte: "erreur"; message: string };
 
+const TITRE_RDV: Record<SorteRdv, string> = { previsite: "Pré-visite d’état des lieux de sortie", edl: "État des lieux de sortie" };
 const MSG_RESEAU = "La réponse n’a pas pu être envoyée (réseau). Réessayez dans un instant.";
 
 const dateFr = (iso: string | null): string => {
@@ -46,7 +47,7 @@ function RappelRdv({ v }: { v: Vue }) {
   if (v.rdv === null) return null;
   return (
     <div className="rounded-xl border border-svv-line bg-svv-field p-4 text-svv-ink" data-rdv-rappel>
-      <p className="text-lg font-bold">Rendez-vous de {LIBELLE_SORTE_RDV[v.rdv.sorte]}</p>
+      <p className="text-lg font-bold">{TITRE_RDV[v.rdv.sorte]}</p>
       <p className="mt-1 text-base">{dateFr(v.rdv.jour)}{v.rdv.heure ? ` à ${heureFr(v.rdv.heure)}` : ""}</p>
       {v.rdv.adresse && <p className="mt-1 text-sm text-svv-muted">{v.rdv.adresse}</p>}
     </div>

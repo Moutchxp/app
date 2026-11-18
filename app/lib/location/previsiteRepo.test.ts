@@ -537,7 +537,9 @@ describe('🔴🔴 Arno (10/11/2026) — la confirmation et la modification aux 
     if (r.etat !== 'ok') throw new Error('rdv');
     await envoyerMailLocatairesPrevisite(r.data, AUTEUR, {}, RT);
     const [mails] = envoyerSerie.mock.calls[0] as unknown as [{ texte: string; texteOrigine?: string }[]];
-    expect(mails.map((m) => m.texte)).toEqual(ap.data.mails.filter((m) => m.sorte === 'previsite_locataires').map((m) => m.texte));
+    // 🔴 (18/11/2026) — les liens personnels des boutons n'existent qu'à l'envoi (l'aperçu dit « créé à l'envoi ») : le texte, liens mis à part
+    const sansLiens = (t: string) => t.replace(/(J’accepte le rendez-vous|Je refuse) : (\[lien personnel créé à l’envoi\]|\S+)/g, '$1 : [lien]');
+    expect(mails.map((m) => sansLiens(m.texte))).toEqual(ap.data.mails.filter((m) => m.sorte === 'previsite_locataires').map((m) => sansLiens(m.texte)));
     expect(mails[0].texteOrigine?.startsWith('Bonjour Alice TEST,')).toBe(true);
     envoyerSerie.mockClear();
     await envoyerMailLocatairesPrevisite(r.data, AUTEUR);

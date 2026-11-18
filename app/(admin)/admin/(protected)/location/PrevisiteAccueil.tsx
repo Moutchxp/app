@@ -35,6 +35,8 @@ import { repeindre } from './repeindre';
 import { BROUILLON_VIDE, heureBrouillon, type ContenuBrouillon } from '../../../../lib/location/brouillonCompteRendu';
 import { AUCUN_CR, AUCUN_ENVOI_CR, LIBELLE_ETAT_CR, LIBELLE_FAMILLE_CR, quandFr, texteSaisiDuMail, type CompteRenduAffiche } from '../../../../lib/location/compteRenduPrevisite';
 import { BADGE_TEST } from '../../../../lib/location/preavisTest';
+import { ChoixInviterLocataires } from './ChoixInviterLocataires';
+import { phraseRecapLocataires, type ApercuLocataires, type ChoixLocataires } from '../../../../lib/location/reponsesRdv';
 
 /**
  * ══ 🔴🔴 LA PRÉ-VISITE SUR LE BLOC « LOCATAIRES EN PRÉAVIS » (Arno, 10/11/2026) ════════════════════════════════════════════════════
@@ -168,7 +170,9 @@ interface MailApercu { sorte: string; objet: string; a: string[]; cc: string[]; 
   /** 🔴 Arno (15/11/2026) — sa famille, le locataire qu'il vise, ses pièces jointes, ce qui part vraiment en recette (dits par le serveur). */
   famille?: FamilleMail; destinataire?: string; pieces?: string[]; recette?: string }
 type EtapeResultat = { etape: 'resultat'; mails: MailParti[]; lignes: [string, ReactNode][]; motif: string | null };
-type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[]; notesInternes?: string[] } | EtapeResultat;
+type Etape = { etape: 'saisie' } | { etape: 'recap'; mails: MailApercu[]; sansEmail: string[]; notesInternes?: string[];
+  /** 🔴 Arno (18/11/2026, 2e lot) — ce qui part aux locataires (choix « Oui / Non ») ; absent hors rendez-vous. */
+  locataires?: ApercuLocataires } | EtapeResultat;
 
 /**
  * 🔴 Arno (15/11/2026) — « En présence de … » EN TÊTE du texte de chaque mail du compte rendu : l'écran le VÉRIFIE sur l'aperçu rendu par le
@@ -267,6 +271,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const deplacement = geste === 'deplacer';
   const avecDate = geste === 'rdv' || geste === 'deplacer';
   const avecCollegues = geste === 'rdv' || geste === 'reaffecter';
+  // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » (fixer, déplacer) : obligatoire, rien de pré-coché
+  const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
   const fin0 = p.rdv ? heureFinProposee(p.rdv.heure) : '';
   const [jour, setJour] = useState(deplacement && p.rdv ? p.rdv.jour : '');
   const [debut, setDebut] = useState(deplacement && p.rdv ? p.rdv.heure : '');
@@ -426,7 +432,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   // 🔴 Arno (11/11/2026) — un RENDEZ-VOUS (programmer, déplacer, réaffecter) demande l'e-mail d'au moins un locataire ; le refus et le compte
   // rendu n'y sont pas soumis. Relu au retour sur la fenêtre.
   const emails = useEmailsLocataires(l, geste === 'rdv' || geste === 'deplacer' || geste === 'reaffecter');
-  const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
+  const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true && choixLoc !== null : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
   const corpsCommun = { occupationIds: l.occupationIds };
   const rdvActuel = p.rdv;
 
@@ -443,17 +449,18 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       ...(envoiVocaux.fichiersVocaux.some((f) => f.locataires) ? { vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux } : {}) }
       : geste === 'refus' ? { action: 'apercu-refus-previsite', ...corpsCommun, texte: texteRefus ?? '' }
         : geste === 'reaffecter' && rdvActuel ? { action: 'apercu-previsite', ...corpsCommun, jour: rdvActuel.jour, debut: rdvActuel.heure, fin: fin0 || rdvActuel.heure, destinataires: dest }
-          : { action: 'apercu-previsite', ...corpsCommun, jour, debut, fin, destinataires: dest, deplacer: deplacement, retouches: rt }, { propre: true });
+          : { action: 'apercu-previsite', ...corpsCommun, jour, debut, fin, destinataires: dest, deplacer: deplacement, retouches: rt, locataires: choixLoc }, { propre: true });
     setEnvoi(false);
     // Un texte modifié refusé par le serveur : le récapitulatif d'avant reste, la raison est dite (la retouche n'est pas gardée).
     if (r.motif !== null) { setRefus(r.motif); return; }
     setRetouches(rt);
-    const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[]; phrase?: unknown; presence?: unknown; notesInternes?: string[] };
+    const d = (r.data ?? {}) as { mails?: MailApercu[]; sansEmail?: string[]; phrase?: unknown; presence?: unknown; notesInternes?: string[]; locataires?: ApercuLocataires };
     // Réaffecter : seules les invitations des collègues partent (les locataires ne sont pas prévenus d'un changement de collègue).
     const mails = (d.mails ?? []).filter((m) => geste !== 'reaffecter' || m.sorte === 'previsite_invitation');
     const sansPhrase = geste === 'compte_rendu' ? refusSansPhrase(d.phrase, mails, d.presence) : null;
     if (sansPhrase !== null) { setRefus(sansPhrase); return; }
-    setEtape({ etape: 'recap', mails, sansEmail: geste === 'reaffecter' ? [] : d.sansEmail ?? [], ...(Array.isArray(d.notesInternes) ? { notesInternes: d.notesInternes } : {}) });
+    setEtape({ etape: 'recap', mails, sansEmail: geste === 'reaffecter' ? [] : d.sansEmail ?? [], ...(Array.isArray(d.notesInternes) ? { notesInternes: d.notesInternes } : {}),
+      ...(avecDate && d.locataires ? { locataires: d.locataires } : {}) });
   };
 
   const confirmer = async (): Promise<void> => {
@@ -462,6 +469,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     const action = geste === 'rdv' ? 'programmer-previsite' : geste === 'deplacer' ? 'deplacer-previsite' : geste === 'reaffecter' ? 'reaffecter-previsite'
       : geste === 'compte_rendu' ? 'compte-rendu-previsite' : 'refus-previsite';
     const r = await envoyer({ action, ...corpsCommun, jour, debut, fin, destinataires: dest, corps: sansTiretsOrphelins(corps), aussiLocataires, texte: texteRefus ?? '',
+      ...(avecDate && choixLoc !== null ? { locataires: choixLoc } : {}),
       ...(geste === 'compte_rendu' ? { photos: photosPretes, vocaux: vocauxPrets, fichiersVocaux: envoiVocaux.fichiersVocaux, presences, proprietaires: choixProprietaires } : {}),
       ...(Object.keys(retouches).length > 0 ? { retouches } : {}) }, { propre: true });
     setEnvoi(false);
@@ -519,7 +527,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
           <span className="loc-muet" data-previsite-test-note>Préavis de test : l’invitation de début de pré-visite part à l’heure de début, à vous seul.</span>
         </div>
       )}
-      {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification.</p>}
+      {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification{choixLoc === 'non' ? ' — sauf si vous choisissez « Non » ci-dessous : ils ne recevront rien' : choixLoc === null ? ' si vous choisissez « Oui » ci-dessous' : ''}.</p>}
       {avecCollegues && (
         <fieldset className="pvv-choix" data-previsite-destinataires>
           <legend className="pvs-libelle">Destinataires (collègues de l’agence) *</legend>
@@ -556,6 +564,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         <p className="loc-muet" data-refus-confidentialite>Chaque locataire reçoit SON mail (seul destinataire, sans copie visible) : « [nom du locataire] » y est remplacé par son nom. Les collaborateurs ayant accès à Gestion et/ou Location reçoivent une copie interne séparée.</p>
         {p.statut === 'programmee' && p.rdv && <p className="mis-note pss-note-neutre" data-refus-annule-rdv>Une pré-visite est programmée le {creneauFr(p.rdv)} : à l’envoi, elle sera annulée (tâche des collègues annulée) et chaque collègue destinataire recevra un mail d’annulation.</p>}
       </>)}
+      {avecDate && <ChoixInviterLocataires valeur={choixLoc} onChange={(c) => { setChoixLoc(c); setRefus(null); }} desactive={envoi} />}
       <BlocageEmailLocataires e={emails} />
       {verdict !== null && !verdict.ok && (jour !== '' || debut !== '') && <p className="cp-refus" role="status" data-previsite-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-previsite-refus>{refus}</p>}
@@ -580,6 +589,9 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     contenu = <>
       <h2 id={titreId} className="mis-titre" data-titre-previsite>Récapitulatif — {TITRES[geste][0]}</h2>
       <p className="loc-muet pss-rien" data-rien-enregistre>Rien n’est encore enregistré ni envoyé : vérifiez, puis « Confirmer et envoyer ».</p>
+      {/* 🔴 Arno (18/11/2026, 2e lot) — le récapitulatif dit clairement si les LOCATAIRES seront invités ou non */}
+      {etape.locataires && <p className="mis-note pss-note-neutre" data-recap-locataires={etape.locataires.choix}>
+        <strong>Locataires : </strong>{phraseRecapLocataires(etape.locataires)}</p>}
       {etape.mails.length === 0 ? <p className="mis-note pss-note-neutre">Aucun mail ne partira.</p> : (() => {
         // 🔴 Arno (15/11/2026) — chaque carte dit sa FAMILLE (étiquette et couleur) ; 🔴 (9e retour) au compte rendu, les LOCATAIRES d'abord,
         // puis l'interne (comme « Voir le compte rendu ») ; les autres gestes gardent l'interne d'abord ; le rappel des comptes au-dessus, dans le même ordre. Ce qui ne part QU'en interne (notes de

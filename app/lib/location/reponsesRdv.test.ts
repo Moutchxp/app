@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   creneauDe, etatReponsesRdv, jetonRdvBienForme, liensReponseRdv, motCartoucheLocataires, notificationApres, objetEdlsLocataires, objetInterneRdv,
-  paragraphesBoutonsRdv, verdictJetonRdv, BOUTON_ACCEPTER, BOUTON_REFUSER, type EvenementRdv,
+  paragraphesBoutonsRdv, phraseRecapLocataires, verdictJetonRdv, BOUTON_ACCEPTER, BOUTON_REFUSER, type EvenementRdv,
 } from './reponsesRdv';
 import { normaliserObjet } from '../gestion/typologie';
 import { appliquerRegles, type RegleExclusion } from '../gestion/regles';
@@ -114,3 +114,20 @@ describe('🔴 les mails', () => {
     expect(juge(`RE: ${internes[0]}`, 'jb.pons@sansvisavis.com')).toBeNull();
   });
 });
+
+describe('🔴 (2e lot) « Locataires non invités » et la phrase du récapitulatif', () => {
+  it('« Non » choisi pour ce créneau, aucun invité : « Locataires non invités » (pas « En attente ») ; une validation à la main reste prioritaire', () => {
+    const e = etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z')]);
+    expect(e?.etat).toBe('non_invites');
+    expect(motCartoucheLocataires(e!)).toBe('Locataires non invités');
+    expect(etatReponsesRdv([], [ev('non_invite', null, '2026-11-18T10:00:00Z'), ev('validation_main', null, '2026-11-18T11:00:00Z', 'Arnaud Jorel')])?.etat).toBe('confirme');
+    expect(notificationApres(null, e)).toBeNull(); // aucun mail interne pour un « Non »
+  });
+  it('le récapitulatif dit clairement si les locataires seront invités ou non', () => {
+    expect(phraseRecapLocataires({ choix: 'non', invites: [], sansEmail: [], impossible: null, texte: null })).toBe('Les locataires ne seront PAS invités : aucun mail ne leur partira.');
+    expect(phraseRecapLocataires({ choix: 'oui', invites: ['Paul ESSAIPREAVIS'], sansEmail: [], impossible: null, texte: null }))
+      .toBe('Les locataires seront invités (1) : Paul ESSAIPREAVIS — avec « J’accepte le rendez-vous » / « Je refuse ».');
+    expect(phraseRecapLocataires({ choix: 'oui', invites: [], sansEmail: [], impossible: 'migration absente.', texte: null })).toBe('Les locataires ne pourront pas être invités : migration absente.');
+  });
+});
+

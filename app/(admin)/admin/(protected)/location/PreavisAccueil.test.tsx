@@ -495,8 +495,9 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
     choisir(container.querySelector('[data-confier-a]')!, '4');
+    await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
-    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '' });
+    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '', locataires: 'oui' });
     const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
     // 🔴 (15/11/2026) le statut « RDV état des lieux fixé » (violet) remplace la pastille « EDLS planifié » ; le détail le dit toujours
     expect(ligne.querySelector('[data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');
@@ -511,6 +512,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await ouvrirPlanif();
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
+    await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('confié à Arno Test — accepté');
   });
@@ -530,8 +532,9 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('jour'), '2099-11-06'));
     act(() => saisir(champ('debut'), '14:00'));
     act(() => saisir(champ('fin'), '15:30'));
+    await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
-    expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-06', debut: '14:00', fin: '15:30', confieA: 4 });
+    expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-06', debut: '14:00', fin: '15:30', confieA: 4, locataires: 'oui' });
     expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('EDLS le 06/11/2099 à 14h00 — confié à Claire Test — en attente de confirmation');
     expect(container.querySelector('[data-edls-bilan]')?.textContent).toContain('mail à Claire Test : préparé (essai)');
   });
