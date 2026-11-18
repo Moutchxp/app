@@ -2,7 +2,7 @@
 
 import { useId } from 'react';
 import { LIBELLE_DESTINATION, LIBELLE_STATUT, mandatPropose, type StatutBien } from '../../../../lib/gestion/statutBien';
-import { LIBELLE_MANDAT } from '../../../../lib/location/mandatBien';
+import { LIBELLE_MANDAT, type Mandat, type SorteMandat } from '../../../../lib/location/mandatBien';
 import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
 import type { StatutLu, TransitionSaisie } from '../../../../lib/location/ficheBienEntiere';
 import { CSS_PASTILLE_STATUT, CSS_STATUT_DU_BIEN, PastilleStatut } from '../gestion/StatutDuBien';
@@ -16,12 +16,17 @@ import { CSS_PASTILLE_STATUT, CSS_STATUT_DU_BIEN, PastilleStatut } from '../gest
  * futur), un motif facultatif, le mandat proposé facultatif. Ce qu'elle fera du dossier Drive est DIT (`LIBELLE_DESTINATION`) :
  * le mécanisme existant le déplace, rien d'autre. Une annexe rattachée suit son bien principal : aucun choix, la fiche le dit.
  */
-export function BlocStatutModification({ numero, lu, mandat, valeur, onChange }: {
+export function BlocStatutModification({ numero, lu, mandat, valeur, onChange, mandatBien = null }: {
   numero: number;
   lu: StatutLu | null;
   mandat: { sorte: 'gestion' | 'transaction'; lignes: string[] } | null;
   valeur: TransitionSaisie | null;
   onChange: (t: TransitionSaisie | null) => void;
+  /**
+   * 🔴🔴 Arno (18/11/2026, « Mandat par bien », 492) — le mandat PORTÉ PAR LE BIEN, celui de son statut actuel, modifiable ici (« chacun modifiable sur
+   * son bien ») ; `null` : sans la 492, une annexe rattachée, ou un statut sans mandat (ancienne gestion : lecture seule).
+   */
+  mandatBien?: { sorte: SorteMandat; valeur: Mandat; lu: { gestion: Mandat; transaction: Mandat; signalements: string[] }; onChange: (m: Mandat) => void } | null;
 }) {
   const id = useId();
   if (lu === null) return null;
@@ -43,10 +48,24 @@ export function BlocStatutModification({ numero, lu, mandat, valeur, onChange }:
       <h3 id={`${id}-t`}><span className="loc-num">{numero}</span>Statut du bien</h3>
       <p className="sdb-depuis-vers" style={{ margin: 0 }}>Statut actuel : <PastilleStatut statut={lu.statut} />
         {lu.depuis !== null && <span className="sdb-depuis"> depuis le {lu.depuis.slice(0, 10).split('-').reverse().join('/')}</span>}</p>
-      {mandat !== null && (
+      {mandatBien === null && mandat !== null && (
         <p className="loc-muet" style={{ margin: 0 }} data-mandat-connu>{LIBELLE_MANDAT[mandat.sorte]} : {mandat.lignes.join(' · ')}
           <span> (sur la fiche du propriétaire — un mandat se saisit au changement de statut)</span></p>
       )}
+      {mandatBien !== null && valeur === null && (
+        <fieldset className="sdb-mandat" data-mandat-bien={mandatBien.sorte}>
+          <legend>{LIBELLE_MANDAT[mandatBien.sorte]} du bien <span className="sdb-facultatif">(facultatif)</span></legend>
+          <label className="sdb-champ">N° de mandat
+            <input value={mandatBien.valeur.numero ?? ''} maxLength={80} placeholder={mandatBien.sorte === 'gestion' ? 'ex. MG 2026-041' : 'ex. MT 2026-041'} data-mandat-bien-numero
+              onChange={(e) => mandatBien.onChange({ ...mandatBien.valeur, numero: e.target.value === '' ? null : e.target.value })} /></label>
+          <label className="sdb-champ">Date de signature
+            <input type="date" value={mandatBien.valeur.signeLe ?? ''} data-mandat-bien-date
+              onChange={(e) => mandatBien.onChange({ ...mandatBien.valeur, signeLe: e.target.value === '' ? null : e.target.value })} /></label>
+          <p className="sdb-rappel" style={{ margin: 0 }}>Un même n° ne couvre que les biens d’un même propriétaire (exactement les mêmes propriétaires).</p>
+        </fieldset>
+      )}
+      {mandatBien !== null && mandatBien.lu.signalements.map((x) => <p key={x} role="status" data-mandat-signalement
+        style={{ margin: 0, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--color-svv-orange)', background: 'var(--color-svv-orange-soft)', color: 'var(--color-svv-ink)', overflowWrap: 'anywhere' }}>{x}</p>)}
       {lu.suitLot !== null ? (
         <p className="sdb-suit" data-statut-suit={lu.suitLot.id}>Annexe rattachée : elle suit le statut de son bien principal ({lu.suitLot.adresse ?? `bien ${lu.suitLot.id}`}).</p>
       ) : !lu.disponible || destinations.length === 0 ? (

@@ -71,14 +71,14 @@ export class MandatRefuse extends Error {}
  * Lève `MandatAConfirmer` (même propriétaire, sans confirmation) ou `MandatRefuse` (autre propriétaire) : rien n'est écrit.
  */
 export async function ecrireMandatDuBien(q: RequeteTx, lotId: number, m: SaisieMandat, proprietaires: readonly number[], confirme: boolean, auteur: Auteur,
-  contexte: string): Promise<void> {
+  contexte: string): Promise<boolean> {
   const c = COLONNES_MANDAT_BIEN[m.sorte];
   const { rows } = await q<{ n: string | null; d: string | null }>(`SELECT ${c.numero} AS n, ${c.date}::text AS d FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE`, [lotId]);
   const avant = rows[0];
   if (avant === undefined) throw new MandatRefuse('Ce bien n’existe pas.');
   const numero = m.numero ?? avant.n;
   const signeLe = m.signeLe ?? avant.d;
-  if (numero === avant.n && signeLe === avant.d) return;
+  if (numero === avant.n && signeLe === avant.d) return false;
   if (numero !== null && numero !== avant.n) {
     const d = await controlerMandatBien(q, m.sorte, numero, proprietaires, lotId, confirme);
     if (d.etat === 'refus') throw new MandatRefuse(d.motif);
@@ -90,6 +90,7 @@ export async function ecrireMandatDuBien(q: RequeteTx, lotId: number, m: SaisieM
     [lotId, m.sorte === 'gestion' ? 'location_numero_mandat' : 'location_numero_mandat_transaction',
       [avant.n, avant.d].filter((x) => x).join(' · ') || null, [numero, signeLe].filter((x) => x).join(' · ') || null,
       `${LIBELLE_MANDAT[m.sorte]} du bien saisi ${contexte}`, auteur.id, auteur.libelle]);
+  return true;
 }
 
 /** Le mandat d'un bien, par sorte, et le signalement d'un n° partagé qui ne couvre plus le même propriétaire. */
@@ -133,4 +134,28 @@ export async function decisionAvantEcriture(sorte: SorteMandat, numero: string, 
     if (rows[0]?.f === normalise) return { etat: 'libre' }; // le n° du bien, inchangé
   }
   return decisionMandat(sorte, numero.trim(), proprietaires, await usagesDuMandat(query, sorte, normalise, lotId), confirme);
+}
+
+/**
+ * LE PRÉ-REMPLISSAGE de « Nouveau bien » (lecture seule) : pour l'ensemble EXACT des propriétaires choisis, le dernier n° de mandat (par sorte) porté par
+ * un de leurs biens — l'enregistrement demandera la confirmation (« L'utiliser aussi pour ce bien ? »). Même forme que `mandatsDesProprietaires`.
+ */
+export async function mandatsDuMemeEnsemble(ids: readonly number[]): Promise<{ id: number; nom: string; gestion: Mandat; transaction: Mandat }[]> {
+  if (ids.length === 0) return [];
+  const avecCo = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'lot_id');
+  const cle = [...new Set(ids)].sort((a, b) => a - b).map(String);
+  const { rows } = await query<{ id: string; adresse: string | null; mg: string | null; dg: string | null; mt: string | null; dt: string | null }>(
+    `SELECT l.id::text, l.adresse, l.mandat_gestion_numero AS mg, l.mandat_gestion_signe_le::text AS dg, l.mandat_transaction_numero AS mt, l.mandat_transaction_signe_le::text AS dt
+       FROM gestion_annuaire_lot l
+      WHERE (l.mandat_gestion_numero IS NOT NULL OR l.mandat_transaction_numero IS NOT NULL)
+        AND ARRAY(SELECT x::text FROM (SELECT l.proprietaire_id AS x WHERE l.proprietaire_id IS NOT NULL
+              ${avecCo ? 'UNION SELECT lp.proprietaire_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = l.id AND lp.jusqu_a IS NULL' : ''}) s ORDER BY x) = $1::text[]
+      ORDER BY l.id DESC`, [cle]);
+  const g = rows.find((r) => r.mg !== null);
+  const t = rows.find((r) => r.mt !== null);
+  if (g === undefined && t === undefined) return [];
+  const ou = (r: { adresse: string | null; id: string } | undefined): string => (r === undefined ? '' : r.adresse ?? `bien n° ${r.id}`);
+  return [{ id: ids[0], nom: `ce propriétaire (${ou(g ?? t)})`,
+    gestion: g === undefined ? { numero: null, signeLe: null } : { numero: g.mg, signeLe: g.dg },
+    transaction: t === undefined ? { numero: null, signeLe: null } : { numero: t.mt, signeLe: t.dt } }];
 }

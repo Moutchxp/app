@@ -36,6 +36,8 @@ import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
 import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
 import { controlerAdresseBien, type ControleAdresseBien } from './adresseBienRepo';
+import { decisionAvantEcriture, ecrireMandatDuBien, MandatAConfirmer, MandatRefuse, mandatParBienDisponible } from './mandatParBienRepo';
+import type { IssueMandatAConfirmer } from './mandatParBien';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -241,7 +243,7 @@ type IssueBien = Issue<{ logementId: number; annexes: number[]; contacts: number
 /** La création telle qu'avant (sans l'avertissement anti-doublon) : le contrat de toujours, pour tout appelant existant. */
 export async function creerBienComplet(s: SaisieBienComplete, auteur: Auteur): Promise<IssueBien> {
   const r = await creerBienInterne({ ...s, confirmeDoublon: true }, auteur);
-  return r.etat === 'doublon' ? { etat: 'refus', motif: r.motif } : r;
+  return r.etat === 'doublon' || r.etat === 'mandat_a_confirmer' ? { etat: 'refus', motif: r.motif } : r;
 }
 
 /**
@@ -249,7 +251,7 @@ export async function creerBienComplet(s: SaisieBienComplete, auteur: Auteur): P
  * (normalisée), même étage, même n° de porte, rien n'est créé et l'issue `doublon` le dit (« Ce bien semble déjà exister ») ;
  * `confirmeDoublon` (« Créer quand même ») passe. La route de l'écran appelle CELLE-CI.
  */
-export function creerBienVerifie(s: SaisieBienComplete, auteur: Auteur): Promise<IssueBien | IssueDoublon> {
+export function creerBienVerifie(s: SaisieBienComplete, auteur: Auteur): Promise<IssueBien | IssueDoublon | IssueMandatAConfirmer> {
   return creerBienInterne(s, auteur);
 }
 
@@ -261,12 +263,14 @@ async function creerBienInterne(s: SaisieBien & {
   mandat?: unknown;
   /** Arno (21/10/2026) — « Créer quand même » : l'avertissement « Ce bien semble déjà exister » a été vu et passé. */
   confirmeDoublon?: boolean;
+  /** 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Confirmer » dans la fenêtre « Le mandat n° X est déjà utilisé pour … de ce propriétaire. L'utiliser aussi pour ce bien ? » */
+  confirmeMandat?: boolean;
   /** 🔴 Arno (26/10/2026, 430) — loué au moment de la prise en gestion (Oui / Non) et, si Oui, la date du mandat de gestion. */
   entreOccupe?: unknown;
   dateMandat?: unknown;
 }, auteur: Auteur):
   Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
-    mandatRefus?: string | null }> | IssueDoublon> {
+    mandatRefus?: string | null }> | IssueDoublon | IssueMandatAConfirmer> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
@@ -302,6 +306,15 @@ async function creerBienInterne(s: SaisieBien & {
   const occupe: Record<string, unknown> = ro.entreOccupe === null ? {}
     : { entre_occupe: ro.entreOccupe, ...(ro.dateEffet !== null ? { statut_bien_depuis: ro.dateEffet } : {}) };
   let mandatRefus: string | null = null;
+  /* 🔴🔴 Arno (18/11/2026, « Mandat par bien », 492) — le mandat est porté par le BIEN : le n° partagé contrôlé AVANT toute écriture (même propriétaire
+     sans confirmation → la fenêtre ; un autre propriétaire → refus absolu), puis de nouveau dans la transaction (verrou sur le n°). Sans la 492 : comme avant. */
+  const parBien = await mandatParBienDisponible();
+  const confirmeMandat = s.confirmeMandat === true;
+  if (parBien && mandat !== null && mandat.numero !== null) {
+    const d = await decisionAvantEcriture(mandat.sorte, mandat.numero, v.proprietaireIds, null, confirmeMandat);
+    if (d.etat === 'refus') return { etat: 'refus', motif: d.motif };
+    if (d.etat === 'a_confirmer') return { etat: 'mandat_a_confirmer', motif: d.motif };
+  }
   // La DERNIÈRE AG (Arno, 18/10/2026) : vérifiée avant toute écriture, posée sur l'IMMEUBLE du bien (son adresse) une fois créé.
   const ag = verifierDateAg((s.logement ?? {}).derniereAg);
   if (!ag.ok) return { etat: 'refus', motif: ag.motif };
@@ -403,8 +416,12 @@ async function creerBienInterne(s: SaisieBien & {
       }
       // 🔴 (Arno, 17/11/2026 : « un PV saisi avant l'enregistrement du bien est rattaché à la copropriété à l'enregistrement »)
       await ajouterPvsDuBien(q, logementId, pvAg.pvs, auteur);
-      // Le mandat, sur la fiche de chaque propriétaire du bien (les champs existants), dans la même transaction que le bien.
-      if (mandat !== null) mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
+      // 🔴🔴 (Arno, 18/11/2026, 492) le mandat, SUR LE BIEN (le logement ou local ; ses annexes lisent le sien), dans la même transaction que le bien ;
+      // sans la 492 : sur la fiche de chaque propriétaire du bien, comme avant.
+      if (mandat !== null) {
+        if (parBien) await ecrireMandatDuBien(q, logementId, mandat, v.proprietaireIds, confirmeMandat, auteur, 'à la création du bien (« Nouveau bien »)');
+        else mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
+      }
       const annexes: number[] = [];
       for (const [i, a] of v.annexes.entries()) {
         // « Même adresse » (par défaut) : l'annexe hérite de l'adresse du logement / local. « Autre adresse » : la sienne.
@@ -431,6 +448,8 @@ async function creerBienInterne(s: SaisieBien & {
       return { logementId, annexes };
     });
   } catch (e) {
+    if (e instanceof MandatAConfirmer) return { etat: 'mandat_a_confirmer', motif: e.message };
+    if (e instanceof MandatRefuse) return { etat: 'refus', motif: e.message };
     if (e instanceof Refus || e instanceof RefusDigicode) return { etat: 'refus', motif: e.message };
     if (e instanceof DoublonTrouve) {
       return { etat: 'doublon', motif: phraseDoublon(e.bien), data: { lotId: e.bien.id, adresse: e.bien.adresse, commune: e.bien.commune, etage: e.bien.etage, porte: e.bien.porte } };

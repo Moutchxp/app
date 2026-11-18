@@ -132,16 +132,19 @@ function ConfirmerTransition({ lotId, depuis, geste, onFermer, onFait }: {
   const [mandat, setMandat] = useState<Mandat>({ numero: null, signeLe: null });
   const [refus, setRefus] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+  /** 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Le mandat n° X est déjà utilisé pour … de ce propriétaire. L'utiliser aussi pour ce bien ? » */
+  const [aConfirmer, setAConfirmer] = useState<string | null>(null);
   const sorteMandat = vers === null ? null : mandatPropose(depuis, vers);
-  const confirmer = async (): Promise<void> => {
+  const confirmer = async (confirmeMandat = false): Promise<void> => {
     if (enCours) return;
+    setAConfirmer(null);
     if (vers === null) { setRefus('Choisissez la destination du bien.'); return; }
     setEnCours(true);
     setRefus(null);
     try {
       const res = await fetch(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'statut-bien', id: lotId, vers, effetLe, motif,
+        body: JSON.stringify({ action: 'statut-bien', id: lotId, vers, effetLe, motif, ...(confirmeMandat ? { confirmeMandat: true } : {}),
           mandat: sorteMandat === null || (mandat.numero === null && mandat.signeLe === null) ? null : { sorte: sorteMandat, ...mandat } }),
       });
       const d = await res.json() as { etat?: string; motif?: string; message?: string; data?: { lots?: number[]; avertissement?: string | null };
@@ -156,6 +159,7 @@ function ConfirmerTransition({ lotId, depuis, geste, onFermer, onFait }: {
         onFait(notes);
         return;
       }
+      if (d.etat === 'mandat_a_confirmer') { setAConfirmer(d.motif ?? ''); return; }
       setRefus(d.etat === 'sans_schema' ? 'La mise à jour de la base (migration 403) n’est pas appliquée : le statut ne peut pas encore changer.'
         : d.motif ?? d.message ?? 'Changement refusé.');
     } catch {
@@ -200,6 +204,15 @@ function ConfirmerTransition({ lotId, depuis, geste, onFermer, onFait }: {
         )}
         <p className="sdb-rappel">Les mails du bien ne bougent pas : il les garde tous, quel que soit son statut.</p>
         {refus !== null && <p className="sdb-refus" role="alert" data-refus-statut>{refus}</p>}
+        {aConfirmer !== null && (
+          <div className="sdb-mandat" role="group" aria-label="Mandat déjà utilisé pour ce propriétaire" data-mandat-a-confirmer>
+            <p style={{ margin: 0 }}>{aConfirmer}</p>
+            <p className="sdb-boutons" style={{ margin: 0, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAConfirmer(null)} data-mandat-corriger>Corriger</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={enCours} onClick={() => { void confirmer(true); }} data-mandat-confirmer>Confirmer</button>
+            </p>
+          </div>
+        )}
       </div>
     </ModaleIssue>
   );

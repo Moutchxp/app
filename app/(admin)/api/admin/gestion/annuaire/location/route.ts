@@ -196,7 +196,7 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
         // Arno (21/10/2026, 404) — le dossier Drive du bien DÉPLACÉ entier vers l'arbre du nouveau statut ; un échec n'annule rien
         // (le statut reste enregistré) : la fiche dit « Dossier Drive à déplacer » et « Déplacer maintenant » rejoue. Le mécanisme
         // est commun au formulaire « Modifier » de la fiche entière (`statutBienSuites.ts`).
-        return repondre(await transitionStatutAvecSuites(id, { vers: corps.vers, effetLe: corps.effetLe, motif: corps.motif, mandat: corps.mandat }, auteur,
+        return repondre(await transitionStatutAvecSuites(id, { vers: corps.vers, effetLe: corps.effetLe, motif: corps.motif, mandat: corps.mandat, confirmeMandat: corps.confirmeMandat }, auteur,
           requeteDepuisLaLocation(request) ? 'Location' : 'Gestion'));
       }
       // Arno (23/10/2026) — « MODIFIER » LA FICHE ENTIÈRE (le formulaire « Nouveau bien » pré-rempli) : version contrôlée, puis les

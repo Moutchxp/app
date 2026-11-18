@@ -4,6 +4,8 @@ import type { Issue } from '../location/locationRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { verifierMandat, type SaisieMandat } from '../location/mandatBien';
 import { enregistrerMandatDans } from '../location/mandatBienRepo';
+import { ecrireMandatDuBien, MandatAConfirmer, MandatRefuse, mandatParBienDisponible } from '../location/mandatParBienRepo';
+import type { IssueMandatAConfirmer } from '../location/mandatParBien';
 import {
   estStatutBien, gesteDe, gestesPour, mandatPropose, motifTransition, phraseTransition, refusTransition, statutDeduit, verifierDateEffet,
   type GesteStatut, type StatutBien,
@@ -110,7 +112,9 @@ export async function transitionsDuBien(lotId: number): Promise<TransitionLue[]>
 
 class Refus extends Error {}
 
-export interface SaisieTransition { vers: unknown; effetLe: unknown; motif?: unknown; mandat?: unknown }
+export interface SaisieTransition { vers: unknown; effetLe: unknown; motif?: unknown; mandat?: unknown;
+  /** 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Confirmer » : le n° déjà utilisé pour un autre bien du même propriétaire, aussi pour celui-ci. */
+  confirmeMandat?: unknown }
 
 export interface IssueTransition {
   avant: StatutBien;
@@ -137,7 +141,7 @@ async function proprietairesDuLot(q: RequeteTx, lotId: number): Promise<number[]
  * (facultatif) sur les propriétaires du bien. Le déplacement du dossier Drive est l'affaire de l'appelant (APRÈS l'écriture :
  * le statut est enregistré même si le Drive échoue).
  */
-export async function changerStatutBien(lotId: number, s: SaisieTransition, auteur: Auteur, maintenant: Date = new Date()): Promise<Issue<IssueTransition>> {
+export async function changerStatutBien(lotId: number, s: SaisieTransition, auteur: Auteur, maintenant: Date = new Date()): Promise<Issue<IssueTransition> | IssueMandatAConfirmer> {
   if (!(await statutBienDisponible())) return { etat: 'sans_schema' };
   const date = verifierDateEffet(s.effetLe, maintenant);
   if (!date.ok) return { etat: 'refus', motif: date.motif };
@@ -185,12 +189,17 @@ export async function changerStatutBien(lotId: number, s: SaisieTransition, aute
       let avertissement: string | null = null;
       if (mandat !== null) {
         const ids = await proprietairesDuLot(q, lotId);
-        avertissement = await enregistrerMandatDans(q, ids, mandat, lotId, auteur, `au geste « ${gesteDe(avant, vers)?.libelle ?? 'statut'} » du bien ${lotId}`);
+        const contexte = `au geste « ${gesteDe(avant, vers)?.libelle ?? 'statut'} » du bien ${lotId}`;
+        // 🔴🔴 (Arno, 18/11/2026, 492) le mandat SUR LE BIEN, après le contrôle du n° partagé (à confirmer ou refusé : rien n'est écrit, la
+        // transition non plus) ; sans la 492 : sur la fiche des propriétaires, comme avant.
+        if (await mandatParBienDisponible()) await ecrireMandatDuBien(q, lotId, mandat, ids, s.confirmeMandat === true, auteur, contexte);
+        else avertissement = await enregistrerMandatDans(q, ids, mandat, lotId, auteur, contexte);
       }
       return { etat: 'ok' as const, data: { avant, apres: vers, effetLe: date.date, lots: [lotId, ...annexes], avertissement } };
     });
   } catch (e) {
-    if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    if (e instanceof Refus || e instanceof MandatRefuse) return { etat: 'refus', motif: e.message };
+    if (e instanceof MandatAConfirmer) return { etat: 'mandat_a_confirmer', motif: e.message };
     throw e;
   }
 }

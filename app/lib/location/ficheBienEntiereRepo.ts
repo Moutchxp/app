@@ -24,6 +24,10 @@ import {
 import { titreAnnexeSaisie } from './ficheBienEntiere';
 import { metaPropre } from '../gestion/adresseSaisie';
 import { controlerAdresseBien, controlerAdresseBienExistant, type ControleAdresseBien } from './adresseBienRepo';
+import { query } from '../db/client';
+import { verifierMandat, type Mandat, type SaisieMandat } from './mandatBien';
+import type { IssueMandatAConfirmer } from './mandatParBien';
+import { decisionAvantEcriture, ecrireMandatDuBien, ensembleDuBien, MandatAConfirmer, MandatRefuse, mandatParBienDisponible, mandatsDesBiens } from './mandatParBienRepo';
 
 /**
  * ══ 🔴🔴 LA FICHE DU BIEN MODIFIÉE EN ENTIER — LECTURE, EMPREINTE ET ÉCRITURE (Arno, 23/10/2026). IMPUR (base, Drive, mail). ════════
@@ -49,6 +53,12 @@ export interface LectureFiche {
   /** Rappel en lecture seule : les propriétaires du bien, et son mandat connu (lignes). */
   proprietaires: string[];
   mandat: { sorte: 'gestion' | 'transaction'; lignes: string[] } | null;
+  /**
+   * 🔴🔴 Arno (18/11/2026, « Mandat par bien », 492) — le mandat PORTÉ PAR LE BIEN (n° et date, gestion et transaction locative), modifiable ici
+   * (« chacun modifiable sur son bien ») ; et le signalement d'un n° partagé qui ne couvre plus le même propriétaire. `null` : sans la 492, ou une
+   * annexe rattachée (elle porte le n° de son logement, sans champ propre).
+   */
+  mandatBien?: { gestion: Mandat; transaction: Mandat; signalements: string[] } | null;
 }
 
 const t = (v: string | number | null | undefined): string => (v === null || v === undefined ? '' : String(v));
@@ -87,7 +97,10 @@ export async function lireFicheEntiere(id: number): Promise<Issue<LectureFiche>>
   const l = await lire(id);
   if (l.etat !== 'ok') return l;
   const r = await resumeDuBien(id).catch(() => null);
-  return { etat: 'ok', data: { ...l.data.publique, proprietaires: (r?.proprietaires ?? []).map((p) => p.nom), mandat: r?.mandat ?? null } };
+  const annexeRattachee = l.data.publique.statut?.suitLot != null;
+  const mb = annexeRattachee ? undefined : (await mandatsDesBiens([id]))[0];
+  return { etat: 'ok', data: { ...l.data.publique, proprietaires: (r?.proprietaires ?? []).map((p) => p.nom), mandat: r?.mandat ?? null,
+    mandatBien: mb === undefined ? null : { gestion: mb.gestion, transaction: mb.transaction, signalements: mb.signalements } } };
 }
 
 /** La seule empreinte (la mise à jour automatique de la fiche ouverte la compare, toutes les quelques secondes). */
@@ -141,7 +154,7 @@ export function lireSaisie(brut: Record<string, unknown>, valeursLues: ValeursEn
   };
 }
 
-export type IssueFiche = Issue<{ changements: ChangementFiche[]; notes: string[] }> | { etat: 'conflit'; motif: string };
+export type IssueFiche = Issue<{ changements: ChangementFiche[]; notes: string[] }> | { etat: 'conflit'; motif: string } | IssueMandatAConfirmer;
 
 /**
  * « Valider les modifications » de la fiche entière : version, refus, puis chaque partie par son geste. Une partie refusée
@@ -161,6 +174,21 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   // et nouvelles — contrôlées AVANT toute écriture : un refus n'a rien écrit (ni digicodes, ni PV, ni bien)
   const adr = await controlerAdressesFiche(id, lu, s);
   if (!adr.ok) return { etat: 'refus', motif: adr.motif };
+  /* 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) LE MANDAT DU BIEN (« chacun modifiable sur son bien ») et celui d'un changement de statut : le n°
+     partagé contrôlé AVANT toute écriture — même propriétaire sans confirmation → la fenêtre ; un autre propriétaire → refus absolu ; rien n'est écrit. */
+  const parBien = await mandatParBienDisponible();
+  const confirmeMandat = brut.confirmeMandat === true;
+  const vm = verifierMandat(brut.mandatBien);
+  if (!vm.ok) return { etat: 'refus', motif: vm.motif };
+  const mandatBien: SaisieMandat | null = parBien ? vm.mandat : null;
+  if (mandatBien !== null && lu.statut?.suitLot != null) return { etat: 'refus', motif: 'Une annexe rattachée porte le mandat de son logement : il se modifie sur le logement. Rien n’est enregistré.' };
+  const ensemble = parBien ? await ensembleDuBien(query, id) : [];
+  for (const m of [mandatBien, parBien ? s.statut?.mandat ?? null : null]) {
+    if (m === null || (m.numero ?? '').trim() === '') continue;
+    const d = await decisionAvantEcriture(m.sorte, m.numero ?? '', ensemble, id, confirmeMandat);
+    if (d.etat === 'refus') return { etat: 'refus', motif: d.motif };
+    if (d.etat === 'a_confirmer') return { etat: 'mandat_a_confirmer', motif: d.motif };
+  }
   // 🔴🔴 (« Digicodes unifiés », lot 4) le bâtiment choisi au menu et les premières valeurs des digicodes : par le chemin serveur unique, d'abord
   // (un refus — numérotation non confirmée, code déjà connu — arrête tout, rien d'autre n'est écrit)
   const digicodesBien = (await digicodesUnifiesDisponibles()) ? validerDigicodesBien(brut.digicodesBien) : null;
@@ -175,10 +203,20 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
   const pvAg = await pvsDuBienValides(brut.pvAg);
   if (!pvAg.ok) return { etat: 'refus', motif: pvAg.motif };
   const pvFaits = pvAg.pvs.length > 0 ? await withTransaction((q) => ajouterPvsDuBien(q, id, pvAg.pvs, auteur)) : 0;
+  // 🔴🔴 (Arno, 18/11/2026, 492) le mandat du bien, dans sa transaction (le n° re-contrôlé sous verrou)
+  let mandatFait = false;
+  if (mandatBien !== null) {
+    const m = await withTransaction((q) => ecrireMandatDuBien(q, id, mandatBien, ensemble, confirmeMandat, auteur, 'à « Modifier le bien »'))
+      .catch((e: unknown) => { if (e instanceof MandatAConfirmer || e instanceof MandatRefuse) return e; throw e; });
+    if (m instanceof MandatAConfirmer) return { etat: 'mandat_a_confirmer', motif: m.message };
+    if (m instanceof MandatRefuse) return { etat: 'refus', motif: m.message };
+    mandatFait = m;
+  }
   const changements = changementsFiche(lu, s);
-  const notesPv = pvFaits > 0 ? [`${pvFaits === 1 ? 'PV d’AG enregistré' : `${pvFaits} PV d’AG enregistrés`} dans la copropriété.`] : [];
+  const notesPv = [...(pvFaits > 0 ? [`${pvFaits === 1 ? 'PV d’AG enregistré' : `${pvFaits} PV d’AG enregistrés`} dans la copropriété.`] : []),
+    ...(mandatFait ? ['Mandat du bien enregistré.'] : [])];
   if (changements.length === 0) return { etat: 'ok', data: { changements, notes: [...(digicodesFaits ? ['Bâtiment et digicodes enregistrés.'] : []), ...notesPv] } };
-  const faits: string[] = [...(digicodesFaits ? ['bâtiment et digicodes'] : []), ...(pvFaits > 0 ? ['PV d’AG'] : [])];
+  const faits: string[] = [...(digicodesFaits ? ['bâtiment et digicodes'] : []), ...(pvFaits > 0 ? ['PV d’AG'] : []), ...(mandatFait ? ['mandat du bien'] : [])];
   const notes: string[] = [...notesPv];
   const partiel = (motif: string): IssueFiche => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
 
@@ -237,7 +275,8 @@ export async function modifierFicheEntiere(id: number, brut: Record<string, unkn
 
   // ④ LE STATUT — la transition et ses suites (mail, déplacement du dossier Drive du bien), le mécanisme du geste de la fiche.
   if (s.statut !== null) {
-    const r = await transitionStatutAvecSuites(id, s.statut, auteur, tuile);
+    const r = await transitionStatutAvecSuites(id, { ...s.statut, ...(confirmeMandat ? { confirmeMandat: true } : {}) }, auteur, tuile);
+    if (r.etat === 'mandat_a_confirmer') return { etat: 'mandat_a_confirmer', motif: r.motif };
     if (r.etat !== 'ok') return partiel('motif' in r && typeof r.motif === 'string' ? r.motif : 'Le statut du bien n’a pas pu changer.');
     const d = r as typeof r & { mail?: { envoye: boolean; ignore: boolean; motif: string | null }; drive?: { ok: boolean; motif: string | null } };
     const suivies = (d.data.lots?.length ?? 1) - 1;

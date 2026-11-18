@@ -15,6 +15,9 @@ import { LIBELLE_MANDAT, type SorteMandat } from './mandatBien';
  * `normaliserMandat` (« MG 2026-041 » = « mg2026041 »).
  */
 
+/** L'issue « à confirmer » rendue par le serveur : l'écran ouvre la fenêtre (Confirmer / Corriger) et renvoie avec `confirmeMandat`. */
+export type IssueMandatAConfirmer = { etat: 'mandat_a_confirmer'; motif: string };
+
 /** Un bien qui porte déjà le n° : son identifiant, son adresse lisible et l'ensemble de ses propriétaires (titulaire + copropriétaires actifs). */
 export interface UsageMandat { lotId: number; adresse: string; proprietaires: readonly number[] }
 

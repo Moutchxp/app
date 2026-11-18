@@ -41,7 +41,7 @@ import { LignesMandat } from './LignesMandat';
 // 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » et l'enchaînement vers le locataire en place.
 import { CSS_RENTRE_OCCUPE, QuestionRentreOccupe } from './QuestionRentreOccupe';
 import { lienLocataireEnPlace, manquesRentreOccupe } from '../../../../lib/location/rentreOccupe';
-import type { Mandat, SorteMandat } from '../../../../lib/location/mandatBien';
+import { LIBELLE_MANDAT, libelleMandat, type Mandat, type SorteMandat } from '../../../../lib/location/mandatBien';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import { BlocStatutModification } from './StatutModification';
 import { annoncerBienModifie, useAvertissementSortie, type ImportBien } from '../gestion/EditionEncart';
@@ -172,7 +172,7 @@ export interface ModificationBien {
    * Les appels de la FICHE COMMUNE (la route de la Gestion, gardée par `perm_gestion`), fournis par l'hôte : ce formulaire de la
    * Location ne parle qu'à sa propre route (garde `locationBien.test.ts`).
    */
-  enregistrer: (saisie: SaisieFiche & { confirmeOccupation?: boolean }) => Promise<{ statut: number | null; corps: { etat?: string; motif?: string; message?: string; erreur?: string;
+  enregistrer: (saisie: SaisieFiche & { confirmeOccupation?: boolean; mandatBien?: { sorte: SorteMandat; numero: string; signeLe: string } | null; confirmeMandat?: boolean }) => Promise<{ statut: number | null; corps: { etat?: string; motif?: string; message?: string; erreur?: string;
     data?: { changements?: ChangementFiche[]; notes?: string[] } } }>;
   /** Combien de locations en cours une annexe a (l'avertissement avant de la sortir du portefeuille). */
   occupationsDe: (annexeId: number) => Promise<number>;
@@ -293,7 +293,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     | { sorte: 'selection' } | { sorte: 'doublon'; motif: string; lotId: number }
     // « Modifier » la fiche (Arno, 23/10/2026) : contre-validation, succès, version dépassée, abandon de la saisie.
     | { sorte: 'contre'; changements: ChangementFiche[]; notes: string[]; confirmeOccupation: boolean } | { sorte: 'succes-modif'; changements: ChangementFiche[]; notes: string[] }
-    | { sorte: 'conflit' } | { sorte: 'abandon' } | { sorte: 'aucune' } | null>(null);
+    | { sorte: 'conflit' } | { sorte: 'abandon' } | { sorte: 'aucune' }
+    // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Le mandat n° X est déjà utilisé pour … de ce propriétaire. L'utiliser aussi pour ce bien ? » (Confirmer / Corriger)
+    | { sorte: 'mandat'; motif: string; options: { confirmeDoublon?: boolean } } | { sorte: 'mandat-modif'; motif: string; confirmeOccupation: boolean } | null>(null);
   /* Arno (21/10/2026) — GARDE-FOU « SÉLECTION EN ATTENTE » : le panneau « Qui rattacher à ce bien ? » confie ici son geste
      « Rattacher la sélection » tant que des cases cochées n'ont pas été rattachées ; « Rattacher et enregistrer » l'emploie,
      puis enregistre dès que les cartes sont posées. */
@@ -525,6 +527,14 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   /** « Entretien à prévoir » : dans le bloc des caractéristiques complémentaires (pas pour un parking), là où la fiche le porte. */
   const avecEntretienEncadre = avecComplements && montre('avecEntretien');
   const [transition, setTransition] = useState<TransitionSaisie | null>(null);
+  /* 🔴🔴 Arno (18/11/2026, « Mandat par bien », 492) — en modification, le mandat PORTÉ PAR LE BIEN, modifiable (« chacun modifiable sur son bien ») :
+     celui de son statut actuel (en gestion → mandat de gestion ; location seule → mandat de transaction locative). */
+  const mandatBienLu = modification?.lecture.mandatBien ?? null;
+  const sorteMandatBien: SorteMandat | null = mandatBienLu === null ? null
+    : modification?.lecture.statut?.statut === 'en_gestion' ? 'gestion' : modification?.lecture.statut?.statut === 'location_seule' ? 'transaction' : null;
+  const [mandatBienSaisi, setMandatBienSaisi] = useState<Mandat | null>(sorteMandatBien === null || mandatBienLu === null ? null : mandatBienLu[sorteMandatBien]);
+  const mandatBienChange = sorteMandatBien !== null && mandatBienLu !== null && mandatBienSaisi !== null
+    && ((mandatBienSaisi.numero ?? '').trim() !== (mandatBienLu[sorteMandatBien].numero ?? '') || (mandatBienSaisi.signeLe ?? null) !== (mandatBienLu[sorteMandatBien].signeLe ?? null));
   /** Les valeurs de l'import WIPPIMMO que l'encart affiche quand la Location est vide : DITES au-dessus des champs vides, jamais recopiées. */
   const importesModif: string[] = (() => {
     const imp = modification?.importe;
@@ -567,6 +577,8 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 (« Digicodes unifiés », lot 4) le bâtiment choisi au menu et les premières valeurs, par le chemin serveur unique
       ...(digiEnvoi !== null ? { digicodesBien: digiEnvoi } : {}),
       version: l.version, valeurs: valeursDuChemin, statut: transition,
+      ...(mandatBienChange && sorteMandatBien !== null && mandatBienSaisi !== null
+        ? { mandatBien: { sorte: sorteMandatBien, numero: (mandatBienSaisi.numero ?? '').trim(), signeLe: mandatBienSaisi.signeLe ?? '' } } : {}),
       ...(pvEnAttente.length > 0 ? { pvAg: pvEnAttente } : {}),
       // 🔴 (« Adresses uniformisées », lot 3) ce que l'écran dit d'une adresse TOUCHÉE (une adresse non touchée part sans : jamais requalifiée)
       // (la confirmation « sans numéro » y est par l'état : la contre-validation sépare la fenêtre de l'envoi)
@@ -586,7 +598,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       apres: motValeur(digiEnvoi.codeBatiment.aucun ? { digicode: false, code: null } : { digicode: true, code: digiEnvoi.codeBatiment.code }) }] : [])];
   // 🔴 (Arno, 17/11/2026) les PV d'AG en attente : dans le récapitulatif (et ils suffisent à enregistrer)
   const changementsPv: ChangementFiche[] = pvEnAttente.map((x, i) => ({ cle: `pvAg${i}`, champ: 'PV d’AG de la copropriété', avant: '—', apres: `${dateFrAg(x.date)} — ${SIGLE_NATURE_AG[x.nature]}${x.note ? ` (${x.note})` : ''}` }));
-  const changementsModif = modification === undefined || saisieModif === null ? [] : [...changementsFiche(modification.lecture, saisieModif), ...changementsDigi, ...changementsPv];
+  const changementsMandat: ChangementFiche[] = !mandatBienChange || sorteMandatBien === null || mandatBienLu === null || mandatBienSaisi === null ? [] : [{
+    cle: 'mandatBien', champ: LIBELLE_MANDAT[sorteMandatBien], avant: libelleMandat(sorteMandatBien, mandatBienLu[sorteMandatBien]) ?? '—',
+    apres: libelleMandat(sorteMandatBien, { numero: (mandatBienSaisi.numero ?? '').trim() || mandatBienLu[sorteMandatBien].numero, signeLe: mandatBienSaisi.signeLe ?? mandatBienLu[sorteMandatBien].signeLe }) ?? '—' }];
+  const changementsModif = modification === undefined || saisieModif === null ? [] : [...changementsFiche(modification.lecture, saisieModif), ...changementsDigi, ...changementsPv, ...changementsMandat];
   const conflit = modification !== undefined && enregistre === null && modification.versionDistante !== null && modification.versionDistante !== modification.lecture.version;
   useAvertissementSortie(modification !== undefined && enregistre === null && changementsModif.length > 0);
   const annulerModification = (): void => {
@@ -659,12 +674,14 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     ];
     setIssue({ sorte: 'contre', changements: changementsModif, notes, confirmeOccupation: occupation.length > 0 });
   };
-  const confirmerModification = async (confirmeOccupation: boolean): Promise<void> => {
+  const confirmerModification = async (confirmeOccupation: boolean, confirmeMandat = false): Promise<void> => {
     if (modification === undefined || saisieModif === null || enCours.current) return;
     enCours.current = true;
     setEnvoi(true);
     try {
-      const { statut, corps: d } = await modification.enregistrer({ ...saisieModif, ...(confirmeOccupation ? { confirmeOccupation: true } : {}) });
+      const { statut, corps: d } = await modification.enregistrer({ ...saisieModif, ...(confirmeOccupation ? { confirmeOccupation: true } : {}), ...(confirmeMandat ? { confirmeMandat: true } : {}) });
+      // 🔴🔴 (Arno, 18/11/2026) le n° est déjà celui d'un autre bien de ce propriétaire : la fenêtre (rien n'a été écrit)
+      if (d.etat === 'mandat_a_confirmer') { setIssue({ sorte: 'mandat-modif', motif: d.motif ?? '', confirmeOccupation }); return; }
       if (statut !== null && statut < 400 && d.etat === 'ok') {
         setEnregistre('modifie');
         setIssue({ sorte: 'succes-modif', changements: d.data?.changements ?? changementsModif, notes: d.data?.notes ?? [] });
@@ -709,7 +726,14 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
   // La liste de « Reste à renseigner » (barre du bas) : la ligne, son compteur et la bulle la lisent toutes trois.
   const manquesLigne = Object.values(manque).map((m) => m.replace(/\.$/, ''));
 
-  const enregistrer = async (options: { confirmeDoublon?: boolean } = {}): Promise<void> => {
+  /** « Corriger » : le champ du n° de mandat visible reprend la main. */
+  const focusMandat = (): void => {
+    const champ = [...document.querySelectorAll<HTMLInputElement>('[data-mandat-numero], [data-mandat-bien-numero], [data-mandat-propose] input')].find((x) => x.closest('[inert], [aria-hidden="true"]') === null);
+    champ?.scrollIntoView?.({ block: 'center' }); champ?.focus();
+    // la fenêtre refermée rend le focus à ce qui l'avait ouverte : le champ le reprend juste après
+    setTimeout(() => { champ?.focus(); }, 60);
+  };
+  const enregistrer = async (options: { confirmeDoublon?: boolean; confirmeMandat?: boolean } = {}): Promise<void> => {
     if (modification !== undefined) { await validerModification(); return; }
     if (enCours.current || enregistre !== null) return;
     // Une sélection cochée mais pas rattachée : jamais d'enregistrement silencieux sans elle (Arno, 21/10/2026).
@@ -755,6 +779,7 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
       // 🔴 Arno (26/10/2026, 430) — la réponse, et la date du mandat (Oui) : la date d'entrée de la gestion dans le suivi.
       ...(questionOccupe && occupeDisponible && entreOccupe !== null ? { entreOccupe, ...(entreOccupe ? { dateMandat: dateMandatVue } : {}) } : {}),
       ...(options.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
+      ...(options.confirmeMandat === true ? { confirmeMandat: true } : {}),
       // 🔴 (Arno, 17/11/2026) les PV d'AG saisis avant l'enregistrement : rattachés à la copropriété du bien, dans sa transaction
       ...(pvEnAttente.length > 0 ? { pvAg: pvEnAttente } : {}),
       // Seul le mandat du choix FINAL (Oui → gestion, Non → transaction locative) ; rien s'il n'est pas saisi.
@@ -784,6 +809,11 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
     enCours.current = false;
     setEnvoi(false);
     // Arno (21/10/2026) — ANTI-DOUBLON : « Ce bien semble déjà exister » (rien n'est créé) ; « Créer quand même » repasse.
+    // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — le n° est déjà celui d'un autre bien de ce propriétaire : la fenêtre (rien n'est créé)
+    if (r.etat === 'mandat_a_confirmer') {
+      setIssue({ sorte: 'mandat', motif: r.motif ?? '', options: options.confirmeDoublon === true ? { confirmeDoublon: true } : {} });
+      return;
+    }
     if (r.etat === 'doublon') {
       const d = r.data as { lotId?: number } | undefined;
       setIssue({ sorte: 'doublon', motif: r.motif ?? 'Un bien pareil existe déjà pour ce propriétaire.', lotId: Number(d?.lotId) });
@@ -1267,7 +1297,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
 
       {modification !== undefined ? (
         <>
-          <BlocStatutModification numero={n('gestion')} lu={modification.lecture.statut} mandat={modification.lecture.mandat} valeur={transition} onChange={setTransition} />
+          <BlocStatutModification numero={n('gestion')} lu={modification.lecture.statut} mandat={modification.lecture.mandat} valeur={transition} onChange={setTransition}
+            mandatBien={sorteMandatBien === null || mandatBienLu === null || mandatBienSaisi === null ? null
+              : { sorte: sorteMandatBien, valeur: mandatBienSaisi, lu: mandatBienLu, onChange: setMandatBienSaisi }} />
           {modification.blocApres?.(n('gestion') + 1)}
         </>
       ) : continuite === undefined && (
@@ -1360,6 +1392,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
           notes={[`${changementsModif.length} modification${changementsModif.length > 1 ? 's' : ''} non enregistrée${changementsModif.length > 1 ? 's' : ''} : fermer les perdra.`]}
           actions={[{ libelle: 'Revenir à la saisie', onClick: () => setIssue(null), principal: true, repere: 'revenir-saisie' },
             { libelle: 'Abandonner', onClick: () => { setIssue(null); modification.onFermer(); }, repere: 'abandonner-modification' }]} />
+      ) : issue.sorte === 'mandat-modif' ? (
+        <FenetreMandatPartage motif={issue.motif} onCorriger={() => { setIssue(null); focusMandat(); }}
+          onConfirmer={() => { const c = issue.confirmeOccupation; setIssue(null); void confirmerModification(c, true); }} />
       ) : issue.sorte === 'aucune' ? (
         <ModaleIssue sorte="attention" titre="Aucune modification" onFermer={() => setIssue(null)}
           notes={['Rien n’a changé par rapport à la fiche du bien : il n’y a rien à enregistrer.']}
@@ -1393,6 +1428,9 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
               if (f !== null && f()) setEnregistrerApresRattachement(true);
             } },
           ]} />
+      ) : issue.sorte === 'mandat' ? (
+        <FenetreMandatPartage motif={issue.motif} onCorriger={() => { setIssue(null); focusMandat(); }}
+          onConfirmer={() => { const o = issue.options; setIssue(null); void enregistrer({ ...o, confirmeMandat: true }); }} />
       ) : issue.sorte === 'doublon' ? (
         <ModaleIssue sorte="attention" titre="Ce bien semble déjà exister" onFermer={() => setIssue(null)}
           notes={[issue.motif, 'Rien n’a été créé. Vérifiez le bien existant, ou créez-le quand même s’il s’agit bien d’un autre bien.']}
@@ -1415,5 +1453,17 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
         </div>
       )}
     </form>
+  );
+}
+
+/**
+ * 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — LA FENÊTRE DU N° PARTAGÉ : « Le mandat n° X est déjà utilisé pour <adresse du bien> de ce propriétaire.
+ * L'utiliser aussi pour ce bien ? » (Confirmer / Corriger). « Corriger » d'abord : une touche Entrée ne confirme jamais rien.
+ */
+export function FenetreMandatPartage({ motif, onCorriger, onConfirmer }: { motif: string; onCorriger: () => void; onConfirmer: () => void }) {
+  return (
+    <ModaleIssue sorte="attention" titre="Mandat déjà utilisé pour ce propriétaire" onFermer={onCorriger} notes={[motif]}
+      actions={[{ libelle: 'Corriger', onClick: onCorriger, repere: 'mandat-corriger' },
+        { libelle: 'Confirmer', onClick: onConfirmer, principal: true, repere: 'mandat-confirmer' }]} />
   );
 }

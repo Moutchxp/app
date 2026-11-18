@@ -39,6 +39,7 @@ import { digicodesPourBien } from '../../../../lib/gestion/digicodesBienRepo';
 import { gesteDeLAction, gesteDigicodeCopro, reponseGesteDigicode } from '../../../../lib/gestion/coproprieteEcritureRepo';
 import { apercuChangement, planifierEtPrevenir } from '../../../../lib/gestion/digicodesEnvoiRepo';
 import { mandatsDesProprietaires } from '../../../../lib/location/mandatBienRepo';
+import { mandatParBienDisponible, mandatsDuMemeEnsemble } from '../../../../lib/location/mandatParBienRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../lib/location/archivage';
@@ -332,7 +333,8 @@ export async function GET(request: Request): Promise<Response> {
     // Arno (21/10/2026, 397) — les mandats (n°, date de signature) des propriétaires choisis : le pré-remplissage de « Nouveau bien ».
     if (p('mandatsProprietaires') !== null) {
       const ids = (p('mandatsProprietaires') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 12);
-      return Response.json({ etat: 'ok', data: await mandatsDesProprietaires(ids) }, { headers: ENTETES });
+      // 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) le n° est porté par le bien : celui d'un bien du MÊME ensemble exact de propriétaires
+      return Response.json({ etat: 'ok', data: (await mandatParBienDisponible()) ? await mandatsDuMemeEnsemble(ids) : await mandatsDesProprietaires(ids) }, { headers: ENTETES });
     }
     // 🔴🔴 (« Digicodes unifiés », lot 4) les digicodes d'un bien (`digicodesBien=<id>`) ou de la place d'un bien à créer (son adresse) : le composant
     // unique de la fiche du bien ; `null` sans la 478. LECTURE SEULE.
@@ -440,7 +442,7 @@ async function postLocation(request: Request): Promise<Response> {
   const repondre = (x: unknown): Response => {
     // Une création refusée (métier, base, inconnue) : une ligne au journal du serveur.
     const etat = x !== null && typeof x === 'object' ? (x as { etat?: unknown }).etat : undefined;
-    if (estCreation(action) && etat !== 'ok') {
+    if (estCreation(action) && etat !== 'ok' && etat !== 'mandat_a_confirmer') { // « à confirmer » n'est pas un échec : la fenêtre s'ouvre
       journaliserEchec(auteur.libelle, action, corps.ecran, etat === 'sans_schema' ? 'base' : etat === 'doublon' ? 'doublon' : 'saisie', String((x as { motif?: unknown }).motif ?? etat ?? '—'));
     }
     return Response.json(x, { headers: ENTETES });
@@ -570,6 +572,8 @@ async function postLocation(request: Request): Promise<Response> {
           ...(corps.mandat !== undefined ? { mandat: corps.mandat } : {}),
           // Arno (21/10/2026) — « Créer quand même » après l'avertissement « Ce bien semble déjà exister ».
           ...(corps.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
+          // 🔴🔴 Arno (18/11/2026, « Mandat par bien ») — « Confirmer » : le n° déjà utilisé pour un autre bien du même propriétaire, aussi pour celui-ci.
+          ...(corps.confirmeMandat === true ? { confirmeMandat: true } : {}),
           // 🔴 Arno (26/10/2026, 430) — « Le bien est-il loué au moment de la prise en gestion ? » et la date du mandat (Oui).
           ...(corps.entreOccupe !== undefined ? { entreOccupe: corps.entreOccupe, dateMandat: corps.dateMandat } : {}),
         }, auteur);

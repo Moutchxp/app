@@ -16,9 +16,9 @@ import { avecMail } from '../location/mailPortefeuilleRepo';
  *      un échec n'annule rien : la fiche dit « Dossier Drive à déplacer » et « Déplacer maintenant » rejoue. Aucun autre dossier
  *      n'est touché (jamais « Documents clients scannés »).
  */
-export async function transitionStatutAvecSuites(id: number, saisie: { vers: unknown; effetLe: unknown; motif?: unknown; mandat?: unknown }, auteur: Auteur,
+export async function transitionStatutAvecSuites(id: number, saisie: { vers: unknown; effetLe: unknown; motif?: unknown; mandat?: unknown; confirmeMandat?: unknown }, auteur: Auteur,
   tuile: 'Location' | 'Gestion') {
-  const r = await changerStatutBien(id, { vers: saisie.vers, effetLe: saisie.effetLe, motif: saisie.motif, mandat: saisie.mandat }, auteur);
+  const r = await changerStatutBien(id, { vers: saisie.vers, effetLe: saisie.effetLe, motif: saisie.motif, mandat: saisie.mandat, confirmeMandat: saisie.confirmeMandat }, auteur);
   if (r.etat !== 'ok') return r;
   const { avant, apres, lots } = r.data;
   const ev = avant === 'en_gestion'
