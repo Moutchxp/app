@@ -48,7 +48,7 @@ import type { TermeRecherche } from './annuaireRecherche';
 import { adressesRapprochables } from './adresseInterne';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », module PUR. Le
    dépôt ne la réécrit pas : il l'appelle, comme la fiche, l'encart Parties et les capsules de pièces jointes. */
-import { estAncienLocataire, estLocataireEnPlace } from './historiqueBien';
+import { estAncienLocataire, estLocataireEnPlace, locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from './historiqueBien';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « un evenement ouvert » ne se demande plus a la colonne `etat` : il se DEDUIT
    des cartes de borne de la frise. Le cartouche orange et les capsules de la fiche lisent donc la meme regle
    que l'etiquette des mails et que le bloc Evenements. */
@@ -2426,9 +2426,9 @@ export async function rechercherPersonnes(
                      WHERE lo2.proprietaire_id = pr.id))${filtreProprio}`, params);
 
   // ── ② LES LOCATAIRES QUI RÉPONDENT, avec l'état de leur occupation ────────────────────────────────────────────
-  const { rows: locs } = await query<{
+  const { rows: locsBruts } = await query<{
     id: string; cle: string; civilite: string | null; prenom: string | null; nom: string; nom_normalise: string;
-    archive: boolean; par_nom: boolean; en_place: boolean; lot_vise: string | null; lot_vise_en_cours: boolean;
+    archive: boolean; par_nom: boolean; sorties: (string | null)[] | null; lot_vise: string | null; lot_vise_en_cours: boolean;
   }>(
     `${COMMUN}
      SELECT lc.id::text, lc.cle_personne AS cle,
@@ -2436,8 +2436,7 @@ export async function rechercherPersonnes(
             lc.nom, lc.nom_normalise,
             ${modifiable ? '(lc.archive_le IS NOT NULL)' : 'false'} AS archive,
             (NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%')) AS par_nom,
-            EXISTS (SELECT 1 FROM gestion_annuaire_occupation o
-                     WHERE o.locataire_id = lc.id AND o.sortie IS NULL) AS en_place,
+            ${sqlSortiesDuLocataire('lc')} AS sorties,
             (SELECT min(v.wippimmo_id) FROM lots_vises v
                JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
               WHERE o.locataire_id = lc.id) AS lot_vise,
@@ -2448,6 +2447,8 @@ export async function rechercherPersonnes(
          OR lc.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')
          OR EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
                      WHERE o.locataire_id = lc.id))${filtreLocataire}`, params);
+  // 🔴 Arno (18/11/2026) — « en place / ancien locataire » : la règle unique de la fiche (`locataireEnPlace`), jamais un SQL à part.
+  const locs: LocBrut[] = locsBruts.map(({ sorties, ...l }) => ({ ...l, en_place: locataireEnPlace(occupationsDesSorties(sorties)) }));
 
   return assemblerPersonnes(proprios, locs, o.avecArchivees === true, horsLS);
 }

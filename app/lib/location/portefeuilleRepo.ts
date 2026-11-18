@@ -11,6 +11,7 @@ import { ficheSyndic } from '../gestion/syndicRepo';
 import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
 import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
+import { locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from '../gestion/historiqueBien';
 import { listerCoproprietes } from '../gestion/coproprieteRepo';
 import { filtrerCoproprietes } from '../gestion/copropriete';
 import type { Issue } from './locationRepo';
@@ -118,7 +119,9 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
   // Les trois paramètres sont TOUJOURS cités (une clause neutre) : PostgreSQL refuse un paramètre transmis mais inutilisé.
   const NEUTRE = `(length($1::text) >= 0 AND length($2::text) >= 0 AND cardinality($3::text[]) >= 0)`;
   const vivanteP = await sqlPersonneVivante('p');
-  type Ligne = { id: string; nom: string; telephone: string | null; email: string | null; adresse: string | null; detail: string | null; ancien: boolean };
+  type Ligne = { id: string; nom: string; telephone: string | null; email: string | null; adresse: string | null; detail: string | null; ancien: boolean;
+    /** Les locataires seuls : les dates de sortie de toutes leurs occupations (`sqlSortiesDuLocataire`). */
+    sorties?: (string | null)[] | null };
 
   /**
    * « Archiver un propriétaire » (Arno, 18/10/2026) : la recherche SPÉCIALISÉE sur les propriétaires trouve aussi un
@@ -147,6 +150,7 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
   const { rows: loc } = await query<Ligne>(
     `SELECT p.id::text, p.nom, ${coordonnee('locataire', 'p', 'telephone')} AS telephone,
             ${coordonnee('locataire', 'p', 'email')} AS email, NULL::text AS detail, ${ancien('p')} AS ancien,
+            ${sqlSortiesDuLocataire('p')} AS sorties,
             (SELECT nullif(concat_ws(', ', l.adresse, l.commune), '') FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot l ON l.id = o.lot_id
               WHERE o.locataire_id = p.id AND l.gestion_fin IS NULL AND l.absent_le IS NULL
               ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST LIMIT 1) AS adresse
@@ -191,7 +195,8 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
   const borne = <T>(l: T[]): T[] => l.slice(0, LIMITE);
   return {
     proprietaires: borne(prop).map((r) => ligne(r, `Propriétaire ${r.id}`)),
-    locataires: borne(loc).map((r) => ligne(r, `Locataire ${r.id}`)),
+    // 🔴 Arno (18/11/2026) — le statut « en place / ancien locataire » de la FICHE : la règle unique (`locataireEnPlace`).
+    locataires: borne(loc).map((r) => ({ ...ligne(r, `Locataire ${r.id}`), enPlace: locataireEnPlace(occupationsDesSorties(r.sorties)) })),
     syndics: borne(syn).map((r) => ligne(r, `Syndic ${r.id}`)),
     coproprietes: borne(copros).map((c, i): LigneRecherche => ({ id: i + 1, titre: c.hors ? `${c.nom} · Bien hors copropriété` : c.nom, telephone: null, email: null,
       adresse: c.adresses.join(' · '), detail: c.syndic === null ? null : `Syndic : ${c.syndic.nom}`, ancien: false, cle: c.immeuble })),

@@ -1567,6 +1567,35 @@ export function estLocataireEnPlace(o: { sortie: string | null }): boolean {
 }
 
 /**
+ * ══ 🔴🔴 LE STATUT D'UNE PERSONNE — « LOCATAIRE EN PLACE » OU « ANCIEN LOCATAIRE » — D'APRÈS TOUTES SES OCCUPATIONS. PURE.
+ *
+ * Arno (18/11/2026) : la recherche de la Location montrait « JULDO Thomas » (fiche 261) en vert « Locataire » alors que sa
+ * fiche dit « Ancien locataire » (bail terminé le 07/08/2025). Le statut est DÉRIVÉ, jamais stocké, et il n'a qu'UNE
+ * définition : la personne est en place si UNE de ses occupations l'est (`estLocataireEnPlace`, la règle ci-dessus) ;
+ * ancienne si toutes sont terminées — un bail terminé et un autre en cours, elle reste en place. C'est exactement ce que
+ * calcule la fiche (`enCours.length > 0`, Annuaire.tsx) ; la recherche de la Location, celle de la Gestion et la liste des
+ * locataires appellent cette fonction sur les dates de sortie lues par `sqlSortiesDuLocataire`, jamais leur propre SQL.
+ */
+export function locataireEnPlace(occupations: readonly { sortie: string | null }[]): boolean {
+  return occupations.some(estLocataireEnPlace);
+}
+
+/**
+ * Les dates de sortie de TOUTES les occupations d'un locataire, telles quelles (`NULL` = pas de sortie), à passer à
+ * `occupationsDesSorties` puis `locataireEnPlace`. Le SQL LIT, il ne juge pas : le verdict reste à la règle ci-dessus.
+ * `alias` = l'alias SQL de `gestion_annuaire_locataire` dans la requête appelante.
+ */
+export function sqlSortiesDuLocataire(alias: string): string {
+  return `(SELECT coalesce(array_agg(o_st.sortie::text ORDER BY o_st.id), '{}'::text[])
+             FROM gestion_annuaire_occupation o_st WHERE o_st.locataire_id = ${alias}.id)`;
+}
+
+/** Ce que rend `sqlSortiesDuLocataire` (un tableau, `null` toléré) → des occupations pour `locataireEnPlace`. PURE. */
+export function occupationsDesSorties(sorties: readonly (string | null)[] | null | undefined): { sortie: string | null }[] {
+  return (sorties ?? []).map((sortie) => ({ sortie }));
+}
+
+/**
  * ══ 🔴🔴 QUI EST « LE DERNIER LOCATAIRE » ? PUR. ═════════════════════════════════════════════════════════════════
  *
  * Celui qui est là s'il y a quelqu'un ; sinon le dernier parti. C'est la lecture qu'une personne fait du mot, et

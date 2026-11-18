@@ -19,6 +19,7 @@ import {
   type FicheLocataire, type FicheLot, type FicheProprietaire, type PersonneTrouvee,
 } from '../gestion/annuaireRepo';
 import { analyserTerme } from '../gestion/annuaireRecherche';
+import { locataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire } from '../gestion/historiqueBien';
 import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
 import type { Auteur } from '../gestion/gestes';
@@ -128,8 +129,8 @@ export async function listeProprietaires(page: number, filtre = '', anciens = fa
 export async function listeLocataires(page: number, filtre = '', anciens = false): Promise<PageListe<LigneLocataire>> {
   const vivante = (await sqlPersonneVivante('p')) + await filtreSortie('p', anciens);
   const motif = `%${normaliserTexte(filtre)}%`;
-  const { rows } = await query<{ id: string; nom: string; en_place: boolean; logement: string | null; lot_id: string | null; total: number }>(
-    `SELECT p.id::text, p.nom, o.id IS NOT NULL AS en_place,
+  const { rows } = await query<{ id: string; nom: string; sorties: (string | null)[] | null; logement: string | null; lot_id: string | null; total: number }>(
+    `SELECT p.id::text, p.nom, ${sqlSortiesDuLocataire('p')} AS sorties,
             nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS logement, lo.id::text AS lot_id,
             count(*) OVER ()::int AS total
        FROM gestion_annuaire_locataire p
@@ -140,7 +141,8 @@ export async function listeLocataires(page: number, filtre = '', anciens = false
       ORDER BY (o.id IS NULL), p.nom_normalise, p.id
       LIMIT ${TAILLE_PAGE} OFFSET $2`, [motif, page * TAILLE_PAGE]);
   return {
-    lignes: rows.map((r) => ({ id: Number(r.id), nom: r.nom, enPlace: r.en_place, logement: r.logement, lotId: num(r.lot_id) })),
+    // 🔴 Arno (18/11/2026) — « en place / ancien » : la règle unique de la fiche (`locataireEnPlace`).
+    lignes: rows.map((r) => ({ id: Number(r.id), nom: r.nom, enPlace: locataireEnPlace(occupationsDesSorties(r.sorties)), logement: r.logement, lotId: num(r.lot_id) })),
     total: rows[0]?.total ?? 0, page,
   };
 }
