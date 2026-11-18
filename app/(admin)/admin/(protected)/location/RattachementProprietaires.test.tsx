@@ -58,6 +58,23 @@ const cocher = async (sel: string) => { await act(async () => { (container.query
 const nomsCartes = (sel: string) => [...container.querySelectorAll(`${sel} .cp-nom`)].map((x) => x.textContent);
 
 describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () => {
+  it('🔴 aucun contact : le groupe reste, compteur (0), et la phrase renvoie aux coordonnées du propriétaire (Arno, 18/11/2026)', async () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => (String(url).includes('personnesLiees=3')
+      ? ok({ choisie: 3, proprietaires: [LEA], contacts: [] }) : avant(url, init))) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
+    await chercherEtChoisir('MARTIN Léa');
+    const groupe = container.querySelector('[data-qui-rattacher] [data-groupe="contacts"]') as HTMLElement;
+    expect(groupe).not.toBeNull();
+    expect(groupe.querySelector('.loc-qui-groupe-titre')?.textContent).toBe('Contact du propriétaire Contacts du propriétaire déjà connus sur ses autres biens (0)');
+    expect(groupe.querySelector('[data-contacts-vide]')?.textContent)
+      .toBe('Aucune autre personne (conjoint, comptable, gérant…) n’est notée sur ses autres biens. Ses propres coordonnées sont juste au-dessus, dans « Personnes propriétaires ».');
+    // Le reste du panneau ne change pas : la personne cherchée, ses coordonnées, le geste.
+    expect(container.querySelector('[data-qui-rattacher] [data-groupe="proprietaires"]')?.textContent).toContain('+33611111111');
+    expect(bouton('Rattacher la sélection')).toBeDefined();
+  });
+
   it('un couple : le panneau s’ouvre sous la recherche (pas de modale), 2 groupes, SEULE la personne cherchée cochée → une seule rattachée', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     await repondreEnGestion();
@@ -66,7 +83,9 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
     expect(panneau.closest('.loc-section')?.querySelector('h3')?.textContent).toContain('Propriétaire(s)');
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(panneau.querySelector('h4')?.textContent).toBe('Qui rattacher à ce bien ?');
-    expect([...panneau.querySelectorAll('.loc-qui-groupe-titre')].map((x) => x.textContent)).toEqual(['Propriétaire Personnes propriétaires (2)', 'Contact du propriétaire Contacts du propriétaire (1)']);
+    // 🔴 Arno (18/11/2026) — le titre dit qu'il s'agit d'AUTRES personnes, notées sur ses autres biens (le compteur reste).
+    expect([...panneau.querySelectorAll('.loc-qui-groupe-titre')].map((x) => x.textContent)).toEqual(['Propriétaire Personnes propriétaires (2)', 'Contact du propriétaire Contacts du propriétaire déjà connus sur ses autres biens (1)']);
+    expect(panneau.querySelector('[data-contacts-vide]')).toBeNull();
     expect(panneau.querySelector('[data-groupe="proprietaires"] .cp-role--proprietaire')).not.toBeNull();
     expect(panneau.querySelector('[data-groupe="contacts"] .cp-role--contact')).not.toBeNull();
     expect(panneau.textContent).toContain('Possède déjà : 3 rue du Port, PARIS');

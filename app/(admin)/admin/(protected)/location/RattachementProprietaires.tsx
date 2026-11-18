@@ -14,7 +14,8 @@ import {
  *
  * « Quand on choisit un résultat de la recherche, ouvrir JUSTE EN DESSOUS un panneau dépliant (pas de modale) “Qui rattacher
  * à ce bien ?”, en 2 groupes, une ligne par carte avec case à cocher : “Personnes propriétaires” (étiquette rouge) et
- * “Contacts du propriétaire” (étiquette grise). Par défaut SEULE la personne cherchée est cochée. “Rattacher la sélection”
+ * “Contacts du propriétaire” (étiquette grise ; titre « Contacts du propriétaire déjà connus sur ses autres biens », Arno, 18/11/2026).
+ * Par défaut SEULE la personne cherchée est cochée. “Rattacher la sélection”
  * (rouge) et “Annuler”. » Puis « les cartes choisies s'affichent EN BAS DU BLOC 1, groupées (Propriétaires puis Contacts),
  * au format des cartes de la Gestion, en LECTURE SEULE ; lien “Modifier dans la fiche ↗” ; une croix retire la carte de CE
  * bien uniquement. » (Arno) — La croix ne touche que la page : aucune fiche n'est modifiée.
@@ -91,8 +92,10 @@ export function PanneauQuiRattacher({ proprietaireId, dejaProprietaires, dejaCon
             </ul>
           </div>
           <div className="loc-qui-groupe" data-groupe="contacts">
-            <p className="loc-qui-groupe-titre"><BadgeCarte cote="proprietaire" sorte="contact" /> Contacts du propriétaire <span className="loc-muet">({data.contacts.length})</span></p>
-            {data.contacts.length === 0 ? <p className="loc-muet" style={{ margin: 0 }}>Aucun contact rattaché à ces propriétaires dans la Gestion.</p> : (
+            {/* 🔴 Arno (18/11/2026) — le titre et la phrase disent qu'il s'agit d'AUTRES personnes, notées sur ses autres biens : ses propres
+                coordonnées sont dans « Personnes propriétaires » (texte seulement, rien d'autre ne change). */}
+            <p className="loc-qui-groupe-titre"><BadgeCarte cote="proprietaire" sorte="contact" /> Contacts du propriétaire déjà connus sur ses autres biens <span className="loc-muet">({data.contacts.length})</span></p>
+            {data.contacts.length === 0 ? <p className="loc-muet" style={{ margin: 0 }} data-contacts-vide>Aucune autre personne (conjoint, comptable, gérant…) n’est notée sur ses autres biens. Ses propres coordonnées sont juste au-dessus, dans « Personnes propriétaires ».</p> : (
               <ul className="loc-qui-liste">
                 {data.contacts.map((c) => {
                   const deja = contactDeja(c);
