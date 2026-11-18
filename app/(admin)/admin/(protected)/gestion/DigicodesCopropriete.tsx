@@ -66,6 +66,12 @@ const memes = (a: CodeLigne, b: CodeLigne): boolean => a.aucun === b.aucun && a.
  * d'enregistrement). ») Les bâtiments connus (registre de la copropriété, bâtiments de ses biens) et ceux en attente d'enregistrement qui n'ont pas
  * encore de ligne en reçoivent une, à saisir (aucune valeur inventée) ; un bâtiment qui a déjà sa ligne n'est jamais répété. PUR.
  */
+/**
+ * 🔴 Arno (18/11/2026) — « dans tous les champs de saisie d'un digicode (copropriété et bâtiments), le texte d'exemple « facultatif » ou « code » est
+ * remplacé par « Digicode ». Même mot partout, y compris dans la fenêtre « Modifier » (« Nouveau digicode »). » Un seul mot, pour tous les champs.
+ */
+export const TEXTE_EXEMPLE_DIGICODE = 'Digicode';
+
 export function avecTousLesBatiments(lignes: readonly LigneBatiment[], connus: readonly Pick<BatimentConnu, 'cle' | 'libelle'>[], deja: ReadonlySet<string> = new Set()): LigneBatiment[] {
   const vus = new Set([...deja, ...lignes.map((b) => batimentDe(b.libelle)?.cle).filter((x): x is string => x !== undefined)]);
   const plus: LigneBatiment[] = [];
@@ -262,7 +268,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
             {/* 🔴 (Arno, 17/11/2026) le code, « pas de digicode » et « + » : un groupe qui ne se coupe jamais (toujours sur la même ligne) */}
             <span className="dcp-code-groupe">
             <label className="dcp-champ dcp-champ-code"><span>Digicode copropriété</span>
-              <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : 'facultatif'} maxLength={MAX_CODE_DIGICODE_UNIFIE}
+              <input value={d.commun.code} disabled={desactive || d.commun.aucun} placeholder={d.commun.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE}
                 onChange={(e) => maj(d.cle, (x) => ({ ...x, commun: { ...x.commun, code: e.target.value } }))} data-dcp-code-commun /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={d.commun.aucun} disabled={desactive}
               onChange={(e) => { const v = pasDeDigicode(`${d.cle}#copro`, d.commun, e.target.checked); maj(d.cle, (x) => ({ ...x, commun: v })); }} data-dcp-aucun-commun /><span>pas de digicode</span></label>
@@ -299,7 +305,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
               </div>}
               <span className="dcp-code-groupe">
               <label className="dcp-champ dcp-champ-code"><span data-dcp-intitule-batiment={b.nouveau && b.choisi !== true ? undefined : b.libelle}>{b.nouveau && b.choisi !== true ? 'Digicode' : intituleDigicodeBatiment(b.libelle)}</span>
-                <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : 'code'} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
+                <input value={b.code} disabled={desactive || b.aucun} placeholder={b.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} maxLength={MAX_CODE_DIGICODE_UNIFIE} onChange={(e) => majLigne(d.cle, b.k, { code: e.target.value })} data-dcp-code-batiment /></label>
               <label className="dcp-aucun"><input type="checkbox" checked={b.aucun} disabled={desactive} onChange={(e) => majLigne(d.cle, b.k, pasDeDigicode(`${d.cle}#${b.k}`, b, e.target.checked))} data-dcp-aucun-batiment /><span>pas de digicode</span></label>
               {/* 🔴 (Arno, 17/11/2026) le « − » rond, dans la colonne du « + » (il remplace le « × » d'une ligne nouvelle : la même action, confirmée) */}
               {moins(d.cle, b, sorteDeSaisie(b))}
@@ -380,7 +386,7 @@ function PlaceDigicodeLue({ titre, etat, desactive, onCorriger, onModifier, onAn
           <p className="dcp-correction-texte">Corriger une faute de frappe : le code corrigé remplace <strong>{motValeur(valeur)}</strong> tout de suite, sans date ni mail ; l’ancienne valeur reste dans l’historique. Pour un code que le syndic change, utilisez « Modifier ».</p>
           <div className="dcp-ligne">
             <label className="dcp-champ"><span>Code corrigé</span>
-              <input value={saisie.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : 'code'} autoFocus
+              <input value={saisie.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || saisie.aucun} placeholder={saisie.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE} autoFocus
                 onChange={(e) => setSaisie({ ...saisie, code: e.target.value })} data-dcp-correction-code /></label>
             <label className="dcp-aucun"><input type="checkbox" checked={saisie.aucun} disabled={envoi} onChange={(e) => setSaisie({ code: '', aucun: e.target.checked })} /><span>pas de digicode</span></label>
           </div>
@@ -502,8 +508,8 @@ function FenetreModifier({ d, depart, onFermer, onValider, onApercu, onEnvoyer }
               {prevu !== undefined && <span className="loc-muet">Un changement est déjà prévu le {dateHeure(prevu.appliqueLe)} : annulez-le d’abord.</span>}
               {c !== undefined && (
                 <div className="dcp-modifier-champs" data-dcp-modifier-champs>
-                  <label className="dcp-champ"><span>Nouveau code</span>
-                    <input value={c.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : 'nouveau code'}
+                  <label className="dcp-champ"><span>Nouveau digicode</span>
+                    <input value={c.code} maxLength={MAX_CODE_DIGICODE_UNIFIE} disabled={envoi || c.aucun} placeholder={c.aucun ? 'pas de digicode' : TEXTE_EXEMPLE_DIGICODE}
                       onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: e.target.value } }))} data-dcp-modifier-code /></label>
                   <label className="dcp-aucun"><input type="checkbox" checked={c.aucun} disabled={envoi} onChange={(e) => setCoches((x) => ({ ...x, [p.cle]: { ...c, code: '', aucun: e.target.checked } }))} /><span>plus de digicode</span></label>
                   <label className="dcp-champ"><span>Date d’activation</span>
