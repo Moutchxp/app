@@ -3,7 +3,7 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { preavisEnCours } from '../../../../../lib/location/preavisRepo';
 import { avecPrevisites } from '../../../../../lib/location/previsiteRepo';
 import { avecReponsesRdv, versionRdv } from '../../../../../lib/location/reponsesRdvRepo';
-import { minutesRdvAutorisees } from '../../../../../lib/location/minutesRdvRepo';
+import { minutesRdvAutorisees, plageRdvAutorisee } from '../../../../../lib/location/minutesRdvRepo';
 import { encartDuBail } from '../../../../../lib/location/sortieLocatairesRepo';
 
 /**
@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
     // 🔴 Arno (18/11/2026, 495) — + la réponse des locataires à chaque rendez-vous (le même cartouche qu'en Location ; sans la 495 : rien de plus)
     if (p.get('preavisEnCours') !== null) {
       // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage 498 ; sans lui : 00, 15, 30, 45)
-      return Response.json({ etat: 'ok', data: { ...(await avecReponsesRdv(await avecPrevisites(await preavisEnCours()))), minutesRdv: await minutesRdvAutorisees() } }, { headers: ENTETES });
+      return Response.json({ etat: 'ok', data: { ...(await avecReponsesRdv(await avecPrevisites(await preavisEnCours()))), minutesRdv: await minutesRdvAutorisees(), plageRdv: await plageRdvAutorisee() } }, { headers: ENTETES });
     }
     const brut = p.get('encartBail') ?? '';
     if (/^[1-9]\d{0,15}$/.test(brut) && Number.isSafeInteger(Number(brut))) {

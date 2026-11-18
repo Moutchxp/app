@@ -9,8 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../../../lib/db/client', () => ({ query: vi.fn(async () => ({ rows: [] })), withTransaction: vi.fn(), closePool: vi.fn() }));
 vi.mock('../../../../lib/location/garde', () => ({ exigerLocation: async () => ({ utilisateur: { id: 2 } }) }));
 vi.mock('../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 2, libelle: 'Arnaud Jorel' }) }));
+const perim = vi.hoisted(() => ({ test: null as null | Record<string, unknown> }));
 vi.mock('../../../../lib/location/preavisTestRepo', () => ({
-  perimetreDuGeste: async () => ({ ok: true, perimetre: null }), creerPreavisTest: vi.fn(), supprimerPreavisTest: vi.fn(), testDisponible: vi.fn(),
+  perimetreDuGeste: async () => ({ ok: true, perimetre: perim.test }), creerPreavisTest: vi.fn(), supprimerPreavisTest: vi.fn(), testDisponible: vi.fn(),
 }));
 const h = vi.hoisted(() => ({
   planifierEdls: vi.fn(), deplacerEdls: vi.fn(), programmerPrevisite: vi.fn(), deplacerPrevisite: vi.fn(),
@@ -104,6 +105,29 @@ describe.each(GESTES)('🔴 Arno (18/11/2026) — « $action » : seules les min
   it('00, 15, 30, 45 : accepté', async () => {
     const r = await post({ action: g.action, ...g.corps, debut: '10:45', fin: '11:15', locataires: 'oui' });
     expect(await r.json()).toMatchObject({ etat: 'ok' });
+  });
+});
+
+describe.each(GESTES)('🔴 Arno (19/11/2026) — « $action » : la plage horaire (début 8h00 à 20h00, fin au plus tard 21h00)', (g) => {
+  const MSG = 'Un rendez-vous commence entre 8h00 et 20h00 et se termine au plus tard à 21h00.';
+  it('début 7h45, début 20h15, fin 21h15 : refusés (400, message clair), RIEN n’est écrit', async () => {
+    for (const [debut, fin] of [['07:45', '09:00'], ['20:15', '21:00'], ['20:00', '21:15']]) {
+      const r = await post({ action: g.action, ...g.corps, debut, fin, locataires: 'oui' });
+      expect(r.status).toBe(400);
+      expect(await r.json()).toMatchObject({ etat: 'refus', motif: MSG, champ: 'heure' });
+    }
+    expect(g.ecriture()).not.toHaveBeenCalled();
+  });
+  it('20h00 – 21h00 : accepté', async () => {
+    expect(await (await post({ action: g.action, ...g.corps, debut: '20:00', fin: '21:00', locataires: 'oui' })).json()).toMatchObject({ etat: 'ok' });
+  });
+  it('🔴 exception TEST (« Dans 2 minutes ») : sur un préavis de test, une heure et une minute quelconques sont acceptées', async () => {
+    perim.test = { testId: 1, createurEmail: 'a.jorel@sansvisavis.com' };
+    try {
+      const corps = g.sorte === 'edl' ? { ...g.corps, confieA: 2 } : 'destinataires' in g.corps ? { ...g.corps, destinataires: [2] } : g.corps;
+      const r = await post({ action: g.action, ...corps, debut: '23:17', fin: '23:47', locataires: 'oui' });
+      expect(await r.json()).toMatchObject({ etat: 'ok' });
+    } finally { perim.test = null; }
   });
 });
 

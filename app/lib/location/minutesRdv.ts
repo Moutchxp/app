@@ -40,3 +40,69 @@ export function listeMinutesFr(minutes: readonly number[]): string {
   const l = minutes.map(deuxChiffres);
   return l.length <= 1 ? (l[0] ?? '') : `${l.slice(0, -1).join(', ')} ou ${l[l.length - 1]}`;
 }
+
+// ══ 🔴🔴 LA PLAGE HORAIRE DES RENDEZ-VOUS DU PRÉAVIS (Arno, 19/11/2026) ══════════════════════════════════════════════════════════════════════
+// « HEURE DE DÉBUT : de 8h00 à 20h00 […] HEURE DE FIN : de 8h15 à 21h00 au plus tard […] Le serveur refuse lui aussi toute heure hors plage. »
+// Les trois bornes sont des réglages (`gestion_config`, migration 499) ; sans eux, ou incohérents : le défaut ci-dessous.
+
+/** Les bornes (« HH:MM ») : début au plus tôt, début au plus tard, fin au plus tard. La fin vient toujours APRÈS le début au plus tôt. */
+export interface PlageRdv { debutMin: string; debutMax: string; finMax: string }
+export const PLAGE_RDV_DEFAUT: PlageRdv = { debutMin: '08:00', debutMax: '20:00', finMax: '21:00' };
+
+const enMinutes = (hhmm: string): number | null => {
+  const m = /^(\d{2}):(\d{2})/.exec(hhmm.trim());
+  if (m === null) return null;
+  const h = Number(m[1]); const n = Number(m[2]);
+  return h > 23 || n > 59 ? null : h * 60 + n;
+};
+
+/** Une plage lue (base, réponse du serveur) : trois heures « HH:MM » dans l'ordre début au plus tôt < début au plus tard ≤ fin au plus tard ;
+ *  sinon le défaut (jamais une plage à moitié lue). PUR. */
+export function lirePlageRdv(x: unknown): PlageRdv {
+  const o = (x ?? {}) as Partial<Record<keyof PlageRdv, unknown>>;
+  const v = (k: keyof PlageRdv) => (typeof o[k] === 'string' ? (o[k] as string).slice(0, 5) : '');
+  const p = { debutMin: v('debutMin'), debutMax: v('debutMax'), finMax: v('finMax') };
+  const [a, b, c] = [enMinutes(p.debutMin), enMinutes(p.debutMax), enMinutes(p.finMax)];
+  return a !== null && b !== null && c !== null && a < b && b <= c ? p : { ...PLAGE_RDV_DEFAUT };
+}
+
+/** « 8h00 », « 20h00 » : l'heure d'une borne dans une phrase. PUR. */
+export const heureBorneFr = (hhmm: string): string => `${Number(hhmm.slice(0, 2))}h${hhmm.slice(3, 5)}`;
+/** « 10h » : l'heure dans la liste des heures (sur une seule ligne). PUR. */
+export const heureListeFr = (hh: string): string => `${Number(hh)}h`;
+
+/** Le message de refus de la plage (« Un rendez-vous commence entre 8h00 et 20h00 et se termine au plus tard à 21h00. »). PUR. */
+export const messagePlageRdv = (p: PlageRdv): string =>
+  `Un rendez-vous commence entre ${heureBorneFr(p.debutMin)} et ${heureBorneFr(p.debutMax)} et se termine au plus tard à ${heureBorneFr(p.finMax)}.`;
+
+/**
+ * Les heures proposées et, pour chacune, ses minutes : au DÉBUT, de « début au plus tôt » à « début au plus tard » (20h : 00 seulement) ; à la
+ * FIN, après « début au plus tôt » et jusqu'à « fin au plus tard » (21h : 00 seulement). `garder` : des heures « HH:MM » proposées EN PLUS
+ * (l'heure d'origine d'une fenêtre de tâche, l'exception « Dans 2 minutes » des préavis de test). PUR.
+ */
+export function creneauxProposes(role: 'debut' | 'fin', plage: PlageRdv, minutes: readonly number[], garder: readonly string[] = []): Map<string, number[]> {
+  const bas = enMinutes(plage.debutMin) ?? 0;
+  const haut = enMinutes(role === 'debut' ? plage.debutMax : plage.finMax) ?? 23 * 60 + 59;
+  const m = new Map<string, number[]>();
+  for (let h = 0; h < 24; h++) {
+    const l = minutes.filter((n) => { const t = h * 60 + n; return (role === 'debut' ? t >= bas : t > bas) && t <= haut; });
+    if (l.length > 0) m.set(deuxChiffres(h), l);
+  }
+  for (const g of garder) {
+    const t = enMinutes(g);
+    if (t === null) continue;
+    const hh = deuxChiffres(Math.floor(t / 60));
+    m.set(hh, [...new Set([...(m.get(hh) ?? []), t % 60])].sort((a, b) => a - b));
+  }
+  return new Map([...m.entries()].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Le refus du SERVEUR pour une heure hors plage (début ou fin), sinon null. Un champ vide : la règle existante. PUR. */
+export function refusPlageRdv(heures: { debut: string; fin: string }, plage: PlageRdv): string | null {
+  const d = heures.debut.trim() === '' ? null : enMinutes(heures.debut);
+  const f = heures.fin.trim() === '' ? null : enMinutes(heures.fin);
+  const [a, b, c] = [enMinutes(plage.debutMin) ?? 0, enMinutes(plage.debutMax) ?? 0, enMinutes(plage.finMax) ?? 0];
+  if (d !== null && (d < a || d > b)) return messagePlageRdv(plage);
+  if (f !== null && (f <= a || f > c)) return messagePlageRdv(plage);
+  return null;
+}

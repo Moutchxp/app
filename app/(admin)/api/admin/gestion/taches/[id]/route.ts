@@ -168,7 +168,7 @@ async function patchTache(request: Request, { params }: { params: Promise<{ id: 
         return Response.json({ erreur: 'L’heure doit s’écrire HH:MM.', champ: 'heure' }, { status: 400 });
       }
       // 🔴 Arno (18/11/2026) — un rendez-vous de préavis : l'heure choisie tombe sur les minutes du réglage (les autres tâches restent libres)
-      const refusMin = await refusMinutesTachePreavis(id, heure);
+      const refusMin = await refusMinutesTachePreavis(id, heure, 'dureeMinutes' in corps ? dureeValide(corps.dureeMinutes) : null);
       if (refusMin !== null) return Response.json({ erreur: refusMin, champ: 'heure' }, { status: 400 });
       /* 🔴 LOT DECALER-DUREE — la durée du rendez-vous, quand le panneau l'envoie (même règle que la fenêtre). */
       issue = await decalerTache(id, { jour, heure, ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}) }, auteur);
@@ -178,7 +178,7 @@ async function patchTache(request: Request, { params }: { params: Promise<{ id: 
     const refusSaisie = verifierSaisie(saisie);
     if (refusSaisie !== null) return Response.json({ erreur: refusSaisie.message, champ: refusSaisie.champ }, { status: 400 });
     // 🔴 Arno (18/11/2026) — un rendez-vous de préavis : l'heure modifiée tombe sur les minutes du réglage (les autres tâches restent libres)
-    const refusMin = await refusMinutesTachePreavis(id, saisie.heure ?? null);
+    const refusMin = await refusMinutesTachePreavis(id, saisie.heure ?? null, saisie.dureeMinutes ?? null);
     if (refusMin !== null) return Response.json({ erreur: refusMin, champ: 'heure' }, { status: 400 });
     issue = await modifierTache(id, saisie, auteur);
   } else {

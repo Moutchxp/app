@@ -365,9 +365,10 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
   }
   it('la grille partagée de l’état des lieux de sortie n’est pas touchée', async () => {
     const { readFileSync } = await import('node:fs');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('.pva-grille-edls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px}');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('.pva-grille-edls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:10px}'); // 🔴 Arno (19/11/2026) — la place de l'heure et des minutes
     const css = readFileSync('app/(admin)/admin/(protected)/location/PrevisiteAccueil.tsx', 'utf8');
-    expect(css).toContain('.pvv-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}');
+    // 🔴 Arno (19/11/2026) — trois champs sur une ligne quand la place le permet ; sinon la ligne passe à la ligne (une heure n'est jamais coupée)
+    expect(css).toContain('.pvv-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:12px;align-items:end;min-width:0}');
     expect(css).toContain('@media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}');
   });
 });

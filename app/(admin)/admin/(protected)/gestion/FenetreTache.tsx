@@ -1,14 +1,9 @@
 'use client';
 
 import { ChoixHeure } from '../location/ChoixHeure';
-import { MINUTES_RDV_DEFAUT, minuteDe } from '../../../../lib/location/minutesRdv';
+import { MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 
-/** 🔴 Arno (18/11/2026) — la fenêtre d'un rendez-vous de préavis : les minutes du réglage, PLUS celle de l'heure d'origine (09h53 reste tel quel tant
- *  qu'on ne le change pas ; le serveur refuse une nouvelle heure hors réglage). PUR. */
-const minutesFenetre = (reglage: readonly number[], origine: string | null): number[] => {
-  const m = origine === null ? null : minuteDe(origine);
-  return [...new Set([...reglage, ...(m === null ? [] : [m])])].sort((a, b) => a - b);
-};
+
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
 import { useEffect, useRef, useState } from 'react';
@@ -498,7 +493,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
                 {/* 🔴 Arno (18/11/2026) — un rendez-vous de préavis (pré-visite, état des lieux) : l'heure et les minutes du réglage ; les autres tâches,
                     le champ d'heure de toujours */}
                 {tache?.rdvPreavis === true
-                  ? <ChoixHeure libelle="Heure de début" valeur={saisie.heure ?? ''} minutes={minutesFenetre(tache.minutesRdv ?? MINUTES_RDV_DEFAUT, tache.heure)} donnees="data-champ-heure"
+                  ? <ChoixHeure libelle="Heure de début" valeur={saisie.heure ?? ''} minutes={tache.minutesRdv ?? MINUTES_RDV_DEFAUT} plage={tache.plageRdv ?? PLAGE_RDV_DEFAUT} role="debut" garder={tache.heure ? [tache.heure] : []} donnees="data-champ-heure"
                     desactive={lectureSeule} onChange={(v) => changerHeure(v)} />
                   : <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
                     onChange={(e) => changerHeure(e.target.value)} data-champ-heure />}

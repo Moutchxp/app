@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
 import { ChoixHeure } from './ChoixHeure';
-import { MINUTES_RDV_DEFAUT, minuteDe } from '../../../../lib/location/minutesRdv';
+import { MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
@@ -284,7 +284,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [retouches, setRetouches] = useState<Retouches>({});
   const deplacement = geste === 'deplacer';
   const avecDate = geste === 'rdv' || geste === 'deplacer';
-  const minutesReglage = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
+  const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
+  const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
   const avecCollegues = geste === 'rdv' || geste === 'reaffecter';
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » (fixer, déplacer) : obligatoire, rien de pré-coché
   const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
@@ -447,13 +448,10 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   // 🔴 Arno (11/11/2026) — un RENDEZ-VOUS (programmer, déplacer, réaffecter) demande l'e-mail d'au moins un locataire ; le refus et le compte
   // rendu n'y sont pas soumis. Relu au retour sur la fenêtre.
   const emails = useEmailsLocataires(l, geste === 'rdv' || geste === 'deplacer' || geste === 'reaffecter');
-  // 🔴 Arno (18/11/2026) — préavis de TEST : le bouton existant « Dans 2 minutes » pose une minute quelconque (l'invitation part à l'heure de
-  //    début) ; elle est proposée en plus des minutes du réglage, pour ce préavis de test seulement (le serveur l'accepte aussi, test seul)
-  const minutesRdv = useMemo(() => {
-    if (!l.test) return minutesReglage;
-    const en = [debut, fin].map(minuteDe).filter((x): x is number => x !== null);
-    return [...new Set([...minutesReglage, ...en])].sort((a, b) => a - b);
-  }, [l.test, minutesReglage, debut, fin]);
+  // 🔴 Arno (18-19/11/2026) — préavis de TEST : le bouton existant « Dans 2 minutes » pose une heure et une minute quelconques (l'invitation part
+  //    à l'heure de début) ; elles sont proposées en plus de la plage et des minutes du réglage, pour ce préavis de test seulement (le serveur
+  //    l'accepte aussi, test seul)
+  const garderTest = useMemo(() => (l.test ? [debut, fin].filter((x) => x !== '') : []), [l.test, debut, fin]);
   const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true && choixLoc !== null : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
   const corpsCommun = { occupationIds: l.occupationIds };
   const rdvActuel = p.rdv;
@@ -537,9 +535,9 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
           <label className="pvs-champ"><span className="pvs-libelle">{'Date\u00a0*'}</span>
             <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(e) => { setJour(e.target.value); setRefus(null); }} data-previsite-jour /></label>
           {/* 🔴 Arno (18/11/2026) — l'heure en deux listes : 00 à 23 h, et les minutes du réglage (00, 15, 30, 45 par défaut) */}
-          <ChoixHeure libelle={'Début\u00a0*'} valeur={debut} minutes={minutesRdv} donnees="data-previsite-debut"
+          <ChoixHeure libelle={'Début\u00a0*'} valeur={debut} minutes={minutesRdv} plage={plageRdv} role="debut" garder={garderTest} donnees="data-previsite-debut"
             onChange={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }} />
-          <ChoixHeure libelle={'Fin\u00a0*'} valeur={fin} minutes={minutesRdv} donnees="data-previsite-fin" onChange={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }} />
+          <ChoixHeure libelle={'Fin\u00a0*'} valeur={fin} minutes={minutesRdv} plage={plageRdv} role="fin" garder={garderTest} donnees="data-previsite-fin" onChange={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }} />
         </div>
       )}
       {avecDate && l.test && (
@@ -986,7 +984,7 @@ export const CSS_PREVISITE = `
 .pvv-etat--effectuee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pvv-etat--refusee{background:color-mix(in srgb, var(--color-svv-urgence-orange) 18%, var(--color-svv-surface));color:var(--color-svv-ink)}
 .pvv-collegues{margin:0;padding-left:18px;font-size:.9rem}
-.pvv-grille{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end;min-width:0}
+.pvv-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:12px;align-items:end;min-width:0}
 .pvv-grille .pvs-libelle{white-space:nowrap}
 .pvv-grille .pvs-champ input{max-width:none;width:100%;height:48px;min-width:0}
 @media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}

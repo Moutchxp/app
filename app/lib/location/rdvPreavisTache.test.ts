@@ -10,7 +10,7 @@ vi.mock('../db/client', () => ({
     return { rows: [] };
   },
 }));
-vi.mock('./minutesRdvRepo', () => ({ minutesRdvAutorisees: async () => [0, 15, 30, 45] }));
+vi.mock('./minutesRdvRepo', () => ({ minutesRdvAutorisees: async () => [0, 15, 30, 45], plageRdvAutorisee: async () => ({ debutMin: '08:00', debutMax: '20:00', finMax: '21:00' }) }));
 import { refusMinutesTachePreavis, tachesRdvPreavis } from './rdvPreavisTache';
 
 beforeEach(() => { h.heure = '09:53'; });
@@ -28,3 +28,15 @@ describe('🔴 les minutes des tâches de rendez-vous de préavis', () => {
     expect(await refusMinutesTachePreavis(42, '10:20')).toBeNull();
   });
 });
+
+describe('🔴 Arno (19/11/2026) — la plage horaire des tâches de rendez-vous de préavis', () => {
+  it('début 7h45 ou 20h15 refusé ; 20h00 avec 1 h accepté ; 20h00 avec 1 h 30 (fin 21h30) refusé ; une autre tâche reste libre', async () => {
+    const msg = 'Un rendez-vous commence entre 8h00 et 20h00 et se termine au plus tard à 21h00.';
+    expect(await refusMinutesTachePreavis(41, '07:45')).toBe(msg);
+    expect(await refusMinutesTachePreavis(41, '20:15')).toBe(msg);
+    expect(await refusMinutesTachePreavis(41, '20:00', 60)).toBeNull();
+    expect(await refusMinutesTachePreavis(41, '20:00', 90)).toBe(msg);
+    expect(await refusMinutesTachePreavis(42, '22:00')).toBeNull();
+  });
+});
+

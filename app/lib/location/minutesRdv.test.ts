@@ -20,3 +20,35 @@ describe('🔴 les minutes autorisées', () => {
     expect(listeMinutesFr([0, 30])).toBe('00 ou 30');
   });
 });
+
+describe('🔴 Arno (19/11/2026) — la plage horaire (début 8h00 à 20h00, fin au plus tard 21h00) et l’affichage « 10h »', () => {
+  it('format « 10h » ; bornes lues (incohérentes ou absentes → le défaut)', async () => {
+    const { heureListeFr, lirePlageRdv, PLAGE_RDV_DEFAUT, messagePlageRdv } = await import('./minutesRdv');
+    expect(heureListeFr('10')).toBe('10h');
+    expect(heureListeFr('08')).toBe('8h');
+    expect(lirePlageRdv(undefined)).toEqual(PLAGE_RDV_DEFAUT);
+    expect(lirePlageRdv({ debutMin: '09:00', debutMax: '08:00', finMax: '21:00' })).toEqual(PLAGE_RDV_DEFAUT);
+    expect(lirePlageRdv({ debutMin: '07:30', debutMax: '19:00', finMax: '20:00' })).toEqual({ debutMin: '07:30', debutMax: '19:00', finMax: '20:00' });
+    expect(messagePlageRdv(PLAGE_RDV_DEFAUT)).toBe('Un rendez-vous commence entre 8h00 et 20h00 et se termine au plus tard à 21h00.');
+  });
+  it('début : 8h à 20h (20h : 00 seulement) ; fin : 8h15 à 21h (21h : 00 seulement) ; « garder » ajoute une heure hors plage', async () => {
+    const { creneauxProposes, PLAGE_RDV_DEFAUT } = await import('./minutesRdv');
+    const d = creneauxProposes('debut', PLAGE_RDV_DEFAUT, MINUTES_RDV_DEFAUT);
+    expect([...d.keys()]).toEqual(['08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20']);
+    expect(d.get('20')).toEqual([0]);
+    const f = creneauxProposes('fin', PLAGE_RDV_DEFAUT, MINUTES_RDV_DEFAUT);
+    expect([...f.keys()].at(-1)).toBe('21');
+    expect(f.get('08')).toEqual([15, 30, 45]);
+    expect(f.get('21')).toEqual([0]);
+    expect(creneauxProposes('debut', PLAGE_RDV_DEFAUT, MINUTES_RDV_DEFAUT, ['22:00', '23:17']).get('23')).toEqual([17]);
+  });
+  it('le serveur : 20h00-21h00 accepté ; début 7h45, début 20h15, fin 21h15 refusés', async () => {
+    const { refusPlageRdv, PLAGE_RDV_DEFAUT } = await import('./minutesRdv');
+    const msg = 'Un rendez-vous commence entre 8h00 et 20h00 et se termine au plus tard à 21h00.';
+    expect(refusPlageRdv({ debut: '20:00', fin: '21:00' }, PLAGE_RDV_DEFAUT)).toBeNull();
+    expect(refusPlageRdv({ debut: '08:00', fin: '08:15' }, PLAGE_RDV_DEFAUT)).toBeNull();
+    expect(refusPlageRdv({ debut: '07:45', fin: '09:00' }, PLAGE_RDV_DEFAUT)).toBe(msg);
+    expect(refusPlageRdv({ debut: '20:15', fin: '21:00' }, PLAGE_RDV_DEFAUT)).toBe(msg);
+    expect(refusPlageRdv({ debut: '20:00', fin: '21:15' }, PLAGE_RDV_DEFAUT)).toBe(msg);
+  });
+});

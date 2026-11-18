@@ -1,5 +1,5 @@
 import { tachesRdvPreavis } from '../location/rdvPreavisTache';
-import { minutesRdvAutorisees } from '../location/minutesRdvRepo';
+import { minutesRdvAutorisees, plageRdvAutorisee } from '../location/minutesRdvRepo';
 import { sqlHorsTest } from '../location/preavisTestSonde';
 import 'server-only';
 import { randomUUID } from 'node:crypto';
@@ -213,8 +213,8 @@ async function avecSorte(taches: Tache[]): Promise<Tache[]> {
   // 🔴 Arno (18/11/2026) — une tâche qui porte une pré-visite ou un état des lieux de sortie : ses minutes sont celles du réglage (écran et serveur)
   const rdv = await tachesRdvPreavis(taches.map((t) => t.id));
   if (rdv.size > 0) {
-    const minutesRdv = await minutesRdvAutorisees();
-    taches = taches.map((t) => (rdv.has(t.id) ? { ...t, rdvPreavis: true, minutesRdv } : t));
+    const [minutesRdv, plageRdv] = await Promise.all([minutesRdvAutorisees(), plageRdvAutorisee()]);
+    taches = taches.map((t) => (rdv.has(t.id) ? { ...t, rdvPreavis: true, minutesRdv, plageRdv } : t));
   }
   if (taches.length === 0 || !(await sorteTacheDisponible())) return taches;
   const { rows } = await query<{ id: number; sorte: SorteTache }>('SELECT id::int AS id, sorte FROM gestion_tache WHERE id = ANY($1::bigint[])', [taches.map((t) => t.id)]);

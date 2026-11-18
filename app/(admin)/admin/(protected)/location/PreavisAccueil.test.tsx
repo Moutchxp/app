@@ -166,6 +166,14 @@ function choisirHeure(el: Element, v: string): void {
     flushSync(() => o.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   }
 }
+/** Choisir une heure (et, si donnée, une minute) dans un choix d'heure. */
+function choisirHeureDans(el: Element, h: string, m: string | null): void {
+  for (const [sel, x] of [['[data-heure]', h], ...(m === null ? [] : [['[data-minute]', m]])] as const) {
+    const champ = el.querySelector(sel) as HTMLElement;
+    flushSync(() => champ.click());
+    flushSync(() => (champ.closest('.lch')!.querySelector(`li[data-option="${x}"]`) as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  }
+}
 function saisir(el: HTMLInputElement, v: string): void {
   if (el.hasAttribute('data-choix-heure')) { choisirHeure(el, v); return; }
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
@@ -3684,22 +3692,46 @@ describe('🔴 Arno (18/11/2026) — le statut des LOCATAIRES dans la ligne repl
 
 describe('🔴 Arno (18/11/2026) — minutes 00/15/30/45, « Locataires : Non sollicités », « Fixer une pré-visite » après un refus', () => {
   const ouvrirC = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); };
-  it('le formulaire de l’état des lieux : l’heure 00 à 23, les minutes 00, 15, 30 et 45 seulement (début ET fin), plus de sélecteur natif', async () => {
+  it('le formulaire de l’état des lieux : heures « 10h » dans la plage (début 8h à 20h, fin jusqu’à 21h ; 20h et 21h : 00 seulement), minutes 00/15/30/45', async () => {
     planification = true;
     await ouvrirC();
     clic('[data-planifier-edls]'); await attendre();
     const f = container.querySelector('[data-formulaire-edls]')!;
     expect(f.querySelectorAll('input[type="time"]')).toHaveLength(0);
-    for (const sel of ['[data-edls-debut]', '[data-edls-fin]']) {
-      const m = f.querySelector(`${sel} [data-minute]`) as HTMLElement;
-      act(() => m.click());
-      expect([...m.closest('.lch')!.querySelectorAll('li[data-option]')].map((x) => x.getAttribute('data-option'))).toEqual(['', '00', '15', '30', '45']);
-      act(() => m.click());
-      const h = f.querySelector(`${sel} [data-heure]`) as HTMLElement;
-      act(() => h.click());
-      expect(h.closest('.lch')!.querySelectorAll('li[data-option]')).toHaveLength(25);
-      act(() => h.click());
-    }
+    const ouvrirListe = (el: Element, sel: string): string[] => {
+      const c = el.querySelector(sel) as HTMLElement;
+      act(() => c.click());
+      const l = [...c.closest('.lch')!.querySelectorAll('li[data-option]')].map((x) => x.textContent?.replace('✓', '') ?? '');
+      act(() => c.click());
+      return l;
+    };
+    const debut = f.querySelector('[data-edls-debut]')!;
+    const fin = f.querySelector('[data-edls-fin]')!;
+    expect(ouvrirListe(debut, '[data-heure]')).toEqual(['h', '8h', '9h', '10h', '11h', '12h', '13h', '14h', '15h', '16h', '17h', '18h', '19h', '20h']);
+    expect(ouvrirListe(fin, '[data-heure]')).toEqual(['h', '8h', '9h', '10h', '11h', '12h', '13h', '14h', '15h', '16h', '17h', '18h', '19h', '20h', '21h']);
+    choisirHeureDans(debut, '20', null);
+    expect(ouvrirListe(debut, '[data-minute]')).toEqual(['min', '00']);
+    choisirHeureDans(fin, '21', null);
+    expect(ouvrirListe(fin, '[data-minute]')).toEqual(['min', '00']);
+    choisirHeureDans(fin, '08', null);
+    expect(ouvrirListe(fin, '[data-minute]')).toEqual(['min', '15', '30', '45']);
+    choisirHeureDans(debut, '10', null);
+    expect(ouvrirListe(debut, '[data-minute]')).toEqual(['min', '00', '15', '30', '45']);
+  });
+  it('20h00 – 21h00 : accepté par l’écran (le bouton s’active) ; un rendez-vous existant à 22h00 s’affiche tel quel', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { edlsId: 1, tacheId: 41, jour: '2099-01-06', heure: '22:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4,
+      statut: 'en_attente', reponduPar: null, motifRefus: null } } : l));
+    await ouvrirC();
+    expect(container.querySelector('[data-edls-cartouche]')?.textContent).toContain('22h00');
+    clic('[data-deplacer-edls]'); await attendre();
+    const d = container.querySelector('[data-edls-debut]')!;
+    expect(d.getAttribute('data-valeur')).toBe('');
+    act(() => saisir(d as HTMLInputElement, '20:00'));
+    act(() => saisir(container.querySelector('[data-edls-fin]') as HTMLInputElement, '21:00'));
+    act(() => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-edls-fin]')?.getAttribute('data-valeur')).toBe('21:00');
+    expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(false);
   });
   it('un rendez-vous existant à 09h53 s’affiche tel quel ; en le déplaçant, la minute est à choisir parmi les quatre (aucun arrondi)', async () => {
     planification = true;

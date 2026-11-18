@@ -27,6 +27,7 @@
  *
  * PUR : aucune base, aucun réseau, aucun écran. Chargeable dans le navigateur.
  */
+import type { PlageRdv } from '../location/minutesRdv';
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { lireClesContacts } from './contactsTache';
 import { statutTache, type AcceptationTache, type InviteTache } from './acceptationTache';
@@ -145,6 +146,8 @@ export interface Tache {
   rdvPreavis?: boolean;
   /** Les minutes autorisées (réglage `gestion_config.minutes_rdv`), seulement pour un rendez-vous de préavis. */
   minutesRdv?: number[];
+  /** 🔴 Arno (19/11/2026) — la plage horaire (réglage 499), seulement pour un rendez-vous de préavis. */
+  plageRdv?: PlageRdv;
   /** 🔴 LOT GESTION-TACHES-SANS-BIEN (migration 368) — `null` = tâche SANS bien. */
   lotId: number | null;
   /** Le numéro WIPPIMMO du bien — sert à relire la fiche, jamais affiché dans l'agenda (décision d'Arno). `null` sans bien. */

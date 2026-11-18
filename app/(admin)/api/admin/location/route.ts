@@ -49,8 +49,8 @@ import {
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
 import { apercuLocatairesEdls, avecReponsesRdv, confirmerSansDemande, envoyerMailLocatairesEdls, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
 import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/location/reponsesRdv';
-import { refusMinutesRdv } from '../../../../lib/location/minutesRdv';
-import { minutesRdvAutorisees } from '../../../../lib/location/minutesRdvRepo';
+import { refusMinutesRdv, refusPlageRdv } from '../../../../lib/location/minutesRdv';
+import { minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
@@ -182,7 +182,7 @@ export async function GET(request: Request): Promise<Response> {
       const lignes = await avecReponsesRdv(await avecPrevisites(await preavisEnCours({ tests: { visiteur: moi.id } })));
       const administrateur = !('refus' in (await exigerAdministrateur(request)));
       // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage 498 ; sans lui : 00, 15, 30, 45)
-      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() }, minutesRdv: await minutesRdvAutorisees() } }, { headers: ENTETES });
+      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() }, minutesRdv: await minutesRdvAutorisees(), plageRdv: await plageRdvAutorisee() } }, { headers: ENTETES });
     }
     // 🔴 Arno (10/11/2026) — les collègues destinataires d'une pré-visite (accès Gestion et/ou Location, Workspace ; moi en tête) — LECTURE SEULE.
     if (p('previsiteCollegues') !== null) {
@@ -461,7 +461,9 @@ async function postLocation(request: Request): Promise<Response> {
   const refusMinutes = async (c: Record<string, unknown>): Promise<Response | null> => {
     // préavis de TEST : le bouton existant « Dans 2 minutes » pose une minute quelconque — accepté pour un test, et pour lui seul
     if (test !== null) return null;
-    const motif = refusMinutesRdv({ debut: typeof c.debut === 'string' ? c.debut : '', fin: typeof c.fin === 'string' ? c.fin : '' }, await minutesRdvAutorisees());
+    const heures = { debut: typeof c.debut === 'string' ? c.debut : '', fin: typeof c.fin === 'string' ? c.fin : '' };
+    // 🔴 Arno (19/11/2026) — + la plage horaire (8h00 à 20h00 pour commencer, 21h00 au plus tard pour finir ; réglage 499)
+    const motif = refusMinutesRdv(heures, await minutesRdvAutorisees()) ?? refusPlageRdv(heures, await plageRdvAutorisee());
     return motif === null ? null : Response.json({ etat: 'refus', motif, champ: 'heure' }, { status: 400, headers: ENTETES });
   };
   // 🔴 Arno (14/11/2026, 473) — dans un préavis de TEST, la pré-visite et l'état des lieux ne se confient qu'à son créateur (vous) : jamais un collègue.

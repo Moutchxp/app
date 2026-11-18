@@ -1,6 +1,7 @@
 import { query } from '../db/client';
-import { minutesRdvAutorisees } from './minutesRdvRepo';
-import { refusMinutesRdv } from './minutesRdv';
+import { minutesRdvAutorisees, plageRdvAutorisee } from './minutesRdvRepo';
+import { refusMinutesRdv, refusPlageRdv } from './minutesRdv';
+import { heureFinRdv } from '../gestion/taches';
 
 /**
  * ══ 🔴🔴 LES TÂCHES QUI SONT UN RENDEZ-VOUS DE PRÉAVIS (Arno, 18/11/2026) ═════════════════════════════════════════════════════════════════════
@@ -29,10 +30,12 @@ export async function tachesRdvPreavis(ids: readonly number[]): Promise<Set<numb
  * Le refus du serveur pour une heure choisie hors des minutes du réglage — seulement si la tâche est un rendez-vous de préavis ET que l'heure
  * CHANGE (une tâche existante à 09h53 qu'on ne touche pas, ou dont on ne change que la note, n'est jamais refusée). Sinon `null`.
  */
-export async function refusMinutesTachePreavis(tacheId: number, heure: string | null): Promise<string | null> {
+export async function refusMinutesTachePreavis(tacheId: number, heure: string | null, dureeMinutes?: number | null): Promise<string | null> {
   if (heure === null || heure.trim() === '') return null;
   if (!(await tachesRdvPreavis([tacheId])).has(tacheId)) return null;
   const { rows } = await query<{ heure: string | null }>(`SELECT to_char(heure, 'HH24:MI') AS heure FROM gestion_tache WHERE id = $1`, [tacheId]);
   if ((rows[0]?.heure ?? null) === heure.slice(0, 5)) return null;
-  return refusMinutesRdv({ debut: heure, fin: '' }, await minutesRdvAutorisees());
+  // 🔴 Arno (19/11/2026) — + la plage horaire : début de 8h00 à 20h00 ; avec une durée, la fin au plus tard à 21h00 (réglage 499)
+  const fin = dureeMinutes ? heureFinRdv(heure.slice(0, 5), dureeMinutes) ?? '' : '';
+  return refusMinutesRdv({ debut: heure, fin: '' }, await minutesRdvAutorisees()) ?? refusPlageRdv({ debut: heure, fin }, await plageRdvAutorisee());
 }
