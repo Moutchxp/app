@@ -102,7 +102,9 @@ export function MentionReserveLocation() {
 }
 
 /** Le bloc « Pré-visite » de la ligne dépliée. */
-export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () => void }) {
+export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil; apres: () => void;
+  /** 🔴 Arno (18/11/2026) — sous les informations du rendez-vous (pleine largeur de la carte) : le bloc des LOCATAIRES ; absent : rien. */
+  sousInfos?: ReactNode }) {
   const p = l.previsite ?? null;
   const [geste, setGeste] = useState<Geste | null>(null);
   /** 🔴 (9e retour) la fenêtre du compte rendu : envoyé (« Voir le compte rendu ») ou brouillon (« Compte rendu pré-visite » de la frise) */
@@ -132,6 +134,7 @@ export function BlocPrevisite({ l, apres }: { l: LignePreavisAccueil; apres: () 
           ))}
         </ul>
       )}
+      {sousInfos}
       </div>
       <div className="frp-actions">
       <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>

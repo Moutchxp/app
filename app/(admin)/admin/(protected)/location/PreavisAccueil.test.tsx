@@ -3578,3 +3578,25 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(recap().disabled).toBe(false);
   });
 });
+
+describe('🔴 Arno (18/11/2026) — le bloc des LOCATAIRES sous les informations du rendez-vous, pleine largeur (jamais une colonne de la case)', () => {
+  it('pré-visite et état des lieux : dans la zone des informations, sous le cartouche du collègue ; jamais enfant direct de la case', async () => {
+    planification = true;
+    const etat = { etat: 'attente', par: null, main: false, reponses: [{ occupationId: 11, nom: 'Alice BERNARD', reponse: null, le: null }] } as const;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l,
+      previsite: { statut: 'programmee', rdv: { jour: '2099-01-05', heure: '10:00', dureeMinutes: 60 }, tacheId: 40, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null },
+      edls: { edlsId: 1, tacheId: 41, jour: '2099-01-06', heure: '14:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente', reponduPar: null, motifRefus: null },
+      reponsesRdv: { previsite: { ...etat, reponses: [...etat.reponses] }, edl: { ...etat, reponses: [...etat.reponses] }, disponible: true } } : l));
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    for (const sorte of ['previsite', 'edl']) {
+      const b = container.querySelector(`[data-rdv-locataires="${sorte}"]`)!;
+      expect(b, sorte).not.toBeNull();
+      expect(b.closest('.frp-infos'), `${sorte} dans les informations`).not.toBeNull();
+      expect(b.parentElement?.classList.contains('frp-etape')).toBe(false);
+      expect(b.classList.contains('pva-bloc')).toBe(false);
+      expect(b.querySelector('[data-cartouche-locataires]')?.textContent).toBe('Locataires : En attente');
+    }
+  });
+});

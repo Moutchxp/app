@@ -2,7 +2,7 @@
 
 import { useEtatRetour } from '../_composants/NavigationRetour';
 import { ListeChoix } from './ListeChoix';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
 import { MESSAGE_SORTIE_GESTION } from './SortieLocataires';
 import { FicheInterventionPreavis } from './FicheInterventionPreavis';
@@ -390,13 +390,13 @@ function ValidationRdvLocataires({ l, sorte, apres }: { l: LignePreavisAccueil; 
     apres();
   };
   return (
-    <div className="pva-bloc pva-rdv-locataires" data-rdv-locataires={sorte}>
+    <div className="pva-rdv-locataires" data-rdv-locataires={sorte}>
       <p className="pva-rdv-loc-tete"><CartoucheLocataires e={e} />{e === null || e === undefined
         ? <span className="loc-muet">Locataires : aucune invitation avec réponse en ligne pour ce rendez-vous.</span> : null}</p>
       {e && e.reponses.length > 0 && (
         <ul className="pva-rdv-loc-liste">{e.reponses.map((x) => (
           <li key={x.occupationId} data-reponse-locataire={x.reponse ?? 'attente'}>{x.nom} : {x.reponse === 'accepte' ? 'accepte' : x.reponse === 'refuse' ? 'refuse' : 'pas encore répondu'}</li>))}</ul>)}
-      <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+      <div className="pva-rdv-loc-boutons">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={!ecriture || envoi} onClick={() => { void agir(); }}
           data-valider-rdv-main={main ? 'annuler' : 'valider'}>
           {envoi ? 'Enregistrement…' : main ? 'Annuler la validation à la main' : 'Valider le rendez-vous sans prévenir les locataires'}</button>
@@ -447,8 +447,10 @@ function LigneDepliee({ l, gestion, edlDisponible, planification, apres, edlsPos
               <span className="frp-statut" data-libelle-etape>{lignesSousTitre(e, l, { planification }).map((x, i) => (
                 <span key={i} className="frp-ligne" data-ligne-etape>{x}</span>))}</span>
             </div>
-            {e.cle === 'previsite' && <><BlocPrevisite l={l} apres={apres} /><ValidationRdvLocataires l={l} sorte="previsite" apres={apres} /></>}
-            {e.cle === 'edls' && (planification ? <><BlocEdls l={l} edlsPose={edlsPose} /><ValidationRdvLocataires l={l} sorte="edl" apres={apres} /></> : (
+            {/* 🔴 Arno (18/11/2026) — le bloc des LOCATAIRES DANS la zone des informations du rendez-vous (sous le cartouche du collègue, pleine
+                largeur) : enfant direct de la case, il prenait la grille de la case pour lui et finissait dans une colonne étroite, texte superposé */}
+            {e.cle === 'previsite' && <BlocPrevisite l={l} apres={apres} sousInfos={<ValidationRdvLocataires l={l} sorte="previsite" apres={apres} />} />}
+            {e.cle === 'edls' && (planification ? <BlocEdls l={l} edlsPose={edlsPose} sousInfos={<ValidationRdvLocataires l={l} sorte="edl" apres={apres} />} /> : (
       <div className="pva-bloc" data-bloc-edl>
         <div className="frp-infos">
         <label className="pvs-champ">
@@ -532,7 +534,9 @@ function InfosDuLogement({ l }: { l: LignePreavisAccueil }) {
 interface Personne { id: number; libelle: string }
 
 /** L'EDLS de la ligne : « Planifier », ou son état avec « Déplacer » — et, après un refus, « Confier à quelqu'un d'autre ». */
-function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsAffiche) => void }) {
+function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose: (e: EdlsAffiche) => void;
+  /** 🔴 Arno (18/11/2026) — sous les informations du rendez-vous (pleine largeur de la carte) : le bloc des LOCATAIRES ; absent : rien. */
+  sousInfos?: ReactNode }) {
   const [mode, setMode] = useState<'lecture' | 'planifier' | 'deplacer' | 'reattribuer'>('lecture');
   const [bilan, setBilan] = useState<string | null>(null);
   const e = l.edls ?? null;
@@ -550,6 +554,7 @@ function BlocEdls({ l, edlsPose }: { l: LignePreavisAccueil; edlsPose: (e: EdlsA
         <ul className="pvv-collegues" data-edls-collegue><li data-collegue-statut={c.statut}>{c.qui} : {c.reponse}</li></ul>
         {e.statut === 'refusee' && <p className="pva-edls pva-edls--refus" role="status" data-edls-mention>{mentionEdls(e)}</p>}</>; })()}
       {bilan !== null && <p className="gst-info" role="status" data-edls-bilan>{bilan}</p>}
+      {sousInfos}
       </div>
       <div className="frp-actions">
       {mode === 'lecture' && (
@@ -803,11 +808,13 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-loc--confirme{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pva-loc--refuse{background:var(--color-svv-red-soft);color:var(--color-svv-red)}
 .pva-loc--non_invites{background:var(--color-svv-surface);color:var(--color-svv-muted)}
-.pva-rdv-locataires{display:grid;gap:8px}
-.pva-rdv-loc-tete{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.pva-rdv-loc-tete .pva-loc{margin-left:0;white-space:normal}
-.pva-rdv-loc-liste{margin:0;padding-left:18px;color:var(--color-svv-ink);font-size:.9rem}
-.pva-rdv-locataires .gst-btn{min-height:44px}
+.pva-rdv-locataires{display:flex;flex-direction:column;gap:8px;min-width:0;width:100%;padding-top:8px;border-top:1px solid var(--color-svv-line)}
+.pva-rdv-loc-tete{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-width:0;font-size:.88rem;overflow-wrap:anywhere}
+.pva-rdv-loc-tete .pva-loc{margin-left:0;white-space:normal;overflow:visible;max-width:100%}
+.pva-rdv-loc-liste{margin:0;padding-left:18px;color:var(--color-svv-ink);font-size:.88rem;overflow-wrap:anywhere}
+.pva-rdv-loc-boutons{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0}
+.pva-rdv-loc-boutons .svv-btn{width:100%;min-height:44px;margin:0;display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:normal;height:auto;padding-top:8px;padding-bottom:8px}
+.pva-rdv-locataires .cp-refus{margin:0;overflow-wrap:anywhere}
 .pva-col-fin,.pva-col-rdv,.pva-col-details{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pva-col-fin{color:var(--color-svv-muted)}
 .pva-col-rdv{font-weight:800;display:flex;flex-direction:column;justify-content:center}

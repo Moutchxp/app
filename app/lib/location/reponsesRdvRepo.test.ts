@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   tache: { etat: 'a_faire', jour: '2026-11-20', heure: '10:00', duree: 60 } as { etat: string; jour: string; heure: string; duree: number },
   envois: [] as { a: string[]; objet: string; texte: string; sorte: string }[],
   horloge: 0,
+  /** le rendez-vous est-il bien celui de ce préavis ? (faux : écran périmé) */
+  tacheDuPreavis: true,
 }));
 const noms: Record<number, { nom: string; prenom: string }> = { 553: { nom: 'ESSAIPREAVIS', prenom: 'Paul' }, 554: { nom: 'ESSAIPREAVIS', prenom: 'Alice' } };
 vi.mock('../db/client', () => ({
@@ -51,7 +53,10 @@ vi.mock('../db/client', () => ({
     }
     if (s.includes('FROM gestion_tache WHERE id = $1')) return { rows: [{ ...h.tache }] };
     if (s.includes('FROM gestion_tache_action a JOIN admin_utilisateur')) return { rows: [{ identifiant: 'jb.pons@sansvisavis.com' }] };
-    if (s.includes('FROM gestion_location_previsite x JOIN gestion_tache') || s.includes('FROM gestion_location_edls x JOIN gestion_tache')) return { rows: [{ n: 1 }] };
+    if (s.startsWith('SELECT t.etat FROM gestion_location_')) return { rows: h.tacheDuPreavis ? [{ etat: h.tache.etat }] : [] };
+    if (s.includes('FROM gestion_location_previsite x JOIN gestion_tache') || s.includes('FROM gestion_location_edls x JOIN gestion_tache')) {
+      return { rows: [{ n: h.tacheDuPreavis && h.tache.etat === 'a_faire' ? 1 : 0 }] };
+    }
     if (s.startsWith('SELECT count(*)::int AS n FROM gestion_rdv_jeton')) {
       return { rows: [{ n: h.jetons.filter((j) => j.tache_id === p[0] && j.sorte === 'edl' && j.creneau === p[1]).length }] };
     }
@@ -91,7 +96,7 @@ const inviter = async () => creerJetons({ tacheId: 34, sorte: 'previsite', rdv: 
   locataires: [{ occupationId: 553, emails: ['paul@exemple.test'] }, { occupationId: 554, emails: ['alice@exemple.test'] }, { occupationId: 555, emails: [] }], auteur: AUTEUR });
 const etat = async () => (await etatsDesRdv([{ sorte: 'previsite', tacheId: 34, jour: h.tache.jour, heure: h.tache.heure }])).get('previsite:34') ?? null;
 
-beforeEach(() => { h.sql = []; h.jetons = []; h.evts = []; h.envois = []; h.tache = { etat: 'a_faire', jour: '2026-11-20', heure: '10:00', duree: 60 }; });
+beforeEach(() => { h.sql = []; h.jetons = []; h.evts = []; h.envois = []; h.tache = { etat: 'a_faire', jour: '2026-11-20', heure: '10:00', duree: 60 }; h.tacheDuPreavis = true; });
 
 describe('🔴 les liens personnels', () => {
   it('un lien par locataire AVEC une adresse ; seule l’empreinte est gardée (jamais le jeton en clair)', async () => {
@@ -217,6 +222,19 @@ describe('🔴 (2e lot) la mise à jour immédiate des cartouches', () => {
     const avant = await versionRdv();
     await repondreParJeton(jetonDe(liens.get(553)!.accepter), 'accepter', { maintenant: AVANT });
     expect(await versionRdv()).not.toBe(avant);
+  });
+});
+
+describe('🔴 (18/11/2026) « Valider sans prévenir » sur un rendez-vous qui n’est plus à faire : le motif juste, rien n’est écrit', () => {
+  it('effectué → « déjà effectué » ; annulé → « annulé » ; écran périmé → « rechargez la page »', async () => {
+    const valider = () => validerRdvALaMain({ sorte: 'previsite', tacheId: 34, occupationIds: [557] }, AUTEUR);
+    h.tache = { ...h.tache, etat: 'faite' };
+    expect(await valider()).toEqual({ etat: 'refus', motif: 'Ce rendez-vous est déjà effectué : il n’y a plus rien à valider.' });
+    h.tache = { ...h.tache, etat: 'annulee' };
+    expect(await valider()).toEqual({ etat: 'refus', motif: 'Ce rendez-vous est annulé : il n’y a plus rien à valider.' });
+    h.tacheDuPreavis = false;
+    expect(await valider()).toEqual({ etat: 'refus', motif: 'Ce rendez-vous n’est plus d’actualité pour ce préavis : rechargez la page.' });
+    expect(ecrituresReponses()).toEqual([]);
   });
 });
 

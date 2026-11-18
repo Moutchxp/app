@@ -216,8 +216,19 @@ async function rdvDesOccupations(sorte: SorteRdv, tacheId: number, occupationIds
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n FROM ${table} x JOIN gestion_tache t ON t.id = x.tache_id
       WHERE x.tache_id = $1 AND x.clos_le IS NULL AND t.etat = 'a_faire' AND x.occupation_ids && $2::bigint[]`, [tacheId, [...occupationIds]]);
-  return Number(rows[0]?.n ?? 0) > 0 ? null : 'Ce rendez-vous n’est plus d’actualité pour ce préavis : rechargez la page.';
+  if (Number(rows[0]?.n ?? 0) > 0) return null;
+  // 🔴 Arno (18/11/2026) — le rendez-vous de CE préavis existe mais n'est plus « à faire » (effectué, annulé) : on le dit tel quel. « Rechargez la
+  //    page » ne vaut que pour un écran vraiment périmé (le rendez-vous n'est plus celui de ce préavis) : recharger n'y changerait rien.
+  const { rows: t } = await query<{ etat: string }>(
+    `SELECT t.etat FROM ${table} x JOIN gestion_tache t ON t.id = x.tache_id WHERE x.tache_id = $1 AND x.occupation_ids && $2::bigint[] LIMIT 1`, [tacheId, [...occupationIds]]);
+  const etat = t[0]?.etat;
+  if (etat === 'faite') return MOTIF_RDV_EFFECTUE;
+  if (etat === 'annulee') return MOTIF_RDV_ANNULE;
+  return MOTIF_RDV_PERIME;
 }
+export const MOTIF_RDV_PERIME = 'Ce rendez-vous n’est plus d’actualité pour ce préavis : rechargez la page.';
+export const MOTIF_RDV_EFFECTUE = 'Ce rendez-vous est déjà effectué : il n’y a plus rien à valider.';
+export const MOTIF_RDV_ANNULE = 'Ce rendez-vous est annulé : il n’y a plus rien à valider.';
 
 /** « Valider le rendez-vous sans prévenir les locataires » (ou annuler cette validation) : journalisé, AUCUN mail aux locataires. */
 export async function validerRdvALaMain(d: { sorte: SorteRdv; tacheId: number; occupationIds: readonly number[]; annuler?: boolean }, auteur: Auteur,
