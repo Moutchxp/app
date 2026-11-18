@@ -88,6 +88,57 @@ export function avertissementsDesBatiments(bruts: readonly string[], nomenclatur
   });
 }
 
+/**
+ * ══ 🔴🔴 Arno (18/11/2026) — LA NUMÉROTATION EST COMMUNE À UNE MÊME ADRESSE ══════════════════════════════════════════════════════════════════════
+ * « Dans une copropriété, la nomenclature des bâtiments est commune à une même adresse, en lettres OU en chiffres. » ; « deux adresses différentes de
+ * la même copropriété → numérotations indépendantes ». Quand les bâtiments sont rangés par adresse (490) et que la copropriété a PLUSIEURS adresses,
+ * chaque adresse a sa référence, tirée de SES bâtiments (la règle enregistrée pour la copropriété, fixée par le premier bâtiment créé à n'importe
+ * laquelle de ses adresses, ne s'impose plus aux autres). Une seule adresse, ou sans la 490 : la règle de la copropriété, comme avant. PUR.
+ */
+export const adressesIndependantes = (fiche: { batimentsParAdresse?: boolean; adresses?: readonly unknown[] } | null | undefined): boolean =>
+  fiche?.batimentsParAdresse === true && (fiche.adresses?.length ?? 0) > 1;
+
+/** Les bâtiments connus d'UNE adresse quand les adresses sont indépendantes ; sinon ceux de toute la copropriété. PUR. */
+export const connusPourAdresse = (connus: readonly BatimentConnu[], adresseCle: string, independantes: boolean): BatimentConnu[] =>
+  independantes ? connus.filter((c) => c.adresseCle === adresseCle) : [...connus];
+
+/** La référence de numérotation d'une adresse (voir l'encadré). `effective` : la règle de la copropriété (enregistrée, ou tirée de ses bâtiments). PUR. */
+export function nomenclatureDeLAdresse(effective: Nomenclature | null, connus: readonly BatimentConnu[], adresseCle: string, independantes: boolean): Nomenclature | null {
+  return independantes ? nomenclatureDe(null, connusPourAdresse(connus, adresseCle, true)) : nomenclatureDe(effective, connus);
+}
+
+/**
+ * ══ 🔴🔴 Arno (18/11/2026) — LES BÂTIMENTS CRÉÉS PENDANT LA SAISIE COMPTENT ══════════════════════════════════════════════════════════════════════
+ * CONSTAT (recette, « Nouveau bien », 43 Avenue Marceau) : A et B créés pendant la saisie (« nouveau — enregistré avec le bien »), puis « 3 » tapé dans
+ * « Bâtiment / cage d'escalier » : aucune fenêtre. CAUSE : le champ du bien jugeait le nouveau nom par la seule règle venue de la base (aucune ici) —
+ * `avertissementBatiment` sans référence ne dit rien (« le premier fixe la règle »). DÉSORMAIS : l'avertissement d'un nouveau nom se calcule APRÈS les
+ * bâtiments créés pendant la saisie, dans leur ordre de création : le premier d'entre eux fixe la règle s'il n'y en avait pas (comme dans la fiche
+ * Copropriété), et « 3 » après A et B ouvre la fenêtre. PUR.
+ */
+export function avertissementApresSaisie(brut: string, reference: Nomenclature | null, connus: readonly BatimentConnu[], enAttente: readonly string[]): AvertissementBatiment | null {
+  const cle = batimentDe(brut)?.cle;
+  const vus = new Set<string>();
+  const avant = enAttente.filter((x) => {
+    const k = batimentDe(x)?.cle;
+    if (k === undefined || k === cle || vus.has(k)) return false;
+    vus.add(k); return true;
+  });
+  const av = avertissementsDesBatiments([...avant, brut], reference, connus);
+  return av[av.length - 1].avertissement;
+}
+
+/**
+ * Les nouveaux bâtiments d'une saisie, rangés dans l'ORDRE DE CRÉATION à l'écran (`ordre` : les intitulés créés, du premier au dernier) — l'ordre où
+ * l'écran a jugé chacun ; un nom absent de l'ordre garde sa place, après. Sans ordre : la liste telle quelle (le comportement d'avant). PUR.
+ */
+export function selonOrdreDeCreation<T extends { libelle: string }>(nouveaux: readonly T[], ordre: readonly string[] | undefined): T[] {
+  if (ordre === undefined || ordre.length === 0) return [...nouveaux];
+  const rang = new Map<string, number>();
+  ordre.forEach((x, i) => { const k = batimentDe(x)?.cle; if (k !== undefined && !rang.has(k)) rang.set(k, i); });
+  const r = (x: T): number => rang.get(batimentDe(x.libelle)?.cle ?? '') ?? Number.MAX_SAFE_INTEGER;
+  return nouveaux.map((x, i) => ({ x, i })).sort((a, b) => r(a.x) - r(b.x) || a.i - b.i).map((y) => y.x);
+}
+
 /** Le refus du SERVEUR (`null` : permis) : un nom vide, ou un avertissement que l'écran n'a pas fait confirmer. PUR. */
 export function refusDesBatiments(nouveaux: readonly { libelle: string; confirme?: boolean }[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[]): string | null {
   if (nouveaux.some((x) => batimentDe(x.libelle) === null)) return 'Donnez un nom au bâtiment ou à la cage d’escalier.';

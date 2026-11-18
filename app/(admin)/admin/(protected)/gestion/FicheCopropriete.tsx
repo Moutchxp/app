@@ -173,7 +173,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const valider = async (passe: { alerte?: boolean; conflit?: boolean; meme?: boolean; regrouperAvec?: string; syndicId?: number } = {}): Promise<void> => {
     if (f === null) return;
     if (edition !== null) { setErreur('Validez ou annulez d’abord le contact en cours de modification.'); return; }
-    const refusDigi = f.saisieDigicodes ? refusDigicodes(digi, f.nomenclatureEffective, f.batimentsConnus) : null;
+    // 🔴 Arno (18/11/2026) — plusieurs adresses, bâtiments rangés par adresse : chaque adresse se numérote pour elle
+    const refusDigi = f.saisieDigicodes ? refusDigicodes(digi, f.nomenclatureEffective, f.batimentsConnus, f.batimentsParAdresse === true && digi.length > 1) : null;
     // 🔴 (Arno, 17/11/2026) la tentative fait apparaître le message SOUS la ligne concernée
     if (refusDigi !== null) { setTenteDigi(true); setErreur(refusDigi); return; }
     if (!passe.conflit && conflits.length > 0) { setEtape('conflit'); return; }

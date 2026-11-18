@@ -6,7 +6,7 @@ import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, not
 import { adresseImmeuble, cleImmeuble, nomAvecVille, validerContactsImmeuble, type AdresseSaisie, type ContactImmeubleSaisi } from './syndics';
 import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, immeubleDuBien, motifSansNumero, type FicheCopropriete } from './copropriete';
-import { avertissementsDesBatiments, batimentDe, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
+import { adressesIndependantes, avertissementsDesBatiments, batimentDe, connusPourAdresse, nomenclatureDeLAdresse, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
 import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
 import { validerChangements } from './digicodes';
@@ -152,8 +152,15 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
         if (!lue.digicodes.some((x) => x.cle === d.cle)) return { ok: false as const, motif: 'Une adresse des digicodes n’est pas (ou plus) une adresse de cette copropriété : rechargez la fiche.' };
       }
       // 🔴 (lot D) le mélange n'est plus refusé : il est accepté s'il a été CONFIRMÉ à l'écran ; sinon, le même message clair qu'avant
-      const refus = refusDesBatiments(s.digicodes.flatMap((d) => d.batiments.map((y) => ({ libelle: y.libelle, confirme: y.confirme }))), lue.nomenclatureEffective, lue.batimentsConnus);
-      if (refus !== null) return { ok: false as const, motif: refus };
+      // 🔴 Arno (18/11/2026) — plusieurs adresses, bâtiments rangés par adresse : chaque adresse se numérote pour elle (la même règle que l'écran)
+      const independantes = adressesIndependantes(lue);
+      const groupes = independantes ? s.digicodes.map((d) => [d]) : [s.digicodes];
+      for (const g of groupes) {
+        const cle = g[0]?.cle ?? '';
+        const refus = refusDesBatiments(g.flatMap((d) => d.batiments.map((y) => ({ libelle: y.libelle, confirme: y.confirme }))),
+          nomenclatureDeLAdresse(lue.nomenclatureEffective, lue.batimentsConnus, cle, independantes), connusPourAdresse(lue.batimentsConnus, cle, independantes));
+        if (refus !== null) return { ok: false as const, motif: refus };
+      }
     }
     if (s.syndicId !== null) {
       const { rows } = await q<{ id: string }>('SELECT id::text FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL', [s.syndicId]);

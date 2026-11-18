@@ -278,7 +278,9 @@ export function texteRapportRepriseUnifiee(p: PlanRepriseUnifiee, o: { reel: boo
 export interface DigicodesBienSaisis { batiment: string | null; batimentConfirme: boolean; commun: { code: string; aucun: boolean } | null; codeBatiment: { code: string; aucun: boolean } | null;
   /** 🔴 (Arno, 17/11/2026 : « Chaque bâtiment créé dans la copropriété doit avoir SA ligne, visible et persistante ») les AUTRES bâtiments : créés au menu
    *  pendant la saisie (ils entrent au registre de la copropriété), et la première valeur saisie sur leur ligne */
-  autres: { libelle: string; confirme: boolean; code: { code: string; aucun: boolean } | null }[] }
+  autres: { libelle: string; confirme: boolean; code: { code: string; aucun: boolean } | null }[];
+  /** 🔴 Arno (18/11/2026) — les bâtiments créés à l'écran, dans l'ORDRE de leur création (le serveur les juge dans cet ordre) ; absent : l'ordre d'avant */
+  ordre?: string[] }
 export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null {
   if (typeof brut !== 'object' || brut === null) return null;
   const b = brut as Record<string, unknown>;
@@ -294,7 +296,9 @@ export function validerDigicodesBien(brut: unknown): DigicodesBienSaisis | null 
     const libelle = nom(y.libelle);
     return libelle === null ? [] : [{ libelle, confirme: y.confirme === true, code: code(y.code) }];
   });
-  return { batiment, batimentConfirme: b.batimentConfirme === true, commun: code(b.commun), codeBatiment: batiment === null ? null : code(b.codeBatiment), autres };
+  const ordre = (Array.isArray(b.ordre) ? b.ordre : []).slice(0, 30).map(nom).filter((x): x is string => x !== null);
+  return { batiment, batimentConfirme: b.batimentConfirme === true, commun: code(b.commun), codeBatiment: batiment === null ? null : code(b.codeBatiment), autres,
+    ...(ordre.length > 0 ? { ordre } : {}) };
 }
 /** Une première valeur saisie → la valeur à écrire, ou `null` (rien de saisi : rien n'est écrit). PUR. */
 export const premiereValeur = (c: { code: string; aucun: boolean } | null): { digicode: boolean; code: string | null } | null =>

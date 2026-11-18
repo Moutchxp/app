@@ -108,11 +108,13 @@ describe('🔴 (lot D) la fenêtre d’avertissement', () => {
     expect(container.querySelector('[data-dcp-refus]')).toBeNull();
     expect(digicodesModifies(dernier)).toEqual([{ cle: 'residence les tilleuls', batiments: [{ libelle: '2', code: '', aucun: false, confirme: true }] }]);
   });
-  it('« Corriger » : rien n’est gardé, la main revient au champ', async () => {
+  // 🔴 Arno (18/11/2026) — « S'il annule, rien n'est ajouté et le champ garde sa saisie » (avant : le champ était vidé)
+  it('« Corriger » : rien n’est confirmé ni ajouté, le champ garde sa saisie, la main revient au champ', async () => {
     await ajouterChiffre();
     await clic($('[data-dcp-corriger]'));
     expect(container.querySelector('[data-dcp-avertissement]')).toBeNull();
-    expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('');
+    expect(($('[data-dcp-nom-batiment]') as HTMLInputElement).value).toBe('2');
+    expect(digicodesModifies(dernier)[0].batiments[0]).toMatchObject({ libelle: '2', confirme: false });
     await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
     expect(document.activeElement).toBe($('[data-dcp-nom-batiment]'));
   });
@@ -233,7 +235,7 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
     expect(container.querySelector('[data-digicodes-bien] [data-dcp-plus]')).toBeNull(); // pas de « + » ici
     expect($('[data-dcp-mention-commun]').textContent).toBe('Commun aux 4 biens du portefeuille de cette adresse.');
   });
-  it('🔴 un NOUVEAU bâtiment hors numérotation : la MÊME fenêtre d’avertissement ; « Confirmer » le garde (confirmé), « Corriger » le vide', async () => {
+  it('🔴 un NOUVEAU bâtiment hors numérotation : la MÊME fenêtre d’avertissement ; « Confirmer » le garde (confirmé), « Corriger » n’ajoute rien et garde la saisie', async () => {
     await act(async () => { root.render(createElement(HoteBien)); });
     await saisir($('[data-cbc-champ]'), '3');
     await act(async () => { $('[data-cbc-champ]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
@@ -242,8 +244,12 @@ describe('🔴🔴 (« Digicodes unifiés », lot 4) la fiche du BIEN : le menu 
     expect(choix.at(-1)).toEqual(['3', true]);
     await saisir($('[data-cbc-champ]'), '4');
     await act(async () => { $('[data-cbc-champ]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    const avant = choix.length;
     await clic($('[data-dcp-corriger]'));
-    expect(choix.at(-1)).toEqual(['', false]);
+    // 🔴 (18/11/2026) rien de choisi ni d'ajouté par « Corriger » ; le champ garde « 4 » (non confirmé)
+    expect(choix.length).toBe(avant);
+    expect(choix.at(-1)).toEqual(['4', false]);
+    expect(($('[data-cbc-champ]') as HTMLInputElement).value).toBe('4');
   });
   it('l’« Escalier » du bien propose le bon bâtiment (rien n’est écrasé)', async () => {
     await act(async () => { root.render(createElement(HoteBien, { escalier: 'c' })); });

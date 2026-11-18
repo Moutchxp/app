@@ -106,16 +106,16 @@ describe('③ « Ajouter nouveau bâtiment » : l’ENCADRÉ, qui ne se referme 
     expect(choix.at(-1)).toEqual(['C', false]);
     expect($('[data-cb-message]')).toBeNull();
   });
-  it('hors numérotation (« 1 » parmi des lettres) : la fenêtre d’avertissement ; « Corriger » ramène à l’encadré vide ; « Confirmer » le choisit, confirmé', async () => {
+  it('hors numérotation (« 1 » parmi des lettres) : la fenêtre d’avertissement ; « Corriger » ramène à l’encadré, sa saisie gardée ; « Confirmer » le choisit, confirmé', async () => {
     await monter();
     await clic($('[data-cbc-champ]')); await clic($('[data-cbc-nouveau]'));
     await saisir($('[data-cb-encadre-nom]'), '1');
     await clic($('[data-cb-valider]'));
     expect(document.querySelector('[data-dcp-avertissement]')).not.toBeNull();
     await clic($('[data-dcp-corriger]'));
-    expect(($('[data-cb-encadre-nom]') as HTMLInputElement).value).toBe('');
+    // 🔴 Arno (18/11/2026) — « S'il annule, rien n'est ajouté et le champ garde sa saisie »
+    expect(($('[data-cb-encadre-nom]') as HTMLInputElement).value).toBe('1');
     expect(choix).toEqual([]);
-    await saisir($('[data-cb-encadre-nom]'), '1');
     await clic($('[data-cb-valider]'));
     await clic($('[data-dcp-confirmer]'));
     expect(choix.at(-1)).toEqual(['1', true]);

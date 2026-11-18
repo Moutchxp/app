@@ -1081,7 +1081,10 @@ export function CreationBien({ proprietairesInitiaux, continuite, modification }
                 de la copropriété (le même que la fiche Copropriété), « Ajouter nouveau bâtiment », l'avertissement de numérotation. */}
             {digiBien !== null
               ? <ChoixBatimentCopro sansAdresse={digiBien.adresseCle === ''} adresse={digiBien.plusieursAdresses === true ? adresseImmeuble(digiBien.adresse.voie, digiBien.adresse.codePostal, digiBien.adresse.commune) : null} valeur={b.batiment} connus={digiBien.connus} nomenclature={digiBien.nomenclature} escalier={b.escalier} desactive={envoi} variante="location"
-                  onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} zoneLegendes={zoneLegendesSituation} onChoix={(l, c) => { retraitsBatiment.effacerAvis(); setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
+                  onCree={creerBatiment} retires={retraitsBatiment.retires} avis={retraitsBatiment.avis} zoneLegendes={zoneLegendesSituation}
+                  /* 🔴 Arno (18/11/2026) — les bâtiments créés pendant la saisie comptent pour la numérotation (A et B créés, « 3 » ouvre la fenêtre) */
+                  enAttente={batimentsCrees.map((x) => x.libelle)}
+                  onChoix={(l, c) => { retraitsBatiment.effacerAvis(); setB((x) => ({ ...x, batiment: l })); setBatimentConfirme(c); }} />
               : digiCharge ? <p className="loc-muet" data-digicodes-charge>Bâtiment : chargement…</p>
               : champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {/* 🔴 « Escalier » RETIRÉ à la demande expresse d'Arno (17/11/2026 : « « Bâtiment / cage » et « Escalier » traitent la même information […]

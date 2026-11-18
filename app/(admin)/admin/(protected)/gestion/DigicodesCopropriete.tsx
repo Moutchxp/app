@@ -2,7 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
-import { avertissementBatiment, avertissementsDesBatiments, batimentDe, LIBELLE_BATIMENT_CAGE, menuBatiments, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
+import { avertissementApresSaisie, avertissementsDesBatiments, batimentDe, connusPourAdresse, LIBELLE_BATIMENT_CAGE, menuBatiments, nomenclatureDeLAdresse, type AvertissementBatiment, type BatimentConnu, type Nomenclature } from '../../../../lib/gestion/batimentsCopropriete';
 import { adresseImmeuble } from '../../../../lib/gestion/syndics';
 import type { EtatPlaceDigicode, FicheCopropriete, MailGestionHisto } from '../../../../lib/gestion/copropriete';
 import { dateHeure, instantDepuisParis, MAX_CODE_DIGICODE_UNIFIE } from '../../../../lib/gestion/digicodes';
@@ -109,24 +109,33 @@ export function digicodesModifies(s: readonly DigicodesAdresseSaisis[]): { cle: 
       ...(b.nouveau ? { confirme: estConfirme(b) } : {}) })) }))
     .filter((d) => d.commun !== undefined || d.batiments.length > 0);
 }
-/** Les nouveaux bâtiments de la saisie, dans l'ordre (toutes adresses), chacun avec son avertissement éventuel. PUR. */
-export function avertissementsSaisie(s: readonly DigicodesAdresseSaisis[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[]): Map<string, AvertissementBatiment> {
-  const nouveaux = s.flatMap((d) => d.batiments.filter((b) => b.nouveau && batimentDe(b.libelle) !== null));
-  const av = avertissementsDesBatiments(nouveaux.map((b) => b.libelle), nomenclature, connus);
-  return new Map(nouveaux.flatMap((b, i) => (av[i].avertissement === null ? [] : [[b.k, av[i].avertissement as AvertissementBatiment] as const])));
+/**
+ * Les nouveaux bâtiments de la saisie, dans l'ordre, chacun avec son avertissement éventuel. PUR.
+ * 🔴 Arno (18/11/2026) — `independantes` (bâtiments rangés par adresse, plusieurs adresses) : chaque adresse se numérote pour elle (sa référence, ses
+ * bâtiments) ; sinon toutes les adresses ensemble, avec la règle de la copropriété (comme avant).
+ */
+export function avertissementsSaisie(s: readonly DigicodesAdresseSaisis[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[], independantes = false): Map<string, AvertissementBatiment> {
+  const groupes = independantes ? s.map((d) => [d]) : [s];
+  return new Map(groupes.flatMap((g) => {
+    const nouveaux = g.flatMap((d) => d.batiments.filter((b) => b.nouveau && batimentDe(b.libelle) !== null));
+    const ici = independantes ? connusPourAdresse(connus, g[0].cle, true) : connus;
+    const reference = independantes ? nomenclatureDeLAdresse(nomenclature, connus, g[0].cle, true) : nomenclature;
+    const av = avertissementsDesBatiments(nouveaux.map((b) => b.libelle), reference, ici);
+    return nouveaux.flatMap((b, i) => (av[i].avertissement === null ? [] : [[b.k, av[i].avertissement as AvertissementBatiment] as const]));
+  }));
 }
 /**
  * Le refus de la saisie (`null` : rien) : un bâtiment sans nom, le même bâtiment deux fois à une adresse, ou — 🔴 (lot D) — un intitulé qui
  * ne suit pas la numérotation et n'a été ni confirmé ni corrigé. PUR.
  */
-export function refusDigicodes(s: readonly DigicodesAdresseSaisis[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[]): string | null {
+export function refusDigicodes(s: readonly DigicodesAdresseSaisis[], nomenclature: Nomenclature | null, connus: readonly BatimentConnu[], independantes = false): string | null {
   const nouveaux = s.flatMap((d) => d.batiments.filter((b) => b.nouveau));
   if (nouveaux.some((b) => batimentDe(b.libelle) === null)) return 'Donnez un nom au bâtiment ou à la cage d’escalier.';
   for (const d of s) {
     const cles = d.batiments.map((b) => batimentDe(b.libelle)?.cle).filter(Boolean);
     if (new Set(cles).size !== cles.length) return `${d.voie} : ce bâtiment a déjà son digicode à cette adresse.`;
   }
-  const av = avertissementsSaisie(s, nomenclature, connus);
+  const av = avertissementsSaisie(s, nomenclature, connus, independantes);
   const attente = nouveaux.find((b) => av.has(b.k) && !estConfirme(b));
   return attente === undefined ? null : `Confirmez ou corrigez l’intitulé « ${attente.libelle.trim()} » : il ne suit pas la numérotation des autres bâtiments.`;
 }
@@ -228,7 +237,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
   // (le premier bâtiment saisi peut fixer la règle)
   const avertirLigne = (cle: string, k: string, libelle: string): AvertissementBatiment | null => {
     const suivante = s.map((d) => (d.cle === cle ? { ...d, batiments: d.batiments.map((b) => (b.k === k ? { ...b, libelle, confirme: null } : b)) } : d));
-    return avertissementsSaisie(suivante, nomenclature, connus).get(k) ?? null;
+    return avertissementsSaisie(suivante, nomenclature, connus, parAdresse && s.length > 1).get(k) ?? null;
   };
   /* 🔴🔴 (Arno, 17/11/2026 : « rends la différence visible : un code DÉJÀ ENREGISTRÉ s'affiche en lecture (le code en clair, pas un champ), avec « Modifier »
      (changement daté, fenêtre existante) et « Corriger » ; un code EN COURS DE SAISIE reste un champ, avec la mention discrète « nouveau — enregistré avec le
@@ -237,7 +246,7 @@ export function DigicodesCopropriete({ parAdresse = false, plusieursAdresses = f
     : <p className="loc-muet dcp-nouveau" data-dcp-nouveau>nouveau — enregistré avec {modeBien ? 'le bien' : 'la copropriété'}</p>);
   const maj = (cle: string, f: (d: DigicodesAdresseSaisis) => DigicodesAdresseSaisis): void => onChange(s.map((d) => (d.cle === cle ? f(d) : d)));
   const majLigne = (cle: string, kk: string, p: Partial<LigneBatiment>): void => maj(cle, (d) => ({ ...d, batiments: d.batiments.map((b) => (b.k === kk ? { ...b, ...p } : b)) }));
-  const refus = refusDigicodes(s, nomenclature, connus);
+  const refus = refusDigicodes(s, nomenclature, connus, parAdresse && s.length > 1);
   /** Le « + » d'une adresse : une ligne de bâtiment ou de cage (fiche Copropriété) ; en mode bien, le menu du bâtiment du bien. */
   const plus = (d: DigicodesAdresseSaisis): React.ReactNode => (modeBien && onPlusBatiment === undefined ? null : (
     <button type="button" className="dcp-plus" disabled={desactive} aria-label={`Ajouter un digicode de bâtiment ou de cage${d.voie ? ` — ${d.voie}` : ''}`} title="Ajouter un digicode de bâtiment ou de cage"
@@ -728,7 +737,7 @@ export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, 
   crees: readonly { libelle: string; confirme: boolean }[] = [],
   /** les bâtiments déjà connus de la copropriété (un créé déjà connu n'est plus « en attente ») */
   connus: readonly BatimentConnu[] = []): { batiment: string | null; batimentConfirme: boolean;
-  commun: CodeLigne | null; codeBatiment: CodeLigne | null; autres: { libelle: string; confirme: boolean; code: CodeLigne | null }[] } {
+  commun: CodeLigne | null; codeBatiment: CodeLigne | null; autres: { libelle: string; confirme: boolean; code: CodeLigne | null }[]; ordre?: string[] } {
   const ligne = batiment.trim() === '' ? null : ligneDuBatiment(s, batiment);
   const libre = (e: EtatPlaceDigicode | undefined, c: CodeLigne, init: CodeLigne): CodeLigne | null => (placeLue(e) || memes(c, init) ? null : { code: c.code.trim(), aucun: c.aucun });
   // 🔴 (Arno, 17/11/2026) les AUTRES bâtiments : chaque bâtiment créé en attente (il entre au registre de la copropriété), et la première valeur
@@ -744,8 +753,12 @@ export function digicodesBienEnvoi(s: DigicodesAdresseSaisis, batiment: string, 
     const code = libre(l.etat, l, l.initial);
     if (cree !== undefined || code !== null) autres.push({ libelle: l.libelle, confirme: cree?.confirme ?? false, code });
   }
-  return { batiment: ligne === null ? null : ligne.libelle, batimentConfirme: confirme, commun: libre(s.communEtat, s.commun, s.communInitial),
-    codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial), autres };
+  // 🔴 Arno (18/11/2026) — l'ORDRE de création (le serveur juge la numérotation dans cet ordre, comme l'écran) ; un bâtiment du bien créé et confirmé
+  //   pendant la saisie, puis rechoisi au menu, garde sa confirmation
+  const ordre = enAttente.map((c) => c.libelle);
+  const confirmeCree = choisi !== null && enAttente.some((c) => batimentDe(c.libelle)?.cle === choisi && c.confirme);
+  return { batiment: ligne === null ? null : ligne.libelle, batimentConfirme: confirme || confirmeCree, commun: libre(s.communEtat, s.commun, s.communInitial),
+    codeBatiment: ligne === null ? null : libre(ligne.etat, ligne, ligne.initial), autres, ...(ordre.length > 0 ? { ordre } : {}) };
 }
 
 /**
@@ -817,7 +830,7 @@ export const exempleNom = (n: Nomenclature | null): string => (n === 'lettres' ?
  *   ⑥ clavier (flèches, Entrée, Échap) et doigt ; cibles de 44 px au moins.
  */
 export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisie, onChoix, contexte, marque, cle = '', sansAdresse = false, avecAucun = false,
-  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel, replie = false, retires }: {
+  ouvrirAuDebut = false, avertir, proposition, placeholder, ariaLabel, replie = false, retires, enAttente = [] }: {
   valeur: string; connus: readonly BatimentConnu[]; nomenclature: Nomenclature | null; desactive: boolean;
   /** la frappe dans le champ (le texte du bâtiment suit) */
   onSaisie: (texte: string) => void;
@@ -838,6 +851,11 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   /** 🔴 (Arno, 17/11/2026 : « il ne propose QUE les bâtiments qui ont une ligne de digicode affichée à l'écran ») les clés des bâtiments dont la ligne a été
    *  retirée par « − » : jamais proposés (un nom retiré, retapé, se propose à l'ajout : recréé, il revient) */
   retires?: ReadonlySet<string>;
+  /**
+   * 🔴 Arno (18/11/2026) — les bâtiments CRÉÉS pendant la saisie (pas encore enregistrés), dans leur ordre : ils comptent pour la numérotation (A et B
+   * créés, « 3 » ouvre la fenêtre) ; le champ y ajoute ceux qu'il a lui-même retenus.
+   */
+  enAttente?: readonly string[];
 }) {
   const [ouvert, setOuvert] = useState(ouvrirAuDebut);
   const [actif, setActif] = useState(-1);
@@ -846,6 +864,8 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
   const [tape, setTape] = useState(false);
   const [ajout, setAjout] = useState<{ nom: string; erreur: string | null } | null>(null);
   const [alerte, setAlerte] = useState<{ a: AvertissementBatiment; depuisEncadre: boolean } | null>(null);
+  /** 🔴 (18/11/2026) le nom que l'on vient de « Corriger » : quitter le champ ne rouvre pas la fenêtre pour lui (la saisie est gardée, rien n'est ajouté) */
+  const [corrige, setCorrige] = useState<string | null>(null);
   const [ajoutes, setAjoutes] = useState<BatimentConnu[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   /** le bâtiment qu'annonce la bulle : retiré entre-temps par « − », la bulle se tait (elle dirait le contraire du message de retrait) */
@@ -893,7 +913,8 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
     fermer();
     const deja = existe(n);
     if (deja !== undefined) { setAjout(null); setMessage(null); onChoix(deja.libelle, false); return; }
-    const a = (avertir ?? ((x: string) => avertissementBatiment(x, nomenclature, [...connus, ...ajoutes])))(n);
+    // 🔴 Arno (18/11/2026) — après les bâtiments créés pendant la saisie (ceux de l'écran, puis ceux retenus ici), dans leur ordre
+    const a = (avertir ?? ((x: string) => avertissementApresSaisie(x, nomenclature, connus, [...enAttente, ...ajoutes.map((y) => y.libelle)])))(n);
     if (a !== null) { setAlerte({ a, depuisEncadre }); return; }
     retenir(batimentDe(n)?.libelle ?? n, false);
   };
@@ -914,8 +935,8 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
       <input ref={champ} value={valeur} disabled={desactive} placeholder={placeholder} maxLength={60} role="combobox" aria-expanded={ouvert} aria-controls={idMenu}
         aria-autocomplete="list" aria-label={ariaLabel} aria-activedescendant={ouvert && actif >= 0 ? `${idMenu}-${actif}` : undefined} {...{ [A.champ]: marque === 'dcp' ? cle : '' }}
         onFocus={() => { setOuvert(true); setTape(false); }} onClick={() => { if (!ouvert) setTape(false); setOuvert(true); }}
-        onChange={(e) => { setMessage(null); onSaisie(e.target.value); setOuvert(true); setTape(true); setActif(-1); }}
-        onBlur={(e) => { const v = e.target.value; setTimeout(fermer, 180); if (v.trim() !== '' && existe(v)?.libelle !== v.trim()) valider(v, false); }}
+        onChange={(e) => { setMessage(null); setCorrige(null); onSaisie(e.target.value); setOuvert(true); setTape(true); setActif(-1); }}
+        onBlur={(e) => { const v = e.target.value; setTimeout(fermer, 180); if (v.trim() !== '' && existe(v)?.libelle !== v.trim() && batimentDe(v)?.cle !== corrige) valider(v, false); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setOuvert(true); setActif((i) => Math.min(i + 1, options.length - 1)); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setActif((i) => Math.max(i - 1, 0)); }
@@ -956,10 +977,11 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
             <div>{texteAvertissement(alerte.a).map((x) => <p key={x} className="dcp-alerte-texte">{x}</p>)}</div>
             <div className="dcp-alerte-actions">
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => {
-                // « Corriger » : rien n'est gardé ; la main revient à l'encadré (s'il y était) ou au champ, vidé
-                const depuis = alerte.depuisEncadre; setAlerte(null);
-                if (depuis) { setAjout({ nom: '', erreur: null }); setTimeout(() => champEncadre.current?.focus(), 0); }
-                else { onSaisie(''); setTimeout(() => champ.current?.focus(), 0); }
+                /* « Corriger » : RIEN N'EST AJOUTÉ ; la main revient à l'encadré (s'il y était) ou au champ. 🔴 Arno (18/11/2026) — « S'il annule, rien
+                   n'est ajouté et le champ garde sa saisie » (avant : le champ était vidé) ; quitter le champ ne rouvre pas la fenêtre pour ce même nom
+                   (Entrée ou « + Ajouter le bâtiment … » la rouvrent) */
+                const depuis = alerte.depuisEncadre; setCorrige(batimentDe(alerte.a.libelle)?.cle ?? null); setAlerte(null);
+                setTimeout(() => (depuis ? champEncadre : champ).current?.focus(), 0);
               }} data-dcp-corriger>Corriger</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => retenir(alerte.a.libelle, true)} data-dcp-confirmer>Confirmer cet intitulé</button>
             </div>
@@ -974,7 +996,9 @@ export function ChampBatiment({ valeur, connus, nomenclature, desactive, onSaisi
  * d'avertissement que la fiche Copropriété ; « Aucun bâtiment » : le bien lit le code commun. L'« Escalier » du bien PROPOSE le bon choix quand
  * c'est un bâtiment connu (rien n'est écrasé).
  */
-export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null, adresse = null, zoneLegendes = null }: {
+export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, desactive, onChoix, onCree, variante = 'gestion', sansAdresse = false, retires, avis = null, adresse = null, zoneLegendes = null, enAttente = [] }: {
+  /** 🔴 Arno (18/11/2026) — les bâtiments créés pendant la saisie, dans leur ordre (ils comptent pour la numérotation) */
+  enAttente?: readonly string[];
   /**
    * 🔴 Arno (18/11/2026) — « ne déplace pas le champ de saisie, mais déplace plutôt l'affichage de la ligne du dessous (on garde tous les champs de saisie
    * sur la même ligne) » : la ligne (pleine largeur) SOUS la rangée où vont les légendes du champ ; `null` : sous le champ, comme avant.
@@ -1010,7 +1034,7 @@ export function ChoixBatimentCopro({ valeur, connus, nomenclature, escalier, des
     <div className={`${variante === 'location' ? 'loc-champ dcp-cbc--location ' : ''}dcp-champ dcp-champ-bat`} data-cbc>
       {/* 🔴 (Arno, 17/11/2026) renommé « Bâtiment / cage d'escalier » ; un texte d'aide court, entier à 390 px comme à l'ordinateur */}
       <span>{LIBELLE_BATIMENT_CAGE}</span>
-      <ChampBatiment valeur={valeur} connus={connus} nomenclature={nomenclature} desactive={desactive} contexte="bien" marque="cbc" avecAucun sansAdresse={sansAdresse}
+      <ChampBatiment valeur={valeur} connus={connus} nomenclature={nomenclature} desactive={desactive} contexte="bien" marque="cbc" avecAucun sansAdresse={sansAdresse} enAttente={enAttente}
         onSaisie={(v) => onChoix(v, false)} placeholder="ex. A ou 1 (facultatif)" ariaLabel={LIBELLE_BATIMENT_CAGE}
         onChoix={(l, c) => { onChoix(l, c); const b = batimentDe(l); if (onCree !== undefined && b !== null && (!connus.some((x) => x.cle === b.cle) || retires?.has(b.cle) === true)) onCree(l, c); }}
         {...(retires !== undefined ? { retires } : {})}

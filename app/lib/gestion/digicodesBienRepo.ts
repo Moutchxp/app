@@ -2,7 +2,7 @@ import { query, type RequeteTx } from '../db/client';
 import { batimentsRetires, estRetire } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
-import { batimentDe, nomenclatureDe, refusDesBatiments, type BatimentConnu, type Nomenclature } from './batimentsCopropriete';
+import { adressesIndependantes, batimentDe, nomenclatureDe, nomenclatureDeLAdresse, refusDesBatiments, selonOrdreDeCreation, type BatimentConnu, type Nomenclature } from './batimentsCopropriete';
 import { immeubleDuBien, type DigicodesAdresseFiche } from './copropriete';
 import { etatPlace, ficheCopropriete } from './coproprieteRepo';
 import { premiereValeur, type DigicodesBienSaisis, type OrigineDigicode } from './digicodes';
@@ -80,7 +80,10 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
     // 🔴 (Arno, 17/11/2026) les mails à la Gestion des changements de digicode de l'adresse (historique)
     mailsGestion: (await mailsGestionDesAdresses([adresseCle])).get(adresseCle) ?? [] };
   const connus = fiche !== null ? connusDeLAdresse(fiche, adresseCle) : d.batiments.map((b) => batimentDe(b.libelle)).filter((b): b is BatimentConnu => b !== null);
-  return { adresseCle, adresse, connus, nomenclature: fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus),
+  // 🔴 Arno (18/11/2026) — la numérotation est commune à une même ADRESSE : plusieurs adresses (bâtiments rangés par adresse) → celle de l'adresse du bien
+  const nomenclature = fiche === null ? nomenclatureDe(null, connus)
+    : nomenclatureDeLAdresse(fiche.nomenclatureEffective, fiche.batimentsConnus, adresseCle, adressesIndependantes(fiche));
+  return { adresseCle, adresse, connus, nomenclature,
     // 🔴 (lot 4) la copropriété a plusieurs adresses : l'écran dit l'adresse des bâtiments proposés
     plusieursAdresses: (fiche?.adresses.length ?? 1) > 1,
     copropriete: { cle: fiche?.cle ?? adresseCle, libelle: fiche?.libelle ?? immeuble, codePostal: fiche?.codePostal ?? cp, commune: fiche?.commune ?? commune },
@@ -115,10 +118,13 @@ export async function ecrireDigicodesDuBien(q: RequeteTx, lotId: number, d: Digi
     if (b === null) return 'Donnez un nom au bâtiment ou à la cage d’escalier.';
   }
   // 🔴 (Arno, 17/11/2026) le bâtiment du bien ET les autres bâtiments créés : la même règle de numérotation, ensemble (avant toute écriture)
-  const nouveaux = [...(d.batiment === null ? [] : [{ libelle: d.batiment, confirme: d.batimentConfirme }]), ...d.autres.map((a) => ({ libelle: a.libelle, confirme: a.confirme }))]
-    .filter((x) => { const b = batimentDe(x.libelle); return b !== null && !connusIci.some((y) => y.cle === b.cle); });
+  // 🔴 Arno (18/11/2026) — dans l'ORDRE où l'écran les a créés (`ordre`) et jugés, et avec la règle de l'ADRESSE du bien (plusieurs adresses : la sienne)
+  const nouveaux = selonOrdreDeCreation([...(d.batiment === null ? [] : [{ libelle: d.batiment, confirme: d.batimentConfirme }]), ...d.autres.map((a) => ({ libelle: a.libelle, confirme: a.confirme }))]
+    .filter((x) => { const b = batimentDe(x.libelle); return b !== null && !connusIci.some((y) => y.cle === b.cle); }), d.ordre);
   if (nouveaux.length > 0) {
-    const refus = refusDesBatiments(nouveaux, fiche?.nomenclatureEffective ?? nomenclatureDe(null, connus), connus);
+    const independantes = adressesIndependantes(fiche);
+    const reference = fiche === null ? nomenclatureDe(null, connus) : nomenclatureDeLAdresse(fiche.nomenclatureEffective, connus, adresseCle, independantes);
+    const refus = refusDesBatiments(nouveaux, reference, independantes ? connusIci : connus);
     if (refus !== null) return refus;
   }
   const lien = await relierBienAuBatiment(q, lotId, copropriete, d.batiment, auteur);
