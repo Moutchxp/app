@@ -3,7 +3,6 @@ import 'server-only';
 import { refusMinutesTachePreavis, tachesRdvPreavis } from '../../../../../../lib/location/rdvPreavisTache';
 import { etatDuRdv, prevenirCollaborateurInitial } from '../../../../../../lib/gestion/modificationRdvRepo';
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../../../lib/gestion/modificationRdv';
-import { maintenantParis } from '../../../../../../lib/location/triRdvPreavis';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
@@ -124,10 +123,10 @@ async function patchTache(request: Request, { params }: { params: Promise<{ id: 
 
   let issue: IssueTache;
   // 🔴 Arno (19/11/2026, règles D et J) — décaler ou modifier : l'état AVANT (pour prévenir le collaborateur initial retiré par quelqu'un d'autre) ;
-  //    un rendez-vous de préavis passé ou effectué ne se modifie plus (les autres tâches restent libres, ex. une tâche en retard qu'on décale)
+  //    un rendez-vous de préavis effectué ou annulé ne se modifie plus (une date passée reste modifiable ; les autres tâches restent libres)
   const modifieLeRdv = geste === 'decaler' || geste === 'modifier';
   const etatAvant = modifieLeRdv ? await etatDuRdv(id) : null;
-  if (etatAvant !== null && (await tachesRdvPreavis([id])).has(id) && !rdvModifiable(etatAvant, maintenantParis())) {
+  if (etatAvant !== null && (await tachesRdvPreavis([id])).has(id) && !rdvModifiable(etatAvant)) {
     return Response.json({ erreur: MOTIF_RDV_NON_MODIFIABLE, champ: 'jour' }, { status: 400 });
   }
   /* 🔴 Arno (10/11/2026) — la date d'AVANT le geste : un contact déjà invité ne reçoit un mail de modification que si elle change. */

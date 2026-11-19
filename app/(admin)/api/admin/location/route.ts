@@ -52,7 +52,6 @@ import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/loc
 import { refusMinutesRdv, refusPlageRdv } from '../../../../lib/location/minutesRdv';
 import { etatDuRdv, prevenirCollaborateurInitial, tacheDuRdvPreavis } from '../../../../lib/gestion/modificationRdvRepo';
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
-import { maintenantParis } from '../../../../lib/location/triRdvPreavis';
 import { minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
@@ -780,10 +779,10 @@ async function postLocation(request: Request): Promise<Response> {
         if (test !== null && !seulementMoi([confieA])) return refusTest('Préavis de test : l’état des lieux ne se confie qu’à vous (créateur du test).');
         // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture
         if (action !== 'reattribuer-edls') { const m = await refusMinutes(corps); if (m !== null) return m; }
-        // 🔴 Arno (19/11/2026, règles D et J) — l'état AVANT (pour prévenir le collaborateur initial) ; un rendez-vous passé ne se modifie plus
+        // 🔴 Arno (19/11/2026, règles D et J) — l'état AVANT (pour prévenir le collaborateur initial) ; un rendez-vous effectué ou annulé ne se modifie plus
         const tacheAvantE = action === 'planifier-edls' ? null : await tacheDuRdvPreavis('edl', occs);
         const etatAvantE = tacheAvantE === null ? null : await etatDuRdv(tacheAvantE);
-        if (etatAvantE !== null && !rdvModifiable(etatAvantE, maintenantParis())) {
+        if (etatAvantE !== null && !rdvModifiable(etatAvantE)) {
           return Response.json({ etat: 'refus', motif: MOTIF_RDV_NON_MODIFIABLE }, { status: 400, headers: ENTETES });
         }
         // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).

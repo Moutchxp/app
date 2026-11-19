@@ -15,11 +15,11 @@ import { collaborateursAPrevenir, mailModificationRdv, type CollaborateurRdv, ty
  */
 
 /** L'état du rendez-vous (créneau, collaborateurs en charge et leur agenda), ou `null` (tâche inconnue). LECTURE. */
-export async function etatDuRdv(tacheId: number): Promise<(EtatRdv & { objet: string; adresse: string | null }) | null> {
+export async function etatDuRdv(tacheId: number): Promise<(EtatRdv & { objet: string; adresse: string | null; etat: string }) | null> {
   try {
-    const { rows } = await query<{ jour: string; heure: string | null; duree: number | null; objet: string; confiee_a: string | null; libelle: string;
+    const { rows } = await query<{ jour: string; heure: string | null; duree: number | null; objet: string; etat: string; confiee_a: string | null; libelle: string;
       email: string | null; agenda: boolean; adresse: string | null }>(
-      `SELECT to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure, t.duree_minutes AS duree, t.objet, t.confiee_a::text,
+      `SELECT to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure, t.duree_minutes AS duree, t.objet, t.etat, t.confiee_a::text,
               t.confiee_a_libelle AS libelle, u.identifiant AS email, (t.google_evenement_id IS NOT NULL) AS agenda,
               nullif(concat_ws(', ', l.adresse, l.commune), '') AS adresse
          FROM gestion_tache t LEFT JOIN admin_utilisateur u ON u.id = t.confiee_a LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
@@ -35,7 +35,7 @@ export async function etatDuRdv(tacheId: number): Promise<(EtatRdv & { objet: st
     if (t.confiee_a !== null && !collaborateurs.some((c) => c.id === Number(t.confiee_a))) {
       collaborateurs.unshift({ id: Number(t.confiee_a), libelle: t.libelle, email: t.email, agenda: t.agenda === true });
     }
-    return { jour: t.jour, heure: t.heure, dureeMinutes: t.duree === null ? null : Number(t.duree), collaborateurs, objet: t.objet, adresse: t.adresse };
+    return { jour: t.jour, heure: t.heure, dureeMinutes: t.duree === null ? null : Number(t.duree), collaborateurs, objet: t.objet, adresse: t.adresse, etat: t.etat };
   } catch (e) {
     console.error('[rdv] état avant modification', (e as Error)?.message);
     return null;

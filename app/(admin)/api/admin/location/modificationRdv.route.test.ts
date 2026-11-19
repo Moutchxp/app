@@ -48,7 +48,7 @@ const RDV = { occupationIds: [553], jour: '2099-11-25', debut: '14:00', fin: '15
 beforeEach(() => {
   for (const f of Object.values(h)) f.mockReset();
   m.prevenir.mockClear();
-  m.etat = { jour: '2099-11-20', heure: '10:00', dureeMinutes: 60, collaborateurs: [{ id: 4, libelle: 'Claire Test', email: 'claire@exemple.test', agenda: false }], objet: 'x', adresse: null };
+  m.etat = { jour: '2099-11-20', heure: '10:00', dureeMinutes: 60, collaborateurs: [{ id: 4, libelle: 'Claire Test', email: 'claire@exemple.test', agenda: false }], objet: 'x', adresse: null, etat: 'a_faire' };
   const edl = { etat: 'ok', tacheId: 41, data: {}, demande: { statut: 'en_attente', destinataireLibelle: 'Paul Test' } };
   h.deplacerEdls.mockResolvedValue(edl);
   h.deplacerPrevisite.mockResolvedValue({ etat: 'ok', data: { previsiteId: 1, tacheId: 41, rdv: { jour: '2099-11-25', heure: '14:00', dureeMinutes: 60 }, ancien: null, occupationIds: [553] }, demandes: [] });
@@ -75,11 +75,18 @@ describe('🔴 D et J — l’état des lieux', () => {
     expect(await (await post({ action: 'deplacer-edls', ...RDV, confieA: 5 })).json()).toMatchObject({ etat: 'ok' });
     expect(m.prevenir).toHaveBeenCalledWith(41, m.etat, { id: 2, libelle: 'Arnaud Jorel' });
   });
-  it('un rendez-vous PASSÉ ne se modifie plus : refusé (400), rien n’est écrit', async () => {
-    m.etat = { ...m.etat, jour: '2020-01-01' };
-    const r = await post({ action: 'deplacer-edls', ...RDV, confieA: 5 });
-    expect(r.status).toBe(400);
-    expect(await r.json()).toMatchObject({ etat: 'refus', motif: 'Ce rendez-vous est passé ou effectué : il ne peut plus être modifié.' });
+  it('🔴 J corrigée — une date PASSÉE mais un rendez-vous encore à faire : modifiable (date, collaborateur, mails)', async () => {
+    m.etat = { ...m.etat, jour: '2020-01-01', etat: 'a_faire' };
+    expect(await (await post({ action: 'deplacer-edls', ...RDV, confieA: 5 })).json()).toMatchObject({ etat: 'ok' });
+    expect(h.deplacerEdls).toHaveBeenCalledOnce();
+  });
+  it('🔴 J corrigée — un rendez-vous EFFECTUÉ ou ANNULÉ ne se modifie plus : refusé (400), rien n’est écrit', async () => {
+    for (const etat of ['faite', 'annulee']) {
+      m.etat = { ...m.etat, etat };
+      const r = await post({ action: 'deplacer-edls', ...RDV, confieA: 5 });
+      expect(r.status).toBe(400);
+      expect(await r.json()).toMatchObject({ etat: 'refus', motif: 'Ce rendez-vous est effectué ou annulé : il ne peut plus être modifié.' });
+    }
     expect(h.deplacerEdls).not.toHaveBeenCalled();
     expect(m.prevenir).not.toHaveBeenCalled();
   });

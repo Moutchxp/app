@@ -150,8 +150,8 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
             (le même geste, le même formulaire) ; partout ailleurs le libellé ne change pas */}
         {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>
           {p.statut === 'refusee' ? 'Fixer une pré-visite' : 'RDV pré-visite'}</button>}
-        {/* 🔴 Arno (19/11/2026, règle J) — un rendez-vous passé ne se modifie plus (le serveur le refuse aussi) */}
-        {programmee && !p.rdvPasse && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Modifier / déplacer la pré-visite</button>}
+        {/* 🔴 Arno (19/11/2026, règle J corrigée) — modifiable tant qu'il n'est ni effectué ni annulé, même si la date est passée */}
+        {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Modifier / déplacer la pré-visite</button>}
         {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
         {/* 🔴🔴 Arno (15/11/2026, 9e retour) — le bouton ouvre la FENÊTRE du compte rendu (le brouillon en cours, lecture seule) ; « Continuer la
             saisie » y ouvre la PAGE du formulaire (un lien : le « ← Retour » commun note d'où l'on vient) ; inactif sans droit */}

@@ -633,10 +633,9 @@ describe('🔴🔴 Arno (11/11/2026, lot 5) — retouches de PRÉSENTATION de la
     // Le CSS : une grille partagée (subgrid) pour les EN-TÊTES ; boutons pleine largeur.
     const css = CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ');
     // 🔴 Arno (18/11/2026, option A) — seuls les EN-TÊTES partagent leur rangée ; le contenu se range en haut de sa case, sans trou.
-    // 🔴 Arno (19/11/2026) — même hauteur pour toutes les cases, contenu CENTRÉ verticalement (retour sur l'option A du 18/11)
-    expect(css).toContain('.frp-etape{display:flex;flex-direction:column;justify-content:center;');
-    expect(css).toContain('.frp-etape > .pva-bloc{display:flex;flex-direction:column;');
-    expect(css).not.toContain('grid-template-rows:subgrid');
+    // 🔴 Arno (19/11/2026, 2e retour) — même hauteur pour toutes les cases ; les TITRES alignés en haut (rangée partagée), le CONTENU centré dessous
+    expect(css).toContain('.frp-etape{display:grid;grid-row:span 2;grid-template-rows:subgrid;');
+    expect(css).toContain('.frp-etape > .pva-bloc{grid-row:2;align-self:center;display:flex;flex-direction:column;');
     expect(css).toMatch(/\.frp-actions \.loc-boutons \.svv-btn\{width:100%;min-height:48px;[^}]*justify-content:center;text-align:center/);
   });
 
@@ -3817,12 +3816,15 @@ describe('🔴 Arno (19/11/2026) — règles uniformes des rendez-vous : A (coll
     const cases = [...document.querySelectorAll('[data-fenetre-previsite] [data-destinataire]')] as HTMLInputElement[];
     expect(cases.map((c) => [c.getAttribute('data-destinataire'), c.checked])).toEqual([['3', true], ['4', false]]);
   });
-  it('J — passé : plus de « Modifier / déplacer » (pré-visite ni état des lieux) ; l’existant reste affiché', async () => {
+  it('J corrigée — date PASSÉE, compte rendu à faire : « Modifier / déplacer » reste (pré-visite et état des lieux) ; effectuée : plus de bouton', async () => {
     poser({ ...pvAvenir, rdv: { jour: '2020-01-05', heure: '10:00', dureeMinutes: 60 }, rdvPasse: true }, '2020-01-06');
     await voir();
+    expect(container.querySelector('[data-deplacer-previsite]')?.textContent).toBe('Modifier / déplacer la pré-visite');
+    expect(container.querySelector('[data-deplacer-edls]')?.textContent).toBe('Modifier / déplacer l’état des lieux');
+    act(() => root.unmount()); root = createRoot(container);
+    poser({ ...pvAvenir, statut: 'effectuee', rdvPasse: true }, '2099-01-06');
+    await voir();
     expect(container.querySelector('[data-deplacer-previsite]')).toBeNull();
-    expect(container.querySelector('[data-deplacer-edls]')).toBeNull();
-    expect(container.querySelector('[data-edls-cartouche]')?.textContent).toContain('06/01/2020');
   });
   it('F — « Valider le rendez-vous sans demander de confirmation aux locataires » : la fenêtre de confirmation (une phrase, « OK »), clavier', async () => {
     poser(pvAvenir, '2099-01-06');
@@ -3837,3 +3839,23 @@ describe('🔴 Arno (19/11/2026) — règles uniformes des rendez-vous : A (coll
     expect(document.querySelector('[data-modale-confirmation]')).toBeNull();
   });
 });
+
+describe('🔴 Arno (19/11/2026, 2e retour) — légendes retirées sous « État des lieux de sortie » et « Sortie validée »', () => {
+  it('plus de « À planifier » ni de « À valider — fin du préavis le … » sous les titres ; « étape en cours » reste ; la fin du préavis reste affichée', async () => {
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, etatDesLieuxLe: null, edls: null,
+      previsite: { statut: 'effectuee', rdv: { jour: '2026-11-05', heure: '10:00', dureeMinutes: 60 }, tacheId: 40, collegues: [], tousRefusent: false, rdvPasse: true, alerteEnvoyeeLe: null } } as unknown as LignePreavisAccueil : l));
+    planification = true;
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const sous = (cle: string) => [...container.querySelectorAll(`[data-ligne-depliee="C"] [data-etape="${cle}"] [data-ligne-etape]`)].map((x) => x.textContent);
+    expect(sous('edls')).toEqual(['étape en cours']);
+    expect(sous('sortie')).toEqual([]);
+    const tout = container.querySelector('[data-ligne-depliee="C"]')!.textContent!;
+    expect(tout).not.toContain('À planifier');
+    expect(tout).not.toContain('À valider — fin du préavis');
+    expect(container.querySelector('[data-ligne-depliee="C"] [data-dates-preavis]')?.textContent).toContain('fin du préavis le 01/11/2099');
+    expect(sous('preavis')).toEqual(['Reçu le 01/10/2026', 'Fin du préavis le 01/11/2099']);
+  });
+});
+

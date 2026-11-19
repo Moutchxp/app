@@ -35,7 +35,7 @@ import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
 import { ChoixHeure } from './ChoixHeure';
 import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
-import { phraseConfirmationRdv, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
+import { phraseConfirmationRdv } from '../../../../lib/gestion/modificationRdv';
 import { lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
@@ -599,8 +599,8 @@ function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
           {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
             <>
-              {/* 🔴 Arno (19/11/2026, règle J) — un rendez-vous passé ne se modifie plus (le serveur le refuse aussi) */}
-              {rdvModifiable({ jour: e.jour, heure: e.heure }, maintenantParis()) && (
+              {/* 🔴 Arno (19/11/2026, règle J corrigée) — l'état des lieux planifié reste modifiable tant qu'il n'est ni réalisé ni annulé */}
+              {(
               <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Modifier / déplacer l’état des lieux</button>)}
               {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
             </>
@@ -926,10 +926,10 @@ export const CSS_PREAVIS_ACCUEIL = `
 @media (max-width:1100px){.frp{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:600px){.frp{grid-template-columns:1fr}}
 .frp{grid-auto-rows:auto}
-/* 🔴 Arno (19/11/2026) — les cases gardent la MEME hauteur (celle de la plus haute) et leur contenu entier (en-tete compris) est CENTRE
-   VERTICALEMENT : un ensemble plus uniforme (Arno revient sur l'option A du 18/11, contenu en haut). Telephone : cases empilees, chacune
-   sa hauteur (rien a centrer). */
-.frp-etape{display:flex;flex-direction:column;justify-content:center;gap:8px;min-width:0;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
+/* 🔴 Arno (19/11/2026, 2e retour) — les TITRES (pastille, titre, sous-titre) restent EN HAUT, alignes d'une case a l'autre (rangee partagee) ;
+   le CONTENU sous le titre (encart, cartouches, boutons) est CENTRE verticalement dans l'espace restant. Meme hauteur pour toutes les cases ;
+   telephone : cases empilees, chacune sa hauteur. */
+.frp-etape{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:8px;align-content:start;min-width:0;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .frp-etape--faite{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .frp-etape--refusee{border-color:var(--color-svv-urgence-orange);background:color-mix(in srgb, var(--color-svv-urgence-orange) 14%, var(--color-svv-surface))}
 /* La mise en évidence ne change pas l'épaisseur du bord (2 px partout) : les pastilles restent à la même hauteur dans les 4 cases. */
@@ -944,7 +944,7 @@ export const CSS_PREAVIS_ACCUEIL = `
 .frp-lu{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .frp-statut{grid-column:2;font-size:.88rem;color:var(--color-svv-ink);overflow-wrap:anywhere;display:flex;flex-direction:column}
 .frp-etape .pva-bloc{border:0;padding:0;background:transparent}
-.frp-etape > .pva-bloc{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0}
+.frp-etape > .pva-bloc{grid-row:2;align-self:center;display:flex;flex-direction:column;gap:8px;min-width:0;margin:0}
 .frp-infos,.frp-actions{display:flex;flex-direction:column;gap:8px;min-width:0}
 .frp-actions .loc-boutons{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:0}
 .frp-actions .loc-boutons .svv-btn{width:100%;min-height:48px;margin:0;display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:normal}

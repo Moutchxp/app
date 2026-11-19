@@ -46,12 +46,13 @@ describe('🔴 D / H — le mail au collaborateur initial', () => {
   });
 });
 
-describe('🔴 J — un rendez-vous passé ou effectué ne se modifie plus', () => {
-  it('à venir : oui ; passé (heure de début passée), effectué, tâche terminée : non', () => {
-    expect(rdvModifiable({ jour: '2026-11-25', heure: '14:00' }, '2026-11-25 13:59')).toBe(true);
-    expect(rdvModifiable({ jour: '2026-11-25', heure: '14:00' }, '2026-11-25 14:00')).toBe(false);
-    expect(rdvModifiable({ jour: '2026-11-25', heure: '14:00', effectue: true }, '2026-11-20 10:00')).toBe(false);
-    expect(rdvModifiable({ jour: '2026-11-25', heure: '14:00', etat: 'faite' }, '2026-11-20 10:00')).toBe(false);
+describe('🔴 J (corrigée le 19/11/2026) — seul un rendez-vous EFFECTUÉ ou ANNULÉ ne se modifie plus', () => {
+  it('à faire (même date passée, compte rendu à faire) : oui ; effectué, tâche faite, annulée : non', () => {
+    expect(rdvModifiable({ etat: 'a_faire' })).toBe(true);
+    expect(rdvModifiable({})).toBe(true);
+    expect(rdvModifiable({ etat: 'a_faire', effectue: true })).toBe(false);
+    expect(rdvModifiable({ etat: 'faite' })).toBe(false);
+    expect(rdvModifiable({ etat: 'annulee' })).toBe(false);
   });
 });
 

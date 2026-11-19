@@ -66,12 +66,14 @@ export function mailModificationRdv(o: { pour: CollaborateurRdv; objetRdv: strin
   return { objet: `${PREFIXE_OBJET_MODIFICATION_RDV} — ${o.objetRdv}${lieu}`, corps: lignes.join('\n') };
 }
 
-/** J — le rendez-vous peut-il encore être modifié ? Ni passé (son heure de début est passée), ni effectué, ni terminé. PUR. */
-export function rdvModifiable(o: { jour: string; heure: string | null; etat?: string | null; effectue?: boolean }, maintenantParis: string): boolean {
-  if (o.effectue === true || (o.etat !== undefined && o.etat !== null && o.etat !== 'a_faire')) return false;
-  return `${o.jour.slice(0, 10)} ${(o.heure ?? '23:59').slice(0, 5)}` > maintenantParis;
+/**
+ * J (corrigée par Arno le 19/11/2026) — le rendez-vous ne se modifie plus seulement s'il est EFFECTUÉ (compte rendu fait, état des lieux réalisé,
+ * tâche faite) ou ANNULÉ. Une date passée sans compte rendu (« pré-visite du 13/11, compte rendu à faire ») reste modifiable. PUR.
+ */
+export function rdvModifiable(o: { etat?: string | null; effectue?: boolean }): boolean {
+  return o.effectue !== true && (o.etat === undefined || o.etat === null || o.etat === 'a_faire');
 }
-export const MOTIF_RDV_NON_MODIFIABLE = 'Ce rendez-vous est passé ou effectué : il ne peut plus être modifié.';
+export const MOTIF_RDV_NON_MODIFIABLE = 'Ce rendez-vous est effectué ou annulé : il ne peut plus être modifié.';
 
 /** F — la phrase de la fenêtre de confirmation, après chaque geste sur un rendez-vous. PUR. */
 export function phraseConfirmationRdv(geste: 'fixe' | 'modifie' | 'valide_sans_confirmation' | 'validation_annulee', quoi: 'previsite' | 'edl' | 'tache',

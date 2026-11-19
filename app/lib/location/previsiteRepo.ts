@@ -4,7 +4,6 @@ import type { Auteur } from '../gestion/gestes';
 import { rappelsParDefaut, type SaisieTache } from '../gestion/taches';
 import { annulerTache, creerTache, decalerTache, listerCollaborateurs, marquerFaite, modifierTache, type Collaborateur, type IssueTache } from '../gestion/tachesRepo';
 import { boutonsRdvPossibles, creerJetons } from './reponsesRdvRepo';
-import { MOTIF_RDV_NON_MODIFIABLE } from '../gestion/modificationRdv';
 import { LIENS_APERCU, type ApercuLocataires, type ChoixLocataires } from './reponsesRdv';
 import { renvoyerInvitation } from '../gestion/invitesRepo';
 import { mailTache } from '../gestion/mailTache';
@@ -42,7 +41,7 @@ import { plageFr } from './edls';
 import {
   CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetCopieInterneCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
   CLE_EDITION_CR_PROPRIETAIRE, copieInterneLocataires, introCompteRenduInterne, mailCompteRenduProprietaire, mailsAuxLocataires, paragraphesCompteRenduLocataire, personnaliserTexte,
-  texteRefusPrevisite, tousRefusent, debutDuRendezVous, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
+  texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
 import {
   SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, etiqueterApercu, icsDuRdv, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
@@ -263,8 +262,8 @@ export async function deplacerPrevisite(
   if (!v.ok) return { etat: 'refus', motif: v.motif, champ: v.champ };
   const rdv = { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes };
   const tacheId = Number(avant.s.tache_id);
-  // 🔴 Arno (19/11/2026, règle J) — un rendez-vous passé (son heure de début est passée) ne se modifie plus
-  if (debutDuRendezVous(avant.rdv.jour, avant.rdv.heure).getTime() <= Date.now()) return { etat: 'refus', motif: MOTIF_RDV_NON_MODIFIABLE };
+  // 🔴 Arno (19/11/2026, règle J corrigée) — une date passée sans compte rendu reste modifiable ; effectuée ou annulée, la tâche n'est plus
+  //    « à faire » et `rdvCourant` a déjà refusé
   // 🔴 Arno (19/11/2026, règle A) — les collègues choisis (même ordre de lecture que la saisie) ; changés : la tâche est MODIFIÉE (dates et invités en
   //    un geste : relances, « Tâche déplacée », agenda), sinon décalée comme avant
   const avantIds = ((await reponsesDesTaches([tacheId])).get(tacheId) ?? []).map((r) => r.collaborateurId).filter((x): x is number => x !== null);

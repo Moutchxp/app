@@ -55,6 +55,9 @@ export function lignesSousTitre(e: EtapePreavis, l: LignePreavisAccueil, o: { pl
   const cartouche = (e.cle === 'previsite' && p !== null && p.rdv !== null && (p.statut === 'programmee' || p.statut === 'effectuee'))
     || (e.cle === 'edls' && o.planification && l.edls != null && l.edls.statut !== 'refusee');
   if (cartouche) return e.enCours ? [ETAPE_EN_COURS] : [];
+  // 🔴 Arno (19/11/2026, accord explicite) — plus de légende « À planifier » (état des lieux sans date) ni « À valider — fin du préavis le … »
+  //    (sortie à valider) sous le titre ; « étape en cours » reste. La fin du préavis reste dite en case 1 et sur la ligne « Préavis : … ».
+  if ((e.cle === 'edls' && e.libelle === 'À planifier') || (e.cle === 'sortie' && e.statut === 'a_faire')) return e.enCours ? [ETAPE_EN_COURS] : [];
   return e.lignes.map((x, i) => (i === e.lignes.length - 1 && e.enCours ? `${x} · ${ETAPE_EN_COURS}` : x));
 }
 export const ETAPE_EN_COURS = 'étape en cours';
