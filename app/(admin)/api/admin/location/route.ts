@@ -52,7 +52,7 @@ import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/loc
 import { refusMinutesRdv, refusPlageRdv } from '../../../../lib/location/minutesRdv';
 import { etatDuRdv, prevenirCollaborateurInitial, tacheDuRdvPreavis } from '../../../../lib/gestion/modificationRdvRepo';
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
-import { minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
+import { dureesRdvReglees, minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
@@ -184,7 +184,7 @@ export async function GET(request: Request): Promise<Response> {
       const lignes = await avecReponsesRdv(await avecPrevisites(await preavisEnCours({ tests: { visiteur: moi.id } })));
       const administrateur = !('refus' in (await exigerAdministrateur(request)));
       // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage 498 ; sans lui : 00, 15, 30, 45)
-      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() }, minutesRdv: await minutesRdvAutorisees(), plageRdv: await plageRdvAutorisee() } }, { headers: ENTETES });
+      return Response.json({ etat: 'ok', data: { ...lignes, preavisTest: { administrateur, disponible: administrateur && await testDisponible() }, minutesRdv: await minutesRdvAutorisees(), plageRdv: await plageRdvAutorisee(), dureesRdv: await dureesRdvReglees() } }, { headers: ENTETES });
     }
     // 🔴 Arno (10/11/2026) — les collègues destinataires d'une pré-visite (accès Gestion et/ou Location, Workspace ; moi en tête) — LECTURE SEULE.
     if (p('previsiteCollegues') !== null) {

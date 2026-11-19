@@ -36,7 +36,7 @@ import { ChoixInviterLocataires } from './ChoixInviterLocataires';
 import { GrilleDateHeures } from './GrilleDateHeures';
 import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
 import { phraseConfirmationRdv } from '../../../../lib/gestion/modificationRdv';
-import { lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_RDV_DEFAUT, finDepuisDebut, lireDureesRdv, lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
@@ -79,6 +79,8 @@ interface Donnees { disponible: boolean; etatDesLieux: boolean; planification?: 
   minutesRdv?: number[];
   /** 🔴 Arno (19/11/2026) — la plage horaire des rendez-vous (réglage 499) ; absente : 8h00 / 20h00 / 21h00. */
   plageRdv?: unknown;
+  /** 🔴 Arno (19/11/2026) — les durées des rendez-vous (réglage 501) ; absentes : 15, 30, 45 min, 1 h ; 30 min d'office. */
+  dureesRdv?: unknown;
   /** 🔴 Arno (10/11/2026) — la pré-visite est-elle installée (migration 464) ? */
   previsite?: boolean;
   /** 🔴 Arno (14/11/2026, 473) — le bouton « Préavis de test » : compte administrateur, table 473 installée. */
@@ -115,7 +117,9 @@ export function BlocPreavisAccueil({ gestion, plein = false, pleinePage, lecture
   const minutesRdv = useMemo(() => lireMinutesRdv(minutesLues), [JSON.stringify(minutesLues ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
   const plageLue = lu.etat.etat === 'ok' ? lu.etat.data.plageRdv : undefined;
   const plageRdv = useMemo(() => lirePlageRdv(plageLue), [JSON.stringify(plageLue ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const contexte = useMemo(() => ({ base, ecriture, minutesRdv, plageRdv }), [base, ecriture, minutesRdv, plageRdv]);
+  const dureesLues = lu.etat.etat === 'ok' ? lu.etat.data.dureesRdv : undefined;
+  const dureesRdv = useMemo(() => lireDureesRdv(dureesLues), [JSON.stringify(dureesLues ?? null)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const contexte = useMemo(() => ({ base, ecriture, minutesRdv, plageRdv, dureesRdv }), [base, ecriture, minutesRdv, plageRdv, dureesRdv]);
   // Relecture DOUCE (mêmes paramètres : l'affichage reste en place, une ligne dépliée et une fenêtre ouverte aussi).
   const relireRef = useRef(lu.rafraichir);
   relireRef.current = lu.rafraichir;
@@ -664,11 +668,12 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
 }) {
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
+  const dureesRdv = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
   const debutInitial = e?.heure ?? '';
   const [jour, setJour] = useState(e?.jour ?? '');
   const [debut, setDebut] = useState(debutInitial);
-  const [fin, setFin] = useState(e?.heure ? heureFinProposee(e.heure) : '');
-  const [finTouchee, setFinTouchee] = useState(e !== null);
+  // 🔴 Arno (19/11/2026) — déplacer : la fin du rendez-vous actuel (sa durée), inchangée tant qu'on ne touche à rien
+  const [fin, setFin] = useState(e?.heure ? (e.dureeMinutes ? finDepuisDebut(e.heure, e.dureeMinutes) : null) ?? heureFinProposee(e.heure) : '');
   const [confieA, setConfieA] = useState<number | null>(e?.confieAId ?? null);
   const [libelles, setLibelles] = useState<Record<number, string>>({});
   const [commentaire, setCommentaire] = useState('');
@@ -725,8 +730,8 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
       {/* 🔴 Arno (19/11/2026) — Date, Heure de début, Heure de fin l'une sous l'autre : libellés de même largeur, champs alignés (grille partagée) */}
       <GrilleDateHeures classe="pva-grille-edls" libelles={{ date: 'Date de l’EDLS *', debut: 'Heure de début *', fin: 'Heure de fin *' }}
         jour={jour} onJour={(v) => { setJour(v); setRefus(null); }} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)}
-        debut={debut} onDebut={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }}
-        fin={fin} onFin={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }}
+        debut={debut} onDebut={(v) => { setDebut(v); setRefus(null); }}
+        fin={fin} onFin={(v) => { setFin(v); setRefus(null); }} durees={dureesRdv}
         minutes={minutesRdv} plage={plageRdv} donnees={{ jour: 'data-edls-jour', debut: 'data-edls-debut', fin: 'data-edls-fin' }} />
       <ChoixPersonne valeur={confieA} onChange={setConfieA} />
       {e === null && (

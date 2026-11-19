@@ -106,3 +106,62 @@ export function refusPlageRdv(heures: { debut: string; fin: string }, plage: Pla
   if (f !== null && (f <= a || f > c)) return messagePlageRdv(plage);
   return null;
 }
+
+// ══ 🔴🔴 LA DURÉE D'UN RENDEZ-VOUS DU PRÉAVIS (Arno, 19/11/2026) ══════════════════════════════════════════════════════════════════════════════
+// « Liste de choix : 15 min, 30 min, 45 min, 1 h. Valeur par défaut : 30 min. […] un réglage en configuration, à côté de minutes_rdv. » La fin
+// se CALCULE : début + durée ; modifiée à la main, la durée affichée devient celle qui correspond, ou « Personnalisée ». Réglage : migration 501.
+
+/** Les durées proposées (minutes) et celle choisie d'office. */
+export interface DureesRdv { durees: number[]; defaut: number }
+export const DUREES_RDV_DEFAUT: DureesRdv = { durees: [15, 30, 45, 60], defaut: 30 };
+
+/** Un réglage lu (base, réponse du serveur) : durées entières de 5 à 1440, sans doublon, triées, et un défaut parmi elles ; sinon le défaut. PUR. */
+export function lireDureesRdv(x: unknown): DureesRdv {
+  const o = (x ?? {}) as { durees?: unknown; defaut?: unknown };
+  const l = Array.isArray(o.durees) ? o.durees.map(Number).filter((n) => Number.isInteger(n) && n >= 5 && n <= 1440) : [];
+  const durees = [...new Set(l)].sort((a, b) => a - b);
+  const defaut = Number(o.defaut);
+  return durees.length > 0 && durees.includes(defaut) ? { durees, defaut } : { durees: [...DUREES_RDV_DEFAUT.durees], defaut: DUREES_RDV_DEFAUT.defaut };
+}
+
+/** « 15 min », « 1 h », « 1 h 30 » : une durée dans la liste. PUR. */
+export function motDureeRdv(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60); const m = minutes % 60;
+  return m === 0 ? `${h} h` : `${h} h ${deuxChiffres(m)}`;
+}
+
+/** « 10:00 » + 30 → « 10:30 » ; au-delà de minuit, ou début illisible : null. PUR. */
+export function finDepuisDebut(debut: string, duree: number): string | null {
+  const d = enMinutes(debut);
+  if (d === null || !Number.isFinite(duree) || duree <= 0) return null;
+  const t = d + duree;
+  return t > 23 * 60 + 59 ? null : `${deuxChiffres(Math.floor(t / 60))}:${deuxChiffres(t % 60)}`;
+}
+
+/** La durée entre le début et la fin, en minutes (> 0), sinon null. PUR. */
+export function dureeEntre(debut: string, fin: string): number | null {
+  const d = enMinutes(debut); const f = enMinutes(fin);
+  return d === null || f === null || f <= d ? null : f - d;
+}
+
+/**
+ * Les durées proposées pour ce début : celles dont la fin respecte la plage (au plus tard « fin au plus tard », 21h00) et tombe sur une minute
+ * autorisée (00, 15, 30, 45). Sans début choisi : toutes. PUR.
+ */
+export function dureesCompatibles(debut: string, durees: readonly number[], plage: PlageRdv, minutes: readonly number[]): number[] {
+  if (enMinutes(debut) === null) return [...durees];
+  const haut = enMinutes(plage.finMax) ?? 23 * 60 + 59;
+  return durees.filter((d) => {
+    const f = finDepuisDebut(debut, d);
+    const t = f === null ? null : enMinutes(f);
+    return t !== null && t <= haut && minutes.includes(t % 60);
+  });
+}
+
+/** La durée à afficher : celle de la liste qui correspond au créneau, « personnalisee » sinon ; sans créneau complet : la durée choisie. PUR. */
+export function dureeAffichee(debut: string, fin: string, choisie: number, durees: readonly number[]): number | 'personnalisee' {
+  const e = dureeEntre(debut, fin);
+  if (e === null) return durees.includes(choisie) ? choisie : 'personnalisee';
+  return durees.includes(e) ? e : 'personnalisee';
+}

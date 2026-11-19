@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { compterPreavisEnAlerte, type StatutPrevisite } from '../../../../lib/location/previsite';
-import type { PlageRdv } from '../../../../lib/location/minutesRdv';
+import type { DureesRdv, PlageRdv } from '../../../../lib/location/minutesRdv';
 
 /**
  * ══ 🔴🔴 LES PRÉAVIS, SYNCHRONISÉS ENTRE LA LOCATION ET LA GESTION (Arno, 10/11/2026) ════════════════════════════════════════════
@@ -25,7 +25,9 @@ export const MENTION_RESERVE_LOCATION = 'Réservé aux comptes Location';
 /** 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage `gestion_config.minutes_rdv`, rendu par le serveur ; défaut 00/15/30/45). */
 export interface ValeurContextePreavis { base: string; ecriture: boolean; minutesRdv?: readonly number[];
   /** 🔴 Arno (19/11/2026) — la plage horaire des rendez-vous (réglage 499 ; défaut 8h00 / 20h00 / 21h00). */
-  plageRdv?: PlageRdv }
+  plageRdv?: PlageRdv;
+  /** 🔴 Arno (19/11/2026) — les durées des rendez-vous (réglage 501 ; défaut 15, 30, 45 min, 1 h ; 30 min d'office). */
+  dureesRdv?: DureesRdv }
 export const ContextePreavis = createContext<ValeurContextePreavis>({ base: API_PREAVIS_LOCATION, ecriture: true });
 export const useContextePreavis = (): ValeurContextePreavis => useContext(ContextePreavis);
 export const INTERVALLE_PREAVIS_MS = 30_000;

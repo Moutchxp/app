@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
 import { GrilleDateHeures } from './GrilleDateHeures';
-import { MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_RDV_DEFAUT, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
@@ -287,6 +287,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const avecDate = geste === 'rdv' || geste === 'deplacer';
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
+  const dureesRdv = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
   // 🔴 Arno (19/11/2026, règle A) — « Modifier / déplacer » change aussi les collègues (cochés au départ : ceux du rendez-vous)
   const avecCollegues = geste === 'rdv' || geste === 'reaffecter' || geste === 'deplacer';
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » (fixer, déplacer) : obligatoire, rien de pré-coché
@@ -298,7 +299,6 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
     const [h, m] = p.rdv!.heure.split(':').map(Number); const t = Math.min(h * 60 + m + p.rdv!.dureeMinutes, 23 * 60 + 59);
     return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
   })() : fin0);
-  const [finTouchee, setFinTouchee] = useState(deplacement);
   const [choisis, setChoisis] = useState<number[] | null>(null);
   const [corps, setCorps] = useState('');
   // 🔴 Arno (15/11/2026) — l'envoi aux locataires est ACTIVÉ PAR DÉFAUT (gros bouton bascule)
@@ -540,18 +540,18 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         // 🔴 Arno (19/11/2026) — Date, Début, Fin l'une sous l'autre : libellés de même largeur, champs alignés (grille partagée)
         <GrilleDateHeures classe="pvv-grille" donneesGrille={{ 'data-previsite-champs': '' }} libelles={{ date: 'Date\u00a0*', debut: 'Début\u00a0*', fin: 'Fin\u00a0*' }}
           jour={jour} onJour={(v) => { setJour(v); setRefus(null); }} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)}
-          debut={debut} onDebut={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }}
-          fin={fin} onFin={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }}
+          debut={debut} onDebut={(v) => { setDebut(v); setRefus(null); }}
+          fin={fin} onFin={(v) => { setFin(v); setRefus(null); }} durees={dureesRdv}
           minutes={minutesRdv} plage={plageRdv} garder={garderTest} donnees={{ jour: 'data-previsite-jour', debut: 'data-previsite-debut', fin: 'data-previsite-fin' }} />
       )}
       {avecDate && l.test && (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
           <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" data-previsite-deux-minutes
-            onClick={() => { const r = rdvDansDeuxMinutes(); setJour(r.jour); setDebut(r.debut); setFin(r.fin); setFinTouchee(true); setRefus(null); }}>Dans 2 minutes</button>
+            onClick={() => { const r = rdvDansDeuxMinutes(); setJour(r.jour); setDebut(r.debut); setFin(r.fin); setRefus(null); }}>Dans 2 minutes</button>
           <span className="loc-muet" data-previsite-test-note>Préavis de test : l’invitation de début de pré-visite part à l’heure de début, à vous seul.</span>
         </div>
       )}
-      {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification{choixLoc === 'non' ? ' — sauf si vous choisissez « Non » ci-dessous : ils ne recevront rien' : choixLoc === null ? ' si vous choisissez « Oui » ci-dessous' : ''}.</p>}
+      {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue destinataire recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification{choixLoc === 'non' ? ' — sauf si vous choisissez « Non » ci-dessous : ils ne recevront rien' : choixLoc === null ? ' si vous choisissez « Oui » ci-dessous' : ''}.</p>}
       {avecCollegues && (
         <fieldset className="pvv-destinataires" data-previsite-destinataires>
           <legend className="pvs-libelle">Destinataires (collègues de l’agence) *</legend>

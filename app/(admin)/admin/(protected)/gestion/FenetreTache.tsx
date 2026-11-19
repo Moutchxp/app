@@ -1,7 +1,7 @@
 'use client';
 
 import { ChoixHeure } from '../location/ChoixHeure';
-import { MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_RDV_DEFAUT, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 
 
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
@@ -168,7 +168,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             ? { invites: t.invites.filter((i) => !i.principal && i.collaborateurId !== null).map((i) => Number(i.collaborateurId)) } : {}),
           ...(t.evenements !== undefined ? { evenements: t.evenements.map((e) => e.id) } : {}),
         });
-        setDureeRdv(t.dureeMinutes ?? 60);
+        setDureeRdv(t.dureeMinutes ?? (t.rdvPreavis === true ? t.dureesRdv?.defaut ?? DUREES_RDV_DEFAUT.defaut : 60)); // 🔴 (19/11/2026) rendez-vous de préavis : 30 min d'office
         setChoisis(d.contacts.map((c) => c.cle));
         setInvitesContacts(d.contacts.filter((c) => c.inviter === true).map((c) => c.cle));
       }
@@ -516,7 +516,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             <fieldset className="tchf-groupe tchf-duree-rdv" data-duree-rdv>
               <legend className="tch-etiquette">Durée *</legend>
               <div className="tchf-rappels">
-                {DUREES_RAPIDES_RDV.map((d) => (
+                {/* 🔴 Arno (19/11/2026) — un rendez-vous de préavis : les durées du réglage (15, 30, 45 min, 1 h) ; les autres tâches : celles de toujours */}
+                {(tache?.rdvPreavis === true ? tache.dureesRdv?.durees ?? DUREES_RDV_DEFAUT.durees : DUREES_RAPIDES_RDV).map((d) => (
                   <button key={d} type="button" className={`svv-btn gst-btn tch-btn${dureeRdv === d ? ' svv-btn-primary tchf-sorte-btn--choisi' : ' svv-btn-outline'}`}
                     aria-pressed={dureeRdv === d} disabled={lectureSeule} onClick={() => setDureeRdv(d)} data-duree-rapide={d}>{motDuree(d)}</button>
                 ))}

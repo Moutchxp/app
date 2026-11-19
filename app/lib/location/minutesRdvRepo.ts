@@ -1,6 +1,6 @@
 import { query } from '../db/client';
 import { colonneExisteMemo } from './sondeLocation';
-import { lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT, type PlageRdv } from './minutesRdv';
+import { DUREES_RDV_DEFAUT, lireDureesRdv, lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT, type DureesRdv, type PlageRdv } from './minutesRdv';
 
 /**
  * 🔴 Arno (18/11/2026) — le réglage des minutes autorisées pour les rendez-vous du préavis (`gestion_config.minutes_rdv`, migration 498).
@@ -33,3 +33,17 @@ export async function plageRdvAutorisee(): Promise<PlageRdv> {
   }
 }
 
+
+/**
+ * 🔴 Arno (19/11/2026) — les durées proposées d'un rendez-vous du préavis et celle choisie d'office (`gestion_config.durees_rdv`,
+ * `duree_rdv_defaut`, migration 501). Sans la 501, ou en erreur : 15, 30, 45 min, 1 h ; 30 min d'office. Ne lève jamais.
+ */
+export async function dureesRdvReglees(): Promise<DureesRdv> {
+  try {
+    if (!(await colonneExisteMemo('gestion_config', 'duree_rdv_defaut'))) return lireDureesRdv(DUREES_RDV_DEFAUT);
+    const { rows } = await query<{ d: number[] | null; x: number | null }>('SELECT durees_rdv AS d, duree_rdv_defaut AS x FROM gestion_config WHERE id = 1');
+    return lireDureesRdv({ durees: rows[0]?.d, defaut: rows[0]?.x });
+  } catch {
+    return lireDureesRdv(DUREES_RDV_DEFAUT);
+  }
+}

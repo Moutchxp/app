@@ -172,10 +172,11 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(document.querySelector('[data-destinataire="4"]'));
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-20');
     saisir(document.querySelector('[data-previsite-debut]'), '10:00');
-    expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
+    // 🔴 Arno (19/11/2026) — la fin = début + la durée d'office (30 min)
+    expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('10:30');
     await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
-    expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', occupationIds: [41], jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3, 4] });
+    expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', occupationIds: [41], jour: '2026-11-20', debut: '10:00', fin: '10:30', destinataires: [3, 4] });
     expect(fenetre()?.getAttribute('data-fenetre-previsite')).toBe('recap');
     expect(document.querySelector('[data-rien-enregistre]')).not.toBeNull();
     expect([...document.querySelectorAll('[data-texte-mail]')].map((x) => x.textContent)).toEqual(['Bonjour Arno Test, [lien personnel « Accepter »]', 'Bonjour Carla RECU,\n\nNous vous confirmons…']);
@@ -196,7 +197,10 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(container.querySelector('[data-deplacer-previsite]'));
     expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toBe('2026-11-20');
     expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
+    expect(document.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('60'); // 🔴 (19/11/2026) la durée du rendez-vous actuel
     expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('statuts remis à zéro');
+    // 🔴 Arno (19/11/2026) — « Chaque collègue destinataire »
+    expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('Chaque collègue destinataire recevra la nouvelle date à valider');
     saisir(document.querySelector('[data-previsite-jour]'), '2026-11-25');
     await clic(document.querySelector('[data-inviter-locataires="oui"]')); // 🔴 (18/11/2026) le choix obligatoire « Envoyer l’invitation aux locataires »
     await clic(document.querySelector('[data-recap-previsite]'));
@@ -355,8 +359,8 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
       await clic(container.querySelector(`[data-ouvrir-preavis="${ligne}"]`));
       await clic(container.querySelector(bouton));
       const grille = document.querySelector('[data-previsite-champs]')!;
-      expect(grille.className).toBe('pvv-grille gdh'); // 🔴 (19/11/2026) la grille partagée Date / Début / Fin
-      expect([...grille.querySelectorAll('.pvs-libelle')].map((x) => x.textContent)).toEqual(['Date *', 'Début *', 'Fin *']);
+      expect(grille.className).toBe('pvv-grille gdh-cadre'); // 🔴 (19/11/2026) la grille partagée Date / Début / Fin
+      expect([...grille.querySelectorAll('.pvs-libelle')].map((x) => x.textContent)).toEqual(['Date *', 'Durée\u00a0*', 'Début *', 'Fin *']); // 🔴 (19/11/2026) + « Durée » à droite de la date
       // 🔴 Arno (18/11/2026) — Début et Fin : l'heure (00 à 23) et les minutes du réglage (00, 15, 30, 45), plus le sélecteur natif
       expect([...grille.querySelectorAll('input')].map((x) => x.getAttribute('type'))).toEqual(['date']);
       expect([...grille.querySelectorAll('[data-choix-heure]')].map((x) => x.hasAttribute('data-previsite-debut') ? 'debut' : 'fin')).toEqual(['debut', 'fin']);
@@ -371,8 +375,9 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
     // 🔴 Arno (19/11/2026) — Date, Début, Fin l'une sous l'autre : la colonne des libellés commune, champs alignés ; téléphone : libellé au-dessus
     const { CSS_GRILLE_DATE_HEURES } = await import('./GrilleDateHeures');
     const g = CSS_GRILLE_DATE_HEURES.replace(/\s+/g, ' ');
-    expect(g).toContain('.gdh{display:grid;grid-template-columns:max-content minmax(0,1fr);');
-    expect(g).toContain('@media (max-width:600px){.gdh{grid-template-columns:minmax(0,1fr);');
+    expect(g).toContain('.gdh{display:grid;grid-template-columns:max-content minmax(0,1fr) auto minmax(0,1fr);'); // libellé | heure | « : » | minutes (et Durée)
+    expect(g).toContain('@media (max-width:600px){ .gdh{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);');
+    expect(g).toContain('.gdh > .gdh-libelle,.gdh .gdh-date,.gdh .gdh-duree,.gdh .chh{grid-column:1 / -1}'); // téléphone : chaque libellé au-dessus, la durée sous la date
   });
 });
 

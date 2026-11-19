@@ -499,11 +499,12 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     expect(container.querySelector('[data-planification-indisponible]')).not.toBeNull();
   });
 
-  it('fin proposée = début + 1 h (modifiable) ; fin ≤ début refusée ; « Confier à » = la liste Location ET Gestion ET Workspace', async () => {
+  it('fin proposée = début + la durée (30 min d’office, 🔴 19/11/2026) (modifiable) ; fin ≤ début refusée ; « Confier à » = la liste Location ET Gestion ET Workspace', async () => {
     await ouvrirPlanif();
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
-    expect(champ('fin').getAttribute('data-valeur')).toBe('11:00');
+    expect(champ('fin').getAttribute('data-valeur')).toBe('10:30');
+    expect(container.querySelector('[data-formulaire-edls] [data-duree-rdv]')?.getAttribute('data-duree')).toBe('30');
     act(() => saisir(champ('fin'), '09:30'));
     expect(container.querySelector('[data-edls-message]')?.textContent).toBe('L’heure de fin doit être après l’heure de début.');
     expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
@@ -519,7 +520,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); }); // 🔴 (19/11/2026, règle F) la fenêtre de confirmation : « OK »
-    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '', locataires: 'oui' });
+    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '10:30', confieA: 4, commentaire: '', locataires: 'oui' });
     const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
     // 🔴 (15/11/2026) le statut « RDV état des lieux fixé » (violet) remplace la pastille « EDLS planifié » ; le détail le dit toujours
     expect(ligne.querySelector('[data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');

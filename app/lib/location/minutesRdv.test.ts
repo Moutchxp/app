@@ -52,3 +52,24 @@ describe('🔴 Arno (19/11/2026) — la plage horaire (début 8h00 à 20h00, fin
     expect(refusPlageRdv({ debut: '20:00', fin: '21:15' }, PLAGE_RDV_DEFAUT)).toBe(msg);
   });
 });
+
+describe('🔴 Arno (19/11/2026) — les durées d’un rendez-vous (réglage 501)', async () => {
+  const { DUREES_RDV_DEFAUT, dureeAffichee, dureeEntre, dureesCompatibles, finDepuisDebut, lireDureesRdv, motDureeRdv, PLAGE_RDV_DEFAUT } = await import('./minutesRdv');
+  it('défaut 15/30/45/60, 30 d’office ; un réglage incohérent retombe sur le défaut', () => {
+    expect(DUREES_RDV_DEFAUT).toEqual({ durees: [15, 30, 45, 60], defaut: 30 });
+    expect(lireDureesRdv(null)).toEqual(DUREES_RDV_DEFAUT);
+    expect(lireDureesRdv({ durees: [60, 30], defaut: 45 })).toEqual(DUREES_RDV_DEFAUT);
+    expect(lireDureesRdv({ durees: [60, 30, 30], defaut: 60 })).toEqual({ durees: [30, 60], defaut: 60 });
+  });
+  it('« 15 min », « 1 h », « 1 h 30 » ; fin = début + durée ; durée entre deux heures', () => {
+    expect([15, 60, 90].map(motDureeRdv)).toEqual(['15 min', '1 h', '1 h 30']);
+    expect(finDepuisDebut('10:00', 30)).toBe('10:30');
+    expect(dureeEntre('10:00', '11:00')).toBe(60);
+    expect(dureeEntre('10:00', '09:00')).toBeNull();
+    expect(dureeAffichee('10:00', '11:30', 30, [15, 30, 45, 60])).toBe('personnalisee');
+  });
+  it('début 20h00 : la fin ne dépasse jamais 21h00', () => {
+    expect(dureesCompatibles('20:00', [15, 30, 45, 60, 90], PLAGE_RDV_DEFAUT, [0, 15, 30, 45])).toEqual([15, 30, 45, 60]);
+    expect(dureesCompatibles('20:30', [15, 30, 45, 60], { ...PLAGE_RDV_DEFAUT, debutMax: '20:30' }, [0, 15, 30, 45])).toEqual([15, 30]);
+  });
+});

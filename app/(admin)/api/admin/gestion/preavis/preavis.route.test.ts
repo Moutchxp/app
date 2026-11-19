@@ -26,7 +26,7 @@ describe('la lecture des préavis côté Gestion', () => {
     const r = await get('preavisEnCours=1');
     expect(r.status).toBe(200);
     // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (sans la 498 : 00, 15, 30, 45)
-    expect(await r.json()).toEqual({ etat: 'ok', data: { ...LIGNES, previsite: true, minutesRdv: [0, 15, 30, 45], plageRdv: { debutMin: '08:00', debutMax: '20:00', finMax: '21:00' } } });
+    expect(await r.json()).toEqual({ etat: 'ok', data: { ...LIGNES, previsite: true, minutesRdv: [0, 15, 30, 45], plageRdv: { debutMin: '08:00', debutMax: '20:00', finMax: '21:00' }, dureesRdv: { durees: [15, 30, 45, 60], defaut: 30 } } });
     expect(preavisEnCours).toHaveBeenCalledTimes(1);
     expect(avecPrevisites).toHaveBeenCalledWith(LIGNES);
   });

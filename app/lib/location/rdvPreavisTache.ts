@@ -33,9 +33,16 @@ export async function tachesRdvPreavis(ids: readonly number[]): Promise<Set<numb
 export async function refusMinutesTachePreavis(tacheId: number, heure: string | null, dureeMinutes?: number | null): Promise<string | null> {
   if (heure === null || heure.trim() === '') return null;
   if (!(await tachesRdvPreavis([tacheId])).has(tacheId)) return null;
-  const { rows } = await query<{ heure: string | null }>(`SELECT to_char(heure, 'HH24:MI') AS heure FROM gestion_tache WHERE id = $1`, [tacheId]);
-  if ((rows[0]?.heure ?? null) === heure.slice(0, 5)) return null;
+  const { rows } = await query<{ heure: string | null; duree: number | null }>(
+    `SELECT to_char(heure, 'HH24:MI') AS heure, duree_minutes AS duree FROM gestion_tache WHERE id = $1`, [tacheId]);
   // 🔴 Arno (19/11/2026) — + la plage horaire : début de 8h00 à 20h00 ; avec une durée, la fin au plus tard à 21h00 (réglage 499)
   const fin = dureeMinutes ? heureFinRdv(heure.slice(0, 5), dureeMinutes) ?? '' : '';
+  if ((rows[0]?.heure ?? null) === heure.slice(0, 5)) {
+    // l'heure ne change pas : rien n'est refusé… sauf une DURÉE changée qui ferait finir après la fin au plus tard (« le serveur refuse tout
+    // dépassement », Arno 19/11/2026) ; la minute d'origine (09h53) n'est jamais refusée
+    const dureeAvant = rows[0]?.duree === null || rows[0]?.duree === undefined ? null : Number(rows[0].duree);
+    if (!dureeMinutes || dureeMinutes === dureeAvant) return null;
+    return refusPlageRdv({ debut: '', fin }, await plageRdvAutorisee());
+  }
   return refusMinutesRdv({ debut: heure, fin: '' }, await minutesRdvAutorisees()) ?? refusPlageRdv({ debut: heure, fin }, await plageRdvAutorisee());
 }
