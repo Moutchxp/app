@@ -234,14 +234,45 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
   "app/(admin)/admin/(protected)/mon-espace/page.tsx"` → « Compiled successfully » (18/11/2026, code de `1f3a7e7b`).
 - L'erreur n'apparaît pas dans `.next/dev/logs/next-development.log` (seulement dans le terminal du serveur).
 
+### 2e occurrence (rapportée par Arno, 19/11/2026 vers 15h50) — ce qui a été mesuré
+
+- **Même message** rapporté (« Failed to write app endpoint /(admin)/admin/(protected)/mon-espace/page — … does not support
+  external modules (request: node:fs) »), avec un journal de panne `next-panic-6f12a3d3988dbfbc9f714029c67bdd05.log`.
+- ✅ **Le journal de panne n'existe pas sur ce Mac** : absent de `$TMPDIR` (`/var/folders/_h/…/T/`), et aucun fichier
+  `next-panic-*` nulle part sous `/var/folders` (recherche faite hors bac à sable).
+- ✅ **Le serveur de recette ne s'était PAS arrêté** : le seul `next dev` de la machine (PID 47413, lancé le 17/11/2026 à 18h49,
+  verrou `.next/dev/lock` à son nom, en écoute sur le port 3000) répondait encore 200 à 15h58. Son terminal
+  (`.captures/recette-interception/serveur-iphone.log`, 17/11 → 19/11) ne contient **aucune** réponse 500, aucun « FATAL »,
+  aucune panique ; `GET /admin/mon-espace` y est servi en **200**. Rien non plus dans `.next/dev/logs/next-development.log`
+  ni dans la trace `.next/dev/trace` (aucun `ensure-page` en échec pour `mon-espace` autour de 15h50). Aucun autre dossier
+  `.next/dev` sur la machine.
+- ✅ **Ce qui ne répondait plus, mesuré : le TUNNEL.** Le tunnel `kirk-literature-finger-tube` (cloudflared du 18/11 à 15h30)
+  n'avait plus aucune connexion enregistrée depuis le 18/11/2026 à 16h35 (heure de Paris) : erreurs continues côté Cloudflare
+  (« control stream encountered a failure while serving ») jusqu'au 19/11 (`tunnel-2026-11-18.log`). Le serveur, lui, gardait
+  l'adresse du tunnel du 17/11 (`dome-byte-links-language`) pour les liens des mails.
+- ✅ **Graphe d'imports rejoué sur le code du 19/11 (`aa05a701`)** : `mon-espace/page.tsx`, `mon-espace/recapitulatif/page.tsx`
+  et les trois layouts de la route (`app/layout.tsx`, `app/(admin)/layout.tsx`, `app/(admin)/admin/(protected)/layout.tsx`) —
+  côté navigateur (au-delà de chaque `'use client'`, imports dynamiques compris), **aucun** `node:*`, `fs`, `pg`, `dns` ni
+  `server-only`. Même résultat en partant des **379 composants client du dépôt** (849 fichiers côté navigateur).
+- ✅ **Compilation ciblée Turbopack** (`next build --experimental-build-mode compile --debug-build-paths` sur
+  `mon-espace/page.tsx`, puis `mon-espace/**/page.tsx`) : « Compiled successfully », sans avertissement
+  (`.captures/recette-interception/compile-mon-espace-2026-11-19.log`).
+- **Non reproduite**, donc **aucune modification du code** (règle ci-dessous). Recette relancée (nouveau tunnel, nouveau
+  terminal `serveur-2026-11-19.log`).
+
 ### ❓ NON ÉTABLI — la cause
 
 - Aucune cause n'est établie. Le code ne fait entrer `node:fs` nulle part dans la page : rien n'indique un défaut du dépôt,
   et rien ne prouve non plus un état interne du serveur de développement. Ne pas promouvoir l'une ou l'autre en cause.
+- 19/11 : le processus qui a affiché l'erreur n'est PAS le serveur de recette en écoute sur ce Mac (voir ci-dessus) ; lequel
+  c'était, et où, reste à établir (terminal, machine, dossier, commande).
 
 ### Conduite à tenir si elle revient
 
 - **Copier l'erreur ENTIÈRE du terminal** (avec l'heure et la trace d'imports si Turbopack en donne une) avant toute relance.
+- **Noter d'où elle vient** : quel terminal, quelle commande (`npm run recette`, `npm run dev`…), quel dossier, et copier le
+  fichier `next-panic-*.log` dans `.captures/` tout de suite (il n'était plus là le 19/11). Vérifier aussi `lsof -iTCP:3000`
+  et `.next/dev/lock` : un seul `next dev` par dossier.
 - Rejouer le graphe d'imports de la page (frontière client, recherche de `node:` / `fs`) et la compilation ciblée ci-dessus
   sur le code du moment ; si les deux sont propres, relancer `next dev` et consigner l'occurrence ici.
 - Ne rien « corriger » dans le code sans une reproduction : une modification sans panne reproduite ne prouve rien.
