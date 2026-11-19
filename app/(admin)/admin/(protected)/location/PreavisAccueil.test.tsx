@@ -1126,7 +1126,10 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
       expect([...x.querySelector('[data-cr-ligne-envoi]')!.children].map((c) => c.className.split(' ')[0])).toEqual(['pvv-cr-quand', 'pvv-cr-etat']);
     }
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
-    expect(css).toContain('.pvv-cr-dest{--pvv-famille:var(--color-svv-gray);display:flex;flex-direction:column;');
+    // ligne 1 : la pastille puis le nom, côte à côte (le nom passe dessous s'il est trop long) ; ligne 2 : la date puis le statut
+    expect(css).toContain('.pvv-cr-dest{--pvv-famille:var(--color-svv-gray);display:flex;flex-wrap:wrap;');
+    expect(css).toContain('.pvv-cr-nom{flex:0 1 auto;max-width:100%;');
+    expect(css).toContain('.pvv-cr-envoi{flex:0 0 100%;');
     expect(css).not.toMatch(/\.pvv-cr-dest--(locataire|interne|proprietaire)\{[^}]*(display|padding|margin|flex)/);
     expect(f.querySelector('[data-cr-aucun-envoi]')).toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
