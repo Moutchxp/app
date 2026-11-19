@@ -629,8 +629,10 @@ describe('🔴🔴 Arno (11/11/2026, lot 5) — retouches de PRÉSENTATION de la
     // Le CSS : une grille partagée (subgrid) pour les EN-TÊTES ; boutons pleine largeur.
     const css = CSS_PREAVIS_ACCUEIL.replace(/\s+/g, ' ');
     // 🔴 Arno (18/11/2026, option A) — seuls les EN-TÊTES partagent leur rangée ; le contenu se range en haut de sa case, sans trou.
-    expect(css).toContain('.frp-etape{display:grid;grid-row:span 2;grid-template-rows:subgrid;');
-    expect(css).toContain('.frp-etape > .pva-bloc{grid-row:2;align-self:start;display:flex;flex-direction:column;');
+    // 🔴 Arno (19/11/2026) — même hauteur pour toutes les cases, contenu CENTRÉ verticalement (retour sur l'option A du 18/11)
+    expect(css).toContain('.frp-etape{display:flex;flex-direction:column;justify-content:center;');
+    expect(css).toContain('.frp-etape > .pva-bloc{display:flex;flex-direction:column;');
+    expect(css).not.toContain('grid-template-rows:subgrid');
     expect(css).toMatch(/\.frp-actions \.loc-boutons \.svv-btn\{width:100%;min-height:48px;[^}]*justify-content:center;text-align:center/);
   });
 
@@ -3773,3 +3775,20 @@ describe('🔴 Arno (18/11/2026) — minutes 00/15/30/45, « Locataires : Non so
     expect(container.querySelector('[data-rdv-previsite]')).toBeNull(); // programmée : « Déplacer la pré-visite », comme d'habitude
   });
 });
+
+describe('🔴 Arno (19/11/2026) — libellés des rendez-vous', () => {
+  it('« Modifier / déplacer la pré-visite », « Modifier / déplacer l’état des lieux », « Valider le rendez-vous sans demander de confirmation aux locataires »', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l,
+      previsite: { statut: 'programmee', rdv: { jour: '2099-01-05', heure: '10:00', dureeMinutes: 60 }, tacheId: 40, collegues: [], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null },
+      edls: { edlsId: 1, tacheId: 41, jour: '2099-01-06', heure: '14:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente', reponduPar: null, motifRefus: null },
+      reponsesRdv: { previsite: { etat: 'attente', par: null, main: false, reponses: [] }, edl: null, disponible: true } } as unknown as LignePreavisAccueil : l));
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    expect(container.querySelector('[data-deplacer-previsite]')?.textContent).toBe('Modifier / déplacer la pré-visite');
+    expect(container.querySelector('[data-deplacer-edls]')?.textContent).toBe('Modifier / déplacer l’état des lieux');
+    expect(container.querySelector('[data-rdv-locataires="previsite"] [data-valider-rdv-main]')?.textContent).toBe('Valider le rendez-vous sans demander de confirmation aux locataires');
+  });
+});
+
