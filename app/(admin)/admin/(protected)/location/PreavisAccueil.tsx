@@ -36,7 +36,7 @@ import { ChoixInviterLocataires } from './ChoixInviterLocataires';
 import { GrilleDateHeures } from './GrilleDateHeures';
 import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
 import { phraseConfirmationRdv, resumeChangementCollaborateur } from '../../../../lib/gestion/modificationRdv';
-import { DUREES_RDV_DEFAUT, finDepuisDebut, lireDureesRdv, lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_PAR_DEFAUT, DUREES_RDV_DEFAUT, finDepuisDebut, lireDureesRdv, lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
 import { CSS_BLOC_REPLIE } from '../gestion/blocReplie';
@@ -668,7 +668,9 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
 }) {
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
-  const dureesRdv = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
+  // 🔴 Arno (19/11/2026, 503) — la durée d'office d'un ÉTAT DES LIEUX DE SORTIE (1 h) ; « Modifier / déplacer » : celle du rendez-vous actuel
+  const dureesBrutes = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
+  const dureesRdv = { ...dureesBrutes, defaut: (dureesBrutes.defauts ?? DUREES_PAR_DEFAUT).edl };
   const debutInitial = e?.heure ?? '';
   const [jour, setJour] = useState(e?.jour ?? '');
   const [debut, setDebut] = useState(debutInitial);
@@ -680,7 +682,7 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire, rien de pré-coché
-  const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
+  const [choixSaisi, setChoixLoc] = useState<ChoixLocataires | null>(null);
   const [manqueChoix, setManqueChoix] = useState(false);
   // Pour un déplacement, la fin d'origine (durée de la tâche) est reprise.
   useEffect(() => {
@@ -701,6 +703,8 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   const maintien = e === null || e.heure === null || jour !== e.jour || debut !== e.heure
     || fin !== (finDepuisDebut(e.heure, e.dureeMinutes ?? 60) ?? '') || confieA === null || confieA === e.confieAId ? null
     : resumeChangementCollaborateur({ jour, debut, fin, avant: [{ id: e.confieAId, libelle: e.confieA }], apres: [{ id: confieA, libelle: libelles[confieA] ?? `compte ${confieA}` }], moiId });
+  // 🔴 Arno (19/11/2026) — seule la personne change : la demande de confirmation aux locataires PRÉ-COCHÉE sur « Non » (modifiable) ; ailleurs, rien de pré-coché
+  const choixLoc = choixSaisi ?? (maintien !== null ? 'non' as const : null);
   // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : planifier / déplacer impossible (le serveur refuse aussi).
   const emails = useEmailsLocataires(l);
   /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (qui recevra l'invitation, et son texte) ; « Revenir » garde la saisie. */
@@ -740,6 +744,8 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
         fin={fin} onFin={(v) => { setFin(v); setRefus(null); }} durees={dureesRdv}
         minutes={minutesRdv} plage={plageRdv} donnees={{ jour: 'data-edls-jour', debut: 'data-edls-debut', fin: 'data-edls-fin' }} />
       <ChoixPersonne valeur={confieA} onChange={setConfieA} />
+      {/* 🔴 Arno (19/11/2026) — un préavis de TEST se confie à tous : ses invitations partent uniquement vers vous */}
+      {l.test && <p className="loc-muet" style={{ margin: 0, fontSize: '.88rem' }} data-mention-test-invitations>Préavis de test : les invitations partent uniquement vers vous.</p>}
       {e === null && (
         <label className="pvs-champ"><span className="pvs-libelle">Commentaire (facultatif)</span>
           <textarea value={commentaire} onChange={(ev) => setCommentaire(ev.target.value)} rows={2} placeholder="ex. clés chez le gardien" data-edls-commentaire /></label>

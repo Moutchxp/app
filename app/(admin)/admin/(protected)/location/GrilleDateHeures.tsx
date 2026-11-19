@@ -3,10 +3,8 @@
 import { useEffect, useId, useState } from 'react';
 import { ChoixHeure } from './ChoixHeure';
 import { ListeChoix } from './ListeChoix';
-import { dureeAffichee, dureeEntre, dureesCompatibles, DUREES_RDV_DEFAUT, finDepuisDebut, motDureeRdv, type DureesRdv, type PlageRdv } from '../../../../lib/location/minutesRdv';
+import { dureeAffichee, dureeEntre, dureesCompatibles, DUREES_RDV_DEFAUT, finDepuisDebut, libelleDureeAutre, motDureeRdv, type DureesRdv, type PlageRdv } from '../../../../lib/location/minutesRdv';
 
-/** Le libellé de la durée quand la fin, choisie à la main, ne tombe sur aucune durée proposée. */
-export const LIBELLE_DUREE_PERSONNALISEE = 'Personnalisée';
 
 /**
  * 🔴🔴 Arno (19/11/2026) — DATE ET HEURES D'UN RENDEZ-VOUS DU PRÉAVIS, l'une sous l'autre, symétriques : « Date » (moitié gauche) et « Durée »
@@ -16,7 +14,7 @@ export const LIBELLE_DUREE_PERSONNALISEE = 'Personnalisée';
  *
  * LA DURÉE (Arno, 19/11/2026) : les durées du réglage (15 min, 30 min, 45 min, 1 h ; 30 min d'office — migration 501). Dès que le début est choisi
  * (heure ET minutes), la fin = début + durée, recalculée à chaque changement du début ou de la durée. La fin reste modifiable : la durée affichée
- * devient celle qui correspond, ou « Personnalisée ». Seules les durées dont la fin respecte la plage (au plus tard 21h00) et les minutes du réglage
+ * devient celle qui correspond, ou « Autre (n min) ». Seules les durées dont la fin respecte la plage (au plus tard 21h00) et les minutes du réglage
  * sont proposées. À l'ouverture d'un « Modifier / déplacer » : la durée du rendez-vous actuel, sa fin inchangée tant qu'on ne touche à rien.
  * Les libellés et les repères (`data-…`) sont ceux de chaque fenêtre, inchangés.
  */
@@ -39,17 +37,21 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
     const e = dureeEntre(debut, fin);
     if (e !== null) setChoisie(e);
   }, [debut, fin]);
-  const affichee = dureeAffichee(debut, fin, choisie, durees.durees);
-  const compatibles = dureesCompatibles(debut, durees.durees, plage, minutes);
+  // 🔴 Arno (19/11/2026) — la durée d'office de cette sorte fait toujours partie des choix : « Autre (…) » n'apparaît jamais à la création
+  const choix = [...new Set([...durees.durees, durees.defaut])].sort((a, b) => a - b);
+  const affichee = dureeAffichee(debut, fin, choisie, choix);
+  const compatibles = dureesCompatibles(debut, choix, plage, minutes);
+  // « Autre (19 min) » (Arno, 19/11/2026 : remplace « Personnalisée ») : la durée réelle, seulement quand elle ne correspond à aucun choix
+  const autre = dureeEntre(debut, fin) ?? choisie;
   const options = [
     ...compatibles.map((d) => ({ id: String(d), libelle: motDureeRdv(d) })),
-    ...(affichee === 'personnalisee' ? [{ id: 'personnalisee', libelle: LIBELLE_DUREE_PERSONNALISEE }]
+    ...(affichee === 'personnalisee' ? [{ id: 'personnalisee', libelle: libelleDureeAutre(autre) }]
       : compatibles.includes(affichee) ? [] : [{ id: String(affichee), libelle: motDureeRdv(affichee) }]),
   ];
   /** La durée à garder pour ce début : la durée en cours si sa fin respecte la plage et les minutes, sinon la plus longue qui convient. */
   const dureePour = (v: string): number | null => {
     if (dureesCompatibles(v, [choisie], plage, minutes).length === 1) return choisie;
-    const c = dureesCompatibles(v, durees.durees, plage, minutes);
+    const c = dureesCompatibles(v, choix, plage, minutes);
     return c.length > 0 ? c[c.length - 1] : null;
   };
   const changerDebut = (v: string): void => {

@@ -178,7 +178,6 @@ describe('🔴 les autres points d’entrée : décaler, renvoyer une invitation
       exterieurs: [{ nom: 'M. DUPONT Jean', email: 'jean@exemple.test', sorte: 'annulation', envoye: true, motif: null, objet: 'Rendez-vous annulé : Visite — 13/11/2026 à 10h00' }] };
     await carte();
     await clic(container.querySelector('[data-action="annuler"]'));
-    await clic(container.querySelector('[data-action="annuler-oui"]'));
     expect(posts[0]).toMatchObject({ url: '/api/admin/gestion/taches/apercu', corps: { geste: 'annuler', tacheId: 9 } });
     const f = document.querySelector('[data-fenetre-envois="recap"]')!;
     expect(f.querySelector('[data-total-envois]')?.textContent).toBe('1 mail d’annulation partira.');
@@ -344,7 +343,6 @@ describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » d’un mail ext
     await preparer('annulation');
     await act(async () => { root.render(createElement('ul', null, createElement(LigneTache, { tache, maintenant: new Date(), deplie: true, onDetail: () => {}, onBasculer: () => {} }))); }); await calmer();
     await clic(container.querySelector('[data-action="annuler"]'));
-    await clic(container.querySelector('[data-action="annuler-oui"]'));
     await verifier('tache_exterieur_annulation');
   });
 });

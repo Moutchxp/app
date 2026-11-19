@@ -67,9 +67,8 @@ describe('Rendez-vous', () => {
     await saisir('.tchf-corps input[type="time"]', '10:30');
     expect(objet()).toBe('Demande de rendez-vous le 20/11/2026 à 10h30');
     expect(container.querySelector('.tchf-corps')?.textContent).toContain('Heure de début *');
-    // Sans durée : refusé, rien ne part.
-    await clic('[data-enregistrer-tache]');
-    expect(container.querySelector('.tchf-alerte')?.textContent).toBe('Indiquez la durée du rendez-vous (entre 5 min et 24 h).');
+    // 🔴 Arno (19/11/2026, 503) — un rendez-vous qu'on crée : 30 min d'office (réglage ; plus de durée « à remplir »)
+    expect(container.querySelector('[data-duree-rapide][aria-pressed="true"]')?.getAttribute('data-duree-rapide')).toBe('30');
     expect(posts).toEqual([]);
     // 🔴 Arno (11/11/2026) — 5 min et 15 min en tête ; « Autre (min) » à la suite.
     expect([...container.querySelectorAll('[data-duree-rapide]')].map((b) => b.textContent)).toEqual(['5 min', '15 min', '30 min', '1 h', '1 h 30', '2 h']);
@@ -174,7 +173,7 @@ describe('🔴🔴 Arno (11/11/2026) — type en rouge, objet type, heure et dur
     expect((container.querySelector('[data-champ-heure]') as HTMLInputElement).value).toBe('');
     await clic('[data-sorte="rdv"]');
     expect((container.querySelector('[data-champ-heure]') as HTMLInputElement).value).toBe('');
-    expect(container.querySelector('[data-duree-rapide][aria-pressed="true"]')).toBeNull();
+    expect(container.querySelector('[data-duree-rapide][aria-pressed="true"]')?.getAttribute('data-duree-rapide')).toBe('30'); // 🔴 (19/11/2026) 30 min d'office
     await clic('[data-enregistrer-tache]');
     expect(container.querySelector('.tchf-alerte')?.textContent).toBe('Indiquez l’heure de début du rendez-vous.');
     expect(posts).toEqual([]);

@@ -111,17 +111,27 @@ export function refusPlageRdv(heures: { debut: string; fin: string }, plage: Pla
 // « Liste de choix : 15 min, 30 min, 45 min, 1 h. Valeur par défaut : 30 min. […] un réglage en configuration, à côté de minutes_rdv. » La fin
 // se CALCULE : début + durée ; modifiée à la main, la durée affichée devient celle qui correspond, ou « Personnalisée ». Réglage : migration 501.
 
-/** Les durées proposées (minutes) et celle choisie d'office. */
-export interface DureesRdv { durees: number[]; defaut: number }
-export const DUREES_RDV_DEFAUT: DureesRdv = { durees: [15, 30, 45, 60], defaut: 30 };
+/** Les durées proposées (minutes) et celle choisie d'office. 🔴 Arno (19/11/2026, 503) — + la durée d'office de CHAQUE sorte, à la création. */
+export interface DureesParDefaut { previsite: number; edl: number; rdvTache: number; tache: number }
+export interface DureesRdv { durees: number[]; defaut: number; defauts?: DureesParDefaut }
+export const DUREES_PAR_DEFAUT: DureesParDefaut = { previsite: 30, edl: 60, rdvTache: 30, tache: 15 };
+export const DUREES_RDV_DEFAUT: DureesRdv = { durees: [15, 30, 45, 60], defaut: 30, defauts: DUREES_PAR_DEFAUT };
+
+/** Des durées d'office lues (base, réponse du serveur) : chacune de 5 à 1440 minutes, sinon la valeur par défaut de cette sorte. PUR. */
+export function lireDureesParDefaut(x: unknown): DureesParDefaut {
+  const o = (x ?? {}) as Partial<Record<keyof DureesParDefaut, unknown>>;
+  const v = (k: keyof DureesParDefaut): number => { const n = Number(o[k]); return Number.isInteger(n) && n >= 5 && n <= 1440 ? n : DUREES_PAR_DEFAUT[k]; };
+  return { previsite: v('previsite'), edl: v('edl'), rdvTache: v('rdvTache'), tache: v('tache') };
+}
 
 /** Un réglage lu (base, réponse du serveur) : durées entières de 5 à 1440, sans doublon, triées, et un défaut parmi elles ; sinon le défaut. PUR. */
 export function lireDureesRdv(x: unknown): DureesRdv {
-  const o = (x ?? {}) as { durees?: unknown; defaut?: unknown };
+  const o = (x ?? {}) as { durees?: unknown; defaut?: unknown; defauts?: unknown };
   const l = Array.isArray(o.durees) ? o.durees.map(Number).filter((n) => Number.isInteger(n) && n >= 5 && n <= 1440) : [];
   const durees = [...new Set(l)].sort((a, b) => a - b);
   const defaut = Number(o.defaut);
-  return durees.length > 0 && durees.includes(defaut) ? { durees, defaut } : { durees: [...DUREES_RDV_DEFAUT.durees], defaut: DUREES_RDV_DEFAUT.defaut };
+  const defauts = lireDureesParDefaut(o.defauts);
+  return durees.length > 0 && durees.includes(defaut) ? { durees, defaut, defauts } : { durees: [...DUREES_RDV_DEFAUT.durees], defaut: DUREES_RDV_DEFAUT.defaut, defauts };
 }
 
 /** « 15 min », « 1 h », « 1 h 30 » : une durée dans la liste. PUR. */
@@ -158,6 +168,9 @@ export function dureesCompatibles(debut: string, durees: readonly number[], plag
     return t !== null && t <= haut && minutes.includes(t % 60);
   });
 }
+
+/** « Autre (19 min) » : la durée réelle qui ne correspond à aucun choix (Arno, 19/11/2026 : remplace « Personnalisée »). PUR. */
+export const libelleDureeAutre = (minutes: number): string => `Autre (${minutes} min)`;
 
 /** La durée à afficher : celle de la liste qui correspond au créneau, « personnalisee » sinon ; sans créneau complet : la durée choisie. PUR. */
 export function dureeAffichee(debut: string, fin: string, choisie: number, durees: readonly number[]): number | 'personnalisee' {

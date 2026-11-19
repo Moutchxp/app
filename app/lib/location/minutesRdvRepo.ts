@@ -40,9 +40,16 @@ export async function plageRdvAutorisee(): Promise<PlageRdv> {
  */
 export async function dureesRdvReglees(): Promise<DureesRdv> {
   try {
-    if (!(await colonneExisteMemo('gestion_config', 'duree_rdv_defaut'))) return lireDureesRdv(DUREES_RDV_DEFAUT);
+    // 🔴 Arno (19/11/2026, 503) — + les durées d'office de chaque sorte (sans la 503 : 30 / 60 / 30 / 15)
+    const defauts = await (async () => {
+      if (!(await colonneExisteMemo('gestion_config', 'duree_defaut_tache'))) return null;
+      const { rows } = await query<{ p: number; e: number; r: number; t: number }>(
+        'SELECT duree_defaut_previsite AS p, duree_defaut_edl AS e, duree_defaut_rdv_tache AS r, duree_defaut_tache AS t FROM gestion_config WHERE id = 1');
+      return rows[0] ? { previsite: rows[0].p, edl: rows[0].e, rdvTache: rows[0].r, tache: rows[0].t } : null;
+    })().catch(() => null);
+    if (!(await colonneExisteMemo('gestion_config', 'duree_rdv_defaut'))) return lireDureesRdv({ ...DUREES_RDV_DEFAUT, defauts });
     const { rows } = await query<{ d: number[] | null; x: number | null }>('SELECT durees_rdv AS d, duree_rdv_defaut AS x FROM gestion_config WHERE id = 1');
-    return lireDureesRdv({ durees: rows[0]?.d, defaut: rows[0]?.x });
+    return lireDureesRdv({ durees: rows[0]?.d, defaut: rows[0]?.x, defauts });
   } catch {
     return lireDureesRdv(DUREES_RDV_DEFAUT);
   }

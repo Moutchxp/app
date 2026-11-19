@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
 import { GrilleDateHeures } from './GrilleDateHeures';
-import { DUREES_RDV_DEFAUT, finDepuisDebut, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_PAR_DEFAUT, DUREES_RDV_DEFAUT, finDepuisDebut, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import { resumeChangementCollaborateur } from '../../../../lib/gestion/modificationRdv';
 import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
@@ -22,7 +22,8 @@ import {
   type PrevisiteAffiche, type StatutPrevisite,
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
-import { rdvDansDeuxMinutes } from '../../../../lib/location/preavisTest';
+import { phraseLienCompteRendu } from '../../../../lib/location/preavisTest';
+import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
 import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonEnvoiProprietaires, BoutonTheme, useDestinatairesCompteRendu, Confirmation, LignesVocauxRecap, MOTIF_PHOTO_PERDUE, MOTIF_PRISE_PERDUE, motifPiecesBloquantes, piecesBloquantes, type PriseVocale, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
@@ -288,11 +289,13 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const avecDate = geste === 'rdv' || geste === 'deplacer';
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
-  const dureesRdv = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
+  // 🔴 Arno (19/11/2026, 503) — la durée d'office d'une PRÉ-VISITE (30 min) ; « Modifier / déplacer » : celle du rendez-vous actuel
+  const dureesBrutes = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
+  const dureesRdv = { ...dureesBrutes, defaut: (dureesBrutes.defauts ?? DUREES_PAR_DEFAUT).previsite };
   // 🔴 Arno (19/11/2026, règle A) — « Modifier / déplacer » change aussi les collègues (cochés au départ : ceux du rendez-vous)
   const avecCollegues = geste === 'rdv' || geste === 'reaffecter' || geste === 'deplacer';
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » (fixer, déplacer) : obligatoire, rien de pré-coché
-  const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
+  const [choixSaisi, setChoixLoc] = useState<ChoixLocataires | null>(null);
   const fin0 = p.rdv ? heureFinProposee(p.rdv.heure) : '';
   const [jour, setJour] = useState(deplacement && p.rdv ? p.rdv.jour : '');
   const [debut, setDebut] = useState(deplacement && p.rdv ? p.rdv.heure : '');
@@ -433,8 +436,16 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const [texteRefus, setTexteRefus] = useState<string | null>(null);
   const collegues = useLecture<Collegue[]>(avecCollegues ? 'previsiteCollegues=1' : null);
   const propose = useLecture<{ texte: string; objet: string; sansEmail: string[] }>(geste === 'refus' ? `previsiteRefus=${l.occupationIds.join(',')}` : null);
-  // 🔴 Arno (14/11/2026, 473) — un préavis de TEST ne se confie qu'à vous (en tête de liste) : jamais un collègue (le serveur le refuse aussi).
-  const liste = useMemo(() => { const x = collegues.etat.etat === 'ok' && Array.isArray(collegues.etat.data) ? collegues.etat.data : []; return l.test ? x.slice(0, 1) : x; }, [collegues.etat, l.test]);
+  // 🔴 Arno (19/11/2026) — un préavis de TEST propose la liste COMPLÈTE (remplace la règle du 14/11) : ses invitations partent uniquement vers vous.
+  const liste = useMemo(() => (collegues.etat.etat === 'ok' && Array.isArray(collegues.etat.data) ? collegues.etat.data : []), [collegues.etat]);
+  // 🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (préavis de TEST) : l'envoi, puis la fenêtre de confirmation habituelle
+  const [lienCr, setLienCr] = useState<{ envoi: boolean; phrase: string | null }>({ envoi: false, phrase: null });
+  const envoyerLienCr = async (): Promise<void> => {
+    setLienCr({ envoi: true, phrase: null }); setRefus(null);
+    const r = await envoyer({ action: 'envoyer-lien-compte-rendu', occupationIds: l.occupationIds }, { propre: true });
+    if (r.motif !== null) { setLienCr({ envoi: false, phrase: null }); setRefus(r.motif); return; }
+    setLienCr({ envoi: false, phrase: phraseLienCompteRendu(((r.data ?? {}) as { envois?: MailParti[] }).envois ?? []) });
+  };
   // Par défaut : le compte connecté (en tête de liste) — sauf pour réaffecter, où l'on choisit.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
@@ -459,19 +470,23 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   //    à l'heure de début) ; elles sont proposées en plus de la plage et des minutes du réglage, pour ce préavis de test seulement (le serveur
   //    l'accepte aussi, test seul)
   const garderTest = useMemo(() => (l.test ? [debut, fin].filter((x) => x !== '') : []), [l.test, debut, fin]);
-  const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true && choixLoc !== null : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
-  const corpsCommun = { occupationIds: l.occupationIds };
-  const rdvActuel = p.rdv;
   // 🔴🔴 Arno (19/11/2026) — « Modifier / déplacer » sans changer la date ni l'heure, mais les collègues : le résumé mot pour mot (récapitulatif) et sa
   // phrase (résultat). Les locataires ne reçoivent rien, sauf « Oui ».
   const maintien = useMemo(() => {
-    if (!deplacement || !rdvActuel) return null;
-    const finActuelle = finDepuisDebut(rdvActuel.heure, rdvActuel.dureeMinutes);
-    if (jour !== rdvActuel.jour || debut !== rdvActuel.heure || fin !== finActuelle) return null;
+    const rdvA = p.rdv;
+    if (!deplacement || !rdvA) return null;
+    const finActuelle = finDepuisDebut(rdvA.heure, rdvA.dureeMinutes);
+    if (jour !== rdvA.jour || debut !== rdvA.heure || fin !== finActuelle) return null;
     const nom = (id: number): string => liste.find((c) => Number(c.id) === id)?.libelle ?? p.collegues.find((c) => c.collaborateurId === id)?.libelle ?? `compte ${id}`;
     return resumeChangementCollaborateur({ jour, debut, fin, avant: p.collegues.filter((c) => c.collaborateurId !== null).map((c) => ({ id: Number(c.collaborateurId), libelle: c.libelle })),
       apres: dest.map((id) => ({ id, libelle: nom(id) })), moiId: (() => { const m = liste.find((c) => (c as { moi?: boolean }).moi === true); return m ? Number(m.id) : null; })() });
-  }, [deplacement, rdvActuel, jour, debut, fin, dest, liste, p.collegues]);
+  }, [deplacement, p.rdv, jour, debut, fin, dest, liste, p.collegues]);
+  // 🔴 Arno (19/11/2026) — seul le collègue change : « Envoyer une demande de confirmation au(x) locataire(s) » PRÉ-COCHÉ sur « Non » (modifiable) ;
+  // partout ailleurs, aucune réponse pré-cochée
+  const choixLoc = choixSaisi ?? (maintien !== null ? 'non' as const : null);
+  const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true && choixLoc !== null : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
+  const corpsCommun = { occupationIds: l.occupationIds };
+  const rdvActuel = p.rdv;
 
   const voirRecap = async (rt: Retouches = {}): Promise<void> => {
     if (geste === 'compte_rendu' && !presenceOk) {
@@ -556,17 +571,23 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
           fin={fin} onFin={(v) => { setFin(v); setRefus(null); }} durees={dureesRdv}
           minutes={minutesRdv} plage={plageRdv} garder={garderTest} donnees={{ jour: 'data-previsite-jour', debut: 'data-previsite-debut', fin: 'data-previsite-fin' }} />
       )}
+      {/* 🔴 Arno (19/11/2026) — « Dans 2 minutes » retiré (accord d'Arno) ; à sa place, sur un préavis de TEST dont la pré-visite est programmée :
+          « Envoyer maintenant le lien du compte rendu » (le mail de l'heure de début, tout de suite, à chaque destinataire du rendez-vous) */}
       {avecDate && l.test && (
-        <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-petit" data-previsite-deux-minutes
-            onClick={() => { const r = rdvDansDeuxMinutes(); setJour(r.jour); setDebut(r.debut); setFin(r.fin); setRefus(null); }}>Dans 2 minutes</button>
+        <div className="pvv-test-lien" data-previsite-test>
+          {deplacement && rdvActuel && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-lien-cr" disabled={lienCr.envoi || envoi} onClick={() => { void envoyerLienCr(); }}
+              data-envoyer-lien-cr>{lienCr.envoi ? 'Envoi…' : 'Envoyer maintenant le lien du compte rendu'}</button>
+          )}
           <span className="loc-muet" data-previsite-test-note>Préavis de test : l’invitation de début de pré-visite part à l’heure de début, à vous seul.</span>
         </div>
       )}
+      {lienCr.phrase !== null && <ModaleConfirmation phrase={lienCr.phrase} onOk={() => setLienCr({ envoi: false, phrase: null })} />}
       {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue destinataire recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification{choixLoc === 'non' ? ' — sauf si vous choisissez « Non » ci-dessous : ils ne recevront rien' : choixLoc === null ? ' si vous choisissez « Oui » ci-dessous' : ''}.</p>}
       {avecCollegues && (
         <fieldset className="pvv-destinataires" data-previsite-destinataires>
           <legend className="pvs-libelle">Destinataires (collègues de l’agence) *</legend>
+          {l.test && <p className="loc-muet pvv-note-test" data-mention-test-invitations>Préavis de test : les invitations partent uniquement vers vous.</p>}
           {collegues.etat.etat !== 'ok' ? <EtatLecture etat={collegues.etat} /> : liste.length === 0
             ? <p className="loc-muet">Aucun collègue n’a accès à Gestion ou Location avec une adresse de notre Workspace.</p>
             : liste.map((c) => (
@@ -1010,6 +1031,9 @@ export const CSS_PREVISITE = `
 .pvv-dest-case{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;column-gap:10px;min-height:44px;padding:0 2px;cursor:pointer;text-align:left}
 .pvv-dest-case input{width:20px;height:20px;margin:0}
 .pvv-maintien{display:flex;flex-direction:column;gap:6px}
+.pvv-test-lien{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:12px 0 0}
+.pvv-lien-cr{width:100%;min-height:44px;margin:0}
+.pvv-note-test{margin:0 0 4px;font-size:.88rem}
 .pvv-maintien p{margin:0}
 .pvv-choix{border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
 .pvv-choix legend{padding:0;margin:0 0 6px}

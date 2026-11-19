@@ -124,9 +124,9 @@ describe('🔴 la ligne repliée', () => {
     expect(mots('.tch-actions > .tch-actions-droite')).toEqual([MOT_ACTION.decaler, MOT_ACTION.modifier]);
     expect(CSS_TACHES).toMatch(/\.tch-actions\{justify-content:space-between/);
     expect(CSS_TACHES).toMatch(/\.tch-actions-droite\{margin-left:auto/);
-    // La confirmation d'annulation prend la place du bouton, dans le groupe de gauche.
+    // 🔴 Arno (19/11/2026) — la question « Annuler cette tâche ? Oui / Non » est retirée (accord d'Arno) : seule la fenêtre de confirmation reste
     await act(async () => { (ligne(1).querySelector('[data-action="annuler"]') as HTMLElement).click(); });
-    expect(ligne(1).querySelector('.tch-actions-gauche .tch-confirmer')).not.toBeNull();
+    expect(ligne(1).querySelector('.tch-confirmer')).toBeNull();
   });
   it('🔴 LOT CARTE-REPLI-BANDEAU — un clic n’importe où sur le bandeau ramène EXACTEMENT la ligne compacte d’origine', async () => {
     await monter();

@@ -499,12 +499,12 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     expect(container.querySelector('[data-planification-indisponible]')).not.toBeNull();
   });
 
-  it('fin proposée = début + la durée (30 min d’office, 🔴 19/11/2026) (modifiable) ; fin ≤ début refusée ; « Confier à » = la liste Location ET Gestion ET Workspace', async () => {
+  it('fin proposée = début + la durée (1 h d’office pour un état des lieux, 🔴 19/11/2026, 503) (modifiable) ; fin ≤ début refusée ; « Confier à » = la liste Location ET Gestion ET Workspace', async () => {
     await ouvrirPlanif();
     act(() => saisir(champ('jour'), '2099-11-05'));
     act(() => saisir(champ('debut'), '10:00'));
-    expect(champ('fin').getAttribute('data-valeur')).toBe('10:30');
-    expect(container.querySelector('[data-formulaire-edls] [data-duree-rdv]')?.getAttribute('data-duree')).toBe('30');
+    expect(champ('fin').getAttribute('data-valeur')).toBe('11:00');
+    expect(container.querySelector('[data-formulaire-edls] [data-duree-rdv]')?.getAttribute('data-duree')).toBe('60');
     act(() => saisir(champ('fin'), '09:30'));
     expect(container.querySelector('[data-edls-message]')?.textContent).toBe('L’heure de fin doit être après l’heure de début.');
     expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
@@ -520,7 +520,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
     await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); }); // 🔴 (19/11/2026, règle F) la fenêtre de confirmation : « OK »
-    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '10:30', confieA: 4, commentaire: '', locataires: 'oui' });
+    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '', locataires: 'oui' });
     const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
     // 🔴 (15/11/2026) le statut « RDV état des lieux fixé » (violet) remplace la pastille « EDLS planifié » ; le détail le dit toujours
     expect(ligne.querySelector('[data-statut-ligne]')?.textContent).toBe('RDV état des lieux fixé');
@@ -543,6 +543,21 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
 
   const EDLS = { edlsId: 77, tacheId: 500, jour: '2099-11-05', heure: '10:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente' as const, reponduPar: null, motifRefus: null };
 
+  it('🔴 Arno (19/11/2026) — « Modifier / déplacer » : seule la personne change → « Non » PRÉ-COCHÉ (modifiable) ; la date change → aucune pré-coche', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: EDLS, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    clic('button[data-deplacer-edls]');
+    await attendre();
+    const coche = () => [...container.querySelectorAll('[data-inviter-locataires][aria-checked="true"]')].map((b) => b.getAttribute('data-inviter-locataires'));
+    expect(coche()).toEqual([]);
+    choisir(container.querySelector('[data-confier-a]')!, '3');
+    expect(coche()).toEqual(['non']);
+    await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); });
+    expect(coche()).toEqual(['oui']);
+  });
   it('« Déplacer » : nouvelle plage → action de déplacement (la tâche repasse « en attente », nouveau mail)', async () => {
     planification = true;
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: EDLS, etatDesLieuxLe: '2099-11-05' } : l));
@@ -1701,16 +1716,17 @@ describe('🔴🔴 Arno (14/11/2026, 473) — le PRÉAVIS DE TEST à l’écran'
     expect(posts.find((p) => p.action === 'supprimer-preavis-test')).toEqual({ action: 'supprimer-preavis-test', testId: 3 });
     expect(container.querySelector('[data-ligne-preavis="T"]')).toBeNull();
   });
-  it('RDV pré-visite d’un test : « Dans 2 minutes » remplit le créneau ; seul « vous » est proposé (jamais un collègue)', async () => {
+  it('🔴 Arno (19/11/2026) — RDV pré-visite d’un test : la liste COMPLÈTE des collaborateurs, la mention « uniquement vers vous » ; « Dans 2 minutes » retiré', async () => {
     await rendre(false);
     clic('button[data-ouvrir-preavis="T"]'); await attendre();
     clic('[data-ligne-depliee="T"] [data-rdv-previsite]'); await attendre(); await attendre();
-    act(() => (document.querySelector('[data-previsite-deux-minutes]') as HTMLButtonElement).click());
-    expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(document.querySelector('[data-previsite-debut]')?.getAttribute('data-valeur')).toMatch(/^\d{2}:\d{2}$/);
+    expect(document.querySelector('[data-previsite-deux-minutes]')).toBeNull();
+    // fixer : pas encore de rendez-vous, donc pas de lien de compte rendu à envoyer
+    expect(document.querySelector('[data-envoyer-lien-cr]')).toBeNull();
     const choix = document.querySelector('[data-previsite-destinataires]')!.textContent ?? '';
     expect(choix).toContain('Moi (Arno)');
-    expect(choix).not.toContain('Claire Test');
+    expect(choix).toContain('Claire Test');
+    expect(document.querySelector('[data-mention-test-invitations]')?.textContent).toBe('Préavis de test : les invitations partent uniquement vers vous.');
   });
 });
 

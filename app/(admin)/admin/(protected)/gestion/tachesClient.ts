@@ -11,6 +11,7 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
+import { lireDureesParDefaut, type DureesParDefaut } from '../../../../lib/location/minutesRdv';
 import { tacheVisible } from '../../../../lib/gestion/annulationTache';
 import type { ApercuLocataires } from '../../../../lib/location/reponsesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
@@ -207,11 +208,11 @@ export async function lireDetailTache(id: number): Promise<DetailTache | null> {
 /** Une personne de la liste « Confiée à ». `accesGestion` faux ⇒ mention « sans accès Gestion » (règle du 13/10/2026). */
 export interface CollaborateurEcran { id: number; libelle: string; accesGestion?: boolean }
 
-export async function lireCollaborateurs(): Promise<{ collaborateurs: CollaborateurEcran[]; moi: number | null; invites?: boolean } | null> {
+export async function lireCollaborateurs(): Promise<{ collaborateurs: CollaborateurEcran[]; moi: number | null; invites?: boolean; dureesParDefaut?: DureesParDefaut } | null> {
   try {
     const res = await fetch('/api/admin/gestion/taches/collaborateurs', { cache: 'no-store' });
-    const d = (await res.json()) as { etat?: string; collaborateurs?: CollaborateurEcran[]; moi?: number | null; invites?: boolean };
-    return res.ok && d.etat === 'ok' ? { collaborateurs: d.collaborateurs ?? [], moi: d.moi ?? null, invites: d.invites === true } : null;
+    const d = (await res.json()) as { etat?: string; collaborateurs?: CollaborateurEcran[]; moi?: number | null; invites?: boolean; dureesParDefaut?: unknown };
+    return res.ok && d.etat === 'ok' ? { collaborateurs: d.collaborateurs ?? [], moi: d.moi ?? null, invites: d.invites === true, dureesParDefaut: lireDureesParDefaut(d.dureesParDefaut) } : null;
   } catch {
     return null;
   }

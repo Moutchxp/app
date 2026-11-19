@@ -52,6 +52,7 @@ import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/loc
 import { refusMinutesRdv, refusPlageRdv } from '../../../../lib/location/minutesRdv';
 import { etatDuRdv, prevenirCollaborateurInitial, tacheDuRdvPreavis } from '../../../../lib/gestion/modificationRdvRepo';
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
+import { envoyerLienCompteRenduMaintenant, MOTIF_LIEN_CR_HORS_TEST } from '../../../../lib/location/previsiteAuto';
 import { dureesRdvReglees, minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
@@ -471,10 +472,9 @@ async function postLocation(request: Request): Promise<Response> {
     const motif = refusMinutesRdv(heures, await minutesRdvAutorisees()) ?? refusPlageRdv(heures, await plageRdvAutorisee());
     return motif === null ? null : Response.json({ etat: 'refus', motif, champ: 'heure' }, { status: 400, headers: ENTETES });
   };
-  // 🔴 Arno (14/11/2026, 473) — dans un préavis de TEST, la pré-visite et l'état des lieux ne se confient qu'à son créateur (vous) : jamais un collègue.
+  // 🔴 Arno (19/11/2026) — un préavis de TEST (périmètre de la requête) : il se confie à tous les collaborateurs, ses envois restent au créateur
+  // (règle du 14/11 « ne se confie qu'à vous » remplacée, accord d'Arno)
   const test = perimetreCourant();
-  const refusTest = (motif: string): Response => Response.json({ etat: 'refus', motif }, { status: 403, headers: ENTETES });
-  const seulementMoi = (xs: readonly (number | null)[]): boolean => xs.length > 0 && xs.every((x) => x !== null && x === auteur.id);
   try {
     // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche
     // Copropriété (le chemin unique), avec le droit de la Location
@@ -779,7 +779,8 @@ async function postLocation(request: Request): Promise<Response> {
         const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
         const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
         const confieA = identifiant(corps.confieA);
-        if (test !== null && !seulementMoi([confieA])) return refusTest('Préavis de test : l’état des lieux ne se confie qu’à vous (créateur du test).');
+        // 🔴 Arno (19/11/2026) — un préavis de TEST se confie à TOUS les collaborateurs (remplace la règle du 14/11) : ses mails et son agenda restent
+        // dans le périmètre du test (au créateur, à lui seul), jamais chez le vrai collègue
         // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture
         if (action !== 'reattribuer-edls') { const m = await refusMinutes(corps); if (m !== null) return m; }
         // 🔴 Arno (19/11/2026, règles D et J) — l'état AVANT (pour prévenir le collaborateur initial) ; un rendez-vous effectué ou annulé ne se modifie plus
@@ -836,14 +837,18 @@ async function postLocation(request: Request): Promise<Response> {
         return repondre(await apercuRdvPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
           destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true, retouches: rt.retouches, locataires: lireChoixLocataires(corps.locataires) }, auteur));
       }
+      case 'envoyer-lien-compte-rendu': {
+        // 🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (préavis de TEST seulement) : le mail de l'heure de début, tout de suite
+        if (test === null) return Response.json({ etat: 'refus', motif: MOTIF_LIEN_CR_HORS_TEST }, { status: 400, headers: ENTETES });
+        const r = await envoyerLienCompteRenduMaintenant(idsOccupations(corps.occupationIds), auteur);
+        return r.etat === 'ok' ? repondre({ etat: 'ok', data: { envois: r.envois } }) : Response.json(r, { status: 400, headers: ENTETES });
+      }
       case 'programmer-previsite':
       case 'deplacer-previsite':
       case 'reaffecter-previsite': {
         const occs = idsOccupations(corps.occupationIds);
-        // 🔴 (19/11/2026) « Modifier / déplacer » peut changer les collègues : la règle des préavis de test s'y applique aussi
-        if (test !== null && (action !== 'deplacer-previsite' || corps.destinataires !== undefined) && !seulementMoi(idsOccupations(corps.destinataires))) {
-          return refusTest('Préavis de test : la pré-visite ne se confie qu’à vous (créateur du test) — jamais à un collègue.');
-        }
+        // 🔴 Arno (19/11/2026) — un préavis de TEST se confie à TOUS les collaborateurs (remplace la règle du 14/11) : ses invitations partent
+        // dans le périmètre du test (au créateur, à lui seul), jamais au vrai collègue
         // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture (« Réaffecter » ne change pas l'heure)
         if (action !== 'reaffecter-previsite') { const m = await refusMinutes(corps); if (m !== null) return m; }
         // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).

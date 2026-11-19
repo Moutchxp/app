@@ -1,7 +1,8 @@
 import { avecPerimetreTest } from './perimetreTest';
 import { perimetreDuGeste } from './preavisTestRepo';
 import { query, withTransaction } from '../db/client';
-import { envoyerSerie, mailsAvisDisponibles, type DepsAvis } from './mailsPreavisSortieRepo';
+import { envoyerSerie, mailsAvisDisponibles, type DepsAvis, type EnvoiAvis } from './mailsPreavisSortieRepo';
+import type { Auteur } from '../gestion/gestes';
 import { adressesUniques } from './mailsPreavisSortie';
 import type { LignePreavisAccueil } from './preavis';
 import { preavisEnCours } from './preavisRepo';
@@ -119,16 +120,7 @@ export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?
     // 🔴 Arno (14/11/2026, 473) — un préavis de TEST : l'invitation part DANS son périmètre (au créateur du test, et à lui seul) ; un mélange : rien.
     const perimetre = await perimetreDuGeste({ occupationIds: s.occupation_ids.map(Number) }).catch(() => ({ ok: false as const, motif: 'périmètre illisible' }));
     const ok = !perimetre.ok ? false : await avecPerimetreTest(perimetre.perimetre, async () => {
-      const ids = s.occupation_ids.map(Number);
-      const c = await contexte(ids, AUTEUR_AUTOMATIQUE, deps);
-      const reponses = (await reponsesDesTaches([Number(s.tache_id)])).get(Number(s.tache_id)) ?? [];
-      const gardes = reponses.filter((r) => r.statut !== 'refusee');
-      const a = adressesUniques((gardes.length > 0 ? gardes : reponses).map((r) => r.email));
-      if (c === null || a.length === 0) return false;
-      const m = mailPrevisite({ sorte: 'previsite_invitation_cr', de: c.expediteur, a, cc: [], objet: objetInvitationCompteRendu(c.adresse, rdv),
-        paragraphes: paragraphesInvitationCompteRendu({ adresse: c.adresse, locataires: c.locataires, rdv, lien: lienLignePreavis(ids[0], { compteRendu: true }) }),
-        qui: { mention: MENTION_AUTOMATIQUE }, signature: c.signature });
-      const e = await envoyerSerie([m], c.brute, { lotId: c.lotId, occupationIds: ids, auteur: AUTEUR_AUTOMATIQUE }, deps);
+      const e = await envoyerInvitationCompteRendu(s, rdv, AUTEUR_AUTOMATIQUE, deps);
       return e.some((x) => x.envoye);
     }).catch(() => false);
     if (ok) bilan.invitations += 1;
@@ -138,6 +130,46 @@ export async function passeInvitationsCompteRendu(deps: DepsAvis & { maintenant?
     }
   }
   return bilan;
+}
+
+/** Le mail d'invitation au compte rendu (le MÊME à l'heure de début et par « Envoyer maintenant ») : aux collègues destinataires qui n'ont pas
+ *  refusé (tous, si tous ont refusé), avec le lien qui ouvre la ligne. Envoie ; rend ce qui est parti (vide : personne à qui l'envoyer). */
+async function envoyerInvitationCompteRendu(s: LigneSuivi, rdv: NonNullable<ReturnType<typeof rdvDuSuivi>>, auteur: Auteur, deps: DepsAvis): Promise<EnvoiAvis[]> {
+  const ids = s.occupation_ids.map(Number);
+  const c = await contexte(ids, auteur, deps);
+  const reponses = (await reponsesDesTaches([Number(s.tache_id)])).get(Number(s.tache_id)) ?? [];
+  const gardes = reponses.filter((r) => r.statut !== 'refusee');
+  const a = adressesUniques((gardes.length > 0 ? gardes : reponses).map((r) => r.email));
+  if (c === null || a.length === 0) return [];
+  const m = mailPrevisite({ sorte: 'previsite_invitation_cr', de: c.expediteur, a, cc: [], objet: objetInvitationCompteRendu(c.adresse, rdv),
+    paragraphes: paragraphesInvitationCompteRendu({ adresse: c.adresse, locataires: c.locataires, rdv, lien: lienLignePreavis(ids[0], { compteRendu: true }) }),
+    qui: { mention: MENTION_AUTOMATIQUE }, signature: c.signature });
+  return envoyerSerie([m], c.brute, { lotId: c.lotId, occupationIds: ids, auteur }, deps);
+}
+
+export const MOTIF_LIEN_CR_HORS_TEST = 'Ce bouton n’existe que sur un préavis de test.';
+/**
+ * 🔴🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (remplace « Dans 2 minutes », préavis de TEST seulement) : le mail de
+ * l'heure de début, TOUT DE SUITE, à chaque destinataire du rendez-vous ; dans le périmètre du test (au créateur, à lui seul). L'invitation est
+ * marquée partie : la minuterie ne la renverra pas à l'heure de début. Un vrai préavis : refusé.
+ */
+export async function envoyerLienCompteRenduMaintenant(occupationIds: readonly number[], auteur: Auteur, deps: DepsAvis = {}):
+  Promise<{ etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'refus'; motif: string }> {
+  if (!(await previsiteDisponible()) || !(await mailsAvisDisponibles())) return { etat: 'refus', motif: 'La pré-visite n’est pas installée sur ce serveur.' };
+  const ids = [...new Set(occupationIds)];
+  const perimetre = await perimetreDuGeste({ occupationIds: ids });
+  if (!perimetre.ok) return { etat: 'refus', motif: perimetre.motif };
+  if (perimetre.perimetre === null) return { etat: 'refus', motif: MOTIF_LIEN_CR_HORS_TEST };
+  const { rows } = await query<LigneSuivi>(
+    `SELECT ${CHAMPS_SUIVI} FROM gestion_location_previsite s JOIN gestion_tache t ON t.id = s.tache_id
+      WHERE s.clos_le IS NULL AND s.effectuee_le IS NULL AND t.etat = 'a_faire' AND s.occupation_ids && $1::bigint[] ORDER BY s.id DESC LIMIT 1`, [ids]);
+  const s = rows[0];
+  const rdv = s === undefined ? null : rdvDuSuivi(s);
+  if (s === undefined || rdv === null) return { etat: 'refus', motif: 'Aucune pré-visite programmée pour ce préavis.' };
+  const envois = await avecPerimetreTest(perimetre.perimetre, () => envoyerInvitationCompteRendu(s, rdv, auteur, deps));
+  if (envois.length === 0) return { etat: 'refus', motif: 'Aucun destinataire avec une adresse pour ce rendez-vous.' };
+  if (envois.some((e) => e.envoye)) await query('UPDATE gestion_location_previsite SET cr_invitation_le = now() WHERE id = $1', [Number(s.id)]);
+  return { etat: 'ok', envois };
 }
 
 /**

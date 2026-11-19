@@ -208,6 +208,28 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(document.querySelector('[data-confirmer-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'deplacer-previsite', jour: '2026-11-25', debut: '10:00', fin: '11:00' });
   });
+  it('🔴 Arno (19/11/2026) — seul le collègue change : « Non » PRÉ-COCHÉ (modifiable) ; date changée ou rien changé : aucune réponse pré-cochée', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    const coche = () => [...document.querySelectorAll('[data-inviter-locataires][aria-checked="true"]')].map((b) => b.getAttribute('data-inviter-locataires'));
+    expect(coche()).toEqual([]);
+    await clic(document.querySelector('[data-destinataire="3"]'));
+    expect(coche()).toEqual(['non']);
+    await clic(document.querySelector('[data-inviter-locataires="oui"]'));
+    expect(coche()).toEqual(['oui']);
+    await clic(document.querySelector('[data-inviter-locataires="non"]'));
+    expect(coche()).toEqual(['non']);
+  });
+  it('🔴 Arno (19/11/2026) — seul le collègue change, sans rien toucher d’autre : « Non » pré-coché ; la date change : plus de pré-coche', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    await clic(document.querySelector('[data-destinataire="3"]'));
+    expect(document.querySelector('[data-inviter-locataires="non"]')?.getAttribute('aria-checked')).toBe('true');
+    saisir(document.querySelector('[data-previsite-jour]'), '2026-11-25');
+    expect(document.querySelector('[data-inviter-locataires][aria-checked="true"]')).toBeNull();
+  });
   it('🔴🔴 Arno (19/11/2026) — changer SEULEMENT le collègue (date et heure inchangées) : le récapitulatif mot pour mot ; « Non » : rien aux locataires', async () => {
     await rendre();
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));

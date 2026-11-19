@@ -17,13 +17,13 @@ beforeEach(() => { hote = document.createElement('div'); document.body.appendChi
 afterEach(() => { act(() => racine.unmount()); hote.remove(); });
 
 const etat = { debut: '', fin: '' };
-function Parent({ debut0 = '', fin0 = '', plage = PLAGE_RDV_DEFAUT }: { debut0?: string; fin0?: string; plage?: typeof PLAGE_RDV_DEFAUT }) {
+function Parent({ debut0 = '', fin0 = '', plage = PLAGE_RDV_DEFAUT, defaut = 30 }: { debut0?: string; fin0?: string; plage?: typeof PLAGE_RDV_DEFAUT; defaut?: number }) {
   const [jour, setJour] = useState('2099-01-06');
   const [debut, setDebut] = useState(debut0);
   const [fin, setFin] = useState(fin0);
   etat.debut = debut; etat.fin = fin;
   return createElement(GrilleDateHeures, { classe: 'pvv-grille', libelles: { date: 'Date *', debut: 'Début *', fin: 'Fin *' }, jour, onJour: setJour,
-    debut, onDebut: setDebut, fin, onFin: setFin, minutes: MINUTES_RDV_DEFAUT, plage, durees: DUREES_RDV_DEFAUT,
+    debut, onDebut: setDebut, fin, onFin: setFin, minutes: MINUTES_RDV_DEFAUT, plage, durees: { ...DUREES_RDV_DEFAUT, defaut },
     donnees: { jour: 'data-j', debut: 'data-d', fin: 'data-f' } });
 }
 const rendre = (p: Parameters<typeof Parent>[0] = {}) => act(() => racine.render(createElement(Parent, p)));
@@ -67,7 +67,7 @@ describe('🔴🔴 Arno (19/11/2026) — la durée du rendez-vous et l’heure d
     choisirHeure('[data-d]', '10:00');
     choisirHeure('[data-f]', '11:30');
     expect(duree()).toBe('personnalisee');
-    expect(dureeLue()).toContain('Personnalisée');
+    expect(dureeLue()).toContain('Autre (90 min)'); // 🔴 (19/11/2026) remplace « Personnalisée »
     choisirHeure('[data-f]', '10:45');
     expect(duree()).toBe('45');
     choisirDuree('15');
@@ -94,5 +94,21 @@ describe('🔴🔴 Arno (19/11/2026) — la durée du rendez-vous et l’heure d
     rendre({ debut0: '14:00', fin0: '15:30' });
     expect(duree()).toBe('personnalisee');
     expect(etat.fin).toBe('15:30');
+  });
+});
+
+describe('🔴🔴 Arno (19/11/2026, 503) — durées d’office par sorte et « Autre (n min) »', () => {
+  it('à la création : la durée d’office de la sorte (état des lieux : 1 h) ; « Autre » n’apparaît jamais', () => {
+    rendre({ defaut: 60 });
+    expect(duree()).toBe('60');
+    expect(dureesProposees()).toEqual(['15', '30', '45', '60']);
+    choisirHeure('[data-d]', '10:00');
+    expect(etat.fin).toBe('11:00');
+  });
+  it('« Modifier / déplacer » d’un rendez-vous de 19 min : « Autre (19 min) », la durée réelle', () => {
+    rendre({ debut0: '10:00', fin0: '10:19' });
+    expect(duree()).toBe('personnalisee');
+    expect(dureeLue()).toContain('Autre (19 min)');
+    expect(dureesProposees()).toContain('personnalisee');
   });
 });

@@ -195,17 +195,17 @@ describe('🔴 les boutons', () => {
     expect(container.querySelector('.tchf-titre')?.textContent).toBe('Tâche — 7 avenue de l’Union');
     expect((container.querySelector('.tchf input[type="text"]') as HTMLInputElement).value).toBe('Relancer le plombier');
   });
-  it('« ✗ Tâche annulée » : confirmation « Annuler cette tâche ? » ; Non ne fait rien ; Oui annule', async () => {
+  it('« ✗ Tâche annulée » : 🔴 (19/11/2026) plus de question sur la carte — la fenêtre de confirmation s’ouvre aussitôt ; « Revenir » ne fait rien', async () => {
     await monter();
     await act(async () => { boutonDe(carte(8), 'Tâche annulée')!.click(); });
-    expect(carte(8).querySelector('.tch-confirmer-question')?.textContent).toBe('Annuler cette tâche ?');
-    await act(async () => { carte(8).querySelector<HTMLButtonElement>('[data-action="annuler-non"]')!.click(); });
+    await calmer();
+    expect(carte(8).querySelector('.tch-confirmer-question')).toBeNull();
+    expect(document.querySelector('[data-phrase-annulation]')?.textContent).toBe('La tâche disparaîtra de l’interface et les personnes ayant accepté le rendez-vous seront prévenues par mail.');
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-revenir-recap]')!.click(); });
+    await calmer();
     expect(gestes).toEqual([]);
     await act(async () => { boutonDe(carte(8), 'Tâche annulée')!.click(); });
-    await act(async () => { carte(8).querySelector<HTMLButtonElement>('[data-action="annuler-oui"]')!.click(); });
     await calmer();
-    // 🔴 Arno (19/11/2026, choix A) — la fenêtre AVANT l'annulation, toujours : la phrase mot pour mot ; rien n'est encore fait
-    expect(document.querySelector('[data-phrase-annulation]')?.textContent).toBe('La tâche disparaîtra de l’interface et les personnes ayant accepté le rendez-vous seront prévenues par mail.');
     expect(gestes).toEqual([]);
     await act(async () => { document.querySelector<HTMLButtonElement>('[data-confirmer-recap]')!.click(); });
     await calmer();

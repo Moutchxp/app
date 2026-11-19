@@ -93,7 +93,6 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
 }) {
   const couleur = couleurTache(tache, maintenant);
   const [decaler, setDecaler] = useState(false);
-  const [confirmerAnnulation, setConfirmerAnnulation] = useState(false);
   const [occupe, setOccupe] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const [jour, setJour] = useState(tache.jour);
@@ -123,8 +122,8 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
       : await agirSurTache(tache.id, g);
     setOccupe(false);
     if (r === null) return;
-    if (g.geste === 'annuler' && r.ok) { setConfirmerAnnulation(false); signalerTaches(); return; }
-    if (r.ok) { setDecaler(false); setConfirmerAnnulation(false); }
+    if (g.geste === 'annuler' && r.ok) { signalerTaches(); return; }
+    if (r.ok) setDecaler(false);
     setMessage({ ok: r.ok, texte: r.message });
   };
 
@@ -190,24 +189,12 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
             {MOT_ACTION.realisee}
           </button>
         )}
-        {!terminee && !confirmerAnnulation && (
+        {/* 🔴 Arno (19/11/2026) — la question « Annuler cette tâche ? Oui / Non » retirée (accord d'Arno) : seule la fenêtre de confirmation reste */}
+        {!terminee && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tch-btn-annuler" disabled={occupe}
-            data-action="annuler" onClick={() => setConfirmerAnnulation(true)}>
+            data-action="annuler" onClick={() => void agir({ geste: 'annuler' })}>
             {MOT_ACTION.annulee}
           </button>
-        )}
-        {!terminee && confirmerAnnulation && (
-          <span className="tch-confirmer" role="group" aria-label="Confirmer l’annulation">
-            <span className="tch-confirmer-question">Annuler cette tâche ?</span>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tch-btn-annuler" disabled={occupe}
-              data-action="annuler-oui" onClick={() => void agir({ geste: 'annuler' })}>
-              Oui
-            </button>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
-              data-action="annuler-non" onClick={() => setConfirmerAnnulation(false)}>
-              Non
-            </button>
-          </span>
         )}
       </div>
       <div className="tch-actions-droite">
@@ -664,8 +651,6 @@ export const CSS_TACHES = `
 .tch-carte-pied .tch-btn{background:var(--color-svv-surface)}
 .tch-ligne--terminee.tch-carte .tch-carte-objet{text-decoration:line-through}
 .tch-btn-annuler{color:var(--color-svv-red);border-color:var(--color-svv-red)}
-.tch-confirmer{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px}
-.tch-confirmer-question{font-size:.88rem;font-weight:700;color:var(--color-svv-ink)}
 .tch-echeance{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
 .tch-date{font-size:.95rem;font-weight:700;color:var(--color-svv-ink);white-space:nowrap}
 .tch-objet{flex:1 1 12rem;min-width:0;text-align:left;background:none;border:0;padding:4px 0;font:inherit;

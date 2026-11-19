@@ -6,6 +6,7 @@ import { fabriquerMessageId } from './envoiGmail';
 import { avecVerrouTest, transportParDefaut, type TransportDemande } from './envoiDemandeTache';
 import { creneauTacheDisponible, invitationContactsDisponible, sorteTacheDisponible } from './schema';
 import { placeDansAgenda } from './agendaTache';
+import { dureesRdvReglees } from '../location/minutesRdvRepo';
 import { titreLogement } from './annuaireRecherche';
 import { adressesSignature, corpsPourEnvoi } from './signatureImages';
 import { imagesSignaturePourEnvoi } from './signatureImagesReel';
@@ -61,9 +62,11 @@ async function lireTache(tacheId: number): Promise<{ objet: string; note: string
   const r = rows[0];
   if (r === undefined) return null;
   const dureeMinutes = r.duree === null ? null : Number(r.duree);
+  // 🔴 Arno (19/11/2026, 503) — une tâche (pas un rendez-vous) sans durée à elle : la durée du réglage (15 min) dans l'invitation, comme dans l'agenda
+  const dureePlace = dureeMinutes ?? (r.sorte === 'tache' ? (await dureesRdvReglees()).defauts?.tache ?? null : null);
   return { objet: r.objet, note: r.note, moment: { jour: r.jour, heure: r.heure, dureeMinutes },
     adresse: r.lot_id === null ? null : titreLogement(r.adresse, r.commune),
-    place: placeDansAgenda({ ...(r.sorte ? { sorte: r.sorte } : {}), heure: r.heure, dureeMinutes, creneau: r.creneau }) };
+    place: placeDansAgenda({ ...(r.sorte ? { sorte: r.sorte } : {}), heure: r.heure, dureeMinutes: dureePlace, creneau: r.creneau }) };
 }
 
 /** Y a-t-il au moins un contact coché « Envoyer une invitation » ? (Sinon, rien à envoyer, aucune question de droit.) */

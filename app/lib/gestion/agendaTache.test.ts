@@ -147,3 +147,12 @@ describe('ce que l’écran dit', () => {
     expect('dureeMinutes' in lireSaisie({ objet: 'x', jour: '2026-10-14' })).toBe(false);
   });
 });
+
+describe('🔴 Arno (19/11/2026, 503) — une tâche qui n’est pas un rendez-vous : 15 min dans l’agenda (réglage passé par l’appelant)', () => {
+  it('avec ou sans heure, la durée du réglage ; sans elle, 30 min comme avant', async () => {
+    const { placeDansAgenda } = await import('./agendaTache');
+    expect(placeDansAgenda({ sorte: 'tache', heure: '10:00', dureeMinutes: 15 })).toEqual({ heure: '10:00', duree: 15 });
+    expect(placeDansAgenda({ sorte: 'tache', heure: null, dureeMinutes: 15, creneau: '09:00' })).toEqual({ heure: '09:00', duree: 15 });
+    expect(placeDansAgenda({ sorte: 'tache', heure: null, dureeMinutes: null, creneau: '09:00' })).toEqual({ heure: '09:00', duree: 30 });
+  });
+});

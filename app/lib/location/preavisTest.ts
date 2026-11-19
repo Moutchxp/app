@@ -30,3 +30,11 @@ export function rdvDansDeuxMinutes(maintenant: Date = new Date()): { jour: strin
   // un rendez-vous ne passe pas minuit : la fin reste le même jour
   return { jour: a.jour, debut: a.heure, fin: b.jour === a.jour ? b.heure : '23:59' };
 }
+
+/** 🔴 Arno (19/11/2026) — la phrase de la fenêtre de confirmation après « Envoyer maintenant le lien du compte rendu » : à qui il est parti. PUR. */
+export function phraseLienCompteRendu(envois: readonly { a: readonly string[]; envoye: boolean; motif: string | null }[]): string {
+  const partis = [...new Set(envois.filter((e) => e.envoye).flatMap((e) => e.a))];
+  const rates = envois.filter((e) => !e.envoye);
+  if (partis.length === 0) return `Le lien du compte rendu n’est pas parti${rates[0]?.motif ? ` : ${rates[0].motif}` : '.'}`;
+  return `Le lien du compte rendu est parti à : ${partis.join(', ')}.${rates.length > 0 ? ` ${rates.length} envoi${rates.length > 1 ? 's' : ''} en échec.` : ''}`;
+}

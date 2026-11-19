@@ -5,6 +5,8 @@
  * Aucun de ses imports ne porte `server-only`.
  */
 import { perimetreCourant } from '../location/perimetreTest';
+import { dureesRdvReglees } from '../location/minutesRdvRepo';
+import { DUREES_PAR_DEFAUT } from '../location/minutesRdv';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { acceptationTacheDisponible, agendaTacheDisponible, creneauTacheDisponible, invitesTacheDisponible, sorteTacheDisponible } from './schema';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
@@ -355,6 +357,16 @@ const CLE_VERROU = 350_350;
  * SYNCHRONISE UNE TÂCHE. Ne lève jamais : un échec se lit dans l'issue ET dans la base (« à resynchroniser »).
  */
 export async function synchroniserTache(tacheId: number, o: { porte?: PorteAgenda; siteUrl?: string | null } = {}): Promise<IssueSynchro> {
+  /* 🔴🔴 Arno (19/11/2026) — un préavis de TEST peut désormais être confié à un collègue : sa synchronisation, MÊME hors d'une requête de l'écran
+     (acceptation par lien, reprise automatique), se fait dans le périmètre du test — seul l'agenda du créateur peut être écrit, jamais celui du
+     collègue. Import tardif : le dépôt des tests lit les tâches. */
+  if (perimetreCourant() === null) {
+    const { perimetreDuGeste } = await import('../location/perimetreDuGeste');
+    const { avecPerimetreTest } = await import('../location/perimetreTest');
+    const p = await perimetreDuGeste({ tacheIds: [tacheId] }).catch(() => ({ ok: true as const, perimetre: null }));
+    if (!p.ok) return { etat: 'echec', motif: p.motif } as IssueSynchro;
+    if (p.perimetre !== null) return avecPerimetreTest(p.perimetre, () => synchroniserTache(tacheId, o));
+  }
   if (!(await agendaTacheDisponible())) return { etat: 'sans_schema' };
   if (!(await lireReglageAgenda())) return { etat: 'desactive' };
   const porte = o.porte ?? porteParDefaut();
@@ -368,9 +380,11 @@ export async function synchroniserTache(tacheId: number, o: { porte?: PorteAgend
       const r = (await lireLigne(q, [tacheId]))[0];
       if (r === undefined) return { etat: 'introuvable' } as const;
       const domaines = await domainesWorkspace();
+      const dureeTache = (await dureesRdvReglees()).defauts?.tache ?? DUREES_PAR_DEFAUT.tache;
       const ev = async (faite: boolean) => construireEvenement({
         id: tacheId, objet: r.objet, texte: texteCompletTache(r.note, await contactsDe(tacheId)), jour: r.jour, heure: r.heure,
-        dureeMinutes: r.duree_minutes, rappels: Array.isArray(r.rappels) ? r.rappels : [], faite, lotId: Number(r.lot_id),
+        // 🔴 Arno (19/11/2026, 503) — une tâche qui n'est pas un rendez-vous : 15 min dans l'agenda (réglage), sauf durée à elle
+        dureeMinutes: r.duree_minutes ?? (r.sorte === 'tache' ? dureeTache : null), rappels: Array.isArray(r.rappels) ? r.rappels : [], faite, lotId: Number(r.lot_id),
         adresse: r.adresse, codePostal: r.code_postal, commune: r.commune, pieces: await piecesDe(tacheId),
         sansBien: r.lot_id === null, ...(r.sorte ? { sorte: r.sorte } : {}), creneau: r.creneau ?? null,
       }, { siteUrl, motRappel, lienLocal });

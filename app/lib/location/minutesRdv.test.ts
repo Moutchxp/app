@@ -56,10 +56,12 @@ describe('🔴 Arno (19/11/2026) — la plage horaire (début 8h00 à 20h00, fin
 describe('🔴 Arno (19/11/2026) — les durées d’un rendez-vous (réglage 501)', async () => {
   const { DUREES_RDV_DEFAUT, dureeAffichee, dureeEntre, dureesCompatibles, finDepuisDebut, lireDureesRdv, motDureeRdv, PLAGE_RDV_DEFAUT } = await import('./minutesRdv');
   it('défaut 15/30/45/60, 30 d’office ; un réglage incohérent retombe sur le défaut', () => {
-    expect(DUREES_RDV_DEFAUT).toEqual({ durees: [15, 30, 45, 60], defaut: 30 });
+    const defauts = { previsite: 30, edl: 60, rdvTache: 30, tache: 15 }; // 🔴 Arno (19/11/2026, 503) — les durées d'office par sorte
+    expect(DUREES_RDV_DEFAUT).toEqual({ durees: [15, 30, 45, 60], defaut: 30, defauts });
     expect(lireDureesRdv(null)).toEqual(DUREES_RDV_DEFAUT);
     expect(lireDureesRdv({ durees: [60, 30], defaut: 45 })).toEqual(DUREES_RDV_DEFAUT);
-    expect(lireDureesRdv({ durees: [60, 30, 30], defaut: 60 })).toEqual({ durees: [30, 60], defaut: 60 });
+    expect(lireDureesRdv({ durees: [60, 30, 30], defaut: 60 })).toEqual({ durees: [30, 60], defaut: 60, defauts });
+    expect(lireDureesRdv({ durees: [30], defaut: 30, defauts: { previsite: 45, edl: 2, rdvTache: 20, tache: 15 } }).defauts).toEqual({ previsite: 45, edl: 60, rdvTache: 20, tache: 15 });
   });
   it('« 15 min », « 1 h », « 1 h 30 » ; fin = début + durée ; durée entre deux heures', () => {
     expect([15, 60, 90].map(motDureeRdv)).toEqual(['15 min', '1 h', '1 h 30']);

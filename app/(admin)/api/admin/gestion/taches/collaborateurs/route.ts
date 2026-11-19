@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { invitesTacheDisponible, tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import { listerCollaborateurs } from '../../../../../../lib/gestion/tachesRepo';
+import { dureesRdvReglees } from '../../../../../../lib/location/minutesRdvRepo';
 
 /**
  * ══ 🔴 LOT TACHES-1 — À QUI CONFIER UNE TÂCHE ════════════════════════════════════════════════════════════════════
@@ -25,6 +26,7 @@ export async function GET(request: Request): Promise<Response> {
   const auteur = await auteurDeLaRequete(request);
   const moi = auteur.id === null ? null : Number(auteur.id);
   return Response.json(
-    { etat: 'ok', collaborateurs: await listerCollaborateurs(moi), moi, invites: await invitesTacheDisponible() },
+    // 🔴 Arno (19/11/2026, 503) — + les durées d'office (rendez-vous créé : 30 min)
+    { etat: 'ok', collaborateurs: await listerCollaborateurs(moi), moi, invites: await invitesTacheDisponible(), dureesParDefaut: (await dureesRdvReglees()).defauts },
     { headers: { 'Cache-Control': 'private, no-store' } });
 }

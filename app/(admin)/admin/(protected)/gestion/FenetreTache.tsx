@@ -2,7 +2,7 @@
 
 import { resumeChangementCollaborateur } from '../../../../lib/gestion/modificationRdv';
 import { ChoixHeure } from '../location/ChoixHeure';
-import { DUREES_RDV_DEFAUT, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_PAR_DEFAUT, DUREES_RDV_DEFAUT, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 
 
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
@@ -73,7 +73,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
   useVerrouDefilement();
   /** `invites` : la migration 365 est là — la fenêtre propose « Inviter aussi » (plusieurs invités par tâche). */
-  const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null; invites?: boolean } | null>(null);
+  const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null; invites?: boolean; dureeRdvDefaut?: number } | null>(null);
   const [detail, setDetail] = useState<DetailTache | null>(null);
   /** 🔴 LOT TACHES-1-BIS — les contacts du bien (fiche d'aujourd'hui) ; `null` ⇒ section absente. */
   const [sources, setSources] = useState<ContactSource[] | null>(null);
@@ -141,7 +141,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     void (async () => {
       const c = await lireCollaborateurs();
       if (annule) return;
-      setCollab(c === null ? { liste: [], moi: null } : { liste: c.collaborateurs, moi: c.moi, invites: c.invites === true });
+      setCollab(c === null ? { liste: [], moi: null } : { liste: c.collaborateurs, moi: c.moi, invites: c.invites === true, dureeRdvDefaut: c.dureesParDefaut?.rdvTache });
       if (mode.sorte === 'creer' && c !== null) {
         // MOI PAR DÉFAUT — si j'ai un compte avec l'accès Gestion ; sinon le premier de la liste.
         const moi = c.collaborateurs.find((x) => x.id === c.moi)?.id ?? c.collaborateurs[0]?.id ?? null;
@@ -246,6 +246,11 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   };
   const basculerInvite = (cle: string) => setInvitesContacts((l) => (l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]));
 
+  // 🔴 Arno (19/11/2026, 503) — un RENDEZ-VOUS qu'on crée : 30 min d'office (réglage) ; une modification garde la durée du rendez-vous
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (mode.sorte === 'creer' && estRdv && dureeRdv === null && collab !== null) setDureeRdv(collab.dureeRdvDefaut ?? DUREES_PAR_DEFAUT.rdvTache);
+  }, [mode.sorte, estRdv, dureeRdv, collab]);
   const enregistrer = async () => {
     if (!choisi) { setMessage({ ok: false, texte: 'Choisissez d’abord « Rendez-vous » ou « Tâche ».', champ: 'sorte' }); return; }
     // Un rendez-vous part avec SA durée (obligatoire) ; une tâche, sans durée.

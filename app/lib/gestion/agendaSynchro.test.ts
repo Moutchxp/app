@@ -307,3 +307,28 @@ describe('🔴 règle 3 et réglage', () => {
     expect(ecritures()).toEqual([]); // le faux de CE fichier n'a rien reçu : c'est celui des tests par défaut
   });
 });
+
+/* 🔴🔴 Arno (19/11/2026) — un préavis de TEST se confie désormais à un collègue : même HORS d'une requête de l'écran (acceptation par lien, reprise),
+   la synchronisation se fait dans le périmètre du test — l'agenda du collègue n'est JAMAIS écrit. */
+const testEnCours = vi.hoisted(() => ({ taches: new Set<number>() }));
+vi.mock('../location/perimetreDuGeste', () => ({
+  perimetreDuGeste: async (o: { tacheIds?: number[] }) => ({ ok: true, perimetre: (o.tacheIds ?? []).some((x) => testEnCours.taches.has(x))
+    ? { testId: 1, createurEmail: 'a.jorel@sansvisavis.com' } : null }),
+}));
+describe('🔴 préavis de TEST confié à un collègue', () => {
+  it('le collègue a accepté : rien n’est écrit dans SON agenda (seul celui du créateur peut l’être) ; hors test, comme avant', async () => {
+    const { avecVerrouAgendaTest } = await import('./agendaSynchro');
+    const verrouille = avecVerrouAgendaTest(porte);
+    testEnCours.taches.add(77);
+    tache(77, { confiee_a: 3, confiee_a_libelle: 'Claire', confiee_email: CLAIRE, acceptation: 'acceptee', heure: '10:00', duree_minutes: 30 });
+    await marquerASynchroniser(q as never, 77);
+    const r = await synchroniserTache(77, { porte: verrouille, siteUrl: 'https://app.test' });
+    expect(r).toMatchObject({ etat: 'echec' });
+    expect(evenements(CLAIRE)).toEqual([]);
+    testEnCours.taches.clear();
+    const r2 = await synchroniserTache(77, { porte: verrouille, siteUrl: 'https://app.test' });
+    expect(r2).toMatchObject({ etat: 'ok' });
+    expect(evenements(CLAIRE)).toHaveLength(1);
+    expect(etrangers()).toBe(etrangersAvant);
+  });
+});

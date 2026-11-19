@@ -112,3 +112,11 @@ describe('préavis de test — pur', () => {
     expect(horsTest([{ test: true }, {}, { test: false }])).toHaveLength(2);
   });
 });
+
+describe('🔴 Arno (19/11/2026) — la fenêtre de confirmation après « Envoyer maintenant le lien du compte rendu » : la liste des destinataires', async () => {
+  const { phraseLienCompteRendu } = await import('./preavisTest');
+  it('parti, pas parti', () => {
+    expect(phraseLienCompteRendu([{ a: ['a.jorel@sansvisavis.com'], envoye: true, motif: null }])).toBe('Le lien du compte rendu est parti à : a.jorel@sansvisavis.com.');
+    expect(phraseLienCompteRendu([{ a: [], envoye: false, motif: 'échec de l’envoi' }])).toBe('Le lien du compte rendu n’est pas parti : échec de l’envoi');
+  });
+});

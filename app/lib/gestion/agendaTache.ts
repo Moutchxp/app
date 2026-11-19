@@ -144,7 +144,8 @@ export function placeDansAgenda(c: { sorte?: 'rdv' | 'tache'; heure: string | nu
     // Une tâche avec heure : 30 min (une durée d'avant, explicite, est gardée) ; un rendez-vous ou une entrée d'avant : sa durée, 1 h par défaut.
     return { heure: c.heure, duree: c.dureeMinutes ?? (c.sorte === 'tache' ? DUREE_TACHE_MINUTES : DUREE_DEFAUT_MINUTES) };
   }
-  if (c.sorte === 'tache' && typeof c.creneau === 'string' && /^\d{2}:\d{2}/.test(c.creneau)) return { heure: c.creneau.slice(0, 5), duree: DUREE_TACHE_MINUTES };
+  // 🔴 Arno (19/11/2026, 503) — la place d'une tâche (sans durée à elle) : la durée du réglage, passée par l'appelant ; sans elle, 30 min comme avant
+  if (c.sorte === 'tache' && typeof c.creneau === 'string' && /^\d{2}:\d{2}/.test(c.creneau)) return { heure: c.creneau.slice(0, 5), duree: c.dureeMinutes ?? DUREE_TACHE_MINUTES };
   return null;
 }
 
