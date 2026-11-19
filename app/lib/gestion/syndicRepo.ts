@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { statutBienDisponible } from './statutBienRepo';
 import { normaliserTexte } from './annuaire';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import { conflitsDuRattachement, conflitsNonConfirmes, motifConflitParcelle, noterConflitParcelle, type ConflitAConfirmer } from './conflitParcelleRepo';
@@ -91,11 +92,14 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
     proprietaires: Array<{ affiche: string; tri: string }> | null;
     /** TUILE LOCATION (17/10/2026) — le type du lot (catégorie saisie, sinon nature / type WIPPIMMO), pour le détail en lecture. */
     type: string | null;
+    /** 🔴 Arno (19/11/2026) — le statut de gestion (en gestion / ancienne gestion), lu pour séparer les listes. */
+    fin: string | null; statut: 'en_gestion' | 'ancienne_gestion' | 'location_seule' | null;
   }>(
     /* LOT SYNDIC-BLOC-PORTEFEUILLE — les PROPRIÉTAIRES de chaque lot (« M. JULLIEN ») : le propriétaire de l'import puis
        les copropriétaires ajoutés à la main (lien en cours), cartes non supprimées. LECTURE SEULE. */
     `SELECT lo.id::text, lo.wippimmo_id AS numero, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
             nullif(concat_ws(' · ', lo.nature, lo.type_bien), '') AS type,
+            lo.gestion_fin::text AS fin, ${(await statutBienDisponible()) ? 'lo.statut_bien' : 'NULL::text'} AS statut,
             (SELECT json_agg(json_build_object('affiche', t.affiche, 'tri', t.tri) ORDER BY t.r, t.id)
                FROM (SELECT 0 AS r, p.id, btrim(coalesce(p.civilite, '') || ' ' || upper(coalesce(nullif(btrim(p.nom), ''), p.nom_complet, ''))) AS affiche,
                             lower(coalesce(nullif(btrim(p.nom), ''), p.nom_complet, '')) AS tri
@@ -122,6 +126,7 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
     const proprios = r.proprietaires ?? [];
     g.lots.push({
       id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune, type: r.type,
+      fin: r.fin, ...(r.statut !== null ? { statut: r.statut } : {}),
       proprietaires: proprios.map((x) => x.affiche), triProprietaire: proprios[0] ? normaliserTexte(proprios[0].tri) : undefined,
     });
     m.set(cle, g);

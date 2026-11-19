@@ -1,5 +1,6 @@
 'use client';
 
+import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   lotsDuPortefeuille,
@@ -920,8 +921,15 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   /* 🔴 LOT 6 (accord d'Arno, 16/11/2026) — les adresses de la copropriété (« + », champ, autres adresses, adresses de la même
      parcelle) et les contrôles de parcelle ont QUITTÉ la fiche syndic : ils sont dans la fiche copropriété, ouverte par le lien. */
   const [lotsOuverts, setLotsOuverts] = useState(false);
-  const groupes = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
+  const [anciensOuverts, setAnciensOuverts] = useState(false);
+  const groupesTous = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
     new Set((fiche?.coproprietes ?? []).flatMap((c) => [c.cle, ...(c.adresses ?? []).map((a) => a.cle)])));
+  // 🔴 Arno (19/11/2026) — les biens EN GESTION ACTUELLE d'abord ; l'ancienne gestion à part, repliée (même définition que la carte du bien)
+  const enGestionLot = (l: { fin?: string | null; statut?: 'en_gestion' | 'ancienne_gestion' | 'location_seule' }): boolean =>
+    bienEnGestion({ fin: l.fin ?? null, ...(l.statut ? { statut: l.statut } : {}) });
+  const groupes = groupesTous.map((g) => ({ ...g, lots: g.lots.filter(enGestionLot) })).filter((g) => g.lots.length > 0);
+  const groupesAnciens = groupesTous.map((g) => ({ ...g, lots: g.lots.filter((l) => !enGestionLot(l)) })).filter((g) => g.lots.length > 0);
+  const nbAnciens = groupesAnciens.reduce((n, g) => n + g.lots.length, 0);
   const lots = groupes.flatMap((g) => g.lots);
   const contacts = useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses, syndicId });
   const majTel = (i: number, v: string): void =>
@@ -1099,6 +1107,41 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
                         {l.aValider && (
                           <> <span className="fsy-pastille-attente" title="Ce lot recevra ce syndic quand vous cliquerez sur Valider">en attente de validation</span></>
                         )}
+                      </span>
+                      <span className="fsy-lot-proprios">
+                        {proprios.length === 0 ? 'Propriétaire non renseigné'
+                          : `${proprios.length > 1 ? 'Propriétaires' : 'Propriétaire'} : ${proprios.join(' · ')}`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* 🔴 Arno (19/11/2026) — « Ancienne gestion (N) » : les biens qui ne sont plus en gestion chez nous, au même format, repliés ; rien n'est effacé */}
+      {nbAnciens > 0 && (
+        <button type="button" className="fsy-copros-ligne fsy-lots-ligne" aria-expanded={anciensOuverts} onClick={() => setAnciensOuverts(!anciensOuverts)} data-ouvrir-ancienne-gestion>
+          <strong>Ancienne gestion ({nbAnciens})</strong>
+          <span className="fsy-fleche" aria-hidden="true">{anciensOuverts ? '▾' : '▸'}</span>
+        </button>
+      )}
+      {anciensOuverts && nbAnciens > 0 && (
+        <div className="fsy-lots" data-bloc-ancienne-gestion>
+          {groupesAnciens.map((g) => (
+            <div key={`a-${g.cle}`} className="fsy-lots-groupe">
+              <div className="fsy-lots-tete">
+                <span className="fsy-lots-adresse">{g.adresse}</span>
+                <span className="fsy-lots-nombre">{g.lots.length === 1 ? '1 lot' : `${g.lots.length} lots`}</span>
+              </div>
+              <ul className="fsy-liste fsy-liste--serree">
+                {g.lots.map((l) => {
+                  const proprios = l.proprietaires ?? [];
+                  return (
+                    <li key={l.id} className="fsy-lot" data-lot-ancienne>
+                      <span className="fsy-lot-ligne1">
+                        <strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ')} <span className="fsy-pastille-ancienne">Ancienne gestion</span>
                       </span>
                       <span className="fsy-lot-proprios">
                         {proprios.length === 0 ? 'Propriétaire non renseigné'
@@ -2467,6 +2510,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   .fsy-plus-adresse{transition:none}}
 .fsy-prises-ailleurs{color:var(--color-svv-muted)}
 /* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — le conflit possible : un encadre ORANGE dans le pied. */
+.fsy-pastille-ancienne{display:inline-flex;align-items:center;padding:0 6px;border-radius:999px;border:1px solid currentColor;font-size:.78rem;font-weight:700;color:var(--color-svv-muted)}
 .fsy-conflit-parcelle{padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink)}
 .fsy-autres-adresses{margin-left:.35rem;padding:0;border:0;background:transparent;color:var(--color-svv-muted);font:inherit;font-size:.8rem;
   font-weight:400;text-transform:none;letter-spacing:normal;cursor:pointer}

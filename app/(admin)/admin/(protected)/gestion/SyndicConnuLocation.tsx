@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PROPOSITIONS_SYNDIC, motOrigine, type SyndicConnuVu } from './PropositionsSyndic';
 import { nomAvecVille, PERSONNALISE, TITRES_CONTACT, valeurDuChoix, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
-import { clesDeLAdresse, grouperBiensParAdresse, ordonnerContactsSyndic, type NouveauContactSyndic } from '../../../../lib/location/syndicLocation';
+import { clesDeLAdresse, grouperBiensSelonGestion, ordonnerContactsSyndic, type NouveauContactSyndic } from '../../../../lib/location/syndicLocation';
 
 /**
  * ══ 🔴🔴 MODALE « SYNDIC DE LA COPROPRIÉTÉ » OUVERTE DEPUIS LA TUILE LOCATION (Arno, 17/10/2026) ═══════════════════════
@@ -91,7 +91,10 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
       .catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
   }, [syndicId, relire]);
-  const groupes = useMemo(() => (f === null ? [] : grouperBiensParAdresse(f.coproprietes)), [f]);
+  // 🔴 Arno (19/11/2026) — en gestion actuelle d'abord ; l'ancienne gestion dans une rubrique repliée (même définition que la carte du bien)
+  const selon = useMemo(() => (f === null ? { enGestion: [], ancienne: [], nbAnciens: 0 } : grouperBiensSelonGestion(f.coproprietes)), [f]);
+  const groupes = selon.enGestion;
+  const [anciensOuverts, setAnciensOuverts] = useState(false);
   const limite = groupes.length > ADRESSES_VISIBLES;
   // La hauteur de la zone = le bas de la 3e adresse (mesuré : une adresse peut porter 1 ou 12 lots).
   useLayoutEffect(() => {
@@ -218,6 +221,28 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
             ))}
           </div>
         )}
+        {selon.nbAnciens > 0 && (
+          <div className="syl-ancienne" data-bloc-ancienne-gestion>
+            <style>{CSS_ANCIENNE_GESTION}</style>
+            <button type="button" className="syl-ancienne-bouton" aria-expanded={anciensOuverts} onClick={() => setAnciensOuverts((x) => !x)} data-ouvrir-ancienne-gestion>
+              <span aria-hidden="true">{anciensOuverts ? '▾' : '▸'}</span> Ancienne gestion ({selon.nbAnciens})</button>
+            {anciensOuverts && selon.ancienne.map((g) => (
+              <div key={`a|${g.commune ?? ''}|${g.adresse}`} className="syl-groupe" data-groupe-ancienne>
+                <p className="syl-adresse"><strong>{g.adresse}</strong>{[g.codePostal, g.commune].some((x) => x) ? <span> · {[g.codePostal, g.commune].filter((x) => x).join(' ')}</span> : null}</p>
+                <ul className="syl-lots">
+                  {g.lots.map((l) => (
+                    <li key={l.id} data-lot-ancienne>
+                      <span className="syl-num">lot {l.numero}</span>
+                      {l.type ? <span>{l.type}</span> : null}
+                      {(l.proprietaires ?? []).length > 0 ? <span className="syl-proprio">{(l.proprietaires ?? []).join(', ')}</span> : null}
+                      <span className="syl-mot-ancienne">Ancienne gestion</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
         {limite ? <p className="syl-rien" data-indice-defilement>↓ Faire défiler : {groupes.length - ADRESSES_VISIBLES} autre{groupes.length - ADRESSES_VISIBLES > 1 ? 's' : ''} adresse{groupes.length - ADRESSES_VISIBLES > 1 ? 's' : ''}</p> : null}
       </section>
       <p className="syl-rien">Lecture seule : la fiche se modifie dans l’annuaire des syndics de la Gestion.</p>
@@ -271,4 +296,12 @@ const CSS_SYNDIC_LOCATION = `
 .syl-proprio{color:var(--color-svv-muted)}
 .syl-rien{color:var(--color-svv-muted);font-style:italic;font-size:.88rem;margin:0}
 @media (max-width:640px){ .syl-trois{grid-template-columns:1fr} }
+`;
+
+/* AUCUN ACCENT GRAVE DANS CE LITTERAL. 🔴 Arno (19/11/2026) — la rubrique « Ancienne gestion » porte ses styles (jetons du theme, cibles de 44 px). */
+const CSS_ANCIENNE_GESTION = `
+.syl-ancienne{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.syl-ancienne-bouton{align-self:flex-start;min-height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
+.syl-ancienne-bouton:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
+.syl-mot-ancienne{white-space:nowrap;margin-left:6px;font-size:.78rem;font-weight:700;color:var(--color-svv-muted);border:1px solid currentColor;border-radius:999px;padding:0 6px}
 `;

@@ -1,3 +1,4 @@
+import { bienEnGestion } from '../gestion/bienEnGestion';
 /**
  * TUILE LOCATION — LE SYNDIC DU BIEN : les formes échangées entre l'écran et le serveur. MODULE PUR (aucune base).
  * Voir `syndicLocationRepo.ts` (fonctions de la Gestion) et `BlocSyndicBien.tsx` (l'écran).
@@ -14,6 +15,8 @@ export interface SyndicDuBien { id: number; contactsIds?: number[]; nouveauxCont
 
 export interface LotDuDetail {
   id: number; numero: string; adresse: string | null; commune: string | null; type?: string | null; proprietaires?: string[];
+  /** 🔴 Arno (19/11/2026) — le statut de gestion (définition partagée `bienEnGestion`) ; absents : en gestion (lecture d'avant). */
+  fin?: string | null; statut?: 'en_gestion' | 'ancienne_gestion' | 'location_seule';
 }
 export interface CoproDuDetail { libelle: string; codePostal: string | null; commune: string | null; lots: readonly LotDuDetail[] }
 export interface GroupeAdresse { adresse: string; codePostal: string | null; commune: string | null; lots: LotDuDetail[] }
@@ -56,6 +59,21 @@ export function grouperBiensParAdresse(copros: readonly CoproDuDetail[]): Groupe
       return da.voie.localeCompare(db.voie, 'fr') || (da.numero ?? Number.MAX_SAFE_INTEGER) - (db.numero ?? Number.MAX_SAFE_INTEGER)
         || da.suffixe.localeCompare(db.suffixe, 'fr');
     });
+}
+
+/**
+ * 🔴 Arno (19/11/2026) — « Immeubles et biens gérés » : la liste principale ne montre que les biens EN GESTION ACTUELLE ; ceux qui ne le sont plus
+ * vont dans la rubrique repliée « Ancienne gestion (N) », au même format (rien n'est supprimé ni masqué définitivement). La règle : `bienEnGestion`,
+ * la même que la carte du bien et l'annuaire. Une copropriété sans aucun bien du portefeuille garde sa ligne dans la liste principale ; une
+ * copropriété dont tous les biens sont d'ancienne gestion n'y apparaît plus (elle est dans la rubrique). PUR.
+ */
+export function grouperBiensSelonGestion(copros: readonly CoproDuDetail[]): { enGestion: GroupeAdresse[]; ancienne: GroupeAdresse[]; nbAnciens: number } {
+  const en = (l: LotDuDetail): boolean => bienEnGestion({ fin: l.fin ?? null, ...(l.statut ? { statut: l.statut } : {}) });
+  const principal = copros
+    .filter((c) => c.lots.length === 0 || c.lots.some(en))
+    .map((c) => ({ ...c, lots: c.lots.filter(en) }));
+  const anciens = copros.map((c) => ({ ...c, lots: c.lots.filter((l) => !en(l)) })).filter((c) => c.lots.length > 0);
+  return { enGestion: grouperBiensParAdresse(principal), ancienne: grouperBiensParAdresse(anciens), nbAnciens: anciens.reduce((n, c) => n + c.lots.length, 0) };
 }
 
 // ── LE DÉTAIL DU SYNDIC : LES CONTACTS DE CETTE ADRESSE EN TÊTE (Arno, 18/10/2026) ─────────────────────────────────────

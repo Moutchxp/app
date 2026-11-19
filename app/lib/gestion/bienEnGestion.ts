@@ -45,3 +45,12 @@ export function bienEnGestion(b: BienDatable): boolean {
 export function compterBiensEnGestion(biens: readonly BienDatable[]): number {
   return biens.filter(bienEnGestion).length;
 }
+
+/**
+ * 🔴 Arno (19/11/2026) — les listes de biens d'un syndic ou d'une copropriété : d'abord les biens EN GESTION ACTUELLE, puis, à part (rubrique
+ * repliée « Ancienne gestion (N) »), ceux qui ne le sont plus. La même règle que partout (`bienEnGestion`) ; rien n'est écarté. PUR.
+ */
+export function separerParGestion<T extends BienDatable>(biens: readonly T[]): { enGestion: T[]; ancienne: T[] } {
+  return { enGestion: biens.filter(bienEnGestion), ancienne: biens.filter((b) => !bienEnGestion(b)) };
+}
+

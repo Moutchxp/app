@@ -119,6 +119,8 @@ export interface LotDeCopropriete {
   type?: string | null;
   /** LOT SYNDIC-BLOC-PORTEFEUILLE — ses propriétaires (« M. JULLIEN »), et la clé de tri du premier (son nom). */
   proprietaires?: string[]; triProprietaire?: string;
+  /** 🔴 Arno (19/11/2026) — le statut de gestion (la définition partagée, `bienEnGestion`) : la date de fin et le statut du bien. */
+  fin?: string | null; statut?: 'en_gestion' | 'ancienne_gestion' | 'location_seule';
 }
 
 /** Un immeuble connu : de l'annuaire (ses lots) et/ou déjà déclaré comme copropriété ; avec son syndic en cours. */
