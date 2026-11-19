@@ -136,3 +136,31 @@ describe('🔴🔴 Arno (19/11/2026, 503) — durées d’office par sorte et «
     expect(duree()).toBe('30');
   });
 });
+
+describe('🔴 Arno (19/11/2026) — « Horaires actuels conservés… » sous « Fin », seulement quand la fin actuelle ≠ début + durée affichée', () => {
+  const phrase = () => hote.querySelector('[data-horaires-conserves]')?.textContent ?? null;
+  const PHRASE = 'Horaires actuels conservés : la fin sera recalculée dès que vous choisirez une heure de début.';
+  it('rendez-vous d’une heure ouvert en modification (durée affichée 30 min) : la phrase ; un début choisi la fait disparaître', () => {
+    rendre({ debut0: '14:00', fin0: '15:00' });
+    expect(phrase()).toBe(PHRASE);
+    choisirHeure('[data-d]', '14:00');
+    expect(etat.fin).toBe('14:30');
+    expect(phrase()).toBeNull();
+  });
+  it('fin actuelle = début + durée affichée : pas de phrase', () => {
+    rendre({ debut0: '14:00', fin0: '14:30' });
+    expect(phrase()).toBeNull();
+  });
+  it('création (rien de posé) : pas de phrase ; une durée choisie ou une fin changée à la main : pas de phrase', () => {
+    rendre();
+    expect(phrase()).toBeNull();
+    act(() => racine.unmount()); racine = createRoot(hote);
+    rendre({ debut0: '14:00', fin0: '15:00' });
+    choisirDuree('45');
+    expect(phrase()).toBeNull();
+    act(() => racine.unmount()); racine = createRoot(hote);
+    rendre({ debut0: '14:00', fin0: '15:00' });
+    choisirHeure('[data-f]', '15:15');
+    expect(phrase()).toBeNull();
+  });
+});

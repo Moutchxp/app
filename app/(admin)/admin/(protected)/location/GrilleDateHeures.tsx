@@ -78,6 +78,10 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
     const e = dureeEntre(debut, v);
     if (e !== null) setChoisie(e); // la durée qui correspond, ou « Autre (n min) »
   };
+  // 🔴 Arno (19/11/2026) — à l'ouverture d'un « Modifier / déplacer », la fin actuelle ne correspond pas toujours à début + durée affichée : une
+  // phrase discrète, sous « Fin », le dit — et seulement dans ce cas (elle disparaît dès qu'un début, une durée ou une fin est choisi)
+  const finCalculee = finDepuisDebut(debut, choisie);
+  const horairesConserves = !finManuelle && debut !== '' && fin !== '' && finCalculee !== fin;
   return (
     <div className={`${classe} gdh-cadre`} {...donneesGrille}>
       <style>{CSS_GRILLE_DATE_HEURES}</style>
@@ -93,6 +97,7 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
       <ChoixHeure libelle={libelles.debut} etiquetteId={`${id}-d`} valeur={debut} minutes={minutes} plage={plage} role="debut" garder={garder} donnees={donnees.debut} desactive={desactive} onChange={changerDebut} />
       <span className="pvs-libelle gdh-libelle" id={`${id}-f`}>{libelles.fin}</span>
       <ChoixHeure libelle={libelles.fin} etiquetteId={`${id}-f`} valeur={fin} minutes={minutes} plage={plage} role="fin" garder={garder} donnees={donnees.fin} desactive={desactive} onChange={changerFin} />
+      {horairesConserves && <p className="gdh-horaires-conserves" data-horaires-conserves>Horaires actuels conservés : la fin sera recalculée dès que vous choisirez une heure de début.</p>}
       </div>
     </div>
   );
@@ -111,6 +116,7 @@ export const CSS_GRILLE_DATE_HEURES = `
 .gdh .gdh-duree{grid-column:4;display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;column-gap:12px;min-width:0}
 .gdh .chh{grid-column:2 / span 3;display:grid;grid-template-columns:subgrid;min-width:0;width:100%}
 .gdh .chh-listes{grid-column:1 / -1;grid-template-columns:subgrid}
+.gdh .gdh-horaires-conserves{grid-column:2 / -1;margin:-4px 0 0;font-size:.85rem;line-height:1.35;color:var(--color-svv-muted)}
 @container (max-width:28rem){
   .gdh .gdh-duree{grid-column:1 / -1;grid-template-columns:subgrid;column-gap:6px}
   .gdh .gdh-duree > .gdh-libelle{grid-column:1;margin-right:6px}
@@ -120,6 +126,7 @@ export const CSS_GRILLE_DATE_HEURES = `
 @media (max-width:600px){
   .gdh{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);row-gap:4px}
   .gdh > .gdh-libelle,.gdh .gdh-date,.gdh .gdh-duree,.gdh .chh{grid-column:1 / -1}
+  .gdh .gdh-horaires-conserves{grid-column:1 / -1}
   .gdh > .gdh-libelle{margin:6px 0 0}
   .gdh .gdh-duree{grid-template-columns:minmax(0,1fr);row-gap:4px;margin-top:6px}
   .gdh .gdh-duree > .gdh-libelle,.gdh .gdh-duree > .lch{grid-column:1 / -1;margin-right:0}

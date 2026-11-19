@@ -270,6 +270,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     expect(document.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('30');
     expect(document.querySelector('[data-duree-choix]')?.textContent).not.toContain('Autre');
     expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
+    expect(document.querySelector('[data-horaires-conserves]')?.textContent).toBe('Horaires actuels conservés : la fin sera recalculée dès que vous choisirez une heure de début.');
     expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('Rendez-vous actuel : le ');
     await clic(document.querySelector('[data-destinataire="3"]'));
     await clic(document.querySelector('[data-destinataire="4"]'));

@@ -80,3 +80,12 @@ describe('🔴 la fenêtre de la tâche', () => {
     expect(container.querySelector('input[type="time"][data-champ-heure]')).not.toBeNull();
   });
 });
+
+describe('🔴 Arno (19/11/2026) — une tâche « Rendez-vous » ouverte en modification garde SA durée (la durée d’office ne vaut qu’à la création)', () => {
+  it('un rendez-vous d’1 h 30 : « 1 h 30 » choisi à l’ouverture, pas 30 min ; la fin le dit', async () => {
+    detail = { ...base, objet: 'Visite avec le plombier', heure: '10:00', dureeMinutes: 90 } as Tache;
+    await act(async () => { root.render(createElement(FenetreTache, { mode: { sorte: 'detail', id: 41 }, onFermer: () => {} })); }); await calmer(); await calmer();
+    expect(container.querySelector('[data-duree-rapide][aria-pressed="true"]')?.getAttribute('data-duree-rapide')).toBe('90');
+    expect(container.querySelector('[data-heure-fin]')?.textContent).toBe('Fin : 11h30');
+  });
+});
