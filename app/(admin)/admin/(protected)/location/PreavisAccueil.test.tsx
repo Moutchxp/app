@@ -1119,6 +1119,15 @@ describe('🔴🔴 Arno (13/11/2026) — case « 2 Pré-visite » : rendez-vous 
     // 🔴 Arno (15/11/2026) — même mise en forme que le récapitulatif : l'étiquette de famille sur chaque envoi
     expect([...f.querySelectorAll('[data-cr-destinataire] [data-etiquette-famille]')].map((x) => x.textContent)).toEqual(['MAIL AUX LOCATAIRES', 'MAIL AUX LOCATAIRES', 'MAIL INTERNE À L’AGENCE']);
     expect(f.textContent).not.toMatch(/@/); // aucune adresse
+    // 🔴 Arno (19/11/2026) — TOUTES les lignes construites pareil (modèle « MAIL INTERNE À L'AGENCE ») : la pastille, le nom, puis UNE ligne
+    // « le JJ/MM/AAAA à HHhMM » + statut, sous le nom ; la même règle de style pour chaque famille (seule la couleur de la bordure change)
+    for (const x of f.querySelectorAll('[data-cr-destinataire]')) {
+      expect([...x.children].map((c) => c.className.split(' ')[0])).toEqual(['pvv-cr-famille', 'pvv-cr-nom', 'pvv-cr-envoi']);
+      expect([...x.querySelector('[data-cr-ligne-envoi]')!.children].map((c) => c.className.split(' ')[0])).toEqual(['pvv-cr-quand', 'pvv-cr-etat']);
+    }
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
+    expect(css).toContain('.pvv-cr-dest{--pvv-famille:var(--color-svv-gray);display:flex;flex-direction:column;');
+    expect(css).not.toMatch(/\.pvv-cr-dest--(locataire|interne|proprietaire)\{[^}]*(display|padding|margin|flex)/);
     expect(f.querySelector('[data-cr-aucun-envoi]')).toBeNull();
     expect(document.body.style.overflow).toBe('hidden');
     act(() => (f.querySelector('[data-fermer-compte-rendu]') as HTMLButtonElement).click());

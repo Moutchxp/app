@@ -455,8 +455,11 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
     // 🔴 Arno (19/11/2026) — Date, Début, Fin l'une sous l'autre : la colonne des libellés commune, champs alignés ; téléphone : libellé au-dessus
     const { CSS_GRILLE_DATE_HEURES } = await import('./GrilleDateHeures');
     const g = CSS_GRILLE_DATE_HEURES.replace(/\s+/g, ' ');
-    expect(g).toContain('.gdh{display:grid;grid-template-columns:max-content minmax(0,1fr) auto minmax(0,1fr);'); // libellé | heure | « : » | minutes (et Durée)
-    expect(g).toContain('@media (max-width:600px){ .gdh{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);');
+    // 🔴 Arno (19/11/2026, 15h04) — les listes « h » et « min » jamais plus étroites que leur contenu (5.25rem, 4.75rem au moins)
+    expect(g).toContain('.gdh{display:grid;grid-template-columns:max-content minmax(5.25rem,1fr) auto minmax(4.75rem,1fr);'); // libellé | heure | « : » | minutes (et Durée)
+    expect(g).toContain('@media (max-width:600px){ .gdh{grid-template-columns:minmax(5.25rem,1fr) auto minmax(4.75rem,1fr);');
+    // 🔴 Arno (19/11/2026, 15h04) — une colonne étroite (la case de la frise) : la règle du téléphone, libellés au-dessus, heure et minutes côte à côte
+    expect(g).toContain('@container (max-width:22rem){ .gdh{grid-template-columns:minmax(5.25rem,1fr) auto minmax(4.75rem,1fr);row-gap:4px} .gdh > .gdh-libelle,.gdh .gdh-date,.gdh .gdh-duree,.gdh .chh{grid-column:1 / -1}');
     expect(g).toContain('.gdh > .gdh-libelle,.gdh .gdh-date,.gdh .gdh-duree,.gdh .chh{grid-column:1 / -1}'); // téléphone : chaque libellé au-dessus, la durée sous la date
   });
 });

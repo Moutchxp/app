@@ -864,8 +864,11 @@ function FenetreCompteRendu({ l, p, mode, onFermer }: { l: LignePreavisAccueil; 
             <li key={`${i}-${d.nom}`} className={`pvv-cr-dest pvv-cr-dest--${d.famille}`} data-cr-destinataire={d.famille} data-cr-etat={d.etat}>
               <span className="pvv-cr-famille" data-etiquette-famille={d.famille} title={LIBELLE_FAMILLE_CR[d.famille]}>{ETIQUETTE_ENVOI_CR[d.famille]}</span>
               <strong className="pvv-cr-nom">{d.nom}</strong>
-              <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
-              <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
+              {/* 🔴 Arno (19/11/2026) — toutes les lignes sur le modèle de « MAIL INTERNE À L'AGENCE » : la date puis le statut, SOUS le nom */}
+              <span className="pvv-cr-envoi" data-cr-ligne-envoi>
+                <span className="pvv-cr-quand">{d.quand ? quandFr(d.quand) : '—'}</span>
+                <span className={`pvv-cr-etat pvv-cr-etat--${d.etat}`}>{LIBELLE_ETAT_CR[d.etat]}{d.motif ? ` (${d.motif})` : ''}</span>
+              </span>
             </li>))}</ul>)}
         {/* la signature et « Mail envoyé par … » restent visibles ici, dans le mail tel qu'envoyé */}
         <details className="pvv-cr-mail" data-cr-mail-envoye><summary>Voir le mail tel qu’envoyé</summary>
@@ -988,12 +991,13 @@ export const CSS_PREVISITE = `
 .pvv-cr-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
 /* Arno (15/11/2026) : meme mise en forme que les cartes du recapitulatif — barre et etiquette de la couleur de la famille
    (locataire vert, interne gris, proprietaire rouge) */
-.pvv-cr-dest{--pvv-famille:var(--color-svv-gray);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-line);border-left:8px solid var(--pvv-famille);background:var(--color-svv-surface)}
+.pvv-cr-dest{--pvv-famille:var(--color-svv-gray);display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-line);border-left:8px solid var(--pvv-famille);background:var(--color-svv-surface)}
 .pvv-cr-dest--locataire{--pvv-famille:var(--color-svv-green-ink)}
 .pvv-cr-dest--proprietaire{--pvv-famille:var(--color-svv-red)}
 .pvv-cr-dest--interne{--pvv-famille:var(--color-svv-gray)}
-.pvv-cr-famille{flex:0 0 100%;align-self:flex-start;max-width:max-content;display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:var(--pvv-famille);color:var(--color-svv-surface);font-size:.8rem;font-weight:900;letter-spacing:.06em;line-height:1.25}
-.pvv-cr-nom{flex:1 1 10rem;min-width:8rem;overflow-wrap:break-word}
+.pvv-cr-famille{flex:0 0 auto;align-self:flex-start;max-width:100%;display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:var(--pvv-famille);color:var(--color-svv-surface);font-size:.8rem;font-weight:900;letter-spacing:.06em;line-height:1.25}
+.pvv-cr-nom{align-self:stretch;min-width:0;line-height:1.35;text-align:left;overflow-wrap:anywhere}
+.pvv-cr-envoi{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;min-width:0;line-height:1.35;text-align:left}
 .pvv-cr-quand{font-size:.86rem;color:var(--color-svv-muted);white-space:nowrap}
 .pvv-cr-etat{font-weight:800}
 .pvv-cr-etat--envoye{color:var(--color-svv-green-ink)}

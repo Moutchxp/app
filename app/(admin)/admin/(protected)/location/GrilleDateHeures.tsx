@@ -106,10 +106,14 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme.
    Quatre colonnes : libelle | heure (et la date) | « : » | minutes (et le bloc Duree) ; les listes de ChoixHeure s'y posent en sous-grille, d'ou les
    memes largeurs et positions d'une ligne a l'autre. Grille etroite (moins de 28rem : le formulaire de l'etat des lieux, en colonne) : la Duree
-   passe sur sa propre ligne sous la Date, son libelle dans la colonne des libelles. Telephone : chaque libelle au-dessus de son champ. */
+   passe sur sa propre ligne sous la Date, son libelle dans la colonne des libelles. Telephone : chaque libelle au-dessus de son champ.
+   🔴 Arno (19/11/2026, 15h04) — les listes « h » et « min » ne sont JAMAIS plus etroites que leur contenu (« 10h », « min », « 00 », fermees comme
+   ouvertes : le menu ouvert prend la largeur du champ) : colonnes de 5.25rem et 4.75rem au moins. Une colonne trop etroite pour le libelle A COTE
+   (moins de 22rem : la case de la frise, a 1440 et 1280 px comme au telephone) : le libelle AU-DESSUS, heure et minutes cote a cote sur toute la
+   largeur — la regle du telephone. */
 export const CSS_GRILLE_DATE_HEURES = `
 .gdh-cadre{container-type:inline-size;min-width:0}
-.gdh{display:grid;grid-template-columns:max-content minmax(0,1fr) auto minmax(0,1fr);align-items:center;column-gap:6px;row-gap:10px;min-width:0}
+.gdh{display:grid;grid-template-columns:max-content minmax(5.25rem,1fr) auto minmax(4.75rem,1fr);align-items:center;column-gap:6px;row-gap:10px;min-width:0}
 .gdh > .gdh-libelle{grid-column:1;margin:0 6px 0 0;white-space:nowrap;text-align:left}
 .gdh .gdh-libelle{margin-top:0;margin-bottom:0;white-space:nowrap;text-align:left}
 .gdh .gdh-date{grid-column:2;box-sizing:border-box;width:100%;max-width:none;min-width:0;height:44px;margin:0}
@@ -123,8 +127,16 @@ export const CSS_GRILLE_DATE_HEURES = `
   .gdh .gdh-duree > .lch{grid-column:2 / -1;min-width:0}
   .gdh .gdh-date{grid-column:2 / -1}
 }
+@container (max-width:22rem){
+  .gdh{grid-template-columns:minmax(5.25rem,1fr) auto minmax(4.75rem,1fr);row-gap:4px}
+  .gdh > .gdh-libelle,.gdh .gdh-date,.gdh .gdh-duree,.gdh .chh{grid-column:1 / -1}
+  .gdh .gdh-horaires-conserves{grid-column:1 / -1}
+  .gdh > .gdh-libelle{margin:6px 0 0}
+  .gdh .gdh-duree{grid-template-columns:minmax(0,1fr);row-gap:4px;margin-top:6px}
+  .gdh .gdh-duree > .gdh-libelle,.gdh .gdh-duree > .lch{grid-column:1 / -1;margin-right:0}
+}
 @media (max-width:600px){
-  .gdh{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);row-gap:4px}
+  .gdh{grid-template-columns:minmax(5.25rem,1fr) auto minmax(4.75rem,1fr);row-gap:4px}
   .gdh > .gdh-libelle,.gdh .gdh-date,.gdh .gdh-duree,.gdh .chh{grid-column:1 / -1}
   .gdh .gdh-horaires-conserves{grid-column:1 / -1}
   .gdh > .gdh-libelle{margin:6px 0 0}
