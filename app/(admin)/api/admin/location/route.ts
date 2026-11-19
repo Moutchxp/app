@@ -52,7 +52,7 @@ import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/loc
 import { refusMinutesRdv, refusPlageRdv } from '../../../../lib/location/minutesRdv';
 import { etatDuRdv, prevenirCollaborateurInitial, tacheDuRdvPreavis } from '../../../../lib/gestion/modificationRdvRepo';
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
-import { envoyerLienCompteRenduMaintenant, MOTIF_LIEN_CR_HORS_TEST } from '../../../../lib/location/previsiteAuto';
+import { envoyerLienCompteRenduMaintenant } from '../../../../lib/location/previsiteAuto';
 import { dureesRdvReglees, minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
@@ -838,8 +838,8 @@ async function postLocation(request: Request): Promise<Response> {
           destinataires: idsOccupations(corps.destinataires), deplacer: corps.deplacer === true, retouches: rt.retouches, locataires: lireChoixLocataires(corps.locataires) }, auteur));
       }
       case 'envoyer-lien-compte-rendu': {
-        // 🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (préavis de TEST seulement) : le mail de l'heure de début, tout de suite
-        if (test === null) return Response.json({ etat: 'refus', motif: MOTIF_LIEN_CR_HORS_TEST }, { status: 400, headers: ENTETES });
+        // 🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » : le mail de l'heure de début, tout de suite (préavis de test : au
+        // créateur seul ; vrai préavis : aux collègues destinataires — l'écran a posé la question)
         const r = await envoyerLienCompteRenduMaintenant(idsOccupations(corps.occupationIds), auteur);
         return r.etat === 'ok' ? repondre({ etat: 'ok', data: { envois: r.envois } }) : Response.json(r, { status: 400, headers: ENTETES });
       }

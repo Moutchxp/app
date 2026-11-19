@@ -33,6 +33,37 @@ export function ModaleConfirmation({ titre = 'C’est fait', phrase, onOk }: { t
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
 }
 
+/**
+ * 🔴 Arno (19/11/2026) — LA MÊME FENÊTRE, POUR UNE QUESTION AVANT UN GESTE (« Envoyer maintenant le lien du compte rendu à : … ? ») : la phrase, puis
+ * « Annuler » (contour) et l'action (pleine). Clavier : le focus va sur l'action ; Échap annule. Cibles de 44 px ; jetons du thème.
+ */
+export function ModaleQuestion({ titre, question, action, onConfirmer, onAnnuler, occupe = false }: { titre: string; question: string; action: string;
+  onConfirmer: () => void; onAnnuler: () => void; occupe?: boolean }) {
+  useVerrouDefilement();
+  const id = useId();
+  const ok = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    ok.current?.focus();
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.preventDefault(); onAnnuler(); } };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [onAnnuler]);
+  const boite = (
+    <div className="mcf-voile" data-modale-question>
+      <style>{CSS_MODALE_CONFIRMATION}</style>
+      <div className="mcf-boite mcf-boite--question" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-t`} aria-describedby={`${id}-p`}>
+        <h2 id={`${id}-t`} className="mcf-titre mcf-titre--question">{titre}</h2>
+        <p id={`${id}-p`} className="mcf-phrase" data-phrase-question>{question}</p>
+        <div className="mcf-boutons">
+          <button type="button" className="svv-btn svv-btn-outline mcf-ok" onClick={onAnnuler} disabled={occupe} data-annuler-question>Annuler</button>
+          <button ref={ok} type="button" className="svv-btn svv-btn-primary mcf-ok" onClick={onConfirmer} disabled={occupe} data-confirmer-question>{occupe ? 'Envoi…' : action}</button>
+        </div>
+      </div>
+    </div>
+  );
+  return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
+}
+
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; aucune animation. */
 export const CSS_MODALE_CONFIRMATION = `
 .mcf-voile{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
@@ -41,4 +72,7 @@ export const CSS_MODALE_CONFIRMATION = `
 .mcf-phrase{margin:0;font-size:1rem;line-height:1.4;overflow-wrap:anywhere}
 .mcf-ok{min-height:44px;width:100%;margin:0}
 .mcf-ok:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
+.mcf-boite--question{border-color:var(--color-svv-line-strong)}
+.mcf-titre--question{color:var(--color-svv-ink)}
+.mcf-boutons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 `;

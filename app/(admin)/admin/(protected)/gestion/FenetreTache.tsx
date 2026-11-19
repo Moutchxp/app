@@ -132,7 +132,6 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const erreurDe = (champ: ChampTache) => (message !== null && !message.ok && message.champ === champ
     ? <span className="tchf-erreur" role="alert">{message.texte}</span> : null);
   const invalide = (champ: ChampTache) => message !== null && !message.ok && message.champ === champ;
-  const [confirmerAnnulation, setConfirmerAnnulation] = useState(false);
   const [version, setVersion] = useState(0);
   const premier = useRef<HTMLInputElement>(null);
 
@@ -384,7 +383,6 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       ? await recap.demander({ titre: 'Tâche annulée', apercu: { geste: 'annuler', tacheId: id }, action: (rt) => agirSurTache(id, { geste: g }, rt), annulation: true })
       : await agirSurTache(id, { geste: g });
     setOccupe(false);
-    setConfirmerAnnulation(false);
     if (r === null) return; // « Revenir » : rien n'est fait
     // 🔴 Arno (19/11/2026, choix A) — annulée (la confirmation fermée) : la tâche disparaît de l'interface, la fenêtre se ferme avec elle
     if (g === 'annuler' && r.ok) { signalerTaches(); onFermer(); return; }
@@ -743,23 +741,12 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             </button>
           )}
           {mode.sorte === 'detail' && tache !== null && !terminee && (
-            confirmerAnnulation ? (
-              <>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tchf-danger" disabled={occupe}
-                  onClick={() => void geste('annuler')}>
-                  Confirmer l’annulation
-                </button>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn"
-                  onClick={() => setConfirmerAnnulation(false)}>
-                  Ne pas annuler
-                </button>
-              </>
-            ) : (
-              <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
-                onClick={() => setConfirmerAnnulation(true)}>
-                Annuler la tâche
-              </button>
-            )
+            // 🔴 Arno (19/11/2026) — UNE seule fenêtre pour annuler (accord d'Arno) : l'étape « Confirmer l'annulation / Ne pas annuler » du pied est
+            // fusionnée dans la fenêtre qui dit la phrase et la liste des personnes prévenues (ses boutons : « Confirmer l'annulation » / « Ne pas annuler »)
+            <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
+              onClick={() => void geste('annuler')} data-annuler-tache>
+              Annuler la tâche
+            </button>
           )}
           {mode.sorte === 'detail' && terminee && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}

@@ -208,6 +208,21 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(document.querySelector('[data-confirmer-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'deplacer-previsite', jour: '2026-11-25', debut: '10:00', fin: '11:00' });
   });
+  it('🔴 Arno (19/11/2026) — vrai préavis : « Envoyer maintenant le lien du compte rendu » pose la question avec les noms, puis envoie et confirme', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    await clic(document.querySelector('[data-envoyer-lien-cr]'));
+    expect(document.querySelector('[data-phrase-question]')?.textContent).toBe('Envoyer maintenant le lien du compte rendu à : Claire Test ?');
+    expect(posts.some((x) => x.action === 'envoyer-lien-compte-rendu')).toBe(false);
+    await clic(document.querySelector('[data-annuler-question]'));
+    expect(document.querySelector('[data-modale-question]')).toBeNull();
+    expect(posts.some((x) => x.action === 'envoyer-lien-compte-rendu')).toBe(false);
+    await clic(document.querySelector('[data-envoyer-lien-cr]'));
+    await clic(document.querySelector('[data-confirmer-question]'));
+    expect(posts.at(-1)).toMatchObject({ action: 'envoyer-lien-compte-rendu', occupationIds: [31] });
+    expect(document.querySelector('[data-modale-confirmation]')).not.toBeNull();
+  });
   it('🔴 Arno (19/11/2026) — seul le collègue change : « Non » PRÉ-COCHÉ (modifiable) ; date changée ou rien changé : aucune réponse pré-cochée', async () => {
     await rendre();
     await clic(container.querySelector('[data-ouvrir-preavis="B"]'));

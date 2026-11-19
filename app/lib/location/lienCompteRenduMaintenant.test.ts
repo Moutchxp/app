@@ -41,7 +41,7 @@ vi.mock('./mailsPreavisSortieRepo', async (orig) => {
     }),
   };
 });
-const { envoyerLienCompteRenduMaintenant, MOTIF_LIEN_CR_HORS_TEST } = await import('./previsiteAuto');
+const { envoyerLienCompteRenduMaintenant } = await import('./previsiteAuto');
 
 beforeEach(() => { h.test = true; h.partis = []; h.maj = []; });
 describe('🔴 « Envoyer maintenant le lien du compte rendu »', () => {
@@ -53,9 +53,10 @@ describe('🔴 « Envoyer maintenant le lien du compte rendu »', () => {
     expect(h.partis[0].objet.startsWith('[TEST]')).toBe(true);
     expect(h.maj).toHaveLength(1);
   });
-  it('un vrai préavis : refusé, rien ne part', async () => {
+  it('🔴 (19/11/2026, 2e retour) un VRAI préavis : le mail part aux collègues destinataires du rendez-vous (sans marque [TEST])', async () => {
     h.test = false;
-    expect(await envoyerLienCompteRenduMaintenant([553], { id: 2, libelle: 'Arnaud Jorel' })).toEqual({ etat: 'refus', motif: MOTIF_LIEN_CR_HORS_TEST });
-    expect(h.partis).toEqual([]);
+    expect((await envoyerLienCompteRenduMaintenant([553], { id: 2, libelle: 'Arnaud Jorel' })).etat).toBe('ok');
+    expect(h.partis.map((x) => x.a)).toEqual([['a.jorel@sansvisavis.com', 'cedric@sansvisavis.com']]);
+    expect(h.partis[0].objet.startsWith('[TEST]')).toBe(false);
   });
 });

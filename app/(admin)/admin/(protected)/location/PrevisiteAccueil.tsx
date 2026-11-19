@@ -23,7 +23,7 @@ import {
 } from '../../../../lib/location/previsite';
 import { refusPhotos, lignePhoto, legendesDuTexte, texteSansPhotos } from '../../../../lib/location/photosCompteRendu';
 import { phraseLienCompteRendu } from '../../../../lib/location/preavisTest';
-import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
+import { ModaleConfirmation, ModaleQuestion } from '../gestion/ModaleConfirmation';
 // 🔴 Arno (15/11/2026) — les trois blocs du compte rendu (texte, photos, dictaphone) : `CompteRenduSaisie.tsx` (conversion des photos et
 // enregistreur chargés AU TOUCHER, jamais à l'ouverture du formulaire).
 import { BlocDictaphone, BlocPhotos, BlocPresence, BlocTexte, BoutonEnvoiLocataires, BoutonEnvoiProprietaires, BoutonTheme, useDestinatairesCompteRendu, Confirmation, LignesVocauxRecap, MOTIF_PHOTO_PERDUE, MOTIF_PRISE_PERDUE, motifPiecesBloquantes, piecesBloquantes, type PriseVocale, type PersonneAjouteeSaisie, CSS_COMPTE_RENDU_SAISIE, LectureFichiersVocaux, vocauxPourEnvoi, type FichierVocal, type PhotoSaisie } from './CompteRenduSaisie';
@@ -439,13 +439,16 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   // 🔴 Arno (19/11/2026) — un préavis de TEST propose la liste COMPLÈTE (remplace la règle du 14/11) : ses invitations partent uniquement vers vous.
   const liste = useMemo(() => (collegues.etat.etat === 'ok' && Array.isArray(collegues.etat.data) ? collegues.etat.data : []), [collegues.etat]);
   // 🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (préavis de TEST) : l'envoi, puis la fenêtre de confirmation habituelle
-  const [lienCr, setLienCr] = useState<{ envoi: boolean; phrase: string | null }>({ envoi: false, phrase: null });
+  const [lienCr, setLienCr] = useState<{ envoi: boolean; phrase: string | null; question: boolean }>({ envoi: false, phrase: null, question: false });
   const envoyerLienCr = async (): Promise<void> => {
-    setLienCr({ envoi: true, phrase: null }); setRefus(null);
+    setLienCr({ envoi: true, phrase: null, question: false }); setRefus(null);
     const r = await envoyer({ action: 'envoyer-lien-compte-rendu', occupationIds: l.occupationIds }, { propre: true });
-    if (r.motif !== null) { setLienCr({ envoi: false, phrase: null }); setRefus(r.motif); return; }
-    setLienCr({ envoi: false, phrase: phraseLienCompteRendu(((r.data ?? {}) as { envois?: MailParti[] }).envois ?? []) });
+    if (r.motif !== null) { setLienCr({ envoi: false, phrase: null, question: false }); setRefus(r.motif); return; }
+    setLienCr({ envoi: false, phrase: phraseLienCompteRendu(((r.data ?? {}) as { envois?: MailParti[] }).envois ?? []), question: false });
   };
+  // 🔴 Arno (19/11/2026) — un VRAI préavis : la question d'abord, avec les collègues destinataires (ceux qui n'ont pas refusé ; tous, si tous ont
+  // refusé — la même règle que le mail) ; un préavis de TEST : l'envoi tout de suite, comme avant (uniquement vers vous)
+  const nomsLienCr = (() => { const g = p.collegues.filter((c) => c.statut !== 'refusee'); return (g.length > 0 ? g : p.collegues).map((c) => c.libelle); })();
   // Par défaut : le compte connecté (en tête de liste) — sauf pour réaffecter, où l'on choisit.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
@@ -573,16 +576,20 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       )}
       {/* 🔴 Arno (19/11/2026) — « Dans 2 minutes » retiré (accord d'Arno) ; à sa place, sur un préavis de TEST dont la pré-visite est programmée :
           « Envoyer maintenant le lien du compte rendu » (le mail de l'heure de début, tout de suite, à chaque destinataire du rendez-vous) */}
-      {avecDate && l.test && (
-        <div className="pvv-test-lien" data-previsite-test>
+      {/* 🔴 Arno (19/11/2026) — aussi sur un VRAI préavis (pré-visite programmée, « Modifier / déplacer ») : aux collègues destinataires, après la question */}
+      {avecDate && (l.test || (deplacement && rdvActuel)) && (
+        <div className="pvv-test-lien" data-previsite-test={l.test ? 'oui' : 'non'}>
           {deplacement && rdvActuel && (
-            <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-lien-cr" disabled={lienCr.envoi || envoi} onClick={() => { void envoyerLienCr(); }}
+            <button type="button" className="svv-btn svv-btn-outline gst-btn pvv-lien-cr" disabled={lienCr.envoi || envoi}
+              onClick={() => { if (l.test) void envoyerLienCr(); else setLienCr({ envoi: false, phrase: null, question: true }); }}
               data-envoyer-lien-cr>{lienCr.envoi ? 'Envoi…' : 'Envoyer maintenant le lien du compte rendu'}</button>
           )}
-          <span className="loc-muet" data-previsite-test-note>Préavis de test : l’invitation de début de pré-visite part à l’heure de début, à vous seul.</span>
+          {l.test && <span className="loc-muet" data-previsite-test-note>Préavis de test : l’invitation de début de pré-visite part à l’heure de début, à vous seul.</span>}
         </div>
       )}
-      {lienCr.phrase !== null && <ModaleConfirmation phrase={lienCr.phrase} onOk={() => setLienCr({ envoi: false, phrase: null })} />}
+      {lienCr.question && <ModaleQuestion titre="Lien du compte rendu" question={`Envoyer maintenant le lien du compte rendu à : ${nomsLienCr.join(', ')} ?`}
+        action="Envoyer" occupe={lienCr.envoi} onAnnuler={() => setLienCr({ envoi: false, phrase: null, question: false })} onConfirmer={() => { void envoyerLienCr(); }} />}
+      {lienCr.phrase !== null && <ModaleConfirmation phrase={lienCr.phrase} onOk={() => setLienCr({ envoi: false, phrase: null, question: false })} />}
       {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue destinataire recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification{choixLoc === 'non' ? ' — sauf si vous choisissez « Non » ci-dessous : ils ne recevront rien' : choixLoc === null ? ' si vous choisissez « Oui » ci-dessous' : ''}.</p>}
       {avecCollegues && (
         <fieldset className="pvv-destinataires" data-previsite-destinataires>

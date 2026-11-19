@@ -185,7 +185,7 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
       </>}
       {etat.erreur !== null && <p className="cev-alerte" role="alert" data-recap-erreur>{etat.erreur}</p>}
       <div className="mis-actions">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={onRevenir} disabled={etat.occupe} data-revenir-recap>Revenir</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={onRevenir} disabled={etat.occupe} data-revenir-recap>{annulation ? 'Ne pas annuler' : 'Revenir'}</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={onConfirmer} disabled={etat.occupe || a === null} data-confirmer-recap>
           {etat.occupe ? 'Envoi…' : annulation ? 'Confirmer l’annulation' : 'Confirmer et envoyer'}</button>
       </div>

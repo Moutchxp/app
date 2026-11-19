@@ -147,11 +147,10 @@ async function envoyerInvitationCompteRendu(s: LigneSuivi, rdv: NonNullable<Retu
   return envoyerSerie([m], c.brute, { lotId: c.lotId, occupationIds: ids, auteur }, deps);
 }
 
-export const MOTIF_LIEN_CR_HORS_TEST = 'Ce bouton n’existe que sur un préavis de test.';
 /**
- * 🔴🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (remplace « Dans 2 minutes », préavis de TEST seulement) : le mail de
- * l'heure de début, TOUT DE SUITE, à chaque destinataire du rendez-vous ; dans le périmètre du test (au créateur, à lui seul). L'invitation est
- * marquée partie : la minuterie ne la renverra pas à l'heure de début. Un vrai préavis : refusé.
+ * 🔴🔴 Arno (19/11/2026) — « Envoyer maintenant le lien du compte rendu » (remplace « Dans 2 minutes ») : le mail de l'heure de début, TOUT DE
+ * SUITE, aux collègues destinataires du rendez-vous. Un préavis de TEST : dans son périmètre (au créateur, à lui seul) ; 🔴 (19/11/2026, 2e retour)
+ * un VRAI préavis aussi : aux vrais collègues (l'écran pose la question avant). L'invitation est marquée partie : la minuterie ne la renverra pas.
  */
 export async function envoyerLienCompteRenduMaintenant(occupationIds: readonly number[], auteur: Auteur, deps: DepsAvis = {}):
   Promise<{ etat: 'ok'; envois: EnvoiAvis[] } | { etat: 'refus'; motif: string }> {
@@ -159,7 +158,6 @@ export async function envoyerLienCompteRenduMaintenant(occupationIds: readonly n
   const ids = [...new Set(occupationIds)];
   const perimetre = await perimetreDuGeste({ occupationIds: ids });
   if (!perimetre.ok) return { etat: 'refus', motif: perimetre.motif };
-  if (perimetre.perimetre === null) return { etat: 'refus', motif: MOTIF_LIEN_CR_HORS_TEST };
   const { rows } = await query<LigneSuivi>(
     `SELECT ${CHAMPS_SUIVI} FROM gestion_location_previsite s JOIN gestion_tache t ON t.id = s.tache_id
       WHERE s.clos_le IS NULL AND s.effectuee_le IS NULL AND t.etat = 'a_faire' AND s.occupation_ids && $1::bigint[] ORDER BY s.id DESC LIMIT 1`, [ids]);
