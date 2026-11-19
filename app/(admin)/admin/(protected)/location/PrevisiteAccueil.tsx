@@ -150,7 +150,8 @@ export function BlocPrevisite({ l, apres, sousInfos }: { l: LignePreavisAccueil;
             (le même geste, le même formulaire) ; partout ailleurs le libellé ne change pas */}
         {!programmee && p.statut !== 'effectuee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('rdv')} data-rdv-previsite>
           {p.statut === 'refusee' ? 'Fixer une pré-visite' : 'RDV pré-visite'}</button>}
-        {programmee && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Modifier / déplacer la pré-visite</button>}
+        {/* 🔴 Arno (19/11/2026, règle J) — un rendez-vous passé ne se modifie plus (le serveur le refuse aussi) */}
+        {programmee && !p.rdvPasse && <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => setGeste('deplacer')} data-deplacer-previsite>Modifier / déplacer la pré-visite</button>}
         {programmee && p.tousRefusent && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => setGeste('reaffecter')} data-reaffecter-previsite>Réaffecter la pré-visite</button>}
         {/* 🔴🔴 Arno (15/11/2026, 9e retour) — le bouton ouvre la FENÊTRE du compte rendu (le brouillon en cours, lecture seule) ; « Continuer la
             saisie » y ouvre la PAGE du formulaire (un lien : le « ← Retour » commun note d'où l'on vient) ; inactif sans droit */}
@@ -286,7 +287,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const avecDate = geste === 'rdv' || geste === 'deplacer';
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
-  const avecCollegues = geste === 'rdv' || geste === 'reaffecter';
+  // 🔴 Arno (19/11/2026, règle A) — « Modifier / déplacer » change aussi les collègues (cochés au départ : ceux du rendez-vous)
+  const avecCollegues = geste === 'rdv' || geste === 'reaffecter' || geste === 'deplacer';
   // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » (fixer, déplacer) : obligatoire, rien de pré-coché
   const [choixLoc, setChoixLoc] = useState<ChoixLocataires | null>(null);
   const fin0 = p.rdv ? heureFinProposee(p.rdv.heure) : '';
@@ -434,7 +436,11 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const liste = useMemo(() => { const x = collegues.etat.etat === 'ok' && Array.isArray(collegues.etat.data) ? collegues.etat.data : []; return l.test ? x.slice(0, 1) : x; }, [collegues.etat, l.test]);
   // Par défaut : le compte connecté (en tête de liste) — sauf pour réaffecter, où l'on choisit.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (choisis === null && liste.length > 0) setChoisis(geste === 'rdv' ? [liste[0].id] : []); }, [choisis, liste, geste]);
+  useEffect(() => {
+    if (choisis !== null || liste.length === 0) return;
+    setChoisis(geste === 'rdv' ? [liste[0].id]
+      : geste === 'deplacer' ? p.collegues.map((c) => c.collaborateurId).filter((x): x is number => x !== null && liste.some((y) => Number(y.id) === Number(x))) : []);
+  }, [choisis, liste, geste, p.collegues]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (texteRefus === null && propose.etat.etat === 'ok') setTexteRefus(propose.etat.data.texte); }, [propose.etat, texteRefus]);
   useEffect(() => {
@@ -444,7 +450,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   }, [envoi, etape, onFermer]);
 
   const dest = choisis ?? [];
-  const verdict = avecDate ? verifierRdvPrevisite({ jour, debut, fin, destinataires: deplacement ? [1] : dest }, [{ recuLe: l.recuLe, dateMax: l.dateMax }]) : null;
+  const verdict = avecDate ? verifierRdvPrevisite({ jour, debut, fin, destinataires: dest }, [{ recuLe: l.recuLe, dateMax: l.dateMax }]) : null;
   // 🔴 Arno (11/11/2026) — un RENDEZ-VOUS (programmer, déplacer, réaffecter) demande l'e-mail d'au moins un locataire ; le refus et le compte
   // rendu n'y sont pas soumis. Relu au retour sur la fenêtre.
   const emails = useEmailsLocataires(l, geste === 'rdv' || geste === 'deplacer' || geste === 'reaffecter');

@@ -149,7 +149,7 @@ export function ReponseTache({ jeton, decision }: { jeton: string; decision: "ac
         <Tache r={ecran.r} />
         <p className="mt-4 text-svv-ink">
           {ecran.deja
-            ? "Votre réponse avait déjà été enregistrée : rien n’a été modifié."
+            ? "Votre réponse avait déjà été enregistrée : rien n’a été modifié. Pour modifier le rendez-vous, passez par l’application (écran des préavis ou des tâches)."
             : acceptee
               ? `Merci !${phraseAgenda(ecran.agenda ?? "")}`
               : "Votre refus est enregistré : la personne qui vous l’a confiée va la réattribuer."}

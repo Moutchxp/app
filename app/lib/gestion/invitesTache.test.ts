@@ -29,11 +29,12 @@ describe('le lien d’un invité remplacé', () => {
     const v = verdictLien({ ...d, inviteRetire: true }, 'a_faire', 5, new Date());
     expect(v).toMatchObject({ ok: false, cause: 'plus_destinee' });
     expect(v.ok ? '' : v.message).toMatch(/ne vous est plus destinée/);
-    expect(titreLienRefuse('plus_destinee')).toBe('Cette invitation ne vous est plus destinée');
+    expect(titreLienRefuse('plus_destinee')).toBe('Ce rendez-vous a été modifié'); // 🔴 Arno (19/11/2026, règle I)
   });
   it('un renvoi (invité toujours là) reste « remplacée par une plus récente »', () => {
     expect(verdictLien(d, 'a_faire', 5, new Date())).toMatchObject({ ok: false, cause: 'remplace' });
-    expect(titreLienRefuse('remplace')).toBe('Ce lien ne peut plus servir');
+    expect(titreLienRefuse('remplace')).toBe('Ce rendez-vous a été modifié');
+    expect(titreLienRefuse('expire')).toBe('Ce lien ne peut plus servir');
   });
 });
 

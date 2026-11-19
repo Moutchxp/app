@@ -1,6 +1,7 @@
 'use client';
 
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
+import { ModaleConfirmation } from './ModaleConfirmation';
 import type { Retouche, Retouches } from '../../../../lib/location/texteModifiable';
 import { CSS_TEXTE_MODIFIABLE, ModifierTexteMail } from '../location/TexteModifiableMail';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
@@ -36,7 +37,10 @@ interface Demande { titre: string; apercu: Record<string, unknown>;
   /** Le geste ; `retouches` : le texte modifié des mails aux contacts extérieurs (« Modifier le texte »), à joindre à la requête. */
   action: (retouches?: Retouches) => Promise<IssueGeste>;
   /** Un autre aperçu que celui de la Gestion (ex. l'état des lieux de sortie, lu par la route de la Location). */
-  lireApercu?: () => Promise<ApercuEnvois | { erreur: string }> }
+  lireApercu?: () => Promise<ApercuEnvois | { erreur: string }>;
+  /** 🔴 Arno (19/11/2026, règle F) — aucun envoi prévu : la fenêtre de confirmation (une phrase, « OK ») après le geste ; absent : comme avant
+   *  (les tâches ont leur propre bandeau de confirmation). */
+  confirmer?: boolean }
 
 const ETATS_PARTIS = new Set(['envoye', 'factice']);
 const MOTIF_ETAT: Record<string, string> = {
@@ -57,13 +61,22 @@ export function mailsDuResultat(r: IssueGeste): MailParti[] {
 
 export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste | null>; fenetre: ReactNode } {
   const [etat, setEtat] = useState<Etat | null>(null);
+  const [confirmation, setConfirmation] = useState<{ phrase: string; issue: IssueGeste } | null>(null);
+  const fermerConfirmation = useCallback(() => {
+    const c = courant.current; const r = confirmation?.issue ?? null;
+    courant.current = null; setConfirmation(null); c?.resoudre(r);
+  }, [confirmation]);
   const courant = useRef<{ d: Demande; resoudre: (r: IssueGeste | null) => void } | null>(null);
   const demander = useCallback((d: Demande) => new Promise<IssueGeste | null>((resoudre) => {
     void (async () => {
       const a = await (d.lireApercu ?? (() => lireApercuEnvois(d.apercu)))();
       // 🔴 Arno (18/11/2026) — un rendez-vous de préavis montre TOUJOURS la fenêtre : elle dit si les locataires seront invités ou non
       if (!('erreur' in a) && a.collaborateurs.length === 0 && a.exterieurs.length === 0 && a.locataires === undefined) {
-        resoudre(await d.action()); // aucun envoi prévu : le geste, sans fenêtre
+        // aucun envoi prévu : le geste, sans récapitulatif — 🔴 Arno (19/11/2026, règle F) puis la fenêtre de confirmation (une phrase, « OK »)
+        const r = await d.action();
+        if (!r.ok || d.confirmer !== true) { resoudre(r); return; }
+        courant.current = { d, resoudre };
+        setConfirmation({ phrase: r.message, issue: r });
         return;
       }
       courant.current = { d, resoudre };
@@ -95,6 +108,7 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
     if ('erreur' in a) { setEtat((e) => (e && e.etape === 'recap' ? { ...e, refusTexte: a.erreur } : e)); return; }
     setEtat((e) => (e && e.etape === 'recap' ? { ...e, apercu: a, retouches: suivantes, refusTexte: null } : e));
   };
+  if (confirmation !== null) return { demander, fenetre: <ModaleConfirmation phrase={confirmation.phrase} onOk={fermerConfirmation} /> };
   return { demander, fenetre: etat === null ? null : <FenetreRecapEnvois etat={etat} onRevenir={revenir} onConfirmer={() => { void confirmer(); }} onFermer={fermer}
     onAppliquerTexte={(cle, r) => { void appliquerTexte(cle, r); }} /> };
 }

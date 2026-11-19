@@ -110,7 +110,7 @@ describe('🔴 LOT GESTION-INVITATIONS-TACHES — l’ancien lien après un chan
       message: 'Cette invitation ne vous est plus destinée : la tâche a été confiée à quelqu’un d’autre.',
     })));
     await ouvrir('accepter');
-    expect(conteneur.querySelector('h1, h2')?.textContent).toContain('Cette invitation ne vous est plus destinée');
+    expect(conteneur.querySelector('h1, h2')?.textContent).toContain('Ce rendez-vous a été modifié'); // 🔴 Arno (19/11/2026, règle I)
     expect(texte()).not.toContain('Visite');
     expect(bouton('Confirmer')).toBeUndefined();
   });

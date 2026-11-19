@@ -4,6 +4,7 @@ import type { Auteur } from '../gestion/gestes';
 import { rappelsParDefaut, type SaisieTache } from '../gestion/taches';
 import { annulerTache, creerTache, decalerTache, listerCollaborateurs, marquerFaite, modifierTache, type Collaborateur, type IssueTache } from '../gestion/tachesRepo';
 import { boutonsRdvPossibles, creerJetons } from './reponsesRdvRepo';
+import { MOTIF_RDV_NON_MODIFIABLE } from '../gestion/modificationRdv';
 import { LIENS_APERCU, type ApercuLocataires, type ChoixLocataires } from './reponsesRdv';
 import { renvoyerInvitation } from '../gestion/invitesRepo';
 import { mailTache } from '../gestion/mailTache';
@@ -41,7 +42,7 @@ import { plageFr } from './edls';
 import {
   CORPS_MAX, NOM_FICHIER_ICS, OBJET_TACHE_PREVISITE, creneauFr, mailPrevisite, objetAnnulationCollegues, objetCompteRendu, objetCopieInterneCompteRendu, objetRefusPrevisite, paragraphesAnnulationCollegues, paragraphesDuTexte,
   CLE_EDITION_CR_PROPRIETAIRE, copieInterneLocataires, introCompteRenduInterne, mailCompteRenduProprietaire, mailsAuxLocataires, paragraphesCompteRenduLocataire, personnaliserTexte,
-  texteRefusPrevisite, tousRefusent, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
+  texteRefusPrevisite, tousRefusent, debutDuRendezVous, verifierRdvPrevisite, type MailPrevisite, type RdvPrevisite, type StatutPrevisite,
 } from './previsite';
 import {
   SANS_SCHEMA, assurerSuivi, collaborateursInternes, contexte, etiqueterApercu, icsDuRdv, journaliser, lireGroupe, mailLocataires, previsiteDisponible, rdvDuSuivi,
@@ -133,14 +134,15 @@ export async function apercuRdvPrevisite(
   const ancien = d.deplacer ? rdvDuSuivi(lu.s) : null;
   if (d.deplacer && (ancien === null || lu.s?.tache_etat !== 'a_faire')) return { etat: 'refus', motif: 'Aucune pré-visite programmée à déplacer pour ce préavis.' };
   const reponses = d.deplacer && lu.s?.tache_id ? (await reponsesDesTaches([Number(lu.s.tache_id)])).get(Number(lu.s.tache_id)) ?? [] : [];
-  const dest = d.deplacer ? reponses.map((r) => r.collaborateurId ?? 0) : [...(d.destinataires ?? [])];
+  // 🔴 Arno (19/11/2026, règle A) — « Modifier / déplacer » : les collègues choisis (absents : ceux du rendez-vous)
+  const dest = d.deplacer && (d.destinataires ?? []).length === 0 ? reponses.map((r) => r.collaborateurId ?? 0) : [...(d.destinataires ?? [])];
   const v = verifierRdvPrevisite({ jour: d.jour, debut: d.debut, fin: d.fin, destinataires: dest.length > 0 ? dest : [0] }, [{ recuLe: lu.g.recuLe, dateMax: lu.g.dateMax }]);
   if (!v.ok && v.champ !== 'destinataires') return { etat: 'refus', motif: v.motif, champ: v.champ };
   if (!v.ok) return { etat: 'refus', motif: v.motif, champ: v.champ };
   const rdv = { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes };
   const c = await contexte(ids, auteur, deps);
   if (c === null) return { etat: 'inconnu' };
-  const libelles = d.deplacer ? reponses.map((r) => r.libelle)
+  const libelles = d.deplacer && (d.destinataires ?? []).length === 0 ? reponses.map((r) => r.libelle)
     : (await collegesPrevisite(auteur.id)).filter((x) => dest.includes(Number(x.id))).map((x) => x.libelle);
   const objetCollegue = `${ancien ? 'Rendez-vous déplacé — ' : ''}${OBJET_TACHE_PREVISITE} — ${c.adresse} — ${plageFr(rdv.jour, rdv.heure, rdv.dureeMinutes)}`;
   const note = await noteMissionPrevisite(ids, c, { recuLe: lu.g.recuLe, dateMax: lu.g.dateMax });
@@ -246,7 +248,9 @@ async function rafraichirNoteMission(tacheId: number, ids: readonly number[], rd
  * chaque collègue ; le suivi garde sa date de PREMIÈRE saisie ; l'invitation au compte rendu redevient à faire.
  */
 export async function deplacerPrevisite(
-  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string }, auteur: Auteur,
+  d: { occupationIds: readonly number[]; jour: string; debut: string; fin: string;
+    /** 🔴 Arno (19/11/2026, règle A) — « Modifier / déplacer » change aussi les COLLÈGUES ; absent : ceux d'avant (déplacement seul). */
+    destinataires?: readonly number[] }, auteur: Auteur,
 ): Promise<IssuePrevisite<ResultatRdv>> {
   if (!(await previsiteDisponible())) return SANS_SCHEMA;
   const ids = [...new Set(d.occupationIds)];
@@ -258,19 +262,34 @@ export async function deplacerPrevisite(
   const v = verifierRdvPrevisite({ jour: d.jour, debut: d.debut, fin: d.fin, destinataires: [1] }, [{ recuLe: avant.g.recuLe, dateMax: avant.g.dateMax }]);
   if (!v.ok) return { etat: 'refus', motif: v.motif, champ: v.champ };
   const rdv = { jour: v.jour, heure: v.heure, dureeMinutes: v.dureeMinutes };
-  if (rdv.jour === avant.rdv.jour && rdv.heure === avant.rdv.heure && rdv.dureeMinutes === avant.rdv.dureeMinutes) {
+  const tacheId = Number(avant.s.tache_id);
+  // 🔴 Arno (19/11/2026, règle J) — un rendez-vous passé (son heure de début est passée) ne se modifie plus
+  if (debutDuRendezVous(avant.rdv.jour, avant.rdv.heure).getTime() <= Date.now()) return { etat: 'refus', motif: MOTIF_RDV_NON_MODIFIABLE };
+  // 🔴 Arno (19/11/2026, règle A) — les collègues choisis (même ordre de lecture que la saisie) ; changés : la tâche est MODIFIÉE (dates et invités en
+  //    un geste : relances, « Tâche déplacée », agenda), sinon décalée comme avant
+  const avantIds = ((await reponsesDesTaches([tacheId])).get(tacheId) ?? []).map((r) => r.collaborateurId).filter((x): x is number => x !== null);
+  // sans liste de collègues dans la demande : le déplacement seul, exactement comme avant
+  const dest = d.destinataires === undefined ? avantIds : [...new Set(d.destinataires.filter((x) => Number.isSafeInteger(x) && x > 0))];
+  if (d.destinataires !== undefined && dest.length === 0) return { etat: 'refus', motif: 'Choisissez au moins un collègue.', champ: 'destinataires' };
+  const collegesChanges = d.destinataires !== undefined && (dest.length !== avantIds.length || dest.some((x, i) => x !== avantIds[i]));
+  if (!collegesChanges && rdv.jour === avant.rdv.jour && rdv.heure === avant.rdv.heure && rdv.dureeMinutes === avant.rdv.dureeMinutes) {
     return { etat: 'refus', motif: 'La pré-visite est déjà à cette date et à ce créneau.' };
   }
-  const tacheId = Number(avant.s.tache_id);
+  if (collegesChanges) {
+    const horsDroit = await verifierCollegues(dest, auteur);
+    if (horsDroit !== null) return { etat: 'refus', motif: horsDroit, champ: 'destinataires' };
+  }
   // 🔴 Arno (11/11/2026, lot 2) — le même contenu au déplacement : la note est remise à jour (fiche d'intervention) AVANT le décalage, qui
   //    envoie « Tâche déplacée » aux collègues ; la date ne change que par le décalage.
   await rafraichirNoteMission(tacheId, ids, avant.rdv, { recuLe: avant.g.recuLe, dateMax: avant.g.dateMax }, auteur);
-  const t = await decalerTache(tacheId, { jour: rdv.jour, heure: rdv.heure, dureeMinutes: rdv.dureeMinutes }, auteur);
+  const t = collegesChanges
+    ? await modifierTache(tacheId, saisieRdv(rdv, dest, await noteMissionPrevisite(ids, null, { recuLe: avant.g.recuLe, dateMax: avant.g.dateMax })), auteur)
+    : await decalerTache(tacheId, { jour: rdv.jour, heure: rdv.heure, dureeMinutes: rdv.dureeMinutes }, auteur);
   if (!t.ok) return refusTache(t);
   await withTransaction(async (q) => {
     await q('UPDATE gestion_location_previsite SET rdv_modifie_le = now(), cr_invitation_le = NULL WHERE id = $1', [Number(avant.s.id)]);
     await journaliser(q, avant.g.lignes, 'location_previsite_deplacee', plageFr(avant.rdv.jour, avant.rdv.heure, avant.rdv.dureeMinutes),
-      plageFr(rdv.jour, rdv.heure, rdv.dureeMinutes), `pré-visite déplacée — tâche ${tacheId}`, auteur);
+      plageFr(rdv.jour, rdv.heure, rdv.dureeMinutes), `pré-visite ${collegesChanges ? 'modifiée (collègues : ' + dest.join(', ') + ')' : 'déplacée'} — tâche ${tacheId}`, auteur);
   });
   return { etat: 'ok', data: { previsiteId: Number(avant.s.id), tacheId, rdv, ancien: avant.rdv, occupationIds: ids }, demandes: t.demandes ?? (t.demande ? [t.demande] : []) };
 }

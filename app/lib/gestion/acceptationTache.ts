@@ -263,7 +263,8 @@ export type VerdictLien =
 export const MESSAGES_LIEN: Record<Exclude<VerdictLien, { ok: true }>['cause'], string> = {
   inconnu: 'Ce lien n’est pas valable. Vérifiez que vous l’avez copié en entier.',
   expire: 'Ce lien a expiré. Demandez à la personne qui vous a confié la tâche de renvoyer la demande.',
-  deja_utilise: 'Ce lien a déjà servi : votre réponse a été enregistrée.',
+  /* 🔴 Arno (19/11/2026, règle C) — après une réponse, le lien ne permet plus de changer : on dit la réponse et où modifier le rendez-vous. */
+  deja_utilise: 'Ce lien a déjà servi : votre réponse a été enregistrée. Pour modifier le rendez-vous, passez par l’application (écran des préavis ou des tâches).',
   remplace: 'Cette demande a été remplacée par une plus récente (invitation renvoyée, date ou heure changée) : utilisez le dernier mail reçu.',
   autre_personne: 'Ce lien est destiné à une autre personne : connectez-vous avec le compte à qui la tâche est confiée.',
   tache_terminee: 'Cette tâche est déjà faite ou annulée : il n’y a plus rien à accepter.',
@@ -273,7 +274,8 @@ export const MESSAGES_LIEN: Record<Exclude<VerdictLien, { ok: true }>['cause'], 
 
 /** Le titre de la page publique quand le lien ne peut plus agir. PUR. */
 export function titreLienRefuse(cause: string | null): string {
-  return cause === 'plus_destinee' ? 'Cette invitation ne vous est plus destinée' : 'Ce lien ne peut plus servir';
+  // 🔴 Arno (19/11/2026, règle I) — un lien d'un ancien créneau ou d'un ancien collaborateur : « Ce rendez-vous a été modifié »
+  return cause === 'plus_destinee' || cause === 'remplace' ? 'Ce rendez-vous a été modifié' : 'Ce lien ne peut plus servir';
 }
 
 /**

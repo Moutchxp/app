@@ -103,7 +103,8 @@ export function ReponseRdv({ jeton, decision }: { jeton: string; decision: "acce
   if (ecran.sorte === "erreur") return <Bloc titre="Réponse non enregistrée" ton="neutre"><p role="alert" className="text-svv-ink">{ecran.message}</p></Bloc>;
   if (ecran.sorte === "refus_lien") {
     return (
-      <Bloc titre="Ce lien ne permet plus de répondre" ton="neutre">
+      // 🔴 Arno (19/11/2026, règle I) — un lien d'un ancien créneau : « Ce rendez-vous a été modifié »
+      <Bloc titre={ecran.v.cause === 'caduc' ? 'Ce rendez-vous a été modifié' : 'Ce lien ne permet plus de répondre'} ton="neutre">
         <p role="alert" className="mb-4 text-svv-ink" data-rdv-refus={ecran.v.cause ?? ""}>{ecran.v.message}</p>
         <RappelRdv v={ecran.v} />
         <p className="mt-4 text-sm text-svv-muted">Rien n’a été modifié. Pour toute question, répondez simplement au mail reçu.</p>

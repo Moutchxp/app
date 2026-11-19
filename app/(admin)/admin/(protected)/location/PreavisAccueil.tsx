@@ -34,6 +34,8 @@ import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RES
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
 import { ChoixHeure } from './ChoixHeure';
+import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
+import { phraseConfirmationRdv, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
 import { lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
@@ -397,6 +399,8 @@ function ValidationRdvLocataires({ l, sorte, apres }: { l: LignePreavisAccueil; 
   const { ecriture } = useContextePreavis();
   const [envoi, setEnvoi] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
+  // 🔴 Arno (19/11/2026, règle F) — la fenêtre de confirmation après « Valider … » ou « Annuler la validation à la main »
+  const [confirme, setConfirme] = useState<string | null>(null);
   const tacheId = sorte === 'previsite' ? (l.previsite?.rdv ? l.previsite.tacheId : null) : l.edls?.tacheId ?? null;
   if (l.reponsesRdv?.disponible !== true || tacheId === null || tacheId === undefined) return null;
   // 🔴 Arno (18/11/2026, accord pour CE bouton, option 1) — « Valider le rendez-vous sans prévenir les locataires » (et son annulation) ne
@@ -411,10 +415,11 @@ function ValidationRdvLocataires({ l, sorte, apres }: { l: LignePreavisAccueil; 
     const r = await envoyer({ action: main ? 'annuler-validation-rdv-main' : 'valider-rdv-main', sorte, tacheId, occupationIds: l.occupationIds });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
-    apres();
+    setConfirme(phraseConfirmationRdv(main ? 'validation_annulee' : 'valide_sans_confirmation', sorte));
   };
   return (
     <div className="pva-rdv-locataires" data-rdv-locataires={sorte}>
+      {confirme !== null && <ModaleConfirmation phrase={confirme} onOk={() => { setConfirme(null); apres(); }} />}
       <p className="pva-rdv-loc-tete"><CartoucheLocataires e={e} />{e === null || e === undefined
         ? <span className="loc-muet">Locataires : aucune invitation avec réponse en ligne pour ce rendez-vous.</span> : null}</p>
       {e && e.reponses.length > 0 && (
@@ -594,7 +599,9 @@ function BlocEdls({ l, edlsPose, sousInfos }: { l: LignePreavisAccueil; edlsPose
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
           {e === null ? <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('planifier'); }} data-planifier-edls>Planifier l’état des lieux de sortie</button> : (
             <>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Modifier / déplacer l’état des lieux</button>
+              {/* 🔴 Arno (19/11/2026, règle J) — un rendez-vous passé ne se modifie plus (le serveur le refuse aussi) */}
+              {rdvModifiable({ jour: e.jour, heure: e.heure }, maintenantParis()) && (
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('deplacer'); }} data-deplacer-edls>Modifier / déplacer l’état des lieux</button>)}
               {e.statut === 'refusee' && <button type="button" className="svv-btn svv-btn-primary gst-btn" {...inactif} onClick={() => { setBilan(null); setMode('reattribuer'); }} data-reattribuer-edls>Confier à quelqu’un d’autre</button>}
             </>
           )}
@@ -698,6 +705,7 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
     const issue = await recap.demander({
       titre: e === null ? 'État des lieux de sortie planifié' : 'Rendez-vous déplacé', apercu: {},
       lireApercu: () => lireApercuEdls({ ...corps, geste: e === null ? 'planifier' : 'deplacer' }),
+      confirmer: true,
       action: async () => { tenu.r = await envoyer(corps, { propre: true }); return issueEdls(tenu.r, e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé'); },
     });
     setEnvoi(false);
@@ -757,6 +765,7 @@ function FormulaireReattribuer({ l, e, onAnnuler, onFait }: { l: LignePreavisAcc
     const issue = await recap.demander({
       titre: 'État des lieux confié à quelqu’un d’autre', apercu: {},
       lireApercu: () => lireApercuEdls({ ...corps, geste: 'reattribuer', jour: e.jour, debut: e.heure ?? '', fin: '' }),
+      confirmer: true,
       action: async () => { tenu.r = await envoyer(corps, { propre: true }); return issueEdls(tenu.r, 'État des lieux confié'); },
     });
     setEnvoi(false);

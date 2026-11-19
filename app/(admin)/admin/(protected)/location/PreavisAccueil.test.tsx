@@ -518,6 +518,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     choisir(container.querySelector('[data-confier-a]')!, '4');
     await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); }); // 🔴 (19/11/2026, règle F) la fenêtre de confirmation : « OK »
     expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '', locataires: 'oui' });
     const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
     // 🔴 (15/11/2026) le statut « RDV état des lieux fixé » (violet) remplace la pastille « EDLS planifié » ; le détail le dit toujours
@@ -535,6 +536,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('debut'), '10:00'));
     await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); }); // 🔴 (19/11/2026, règle F) la fenêtre de confirmation : « OK »
     expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('confié à Arno Test — accepté');
   });
 
@@ -555,6 +557,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     act(() => saisir(champ('fin'), '15:30'));
     await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); }); // 🔴 (18/11/2026) le choix obligatoire
     await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); }); // 🔴 (19/11/2026, règle F) la fenêtre de confirmation : « OK »
     expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-06', debut: '14:00', fin: '15:30', confieA: 4, locataires: 'oui' });
     expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('EDLS le 06/11/2099 à 14h00 — confié à Claire Test — en attente de confirmation');
     expect(container.querySelector('[data-edls-bilan]')?.textContent).toContain('mail à Claire Test : préparé (essai)');
@@ -572,6 +575,7 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await attendre();
     expect(optionsConfier()).toEqual(['Arno Test']);   // la liste verte du formulaire « réattribuer »
     await act(async () => { (container.querySelector('button[data-valider-reattribution]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector('[data-ok-confirmation]') as HTMLButtonElement | null)?.click(); }); // 🔴 (19/11/2026, règle F) la fenêtre de confirmation : « OK »
     expect(posts.at(-1)).toEqual({ action: 'reattribuer-edls', occupationIds: [11, 12], confieA: 3 });
     expect(container.querySelector('[data-ligne-preavis="C"] .pva-textes')?.getAttribute('title')).toContain('confié à Arno Test — en attente de confirmation');
   });
@@ -3792,3 +3796,44 @@ describe('🔴 Arno (19/11/2026) — libellés des rendez-vous', () => {
   });
 });
 
+
+describe('🔴 Arno (19/11/2026) — règles uniformes des rendez-vous : A (collègues), J (passé), F (fenêtre de confirmation)', () => {
+  const pvAvenir = { statut: 'programmee', rdv: { jour: '2099-01-05', heure: '10:00', dureeMinutes: 60 }, tacheId: 40,
+    collegues: [{ collaborateurId: 3, libelle: 'Arno Test', email: null, statut: 'acceptee', motif: null }], tousRefusent: false, rdvPasse: false, alerteEnvoyeeLe: null };
+  const poser = (pv: unknown, jourEdl: string) => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, previsite: pv,
+      edls: { edlsId: 1, tacheId: 41, jour: jourEdl, heure: '14:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente', reponduPar: null, motifRefus: null },
+      reponsesRdv: { previsite: { etat: 'attente', par: null, main: false, reponses: [{ occupationId: 11, nom: 'Alice BERNARD', reponse: null, le: null }] }, edl: null, disponible: true } } as unknown as LignePreavisAccueil : l));
+  };
+  const voir = async () => { await rendre(true); clic('button[data-ouvrir-preavis="C"]'); await attendre(); };
+  it('A — « Modifier / déplacer la pré-visite » : les collègues du rendez-vous cochés au départ, modifiables', async () => {
+    poser(pvAvenir, '2099-01-06');
+    global.fetch = ((orig) => vi.fn(async (u: string | URL | Request, init?: RequestInit) => (String(u).includes('previsiteCollegues=1')
+      ? ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: [{ id: 3, libelle: 'Arno Test', accesGestion: true }, { id: 4, libelle: 'Claire Test', accesGestion: true }] }) }) as unknown as Response
+      : orig(u, init))))(global.fetch) as unknown as typeof fetch;
+    await voir();
+    clic('[data-deplacer-previsite]'); await attendre(); await attendre();
+    const cases = [...document.querySelectorAll('[data-fenetre-previsite] [data-destinataire]')] as HTMLInputElement[];
+    expect(cases.map((c) => [c.getAttribute('data-destinataire'), c.checked])).toEqual([['3', true], ['4', false]]);
+  });
+  it('J — passé : plus de « Modifier / déplacer » (pré-visite ni état des lieux) ; l’existant reste affiché', async () => {
+    poser({ ...pvAvenir, rdv: { jour: '2020-01-05', heure: '10:00', dureeMinutes: 60 }, rdvPasse: true }, '2020-01-06');
+    await voir();
+    expect(container.querySelector('[data-deplacer-previsite]')).toBeNull();
+    expect(container.querySelector('[data-deplacer-edls]')).toBeNull();
+    expect(container.querySelector('[data-edls-cartouche]')?.textContent).toContain('06/01/2020');
+  });
+  it('F — « Valider le rendez-vous sans demander de confirmation aux locataires » : la fenêtre de confirmation (une phrase, « OK »), clavier', async () => {
+    poser(pvAvenir, '2099-01-06');
+    await voir();
+    clic('[data-rdv-locataires="previsite"] [data-valider-rdv-main]');
+    await attendre();
+    const m = document.querySelector('[data-modale-confirmation] [role="alertdialog"]')!;
+    expect(m).not.toBeNull();
+    expect(document.querySelector('[data-phrase-confirmation]')?.textContent).toBe('La pré-visite est confirmée côté locataires, sans leur demander de confirmation.');
+    expect(document.activeElement?.hasAttribute('data-ok-confirmation')).toBe(true);
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(document.querySelector('[data-modale-confirmation]')).toBeNull();
+  });
+});

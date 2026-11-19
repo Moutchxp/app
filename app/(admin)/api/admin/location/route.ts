@@ -50,6 +50,9 @@ import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdl
 import { apercuLocatairesEdls, avecReponsesRdv, confirmerSansDemande, envoyerMailLocatairesEdls, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
 import { lireChoixLocataires, MOTIF_CHOIX_LOCATAIRES } from '../../../../lib/location/reponsesRdv';
 import { refusMinutesRdv, refusPlageRdv } from '../../../../lib/location/minutesRdv';
+import { etatDuRdv, prevenirCollaborateurInitial, tacheDuRdvPreavis } from '../../../../lib/gestion/modificationRdvRepo';
+import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
+import { maintenantParis } from '../../../../lib/location/triRdvPreavis';
 import { minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
 import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
@@ -777,6 +780,12 @@ async function postLocation(request: Request): Promise<Response> {
         if (test !== null && !seulementMoi([confieA])) return refusTest('Préavis de test : l’état des lieux ne se confie qu’à vous (créateur du test).');
         // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture
         if (action !== 'reattribuer-edls') { const m = await refusMinutes(corps); if (m !== null) return m; }
+        // 🔴 Arno (19/11/2026, règles D et J) — l'état AVANT (pour prévenir le collaborateur initial) ; un rendez-vous passé ne se modifie plus
+        const tacheAvantE = action === 'planifier-edls' ? null : await tacheDuRdvPreavis('edl', occs);
+        const etatAvantE = tacheAvantE === null ? null : await etatDuRdv(tacheAvantE);
+        if (etatAvantE !== null && !rdvModifiable(etatAvantE, maintenantParis())) {
+          return Response.json({ etat: 'refus', motif: MOTIF_RDV_NON_MODIFIABLE }, { status: 400, headers: ENTETES });
+        }
         // 🔴 Arno (18/11/2026, 2e lot) — « Envoyer l'invitation aux locataires : Oui / Non » : obligatoire pour fixer ou déplacer (aucun défaut).
         const choixEdls = lireChoixLocataires(corps.locataires);
         if (action !== 'reattribuer-edls' && choixEdls === null) return Response.json({ etat: 'refus', motif: MOTIF_CHOIX_LOCATAIRES, champ: 'locataires' }, { status: 400, headers: ENTETES });
@@ -793,6 +802,8 @@ async function postLocation(request: Request): Promise<Response> {
           if (m !== null) mails = [{ destinataire: r.demande?.destinataireLibelle ?? '', etat: m }];
         }
         const agenda = await synchroniserApresGeste(r.tacheId);
+        // 🔴 Arno (19/11/2026, règle D) — le collaborateur initial retiré par quelqu'un d'autre : prévenu (ancien / nouveau créneau et collaborateur)
+        if (tacheAvantE !== null) await prevenirCollaborateurInitial(tacheAvantE, etatAvantE, auteur);
         // Le statut de la demande posée (« en attente », ou « acceptée » d'office quand on se la confie) : la ligne change aussitôt.
         const statut = r.demandes?.[0]?.statut ?? r.demande?.statut ?? null;
         // 🔴 Arno (18/11/2026, 495) — l'invitation des LOCATAIRES (ou sa modification), avec leurs boutons, si le réglage est allumé ; un échec
@@ -827,7 +838,8 @@ async function postLocation(request: Request): Promise<Response> {
       case 'deplacer-previsite':
       case 'reaffecter-previsite': {
         const occs = idsOccupations(corps.occupationIds);
-        if (test !== null && action !== 'deplacer-previsite' && !seulementMoi(idsOccupations(corps.destinataires))) {
+        // 🔴 (19/11/2026) « Modifier / déplacer » peut changer les collègues : la règle des préavis de test s'y applique aussi
+        if (test !== null && (action !== 'deplacer-previsite' || corps.destinataires !== undefined) && !seulementMoi(idsOccupations(corps.destinataires))) {
           return refusTest('Préavis de test : la pré-visite ne se confie qu’à vous (créateur du test) — jamais à un collègue.');
         }
         // 🔴 Arno (18/11/2026) — les minutes du réglage seulement, refusées AVANT toute écriture (« Réaffecter » ne change pas l'heure)
@@ -843,13 +855,18 @@ async function postLocation(request: Request): Promise<Response> {
             destinataires: idsOccupations(corps.destinataires), deplacer: action === 'deplacer-previsite', retouches: rtP.retouches }, auteur);
           if (a.etat === 'refus') return Response.json(a, { status: 400, headers: ENTETES });
         }
+        // 🔴 Arno (19/11/2026, règle D) — l'état AVANT (pour prévenir le collaborateur initial qu'on lui retire le rendez-vous)
+        const tacheAvantP = action === 'programmer-previsite' ? null : await tacheDuRdvPreavis('previsite', occs);
+        const etatAvantP = tacheAvantP === null ? null : await etatDuRdv(tacheAvantP);
         const r = action === 'programmer-previsite'
           ? await programmerPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), destinataires: idsOccupations(corps.destinataires) }, auteur)
           : action === 'deplacer-previsite'
-            ? await deplacerPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin) }, auteur)
+            ? await deplacerPrevisite({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin),
+              ...(corps.destinataires !== undefined ? { destinataires: idsOccupations(corps.destinataires) } : {}) }, auteur)
             : await reaffecterPrevisite({ occupationIds: occs, destinataires: idsOccupations(corps.destinataires) }, auteur);
         if (r.etat !== 'ok') return repondre(r);
         const collegues = await envoyerAuxInvites(request, r.demandes);
+        if (tacheAvantP !== null) await prevenirCollaborateurInitial(tacheAvantP, etatAvantP, auteur);
         const agenda = await synchroniserApresGeste(r.data.tacheId);
         // 🔴 Arno (18/11/2026) « Non » : aucun mail aux locataires — le rendez-vous est CONFIRMÉ côté locataires (validation à la main, auteur journalisé).
         if (choixP === 'non') await confirmerSansDemande('previsite', r.data.tacheId, occs, auteur);

@@ -164,6 +164,7 @@ const programmee = () => { suivi = { id: '40', cle: 'bail:9|2026-11-01', lot_id:
   rdv_saisi_le: '2026-11-09T10:00:00Z', rdv_modifie_le: '2026-11-09T10:00:00Z', alerte_envoyee_le: null, cr_invitation_le: null, effectuee_le: null, refus_le: null,
   tache_etat: 'a_faire', jour: '2026-11-12', heure: '10:00', duree: 60 }; };
 
+afterEach(() => { vi.useRealTimers(); });
 beforeEach(() => {
   emailsLocataires = [['alice@exemple.test'], ['bruno@exemple.test']];
   appels.length = 0; suivi = null; autres = []; dejaAlerte = false; jour = '2026-11-12'; echecEnvoi = false; reponses = [];
@@ -241,6 +242,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » : le module de tâches, plusie
 
 describe('🔴 Règle 4 — déplacer : statuts remis à zéro (module de tâches), mail de modification aux locataires', () => {
   it('decalerTache avec la nouvelle date ; la date de première saisie est gardée ; l’invitation au compte rendu redevient à faire', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-11T09:00:00Z')); // 🔴 (19/11/2026, règle J) la veille du rendez-vous d'essai : il est encore modifiable
     programmee(); suivi!.cr_invitation_le = '2026-11-12T12:00:00Z';
     const r = await deplacerPrevisite({ occupationIds: OCC, jour: '2026-11-25', debut: '14:00', fin: '15:00' }, AUTEUR);
     expect(r.etat).toBe('ok');
@@ -548,6 +550,7 @@ describe('🔴🔴 Arno (10/11/2026) — la confirmation et la modification aux 
     expect(sans[0].texteOrigine).toBeUndefined();
   });
   it('🔴 modification : l’ancien et le nouveau créneau sont protégés — un repère retiré est refusé, rien ne part', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-11T09:00:00Z')); // 🔴 (19/11/2026, règle J) la veille du rendez-vous d'essai : il est encore modifiable
     programmee();
     const r = await deplacerPrevisite({ occupationIds: OCC, jour: '2026-11-25', debut: '14:00', fin: '15:00' }, AUTEUR);
     if (r.etat !== 'ok') throw new Error('déplacer');
@@ -587,6 +590,7 @@ describe('🔴🔴 Arno (11/11/2026, lot 2) — la fiche d’intervention : CHEZ
     }
   });
   it('modification (déplacer) et refus / absence : rien de la fiche chez un locataire', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-11T09:00:00Z')); // 🔴 (19/11/2026, règle J) la veille du rendez-vous d'essai : il est encore modifiable
     programmee();
     const dep = await deplacerPrevisite({ occupationIds: OCC, jour: '2026-11-25', debut: '14:00', fin: '15:00' }, AUTEUR);
     if (dep.etat !== 'ok') throw new Error('déplacer');
