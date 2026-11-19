@@ -1,5 +1,8 @@
 import { dansLePerimetreDuTest } from '../../../../../../lib/location/perimetreRequete';
 import 'server-only';
+import { lireAvantAnnulation, prevenirAnnulation } from '../../../../../../lib/gestion/annulationTacheRepo';
+import { phraseApresAnnulation } from '../../../../../../lib/gestion/annulationTache';
+import { prevenirLocatairesAnnulation } from '../../../../../../lib/location/annulationRdvLocataires';
 import { refusMinutesTachePreavis, tachesRdvPreavis } from '../../../../../../lib/location/rdvPreavisTache';
 import { etatDuRdv, prevenirCollaborateurInitial } from '../../../../../../lib/gestion/modificationRdvRepo';
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../../../lib/gestion/modificationRdv';
@@ -65,7 +68,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const id = await lireId(params);
   if (id === null) return Response.json({ erreur: 'Tâche inconnue.' }, { status: 400 });
   const d = await lireTache(id);
-  if (d === null) return Response.json({ erreur: 'Tâche introuvable.' }, { status: 404 });
+  // 🔴 Arno (19/11/2026, choix A) — une tâche annulée a DISPARU de l'interface : son détail non plus ne se montre (elle reste en base et au journal)
+  if (d === null || d.tache.etat === 'annulee') return Response.json({ erreur: 'Tâche introuvable.' }, { status: 404 });
   return Response.json({ etat: 'ok', ...d }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
@@ -131,6 +135,8 @@ async function patchTache(request: Request, { params }: { params: Promise<{ id: 
   }
   /* 🔴 Arno (10/11/2026) — la date d'AVANT le geste : un contact déjà invité ne reçoit un mail de modification que si elle change. */
   const ancien = geste === 'modifier' || geste === 'decaler' ? await momentDeLaTache(id).catch(() => null) : null;
+  // 🔴 Arno (19/11/2026, choix A) — l'annulation : ce qu'était la tâche AVANT (qui avait accepté, le créneau), pour prévenir après
+  const avantAnnulation = geste === 'annuler' ? await lireAvantAnnulation(id) : null;
   if (geste === 'faite') issue = await marquerFaite(id, auteur);
   else if (geste === 'annuler') issue = await annulerTache(id, auteur);
   else if (geste === 'rouvrir') issue = await rouvrirTache(id, auteur);
@@ -195,13 +201,25 @@ async function patchTache(request: Request, { params }: { params: Promise<{ id: 
   }
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   if (modifieLeRdv) await prevenirCollaborateurInitial(id, etatAvant, auteur);
+  if (geste === 'annuler') {
+    // les collaborateurs qui avaient accepté, puis les locataires qui avaient confirmé (rendez-vous de préavis) ; les contacts extérieurs invités
+    // reçoivent l'annulation comme avant (leur .ics la retire de leur agenda) ; l'agenda Google des collaborateurs : la synchronisation la retire
+    const collaborateurs = await prevenirAnnulation(id, avantAnnulation, auteur);
+    const locataires = avantAnnulation === null ? [] : await prevenirLocatairesAnnulation(id, avantAnnulation, auteur);
+    const exterieursA = await envoisAuxContacts(request, issue.id, null, auteur, { annulation: true, retouches: rt.retouches });
+    const agendaA = await synchroniserApresGeste(issue.id);
+    const echecs = collaborateurs.filter((c) => c.etat !== 'envoye').length + locataires.filter((l) => !l.envoye).length + exterieursA.filter((e) => !e.envoye).length;
+    const prevenus = collaborateurs.filter((c) => c.etat === 'envoye').length + locataires.filter((l) => l.envoye).length + exterieursA.filter((e) => e.envoye).length;
+    return Response.json({ etat: 'ok', id: issue.id, collaborateurs, exterieurs: exterieursA, locataires: locataires.map((l) => ({ ...l, cc: l.cc ?? [] })),
+      message: `${phraseApresAnnulation({ titre: avantAnnulation?.titre ?? 'Tâche', prevenus, echecs })}${agendaA}` });
+  }
   /* 🔴 LOT TACHES-ACCEPTATION — un geste qui a posé une demande en attente (renvoi, date/heure/personne changée) :
      son mail, préparé (et envoyé seulement si le réglage l'autorise). */
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
   /* 🔴 Arno (10/11/2026) — création d'invités, modification, décalage : les contacts cochés reçoivent leur mail (contenu restreint). */
-  /* 🔴 Arno (10/11/2026) — l'annulation : le mail et le .ics d'annulation aux SEULS contacts extérieurs déjà invités. */
-  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur, { retouches: rt.retouches })
-    : geste === 'annuler' ? await envoisAuxContacts(request, issue.id, null, auteur, { annulation: true, retouches: rt.retouches }) : [];
+  /* 🔴 Arno (10/11/2026) — l'annulation : le mail et le .ics d'annulation aux SEULS contacts extérieurs déjà invités (plus haut, avec les autres
+     mails d'annulation, 19/11/2026). */
+  const exterieurs = geste === 'modifier' || geste === 'decaler' ? await envoisAuxContacts(request, issue.id, ancien, auteur, { retouches: rt.retouches }) : [];
   if (issue.demandes !== undefined) {
     const envois = await envoyerAuxInvites(request, issue.demandes);
     const agenda = await synchroniserApresGeste(issue.id);

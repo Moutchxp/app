@@ -290,7 +290,7 @@ describe('🔴 LOT TERMINEES-7-JOURS — « Faites ou annulées » : les 7 derni
       t({ id: 3, etat: 'faite', faiteLe: fin(8) }), t({ id: 4 }),
     ];
     expect(termineesRecentes(l, MAINT).map((x) => x.id)).toEqual([1, 2]);
-    expect(TITRE_TERMINEES).toBe('Faites ou annulées — 7 derniers jours');
+    expect(TITRE_TERMINEES).toBe('Faites — 7 derniers jours');
   });
   it('dans le récapitulatif : titre et compte des 7 jours ; la tâche ancienne est masquée, sans aucune écriture', async () => {
     const ecritures: string[] = [];
@@ -302,7 +302,7 @@ describe('🔴 LOT TERMINEES-7-JOURS — « Faites ou annulées » : les 7 derni
         : Response.json({ etat: 'ok', taches: [t({ id: 32 }), ancienne, recente], moi: 2, tronque: false });
     }));
     await monter();
-    expect(container.querySelector('details.tch-terminees summary')?.textContent).toBe('Faites ou annulées — 7 derniers jours (1)');
+    expect(container.querySelector('details.tch-terminees summary')?.textContent).toBe('Faites — 7 derniers jours (1)');
     expect(container.querySelector('[data-tache="31"]')).not.toBeNull();
     expect(container.querySelector('[data-tache="30"]')).toBeNull();
     expect(ecritures).toEqual([]);

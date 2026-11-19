@@ -88,3 +88,45 @@ export function phraseConfirmationRdv(geste: 'fixe' | 'modifie' | 'valide_sans_c
     case 'validation_annulee': return `La validation à la main est annulée : ${nom.charAt(0).toLowerCase()}${nom.slice(1)} n’est plus ${fem ? 'confirmée' : 'confirmé'} côté locataires.`;
   }
 }
+
+/* ══ 🔴🔴 LE CHANGEMENT DE COLLABORATEUR SEUL (Arno, 19/11/2026) ═══════════════════════════════════════════════════════════════════════════════
+   « Dans ce cas, le RÉCAPITULATIF avant validation affiche, mot pour mot, avec les vraies valeurs : « Le rendez-vous est maintenu sans changement :
+   le {date}, de {début} à {fin}. Changement de collaborateur en charge : {nouveau} remplace {ancien}. {nouveau} recevra une invitation à accepter ou
+   à refuser ce rendez-vous. {ancien} sera informé qu'il n'en a plus la charge. » » — plusieurs : ajoutés et retirés ; « Vous prenez en charge ce
+   rendez-vous. » quand c'est la personne connectée ; elle ne se prévient pas elle-même (règle D) : pas de phrase « sera informé » pour elle. */
+
+/** Une personne en charge, pour le résumé (`id` : le compte ; absent : comparée par son nom). */
+export interface PersonneRdv { id: number | null; libelle: string }
+
+const enumerer = (l: readonly string[]): string => (l.length <= 1 ? (l[0] ?? '') : `${l.slice(0, -1).join(', ')} et ${l[l.length - 1]}`);
+const memePersonne = (a: PersonneRdv, b: PersonneRdv): boolean =>
+  a.id !== null && b.id !== null ? Number(a.id) === Number(b.id) : a.libelle.trim().toLowerCase() === b.libelle.trim().toLowerCase();
+
+/** Les collaborateurs changent-ils (et rien d'autre) ? Le résumé, ou `null` (aucun changement de personne). PUR. */
+export function resumeChangementCollaborateur(o: { jour: string; debut: string; fin: string; avant: readonly PersonneRdv[]; apres: readonly PersonneRdv[];
+  moiId: number | null }): { lignes: string[]; phrase: string } | null {
+  const ajoutes = o.apres.filter((p) => !o.avant.some((a) => memePersonne(a, p)));
+  const retires = o.avant.filter((p) => !o.apres.some((a) => memePersonne(a, p)));
+  if (ajoutes.length === 0 && retires.length === 0) return null;
+  const estMoi = (p: PersonneRdv): boolean => o.moiId !== null && p.id !== null && Number(p.id) === Number(o.moiId);
+  const creneau = `le ${jourFr(o.jour)}, de ${heureFr(o.debut)} à ${heureFr(o.fin)}`;
+  const noms = (l: readonly PersonneRdv[]): string => enumerer(l.map((p) => p.libelle));
+  const qui = ajoutes.length === 1 && retires.length === 1
+    ? `${noms(ajoutes)} remplace ${noms(retires)}`
+    : [ajoutes.length > 0 ? `${noms(ajoutes)} ${ajoutes.length > 1 ? 'sont ajoutés' : 'est ajouté'}` : null,
+      retires.length > 0 ? `${noms(retires)} ${retires.length > 1 ? 'sont retirés' : 'est retiré'}` : null].filter((x): x is string => x !== null).join(' ; ');
+  const pluriel = ajoutes.length > 1 || retires.length > 1; // « un remplace un », un seul ajouté ou retiré : « collaborateur »
+  const invites = ajoutes.filter((p) => !estMoi(p));
+  const informes = retires.filter((p) => !estMoi(p));
+  const suite = [
+    invites.length === 0 ? null : `${noms(invites)} ${invites.length > 1 ? 'recevront' : 'recevra'} une invitation à accepter ou à refuser ce rendez-vous.`,
+    ajoutes.some(estMoi) ? 'Vous prenez en charge ce rendez-vous.' : null,
+    informes.length === 0 ? null : informes.length > 1 ? `${noms(informes)} seront informés qu’ils n’en ont plus la charge.` : `${noms(informes)} sera informé qu’il n’en a plus la charge.`,
+  ].filter((x): x is string => x !== null).join(' ');
+  const lignes = [
+    `Le rendez-vous est maintenu sans changement : ${creneau}.`,
+    `Changement de ${pluriel ? 'collaborateurs' : 'collaborateur'} en charge : ${qui}.`,
+    ...(suite === '' ? [] : [suite]),
+  ];
+  return { lignes, phrase: `Le rendez-vous du ${jourFr(o.jour)}, de ${heureFr(o.debut)} à ${heureFr(o.fin)}, est maintenu : ${qui}.` };
+}

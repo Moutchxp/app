@@ -100,4 +100,12 @@ describe('🔴 jamais de suppression', () => {
     expect(ecritures()[0].sql).toContain("SET etat = 'annulee'");
     expect(trace()?.params[1]).toBe('annulation');
   });
+  it('🔴 Arno (19/11/2026, choix A) — la ligne reste en base (UPDATE, jamais DELETE) et le JOURNAL interne garde l’auteur et le contenu de la tâche', async () => {
+    expect(await annulerTache(7, AUTEUR)).toEqual({ ok: true, id: 7 });
+    expect(ecritures()[0].sql).toContain("UPDATE gestion_tache SET etat = 'annulee'");
+    expect(appels.some((a) => /\bDELETE\b|\bTRUNCATE\b/.test(a.sql))).toBe(false);
+    const t = trace()!;
+    expect(JSON.parse(String(t.params[2]))).toMatchObject({ etat: 'a_faire', objet: 'Visite', jour: '2026-10-15', confieeA: 'Arno Jorel' });
+    expect(t.params.slice(4)).toEqual([1, 'Arno Jorel']);
+  });
 });

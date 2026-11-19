@@ -278,7 +278,8 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
       `${SQL} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)${horsTest}
         ORDER BY t.jour, t.heure NULLS FIRST, t.id LIMIT ${OUVERTES_MAX + 1}`, [lotId]),
     query<LigneTache>(
-      `${SQL} WHERE t.etat <> 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)${horsTest}
+      // 🔴 Arno (19/11/2026, choix A) — une tâche ANNULÉE n'apparaît plus nulle part (« Faites » seulement) ; elle reste en base et au journal
+      `${SQL} WHERE t.etat = 'faite' AND ($1::bigint IS NULL OR t.lot_id = $1)${horsTest}
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
@@ -708,7 +709,8 @@ export async function marquerFaite(id: number, auteur: Auteur): Promise<IssueTac
   });
 }
 
-/** « ANNULER » — la tâche reste en base, grisée, avec sa trace. */
+/** « ANNULER » — la tâche reste en base, avec sa trace. 🔴 Arno (19/11/2026, choix A) : elle DISPARAÎT de tous les écrans (listes, fiche,
+ *  frise, détail) ; le journal interne garde l'annulation : auteur, date (`survenu_le`) et le CONTENU de la tâche. Aucune ligne effacée. */
 export async function annulerTache(id: number, auteur: Auteur): Promise<IssueTache> {
   return withTransaction(async (q) => {
     const t = await lirePourGeste(q, id);
@@ -717,7 +719,8 @@ export async function annulerTache(id: number, auteur: Auteur): Promise<IssueTac
     const nom = await nomAuteur(q, auteur);
     await q(`UPDATE gestion_tache SET etat = 'annulee', annulee_le = now(), annulee_par_libelle = $2, maj_le = now() WHERE id = $1`,
       [id, nom]);
-    await tracer(q, id, 'annulation', { etat: 'a_faire' }, { etat: 'annulee' }, auteur, nom);
+    await tracer(q, id, 'annulation', { etat: 'a_faire', objet: t.objet, note: t.note, jour: t.jour, heure: t.heure, confieeA: t.confiee_a_libelle, lotId: t.lot_id },
+      { etat: 'annulee' }, auteur, nom);
     await marquerASynchroniser(q, id);
     return { ok: true, id };
   });

@@ -22,7 +22,8 @@ export const ECHEANCES: readonly FiltreEcheance[] = ['retard', 'jour', 'proche',
 export const MOTS_ECHEANCE: Record<FiltreEcheance, string> = { retard: 'En retard', jour: 'Aujourd’hui / demain', proche: 'Dans 2 jours', plus_tard: 'Plus tard' };
 
 export type StatutPleinePage = 'en_attente' | 'acceptee' | 'refusee' | 'a_reattribuer' | 'faite' | 'annulee';
-export const STATUTS_PLEINE_PAGE: readonly StatutPleinePage[] = ['en_attente', 'acceptee', 'refusee', 'a_reattribuer', 'faite', 'annulee'];
+/** 🔴 Arno (19/11/2026, choix A) — le filtre « Annulée » n'est plus proposé : une tâche annulée a disparu de l'interface. */
+export const STATUTS_PLEINE_PAGE: readonly StatutPleinePage[] = ['en_attente', 'acceptee', 'refusee', 'a_reattribuer', 'faite'];
 export const MOTS_STATUT_PLEINE_PAGE: Record<StatutPleinePage, string> = {
   en_attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée', a_reattribuer: 'À réattribuer', faite: 'Faite', annulee: 'Annulée',
 };

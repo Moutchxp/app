@@ -11,6 +11,7 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
+import { tacheVisible } from '../../../../lib/gestion/annulationTache';
 import type { ApercuLocataires } from '../../../../lib/location/reponsesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import type { EditionMail, Retouches } from '../../../../lib/location/texteModifiable';
@@ -63,7 +64,7 @@ export type IssueGeste =
       locataires?: MailParti[] }
   | { ok: false; message: string; champ?: ChampTache | null };
 
-async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): Promise<IssueGeste> {
+async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown, o: { signaler?: boolean } = {}): Promise<IssueGeste> {
   let res: Response;
   try {
     res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
@@ -71,7 +72,7 @@ async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): P
     return { ok: false, message: 'Le serveur ne répond pas : rien n’a été enregistré.', champ: null };
   }
   const d = (await res.json().catch(() => null)) as { message?: string; erreur?: string; champ?: string; id?: number; etat?: string;
-    collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[] } | null;
+    collaborateurs?: EnvoiCollaborateur[]; exterieurs?: EnvoiContactExterne[]; locataires?: MailParti[] } | null;
   if (!res.ok) {
     const r = refusDuServeur(res.status, d);
     return { ok: false, message: r.message, champ: r.champ };
@@ -80,9 +81,12 @@ async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): P
   if (d === null || d.etat !== 'ok') {
     return { ok: false, message: 'Réponse inattendue du serveur : rien ne confirme l’enregistrement. Recharge la page.', champ: null };
   }
-  signalerTaches();
+  // 🔴 Arno (19/11/2026, choix A) — une annulation ne prévient les listes qu'à la FERMETURE de sa fenêtre de confirmation (la tâche disparaît alors :
+  // la carte qui porte la fenêtre ne doit pas s'effacer sous elle) ; `signalerTaches()` est alors appelé par l'écran
+  if (o.signaler !== false) signalerTaches();
   return { ok: true, message: d.message ?? 'Enregistré.', id: d.id,
-    ...(Array.isArray(d.collaborateurs) ? { collaborateurs: d.collaborateurs } : {}), ...(Array.isArray(d.exterieurs) ? { exterieurs: d.exterieurs } : {}) };
+    ...(Array.isArray(d.collaborateurs) ? { collaborateurs: d.collaborateurs } : {}), ...(Array.isArray(d.exterieurs) ? { exterieurs: d.exterieurs } : {}),
+    ...(Array.isArray(d.locataires) ? { locataires: d.locataires } : {}) };
 }
 
 /** 🔴 Arno (10/11/2026) — le RÉCAPITULATIF avant envoi (lecture seule, rien ne part). */
@@ -94,6 +98,8 @@ export interface ApercuEnvois {
   editions?: EditionMail[];
   /** 🔴 Arno (18/11/2026) — un rendez-vous de préavis : ce qui part aux LOCATAIRES (choix « Oui / Non ») ; absent ailleurs. */
   locataires?: ApercuLocataires;
+  /** 🔴 Arno (19/11/2026, choix A) — une ANNULATION : la phrase d'avertissement, les locataires qui avaient confirmé (eux seuls prévenus). */
+  annulation?: { phrase: string; locataires: string[]; motifLocataires: string | null };
 }
 export async function lireApercuEnvois(corps: Record<string, unknown>): Promise<ApercuEnvois | { erreur: string }> {
   try {
@@ -101,7 +107,10 @@ export async function lireApercuEnvois(corps: Record<string, unknown>): Promise<
     const d = (await res.json().catch(() => null)) as (ApercuEnvois & { etat?: string; erreur?: string }) | null;
     if (!res.ok || d === null || d.etat !== 'ok') return { erreur: d?.erreur ?? 'Récapitulatif impossible : rien n’a été envoyé.' };
     return { collaborateurs: d.collaborateurs ?? [], exterieurs: d.exterieurs ?? [], total: Number(d.total ?? 0), texteCollaborateur: d.texteCollaborateur ?? null, texteExterieur: d.texteExterieur ?? null,
-      ...(Array.isArray(d.editions) ? { editions: d.editions } : {}) };
+      ...(Array.isArray(d.editions) ? { editions: d.editions } : {}),
+      // 🔴 Arno (19/11/2026, choix A) — l'annulation : la phrase et les locataires qui avaient confirmé
+      ...(d.annulation && typeof d.annulation.phrase === 'string' ? { annulation: { phrase: d.annulation.phrase, locataires: Array.isArray(d.annulation.locataires) ? d.annulation.locataires : [],
+        motifLocataires: d.annulation.motifLocataires ?? null } } : {}) };
   } catch {
     return { erreur: 'Le serveur ne répond pas : rien n’a été envoyé.' };
   }
@@ -153,7 +162,8 @@ export type GesteTache =
 /** LA porte des gestes sur une tâche existante. */
 /** 🔴 Arno (10/11/2026) — `retouches` : le texte modifié des mails aux contacts extérieurs (récapitulatif) ; absent : le texte proposé. */
 export function agirSurTache(id: number, g: GesteTache, retouches?: Retouches): Promise<IssueGeste> {
-  return envoyer(`/api/admin/gestion/taches/${id}`, 'PATCH', retouches && Object.keys(retouches).length > 0 ? { ...g, retouchesExterieurs: retouches } : g);
+  return envoyer(`/api/admin/gestion/taches/${id}`, 'PATCH', retouches && Object.keys(retouches).length > 0 ? { ...g, retouchesExterieurs: retouches } : g,
+    { signaler: g.geste !== 'annuler' });
 }
 
 /** 🔴 LOT GESTION-TACHES-SANS-BIEN — `lotId` à `null` : une tâche sans bien. */
@@ -174,7 +184,8 @@ export async function lireTaches(lotId: number | null): Promise<ListeTaches> {
     const d = (await res.json()) as { etat?: string; taches?: Tache[]; moi?: number | null; tronque?: boolean };
     if (d.etat === 'sans_schema') return { etat: 'sans_schema' };
     if (!res.ok || d.etat !== 'ok') return { etat: 'erreur' };
-    return { etat: 'ok', taches: d.taches ?? [], moi: d.moi ?? null, tronque: d.tronque === true };
+    // 🔴 Arno (19/11/2026, choix A) — une tâche annulée ne s'affiche jamais (le serveur ne la rend plus ; ceinture et bretelles)
+    return { etat: 'ok', taches: (d.taches ?? []).filter(tacheVisible), moi: d.moi ?? null, tronque: d.tronque === true };
   } catch {
     return { etat: 'erreur' };
   }

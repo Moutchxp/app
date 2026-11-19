@@ -46,7 +46,9 @@ export type SorteMailAvis = 'preavis_locataires' | 'preavis_adhoc' | 'sortie_adh
   // 🔴 Arno (17/11/2026, migration 484) — le mail à la Gestion d'un changement de digicode
   | 'digicode_gestion'
   // 🔴 Arno (18/11/2026, migration 495) — l'invitation des locataires à l'état des lieux, et le mail interne d'un rendez-vous confirmé / refusé
-  | 'edls_locataires' | 'edls_locataires_modif' | 'rdv_confirmation_interne' | 'rdv_refus_interne';
+  | 'edls_locataires' | 'edls_locataires_modif' | 'rdv_confirmation_interne' | 'rdv_refus_interne'
+  // 🔴 Arno (19/11/2026, migration 502) — l'annulation d'un rendez-vous aux locataires qui l'avaient confirmé
+  | 'rdv_annulation_locataires';
 
 /** Un mail prêt : ce que l'aperçu montre et ce qui part, à l'identique. */
 export interface MailAvis {

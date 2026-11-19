@@ -66,3 +66,34 @@ describe('🔴 F — la phrase de la fenêtre de confirmation', () => {
     expect(phraseConfirmationRdv('valide_sans_confirmation', 'edl')).toBe('L’état des lieux de sortie est confirmé côté locataires, sans leur demander de confirmation.');
   });
 });
+
+describe('🔴🔴 Arno (19/11/2026) — changer SEULEMENT le collaborateur : le récapitulatif mot pour mot', async () => {
+  const { resumeChangementCollaborateur } = await import('./modificationRdv');
+  const base = { jour: '2026-11-20', debut: '10:00', fin: '10:30' };
+  const A = { id: 2, libelle: 'Arnaud Jorel' }; const C = { id: 6, libelle: 'Cédric JULLIEN' }; const P = { id: 5, libelle: 'Jean-Baptiste PONS' };
+  it('un remplace un (ni l’un ni l’autre connecté) : les trois phrases d’Arno, avec les vraies valeurs', () => {
+    expect(resumeChangementCollaborateur({ ...base, avant: [P], apres: [C], moiId: 2 })).toEqual({
+      lignes: [
+        'Le rendez-vous est maintenu sans changement : le 20/11/2026, de 10h00 à 10h30.',
+        'Changement de collaborateur en charge : Cédric JULLIEN remplace Jean-Baptiste PONS.',
+        'Cédric JULLIEN recevra une invitation à accepter ou à refuser ce rendez-vous. Jean-Baptiste PONS sera informé qu’il n’en a plus la charge.',
+      ],
+      phrase: 'Le rendez-vous du 20/11/2026, de 10h00 à 10h30, est maintenu : Cédric JULLIEN remplace Jean-Baptiste PONS.',
+    });
+  });
+  it('la personne connectée devient le collaborateur : « Vous prenez en charge ce rendez-vous. »', () => {
+    expect(resumeChangementCollaborateur({ ...base, avant: [P], apres: [A], moiId: 2 })?.lignes[2])
+      .toBe('Vous prenez en charge ce rendez-vous. Jean-Baptiste PONS sera informé qu’il n’en a plus la charge.');
+  });
+  it('l’ancien collaborateur est la personne connectée : elle ne reçoit pas de mail (règle D), la phrase « sera informé » disparaît', () => {
+    expect(resumeChangementCollaborateur({ ...base, avant: [A], apres: [C], moiId: 2 })?.lignes[2])
+      .toBe('Cédric JULLIEN recevra une invitation à accepter ou à refuser ce rendez-vous.');
+  });
+  it('plusieurs : ceux qui sont ajoutés et ceux qui sont retirés ; aucun changement : rien', () => {
+    expect(resumeChangementCollaborateur({ ...base, avant: [A, P], apres: [A, C, { id: 9, libelle: 'Service Gestion' }], moiId: 2 })?.lignes.slice(1)).toEqual([
+      'Changement de collaborateurs en charge : Cédric JULLIEN et Service Gestion sont ajoutés ; Jean-Baptiste PONS est retiré.',
+      'Cédric JULLIEN et Service Gestion recevront une invitation à accepter ou à refuser ce rendez-vous. Jean-Baptiste PONS sera informé qu’il n’en a plus la charge.',
+    ]);
+    expect(resumeChangementCollaborateur({ ...base, avant: [A], apres: [A], moiId: 2 })).toBeNull();
+  });
+});

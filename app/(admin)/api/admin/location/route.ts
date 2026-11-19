@@ -188,7 +188,9 @@ export async function GET(request: Request): Promise<Response> {
     }
     // 🔴 Arno (10/11/2026) — les collègues destinataires d'une pré-visite (accès Gestion et/ou Location, Workspace ; moi en tête) — LECTURE SEULE.
     if (p('previsiteCollegues') !== null) {
-      return Response.json({ etat: 'ok', data: await collegesPrevisite((await auteurDeLaRequete(request)).id) }, { headers: ENTETES });
+      // 🔴 Arno (19/11/2026) — + « moi » : le récapitulatif d'un changement de collaborateur dit « Vous prenez en charge ce rendez-vous. »
+      const moiP = (await auteurDeLaRequete(request)).id;
+      return Response.json({ etat: 'ok', data: (await collegesPrevisite(moiP)).map((c) => ({ ...c, moi: moiP !== null && Number(c.id) === Number(moiP) })) }, { headers: ENTETES });
     }
     // 🔴 Arno (10/11/2026) — le texte prérempli du refus / de l'absence de pré-visite — LECTURE SEULE.
     if (p('previsiteRefus') !== null) {
@@ -246,7 +248,8 @@ export async function GET(request: Request): Promise<Response> {
     }
     // « Confier à » l'état des lieux de sortie (Arno, 19/10/2026) — LECTURE SEULE : Location ET Gestion ET Workspace.
     if (p('edlsConfiables') !== null) {
-      return Response.json({ etat: 'ok', data: await confiablesEdls((await auteurDeLaRequete(request)).id) }, { headers: ENTETES });
+      const moiE = (await auteurDeLaRequete(request)).id;
+      return Response.json({ etat: 'ok', data: (await confiablesEdls(moiE)).map((c) => ({ ...c, moi: moiE !== null && Number(c.id) === Number(moiE) })) }, { headers: ENTETES });
     }
     // Le préavis d'un bail (Arno, 18/10/2026) — LECTURE SEULE : durée proposée, locataires, préavis ouverts.
     const idPreavis = identifiant(p('preavisBail'));

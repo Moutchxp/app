@@ -14,7 +14,7 @@ import { DUREE_DEFAUT_MINUTES, DUREES_PROPOSEES, MOT_AGENDA_COURT, motDuree } fr
 import { CSS_CONTACTS_TACHE, EncadresContacts } from './ContactsTache';
 /* 🔴 LOT TACHES-LIGNE-CONTACTS — la couleur de famille d'un contact : la source unique du bloc PARTIES. */
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
-import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, type GesteTache } from './tachesClient';
+import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, signalerTaches, type GesteTache } from './tachesClient';
 import { useRecapEnvois } from './RecapEnvoisTache';
 import { jourDecale, MOT_SORTE, type RaccourciDecalage, type Tache as TacheSorte } from '../../../../lib/gestion/taches';
 
@@ -117,11 +117,13 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         : g.geste === 'changerDestinataire' ? { geste: g.geste, tacheId: tache.id, inviteId: g.inviteId, collaborateurId: g.collaborateurId }
           // 🔴 Arno (10/11/2026) — l'annulation prévient les contacts extérieurs invités : le récapitulatif d'abord (aucun : sans fenêtre).
           : g.geste === 'annuler' ? { geste: 'annuler', tacheId: tache.id } : null;
+    // 🔴 Arno (19/11/2026, choix A) — l'annulation : la fenêtre s'ouvre toujours, puis la confirmation ; à sa fermeture la tâche disparaît
     const r = titre !== null && apercu !== null
-      ? await recap.demander({ titre, apercu, action: (rt) => agirSurTache(tache.id, g, rt) })
+      ? await recap.demander({ titre, apercu, action: (rt) => agirSurTache(tache.id, g, rt), ...(g.geste === 'annuler' ? { annulation: true } : {}) })
       : await agirSurTache(tache.id, g);
     setOccupe(false);
     if (r === null) return;
+    if (g.geste === 'annuler' && r.ok) { setConfirmerAnnulation(false); signalerTaches(); return; }
     if (r.ok) { setDecaler(false); setConfirmerAnnulation(false); }
     setMessage({ ok: r.ok, texte: r.message });
   };

@@ -169,10 +169,11 @@ describe('🔴 les autres points d’entrée : décaler, renvoyer une invitation
     expect([...r.querySelectorAll('[data-mail-parti]')].map((m) => [m.querySelector('[data-objet]')?.textContent, m.querySelector('[data-a]')?.textContent]))
       .toEqual([['Tâche à accepter — 7 av. — Visite — ven. 13 nov.', 'Claire Test']]);
   });
-  it('🔴 annuler la tâche : le récapitulatif (« 1 mail d’annulation partira »), puis le résultat avec l’objet de l’annulation', async () => {
+  it('🔴 annuler la tâche : le récapitulatif (« 1 mail d’annulation partira »), puis la fenêtre de confirmation (🔴 19/11/2026, choix A)', async () => {
     APERCU_SUIVANT = { etat: 'ok', total: 1, collaborateurs: [], texteCollaborateur: null,
       exterieurs: [{ nom: 'M. DUPONT Jean', email: 'jean@exemple.test', sorte: 'annulation', mail: true, motif: null }],
-      texteExterieur: 'Bonjour,\n\nLe rendez-vous ci-dessous est annulé.' };
+      texteExterieur: 'Bonjour,\n\nLe rendez-vous ci-dessous est annulé.',
+      annulation: { phrase: 'La tâche disparaîtra de l’interface et les personnes ayant accepté le rendez-vous seront prévenues par mail.', locataires: [], motifLocataires: null } };
     reponseGeste = { etat: 'ok', id: 9, message: 'Tâche annulée.', collaborateurs: [],
       exterieurs: [{ nom: 'M. DUPONT Jean', email: 'jean@exemple.test', sorte: 'annulation', envoye: true, motif: null, objet: 'Rendez-vous annulé : Visite — 13/11/2026 à 10h00' }] };
     await carte();
@@ -184,9 +185,8 @@ describe('🔴 les autres points d’entrée : décaler, renvoyer une invitation
     expect([...f.querySelectorAll('[data-recap-exterieurs] li')].map((l) => l.textContent)).toEqual(['M. DUPONT Jean <jean@exemple.test> — annulation']);
     await clic(document.querySelector('[data-confirmer-recap]'));
     expect(posts.at(-1)).toMatchObject({ url: '/api/admin/gestion/taches/9', method: 'PATCH', corps: { geste: 'annuler' } });
-    const r = document.querySelector('[data-fenetre-envois="resultat"]')!;
-    expect(r.querySelector('[data-mail-parti]')?.textContent).toContain('Annulation (contact extérieur)');
-    expect(r.querySelector('[data-objet]')?.textContent).toBe('Rendez-vous annulé : Visite — 13/11/2026 à 10h00');
+    expect(document.querySelector('[data-fenetre-envois="resultat"]')).toBeNull();
+    expect(document.querySelector('[data-modale-confirmation] [data-phrase-confirmation]')?.textContent).toBe('Tâche annulée.');
   });
 });
 

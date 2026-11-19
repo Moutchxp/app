@@ -5,6 +5,10 @@ import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import { lireSaisie } from '../../../../../../lib/gestion/taches';
 import { apercuEnvoisTache, type GesteApercu } from '../../../../../../lib/gestion/invitationsContactsRepo';
 import { lireRetouchesExterieurs } from '../../../../../../lib/gestion/invitationsContactsAutorisees';
+import { lireReglageTaches } from '../../../../../../lib/gestion/acceptationRepo';
+import { lireAvantAnnulation } from '../../../../../../lib/gestion/annulationTacheRepo';
+import { collaborateursAPrevenirAnnulation, mailAnnulationTache, PHRASE_AVANT_ANNULATION } from '../../../../../../lib/gestion/annulationTache';
+import { annulationLocatairesDisponible, apercuAnnulationLocataires, MOTIF_SANS_502 } from '../../../../../../lib/location/annulationRdvLocataires';
 
 /**
  * ══ 🔴🔴 LE RÉCAPITULATIF AVANT TOUT ENVOI D'UNE TÂCHE (Arno, 10/11/2026) — LECTURE SEULE ═════════════════════════════════════════
@@ -34,6 +38,25 @@ export async function POST(request: Request): Promise<Response> {
       ...(geste === 'decaler' && typeof corps.jour === 'string' ? { moment: { jour: corps.jour.trim(), heure, dureeMinutes: heure === null ? null : entier(corps.dureeMinutes) } } : {}),
       inviteId: entier(corps.inviteId), collaborateurId: entier(corps.collaborateurId), retouches: rt.retouches,
     });
+    if (geste === 'annuler' && entier(corps.tacheId) !== null) {
+      // 🔴 Arno (19/11/2026, choix A) — l'annulation : la phrase de la fenêtre, les collaborateurs qui avaient ACCEPTÉ (eux seuls reçoivent le mail),
+      // les locataires qui avaient confirmé un rendez-vous de préavis, et le texte reçu par un collaborateur
+      const auteur = await auteurDeLaRequete(request);
+      const tacheId = entier(corps.tacheId) as number;
+      const avant = await lireAvantAnnulation(tacheId);
+      const envoiMail = (await lireReglageTaches()).envoiMail;
+      const cibles = avant === null ? [] : collaborateursAPrevenirAnnulation(avant.reponses, auteur.id);
+      const collaborateurs = cibles.map((c) => ({ libelle: c.libelle, mail: envoiMail,
+        motif: envoiMail ? null : 'l’envoi des demandes par mail est désactivé dans les réglages des tâches' }));
+      const locataires = avant === null ? [] : await apercuAnnulationLocataires(tacheId, avant, auteur);
+      const sans502 = locataires.length > 0 && !(await annulationLocatairesDisponible());
+      const premier = cibles[0];
+      const texteCollaborateur = premier === undefined || avant === null ? null
+        : mailAnnulationTache({ pour: premier, rdv: avant.rdv, titre: avant.titre, adresse: avant.adresse, quand: { jour: avant.jour, heure: avant.heure, dureeMinutes: avant.dureeMinutes }, auteur: auteur.libelle }).corps;
+      const total = collaborateurs.filter((c) => c.mail).length + (sans502 ? 0 : locataires.length) + a.exterieurs.filter((e) => e.mail).length;
+      return Response.json({ etat: 'ok', ...a, collaborateurs, texteCollaborateur, total,
+        annulation: { phrase: PHRASE_AVANT_ANNULATION, locataires, motifLocataires: sans502 ? MOTIF_SANS_502 : null } }, { headers: { 'Cache-Control': 'private, no-store' } });
+    }
     return Response.json({ etat: 'ok', ...a }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/taches/apercu] lecture impossible', e);

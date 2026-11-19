@@ -35,7 +35,7 @@ import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
 import { GrilleDateHeures } from './GrilleDateHeures';
 import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
-import { phraseConfirmationRdv } from '../../../../lib/gestion/modificationRdv';
+import { phraseConfirmationRdv, resumeChangementCollaborateur } from '../../../../lib/gestion/modificationRdv';
 import { DUREES_RDV_DEFAUT, finDepuisDebut, lireDureesRdv, lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import type { MailParti } from '../../../../lib/location/confirmationEnvois';
 import { MOTIF_CHOIX_LOCATAIRES, motCartoucheLocataires, motCourtLocataires, reponsesDeLEncart, type ChoixLocataires, type EtatLocataires, type RdvEnCours } from '../../../../lib/location/reponsesRdv';
@@ -695,6 +695,12 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data)) setLibelles(Object.fromEntries(lu.etat.data.map((p) => [p.id, p.libelle]))); }, [lu.etat]);
   const verdict = verifierPlanification({ jour, debut, fin, confieA, commentaire }, [{ recuLe: l.recuLe, dateMax: l.dateMax }]);
+  // 🔴🔴 Arno (19/11/2026) — « Modifier / déplacer » sans changer la date ni l'heure, mais la personne : le résumé mot pour mot (récapitulatif) et
+  // sa phrase (confirmation). Les locataires ne reçoivent rien, sauf « Oui ».
+  const moiId = lu.etat.etat === 'ok' && Array.isArray(lu.etat.data) ? (lu.etat.data as (Personne & { moi?: boolean })[]).find((p) => p.moi === true)?.id ?? null : null;
+  const maintien = e === null || e.heure === null || jour !== e.jour || debut !== e.heure
+    || fin !== (finDepuisDebut(e.heure, e.dureeMinutes ?? 60) ?? '') || confieA === null || confieA === e.confieAId ? null
+    : resumeChangementCollaborateur({ jour, debut, fin, avant: [{ id: e.confieAId, libelle: e.confieA }], apres: [{ id: confieA, libelle: libelles[confieA] ?? `compte ${confieA}` }], moiId });
   // 🔴 Arno (11/11/2026) — aucun locataire avec un e-mail : planifier / déplacer impossible (le serveur refuse aussi).
   const emails = useEmailsLocataires(l);
   /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (qui recevra l'invitation, et son texte) ; « Revenir » garde la saisie. */
@@ -710,7 +716,7 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
     const issue = await recap.demander({
       titre: e === null ? 'État des lieux de sortie planifié' : 'Rendez-vous déplacé', apercu: {},
       lireApercu: () => lireApercuEdls({ ...corps, geste: e === null ? 'planifier' : 'deplacer' }),
-      confirmer: true,
+      confirmer: true, ...(maintien !== null ? { maintien } : {}),
       action: async () => { tenu.r = await envoyer(corps, { propre: true }); return issueEdls(tenu.r, e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé'); },
     });
     setEnvoi(false);
@@ -722,7 +728,7 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
       edlsId: e?.edlsId ?? 0, tacheId: e?.tacheId ?? 0, jour: verdict.jour, heure: verdict.heure, dureeMinutes: verdict.dureeMinutes,
       confieA: (confieA !== null ? libelles[confieA] : null) ?? e?.confieA ?? '', confieAId: confieA,
       statut: data.statut ?? 'en_attente', reponduPar: null, motifRefus: null,
-    }, phraseGeste(e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé', r.data));
+    }, maintien !== null ? maintien.phrase : phraseGeste(e === null ? 'État des lieux planifié' : 'Rendez-vous déplacé', r.data));
   };
   return (
     <div className="pvs-form pva-form-edls" data-formulaire-edls={e === null ? 'planifier' : 'deplacer'}>

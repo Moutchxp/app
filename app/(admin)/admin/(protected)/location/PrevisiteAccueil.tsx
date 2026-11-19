@@ -6,7 +6,8 @@ import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
 import { GrilleDateHeures } from './GrilleDateHeures';
-import { DUREES_RDV_DEFAUT, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { DUREES_RDV_DEFAUT, finDepuisDebut, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
+import { resumeChangementCollaborateur } from '../../../../lib/gestion/modificationRdv';
 import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
 import { BlocsEnvois, CSS_CONFIRMATION_ENVOIS } from './ConfirmationEnvois';
@@ -461,6 +462,16 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const saisieOk = !emails.bloque && (avecDate ? verdict?.ok === true && choixLoc !== null : geste === 'reaffecter' ? dest.length > 0 : geste === 'compte_rendu' ? corps.trim() !== '' : (texteRefus ?? '').trim() !== '');
   const corpsCommun = { occupationIds: l.occupationIds };
   const rdvActuel = p.rdv;
+  // 🔴🔴 Arno (19/11/2026) — « Modifier / déplacer » sans changer la date ni l'heure, mais les collègues : le résumé mot pour mot (récapitulatif) et sa
+  // phrase (résultat). Les locataires ne reçoivent rien, sauf « Oui ».
+  const maintien = useMemo(() => {
+    if (!deplacement || !rdvActuel) return null;
+    const finActuelle = finDepuisDebut(rdvActuel.heure, rdvActuel.dureeMinutes);
+    if (jour !== rdvActuel.jour || debut !== rdvActuel.heure || fin !== finActuelle) return null;
+    const nom = (id: number): string => liste.find((c) => Number(c.id) === id)?.libelle ?? p.collegues.find((c) => c.collaborateurId === id)?.libelle ?? `compte ${id}`;
+    return resumeChangementCollaborateur({ jour, debut, fin, avant: p.collegues.filter((c) => c.collaborateurId !== null).map((c) => ({ id: Number(c.collaborateurId), libelle: c.libelle })),
+      apres: dest.map((id) => ({ id, libelle: nom(id) })), moiId: (() => { const m = liste.find((c) => (c as { moi?: boolean }).moi === true); return m ? Number(m.id) : null; })() });
+  }, [deplacement, rdvActuel, jour, debut, fin, dest, liste, p.collegues]);
 
   const voirRecap = async (rt: Retouches = {}): Promise<void> => {
     if (geste === 'compte_rendu' && !presenceOk) {
@@ -504,7 +515,8 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       collegues?: { destinataire: string; etat: string }[]; locataires?: MailParti[]; envois?: MailParti[]; sansEmail?: string[]; statut?: StatutPrevisite | null; agenda?: string;
       tacheAnnulee?: number | null };
     const mails: MailParti[] = [...(d.collegues ?? []).map(mailCollegue), ...(d.locataires ?? []), ...(d.envois ?? [])];
-    const lignes: [string, string][] = [[l.locataires.length > 1 ? 'Locataires' : 'Locataire', l.locataires.map((x) => x.nom).join(', ')], ['Le logement', l.adresse ?? `Bien ${l.lotId}`]];
+    const lignes: [string, string][] = [...(maintien !== null && geste === 'deplacer' ? [['Résumé', maintien.phrase] as [string, string]] : []),
+      [l.locataires.length > 1 ? 'Locataires' : 'Locataire', l.locataires.map((x) => x.nom).join(', ')], ['Le logement', l.adresse ?? `Bien ${l.lotId}`]];
     if (d.rdv) lignes.push(['Rendez-vous', `le ${creneauFr(d.rdv)}`]);
     if (d.ancien) lignes.push(['Ancien rendez-vous', `le ${creneauFr(d.ancien)}`]);
     if (d.statut !== undefined) lignes.push(['Statut', d.statut === null ? 'inchangé : le mail n’est pas parti' : LIBELLE_STATUT_PREVISITE[d.statut]]);
@@ -614,6 +626,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       <h2 id={titreId} className="mis-titre" data-titre-previsite>Récapitulatif — {TITRES[geste][0]}</h2>
       <p className="loc-muet pss-rien" data-rien-enregistre>Rien n’est encore enregistré ni envoyé : vérifiez, puis « Confirmer et envoyer ».</p>
       {/* 🔴 Arno (18/11/2026, 2e lot) — le récapitulatif dit clairement si les LOCATAIRES seront invités ou non */}
+      {maintien !== null && geste === 'deplacer' && <div className="mis-note pss-note-neutre pvv-maintien" data-recap-maintien>{maintien.lignes.map((x) => <p key={x}>{x}</p>)}</div>}
       {etape.locataires && <p className="mis-note pss-note-neutre" data-recap-locataires={etape.locataires.choix}>
         <strong>Locataires : </strong>{phraseRecapLocataires(etape.locataires)}</p>}
       {etape.mails.length === 0 ? <p className="mis-note pss-note-neutre">Aucun mail ne partira.</p> : (() => {
@@ -996,6 +1009,8 @@ export const CSS_PREVISITE = `
 .pvv-destinataires legend{padding:0;margin:0 0 6px}
 .pvv-dest-case{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;column-gap:10px;min-height:44px;padding:0 2px;cursor:pointer;text-align:left}
 .pvv-dest-case input{width:20px;height:20px;margin:0}
+.pvv-maintien{display:flex;flex-direction:column;gap:6px}
+.pvv-maintien p{margin:0}
 .pvv-choix{border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
 .pvv-choix legend{padding:0;margin:0 0 6px}
 .pvv-case{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}

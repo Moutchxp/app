@@ -1,5 +1,6 @@
 'use client';
 
+import { resumeChangementCollaborateur } from '../../../../lib/gestion/modificationRdv';
 import { ChoixHeure } from '../location/ChoixHeure';
 import { DUREES_RDV_DEFAUT, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 
@@ -14,7 +15,7 @@ import {
 import { blocContacts, type ContactSource, type ContactTache } from '../../../../lib/gestion/contactsTache';
 import { DUREES_RAPIDES_RDV, heureFinRdv, objetType, type ContactManuel, type SorteTache } from '../../../../lib/gestion/taches';
 import {
-  agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
+  agirSurTache, creerTache, lireCollaborateurs, signalerTaches, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
   lireEvenementsProposes, type CollaborateurEcran, type DetailTache, type EvenementPropose, type GesteTache, type SaisieEcran,
 } from './tachesClient';
 import { BadgeStatutTache, CSS_TACHES } from './LigneTache';
@@ -267,8 +268,21 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       : Object.fromEntries(Object.entries(avecContacts1).filter(([k]) => k !== 'evenements')) as SaisieEcran;
     const envoi: SaisieEcran = mode.sorte === 'creer' && piecesChoisies.length > 0
       ? { ...avecContacts, pieces: piecesChoisies.map((p) => p.id) } : avecContacts;
+    /* 🔴🔴 Arno (19/11/2026) — un rendez-vous dont SEULS les collaborateurs changent (date, heure et durée inchangées) : le résumé mot pour mot en tête
+       du récapitulatif, et sa phrase dans le résultat. */
+    const nomCollab = (id: number): string => collab?.liste.find((c) => c.id === id)?.libelle ?? tache?.invites?.find((i) => i.collaborateurId === id)?.libelle
+      ?? (tache?.confieeA === id ? tache.confieeALibelle : null) ?? `compte ${id}`;
+    const personnes = (confiee: number | null | undefined, autres: readonly number[]): { id: number; libelle: string }[] =>
+      [...new Set([...(confiee ? [confiee] : []), ...autres])].map((id) => ({ id, libelle: nomCollab(id) }));
+    const finAvant = tache?.heure ? heureFinRdv(tache.heure, tache.dureeMinutes ?? 60) : null;
+    const maintien = mode.sorte === 'detail' && tache !== null && estRdv && tache.heure !== null && finAvant !== null
+      && envoi.jour === tache.jour && envoi.heure === tache.heure && (dureeRdv ?? 60) === (tache.dureeMinutes ?? 60)
+      ? resumeChangementCollaborateur({ jour: tache.jour, debut: tache.heure, fin: finAvant,
+        avant: personnes(tache.confieeA, (tache.invites ?? []).filter((i) => !i.principal && i.collaborateurId !== null).map((i) => Number(i.collaborateurId))),
+        apres: personnes(envoi.confieeA, envoi.invites ?? (tache.invites ?? []).filter((i) => !i.principal && i.collaborateurId !== null).map((i) => Number(i.collaborateurId))),
+        moiId: collab?.moi ?? null }) : null;
     /* 🔴 Arno (10/11/2026) — AVANT tout envoi : le récapitulatif (« Revenir » garde toute la saisie), puis le résultat. */
-    const r = await recap.demander({
+    const r = await recap.demander({ ...(maintien !== null ? { maintien } : {}),
       titre: mode.sorte === 'creer' ? (estRdv ? 'Rendez-vous créé' : 'Tâche créée') : (estRdv ? 'Rendez-vous modifié' : 'Tâche modifiée'),
       apercu: { geste: mode.sorte === 'creer' ? 'creer' : 'modifier', tacheId: mode.sorte === 'detail' ? mode.id : null,
         lotId: mode.sorte === 'creer' ? mode.lotId : (tache?.lotId ?? null), ...envoi },
@@ -362,11 +376,13 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     const id = (mode as { id: number }).id;
     // 🔴 Arno (10/11/2026) — l'annulation prévient les contacts extérieurs invités : le récapitulatif d'abord (aucun envoi : sans fenêtre).
     const r = g === 'annuler'
-      ? await recap.demander({ titre: 'Tâche annulée', apercu: { geste: 'annuler', tacheId: id }, action: (rt) => agirSurTache(id, { geste: g }, rt) })
+      ? await recap.demander({ titre: 'Tâche annulée', apercu: { geste: 'annuler', tacheId: id }, action: (rt) => agirSurTache(id, { geste: g }, rt), annulation: true })
       : await agirSurTache(id, { geste: g });
     setOccupe(false);
     setConfirmerAnnulation(false);
     if (r === null) return; // « Revenir » : rien n'est fait
+    // 🔴 Arno (19/11/2026, choix A) — annulée (la confirmation fermée) : la tâche disparaît de l'interface, la fenêtre se ferme avec elle
+    if (g === 'annuler' && r.ok) { signalerTaches(); onFermer(); return; }
     setMessage({ ok: r.ok, texte: r.message });
     if (r.ok) setVersion((v) => v + 1);
   };

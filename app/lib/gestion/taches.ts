@@ -400,7 +400,8 @@ export function filtrerParPastille<T extends Pick<Tache, 'jour' | 'etat' | 'acce
  * son historique est intact. PUR.
  */
 export const JOURS_TERMINEES = 7;
-export const TITRE_TERMINEES = `Faites ou annulées — ${JOURS_TERMINEES} derniers jours`;
+/** 🔴 Arno (19/11/2026, choix A) — une tâche annulée a disparu de l'interface : le repli ne montre plus que les tâches FAITES (« ou annulées » retiré). */
+export const TITRE_TERMINEES = `Faites — ${JOURS_TERMINEES} derniers jours`;
 
 export function termineesRecentes<T extends Pick<Tache, 'etat' | 'faiteLe' | 'annuleeLe'>>(
   taches: readonly T[], maintenant: Date, jours = JOURS_TERMINEES,

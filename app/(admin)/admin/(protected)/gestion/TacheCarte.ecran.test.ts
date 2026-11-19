@@ -63,6 +63,8 @@ beforeEach(() => {
       lectures.push(m[1]);
       return Response.json({ etat: 'ok', tache: taches.find((x) => x.id === Number(m[1])), traces: [], contacts: [], pieces: [] });
     }
+    if (url.includes('/taches/apercu')) return Response.json({ etat: 'ok', total: 0, collaborateurs: [], exterieurs: [], texteCollaborateur: null, texteExterieur: null, editions: [],
+      annulation: { phrase: 'La tâche disparaîtra de l’interface et les personnes ayant accepté le rendez-vous seront prévenues par mail.', locataires: [], motifLocataires: null } });
     if (url.includes('collaborateurs')) return Response.json({ etat: 'ok', collaborateurs: [{ id: 2, libelle: 'Arnaud Jorel' }], moi: 2 });
     if (url.includes('/taches/contacts')) return Response.json({ etat: 'ok', contacts: [] });
     if (url.includes('evenements')) return Response.json({ etat: 'ok', evenements: [] });
@@ -202,7 +204,18 @@ describe('🔴 les boutons', () => {
     await act(async () => { boutonDe(carte(8), 'Tâche annulée')!.click(); });
     await act(async () => { carte(8).querySelector<HTMLButtonElement>('[data-action="annuler-oui"]')!.click(); });
     await calmer();
+    // 🔴 Arno (19/11/2026, choix A) — la fenêtre AVANT l'annulation, toujours : la phrase mot pour mot ; rien n'est encore fait
+    expect(document.querySelector('[data-phrase-annulation]')?.textContent).toBe('La tâche disparaîtra de l’interface et les personnes ayant accepté le rendez-vous seront prévenues par mail.');
+    expect(gestes).toEqual([]);
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-confirmer-recap]')!.click(); });
+    await calmer();
     expect(gestes).toEqual([{ id: 8, corps: { geste: 'annuler' } }]);
+    // puis la fenêtre de confirmation habituelle ; « OK » : la tâche annulée a DISPARU de la liste
+    expect(document.querySelector('[data-modale-confirmation] [data-phrase-confirmation]')?.textContent).toBe('Tâche annulée.');
+    expect(container.querySelector('[data-tache="8"]')).not.toBeNull();
+    await act(async () => { document.querySelector<HTMLButtonElement>('[data-ok-confirmation]')!.click(); });
+    await calmer();
+    expect(container.querySelector('[data-tache="8"]')).toBeNull();
   });
   it('tâche réalisée ou annulée : même carte, grisée, seul « ✏ Modifier » reste', async () => {
     await monter();

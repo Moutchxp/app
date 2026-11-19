@@ -532,7 +532,9 @@ export interface MailPrevisite {
   sorte: 'previsite_alerte' | 'previsite_locataires' | 'previsite_locataires_modif' | 'previsite_invitation_cr' | 'previsite_compte_rendu' | 'previsite_refus'
     | 'previsite_annulation'
     // 🔴 Arno (18/11/2026, 495) — l'invitation des locataires à l'état des lieux, et le mail interne d'un rendez-vous confirmé / refusé
-    | 'edls_locataires' | 'edls_locataires_modif' | 'rdv_confirmation_interne' | 'rdv_refus_interne';
+    | 'edls_locataires' | 'edls_locataires_modif' | 'rdv_confirmation_interne' | 'rdv_refus_interne'
+    // 🔴 Arno (19/11/2026, 502) — l'annulation d'un rendez-vous aux locataires qui l'avaient confirmé
+    | 'rdv_annulation_locataires';
   de: string; a: string[]; cc: string[]; objet: string; texte: string; html: string;
   /** L'invitation d'agenda jointe (.ics), le cas échéant. */
   ics?: { nom: string; contenu: string } | null;

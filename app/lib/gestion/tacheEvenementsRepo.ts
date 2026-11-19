@@ -146,7 +146,7 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
        FROM gestion_tache_evenement x
        JOIN gestion_tache t ON t.id = x.tache_id
        LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
-      WHERE x.evenement_id = $1 AND x.retire_le IS NULL
+      WHERE x.evenement_id = $1 AND x.retire_le IS NULL AND t.etat <> 'annulee' -- 🔴 (19/11/2026, choix A) une tâche annulée disparaît de la frise
       ORDER BY t.jour, t.heure NULLS FIRST, t.id`, [evenementId]);
   if (rows.length === 0) return [];
   const ids = rows.map((r) => Number(r.id));

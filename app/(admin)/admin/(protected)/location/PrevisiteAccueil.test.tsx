@@ -79,7 +79,7 @@ beforeEach(() => {
       const locs = (l?.locataires ?? []).map((x) => ({ occupationId: x.occupationId, locataireId: x.locataireId, nom: x.nom, telephones: [], emails: sansEmailOcc.includes(x.occupationId) ? [] : [`occ${x.occupationId}@exemple.test`] }));
       return ok({ ...ENCART, coordonnees: { ...ENCART.coordonnees!, locataires: [...ENCART.coordonnees!.locataires, ...locs] } });
     }
-    if (s.includes('previsiteCollegues=1')) return ok([{ id: 3, libelle: 'Arno Test', accesGestion: true }, { id: 4, libelle: 'Claire Test', accesGestion: true }]);
+    if (s.includes('previsiteCollegues=1')) return ok([{ id: 3, libelle: 'Arno Test', accesGestion: true, moi: true }, { id: 4, libelle: 'Claire Test', accesGestion: true }]);
     if (s.includes('previsiteRefus=')) return ok({ texte: 'Bonjour Carla RECU,\n\nMalgré nos recommandations, aucun rendez-vous de pré-visite n’a pu être fixé.', objet: 'Pré-visite d’état des lieux de sortie — C rue', sansEmail: [] });
     if (s.includes('edlsConfiables=1')) return ok([{ id: 3, libelle: 'Arno Test', accesGestion: true }]);
     return ok({ lignes: [], total: 0, page: 0 });
@@ -207,6 +207,24 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', deplacer: true, jour: '2026-11-25' });
     await clic(document.querySelector('[data-confirmer-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'deplacer-previsite', jour: '2026-11-25', debut: '10:00', fin: '11:00' });
+  });
+  it('🔴🔴 Arno (19/11/2026) — changer SEULEMENT le collègue (date et heure inchangées) : le récapitulatif mot pour mot ; « Non » : rien aux locataires', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    await clic(document.querySelector('[data-destinataire="3"]'));
+    await clic(document.querySelector('[data-destinataire="4"]'));
+    await clic(document.querySelector('[data-inviter-locataires="non"]'));
+    await clic(document.querySelector('[data-recap-previsite]'));
+    expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', deplacer: true, jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3], locataires: 'non' });
+    expect([...document.querySelectorAll('[data-recap-maintien] p')].map((x) => x.textContent)).toEqual([
+      'Le rendez-vous est maintenu sans changement : le 20/11/2026, de 10h00 à 11h00.',
+      'Changement de collaborateur en charge : Arno Test remplace Claire Test.',
+      'Vous prenez en charge ce rendez-vous. Claire Test sera informé qu’il n’en a plus la charge.',
+    ]);
+    await clic(document.querySelector('[data-confirmer-previsite]'));
+    expect(posts.at(-1)).toMatchObject({ action: 'deplacer-previsite', jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3], locataires: 'non' });
+    expect(document.querySelector('[data-fenetre-previsite="resultat"]')?.textContent).toContain('Le rendez-vous du 20/11/2026, de 10h00 à 11h00, est maintenu : Arno Test remplace Claire Test.');
   });
 });
 

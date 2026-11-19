@@ -40,7 +40,13 @@ interface Demande { titre: string; apercu: Record<string, unknown>;
   lireApercu?: () => Promise<ApercuEnvois | { erreur: string }>;
   /** 🔴 Arno (19/11/2026, règle F) — aucun envoi prévu : la fenêtre de confirmation (une phrase, « OK ») après le geste ; absent : comme avant
    *  (les tâches ont leur propre bandeau de confirmation). */
-  confirmer?: boolean }
+  confirmer?: boolean;
+  /** 🔴🔴 Arno (19/11/2026, choix A) — une ANNULATION : la fenêtre s'ouvre TOUJOURS (elle dit que la tâche disparaîtra et qui sera prévenu), puis,
+   *  après, la fenêtre de confirmation (une phrase, « OK »). */
+  annulation?: boolean;
+  /** 🔴🔴 Arno (19/11/2026) — un CHANGEMENT DE COLLABORATEUR SEUL (date et heure inchangées) : le résumé en tête du récapitulatif, mot pour mot, et sa
+   *  phrase dans la fenêtre de résultat. */
+  maintien?: { lignes: string[]; phrase: string } }
 
 const ETATS_PARTIS = new Set(['envoye', 'factice']);
 const MOTIF_ETAT: Record<string, string> = {
@@ -71,7 +77,7 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
     void (async () => {
       const a = await (d.lireApercu ?? (() => lireApercuEnvois(d.apercu)))();
       // 🔴 Arno (18/11/2026) — un rendez-vous de préavis montre TOUJOURS la fenêtre : elle dit si les locataires seront invités ou non
-      if (!('erreur' in a) && a.collaborateurs.length === 0 && a.exterieurs.length === 0 && a.locataires === undefined) {
+      if (d.annulation !== true && d.maintien === undefined && !('erreur' in a) && a.collaborateurs.length === 0 && a.exterieurs.length === 0 && a.locataires === undefined) {
         // aucun envoi prévu : le geste, sans récapitulatif — 🔴 Arno (19/11/2026, règle F) puis la fenêtre de confirmation (une phrase, « OK »)
         const r = await d.action();
         if (!r.ok || d.confirmer !== true) { resoudre(r); return; }
@@ -91,7 +97,9 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
     const rt = etat?.etape === 'recap' ? etat.retouches : undefined;
     const r = await c.d.action(rt && Object.keys(rt).length > 0 ? rt : undefined);
     if (!r.ok) { setEtat((e) => (e && e.etape === 'recap' ? { ...e, occupe: false, erreur: r.message } : e)); return; }
-    setEtat({ etape: 'resultat', titre: c.d.titre, issue: r });
+    // 🔴 Arno (19/11/2026, choix A) — l'annulation : la fenêtre de confirmation habituelle (la phrase du serveur : annulée, combien prévenus)
+    if (c.d.annulation === true) { setEtat(null); setConfirmation({ phrase: r.message, issue: r }); return; }
+    setEtat({ etape: 'resultat', titre: c.d.titre, issue: c.d.maintien ? { ...r, message: c.d.maintien.phrase } : r });
   };
   const fermer = (): void => {
     const c = courant.current;
@@ -109,12 +117,13 @@ export function useRecapEnvois(): { demander: (d: Demande) => Promise<IssueGeste
     setEtat((e) => (e && e.etape === 'recap' ? { ...e, apercu: a, retouches: suivantes, refusTexte: null } : e));
   };
   if (confirmation !== null) return { demander, fenetre: <ModaleConfirmation phrase={confirmation.phrase} onOk={fermerConfirmation} /> };
-  return { demander, fenetre: etat === null ? null : <FenetreRecapEnvois etat={etat} onRevenir={revenir} onConfirmer={() => { void confirmer(); }} onFermer={fermer}
+  return { demander, fenetre: etat === null ? null : <FenetreRecapEnvois etat={etat} annulation={courant.current?.d.annulation === true}
+    maintien={courant.current?.d.maintien?.lignes} onRevenir={revenir} onConfirmer={() => { void confirmer(); }} onFermer={fermer}
     onAppliquerTexte={(cle, r) => { void appliquerTexte(cle, r); }} /> };
 }
 
-function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onAppliquerTexte }: { etat: Etat; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void;
-  onAppliquerTexte?: (cle: string, r: Retouche | undefined) => void }) {
+function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onAppliquerTexte, annulation = false, maintien }: { etat: Etat; onRevenir: () => void; onConfirmer: () => void; onFermer: () => void;
+  onAppliquerTexte?: (cle: string, r: Retouche | undefined) => void; annulation?: boolean; maintien?: readonly string[] }) {
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
   useVerrouDefilement();
   const titreId = useId();
@@ -123,18 +132,30 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
     const a = etat.apercu;
     contenu = <>
       <h2 id={titreId} className="mis-titre" data-titre-recap-envois>Récapitulatif — {etat.titre}</h2>
-      <p className="loc-muet pss-rien">Rien n’est encore enregistré ni envoyé : vérifiez, puis « Confirmer et envoyer ».</p>
+      <p className="loc-muet pss-rien">Rien n’est encore enregistré ni envoyé : vérifiez, puis « {annulation ? 'Confirmer l’annulation' : 'Confirmer et envoyer'} ».</p>
+      {/* 🔴 Arno (19/11/2026) — l'annulation : ce qui va se passer, dit clairement (mot pour mot) */}
+      {annulation && a?.annulation && <p className="mis-note pss-note-neutre rce-avertissement" role="note" data-phrase-annulation>{a.annulation.phrase}</p>}
+      {/* 🔴 Arno (19/11/2026) — le changement de collaborateur seul : le rendez-vous maintenu, qui remplace qui, qui reçoit quoi */}
+      {maintien !== undefined && maintien.length > 0 && <div className="mis-note pss-note-neutre rce-maintien" data-recap-maintien>{maintien.map((x) => <p key={x}>{x}</p>)}</div>}
       {a === null ? null : <>
-        <p className="pss-sous-titre" data-total-envois>{a.collaborateurs.length === 0 && a.exterieurs.length > 0 && a.exterieurs.every((e) => e.sorte === 'annulation')
+        <p className="pss-sous-titre" data-total-envois>{annulation
+          ? (a.total === 0 ? 'Aucun mail d’annulation ne partira.' : a.total === 1 ? '1 mail d’annulation partira.' : `${a.total} mails d’annulation partiront.`)
+          : a.collaborateurs.length === 0 && a.exterieurs.length > 0 && a.exterieurs.every((e) => e.sorte === 'annulation')
           // 🔴 Arno (10/11/2026) — une annulation n'est pas une invitation : le mot juste.
           ? (a.total === 0 ? 'Aucun mail d’annulation ne partira.' : a.total === 1 ? '1 mail d’annulation partira.' : `${a.total} mails d’annulation partiront.`)
           : a.total === 0 ? 'Aucune invitation ne partira.' : a.total === 1 ? '1 invitation partira.' : `${a.total} invitations partiront.`}</p>
         <LegendeConfidentialite />
         <div className="rce-groupe" data-recap-collaborateurs>
-          <p className="rce-mot">Collaborateurs de l’agence ({a.collaborateurs.length})</p>
+          <p className="rce-mot">{annulation ? 'Collaborateurs qui avaient accepté' : 'Collaborateurs de l’agence'} ({a.collaborateurs.length})</p>
           {a.collaborateurs.length === 0 ? <p className="loc-muet">Aucun.</p> : <ul className="rce-liste">{a.collaborateurs.map((c, i) => (
-            <li key={`${i}-${c.libelle}`} data-mail={c.mail ? 'oui' : 'non'}>{c.libelle}{c.mail ? ' — invitation par mail' : ` — aucun mail${c.motif ? ` (${c.motif})` : ''}`}</li>))}</ul>}
+            <li key={`${i}-${c.libelle}`} data-mail={c.mail ? 'oui' : 'non'}>{c.libelle}{c.mail ? (annulation ? ' — mail d’annulation' : ' — invitation par mail') : ` — aucun mail${c.motif ? ` (${c.motif})` : ''}`}</li>))}</ul>}
         </div>
+        {annulation && a.annulation && a.annulation.locataires.length > 0 && (
+          <div className="rce-groupe" data-recap-locataires-annulation>
+            <p className="rce-mot">Locataires qui avaient confirmé ({a.annulation.locataires.length})</p>
+            <ul className="rce-liste">{a.annulation.locataires.map((n) => <li key={n} data-mail={a.annulation?.motifLocataires ? 'non' : 'oui'}>{n}{a.annulation?.motifLocataires ? ` — aucun mail (${a.annulation.motifLocataires})` : ' — mail d’annulation'}</li>)}</ul>
+          </div>
+        )}
         {a.locataires !== undefined && (
           <div className="rce-groupe" data-recap-locataires={a.locataires.choix}>
             <p className="rce-mot">Locataires</p>
@@ -166,7 +187,7 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={onRevenir} disabled={etat.occupe} data-revenir-recap>Revenir</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={onConfirmer} disabled={etat.occupe || a === null} data-confirmer-recap>
-          {etat.occupe ? 'Envoi…' : 'Confirmer et envoyer'}</button>
+          {etat.occupe ? 'Envoi…' : annulation ? 'Confirmer l’annulation' : 'Confirmer et envoyer'}</button>
       </div>
     </>;
   } else {
@@ -194,6 +215,9 @@ function FenetreRecapEnvois({ etat, onRevenir, onConfirmer, onFermer, onApplique
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme. */
 export const CSS_RECAP_ENVOIS = `
 .rce-groupe{display:flex;flex-direction:column;gap:4px}
+.rce-avertissement{margin:0;font-weight:700}
+.rce-maintien{display:flex;flex-direction:column;gap:6px}
+.rce-maintien p{margin:0}
 .rce-mot{margin:0;font-weight:800}
 .rce-liste{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
 .rce-liste li[data-mail="non"]{color:var(--color-svv-muted)}

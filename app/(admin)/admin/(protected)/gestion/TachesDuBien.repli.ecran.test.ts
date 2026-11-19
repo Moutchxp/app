@@ -133,7 +133,7 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
     expect(container.querySelector('#bloc .tch-bloc-titre')).toBeNull();
     expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Tâche réalisée');
     expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Décaler');
-    expect(container.querySelector('#bloc details summary')?.textContent).toBe('Faites ou annulées — 7 derniers jours (1)');
+    expect(container.querySelector('#bloc details summary')?.textContent).toBe('Faites — 7 derniers jours (1)');
     await act(async () => { repli()!.click(); });
     expect(lignes()).toEqual([]);
   });
