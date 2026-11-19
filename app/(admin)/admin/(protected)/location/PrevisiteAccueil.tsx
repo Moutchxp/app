@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import { createPortal } from 'react-dom';
 import { EtatLecture, envoyer, useLecture } from './commun';
 import { MENTION_RESERVE_LOCATION, useContextePreavis } from './preavisSynchro';
-import { ChoixHeure } from './ChoixHeure';
+import { GrilleDateHeures } from './GrilleDateHeures';
 import { MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
 import { BlocageEmailLocataires, useEmailsLocataires } from './EmailLocataireRequis';
 import { CSS_MODALE_ISSUE } from './ModaleIssue';
@@ -537,14 +537,12 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
         // 🔴 Arno (11/11/2026, présentation) — les trois champs sur UNE ligne, même hauteur, même largeur ; libellés courts sur une ligne,
         // l'astérisque collé (espace insécable) ; empilés dans le même ordre sur écran étroit. Une grille PROPRE à la pré-visite (la grille de
         // l'état des lieux de sortie, partagée, ne change pas).
-        <div className="pvv-grille" data-previsite-champs>
-          <label className="pvs-champ"><span className="pvs-libelle">{'Date\u00a0*'}</span>
-            <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(e) => { setJour(e.target.value); setRefus(null); }} data-previsite-jour /></label>
-          {/* 🔴 Arno (18/11/2026) — l'heure en deux listes : 00 à 23 h, et les minutes du réglage (00, 15, 30, 45 par défaut) */}
-          <ChoixHeure libelle={'Début\u00a0*'} valeur={debut} minutes={minutesRdv} plage={plageRdv} role="debut" garder={garderTest} donnees="data-previsite-debut"
-            onChange={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }} />
-          <ChoixHeure libelle={'Fin\u00a0*'} valeur={fin} minutes={minutesRdv} plage={plageRdv} role="fin" garder={garderTest} donnees="data-previsite-fin" onChange={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }} />
-        </div>
+        // 🔴 Arno (19/11/2026) — Date, Début, Fin l'une sous l'autre : libellés de même largeur, champs alignés (grille partagée)
+        <GrilleDateHeures classe="pvv-grille" donneesGrille={{ 'data-previsite-champs': '' }} libelles={{ date: 'Date\u00a0*', debut: 'Début\u00a0*', fin: 'Fin\u00a0*' }}
+          jour={jour} onJour={(v) => { setJour(v); setRefus(null); }} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)}
+          debut={debut} onDebut={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }}
+          fin={fin} onFin={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }}
+          minutes={minutesRdv} plage={plageRdv} garder={garderTest} donnees={{ jour: 'data-previsite-jour', debut: 'data-previsite-debut', fin: 'data-previsite-fin' }} />
       )}
       {avecDate && l.test && (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
@@ -555,12 +553,12 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
       )}
       {deplacement && rdvActuel && <p className="mis-note pss-note-neutre" data-previsite-ancien>Rendez-vous actuel : le {creneauFr(rdvActuel)}. Chaque collègue recevra la nouvelle date à valider (statuts remis à zéro) ; les locataires, un mail de modification{choixLoc === 'non' ? ' — sauf si vous choisissez « Non » ci-dessous : ils ne recevront rien' : choixLoc === null ? ' si vous choisissez « Oui » ci-dessous' : ''}.</p>}
       {avecCollegues && (
-        <fieldset className="pvv-choix" data-previsite-destinataires>
+        <fieldset className="pvv-destinataires" data-previsite-destinataires>
           <legend className="pvs-libelle">Destinataires (collègues de l’agence) *</legend>
           {collegues.etat.etat !== 'ok' ? <EtatLecture etat={collegues.etat} /> : liste.length === 0
             ? <p className="loc-muet">Aucun collègue n’a accès à Gestion ou Location avec une adresse de notre Workspace.</p>
             : liste.map((c) => (
-              <label key={c.id} className="pvv-case">
+              <label key={c.id} className="pvv-dest-case">
                 <input type="checkbox" checked={dest.includes(c.id)} onChange={(e) => setChoisis(e.target.checked ? [...dest, c.id] : dest.filter((x) => x !== c.id))} data-destinataire={c.id} />
                 <span>{c.libelle}</span>
               </label>
@@ -990,10 +988,14 @@ export const CSS_PREVISITE = `
 .pvv-etat--effectuee{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .pvv-etat--refusee{background:color-mix(in srgb, var(--color-svv-urgence-orange) 18%, var(--color-svv-surface));color:var(--color-svv-ink)}
 .pvv-collegues{margin:0;padding-left:18px;font-size:.9rem}
-.pvv-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:12px;align-items:end;min-width:0}
-.pvv-grille .pvs-libelle{white-space:nowrap}
-.pvv-grille .pvs-champ input{max-width:none;width:100%;height:48px;min-width:0}
-@media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}
+/* 🔴 Arno (19/11/2026) — Date / Debut / Fin l'une sous l'autre (grille partagee GrilleDateHeures : colonne des libelles commune) */
+.pvv-grille{margin:4px 0 0}
+/* 🔴 Arno (19/11/2026) — les destinataires : cases a cocher sur UNE colonne a gauche, noms au meme retrait, lignes regulieres de 44 px,
+   toute la ligne cliquable (classe PROPRE : « pvv-choix » est aussi le bouton du compte rendu, dont le style centrait cette liste) */
+.pvv-destinataires{border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;align-items:stretch;gap:0;min-width:0}
+.pvv-destinataires legend{padding:0;margin:0 0 6px}
+.pvv-dest-case{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;column-gap:10px;min-height:44px;padding:0 2px;cursor:pointer;text-align:left}
+.pvv-dest-case input{width:20px;height:20px;margin:0}
 .pvv-choix{border:0;margin:12px 0 0;padding:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
 .pvv-choix legend{padding:0;margin:0 0 6px}
 .pvv-case{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}

@@ -6,7 +6,7 @@ import { MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/m
 
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { LegendeConfidentialite } from './LegendeConfidentialite';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   cleRappel, echeanceLisible, horodatageLisible, iconeType, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
   type Rappel,
@@ -68,6 +68,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   /** 🔴 Une tâche vient d'être CRÉÉE : la fenêtre se ferme, et l'appelant AFFICHE la confirmation (jamais en silence). */
   onCree?: (confirmation: string) => void;
 }) {
+  const idFenetre = useId();
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
   useVerrouDefilement();
   /** `invites` : la migration 365 est là — la fenêtre propose « Inviter aussi » (plusieurs invités par tâche). */
@@ -488,12 +489,12 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               {erreurDe('jour')}
             </label>
             <label className="tchf-champ">
-              <span className="tch-etiquette">{estRdv ? 'Heure de début *' : 'Heure (facultative)'}</span>
+              <span className="tch-etiquette" id={`${idFenetre}-heure`}>{estRdv ? 'Heure de début *' : 'Heure (facultative)'}</span>
               <span className="tchf-heure">
                 {/* 🔴 Arno (18/11/2026) — un rendez-vous de préavis (pré-visite, état des lieux) : l'heure et les minutes du réglage ; les autres tâches,
                     le champ d'heure de toujours */}
                 {tache?.rdvPreavis === true
-                  ? <ChoixHeure libelle="Heure de début" valeur={saisie.heure ?? ''} minutes={tache.minutesRdv ?? MINUTES_RDV_DEFAUT} plage={tache.plageRdv ?? PLAGE_RDV_DEFAUT} role="debut" garder={tache.heure ? [tache.heure] : []} donnees="data-champ-heure"
+                  ? <ChoixHeure libelle="Heure de début" etiquetteId={`${idFenetre}-heure`} valeur={saisie.heure ?? ''} minutes={tache.minutesRdv ?? MINUTES_RDV_DEFAUT} plage={tache.plageRdv ?? PLAGE_RDV_DEFAUT} role="debut" garder={tache.heure ? [tache.heure] : []} donnees="data-champ-heure"
                     desactive={lectureSeule} onChange={(v) => changerHeure(v)} />
                   : <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
                     onChange={(e) => changerHeure(e.target.value)} data-champ-heure />}
@@ -786,6 +787,11 @@ const CSS_FENETRE = `
 .tchf-rappels{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;padding:6px 8px;border:1px solid var(--color-svv-line);
   border-radius:.5rem}
 .tchf-case{display:inline-flex;align-items:center;gap:.4rem;min-height:36px;font-size:.88rem}
+/* 🔴 Arno (19/11/2026) — « Inviter aussi » (les collaborateurs) : cases sur UNE colonne a gauche, noms au meme retrait, lignes regulieres de 44 px,
+   toute la ligne cliquable — comme les destinataires de la pre-visite */
+.tchf-invites-choix .tchf-rappels{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:0}
+.tchf-invites-choix .tchf-case{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;column-gap:10px;min-height:44px;text-align:left}
+.tchf-invites-choix .tchf-case input{width:20px;height:20px;margin:0}
 .tchf-trace ul{margin:4px 0 0;padding-left:1.1rem;font-size:.84rem;color:var(--color-svv-ink)}
 .tchf-pied{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .tchf-alerte{margin:0;padding:8px 10px;border:1px solid var(--color-svv-red);border-left-width:4px;border-radius:.5rem;

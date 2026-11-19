@@ -355,7 +355,7 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
       await clic(container.querySelector(`[data-ouvrir-preavis="${ligne}"]`));
       await clic(container.querySelector(bouton));
       const grille = document.querySelector('[data-previsite-champs]')!;
-      expect(grille.className).toBe('pvv-grille');
+      expect(grille.className).toBe('pvv-grille gdh'); // 🔴 (19/11/2026) la grille partagée Date / Début / Fin
       expect([...grille.querySelectorAll('.pvs-libelle')].map((x) => x.textContent)).toEqual(['Date *', 'Début *', 'Fin *']);
       // 🔴 Arno (18/11/2026) — Début et Fin : l'heure (00 à 23) et les minutes du réglage (00, 15, 30, 45), plus le sélecteur natif
       expect([...grille.querySelectorAll('input')].map((x) => x.getAttribute('type'))).toEqual(['date']);
@@ -365,11 +365,14 @@ describe('🔴 Arno (11/11/2026, présentation) — « RDV pré-visite » / « D
   }
   it('la grille partagée de l’état des lieux de sortie n’est pas touchée', async () => {
     const { readFileSync } = await import('node:fs');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('.pva-grille-edls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:10px}'); // 🔴 Arno (19/11/2026) — la place de l'heure et des minutes
+    expect(readFileSync('app/(admin)/admin/(protected)/location/PreavisAccueil.tsx', 'utf8')).toContain('<GrilleDateHeures classe="pva-grille-edls"'); // 🔴 Arno (19/11/2026) — la même grille Date / Début / Fin que la pré-visite
     const css = readFileSync('app/(admin)/admin/(protected)/location/PrevisiteAccueil.tsx', 'utf8');
     // 🔴 Arno (19/11/2026) — trois champs sur une ligne quand la place le permet ; sinon la ligne passe à la ligne (une heure n'est jamais coupée)
-    expect(css).toContain('.pvv-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:12px;align-items:end;min-width:0}');
-    expect(css).toContain('@media (max-width:600px){.pvv-grille{grid-template-columns:1fr}}');
+    // 🔴 Arno (19/11/2026) — Date, Début, Fin l'une sous l'autre : la colonne des libellés commune, champs alignés ; téléphone : libellé au-dessus
+    const { CSS_GRILLE_DATE_HEURES } = await import('./GrilleDateHeures');
+    const g = CSS_GRILLE_DATE_HEURES.replace(/\s+/g, ' ');
+    expect(g).toContain('.gdh{display:grid;grid-template-columns:max-content minmax(0,1fr);');
+    expect(g).toContain('@media (max-width:600px){.gdh{grid-template-columns:minmax(0,1fr);');
   });
 });
 

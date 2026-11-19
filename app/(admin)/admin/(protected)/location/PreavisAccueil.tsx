@@ -33,7 +33,7 @@ import { BlocPrevisite, CartoucheStatutLigne, CartouchesPrevisite, CSS_PREVISITE
 import { API_PREAVIS_GESTION, API_PREAVIS_LOCATION, ContextePreavis, MENTION_RESERVE_LOCATION, signalerPreavis, useContextePreavis, useRafraichissementPreavis, useVeilleRdv } from './preavisSynchro';
 import { chercherPreavis } from '../../../../lib/location/preavis';
 import { ChoixInviterLocataires } from './ChoixInviterLocataires';
-import { ChoixHeure } from './ChoixHeure';
+import { GrilleDateHeures } from './GrilleDateHeures';
 import { ModaleConfirmation } from '../gestion/ModaleConfirmation';
 import { phraseConfirmationRdv } from '../../../../lib/gestion/modificationRdv';
 import { lireMinutesRdv, lirePlageRdv, MINUTES_RDV_DEFAUT, PLAGE_RDV_DEFAUT } from '../../../../lib/location/minutesRdv';
@@ -722,14 +722,12 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
   return (
     <div className="pvs-form pva-form-edls" data-formulaire-edls={e === null ? 'planifier' : 'deplacer'}>
       {recap.fenetre}
-      <div className="pva-grille-edls">
-        <label className="pvs-champ"><span className="pvs-libelle">Date de l’EDLS *</span>
-          <input type="date" value={jour} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)} onChange={(ev) => { setJour(ev.target.value); setRefus(null); }} data-edls-jour /></label>
-        {/* 🔴 Arno (18/11/2026) — l'heure en deux listes : 00 à 23 h, et les minutes du réglage (00, 15, 30, 45 par défaut) */}
-        <ChoixHeure libelle="Heure de début *" valeur={debut} minutes={minutesRdv} plage={plageRdv} role="debut" donnees="data-edls-debut"
-          onChange={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }} />
-        <ChoixHeure libelle="Heure de fin *" valeur={fin} minutes={minutesRdv} plage={plageRdv} role="fin" donnees="data-edls-fin" onChange={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }} />
-      </div>
+      {/* 🔴 Arno (19/11/2026) — Date, Heure de début, Heure de fin l'une sous l'autre : libellés de même largeur, champs alignés (grille partagée) */}
+      <GrilleDateHeures classe="pva-grille-edls" libelles={{ date: 'Date de l’EDLS *', debut: 'Heure de début *', fin: 'Heure de fin *' }}
+        jour={jour} onJour={(v) => { setJour(v); setRefus(null); }} min={l.recuLe} max={ajouterMois(l.dateMax, EDL_MOIS_APRES_FIN)}
+        debut={debut} onDebut={(v) => { setDebut(v); if (!finTouchee) setFin(heureFinProposee(v)); setRefus(null); }}
+        fin={fin} onFin={(v) => { setFin(v); setFinTouchee(true); setRefus(null); }}
+        minutes={minutesRdv} plage={plageRdv} donnees={{ jour: 'data-edls-jour', debut: 'data-edls-debut', fin: 'data-edls-fin' }} />
       <ChoixPersonne valeur={confieA} onChange={setConfieA} />
       {e === null && (
         <label className="pvs-champ"><span className="pvs-libelle">Commentaire (facultatif)</span>
@@ -887,9 +885,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 /* 🔴 Arno (13/11/2026) — un rendez-vous FIXE : vert (le vert de la pre-visite effectuee), texte vert fonce ; le refus reste orange */
 .pva-edls{margin:0;padding:8px 10px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700;overflow-wrap:anywhere}
 .pva-edls--refus{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
-/* 🔴 Arno (19/11/2026) — une heure ne passe jamais sur deux lignes : chaque champ (Date, Debut, Fin) a la place de l'heure ET des minutes ; la ligne
-   passe a la ligne quand la place manque */
-.pva-grille-edls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10.75rem),1fr));gap:10px}
+/* 🔴 Arno (19/11/2026) — Date / Heure de debut / Heure de fin l'une sous l'autre : la grille partagee GrilleDateHeures (colonne des libelles commune) */
+.pva-grille-edls{margin:0}
 .pva-form-edls input,.pva-form-edls select,.pva-form-edls textarea,[data-formulaire-reattribuer] select{min-height:44px;box-sizing:border-box;width:100%;max-width:100%}
 .pva-liens{grid-column:1 / -1;margin:0;display:flex;flex-wrap:wrap;gap:6px 18px}
 .pva-liens a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-ink);font-weight:600;text-decoration:underline}

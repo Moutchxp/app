@@ -12,7 +12,7 @@ import { creneauxProposes, deuxChiffres, heureListeFr, PLAGE_RDV_DEFAUT, type Pl
  * dans la plage — sauf les heures de `garder` (l'heure d'origine d'une fenêtre de tâche, l'exception « Dans 2 minutes » des préavis de test),
  * proposées en plus. `valeur` / `onChange` : « HH:MM », ou « » tant que l'heure ou la minute manque.
  */
-export function ChoixHeure({ libelle, valeur, onChange, minutes, donnees, desactive, role = 'debut', plage = PLAGE_RDV_DEFAUT, garder = [] }: {
+export function ChoixHeure({ libelle, valeur, onChange, minutes, donnees, desactive, role = 'debut', plage = PLAGE_RDV_DEFAUT, garder = [], etiquetteId }: {
   libelle: string; valeur: string; onChange: (v: string) => void; minutes: readonly number[];
   /** L'attribut de repère de l'ensemble (ex. `data-edls-debut`). */
   donnees: string; desactive?: boolean;
@@ -20,6 +20,8 @@ export function ChoixHeure({ libelle, valeur, onChange, minutes, donnees, desact
   role?: 'debut' | 'fin';
   plage?: PlageRdv;
   garder?: readonly string[];
+  /** 🔴 Arno (19/11/2026) — l'étiquette est déjà écrite À CÔTÉ (grille Date / Début / Fin, fenêtre de tâche) : son id ; le choix ne répète pas le libellé. */
+  etiquetteId?: string;
 }) {
   const nom = libelle.replace(/[\s ]*\*$/, '');
   const cles = garder.join('|');
@@ -48,10 +50,7 @@ export function ChoixHeure({ libelle, valeur, onChange, minutes, donnees, desact
     setH(h2); setM(m3); onChange(h2 !== '' && m3 !== '' ? `${h2}:${m3}` : '');
   };
   const minutesDeLHeure = h === '' ? [...new Set([...creneaux.values()].flat())].sort((a, b) => a - b) : creneaux.get(h) ?? [];
-  return (
-    <fieldset className="chh" {...{ [donnees]: '' }} data-choix-heure data-valeur={h !== '' && m !== '' ? `${h}:${m}` : ''}>
-      <style>{CSS_CHOIX_HEURE}</style>
-      <legend className="pvs-libelle">{libelle}</legend>
+  const listes = (
       <div className="chh-listes">
         <ListeChoix libelle={`${nom} — heure`} valeur={h} vide="h" desactive={desactive} donnees={{ 'data-heure': '' }}
           options={[...creneaux.keys()].map((x) => ({ id: x, libelle: heureListeFr(x) }))} onChange={(x) => changer(x, m)} />
@@ -59,6 +58,21 @@ export function ChoixHeure({ libelle, valeur, onChange, minutes, donnees, desact
         <ListeChoix libelle={`${nom} — minutes`} valeur={m} vide="min" desactive={desactive} donnees={{ 'data-minute': '' }}
           options={minutesDeLHeure.map((x) => ({ id: deuxChiffres(x), libelle: deuxChiffres(x) }))} onChange={(x) => changer(h, x)} />
       </div>
+  );
+  const valeurVue = h !== '' && m !== '' ? `${h}:${m}` : '';
+  if (etiquetteId !== undefined) {
+    return (
+      <div className="chh" role="group" aria-labelledby={etiquetteId} {...{ [donnees]: '' }} data-choix-heure data-valeur={valeurVue}>
+        <style>{CSS_CHOIX_HEURE}</style>
+        {listes}
+      </div>
+    );
+  }
+  return (
+    <fieldset className="chh" {...{ [donnees]: '' }} data-choix-heure data-valeur={valeurVue}>
+      <style>{CSS_CHOIX_HEURE}</style>
+      <legend className="pvs-libelle">{libelle}</legend>
+      {listes}
     </fieldset>
   );
 }

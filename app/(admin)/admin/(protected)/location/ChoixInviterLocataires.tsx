@@ -38,6 +38,7 @@ export function ChoixInviterLocataires({ valeur, onChange, desactive, manque }: 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; aucune animation (prefers-reduced-motion sans objet). */
 export const CSS_CHOIX_LOCATAIRES = `
 .cil{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:6px}
+.cil legend{padding:0;margin:0 0 6px} /* 🔴 (19/11/2026) aligné à gauche avec les autres libellés (sans le retrait par défaut d'une légende) */
 /* 🔴 Arno (18/11/2026) — les deux boutons sur TOUTE la largeur de la colonne (comme les autres champs), même largeur, côte à côte */
 .cil-boutons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;box-sizing:border-box}
 .cil-bouton{width:100%;box-sizing:border-box;min-height:44px;min-width:0;padding:0 12px;border-radius:12px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
