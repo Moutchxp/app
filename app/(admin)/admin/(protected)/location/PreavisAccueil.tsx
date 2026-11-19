@@ -668,13 +668,13 @@ function FormulaireEdls({ l, e, onAnnuler, onFait }: {
 }) {
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
-  // 🔴 Arno (19/11/2026, 503) — la durée d'office d'un ÉTAT DES LIEUX DE SORTIE (1 h) ; « Modifier / déplacer » : celle du rendez-vous actuel
+  // 🔴 Arno (19/11/2026, 503) — la durée d'office d'un ÉTAT DES LIEUX DE SORTIE (1 h), affichée aussi à l'ouverture de « Modifier / déplacer » (correction du 19/11, 14h30)
   const dureesBrutes = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
   const dureesRdv = { ...dureesBrutes, defaut: (dureesBrutes.defauts ?? DUREES_PAR_DEFAUT).edl };
   const debutInitial = e?.heure ?? '';
   const [jour, setJour] = useState(e?.jour ?? '');
   const [debut, setDebut] = useState(debutInitial);
-  // 🔴 Arno (19/11/2026) — déplacer : la fin du rendez-vous actuel (sa durée), inchangée tant qu'on ne touche à rien
+  // 🔴 Arno (19/11/2026) — déplacer : la fin du rendez-vous actuel, inchangée tant qu'on ne touche à rien (la durée affichée, elle, est celle d'office)
   const [fin, setFin] = useState(e?.heure ? (e.dureeMinutes ? finDepuisDebut(e.heure, e.dureeMinutes) : null) ?? heureFinProposee(e.heure) : '');
   const [confieA, setConfieA] = useState<number | null>(e?.confieAId ?? null);
   const [libelles, setLibelles] = useState<Record<number, string>>({});

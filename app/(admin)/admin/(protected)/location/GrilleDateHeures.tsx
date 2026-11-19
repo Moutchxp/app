@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { ChoixHeure } from './ChoixHeure';
 import { ListeChoix } from './ListeChoix';
 import { dureeAffichee, dureeEntre, dureesCompatibles, DUREES_RDV_DEFAUT, finDepuisDebut, libelleDureeAutre, motDureeRdv, type DureesRdv, type PlageRdv } from '../../../../lib/location/minutesRdv';
@@ -15,7 +15,11 @@ import { dureeAffichee, dureeEntre, dureesCompatibles, DUREES_RDV_DEFAUT, finDep
  * LA DURÉE (Arno, 19/11/2026) : les durées du réglage (15 min, 30 min, 45 min, 1 h ; 30 min d'office — migration 501). Dès que le début est choisi
  * (heure ET minutes), la fin = début + durée, recalculée à chaque changement du début ou de la durée. La fin reste modifiable : la durée affichée
  * devient celle qui correspond, ou « Autre (n min) ». Seules les durées dont la fin respecte la plage (au plus tard 21h00) et les minutes du réglage
- * sont proposées. À l'ouverture d'un « Modifier / déplacer » : la durée du rendez-vous actuel, sa fin inchangée tant qu'on ne touche à rien.
+ * sont proposées.
+ * 🔴🔴 Arno (19/11/2026, correction de 14h30) — à la création ET à la modification, la durée affichée à l'ouverture est la durée d'office du TYPE
+ * (pré-visite 30 min, état des lieux 1 h — réglages 503), jamais celle du rendez-vous actuel : « Autre (n min) » n'apparaît que lorsque la fin
+ * est changée À LA MAIN et ne tombe sur aucun choix. En « Modifier / déplacer », le début et la fin du rendez-vous actuel restent posés tels quels
+ * (rien ne change tant qu'on ne touche à rien : le « seul le collaborateur change » se reconnaît toujours) ; choisir un début recalcule la fin.
  * Les libellés et les repères (`data-…`) sont ceux de chaque fenêtre, inchangés.
  */
 export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour, min, max, debut, onDebut, fin, onFin, minutes, plage, garder, donnees, desactive,
@@ -30,19 +34,17 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
   durees?: DureesRdv;
 }) {
   const id = useId();
-  // la durée en cours : celle du créneau actuel (« Modifier / déplacer »), sinon celle d'office ; une fin changée à la main (ou posée par
-  // « Dans 2 minutes ») la redéfinit
-  const [choisie, setChoisie] = useState(() => dureeEntre(debut, fin) ?? durees.defaut);
-  useEffect(() => {
-    const e = dureeEntre(debut, fin);
-    if (e !== null) setChoisie(e);
-  }, [debut, fin]);
+  // la durée en cours : celle d'office du type, à l'ouverture comme à la création ; un choix dans la liste ou une fin changée à la main la redéfinit
+  const [choisie, setChoisie] = useState(durees.defaut);
+  // la fin a-t-elle été changée À LA MAIN (liste de la fin) depuis le dernier choix du début ou de la durée ? Seule cette fin-là peut montrer
+  // « Autre (n min) » ; jamais à l'ouverture
+  const [finManuelle, setFinManuelle] = useState(false);
   // 🔴 Arno (19/11/2026) — la durée d'office de cette sorte fait toujours partie des choix : « Autre (…) » n'apparaît jamais à la création
   const choix = [...new Set([...durees.durees, durees.defaut])].sort((a, b) => a - b);
-  const affichee = dureeAffichee(debut, fin, choisie, choix);
+  const affichee: number | 'personnalisee' = finManuelle ? dureeAffichee(debut, fin, choisie, choix) : choix.includes(choisie) ? choisie : 'personnalisee';
   const compatibles = dureesCompatibles(debut, choix, plage, minutes);
   // « Autre (19 min) » (Arno, 19/11/2026 : remplace « Personnalisée ») : la durée réelle, seulement quand elle ne correspond à aucun choix
-  const autre = dureeEntre(debut, fin) ?? choisie;
+  const autre = (finManuelle ? dureeEntre(debut, fin) : null) ?? choisie;
   const options = [
     ...compatibles.map((d) => ({ id: String(d), libelle: motDureeRdv(d) })),
     ...(affichee === 'personnalisee' ? [{ id: 'personnalisee', libelle: libelleDureeAutre(autre) }]
@@ -57,6 +59,7 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
   const changerDebut = (v: string): void => {
     onDebut(v);
     if (v === '') return; // le début n'est pas complet : la fin attend
+    setFinManuelle(false);
     const d = dureePour(v);
     if (d !== null) setChoisie(d);
     onFin(d === null ? '' : finDepuisDebut(v, d) ?? '');
@@ -65,8 +68,15 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
     if (x === 'personnalisee') return;
     const d = Number(x);
     setChoisie(d);
+    setFinManuelle(false);
     const f = finDepuisDebut(debut, d);
     if (f !== null) onFin(f); // sans début complet : la fin attend le début
+  };
+  const changerFin = (v: string): void => {
+    onFin(v);
+    setFinManuelle(true);
+    const e = dureeEntre(debut, v);
+    if (e !== null) setChoisie(e); // la durée qui correspond, ou « Autre (n min) »
   };
   return (
     <div className={`${classe} gdh-cadre`} {...donneesGrille}>
@@ -82,7 +92,7 @@ export function GrilleDateHeures({ classe, donneesGrille, libelles, jour, onJour
       <span className="pvs-libelle gdh-libelle" id={`${id}-d`}>{libelles.debut}</span>
       <ChoixHeure libelle={libelles.debut} etiquetteId={`${id}-d`} valeur={debut} minutes={minutes} plage={plage} role="debut" garder={garder} donnees={donnees.debut} desactive={desactive} onChange={changerDebut} />
       <span className="pvs-libelle gdh-libelle" id={`${id}-f`}>{libelles.fin}</span>
-      <ChoixHeure libelle={libelles.fin} etiquetteId={`${id}-f`} valeur={fin} minutes={minutes} plage={plage} role="fin" garder={garder} donnees={donnees.fin} desactive={desactive} onChange={onFin} />
+      <ChoixHeure libelle={libelles.fin} etiquetteId={`${id}-f`} valeur={fin} minutes={minutes} plage={plage} role="fin" garder={garder} donnees={donnees.fin} desactive={desactive} onChange={changerFin} />
       </div>
     </div>
   );

@@ -558,6 +558,21 @@ describe('planifier l’état des lieux de sortie (migration 385 appliquée)', (
     await act(async () => { (container.querySelector('[data-inviter-locataires="oui"]') as HTMLButtonElement).click(); });
     expect(coche()).toEqual(['oui']);
   });
+  it('🔴🔴 Arno (19/11/2026, 14h30) — « Modifier / déplacer » un état des lieux de 30 min : « 1 h » (durée d’office) à l’ouverture, sa fin gardée ; seule la personne change : toujours reconnu', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, dureeMinutes: 30 }, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    clic('button[data-deplacer-edls]');
+    await attendre();
+    expect(container.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('60');
+    expect(container.querySelector('[data-duree-choix]')?.textContent).toContain('1 h');
+    expect(container.querySelector('[data-duree-choix]')?.textContent).not.toContain('Autre');
+    expect(champ('fin').getAttribute('data-valeur')).toBe('10:30');
+    choisir(container.querySelector('[data-confier-a]')!, '3');
+    expect(container.querySelector('[data-inviter-locataires="non"]')?.getAttribute('aria-checked')).toBe('true');
+  });
   it('« Déplacer » : nouvelle plage → action de déplacement (la tâche repasse « en attente », nouveau mail)', async () => {
     planification = true;
     lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: EDLS, etatDesLieuxLe: '2099-11-05' } : l));

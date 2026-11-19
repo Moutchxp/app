@@ -289,7 +289,7 @@ export function FenetrePrevisite({ geste, l, p, onFermer, page = false, resultat
   const avecDate = geste === 'rdv' || geste === 'deplacer';
   const minutesRdv = useContextePreavis().minutesRdv ?? MINUTES_RDV_DEFAUT;
   const plageRdv = useContextePreavis().plageRdv ?? PLAGE_RDV_DEFAUT;
-  // 🔴 Arno (19/11/2026, 503) — la durée d'office d'une PRÉ-VISITE (30 min) ; « Modifier / déplacer » : celle du rendez-vous actuel
+  // 🔴 Arno (19/11/2026, 503) — la durée d'office d'une PRÉ-VISITE (30 min), affichée aussi à l'ouverture de « Modifier / déplacer » (correction du 19/11, 14h30)
   const dureesBrutes = useContextePreavis().dureesRdv ?? DUREES_RDV_DEFAUT;
   const dureesRdv = { ...dureesBrutes, defaut: (dureesBrutes.defauts ?? DUREES_PAR_DEFAUT).previsite };
   // 🔴 Arno (19/11/2026, règle A) — « Modifier / déplacer » change aussi les collègues (cochés au départ : ceux du rendez-vous)

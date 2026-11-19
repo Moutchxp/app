@@ -197,7 +197,7 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(container.querySelector('[data-deplacer-previsite]'));
     expect((document.querySelector('[data-previsite-jour]') as HTMLInputElement).value).toBe('2026-11-20');
     expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
-    expect(document.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('60'); // 🔴 (19/11/2026) la durée du rendez-vous actuel
+    expect(document.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('30'); // 🔴 (19/11/2026, 14h30) la durée d’office de la pré-visite, la fin actuelle gardée
     expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('statuts remis à zéro');
     // 🔴 Arno (19/11/2026) — « Chaque collègue destinataire »
     expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('Chaque collègue destinataire recevra la nouvelle date à valider');
@@ -262,6 +262,30 @@ describe('🔴 Règle 3 — « RDV pré-visite » à côté des boutons existant
     await clic(document.querySelector('[data-confirmer-previsite]'));
     expect(posts.at(-1)).toMatchObject({ action: 'deplacer-previsite', jour: '2026-11-20', debut: '10:00', fin: '11:00', destinataires: [3], locataires: 'non' });
     expect(document.querySelector('[data-fenetre-previsite="resultat"]')?.textContent).toContain('Le rendez-vous du 20/11/2026, de 10h00 à 11h00, est maintenu : Arno Test remplace Claire Test.');
+  });
+  it('🔴🔴 Arno (19/11/2026, 14h30) — « Modifier / déplacer » : « 30 min » (durée d’office de la pré-visite) à l’ouverture, le rendez-vous d’une heure garde sa fin ; seul le collègue change : toujours reconnu', async () => {
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    expect(document.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('30');
+    expect(document.querySelector('[data-duree-choix]')?.textContent).not.toContain('Autre');
+    expect(document.querySelector('[data-previsite-fin]')?.getAttribute('data-valeur')).toBe('11:00');
+    expect(document.querySelector('[data-previsite-ancien]')?.textContent).toContain('Rendez-vous actuel : le ');
+    await clic(document.querySelector('[data-destinataire="3"]'));
+    await clic(document.querySelector('[data-destinataire="4"]'));
+    expect(document.querySelector('[data-inviter-locataires="non"]')?.getAttribute('aria-checked')).toBe('true');
+    await clic(document.querySelector('[data-recap-previsite]'));
+    expect(posts.at(-1)).toMatchObject({ action: 'apercu-previsite', deplacer: true, jour: '2026-11-20', debut: '10:00', fin: '11:00', locataires: 'non' });
+    expect(document.querySelector('[data-recap-maintien] p')?.textContent).toBe('Le rendez-vous est maintenu sans changement : le 20/11/2026, de 10h00 à 11h00.');
+  });
+  it('🔴🔴 Arno (19/11/2026, 14h30) — « Modifier / déplacer » d’une pré-visite de 19 min : « 30 min » à l’ouverture, jamais « Autre (19 min) »', async () => {
+    lignes[1].previsite = { ...lignes[1].previsite!, rdv: { ...lignes[1].previsite!.rdv!, dureeMinutes: 19 } };
+    await rendre();
+    await clic(container.querySelector('[data-ouvrir-preavis="B"]'));
+    await clic(container.querySelector('[data-deplacer-previsite]'));
+    expect(document.querySelector('[data-duree-rdv]')?.getAttribute('data-duree')).toBe('30');
+    expect(document.querySelector('[data-duree-choix]')?.textContent).toContain('30 min');
+    expect(document.querySelector('[data-duree-choix]')?.textContent).not.toContain('Autre');
   });
 });
 
