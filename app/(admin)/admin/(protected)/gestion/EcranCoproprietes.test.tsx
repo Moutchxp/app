@@ -71,3 +71,86 @@ describe('le groupe « Copropriétés » de la recherche', () => {
     expect(l.map((x) => [x.groupe, x.cle])).toEqual([['coproprietes', 'Résidence Les Tilleuls']]);
   });
 });
+
+/** 🔴🔴 Arno (19/11/2026) — les copropriétés en double : cocher, « Regrouper… » (récapitulatif, confirmation), les propositions, « Ignorer », « Dégrouper ». */
+describe('regrouper des fiches en une copropriété', () => {
+  const P = { immeuble: '54 avenue Puvis de Chavannes', cle: '54 avenue puvis de chavannes', nom: '54 avenue Puvis de Chavannes', adresses: ['54 avenue Puvis de Chavannes, 92400 Courbevoie'],
+    syndic: null, nbBiens: 39, hors: false, declaree: false };
+  const A = { ...P, immeuble: '54 Avneue Puvis de Chavannes', cle: '54 avneue puvis de chavannes', nom: '54 Avneue Puvis de Chavannes', nbBiens: 1 };
+  const H = { ...P, immeuble: '54 avenue Puvis de Chavannes (HARY)', cle: '54 avenue puvis de chavannes hary', nom: '54 avenue Puvis de Chavannes (HARY)', nbBiens: 4 };
+  const fiche = (l: typeof P) => ({ cle: l.cle, immeuble: l.immeuble, nbBiens: l.nbBiens, declaree: l.declaree });
+  let posts: Record<string, unknown>[]; let regroupements: unknown[]; let disponible: boolean;
+  beforeEach(() => {
+    posts = []; regroupements = []; disponible = true;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const s = String(u); urls.push(s);
+      if (s.startsWith('/api/admin/gestion/coproprietes/liste')) return json({ etat: 'ok', data: { lignes: [P, A, H], total: 3 } });
+      if (s.startsWith('/api/admin/gestion/coproprietes/regroupement')) {
+        if (init?.method === 'POST') {
+          const c = JSON.parse(String(init.body)) as Record<string, unknown>; posts.push(c);
+          return json({ etat: 'ok', data: { message: c.action === 'regrouper' ? 'Regroupé : « 54 Avneue Puvis de Chavannes » devient une adresse de la copropriété.' : 'Dégroupé.' } });
+        }
+        return json({ etat: 'ok', data: { disponible, regroupements, propositions: [{ cles: [P.cle, A.cle, H.cle].sort(), principale: P.cle, signature: 'sig', fiches: [P, A, H].map(fiche) }] } });
+      }
+      return json({ etat: 'sans_schema' });
+    }) as unknown as typeof fetch;
+  });
+  const monter = async () => { await act(async () => { root.render(createElement(EcranCoproprietes, {})); }); await attendre(); };
+  const cliquer = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await attendre(20); };
+
+  it('le bandeau : « Ces 3 fiches semblent être la même copropriété — Regrouper ? », les fiches et leurs biens ; « Ignorer » est envoyé', async () => {
+    await monter();
+    const b = container.querySelector('[data-ecp-proposition]')!;
+    expect(b.textContent).toContain('Ces 3 fiches semblent être la même copropriété — Regrouper ?');
+    expect(b.textContent).toContain('« 54 avenue Puvis de Chavannes » (39 biens) · « 54 Avneue Puvis de Chavannes » (1 bien)');
+    await cliquer('[data-ecp-ignorer]');
+    expect(posts).toEqual([{ action: 'ignorer', cles: [P.cle, A.cle, H.cle].sort() }]);
+    expect(container.querySelector('[data-ecp-message]')!.textContent).toMatch(/^Proposition ignorée/);
+  });
+  it('cocher deux fiches → « Regrouper… » : choix de l’adresse principale, récapitulatif, puis confirmation visible ; rien n’est envoyé avant « Confirmer »', async () => {
+    await monter();
+    // les lignes et leur bouton d'ouverture restent ; une case par ligne (cible 44 px)
+    expect(container.querySelectorAll('[data-ecp-ligne]')).toHaveLength(3);
+    expect((container.querySelector('[data-ecp-regrouper]'))).toBeNull();
+    await cliquer(`[data-ecp-coche="${A.cle}"]`);
+    expect((container.querySelector('[data-ecp-regrouper]') as HTMLButtonElement).disabled).toBe(true);
+    await cliquer(`[data-ecp-coche="${P.cle}"]`);
+    await cliquer('[data-ecp-regrouper]');
+    const m = container.querySelector('[data-ecp-modale="regrouper"]')!;
+    expect(m.getAttribute('role')).toBe('dialog');
+    // la principale d'office : celle qui a le plus de biens
+    expect((m.querySelector(`[data-ecp-principale="${P.cle}"]`) as HTMLInputElement).checked).toBe(true);
+    expect(m.querySelector('[data-ecp-recap]')!.textContent).toContain('Devient son adresse secondaire : « 54 Avneue Puvis de Chavannes ».');
+    expect(m.querySelector('[data-ecp-recap]')!.textContent).toContain('1 bien rejoint cette copropriété');
+    expect(posts).toEqual([]);
+    await cliquer(`[data-ecp-principale="${A.cle}"]`);
+    expect(container.querySelector('[data-ecp-recap]')!.textContent).toContain('« 54 Avneue Puvis de Chavannes » reste l’adresse principale.');
+    await cliquer(`[data-ecp-principale="${P.cle}"]`);
+    await cliquer('[data-ecp-confirmer]');
+    expect(posts).toEqual([{ action: 'regrouper', principale: P.cle, cles: [A.cle, P.cle] }]);
+    expect(container.querySelector('[data-ecp-modale]')).toBeNull();
+    expect(container.querySelector('[data-ecp-message]')!.getAttribute('role')).toBe('status');
+    expect(container.querySelector('[data-ecp-message]')!.textContent).toMatch(/^Regroupé :/);
+    expect(container.querySelector('[data-ecp-selection]')).toBeNull();
+  });
+  it('« Annuler » ferme sans rien envoyer ; sans la migration 504 : la confirmation est impossible, et dite', async () => {
+    disponible = false;
+    await monter();
+    await cliquer('[data-ecp-proposition-regrouper]');
+    expect(container.querySelector('[data-ecp-refus]')!.textContent).toMatch(/migration 504/);
+    expect((container.querySelector('[data-ecp-confirmer]') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { [...container.querySelectorAll('[data-ecp-modale] button')].find((x) => x.textContent === 'Annuler')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(container.querySelector('[data-ecp-modale]')).toBeNull();
+    expect(posts).toEqual([]);
+  });
+  it('« Dégrouper… » sous la copropriété regroupée : récapitulatif, puis confirmation', async () => {
+    regroupements = [{ id: 5, cle: P.cle, principale: P.immeuble, regroupees: [A.immeuble, H.immeuble], le: '2026-11-19T15:00:00.000Z', par: 'a.jorel@sansvisavis.com' }];
+    await monter();
+    expect(container.querySelector('[data-ecp-regroupement="5"]')!.textContent).toContain('Regroupe « 54 Avneue Puvis de Chavannes », « 54 avenue Puvis de Chavannes (HARY) » (le 19/11/2026, par a.jorel@sansvisavis.com)');
+    await cliquer('[data-ecp-degrouper="5"]');
+    expect(container.querySelector('[data-ecp-modale="degrouper"]')!.textContent).toContain('ne seront plus des adresses de la copropriété « 54 avenue Puvis de Chavannes »');
+    await cliquer('[data-ecp-confirmer]');
+    expect(posts).toEqual([{ action: 'degrouper', id: 5 }]);
+    expect(container.querySelector('[data-ecp-message]')!.textContent).toBe('Dégroupé.');
+  });
+});

@@ -44,6 +44,24 @@ export async function pointsBan(adresses: readonly AdresseSaisie[]): Promise<{
   return { entrees, points };
 }
 
+/**
+ * 🔴 (Arno, 19/11/2026, copropriétés en double) LA PARCELLE de chaque adresse, quand la BAN locale et le cadastre la donnent : la parcelle LA PLUS
+ * PROCHE de son point BAN, à 3 m au plus (la règle ci-dessus). Clé de l'adresse (`cleImmeuble`) → identifiant de la parcelle ; une adresse absente
+ * de la BAN (faute de frappe, commune non couverte) n'a pas d'entrée. LECTURE SEULE.
+ */
+export async function parcellesDesAdresses(adresses: readonly AdresseSaisie[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const { points } = await pointsBan(adresses);
+  for (const p of points) {
+    const { rows } = await query<{ id: string }>(
+      `SELECT id FROM parcelle
+        WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 2154), $3)
+        ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 2154) LIMIT 1`, [p.x, p.y, TOLERANCE_PARCELLE_M]);
+    if (rows[0] !== undefined) out.set(p.cle, rows[0].id);
+  }
+  return out;
+}
+
 export interface AdresseDeParcelle { cle: string; libelle: string; codePostal: string; commune: string; parcelle: string }
 
 /**

@@ -202,6 +202,7 @@ export async function listerCoproprietes(): Promise<LigneCopropriete[]> {
     const nom = (c?.nom ?? '').trim() || g.libelle;
     const syndic = s === undefined ? null : { id: Number(s.id), nom: s.nom, ville: s.ville };
     out.push({ immeuble: g.libelle, cle: g.cle, nom, adresses, syndic, nbBiens: g.biens.length, hors: horsDansLaListe(c?.hors === true, g.biens), declaree: c !== undefined,
+      codePostal: c?.code_postal ?? g.cp, commune: c?.commune ?? g.commune,
       cherchable: cherchableDe([nom, ...adresses, syndic?.nom, syndic?.ville]) });
   }
   return out.sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { numeric: true, sensitivity: 'base' }));

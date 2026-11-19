@@ -124,6 +124,9 @@ export interface LigneCopropriete {
   nbBiens: number;
   hors: boolean;
   declaree: boolean;
+  /** 🔴 (19/11/2026, copropriétés en double) le code postal et la commune de l'immeuble (fiche, sinon biens) : la détection des doublons les compare */
+  codePostal?: string | null;
+  commune?: string | null;
   /** ce qu'on peut chercher, normalisé : nom, adresses, syndic */
   cherchable: string;
 }
