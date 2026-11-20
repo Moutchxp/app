@@ -6,6 +6,7 @@ import { immeubleDuBien, type LigneCopropriete } from './copropriete';
 import { propositionsRegroupement, signatureProposition, type FicheARegrouper } from './doublonsCopropriete';
 import { parcellesDesAdresses } from './parcelleRepo';
 import { adresseImmeuble, cleImmeuble, nomAvecVille } from './syndics';
+import { journaliserLienSyndic } from './journalSyndicCopro';
 
 /**
  * ══ 🔴🔴 REGROUPER LES COPROPRIÉTÉS EN DOUBLE PAR VARIANTES D'ADRESSE (Arno, 19/11/2026, migration 504). IMPUR (base). ═══════════════════════════
@@ -77,12 +78,12 @@ async function biensDesCles(q: RequeteTx, cles: ReadonlySet<string>): Promise<{ 
   return rows.map((l) => ({ id: l.id, cle: cleImmeuble(immeubleDuBien(l)) })).filter((l) => cles.has(l.cle));
 }
 
-/** Le syndic en cours de la copropriété (pour le dire dans l'Historique des biens), ou `null`. */
-async function syndicDeLaCopro(q: RequeteTx, coproId: string): Promise<string | null> {
-  const { rows } = await q<{ nom: string; ville: string | null }>(
-    `SELECT s.nom, s.ville FROM gestion_copropriete_syndic cs JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
+/** Le syndic en cours de la copropriété (pour le dire dans l'Historique des biens, et au journal des syndics), ou `null`. */
+async function syndicDeLaCopro(q: RequeteTx, coproId: string): Promise<{ id: number; nom: string } | null> {
+  const { rows } = await q<{ id: string; nom: string; ville: string | null }>(
+    `SELECT s.id::text, s.nom, s.ville FROM gestion_copropriete_syndic cs JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
       WHERE cs.copropriete_id = $1 AND cs.fin IS NULL LIMIT 1`, [coproId]);
-  return rows[0] === undefined ? null : nomAvecVille(rows[0].nom, rows[0].ville);
+  return rows[0] === undefined ? null : { id: Number(rows[0].id), nom: nomAvecVille(rows[0].nom, rows[0].ville) };
 }
 
 const listeEcritures = (xs: readonly string[]): string => xs.map((x) => `« ${x} »`).join(', ');
@@ -136,8 +137,14 @@ export async function regrouper(brut: unknown, auteur: Auteur): Promise<{ ok: tr
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [coproId, f.cle, f.immeuble, f.codePostal ?? null, f.commune ?? null, auteur.id, auteur.libelle, id]);
     }
     // ── ④ l'Historique de chaque bien qui rejoint la copropriété ────────────────────────────────────────────────────────────────────────────
-    const syndic = await syndicDeLaCopro(q, coproId);
+    const s = await syndicDeLaCopro(q, coproId);
+    const syndic = s?.nom ?? null;
     const copro = adresseImmeuble(p.immeuble, p.codePostal ?? null, p.commune ?? null);
+    // 🔴 (20/11/2026, journal des syndics) les écritures regroupées rejoignent la copropriété ET son syndic : dit au journal de la copropriété
+    if (s !== null) {
+      await journaliserLienSyndic(q, { coproId, nature: 'rattache', syndicId: s.id, ecran: 'la liste Copropriétés (« Regrouper »)',
+        motif: `regroupement n° ${id} : ${listeEcritures(regroupees.map((x) => x.immeuble))} rejoignent la copropriété` }, auteur);
+    }
     for (const l of await biensDesCles(q, new Set(autresCles))) {
       const f = regroupees.find((x) => x.cle === l.cle)!;
       await q(
@@ -170,8 +177,13 @@ export async function degrouper(brut: unknown, auteur: Auteur): Promise<{ ok: tr
     if (r === undefined) return { ok: false as const, motif: 'Ce regroupement n’existe pas ou a déjà été dégroupé : rechargez la page.' };
     const { rows: adresses } = await q<{ id: string; cle: string; libelle: string }>(
       'SELECT id::text, cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse WHERE regroupement_id = $1 AND retire_le IS NULL ORDER BY id FOR UPDATE', [id]);
-    const syndic = await syndicDeLaCopro(q, r.copro);
+    const s = await syndicDeLaCopro(q, r.copro);
+    const syndic = s?.nom ?? null;
     const copro = adresseImmeuble(r.principale, r.cp, r.commune);
+    if (s !== null && adresses.length > 0) {
+      await journaliserLienSyndic(q, { coproId: r.copro, nature: 'retire', syndicId: s.id, ecran: 'la liste Copropriétés (« Dégrouper »)',
+        motif: `dégroupement n° ${id} : ${listeEcritures(adresses.map((a) => a.libelle))} quittent la copropriété` }, auteur);
+    }
     if (adresses.length > 0) {
       await q('UPDATE gestion_copropriete_adresse SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])', [adresses.map((a) => a.id), auteur.libelle]);
     }

@@ -132,7 +132,7 @@ export async function modifierEncartBien(id: number, quoi: GroupeEncart | readon
   }
   if (rattacher) {
     const r = await rattacherSyndicAuBien(id, { id: Number(apres.syndicId), contactsIds: contacts.contactsIds, nouveauxContacts: contacts.nouveauxContacts },
-      { libelle: e.adresse ?? '', codePostal: e.codePostal ?? '', commune: e.commune ?? '' }, auteur)
+      { libelle: e.adresse ?? '', codePostal: e.codePostal ?? '', commune: e.commune ?? '' }, auteur, 'la fiche du bien (Location)')
       .catch((x: unknown) => ({ ok: false as const, motif: x instanceof Error ? x.message : 'erreur' }));
     if (!r.ok) {
       const motif = `Le syndic n’a pas pu être rattaché : ${r.motif}`;

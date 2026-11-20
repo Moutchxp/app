@@ -547,7 +547,7 @@ async function creerBienInterne(s: SaisieBien & {
   if (syndic !== null) {
     const l = v.logement;
     const r = await rattacherSyndicAuBien(cree.logementId, syndic,
-      { libelle: l.adresse ?? '', codePostal: l.codePostal ?? '', commune: l.commune ?? '' }, auteur)
+      { libelle: l.adresse ?? '', codePostal: l.codePostal ?? '', commune: l.commune ?? '' }, auteur, 'la création du bien (Location)')
       .catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
     if (!r.ok) syndicRefus = `Le bien est créé, mais le syndic n’a pas pu être rattaché : ${r.motif}`;
   }

@@ -41,6 +41,9 @@ vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknow
 // 🔴 (lot 0) le retrait d'une adresse depuis la fiche passe par le regroupement (504) : l'appel est observé ici, son effet est éprouvé à part
 const rg = vi.hoisted(() => ({ appels: [] as unknown[][] }));
 vi.mock('./regroupementCoproprietesRepo', () => ({ noterRetraitDAdressesRegroupees: async (_q: unknown, ...a: unknown[]) => { rg.appels.push(a); return []; } }));
+// 🔴 (20/11/2026, journal des syndics) les gestes du journal, observés (leur écriture est éprouvée dans journalSyndicCopro.test.ts)
+const js = vi.hoisted(() => ({ gestes: [] as Record<string, unknown>[] }));
+vi.mock('./journalSyndicCopro', () => ({ journaliserLienSyndic: async (_q: unknown, g: Record<string, unknown>) => { js.gestes.push(g); } }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -94,6 +97,17 @@ describe('l’enregistrement', () => {
     expect(e.some((s) => s.startsWith('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()'))).toBe(true);
     expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_syndic'))?.p).toEqual(['7', 5, 2, AUTEUR.libelle]);
     expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_conflit'))?.p.slice(0, 5)).toEqual(['7', 5, '12', '9', 'AB12']);
+  });
+  it('🔴 le journal des syndics : changer de syndic = « remplacé » (avec l’ancien) ; rattacher sans syndic = « rattaché » ; même syndic : rien', async () => {
+    js.gestes = [];
+    await enregistrerCopropriete({ ...SAISIE, syndicId: 5 }, AUTEUR);
+    expect(js.gestes).toEqual([{ coproId: '7', nature: 'remplace', syndicId: 5, ancienSyndicId: 2, ecran: 'la fiche copropriété' }]);
+    js.gestes = []; h.liens = []; h.fiche = FICHE({ syndic: null });
+    await enregistrerCopropriete({ ...SAISIE, syndicId: 5 }, AUTEUR);
+    expect(js.gestes).toEqual([{ coproId: '7', nature: 'rattache', syndicId: 5, ancienSyndicId: null, ecran: 'la fiche copropriété' }]);
+    js.gestes = []; h.fiche = FICHE();
+    await enregistrerCopropriete({ ...SAISIE, syndicId: 2 }, AUTEUR);
+    expect(js.gestes).toEqual([]);
   });
   it('le même syndic : aucun lien touché ; un syndic supprimé : refus avant toute écriture', async () => {
     await enregistrerCopropriete({ ...SAISIE, syndicId: 2 }, AUTEUR);
@@ -221,6 +235,8 @@ describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche s
     expect(e.some((x) => x.s.includes("fin_motif = 'regroupement'"))).toBe(true);
     expect(e.some((x) => x.s.includes("retire_motif = 'regroupement'"))).toBe(true);
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
+    // 🔴 (20/11/2026) le journal des syndics : le syndic quitte cette copropriété, qui rejoint l'autre
+    expect(js.gestes.at(-1)).toEqual({ coproId: 7, nature: 'retire', syndicId: 9, ecran: 'la fiche copropriété (« Même syndic : regrouper ? »)', motif: 'regroupement avec la copropriété 10 rue Voisine' });
   });
   it('🔴 une copropriété qui a ses propres habitants (ou un nom) : REFUS — rien n’est déplacé automatiquement', async () => {
     h.fiche = FICHE({ syndic: { id: 9, nom: 'Cabinet B', ville: null, depuis: '2026-01-01' }, contacts: [{ id: 1, categorie: 'gardien', libelle: null, civilite: null, prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [] }] });

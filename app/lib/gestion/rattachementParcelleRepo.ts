@@ -1,4 +1,5 @@
 import { query, withTransaction } from '../db/client';
+import { journaliserLienSyndic } from './journalSyndicCopro';
 import type { Auteur } from './gestes';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { adressesDeLaParcelle } from './parcelleRepo';
@@ -63,6 +64,12 @@ export async function rattacherAdresse(brut: unknown, auteur: Auteur): Promise<{
   await withTransaction(async (q) => {
     await q(`INSERT INTO gestion_copropriete_adresse (copropriete_id, cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [id, cleImmeuble(a.libelle), a.libelle, a.codePostal || null, a.commune || null, auteur.id, auteur.libelle]);
+    // 🔴 (20/11/2026, journal des syndics) les biens de cette adresse rejoignent la copropriété et son syndic : dit au journal de la copropriété
+    const { rows: s } = await q<{ id: string }>('SELECT syndic_id::text AS id FROM gestion_copropriete_syndic WHERE copropriete_id = $1 AND fin IS NULL LIMIT 1', [id]);
+    if (s[0] !== undefined) {
+      await journaliserLienSyndic(q, { coproId: id, nature: 'rattache', syndicId: Number(s[0].id), ecran: 'la tuile Location (rattachement par la parcelle)',
+        motif: `adresse ${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} ajoutée à la copropriété` }, auteur);
+    }
   });
   return { ok: true, message: `${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} est désormais une adresse de la copropriété ${p.nom} : son bloc de digicodes (vide) est créé.` };
 }

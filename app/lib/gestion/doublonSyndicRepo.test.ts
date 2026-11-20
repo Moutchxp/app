@@ -119,6 +119,12 @@ describe('🔴🔴 LE RATTACHEMENT, SUR UN CLIC, PAR LA PORTE UNIQUE enregistrer
     const [, saisie] = enregistrer.mock.calls[0] as unknown as [number, { immeubles: Array<{ libelle: string }> }];
     expect(saisie.immeubles.map((i) => i.libelle)).toEqual(['25 rue Edith Cavell', '1 rue Ailleurs']);
   });
+  it('🔴 le journal des syndics : l’écran d’origine passe à la porte unique (proposition par adresse ; tuile Location quand elle l’appelle)', async () => {
+    await rattacherBienAuSyndic(2, { libelle: '1 rue Ailleurs', codePostal: '75001', commune: 'PARIS' }, null, auteur);
+    expect((enregistrer.mock.calls.at(-1) as unknown as unknown[])[3]).toBe('la proposition « syndic connu pour cette adresse » (Gestion)');
+    await rattacherBienAuSyndic(2, { libelle: '1 rue Ailleurs', codePostal: '75001', commune: 'PARIS' }, null, auteur, 9, [], 'la création du bien (Location)');
+    expect((enregistrer.mock.calls.at(-1) as unknown as unknown[])[3]).toBe('la création du bien (Location)');
+  });
   it('un bien sans « Immeuble » : refusé, rien n’est écrit', async () => {
     expect((await rattacherBienAuSyndic(2, { libelle: ' ', codePostal: '', commune: '' }, null, auteur)).ok).toBe(false);
     expect(enregistrer).not.toHaveBeenCalled();

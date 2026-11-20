@@ -58,9 +58,11 @@ export function refusNouveauxContacts(l: readonly NouveauContactSyndic[]): strin
 }
 
 /** Après la création du bien : rattache le syndic par l'immeuble du bien, désigne ses contacts, enrichit son annuaire. */
-export async function rattacherSyndicAuBien(lotId: number, s: SyndicDuBien, adresse: ImmeubleSaisi, auteur: Auteur):
+export async function rattacherSyndicAuBien(lotId: number, s: SyndicDuBien, adresse: ImmeubleSaisi, auteur: Auteur,
+  /** 🔴 (20/11/2026, journal des syndics) l'écran d'origine */
+  ecran = 'la tuile Location'):
   Promise<{ ok: true } | { ok: false; motif: string }> {
-  const r = await rattacherBienAuSyndic(s.id, adresse, null, auteur, lotId);
+  const r = await rattacherBienAuSyndic(s.id, adresse, null, auteur, lotId, [], ecran);
   if (!r.ok) return r;
   await query('UPDATE gestion_annuaire_lot SET syndic_id = $2 WHERE id = $1', [lotId, s.id]).catch(() => undefined);
   const fiche = await ficheSyndic(s.id);

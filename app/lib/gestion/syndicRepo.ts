@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { journaliserLienSyndic } from './journalSyndicCopro';
 import { statutBienDisponible } from './statutBienRepo';
 import { normaliserTexte } from './annuaire';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
@@ -434,7 +435,9 @@ const nul = (v: string): string | null => (v.trim() === '' ? null : v.trim());
  * ⚠️ LES REFUS SE DÉCIDENT AVANT TOUTE ÉCRITURE (syndic inexistant ou supprimé) — `withTransaction` COMMIT au retour
  * normal, et un refus rendu après un UPDATE écrirait quand même (piège consigné du dépôt).
  */
-export async function enregistrerSyndic(id: number | null, saisie: SyndicSaisi, auteur: Auteur):
+export async function enregistrerSyndic(id: number | null, saisie: SyndicSaisi, auteur: Auteur,
+  /** 🔴 (20/11/2026, journal des syndics) l'écran d'origine, écrit au journal de chaque lien rattaché, remplacé ou retiré */
+  ecran: string = id === null ? 'la fiche syndic (création du syndic)' : 'la fiche syndic'):
 Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: string[]; doublonsSyndic?: DoublonSyndic[]; conflitsParcelle?: ConflitAConfirmer[] }> {
   return withTransaction(async (q) => {
     /**
@@ -499,7 +502,7 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
     }
 
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
-    await enregistrerCoproprietes(q, syndicId, saisie, auteur);
+    await enregistrerCoproprietes(q, syndicId, saisie, auteur, ecran);
     await enregistrerAdressesSecondaires(q, saisie, auteur);
     await enregistrerContacts(q, syndicId, saisie, auteur);
     if (saisie.noteBien) await enregistrerNoteBien(q, syndicId, saisie.noteBien.lotId, saisie.noteBien.texte, auteur);
@@ -655,7 +658,7 @@ async function enregistrerAffectations(q: RequeteTx, contactId: number, cles: re
   }
 }
 
-async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
+async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur, ecran: string): Promise<void> {
   const voulues = new Map(saisie.immeubles.map((i) => [cleImmeuble(i.libelle), i]));
   // ① déclarer les immeubles qui ne le sont pas encore (le libellé du premier qui l'a déclaré est gardé) ; un code
   //    postal ou une commune connus complètent une copropriété qui n'en avait pas — jamais n'écrasent.
@@ -674,6 +677,7 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
        FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id
       WHERE cs.fin IS NULL AND (c.cle_immeuble = ANY($1::text[]) OR cs.syndic_id = $2)
       FOR UPDATE OF cs`, [[...voulues.keys()], syndicId]);
+  const anciens = new Map<string, number>(); // copropriété reprise par ce syndic → son ancien syndic (journal : « remplacé »)
   for (const l of enCours) {
     const voulu = voulues.has(l.cle);
     const aMoi = Number(l.syndic_id) === syndicId;
@@ -684,15 +688,23 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
       [l.lien_id, auteur.id, auteur.libelle, aMoi ? 'retrait' : 'changement de syndic']);
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — et les contacts du syndic qui PERD l'immeuble cessent de le suivre.
     await retirerAffectationsDeLaCopro(q, Number(l.syndic_id), l.copro_id, aMoi ? 'copropriété retirée du syndic' : 'changement de syndic', auteur);
+    // 🔴 (20/11/2026) le journal : un retrait se dit ici ; une reprise se dira à l'ouverture du nouveau lien (« remplacé », avec l'ancien syndic)
+    if (aMoi) await journaliserLienSyndic(q, { coproId: l.copro_id, nature: 'retire', syndicId, ecran, motif: 'retrait' }, auteur);
+    else anciens.set(l.copro_id, Number(l.syndic_id));
   }
   // ③ ouvrir les liens qui manquent.
   const dejaAMoi = new Set(enCours.filter((l) => Number(l.syndic_id) === syndicId && voulues.has(l.cle)).map((l) => l.cle));
   for (const cle of voulues.keys()) {
     if (dejaAMoi.has(cle)) continue;
-    await q(
+    const { rows: ouvert } = await q<{ copro: string }>(
       `INSERT INTO gestion_copropriete_syndic (copropriete_id, syndic_id, pose_par, pose_par_libelle)
-       SELECT id, $2, $3, $4 FROM gestion_copropriete WHERE cle_immeuble = $1`,
+       SELECT id, $2, $3, $4 FROM gestion_copropriete WHERE cle_immeuble = $1 RETURNING copropriete_id::text AS copro`,
       [cle, syndicId, auteur.id, auteur.libelle]);
+    const coproId = ouvert?.[0]?.copro;
+    if (coproId !== undefined) {
+      const ancien = anciens.get(coproId);
+      await journaliserLienSyndic(q, { coproId, nature: ancien === undefined ? 'rattache' : 'remplace', syndicId, ancienSyndicId: ancien ?? null, ecran }, auteur);
+    }
   }
 }
 
@@ -810,6 +822,7 @@ Promise<{ ok: true; lots: number } | { ok: false; motif: string }> {
       `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'retrait de la résidence'
         WHERE id = $1`, [l.lien_id, auteur.id, auteur.libelle]);
     await retirerAffectationsDeLaCopro(q, syndicId, l.copro_id, 'syndic retiré de la copropriété', auteur);
+    await journaliserLienSyndic(q, { coproId: l.copro_id, nature: 'retire', syndicId, ecran: 'la fiche syndic (« Retirer de la résidence »)', motif: 'retrait de la résidence' }, auteur);
     const g = parCle.get(cle);
     const syndic = nomAvecVille(s.nom, s.ville);
     const adresse = adresseImmeuble(l.libelle, g?.codePostal ?? l.code_postal, g?.commune ?? l.commune);
@@ -852,8 +865,8 @@ Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
       `SELECT nom, ville FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);
     const s = rows[0];
     if (s === undefined) return { ok: false, motif: 'Ce syndic n’existe pas ou a déjà été supprimé.' };
-    const { rows: liens } = await q<{ id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null }>(
-      `SELECT cs.id::text, c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune FROM gestion_copropriete_syndic cs
+    const { rows: liens } = await q<{ id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null; copro: string }>(
+      `SELECT cs.id::text, c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, c.id::text AS copro FROM gestion_copropriete_syndic cs
          JOIN gestion_copropriete c ON c.id = cs.copropriete_id
         WHERE cs.syndic_id = $1 AND cs.fin IS NULL FOR UPDATE OF cs`, [id]);
     const lotsDe = (cle: string) => [cle, ...secondaires.filter((a) => a.coproCle === cle).map((a) => a.cle)].flatMap((k) => parCle.get(k)?.lots ?? []);
@@ -862,6 +875,7 @@ Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
       await q(
         `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = $4
           WHERE id = ANY($1::bigint[])`, [liens.map((l) => l.id), auteur.id, auteur.libelle, MOTIF]);
+      for (const l of liens) await journaliserLienSyndic(q, { coproId: l.copro, nature: 'retire', syndicId: id, ecran: 'la fiche syndic (suppression du syndic)', motif: MOTIF }, auteur);
     }
     await q(
       `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3

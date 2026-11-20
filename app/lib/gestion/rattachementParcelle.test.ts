@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * l'adresse d'un bien (« Nouveau bien », « Modifier le bien », fiche du bien Gestion), réponse « Non, c'est une autre copropriété » mémorisée pour cette
  * adresse ; le rattachement crée le bloc digicode (vide) de la nouvelle adresse. » 🔒 Base et cadastre simulés : rien n'est écrit en base réelle.
  */
-const h = vi.hoisted(() => ({ dejaCopro: false, refusees: [] as string[], avec491: true, sql: [] as { s: string; p: unknown[] }[] }));
+const h = vi.hoisted(() => ({ dejaCopro: false, refusees: [] as string[], avec491: true, sql: [] as { s: string; p: unknown[] }[], syndic: null as string | null }));
 const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ').trim(); h.sql.push({ s, p });
   if (s.startsWith('SELECT DISTINCT c.id::text, c.cle_immeuble AS cle, c.libelle, c.nom FROM gestion_copropriete c')) {
@@ -14,6 +14,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
     return { rows: cles.some((c) => c === '1 rue test deux adresses' || c === '3 rue test deux adresses') ? [{ id: '271', cle: '1 rue test deux adresses', libelle: '1 rue _TEST Deux Adresses', nom: '_TEST DEUX ADRESSES' }] : [] };
   }
   if (s.startsWith('SELECT copropriete_id::text AS id FROM gestion_copropriete_rattachement_refus')) return { rows: h.refusees.map((id) => ({ id })) };
+  if (s.startsWith('SELECT syndic_id::text AS id FROM gestion_copropriete_syndic')) return { rows: h.syndic === null ? [] : [{ id: h.syndic }] };
   if (s.startsWith('SELECT libelle, code_postal, commune FROM gestion_copropriete_adresse')) return { rows: [{ libelle: '3 rue _TEST Deux Adresses', code_postal: '92600', commune: 'Asnières-sur-Seine' }] };
   return { rows: [], rowCount: 1 };
 });
@@ -22,6 +23,9 @@ vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => h.a
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: ['920040000ZZ999'], adresses: [
   { cle: '1 rue test deux adresses', libelle: '1 rue _TEST Deux Adresses', codePostal: '92600', commune: 'Asnières-sur-Seine', parcelle: '920040000ZZ999' },
   { cle: '3 rue test deux adresses', libelle: '3 rue _TEST Deux Adresses', codePostal: '92600', commune: 'Asnières-sur-Seine', parcelle: '920040000ZZ999' }] }) }));
+// 🔴 (20/11/2026, journal des syndics) les gestes du journal, observés (leur écriture est éprouvée dans journalSyndicCopro.test.ts)
+const js = vi.hoisted(() => ({ gestes: [] as Record<string, unknown>[] }));
+vi.mock('./journalSyndicCopro', () => ({ journaliserLienSyndic: async (_q: unknown, g: Record<string, unknown>) => { js.gestes.push(g); } }));
 const { propositionsRattachement, rattacherAdresse, refuserRattachement } = await import('./rattachementParcelleRepo');
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const CINQ = { libelle: '5 rue _TEST Deux Adresses', codePostal: '92600', commune: 'Asnières-sur-Seine' };
@@ -48,6 +52,16 @@ describe('🔴 la proposition, à la saisie de l’adresse d’un bien', () => {
     const r = await rattacherAdresse({ coproprieteId: 271, adresse: CINQ.libelle, codePostal: '92600', commune: CINQ.commune }, AUTEUR);
     expect(r).toEqual({ ok: true, message: '5 rue _TEST Deux Adresses, 92600 Asnières-sur-Seine est désormais une adresse de la copropriété _TEST DEUX ADRESSES : son bloc de digicodes (vide) est créé.' });
     expect(ecritures().map((x) => [x.s.slice(0, 47), x.p])).toEqual([["INSERT INTO gestion_copropriete_adresse (coprop", [271, '5 rue test deux adresses', '5 rue _TEST Deux Adresses', '92600', 'Asnières-sur-Seine', 2, 'a.jorel@sansvisavis.com']]]);
+  });
+  it('🔴 le journal des syndics : la copropriété a un syndic → « rattaché » (l’adresse et ses biens le rejoignent) ; sans syndic : rien', async () => {
+    js.gestes = [];
+    await rattacherAdresse({ coproprieteId: 271, adresse: CINQ.libelle, codePostal: '92600', commune: CINQ.commune }, AUTEUR);
+    expect(js.gestes).toEqual([]);
+    h.syndic = '51';
+    await rattacherAdresse({ coproprieteId: 271, adresse: CINQ.libelle, codePostal: '92600', commune: CINQ.commune }, AUTEUR);
+    expect(js.gestes).toEqual([{ coproId: 271, nature: 'rattache', syndicId: 51, ecran: 'la tuile Location (rattachement par la parcelle)',
+      motif: 'adresse 5 rue _TEST Deux Adresses, 92600 Asnières-sur-Seine ajoutée à la copropriété' }]);
+    h.syndic = null;
   });
   it('une proposition qui n’est plus valable (une autre copropriété, ou adresse déjà rattachée) : refus, rien n’est écrit ; jamais automatiquement', async () => {
     expect((await rattacherAdresse({ coproprieteId: 999, adresse: CINQ.libelle, codePostal: '92600', commune: CINQ.commune }, AUTEUR)).ok).toBe(false);

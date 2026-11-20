@@ -411,6 +411,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               <li key={s.id}><button type="button" className="fcp-lien" onClick={() => { setSyndicChoisi(s); setChoixSyndic(false); }} data-fcp-syndic-propose={s.id}>{nomAvecVille(s.nom, s.ville ?? null)}</button>
                 <span className="loc-muet"> · {s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''}</span></li>))}</ul>
           </div>)}
+        {/* 🔴 (Arno, 20/11/2026, journal des syndics) qui a rattaché ou retiré chaque syndic, quand, et depuis quel écran — lecture seule */}
+        {(f.historiqueSyndic ?? []).length > 0 && (
+          <details className="fcp-histo" data-fcp-historique-syndic>
+            <summary>Historique du syndic ({(f.historiqueSyndic ?? []).length})</summary>
+            <ul className="fcp-liste">{(f.historiqueSyndic ?? []).map((e, i) => (
+              <li key={i} data-fcp-histo-syndic={e.source}>{e.texte}<span className="loc-muet"> — par {e.par}, le {e.le}{e.source === 'registre' ? ' (registre des liens)' : ''}</span></li>))}</ul>
+          </details>)}
       </section>
     </>}
     {horsAffiche && f.syndic !== null && <p className="fcp-alerte" data-fcp-hors-avec-syndic>Un syndic est encore lié à cet immeuble ({nomAvecVille(f.syndic.nom, f.syndic.ville)}) : rien n’est retiré tout seul.</p>}
@@ -585,6 +592,8 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-sous-titre{margin:4px 0 0;font-weight:800;font-size:.9rem;color:var(--color-svv-ink)}
 .fcp-plus{min-width:36px;min-height:36px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:900;font-size:1.1rem;cursor:pointer}
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.fcp-histo{margin-top:6px}
+.fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:700;color:var(--color-svv-ink)}
 .fcp-a-preciser{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px 0}
 .fcp-a-preciser-choix{flex:1 1 220px}
 .fcp-a-preciser-choix select{min-height:44px;width:100%;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;padding:6px 10px}

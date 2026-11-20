@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { historiqueSyndic } from './journalSyndicCopro';
 import { batimentsRetires, cleBatimentAdresse, estRetire, etatBatimentDisponible, registreParAdresse, sqlBatimentActif } from './batimentRetraitRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
@@ -152,7 +153,7 @@ export async function ficheCopropriete(immeuble: string): Promise<FicheCoproprie
     horsCopropriete: copro?.hors === true, nomenclature: copro?.nomenclature === 'lettres' || copro?.nomenclature === 'chiffres' ? copro.nomenclature : null,
     codePostal, commune,
     adresses: [{ cle, libelle, codePostal, commune, principale: true }, ...sec.map((a) => ({ cle: a.cle, libelle: a.libelle, codePostal: a.code_postal, commune: a.commune, principale: false }))],
-    syndic, gestionnaires, contacts: await contactsDeLImmeuble(cle), biens, desaccord: biensEnDesaccord(biens), avec476,
+    syndic, historiqueSyndic: copro === undefined ? [] : await historiqueSyndic(Number(copro.id)).catch(() => []), gestionnaires, contacts: await contactsDeLImmeuble(cle), biens, desaccord: biensEnDesaccord(biens), avec476,
   };
 }
 

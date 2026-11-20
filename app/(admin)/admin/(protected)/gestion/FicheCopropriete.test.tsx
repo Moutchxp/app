@@ -408,3 +408,23 @@ describe('🔴 (« Digicodes unifiés », lot 4, accord d’Arno) l’ancienne s
     expect((global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).includes('/immeubles/digicode'))).toBe(false);
   });
 });
+
+/** 🔴🔴 Arno (20/11/2026, journal des syndics) — « Syndic X rattaché par Y le … depuis … » et « retiré par … le … », dans la section Syndic. */
+describe('l’historique du syndic', () => {
+  it('repliable, du plus récent : les lignes du journal (avec l’écran) et le registre des liens d’avant ; absent quand il n’y a rien', async () => {
+    lu = { fiche: FICHE({ historiqueSyndic: [
+      { quand: '2026-11-20 10:27:00+01', le: '20/11/2026 à 10h27', texte: 'Syndic CABINET PASCAL TOUBON / Paris retiré de la copropriété 80 rue de Normandie, 92400 Courbevoie (depuis la fiche syndic — retrait)', par: 'Arnaud Jorel', source: 'journal' },
+      { quand: '2026-10-29 16:40:00+01', le: '29/10/2026 à 16h40', texte: 'Syndic CABINET PASCAL TOUBON / Paris rattaché', par: 'c.jullien', source: 'registre' }] }), coproprieteDuBien: true };
+    await ouvrir();
+    const h = $('[data-fcp-historique-syndic]');
+    expect(h.tagName).toBe('DETAILS');
+    expect(h.querySelector('summary')!.textContent).toBe('Historique du syndic (2)');
+    expect([...h.querySelectorAll('li')].map((x) => x.textContent)).toEqual([
+      'Syndic CABINET PASCAL TOUBON / Paris retiré de la copropriété 80 rue de Normandie, 92400 Courbevoie (depuis la fiche syndic — retrait) — par Arnaud Jorel, le 20/11/2026 à 10h27',
+      'Syndic CABINET PASCAL TOUBON / Paris rattaché — par c.jullien, le 29/10/2026 à 16h40 (registre des liens)']);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    lu = { fiche: FICHE({ historiqueSyndic: [] }), coproprieteDuBien: true };
+    await ouvrir();
+    expect(document.querySelector('[data-fcp-historique-syndic]')).toBeNull();
+  });
+});

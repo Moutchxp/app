@@ -9,6 +9,7 @@ import { adresseSansNumero, immeubleDuBien, motifSansNumero, type FicheCoproprie
 import { adressesIndependantes, avertissementsDesBatiments, batimentDe, connusPourAdresse, nomenclatureDeLAdresse, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
 import { noterRetraitDAdressesRegroupees } from './regroupementCoproprietesRepo';
+import { journaliserLienSyndic } from './journalSyndicCopro';
 import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
 import { validerChangements } from './digicodes';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
@@ -219,6 +220,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
                    FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL`, [l.syndic_id, coproId, auteur.libelle]);
       }
       await q('INSERT INTO gestion_copropriete_syndic (copropriete_id, syndic_id, pose_par, pose_par_libelle) VALUES ($1, $2, $3, $4)', [coproId, s.syndicId, auteur.id, auteur.libelle]);
+      // 🔴 (20/11/2026, journal des syndics) rattaché, ou remplacé (avec l'ancien syndic)
+      const ancien = liens[0] === undefined ? null : Number(liens[0].syndic_id);
+      await journaliserLienSyndic(q, { coproId, nature: ancien === null ? 'rattache' : 'remplace', syndicId: s.syndicId, ancienSyndicId: ancien, ecran: 'la fiche copropriété' }, auteur);
       // un conflit de parcelle CONFIRMÉ (une adresse de la parcelle est la copropriété d'un AUTRE syndic) : noté, comme depuis la fiche syndic
       for (const k of conflits) await noterConflitParcelle(q, coproId, s.syndicId, k, auteur);
     }
@@ -397,6 +401,8 @@ async function regrouper(s: SaisieCopropriete, lue: FicheCopropriete, auteur: Au
       const { rows: liens } = await q<{ id: string; syndic_id: string }>('SELECT id::text, syndic_id::text FROM gestion_copropriete_syndic WHERE copropriete_id = $1 AND fin IS NULL FOR UPDATE', [lue.id]);
       for (const l of liens) {
         await q(`UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'regroupement' WHERE id = $1`, [l.id, auteur.id, auteur.libelle]);
+        await journaliserLienSyndic(q, { coproId: lue.id, nature: 'retire', syndicId: Number(l.syndic_id), ecran: 'la fiche copropriété (« Même syndic : regrouper ? »)',
+          motif: `regroupement avec la copropriété ${cible.libelle}` }, auteur);
         await q(`UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $3, retire_motif = 'regroupement'
                    FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL`, [l.syndic_id, lue.id, auteur.libelle]);
       }

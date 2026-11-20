@@ -88,7 +88,7 @@ describe('🔴 modifier un groupe', () => {
     await modifierEncartBien(7, 'copropriete', { syndicId: '44', syndicNom: 'NOUVEAU SYNDIC', syndicContacts: contacts }, AUTEUR);
     expect(modifierComplementsBien.mock.calls[0][1]).toMatchObject({ syndicId: '44' });
     expect(rattacherSyndicAuBien.mock.calls[0]).toEqual([7, { id: 44, contactsIds: [4], nouveauxContacts: [{ prenom: 'Léa', nom: 'Durand', email: 'l@x.test' }] },
-      { libelle: '15 rue Carle Hebert', codePostal: '92400', commune: 'COURBEVOIE' }, AUTEUR]);
+      { libelle: '15 rue Carle Hebert', codePostal: '92400', commune: 'COURBEVOIE' }, AUTEUR, 'la fiche du bien (Location)']); // 🔴 (20/11) l'écran d'origine, pour le journal des syndics
     expect(journaux().map((j) => j[3])).toEqual(['Copropriété — Syndic : CABINET ESSAI → NOUVEAU SYNDIC',
       'Copropriété — Contacts du syndic pour ce bien : aucun ajout → 1 contact désigné, Léa Durand (nouveau)']);
   });

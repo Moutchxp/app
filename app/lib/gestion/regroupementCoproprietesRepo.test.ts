@@ -19,7 +19,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   if (s.startsWith('SELECT cle_immeuble AS cle FROM gestion_copropriete WHERE cle_immeuble = ANY')) return { rows: h.prises };
   if (s.startsWith('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1')) return { rows: [{ id: '70' }] };
   if (s.startsWith('INSERT INTO gestion_copropriete_regroupement')) return { rows: [{ id: '5' }] };
-  if (s.startsWith('SELECT s.nom, s.ville FROM gestion_copropriete_syndic')) return { rows: h.syndic ? [h.syndic] : [] };
+  if (s.startsWith('SELECT s.id::text, s.nom, s.ville FROM gestion_copropriete_syndic')) return { rows: h.syndic ? [{ id: '51', ...h.syndic }] : [] };
   if (s.startsWith('SELECT id::text, immeuble, adresse FROM gestion_annuaire_lot')) return { rows: h.lots };
   if (s.startsWith('SELECT r.copropriete_id::text AS copro')) return { rows: h.regroupement };
   if (s.startsWith('SELECT id::text, cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse WHERE regroupement_id')) return { rows: h.adressesDuRegroupement };
@@ -33,6 +33,9 @@ vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeo
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => h.avec504 }));
 vi.mock('./coproprieteRepo', () => ({ listerCoproprietes: async () => h.lignes }));
 vi.mock('./parcelleRepo', () => ({ parcellesDesAdresses: async () => h.parcelles }));
+// 🔴 (20/11/2026, journal des syndics) les gestes du journal, observés (leur écriture est éprouvée dans journalSyndicCopro.test.ts)
+const js = vi.hoisted(() => ({ gestes: [] as Record<string, unknown>[] }));
+vi.mock('./journalSyndicCopro', () => ({ journaliserLienSyndic: async (_q: unknown, g: Record<string, unknown>) => { js.gestes.push(g); } }));
 import { cleImmeuble } from './syndics';
 import { degrouper, ignorerProposition, MOTIF_SANS_504, noterRetraitDAdressesRegroupees, propositionsDeLaListe, regroupementsOrphelins, regrouper } from './regroupementCoproprietesRepo';
 
@@ -44,7 +47,7 @@ const A = '54 Avneue Puvis de Chavannes';
 const H = '54 avenue Puvis de Chavannes (HARY)';
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
 beforeEach(() => {
-  h.sql = []; h.avec504 = true; h.prises = []; h.syndic = null; h.ignorees = []; h.regroupement = []; h.adressesDuRegroupement = []; h.parcelles = new Map(); h.retirees = []; h.vides = []; h.orphelins = [];
+  js.gestes = []; h.sql = []; h.avec504 = true; h.prises = []; h.syndic = null; h.ignorees = []; h.regroupement = []; h.adressesDuRegroupement = []; h.parcelles = new Map(); h.retirees = []; h.vides = []; h.orphelins = [];
   h.lignes = [ligne(P, 39), ligne(A, 1), ligne(H, 4), ligne('56 avenue Puvis de Chavannes', 2)];
 });
 
@@ -80,6 +83,9 @@ describe('Regrouper', () => {
     const journal = w.filter((x) => x.s.startsWith('INSERT INTO gestion_journal'));
     expect(journal.map((x) => [x.p[0], x.p[1]])).toEqual([['2', 'copropriete_regroupee'], ['3', 'copropriete_regroupee']]);
     expect(String(journal[0].p[4])).toContain('(syndic : Cabinet A / Paris)');
+    // 🔴 le journal des syndics : les écritures rejoignent la copropriété ET son syndic
+    expect(js.gestes).toEqual([{ coproId: '70', nature: 'rattache', syndicId: 51, ecran: 'la liste Copropriétés (« Regrouper »)',
+      motif: `regroupement n° 5 : « ${A} », « ${H} » rejoignent la copropriété` }]);
     // 🔴 les adresses des biens et les données WIPPIMMO ne sont jamais touchées ; rien n'est effacé
     expect(w.some((x) => /gestion_annuaire_lot|DELETE/.test(x.s))).toBe(false);
   });
@@ -108,6 +114,8 @@ describe('Dégrouper', () => {
     const w = ecritures();
     expect(w[0]).toMatchObject({ s: expect.stringMatching(/^UPDATE gestion_copropriete_adresse SET retire_le = now\(\)/), p: [['11', '12'], AUTEUR.libelle] });
     expect(w[1].s).toMatch(/^UPDATE gestion_copropriete_regroupement SET degroupe_le = now\(\)/);
+    expect(js.gestes).toEqual([{ coproId: '70', nature: 'retire', syndicId: 51, ecran: 'la liste Copropriétés (« Dégrouper »)',
+      motif: `dégroupement n° 5 : « ${A} », « ${H} » quittent la copropriété` }]);
     expect(w.filter((x) => x.s.startsWith('INSERT INTO gestion_journal')).map((x) => [x.p[0], x.s.includes("'syndic_retire'") ? 'syndic_retire' : x.p[1]]))
       .toEqual([['2', 'copropriete_degroupee'], ['2', 'syndic_retire'], ['3', 'copropriete_degroupee'], ['3', 'syndic_retire']]);
     expect(w.some((x) => /DELETE|gestion_annuaire_lot/.test(x.s))).toBe(false);

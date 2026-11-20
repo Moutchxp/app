@@ -62,6 +62,8 @@ export interface FicheCopropriete {
   commune: string | null;
   adresses: AdresseCopropriete[];
   syndic: { id: number; nom: string; ville: string | null; depuis: string } | null;
+  /** 🔴 (20/11/2026, journal des syndics) l'historique du syndic : le journal, et le registre des liens pour ce qui précède — du plus récent */
+  historiqueSyndic?: { quand: string; le: string; texte: string; par: string; source: 'journal' | 'registre' }[];
   gestionnaires: GestionnaireSyndic[];
   contacts: ContactImmeubleLu[];
   biens: BienCopropriete[];
