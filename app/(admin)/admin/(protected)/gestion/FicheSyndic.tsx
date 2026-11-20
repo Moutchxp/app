@@ -17,13 +17,14 @@ import {
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
-  type AdresseBan, type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type ImmeubleConnu,
+  type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type ImmeubleConnu,
   type ImmeubleSaisi, type SorteCoordonnee, type SyndicForm, type SyndicResume,
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
 import { FicheCopropriete } from './FicheCopropriete';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
-import { chercherAdresses } from './adressesSyndic';
+import { sourceAdressesSyndic } from './adressesSyndic';
+import { ChampAdresseOfficielle } from '../../../../components/adresse/ChampAdresseOfficielle';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 /* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — doublon possible à la création, syndic connu pour l'adresse. */
@@ -785,41 +786,19 @@ function TriangleAlerte() {
  * Les trois champs restent modifiables à la main.
  */
 function ChampRue({ form, setForm, manque }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manque: boolean }) {
-  const [propositions, setPropositions] = useState<AdresseBan[]>([]);
-  const [ouvert, setOuvert] = useState(false);
-  useEffect(() => {
-    if (!ouvert || form.adresse.trim().length < MINIMUM_ADRESSE) { setPropositions([]); return; }
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      void chercherAdresses(form.adresse, ctrl.signal)
-        .then((r) => setPropositions(r.adresses))
-        .catch(() => { if (!ctrl.signal.aborted) setPropositions([]); });
-    }, 250);
-    return () => { ctrl.abort(); clearTimeout(t); };
-  }, [form.adresse, ouvert]);
+  // 🔴🔴 (Arno, 20/11/2026, lot 7a) un EMBALLAGE du composant unique : sa source (l'API Adresse, la BAN locale en repli), sa liste, son affichage ;
+  // l'habillage de la fiche syndic, la recherche dès qu'on entre dans un champ pré-rempli, et les trois champs modifiables à la main restent
   return (
-    <div className="fsy-bloc fsy-bloc--serre"
-      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOuvert(false); }}>
+    <div className="fsy-bloc fsy-bloc--serre">
       <label className={`fsy-champ${manque ? ' fsy-champ--manque' : ''}`}>
         <span>Adresse (rue) *</span>
-        <input type="text" value={form.adresse} aria-invalid={manque} autoComplete="off"
-          onFocus={() => setOuvert(true)}
-          onChange={(e) => { setOuvert(true); setForm({ ...form, adresse: e.target.value }); }} />
+        <ChampAdresseOfficielle valeur={form.adresse} onChange={(v) => setForm({ ...form, adresse: v })} chercher={sourceAdressesSyndic}
+          minimum={MINIMUM_ADRESSE} chercherAuFocus listeId="fsy-adresses" prefixeOption="fsy-adresse"
+          attributs={{ type: 'text', 'aria-invalid': manque }}
+          apparence={{ enveloppe: { className: 'fsy-adresse' }, champ: { className: '' }, liste: { className: 'fsy-liste' },
+            proposition: { className: 'fsy-proposition', viseeClassName: 'fsy-proposition--visee', texteClassName: 'fsy-proposition-adresse' } }}
+          onChoisir={(a) => setForm({ ...form, adresse: a.voie, codePostal: a.codePostal || form.codePostal, ville: a.commune })} />
       </label>
-      {ouvert && propositions.length > 0 && (
-        <ul className="fsy-liste" aria-label="Adresses proposées">
-          {propositions.map((b, i) => (
-            <li key={`${i}-${b.cle}-${b.commune}`}>
-              <button type="button" className="fsy-proposition" onMouseDown={(e) => e.preventDefault()} onClick={() => {
-                setForm({ ...form, adresse: b.libelle, codePostal: b.codePostal ?? form.codePostal, ville: b.commune });
-                setOuvert(false); setPropositions([]);
-              }}>
-                <span className="fsy-proposition-adresse">{adresseImmeuble(b.libelle, b.codePostal, b.commune)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -2415,6 +2394,9 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-alerte{margin:0;padding:6px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-size:.84rem}
 .fsy-alerte ul{margin:.25rem 0 0;padding-left:1.1rem}
 .fsy-sans-marge{margin:0}
+.fsy-adresse{display:block;min-width:0}
+.fsy-adresse > input{width:100%;box-sizing:border-box}
+.fsy-proposition--visee{background:var(--color-svv-field)}
 .fsy-champ{display:flex;flex-direction:column;gap:.15rem;font-size:.78rem;color:var(--color-svv-muted);min-width:0}
 .fsy-champ input,.fsy-champ select,.fsy-champ textarea{min-height:36px;padding:5px 9px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:.92rem;box-sizing:border-box;width:100%}

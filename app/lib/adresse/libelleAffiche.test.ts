@@ -62,6 +62,8 @@ describe('la commune en casse normale, jamais en capitales', () => {
     expect(adresseAffichee('1 Villa Des Lilas, 92400 COURBEVOIE')).toBe('1 villa des Lilas, 92400 Courbevoie');
     expect(adresseAffichee('18 rue pierre et marie curie, 92800 Puteaux')).toBe('18 rue Pierre et Marie Curie, 92800 Puteaux');
     expect(adresseAffichee('12 rue Baudin')).toBe('12 rue Baudin');
+    expect(adresseAffichee('12 Rue de la Paix 75002 Paris')).toBe('12 rue de la Paix, 75002 Paris');
+    expect(adresseAffichee('1 Villa Des Lilas 92400 COURBEVOIE')).toBe('1 villa des Lilas, 92400 Courbevoie');
     expect(communeAffichee(null)).toBe('');
   });
 });

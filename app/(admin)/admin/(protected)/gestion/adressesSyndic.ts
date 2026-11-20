@@ -1,6 +1,7 @@
 'use client';
 
-import { adressesDepuisApi, urlApiAdresse, type AdresseBan } from '../../../../lib/gestion/syndics';
+import { adresseSansIdentifiant, sourceBan, type AdresseOfficielle, type ChercherAdresses } from '../../../../components/adresse/adresseOfficielle';
+import type { AdresseBan } from '../../../../lib/gestion/syndics';
 
 /**
  * ══ 🔴 LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — LES ADRESSES PROPOSÉES À LA FICHE SYNDIC ══════════════════
@@ -9,7 +10,7 @@ import { adressesDepuisApi, urlApiAdresse, type AdresseBan } from '../../../../l
  * adresse.data.gouv.fr déjà utilisée dans l'application — pas de nouveau service). Garde la BAN locale en repli si
  * l'API ne répond pas. » Même chose pour « + Ajouter une copropriété » hors portefeuille.
  *
- *   ① l'API Adresse, depuis le navigateur — exactement comme `ChampAdresseBan` (fiches de l'annuaire) ;
+ *   ① l'API Adresse, depuis le navigateur — la SOURCE UNIQUE (`sourceBan`, Arno, 20/11/2026, lot 7a) ;
  *   ② si elle échoue, ne répond pas en 3 s, ou rend une erreur : la BAN LOCALE (`/api/admin/gestion/syndics/adresses`,
  *      137 communes d'Île-de-France, code postal déduit).
  *
@@ -18,25 +19,14 @@ import { adressesDepuisApi, urlApiAdresse, type AdresseBan } from '../../../../l
  */
 const DELAI_API_MS = 3000;
 
-export type SourceAdresses = 'api' | 'ban_locale';
+/** ② la BAN locale, au format unique (sans identifiant : elle ne le rend pas). */
+const banLocale: ChercherAdresses = async (q, signal) => {
+  const r = await fetch(`/api/admin/gestion/syndics/adresses?q=${encodeURIComponent(q)}`, { cache: 'no-store', signal });
+  const j = (await r.json()) as { adresses?: AdresseBan[] };
+  return (j.adresses ?? []).map((a) => adresseSansIdentifiant({ voie: a.libelle, codePostal: a.codePostal, commune: a.commune }));
+};
 
-export async function chercherAdresses(q: string, signal?: AbortSignal):
-Promise<{ adresses: AdresseBan[]; source: SourceAdresses }> {
-  try {
-    const minuteur = new AbortController();
-    const t = setTimeout(() => minuteur.abort(), DELAI_API_MS);
-    signal?.addEventListener('abort', () => minuteur.abort());
-    try {
-      const r = await fetch(urlApiAdresse(q), { signal: minuteur.signal });
-      if (!r.ok) throw new Error(`API Adresse : ${r.status}`);
-      return { adresses: adressesDepuisApi(await r.json()), source: 'api' };
-    } finally {
-      clearTimeout(t);
-    }
-  } catch (e) {
-    if (signal?.aborted) throw e;
-    const r = await fetch(`/api/admin/gestion/syndics/adresses?q=${encodeURIComponent(q)}`, { cache: 'no-store', signal });
-    const j = (await r.json()) as { adresses?: AdresseBan[] };
-    return { adresses: j.adresses ?? [], source: 'ban_locale' };
-  }
-}
+/** LA SOURCE DES ADRESSES DU SYNDIC : l'API Adresse, la BAN locale en repli. */
+export const sourceAdressesSyndic: ChercherAdresses = sourceBan({ limite: 7, repli: banLocale, delaiApi: DELAI_API_MS });
+
+export type { AdresseOfficielle };

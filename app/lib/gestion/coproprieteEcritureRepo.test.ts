@@ -44,6 +44,9 @@ vi.mock('./regroupementCoproprietesRepo', () => ({ noterRetraitDAdressesRegroupe
 // 🔴 (20/11/2026, journal des syndics) les gestes du journal, observés (leur écriture est éprouvée dans journalSyndicCopro.test.ts)
 const js = vi.hoisted(() => ({ gestes: [] as Record<string, unknown>[] }));
 vi.mock('./journalSyndicCopro', () => ({ journaliserLienSyndic: async (_q: unknown, g: Record<string, unknown>) => { js.gestes.push(g); } }));
+// 🔴 (lot 7a) le format unique : l'identifiant BAN d'une nouvelle adresse retrouvée avec certitude (aucun par défaut : les épreuves d'avant)
+const bn = vi.hoisted(() => ({ ids: {} as Record<string, string> }));
+vi.mock('../adresse/adresseSaisieRepo', () => ({ banIdDeLAdresse: async (a: { libelle: string }) => bn.ids[a.libelle] ?? null }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -65,6 +68,19 @@ describe('la saisie', () => {
 });
 
 describe('l’enregistrement', () => {
+  it('🔴 (lot 7a) une NOUVELLE adresse retrouvée avec certitude reçoit son identifiant BAN ; non retrouvée : aucun (pas de supposition)', async () => {
+    h.fiche = FICHE({ declaree: false, id: null, syndic: null });
+    bn.ids = { '12 rue des Lilas': '75111_5555_00012' };
+    expect((await enregistrerCopropriete(SAISIE, AUTEUR)).ok).toBe(true);
+    const ins = ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'))!;
+    expect(ins.s).toContain('cree_par_libelle, ban_id)');
+    expect(ins.p).toEqual(['7', '12 rue des lilas', '12 rue des Lilas', '75011', 'Paris', 2, AUTEUR.libelle, '75111_5555_00012']);
+    h.sql = []; bn.ids = {};
+    expect((await enregistrerCopropriete(SAISIE, AUTEUR)).ok).toBe(true);
+    const sans = ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'))!;
+    expect(sans.s).not.toContain('ban_id');
+    expect(sans.p).toHaveLength(7);
+  });
   it('🔴 une adresse déjà à une AUTRE copropriété : refus, et RIEN n’est écrit', async () => {
     h.coproDeCle['12 rue des lilas'] = { id: '9', cle: 'autre copro', libelle: 'Autre copro' };
     expect(await enregistrerCopropriete(SAISIE, AUTEUR)).toEqual({ ok: false, motif: '12 rue des Lilas, 75011 Paris est déjà une adresse de la copropriété « Autre copro ».' });

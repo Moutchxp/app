@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ChampAdresseBan } from '../gestion/ChampAdresseBan';
+import { communeAffichee } from '../../../../lib/adresse/libelleAffiche';
 import { FenetreCarte } from '../gestion/CartesPersonnes';
 import { MENTION_ETRANGER, MENTION_HORS_LISTE } from '../../../../lib/gestion/adresseSaisie';
 import { codePostalFormate, communeEnSaisie } from '../../../../lib/gestion/saisieFiche';
@@ -82,7 +83,7 @@ export function AdresseBien({ valeur, onChange, etiquette, manque, id, nom = 'ad
             <input className="loc-adr-auto" value={valeur.codePostal} readOnly tabIndex={-1} aria-readonly="true"
               title="Rempli par le choix de l’adresse dans la liste" data-adresse-cp /></label>
           <label className="loc-champ">Commune
-            <input className="loc-adr-auto" value={valeur.commune} readOnly tabIndex={-1} aria-readonly="true"
+            <input className="loc-adr-auto" value={communeAffichee(valeur.commune)} readOnly tabIndex={-1} aria-readonly="true"
               title="Remplie par le choix de l’adresse dans la liste" data-adresse-commune /></label>
         </>
       ) : (

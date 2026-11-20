@@ -9,6 +9,7 @@ import type { PreavisAffiche } from './preavis';
 import { colonneExisteMemo } from './sondeLocation';
 import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
 import { controlerAdresseBienExistant, ecrireNatureAdresseBien, type ControleAdresseBien } from './adresseBienRepo';
+import { enregistrerAdresseSaisieDuLot } from '../adresse/adresseSaisieRepo';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { normaliserTexte } from '../gestion/annuaire';
@@ -481,7 +482,11 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
         WHERE id = $1`,
       [lotId, c.categorie, c.etage, c.porte, c.numLotCopro, c.surfaceCarrezM2, c.surfaceExterieureM2,
         ...(app ? [c.adresse, c.codePostal, c.commune, normaliserTexte([c.adresse, c.commune].filter((x) => x !== null).join(' '))] : [])]);
-    if (app && adr.ecrire) await ecrireNatureAdresseBien(q, lotId, adr.nature);
+    if (app && adr.ecrire) {
+      await ecrireNatureAdresseBien(q, lotId, adr.nature);
+      // 🔴🔴 (Arno, 20/11/2026, lot 7a) l'adresse changée, au format unique (le rapprochement précédent est fermé, jamais effacé)
+      await enregistrerAdresseSaisieDuLot(q, lotId, { adresse: c.adresse, codePostal: c.codePostal, commune: c.commune, nature: adr.nature }, auteur);
+    }
     if (avecNom) await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [lotId, nomAnnexe]);
     // L'annotation d'une annexe (migration 379) : envoyée par la carte qui la montre.
     if (avecAnnotation) await q('UPDATE gestion_annuaire_lot SET annotation = $2 WHERE id = $1', [lotId, annotationPropre(brut.annotation)]);
@@ -492,7 +497,7 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
 }
 
 /** Crée un bien (logement ou annexe) dans l'application, rattaché à son propriétaire. Clé « app-… ». */
-async function insererBien(q: RequeteTx, o: { proprietaireId: number; champs: ChampsBien; categorie: Categorie }): Promise<number> {
+async function insererBien(q: RequeteTx, o: { proprietaireId: number; champs: ChampsBien; categorie: Categorie }, auteur: Auteur): Promise<number> {
   const { rows: p } = await q<{ nom: string }>('SELECT nom_complet AS nom FROM gestion_annuaire_proprietaire WHERE id = $1', [o.proprietaireId]);
   if (p[0] === undefined) throw new RefusLocation('Ce propriétaire n’existe plus dans l’annuaire.');
   const c = o.champs;
@@ -505,7 +510,10 @@ async function insererBien(q: RequeteTx, o: { proprietaireId: number; champs: Ch
     [cle, o.proprietaireId, p[0].nom, c.adresse, c.codePostal, c.commune,
       normaliserTexte([c.adresse, c.commune].filter((x) => x !== null).join(' ')),
       o.categorie, c.etage, c.porte, c.numLotCopro, c.surfaceCarrezM2, c.surfaceExterieureM2]);
-  return Number(rows[0].id);
+  const id = Number(rows[0].id);
+  // 🔴🔴 (Arno, 20/11/2026, lot 7a) l'adresse du bien, au format unique (rapprochement « saisie »), là où la table le permet
+  await enregistrerAdresseSaisieDuLot(q, id, { adresse: c.adresse, codePostal: c.codePostal, commune: c.commune }, auteur);
+  return id;
 }
 
 class RefusLocation extends Error {}
@@ -539,7 +547,7 @@ export async function ajouterAnnexe(parentId: number, brut: Record<string, unkno
       const id = await insererBien(q, {
         proprietaireId: Number(parent.proprietaire_id), categorie,
         champs: { ...v.valeurs, adresse: parent.adresse, codePostal: parent.code_postal, commune: parent.commune },
-      });
+      }, auteur);
       await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, parentId, auteur.libelle]);
       if (avecNom && categorie === 'autre') await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [id, String(brut.nomAnnexe).trim().slice(0, 80)]);
       await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_ajoutee', null, `annexe ${id} (${categorie})`,
@@ -644,7 +652,7 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
   const pid = proprietaireId;
   try {
     return await withTransaction(async (q) => {
-      const logementId = await insererBien(q, { proprietaireId: pid, champs: logement.valeurs, categorie: categorieLogement });
+      const logementId = await insererBien(q, { proprietaireId: pid, champs: logement.valeurs, categorie: categorieLogement }, auteur);
       if (avec374) {
         await q(`UPDATE gestion_annuaire_lot SET dpe_classe = $2, dpe_date = $3::date${avec382 ? ', dpe_non_soumis = $4' : ''} WHERE id = $1`,
           [logementId, dpe.valeurs.dpeClasse, dpe.valeurs.dpeDate, ...(avec382 ? [dpe.valeurs.dpeNonSoumis === true ? true : null] : [])]);
@@ -653,7 +661,7 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
         const id = await insererBien(q, {
           proprietaireId: pid, categorie: a.categorie !== null && a.categorie !== 'logement' ? a.categorie : 'cave',
           champs: { ...a, adresse: logement.valeurs.adresse, codePostal: logement.valeurs.codePostal, commune: logement.valeurs.commune },
-        });
+        }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
       }
       const mandat = typeof o.proprietaire.numeroMandat === 'string' && o.proprietaire.numeroMandat.trim() !== ''

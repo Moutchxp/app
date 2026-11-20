@@ -64,7 +64,7 @@ describe('🔴 « Nouveau bien » : l’adresse se CHOISIT dans la liste', () =>
     expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).readOnly).toBe(true);
     await choisirAdresseBan(champAdresse(), '3 Rue du Port', '92400', 'Courbevoie');
     expect(cp.value).toBe('92400');
-    expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).value).toBe('COURBEVOIE');
+    expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).value).toBe('Courbevoie'); // 🔴 (lot 7a) le RAPPEL de la commune : la fonction d'affichage unique (la valeur enregistrée reste celle d'avant)
     // les lectures nourries par l'adresse (ici : l'AG connue de la copropriété) partent avec l'adresse CHOISIE — comme avant
     await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
     expect(lectures).toContain(`/api/admin/location?agPourAdresse=${encodeURIComponent('3 Rue du Port')}`);
@@ -132,7 +132,7 @@ describe('🔴 « Nouveau bien » : l’adresse se CHOISIT dans la liste', () =>
     const bloc = q('[data-adresse-bien="annexe-0"]')!;
     expect((bloc.querySelector('[data-adresse-cp]') as HTMLInputElement).readOnly).toBe(true);
     await choisirAdresseBan(bloc.querySelector('.cab-enveloppe input') as HTMLInputElement, '9 Impasse Lointaine', '92400', 'Courbevoie');
-    expect((bloc.querySelector('[data-adresse-commune]') as HTMLInputElement).value).toBe('COURBEVOIE');
+    expect((bloc.querySelector('[data-adresse-commune]') as HTMLInputElement).value).toBe('Courbevoie'); // 🔴 (lot 7a) le RAPPEL de la commune : la fonction d'affichage unique (la valeur enregistrée reste celle d'avant)
     // l'adresse du bien, tapée sans être choisie, arrête l'envoi avant l'annexe
     expect(q('[data-adresse-bien="bien"] [data-adresse-cp]')).not.toBeNull();
   });

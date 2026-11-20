@@ -36,6 +36,7 @@ import { ajouterPvsDuBien, pvsDuBienValides } from './agCoproprieteRepo';
 import { validerDigicodesBien } from '../gestion/digicodes';
 import { natureAdresseDisponible } from '../gestion/adresseSaisieRepo';
 import { controlerAdresseBien, type ControleAdresseBien } from './adresseBienRepo';
+import { enregistrerAdresseSaisieDuLot } from '../adresse/adresseSaisieRepo';
 import { decisionAvantEcriture, ecrireMandatDuBien, MandatAConfirmer, MandatRefuse, mandatParBienDisponible } from './mandatParBienRepo';
 import type { IssueMandatAConfirmer } from './mandatParBien';
 
@@ -283,6 +284,9 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
        VALUES ($1, $2, $3, $4, $5) ON CONFLICT (lot_id, proprietaire_id) WHERE jusqu_a IS NULL DO NOTHING`,
       [id, p.id, rang + 1, auteur.id, auteur.libelle]);
   }
+  // 🔴🔴 (Arno, 20/11/2026, lot 7a) l'adresse du bien, au format unique (rapprochement « saisie »), là où la table le permet
+  await enregistrerAdresseSaisieDuLot(q, id, { adresse: c.adresse, codePostal: c.codePostal, commune: c.commune,
+    nature: typeof complet?.adresse_nature === 'string' ? complet.adresse_nature : null }, auteur);
   return id;
 }
 

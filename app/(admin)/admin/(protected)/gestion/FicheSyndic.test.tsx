@@ -629,9 +629,10 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     await attendre(300);
     expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr/search/?q=8%20Rue%20Denfert%20Rochereau'))).toBe(true);
     expect(propositions()).toEqual([
-      '8 Rue Denfert-Rochereau, 92100 Boulogne-Billancourt',
-      '8 Rue Denfert-Rochereau, 69004 Lyon',
-      '8 Avenue Denfert-Rochereau, 75014 Paris',
+      // 🔴 (lot 7a) la liste passe par la fonction d'affichage unique
+      '8 rue Denfert-Rochereau, 92100 Boulogne-Billancourt',
+      '8 rue Denfert-Rochereau, 69004 Lyon',
+      '8 avenue Denfert-Rochereau, 75014 Paris',
     ]);
   });
 
@@ -640,7 +641,7 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     await act(async () => { rue().focus(); });
     await attendre(300);
     await cliquer(document.querySelector('.fsy-proposition') as Element);
-    expect([rue().value, champ('Code postal *').value, champ('Ville *').value]).toEqual(['8 Rue Denfert-Rochereau', '92100', 'Boulogne-Billancourt']);
+    expect([rue().value, champ('Code postal *').value, champ('Ville *').value]).toEqual(['8 rue Denfert-Rochereau', '92100', 'Boulogne-Billancourt']); // le champ après le choix : la fonction d'affichage unique
     await taper(champ('Ville *'), 'Boulogne');
     expect(champ('Ville *').value).toBe('Boulogne');
   });
@@ -666,7 +667,7 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr'))).toBe(false);
     await taper(rue(), '8 Rue Denfert Rochereau');
     await attendre(300);
-    expect(propositions()[0]).toBe('8 Rue Denfert-Rochereau, 92100 Boulogne-Billancourt');
+    expect(propositions()[0]).toBe('8 rue Denfert-Rochereau, 92100 Boulogne-Billancourt');
   });
 
   // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : le repli éprouvé sur « + Ajouter une copropriété » (retiré).
@@ -676,7 +677,7 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     await taper(champ('Adresse (rue) *'), '7 rue test');
     await attendre(300);
     expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/syndics/adresses?q=7%20rue%20test'))).toBe(true);
-    expect(propositions().join()).toContain('7 Rue Test, 92400 Courbevoie');
+    expect(propositions().join()).toContain('7 rue Test, 92400 Courbevoie');
   });
 
   it('la casse des noms EN QUITTANT le champ : « jean-pierre » → « Jean-Pierre », « lefèvre » → « LEFÈVRE »', async () => {

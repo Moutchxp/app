@@ -218,10 +218,11 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — la réponse de l\'AP
   });
   it('la fiche syndic passe par l\'API Adresse avec la BAN locale en repli, et ne réécrit aucun contact à la lecture', () => {
     const client = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/adressesSyndic.ts'), 'utf8');
-    expect(client).toContain('fetch(urlApiAdresse(q)');
+    // 🔴 (lot 7a) la source UNIQUE (`sourceBan`), la BAN locale en repli
+    expect(client).toContain('sourceBan({ limite: 7, repli: banLocale');
     expect(client).toContain('/api/admin/gestion/syndics/adresses?q=');
     expect(readFileSync(join(__dirname, 'syndics.ts'), 'utf8')).toContain("export const URL_API_ADRESSE = 'https://api-adresse.data.gouv.fr/search/';");
-    expect(readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/ChampAdresseBan.tsx'), 'utf8')).toContain('https://api-adresse.data.gouv.fr/search/');
+    expect(readFileSync(join(__dirname, '../../components/adresse/adresseOfficielle.ts'), 'utf8')).toContain('https://api-adresse.data.gouv.fr/search/');
   });
 });
 
@@ -1330,7 +1331,7 @@ describe('les écrans', () => {
     }
     // LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — CE QU'IL DISAIT AVANT : la fiche appelait la BAN locale seule et
     // jamais l'API en ligne. Arno demande la source des fiches (API Adresse), la BAN locale en repli : `chercherAdresses`.
-    expect(src).toContain('chercherAdresses(');
+    expect(src).toContain('chercher={sourceAdressesSyndic}'); // 🔴 (lot 7a) par le composant unique
   });
 });
 

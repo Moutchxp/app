@@ -8,6 +8,7 @@ import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, immeubleDuBien, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { adressesIndependantes, avertissementsDesBatiments, batimentDe, connusPourAdresse, nomenclatureDeLAdresse, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
+import { banIdDeLAdresse } from '../adresse/adresseSaisieRepo';
 import { noterRetraitDAdressesRegroupees } from './regroupementCoproprietesRepo';
 import { journaliserLienSyndic } from './journalSyndicCopro';
 import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
@@ -125,6 +126,12 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   if (sansNumero !== undefined) return { ok: false, motif: motifSansNumero(adresseImmeuble(sansNumero.libelle, sansNumero.codePostal || null, sansNumero.commune || null)) };
   const verif = await verifierAdresses(nouvelles);
   if (!verif.ok) return verif;
+  // 🔴🔴 (Arno, 20/11/2026, lot 7a) le format unique : l'identifiant BAN de chaque NOUVELLE adresse, seulement si le module la retrouve avec certitude
+  const banDesNouvelles = new Map<string, string>();
+  for (const a of nouvelles) {
+    const ban = await banIdDeLAdresse({ libelle: a.libelle, codePostal: a.codePostal || null, commune: a.commune || null });
+    if (ban !== null) banDesNouvelles.set(cleImmeuble(a.libelle), ban);
+  }
   if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
   // 🔴 le conflit de parcelle (la même règle que la fiche syndic) : une copropriété qui reçoit un syndic, une adresse de la parcelle gérée par un
   // AUTRE syndic — refusé sans la confirmation de l'écran, AVANT toute écriture ; confirmé, il est noté plus bas
@@ -205,8 +212,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     const deja = new Set(enCours.map((x) => x.cle));
     for (const [cle, a] of voulues) {
       if (deja.has(cle)) continue;
-      await q(`INSERT INTO gestion_copropriete_adresse (copropriete_id, cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [coproId, cle, a.libelle, nul(a.codePostal), nul(a.commune), auteur.id, auteur.libelle]);
+      const ban = banDesNouvelles.get(cle);
+      await q(`INSERT INTO gestion_copropriete_adresse (copropriete_id, cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle${ban === undefined ? '' : ', ban_id'}) VALUES ($1, $2, $3, $4, $5, $6, $7${ban === undefined ? '' : ', $8'})`,
+        [coproId, cle, a.libelle, nul(a.codePostal), nul(a.commune), auteur.id, auteur.libelle, ...(ban === undefined ? [] : [ban])]);
     }
     // ── ④ les habitants et gardiens ──────────────────────────────────────────────────────────────────────────────────────────────────────
     if (s.contacts !== null) await enregistrerContactsImmeuble(q, { immeuble: lue.libelle, contacts: s.contacts }, auteur);

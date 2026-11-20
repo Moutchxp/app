@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
  * et (PL-C) le BASCULEMENT au clic LOCAL + les deux boutons d'écriture explicites, sans monter le DOM.
  */
 const SRC = readFileSync(fileURLToPath(new URL('./PlancheParcelles.tsx', import.meta.url)), 'utf8');
+const UNIQUE = readFileSync(fileURLToPath(new URL('../../../../components/adresse/ChampAdresseOfficielle.tsx', import.meta.url)), 'utf8'); // 🔴 lot 7a — le composant unique
 const ROUTE = readFileSync(fileURLToPath(new URL('../../../../(admin)/api/admin/permis/planche/route.ts', import.meta.url)), 'utf8');
 
 describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () => {
@@ -31,15 +32,16 @@ describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () =>
   it('PL-D §1 : IMPASSE → auto-centrage adresse ; provenance EXTERNE explicite (API nationale, jamais « à la main »)', () => {
     expect(SRC).toContain("data.parcellesChoix.length === 0 && mode === 'empreinte'"); // impasse → bascule auto en adresse
     expect(SRC).toContain("setMode('adresse')");
-    expect(SRC).toContain('aria-label="Adresse à localiser"');
+    expect(SRC).toContain("'aria-label': 'Adresse à localiser'"); // 🔴 lot 7a : le champ est le composant unique, qui reçoit l'aria-label
     expect(SRC).toContain('API nationale (Base Adresse Nationale'); // provenance EXPLICITE du point externe
   });
   it('PL-E : AUTOCOMPLÉTION débounce 300 ms, ≥3 car., requête ANNULABLE (anti-réponse-périmée)', () => {
     expect(SRC).toContain('&suggest=');            // endpoint d'autocomplétion
-    expect(SRC).toContain('setTimeout('); expect(SRC).toContain('300');
-    expect(SRC).toContain('q.length < 3');         // seuil 3 caractères
-    expect(SRC).toContain('new AbortController()'); expect(SRC).toContain('ctrl.abort()'); // race : réponse périmée coupée
-    expect(SRC).toContain("(e as Error).name !== 'AbortError'"); // une requête annulée est ignorée
+    // 🔴 lot 7a : le délai, le seuil et l'annulation sont ceux du COMPOSANT UNIQUE ; la planche en fixe les valeurs
+    expect(SRC).toContain('delai={300}'); expect(SRC).toContain('minimum={3}');
+    expect(UNIQUE).toContain('setTimeout('); expect(UNIQUE).toContain('v.trim().length < minimum');
+    expect(UNIQUE).toContain('new AbortController()'); expect(UNIQUE).toContain('enVol.current?.abort()'); // race : réponse périmée coupée
+    expect(UNIQUE).toContain('if (ctrl.signal.aborted) return;'); // une requête annulée est ignorée
   });
   it('PL-E : CHOISIR une suggestion → point déjà connu (px/py), AUCUN 2e géocodage', () => {
     expect(SRC).toContain('choisirSuggestion');
@@ -47,9 +49,9 @@ describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () =>
     expect(SRC).toContain('adresseCommittee.point'); // si point connu → px/py ; sinon texte à géocoder
   });
   it('PL-E : CLAVIER (flèches/Entrée/Échap) + a11y combobox/listbox/option + tactile', () => {
-    expect(SRC).toContain("e.key === 'ArrowDown'"); expect(SRC).toContain("e.key === 'ArrowUp'");
-    expect(SRC).toContain("e.key === 'Enter'"); expect(SRC).toContain("e.key === 'Escape'");
-    expect(SRC).toContain('role="combobox"'); expect(SRC).toContain('role="listbox"'); expect(SRC).toContain('role="option"');
+    expect(UNIQUE).toContain("e.key === 'ArrowDown'"); expect(UNIQUE).toContain("e.key === 'ArrowUp'");
+    expect(SRC).toContain("e.key === 'Enter'"); expect(UNIQUE).toContain("e.key === 'Escape'"); // Entrée sans proposition visée : « Localiser »
+    expect(UNIQUE).toContain('role="combobox"'); expect(UNIQUE).toContain('role="listbox"'); expect(UNIQUE).toContain('role="option"');
     expect(SRC).toContain('minHeight: 34'); // cibles tactiles
   });
   it('PL-E : aucune suggestion ou API muette → le DIRE, garder la saisie libre (repli PL-D)', () => {

@@ -49,7 +49,7 @@ describe('🔴 une adresse française se CHOISIT dans la liste', () => {
     expect([$('[data-adresse-cp]').readOnly, $('[data-adresse-commune]').readOnly]).toEqual([true, true]);
     await taper($('#cp-adresse'), '3 rue des Lil');
     await choisirSuggestion();
-    expect([$('#cp-adresse').value, $('[data-adresse-cp]').value, $('[data-adresse-commune]').value]).toEqual(['3 Rue des Lilas', '75011', 'PARIS']);
+    expect([$('#cp-adresse').value, $('[data-adresse-cp]').value, $('[data-adresse-commune]').value]).toEqual(['3 rue des Lilas', '75011', 'Paris']); // 🔴 (lot 7a) le champ et le rappel de la commune : la fonction d'affichage unique (la valeur enregistrée reste celle de la BAN)
     await enregistrer();
     expect(envoye).toMatchObject({ adresse: '3 Rue des Lilas', codePostal: '75011', commune: 'PARIS', adresseSaisie: { nature: 'liste', pays: null } });
   });

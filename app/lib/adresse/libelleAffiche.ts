@@ -62,7 +62,11 @@ export function communeAffichee(commune: string | null | undefined): string {
 /** UNE ADRESSE COMPLÈTE À L'ÉCRAN (« 1 Villa Des Lilas, 92400 COURBEVOIE » → « 1 villa des Lilas, 92400 Courbevoie »). PUR. */
 export function adresseAffichee(texte: string): string {
   const i = texte.lastIndexOf(',');
-  if (i < 0) return voieAffichee(texte);
+  if (i < 0) {
+    // le libellé de la BAN, sans virgule (« 12 Rue de la Paix 75002 Paris ») : coupé au code postal
+    const m = /^(.*\S)\s+(\d{5})\s+(\S.*)$/.exec(texte.trim());
+    return m === null ? voieAffichee(texte) : `${voieAffichee(m[1])}, ${m[2]} ${communeAffichee(m[3])}`;
+  }
   const fin = texte.slice(i + 1).trim();
   const m = /^(\d{4,5})\s+(.+)$/.exec(fin);
   return `${voieAffichee(texte.slice(0, i))}, ${m === null ? communeAffichee(fin) : `${m[1]} ${communeAffichee(m[2])}`}`;

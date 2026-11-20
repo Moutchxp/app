@@ -139,7 +139,7 @@ describe('🔴 UN seul « Modifier » mène à la page « Ajouter un nouveau bie
     expect(champ('Surface Carrez/Boutin m²').value).toBe('61,8');
     expect(champ('Surface habitable (m²)').value).toBe('64,2');
     expect(champ('Code postal').value).toBe('92400');
-    expect(champ('Commune').value).toBe('COURBEVOIE');
+    expect(champ('Commune').value).toBe('Courbevoie'); // 🔴 (lot 7a) le RAPPEL de la commune : la fonction d'affichage unique (la valeur enregistrée reste celle d'avant)
     // (17/11/2026) le bâtiment attend la lecture des digicodes (« chargement… ») : on attend qu'elle ait répondu
     for (let i = 0; i < 40 && q('[data-digicodes-charge]') !== null; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 25)); });
     expect(champ('Bâtiment').value).toBe('B');
@@ -424,7 +424,7 @@ describe('🔴 « Modifier le bien » : l’adresse se choisit dans la liste ; u
     expect(posts()).toHaveLength(0);
     await clic([...document.querySelectorAll('.mis-boite button')].at(-1) as HTMLElement);
     await choisirAdresseBan(q('[data-adresse-bien="bien"] .cab-enveloppe input') as HTMLInputElement, '17 Rue Carle Hebert', '92400', 'Courbevoie');
-    expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).value).toBe('COURBEVOIE');
+    expect((q('[data-adresse-bien="bien"] [data-adresse-commune]') as HTMLInputElement).value).toBe('Courbevoie'); // 🔴 (lot 7a) le RAPPEL de la commune : la fonction d'affichage unique (la valeur enregistrée reste celle d'avant)
     await clic('[data-valider-modification]');
     await clic('[data-confirmer-modification]');
     const saisie = JSON.parse(String(posts()[0].init?.body)).saisie;

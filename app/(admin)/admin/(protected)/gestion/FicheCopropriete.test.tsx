@@ -102,7 +102,7 @@ describe('la fiche', () => {
     expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(2);
     await act(async () => { await new Promise((r) => setTimeout(r, 300)); }); await calmer();
     await act(async () => { $('.cab-prop').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
-    expect(champ.value).toBe('3 Impasse Neuve, 75011 PARIS'); // la commune en majuscules, comme partout où ce champ sert
+    expect(champ.value).toBe('3 impasse Neuve, 75011 Paris'); // 🔴 (lot 7a) le champ après le choix : la fonction d'affichage unique
     expect(document.querySelector('[data-fcp-adresse-introuvable]')).toBeNull();
     await clic('[data-fcp-ajouter-adresse]');
     expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.textContent!.replace(/ ×$/, '').split(',')[0])).toEqual(['12 rue des Lilas', '14 rue des Lilas', '3 Impasse Neuve']);

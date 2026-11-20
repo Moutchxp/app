@@ -90,7 +90,8 @@ describe('🔴 les propositions viennent au fil de la frappe', () => {
     expect(propositions()).toEqual([]);
     await attendreLesPropositions();
     expect(propositions()).toHaveLength(3);
-    expect(propositions()[0]).toContain('1 Rue de l’Essai');
+    // 🔴 (lot 7a) la liste passe par la fonction d'affichage unique ; la valeur enregistrée reste celle de la BAN (voir plus bas)
+    expect(propositions()[0]).toBe('1 rue de l’Essai, 92800 Puteaux');
   });
 
   /** ⚠️ EN DESSOUS DE TROIS LETTRES, une requête rendrait la moitié de la France : on n'interroge pas. */

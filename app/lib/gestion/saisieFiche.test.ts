@@ -223,7 +223,9 @@ describe('🔴🔴 une proposition de la Base Adresse Nationale remplit TROIS ch
  * vérifiée” discret. »
  */
 describe('🔴 la saisie libre n’est jamais bloquée', () => {
-  const champ = readFileSync('app/(admin)/admin/(protected)/gestion/ChampAdresseBan.tsx', 'utf8');
+  // 🔴 (lot 7a) ChampAdresseBan est un emballage du composant UNIQUE : les règles se lisent sur les deux, et sur la source unique
+  const champ = ['app/(admin)/admin/(protected)/gestion/ChampAdresseBan.tsx', 'app/components/adresse/ChampAdresseOfficielle.tsx', 'app/components/adresse/adresseOfficielle.ts']
+    .map((f) => readFileSync(f, 'utf8')).join('\n');
 
   it('🔴 le champ est un simple `input` : rien n’y est refusé', () => {
     expect(champ).toContain('onChange={(e) => taper(e.target.value)}');
@@ -234,7 +236,7 @@ describe('🔴 la saisie libre n’est jamais bloquée', () => {
   /** 🔴 LA MENTION INFORME, ELLE N'INTERDIT PAS — et elle ne clignote pas à chaque lettre. */
   it('🔴 la mention « adresse non vérifiée » ne paraît que hors recherche', () => {
     expect(MOT_ADRESSE_NON_VERIFIEE).toBe('adresse non vérifiée');
-    expect(champ).toContain('{!verifiee && !ouvert && !cherche && valeur.trim() !== \'\' && (');
+    expect(champ).toContain('{!verifiee && !ouvert && !cherche && valeur.trim() !== \'\' && <span className="cab-note">');
   });
 
   /** 🔴 LA BAN MUETTE VIDE LA LISTE, SANS UN MOT : ce n'est pas une panne de la fiche. */

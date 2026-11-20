@@ -3081,7 +3081,7 @@ describe('⑤-terdecies 🔴🔴 la pastille de droite : le « + », la fiche, o
     expect(valeur('Prénom')).toBe('Sophie');
     expect(valeur('Adresse')).toBe('2 rue Mars et Roty');
     expect(valeur('Code postal')).toBe('92800');
-    expect(valeur('Commune')).toBe('PUTEAUX');
+    expect(valeur('Commune')).toBe('Puteaux'); // 🔴 (lot 7a) le rappel de la commune : la fonction d'affichage unique (enregistrée telle qu'avant)
     /* Le téléphone est la première ligne de la liste, et l'adresse e-mail la seconde. */
     const coords = [...carte.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
     expect(coords.map((c) => c.value)).toEqual(['01 41 21 43 31', 'assureur@fictif.test']);

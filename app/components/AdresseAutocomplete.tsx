@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { ChampAdresseOfficielle } from "./adresse/ChampAdresseOfficielle";
+import { sourceBan, type AdresseOfficielle } from "./adresse/adresseOfficielle";
 
 // `citycode` = code INSEE de la commune (fourni par la BAN) — capté pour l'analytique M2 (grain commune,
 // jamais la position exacte). Optionnel : une suggestion sans citycode reste valide.
 export type SuggestionAdresse = { label: string; lat: number; lon: number; citycode?: string };
 
-// Champ d'adresse avec autocomplétion BAN (api-adresse.data.gouv.fr), AUTONOME et sans aucune
-// logique carte. Le débounce (300 ms), l'appel réseau et la liste de suggestions sont internes.
-// L'intégrateur reçoit la saisie via onChange et la sélection via onSelect (où il place ses
-// éventuels effets de bord — recentrage carte, anti-reverse, etc.).
+// Champ d'adresse avec autocomplétion BAN, AUTONOME et sans aucune logique carte. L'intégrateur reçoit la saisie
+// via onChange et la sélection via onSelect (où il place ses éventuels effets de bord — recentrage carte, anti-reverse, etc.).
+// 🔴🔴 (Arno, 20/11/2026, lot 7a : « une seule auto-complétion, une seule écriture partout ») un EMBALLAGE du composant
+// unique (`adresse/ChampAdresseOfficielle`) : la source, la liste et l'affichage sont les siens ; ici ne restent
+// l'habillage du site public, le délai (300 ms), les 5 résultats, la liste qui reste ouverte, et la suggestion rendue
+// telle qu'avant (libellé de la BAN, coordonnées, INSEE). Seules les propositions avec coordonnées sont gardées (la carte en dépend).
 type Props = {
   value: string;
   onChange: (val: string) => void;
@@ -17,79 +20,31 @@ type Props = {
   placeholder?: string;
 };
 
+const RESULTATS = 5;
+const avecCoordonnees = sourceBan({ limite: RESULTATS });
+const chercher = async (q: string, signal: AbortSignal): Promise<AdresseOfficielle[]> =>
+  (await avecCoordonnees(q, signal)).filter((a) => a.libelle !== "" && a.lat !== null && a.lon !== null);
+
 export function AdresseAutocomplete({ value, onChange, onSelect, placeholder }: Props) {
-  const [suggestions, setSuggestions] = useState<SuggestionAdresse[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  async function fetchSuggestions(q: string) {
-    type BanFeature = { properties?: { label?: string; citycode?: string }; geometry?: { coordinates?: number[] } };
-    try {
-      const res = await fetch(
-        `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5&autocomplete=1`,
-      );
-      const data: { features?: BanFeature[] } = await res.json();
-      const items: SuggestionAdresse[] = [];
-      for (const f of data.features ?? []) {
-        const label = f.properties?.label ?? "";
-        const lon = f.geometry?.coordinates?.[0];
-        const lat = f.geometry?.coordinates?.[1];
-        if (label !== "" && typeof lat === "number" && typeof lon === "number") {
-          items.push({ label, lat, lon, citycode: f.properties?.citycode });
-        }
-      }
-      setSuggestions(items);
-    } catch {
-      setSuggestions([]);
-    }
-  }
-
-  function handleChange(e: ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value;
-    onChange(v); // champ contrôlé côté intégrateur
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (v.trim().length < 3) {
-      setSuggestions([]);
-      return;
-    }
-    timerRef.current = setTimeout(() => fetchSuggestions(v), 300); // débounce ~300 ms
-  }
-
-  function handleSelect(s: SuggestionAdresse) {
-    setSuggestions([]); // vide la liste locale ; aucun effet de bord carte ici
-    onSelect(s);
-  }
-
-  // Purge du timer de débounce au démontage.
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
   return (
-    <>
-      <input
-        value={value}
-        onChange={handleChange}
-        className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
-        placeholder={placeholder}
-      />
-      {suggestions.length > 0 && (
-        <ul className="mt-2 mb-3 overflow-hidden rounded-xl border border-svv-line bg-white shadow-sm divide-y divide-svv-line">
-          {suggestions.map((s, i) => (
-            <li key={i}>
-              <button
-                type="button"
-                onClick={() => handleSelect(s)}
-                className="w-full px-3 py-2 text-left text-sm text-svv-ink active:bg-svv-field"
-              >
-                {s.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
+    <ChampAdresseOfficielle
+      valeur={value}
+      onChange={onChange}
+      exemple={placeholder}
+      limite={RESULTATS}
+      delai={300}
+      fermerAuDepart={false}
+      chercher={chercher}
+      listeId="adresse-propositions"
+      prefixeOption="adresse-proposition"
+      onChoisir={(a) => onSelect({ label: a.libelle, lat: a.lat ?? 0, lon: a.lon ?? 0, ...(a.insee ? { citycode: a.insee } : {}) })}
+      apparence={{
+        enveloppe: { className: "contents" },
+        champ: { className: "w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none" },
+        liste: { className: "mt-2 mb-3 overflow-hidden rounded-xl border border-svv-line bg-white shadow-sm divide-y divide-svv-line" },
+        proposition: { className: "w-full px-3 py-2 text-left text-sm text-svv-ink active:bg-svv-field", viseeClassName: "bg-svv-field" },
+      }}
+    />
   );
 }
 

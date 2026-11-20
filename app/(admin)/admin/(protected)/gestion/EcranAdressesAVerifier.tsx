@@ -119,7 +119,7 @@ export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: R
         {ouvertSur(e, 'autre') && (
           <div className="eav-panneau" data-eav-panneau-autre>
             <label className="eav-champ" htmlFor={`${idAutre}-${e.cle}`}><span>Rechercher l’adresse, puis la choisir dans la liste</span></label>
-            <ChampAdresseBan id={`${idAutre}-${e.cle}`} valeur={autre} verifiee={autreChoisie !== null} exemple="ex. 30 rue de Longchamp, 92200 Neuilly-sur-Seine" etiquetteAffichee={choixAffiche}
+            <ChampAdresseBan id={`${idAutre}-${e.cle}`} valeur={autre} verifiee={autreChoisie !== null} exemple="ex. 30 rue de Longchamp, 92200 Neuilly-sur-Seine"
               onChange={(v) => { setAutre(v); setAutreChoisie(null); }} onChoisir={(a) => { setAutre(choixAffiche(a)); setAutreChoisie(a); }} />
             <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={autreChoisie === null || occupe}
               onClick={() => autreChoisie && confirmer({ e, geste: 'autre', corps: { action: 'geste', geste: 'autre', cle: e.cle, adresse: autreChoisie }, adresses: [choixAffiche(autreChoisie)] })} data-eav-autre-utiliser>Utiliser cette adresse</button>

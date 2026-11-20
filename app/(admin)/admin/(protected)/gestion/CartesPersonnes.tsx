@@ -19,6 +19,7 @@ import {
   communeEnSaisie, ficheFormatee, mentionCreation, nomAfficheFormate, nomEnSaisie, nomFormate,
   prenomEnSaisie, prenomFormate,
 } from '../../../../lib/gestion/saisieFiche';
+import { communeAffichee } from '../../../../lib/adresse/libelleAffiche';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from './ChampAdresseBan';
 import { mentionAdresse, MENTION_ETRANGER, MENTION_HORS_LISTE, TITRE_SANS_NUMERO_PERSONNE, texteSansNumeroPersonne, type MetaAdresse, type NatureAdresse } from '../../../../lib/gestion/adresseSaisie';
 import { adresseSansNumero } from '../../../../lib/gestion/copropriete';
@@ -1136,7 +1137,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
             </label>
             <label className="cp-duo-part">
               <span className="cp-champ-mot">Commune</span>
-              <input className="cp-saisie cp-saisie--auto" value={commune} readOnly tabIndex={-1} aria-readonly="true"
+              <input className="cp-saisie cp-saisie--auto" value={communeAffichee(commune)} readOnly tabIndex={-1} aria-readonly="true"
                 title="Remplie par le choix de l’adresse dans la liste" data-adresse-commune />
               {manqueDe('commune')}
             </label>

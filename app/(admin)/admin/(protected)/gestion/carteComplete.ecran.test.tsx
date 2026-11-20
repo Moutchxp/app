@@ -119,7 +119,7 @@ for (const [ou, monter] of Object.entries(MONTAGES)) {
       // (lot 2) l'adresse se CHOISIT dans les suggestions : rue, code postal et commune arrivent ensemble
       await act(async () => { await new Promise((r) => setTimeout(r, 320)); }); await calmer();
       await act(async () => { (form.querySelector('.cab-prop') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }); await calmer();
-      expect([(form.querySelector('[data-adresse-cp]') as HTMLInputElement).value, (form.querySelector('[data-adresse-commune]') as HTMLInputElement).value]).toEqual(['75012', 'PARIS']);
+      expect([(form.querySelector('[data-adresse-cp]') as HTMLInputElement).value, (form.querySelector('[data-adresse-commune]') as HTMLInputElement).value]).toEqual(['75012', 'Paris']); // 🔴 (lot 7a) le RAPPEL de la commune : la fonction d'affichage unique (la valeur enregistrée reste celle d'avant)
       const valeurs = [...form.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
       await act(async () => { poser(valeurs[valeurs.length - 1], 'leroy@fictif.test'); });
       // Le téléphone n'est PLUS bloquant pour une carte suivante : « Enregistrer » est cliquable.

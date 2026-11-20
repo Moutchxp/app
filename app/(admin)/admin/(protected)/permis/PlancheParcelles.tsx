@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode, SuggestionAdresse } from '../../../../lib/permis/plancheParcellesRepo';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
+import { ChampAdresseOfficielle } from '../../../../components/adresse/ChampAdresseOfficielle'; // 🔴 lot 7a — le composant unique d'auto-complétion
+import { adresseSansIdentifiant, type ChercherAdresses } from '../../../../components/adresse/adresseOfficielle';
 import { comparerParcelles, bilanComparatif, type RefParcelle, type LigneParcelleComparee } from '../../../../lib/permis/comparatifParcelles'; // PL-COMPARATIF — constat PUR déclaré ↔ sélectionné (aucune écriture)
 import { etatPlancheTitre, type EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // PL-ÉTAT — état de titre (validée / modifiée-non-validée / écart) remonté à la ligne de fonction, SANS déplier
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée) ; P3 — partage donnée /emprise
@@ -75,9 +77,8 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   //   rayon) : la sélection est donc PARTAGÉE entre la vue intégrée et le plein écran, une seule source de vérité, sans duplication.
   const [schemaPleinEcran, setSchemaPleinEcran] = useState(false);
   const [adresseSaisie, setAdresseSaisie] = useState('');           // PL-D — champ de saisie d'adresse (mode adresse)
+  const [fermerListe, setFermerListe] = useState(0);                 // « Localiser » / « revenir » : la liste du champ se ferme
   const [adresseCommittee, setAdresseCommittee] = useState<{ texte: string; point: { x: number; y: number } | null } | null>(null); // committée : suggestion CHOISIE (point) ou texte libre
-  const [suggestions, setSuggestions] = useState<SuggestionAdresse[] | null>(null); // PL-E — autocomplétion ; null = pas de recherche, [] = aucune
-  const [sugActive, setSugActive] = useState(-1);                    // index de la suggestion surlignée (clavier)
   const [autoAdresse, setAutoAdresse] = useState<number | null>(null); // dossier pour lequel on a déjà auto-basculé en mode adresse (impasse)
 
   useEffect(() => {
@@ -101,24 +102,15 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     return () => { annule = true; };
   }, [dossierId, rayon, mode, idu, adresseCommittee]);
 
-  // PL-E — AUTOCOMPLÉTION : ≥ 3 caractères, débounce 300 ms, requête ANNULABLE (AbortController) → une réponse périmée qui arrive en
-  //   retard est IGNORÉE (le cleanup abort() la coupe). On ne re-suggère pas si le champ = exactement le libellé déjà choisi.
-  useEffect(() => {
-    const q = adresseSaisie.trim();
-    // (A) AUTOCOMPLÉTION DISPONIBLE QUEL QUE SOIT LE MODE (décision Arno) : la recherche de suggestions ne dépend plus du mode de centrage
-    //   (l'endpoint /suggest est un simple géocodage). Le CENTRAGE reste piloté par le mode 'adresse', fixé à la validation (cf. handlers).
-    if (q.length < 3 || (adresseCommittee && adresseCommittee.texte === adresseSaisie)) return; // pas de fetch (le vidage se fait dans onChange)
-    const ctrl = new AbortController();
-    const t = setTimeout(() => { void (async () => {
-      try {
-        const res = await fetch(`/api/admin/permis/planche?dossierId=${dossierId}&suggest=${encodeURIComponent(q)}`, { signal: ctrl.signal });
-        if (!res.ok) { setSuggestions([]); return; }
-        const j = (await res.json()) as { suggestions?: SuggestionAdresse[] };
-        setSuggestions(j.suggestions ?? []); setSugActive(-1);
-      } catch (e) { if ((e as Error).name !== 'AbortError') setSuggestions([]); } // AbortError = requête annulée (frappe rapide) → on ignore
-    })(); }, 300);
-    return () => { clearTimeout(t); ctrl.abort(); };
-  }, [adresseSaisie, dossierId, adresseCommittee]);
+  // PL-E — AUTOCOMPLÉTION : ≥ 3 caractères, débounce 300 ms, requête ANNULABLE (le composant unique annule à chaque frappe : une réponse périmée
+  //   est ignorée). 🔴🔴 (Arno, 20/11/2026, lot 7a) le champ est le COMPOSANT UNIQUE ; la SOURCE reste la suggestion du serveur (`&suggest=`, biais
+  //   de commune, point déjà connu en Lambert-93), passée au format unique. On ne re-suggère pas un libellé déjà choisi (rien n'est cherché sans frappe).
+  const sourcePlanche = useMemo<ChercherAdresses>(() => async (q, signal) => {
+    const res = await fetch(`/api/admin/permis/planche?dossierId=${dossierId}&suggest=${encodeURIComponent(q.trim())}`, { signal });
+    if (!res.ok) return [];
+    const j = (await res.json()) as { suggestions?: SuggestionAdresse[] };
+    return (j.suggestions ?? []).map((x) => adresseSansIdentifiant({ voie: x.label, libelle: x.label, x: x.x, y: x.y }));
+  }, [dossierId]);
 
   // Init/reset de la COMPOSITION locale, PENDANT LE RENDU (React idiome « ajuster l'état quand une clé change » ; pas d'effet →
   //   pas de rendu en cascade). Clé = dossier + état de VALIDATION (PAS le rayon) → changer le rayon/centrage NE perd PAS une
@@ -192,16 +184,11 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   // PL-E — choisir une suggestion (point DÉJÀ connu → aucun 2e appel) ; localiser du texte libre ; revenir à l'adresse du permis.
   // (A) — valider une adresse la CENTRE dessus en passant par le mode 'adresse' EXISTANT (setMode) : la logique de centrage (fetch/query)
   //   n'est pas touchée, on la déclenche simplement. La saisie reste disponible quel que soit le mode ; c'est la validation qui centre.
-  const choisirSuggestion = (s: SuggestionAdresse) => { setAdresseSaisie(s.label); setAdresseCommittee({ texte: s.label, point: { x: s.x, y: s.y } }); setMode('adresse'); setSuggestions(null); setSugActive(-1); };
-  const localiserTexte = () => { const t = adresseSaisie.trim(); if (t) { setAdresseCommittee({ texte: t, point: null }); setMode('adresse'); } setSuggestions(null); setSugActive(-1); };
-  const revenirAdressePermis = () => { setAdresseSaisie(''); setAdresseCommittee(null); setSuggestions(null); setSugActive(-1); };
-  const clavierAdresse = (e: React.KeyboardEvent) => {
-    const n = suggestions?.length ?? 0;
-    if (e.key === 'ArrowDown' && n) { e.preventDefault(); setSugActive((i) => (i + 1) % n); }
-    else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setSugActive((i) => (i - 1 + n) % n); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (suggestions && sugActive >= 0 && sugActive < n) choisirSuggestion(suggestions[sugActive]); else localiserTexte(); }
-    else if (e.key === 'Escape') { setSuggestions(null); setSugActive(-1); }
-  };
+  const choisirSuggestion = (s: SuggestionAdresse) => { setAdresseSaisie(s.label); setAdresseCommittee({ texte: s.label, point: { x: s.x, y: s.y } }); setMode('adresse'); };
+  const localiserTexte = () => { const t = adresseSaisie.trim(); if (t) { setAdresseCommittee({ texte: t, point: null }); setMode('adresse'); } setFermerListe((n) => n + 1); };
+  const revenirAdressePermis = () => { setAdresseSaisie(''); setAdresseCommittee(null); setFermerListe((n) => n + 1); };
+  // les flèches, Entrée sur une proposition visée et Échap sont ceux du composant unique ; Entrée SANS proposition visée : « Localiser » le texte libre
+  const clavierAdresse = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); localiserTexte(); } };
 
   if (etat === 'chargement' && !data) return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }} aria-live="polite">Chargement de la planche cadastrale…</div>;
   if (etat === 'erreur' || !data) return <div className="svv-card" role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Planche cadastrale indisponible.</div>;
@@ -260,22 +247,19 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
           libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
       <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
-            <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
-              placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
-              value={adresseSaisie} onChange={(e) => { const v = e.target.value; setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); if (v.trim().length < 3) { setSuggestions(null); setSugActive(-1); } }} onKeyDown={clavierAdresse}
-              style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
-            {suggestions && suggestions.length > 0 && (
-              <ul id={`sug-${dossierId}`} role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' }}>
-                {suggestions.map((s, i) => (
-                  <li key={s.label} role="option" aria-selected={i === sugActive} onMouseEnter={() => setSugActive(i)}
-                    onMouseDown={(e) => { e.preventDefault(); choisirSuggestion(s); }} // mouseDown : choisit AVANT un éventuel blur
-                    style={{ padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: i === sugActive ? 'var(--color-svv-field)' : 'transparent', borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>{s.label}</li>
-                ))}
-              </ul>
-            )}
-            {suggestions && suggestions.length === 0 && adresseSaisie.trim().length >= 3 && (
-              <div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>
-            )}
+            <ChampAdresseOfficielle valeur={adresseSaisie} chercher={sourcePlanche} delai={300} minimum={3} limite={20} fermerSur={fermerListe}
+              listeId={`sug-${dossierId}`} prefixeOption={`sug-${dossierId}`} exemple={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
+              attributs={{ 'aria-label': 'Adresse à localiser' }}
+              onChange={(v) => { setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); }} onClavier={clavierAdresse}
+              onChoisir={(a) => choisirSuggestion({ label: a.libelle, x: a.x ?? 0, y: a.y ?? 0 })}
+              siVide={<div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>}
+              apparence={{
+                enveloppe: { className: '', style: { display: 'contents' } },
+                champ: { className: '', style: { width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' } },
+                liste: { className: '', style: { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' } },
+                ligne: { style: (i) => ({ borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }) },
+                proposition: { className: '', viseeClassName: '', style: (_i, visee) => ({ display: 'block', width: '100%', textAlign: 'left', border: 0, font: 'inherit', color: 'var(--color-svv-ink)', padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: visee ? 'var(--color-svv-field)' : 'transparent' }) },
+              }} />
           </div>
           <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
           {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
