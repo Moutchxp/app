@@ -2,7 +2,7 @@ import { query, type RequeteTx } from '../db/client';
 import { normaliserTexte } from '../gestion/annuaire';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import type { Auteur } from '../gestion/gestes';
-import { analyserAdresse, deciderRapprochement, indiceNormalise, type CandidatBan, type Rapprochement } from './rapprochementBan';
+import { analyserAdresse, deciderRapprochement, indiceNormalise, motifPlage, type CandidatBan, type Rapprochement } from './rapprochementBan';
 
 /**
  * ══ 🔴🔴 LE SEUL ACCÈS SERVEUR À LA BASE ADRESSE NATIONALE POUR RAPPROCHER UNE ADRESSE (Arno, 20/11/2026, « Adresse officielle BAN », lot 2). IMPUR. ══
@@ -18,10 +18,29 @@ import { analyserAdresse, deciderRapprochement, indiceNormalise, type CandidatBa
 /** La règle de normalisation des noms de commune, en SQL : la même que `normaliserTexte` (casse, accents, tirets, apostrophes). */
 const NORMALISE = (col: string): string => `btrim(regexp_replace(lower(unaccent(${col})), '[^a-z0-9]+', ' ', 'g'))`;
 
-/** Le code INSEE de la commune d'une adresse écrite, ou `null` (absente de la BAN locale, ou ambiguë). LECTURE SEULE. */
+/** La table de correspondance code postal → INSEE (migration 507, « Base officielle des codes postaux ») est-elle là et remplie ? */
+export async function correspondanceCodesPostaux(q: RequeteTx | typeof query = query): Promise<boolean> {
+  if (!(await colonneExisteMemo('code_postal_insee', 'insee'))) return false;
+  const { rows } = await q<{ n: number }>('SELECT count(*)::int AS n FROM (SELECT 1 FROM code_postal_insee LIMIT 1) x');
+  return (rows[0]?.n ?? 0) > 0;
+}
+
+/**
+ * Le code INSEE de la commune d'une adresse écrite, ou `null` (absente de la BAN locale, ou ambiguë). LECTURE SEULE.
+ * 🔴 (lot 3 bis, Arno 20/11/2026) PAR LE CODE POSTAL, jamais par le libellé saisi (« 92110 CLICHY LA GARENNE » est Clichy, INSEE 92024, que la BAN nomme
+ * « Clichy ») : Paris par l'arrondissement ; ailleurs par la table de correspondance code postal → INSEE quand elle est chargée (le nom écrit ne sert
+ * qu'à départager un code postal partagé par plusieurs communes). Sans cette table, le repli d'avant : le nom, contrôlé par le département.
+ */
 export async function inseeDeLaCommune(commune: string | null, codePostal: string | null, q: RequeteTx | typeof query = query): Promise<string | null> {
   const cp = (codePostal ?? '').trim();
   if (/^75\d{3}$/.test(cp)) return cp === '75116' ? '75116' : `751${cp.slice(3)}`;
+  if (/^\d{5}$/.test(cp) && await correspondanceCodesPostaux(q)) {
+    const { rows } = await q<{ insee: string; nom: string }>('SELECT DISTINCT insee, nom_commune AS nom FROM code_postal_insee WHERE code_postal = $1 ORDER BY insee', [cp]);
+    if (rows.length === 1) return rows[0].insee;
+    const nomEcrit = normaliserTexte(commune);
+    const parNom = rows.filter((r) => normaliserTexte(r.nom) === nomEcrit);
+    if (rows.length > 1) return parNom.length === 1 ? parNom[0].insee : null;
+  }
   const nom = normaliserTexte(commune);
   if (nom === '') return null;
   const { rows } = await q<{ insee: string }>(
@@ -75,7 +94,11 @@ export async function rapprocherBien(l: { immeuble: string | null; adresse: stri
     if (meilleur === null || RANG[r.statut] > RANG[meilleur.statut]) meilleur = r;
     if (r.statut === 'certain') break;
   }
-  return meilleur ?? await rapprocherAdresse({ texte: '', codePostal: l.codePostal, commune: l.commune }, q);
+  const issue = meilleur ?? await rapprocherAdresse({ texte: '', codePostal: l.codePostal, commune: l.commune }, q);
+  // 🔴 (lot 3 bis, Arno 20/11/2026) une PLAGE de numéros dans l'« Immeuble » OU dans l'adresse : à vérifier, quel que soit le champ qui a rapproché
+  const plages = textes.map((t) => analyserAdresse(t, l.commune)).filter((a) => a.plage).map((a) => a.plageTexte);
+  if (plages.length > 0 && issue.statut === 'certain') return { ...issue, statut: 'a_verifier', motif: `${motifPlage([...new Set(plages)].join(', '))}.` };
+  return issue;
 }
 
 // ══ L'ENREGISTREMENT (migration 505) — historisé : la ligne en cours est FERMÉE (`fin`), jamais modifiée ni effacée ═══════════════════════════════════

@@ -70,6 +70,24 @@ describe('les règles', () => {
     expect(decider('3 place du Ratrait', ratrait).ban?.id).toBe('92073_8121_00003');
     expect(decider('3 du Ratrait', ratrait).statut).toBe('a_verifier');
   });
+  it('🔴 (lot 3 bis) sous 0,50 de ressemblance : AUCUNE proposition — à vérifier, « aucune proposition fiable » (cas témoins du rapport du 20/11)', () => {
+    const vide = (texte: string, candidats: CandidatBan[], commune = 'Courbevoie') => {
+      const r = decider(texte, candidats, commune);
+      expect([r.statut, r.ban, r.propositions, r.motif]).toEqual(['a_verifier', null, [], 'Aucune proposition fiable (ressemblance de la voie sous 0.50).']);
+    };
+    vide('12ter Rue De L\'Abreuvoir', [ban('92026_4400_00012_ter', 12, 'Square De L\'Hôtel De Ville', 'ter')]);
+    vide('6 allée Hector Berlioz', [{ ...ban('95252_1220_00006', 6, 'Rue Victor Basch'), insee: '95252', commune: 'Franconville' }], 'Franconville');
+    // le 99 rue Jean-Pierre Timbaud (Paris 11e) : la BAN locale du 11e est incomplète (410 adresses), la rue n'y est pas — rien d'absurde n'est proposé
+    vide('99 rue Jean Pierre Timbaud', [{ ...ban('75111_3420_00099', 99, 'Rue du Faubourg Saint-Antoine'), insee: '75111', commune: 'Paris 11e Arrondissement' }], 'Paris');
+    // une proposition à 0,50 ou plus reste proposée, à vérifier (« Pierre Curie » → « pierre et marie curie », 0,76)
+    const curie = decider('18 Rue Pierre Curie', [ban('92062_7500_00018', 18, 'rue pierre et marie curie')]);
+    expect([curie.statut, curie.propositions.length]).toEqual(['a_verifier', 1]);
+  });
+  it('🔴 (lot 3 bis) le motif d’une plage cite ses numéros', () => {
+    expect(analyserAdresse('33-35 rue Pergolèse 75116 Paris').plageTexte).toBe('33-35');
+    expect(analyserAdresse('126 - 128 rue de Villiers').plageTexte).toBe('126-128');
+    expect(decider('28-32 avenue Marceau', [ban('92026_6120_00028', 28, 'Avenue Marceau')]).motif).toBe('Plage de numéros (28-32) : un immeuble à plusieurs adresses officielles, à vérifier par un humain.');
+  });
   it('introuvables : sans numéro, commune absente de la BAN locale, aucune adresse à ce numéro', () => {
     expect(decider('rue camille deschanel', AU_54)).toMatchObject({ statut: 'introuvable', motif: expect.stringMatching(/sans numéro/) });
     expect(decider('12 Rue Louis Beaunier', null, 'Melun')).toMatchObject({ statut: 'introuvable', motif: expect.stringMatching(/Commune absente/) });

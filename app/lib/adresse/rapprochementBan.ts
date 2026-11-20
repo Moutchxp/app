@@ -18,6 +18,9 @@ import { normaliserTexte } from '../gestion/annuaire';
  *     n'est pas la « Place du Ratrait », qui porte le même numéro).
  */
 export const SEUIL_CERTAIN = 0.9;
+/** 🔴 (lot 3 bis, Arno 20/11/2026) sous cette ressemblance de voie, AUCUNE adresse officielle n'est proposée (« 12ter rue de l'Abreuvoir » ne devient pas
+ *  « 12 ter Square de l'Hôtel de Ville ») : à vérifier, sans proposition. */
+export const SEUIL_PROPOSITION = 0.5;
 
 /** Les types de voie, leurs abréviations et les fautes courantes → le type écrit en entier. LA table de toute l'application. */
 export const TYPES_VOIE: Readonly<Record<string, string>> = {
@@ -56,6 +59,8 @@ export interface AdresseAnalysee {
   indice: string | null;
   /** « 28-32 avenue Marceau » : plusieurs numéros — toujours à vérifier */
   plage: boolean;
+  /** les numéros de la plage, tels qu'écrits (« 28-32 ») ; `null` : pas de plage */
+  plageTexte: string | null;
   /** le type de voie écrit (en entier) ; `null` : absent */
   type: string | null;
   /** le nom de la voie comparé : sans type, sans petits mots, abréviations développées */
@@ -77,19 +82,21 @@ export function voieComparable(nom: string | null | undefined): { type: string |
 /** L'ANALYSE d'une adresse écrite (et de la commune connue, pour l'ôter en fin de texte). PUR. */
 export function analyserAdresse(texte: string | null | undefined, commune: string | null = null): AdresseAnalysee {
   const brut = nettoyerEcriture(texte);
-  const plage = /^\s*\d+\s*(?:bis|ter|[bt])?\s*(?:-|–|à|au)\s*\d+/i.test(brut);
+  const mPlage = /^\s*(\d+\s*(?:bis|ter|[bt])?)\s*(?:-|–|à|au)\s*(\d+\s*(?:bis|ter|[bt])?)\b/i.exec(brut);
+  const plage = mPlage !== null;
+  const plageTexte = mPlage === null ? null : `${mPlage[1].replace(/\s+/g, ' ').trim()}-${mPlage[2].replace(/\s+/g, ' ').trim()}`;
   let mots = normaliserTexte(brut).split(' ').filter((m) => m !== '');
   const c = normaliserTexte(commune).split(' ').filter((m) => m !== '');
   if (c.length > 0 && mots.length > c.length + 1 && c.every((m, i) => mots[mots.length - c.length + i] === m)) mots = mots.slice(0, mots.length - c.length);
   const colle = /^(\d+)(bis|ter|quater|[btq])$/.exec(mots[0] ?? ''); // « 12bis » → « 12 bis »
   if (colle !== null) mots.splice(0, 1, colle[1], colle[2]);
-  if (!/^\d+$/.test(mots[0] ?? '')) return { numero: null, indice: null, plage: false, type: null, voie: voieComparable(mots.join(' ')).voie };
+  if (!/^\d+$/.test(mots[0] ?? '')) return { numero: null, indice: null, plage: false, plageTexte: null, type: null, voie: voieComparable(mots.join(' ')).voie };
   const numero = Number(mots.shift());
   let indice: string | null = null;
   if (mots.length > 1 && INDICES[mots[0]] !== undefined) indice = INDICES[mots.shift()!];
   if (plage) while (/^\d+$/.test(mots[0] ?? '') || INDICES[mots[0] ?? ''] !== undefined) mots.shift(); // « 28 32 avenue … » → « avenue … »
   const v = voieComparable(mots.join(' '));
-  return { numero, indice, plage, type: v.type, voie: v.voie };
+  return { numero, indice, plage, plageTexte, type: v.type, voie: v.voie };
 }
 
 /** Les trigrammes d'un texte, exactement comme `pg_trgm` : chaque mot (lettres et chiffres) encadré « ␣␣mot␣ ». PUR. */
@@ -138,6 +145,10 @@ export interface Rapprochement {
   analyse: AdresseAnalysee;
 }
 
+/** Le motif d'une plage, avec ses numéros. PUR. */
+export const motifPlage = (plageTexte: string | null): string =>
+  `Plage de numéros${plageTexte ? ` (${plageTexte})` : ''} : un immeuble à plusieurs adresses officielles, à vérifier par un humain`;
+
 /** Le libellé officiel : « 54 Avenue Puvis De Chavannes », « 12 ter Rue des Pavillons ». PUR. */
 export const libelleOfficiel = (c: Pick<CandidatBan, 'numero' | 'suffixe' | 'nomVoie'>): string =>
   [String(c.numero), indiceNormalise(c.suffixe) ?? '', c.nomVoie.trim()].filter((x) => x !== '').join(' ');
@@ -161,11 +172,16 @@ export function deciderRapprochement(analyse: AdresseAnalysee, candidats: readon
   // un candidat de type CONTRADICTOIRE (« Place du Ratrait » pour « 3 rue du Ratrait ») passe après ceux qui ne contredisent pas l'écriture, et
   // ne rend jamais l'adresse ambiguë ; sans type écrit, deux voies homonymes de types différents restent à vérifier
   }).sort((a, b) => Number(a.typeContradictoire) - Number(b.typeContradictoire) || b.score - a.score || a.id.localeCompare(b.id)).slice(0, 3);
-  const [p] = propositions;
-  const second = propositions.slice(1).find((x) => !x.typeContradictoire);
-  if (analyse.plage) return sans('a_verifier', 'Plage de numéros : un immeuble à plusieurs adresses officielles, à vérifier par un humain.', propositions);
-  if (p.score < SEUIL_CERTAIN) return sans('a_verifier', `Nom de voie trop différent (ressemblance ${p.score.toFixed(2)} sous ${SEUIL_CERTAIN.toFixed(2)}).`, propositions);
-  if (p.typeContradictoire) return sans('a_verifier', 'Type de voie contradictoire (par exemple « avenue » contre « rue ») : jamais certain.', propositions);
-  if (second !== undefined && second.score >= SEUIL_CERTAIN) return sans('a_verifier', 'Plusieurs adresses officielles se ressemblent : on ne choisit pas au hasard.', propositions);
-  return { statut: 'certain', motif: `Même commune, même numéro et même indice ; voie ressemblante à ${p.score.toFixed(2)}.`, ban: p, score: p.score, propositions, analyse };
+  // 🔴 (lot 3 bis) sous 0,50, rien n'est proposé : une proposition absurde induirait en erreur celui qui vérifie
+  const fiables = propositions.filter((x) => x.score >= SEUIL_PROPOSITION);
+  if (fiables.length === 0) {
+    return sans('a_verifier', `Aucune proposition fiable (ressemblance de la voie sous ${SEUIL_PROPOSITION.toFixed(2)})${analyse.plage ? ` ; ${motifPlage(analyse.plageTexte)}` : ''}.`, []);
+  }
+  const [p] = fiables;
+  const second = fiables.slice(1).find((x) => !x.typeContradictoire);
+  if (analyse.plage) return sans('a_verifier', `${motifPlage(analyse.plageTexte)}.`, fiables);
+  if (p.score < SEUIL_CERTAIN) return sans('a_verifier', `Nom de voie trop différent (ressemblance ${p.score.toFixed(2)} sous ${SEUIL_CERTAIN.toFixed(2)}).`, fiables);
+  if (p.typeContradictoire) return sans('a_verifier', 'Type de voie contradictoire (par exemple « avenue » contre « rue ») : jamais certain.', fiables);
+  if (second !== undefined && second.score >= SEUIL_CERTAIN) return sans('a_verifier', 'Plusieurs adresses officielles se ressemblent : on ne choisit pas au hasard.', fiables);
+  return { statut: 'certain', motif: `Même commune, même numéro et même indice ; voie ressemblante à ${p.score.toFixed(2)}.`, ban: p, score: p.score, propositions: fiables, analyse };
 }
