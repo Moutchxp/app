@@ -20,7 +20,7 @@ import {
   type FicheLocataire, type FicheLot, type FicheProprietaire, type PersonneTrouvee,
 } from '../gestion/annuaireRepo';
 import { analyserTerme } from '../gestion/annuaireRecherche';
-import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire, type StatutLocataire } from '../gestion/historiqueBien';
+import { occupationsDesSorties, sortiePrevue, sqlSortiesDuLocataire, statutLocataire, type StatutLocataire } from '../gestion/historiqueBien';
 import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
@@ -106,7 +106,9 @@ export interface PageListe<T> { lignes: T[]; total: number; page: number }
 export interface LigneProprietaire { id: number; nom: string; biens: number; numeroMandat: string | null }
 export interface LigneLocataire { id: number; nom: string; enPlace: boolean; logement: string | null; lotId: number | null;
   /** 🔴 Arno (18/11/2026) — les trois états de la fiche (`statutLocataire`) : en place, en préavis, ancien. */
-  statut: StatutLocataire }
+  statut: StatutLocataire;
+  /** 🔴 (20/11/2026) en place, sortie À VENIR : sa date */
+  sortiePrevue?: string | null }
 
 export async function listeProprietaires(page: number, filtre = '', anciens = false): Promise<PageListe<LigneProprietaire>> {
   const vivante = (await sqlPersonneVivante('p')) + await filtreSortie('p', anciens);
@@ -149,7 +151,8 @@ export async function listeLocataires(page: number, filtre = '', anciens = false
   return {
     lignes: rows.map((r) => {
       const statut = statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.id))] !== undefined);
-      return { id: Number(r.id), nom: r.nom, enPlace: statut !== 'ancien', statut, logement: r.logement, lotId: num(r.lot_id) };
+      // 🔴 (Arno, 20/11/2026) « en place, sortie prévue le … » : la règle unique
+      return { id: Number(r.id), nom: r.nom, enPlace: statut !== 'ancien', statut, sortiePrevue: sortiePrevue(occupationsDesSorties(r.sorties)), logement: r.logement, lotId: num(r.lot_id) };
     }),
     total: rows[0]?.total ?? 0, page,
   };

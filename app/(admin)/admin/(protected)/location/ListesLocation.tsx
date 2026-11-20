@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { EtatLecture, liste, useLecture } from './commun';
 import { LIBELLE_CATEGORIE, resumeBien, type BienLocation } from '../../../../lib/location/locationBien';
 import type { LigneLocataire, LigneProprietaire, PageListe } from '../../../../lib/location/locationRepo';
-import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
+import { MOT_STATUT_LOCATAIRE, motSortiePrevue, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
 
 /** La couleur de chaque état d'un locataire (`loc-pastille--…`, jetons du thème) : vert, bleu, violet. */
 const PASTILLE_STATUT: Record<StatutLocataire, string> = { en_place: 'vert', en_preavis: 'bleu', ancien: 'violet' };
@@ -52,7 +52,7 @@ export function ListeLocation({ sorte }: { sorte: SorteListe }) {
                   <span>
                     <a href={`/admin/location/locataire/${l.id}`}>{l.nom}</a>{' '}
                     {/* 🔴 Arno (18/11/2026) — les trois états de la fiche, mêmes mots, mêmes couleurs (vert, bleu, violet). */}
-                    <span className={`loc-pastille loc-pastille--${PASTILLE_STATUT[l.statut]}`} data-statut={l.statut}>{MOT_STATUT_LOCATAIRE[l.statut]}</span>
+                    <span className={`loc-pastille loc-pastille--${PASTILLE_STATUT[l.statut]}`} data-statut={l.statut}>{MOT_STATUT_LOCATAIRE[l.statut]}{l.statut !== 'ancien' && l.sortiePrevue ? `, ${motSortiePrevue(l.sortiePrevue)}` : ''}</span>
                   </span>
                   <span className="loc-muet">{l.logement ?? ''}</span>
                 </li>

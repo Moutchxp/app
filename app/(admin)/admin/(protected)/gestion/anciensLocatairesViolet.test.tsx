@@ -292,7 +292,8 @@ describe('🔴🔴 ④ la capsule « Ancien locataire »', () => {
     expect(ANNUAIRE).toContain(
       '.ann-role-capsule--ancien{color:var(--color-svv-violet);background:var(--color-svv-violet-soft);');
     /* 🔴 LE MOT RESTE : « Ancien locataire », écrit, à côté de la couleur. */
-    expect(ANNUAIRE).toContain("{statut === 'en_place' ? 'Locataire en place' : 'Ancien locataire'}");
+    // 🔴 (Arno, 20/11/2026) le MOT reste ; en place avec une sortie à venir, il la dit (« Locataire en place, sortie prévue le … »)
+    expect(ANNUAIRE).toContain("{statut === 'en_place' ? `Locataire en place${sortiePrevue(f.logements) ? `, ${motSortiePrevue(sortiePrevue(f.logements))}` : ''}` : 'Ancien locataire'}");
   });
 });
 
@@ -302,7 +303,7 @@ describe('🔴🔴 ④ la capsule « Ancien locataire »', () => {
 
 describe('🔴🔴 ⑤ une seule règle ancien/actuel', () => {
   /** 🔴 LA RÈGLE, PRISE AU MOT : « celle de l'encart Parties : date de départ » (Arno). */
-  it('🔴🔴 une date de départ renseignée fait l’ancien locataire, et rien d’autre', () => {
+  it('🔴🔴 une date de départ PASSÉE fait l’ancien locataire, et rien d’autre (règle du 20/11/2026)', () => {
     expect(estAncienLocataire({ sortie: '2024-09-25' })).toBe(true);
     expect(estLocataireEnPlace({ sortie: '2024-09-25' })).toBe(false);
     expect(estAncienLocataire({ sortie: null })).toBe(false);
@@ -310,10 +311,10 @@ describe('🔴🔴 ⑤ une seule règle ancien/actuel', () => {
     /* ⚠️ UNE CHAÎNE VIDE N'EST PAS UNE DATE : le bail court toujours. */
     expect(estAncienLocataire({ sortie: '   ' })).toBe(false);
     /**
-     * ⚠️ UNE SORTIE À VENIR EST UN DÉPART ACTÉ, et c'est délibéré : c'est la règle de l'encart Parties, et elle
-     * ne change personne de bloc. Mesuré le 07/10/2026 : 4 occupations sur 535 portent une sortie future.
+     * 🔴 (Arno, 20/11/2026) la règle a changé : une sortie À VENIR laisse EN PLACE (« sortie prévue le … ») ; seule une sortie passée (le jour même compris) fait l'ancien. Avant (07/10/2026), une sortie à venir valait départ acté : « EMMAIMA Fathi » (sortie WIPPIMMO au 30/11/2026) passait ancien dès le 20/10.
      */
-    expect(estAncienLocataire({ sortie: '2099-01-01' })).toBe(true);
+    expect(estAncienLocataire({ sortie: '2099-01-01' })).toBe(false);
+    expect(estLocataireEnPlace({ sortie: '2099-01-01' })).toBe(true);
   });
 
   /**

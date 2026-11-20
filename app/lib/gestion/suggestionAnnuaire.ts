@@ -1,7 +1,7 @@
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR, lu aussi par la
    fiche propriétaire). */
 import { compterBiensEnGestion } from './bienEnGestion';
-import { MOT_STATUT_LOCATAIRE } from './historiqueBien';
+import { MOT_STATUT_LOCATAIRE, motSortiePrevue } from './historiqueBien';
 
 /**
  * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — LES SUGGESTIONS DE LA BARRE ANNUAIRE ════════════════════════════
@@ -44,6 +44,8 @@ export interface PersonnePourSuggestion {
   autreFicheId: number | null;
   /** 🔴 Arno (18/11/2026) — son rôle de locataire est « en préavis » (`statutLocataire`). Absent = non. */
   preavis?: boolean;
+  /** 🔴 (Arno, 20/11/2026) locataire en place dont la sortie est À VENIR : sa date (« sortie prévue le … ») ; absent = aucune */
+  sortiePrevue?: string | null;
   /**
    * 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — `fin` VOYAGE AVEC CHAQUE BIEN : c'est elle qui dit s'il est encore en
    * gestion, et c'est la MÊME règle que la fiche propriétaire (`bienEnGestion`).
@@ -87,9 +89,10 @@ export interface SuggestionAnnuaire {
  * Le mot d'un rôle, tel qu'il s'affiche. Écrit une seule fois : la liste et le lecteur d'écran le partagent.
  * 🔴 Arno (18/11/2026) — les mots d'un locataire sont ceux des trois états de la fiche (`MOT_STATUT_LOCATAIRE`).
  */
-export function motRoleSuggere(r: RoleSuggere, preavis = false): string {
+export function motRoleSuggere(r: RoleSuggere, preavis = false, sortiePrevue: string | null = null): string {
   if (r === 'proprietaire') return 'Propriétaire';
-  if (r === 'locataire') return MOT_STATUT_LOCATAIRE[preavis ? 'en_preavis' : 'en_place'];
+  // 🔴 (Arno, 20/11/2026) « Locataire, sortie prévue le 30/11/2026 »
+  if (r === 'locataire') return `${MOT_STATUT_LOCATAIRE[preavis ? 'en_preavis' : 'en_place']}${sortiePrevue ? `, ${motSortiePrevue(sortiePrevue)}` : ''}`;
   return MOT_STATUT_LOCATAIRE.ancien;
 }
 
@@ -138,7 +141,7 @@ export function suggestionsAnnuaire(
       nom: p.nomAffiche,
       role,
       ton: role === 'locataire' && p.preavis === true ? 'preavis' : role,
-      mot: motRoleSuggere(role, p.preavis === true),
+      mot: motRoleSuggere(role, p.preavis === true, p.sortiePrevue ?? null),
       lieu: lieuDe(p),
       mention: mentionBiens(p, role),
       fiche,

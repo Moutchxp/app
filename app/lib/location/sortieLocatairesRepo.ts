@@ -14,7 +14,7 @@ import { bailDisponible } from './bailRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { lireCollaborateursPrevenus } from '../gestion/collaborateursPrevenusRepo';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
-import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
+import { occupationsDesSorties, sortiePrevue as sortiePrevueDuLocataire, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
 import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import {
   LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING,
@@ -26,6 +26,9 @@ import {
   type BailLogement, type DonneesMailSortie, type EncartLogement, type LocataireDuBail, type LotEncart, type OccupantTrouve, type SortieEnregistree,
 } from './sortieLocataires';
 import { reintegrerSiComplet } from './regroupementRepo';
+// 🔴 (Arno, 20/11/2026) l'annulation d'une sortie vit dans un module SANS « server-only » : le script de reprise appelle le MÊME geste
+import { annulerSortie, groupeSorti, journaliser } from './annulationSortieRepo';
+export { annulerSortie };
 
 export type { OccupantTrouve };
 
@@ -129,6 +132,8 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
     preavisDateMax: r.preavis_date_max ?? null,
     // 🔴 Arno (18/11/2026) — l'état de la fiche de cette personne : la règle unique (`statutLocataire`).
     statut: statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.locataire_id))] !== undefined),
+    // 🔴 (Arno, 20/11/2026) « en place, sortie prévue le … »
+    sortiePrevue: sortiePrevueDuLocataire(occupationsDesSorties(r.sorties)),
   }));
 }
 
@@ -248,15 +253,6 @@ async function aujourdhui(q: RequeteTx): Promise<string> {
   return rows[0].j;
 }
 
-async function journaliser(q: RequeteTx, o: {
-  entite: 'annuaire' | 'annuaire_lot'; id: number; action: string; avant: string | null; apres: string | null; commentaire: string; auteur: Auteur;
-}): Promise<void> {
-  await q(
-    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [o.entite, o.id, o.action, o.avant, o.apres, o.commentaire, o.auteur.id, o.auteur.libelle]);
-}
-
 export interface SortieFaite {
   bail: BailLogement;
   date: string;
@@ -320,17 +316,6 @@ export async function enregistrerSortie(
   });
 }
 
-/** Lit (FOR UPDATE) un groupe d'occupations sorties ENSEMBLE ; `null` s'il n'est plus cohérent. */
-async function groupeSorti(q: RequeteTx, ids: readonly number[]): Promise<{ sortie: string; entrees: (string | null)[]; lignes: { id: number; locataire_id: number; lot_id: number }[] } | null> {
-  if (ids.length === 0) return null;
-  const { rows } = await q<{ id: string; locataire_id: string; lot_id: string; entree: string | null; sortie: string | null }>(
-    `SELECT id::text, locataire_id::text, lot_id::text, entree::text, sortie::text FROM gestion_annuaire_occupation
-      WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE`, [[...ids]]);
-  if (rows.length !== new Set(ids).size) return null;
-  const dates = new Set(rows.map((r) => r.sortie));
-  if (dates.size !== 1 || rows[0].sortie === null) return null;
-  return { sortie: rows[0].sortie, entrees: rows.map((r) => r.entree), lignes: rows.map((r) => ({ id: Number(r.id), locataire_id: Number(r.locataire_id), lot_id: Number(r.lot_id) })) };
-}
 
 /** CORRIGE LA DATE d'une sortie enregistrée (le groupe entier). Geste dédié, journalisé. */
 export async function corrigerSortie(demande: { occupationIds: readonly number[]; date: unknown }, auteur: Auteur): Promise<IssueSortie<{ date: string }>> {
@@ -353,22 +338,6 @@ export async function corrigerSortie(demande: { occupationIds: readonly number[]
   });
 }
 
-/** ANNULE une sortie enregistrée : les occupations redeviennent en cours (le journal garde la date annulée). */
-export async function annulerSortie(demande: { occupationIds: readonly number[] }, auteur: Auteur): Promise<IssueSortie<{ annulee: string }>> {
-  return withTransaction(async (q) => {
-    const g = await groupeSorti(q, demande.occupationIds);
-    if (g === null) return { etat: 'refus' as const, motif: 'Cette sortie a changé entre-temps : rechargez la page.' };
-    if (await ecrireDateSortie(q, g.lignes.map((l) => l.id), { mode: 'annuler' }) !== g.lignes.length) throw new Error('annulation : une occupation a changé pendant le geste');
-    for (const locataire of new Set(g.lignes.map((l) => l.locataire_id))) {
-      await journaliser(q, {
-        entite: 'annuaire', id: locataire, action: 'location_sortie_annulee', avant: g.sortie, apres: null,
-        commentaire: `sortie du ${g.sortie} annulée — occupation(s) ${g.lignes.map((l) => l.id).join(', ')} de nouveau en cours`, auteur,
-      });
-    }
-    const reintegrations = await reintegrerSiComplet(q, [...new Set(g.lignes.map((l) => l.lot_id))], auteur);
-    return { etat: 'ok' as const, data: { annulee: g.sortie, ...(reintegrations.length > 0 ? { reintegrations } : {}) } };
-  });
-}
 
 // ══ LE MAIL ══════════════════════════════════════════════════════════════════════════════════════════════════════════
 

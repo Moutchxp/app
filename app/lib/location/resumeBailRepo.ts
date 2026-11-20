@@ -1,5 +1,6 @@
 import { query } from '../db/client';
 import { titreLogement } from '../gestion/annuaireRecherche';
+import { estLocataireEnPlace, sortiePrevue } from '../gestion/historiqueBien';
 import { bailDisponible } from './bailRepo';
 import { conditionsParOccupation } from './conditionsEntreeRepo';
 import type { ConditionsEntreeLues, LoyerMensuel } from './conditionsEntree';
@@ -29,6 +30,8 @@ export interface ResumeBail {
     enCours: boolean;
     /** Le bail est terminé : sa date de sortie (la plus tardive de ses occupants). */
     termineLe: string | null;
+    /** 🔴 (Arno, 20/11/2026) le bail est EN COURS mais sa sortie est À VENIR : sa date (« fin prévue le … ») ; null sinon */
+    finPrevue?: string | null;
     entree: string | null;
     bien: { id: number; adresse: string } | null;
     /** Les lots loués par CE locataire dans ce bail (le logement et ses annexes). */
@@ -79,9 +82,11 @@ export async function resumeBailDuLocataire(locataireId: number): Promise<Resume
        FROM gestion_annuaire_lot lo WHERE lo.id = ANY($1::bigint[]) ORDER BY (lo.id = $2) DESC, lo.id`,
     [[...new Set([bienId, ...siennes.map((o) => Number(o.lot_id))])], bienId]);
   const bienLu = lotsRows.find((l) => Number(l.id) === bienId);
-  const enCours = siennes.some((o) => o.sortie === null);
+  // 🔴🔴 (Arno, 20/11/2026) la règle UNIQUE : une sortie À VENIR laisse le bail en cours (« fin prévue le … »)
+  const enCours = siennes.some(estLocataireEnPlace);
   const sorties = tous.map((t) => t.sortie);
   const termineLe = enCours || sorties.some((s) => s === null) ? null : sorties.filter((s): s is string => s !== null).sort().at(-1) ?? null;
+  const finPrevue = enCours ? sortiePrevue(tous) : null;
   const occIds = tous.map((t) => Number(t.id));
   const conditions = occIds.length === 0 ? null : [...(await conditionsParOccupation(occIds)).values()][0] ?? null;
   const rattaches = (await contactsRattachesDuLocataire(locataireId)) ?? [];
@@ -90,7 +95,7 @@ export async function resumeBailDuLocataire(locataireId: number): Promise<Resume
   const sienne = siennes.find((o) => Number(o.lot_id) === bienId) ?? siennes[0];
   return {
     bail: {
-      bailId: choisie.bail_id === null ? null : Number(choisie.bail_id), enCours, termineLe,
+      bailId: choisie.bail_id === null ? null : Number(choisie.bail_id), enCours, termineLe, finPrevue,
       entree: entrees[0] ?? null,
       bien: bienLu === undefined ? null : { id: bienId, adresse: titreLogement(bienLu.adresse, bienLu.commune) },
       lots: lotsRows.filter((l) => siennes.some((o) => o.lot_id === l.id)).map((l) => ({
@@ -134,6 +139,7 @@ async function colonne(c: string): Promise<string> {
  * d'entrée la plus récente, puis la sortie la plus récente). À égalité, la plus récente saisie. PUR.
  */
 export function choisirOccupation<T extends { id: string; entree: string | null; sortie: string | null }>(occ: readonly T[]): T | undefined {
-  return [...occ].sort((a, b) => Number(a.sortie !== null) - Number(b.sortie !== null)
+  // 🔴 (Arno, 20/11/2026) « en cours » = la règle UNIQUE : sans sortie, ou sortie À VENIR
+  return [...occ].sort((a, b) => Number(!estLocataireEnPlace(a)) - Number(!estLocataireEnPlace(b))
     || (b.entree ?? '').localeCompare(a.entree ?? '') || (b.sortie ?? '').localeCompare(a.sortie ?? '') || Number(b.id) - Number(a.id))[0];
 }

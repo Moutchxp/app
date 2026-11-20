@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { sqlOccupationEnPlace } from './historiqueBien'; // 🔴 (20/11/2026) la règle « en place » unique
 import type { Auteur } from './gestes';
 import { chargerConfigGestion } from './config';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
@@ -66,7 +67,7 @@ export async function apercuChangement(brut: unknown): Promise<Issue<ApercuEnvoi
     `SELECT o.id::text, o.lot_id::text AS lot, o.locataire_id::text AS locataire,
             coalesce(o.sortie${avecPreavis ? `, (SELECT p.date_max FROM gestion_location_preavis p WHERE p.occupation_id = o.id AND p.remplace_le IS NULL AND p.annule_le IS NULL ORDER BY p.id DESC LIMIT 1)` : ''})::text AS depart
        FROM gestion_annuaire_occupation o
-      WHERE o.lot_id = ANY($1::bigint[]) AND o.entree <= ${SQL_AUJOURDHUI_PARIS} AND (o.sortie IS NULL OR o.sortie > ${SQL_AUJOURDHUI_PARIS})
+      WHERE o.lot_id = ANY($1::bigint[]) AND o.entree <= ${SQL_AUJOURDHUI_PARIS} AND ${sqlOccupationEnPlace('o')}
       ORDER BY o.id`, [ids]);
   const locs = await locatairesAvis(occ.map((o) => Number(o.id)));
   // ③ les propriétaires (le principal et les co-propriétaires en cours), avec leurs e-mails en vigueur

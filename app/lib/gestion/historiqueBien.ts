@@ -1,5 +1,6 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
 /* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la famille « Syndic & immeuble », calculée depuis la fiche syndic. */
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris'; // 🔴 (20/11/2026) la règle « ancien / en place » compare la sortie à aujourd'hui (Paris)
 import { categorieAvecSyndical, type SyndicauxDuBien } from './partiesSyndic';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — `periodeOccupation` est LA mise en forme d'une période d'occupation de
    ce dépôt (« du … au … »). La ligne d'un ancien locataire l'emploie telle quelle, jamais une copie. */
@@ -1557,14 +1558,52 @@ export function occupationOuverte(o: OccupationPeriode, jour: string): boolean {
  * lire comme absente aurait écrit « en place » sur la foi d'une donnée cassée. Même convention qu'`occupationOuverte`.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function estAncienLocataire(o: { sortie: string | null }): boolean {
-  return (o.sortie ?? '').trim() !== '';
+export function estAncienLocataireAu(o: { sortie: string | null }, aujourdhui: string): boolean {
+  // 🔴🔴 (Arno, 20/11/2026 — « EMMAIMA Fathi », 4 square Léon Blum : une sortie WIPPIMMO au 30/11/2026 le faisait « ancien » dès le 20/10) LA RÈGLE
+  // CHANGE : on n'est « ancien » que si la date de sortie est PASSÉE — le jour même compris, comme le mail de digicode (`sqlOccupationEnPlace`) — en
+  // date de Paris. Avant, une date renseignée suffisait (la décision du 07/10/2026 ci-dessus, remplacée par celle-ci). Une date abîmée reste une date
+  // (un départ) : seule une date lisible À VENIR laisse « en place ».
+  const s = (o.sortie ?? '').trim();
+  if (s === '') return false;
+  const jour = /^\d{4}-\d{2}-\d{2}/.exec(s)?.[0];
+  return jour === undefined || jour <= aujourdhui;
 }
 
-/** L'autre face de la MÊME règle, pour que personne n'ait à écrire `!estAncienLocataire(...)`. PURE. */
+/**
+ * La règle, AUJOURD'HUI (Paris). ⚠️ UN SEUL ARGUMENT, exprès : elle sert de prédicat à `.filter(…)`, qui passerait l'index en second argument.
+ * La date se choisit par `estAncienLocataireAu` (les épreuves).
+ */
+export function estAncienLocataire(o: { sortie: string | null }): boolean {
+  return estAncienLocataireAu(o, jourParis(new Date()));
+}
+
+/** L'autre face de la MÊME règle, pour que personne n'ait à écrire `!estAncienLocataire(...)`. PURE. (Un seul argument : voir ci-dessus.) */
 export function estLocataireEnPlace(o: { sortie: string | null }): boolean {
   return !estAncienLocataire(o);
 }
+export const estLocataireEnPlaceAu = (o: { sortie: string | null }, aujourdhui: string): boolean => !estAncienLocataireAu(o, aujourdhui);
+
+/**
+ * 🔴🔴 (Arno, 20/11/2026) LA MÊME RÈGLE, EN SQL : une occupation est en place si elle n'a pas de sortie, ou une sortie À VENIR (date de Paris).
+ * `alias` = l'alias SQL de `gestion_annuaire_occupation`. Le mail de digicode l'emploie (il appliquait déjà cette règle, écrite à la main).
+ */
+export function sqlOccupationEnPlace(alias: string): string {
+  return `(${alias}.sortie IS NULL OR ${alias}.sortie > ${SQL_AUJOURDHUI_PARIS})`;
+}
+
+/**
+ * 🔴🔴 (Arno, 20/11/2026) LA SORTIE PRÉVUE d'un locataire EN PLACE : quand toutes ses occupations en place ont une date de sortie à venir, la plus
+ * tardive (« en place, sortie prévue le 30/11/2026 ») ; sinon `null` (aucune sortie prévue, ou ancien). PURE.
+ */
+export function sortiePrevue(occupations: readonly { sortie: string | null }[], aujourdhui: string = jourParis(new Date())): string | null {
+  const enPlace = occupations.filter((o) => estLocataireEnPlaceAu(o, aujourdhui));
+  if (enPlace.length === 0 || enPlace.some((o) => (o.sortie ?? '').trim() === '')) return null;
+  return enPlace.map((o) => (o.sortie ?? '').slice(0, 10)).sort().at(-1) ?? null;
+}
+
+/** « sortie prévue le 30/11/2026 » (vide sans sortie prévue). PURE. */
+export const motSortiePrevue = (date: string | null | undefined): string =>
+  date ? `sortie prévue le ${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}` : '';
 
 /**
  * ══ 🔴🔴 LE STATUT D'UNE PERSONNE — « LOCATAIRE EN PLACE » OU « ANCIEN LOCATAIRE » — D'APRÈS TOUTES SES OCCUPATIONS. PURE.
@@ -1576,8 +1615,8 @@ export function estLocataireEnPlace(o: { sortie: string | null }): boolean {
  * calcule la fiche (`enCours.length > 0`, Annuaire.tsx) ; la recherche de la Location, celle de la Gestion et la liste des
  * locataires appellent cette fonction sur les dates de sortie lues par `sqlSortiesDuLocataire`, jamais leur propre SQL.
  */
-export function locataireEnPlace(occupations: readonly { sortie: string | null }[]): boolean {
-  return occupations.some(estLocataireEnPlace);
+export function locataireEnPlace(occupations: readonly { sortie: string | null }[], aujourdhui: string = jourParis(new Date())): boolean {
+  return occupations.some((o) => estLocataireEnPlaceAu(o, aujourdhui));
 }
 
 /**
@@ -1601,8 +1640,8 @@ export function sqlSortiesDuLocataire(alias: string): string {
  */
 export type StatutLocataire = 'en_place' | 'en_preavis' | 'ancien';
 
-export function statutLocataire(occupations: readonly { sortie: string | null }[], enPreavis: boolean): StatutLocataire {
-  if (!locataireEnPlace(occupations)) return 'ancien';
+export function statutLocataire(occupations: readonly { sortie: string | null }[], enPreavis: boolean, aujourdhui: string = jourParis(new Date())): StatutLocataire {
+  if (!locataireEnPlace(occupations, aujourdhui)) return 'ancien';
   return enPreavis ? 'en_preavis' : 'en_place';
 }
 

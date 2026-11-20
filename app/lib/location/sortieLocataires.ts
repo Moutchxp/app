@@ -28,6 +28,8 @@ export interface OccupantTrouve {
   preavisDateMax?: string | null;
   /** 🔴 Arno (18/11/2026) — les trois états de la FICHE de cette personne (`statutLocataire`). Absent = « en place ». */
   statut?: StatutLocataire;
+  /** 🔴 (20/11/2026) en place, sortie À VENIR : sa date */
+  sortiePrevue?: string | null;
 }
 
 export interface LocataireDuBail {

@@ -4,7 +4,7 @@ import { LienRetour } from '../_composants/NavigationRetour';
 import { useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, phrasesMailsAvis, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
-import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
+import { MOT_STATUT_LOCATAIRE, motSortiePrevue, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
 
 /** Le ton de la pastille d'un occupant (`loc-res-type--…`, défini dans CSS_RESULTATS) : vert, bleu, violet. */
 const TON_OCCUPANT: Record<StatutLocataire, string> = { en_place: 'locataires', en_preavis: 'preavis', ancien: 'ancien-locataire' };
@@ -158,7 +158,10 @@ export function BlocSortieLogement({ locataireId, occupationDemandee, gestion = 
             : resultat.geste === 'sortie' ? <p className="loc-muet" data-mail-envoye>Mail de confirmation envoyé.</p> : null}
         </div>
       )}
-      {enPlace.length === 0 ? <p className="loc-muet">Ce locataire n’occupe aucun logement aujourd’hui.</p>
+      {/* 🔴 (Arno, 20/11/2026) une sortie ENREGISTRÉE mais À VENIR : il occupe encore le logement — la phrase le dit (la sortie se corrige ou s'annule ci-dessous) */}
+      {enPlace.length === 0 ? (d.sorties.some((x) => x.sortie > aujourdhuiParisEcran())
+        ? <p className="loc-muet" data-sortie-a-venir>Ce locataire occupe encore son logement : {motSortiePrevue(d.sorties.map((x) => x.sortie).filter((x) => x > aujourdhuiParisEcran()).sort().at(-1) ?? null)} (à corriger ou annuler ci-dessous si elle change).</p>
+        : <p className="loc-muet">Ce locataire n’occupe aucun logement aujourd’hui.</p>)
         : occupation === null ? (
           <div className="sor-choix">
             <p>Ce locataire occupe plusieurs logements : lequel quitte-t-il ?</p>
@@ -285,7 +288,7 @@ function BarreOccupants({ texte, setTexte, etat, choisir }: {
                       <li key={o.occupationId} role="presentation">
                         <button type="button" role="option" aria-selected={false} className="loc-res-ligne arc-res-ligne" data-occupation={o.occupationId} onClick={() => choisir(o)}>
                           {/* 🔴 Arno (18/11/2026) — les trois états de la fiche, mêmes mots et mêmes couleurs que la recherche de l'accueil. */}
-                          <span className={`loc-res-type loc-res-type--${TON_OCCUPANT[o.statut ?? 'en_place']}`} data-statut={o.statut ?? 'en_place'}>{MOT_STATUT_LOCATAIRE[o.statut ?? 'en_place']}</span>
+                          <span className={`loc-res-type loc-res-type--${TON_OCCUPANT[o.statut ?? 'en_place']}`} data-statut={o.statut ?? 'en_place'}>{MOT_STATUT_LOCATAIRE[o.statut ?? 'en_place']}{o.statut !== 'ancien' && o.sortiePrevue ? `, ${motSortiePrevue(o.sortiePrevue)}` : ''}</span>
                           <strong className="loc-res-nom">{o.nom}{o.preavisDateMax ? <>{' '}<MentionPreavis p={{ dateMax: o.preavisDateMax }} jour={aujourdhuiParisEcran()} /></> : null}</strong>
                           <span className="loc-res-infos">
                             <span className="loc-res-tel">{descriptionEtage(o.etage, o.porte)}</span>

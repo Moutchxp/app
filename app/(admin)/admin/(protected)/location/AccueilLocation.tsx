@@ -122,7 +122,8 @@ export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
                             className={`loc-res-ligne${l.ancien ? ' loc-res-ligne--ancien' : ''}`} href={LIEN[l.groupe](l.id, l)}
                             onMouseEnter={() => setActif(i)}>
                             {/* 🔴 Arno (18/11/2026) — un locataire : « Locataire » vert, « Locataire en préavis » bleu, « Ancien locataire » violet, comme sur sa fiche. */}
-                            <span className={`loc-res-type loc-res-type--${pastilleRecherche(l).ton}`} data-pastille={pastilleRecherche(l).ton}>{pastilleRecherche(l).mot}</span>
+                            <span className={`loc-res-type loc-res-type--${pastilleRecherche(l).ton}`} data-pastille={pastilleRecherche(l).ton}
+                              {...(l.sortiePrevue ? { 'data-pastille-longue': '', title: pastilleRecherche(l).mot } : {})}>{pastilleRecherche(l).mot}</span>
                             <strong className="loc-res-nom">{l.titre}</strong>
                             <span className="loc-res-infos">
                               <span className="loc-res-tel">{l.telephone ?? ''}</span>
@@ -185,6 +186,7 @@ export const CSS_RESULTATS = `
 .loc-res li + li .loc-res-ligne{border-top:1px solid var(--color-svv-line)}
 .loc-res-ligne[aria-selected="true"],.loc-res-ligne:focus-visible{background:var(--color-svv-field);outline:2px solid var(--color-svv-line-strong-hover);outline-offset:-2px;border-radius:10px}
 .loc-res-type{justify-self:start;border-radius:999px;padding:3px 10px;font-size:.74rem;font-weight:800;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;box-sizing:border-box}
+.loc-res-type[data-pastille-longue]{white-space:normal;overflow:visible;line-height:1.25;border-radius:10px} /* 🔴 (Arno, 20/11/2026) « Locataire, sortie prévue le … » en entier, sur deux lignes */
 .loc-res-type--proprietaires{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .loc-res-type--locataires{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-res-type--syndics{background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border:1px solid var(--color-svv-syndic-bord)} /* rose du syndic de la Gestion (Arno, 17/10) */
@@ -201,6 +203,7 @@ export const CSS_RESULTATS = `
 @media (max-width:760px){
   .loc-res-ligne{grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;gap:4px 10px;padding:10px 8px}
   .loc-res-type{grid-row:1;grid-column:1}
+  .loc-res-type[data-pastille-longue]{max-width:9.5rem} /* au téléphone, la mention datée passe sur deux lignes et laisse sa place au nom */
   .loc-res-nom{grid-row:1;grid-column:2}
   .loc-res-infos{grid-row:2;grid-column:1 / -1;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.85rem}
   .loc-res-infos > span{display:inline}

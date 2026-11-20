@@ -64,7 +64,7 @@ import { BlocHistoriqueEchanges, useFichePersonne } from './BlocHistoriqueEchang
 import { bienDuNouveauMessageLocataire } from '../../../../lib/gestion/bienNouveauMessageLocataire';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », et l'ordre des
    anciens. La fiche ne les réécrit pas : elle les appelle, comme le dépôt et comme l'encart Parties. */
-import { estAncienLocataire, estLocataireEnPlace, parEntreeLaPlusRecente, statutLocataire,
+import { estAncienLocataire, estLocataireEnPlace, motSortiePrevue, parEntreeLaPlusRecente, sortiePrevue, statutLocataire,
   type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
   type PeriodePartie } from '../../../../lib/gestion/historiqueBien';
 /**
@@ -2262,7 +2262,8 @@ function VueLocataire({
               <span className="ann-role-capsule ann-role-capsule--preavis" data-statut="en_preavis">Locataire en préavis</span>
             ) : (
               <span className={`ann-role-capsule${statut === 'en_place' ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>
-                {statut === 'en_place' ? 'Locataire en place' : 'Ancien locataire'}
+                {/* 🔴 (Arno, 20/11/2026) en place, sortie à venir : « Locataire en place, sortie prévue le 30/11/2026 » */}
+                {statut === 'en_place' ? `Locataire en place${sortiePrevue(f.logements) ? `, ${motSortiePrevue(sortiePrevue(f.logements))}` : ''}` : 'Ancien locataire'}
               </span>
             )}
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}

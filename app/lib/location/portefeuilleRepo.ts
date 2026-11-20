@@ -11,7 +11,7 @@ import { ficheSyndic } from '../gestion/syndicRepo';
 import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
 import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
-import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
+import { occupationsDesSorties, sortiePrevue, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
 import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import { listerCoproprietes } from '../gestion/coproprieteRepo';
 import { filtrerCoproprietes } from '../gestion/copropriete';
@@ -200,7 +200,9 @@ export async function rechercherPortefeuille(brut: string, options: { proprietai
     proprietaires: borne(prop).map((r) => ligne(r, `Propriétaire ${r.id}`)),
     // 🔴 Arno (18/11/2026) — le statut de la FICHE (en place / en préavis / ancien) : la règle unique (`statutLocataire`).
     locataires: borne(loc).map((r) => ({ ...ligne(r, `Locataire ${r.id}`),
-      statut: statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.id))] !== undefined) })),
+      statut: statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.id))] !== undefined),
+      // 🔴 (Arno, 20/11/2026) « en place, sortie prévue le … »
+      sortiePrevue: sortiePrevue(occupationsDesSorties(r.sorties)) })),
     syndics: borne(syn).map((r) => ligne(r, `Syndic ${r.id}`)),
     coproprietes: borne(copros).map((c, i): LigneRecherche => ({ id: i + 1, titre: c.hors ? `${c.nom} · Bien hors copropriété` : c.nom, telephone: null, email: null,
       adresse: c.adresses.join(' · '), detail: c.syndic === null ? null : `Syndic : ${c.syndic.nom}`, ancien: false, cle: c.immeuble })),

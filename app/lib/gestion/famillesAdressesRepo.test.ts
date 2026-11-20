@@ -76,14 +76,14 @@ describe('famillesDesAdresses', () => {
     expect(f['administration@sansvisavis.com']).toEqual({ ton: 'neutre', propre: true, nom: null, role: 'Adresse de l’agence' });
     expect(f['c.client@sansvisavis.com']?.ton).toBe('proprietaire');
   });
-  it('🔴 (18/11/2026) la règle de la FICHE : une sortie datée DANS LE FUTUR fait un ancien locataire ; un bail fini + un en cours, en place', async () => {
+  it('🔴 la règle de la FICHE : une sortie datée DANS LE FUTUR laisse en place — 🔴 (Arno, 20/11/2026) la règle a changé : une sortie À VENIR laisse EN PLACE (« sortie prévue le … ») ; seule une sortie passée (le jour même compris) fait l’ancien ; un bail fini + un en cours, en place', async () => {
     const demain = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
     query.mockResolvedValue({ rows: [
       { adresse: 'futur@x.fr', sujet: 'locataire', nom: 'PART Bientôt', sorties: [demain] },
       { adresse: 'deux@x.fr', sujet: 'locataire', nom: 'DEUX Baux', sorties: ['2024-06-30', null] },
     ] });
     const f = await famillesDesAdresses(['futur@x.fr', 'deux@x.fr'], null);
-    expect(f['futur@x.fr']).toMatchObject({ ton: 'ancien_locataire', role: 'Ancien locataire' });
+    expect(f['futur@x.fr']).toMatchObject({ ton: 'locataire', role: 'Locataire' });
     expect(f['deux@x.fr']).toMatchObject({ ton: 'locataire', role: 'Locataire' });
   });
   it('lecture BORNÉE aux adresses demandées (paramètre lié), rien sans adresse', async () => {

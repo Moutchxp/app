@@ -10,7 +10,7 @@
  * par leur seule adresse, et seulement s'ils sont dans le portefeuille.
  */
 import { normaliserTexte } from '../gestion/annuaire';
-import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../gestion/historiqueBien';
+import { MOT_STATUT_LOCATAIRE, motSortiePrevue, type StatutLocataire } from '../gestion/historiqueBien';
 
 export interface TermePortefeuille {
   /** Les mots normalisés (minuscules, sans accent), pour le nom et l'adresse. Vide = rien à chercher par les mots. */
@@ -69,6 +69,8 @@ export interface LigneRecherche {
    * SORTIE DU PORTEFEUILLE) : un ancien locataire reste à sa place dans la liste, seul son statut est écrit.
    */
   statut?: StatutLocataire;
+  /** 🔴 (Arno, 20/11/2026) en place, sortie À VENIR : sa date (« sortie prévue le … ») */
+  sortiePrevue?: string | null;
   /** 🔴 (16/11/2026) une copropriété : l'immeuble qui ouvre sa fiche (son identifiant n'est qu'un rang) */
   cle?: string | null;
 }
@@ -91,7 +93,9 @@ const TON_STATUT: Record<StatutLocataire, string> = { en_place: 'locataires', en
  */
 export function pastilleRecherche(l: LigneAccueil): { mot: string; ton: string } {
   if (l.ancien) return { mot: `Ancien · ${LIBELLE_TYPE[l.groupe]}`, ton: 'ancien' };
-  if (l.groupe === 'locataires' && l.statut !== undefined) return { mot: MOT_STATUT_LOCATAIRE[l.statut], ton: TON_STATUT[l.statut] };
+  if (l.groupe === 'locataires' && l.statut !== undefined) {
+    return { mot: `${MOT_STATUT_LOCATAIRE[l.statut]}${l.statut !== 'ancien' && l.sortiePrevue ? `, ${motSortiePrevue(l.sortiePrevue)}` : ''}`, ton: TON_STATUT[l.statut] };
+  }
   return { mot: LIBELLE_TYPE[l.groupe], ton: l.groupe };
 }
 
