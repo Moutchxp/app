@@ -310,63 +310,88 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 18/11/2026, 11h13) :**
-- Branche **`main`**, **HEAD = `1f3a7e7b`** (alignement de la rangée Bâtiment). **89 commits d'avance sur
-  `origin/main`** : rien n'est poussé depuis le début des lots copropriété / mandat — **c'est Arno qui pousse**.
-- **Working tree** : seul **`PASSATION.md`** modifié (ne pas committer). Non suivis, laissés tels quels :
-  `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`, `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`,
-  `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** : `npm test` VERT (1 790 fichiers, 27 096 tests, 21 ignorés) ; `tsc` 0 ; preuve curl d'Arno : 200, aucune
-  erreur de construction.
-- **Migrations** : dernière = **`492_location_mandat_par_bien.sql`** ; **489, 490, 491, 492 appliquées à la RECETTE
-  seulement** (deux passes sans erreur). La **361** en attente devra prendre la **493**.
-- **Données d'essai en recette** : copropriété « _TEST DEUX ADRESSES » (1, 3, 7 rue _TEST Deux Adresses, parcelle et
-  adresses BAN fictives, bâtiments A/B au 1 rue, A/B/C au 3 rue ; « Non » mémorisé pour le 5 rue) ; propriétaires
-  « _TEST MANDAT » 323-325, 327, « _TEST NON SAUVEGARDE PROPRIETAIRE » 328 ; biens 453, 454 (TM 41), 455 (MT 50), 456
-  (« _TEST LEGENDE BATIMENT RETIRE », parking au 3 rue).
-- **Captures livrées** : `.captures/copropriete/`, `.captures/mandats/`, `.captures/digicodes/`,
-  `.captures/nouveau-proprietaire/`, `.captures/alignement/`.
+**Dépôt (mesuré le 20/11/2026 au soir) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `f4e736fc`). `origin/main` = `5f40f193`
+  (19/11, 16h03). **39 commits d'avance sur `origin/main`**, cette passation comprise (38 de code et de doc avant elle :
+  1 du 19/11, `3ed33415`, et 37 du 20/11) : **rien n'est poussé, c'est Arno qui pousse**.
+- **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
+  `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
+- **Contrôles** (dernier lot, `f4e736fc`) : `npm test` VERT (1 858 fichiers, 27 663 tests, 21 ignorés) ; preuve curl
+  d'Arno : 0 « Module not found / Build Error », statut 200.
+- **Migrations** : dernière écrite = **`510_gestion_adresse_ban_transaction_syndic.sql`**. ⚠️ **Constat du 20/11 au soir
+  (lecture seule)** : en recette, la **509** est appliquée (table `gestion_personne_adresse_ban`), mais **PAS la 510** :
+  la contrainte `gestion_personne_adresse_ban_sujet_check` n'admet encore que `proprietaire, locataire, carte, apporteur`
+  (la 510 ajoute `transaction_vente, transaction_personne, syndic`) ; le registre `svav_migration` de la recette n'est
+  pas tenu au-delà de la 382 (migrations posées hors registre). **À appliquer en recette avant de dire « jusqu'à 510 »**
+  (consigne d'Arno de ce soir : « appliquées jusqu'à 510 »). La **361** en attente (`db/migrations-en-attente/`) prendra
+  le **premier numéro libre (511)**.
 - **Serveurs lancés en arrière-plan sur le Mac** : la recette (`npm run recette` avec `RECETTE_ENVOI_REEL_VERS`) et un
   tunnel `cloudflared` (logs dans `.captures/recette-interception/`).
 
-**Points ouverts / à valider par Arno :**
-- Modale « Propriétaire enregistré » : les gestes d'avant (« Ajouter un bien à ce propriétaire », « Créer un autre
-  propriétaire », « Fermer ») et le téléphone / e-mail ont été gardés en second ; à retirer s'il ne veut que le bouton
-  « Ouvrir la fiche du propriétaire ».
-- Le bouton « Enregistrer le propriétaire (sans bien) » est resté (même enregistrement que « Non »).
-- Avant toute mise en prod de 489-492 : passer les deux rapports à blanc (bâtiments par adresse, mandats) sur une copie
-  de la production ; la reprise des mandats (`--reel`) n'est lancée qu'après validation d'Arno.
-- Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
+**Commits du 18 au 20/11 — état :**
+- **Déjà POUSSÉS** (dans `origin/main`) : mandats par bien et « Créer un nouveau propriétaire » (`4c3fae5b` → `e751d50f`),
+  « Non (Sauvegarde du propriétaire) » (`779a0f63`), placeholders « Digicode » (`51a89809`), alignement des légendes
+  de la rangée Bâtiment (`1f3a7e7b`), frise (`c16dbb2a`).
+- **EN RECETTE, NON POUSSÉS** (20/11 sauf mention) :
+  - copropriétés en double, « Regrouper » (`3ed33415`, 19/11) ; correctif 504 (`92efafce`) ; journal des syndics (`79d81dfb`) ;
+  - **adresses officielles BAN, lots 2 → 7d** (`88c2d787`, `ab621949`, `ce3cd64c`, `0db7b801`, `b9238882`, `f716ed04`,
+    `102ce075`, `285844bd`, `d88ee231`, `5c979735`, `2c514e40`, `6cac5ad6`, `59f657d1`, `1bde59bc`, `6d5275c4`,
+    `655d6a61`, `fa49b8a3` = lot 7d) ; test figé à l'heure (`0f888fdd`) ; registre des flakes (`ff4ac405`) ;
+  - **statut du locataire et préavis** : `8ecd8369` (annulé par `60570ec7`, seul le déplacement neutre d'`annulerSortie`
+    reste), `60570ec7` (retour à la règle d'avant), `f93bf189` (préavis validé sans sortie validée = « en préavis ») ;
+  - **protection de l'import** : `609b7aa2` (une sortie annulée dans l'application n'est plus remise par l'import) ;
+  - passation des corrections de prod (`376d7629`) ;
+  - **page « Supprimer un/des locataire(s) »** qui retrouve aussi les sorties enregistrées (`c9fcdf2a`), repliées sur une
+    ligne « Sorties enregistrées (N) » (`440c776c`) ; **retrait du bloc « Sortie du logement »** de la fiche locataire
+    (`7d80e266`, accord d'Arno, option B) ;
+  - **blocs 3 « Conditions d'entrée » et 4 « Suivi commercial » sur la fiche locataire** (`8327f3e6`), sous l'en-tête
+    du locataire, au-dessus de « LE BAIL » (`c3a1969f`) ;
+  - **contacts du syndic depuis la copropriété** : rattacher / détacher (`be389191`), créer (`5738be43`), changement ou
+    retrait de syndic = contacts détachés et journalisés, jamais supprimés (`3583668e`) ;
+  - **fenêtre syndic partagée** : la modale Copropriété rattache ou crée le syndic par LA fenêtre de la carte du bien (`36686a7f`) ;
+  - **« Retirer le syndic »** dans la modale Copropriété, retrait seul ou suivi du choix / de la création d'un autre
+    syndic, préparé jusqu'à « Valider » (`ed6c79f3`) ;
+  - **en-tête de la Gestion retiré de l'écran Copropriétés seul** (`f4e736fc`).
+- **Données d'essai en recette** (20/11) : syndics 49 « _TEST SYNDIC CONTACTS » (contacts 81-86), 50 « … BIS », 51
+  « _TEST SYNDIC CREE DEPUIS COPRO », 52 « _TEST SYNDIC APRES RETRAIT » ; copropriété 297 « 12 rue _TEST Syndic Contacts »
+  (rattachée au 49, sans contact) ; « _TEST PREAVIS VALIDE SORTIE NON VALIDEE » (locataire 539, bien 460, occupation 566,
+  préavis 16). Antérieures : « _TEST DEUX ADRESSES », « _TEST MANDAT » 323-325, 327, « _TEST NON SAUVEGARDE PROPRIETAIRE » 328,
+  biens 453-456.
+- **Captures livrées** (20/11) : `.captures/syndic-copro/`, `.captures/gestion-coproprietes/`, `.captures/regle-preavis/`,
+  `.captures/locataire-ineo/`, `.captures/locataire-fathi/` (et les dossiers des lots adresse).
 
-### 🔴 Corrections de PRODUCTION du 20/11/2026 (accord écrit d'Arno, données seulement, aucune règle changée)
+### 🔴 Corrections de PRODUCTION du 20/11/2026 (accord écrit d'Arno, script validé, données seulement, aucune règle changée)
 Deux sorties recopiées de WIPPIMMO (import du 20/10/2026) annulées en production, locataires toujours dans les lieux.
 Méthode : SQL en UNE transaction par `ssh svav-prod` + psql (essai en lecture seule d'abord, puis gardes, écriture,
 vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais le code de la recette contre la prod.
 - **INEO RAIL chez GBS Services** (fiche 250, occupation 262, bail 211, bien 133, 18 rue Pierre Curie, Puteaux) :
   sortie du 02/11/2026 → vide, bail en cours ; journal **n° 52958** « location_sortie_annulee ». Fichiers :
-  `.captures/locataire-ineo/` (essai-prod, applique-prod, rapports ; le script inutilisé `locataire-annuler-sortie.ts`
-  y est rangé, non committé).
+  `.captures/locataire-ineo/`.
 - **EMMAIMA Fathi** (fiche 191, occupation 202, bail 490, bien 321, 4 Square Léon Blum, Puteaux) : remise occupante
   « de force », sortie du 30/11/2026 → vide, bail en cours ; journal **n° 52959**. Fichiers : `.captures/locataire-fathi/`.
-- Le commentaire de journal reprend celui de l'application (« … occupation(s) N de nouveau en cours ») : la mise à jour
-  WIPPIMMO (`importer.ts` / `calculerMiseAJour`) ne remettra pas ces dates (conflit listé). Retirer les dates dans WIPPIMMO.
+- 🔴 **NE PAS lancer `npm run gestion:annuaire:importer` sur la production avant la mise en production de `609b7aa2` et
+  `f93bf189`** : l'import actuel réécrit la sortie d'un bail importé et défairait les deux corrections.
+- 🔴 **Arno doit retirer ces deux dates de sortie dans WIPPIMMO** (INEO RAIL 02/11/2026, EMMAIMA Fathi 30/11/2026).
 - Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
-**Commits EN ATTENTE DE MISE EN PRODUCTION (recette seulement, non poussés) :**
-- `609b7aa2` — une sortie annulée dans l'application n'est plus remise par l'import (les deux chemins d'import).
-- `60570ec7` — retour à la règle de statut d'avant `8ecd8369` (une date de sortie, même à venir = ancien locataire) ;
-  `8ecd8369` (« sortie prévue le … ») est donc annulé, seul son déplacement neutre d'`annulerSortie` reste.
-- `f93bf189` — règle d'Arno : un préavis validé sans sortie validée reste « en préavis » ; l'import n'écrit plus la
-  sortie d'une occupation en préavis.
-- 🔴 **NE PAS lancer `npm run gestion:annuaire:importer` sur la production avant leur mise en production** : l'ancien
-  import réécrit la sortie d'un bail importé et défairait les deux corrections ci-dessus.
-- Données d'essai gardées en recette : « _TEST PREAVIS VALIDE SORTIE NON VALIDEE » (locataire 539, bien 460,
-  occupation 566, préavis 16) ; captures `.captures/regle-preavis/`.
+**Points ouverts / à valider par Arno :**
+- « Supprimer un/des locataire(s) » : le compteur « Sorties enregistrées (N) » n'apparaît qu'après une recherche.
+- La ligne « Conditions d'entrée et suivi commercial » est absente de la fiche locataire de la **Gestion** (seule la
+  fiche de la Location la porte).
+- Contact du syndic : un doublon au **nom identique** est refusé ; un simple avertissement serait à envisager.
+- Téléphones de syndic affichés **sans espaces**.
+- Écran Copropriétés : deux **alertes de panne** laissées (rattachement en échec, copie Drive ARRÊTÉE) ; à retirer aussi
+  sur demande d'Arno (une ligne chacune).
+- Fiche locataire : le bouton **« Dossier Drive du bail » affiché deux fois**.
+- Modale « Propriétaire enregistré » : gestes d'avant gardés en second ; bouton « Enregistrer le propriétaire (sans
+  bien) » resté (même enregistrement que « Non ») — à confirmer.
+- Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Aucun lot en cours. **Attendre le retour d'Arno en recette** sur les quatre corrections (`51a89809`, `b23e33dc`,
-`779a0f63`, `1f3a7e7b`) et sur les deux points de la modale ci-dessus, puis produire le 🔵 PROMPT du lot suivant qu'il
-rédige. Rien à pousser ni à appliquer côté agent : Arno pousse et met la prod à jour lui-même.
+Aucun lot en cours. Attendre le retour d'Arno en recette. 🔴 **Mise en production UNIQUEMENT quand Arno dit « on met en
+production »**, et seulement après les **rapports d'essai sur une copie de la production** (bâtiments par adresse,
+mandats par bien) ; la reprise des mandats (`--reel`) n'est lancée qu'après sa validation. Rien à pousser ni à
+appliquer côté agent : Arno pousse et met la prod à jour lui-même.
 
 ---
 
