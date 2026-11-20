@@ -31,7 +31,8 @@ export interface CarteLocataireDossier {
 export type SuiviDossier = SaisieActivite & { categoriePrime: CategoriePrime | null };
 
 export interface LectureDossier {
-  activiteId: number; bailId: number; lotId: number;
+  /** La ligne de suivi lue ; 🔴 (20/11/2026) `null` : le bail en cours lu depuis la fiche du locataire n'a pas encore de ligne (bloc 4 vide). */
+  activiteId: number | null; bailId: number; lotId: number;
   /** L'empreinte de tout ce qui est lu : une version différente à l'enregistrement = modifié par ailleurs (conflit). */
   version: string;
   titre: string;

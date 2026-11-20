@@ -28,6 +28,7 @@ import {
   type NomsDossier, type SaisieDossier, type SuiviDossier,
 } from './dossierLocation';
 import { CONDITIONS_VIDES, versSaisieConditions, type SaisieConditions } from './conditionsEntree';
+import { suiviVide } from './suiviLocataire';
 
 /**
  * ══ 🔴🔴 « DOSSIER DE LOCATION » — LECTURE ET MISE À JOUR (Arno, 24/10/2026) ═══════════════════════════════════════════════════
@@ -66,7 +67,24 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
        FROM gestion_location_activite a WHERE a.id = $1 AND a.annule_le IS NULL`, [activiteId])).rows[0];
   if (a === undefined) return { etat: 'inconnu' };
   if (a.bail_id === null) return { etat: 'non_rattache' };
-  const bailId = n(a.bail_id);
+  return lectureDuBail(n(a.bail_id), a, activiteId);
+}
+
+/**
+ * 🔴 Arno (20/11/2026) — les blocs 3 et 4 de « Nouveau locataire » sur la FICHE du locataire, pour son BAIL EN COURS : le bail a une ligne
+ * de suivi (la plus récente non annulée) → exactement la lecture du Dossier de location (même version) ; sinon (95 baux sur 343 en recette
+ * au 20/11/2026) → la même lecture du bail, sans ligne : `activiteId` null, le bloc 4 vide (il a son propre chemin, qui crée la ligne).
+ */
+export async function lireDossierDuBail(bailId: number): Promise<IssueDossier> {
+  if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
+  const ligne = (await query<{ id: string }>(
+    'SELECT id::text FROM gestion_location_activite WHERE bail_id = $1 AND annule_le IS NULL ORDER BY date_signature DESC NULLS LAST, id DESC LIMIT 1', [bailId])).rows[0];
+  if (ligne !== undefined) return lireDossierLocation(n(ligne.id));
+  return lectureDuBail(bailId, null, null);
+}
+
+/** La lecture d'un bail (blocs 1 à 3) et de sa ligne de suivi `a` s'il y en a une (bloc 4 ; sans ligne : le bloc 4 vide). */
+async function lectureDuBail(bailId: number, a: Record<string, unknown> | null, activiteId: number | null): Promise<IssueDossier> {
   const b = (await query<{ lot_id: string; entree: string | null; adresse: string | null; commune: string | null; nature: string | null; categorie: string | null; type_bien: string | null }>(
     `SELECT b.lot_id::text, b.entree::text AS entree, l.adresse, l.commune, l.nature, l.categorie, l.type_bien
        FROM gestion_bail b JOIN gestion_annuaire_lot l ON l.id = b.lot_id WHERE b.id = $1`, [bailId])).rows[0];
@@ -116,9 +134,22 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
   const comp = famille === 'logement' || famille === 'local' ? await complementsDuBien(lotId) : null;
   const entretien = comp === null || comp.entretienAPrevoir === undefined ? null
     : { aPrevoir: comp.entretienAPrevoir ?? null, entretiens: (comp.entretiens ?? []).map((e) => ({ sorte: e.sorte, nom: e.nom ?? null, dateAnniversaire: e.dateAnniversaire ?? null })) };
+  const suivi: SuiviDossier = a === null ? suiviVide({ categoriePrime: typeFiche ?? null }) : suiviDeLaLigne(a, typeFiche);
+  const adresse = [b.adresse, b.commune].filter((x) => x).join(' ');
+  const lecture: Omit<LectureDossier, 'version'> = {
+    activiteId, bailId, lotId, titre: titreDossier(locataires, adresse),
+    bien: { id: lotId, titre: adresse || `Bien n° ${lotId}`, famille }, lots: lotsCharges, entree: b.entree, locataires, contacts, conditions, entretien, suivi,
+    // 🔴 Arno (27/10/2026) — sans conditions : le loyer de départ du bail, pour pré-remplir le formulaire vide de la « Fiche locataire ».
+    ...(conditions === null ? { loyerSansConditions: await loyerDesOccupations(occ.map((o) => n(o.id))) } : {}),
+  };
+  return { etat: 'ok', data: { ...lecture, version: empreinte({ ...lecture, modifie: a === null ? null : a.modifie_le }) } };
+}
+
+/** Le bloc 4 lu sur la ligne de suivi. PUR. */
+function suiviDeLaLigne(a: Record<string, unknown>, typeFiche: CategoriePrime | null): SuiviDossier {
   const primeMode = (MODES_PRIME as readonly string[]).includes(String(a.prime_mode)) ? a.prime_mode as ModePrime
     : Number(a.prime_gestion_saisie ?? 0) > 0 ? 'personnalise' : 'aucune';
-  const suivi: SuiviDossier = {
+  return {
     type: a.type === 'avenant' || a.type === 'gestion_seule' ? a.type : 'bail', dateSignature: String(a.date_signature),
     honoProprietaireHt: texteMontant(a.hono_proprietaire_ht), honoLocataireHt: texteMontant(a.hono_locataire_ht),
     negociateurId: nOuNull(a.negociateur_id), apporteurId: nOuNull(a.apporteur_id), apporteurTaux: textePct(a.apporteur_taux),
@@ -132,14 +163,6 @@ export async function lireDossierLocation(activiteId: number): Promise<IssueDoss
     apporteurTauxGestion: textePct(a.apporteur_taux_gestion),
     categoriePrime: typeFiche ?? (a.categorie_prime as CategoriePrime | null) ?? null,
   };
-  const adresse = [b.adresse, b.commune].filter((x) => x).join(' ');
-  const lecture: Omit<LectureDossier, 'version'> = {
-    activiteId, bailId, lotId, titre: titreDossier(locataires, adresse),
-    bien: { id: lotId, titre: adresse || `Bien n° ${lotId}`, famille }, lots: lotsCharges, entree: b.entree, locataires, contacts, conditions, entretien, suivi,
-    // 🔴 Arno (27/10/2026) — sans conditions : le loyer de départ du bail, pour pré-remplir le formulaire vide de la « Fiche locataire ».
-    ...(conditions === null ? { loyerSansConditions: await loyerDesOccupations(occ.map((o) => n(o.id))) } : {}),
-  };
-  return { etat: 'ok', data: { ...lecture, version: empreinte({ ...lecture, modifie: a.modifie_le }) } };
 }
 
 // ── LA SAISIE REÇUE ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -230,11 +253,15 @@ export type IssueModificationDossier =
  * LIRE → REFUSER, sans rien écrire : la lecture, le conflit (version), les refus, les changements. Sert aussi à la « Fiche locataire »
  * du Suivi du mois, qui vérifie TOUT (cartes et bloc 3) avant d'écrire quoi que ce soit.
  */
-export async function preparerDossier(activiteId: number, brutRecu: Record<string, unknown>, o: { ficheLocataire?: boolean } = {}):
+export async function preparerDossier(cible: number | { bailId: number }, brutRecu: Record<string, unknown>, o: { ficheLocataire?: boolean } = {}):
   Promise<{ etat: 'pret'; lu: LectureDossier; s: SaisieDossier; changements: ChangementDossier[]; honoraires: CalculHonoraires | null } | Exclude<IssueModificationDossier, { etat: 'ok' }> | { etat: 'ok'; data: { changements: ChangementDossier[] } }> {
-  const l = await lireDossierLocation(activiteId);
+  // 🔴 Arno (20/11/2026) — une ligne de suivi (Suivi du mois, Dossier), ou le BAIL EN COURS (fiche du locataire, Location).
+  const l = typeof cible === 'number' ? await lireDossierLocation(cible) : await lireDossierDuBail(cible.bailId);
   if (l.etat !== 'ok') return l;
   const lu = l.data;
+  if (lu.activiteId === null && brutRecu.suivi !== null && typeof brutRecu.suivi === 'object') {
+    return { etat: 'refus', motif: 'Ce bail n’a pas encore de ligne de suivi : le suivi commercial s’enregistre par son propre chemin.' };
+  }
   // 🔴 Arno (26/10/2026) — « Fiche locataire » : jamais les cartes (elles ont leur geste) ; le bloc 4 seulement s'il est ENVOYÉ (on y a touché).
   const avecSuivi = o.ficheLocataire === true && brutRecu.suivi !== null && typeof brutRecu.suivi === 'object';
   const brut = o.ficheLocataire === true
@@ -263,16 +290,17 @@ export async function preparerDossier(activiteId: number, brutRecu: Record<strin
   return { etat: 'pret', lu, s, changements, honoraires };
 }
 
-export async function modifierDossierLocation(activiteId: number, brutRecu: Record<string, unknown>, auteur: Auteur,
+export async function modifierDossierLocation(cible: number | { bailId: number }, brutRecu: Record<string, unknown>, auteur: Auteur,
   /**
    * 🔴 Arno (25/10/2026) — « Fiche locataire » du Suivi du mois : le bloc 3 (conditions d'entrée, paiement des charges, entretien du
    * bien) par ce même chemin ; les cartes (bloc 1) ont leur propre geste. 🔴 26/10/2026 : et le bloc 4 (« Suivi commercial ») quand la
    * saisie le porte — la MÊME ligne mise à jour, exigé comme au Dossier ; absent, il n'est ni lu ni exigé.
    */
   o: { ficheLocataire?: boolean } = {}): Promise<IssueModificationDossier> {
-  const p = await preparerDossier(activiteId, brutRecu, o);
+  const p = await preparerDossier(cible, brutRecu, o);
   if (p.etat !== 'pret') return p;
   const { lu, s, changements, honoraires } = p;
+  const activiteId = lu.activiteId;
   if (changements.length === 0) return { etat: 'ok', data: { changements } };
   const faits: string[] = [];
   const partiel = (motif: string): IssueModificationDossier => ({ etat: 'refus', motif: faits.length === 0 ? motif : `${motif} Ont été enregistrés : ${faits.join(', ')}.` });
@@ -344,6 +372,7 @@ export async function modifierDossierLocation(activiteId: number, brutRecu: Reco
   const suivi = changements.filter((c) => c.bloc === 4);
   let note: string | null = null;
   if (suivi.length > 0) {
+    if (activiteId === null) return partiel('Ce bail n’a pas encore de ligne de suivi : le suivi commercial s’enregistre par son propre chemin.');
     const conserver = s.suivi.apporteurTaux === lu.suivi.apporteurTaux && s.suivi.commissionApporteur === lu.suivi.commissionApporteur;
     const r = await mettreAJourActivite(activiteId, s.suivi, auteur, { conserverMontants: conserver });
     if (r.etat !== 'ok') return partiel('motif' in r ? r.motif : 'Le suivi commercial n’a pas pu être modifié.');

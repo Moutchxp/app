@@ -2,9 +2,8 @@ import { accesLocation, identifiantPage, REFUS_FICHE_COMMUNE, REFUS_LOCATION } f
 import { FicheCommuneLocation } from '../../../gestion/FicheCommune';
 import { LienRetour } from '../../../_composants/EnTetePage';
 import { EcranSortieLocataire } from '../../SortieLocataires';
-import { BlocEnvoiFicheLocataire } from '../../EnvoiAdhocMonga';
 import { BauxEnPlace } from '../../BauxEnPlace';
-import { BlocSuiviCommercialLocataire } from '../../SuiviCommercialLocataire';
+import { ConditionsSuiviFicheLocataire } from '../../ConditionsSuiviFicheLocataire';
 
 /**
  * TUILE LOCATION — la fiche locataire, ouverte depuis la Location : c'est LA fiche de la Gestion (même composant, même
@@ -34,12 +33,12 @@ export default async function Page({ params, searchParams }: {
           : (
             <>
               {!gestion && <LienRetour href="/admin/location" />}
-              {/* Arno (21/10/2026) — « Envoi ADHOC & MONGA » pour chaque bail en cours (rien sans bail en cours). */}
-              <BlocEnvoiFicheLocataire locataireId={id} />
+              {/* 🔴 Arno (20/11/2026) — les blocs 3 « Conditions d'entrée » et 4 « Suivi commercial » de « Nouveau locataire » (bail en cours),
+                  repliés ensemble sur une ligne ; dépliés : les deux blocs, leur « Enregistrer », puis « Bail en cours · Envoi ADHOC & MONGA »
+                  (déplacé d'ici, même composant). Le bloc 4 autonome d'avant (26/10/2026) est le même bloc, désormais dans cette partie. */}
+              <ConditionsSuiviFicheLocataire locataireId={id} />
               {/* Arno (26/10/2026, 430) — la mention « locataire en place à la prise en gestion » de ses baux (rien sinon). */}
               <BauxEnPlace locataireId={id} />
-              {/* Arno (26/10/2026) — le « Suivi commercial » du bail (pré-rempli si validé, vide sinon), son propre enregistrement. */}
-              <BlocSuiviCommercialLocataire locataireId={id} />
               {!gestion ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_FICHE_COMMUNE}</div>
                 : <FicheCommuneLocation fiche={{ sorte: 'locataire', id }} />}
             </>

@@ -16,6 +16,9 @@ vi.mock('../../acces', () => ({
 vi.mock('../../../gestion/FicheCommune', () => ({
   FicheCommuneLocation: (p: Record<string, unknown>) => { ficheCommune(p); return <div data-stub="fiche-commune" />; },
 }));
+vi.mock('../../ConditionsSuiviFicheLocataire', () => ({
+  ConditionsSuiviFicheLocataire: (p: { locataireId: number }) => <div data-stub="conditions-suivi" data-locataire={p.locataireId} />,
+}));
 vi.mock('../../SortieLocataires', () => ({
   EcranSortieLocataire: (p: { occupationInitiale: number }) => <div data-stub="ecran-sortie" data-occupation={p.occupationInitiale} />,
 }));
@@ -35,8 +38,9 @@ describe('la fiche locataire de la Location', () => {
     expect(html).not.toContain('Sortie du logement');
     expect(html).toContain('data-stub="fiche-commune"');
     expect(html).not.toContain('data-stub="ecran-sortie"');
-    // 🔴 Arno (26/10/2026) — et le bloc 4 « Suivi commercial » (ajout seul).
-    expect(html).toContain('data-bloc-suivi-locataire');
+    // 🔴 Arno (20/11/2026) — les blocs 3 et 4 de « Nouveau locataire » (le bloc 4 d'avant y est, avec « Envoi ADHOC & MONGA »).
+    expect(html).toContain('data-stub="conditions-suivi" data-locataire="101"');
+    expect(html).not.toContain('data-envoi-fiche-locataire');
     expect(ficheCommune).toHaveBeenCalledTimes(1);
     const props = ficheCommune.mock.calls[0][0] as Record<string, unknown>;
     expect(props.fiche).toEqual({ sorte: 'locataire', id: 101 });
@@ -50,7 +54,7 @@ describe('la fiche locataire de la Location', () => {
     expect(html).toContain('data-stub="ecran-sortie"');
     expect(html).toContain('data-occupation="11"');
     expect(html).not.toContain('data-stub="fiche-commune"');
-    expect(html).not.toContain('data-bloc-suivi-locataire');
+    expect(html).not.toContain('data-stub="conditions-suivi"');
     expect(ficheCommune).not.toHaveBeenCalled();
   });
 });

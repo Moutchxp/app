@@ -121,13 +121,17 @@ export function manqueHonorairesSaisis(h: { valeur: string; manuel: boolean }): 
  * Le bloc 3 d'une ligne du Suivi, pour la « Fiche locataire » : la lecture du Dossier de location (`activiteId`), la saisie (conditions,
  * entretien), ses changements (bloc 3 seulement) et la saisie à envoyer. `null` : la ligne n'a pas de bail rattaché (rien n'est lu).
  */
-export function useConditionsBail(activiteId: number | null) {
-  const [etat, setEtat] = useState<EtatConditionsBail>(activiteId === null ? { sorte: 'non_rattache' } : { sorte: 'lecture' });
+export function useConditionsBail(activiteId: number | null, o: { locataireId?: number } = {}) {
+  /* 🔴 Arno (20/11/2026) — la FICHE du locataire (Location) : le bail EN COURS, lu par le locataire (`conditionsFicheLocataire`) ; sans bail
+     en cours : « aucun ». Sinon, la ligne du Suivi (`dossierLocation`), comme avant. */
+  const source = o.locataireId !== undefined ? `conditionsFicheLocataire=${o.locataireId}` : activiteId === null ? null : `dossierLocation=${activiteId}`;
+  const [etat, setEtat] = useState<EtatConditionsBail>(source === null ? { sorte: 'non_rattache' } : { sorte: 'lecture' });
   const vue = useRef<LectureDossier | null>(null);
   const charger = useCallback((): Promise<{ etat?: string; data?: LectureDossier } | null> =>
-    fetch(`${API}?dossierLocation=${activiteId}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: LectureDossier }>).catch(() => null), [activiteId]);
+    fetch(`${API}?${source}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: LectureDossier }>).catch(() => null), [source]);
   const appliquer = useCallback((d: { etat?: string; data?: LectureDossier } | null, garder: boolean): void => {
     if (d === null) { setEtat({ sorte: 'erreur', motif: 'Les conditions d’entrée n’ont pas pu être lues : le serveur n’a pas répondu.' }); return; }
+    if (d.etat === 'sans_bail') { setEtat({ sorte: 'aucun' }); return; }
     if (d.etat === 'non_rattache') { setEtat({ sorte: 'non_rattache' }); return; }
     if (d.etat !== 'ok' || d.data === undefined) { setEtat({ sorte: 'erreur', motif: d.etat === 'sans_schema' ? 'La base n’est pas à jour pour ce dossier (migration 407).' : 'Les conditions d’entrée n’ont pas pu être lues.' }); return; }
     const l = d.data;
@@ -142,14 +146,14 @@ export function useConditionsBail(activiteId: number | null) {
     });
   }, []);
   /** Relire (`garder` : en gardant la saisie en cours — après « Caractéristiques du bien loué »). */
-  const lire = useCallback(async (garder: boolean): Promise<void> => { if (activiteId !== null) appliquer(await charger(), garder); }, [activiteId, appliquer, charger]);
+  const lire = useCallback(async (garder: boolean): Promise<void> => { if (source !== null) appliquer(await charger(), garder); }, [source, appliquer, charger]);
   // La lecture à l'ouverture (une ligne sans bail : rien n'est lu, l'état initial le dit).
   useEffect(() => {
-    if (activiteId === null) return;
+    if (source === null) return;
     let vivant = true;
     void charger().then((d) => { if (vivant) appliquer(d, false); });
     return () => { vivant = false; };
-  }, [activiteId, charger, appliquer]);
+  }, [source, charger, appliquer]);
   /* 🔴 Arno (27/10/2026) — CRÉATION : le montant des honoraires propriétaire (pré-rempli au barème par l'encadré, modifiable) ; la saisie
      de départ relevée au PREMIER geste de l'utilisateur (`toucher`) — le bloc n'est exigé et n'est envoyé que s'il diffère de ce départ. */
   const [hono, setHono] = useState<{ valeur: string; manuel: boolean }>({ valeur: '', manuel: false });

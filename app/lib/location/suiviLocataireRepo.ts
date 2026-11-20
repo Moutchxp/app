@@ -95,7 +95,7 @@ export async function lireSuiviLocataire(locataireId: number, o: { bailId?: numb
       bailCourant = l.bailId;
       const conversion = lignes.find((x) => x.activiteId === activiteCourante)?.conversion ?? null;
       courant = {
-        sorte: 'ligne', activiteId: l.activiteId, bailId: l.bailId, lotId: l.lotId, titre: titreBail(l.bien.titre, l.entree), version: l.version, suivi: l.suivi,
+        sorte: 'ligne', activiteId: activiteCourante, bailId: l.bailId, lotId: l.lotId, titre: titreBail(l.bien.titre, l.entree), version: l.version, suivi: l.suivi,
         valide: suiviValide(l.suivi), locataireIds: l.locataires.map((x) => x.id), conversion,
         // 🔴 430/431 — un « Mandat de gestion seul » (locataire en place) : montré comme tel, daté du mandat, sans honoraire de location.
         enPlace: l.suivi.type === 'gestion_seule' ? { dateMandat: l.suivi.dateSignature } : null,

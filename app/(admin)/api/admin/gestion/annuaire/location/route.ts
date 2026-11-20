@@ -34,6 +34,7 @@ import { ECRAN_DOSSIER } from '../../../../../../lib/location/dossierLocation';
 import { enregistrerFicheLocataire, lireFicheLocataireCartes } from '../../../../../../lib/location/ficheLocataireCartesRepo';
 import { ECRAN_FICHE_LOCATAIRE } from '../../../../../../lib/location/ficheLocataireCartes';
 import { enregistrerSuiviLocataire, lireSuiviLocataire } from '../../../../../../lib/location/suiviLocataireRepo';
+import { enregistrerConditionsFicheLocataire, lireConditionsFicheLocataire } from '../../../../../../lib/location/conditionsFicheLocataireRepo';
 import { ECRAN_FICHE_LOCATAIRE_LOCATION } from '../../../../../../lib/location/suiviLocataire';
 
 /**
@@ -98,6 +99,9 @@ export async function GET(request: Request): Promise<Response> {
     const flc = identifiant(url.searchParams.get('ficheLocataireCartes'));
     if (flc !== null) return Response.json(await lireFicheLocataireCartes(flc, identifiant(url.searchParams.get('bail'))), { headers: ENTETES });
     // 🔴 Arno (26/10/2026) — le bloc 4 « Suivi commercial » de la fiche locataire : la ligne du bail (ou son absence), les autres baux.
+    // 🔴 Arno (20/11/2026) — les blocs 3 et 4 sur la fiche du locataire : le bail EN COURS, lu comme le Dossier de location.
+    const cfl = identifiant(url.searchParams.get('conditionsFicheLocataire'));
+    if (cfl !== null) return Response.json(await lireConditionsFicheLocataire(cfl), { headers: ENTETES });
     const sl = identifiant(url.searchParams.get('suiviLocataire'));
     if (sl !== null) {
       return Response.json(await lireSuiviLocataire(sl, { bailId: identifiant(url.searchParams.get('bail')), activiteId: identifiant(url.searchParams.get('activite')),
@@ -217,6 +221,13 @@ async function postAnnuaireLocation(request: Request): Promise<Response> {
         const activiteId = d !== null && typeof d.activiteId === 'number' && Number.isSafeInteger(d.activiteId) && d.activiteId > 0 ? d.activiteId : null;
         const dossier = activiteId !== null && d !== null && d.saisie !== null && typeof d.saisie === 'object' ? { activiteId, saisie: d.saisie as Record<string, unknown> } : null;
         const issue = await avecTrace(trace, () => enregistrerFicheLocataire(id, bail, corps.saisie, dossier, auteur));
+        return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
+      }
+      // 🔴 Arno (20/11/2026) — les blocs 3 et 4 de la fiche du locataire (Location), un seul « Enregistrer » ; journal, AUCUN mail.
+      case 'enregistrer-conditions-fiche-locataire': {
+        if (id === null) return incomplet();
+        const trace = { sessionId: (await lireSessionCuration(request)).jti, ecran: ECRAN_FICHE_LOCATAIRE_LOCATION };
+        const issue = await avecTrace(trace, () => enregistrerConditionsFicheLocataire(id, corps, auteur));
         return Response.json(issue, { status: issue.etat === 'conflit' ? 409 : 200, headers: ENTETES });
       }
       // 🔴 Arno (26/10/2026) — le bloc 4 de la fiche locataire (Location) : la MÊME ligne de suivi mise à jour, ou créée rattachée au bail.
