@@ -76,12 +76,22 @@ export async function journaliserLienSyndic(q: RequeteTx, g: GesteLien, auteur: 
   const action = ACTION_LIEN[g.nature];
   const avant = g.nature === 'rattache' ? null : g.nature === 'retire' ? syndic : ancien;
   const apres = g.nature === 'retire' ? null : syndic;
+  await ecrireLigneCopropriete(q, c, { action, avant, apres, phrase, champ: 'syndic', ecran: g.ecran }, auteur);
+}
+
+/**
+ * UNE ligne de journal d'une copropriété, dans la transaction de l'appelant : sur l'entité « copropriete » (506), sinon à chaque bien de la
+ * copropriété (adresse principale et adresses secondaires en cours). La même écriture pour les liens syndic et les contacts du syndic.
+ */
+async function ecrireLigneCopropriete(q: RequeteTx, c: { id: string; cle: string },
+  l: { action: string; avant: string | null; apres: string | null; phrase: string; champ: string; ecran: string }, auteur: Auteur): Promise<void> {
+  const { action, avant, apres, phrase } = l;
   // l'écran d'origine va aussi dans sa colonne quand elle existe (417)
   const avec417 = await colonneExisteMemo('gestion_journal', 'ecran');
   const colonnes = ['entite', 'entite_id', 'action', 'valeur_avant', 'valeur_apres', 'commentaire', 'auteur_id', 'auteur_libelle', ...(avec417 ? ['sujet', 'champ', 'ecran'] : [])];
   const insere = (entite: string, id: string, commentaire: string) => q(
     `INSERT INTO gestion_journal (${colonnes.join(', ')}) VALUES (${colonnes.map((_, i) => `$${i + 1}`).join(', ')})`,
-    [entite, id, action, avant, apres, commentaire, auteur.id, auteur.libelle, ...(avec417 ? ['copropriete', 'syndic', g.ecran] : [])]);
+    [entite, id, action, avant, apres, commentaire, auteur.id, auteur.libelle, ...(avec417 ? ['copropriete', l.champ, l.ecran] : [])]);
   if (await journalCoproprieteDisponible()) { await insere('copropriete', c.id, phrase); return; }
   // sans la 506 : une ligne à chaque bien de la copropriété (adresse principale et adresses secondaires en cours)
   const { rows: sec } = await q<{ cle: string }>('SELECT cle_immeuble AS cle FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND retire_le IS NULL', [c.id]);
@@ -89,6 +99,40 @@ export async function journaliserLienSyndic(q: RequeteTx, g: GesteLien, auteur: 
   const { rows: lots } = await q<{ id: string; immeuble: string | null; adresse: string | null }>(
     'SELECT id::text, immeuble, adresse FROM gestion_annuaire_lot WHERE absent_le IS NULL ORDER BY id');
   for (const l of lots.filter((x) => cles.has(cleImmeuble(immeubleDuBien(x))))) await insere('annuaire_lot', l.id, phrase);
+}
+
+// ══ 🔴 (Arno, 20/11/2026) LES CONTACTS DU SYNDIC RATTACHÉS À UNE COPROPRIÉTÉ — chaque rattachement, création, détachement : UNE ligne ═══════════════
+
+export type NatureContact = 'rattache' | 'cree' | 'detache';
+export const ACTION_CONTACT: Readonly<Record<NatureContact, string>> = {
+  rattache: 'syndic_contact_rattache', cree: 'syndic_contact_cree_rattache', detache: 'syndic_contact_detache',
+};
+
+/** La phrase du journal d'un contact du syndic. PUR. */
+export function phraseContact(nature: NatureContact, contact: string, syndic: string, copro: string, ecran: string, motif: string | null): string {
+  const depuis = ` (depuis ${ecran}${motif ? ` — ${motif}` : ''})`;
+  if (nature === 'detache') return `Contact ${contact} (syndic ${syndic}) détaché de la copropriété ${copro} — il reste dans l’annuaire du syndic${depuis}`;
+  if (nature === 'cree') return `Contact ${contact} créé dans l’annuaire du syndic ${syndic} et rattaché à la copropriété ${copro}${depuis}`;
+  return `Contact ${contact} (syndic ${syndic}) rattaché à la copropriété ${copro}${depuis}`;
+}
+
+/** ÉCRIT une ligne par contact, dans la transaction de l'appelant. */
+export async function journaliserContactsSyndic(q: RequeteTx, g: { coproId: string | number; syndicId: number; nature: NatureContact;
+  contactIds: readonly number[]; ecran: string; motif?: string | null }, auteur: Auteur): Promise<void> {
+  if (g.contactIds.length === 0) return;
+  const { rows: [c] } = await q<{ id: string; cle: string; libelle: string; cp: string | null; commune: string | null }>(
+    'SELECT id::text, cle_immeuble AS cle, libelle, code_postal AS cp, commune FROM gestion_copropriete WHERE id = $1', [g.coproId]);
+  if (c === undefined) return;
+  const syndic = (await nomSyndic(q, g.syndicId)) ?? '';
+  const copro = adresseImmeuble(c.libelle, c.cp, c.commune);
+  const { rows: ct } = await q<{ id: string; nom: string }>(
+    `SELECT id::text, btrim(concat_ws(' ', civilite, prenom, upper(nom), CASE WHEN nullif(btrim(titre), '') IS NULL THEN NULL ELSE '(' || btrim(titre) || ')' END)) AS nom
+       FROM gestion_syndic_contact WHERE id = ANY($1::bigint[]) ORDER BY id`, [[...g.contactIds]]);
+  for (const x of ct) {
+    const nom = x.nom || `n° ${x.id}`;
+    await ecrireLigneCopropriete(q, c, { action: ACTION_CONTACT[g.nature], avant: g.nature === 'detache' ? nom : null, apres: g.nature === 'detache' ? null : nom,
+      phrase: phraseContact(g.nature, nom, syndic, copro, g.ecran, g.motif ?? null), champ: 'contact syndic', ecran: g.ecran }, auteur);
+  }
 }
 
 // ══ L'HISTORIQUE DU SYNDIC SUR LA FICHE COPROPRIÉTÉ — le journal, et le registre des liens pour ce qui est d'avant (lecture seule) ══════════════════

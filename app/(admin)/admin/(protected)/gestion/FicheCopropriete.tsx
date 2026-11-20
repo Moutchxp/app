@@ -1,5 +1,6 @@
 'use client';
 
+import { ContactsSyndicCopropriete } from './ContactsSyndicCopropriete';
 import { useEffect, useId, useState } from 'react';
 import type { ModeleOfficiel } from '../../../../lib/adresse/officielleCopro';
 import { createPortal } from 'react-dom';
@@ -465,13 +466,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         {f.syndic !== null ? <p className="fcp-sans-marge">
           <button type="button" className="fcp-lien fcp-fort" onClick={() => setFicheSyndic(f.syndic!.id)} data-fcp-ouvrir-syndic>{nomAvecVille(f.syndic.nom, f.syndic.ville)}</button>
           <span className="loc-muet"> — ouvrir sa fiche</span></p> : <p className="loc-muet fcp-sans-marge" data-fcp-sans-syndic>Aucun syndic lié.</p>}
+        {/* 🔴 (Arno, 20/11/2026) les contacts du syndic de CETTE copropriété : rattacher depuis l'annuaire complet du syndic, détacher (« − »,
+            jamais supprimé de l'annuaire) — « (lecture seule) » laisse place à « + Rattacher un contact du syndic » */}
         {f.syndic !== null && (
-          <div data-fcp-gestionnaires>
-            <p className="fcp-sous-titre">Contact(s) syndic de cette copropriété <span className="loc-muet">(lecture seule)</span></p>
-            {f.gestionnaires.length === 0 ? <p className="loc-muet fcp-sans-marge">Aucun gestionnaire affecté.</p> : (
-              <ul className="fcp-liste">{f.gestionnaires.map((g) => <li key={g.id}><strong>{[g.civilite, g.prenom, (g.nom ?? '').toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ')}</strong>
-                {g.titre ? <span className="loc-muet"> · {g.titre}</span> : null}{g.coordonnees.map((k, i) => <span key={i} className="fcp-coord"> · {k.valeur}</span>)}</li>)}</ul>)}
-          </div>)}
+          <ContactsSyndicCopropriete immeuble={f.cle} syndicNom={nomAvecVille(f.syndic.nom, f.syndic.ville)} gestionnaires={f.gestionnaires}
+            onChange={(g) => setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, gestionnaires: g } }))} />)}
         {syndicChoisi !== null && <p className="fcp-info" data-fcp-syndic-choisi>Sera rattachée à {nomAvecVille(syndicChoisi.nom, syndicChoisi.ville)} à la validation
           {f.syndic !== null ? ` (le lien avec ${f.syndic.nom} passera en historique)` : ''}. <button type="button" className="fcp-lien" onClick={() => setSyndicChoisi(null)}>Annuler ce choix</button></p>}
         <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setChoixSyndic((o) => !o)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>

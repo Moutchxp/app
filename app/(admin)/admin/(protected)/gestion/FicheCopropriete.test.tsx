@@ -75,13 +75,16 @@ describe('un bien noté « pas en copropriété » sur une fiche déjà enregist
 });
 
 describe('la fiche', () => {
-  it('toutes ses adresses, un digicode par adresse, l’AG, le syndic (lien) et ses gestionnaires en lecture seule, les habitants et gardiens', async () => {
+  it('toutes ses adresses, un digicode par adresse, l’AG, le syndic (lien) et ses gestionnaires (rattacher / détacher), les habitants et gardiens', async () => {
     await ouvrir();
     expect($('[data-fcp-titre]').textContent).toBe('Copropriété · Résidence Les Tilleuls');
     expect([...document.querySelectorAll('[data-fcp-adresse]')].map((x) => x.getAttribute('data-fcp-adresse'))).toEqual(['principale', 'secondaire']);
     expect($('[data-fcp-ouvrir-syndic]').textContent).toMatch(/^Cabinet A/i);
     expect($('[data-fcp-gestionnaires]').textContent).toContain('Claire TEST');
-    expect($('[data-fcp-gestionnaires]').textContent).toContain('(lecture seule)');
+    // 🔴 Arno (20/11/2026) — « (lecture seule) » laisse place à « + Rattacher un contact du syndic » ; chaque contact a son « − » (détacher)
+    expect($('[data-fcp-gestionnaires]').textContent).not.toContain('(lecture seule)');
+    expect($('[data-csc-ouvrir]').textContent).toBe('+ Rattacher un contact du syndic');
+    expect($('[data-csc-detacher="5"]')).not.toBeNull();
     expect($('[data-fcp-contact="gardien"] [data-fcp-statut]').textContent).toBe('Gardien');
     expect($('[data-fcp-usage-interne]').textContent).toContain('jamais communiquées à un autre client');
     expect(document.querySelectorAll('[role="dialog"] select')).toHaveLength(0);
