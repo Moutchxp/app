@@ -114,8 +114,6 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [rattacheeIci, setRattacheeIci] = useState(false);
   const [edition, setEdition] = useState<ContactEdit | null>(null);
   const [choixSyndic, setChoixSyndic] = useState(false);
-  const [q, setQ] = useState('');
-  const [syndics, setSyndics] = useState<SyndicResume[]>([]);
   const [ficheSyndic, setFicheSyndic] = useState<number | null>(null);
   const [etape, setEtape] = useState<null | 'alerte' | 'conflit' | 'meme'>(null);
   const [memeTraite, setMemeTraite] = useState(false);
@@ -193,16 +191,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     return () => { vivant = false; };
   }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!choixSyndic) return;
-    let vivant = true;
-    const t = setTimeout(() => {
-      fetch(`/api/admin/gestion/syndics?q=${encodeURIComponent(q)}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ syndics?: SyndicResume[] }>)
-        .then((j) => { if (vivant) setSyndics((j.syndics ?? []).slice(0, 12)); }).catch(() => { if (vivant) setSyndics([]); });
-    }, 200);
-    return () => { vivant = false; clearTimeout(t); };
-  }, [choixSyndic, q]);
-  useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && sansNumero === null) onFerme(); };
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && ficheSyndic === null && !choixSyndic && sansNumero === null) onFerme(); };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
   }, [envoi, ficheSyndic, onFerme, sansNumero]);
@@ -473,15 +462,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
             onChange={(g) => setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, gestionnaires: g } }))} />)}
         {syndicChoisi !== null && <p className="fcp-info" data-fcp-syndic-choisi>Sera rattachée à {nomAvecVille(syndicChoisi.nom, syndicChoisi.ville)} à la validation
           {f.syndic !== null ? ` (le lien avec ${f.syndic.nom} passera en historique)` : ''}. <button type="button" className="fcp-lien" onClick={() => setSyndicChoisi(null)}>Annuler ce choix</button></p>}
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setChoixSyndic((o) => !o)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>
-          {f.syndic === null ? 'Rattacher un syndic' : 'Changer de syndic'}</button>
-        {choixSyndic && (
-          <div className="fcp-ajout" data-fcp-recherche-syndic>
-            <label className="fcp-champ"><span>Rechercher un syndic</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="nom, ville, e-mail" data-fcp-q-syndic /></label>
-            <ul className="fcp-liste">{syndics.filter((s) => s.id !== f.syndic?.id).map((s) => (
-              <li key={s.id}><button type="button" className="fcp-lien" onClick={() => { setSyndicChoisi(s); setChoixSyndic(false); }} data-fcp-syndic-propose={s.id}>{nomAvecVille(s.nom, s.ville ?? null)}</button>
-                <span className="loc-muet"> · {s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''}</span></li>))}</ul>
-          </div>)}
+        {/* 🔴 (Arno, 20/11/2026) « même méthode qu'en copie 1 » : les deux boutons ouvrent LA fenêtre « Syndic de la copropriété » de la carte d'un
+            bien (FicheSyndic, variante « copropriete ») — recherche, « Ajouter un syndic », création depuis les résultats avec la garde anti-doublon.
+            Le syndic choisi ou créé est PRÉPARÉ ici (« Sera rattachée à … à la validation ») : il ne s'applique qu'à « Valider ». */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setChoixSyndic(true)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>
+          {f.syndic === null ? 'Choisir / créer le syndic' : 'Changer de syndic'}</button>
         {/* 🔴 (Arno, 20/11/2026, journal des syndics) qui a rattaché ou retiré chaque syndic, quand, et depuis quel écran — lecture seule */}
         {(f.historiqueSyndic ?? []).length > 0 && (
           <details className="fcp-histo" data-fcp-historique-syndic>
@@ -555,6 +540,12 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           {f !== null && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider(); }} disabled={envoi || etape !== null} data-fcp-valider>{envoi ? 'Enregistrement…' : 'Valider'}</button>}
         </div>
       </div>
+      {choixSyndic && f !== null && typeof document !== 'undefined' && createPortal(
+        <FicheSyndic syndicId={null} variante="copropriete"
+          contexteCopropriete={{ libelle: f.nom?.trim() ? f.nom : adresseImmeuble(f.libelle, f.codePostal, f.commune), syndicActuel: f.syndic === null ? null : nomAvecVille(f.syndic.nom, f.syndic.ville) }}
+          onFerme={() => setChoixSyndic(false)}
+          onChoisi={(s) => setSyndicChoisi(s.id === f.syndic?.id ? null : { id: s.id, nom: s.nom, ville: s.ville, email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: '' })} />,
+        document.querySelector('.svv-adm-root') ?? document.body)}
       {ficheSyndic !== null && typeof document !== 'undefined' && createPortal(
         <FicheSyndic syndicId={ficheSyndic} lotDepart={lotId ?? null} onFerme={() => setFicheSyndic(null)} />, document.querySelector('.svv-adm-root') ?? document.body)}
     </div>
@@ -644,6 +635,8 @@ export function BoutonCopropriete({ lotId, dansLaFiche = false }: { lotId: numbe
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; telephone : une colonne, cibles de 44 px. */
 export const CSS_FICHE_COPROPRIETE = `
+/* (Arno, 20/11/2026) les fenêtres syndic ouvertes DEPUIS la copropriété (« Choisir / créer le syndic », « Changer de syndic », « ouvrir sa fiche ») passent AU-DESSUS de son voile */
+:root .fsy-voile{z-index:95}
 .fcp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .fcp-boite{width:min(760px,100%);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;padding:0;overflow:hidden;box-sizing:border-box;
   background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line);border-radius:16px;box-shadow:0 18px 48px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}

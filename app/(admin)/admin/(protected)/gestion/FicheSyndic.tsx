@@ -79,14 +79,21 @@ import { ancienDuMemeNom, motProposeReintegration, reintegrerAvecSaisie } from '
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
-  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi }: {
+  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi, contexteCopropriete = null }: {
   /**
    * TUILE LOCATION (Arno, 17/10/2026) — « location » : modale du formulaire « Ajouter un nouveau bien ». Un seul bouton de
    * création (pas de « Créer un nouveau syndic » en tête), l'encadré « déjà connu » à 3 boutons avec le détail en lecture
    * seule, et le CHOIX rendu au formulaire (`onChoisi`) SANS écriture : le bien n'existe pas encore, il sera rattaché à son
    * enregistrement. Absent (« gestion ») ⇒ la modale de la Gestion, inchangée.
    */
-  variante?: 'gestion' | 'location';
+  variante?: 'gestion' | 'location' | 'copropriete';
+  /**
+   * 🔴 (Arno, 20/11/2026) « copropriete » : la modale « Copropriété » ouvre CETTE fenêtre (« même méthode qu'en copie 1 ») — la même recherche, le
+   * même « Ajouter un syndic », la même création depuis les résultats avec la garde anti-doublon ; mais le CHOIX est rendu à la copropriété
+   * (`onChoisi`) SANS écriture : il ne s'applique qu'à son « Valider » (le changement de syndic reste préparé). Un syndic créé ici l'est sans
+   * copropriété : il est rattaché à celle-ci à sa validation.
+   */
+  contexteCopropriete?: { libelle: string; syndicActuel: string | null } | null;
   /** Le syndic choisi (rattaché au clic, ou créé) — rendu à l'écran hôte. */
   onChoisi?: (s: { id: number; nom: string; ville: string | null }) => void;
   /** TUILE LOCATION (17/10/2026) — le « + » du formulaire du bien ouvre directement « Créer un nouveau syndic ». Absent ⇒
@@ -466,7 +473,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
   /** « Choisir celui-ci » (doublon) : Location — rendu au formulaire du bien, sans écriture ; Gestion depuis un bien — rattaché à son immeuble (le geste
    *  « Sélectionner ce syndic pour ce bien » d'avant) ; sans bien (écran « Syndics ») — pas de choix. */
-  const choisirDoublon = variante === 'location' ? (id: number) => void choisirParId(id) : depuisUnBien ? (id: number) => void selectionner(id) : undefined;
+  const choisirDoublon = variante !== 'gestion' ? (id: number) => void choisirParId(id) : depuisUnBien ? (id: number) => void selectionner(id) : undefined;
   /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli) ; 🔴 (Arno, 17/11/2026) depuis la recherche, le NOM tapé pré-rempli. */
   const creer = (nom = ''): void => { setForm({ ...formulaireVide(immeubleDepart, lotDepart), nom: nom.trim() }); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); };
 
@@ -519,8 +526,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               onRattacher={(c) => void selectionner(c.syndic.id, c.copro.cle)} onNon={() => setConnusEcartes(true)} />
           )}
           {confirmation === null && mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
-            <Recherche immeubleDepart={immeubleDepart} ancienSyndicId={ancienSyndicId}
-              onRattacher={(id) => void (variante === 'location' ? choisirParId(id) : rattacherA(id))}
+            <Recherche immeubleDepart={immeubleDepart} ancienSyndicId={ancienSyndicId} contexteCopropriete={contexteCopropriete}
+              onRattacher={(id) => void (variante !== 'gestion' ? choisirParId(id) : rattacherA(id))}
               onCreer={creer} appel={appelRecherche} />
           )}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 1 : pendant la saisie d'un NOUVEAU syndic. */}
@@ -664,8 +671,10 @@ function sansAdressesCopro<T extends { immeubles: ReadonlyArray<{ adresses?: unk
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
-function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer, appel = 0 }: {
+function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer, appel = 0, contexteCopropriete = null }: {
   immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void;
+  /** 🔴 (Arno, 20/11/2026) ouverte depuis la modale « Copropriété » : sa ligne de contexte et « Rattacher cette copropriété à ce syndic ». */
+  contexteCopropriete?: { libelle: string; syndicActuel: string | null } | null;
   /** 🔴 (Arno, 17/11/2026) « Ajouter un syndic » a été cliqué : le curseur revient dans le champ de recherche. */
   appel?: number;
   /** 🔴🔴 (Arno, 17/11/2026 : « Aucun résultat (ou aucun ne convient) → sous la liste, un bouton « Créer le syndic « <texte tapé> » » qui ouvre la création
@@ -692,7 +701,12 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer
   const i = immeubleDepart?.libelle.trim() ?? '';
   return (
     <div className="fsy-bloc">
-      {i !== '' && immeubleDepart !== null ? (
+      {contexteCopropriete !== null ? (
+        <p className="fsy-discret" data-fsy-contexte-copro>
+          Copropriété : <strong>{contexteCopropriete.libelle}</strong> — {contexteCopropriete.syndicActuel !== null
+            ? <>syndic actuel : <strong>{contexteCopropriete.syndicActuel}</strong>.</> : 'aucun syndic connu.'}
+        </p>
+      ) : i !== '' && immeubleDepart !== null ? (
         <p className="fsy-discret">
           Immeuble : <strong>{adresseImmeuble(i, immeubleDepart.codePostal, immeubleDepart.commune)}</strong> — aucun syndic connu.
         </p>
@@ -714,8 +728,8 @@ function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null, onCreer
                 <strong>{nomAvecVille(s.nom, s.ville)}</strong>
                 <span className="fsy-discret">{s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''} · {s.nbBiens} bien{s.nbBiens > 1 ? 's' : ''}{s.email ? ` · ${s.email}` : ''}</span>
               </span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRattacher(s.id)}>
-                {i !== '' ? 'Rattacher cet immeuble à ce syndic' : 'Ouvrir'}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRattacher(s.id)} data-fsy-rattacher={s.id}>
+                {contexteCopropriete !== null ? 'Rattacher cette copropriété à ce syndic' : i !== '' ? 'Rattacher cet immeuble à ce syndic' : 'Ouvrir'}
               </button>
             </li>
           ))}

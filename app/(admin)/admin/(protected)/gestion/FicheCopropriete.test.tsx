@@ -31,6 +31,9 @@ beforeEach(() => {
     // la Base Adresse Nationale (les suggestions de ChampAdresseBan)
     if (u.startsWith('https://api-adresse.data.gouv.fr/search/')) return json({ features: u.includes('impasse') ? [{ properties: { label: '3 Impasse Neuve 75011 Paris', name: '3 Impasse Neuve', postcode: '75011', city: 'Paris' } }]
       : u.includes('lhomme') ? [{ properties: { label: 'Rue Pierre Lhomme 92400 Courbevoie', name: 'Rue Pierre Lhomme', postcode: '92400', city: 'Courbevoie' } }] : [] });
+    // 🔴 (20/11/2026) la fenêtre partagée (FicheSyndic, variante « copropriete ») lit le syndic choisi avant de le rendre à la copropriété
+    const lu1 = /^\/api\/admin\/gestion\/syndics\/(\d+)$/.exec(u);
+    if (lu1 !== null) return json({ etat: 'ok', fiche: { id: Number(lu1[1]), nom: Number(lu1[1]) === 4 ? 'Cabinet C' : 'Cabinet A', ville: Number(lu1[1]) === 4 ? 'Nice' : 'Paris', contacts: [], coproprietes: [] } });
     if (u.startsWith('/api/admin/gestion/syndics?')) return json({ syndics: [{ id: 2, nom: 'Cabinet A', ville: 'Paris', nbCoproprietes: 3 }, { id: 4, nom: 'Cabinet C', ville: 'Nice', nbCoproprietes: 1 }] });
     return json({ etat: 'sans_schema' });
   }) as unknown as typeof fetch;
@@ -40,6 +43,12 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 12; i++
 const $ = (s: string) => document.querySelector(s) as HTMLElement;
 const clic = async (s: string) => { await act(async () => { $(s).click(); }); await calmer(); };
 const saisir = async (s: string, v: string) => { const el = $(s) as HTMLInputElement; await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
+/** 🔴 (Arno, 20/11/2026) « Changer de syndic » ouvre LA fenêtre « Syndic de la copropriété » (copie 1) : on y rattache le syndic `id`. */
+const choisirSyndic = async (id: number) => {
+  await clic('[data-fcp-choisir-syndic]');
+  await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+  await clic(`[data-fsy-rattacher="${id}"]`);
+};
 const ouvrir = async () => { await act(async () => { root.render(createElement(FicheCopropriete, { lotId: 1, onFerme: () => {} })); }); await calmer(); };
 
 describe('le bouton sous « Créer le syndic »', () => {
@@ -142,11 +151,29 @@ describe('la fiche', () => {
     expect(posts[0].contacts).toMatchObject([{ id: 1, categorie: 'gardien' }, { id: null, categorie: 'personnalise', libelle: 'Locataire', prenom: 'Léa', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }]);
     expect(refusContact({ cle: 'x', id: null, categorie: 'coproprietaire', libelle: '', civilite: null, prenom: '', nom: '', note: '', coordonnees: [] })).toBe('Donnez au moins un nom ou un prénom.');
   });
-  it('changer de syndic depuis la fiche ; une adresse de la parcelle gérée par un AUTRE syndic : « Oui, je confirme », le conflit part avec la saisie', async () => {
+  it('🔴 Arno (20/11/2026) — « Changer de syndic » ouvre LA fenêtre de la carte du bien ; le choix est PRÉPARÉ (rien n’est écrit), puis appliqué à « Valider »', async () => {
+    parcelle = [];
     await ouvrir();
     await clic('[data-fcp-choisir-syndic]');
     await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
-    await clic('[data-fcp-syndic-propose="4"]');
+    expect(document.querySelector('[data-fsy-contexte-copro]')?.textContent).toContain('syndic actuel :');
+    await clic('[data-fsy-rattacher="4"]');
+    expect(document.querySelector('.fsy')).toBeNull();
+    expect($('[data-fcp-syndic-choisi]').textContent).toContain('Sera rattachée à Cabinet C / Nice à la validation');
+    expect(posts).toHaveLength(0);
+    await clic('[data-fcp-valider]');
+    expect(posts[0]).toMatchObject({ syndicId: 4 });
+  });
+  it('🔴 Arno (20/11/2026) — sans syndic : le bouton s’appelle « Choisir / créer le syndic » et ouvre la même fenêtre (« aucun syndic connu »)', async () => {
+    lu = { fiche: FICHE({ syndic: null, gestionnaires: [] }), coproprieteDuBien: true };
+    await ouvrir();
+    expect($('[data-fcp-choisir-syndic]').textContent).toBe('Choisir / créer le syndic');
+    await clic('[data-fcp-choisir-syndic]');
+    expect(document.querySelector('[data-fsy-contexte-copro]')?.textContent).toContain('aucun syndic connu');
+  });
+  it('changer de syndic depuis la fiche ; une adresse de la parcelle gérée par un AUTRE syndic : « Oui, je confirme », le conflit part avec la saisie', async () => {
+    await ouvrir();
+    await choisirSyndic(4);
     expect($('[data-fcp-syndic-choisi]').textContent).toContain('passera en historique');
     await clic('[data-fcp-valider]');
     expect($('[data-fcp-conflit]').textContent).toContain('10 rue Voisine');
@@ -156,9 +183,7 @@ describe('la fiche', () => {
   });
   it('🔴 la question est celle de la règle commune (mot pour mot celle de la fiche syndic) ; un refus du serveur sans confirmation s’affiche, rien n’est enregistré', async () => {
     await ouvrir();
-    await clic('[data-fcp-choisir-syndic]');
-    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
-    await clic('[data-fcp-syndic-propose="4"]');
+    await choisirSyndic(4);
     await clic('[data-fcp-valider]');
     expect($('[data-fcp-conflit] p').textContent).toBe('Sur la même parcelle, 10 rue Voisine, 75011 Paris (10 rue Voisine) est gérée par Cabinet B / Lyon. Confirmez-vous un autre syndic pour cette copropriété ?');
     await clic('[data-fcp-conflit] .svv-btn-outline:not([data-fcp-rattacher-a])'); // Annuler
@@ -173,9 +198,7 @@ describe('la fiche', () => {
     });
     act(() => root.unmount()); root = createRoot(container);
     await ouvrir();
-    await clic('[data-fcp-choisir-syndic]');
-    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
-    await clic('[data-fcp-syndic-propose="4"]');
+    await choisirSyndic(4);
     await clic('[data-fcp-valider]');
     expect(posts.at(-1)).toMatchObject({ syndicId: 4, conflitsParcelle: [] });
     expect($('[data-fcp-erreur]').textContent).toContain('Conflit de parcelle non confirmé');
@@ -236,9 +259,7 @@ describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche s
   it('🔴 conflit de parcelle : « Rattacher à X » — la copropriété rejoint celle de la parcelle, avec le syndic X (regroupement)', async () => {
     lu = MEME();
     await ouvrir();
-    await clic('[data-fcp-choisir-syndic]');
-    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
-    await clic('[data-fcp-syndic-propose="4"]');
+    await choisirSyndic(4);
     await clic('[data-fcp-valider]');
     expect($('[data-fcp-rattacher-a="9"]').textContent).toBe('Rattacher à Cabinet B');
     await clic('[data-fcp-rattacher-a="9"]');
@@ -261,9 +282,7 @@ describe('🔴🔴 (lot 6) AVANT de les retirer de la fiche syndic : chaque él�
   });
   it('② contrôles de parcelle : conflit (« Rattacher à X », « Oui, je confirme »), « Même syndic : regrouper ? », alerte « autres adresses postales »', async () => {
     await ouvrir();
-    await clic('[data-fcp-choisir-syndic]');
-    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
-    await clic('[data-fcp-syndic-propose="4"]');
+    await choisirSyndic(4);
     await clic('[data-fcp-valider]');
     expect(document.querySelector('[data-fcp-rattacher-a="9"]')).not.toBeNull();
     expect(document.querySelector('[data-fcp-conflit-oui]')).not.toBeNull();
