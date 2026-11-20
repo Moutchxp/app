@@ -318,13 +318,14 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
 - **Contrôles** (dernier lot, `f4e736fc`) : `npm test` VERT (1 858 fichiers, 27 663 tests, 21 ignorés) ; preuve curl
   d'Arno : 0 « Module not found / Build Error », statut 200.
-- **Migrations** : dernière écrite = **`510_gestion_adresse_ban_transaction_syndic.sql`**. ⚠️ **Constat du 20/11 au soir
-  (lecture seule)** : en recette, la **509** est appliquée (table `gestion_personne_adresse_ban`), mais **PAS la 510** :
-  la contrainte `gestion_personne_adresse_ban_sujet_check` n'admet encore que `proprietaire, locataire, carte, apporteur`
-  (la 510 ajoute `transaction_vente, transaction_personne, syndic`) ; le registre `svav_migration` de la recette n'est
-  pas tenu au-delà de la 382 (migrations posées hors registre). **À appliquer en recette avant de dire « jusqu'à 510 »**
-  (consigne d'Arno de ce soir : « appliquées jusqu'à 510 »). La **361** en attente (`db/migrations-en-attente/`) prendra
-  le **premier numéro libre (511)**.
+- **Migrations** : dernière = **`510_gestion_adresse_ban_transaction_syndic.sql`** — **appliquées en RECETTE jusqu'à 510**
+  (510 appliquée le 20/11/2026 au soir : `psql svav_recette -v ON_ERROR_STOP=1 -1 -f …`, garde de base comprise ;
+  la contrainte `gestion_personne_adresse_ban_sujet_check` admet désormais `transaction_vente`, `transaction_personne`,
+  `syndic`). Vérifiée à l'écran : adresse officielle enregistrée pour un syndic (« _TEST ADRESSE 510 », syndic 53),
+  l'adresse du bien d'un compromis (vente 342) et un vendeur (personne 3) ; `.captures/migration-510/`.
+  ⚠️ **Registre `svav_migration` de la recette non tenu au-delà de la 382** : 383 → 510 y sont absentes (posées hors
+  registre, comme les précédentes), la 510 comprise — rien n'y a été inscrit sans décision d'Arno. La **361** en attente
+  (`db/migrations-en-attente/`) prendra la **511** ; non touchée.
 - **Serveurs lancés en arrière-plan sur le Mac** : la recette (`npm run recette` avec `RECETTE_ENVOI_REEL_VERS`) et un
   tunnel `cloudflared` (logs dans `.captures/recette-interception/`).
 
@@ -354,7 +355,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   - **en-tête de la Gestion retiré de l'écran Copropriétés seul** (`f4e736fc`).
 - **Données d'essai en recette** (20/11) : syndics 49 « _TEST SYNDIC CONTACTS » (contacts 81-86), 50 « … BIS », 51
   « _TEST SYNDIC CREE DEPUIS COPRO », 52 « _TEST SYNDIC APRES RETRAIT » ; copropriété 297 « 12 rue _TEST Syndic Contacts »
-  (rattachée au 49, sans contact) ; « _TEST PREAVIS VALIDE SORTIE NON VALIDEE » (locataire 539, bien 460, occupation 566,
+  (rattachée au 49, sans contact) ; syndic 53 et compromis 342 « _TEST ADRESSE 510 » (vendeur 3, acquéreur 4) ;
+  « _TEST PREAVIS VALIDE SORTIE NON VALIDEE » (locataire 539, bien 460, occupation 566,
   préavis 16). Antérieures : « _TEST DEUX ADRESSES », « _TEST MANDAT » 323-325, 327, « _TEST NON SAUVEGARDE PROPRIETAIRE » 328,
   biens 453-456.
 - **Captures livrées** (20/11) : `.captures/syndic-copro/`, `.captures/gestion-coproprietes/`, `.captures/regle-preavis/`,
