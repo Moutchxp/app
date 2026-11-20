@@ -39,6 +39,8 @@ export interface SaisieCopropriete {
   adresses: AdresseSaisie[];
   contacts: ContactImmeubleSaisi[] | null;
   syndicId: number | null;
+  /** 🔴 (Arno, 20/11/2026) « Retirer le syndic » (préparé) : à la validation, sans nouveau syndic, le lien en cours est fermé (« syndic retiré »). */
+  retirerSyndic?: boolean;
   alerteParcelleVue: boolean;
   conflitsParcelle: { autre: string; parcelle: string | null }[];
   /** 🔴 (lot 3) les digicodes MODIFIÉS, par adresse de la copropriété : le commun (`undefined` : inchangé ; `''` : retiré) et ceux des bâtiments */
@@ -97,7 +99,7 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
     if (d.batiments.some((y) => batimentDe(y.libelle) === null)) return { ok: false, motif: 'Donnez un nom au bâtiment ou à la cage d’escalier.' };
   }
   return { ok: true, saisie: { immeuble, nom: nul(texte(b.nom, 200)), horsCopropriete: typeof b.horsCopropriete === 'boolean' ? b.horsCopropriete : null,
-    adresses, contacts, syndicId, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes,
+    adresses, contacts, syndicId, retirerSyndic: b.retirerSyndic === true, alerteParcelleVue: b.alerteParcelleVue === true, conflitsParcelle, digicodes,
     regrouperAvec: cleImmeuble(texte(b.regrouperAvec)) === '' ? null : texte(b.regrouperAvec),
     sansNumeroConfirmees: (Array.isArray(b.sansNumeroConfirmees) ? b.sansNumeroConfirmees.slice(0, 30) : []).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } };
 }
@@ -251,6 +253,17 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       await journaliserLienSyndic(q, { coproId, nature: ancien === null ? 'rattache' : 'remplace', syndicId: s.syndicId, ancienSyndicId: ancien, ecran: 'la fiche copropriété' }, auteur);
       // un conflit de parcelle CONFIRMÉ (une adresse de la parcelle est la copropriété d'un AUTRE syndic) : noté, comme depuis la fiche syndic
       for (const k of conflits) await noterConflitParcelle(q, coproId, s.syndicId, k, auteur);
+    }
+    // 🔴 (Arno, 20/11/2026) « Retirer le syndic » validé SANS nouveau syndic : le lien fermé (« retrait du syndic »), ses contacts détachés de la
+    // copropriété (journal, jamais supprimés de son annuaire), « syndic retiré » au journal — la même fonction de détachement que partout.
+    if (s.retirerSyndic === true && s.syndicId === null && lue.syndic !== null) {
+      const { rows: liens } = await q<{ id: string; syndic_id: string }>(
+        `SELECT id::text, syndic_id::text FROM gestion_copropriete_syndic WHERE copropriete_id = $1 AND fin IS NULL FOR UPDATE`, [coproId]);
+      for (const l of liens) {
+        await q(`UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'retrait du syndic' WHERE id = $1`, [l.id, auteur.id, auteur.libelle]);
+        await detacherContactsDeLAncienSyndic(q, { syndicId: Number(l.syndic_id), coproId, motif: 'syndic retiré de la copropriété', ecran: 'la fiche copropriété' }, auteur);
+        await journaliserLienSyndic(q, { coproId, nature: 'retire', syndicId: Number(l.syndic_id), ecran: 'la fiche copropriété', motif: 'retrait du syndic' }, auteur);
+      }
     }
     // ── ⑥ les digicodes (journal « depuis la fiche copropriété ») ; les nouveaux bâtiments entrent au registre de la copropriété ──────────────
     // 🔴 (Arno, 17/11/2026, « Adresses multiples d'une copropriété », lot 3) un bâtiment est nouveau À SON ADRESSE (le « A » du 9 n'est pas celui du 7)

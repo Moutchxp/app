@@ -176,7 +176,7 @@ describe('changement ou retrait de syndic', () => {
     const { readFileSync } = await import('node:fs');
     const copro = readFileSync('app/lib/gestion/coproprieteEcritureRepo.ts', 'utf8');
     const syndic = readFileSync('app/lib/gestion/syndicRepo.ts', 'utf8');
-    expect(copro.match(/detacherContactsDeLAncienSyndic\(q, /g)).toHaveLength(2);   // changement, regroupement
+    expect(copro.match(/detacherContactsDeLAncienSyndic\(q, /g)).toHaveLength(3);   // changement, retrait (« Retirer le syndic », Arno 20/11/2026), regroupement
     expect(syndic.match(/detacherContactsDeLAncienSyndic\(q, /g)).toHaveLength(2);  // retrait / reprise (via retirerAffectationsDeLaCopro), suppression
     for (const src of [copro, syndic]) expect(src).not.toMatch(/UPDATE gestion_syndic_contact_copropriete a SET retire_le[^`]*FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id/);
   });

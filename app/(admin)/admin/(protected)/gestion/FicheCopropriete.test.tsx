@@ -164,6 +164,65 @@ describe('la fiche', () => {
     await clic('[data-fcp-valider]');
     expect(posts[0]).toMatchObject({ syndicId: 4 });
   });
+  // 🔴🔴 Arno (20/11/2026) — « Retirer le syndic », préparé, avec la possibilité de rattacher ou créer un nouveau syndic
+  it('RETIRER : à côté de « Changer de syndic » ; la confirmation (trois boutons) ; « Annuler » ne prépare rien', async () => {
+    parcelle = [];
+    await ouvrir();
+    expect($('[data-fcp-retirer-syndic]').textContent).toBe('Retirer le syndic');
+    expect($('[data-fcp-choisir-syndic]').textContent).toBe('Changer de syndic');
+    await clic('[data-fcp-retirer-syndic]');
+    expect($('[data-fcp-confirmer-retrait]').textContent).toContain('Retirer Cabinet A / Paris de cette copropriété ? Ses contacts seront détachés de la copropriété mais resteront dans l’annuaire du syndic.');
+    expect([...document.querySelectorAll('[data-fcp-confirmer-retrait] button')].map((b) => b.textContent)).toEqual(['Annuler', 'Retirer seulement', 'Retirer et choisir / créer un autre syndic']);
+    await clic('[data-fcp-retrait-annuler]');
+    expect(document.querySelector('[data-fcp-confirmer-retrait]')).toBeNull();
+    expect(document.querySelector('[data-fcp-syndic-retire]')).toBeNull();
+  });
+  it('RETIRER SEULEMENT : préparé (« sera retiré à la validation »), RIEN n’est écrit ; « Valider » envoie le retrait', async () => {
+    parcelle = [];
+    await ouvrir();
+    await clic('[data-fcp-retirer-syndic]');
+    await clic('[data-fcp-retrait-seul]');
+    expect($('[data-fcp-syndic-retire]').textContent).toContain('Cabinet A / Paris sera retiré à la validation');
+    expect(posts).toHaveLength(0);
+    await clic('[data-fcp-valider]');
+    expect(posts[0]).toMatchObject({ action: 'enregistrer', syndicId: null, retirerSyndic: true });
+  });
+  it('FERMER sans valider après un retrait préparé : rien n’est écrit', async () => {
+    parcelle = [];
+    let fermee = 0;
+    await act(async () => { root.render(createElement(FicheCopropriete, { lotId: 1, onFerme: () => { fermee += 1; } })); }); await calmer();
+    await clic('[data-fcp-retirer-syndic]');
+    await clic('[data-fcp-retrait-seul]');
+    const fermer = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Fermer') as HTMLButtonElement;
+    await act(async () => { fermer.click(); }); await calmer();
+    expect(fermee).toBe(1);
+    expect(posts).toHaveLength(0);
+  });
+  it('RETIRER ET CHOISIR : la fenêtre « Syndic de la copropriété » s’ouvre directement ; le syndic choisi est préparé ; « Valider » envoie retrait + nouveau syndic', async () => {
+    parcelle = [];
+    await ouvrir();
+    await clic('[data-fcp-retirer-syndic]');
+    await clic('[data-fcp-retrait-et-choisir]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    await clic('[data-fsy-rattacher="4"]');
+    expect($('[data-fcp-syndic-choisi]').textContent).toContain('Sera rattachée à Cabinet C / Nice à la validation');
+    expect(posts).toHaveLength(0);
+    await clic('[data-fcp-valider]');
+    expect(posts[0]).toMatchObject({ syndicId: 4, retirerSyndic: true });
+  });
+  it('RETIRER ET CRÉER : depuis la même fenêtre, la recherche puis « Créer le syndic « … » » ouvre la création (même formulaire)', async () => {
+    parcelle = [];
+    await ouvrir();
+    await clic('[data-fcp-retirer-syndic]');
+    await clic('[data-fcp-retrait-et-choisir]');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    await saisir('.fsy input[type="search"]', '_TEST SYNDIC APRES RETRAIT');
+    await act(async () => { await new Promise((r) => setTimeout(r, 250)); }); await calmer();
+    await clic('[data-fsy-creer-recherche]');
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Créer un syndic');
+    expect(posts).toHaveLength(0);
+  });
   it('🔴 Arno (20/11/2026) — sans syndic : le bouton s’appelle « Choisir / créer le syndic » et ouvre la même fenêtre (« aucun syndic connu »)', async () => {
     lu = { fiche: FICHE({ syndic: null, gestionnaires: [] }), coproprieteDuBien: true };
     await ouvrir();

@@ -127,6 +127,31 @@ describe('l’enregistrement', () => {
     await enregistrerCopropriete({ ...SAISIE, syndicId: 2 }, AUTEUR);
     expect(js.gestes).toEqual([]);
   });
+  // 🔴🔴 (Arno, 20/11/2026) « Retirer le syndic » (préparé dans la modale, appliqué à « Valider »)
+  it('RETIRER SEUL : le lien FERMÉ (« retrait du syndic »), ses contacts détachés (fonction unique, motif lié), journal « retiré » ; rien d’effacé, aucun lien ouvert', async () => {
+    js.gestes = [];
+    await enregistrerCopropriete({ ...SAISIE, syndicId: null, retirerSyndic: true }, AUTEUR);
+    const e = ecritures();
+    expect(e.some((x) => x.s.includes("fin_motif = 'retrait du syndic'"))).toBe(true);
+    expect(e.some((x) => x.s.startsWith('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()') && x.p.includes('syndic retiré de la copropriété'))).toBe(true);
+    expect(e.some((x) => x.s.startsWith('INSERT INTO gestion_copropriete_syndic'))).toBe(false);
+    expect(e.some((x) => /^UPDATE gestion_syndic_contact SET|^DELETE/.test(x.s))).toBe(false);
+    expect(js.gestes).toEqual([{ coproId: '7', nature: 'retire', syndicId: 2, ecran: 'la fiche copropriété', motif: 'retrait du syndic' }]);
+  });
+  it('RETIRER + un autre syndic : le chemin du changement (« remplacé », contacts de l’ancien détachés) — un seul lien fermé', async () => {
+    js.gestes = [];
+    await enregistrerCopropriete({ ...SAISIE, syndicId: 5, retirerSyndic: true }, AUTEUR);
+    expect(ecritures().filter((x) => x.s.startsWith('UPDATE gestion_copropriete_syndic SET fin = now()'))).toHaveLength(1);
+    expect(js.gestes).toEqual([{ coproId: '7', nature: 'remplace', syndicId: 5, ancienSyndicId: 2, ecran: 'la fiche copropriété' }]);
+  });
+  it('SANS « retirerSyndic » (ou sans syndic en cours) : aucun lien touché', async () => {
+    await enregistrerCopropriete({ ...SAISIE, syndicId: null }, AUTEUR);
+    expect(ecritures().some((x) => x.s.includes('gestion_copropriete_syndic'))).toBe(false);
+    h.fiche = FICHE({ syndic: null });
+    await enregistrerCopropriete({ ...SAISIE, syndicId: null, retirerSyndic: true }, AUTEUR);
+    expect(ecritures().some((x) => x.s.includes('gestion_copropriete_syndic'))).toBe(false);
+    expect(validerSaisieCopropriete({ ...SAISIE, retirerSyndic: true })).toMatchObject({ ok: true, saisie: { retirerSyndic: true } });
+  });
   it('le même syndic : aucun lien touché ; un syndic supprimé : refus avant toute écriture', async () => {
     await enregistrerCopropriete({ ...SAISIE, syndicId: 2 }, AUTEUR);
     expect(ecritures().some((x) => x.s.includes('gestion_copropriete_syndic'))).toBe(false);

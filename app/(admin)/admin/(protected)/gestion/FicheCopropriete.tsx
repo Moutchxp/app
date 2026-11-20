@@ -95,6 +95,9 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [adresses, setAdresses] = useState<Adresse[]>([]);
   const [contacts, setContacts] = useState<ContactEdit[]>([]);
   const [syndicChoisi, setSyndicChoisi] = useState<SyndicResume | null>(null);
+  /* 🔴 (Arno, 20/11/2026) « Retirer le syndic » : PRÉPARÉ (appliqué à « Valider ») ; la confirmation à trois boutons */
+  const [retraitSyndic, setRetraitSyndic] = useState(false);
+  const [confirmerRetrait, setConfirmerRetrait] = useState(false);
   const [digi, setDigi] = useState<DigicodesAdresseSaisis[]>([]);
   // l'interface
   const [ajoutAdresse, setAjoutAdresse] = useState(false);
@@ -125,7 +128,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     // la case : celle de la fiche ; une fiche encore à créer part de ce que dit le bien (« pas en copropriété » : cochée)
     setNom(f.nom ?? ''); setHors(f.declaree ? f.horsCopropriete : l.coproprieteDuBien === false);
     setAdresses(f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' })));
-    setContacts(versEdition(f)); setSyndicChoisi(null); setDigi(saisieDigicodesInitiale(f));
+    setContacts(versEdition(f)); setSyndicChoisi(null); setRetraitSyndic(false); setConfirmerRetrait(false); setDigi(saisieDigicodesInitiale(f));
   };
   useEffect(() => {
     let vivant = true;
@@ -210,7 +213,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const conflits = syndicChoisi === null ? [] : prises.filter((p) => p.syndic !== null && p.syndic.id !== syndicChoisi.id);
   // 🔴 (lot 6, déplacé de la fiche syndic) « Même syndic : regrouper ? » : une adresse de la parcelle est la copropriété du MÊME syndic ; proposé
   // à une copropriété sans données propres (le serveur refuse sinon, rien n'est déplacé)
-  const syndicVise = syndicChoisi?.id ?? f?.syndic?.id ?? null;
+  const syndicVise = syndicChoisi?.id ?? (retraitSyndic ? null : f?.syndic?.id ?? null);
   const memeSyndic = f === null || syndicVise === null || (f.declaree && (f.contacts.length > 0 || (f.nom ?? '') !== '')) ? []
     : prises.filter((p) => p.syndic !== null && p.syndic.id === syndicVise && p.copropriete !== null);
 
@@ -229,7 +232,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
-        adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
+        adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
@@ -461,12 +464,31 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <ContactsSyndicCopropriete immeuble={f.cle} syndicNom={nomAvecVille(f.syndic.nom, f.syndic.ville)} gestionnaires={f.gestionnaires}
             onChange={(g) => setLu((l) => (l === null || l.fiche === null ? l : { ...l, fiche: { ...l.fiche, gestionnaires: g } }))} />)}
         {syndicChoisi !== null && <p className="fcp-info" data-fcp-syndic-choisi>Sera rattachée à {nomAvecVille(syndicChoisi.nom, syndicChoisi.ville)} à la validation
-          {f.syndic !== null ? ` (le lien avec ${f.syndic.nom} passera en historique)` : ''}. <button type="button" className="fcp-lien" onClick={() => setSyndicChoisi(null)}>Annuler ce choix</button></p>}
+          {f.syndic !== null ? ` (le lien avec ${f.syndic.nom} passera en historique)` : ''}. <button type="button" className="fcp-lien" onClick={() => { setSyndicChoisi(null); setRetraitSyndic(false); }}>Annuler ce choix</button></p>}
+        {/* 🔴 (Arno, 20/11/2026) le retrait SEUL, préparé : rien n'est écrit avant « Valider » */}
+        {retraitSyndic && syndicChoisi === null && f.syndic !== null && <p className="fcp-info" data-fcp-syndic-retire>{nomAvecVille(f.syndic.nom, f.syndic.ville)} sera retiré
+          à la validation : ses contacts seront détachés de la copropriété mais resteront dans l’annuaire du syndic.{' '}
+          <button type="button" className="fcp-lien" onClick={() => setRetraitSyndic(false)} data-fcp-annuler-retrait>Annuler ce choix</button></p>}
         {/* 🔴 (Arno, 20/11/2026) « même méthode qu'en copie 1 » : les deux boutons ouvrent LA fenêtre « Syndic de la copropriété » de la carte d'un
             bien (FicheSyndic, variante « copropriete ») — recherche, « Ajouter un syndic », création depuis les résultats avec la garde anti-doublon.
             Le syndic choisi ou créé est PRÉPARÉ ici (« Sera rattachée à … à la validation ») : il ne s'applique qu'à « Valider ». */}
         <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setChoixSyndic(true)} aria-expanded={choixSyndic} data-fcp-choisir-syndic>
           {f.syndic === null ? 'Choisir / créer le syndic' : 'Changer de syndic'}</button>
+        {/* 🔴 (Arno, 20/11/2026) « Retirer le syndic », à côté de « Changer de syndic » : confirmation, puis retrait seul ou suivi d'un autre syndic (préparé) */}
+        {f.syndic !== null && !retraitSyndic && (
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setConfirmerRetrait(true)} data-fcp-retirer-syndic>Retirer le syndic</button>)}
+        {confirmerRetrait && f.syndic !== null && (
+          <div className="fcp-confirmer-retrait" role="alertdialog" aria-labelledby="fcp-retrait-titre" data-fcp-confirmer-retrait>
+            <p id="fcp-retrait-titre" className="fcp-sans-marge">Retirer {nomAvecVille(f.syndic.nom, f.syndic.ville)} de cette copropriété ? Ses contacts seront détachés de la
+              copropriété mais resteront dans l’annuaire du syndic.</p>
+            <div className="fcp-boutons-retrait">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setConfirmerRetrait(false)} data-fcp-retrait-annuler>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => { setRetraitSyndic(true); setSyndicChoisi(null); setConfirmerRetrait(false); }}
+                data-fcp-retrait-seul>Retirer seulement</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" onClick={() => { setRetraitSyndic(true); setConfirmerRetrait(false); setChoixSyndic(true); }}
+                data-fcp-retrait-et-choisir>Retirer et choisir / créer un autre syndic</button>
+            </div>
+          </div>)}
         {/* 🔴 (Arno, 20/11/2026, journal des syndics) qui a rattaché ou retiré chaque syndic, quand, et depuis quel écran — lecture seule */}
         {(f.historiqueSyndic ?? []).length > 0 && (
           <details className="fcp-histo" data-fcp-historique-syndic>
@@ -544,7 +566,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         <FicheSyndic syndicId={null} variante="copropriete"
           contexteCopropriete={{ libelle: f.nom?.trim() ? f.nom : adresseImmeuble(f.libelle, f.codePostal, f.commune), syndicActuel: f.syndic === null ? null : nomAvecVille(f.syndic.nom, f.syndic.ville) }}
           onFerme={() => setChoixSyndic(false)}
-          onChoisi={(s) => setSyndicChoisi(s.id === f.syndic?.id ? null : { id: s.id, nom: s.nom, ville: s.ville, email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: '' })} />,
+          onChoisi={(s) => {
+            // le syndic ACTUEL choisi à nouveau : rien ne change (un retrait préparé est annulé)
+            if (s.id === f.syndic?.id) { setSyndicChoisi(null); setRetraitSyndic(false); return; }
+            setSyndicChoisi({ id: s.id, nom: s.nom, ville: s.ville, email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: '' });
+          }} />,
         document.querySelector('.svv-adm-root') ?? document.body)}
       {ficheSyndic !== null && typeof document !== 'undefined' && createPortal(
         <FicheSyndic syndicId={ficheSyndic} lotDepart={lotId ?? null} onFerme={() => setFicheSyndic(null)} />, document.querySelector('.svv-adm-root') ?? document.body)}
@@ -637,6 +663,8 @@ export function BoutonCopropriete({ lotId, dansLaFiche = false }: { lotId: numbe
 export const CSS_FICHE_COPROPRIETE = `
 /* (Arno, 20/11/2026) les fenêtres syndic ouvertes DEPUIS la copropriété (« Choisir / créer le syndic », « Changer de syndic », « ouvrir sa fiche ») passent AU-DESSUS de son voile */
 :root .fsy-voile{z-index:95}
+.fcp-confirmer-retrait{margin:8px 0;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-field);display:flex;flex-direction:column;gap:8px}
+.fcp-boutons-retrait{display:flex;flex-wrap:wrap;gap:8px}
 .fcp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .fcp-boite{width:min(760px,100%);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;padding:0;overflow:hidden;box-sizing:border-box;
   background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line);border-radius:16px;box-shadow:0 18px 48px color-mix(in srgb, var(--color-svv-ink) 30%, transparent)}
