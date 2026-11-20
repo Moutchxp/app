@@ -38,6 +38,9 @@ vi.mock('./digicodesRepo', () => ({ digicodesUnifiesDisponibles: async () => un.
 vi.mock('./parcelleRepo', () => ({ adressesDeLaParcelle: async () => ({ parcelles: [], adresses: h.parcelle }) }));
 const va = vi.hoisted(() => ({ vues: [] as unknown[][], issue: { ok: true } as { ok: true } | { ok: false; motif: string } }));
 vi.mock('./verificationAdresseRepo', () => ({ verifierAdresses: async (a: unknown[]) => { va.vues.push(a); return va.issue; } }));
+// 🔴 (lot 0) le retrait d'une adresse depuis la fiche passe par le regroupement (504) : l'appel est observé ici, son effet est éprouvé à part
+const rg = vi.hoisted(() => ({ appels: [] as unknown[][] }));
+vi.mock('./regroupementCoproprietesRepo', () => ({ noterRetraitDAdressesRegroupees: async (_q: unknown, ...a: unknown[]) => { rg.appels.push(a); return []; } }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -75,8 +78,11 @@ describe('l’enregistrement', () => {
   });
   it('une adresse absente de la saisie est RETIRÉE (jamais effacée), avec le journal des biens qui perdent le syndic', async () => {
     h.enCours = [{ id: '40', cle: '12 rue des lilas', libelle: '12 rue des Lilas' }];
+    rg.appels = [];
     await enregistrerCopropriete({ ...SAISIE, adresses: [] }, AUTEUR);
     expect(ecritures().some((x) => x.s.startsWith('UPDATE gestion_copropriete_adresse SET retire_le = now()'))).toBe(true);
+    // 🔴 (lot 0) jamais en silence pour une adresse de regroupement : les adresses retirées passent par le regroupement, avec l'écran d'origine
+    expect(rg.appels).toEqual([[['40'], 'depuis la fiche copropriété', AUTEUR]]);
     expect(ecritures().find((x) => x.s.includes("'syndic_retire'"))?.p[0]).toBe('1');
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
   });

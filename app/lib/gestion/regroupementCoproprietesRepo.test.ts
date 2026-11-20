@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   sql: [] as { s: string; p: unknown[] }[], avec504: true, prises: [] as { cle: string }[], syndic: null as null | { nom: string; ville: string | null },
   ignorees: [] as { signature: string }[], regroupement: [] as Record<string, unknown>[], adressesDuRegroupement: [] as { id: string; cle: string; libelle: string }[],
-  parcelles: new Map<string, string>(),
+  parcelles: new Map<string, string>(), retirees: [] as Record<string, unknown>[], vides: [] as { id: string }[], orphelins: [] as Record<string, unknown>[],
   lignes: [] as Record<string, unknown>[],
   lots: [
     { id: '1', immeuble: '54 avenue Puvis de Chavannes', adresse: '54 avenue Puvis de Chavannes' },
@@ -23,6 +23,10 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   if (s.startsWith('SELECT id::text, immeuble, adresse FROM gestion_annuaire_lot')) return { rows: h.lots };
   if (s.startsWith('SELECT r.copropriete_id::text AS copro')) return { rows: h.regroupement };
   if (s.startsWith('SELECT id::text, cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse WHERE regroupement_id')) return { rows: h.adressesDuRegroupement };
+  if (s.startsWith('SELECT a.regroupement_id::text AS regroupement')) return { rows: h.retirees };
+  if (s.startsWith('UPDATE gestion_copropriete_regroupement r SET degroupe_le')) return { rows: h.vides };
+  if (s.startsWith('SELECT r.id::text, r.principale, r.regroupees')) return { rows: h.orphelins };
+  if (s.startsWith('SELECT DISTINCT cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse WHERE regroupement_id')) return { rows: [{ cle: cleImmeuble(A), libelle: A }, { cle: cleImmeuble(H), libelle: H }] };
   return { rows: [] };
 });
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
@@ -30,7 +34,7 @@ vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => h.a
 vi.mock('./coproprieteRepo', () => ({ listerCoproprietes: async () => h.lignes }));
 vi.mock('./parcelleRepo', () => ({ parcellesDesAdresses: async () => h.parcelles }));
 import { cleImmeuble } from './syndics';
-import { degrouper, ignorerProposition, MOTIF_SANS_504, propositionsDeLaListe, regrouper } from './regroupementCoproprietesRepo';
+import { degrouper, ignorerProposition, MOTIF_SANS_504, noterRetraitDAdressesRegroupees, propositionsDeLaListe, regroupementsOrphelins, regrouper } from './regroupementCoproprietesRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const ligne = (immeuble: string, nbBiens: number, o: Record<string, unknown> = {}) => ({ immeuble, cle: cleImmeuble(immeuble), nom: immeuble, adresses: [immeuble],
@@ -40,7 +44,7 @@ const A = '54 Avneue Puvis de Chavannes';
 const H = '54 avenue Puvis de Chavannes (HARY)';
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
 beforeEach(() => {
-  h.sql = []; h.avec504 = true; h.prises = []; h.syndic = null; h.ignorees = []; h.regroupement = []; h.adressesDuRegroupement = []; h.parcelles = new Map();
+  h.sql = []; h.avec504 = true; h.prises = []; h.syndic = null; h.ignorees = []; h.regroupement = []; h.adressesDuRegroupement = []; h.parcelles = new Map(); h.retirees = []; h.vides = []; h.orphelins = [];
   h.lignes = [ligne(P, 39), ligne(A, 1), ligne(H, 4), ligne('56 avenue Puvis de Chavannes', 2)];
 });
 
@@ -122,5 +126,39 @@ describe('Ignorer', () => {
     expect(w.s).toMatch(/^INSERT INTO gestion_copropriete_doublon_ignore/);
     expect(w.p).toEqual([[cleImmeuble(P), cleImmeuble(H)].sort().join(' | '), [cleImmeuble(P), cleImmeuble(H)].sort(), 2, AUTEUR.libelle]);
     expect(await ignorerProposition({ cles: [P] }, AUTEUR)).toEqual({ ok: false, motif: 'Proposition non désignée.' });
+  });
+});
+
+/** 🔴 Arno (20/11/2026, lot 0) — une adresse d'un regroupement n'est plus jamais retirée en silence ; les regroupements orphelins se réparent. */
+describe('lot 0 — une adresse regroupée retirée ailleurs que par « Dégrouper »', () => {
+  it('l’Historique de chaque bien le dit (avec l’écran), et le regroupement est clos s’il n’a plus d’adresse en cours', async () => {
+    h.retirees = [{ regroupement: '1', cle: cleImmeuble(A), libelle: A, principale: P, cp: '92400', commune: 'Courbevoie' }];
+    h.vides = [{ id: '1' }];
+    expect(await noterRetraitDAdressesRegroupees(q as never, ['17'], 'depuis la fiche copropriété', AUTEUR)).toEqual([1]);
+    const w = ecritures();
+    const j = w.filter((x) => x.s.startsWith('INSERT INTO gestion_journal'));
+    expect(j.map((x) => [x.p[0], x.p[1]])).toEqual([['2', 'copropriete_degroupee']]);
+    expect(String(j[0].p[4])).toBe(`Copropriété dégroupée (n° 1, depuis la fiche copropriété) : l’écriture « ${A} » n’est plus une adresse de la copropriété ${P}, 92400 Courbevoie`);
+    // la clôture ne vise que les regroupements qui n'ont plus AUCUNE adresse en cours
+    const clore = w.find((x) => x.s.startsWith('UPDATE gestion_copropriete_regroupement r SET degroupe_le'))!;
+    expect(clore.s).toContain('NOT EXISTS (SELECT 1 FROM gestion_copropriete_adresse a WHERE a.regroupement_id = r.id AND a.retire_le IS NULL)');
+    expect(clore.p).toEqual([['1'], 2, AUTEUR.libelle]);
+    expect(w.some((x) => /DELETE|gestion_annuaire_lot/.test(x.s))).toBe(false);
+  });
+  it('une adresse qui n’est pas d’un regroupement ouvert, ou sans la 504 : rien n’est écrit', async () => {
+    expect(await noterRetraitDAdressesRegroupees(q as never, ['17'], 'depuis la fiche copropriété', AUTEUR)).toEqual([]);
+    h.avec504 = false; h.retirees = [{ regroupement: '1', cle: cleImmeuble(A), libelle: A, principale: P, cp: null, commune: null }];
+    expect(await noterRetraitDAdressesRegroupees(q as never, ['17'], 'depuis la fiche copropriété', AUTEUR)).toEqual([]);
+    expect(ecritures()).toEqual([]);
+  });
+  it('la réparation : à blanc, la liste sans aucune écriture ; appliquée, chaque orphelin clos avec l’Historique de ses biens', async () => {
+    h.orphelins = [{ id: '1', principale: P, regroupees: [A, H], retire_le: '2026-11-19 22:03:50+01' }];
+    expect(await regroupementsOrphelins(false, AUTEUR)).toEqual([{ id: 1, principale: P, regroupees: [A, H], retireLe: '2026-11-19 22:03:50+01' }]);
+    expect(ecritures()).toEqual([]);
+    await regroupementsOrphelins(true, AUTEUR);
+    const w = ecritures();
+    expect(w.filter((x) => x.s.startsWith('INSERT INTO gestion_journal')).map((x) => x.p[0])).toEqual(['2', '3']);
+    expect(w.at(-1)!.s).toMatch(/^UPDATE gestion_copropriete_regroupement r SET degroupe_le/);
+    expect(w.some((x) => /DELETE|^(UPDATE|INSERT INTO) (gestion_annuaire_lot|gestion_copropriete_adresse)\b/.test(x.s))).toBe(false);
   });
 });

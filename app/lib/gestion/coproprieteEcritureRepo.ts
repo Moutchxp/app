@@ -8,6 +8,7 @@ import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, immeubleDuBien, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { adressesIndependantes, avertissementsDesBatiments, batimentDe, connusPourAdresse, nomenclatureDeLAdresse, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
+import { noterRetraitDAdressesRegroupees } from './regroupementCoproprietesRepo';
 import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
 import { validerChangements } from './digicodes';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
@@ -185,6 +186,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
     const retirees = enCours.filter((x) => !voulues.has(x.cle));
     if (retirees.length > 0) {
       await q('UPDATE gestion_copropriete_adresse SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])', [retirees.map((x) => x.id), auteur.libelle]);
+      // 🔴 (Arno, 20/11/2026, lot 0) une adresse posée par un REGROUPEMENT (504) n'est plus jamais retirée en silence : l'Historique de ses biens le dit,
+      // et le regroupement est clos s'il n'a plus d'adresse en cours
+      await noterRetraitDAdressesRegroupees(q, retirees.map((x) => x.id), 'depuis la fiche copropriété', auteur);
       // comme la fiche syndic : chaque bien à l'adresse retirée perd le syndic de la copropriété — une ligne de journal par bien
       if (lue.syndic !== null) {
         const syndic = nomAvecVille(lue.syndic.nom, lue.syndic.ville);

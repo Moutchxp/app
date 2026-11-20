@@ -61,7 +61,10 @@ export async function propositionsDeLaListe(lignes?: readonly LigneCopropriete[]
 export async function regroupementsEnCours(): Promise<RegroupementEnCours[]> {
   if (!(await regroupementDisponible())) return [];
   const { rows } = await query<{ id: string; cle: string; principale: string; regroupees: string[]; le: string; par: string }>(
-    `SELECT r.id::text, c.cle_immeuble AS cle, r.principale, r.regroupees, r.cree_le::text AS le, r.cree_par_libelle AS par
+    // 🔴 (lot 0) les écritures EN COURS du regroupement (une adresse retirée depuis la fiche n'y est plus), pas la liste figée à sa création
+    `SELECT r.id::text, c.cle_immeuble AS cle, r.principale,
+            array(SELECT a.libelle FROM gestion_copropriete_adresse a WHERE a.regroupement_id = r.id AND a.retire_le IS NULL ORDER BY a.id) AS regroupees,
+            r.cree_le::text AS le, r.cree_par_libelle AS par
        FROM gestion_copropriete_regroupement r JOIN gestion_copropriete c ON c.id = r.copropriete_id
       WHERE r.degroupe_le IS NULL ORDER BY r.id`);
   return rows.map((r) => ({ id: Number(r.id), cle: r.cle, principale: r.principale, regroupees: r.regroupees, le: r.le, par: r.par }));
@@ -188,6 +191,74 @@ export async function degrouper(brut: unknown, auteur: Auteur): Promise<{ ok: tr
     }
     return { ok: true as const, message: `Dégroupé : ${listeEcritures(adresses.map((a) => a.libelle))} ne ${adresses.length > 1 ? 'sont' : 'est'} plus `
       + `${adresses.length > 1 ? 'des adresses' : 'une adresse'} de la copropriété ${copro} ; ${adresses.length > 1 ? 'elles redeviennent leurs propres fiches' : 'elle redevient sa propre fiche'}.` };
+  });
+}
+
+/**
+ * ══ 🔴 (Arno, 20/11/2026, LOT 0 — correctif 504) UNE ADRESSE D'UN REGROUPEMENT RETIRÉE AILLEURS QUE PAR « DÉGROUPER » ══════════════════════════════
+ * LE DÉFAUT CONSTATÉ (recette, 19/11 22h03) : « Valider » sur la fiche copropriété a retiré les 5 adresses du regroupement n° 1 (absentes de la
+ * saisie) SANS le clore ni rien écrire au journal — la liste l'affichait toujours « en cours ». Désormais, dans la MÊME transaction que le retrait :
+ * une ligne « dégroupée » dans l'Historique de chaque bien des écritures retirées (avec l'écran d'origine), et le regroupement est CLOS (`degroupe_le`,
+ * qui) dès qu'il n'a plus aucune adresse en cours. Rien n'est effacé. `ids` : les adresses secondaires que l'appelant vient de retirer.
+ */
+export async function noterRetraitDAdressesRegroupees(q: RequeteTx, ids: readonly string[], ecran: string, auteur: Auteur): Promise<number[]> {
+  if (ids.length === 0 || !(await regroupementDisponible())) return [];
+  const { rows } = await q<{ regroupement: string; cle: string; libelle: string; principale: string; cp: string | null; commune: string | null }>(
+    `SELECT a.regroupement_id::text AS regroupement, a.cle_immeuble AS cle, a.libelle, r.principale, c.code_postal AS cp, c.commune
+       FROM gestion_copropriete_adresse a JOIN gestion_copropriete_regroupement r ON r.id = a.regroupement_id
+       JOIN gestion_copropriete c ON c.id = r.copropriete_id
+      WHERE a.id = ANY($1::bigint[]) AND r.degroupe_le IS NULL ORDER BY a.id`, [[...ids]]);
+  if (rows.length === 0) return [];
+  for (const l of await biensDesCles(q, new Set(rows.map((r) => r.cle)))) {
+    const a = rows.find((x) => x.cle === l.cle)!;
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+       VALUES ('annuaire_lot', $1, $2, $3, $4, $5, $6, $7)`,
+      [l.id, ACTION_DEGROUPEE, a.principale, a.libelle, `Copropriété dégroupée (n° ${a.regroupement}, ${ecran}) : l’écriture « ${a.libelle} » n’est plus une adresse `
+        + `de la copropriété ${adresseImmeuble(a.principale, a.cp, a.commune)}`, auteur.id, auteur.libelle]);
+  }
+  return cloreRegroupementsVides(q, [...new Set(rows.map((r) => r.regroupement))], auteur);
+}
+
+/** Clôt ceux de ces regroupements (encore ouverts) qui n'ont plus AUCUNE adresse en cours. Rend leurs numéros. */
+async function cloreRegroupementsVides(q: RequeteTx, ids: readonly string[], auteur: Auteur): Promise<number[]> {
+  const { rows } = await q<{ id: string }>(
+    `UPDATE gestion_copropriete_regroupement r SET degroupe_le = now(), degroupe_par = $2, degroupe_par_libelle = $3
+      WHERE r.id = ANY($1::bigint[]) AND r.degroupe_le IS NULL
+        AND NOT EXISTS (SELECT 1 FROM gestion_copropriete_adresse a WHERE a.regroupement_id = r.id AND a.retire_le IS NULL)
+      RETURNING r.id::text`, [[...ids], auteur.id, auteur.libelle]);
+  return rows.map((r) => Number(r.id));
+}
+
+/**
+ * LA RÉPARATION (lot 0) : les regroupements restés « en cours » alors que TOUTES leurs adresses ont été retirées (avant le correctif). `appliquer` faux :
+ * rien n'est écrit, ils sont seulement rendus. Vrai : chacun est CLOS, avec une ligne d'Historique par bien de ses écritures (qui disait qu'il
+ * était encore regroupé) — l'écran d'origine du retrait n'étant pas connu, la ligne dit ce qui a été constaté. Rien n'est effacé.
+ */
+export async function regroupementsOrphelins(appliquer: boolean, auteur: Auteur): Promise<{ id: number; principale: string; regroupees: string[]; retireLe: string | null }[]> {
+  if (!(await regroupementDisponible())) return [];
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: string; principale: string; regroupees: string[]; retire_le: string | null }>(
+      `SELECT r.id::text, r.principale, r.regroupees, (SELECT max(a.retire_le)::text FROM gestion_copropriete_adresse a WHERE a.regroupement_id = r.id) AS retire_le
+         FROM gestion_copropriete_regroupement r
+        WHERE r.degroupe_le IS NULL AND NOT EXISTS (SELECT 1 FROM gestion_copropriete_adresse a WHERE a.regroupement_id = r.id AND a.retire_le IS NULL)
+        ORDER BY r.id FOR UPDATE OF r`);
+    const out = rows.map((r) => ({ id: Number(r.id), principale: r.principale, regroupees: r.regroupees, retireLe: r.retire_le }));
+    if (!appliquer || rows.length === 0) return out;
+    for (const r of rows) {
+      const { rows: adr } = await q<{ cle: string; libelle: string }>(
+        'SELECT DISTINCT cle_immeuble AS cle, libelle FROM gestion_copropriete_adresse WHERE regroupement_id = $1', [r.id]);
+      for (const l of await biensDesCles(q, new Set(adr.map((a) => a.cle)))) {
+        const a = adr.find((x) => x.cle === l.cle)!;
+        await q(
+          `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+           VALUES ('annuaire_lot', $1, $2, $3, $4, $5, $6, $7)`,
+          [l.id, ACTION_DEGROUPEE, r.principale, a.libelle, `Regroupement n° ${r.id} clos (réparation) : ses adresses avaient été retirées le ${r.retire_le ?? '?'} `
+            + `sans le clore ; l’écriture « ${a.libelle} » n’en faisait déjà plus partie`, auteur.id, auteur.libelle]);
+      }
+    }
+    await cloreRegroupementsVides(q, rows.map((r) => r.id), auteur);
+    return out;
   });
 }
 
