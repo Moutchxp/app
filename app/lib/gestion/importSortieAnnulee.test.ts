@@ -23,11 +23,14 @@ type Ligne = { id: string; wippimmo_id: string; cle_import: string | null; locat
 let occupations: Ligne[];
 let journal: { action: string; entite_id: string; valeur_apres: string | null; commentaire: string | null }[];
 let ecrits: { sql: string; params: unknown[] }[];
+let preavis: string[];
 
 const q = (async (sql: string, params: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ');
   if (/^SELECT id::text, wippimmo_id/.test(s.trim())) return { rows: occupations };
   if (/FROM gestion_journal/.test(s)) return { rows: journal };
+  if (/to_regclass\('gestion_location_preavis'\)/.test(s)) return { rows: [{ ok: true }] };
+  if (/FROM gestion_location_preavis/.test(s)) return { rows: preavis.map((id) => ({ id })) };
   ecrits.push({ sql: s, params });
   return { rows: [] };
 }) as never;
@@ -40,7 +43,7 @@ const plan = (sortie: string | null, wippimmoId = '792') => ({
 const ids = { loc: new Map([['fictif#x@fictif.fr', 191]]), lot: new Map([['466', 321]]) };
 const comptes = (): ComptesImport => ({ ...COMPTES_VIDES, divergences: [] });
 
-beforeEach(() => { ecrits = []; journal = []; occupations = [{ ...IMPORTEE }]; });
+beforeEach(() => { ecrits = []; journal = []; preavis = []; occupations = [{ ...IMPORTEE }]; });
 
 describe('import initial (annuaireRepo.ecrireOccupations) — la sortie annulée dans l’application est prioritaire', () => {
   it('bail importé, sortie annulée ici, l’export porte encore la date : RIEN n’est réécrit, la divergence est dite', async () => {
@@ -58,15 +61,15 @@ describe('import initial (annuaireRepo.ecrireOccupations) — la sortie annulée
     const c = comptes();
     await ecrireOccupations(q, plan('2026-11-30'), ids.loc, ids.lot, true, c);
     expect(ecrits).toHaveLength(1);
-    expect(ecrits[0].sql).toContain('sortie = CASE WHEN $7::boolean THEN gestion_annuaire_occupation.sortie ELSE EXCLUDED.sortie END');
-    expect(ecrits[0].params.slice(4)).toEqual(['2025-10-01', null, true]);
+    expect(ecrits[0].sql).toContain('sortie = CASE WHEN $8::boolean THEN gestion_annuaire_occupation.sortie ELSE EXCLUDED.sortie END');
+    expect(ecrits[0].params.slice(4)).toEqual(['2025-10-01', null, true, true]);
   });
 
   it('aucun geste de sortie dans l’application : l’export fait foi, comme avant (la date est recopiée)', async () => {
     const c = comptes();
     await ecrireOccupations(q, plan('2026-11-30'), ids.loc, ids.lot, true, c);
     expect(ecrits).toHaveLength(1);
-    expect(ecrits[0].params.slice(4)).toEqual(['2025-10-01', '2026-11-30', false]);
+    expect(ecrits[0].params.slice(4)).toEqual(['2025-10-01', '2026-11-30', false, false]);
     expect(c.divergences).toEqual([]);
   });
 
@@ -89,3 +92,33 @@ describe('import initial (annuaireRepo.ecrireOccupations) — la sortie annulée
 });
 
 // La mise à jour WIPPIMMO (`calculerMiseAJour`) suit la même règle : ses épreuves sont dans miseAJourWippimmo.test.ts.
+
+describe('🔴🔴 (Arno, 20/11/2026) import initial — un préavis validé ici, sortie non validée : il reste en préavis', () => {
+  it('préavis ouvert sur le bail importé, l’export porte une sortie : la sortie n’est PAS écrite, la divergence est dite', async () => {
+    preavis = ['202'];
+    const c = comptes();
+    await ecrireOccupations(q, plan('2026-12-31'), ids.loc, ids.lot, true, c);
+    expect(ecrits).toEqual([]);
+    expect(c.divergences).toEqual(['bail WIPPIMMO 792 — sortie : WIPPIMMO dit « 2026-12-31 », l’app dit « non renseigné » (non appliqué).']);
+  });
+  it('préavis ouvert, la date d’entrée change : elle suit l’export, la sortie reste vide', async () => {
+    preavis = ['202'];
+    const c = comptes();
+    await ecrireOccupations(q, { occupations: [{ wippimmoId: '792', clePersonne: 'fictif#x@fictif.fr', lotWippimmoId: '466', entree: '2025-09-01', sortie: '2026-12-31' }] } as never,
+      ids.loc, ids.lot, true, c);
+    expect(ecrits).toHaveLength(1);
+    expect(ecrits[0].params.slice(4)).toEqual(['2025-09-01', null, false, true]);
+  });
+  it('bail saisi ici puis rapproché, préavis ouvert : l’export ne « complète » pas la sortie', async () => {
+    occupations = [{ ...IMPORTEE, wippimmo_id: 'app-abc' }];
+    preavis = ['202'];
+    const c = comptes();
+    await ecrireOccupations(q, plan('2026-12-31'), ids.loc, ids.lot, true, c);
+    expect(ecrits[0].params[2]).toBeNull();
+  });
+  it('SANS préavis validé ici : la date importée de WIPPIMMO s’écrit, comme avant', async () => {
+    const c = comptes();
+    await ecrireOccupations(q, plan('2026-12-31'), ids.loc, ids.lot, true, c);
+    expect(ecrits[0].params[5]).toBe('2026-12-31');
+  });
+});

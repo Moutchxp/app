@@ -128,6 +128,9 @@ export const TYPES_SQL: Readonly<Record<string, string>> = {
 /** Les gestes de sortie de l'application, lus dans le journal (la même liste pour la mise à jour et pour l'import initial `annuaireRepo`). */
 export const ACTIONS_SORTIE_APPLI = ['location_sortie_locataire', 'location_sortie_corrigee', 'location_sortie_annulee', 'location_cloture_archivage'] as const;
 const ACTIONS_SORTIE: readonly string[] = ACTIONS_SORTIE_APPLI;
+/** 🔴🔴 (Arno, 20/11/2026) « un locataire qui a un préavis validé et dont la sortie n'est pas validée reste en statut préavis ; il n'en sort que
+ *  lorsque sa sortie est validée ». L'import ne pose donc jamais la sortie d'une occupation qui porte un préavis OUVERT (ni remplacé ni annulé). */
+export const MOTIF_PREAVIS = 'préavis validé dans l’application, sortie non validée : sortie non écrite (le locataire reste en préavis)';
 
 /** Deux valeurs égales pour la base : `null` et `undefined` se valent, un nombre se compare en nombre. */
 const forme = (v: Val | undefined): string | null => (v === null || v === undefined ? null
@@ -405,6 +408,8 @@ export function calculerMiseAJour(
         const a = b[col];
         // 🔴 (Arno, 20/11/2026) une sortie ANNULÉE (ou posée, corrigée) dans l'application n'est pas « complétée » par l'export : conflit listé
         if (col === 'sortie' && a === null && w !== null && protegees.has(b.id)) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: col, wippimmo: w, appli: a, motif: 'sortie validée dans l’application : dates conservées' });
+        // 🔴🔴 (Arno, 20/11/2026) un PRÉAVIS validé ici, sortie non validée : le locataire reste en préavis — l'export n'écrit pas sa sortie
+        else if (col === 'sortie' && a === null && w !== null && preavis.has(b.id)) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: col, wippimmo: w, appli: a, motif: MOTIF_PREAVIS });
         else if (a === null && w !== null) voulu[col] = w;
         else if (a !== null && w !== null && a !== w) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: col, wippimmo: w, appli: a, motif: 'bail saisi dans l’application : date conservée' });
       }
@@ -418,6 +423,10 @@ export function calculerMiseAJour(
         for (const [col, w] of [['entree', x.entree], ['sortie', x.sortie]] as const) {
           if ((b[col] ?? null) !== w) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: col, wippimmo: w, appli: b[col], motif: 'sortie validée dans l’application : dates conservées' });
         }
+      } else if (preavis.has(b.id) && b.sortie === null) {
+        // 🔴🔴 (Arno, 20/11/2026) préavis validé ici, sortie non validée : il reste en préavis jusqu'à la validation de sa sortie
+        voulu.entree = x.entree;
+        if (x.sortie !== null) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: 'sortie', wippimmo: x.sortie, appli: null, motif: MOTIF_PREAVIS });
       } else { voulu.entree = x.entree; voulu.sortie = x.sortie; }
     }
     const dm = preavis.get(b.id);

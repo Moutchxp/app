@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanImport, ProprietairePlan, LotPlan, LocatairePlan, OccupationPlan } from './annuaireImport';
 import {
-  adapterBailleurs, calculerMiseAJour, occupationsASortieValidee, sqlMiseAJour,
+  adapterBailleurs, calculerMiseAJour, MOTIF_PREAVIS, occupationsASortieValidee, sqlMiseAJour,
   type ContactBase, type EtatBase, type LocataireBase, type LotBase, type OccupationBase, type Op, type ProprietaireBase, type ResultatMaj,
 } from './miseAJourWippimmo';
 
@@ -167,6 +167,23 @@ describe('les locataires et leurs baux', () => {
   });
   it('bail saisi ici, AUCUN geste de sortie : l’export complète la date vide, comme avant', () => {
     const r = calc(exportAvecDate, baseAnnulee('app-1', []));
+    expect(maj(r, 'occupation').map((o) => o.apres.sortie)).toEqual(['2026-11-30']);
+  });
+  // 🔴🔴 (Arno, 20/11/2026) préavis validé ici, sortie non validée : il reste en préavis — l'export n'écrit pas sa sortie
+  const PREAVIS = [{ occupation_id: '40', date_max: '2026-12-31' }];
+  it('🔴 bail IMPORTÉ en préavis, l’export porte une sortie : la sortie n’est pas écrite, conflit listé (l’entrée suit l’export)', () => {
+    const e = { ...baseAnnulee('50', []), preavis: PREAVIS };
+    const r = calc(plan({ proprietaires: [prop('7')], lots: [lot('1', '7')], locataires: [loc('a', '50')], occupations: [occ('50', 'a', '1', '2025-09-01', '2026-12-31')] }), e);
+    expect(maj(r, 'occupation').map((o) => o.apres)).toEqual([{ entree: '2025-09-01' }]);
+    expect(r.conflits.find((c) => c.table === 'occupation' && c.champ === 'sortie')).toMatchObject({ wippimmo: '2026-12-31', appli: null, motif: MOTIF_PREAVIS });
+  });
+  it('🔴 bail SAISI ICI en préavis : l’export ne « complète » pas la sortie', () => {
+    const r = calc(exportAvecDate, { ...baseAnnulee('app-1', []), preavis: PREAVIS });
+    expect(maj(r, 'occupation').filter((o) => 'sortie' in o.apres)).toEqual([]);
+    expect(r.conflits.find((c) => c.table === 'occupation' && c.champ === 'sortie')).toMatchObject({ motif: MOTIF_PREAVIS });
+  });
+  it('SANS préavis ni geste ici : la date importée de WIPPIMMO s’écrit, comme avant', () => {
+    const r = calc(exportAvecDate, baseAnnulee('50', []));
     expect(maj(r, 'occupation').map((o) => o.apres.sortie)).toEqual(['2026-11-30']);
   });
   it('les gestes de sortie journalisés désignent leurs occupations (sortie, correction, clôture d’archivage)', () => {

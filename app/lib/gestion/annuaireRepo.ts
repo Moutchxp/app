@@ -591,6 +591,10 @@ export async function ecrireOccupations(
   const existants = new Map(rows.map((r) => [r.wippimmo_id, r]));
   const { rows: journalSorties } = await q<{ action: string; entite_id: string; valeur_apres: string | null; commentaire: string | null }>(
     `SELECT action, entite_id::text, valeur_apres, commentaire FROM gestion_journal WHERE action = ANY($1::text[])`, [[...ACTIONS_SORTIE_APPLI]]);
+  // 🔴🔴 (Arno, 20/11/2026) un préavis OUVERT (validé ici, ni remplacé ni annulé) : sortie non validée = le locataire reste en préavis
+  const { rows: tablePreavis } = await q<{ ok: boolean }>(`SELECT to_regclass('gestion_location_preavis') IS NOT NULL AS ok`);
+  const enPreavis = new Set(tablePreavis[0]?.ok !== true ? [] : (await q<{ id: string }>(
+    'SELECT DISTINCT occupation_id::text AS id FROM gestion_location_preavis WHERE remplace_le IS NULL AND annule_le IS NULL')).rows.map((r) => r.id));
   const protegees = occupationsASortieValidee(journalSorties, rows.map((r) => ({
     id: r.id, wippimmo_id: r.wippimmo_id, cle_import: r.cle_import, locataire_id: r.locataire_id, lot_id: r.lot_id ?? null,
     lot_wippimmo_id: r.lot_wippimmo_id ?? null, entree: r.entree ?? null, sortie: r.sortie ?? null, absent_le: r.absent_le ?? null })));
@@ -629,7 +633,8 @@ export async function ecrireOccupations(
          * ⚠️ CE QUI A ÉTÉ SAISI ICI EST PRIORITAIRE : l'export ne fait que COMPLÉTER une date vide (une sortie que
          * WIPPIMMO connaît, une entrée jamais saisie). Une date saisie qui diffère est DITE, jamais écrasée.
          */
-        const sortieGardee = protegees.has(cible.id);   // 🔴 (20/11/2026) une sortie annulée ici n'est pas « complétée » par l'export
+        // 🔴 (20/11/2026) une sortie annulée ici, ou un préavis validé ici sans sortie validée : l'export ne « complète » pas la sortie
+        const sortieGardee = protegees.has(cible.id) || (enPreavis.has(cible.id) && cible.sortie === null);
         for (const [col, wip] of [['entree', o.entree], ['sortie', o.sortie]] as const) {
           const app = cible[col];
           if ((app !== null && wip !== null && app !== wip) || (col === 'sortie' && sortieGardee && app === null && wip !== null)) {
@@ -651,16 +656,18 @@ export async function ecrireOccupations(
     }
     // 🔴 (20/11/2026) sortie touchée dans l'application : ses dates restent celles de l'application, la différence est dite
     const datesGardees = avant !== undefined && protegees.has(avant.id);
-    if (datesGardees) {
-      for (const [col, wip] of [['entree', o.entree], ['sortie', o.sortie]] as const) {
-        if ((avant![col] ?? null) !== wip) c.divergences.push(phraseDivergence(`bail WIPPIMMO ${o.wippimmoId}`, col, wip, avant![col] ?? null));
+    // 🔴🔴 (20/11/2026) préavis validé ici, sortie non validée : la sortie reste vide (il reste en préavis), l'entrée suit l'export
+    const sortieGardee = datesGardees || (avant !== undefined && enPreavis.has(avant.id) && (avant.sortie ?? null) === null);
+    for (const [col, wip] of [['entree', o.entree], ['sortie', o.sortie]] as const) {
+      if ((col === 'entree' ? datesGardees : sortieGardee) && (avant![col] ?? null) !== wip) {
+        c.divergences.push(phraseDivergence(`bail WIPPIMMO ${o.wippimmoId}`, col, wip, avant![col] ?? null));
       }
     }
     const apres: Empreinte = {
       locataire_id: locataireId === null ? null : String(locataireId),
       lot_id: lotId === null ? null : String(lotId),
       lot_wippimmo_id: o.lotWippimmoId,
-      entree: datesGardees ? avant!.entree ?? null : o.entree, sortie: datesGardees ? avant!.sortie ?? null : o.sortie, absent_le: null,
+      entree: datesGardees ? avant!.entree ?? null : o.entree, sortie: sortieGardee ? avant!.sortie ?? null : o.sortie, absent_le: null,
     };
     if (avant === undefined) c.occupationsCreees += 1;
     else if (memeEmpreinte(apres, avant)) { c.occupationsInchangees += 1; continue; }
@@ -675,9 +682,9 @@ export async function ecrireOccupations(
          locataire_id = EXCLUDED.locataire_id, lot_id = EXCLUDED.lot_id,
          lot_wippimmo_id = EXCLUDED.lot_wippimmo_id,
          entree = CASE WHEN $7::boolean THEN gestion_annuaire_occupation.entree ELSE EXCLUDED.entree END,
-         sortie = CASE WHEN $7::boolean THEN gestion_annuaire_occupation.sortie ELSE EXCLUDED.sortie END,
+         sortie = CASE WHEN $8::boolean THEN gestion_annuaire_occupation.sortie ELSE EXCLUDED.sortie END,
          absent_le = NULL, importe_le = now()`,
-      [o.wippimmoId, locataireId, lotId, o.lotWippimmoId, apres.entree, apres.sortie, datesGardees]);
+      [o.wippimmoId, locataireId, lotId, o.lotWippimmoId, apres.entree, apres.sortie, datesGardees, sortieGardee]);
   }
 }
 
