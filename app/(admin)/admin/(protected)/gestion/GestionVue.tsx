@@ -1198,6 +1198,11 @@ export function GestionVue({ intro, location = false }: {
   /** 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'a plus le bloc d'en-tête (relève, alertes, copie Drive). */
   /* 🔴 Arno (10/11/2026, accord explicite) — la pleine page Préavis perd, comme la page Tâches, tout le bloc d'en-tête de la Gestion. */
   const sansBlocEnTete = ecran === 'taches' || ecran === 'preavis';
+  /* 🔴 Arno (20/11/2026, accord explicite pour CET écran) — « supprime-moi tout ce bloc dans cette page » : sur `?ecran=coproprietes`, ni le
+     titre « Gestion » ni sa phrase ni « Rapprochement des dossiers clients » (feuille ci-dessous), ni le cadre de relève et ses boutons, ni
+     l'alerte « relève arrêtée », ni « Copie des pièces vers le Drive à reprendre ». AFFICHAGE SEULEMENT, sur cet écran : partout ailleurs le bloc
+     reste exactement le même, et les deux alertes qui ne sont pas dans la demande (rattachement en échec, copie ARRÊTÉE) restent ici aussi. */
+  const sansBlocCopro = ecran === 'coproprietes';
 
   /**
    * ══ 🔴 LOT VEILLE-VIVE — LE BANDEAU JUGE SUR CE QUE LE BATTEMENT A VU ═══════════════════════════════════════════
@@ -1285,6 +1290,7 @@ export function GestionVue({ intro, location = false }: {
           dossiers clients » (rendus par la page serveur, d'où la feuille, même patron que la page Tâches) ; ni relève, ni ses boutons, ni ses
           alertes (`sansBlocEnTete`). La page commence par « ← Retour à la Gestion ». Partout ailleurs, rien ne change. */}
       {ecran === 'preavis' && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
+      {sansBlocCopro && <style>{'.gst-page > .svv-page-head{display:none}'}</style>}
       {ecran === 'taches' && (
         <header className="svv-page-head gst-titre-taches">
           <div className="svv-page-head-ligne"><h1 className="svv-page-title">{TITRE_PAGE_TACHES}</h1></div>
@@ -1373,7 +1379,7 @@ export function GestionVue({ intro, location = false }: {
           ⚠️ LES ALERTES NON PLUS : « relève arrêtée », « copie arrêtée », « envoi en échec » s'affichent sur TOUS
           les écrans, celui-ci compris. Masquer une sécurité pour gagner de la place, c'est la retirer. */}
       {sansBlocEnTete ? null : (<>
-      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && (
+      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && (
       <div className="gst-bandeau gst-bandeau--compact" role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
@@ -1435,7 +1441,7 @@ export function GestionVue({ intro, location = false }: {
           y a 47 s ») est descendue dans la colonne : la laisser aussi ici l'afficherait DEUX FOIS, ce qui est
           exactement ce qu'on cherchait à éviter — trois pavés gris permanents à force desquels on ne lit plus rien.
           L'alerte, elle, reste en haut sur TOUS les écrans. */}
-      {veille.niveau !== 'ok' ? (
+      {sansBlocCopro ? null : veille.niveau !== 'ok' ? (
         <p className="gst-veille gst-veille--alerte" role="alert">
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
@@ -1473,7 +1479,7 @@ export function GestionVue({ intro, location = false }: {
       )}
       {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
       {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage'
-        && ecran !== 'evenements' && !historiquePersonne && (
+        && ecran !== 'evenements' && !historiquePersonne && !sansBlocCopro && (
         /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — idem : l'avancement ORDINAIRE de la copie quitte l'accueil,
            et reste dans la colonne de la boîte en plein écran. L'ARRÊT SUBI, lui, crie partout. */
         <p className="gst-veille" role="status">{copie.texte}</p>
