@@ -39,6 +39,8 @@ export function EcranSortieRecherche() {
   const controleur = useRef<AbortController | null>(null);
   // 🔴 Arno (20/11/2026, option B) — après « Corriger la date » / « Annuler la sortie », la recherche est relue.
   const [version, setVersion] = useState(0);
+  // 🔴 Arno (20/11/2026) — la ligne « Sorties enregistrées (N) » : repliée par défaut.
+  const [sortiesOuvertes, setSortiesOuvertes] = useState(false);
   useEffect(() => {
     const terme = texte.trim();
     controleur.current?.abort();
@@ -112,15 +114,27 @@ export function EcranSortieRecherche() {
                 )}
       </section>
       {/* 🔴 Arno (20/11/2026, option B) — les SORTIES DÉJÀ ENREGISTRÉES : mêmes gestes, contrôles, confirmations et journal que la fiche. */}
-      {etat.etat === 'ok' && etat.sorties.length > 0 && (
-        <section className="sor-enregistrees" aria-label="Sorties enregistrées trouvées" data-resultats-sorties>
-          <h4>Sorties enregistrées</h4>
-          <ul className="loc-liste">
-            {etat.sorties.map((x) => (
-              <LigneSortie key={`${x.lotId}-${x.sortie}-${x.occupationIds.join('-')}`} s={x} apres={() => setVersion((v) => v + 1)}
-                entete={<span className="sor-occupant sor-occupant--sortie" data-statut="sortie-enregistree">Sortie enregistrée le {dateFr(x.sortie)}</span>} />
-            ))}
-          </ul>
+      {/* 🔴 Arno (20/11/2026) — « n'affiche qu'une ligne à déployer par défaut avec le nombre de sorties » : une ligne repliée
+          « Sorties enregistrées (N) » (N : celles de la recherche en cours) ; un clic déplie la liste, un nouveau clic la replie ; à 0, elle
+          ne se déplie pas. */}
+      {etat.etat === 'ok' && (
+        <section className="sor-enregistrees" aria-label="Sorties enregistrées trouvées" data-resultats-sorties data-nombre-sorties={etat.sorties.length}>
+          {etat.sorties.length === 0 ? (
+            <p className="sor-ligne-sorties sor-ligne-sorties--vide" data-ligne-sorties>Sorties enregistrées (0)</p>
+          ) : (
+            <button type="button" className="sor-ligne-sorties" aria-expanded={sortiesOuvertes} onClick={() => setSortiesOuvertes((x) => !x)} data-ligne-sorties>
+              <span aria-hidden="true">{sortiesOuvertes ? '▾' : '▸'}</span> Sorties enregistrées ({etat.sorties.length})
+              <span className="sor-ligne-geste"> — {sortiesOuvertes ? 'cliquer pour replier' : 'cliquer pour afficher'}</span>
+            </button>
+          )}
+          {sortiesOuvertes && etat.sorties.length > 0 && (
+            <ul className="loc-liste" data-liste-sorties>
+              {etat.sorties.map((x) => (
+                <LigneSortie key={`${x.lotId}-${x.sortie}-${x.occupationIds.join('-')}`} s={x} apres={() => setVersion((v) => v + 1)}
+                  entete={<span className="sor-occupant sor-occupant--sortie" data-statut="sortie-enregistree">Sortie enregistrée le {dateFr(x.sortie)}</span>} />
+              ))}
+            </ul>
+          )}
         </section>
       )}
     </div>
@@ -622,6 +636,10 @@ export const CSS_SORTIE = `
 .sor-question{margin:14px 0 8px;font-weight:800;color:var(--color-svv-ink)}
 .sor-mails{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
 /* Arno (19/10/2026) — LE STATUT « EN PRÉAVIS » EN BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre), toujours avec le mot. */
+.sor-ligne-sorties{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;width:100%;min-height:44px;margin:10px 0 0;padding:10px 12px;box-sizing:border-box;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:800;text-align:left;cursor:pointer}
+.sor-ligne-sorties:focus-visible{outline:2px solid var(--color-svv-line-strong-hover);outline-offset:2px}
+.sor-ligne-sorties--vide{cursor:default;color:var(--color-svv-muted)}
+.sor-ligne-geste{font-weight:400;color:var(--color-svv-muted);font-size:.9rem}
 .sor-occupant--sortie{background:var(--color-svv-violet-soft);color:var(--color-svv-violet);border-color:var(--color-svv-violet);display:inline-block;margin:0 0 4px} /* Arno (20/11/2026) — « Sortie enregistrée le … », le violet de « Ancien locataire » */
 .sor-occupant--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border-color:var(--color-svv-blue)}
 .sor-surligne--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}

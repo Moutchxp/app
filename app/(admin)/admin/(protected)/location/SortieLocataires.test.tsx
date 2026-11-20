@@ -148,6 +148,35 @@ describe('la recherche des occupants', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
   };
   const cliquer = async (el: Element | null) => { await act(async () => { (el as HTMLElement).click(); }); await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
+  /** 🔴 Arno (20/11/2026) — la liste est derrière la ligne « Sorties enregistrées (N) » : on la déplie. */
+  const deplier = async () => cliquer(container.querySelector('button[data-ligne-sorties]'));
+
+  it('🔴 Arno (20/11/2026) — UNE ligne repliée « Sorties enregistrées (N) » par défaut ; un clic déplie la liste, un nouveau clic la replie', async () => {
+    vi.useFakeTimers();
+    global.fetch = rechercheAvecSortie([], [SORTIE, { ...SORTIE, lotId: 9, sortie: '2026-10-01', occupationIds: [40] }]) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    await chercher('bernard');
+    const ligne = container.querySelector('button[data-ligne-sorties]') as HTMLButtonElement;
+    expect(ligne.textContent).toBe('▸ Sorties enregistrées (2) — cliquer pour afficher');
+    expect(ligne.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-liste-sorties]')).toBeNull();
+    await deplier();
+    expect(container.querySelectorAll('[data-liste-sorties] [data-statut="sortie-enregistree"]')).toHaveLength(2);
+    expect(ligne.textContent).toBe('▾ Sorties enregistrées (2) — cliquer pour replier');
+    await deplier();
+    expect(container.querySelector('[data-liste-sorties]')).toBeNull();
+  });
+
+  it('🔴 Arno (20/11/2026) — aucune sortie pour la recherche : « Sorties enregistrées (0) », qui ne se déplie pas ; les occupants ne changent pas', async () => {
+    vi.useFakeTimers();
+    global.fetch = vi.fn(async (u: string | URL | Request) => String(u).includes('sortiesEnregistrees=') ? ok([])
+      : ok([{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephone: null, email: null, lotId: 7, adresse: '4 rue Fictive', etage: null, porte: null, proprietaire: null }])) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    await chercher('bernard');
+    expect(container.querySelector('[data-ligne-sorties]')?.textContent).toBe('Sorties enregistrées (0)');
+    expect(container.querySelector('button[data-ligne-sorties]')).toBeNull();
+    expect(container.querySelector('a.sor-ligne .sor-occupant')?.textContent).toBe('occupant');
+  });
 
   it('🔴 l’aide sous la recherche mentionne les sorties enregistrées', () => {
     global.fetch = vi.fn(async () => ok([])) as unknown as typeof fetch;
@@ -162,6 +191,7 @@ describe('la recherche des occupants', () => {
     act(() => root.render(createElement(EcranSortieRecherche)));
     await chercher('bernard');
     expect(container.textContent).toContain('Aucun locataire occupant ne correspond à « bernard ».');
+    await deplier();
     const bloc = container.querySelector('[data-resultats-sorties]')!;
     expect(bloc.querySelector('[data-statut="sortie-enregistree"]')?.textContent).toBe('Sortie enregistrée le 30/11/2026');
     expect(bloc.textContent).toContain('BERNARD Alice, BERNARD Paul — 4 rue Fictive, Puteaux — sortie le 30/11/2026');
@@ -176,6 +206,7 @@ describe('la recherche des occupants', () => {
     global.fetch = rechercheAvecSortie(envoyes) as unknown as typeof fetch;
     act(() => root.render(createElement(EcranSortieRecherche)));
     await chercher('bernard');
+    await deplier();
     const lectures = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
     await cliquer(container.querySelector('[data-corriger]'));
     const champ = container.querySelector('[data-resultats-sorties] input[type="date"]') as HTMLInputElement;
@@ -194,6 +225,7 @@ describe('la recherche des occupants', () => {
     global.fetch = rechercheAvecSortie(envoyes) as unknown as typeof fetch;
     act(() => root.render(createElement(EcranSortieRecherche)));
     await chercher('bernard');
+    await deplier();
     await cliquer(container.querySelector('[data-annuler]'));
     expect(container.querySelector('[data-resultats-sorties]')?.textContent).toContain('Annuler cette sortie ? BERNARD Alice, BERNARD Paul redeviennent occupants du logement. Le journal garde la trace de la sortie annulée.');
     expect(envoyes).toEqual([]);
