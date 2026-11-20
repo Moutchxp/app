@@ -323,9 +323,23 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   la contrainte `gestion_personne_adresse_ban_sujet_check` admet désormais `transaction_vente`, `transaction_personne`,
   `syndic`). Vérifiée à l'écran : adresse officielle enregistrée pour un syndic (« _TEST ADRESSE 510 », syndic 53),
   l'adresse du bien d'un compromis (vente 342) et un vendeur (personne 3) ; `.captures/migration-510/`.
-  ⚠️ **Registre `svav_migration` de la recette non tenu au-delà de la 382** : 383 → 510 y sont absentes (posées hors
-  registre, comme les précédentes), la 510 comprise — rien n'y a été inscrit sans décision d'Arno. La **361** en attente
-  (`db/migrations-en-attente/`) prendra la **511** ; non touchée.
+  La **361** en attente (`db/migrations-en-attente/`) prendra la **511** ; non touchée.
+- **Registre des migrations (`svav_migration`) — état au 20/11/2026 au soir** (rapport : `.captures/registre-migrations/RAPPORT.txt`) :
+  - **Comment la mise en production choisit** : `npm run prod:mettre-a-jour` → sur le serveur, `scripts/migrations-plan.ts` +
+    `planifier()` (`app/lib/ops/migrationsNouvelles.ts`) : est NOUVELLE toute migration `db/migrations/NNN_nom.sql` dont le **nom
+    n'est pas au registre de la base visée** ; refus si une nouvelle est numérotée **sous la dernière inscrite**. Un fichier déjà
+    inscrit n'est jamais rejoué. `db/migrations-en-attente/` n'est pas lu.
+  - **PRODUCTION** (lecture seule, `.captures/registre-migrations/lecture-prod.sh`) : registre jusqu'à **503** (19/11, commit
+    `5f40f193`) ; 502 lignes dont 4 écartées (148, 212, 216, 262) ; aucune empreinte modifiée. **À appliquer : 504 → 510** (plan
+    hors ligne : 7 « enveloppées », aucun refus).
+    🔴 **509 et 510 ont une GARDE « svav_recette seulement »** : en l'état, la mise à jour de production **échouerait à la 509**
+    (504-508 passées et inscrites, pas de bascule). Avant de dire « on met en production » : décider le **lot 8** (adresses BAN en
+    production) — lever la garde par une NOUVELLE migration, jamais en modifiant 509/510 déjà inscrites en recette.
+  - **RECETTE** : 128 migrations 383 → 510 vérifiées dans le schéma réel ; **114 en place, inscrites** au registre (une transaction,
+    garde de base, origine `mise_a_jour`, hash du commit d'ajout, durée 0 — rien réappliqué). **14 ABSENTES de la recette, NON
+    inscrites** (la production les a) : **410, 429, 430, 431, 432, 439, 441, 448, 450, 451, 453, 455, 458, 459**. Le registre de la
+    recette allant jusqu'à 510, l'outil les y refuserait (« numérotée sous la dernière ») : les passer en recette = décision d'Arno,
+    à la main une par une, puis inscription.
 - **Serveurs lancés en arrière-plan sur le Mac** : la recette (`npm run recette` avec `RECETTE_ENVOI_REEL_VERS`) et un
   tunnel `cloudflared` (logs dans `.captures/recette-interception/`).
 
