@@ -51,12 +51,36 @@ export async function inseeDeLaCommune(commune: string | null, codePostal: strin
   return retenues.length === 1 ? retenues[0] : null;
 }
 
-/** Les adresses officielles d'une commune à un numéro (tous indices). LECTURE SEULE. */
+/** Les lignes ajoutées depuis un fichier de la BAN officielle (`ban-csv-import`) : leur identifiant est le plus récent. */
+export const SOURCE_BAN_OFFICIELLE = 'BAN adresse.data.gouv.fr';
+/** Deux lignes de même voie et même indice à moins de cette distance (mètres) sont la MÊME adresse (un identifiant de voie renuméroté par la BAN). */
+export const MEME_ADRESSE_M = 5;
+
+/**
+ * Les adresses officielles d'une commune à un numéro (tous indices). LECTURE SEULE.
+ * 🔴 (lot 3 ter, 20/11/2026) LA MÊME ADRESSE SOUS DEUX IDENTIFIANTS : après l'import du fichier BAN de Paris, 178 adresses existent deux fois — l'ancien
+ * identifiant de l'extrait BD TOPO (« 75105_x125_00001 ») et le nouveau de la BAN (« 75105_m7yz55_00001 »), même voie, même position. Une seule est
+ * gardée : celle du fichier BAN officiel (la plus récente), sinon le plus petit identifiant — sans quoi chacune deviendrait « à vérifier ».
+ */
 export async function candidatsAuNumero(insee: string, numero: number, q: RequeteTx | typeof query = query): Promise<CandidatBan[]> {
-  const { rows } = await q<{ id: string; numero: number; suffixe: string | null; nom_voie: string; insee: string; commune: string; x: number | null; y: number | null }>(
-    `SELECT cle_d_interoperabilite AS id, numero, suffixe, nom_voie, insee_commune AS insee, nom_commune AS commune, ST_X(geom) AS x, ST_Y(geom) AS y
-       FROM adresse_ban WHERE insee_commune = $1 AND numero = $2 AND cle_d_interoperabilite IS NOT NULL ORDER BY cle_d_interoperabilite`, [insee, numero]);
-  return rows.map((r) => ({ id: r.id, numero: r.numero, suffixe: indiceNormalise(r.suffixe), nomVoie: r.nom_voie, insee: r.insee, commune: r.commune, x: r.x, y: r.y }));
+  const { rows } = await q<{ id: string; numero: number; suffixe: string | null; nom_voie: string; insee: string; commune: string; x: number | null; y: number | null; officielle: boolean }>(
+    `SELECT cle_d_interoperabilite AS id, numero, suffixe, nom_voie, insee_commune AS insee, nom_commune AS commune, ST_X(geom) AS x, ST_Y(geom) AS y,
+            coalesce(source_adresse LIKE $3, false) AS officielle
+       FROM adresse_ban WHERE insee_commune = $1 AND numero = $2 AND cle_d_interoperabilite IS NOT NULL ORDER BY cle_d_interoperabilite`, [insee, numero, `${SOURCE_BAN_OFFICIELLE}%`]);
+  return dedoublonnerCandidats(rows.map((r) => ({ id: r.id, numero: r.numero, suffixe: indiceNormalise(r.suffixe), nomVoie: r.nom_voie, insee: r.insee, commune: r.commune,
+    x: r.x, y: r.y, officielle: r.officielle })));
+}
+
+/** La même adresse sous deux identifiants (même voie normalisée, même indice, à moins de 5 m) : une seule, la plus récente. PUR. */
+export function dedoublonnerCandidats(c: readonly (CandidatBan & { officielle: boolean })[]): CandidatBan[] {
+  const tries = [...c].sort((a, b) => Number(b.officielle) - Number(a.officielle) || a.id.localeCompare(b.id));
+  const gardes: (CandidatBan & { officielle: boolean })[] = [];
+  for (const x of tries) {
+    const meme = gardes.find((g) => normaliserTexte(g.nomVoie) === normaliserTexte(x.nomVoie) && g.suffixe === x.suffixe
+      && g.x !== null && g.y !== null && x.x !== null && x.y !== null && Math.hypot(g.x - x.x, g.y - x.y) < MEME_ADRESSE_M);
+    if (meme === undefined) gardes.push(x);
+  }
+  return gardes.map(({ officielle: _o, ...g }) => g).sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** La parcelle cadastrale d'un point BAN : la plus proche, à 3 m au plus (la règle de `parcelleRepo`, point INLINÉ dans le KNN). LECTURE SEULE. */
@@ -74,7 +98,13 @@ export type RapprochementComplet = Rapprochement & { insee: string | null; codeP
 export async function rapprocherAdresse(a: AdresseEcrite, q: RequeteTx | typeof query = query): Promise<RapprochementComplet> {
   const analyse = analyserAdresse(a.texte, a.commune);
   const insee = analyse.numero === null ? null : await inseeDeLaCommune(a.commune, a.codePostal, q);
-  const candidats = analyse.numero === null || insee === null ? null : await candidatsAuNumero(insee, analyse.numero, q);
+  let candidats = analyse.numero === null || insee === null ? null : await candidatsAuNumero(insee, analyse.numero, q);
+  // 🔴 (lot 3 ter) la commune trouvée par son code postal, mais SANS AUCUNE adresse dans la BAN locale (Melun, Taverny…) : « commune absente », pas
+  // « aucune adresse à ce numéro » (qui laisserait croire que la commune est couverte)
+  if (candidats !== null && candidats.length === 0 && insee !== null) {
+    const { rows } = await q<{ n: number }>('SELECT count(*)::int AS n FROM (SELECT 1 FROM adresse_ban WHERE insee_commune = $1 LIMIT 1) x', [insee]);
+    if ((rows[0]?.n ?? 0) === 0) candidats = null;
+  }
   const r = deciderRapprochement(analyse, candidats);
   const parcelle = r.ban?.x != null && r.ban.y != null ? await parcelleDuPoint(r.ban.x, r.ban.y, q) : null;
   const cp = (a.codePostal ?? '').trim();

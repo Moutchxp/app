@@ -7,6 +7,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   const s = sql.replace(/\s+/g, ' ').trim(); h.sql.push({ s, p });
   if (s.startsWith('SELECT DISTINCT insee_commune AS insee FROM adresse_ban')) return { rows: h.communes };
   if (s.startsWith('SELECT count(*)::int AS n FROM (SELECT 1 FROM code_postal_insee')) return { rows: [{ n: h.cp.length }] };
+  if (s.startsWith('SELECT count(*)::int AS n FROM (SELECT 1 FROM adresse_ban WHERE insee_commune')) return { rows: [{ n: Object.keys(h.au).some((k) => k.startsWith(`${p[0]}|`)) ? 1 : 0 }] };
   if (s.startsWith('SELECT DISTINCT insee, nom_commune AS nom FROM code_postal_insee')) return { rows: h.cp.filter((x) => x.code_postal === p[0]) };
   if (s.startsWith('SELECT cle_d_interoperabilite AS id')) return { rows: h.au[`${p[0]}|${p[1]}`] ?? [] };
   if (s.startsWith('SELECT id FROM parcelle')) return { rows: [{ id: h.parcelle }] };
@@ -15,7 +16,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
 });
 vi.mock('../db/client', () => ({ query: q }));
 vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => true }));
-import { enregistrerRapprochement, inseeDeLaCommune, rapprocherAdresse, rapprocherBien } from './banRepo';
+import { dedoublonnerCandidats, enregistrerRapprochement, inseeDeLaCommune, rapprocherAdresse, rapprocherBien } from './banRepo';
 
 const PUVIS = { id: '92026_7184_00054', numero: 54, suffixe: null, nom_voie: 'Avenue Puvis De Chavannes', insee: '92026', commune: 'Courbevoie', x: 645100.5, y: 6866200.25 };
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -97,5 +98,22 @@ describe('l’enregistrement, historisé', () => {
     expect(w[0]).toMatchObject({ s: expect.stringMatching(/^UPDATE gestion_lot_adresse_ban SET fin = now\(\)/), p: ['7', 2, AUTEUR.libelle, 'validé par Arno'] });
     expect(w[1].p[11]).toBe('valide');
     expect(w.some((x) => /DELETE|gestion_annuaire_lot/.test(x.s))).toBe(false);
+  });
+});
+
+describe('🔴 (lot 3 ter) la même adresse sous deux identifiants (voie renumérotée par la BAN)', () => {
+  it('même voie, même indice, même position : une seule, celle du fichier BAN officiel ; deux adresses distinctes restent deux', () => {
+    const c = (id: string, officielle: boolean, x = 652096, suffixe: string | null = null) => ({ id, numero: 1, suffixe, nomVoie: 'Voie D/5', insee: '75105', commune: 'Paris', x, y: 6860636, officielle });
+    expect(dedoublonnerCandidats([c('75105_x125_00001', false), c('75105_m7yz55_00001', true)]).map((x) => x.id)).toEqual(['75105_m7yz55_00001']);
+    expect(dedoublonnerCandidats([c('75105_x125_00001', false), c('75105_m7yz55_00001_s', true, 652110, 's')]).map((x) => x.id)).toEqual(['75105_m7yz55_00001_s', '75105_x125_00001']);
+    expect(dedoublonnerCandidats([c('a', false), c('b', false, 652400)]).map((x) => x.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('🔴 (lot 3 ter) une commune trouvée par son code postal mais absente de la BAN locale', () => {
+  it('« Commune absente de la Base Adresse locale » (Melun), et non « aucune adresse à ce numéro » ; une commune couverte garde ce motif', async () => {
+    h.cp = [{ code_postal: '77000', insee: '77288', nom: 'MELUN' }, { code_postal: '92400', insee: '92026', nom: 'COURBEVOIE' }];
+    expect((await rapprocherAdresse({ texte: '12 Rue Louis Beaunier', codePostal: '77000', commune: 'Melun' })).motif).toBe('Commune absente de la Base Adresse locale.');
+    expect((await rapprocherAdresse({ texte: '99 avenue Puvis de Chavannes', codePostal: '92400', commune: 'Courbevoie' })).motif).toBe('Aucune adresse officielle au 99 dans cette commune.');
   });
 });

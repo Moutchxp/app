@@ -15,6 +15,8 @@ const AVANT_LE_LOT_2 = new Set([
   'app/scripts/obstacles-check.ts', 'app/scripts/faisceaux-check.ts', 'app/scripts/origine-check.ts', 'app/scripts/lidar-axe-check.ts', 'app/scripts/analyse-check.ts',
   'app/lib/admin/morphologieDisque.ts', 'app/lib/admin/sourcesFraicheurRepo.ts', 'app/lib/internaute/extractionRepo.ts', 'app/lib/db/certificatEmission.ts',
   'app/lib/db/adressesProches.ts', 'app/lib/analytics/lecture/geo.ts', 'app/lib/analytics/commune.ts', 'app/(admin)/api/admin/internautes/communes/route.ts',
+  // CHARGEMENT de la BAN locale depuis un fichier officiel (lot 3 ter, 20/11/2026) : il remplit la table, il ne rapproche rien
+  'app/scripts/ban-csv-import.ts',
   // rapprochements et recherches d'adresse À FAIRE PASSER PAR LE MODULE (lots 7a à 7e)
   'app/lib/permis/plancheParcellesRepo.ts', 'app/lib/gestion/verificationAdresseRepo.ts', 'app/lib/gestion/syndicRepo.ts', 'app/lib/gestion/syndics.ts',
   'app/lib/gestion/parcelleRepo.ts', 'app/(admin)/api/admin/gestion/syndics/adresses/route.ts', 'app/page.tsx', 'app/components/AdresseAutocomplete.tsx',

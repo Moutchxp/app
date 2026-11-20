@@ -35,13 +35,18 @@ export function lireCodesPostaux(texte: string): { lignes: LigneCodePostal[]; ec
   return { lignes: [...vus.values()], ecartees };
 }
 
+/** Le fichier de La Poste est publié en ISO-8859-1 (« Libellé » y est illisible lu comme de l'UTF-8) : UTF-8 s'il est valide, sinon Latin-1. PUR. */
+export function decoderFichier(octets: Uint8Array): string {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(octets); } catch { return new TextDecoder('latin1').decode(octets); }
+}
+
 async function main(): Promise<void> {
   const fichier = optionLigne(process.argv, 'fichier');
   if (fichier === null) { console.error('Indiquez le fichier : --fichier=<chemin du CSV de La Poste>.'); process.exit(2); }
   const appliquer = process.argv.includes('--appliquer');
   const base = (await query<{ b: string }>('SELECT current_database() AS b')).rows[0]?.b ?? '?';
   if (base !== 'svav_recette') { console.error(`Base « ${base} » : ce script ne s'exécute que sur svav_recette. Rien n'est écrit.`); process.exit(3); }
-  const { lignes, ecartees } = lireCodesPostaux(readFileSync(fichier, 'utf8'));
+  const { lignes, ecartees } = lireCodesPostaux(decoderFichier(readFileSync(fichier)));
   let ajoutees = 0;
   if (appliquer) {
     ajoutees = await withTransaction(async (q) => {
