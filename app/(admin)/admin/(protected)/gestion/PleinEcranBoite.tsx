@@ -99,7 +99,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onTaches, tachesDuJour = 0, onPreavis, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -183,6 +183,9 @@ export function PleinEcranBoite({
   onSyndics?: () => void;
   /** 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — ouvre l'écran « Copropriétés », juste sous « Syndics ». Absent ⇒ aucune entrée. */
   onCoproprietes?: () => void;
+  /** 🔴 (Arno, 20/11/2026, lot 6) la file « Adresses à vérifier » et son compteur */
+  onAdressesAVerifier?: () => void;
+  adressesAVerifier?: number;
   /** 🔴 LOT GESTION-TACHES-PAGE — le raccourci « Tâches » (page pleine), entre « Événements » et « Syndics ». */
   onTaches?: () => void;
   /** Les tâches prévues AUJOURD'HUI, ni faites ni annulées (pastille rouge ; rien à 0). */
@@ -1064,6 +1067,18 @@ export function PleinEcranBoite({
                 <button type="button" className="cm-entree" onClick={() => { onCoproprietes(); setPanneauMobile('contenu'); }}
                   title="Les copropriétés du portefeuille (adresses, digicodes, AG, habitants)" data-entree-coproprietes>
                   <span className="cm-nom"><span className="cm-texte">Copropriétés</span></span>
+                </button>
+              </li>
+            )}
+            {/* 🔴 Arno (20/11/2026, « Adresse officielle BAN », lot 6) — « Adresses à vérifier », juste sous « Copropriétés ». Une entrée AJOUTÉE. */}
+            {onAdressesAVerifier && (
+              <li>
+                <button type="button" className="cm-entree" onClick={() => { onAdressesAVerifier(); setPanneauMobile('contenu'); }}
+                  title="Les écritures d’adresse dont l’adresse officielle est à vérifier" data-entree-adresses-a-verifier>
+                  <span className="cm-nom"><span className="cm-texte">Adresses à vérifier</span></span>
+                  {adressesAVerifier > 0 && (
+                    <span className="cm-pastille-jour" data-pastille-adresses-a-verifier aria-label={`${adressesAVerifier} adresses à vérifier`}>{adressesAVerifier}</span>
+                  )}
                 </button>
               </li>
             )}

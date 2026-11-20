@@ -21,3 +21,10 @@ describe('le libellé officiel à l’écran', () => {
     expect(voieAffichee('7 Rue D\'Alsace')).toBe('7 rue d\'Alsace');
   });
 });
+
+describe('un indice écrit autrement (« ba » dans la BAN)', () => {
+  it('le type de voie après l’indice passe en minuscule ; « 4 Rue du Port » reste intact au-delà du type', () => {
+    expect(voieAffichee('4 ba Avenue de Choisy')).toBe('4 ba avenue de Choisy');
+    expect(voieAffichee('4 Rue Du Port')).toBe('4 rue du Port');
+  });
+});

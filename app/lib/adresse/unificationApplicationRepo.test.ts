@@ -59,6 +59,13 @@ describe('annuler', () => {
     expect(r).toEqual({ operationId: 2, fermes: 1, restaures: 1, retirees: 0, effaces: 2 });
     expect(h.sql.filter((x) => x.s.startsWith('DELETE')).map((x) => [x.s.split(' ')[2], x.p[0]])).toEqual([['gestion_copropriete_adresse', '40'], ['gestion_copropriete', '300']]);
   });
+  it('(lot 6) un rapprochement que la passe avait FERMÉ est rouvert, APRÈS la fermeture de ceux qu’elle a ouverts (un seul en cours par bien)', async () => {
+    h.trace = [{ table_nom: 'gestion_lot_adresse_ban', ligne_id: '55', colonne: 'fin', avant: null, geste: 'modification' }];
+    const r = await annulerUnification(q as never, 2, AUTEUR);
+    expect(r).toMatchObject({ fermes: 1, restaures: 1 });
+    const maj = h.sql.filter((x) => x.s.startsWith('UPDATE gestion_lot_adresse_ban'));
+    expect(maj.map((x) => x.s.includes('SET fin = NULL') ? ['rouvert', x.p[0]] : ['fermé', x.p[0]])).toEqual([['fermé', 2], ['rouvert', '55']]);
+  });
   it('refus SANS RIEN ÉCRIRE : passe déjà annulée ; copropriété créée qui a reçu d’autres données depuis', async () => {
     h.annulee = true;
     await expect(annulerUnification(q as never, 2, AUTEUR)).rejects.toThrow(/déjà annulée/);

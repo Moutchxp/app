@@ -64,6 +64,7 @@ import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
 import { EcranSyndics } from './EcranSyndics';
 import { EcranCoproprietes } from './EcranCoproprietes';
+import { EcranAdressesAVerifier } from './EcranAdressesAVerifier';
 import { FileATrier } from './FileATrier';
 import { etatSuite } from '../../../../lib/gestion/suiteReleve';
 import { etatCopie } from '../../../../lib/gestion/copieArretee';
@@ -685,6 +686,14 @@ export function GestionVue({ intro, location = false }: {
   const tachesDuJour = compterTachesDuJour(tachesLues, minute);
   // 🔴 Arno (10/11/2026) — la pastille « Préavis » du menu : les préavis EN ALERTE, relus comme le bloc (30 s, retour sur l'onglet, après un geste).
   const preavisEnAlerte = usePreavisEnAlerte(true, API_PREAVIS_GESTION);
+  // 🔴 (Arno, 20/11/2026, lot 6) le nombre d'écritures dans la file « Adresses à vérifier » (relu à chaque écran ; l'écran de la file le tient à jour)
+  const [adressesAVerifier, setAdressesAVerifier] = useState(0);
+  useEffect(() => {
+    let vivant = true;
+    fetch('/api/admin/gestion/adresses-a-verifier?compte=1', { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: { compte: number } }>)
+      .then((j) => { if (vivant && j.etat === 'ok' && j.data) setAdressesAVerifier(j.data.compte); }).catch(() => undefined);
+    return () => { vivant = false; };
+  }, [ecran]);
 
   useEffect(() => {
     // 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'affiche plus l'état de la relève : pas de battement ici. Il
@@ -1518,6 +1527,9 @@ export function GestionVue({ intro, location = false }: {
               aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
             }
             : undefined} />
+      ) : ecran === 'adresses_a_verifier' ? (
+        /* 🔴 (Arno, 20/11/2026, « Adresse officielle BAN », lot 6) la file des adresses à vérifier */
+        <EcranAdressesAVerifier onCompte={setAdressesAVerifier} retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut}>← Boîte</button>} />
       ) : ecran === 'coproprietes' ? (
         /* 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — L'ÉCRAN « COPROPRIÉTÉS », juste sous « Syndics » */
         <EcranCoproprietes retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut}>← Boîte</button>} />
@@ -1683,6 +1695,9 @@ export function GestionVue({ intro, location = false }: {
           onSyndics={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'syndics' }); }}
           /* 🔴 Arno (16/11/2026) — « Copropriétés », juste sous « Syndics ». */
           onCoproprietes={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'coproprietes' }); }}
+          /* 🔴 (Arno, 20/11/2026, lot 6) « Adresses à vérifier », juste sous « Copropriétés » ; sa pastille : le nombre d'écritures à vérifier. */
+          onAdressesAVerifier={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'adresses_a_verifier' }); }}
+          adressesAVerifier={adressesAVerifier}
           /* 🔴 LOT GESTION-TACHES-PAGE — « Tâches », entre « Événements » et « Syndics » ; la page pleine du module. */
           onTaches={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }}
           tachesDuJour={tachesDuJour}

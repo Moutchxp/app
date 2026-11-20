@@ -56,7 +56,9 @@ let lecturesPreavis = 0;
 let lecturesGestion = 0;
 let postsLocation: Record<string, unknown>[] = [];
 let lecturesLocation = 0;
+let adressesAVerifier = 5;
 beforeEach(() => {
+  adressesAVerifier = 5;
   racines = []; lecturesPreavis = 0; lecturesGestion = 0; postsLocation = []; lecturesLocation = 0;
   try { window.localStorage.clear(); } catch { /* sans stockage */ }
   lignes = [
@@ -85,6 +87,7 @@ beforeEach(() => {
     if (s.includes('/api/admin/location?encartBail=')) return ok(ENCART);
     if (s.includes('/api/admin/location?previsiteRefus=')) return ok({ texte: 'Bonjour,\n\nMalgré nos recommandations…', objet: 'Pré-visite d’état des lieux de sortie', sansEmail: [] });
     if (s.includes('/api/admin/location')) return ok([]);
+    if (s.includes('/api/admin/gestion/adresses-a-verifier?compte=1')) return ok({ compte: adressesAVerifier });
     if (s.includes('/empreinte')) return { ok: true, json: async () => ({ messageMax: 1 }) } as unknown as Response;
     if (s.includes('/taches')) return { ok: true, json: async () => ({ taches: [], collaborateurs: [], evenements: [] }) } as unknown as Response;
     if (s.includes('/boite')) return { ok: true, json: async () => ({ lignes: [], suivant: null, total: null, comptes: {} }) } as unknown as Response;
@@ -294,5 +297,19 @@ describe('🔴 4 — la pleine page : chaque tri dans les deux sens, filtres, re
     expect(c.querySelector('[data-recherche-preavis]')).toBeNull();
     expect(c.querySelector('[data-tri="recu:asc"]')).toBeNull();
     expect(c.querySelector('[data-tri="fin:asc"]')).not.toBeNull();
+  });
+});
+
+describe('🔴 (Arno, 20/11/2026, lot 6) — « Adresses à vérifier » dans le menu, juste sous « Copropriétés » ; pastille = écritures à vérifier', () => {
+  const entrees = (c: HTMLElement) => [...c.querySelectorAll('.cm-entree')].map((b) => b.querySelector('.cm-texte')?.textContent);
+  it('l’entrée suit « Copropriétés » ; la pastille dit 5 ; aucune écriture à vérifier : l’entrée reste, sans pastille', async () => {
+    const c = await gestion('');
+    const e = entrees(c);
+    expect(e.indexOf('Adresses à vérifier')).toBe(e.indexOf('Copropriétés') + 1);
+    expect(c.querySelector('[data-pastille-adresses-a-verifier]')?.textContent).toBe('5');
+    adressesAVerifier = 0;
+    const d = await gestion('');
+    expect(entrees(d)).toContain('Adresses à vérifier');
+    expect(d.querySelector('[data-pastille-adresses-a-verifier]')).toBeNull();
   });
 });

@@ -85,6 +85,25 @@ export function dedoublonnerCandidats(c: readonly (CandidatBan & { officielle: b
   return gardes.map(({ officielle: _o, ...g }) => g).sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/** 🔴 (lot 6) UNE adresse officielle par son identifiant (`cle_d_interoperabilite`), ou `null`. LECTURE SEULE. */
+export async function adresseBanParId(id: string, q: RequeteTx | typeof query = query): Promise<CandidatBan | null> {
+  const { rows } = await q<{ id: string; numero: number; suffixe: string | null; nom_voie: string; insee: string; commune: string; x: number | null; y: number | null }>(
+    `SELECT cle_d_interoperabilite AS id, numero, suffixe, nom_voie, insee_commune AS insee, nom_commune AS commune, ST_X(geom) AS x, ST_Y(geom) AS y
+       FROM adresse_ban WHERE cle_d_interoperabilite = $1 ORDER BY fid LIMIT 1`, [id]);
+  const r = rows[0];
+  return r === undefined ? null : { id: r.id, numero: r.numero, suffixe: indiceNormalise(r.suffixe), nomVoie: r.nom_voie, insee: r.insee, commune: r.commune, x: r.x, y: r.y };
+}
+
+/** 🔴 (lot 6) LES ADRESSES OFFICIELLES D'UNE PLAGE (« 33-35 rue Pergolèse ») : même commune, même voie, numéros de `de` à `a` (tous indices). LECTURE SEULE. */
+export async function adressesDeLaPlage(insee: string, nomVoie: string, de: number, a: number, q: RequeteTx | typeof query = query): Promise<CandidatBan[]> {
+  const { rows } = await q<{ id: string; numero: number; suffixe: string | null; nom_voie: string; insee: string; commune: string; x: number | null; y: number | null }>(
+    `SELECT DISTINCT ON (cle_d_interoperabilite) cle_d_interoperabilite AS id, numero, suffixe, nom_voie, insee_commune AS insee, nom_commune AS commune, ST_X(geom) AS x, ST_Y(geom) AS y
+       FROM adresse_ban WHERE insee_commune = $1 AND nom_voie = $2 AND numero BETWEEN $3 AND $4 AND cle_d_interoperabilite IS NOT NULL
+      ORDER BY cle_d_interoperabilite, fid`, [insee, nomVoie, Math.min(de, a), Math.max(de, a)]);
+  return rows.map((r) => ({ id: r.id, numero: r.numero, suffixe: indiceNormalise(r.suffixe), nomVoie: r.nom_voie, insee: r.insee, commune: r.commune, x: r.x, y: r.y }))
+    .sort((x, y) => x.numero - y.numero || (x.suffixe ?? '').localeCompare(y.suffixe ?? ''));
+}
+
 /** La parcelle cadastrale d'un point BAN : la plus proche, à 3 m au plus (la règle de `parcelleRepo`, point INLINÉ dans le KNN). LECTURE SEULE. */
 export async function parcelleDuPoint(x: number, y: number, q: RequeteTx | typeof query = query): Promise<string | null> {
   const { rows } = await q<{ id: string }>(

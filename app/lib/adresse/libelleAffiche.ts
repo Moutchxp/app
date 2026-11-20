@@ -31,6 +31,8 @@ function mot(m: string, enTete: boolean, debutDeVoie: boolean): string {
 export function voieAffichee(libelle: string): string {
   const mots = libelle.trim().split(/\s+/).filter((x) => x !== '');
   const debut = /^\d/.test(mots[0] ?? '') ? 1 : 0; // le premier mot de la voie (après le numéro, et son indice « bis » / « ter »)
-  const voie = /^(bis|ter|quater|[a-z])$/i.test(mots[debut] ?? '') && debut === 1 && mots.length > 2 ? 2 : debut;
+  const bas = (m: string | undefined) => (m ?? '').toLocaleLowerCase('fr-FR');
+  // un indice (« bis », « ter », « B », ou l'écriture BAN « ba ») avant le type de voie : la voie commence au mot suivant
+  const voie = debut === 1 && mots.length > 2 && (/^(bis|ter|quater|[a-z])$/i.test(mots[1]) || (!TYPES.has(bas(mots[1])) && TYPES.has(bas(mots[2])))) ? 2 : debut;
   return mots.map((m, i) => mot(m, i === 0, i === voie)).join(' ');
 }

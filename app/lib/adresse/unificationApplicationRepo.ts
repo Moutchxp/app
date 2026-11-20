@@ -159,6 +159,9 @@ export async function annulerUnification(q: RequeteTx, op: number, auteur: Auteu
       await q('UPDATE gestion_copropriete SET ban_id = $2 WHERE id = $1', [t.ligne_id, t.avant]); issue.restaures++;
     } else if (t.geste === 'modification' && t.table_nom === 'gestion_copropriete_adresse' && (t.colonne === 'ban_id' || t.colonne === 'sorte')) {
       await q(`UPDATE gestion_copropriete_adresse SET ${t.colonne === 'ban_id' ? 'ban_id' : 'sorte'} = $2 WHERE id = $1`, [t.ligne_id, t.avant]); issue.restaures++;
+    } else if (t.geste === 'modification' && t.table_nom === 'gestion_lot_adresse_ban' && t.colonne === 'fin') {
+      // 🔴 (lot 6) un rapprochement que la passe avait FERMÉ (la file de vérification) : rouvert, tel qu'il était
+      await q('UPDATE gestion_lot_adresse_ban SET fin = NULL, fin_par = NULL, fin_par_libelle = NULL, fin_motif = NULL WHERE id = $1', [t.ligne_id]); issue.restaures++;
     } else if (t.geste === 'modification' && t.table_nom === 'gestion_copropriete_regroupement' && t.colonne === 'absorbe_le') {
       await q('UPDATE gestion_copropriete_regroupement SET absorbe_le = NULL, absorbe_operation_id = NULL WHERE id = $1', [t.ligne_id]); issue.restaures++;
     } else if (t.geste === 'insertion' && t.table_nom === 'gestion_copropriete_adresse') {
