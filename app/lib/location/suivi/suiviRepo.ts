@@ -1,4 +1,5 @@
 import 'server-only';
+import { enregistrerAdressePersonne } from '../../adresse/personneAdresseRepo'; // 🔴 lot 7c — le format unique de l'adresse d'une personne
 import { adresseDeLaLigne, controlerAdresse } from '../../gestion/adresseSaisieRepo';
 import type { MetaAdresse } from '../../gestion/adresseSaisie';
 import { query, withTransaction, type RequeteTx } from '../../db/client';
@@ -615,6 +616,11 @@ export async function enregistrerFicheApporteur(apporteurId: unknown, brut: unkn
     if (avec486) {
       await q('UPDATE gestion_location_apporteur SET code_postal = $2, commune = $3 WHERE id = $1', [id, nul(f.codePostal ?? actuel.codePostal ?? ''), nul(f.commune ?? actuel.commune ?? '')]);
       if (adr.ecrire) await q('UPDATE gestion_location_apporteur SET adresse_nature = $2, adresse_pays = $3 WHERE id = $1', [id, adr.nature, adr.pays]);
+      // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse TOUCHÉE : son format unique (choisie dans la liste et certaine), à côté du texte
+      if (adr.ok && adr.ecrire) {
+        await enregistrerAdressePersonne(q, 'apporteur', id, { adresse: nul(f.adresse), codePostal: nul(f.codePostal ?? actuel.codePostal ?? ''), commune: nul(f.commune ?? actuel.commune ?? ''), nature: adr.nature },
+          { id: null, libelle: auteur.libelle });
+      }
     }
     if (journal) {
       for (const c of changements) {

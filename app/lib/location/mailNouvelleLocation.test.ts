@@ -323,3 +323,11 @@ describe('mail « Nouvelle location » — honoraires propriétaire calculés ou
     expect(v).not.toMatch(/barème|m²/);
   });
 });
+
+describe('🔴🔴 (Arno, 20/11/2026, lot 7c) l’aperçu reprend l’adresse officielle d’une personne', () => {
+  it('le propriétaire à l’adresse officielle « 1 villa des Lilas, 92400 Courbevoie » : l’aperçu (HTML et texte) la montre telle quelle', () => {
+    const d = donnees({ proprietaires: [P('DUPONT', 'Jean', { adresse: '1 villa des Lilas, 92400 Courbevoie' })] });
+    expect(htmlNouvelleLocation(d)).toContain('1 villa des Lilas, 92400 Courbevoie');
+    expect(texteNouvelleLocation(d)).toContain('1 villa des Lilas, 92400 Courbevoie');
+  });
+});

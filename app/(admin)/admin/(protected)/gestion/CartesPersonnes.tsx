@@ -405,7 +405,8 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer, ton, regles 
    * dès ce lot ; la base, elle, n'est touchée que le jour où quelqu'un ouvre la fiche et l'enregistre — c'est-
    * à-dire quand une paire d'yeux a regardé ce qu'elle contient.
    */
-  const adresse = [
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse officielle (identifiant BAN connu) par la fonction unique ; sinon le texte tel qu'il est
+  const adresse = p.adresseOfficielle ? p.adresseOfficielle.libelle : [
     p.adresse,
     // 🔴 (lot 2) une adresse à l'étranger garde son code postal tel quel, et dit son pays
     [p.adresseNature === 'etranger' ? (p.codePostal ?? '').trim() : codePostalFormate(p.codePostal), communeFormatee(p.commune)].filter((x) => x !== '').join(' '),
@@ -1563,7 +1564,8 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
   })).trim();
   const nomLisible = nomCompose !== '' ? nomCompose : c.adresse;
   /** Même composition que la carte d'un client : « 12 rue des Lilas, 92400 COURBEVOIE ». */
-  const adressePostale = [
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse officielle (identifiant BAN connu) par la fonction unique ; sinon le texte tel qu'il est
+  const adressePostale = c.adresseOfficielle ? c.adresseOfficielle.libelle : [
     c.adressePostale,
     [c.adresseNature === 'etranger' ? (c.codePostal ?? '').trim() : codePostalFormate(c.codePostal), communeFormatee(c.commune)].filter((x) => x !== '').join(' '),
     c.adresseNature === 'etranger' ? c.adressePays ?? null : null,

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { adressesOfficiellesDesPersonnes } from '../adresse/personneAdresseRepo'; // 🔴 lot 7c — l'adresse officielle d'une personne
 import { mandatParBienDisponible } from './mandatParBienRepo';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
@@ -176,6 +177,8 @@ export async function donneesDuMail(ev: EvenementPortefeuille, auteur: { nom: st
        FROM gestion_annuaire_proprietaire p WHERE p.id = ANY($1::bigint[]) ORDER BY p.nom_complet`, [proprietaires]);
   /* 🔴🔴 (Arno, 18/11/2026, « Mandat par bien », 492) le n° est porté par chaque BIEN : pour chaque propriétaire, les n° des biens de CE mouvement qui sont
      les siens ; un propriétaire dont aucun de ces biens n'en porte encore (avant la reprise) garde l'ancienne lecture. */
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse officielle du propriétaire quand elle existe, le texte sinon ; les DESTINATAIRES ne changent pas
+  const offP = await adressesOfficiellesDesPersonnes('proprietaire', pr.map((p) => Number(p.id)));
   const parBien = await mandatParBienDisponible();
   const numerosDe = async (pid: string): Promise<{ mg: string | null; mt: string | null } | null> => {
     if (!parBien) return null;
@@ -189,7 +192,7 @@ export async function donneesDuMail(ev: EvenementPortefeuille, auteur: { nom: st
   const props: ProprietaireMail[] = [];
   for (const p of pr) {
     const n = await numerosDe(p.id);
-    props.push({ nom: p.nom ?? `Propriétaire ${p.id}`, telephone: p.tel, email: p.email, adresse: p.adresse,
+    props.push({ nom: p.nom ?? `Propriétaire ${p.id}`, telephone: p.tel, email: p.email, adresse: offP.get(Number(p.id))?.libelle ?? p.adresse,
       mandatGestion: n?.mg ?? p.mg, mandatTransaction: n?.mt ?? p.mt });
   }
   // SORTIE D'UNE ANNEXE SEULE (Arno, 18/10/2026) : une seule tête, qui est l'annexe d'un logement resté hors de la sortie.

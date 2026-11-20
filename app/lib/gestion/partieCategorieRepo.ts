@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { adressesOfficiellesDesPersonnes, enregistrerAdressePersonne } from '../adresse/personneAdresseRepo'; // 🔴 lot 7c — le format unique de l'adresse d'une personne
 import { garantsDisponibles } from '../location/bailRepo';
 import { motRattachement } from '../location/rattachements';
 import {
@@ -143,6 +144,8 @@ export interface LigneCarte {
   /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse postale et le pays ; `null` : d'avant (ou sans la 480). */
   adresseNature?: 'liste' | 'hors_liste' | 'etranger' | null;
   adressePays?: string | null;
+  /** 🔴 (lot 7c) l'adresse postale officielle en cours (migration 509), déjà mise en forme ; null : le texte tel qu'il est */
+  adresseOfficielle?: { libelle: string } | null;
   /** Les téléphones et e-mails, DANS L'ORDRE AFFICHÉ. Vide = la carte n'en porte pas (ou la 306 n'est pas là). */
   coordonnees: readonly CoordonneeDeCarte[];
   /**
@@ -360,6 +363,8 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
        FROM gestion_contact_carte
       WHERE retire_le IS NULL AND lot_cle = $1
       ORDER BY cote, (verifie_le IS NULL), coalesce(nom, adresse), id`, [lot]);
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse postale officielle EN COURS (une saisie choisie dans la liste) ; sinon le texte tel qu'il est
+  const officielles = await adressesOfficiellesDesPersonnes('carte', rows.map((r) => Number(r.id)));
 
   return rows.map((r) => ({
     id: Number(r.id), lotCle: r.lot_cle, cote: r.cote as Cote, adresse: r.adresse,
@@ -371,6 +376,7 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
     adressePostale: r.adresse_postale, codePostal: r.code_postal, commune: r.commune,
     adresseNature: r.adresse_nature === 'liste' || r.adresse_nature === 'hors_liste' || r.adresse_nature === 'etranger' ? r.adresse_nature : null,
     adressePays: r.adresse_pays,
+    adresseOfficielle: officielles.get(Number(r.id)) ?? null,
     /* 🔴 LE `jsonb` PASSE PAR LE MODULE PUR : une ligne illisible est IGNORÉE, jamais devinée (voir
        `coordonneesDeLaCarte`). Deviner la sorte d'une ligne rangerait un numéro parmi les e-mails. */
     coordonnees: coordonneesDeLaCarte(r.coordonnees),
@@ -1064,6 +1070,11 @@ export async function poserCarteAlaMain(o: {
        ON CONFLICT (${cibleDuConflit}) WHERE retire_le IS NULL DO UPDATE
          SET ${maj.join(', ')}
        RETURNING id::text`, params);
+    // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse postale saisie : son format unique (choisie dans la liste et certaine), à côté du texte
+    if (rows.length > 0 && controle.ok && controle.ecrire) {
+      await enregistrerAdressePersonne(q, 'carte', Number(rows[0].id), { adresse: o.fiche?.adressePostale ?? null, codePostal: o.fiche?.codePostal ?? null,
+        commune: o.fiche?.commune ?? null, nature: controle.nature }, o.auteur);
+    }
     return rows.length === 0 ? null : Number(rows[0].id);
   });
 
@@ -1183,6 +1194,11 @@ export async function modifierCarte(o: {
         SET ${champs.join(', ')}
       WHERE id = $1 AND retire_le IS NULL
       RETURNING id::text`, params);
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse postale TOUCHÉE : son format unique ; non touchée : rien (jamais réécrite)
+  if (rows.length > 0 && controle.ok && controle.ecrire) {
+    await enregistrerAdressePersonne(query as unknown as RequeteTx, 'carte', Number(rows[0].id), { adresse: o.fiche?.adressePostale ?? null, codePostal: o.fiche?.codePostal ?? null,
+      commune: o.fiche?.commune ?? null, nature: controle.nature }, o.auteur);
+  }
   return { ok: true, id: rows.length === 0 ? null : Number(rows[0].id), nb: rows.length };
 }
 
@@ -1456,6 +1472,8 @@ export interface GarantDuBailLu {
   civilite: string | null; nom: string | null; prenom: string | null; qualite: string | null; adresse_postale: string | null;
   code_postal: string | null; commune: string | null; adresse: string | null; telephone: string | null; coordonnees: unknown; note: string | null;
   garantis: string[];
+  /** 🔴 (lot 7c) l'identifiant de la carte (son adresse officielle se lit par lui) */
+  id?: string;
 }
 
 /**
@@ -1465,7 +1483,7 @@ export interface GarantDuBailLu {
 export async function lireGarantsDuBail(bailId: number): Promise<GarantDuBailLu[]> {
   if (!(await contactCarteDisponible()) || !(await garantsDisponibles())) return [];
   const { rows } = await query<GarantDuBailLu>(
-    `SELECT c.civilite, c.nom, c.prenom, c.qualite, c.adresse_postale, c.code_postal, c.commune, c.adresse, c.telephone, c.coordonnees, c.note,
+    `SELECT c.id::text AS id, c.civilite, c.nom, c.prenom, c.qualite, c.adresse_postale, c.code_postal, c.commune, c.adresse, c.telephone, c.coordonnees, c.note,
             array_agg(g.locataire_id::text ORDER BY g.id) AS garantis
        FROM gestion_bail_garant g JOIN gestion_contact_carte c ON c.id = g.carte_id
       WHERE g.bail_id = $1 AND g.retire_le IS NULL AND c.retire_le IS NULL

@@ -1,4 +1,5 @@
 import { bailDisponible, bailEnCoursDuLotDans } from '../location/bailRepo';
+import { enregistrerAdressePersonne } from '../adresse/personneAdresseRepo'; // 🔴 lot 7c — le format unique de l'adresse d'une personne
 import { renommerBrancheBail, type DepsBrancheBail } from '../location/brancheBailDriveRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusFamilleCarte } from './familleCarteRepo';
@@ -29,6 +30,9 @@ import { ecrireOrigineProprietaireTx, origineProprietaireDisponible } from '../l
 import type { MetaAdresse } from './adresseSaisie';
 import { adresseDeLaLigne, AUCUNE_ADRESSE, controlerAdresse, natureAdresseDisponible, type ControleAdresse } from './adresseSaisieRepo';
 import type { OrigineProprietaire } from '../location/origineProprietaire';
+
+/** 🔴 (lot 7c) un champ d'adresse lu tel qu'envoyé : du texte, ou rien. */
+const texteOuNul = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
 /**
  * LOT FICHES-ANNUAIRE (étape C) — ÉCRIRE DANS L'ANNUAIRE. IMPUR (base), et le seul module qui écrive.
@@ -293,6 +297,10 @@ export async function modifierPersonne(
     }
 
     await ecrireNatureAdresse(q, sujet, id, avant, controle, auteur);
+    // 🔴🔴 (Arno, 20/11/2026, lot 7c) une adresse TOUCHÉE : son format unique (choisie dans la liste et certaine), à côté du texte ; non touchée : rien
+    if (controle.ok && controle.ecrire) {
+      await enregistrerAdressePersonne(q, sujet, id, { adresse: texteOuNul(champs.adresse), codePostal: texteOuNul(champs.codePostal), commune: texteOuNul(champs.commune), nature: controle.nature }, auteur);
+    }
 
     // ── LES COORDONNÉES ───────────────────────────────────────────────────────────────────────────────────────
     if (retenues !== null && retenues.ok) {
@@ -885,6 +893,10 @@ export async function creerPersonneDans(q: RequeteTx, prepa: PersonnePreparee, a
         [cle, civilite, nom, prenom, normaliserTexte(nom), ...champs]);
     const id = Number(rows[0].id);
     await ecrireNatureAdresse(q, sujet, id, {}, controle, auteur);
+    // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse saisie à la création : son format unique (choisie dans la liste et certaine)
+    if (controle.ok && controle.ecrire) {
+      await enregistrerAdressePersonne(q, sujet, id, { adresse: texteOuNul(o.adresse), codePostal: texteOuNul(o.codePostal), commune: texteOuNul(o.commune), nature: controle.nature }, auteur);
+    }
 
     for (const c of retenues.retenues) {
       await q(

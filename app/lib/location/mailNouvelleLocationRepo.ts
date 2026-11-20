@@ -1,4 +1,5 @@
 import { sqlStatutBien, statutBienDisponible } from '../gestion/statutBienRepo';
+import { adressesOfficiellesDesPersonnes } from '../adresse/personneAdresseRepo'; // 🔴 lot 7c — l'adresse officielle d'une personne
 import { mandatDuBien } from './mandatParBienRepo';
 import { randomBytes } from 'node:crypto';
 import { query } from '../db/client';
@@ -115,10 +116,13 @@ async function coordonneesDe(sujet: 'proprietaire' | 'locataire', ids: readonly 
   return carte;
 }
 
-const personne = (r: { civilite: string | null; nom: string | null; nom_complet?: string | null; prenom: string | null; qualite: string | null;
-  adresse: string | null; code_postal: string | null; commune: string | null; note: string | null }, coord: readonly CoordonneeLue[]): PersonneMail => ({
+/** Une personne du mail, telle qu'il la décrit (🔴 lot 7c : l'adresse officielle passe avant le texte). PUR. */
+export const personneDuMail = (r: { civilite: string | null; nom: string | null; nom_complet?: string | null; prenom: string | null; qualite: string | null;
+  adresse: string | null; code_postal: string | null; commune: string | null; note: string | null }, coord: readonly CoordonneeLue[],
+  /** 🔴 (lot 7c) l'adresse officielle en cours de la personne : elle passe avant le texte ; absente, le texte tel qu'il est */
+  officielle: { libelle: string } | null = null): PersonneMail => ({
   civilite: r.civilite, nom: present(r.nom) ? r.nom.trim() : (r.nom_complet ?? '').trim(), prenom: present(r.nom) ? r.prenom : null,
-  qualite: r.qualite, adresse: adressePostale(r.adresse, r.code_postal, r.commune), note: r.note,
+  qualite: r.qualite, adresse: officielle?.libelle ?? adressePostale(r.adresse, r.code_postal, r.commune), note: r.note,
   ...rangerCoordonnees(coord.map((c) => ({ sorte: c.sorte, valeur: c.v, libelle: c.libelle }))),
 });
 
@@ -219,7 +223,9 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
                (SELECT min(lp.rang) FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = $1 AND lp.proprietaire_id = p.id AND lp.jusqu_a IS NULL) NULLS LAST, p.id`,
     [Number(principalId)]);
   const coordP = await coordonneesDe('proprietaire', pr.map((p) => p.id));
-  const proprietaires = pr.map((p) => personne(p, coordP.get(p.id) ?? []));
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse officielle quand elle existe (une saisie choisie dans la liste), le texte sinon ; les DESTINATAIRES du mail ne changent pas
+  const offP = await adressesOfficiellesDesPersonnes('proprietaire', pr.map((p) => Number(p.id)));
+  const proprietaires = pr.map((p) => personneDuMail(p, coordP.get(p.id) ?? [], offP.get(Number(p.id)) ?? null));
 
   // ── Leur historique (la règle « nouveau / déjà en gestion », `statutProprietaires`).
   const enGestion = (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion')) ? ' AND lo.en_gestion IS NOT FALSE' : '';
@@ -268,16 +274,18 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
        FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
       WHERE o.bail_id = $1 GROUP BY l.id ORDER BY min(o.id)`, [bailId]);
   const coordL = await coordonneesDe('locataire', lo.map((l) => l.id));
-  const locataires = lo.map((l) => personne(l, coordL.get(l.id) ?? []));
+  const offL = await adressesOfficiellesDesPersonnes('locataire', lo.map((l) => Number(l.id)));
+  const locataires = lo.map((l) => personneDuMail(l, coordL.get(l.id) ?? [], offL.get(Number(l.id)) ?? null));
   const nomDuLocataire = new Map(lo.map((l, i) => [l.id, nomAffiche(locataires[i])]));
   const garants: GarantMail[] = [];
   {
     const ga = await lireGarantsDuBail(bailId);
+    const offG = await adressesOfficiellesDesPersonnes('carte', ga.filter((g) => g.id !== undefined).map((g) => Number(g.id)));
     for (const g of ga) {
       const extra = Array.isArray(g.coordonnees) ? (g.coordonnees as { sorte?: unknown; valeur?: unknown; libelle?: unknown }[]) : [];
       garants.push({
         civilite: g.civilite, nom: (g.nom ?? '').trim(), prenom: g.prenom, qualite: g.qualite, note: g.note,
-        adresse: adressePostale(g.adresse_postale, g.code_postal, g.commune),
+        adresse: (g.id === undefined ? undefined : offG.get(Number(g.id))?.libelle) ?? adressePostale(g.adresse_postale, g.code_postal, g.commune),
         ...rangerCoordonnees([
           { sorte: 'telephone', valeur: g.telephone, libelle: null }, { sorte: 'email', valeur: g.adresse, libelle: null },
           ...extra.map((x) => ({ sorte: String(x.sorte ?? ''), valeur: typeof x.valeur === 'string' ? x.valeur : null, libelle: typeof x.libelle === 'string' ? x.libelle : null })),

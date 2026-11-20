@@ -178,7 +178,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '461_location_lot_copropriete.sql', '462_admin_taux_commission.sql', '463_gestion_monga_traduction.sql', '464_location_previsite.sql', '465_gestion_tache_invitation_contacts.sql', '466_location_mails_texte_modifiable.sql',
     '467_location_validation_sortie_edls.sql', '468_location_sortie_pieces_retenue.sql', '469_gestion_tache_sorte_rdv.sql', '470_gestion_tache_creneau_sans_heure.sql', '471_ca_gestion_saisie.sql', '472_couts_remunerations_associes.sql',
     '473_location_preavis_test.sql', '474_location_previsite_brouillon.sql', '475_location_copropriete_ag_historique.sql', '476_gestion_fiche_copropriete.sql', '477_gestion_digicode_depuis_fiche_copropriete.sql',
-    '478_gestion_digicode_unifie.sql', '479_gestion_digicode_mails.sql', '480_adresse_nature_personnes.sql', '481_location_copropriete_ag_pv.sql', '482_gestion_digicode_code_15.sql', '483_location_copropriete_ag_origine_fiche_bien.sql', '484_gestion_digicode_mail_gestion.sql', '485_adresse_nature_biens.sql', '486_adresse_apporteurs.sql', '487_gestion_digicode_retrait.sql', '488_gestion_copropriete_batiment_retrait.sql', '489_gestion_copropriete_batiment_adresse.sql', '490_gestion_copropriete_batiment_unicite_adresse.sql', '491_gestion_copropriete_rattachement_refus.sql', '492_location_mandat_par_bien.sql', '493_gestion_collaborateurs_prevenus.sql', '494_gestion_regles_courrier_location.sql', '495_location_reponses_rdv_locataires.sql', '496_gestion_regles_courrier_rdv.sql', '497_location_rdv_non_invites.sql', '498_location_minutes_rdv.sql', '499_location_plage_horaire_rdv.sql', '500_gestion_regle_courrier_rdv_modifie.sql', '501_location_durees_rdv.sql', '502_gestion_annulation_tache.sql', '503_gestion_durees_par_defaut.sql', '504_gestion_copropriete_regroupement.sql', '505_gestion_adresse_officielle_ban.sql', '506_gestion_journal_copropriete.sql', '507_code_postal_insee.sql', '508_gestion_adresse_unification.sql'];
+    '478_gestion_digicode_unifie.sql', '479_gestion_digicode_mails.sql', '480_adresse_nature_personnes.sql', '481_location_copropriete_ag_pv.sql', '482_gestion_digicode_code_15.sql', '483_location_copropriete_ag_origine_fiche_bien.sql', '484_gestion_digicode_mail_gestion.sql', '485_adresse_nature_biens.sql', '486_adresse_apporteurs.sql', '487_gestion_digicode_retrait.sql', '488_gestion_copropriete_batiment_retrait.sql', '489_gestion_copropriete_batiment_adresse.sql', '490_gestion_copropriete_batiment_unicite_adresse.sql', '491_gestion_copropriete_rattachement_refus.sql', '492_location_mandat_par_bien.sql', '493_gestion_collaborateurs_prevenus.sql', '494_gestion_regles_courrier_location.sql', '495_location_reponses_rdv_locataires.sql', '496_gestion_regles_courrier_rdv.sql', '497_location_rdv_non_invites.sql', '498_location_minutes_rdv.sql', '499_location_plage_horaire_rdv.sql', '500_gestion_regle_courrier_rdv_modifie.sql', '501_location_durees_rdv.sql', '502_gestion_annulation_tache.sql', '503_gestion_durees_par_defaut.sql', '504_gestion_copropriete_regroupement.sql', '505_gestion_adresse_officielle_ban.sql', '506_gestion_journal_copropriete.sql', '507_code_postal_insee.sql', '508_gestion_adresse_unification.sql', '509_gestion_personne_adresse_ban.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -191,7 +191,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 508 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 509 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -201,14 +201,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (509)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (510)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(508\)/);
-    const renumerotee = planifier([...existants, { fichier: '509_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(509\)/);
+    const renumerotee = planifier([...existants, { fichier: '510_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['509_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['510_permis_emprise_numero_reveil.sql']);
   });
 });
 

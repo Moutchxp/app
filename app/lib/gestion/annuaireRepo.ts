@@ -24,6 +24,7 @@ import { dossiersDuProprietaire } from './arbreStatutDriveRepo';
 import type { StatutBien } from './statutBien';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { rapprocherLotsImportes, type LotImporte } from '../adresse/importAdresseRepo';
+import { adressesOfficiellesDesPersonnes, type AdresseOfficiellePersonne } from '../adresse/personneAdresseRepo';
 import { adresseOfficielleDuLot, type AdresseOfficielleDuLot } from '../adresse/adresseSaisieRepo';
 import { refusRattachementAnnexe } from '../location/regroupementRepo';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
@@ -948,6 +949,8 @@ export interface PersonneAnnuaire {
   adresse: string | null; commune: string | null; codePostal: string | null;
   /** 🔴 (Arno, 17/11/2026, « Adresses uniformisées », lot 2) la nature de l'adresse (liste, hors liste, étranger) et le pays ; `null` : d'avant. */
   adresseNature?: 'liste' | 'hors_liste' | 'etranger' | null; adressePays?: string | null;
+  /** 🔴 (lot 7c) l'adresse officielle en cours (migration 509), déjà mise en forme ; null : le texte tel qu'il est */
+  adresseOfficielle?: AdresseOfficiellePersonne | null;
   absent: boolean;
   /**
    * 🔴 LOT FICHE-SAISIE-UNIFORME — « Créé le JJ/MM/AAAA affiché sur la carte, rempli automatiquement à la
@@ -1620,6 +1623,8 @@ async function personnesDe(
   const derniers = sujet === 'proprietaire'
     ? await derniersProprietaires(rows.map((r) => Number(r.id)))
     : new Set<number>();
+  // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse officielle EN COURS (une saisie choisie dans la liste) ; sinon le texte tel qu'il est
+  const officielles = await adressesOfficiellesDesPersonnes(sujet, rows.map((r) => Number(r.id)));
 
   return rows.map((r) => ({
     sujet, id: Number(r.id), cle: r.cle,
@@ -1630,6 +1635,7 @@ async function personnesDe(
     adresse: r.adresse, commune: r.commune, codePostal: r.code_postal,
     adresseNature: r.adresse_nature === 'liste' || r.adresse_nature === 'hors_liste' || r.adresse_nature === 'etranger' ? r.adresse_nature : null,
     adressePays: r.adresse_pays,
+    adresseOfficielle: officielles.get(Number(r.id)) ?? null,
     absent: r.absent_le !== null,
     contacts: coords.get(Number(r.id)) ?? [],
     dernierProprietaire: derniers.has(Number(r.id)),

@@ -76,7 +76,8 @@ export async function contactsDuBienPourTache(lotId: number): Promise<ContactSou
     out.push({
       cle: `carte:${c.id}`, famille, nom: nomDe(x.civilite, x.prenom, c.nom) || net(c.adresse),
       qualite: nomDe('Contact', x.qualite ? `— ${x.qualite}` : null), organisation: null,
-      adresse: adressePostale(x.adressePostale ?? null, x.codePostal ?? null, x.commune ?? null), coordonnees,
+      // 🔴🔴 (Arno, 20/11/2026, lot 7c) l'adresse officielle de la carte quand elle existe, le texte sinon
+      adresse: c.adresseOfficielle?.libelle ?? adressePostale(x.adressePostale ?? null, x.codePostal ?? null, x.commune ?? null), coordonnees,
     });
   }
 
