@@ -9,7 +9,7 @@ import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/ges
 import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, preciserAdresseBatiment, propositionsParcelle, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { immeubleDuBien } from '../../../../../../lib/gestion/copropriete';
-import { detacherContactSyndic, rattacherContactsSyndic, rechercherContactsDuSyndic } from '../../../../../../lib/gestion/contactsSyndicCoproRepo';
+import { creerEtRattacherContactSyndic, detacherContactSyndic, rattacherContactsSyndic, rechercherContactsDuSyndic } from '../../../../../../lib/gestion/contactsSyndicCoproRepo';
 
 /**
  * /api/admin/gestion/coproprietes/fiche — LA FICHE COPROPRIÉTÉ (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2). Au droit « Gestion ».
@@ -63,10 +63,11 @@ export async function POST(request: Request): Promise<Response> {
   try { corps = await request.json() as Record<string, unknown>; } catch { return Response.json({ etat: 'refus', motif: 'Demande illisible.' }, { status: 400, headers: ENTETES }); }
   try {
     // 🔴 (Arno, 20/11/2026) rattacher des contacts du syndic à la copropriété / en détacher un (jamais supprimé de l'annuaire du syndic) — journalisés, aucun mail
-    if (corps.action === 'rattacher-contacts-syndic' || corps.action === 'detacher-contact-syndic') {
+    if (corps.action === 'rattacher-contacts-syndic' || corps.action === 'detacher-contact-syndic' || corps.action === 'creer-contact-syndic') {
       const immeuble = typeof corps.immeuble === 'string' ? corps.immeuble.slice(0, 300) : '';
       const auteur = await auteurDeLaRequete(request);
       const r = corps.action === 'rattacher-contacts-syndic' ? await rattacherContactsSyndic(immeuble, corps.contactIds, auteur)
+        : corps.action === 'creer-contact-syndic' ? await creerEtRattacherContactSyndic(immeuble, corps.contact, auteur)
         : await detacherContactSyndic(immeuble, corps.contactId, auteur);
       return Response.json(r, { headers: ENTETES });
     }

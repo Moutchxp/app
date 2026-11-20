@@ -19,6 +19,16 @@ export const nomGestionnaire = (g: Pick<GestionnaireSyndic, 'civilite' | 'prenom
   [g.civilite, g.prenom, (g.nom ?? '').toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
 
 type Trouve = GestionnaireSyndic & { rattache: boolean };
+type Nouveau = { civilite: '' | 'M.' | 'Mme'; prenom: string; nom: string; titre: string; telephone: string; email: string };
+
+/** 🔴 (Arno, 20/11/2026, point 2) le formulaire de création, pré-rempli avec ce qui a été cherché (un e-mail, un numéro, sinon le nom). PUR. */
+export function nouveauDepuisRecherche(q: string): Nouveau {
+  const t = q.trim();
+  const vide: Nouveau = { civilite: '', prenom: '', nom: '', titre: '', telephone: '', email: '' };
+  if (t.includes('@')) return { ...vide, email: t };
+  if (t.replace(/\D/g, '').length >= 6 && !/[a-zA-ZÀ-ÿ]/.test(t)) return { ...vide, telephone: t };
+  return { ...vide, nom: t };
+}
 type Lu = { etat: 'ok'; syndic: { id: number; nom: string }; contacts: Trouve[]; total: number } | { etat: 'sans_syndic' };
 
 export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, onChange }: {
@@ -32,6 +42,8 @@ export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, 
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [version, setVersion] = useState(0);
+  // 🔴 (point 2) « Créer ce contact dans l'annuaire de [syndic] » : créé ET rattaché en un seul geste (tout ou rien)
+  const [nouveau, setNouveau] = useState<Nouveau | null>(null);
 
   // la recherche dans l'annuaire complet du syndic (200 ms après la frappe, la précédente annulée)
   useEffect(() => {
@@ -65,6 +77,10 @@ export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, 
   const detacher = async (): Promise<void> => {
     if (aDetacher === null || envoi) return;
     if (await poster({ action: 'detacher-contact-syndic', contactId: aDetacher.id })) setADetacher(null);
+  };
+  const creer = async (): Promise<void> => {
+    if (nouveau === null || envoi) return;
+    if (await poster({ action: 'creer-contact-syndic', contact: { ...nouveau, civilite: nouveau.civilite === '' ? null : nouveau.civilite } })) { setNouveau(null); setQ(''); }
   };
   const basculer = (id: number): void => setChoisis((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
 
@@ -114,6 +130,27 @@ export function ContactsSyndicCopropriete({ immeuble, syndicNom, gestionnaires, 
                   </li>))}</ul>
                 <button type="button" className="svv-btn svv-btn-primary gst-btn fcp-mini" onClick={() => { void rattacher(); }} disabled={choisis.length === 0 || envoi}
                   data-csc-rattacher>{envoi ? 'Rattachement…' : `Rattacher à cette copropriété${choisis.length > 0 ? ` (${choisis.length})` : ''}`}</button>
+                {/* 🔴 (Arno, 20/11/2026, point 2) le contact n'existe pas : le créer dans l'annuaire du syndic (création seulement depuis les résultats) */}
+                {nouveau === null ? (
+                  <button type="button" className="fcp-lien csc-creer" onClick={() => { setMotif(null); setNouveau(nouveauDepuisRecherche(q)); }} disabled={envoi} data-csc-creer>
+                    Créer ce contact dans l’annuaire de {lu.syndic.nom}</button>
+                ) : (
+                  <form className="csc-nouveau" onSubmit={(e) => { e.preventDefault(); void creer(); }} data-csc-nouveau>
+                    <p className="fcp-sous-titre fcp-sans-marge">Nouveau contact de {lu.syndic.nom} — créé dans son annuaire et rattaché à cette copropriété</p>
+                    <label className="fcp-champ"><span>Civilité</span>
+                      <select value={nouveau.civilite} onChange={(e) => setNouveau({ ...nouveau, civilite: e.target.value as Nouveau['civilite'] })} data-csc-n-civilite>
+                        <option value="">—</option><option value="M.">M.</option><option value="Mme">Mme</option></select></label>
+                    <label className="fcp-champ"><span>Prénom</span><input value={nouveau.prenom} onChange={(e) => setNouveau({ ...nouveau, prenom: e.target.value })} data-csc-n-prenom /></label>
+                    <label className="fcp-champ"><span>Nom</span><input value={nouveau.nom} onChange={(e) => setNouveau({ ...nouveau, nom: e.target.value })} data-csc-n-nom /></label>
+                    <label className="fcp-champ"><span>Fonction</span><input value={nouveau.titre} onChange={(e) => setNouveau({ ...nouveau, titre: e.target.value })} placeholder="gestionnaire, comptable…" data-csc-n-titre /></label>
+                    <label className="fcp-champ"><span>Téléphone</span><input value={nouveau.telephone} onChange={(e) => setNouveau({ ...nouveau, telephone: e.target.value })} inputMode="tel" data-csc-n-telephone /></label>
+                    <label className="fcp-champ"><span>E-mail</span><input value={nouveau.email} onChange={(e) => setNouveau({ ...nouveau, email: e.target.value })} type="email" data-csc-n-email /></label>
+                    <div className="csc-boutons">
+                      <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" onClick={() => setNouveau(null)} disabled={envoi} data-csc-n-annuler>Annuler</button>
+                      <button type="submit" className="svv-btn svv-btn-primary gst-btn fcp-mini" disabled={envoi} data-csc-n-creer>{envoi ? 'Création…' : 'Créer et rattacher'}</button>
+                    </div>
+                  </form>
+                )}
               </>)}
         </div>)}
       {motif !== null && <p className="fcp-alerte" role="alert" data-csc-motif>{motif}</p>}
@@ -134,4 +171,7 @@ const CSS_CSC = `
 .csc-choix input{width:22px;height:22px;flex:0 0 auto;margin-top:2px}
 .csc-choix--deja{cursor:default;color:var(--color-svv-muted)}
 .csc-deja{color:var(--color-svv-green-ink);font-weight:700}
+.csc-creer{display:block;min-height:44px;margin-top:6px;text-align:left}
+.csc-nouveau select{min-height:44px;padding:0 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit}
+.csc-nouveau{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-surface)}
 `;

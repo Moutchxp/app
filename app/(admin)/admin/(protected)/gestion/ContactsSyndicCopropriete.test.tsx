@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { ContactsSyndicCopropriete } from './ContactsSyndicCopropriete';
+import { ContactsSyndicCopropriete, nouveauDepuisRecherche } from './ContactsSyndicCopropriete';
 
 /**
  * 🔴🔴 Arno (20/11/2026) — les contacts du syndic de cette copropriété : rattacher depuis l'annuaire COMPLET du syndic, détacher (jamais supprimer).
@@ -87,5 +87,27 @@ describe('les contacts du syndic de cette copropriété', () => {
   it('aucun contact : « Aucun gestionnaire affecté. »', () => {
     rendre([]);
     expect($('[data-csc-aucun]').textContent).toBe('Aucun gestionnaire affecté.');
+  });
+
+  it('🔴 (point 2) CRÉER : depuis les résultats, pré-rempli avec la recherche ; « Créer et rattacher » part en un seul geste', async () => {
+    vi.useFakeTimers();
+    rendre();
+    await cliquer($('[data-csc-ouvrir]'));
+    await attendre();
+    await cliquer($('[data-csc-creer]'));
+    expect($('[data-csc-nouveau]').textContent).toContain('Nouveau contact de _TEST SYNDIC CONTACTS — créé dans son annuaire et rattaché à cette copropriété');
+    const saisir = async (sel: string, v: string) => { const el = $(sel) as HTMLInputElement; await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); }); };
+    await saisir('[data-csc-n-prenom]', 'Zoé'); await saisir('[data-csc-n-nom]', '_Test Nouvelle'); await saisir('[data-csc-n-email]', 'zoe@fictif.test');
+    await act(async () => { ($('[data-csc-nouveau]') as HTMLFormElement).requestSubmit(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(posts).toEqual([{ action: 'creer-contact-syndic', immeuble: '12 rue _test',
+      contact: { civilite: null, prenom: 'Zoé', nom: '_Test Nouvelle', titre: '', telephone: '', email: 'zoe@fictif.test' } }]);
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it('le pré-remplissage (PUR) : un e-mail, un numéro, sinon le nom', () => {
+    expect(nouveauDepuisRecherche('zoe@fictif.test').email).toBe('zoe@fictif.test');
+    expect(nouveauDepuisRecherche('06 99 99 10 09').telephone).toBe('06 99 99 10 09');
+    expect(nouveauDepuisRecherche('Durand').nom).toBe('Durand');
   });
 });

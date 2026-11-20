@@ -2,7 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from './gestes';
 import type { GestionnaireSyndic } from './copropriete';
 import { journaliserContactsSyndic } from './journalSyndicCopro';
-import { cleImmeuble } from './syndics';
+import { chiffresTelephone, cleEmail, cleImmeuble, cleNom, cleTelephone, civiliteLue, contactNomme, emailPlausible, telephoneComplet } from './syndics';
 import { normaliserTexte } from './annuaire';
 
 /**
@@ -120,6 +120,83 @@ export async function detacherContactSyndic(immeuble: string, contactId: unknown
       [id, cs.coproId, auteur.libelle, cs.syndicId]);
     if ((rowCount ?? 0) === 0) return { etat: 'refus' as const, motif: 'Ce contact n’est plus rattaché à cette copropriété : rechargez la fiche.' };
     await journaliserContactsSyndic(q, { coproId: cs.coproId, syndicId: cs.syndicId, nature: 'detache', contactIds: [id], ecran: ECRAN }, auteur);
+    return { etat: 'ok' as const, gestionnaires: await gestionnairesDe(q, cs.syndicId, cs.coproId) };
+  });
+}
+
+// ══ 🔴 (Arno, 20/11/2026, point 2) CRÉER UN CONTACT DANS L'ANNUAIRE DU SYNDIC, DEPUIS LA FICHE COPROPRIÉTÉ ═══════════════════════════════════════════
+// « Les contacts ajoutés via la modale de copropriété viennent enrichir l'annuaire à la racine du syndic (annuaire complet du syndic). » Le contact
+// est créé dans `gestion_syndic_contact` (+ coordonnées) ET rattaché à la copropriété, dans UNE transaction (tout ou rien) ; il apparaît ensuite sur
+// la fiche du syndic comme n'importe quel autre contact. Garde anti-doublon : le nom, le téléphone ou l'e-mail d'un contact déjà dans l'annuaire de
+// ce syndic (on le rattache plutôt) ; un e-mail déjà porté par le contact d'un autre syndic (une adresse n'appartient qu'à un contact, 327).
+
+export interface NouveauContactSyndic { civilite: 'M.' | 'Mme' | null; prenom: string; nom: string; titre: string; telephone: string; email: string }
+
+const texte = (v: unknown, max = 200): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+/** La saisie reçue → le contact, ou le motif du refus. PUR. */
+export function lireNouveauContact(brut: unknown): { ok: true; c: NouveauContactSyndic } | { ok: false; motif: string } {
+  const b = (brut ?? {}) as Record<string, unknown>;
+  const civilite = civiliteLue(b.civilite);
+  if (civilite === undefined) return { ok: false, motif: 'Civilité inconnue (M. ou Mme).' };
+  const c: NouveauContactSyndic = { civilite: civilite ?? null, prenom: texte(b.prenom), nom: texte(b.nom), titre: texte(b.titre), telephone: texte(b.telephone, 40), email: texte(b.email) };
+  if (!contactNomme(c)) return { ok: false, motif: 'Le contact doit avoir au moins un nom ou une fonction.' };
+  if (c.email !== '' && !emailPlausible(c.email)) return { ok: false, motif: `E-mail illisible : « ${c.email} ».` };
+  if (c.telephone !== '' && !telephoneComplet(c.telephone)) return { ok: false, motif: `Téléphone incomplet : « ${c.telephone} ».` };
+  return { ok: true, c };
+}
+
+export interface ContactExistant { prenom: string | null; nom: string | null; titre: string | null; telephones: string[]; emails: string[] }
+
+/** Le doublon dans l'annuaire du syndic (nom, téléphone ou e-mail), en clair ; `null` : aucun. PUR. */
+export function doublonDansLAnnuaire(c: NouveauContactSyndic, existants: readonly ContactExistant[], syndic: string): string | null {
+  const n = cleNom(c.prenom, c.nom);
+  const tel = c.telephone === '' ? '' : cleTelephone(c.telephone);
+  const mail = c.email === '' ? '' : cleEmail(c.email);
+  for (const x of existants) {
+    const qui = [x.prenom, (x.nom ?? '').toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ') || x.titre || 'un contact';
+    const pourquoi = n !== '' && cleNom(x.prenom, x.nom) === n ? 'le même nom'
+      : tel !== '' && x.telephones.some((t) => cleTelephone(t) === tel) ? 'le même téléphone'
+      : mail !== '' && x.emails.some((e) => cleEmail(e) === mail) ? 'le même e-mail' : null;
+    if (pourquoi !== null) return `${qui} est déjà dans l’annuaire de ${syndic} (${pourquoi}) : rattachez-le depuis la recherche. Rien n’a été créé.`;
+  }
+  return null;
+}
+
+/** CRÉER le contact dans l'annuaire du syndic en cours ET le rattacher à la copropriété — tout ou rien, journalisé. Aucun mail. */
+export async function creerEtRattacherContactSyndic(immeuble: string, brut: unknown, auteur: Auteur): Promise<IssueContactsSyndic> {
+  const lu = lireNouveauContact(brut);
+  if (!lu.ok) return { etat: 'refus', motif: lu.motif };
+  const c = lu.c;
+  return withTransaction(async (q) => {
+    const cs = await coproEtSyndic(q, immeuble, true);
+    if (cs === null) return { etat: 'refus' as const, motif: 'Cette copropriété n’a pas de syndic : rattachez d’abord un syndic.' };
+    // l'annuaire du syndic, verrouillé le temps du geste (deux créations simultanées du même contact : la seconde voit la première)
+    await q('SELECT id FROM gestion_syndic WHERE id = $1 FOR UPDATE', [cs.syndicId]);
+    const { rows: existants } = await q<ContactExistant>(
+      `SELECT ct.prenom, ct.nom, ct.titre,
+              coalesce(array(SELECT k.valeur FROM gestion_syndic_coordonnee k WHERE k.contact_id = ct.id AND k.retire_le IS NULL AND k.sorte = 'telephone'), '{}') AS telephones,
+              coalesce(array(SELECT k.valeur FROM gestion_syndic_coordonnee k WHERE k.contact_id = ct.id AND k.retire_le IS NULL AND k.sorte = 'email'), '{}') AS emails
+         FROM gestion_syndic_contact ct WHERE ct.syndic_id = $1 AND ct.retire_le IS NULL AND ct.parti_le IS NULL`, [cs.syndicId]);
+    const doublon = doublonDansLAnnuaire(c, existants, cs.syndicNom);
+    if (doublon !== null) return { etat: 'refus' as const, motif: doublon };
+    if (c.email !== '') {
+      const { rows: ailleurs } = await q<{ syndic: string }>(
+        `SELECT s.nom AS syndic FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct ON ct.id = k.contact_id JOIN gestion_syndic s ON s.id = ct.syndic_id
+          WHERE k.sorte = 'email' AND k.retire_le IS NULL AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND lower(replace(k.valeur, ' ', '')) = $1 LIMIT 1`, [cleEmail(c.email)]);
+      if (ailleurs[0] !== undefined) return { etat: 'refus' as const, motif: `L’e-mail ${c.email} appartient déjà à un contact du syndic ${ailleurs[0].syndic}. Rien n’a été créé.` };
+    }
+    const { rows: [r] } = await q<{ id: string }>(
+      `INSERT INTO gestion_syndic_contact (syndic_id, civilite, prenom, nom, titre, rang, cree_par_libelle, tous_immeubles)
+       VALUES ($1, $2, $3, $4, $5, (SELECT coalesce(max(rang), -1) + 1 FROM gestion_syndic_contact WHERE syndic_id = $1), $6, false) RETURNING id::text`,
+      [cs.syndicId, c.civilite, c.prenom || null, c.nom || null, c.titre || null, auteur.libelle]);
+    const id = Number(r.id);
+    let rang = 0;
+    if (c.telephone !== '') { await q(`INSERT INTO gestion_syndic_coordonnee (contact_id, sorte, valeur, rang) VALUES ($1, 'telephone', $2, $3)`, [id, chiffresTelephone(c.telephone), rang]); rang += 1; }
+    if (c.email !== '') await q(`INSERT INTO gestion_syndic_coordonnee (contact_id, sorte, valeur, rang) VALUES ($1, 'email', $2, $3)`, [id, c.email, rang]);
+    await q(`INSERT INTO gestion_syndic_contact_copropriete (contact_id, copropriete_id, affecte_par, affecte_par_libelle) VALUES ($1, $2, $3, $4)`,
+      [id, cs.coproId, auteur.id, auteur.libelle]);
+    await journaliserContactsSyndic(q, { coproId: cs.coproId, syndicId: cs.syndicId, nature: 'cree', contactIds: [id], ecran: ECRAN }, auteur);
     return { etat: 'ok' as const, gestionnaires: await gestionnairesDe(q, cs.syndicId, cs.coproId) };
   });
 }
