@@ -1,7 +1,7 @@
 'use client';
 
 import { LienRetour } from '../_composants/NavigationRetour';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, phrasesMailsAvis, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
 import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../../../../lib/gestion/historiqueBien';
@@ -16,7 +16,7 @@ import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchang
 import { CSS_PREAVIS, GestesPreavis, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
-  dateFr, descriptionLogement, libelleLotEncart, lignesEncart, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree,
+  dateFr, descriptionLogement, libelleLotEncart, lignesEncart, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree, type SortieTrouvee,
 } from '../../../../lib/location/sortieLocataires';
 
 /**
@@ -35,8 +35,10 @@ const API = '/api/admin/location';
 /** L'écran de recherche des occupants. */
 export function EcranSortieRecherche() {
   const [texte, setTexte] = useState('');
-  const [etatLu, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
+  const [etatLu, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[]; sorties: SortieTrouvee[] }>({ etat: 'vide' });
   const controleur = useRef<AbortController | null>(null);
+  // 🔴 Arno (20/11/2026, option B) — après « Corriger la date » / « Annuler la sortie », la recherche est relue.
+  const [version, setVersion] = useState(0);
   useEffect(() => {
     const terme = texte.trim();
     controleur.current?.abort();
@@ -47,12 +49,17 @@ export function EcranSortieRecherche() {
       setEtat({ etat: 'charge' });
       void (async () => {
         try {
-          const res = await fetch(`${API}?occupants=${encodeURIComponent(terme)}`, { cache: 'no-store', signal: c.signal });
-          if (res.status === 403) { setEtat({ etat: 'erreur', message: 'Accès refusé : droit « Location » requis.' }); return; }
+          // 🔴 Arno (20/11/2026, option B) — la MÊME recherche lit aussi les sorties déjà enregistrées.
+          const [res, resSorties] = await Promise.all([
+            fetch(`${API}?occupants=${encodeURIComponent(terme)}`, { cache: 'no-store', signal: c.signal }),
+            fetch(`${API}?sortiesEnregistrees=${encodeURIComponent(terme)}`, { cache: 'no-store', signal: c.signal }),
+          ]);
+          if (res.status === 403 || resSorties.status === 403) { setEtat({ etat: 'erreur', message: 'Accès refusé : droit « Location » requis.' }); return; }
           const d = await res.json() as { etat?: string; data?: OccupantTrouve[]; message?: string };
+          const ds = await resSorties.json() as { etat?: string; data?: SortieTrouvee[]; message?: string };
           if (c.signal.aborted) return;
-          if (d.etat === 'ok' && Array.isArray(d.data)) setEtat({ etat: 'ok', terme, data: d.data });
-          else setEtat({ etat: 'erreur', message: d.message ?? 'Lecture impossible.' });
+          if (d.etat === 'ok' && Array.isArray(d.data) && ds.etat === 'ok' && Array.isArray(ds.data)) setEtat({ etat: 'ok', terme, data: d.data, sorties: ds.data });
+          else setEtat({ etat: 'erreur', message: d.message ?? ds.message ?? 'Lecture impossible.' });
         } catch (e) {
           if ((e as Error)?.name === 'AbortError') return;
           setEtat({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' });
@@ -60,7 +67,7 @@ export function EcranSortieRecherche() {
       })();
     }, 200);
     return () => { clearTimeout(t); c.abort(); };
-  }, [texte]);
+  }, [texte, version]);
 
   const etat = texte.trim().length < 2 ? { etat: 'vide' as const } : etatLu;
   return (
@@ -79,7 +86,7 @@ export function EcranSortieRecherche() {
         {texte !== '' && <button type="button" className="loc-vider sor-vider" aria-label="Vider la recherche" onClick={() => setTexte('')}>×</button>}
       </label>
       <section aria-live="polite" aria-label="Locataires occupants trouvés" data-resultats-occupants>
-        {etat.etat === 'vide' ? <p className="loc-muet">Tapez au moins deux caractères. Seuls les locataires <strong>occupants</strong> (en place aujourd’hui) apparaissent.</p>
+        {etat.etat === 'vide' ? <p className="loc-muet" data-aide-recherche>Tapez au moins deux caractères. Apparaissent les locataires <strong>occupants</strong> (en place aujourd’hui) et les <strong>sorties déjà enregistrées</strong>, dont on peut corriger la date ou annuler la sortie.</p>
           : etat.etat === 'charge' ? <p className="loc-muet" role="status">Recherche…</p>
             : etat.etat === 'erreur' ? <p className="cp-refus" role="alert">{etat.message}</p>
               : etat.data.length === 0 ? <p className="loc-muet">Aucun locataire occupant ne correspond à « {etat.terme} ».</p>
@@ -104,6 +111,18 @@ export function EcranSortieRecherche() {
                   </ul>
                 )}
       </section>
+      {/* 🔴 Arno (20/11/2026, option B) — les SORTIES DÉJÀ ENREGISTRÉES : mêmes gestes, contrôles, confirmations et journal que la fiche. */}
+      {etat.etat === 'ok' && etat.sorties.length > 0 && (
+        <section className="sor-enregistrees" aria-label="Sorties enregistrées trouvées" data-resultats-sorties>
+          <h4>Sorties enregistrées</h4>
+          <ul className="loc-liste">
+            {etat.sorties.map((x) => (
+              <LigneSortie key={`${x.lotId}-${x.sortie}-${x.occupationIds.join('-')}`} s={x} apres={() => setVersion((v) => v + 1)}
+                entete={<span className="sor-occupant sor-occupant--sortie" data-statut="sortie-enregistree">Sortie enregistrée le {dateFr(x.sortie)}</span>} />
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
@@ -534,7 +553,7 @@ function SortiesEnregistrees({ sorties, apres }: { sorties: SortieEnregistree[];
   );
 }
 
-function LigneSortie({ s, apres }: { s: SortieEnregistree; apres: () => void }) {
+function LigneSortie({ s, apres, entete }: { s: SortieEnregistree; apres: () => void; entete?: ReactNode }) {
   const [mode, setMode] = useState<'lecture' | 'corriger' | 'annuler'>('lecture');
   const [date, setDate] = useState(s.sortie);
   const [motif, setMotif] = useState<string | null>(null);
@@ -545,6 +564,7 @@ function LigneSortie({ s, apres }: { s: SortieEnregistree; apres: () => void }) 
   };
   return (
     <li style={{ display: 'block' }} data-sortie={s.sortie}>
+      {entete}
       <p style={{ margin: 0 }}><strong>{s.noms.join(', ')}</strong> — {s.adresse ?? `Bien ${s.lotId}`} — sortie le {dateFr(s.sortie)}</p>
       {mode === 'lecture' && (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
@@ -661,6 +681,7 @@ export const CSS_SORTIE = `
 .sor-question{margin:14px 0 8px;font-weight:800;color:var(--color-svv-ink)}
 .sor-mails{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
 /* Arno (19/10/2026) — LE STATUT « EN PRÉAVIS » EN BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre), toujours avec le mot. */
+.sor-occupant--sortie{background:var(--color-svv-violet-soft);color:var(--color-svv-violet);border-color:var(--color-svv-violet);display:inline-block;margin:0 0 4px} /* Arno (20/11/2026) — « Sortie enregistrée le … », le violet de « Ancien locataire » */
 .sor-occupant--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border-color:var(--color-svv-blue)}
 .sor-surligne--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 /* Arno (19/10/2026) — LES DEUX BOUTONS : BLANCS (bordure et texte foncés) à l'ouverture, ROUGES (texte blanc) une fois choisis. */

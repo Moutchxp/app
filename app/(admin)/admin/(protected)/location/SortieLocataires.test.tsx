@@ -108,8 +108,9 @@ describe('la recherche des occupants', () => {
   it('en temps réel (200 ms), la requête précédente annulée, chaque résultat VERT avec le MOT « occupant »', async () => {
     vi.useFakeTimers();
     const signaux: AbortSignal[] = [];
-    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
       if (init?.signal) signaux.push(init.signal);
+      if (String(u).includes('sortiesEnregistrees=')) return ok([]);
       return ok([{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephone: null, email: null, lotId: 7,
         adresse: '4 rue Fictive, 92800 Puteaux', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean' }]);
     });
@@ -119,8 +120,10 @@ describe('la recherche des occupants', () => {
     act(() => saisir(champ, 'ber'));
     await act(async () => { vi.advanceTimersByTime(250); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    // 🔴 Arno (20/11/2026) — la même frappe lit les occupants ET les sorties enregistrées (deux lectures, une seule frappe retenue).
+    expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0])).toContain('occupants=ber');
+    expect(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][0])).toContain('sortiesEnregistrees=ber');
     const ligne = container.querySelector('a.sor-ligne') as HTMLAnchorElement;
     expect(ligne.getAttribute('href')).toBe('/admin/location/locataire/101?sortie=11');
     expect(ligne.querySelector('.sor-occupant')?.textContent).toBe('occupant');
@@ -130,6 +133,73 @@ describe('la recherche des occupants', () => {
     // Une nouvelle frappe annule la requête en cours.
     act(() => saisir(champ, 'bern'));
     expect(signaux[0].aborted).toBe(true);
+  });
+
+  // 🔴🔴 Arno (20/11/2026, option B) — « tout ce qui touche à une sortie passe par le chemin dédié »
+  const SORTIE = { lotId: 7, adresse: '4 rue Fictive, Puteaux', sortie: '2026-11-30', entree: '2022-09-01', occupationIds: [11, 12, 21],
+    noms: ['BERNARD Alice', 'BERNARD Paul'], locataireId: 101, nom: 'BERNARD Alice' };
+  const rechercheAvecSortie = (posts: Record<string, unknown>[], sorties: unknown[] = [SORTIE]) => vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+    if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return ok({}); }
+    return String(u).includes('sortiesEnregistrees=') ? ok(sorties) : ok([]);
+  });
+  const chercher = async (terme: string) => {
+    act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, terme));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+  };
+  const cliquer = async (el: Element | null) => { await act(async () => { (el as HTMLElement).click(); }); await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
+
+  it('🔴 l’aide sous la recherche mentionne les sorties enregistrées', () => {
+    global.fetch = vi.fn(async () => ok([])) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    expect(container.querySelector('[data-aide-recherche]')?.textContent).toContain('sorties déjà enregistrées');
+    expect(container.querySelector('[data-aide-recherche]')?.textContent).toContain('occupants');
+  });
+
+  it('🔴 une SORTIE ENREGISTRÉE : distinguée « Sortie enregistrée le JJ/MM/AAAA », avec « Corriger la date » et « Annuler la sortie »', async () => {
+    vi.useFakeTimers();
+    global.fetch = rechercheAvecSortie([]) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    await chercher('bernard');
+    expect(container.textContent).toContain('Aucun locataire occupant ne correspond à « bernard ».');
+    const bloc = container.querySelector('[data-resultats-sorties]')!;
+    expect(bloc.querySelector('[data-statut="sortie-enregistree"]')?.textContent).toBe('Sortie enregistrée le 30/11/2026');
+    expect(bloc.textContent).toContain('BERNARD Alice, BERNARD Paul — 4 rue Fictive, Puteaux — sortie le 30/11/2026');
+    expect(bloc.querySelector('[data-corriger]')?.textContent).toBe('Corriger la date');
+    expect(bloc.querySelector('[data-annuler]')?.textContent).toBe('Annuler la sortie');
+    expect(container.querySelector('a.sor-ligne')).toBeNull();
+  });
+
+  it('🔴 CORRIGER la date depuis la page dédiée : le même geste (« corriger-sortie-locataires », tout le groupe), puis la recherche est relue', async () => {
+    vi.useFakeTimers();
+    const envoyes: Record<string, unknown>[] = [];
+    global.fetch = rechercheAvecSortie(envoyes) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    await chercher('bernard');
+    const lectures = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+    await cliquer(container.querySelector('[data-corriger]'));
+    const champ = container.querySelector('[data-resultats-sorties] input[type="date"]') as HTMLInputElement;
+    expect(champ.value).toBe('2026-11-30');
+    act(() => saisir(champ, '2026-11-15'));
+    await act(async () => { (container.querySelector('[data-resultats-sorties] form') as HTMLFormElement).requestSubmit(); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(envoyes).toEqual([{ action: 'corriger-sortie-locataires', occupationIds: [11, 12, 21], date: '2026-11-15' }]);
+    await act(async () => { vi.advanceTimersByTime(250); });
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(lectures + 1);
+  });
+
+  it('🔴 ANNULER la sortie depuis la page dédiée : la même confirmation, le même geste (« annuler-sortie-locataires »)', async () => {
+    vi.useFakeTimers();
+    const envoyes: Record<string, unknown>[] = [];
+    global.fetch = rechercheAvecSortie(envoyes) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    await chercher('bernard');
+    await cliquer(container.querySelector('[data-annuler]'));
+    expect(container.querySelector('[data-resultats-sorties]')?.textContent).toContain('Annuler cette sortie ? BERNARD Alice, BERNARD Paul redeviennent occupants du logement. Le journal garde la trace de la sortie annulée.');
+    expect(envoyes).toEqual([]);
+    const confirmer = [...container.querySelectorAll('[data-resultats-sorties] button')].find((b) => b.textContent === 'Confirmer l’annulation')!;
+    await cliquer(confirmer);
+    expect(envoyes).toEqual([{ action: 'annuler-sortie-locataires', occupationIds: [11, 12, 21] }]);
   });
 
   it('les couleurs passent par les jetons du thème — aucune couleur en dur', () => {
@@ -297,7 +367,7 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
 
   it('la recherche des occupants : un locataire en préavis y figure, avec la mention', async () => {
     vi.useFakeTimers();
-    global.fetch = vi.fn(async () => ok([{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephone: null, email: null, lotId: 7,
+    global.fetch = vi.fn(async (u: string | URL | Request) => String(u).includes('sortiesEnregistrees=') ? ok([]) : ok([{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephone: null, email: null, lotId: 7,
       adresse: '4 rue Fictive', etage: null, porte: null, proprietaire: null, preavisDateMax: '2099-11-01' }])) as unknown as typeof fetch;
     act(() => root.render(createElement(EcranSortieRecherche)));
     act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, 'ber'));
@@ -345,7 +415,7 @@ describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blanc
 
   it('recherche des occupants : sans préavis, toujours « occupant » en vert', async () => {
     vi.useFakeTimers();
-    global.fetch = vi.fn(async () => ok([{ occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', telephone: null, email: null, lotId: 7,
+    global.fetch = vi.fn(async (u: string | URL | Request) => String(u).includes('sortiesEnregistrees=') ? ok([]) : ok([{ occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', telephone: null, email: null, lotId: 7,
       adresse: '4 rue Fictive', etage: null, porte: null, proprietaire: null, preavisDateMax: null }])) as unknown as typeof fetch;
     act(() => root.render(createElement(EcranSortieRecherche)));
     act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, 'ber'));

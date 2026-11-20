@@ -23,7 +23,7 @@ import {
 import { LIBELLE_CATEGORIE, type Categorie } from './locationBien';
 import {
   htmlMailSortie, issueSortie, objetMailSortie, texteMailSortie, verifierCorrection, verifierSortie,
-  type BailLogement, type DonneesMailSortie, type EncartLogement, type LocataireDuBail, type LotEncart, type OccupantTrouve, type SortieEnregistree,
+  type BailLogement, type DonneesMailSortie, type EncartLogement, type LocataireDuBail, type LotEncart, type OccupantTrouve, type SortieEnregistree, type SortieTrouvee,
 } from './sortieLocataires';
 import { reintegrerSiComplet } from './regroupementRepo';
 // 🔴 (Arno, 20/11/2026) l'annulation d'une sortie vit dans un module SANS « server-only » : le script de reprise appelle le MÊME geste
@@ -79,12 +79,11 @@ const typeAffiche = (typeLogement: string | null, nature: string | null): string
  * nom, téléphone, e-mail du locataire, ou adresse du logement. Une occupation d'ANNEXE n'est pas rendue quand le même
  * locataire occupe le logement : c'est le logement qu'on fait sortir (ses annexes suivent).
  */
-export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[]> {
-  const t = analyserTermePortefeuille(brut);
-  if (t.vide) return [];
-  const s = await schema();
-  const coordVivante = await conditionCoordonneeVivante('c');
-  const vivante = await sqlPersonneVivante('l');
+/**
+ * Les tests de la recherche (nom du locataire `l`, adresse du logement `lo`, téléphone, e-mail) — paramètres $1 chiffres, $2 e-mail, $3 mots.
+ * UNE seule écriture pour les occupants et pour les sorties enregistrées (Arno, 20/11/2026).
+ */
+function testsRecherche(t: ReturnType<typeof analyserTermePortefeuille>, coordVivante: string): string[] {
   const tests: string[] = [];
   if (t.mots.length > 0) {
     tests.push(t.mots.map((_, i) => `l.nom_normalise LIKE '%' || ($3::text[])[${i + 1}] || '%'`).join(' AND '));
@@ -97,6 +96,16 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
     tests.push(`EXISTS (SELECT 1 FROM gestion_annuaire_contact c WHERE c.sujet = 'locataire' AND c.sujet_id = l.id
       AND c.absent_le IS NULL${coordVivante} AND (${coord.join(' OR ')}))`);
   }
+  return tests;
+}
+
+export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[]> {
+  const t = analyserTermePortefeuille(brut);
+  if (t.vide) return [];
+  const s = await schema();
+  const coordVivante = await conditionCoordonneeVivante('c');
+  const vivante = await sqlPersonneVivante('l');
+  const tests = testsRecherche(t, coordVivante);
   if (tests.length === 0) return [];
   const coordonnee = (sorte: string): string => `(SELECT c.valeur_brute FROM gestion_annuaire_contact c
       WHERE c.sujet = 'locataire' AND c.sujet_id = l.id AND c.sorte = '${sorte}' AND c.absent_le IS NULL${coordVivante} ORDER BY c.rang, c.id LIMIT 1)`;
@@ -242,6 +251,47 @@ export async function bauxDuLocataire(locataireId: number): Promise<{ enPlace: {
       occupationIds: r.ids.map(Number), noms: r.noms,
     })),
   };
+}
+
+/**
+ * 🔴 Arno (20/11/2026, option B) — « tout ce qui touche à une sortie passe par le chemin dédié » : la page « Supprimer un/des locataire(s) »
+ * retrouve aussi les SORTIES DÉJÀ ENREGISTRÉES, par la MÊME recherche que les occupants (nom, téléphone, e-mail, adresse du logement).
+ * Chaque résultat est un groupe de sortie tel que la fiche le montrait (`bauxDuLocataire` : co-sortants du même bail et annexes, même
+ * date), pour les mêmes gestes « Corriger la date » / « Annuler la sortie ». Les groupes partagés par deux sortants ne sortent qu'une fois.
+ */
+export async function rechercherSortiesEnregistrees(brut: string): Promise<SortieTrouvee[]> {
+  const t = analyserTermePortefeuille(brut);
+  if (t.vide) return [];
+  const s = await schema();
+  const coordVivante = await conditionCoordonneeVivante('c');
+  const vivante = await sqlPersonneVivante('l');
+  const tests = testsRecherche(t, coordVivante);
+  if (tests.length === 0) return [];
+  const sansAnnexe = s.annexes ? 'AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = o.lot_id)' : '';
+  const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string }>(
+    `SELECT o.id::text AS occupation_id, l.id::text AS locataire_id, l.nom
+       FROM gestion_annuaire_occupation o
+       JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+       JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+      WHERE (length($1::text) >= 0 AND length($2::text) >= 0 AND cardinality($3::text[]) >= 0)
+        AND ${vivante} AND o.sortie IS NOT NULL ${sansAnnexe}
+        AND (${tests.map((x) => `(${x})`).join(' OR ')})
+      ORDER BY l.nom_normalise, o.sortie DESC, o.id DESC
+      LIMIT ${LIMITE}`,
+    [t.chiffres ?? '', t.email ?? '', t.mots]);
+  const visees = new Set(rows.map((r) => Number(r.occupation_id)));
+  const vus = new Set<string>();
+  const out: SortieTrouvee[] = [];
+  for (const locataireId of [...new Set(rows.map((r) => Number(r.locataire_id)))]) {
+    const nom = rows.find((r) => Number(r.locataire_id) === locataireId)!.nom;
+    for (const g of (await bauxDuLocataire(locataireId)).sorties) {
+      const cle = g.occupationIds.join(',');
+      if (!g.occupationIds.some((id) => visees.has(id)) || vus.has(cle)) continue;
+      vus.add(cle);
+      out.push({ ...g, locataireId, nom });
+    }
+  }
+  return out;
 }
 
 // ══ LES ÉCRITURES ════════════════════════════════════════════════════════════════════════════════════════════════════

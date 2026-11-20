@@ -73,6 +73,12 @@ export interface SortieEnregistree {
   noms: string[];
 }
 
+/** 🔴 Arno (20/11/2026) — une sortie enregistrée retrouvée par la recherche de « Supprimer un/des locataire(s) » : le locataire cherché. */
+export interface SortieTrouvee extends SortieEnregistree {
+  locataireId: number;
+  nom: string;
+}
+
 export const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Une date AAAA-MM-JJ VALIDE (le 31/02 n'existe pas). */

@@ -44,7 +44,7 @@ import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../lib/location/archivage';
 import {
-  annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
+  annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants, rechercherSortiesEnregistrees,
 } from '../../../../lib/location/sortieLocatairesRepo';
 import { apercuEdls, confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
 import { apercuLocatairesEdls, avecReponsesRdv, confirmerSansDemande, envoyerMailLocatairesEdls, validerRdvALaMain, versionRdv } from '../../../../lib/location/reponsesRdvRepo';
@@ -97,7 +97,7 @@ import { bauxEnPlace, marquerBailEnPlace, rentreOccupeDisponible, rentreOccupeDu
  *       (cartes clients + contacts du locataire) · complements-bien
  *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion) · detacher-annexe (marque, lien gardé) ·
  *       sortir-biens (`proprietaireId`, `lotIds`, `origine` obligatoire, `confirmeOccupation` — tous ses biens ⇒ archivage du propriétaire).
- * SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — GET `?occupants=texte` (les seuls occupants en place) · `?bail=N`
+ * SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — GET `?occupants=texte` (les seuls occupants en place) · `?sortiesEnregistrees=texte` (Arno, 20/11/2026) · `?bail=N`
  *       (le bail d'une occupation) · `?encartBail=N` (l'encart « Le logement » de l'écran de sortie) · `?bauxLocataire=N` ; POST `sortie-locataires` (`occupationId`, `sortants`, `date` ; + mail de
  *       confirmation, jamais bloquant) · `corriger-sortie-locataires` (`occupationIds`, `date`) · `annuler-sortie-locataires` (`occupationIds`).
  * MAILS AUTOMATIQUES DU PRÉAVIS ET DE LA SORTIE (Arno, 05/11/2026) — POST `apercu-preavis` (`occupationIds`, `recuLe`, `choix` : les
@@ -166,6 +166,10 @@ export async function GET(request: Request): Promise<Response> {
     const idProp = identifiant(p('proprietaire'));
     if (idProp !== null) return Response.json(await ficheProprietaireLocation(idProp), { headers: ENTETES });
     // Sortie d'un ou plusieurs locataires (Arno, 19/10/2026) — LECTURE SEULE.
+    // 🔴 Arno (20/11/2026, option B) — la page « Supprimer un/des locataire(s) » retrouve aussi les sorties déjà enregistrées.
+    if (p('sortiesEnregistrees') !== null) {
+      return Response.json({ etat: 'ok', data: await rechercherSortiesEnregistrees((p('sortiesEnregistrees') ?? '').slice(0, 200)) }, { headers: ENTETES });
+    }
     if (p('occupants') !== null) {
       return Response.json({ etat: 'ok', data: await rechercherOccupants((p('occupants') ?? '').slice(0, 200)) }, { headers: ENTETES });
     }
