@@ -276,3 +276,35 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 - Rejouer le graphe d'imports de la page (frontière client, recherche de `node:` / `fs`) et la compilation ciblée ci-dessus
   sur le code du moment ; si les deux sont propres, relancer `next dev` et consigner l'occurrence ici.
 - Ne rien « corriger » dans le code sans une reproduction : une modification sans panne reproduite ne prouve rien.
+
+---
+
+## Suite complète lente et « 5 errors » juste après un gros import en base (20/11/2026, lot 3 quater « adresse officielle BAN »)
+
+- **Symptôme** : `npm test` a fini en **252 s** (au lieu de ~90 s) avec un résumé **« Errors 5 errors »** et aucun test en
+  échec affiché dans les dernières lignes ; la suite complète relancée aussitôt est **verte** (1830 fichiers, 27 415 tests,
+  0 erreur, ~92 s). Contexte : lancée **juste après l'insertion d'environ 1,6 million d'adresses** dans `adresse_ban` de la
+  base de recette `svav_recette` (import des fichiers BAN de 6 départements, `app/scripts/ban-csv-import.ts`, puis
+  `ANALYZE adresse_ban`).
+
+### ✅ PROUVÉ
+
+- Une seule occurrence. Durée 252 s (« transform 217.94s, import 721.10s, tests 1124.67s, environment 295.04s » contre
+  environ 50 / 200 / 540 / 120 s d'ordinaire) : toute la suite a été ralentie, pas un seul fichier.
+- Elle ne s'est pas reproduite : **trois** suites complètes vertes ensuite (une juste après ; deux de suite le 20/11/2026,
+  90,2 s et 91,4 s, sorties entières gardées dans deux fichiers distincts), sans aucune modification du code entre-temps.
+- Les tests unitaires (`npm test`) ne lisent pas `svav_recette` : leurs accès à la base sont simulés.
+
+### ❓ NON ÉTABLI
+
+- **Les noms des tests et les messages des 5 erreurs n'ont pas été capturés** : seules les 4 dernières lignes de la sortie
+  ont été lues (`tail -4`), et la relance a été faite sans garder la sortie de la passe en échec.
+- La cause du ralentissement : l'hypothèse « la machine était chargée par PostgreSQL après l'import (écriture, `ANALYZE`,
+  autovacuum) » est **plausible mais NON PROUVÉE** — ni la charge CPU ni l'activité de PostgreSQL n'ont été mesurées au moment
+  de la suite. Le lien entre ce ralentissement et les « 5 errors » (des délais dépassés ?) n'est pas établi non plus.
+
+### Conduite à tenir si cela revient
+
+- Écrire la sortie ENTIÈRE de chaque passe dans un fichier distinct (`npm test > .../npmtest-1.log 2>&1`) AVANT de relancer,
+  puis y chercher `Error`, `timed out`, `FAIL` : le nom du test et le message sont la donnée qui manque.
+- Après un import massif en base, noter la charge (`top -l 1 | head -12`) au lancement de la suite.
