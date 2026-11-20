@@ -1,4 +1,5 @@
 import { normaliserTexte } from './annuaire';
+import { ABREGES, PETITS_MOTS, TYPES_VOIE } from '../adresse/rapprochementBan';
 
 /**
  * ══ 🔴🔴 COPROPRIÉTÉS EN DOUBLE PAR VARIANTES D'ADRESSE (Arno, 19/11/2026). PUR. ════════════════════════════════════════════════════════════════
@@ -22,28 +23,7 @@ import { normaliserTexte } from './annuaire';
  * code postal, ou sans parcelle) n'est rattachée que si le groupe n'hésite pas entre deux valeurs.
  */
 
-/** Les fautes et abréviations courantes du type de voie → le type écrit en entier. */
-const TYPES_VOIE: Readonly<Record<string, string>> = {
-  avenue: 'avenue', av: 'avenue', ave: 'avenue', avn: 'avenue', avenu: 'avenue', avneue: 'avenue', aveune: 'avenue', avnue: 'avenue', avnee: 'avenue',
-  avene: 'avenue', avenus: 'avenue', aveneu: 'avenue', avennue: 'avenue', avvenue: 'avenue',
-  boulevard: 'boulevard', bd: 'boulevard', bld: 'boulevard', blvd: 'boulevard', bvd: 'boulevard', boul: 'boulevard', boulvard: 'boulevard', bouelvard: 'boulevard', boulevrad: 'boulevard',
-  rue: 'rue', r: 'rue', reu: 'rue',
-  place: 'place', pl: 'place', plce: 'place',
-  allee: 'allee', all: 'allee', al: 'allee',
-  impasse: 'impasse', imp: 'impasse',
-  chemin: 'chemin', ch: 'chemin', che: 'chemin', chem: 'chemin',
-  square: 'square', sq: 'square',
-  quai: 'quai', qu: 'quai',
-  route: 'route', rte: 'route',
-  cours: 'cours', crs: 'cours',
-  passage: 'passage', pass: 'passage', pas: 'passage',
-  faubourg: 'faubourg', fbg: 'faubourg', fg: 'faubourg',
-  villa: 'villa', cite: 'cite', residence: 'residence', res: 'residence', sentier: 'sentier', sen: 'sentier', promenade: 'promenade', prom: 'promenade',
-  esplanade: 'esplanade', parvis: 'parvis', rond: 'rond', hameau: 'hameau', ham: 'hameau', voie: 'voie', mail: 'mail',
-};
-/** Les petits mots qui ne distinguent jamais deux adresses (« du Puvis de Chavannes » = « Puvis de Chavannes »). */
-const PETITS_MOTS = new Set(['du', 'de', 'des', 'la', 'le', 'les', 'l', 'd', 'a', 'au', 'aux', 'et']);
-const ABREGES: Readonly<Record<string, string>> = { st: 'saint', ste: 'sainte', gal: 'general', gen: 'general', mal: 'marechal', pdt: 'president', dr: 'docteur' };
+// 🔴 (Arno, 20/11/2026, lot 2) les types de voie, les petits mots et les abréviations viennent de LA table du rapprochement BAN : une seule version.
 const INDICES = new Set(['bis', 'ter', 'quater', 'b', 't', 'q']);
 const INDICE_ENTIER: Readonly<Record<string, string>> = { b: 'bis', t: 'ter', q: 'quater' };
 

@@ -1,0 +1,116 @@
+import { query, type RequeteTx } from '../db/client';
+import { normaliserTexte } from '../gestion/annuaire';
+import { colonneExisteMemo } from '../location/sondeLocation';
+import type { Auteur } from '../gestion/gestes';
+import { analyserAdresse, deciderRapprochement, indiceNormalise, type CandidatBan, type Rapprochement } from './rapprochementBan';
+
+/**
+ * ══ 🔴🔴 LE SEUL ACCÈS SERVEUR À LA BASE ADRESSE NATIONALE POUR RAPPROCHER UNE ADRESSE (Arno, 20/11/2026, « Adresse officielle BAN », lot 2). IMPUR. ══
+ *
+ * La BAN LOCALE (`adresse_ban`, Île-de-France) et le cadastre (`parcelle`) — aucun service en ligne. Le stock, l'import WIPPIMMO, la vérification des
+ * saisies et les permis passeront TOUS par ici (lots 3 à 7e) ; le garde `banRepo.garde.test.ts` refuse tout NOUVEAU fichier qui lirait `adresse_ban`
+ * ailleurs. La règle de décision est pure, dans `rapprochementBan.ts`.
+ *
+ * ⚠️ La BAN locale ne porte PAS de code postal : la commune se trouve par son nom (et le département du code postal), Paris par l'arrondissement
+ * du code postal (75011 → 75111). Le code postal enregistré est celui de l'adresse écrite, contrôlé par le département de la commune trouvée.
+ */
+
+/** La règle de normalisation des noms de commune, en SQL : la même que `normaliserTexte` (casse, accents, tirets, apostrophes). */
+const NORMALISE = (col: string): string => `btrim(regexp_replace(lower(unaccent(${col})), '[^a-z0-9]+', ' ', 'g'))`;
+
+/** Le code INSEE de la commune d'une adresse écrite, ou `null` (absente de la BAN locale, ou ambiguë). LECTURE SEULE. */
+export async function inseeDeLaCommune(commune: string | null, codePostal: string | null, q: RequeteTx | typeof query = query): Promise<string | null> {
+  const cp = (codePostal ?? '').trim();
+  if (/^75\d{3}$/.test(cp)) return cp === '75116' ? '75116' : `751${cp.slice(3)}`;
+  const nom = normaliserTexte(commune);
+  if (nom === '') return null;
+  const { rows } = await q<{ insee: string }>(
+    `SELECT DISTINCT insee_commune AS insee FROM adresse_ban
+      WHERE ${NORMALISE('nom_commune')} = $1 OR ${NORMALISE("coalesce(nom_commune_deleguee, '')")} = $1`, [nom]);
+  const dep = /^\d{5}$/.test(cp) ? cp.slice(0, 2) : null;
+  const retenues = rows.map((r) => r.insee).filter((i) => dep === null || i.startsWith(dep));
+  return retenues.length === 1 ? retenues[0] : null;
+}
+
+/** Les adresses officielles d'une commune à un numéro (tous indices). LECTURE SEULE. */
+export async function candidatsAuNumero(insee: string, numero: number, q: RequeteTx | typeof query = query): Promise<CandidatBan[]> {
+  const { rows } = await q<{ id: string; numero: number; suffixe: string | null; nom_voie: string; insee: string; commune: string; x: number | null; y: number | null }>(
+    `SELECT cle_d_interoperabilite AS id, numero, suffixe, nom_voie, insee_commune AS insee, nom_commune AS commune, ST_X(geom) AS x, ST_Y(geom) AS y
+       FROM adresse_ban WHERE insee_commune = $1 AND numero = $2 AND cle_d_interoperabilite IS NOT NULL ORDER BY cle_d_interoperabilite`, [insee, numero]);
+  return rows.map((r) => ({ id: r.id, numero: r.numero, suffixe: indiceNormalise(r.suffixe), nomVoie: r.nom_voie, insee: r.insee, commune: r.commune, x: r.x, y: r.y }));
+}
+
+/** La parcelle cadastrale d'un point BAN : la plus proche, à 3 m au plus (la règle de `parcelleRepo`, point INLINÉ dans le KNN). LECTURE SEULE. */
+export async function parcelleDuPoint(x: number, y: number, q: RequeteTx | typeof query = query): Promise<string | null> {
+  const { rows } = await q<{ id: string }>(
+    `SELECT id FROM parcelle WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 2154), 3)
+      ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 2154) LIMIT 1`, [x, y]);
+  return rows[0]?.id ?? null;
+}
+
+export interface AdresseEcrite { texte: string | null; codePostal: string | null; commune: string | null }
+export type RapprochementComplet = Rapprochement & { insee: string | null; codePostal: string | null; parcelle: string | null; texteSource: string };
+
+/** RAPPROCHER une adresse écrite : la commune, les candidats à ce numéro, la décision, puis la parcelle de l'adresse retenue. LECTURE SEULE. */
+export async function rapprocherAdresse(a: AdresseEcrite, q: RequeteTx | typeof query = query): Promise<RapprochementComplet> {
+  const analyse = analyserAdresse(a.texte, a.commune);
+  const insee = analyse.numero === null ? null : await inseeDeLaCommune(a.commune, a.codePostal, q);
+  const candidats = analyse.numero === null || insee === null ? null : await candidatsAuNumero(insee, analyse.numero, q);
+  const r = deciderRapprochement(analyse, candidats);
+  const parcelle = r.ban?.x != null && r.ban.y != null ? await parcelleDuPoint(r.ban.x, r.ban.y, q) : null;
+  const cp = (a.codePostal ?? '').trim();
+  return { ...r, insee, codePostal: /^\d{5}$/.test(cp) ? cp : null, parcelle, texteSource: (a.texte ?? '').trim() };
+}
+
+/** Le rang d'un statut : on garde, pour un bien, le meilleur rapprochement de son « Immeuble » et de son adresse. */
+const RANG: Record<Rapprochement['statut'], number> = { certain: 2, a_verifier: 1, introuvable: 0 };
+
+/** RAPPROCHER un bien : son « Immeuble », puis son adresse si l'« Immeuble » ne donne rien de certain (le meilleur des deux). LECTURE SEULE. */
+export async function rapprocherBien(l: { immeuble: string | null; adresse: string | null; codePostal: string | null; commune: string | null },
+  q: RequeteTx | typeof query = query): Promise<RapprochementComplet> {
+  const textes = [...new Set([(l.immeuble ?? '').trim(), (l.adresse ?? '').trim()].filter((t) => t !== ''))];
+  let meilleur: RapprochementComplet | null = null;
+  for (const texte of textes) {
+    const r = await rapprocherAdresse({ texte, codePostal: l.codePostal, commune: l.commune }, q);
+    if (meilleur === null || RANG[r.statut] > RANG[meilleur.statut]) meilleur = r;
+    if (r.statut === 'certain') break;
+  }
+  return meilleur ?? await rapprocherAdresse({ texte: '', codePostal: l.codePostal, commune: l.commune }, q);
+}
+
+// ══ L'ENREGISTREMENT (migration 505) — historisé : la ligne en cours est FERMÉE (`fin`), jamais modifiée ni effacée ═══════════════════════════════════
+
+export function rapprochementDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_lot_adresse_ban', 'ban_id');
+}
+export type StatutEnregistre = Rapprochement['statut'] | 'valide' | 'refuse';
+export type OrigineRapprochement = 'stock' | 'import_wippimmo' | 'saisie' | 'file_verification';
+export type MethodeRapprochement = 'similarite_voie' | 'choix_humain' | 'auto_completion';
+export const MOTIF_SANS_505 = 'Les adresses officielles demandent la mise à jour de la base (migration 505) : rien n’est enregistré.';
+
+/**
+ * ENREGISTRE le rapprochement d'un bien (dans la transaction de l'appelant). Le même que celui en cours (même identifiant, même statut) : rien
+ * (rejouable). Sinon la ligne en cours est fermée (`fin`, qui, motif) et la nouvelle ouverte. Les adresses WIPPIMMO du bien ne sont JAMAIS touchées.
+ * Rend `false` quand rien n'a changé.
+ */
+export async function enregistrerRapprochement(q: RequeteTx, lotId: number, r: RapprochementComplet, o: {
+  statut?: StatutEnregistre; origine: OrigineRapprochement; methode: MethodeRapprochement; motifFin?: string;
+}, auteur: Auteur): Promise<boolean> {
+  const statut = o.statut ?? r.statut;
+  const banId = r.ban?.id ?? null;
+  const { rows } = await q<{ id: string; ban_id: string | null; statut: string }>(
+    'SELECT id::text, ban_id, statut FROM gestion_lot_adresse_ban WHERE lot_id = $1 AND fin IS NULL FOR UPDATE', [lotId]);
+  const enCours = rows[0];
+  if (enCours !== undefined && enCours.ban_id === banId && enCours.statut === statut) return false;
+  if (enCours !== undefined) {
+    await q('UPDATE gestion_lot_adresse_ban SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = $4 WHERE id = $1',
+      [enCours.id, auteur.id, auteur.libelle, o.motifFin ?? 'nouveau rapprochement']);
+  }
+  await q(
+    `INSERT INTO gestion_lot_adresse_ban (lot_id, ban_id, libelle_officiel, numero, suffixe, code_postal, insee, commune, parcelle, score, methode, statut,
+                                          origine, texte_source, motif, cree_par, cree_par_libelle)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+    [lotId, banId, r.ban?.libelle ?? null, r.ban?.numero ?? r.analyse.numero, r.ban?.suffixe ?? r.analyse.indice, r.codePostal, r.ban?.insee ?? r.insee,
+      r.ban?.commune ?? null, r.parcelle, r.score, o.methode, statut, o.origine, r.texteSource, r.motif, auteur.id, auteur.libelle]);
+  return true;
+}
