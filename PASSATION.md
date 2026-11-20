@@ -311,9 +311,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 20/11/2026 au soir) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `d1718d5e`, garde de 509/510). `origin/main` =
-  `5f40f193` (19/11, 16h03). **43 commits d'avance sur `origin/main`**, cette passation comprise (1 du 19/11, `3ed33415`,
-  et 42 du 20/11, dont 4 passations `32e1cc31`, `398533fb`, `94667b17` et celle-ci) : **rien n'est poussé, c'est Arno qui pousse**.
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `b50eb2a9`). `origin/main` =
+  `5f40f193` (19/11, 16h03). **44 commits d'avance sur `origin/main`**, cette passation comprise (1 du 19/11, `3ed33415`,
+  et 43 du 20/11, dont 5 passations `32e1cc31`, `398533fb`, `94667b17`, `b50eb2a9` et celle-ci) : **rien n'est poussé, c'est Arno qui pousse**.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
 - **Contrôles** (dernier lot, `f4e736fc`) : `npm test` VERT (1 858 fichiers, 27 663 tests, 21 ignorés) ; preuve curl
@@ -345,12 +345,16 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     après leur correction (schéma identique prouvé). Sur les 14 absentes de la recette (la production les a) :
     **appliquées le 20/11 au soir, une par une, effet constaté puis inscrites : 410, 429, 430, 431, 432** (la 431 a ajouté
     `bascule_annexes_gestion = 2026-10-01` à côté du `2026-10-25` déjà en recette, et `bascule_entree_locataire = 2026-10-01`, comme en prod).
-    🔴 **ARRÊT AVANT LA 439** : appliquée telle quelle, elle RECRÉE `admin_utilisateur_log_action_check` avec sa liste et retirerait
-    `changement_commissionne`, `changement_fonctions`, `changement_taux_commission` (ajoutées par une migration plus récente, déjà en
-    place) ; même défaut pour 441 (2 valeurs) et 451 (1 valeur, et `cout_validation` de `transaction_journal_entite_check`).
-    **Restent NON appliquées en recette : 439, 441, 448, 450, 451, 453, 455, 458, 459** — proposition en attente d'Arno : les passer par
-    un script de recette (hors `db/migrations/`) qui saute seulement ces recréations de contraintes. « Mon espace » s'ouvre déjà
-    sans erreur en recette (capture `mon-espace-apres-432.jpg`). Journal : `.captures/registre-migrations/application-14.txt`.
+    **Puis les 9 autres (accord d'Arno, 20/11 au soir) : 439, 441, 448, 450, 451, 453, 455, 458, 459 appliquées, une par une, effet
+    constaté, inscrites** — par le script de recette `.captures/registre-migrations/recette-9-migrations.py` (aucun fichier de
+    `db/migrations/` modifié ; SQL réellement appliqué dans `.captures/registre-migrations/appliquees/` ; journal `application-9.txt`).
+    **SAUTÉ, et seulement cela** (la version actuelle contenait déjà chaque valeur, vérifié valeur par valeur ; la rejouer aurait retiré
+    des valeurs plus récentes) : la recréation de `admin_utilisateur_log_action_check` (439, 441, 451), de
+    `transaction_journal_entite_check` (451) et de `transaction_cout_ligne_famille_check` + son VALIDATE (453 ; l'actuelle garde la
+    branche `remunerations` de la 472). Effets de données, comme en prod : administrateurs `statut = associe` et
+    `commissionne = false` (+ journal), fonctions déduites (451), activité principale (453), statut TVA des apporteurs (455) — les
+    chiffres de « Mon espace » en recette ont changé en conséquence. **Registre de la recette complet** (509 lignes) : plan de
+    l'outil VIDE, aucun refus. « Mon espace », la Transaction et la Gestion s'ouvrent sans erreur (captures `apres-9-*.jpg`).
 - **Serveurs lancés en arrière-plan sur le Mac** : la recette (`npm run recette` avec `RECETTE_ENVOI_REEL_VERS`) et un
   tunnel `cloudflared` (logs dans `.captures/recette-interception/`).
 
