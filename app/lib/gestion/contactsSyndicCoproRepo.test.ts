@@ -13,6 +13,7 @@ let modifie: number;
 let annuaire: unknown[] = [];
 let ailleurs: unknown[] = [];
 let echec: string | null = null;
+let fermes: { contact_id: string; copropriete_id: string }[] = [];
 let transactions = 0;
 let annulees = 0;
 const q = async (sql: string, params: unknown[] = []) => {
@@ -24,7 +25,7 @@ const q = async (sql: string, params: unknown[] = []) => {
   if (s.includes('FROM gestion_copropriete c JOIN gestion_copropriete_syndic cs')) return { rows: syndic === null ? [] : [syndic], rowCount: syndic === null ? 0 : 1 };
   if (s.startsWith('SELECT id::text FROM gestion_syndic_contact WHERE id = ANY')) return { rows: siens.map((id) => ({ id })), rowCount: siens.length };
   if (s.startsWith('SELECT contact_id::text FROM gestion_syndic_contact_copropriete')) return { rows: deja.map((contact_id) => ({ contact_id })), rowCount: deja.length };
-  if (s.startsWith('UPDATE')) { ecrits.push({ sql: s, params }); return { rows: [], rowCount: modifie }; }
+  if (s.startsWith('UPDATE')) { ecrits.push({ sql: s, params }); return { rows: s.includes('RETURNING') ? fermes : [], rowCount: modifie }; }
   if (s.startsWith('INSERT') || s.includes('DELETE')) { ecrits.push({ sql: s, params }); return { rows: [], rowCount: 1 }; }
   return { rows: [], rowCount: 0 };
 };
@@ -37,7 +38,7 @@ import { contactRepond, detacherContactSyndic, rattacherContactsSyndic } from '.
 
 const AUTEUR = { id: 1, libelle: '_TEST' };
 beforeEach(() => { ecrits = []; syndic = { copro: '30', syndic: '9', nom: '_TEST SYNDIC CONTACTS' }; siens = ['5', '6']; deja = []; modifie = 1; journal.mockClear();
-  annuaire = []; ailleurs = []; echec = null; transactions = 0; annulees = 0; });
+  annuaire = []; ailleurs = []; echec = null; transactions = 0; annulees = 0; fermes = []; });
 
 describe('la recherche (PUR)', () => {
   const c = { id: 6, civilite: null, prenom: 'Paul', nom: 'Essai', titre: 'Comptable', coordonnees: [{ sorte: 'telephone' as const, libelle: null, valeur: '+33 6 99 99 00 01' }, { sorte: 'email' as const, libelle: null, valeur: 'paul@cabinet.test' }] };
@@ -141,5 +142,42 @@ describe('créer un contact depuis la fiche copropriété', () => {
     const r = await creerEtRattacherContactSyndic('12 rue _test', NOUVEAU, AUTEUR);
     expect(r).toEqual({ etat: 'refus', motif: 'L’e-mail zoe@fictif.test appartient déjà à un contact du syndic Cabinet B. Rien n’a été créé.' });
     expect(ecrits).toEqual([]);
+  });
+});
+
+// ══ 🔴 (Arno, 20/11/2026, point 3) changement ou retrait de syndic : les contacts de l'ancien syndic détachés (journal), jamais supprimés ══════════════
+import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
+
+describe('changement ou retrait de syndic', () => {
+  it('CHANGEMENT : les affectations de l’ANCIEN syndic sur cette copropriété fermées (motif), un journal par contact ; le contact jamais touché', async () => {
+    fermes = [{ contact_id: '5', copropriete_id: '30' }, { contact_id: '6', copropriete_id: '30' }];
+    await detacherContactsDeLAncienSyndic(q as never, { syndicId: 9, coproId: 30, motif: 'changement de syndic', ecran: 'la fiche copropriété' }, AUTEUR);
+    expect(ecrits).toHaveLength(1);
+    expect(ecrits[0].sql).toContain('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()');
+    expect(ecrits[0].sql).toContain('a.copropriete_id = $2');
+    expect(ecrits[0].params).toEqual([9, 30, '_TEST', 'changement de syndic']);
+    expect(ecrits.some((e) => /UPDATE gestion_syndic_contact SET|DELETE/.test(e.sql))).toBe(false);
+    expect(journal.mock.calls.map((c) => c[1])).toEqual([{ coproId: '30', syndicId: 9, nature: 'detache', contactIds: [5, 6], ecran: 'la fiche copropriété', motif: 'changement de syndic' }]);
+  });
+
+  it('SUPPRESSION du syndic : toutes ses copropriétés — un journal par copropriété, avec ses contacts', async () => {
+    fermes = [{ contact_id: '5', copropriete_id: '30' }, { contact_id: '6', copropriete_id: '31' }];
+    await detacherContactsDeLAncienSyndic(q as never, { syndicId: 9, motif: 'fermeture définitive', ecran: 'la fiche syndic (suppression du syndic)' }, AUTEUR);
+    expect(ecrits[0].params).toEqual([9, '_TEST', 'fermeture définitive']);
+    expect(journal.mock.calls.map((c) => [(c[1] as { coproId: string }).coproId, (c[1] as { contactIds: number[] }).contactIds])).toEqual([['30', [5]], ['31', [6]]]);
+  });
+
+  it('aucun contact rattaché : rien au journal', async () => {
+    await detacherContactsDeLAncienSyndic(q as never, { syndicId: 9, coproId: 30, motif: 'changement de syndic', ecran: 'x' }, AUTEUR);
+    expect(journal).not.toHaveBeenCalled();
+  });
+
+  it('TOUS les chemins qui ferment un lien syndic passent par la fonction unique', async () => {
+    const { readFileSync } = await import('node:fs');
+    const copro = readFileSync('app/lib/gestion/coproprieteEcritureRepo.ts', 'utf8');
+    const syndic = readFileSync('app/lib/gestion/syndicRepo.ts', 'utf8');
+    expect(copro.match(/detacherContactsDeLAncienSyndic\(q, /g)).toHaveLength(2);   // changement, regroupement
+    expect(syndic.match(/detacherContactsDeLAncienSyndic\(q, /g)).toHaveLength(2);  // retrait / reprise (via retirerAffectationsDeLaCopro), suppression
+    for (const src of [copro, syndic]) expect(src).not.toMatch(/UPDATE gestion_syndic_contact_copropriete a SET retire_le[^`]*FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id/);
   });
 });

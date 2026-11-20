@@ -251,7 +251,8 @@ describe('🔴 (lot 6) « Même syndic : regrouper ? », déplacé de la fiche s
     expect(e.filter((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse')).map((x) => [x.p[0], x.p[2]])).toEqual([['12', 'Résidence Les Tilleuls'], ['12', '12 rue des Lilas']]);
     expect(e.some((x) => x.s.startsWith('UPDATE gestion_copropriete_adresse SET retire_le = now()'))).toBe(true);
     expect(e.some((x) => x.s.includes("fin_motif = 'regroupement'"))).toBe(true);
-    expect(e.some((x) => x.s.includes("retire_motif = 'regroupement'"))).toBe(true);
+    // 🔴 (20/11/2026) les gestionnaires détachés par la fonction unique (detacherContactsDeLAncienSyndic) : le motif est un paramètre lié
+    expect(e.some((x) => x.s.startsWith('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()') && x.p.includes('regroupement'))).toBe(true);
     expect(h.sql.some((x) => x.s.startsWith('DELETE'))).toBe(false);
     // 🔴 (20/11/2026) le journal des syndics : le syndic quitte cette copropriété, qui rejoint l'autre
     expect(js.gestes.at(-1)).toEqual({ coproId: 7, nature: 'retire', syndicId: 9, ecran: 'la fiche copropriété (« Même syndic : regrouper ? »)', motif: 'regroupement avec la copropriété 10 rue Voisine' });

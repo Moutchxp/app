@@ -200,3 +200,28 @@ export async function creerEtRattacherContactSyndic(immeuble: string, brut: unkn
     return { etat: 'ok' as const, gestionnaires: await gestionnairesDe(q, cs.syndicId, cs.coproId) };
   });
 }
+
+// ══ 🔴 (Arno, 20/11/2026, point 3) CHANGEMENT OU RETRAIT DE SYNDIC : les contacts de l'ANCIEN syndic sont détachés de la copropriété ════════════════
+// Leurs affectations FERMÉES (motif), une ligne de journal par contact détaché ; jamais supprimés de l'annuaire de leur syndic. La section repart vide
+// pour le nouveau syndic (elle ne montre que les contacts du syndic EN COURS). UNE fonction, appelée par tous les chemins qui ferment un lien syndic
+// (fiche copropriété : changement, regroupement ; fiche syndic : reprise par un autre syndic, retrait de la résidence, suppression du syndic).
+
+export async function detacherContactsDeLAncienSyndic(q: RequeteTx, g: { syndicId: number; coproId?: string | number | null; motif: string; ecran: string },
+  auteur: Auteur): Promise<void> {
+  const parCopro = g.coproId !== undefined && g.coproId !== null;
+  const { rows } = await q<{ contact_id: string; copropriete_id: string }>(
+    parCopro
+      ? `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $3, retire_motif = $4
+           FROM gestion_syndic_contact c
+          WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL
+          RETURNING a.contact_id::text, a.copropriete_id::text`
+      : `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3
+           FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.retire_le IS NULL
+          RETURNING a.contact_id::text, a.copropriete_id::text`,
+    parCopro ? [g.syndicId, g.coproId, auteur.libelle, g.motif] : [g.syndicId, auteur.libelle, g.motif]);
+  const copros = new Map<string, number[]>();
+  for (const r of rows ?? []) copros.set(r.copropriete_id, [...(copros.get(r.copropriete_id) ?? []), Number(r.contact_id)]);
+  for (const [coproId, contactIds] of copros) {
+    await journaliserContactsSyndic(q, { coproId, syndicId: g.syndicId, nature: 'detache', contactIds, ecran: g.ecran, motif: g.motif }, auteur);
+  }
+}

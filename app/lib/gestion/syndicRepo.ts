@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { detacherContactsDeLAncienSyndic } from './contactsSyndicCoproRepo';
 import { enregistrerAdressePersonne } from '../adresse/personneAdresseRepo'; // 🔴 lot 7d — le format unique de l'adresse du cabinet
 import { journaliserLienSyndic } from './journalSyndicCopro';
 import { statutBienDisponible } from './statutBienRepo';
@@ -701,7 +702,7 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
       `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = $4 WHERE id = $1`,
       [l.lien_id, auteur.id, auteur.libelle, aMoi ? 'retrait' : 'changement de syndic']);
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — et les contacts du syndic qui PERD l'immeuble cessent de le suivre.
-    await retirerAffectationsDeLaCopro(q, Number(l.syndic_id), l.copro_id, aMoi ? 'copropriété retirée du syndic' : 'changement de syndic', auteur);
+    await retirerAffectationsDeLaCopro(q, Number(l.syndic_id), l.copro_id, aMoi ? 'copropriété retirée du syndic' : 'changement de syndic', auteur, ecran);
     // 🔴 (20/11/2026) le journal : un retrait se dit ici ; une reprise se dira à l'ouverture du nouveau lien (« remplacé », avec l'ancien syndic)
     if (aMoi) await journaliserLienSyndic(q, { coproId: l.copro_id, nature: 'retire', syndicId, ecran, motif: 'retrait' }, auteur);
     else anciens.set(l.copro_id, Number(l.syndic_id));
@@ -793,13 +794,10 @@ async function enregistrerAdressesSecondaires(q: RequeteTx, saisie: SyndicSaisi,
   }
 }
 
-/** Les affectations EN COURS des contacts d'un syndic à une copropriété : retirées (historisées), jamais effacées. */
-async function retirerAffectationsDeLaCopro(q: RequeteTx, syndicId: number, coproId: string, motif: string, auteur: Auteur): Promise<void> {
-  await q(
-    `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $3, retire_motif = $4
-       FROM gestion_syndic_contact c
-      WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL`,
-    [syndicId, coproId, auteur.libelle, motif]);
+/** Les affectations EN COURS des contacts d'un syndic à une copropriété : retirées (historisées), jamais effacées ; 🔴 (20/11/2026) une ligne de
+ *  journal par contact détaché (`detacherContactsDeLAncienSyndic`, la fonction unique). */
+async function retirerAffectationsDeLaCopro(q: RequeteTx, syndicId: number, coproId: string, motif: string, auteur: Auteur, ecran: string): Promise<void> {
+  await detacherContactsDeLAncienSyndic(q, { syndicId, coproId, motif, ecran }, auteur);
 }
 
 /**
@@ -835,7 +833,7 @@ Promise<{ ok: true; lots: number } | { ok: false; motif: string }> {
     await q(
       `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'retrait de la résidence'
         WHERE id = $1`, [l.lien_id, auteur.id, auteur.libelle]);
-    await retirerAffectationsDeLaCopro(q, syndicId, l.copro_id, 'syndic retiré de la copropriété', auteur);
+    await retirerAffectationsDeLaCopro(q, syndicId, l.copro_id, 'syndic retiré de la copropriété', auteur, 'la fiche syndic (« Retirer de la résidence »)');
     await journaliserLienSyndic(q, { coproId: l.copro_id, nature: 'retire', syndicId, ecran: 'la fiche syndic (« Retirer de la résidence »)', motif: 'retrait de la résidence' }, auteur);
     const g = parCle.get(cle);
     const syndic = nomAvecVille(s.nom, s.ville);
@@ -891,9 +889,8 @@ Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
           WHERE id = ANY($1::bigint[])`, [liens.map((l) => l.id), auteur.id, auteur.libelle, MOTIF]);
       for (const l of liens) await journaliserLienSyndic(q, { coproId: l.copro, nature: 'retire', syndicId: id, ecran: 'la fiche syndic (suppression du syndic)', motif: MOTIF }, auteur);
     }
-    await q(
-      `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3
-         FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.retire_le IS NULL`, [id, auteur.libelle, MOTIF]);
+    // 🔴 (20/11/2026) les contacts détachés de chaque copropriété : une ligne de journal par contact (la fonction unique)
+    await detacherContactsDeLAncienSyndic(q, { syndicId: id, motif: MOTIF, ecran: 'la fiche syndic (suppression du syndic)' }, auteur);
     await q(
       `UPDATE gestion_syndic_coordonnee k SET retire_le = now() FROM gestion_syndic_contact c
         WHERE k.contact_id = c.id AND c.syndic_id = $1 AND c.retire_le IS NULL AND k.retire_le IS NULL`, [id]);
