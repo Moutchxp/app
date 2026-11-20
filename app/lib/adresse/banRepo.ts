@@ -71,11 +71,13 @@ export async function candidatsAuNumero(insee: string, numero: number, q: Requet
     x: r.x, y: r.y, officielle: r.officielle })));
 }
 
-/** La même adresse sous deux identifiants (même voie normalisée, même indice, à moins de 5 m) : une seule, la plus récente. PUR. */
+/** Un identifiant sur plusieurs lignes, ou la même adresse sous deux identifiants (même voie normalisée, même indice, à moins de 5 m) : une seule. PUR. */
 export function dedoublonnerCandidats(c: readonly (CandidatBan & { officielle: boolean })[]): CandidatBan[] {
   const tries = [...c].sort((a, b) => Number(b.officielle) - Number(a.officielle) || a.id.localeCompare(b.id));
   const gardes: (CandidatBan & { officielle: boolean })[] = [];
   for (const x of tries) {
+    // 🔴 (lot 3 quater) le MÊME identifiant sur plusieurs lignes (positions « entrée », « bâtiment », « parcelle » : 1 511 cas en recette) : une seule fois
+    if (gardes.some((g) => g.id === x.id)) continue;
     const meme = gardes.find((g) => normaliserTexte(g.nomVoie) === normaliserTexte(x.nomVoie) && g.suffixe === x.suffixe
       && g.x !== null && g.y !== null && x.x !== null && x.y !== null && Math.hypot(g.x - x.x, g.y - x.y) < MEME_ADRESSE_M);
     if (meme === undefined) gardes.push(x);

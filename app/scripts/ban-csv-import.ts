@@ -10,7 +10,9 @@
  *
  * CE QU'IL FAIT : chaque adresse du fichier dont l'IDENTIFIANT BAN (`id` → `cle_d_interoperabilite`) n'est pas déjà dans `adresse_ban` y est AJOUTÉE
  * (numéro, indice, voie, INSEE, commune, position Lambert-93, parcelles, certification) ; une adresse déjà présente n'est JAMAIS modifiée, rien n'est
- * supprimé ; REJOUABLE SANS DOUBLON. Les lignes ajoutées portent `source_adresse = 'BAN adresse.data.gouv.fr (import AAAA-MM-JJ)'` : on les retrouve.
+ * supprimé ; REJOUABLE SANS DOUBLON. 🔴 (lot 3 quater) « Déjà présente » = même identifiant, OU la MÊME ADRESSE sous un autre identifiant (même commune,
+ * même numéro et indice, même voie normalisée, à moins de 5 m : un identifiant de voie renuméroté par la BAN, « 75105_x125_00001 » devenu
+ * « 75105_m7yz55_00001 ») — écartée et comptée, jamais ajoutée en double. Les lignes ajoutées portent `source_adresse = 'BAN adresse.data.gouv.fr (import AAAA-MM-JJ)'` : on les retrouve.
  * Les `fid` nouveaux suivent le plus grand `fid` « réel » (sous 900 000 000 : au-dessus, les lignes d'essai), puis la séquence est recalée au-dessus.
  * 🔴 GARDE : la base doit être `svav_recette` (la production : décision d'Arno, lot 8). Comptages avant / après par commune dans `.captures/ban-csv-import/`.
  */
@@ -70,6 +72,7 @@ async function main(): Promise<void> {
   const timbaudAvant = await timbaud();
   const jour = new Date().toLocaleDateString('fr-CA', { timeZone: 'Europe/Paris' });
   let ajoutees = 0;
+  let memeAdresse = 0;
   if (appliquer) {
     ajoutees = await withTransaction(async (q) => {
       const { rows: [g] } = await q<{ b: string }>('SELECT current_database() AS b');
@@ -84,14 +87,30 @@ async function main(): Promise<void> {
           [t.map((a) => a.id), t.map((a) => a.voie), t.map((a) => a.numero), t.map((a) => a.suffixe), t.map((a) => a.nomVoie), t.map((a) => a.insee), t.map((a) => a.commune),
             t.map((a) => a.x), t.map((a) => a.y), t.map((a) => a.typePosition), t.map((a) => a.lieuDit), t.map((a) => a.certifiee), t.map((a) => a.parcelles)]);
       }
+      // les adresses déjà là pour les communes du fichier, avec leur clé « même adresse » (voie normalisée, indice écrit en entier, position)
+      const VOIE = (c: string) => `btrim(regexp_replace(lower(unaccent(${c})), '[^a-z0-9]+', ' ', 'g'))`;
+      const INDICE = (c: string) => `CASE lower(coalesce(${c}, '')) WHEN 'b' THEN 'bis' WHEN 't' THEN 'ter' WHEN 'q' THEN 'quater' ELSE lower(coalesce(${c}, '')) END`;
+      await q(`CREATE TEMP TABLE ban_existante ON COMMIT DROP AS
+                 SELECT cle_d_interoperabilite AS id, insee_commune AS insee, numero, ${INDICE('suffixe')} AS ind, ${VOIE('nom_voie')} AS v, geom
+                   FROM adresse_ban WHERE insee_commune = ANY($1::text[])`, [insee]);
+      await q('CREATE INDEX ON ban_existante (id)');
+      await q('CREATE INDEX ON ban_existante (insee, numero, ind, v)');
+      await q(`CREATE TEMP TABLE ban_nouvelle ON COMMIT DROP AS
+                 SELECT DISTINCT ON (e.id) e.*, ${INDICE('e.suffixe')} AS ind, ${VOIE('e.nom_voie')} AS v,
+                        CASE WHEN e.x IS NULL OR e.y IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint(e.x, e.y), 2154) END AS geom
+                   FROM ban_entrante e WHERE NOT EXISTS (SELECT 1 FROM ban_existante x WHERE x.id = e.id) ORDER BY e.id`);
+      const { rows: [meme] } = await q<{ n: number }>(
+        `WITH m AS (SELECT n.id FROM ban_nouvelle n WHERE EXISTS (SELECT 1 FROM ban_existante x WHERE x.insee = n.insee AND x.numero = n.numero AND x.ind = n.ind
+                      AND x.v = n.v AND x.geom IS NOT NULL AND n.geom IS NOT NULL AND ST_DWithin(x.geom, n.geom, 5)))
+         DELETE FROM ban_nouvelle WHERE id IN (SELECT id FROM m) RETURNING 1`).then((r) => ({ rows: [{ n: (r as { rowCount?: number }).rowCount ?? 0 }] }));
+      memeAdresse = meme.n;
       const { rows: [m] } = await q<{ m: number }>('SELECT coalesce(max(fid), 0) AS m FROM adresse_ban WHERE fid < 900000000');
       const r = await q(
         `INSERT INTO adresse_ban (fid, numero, suffixe, identifiant_voie, nom_voie, insee_commune, nom_commune, type_position, lieu_dit, source_adresse,
                                   certification_commune, parcelles_cadastrales, cle_d_interoperabilite, geom)
          SELECT $1::int + row_number() OVER (ORDER BY e.id), e.numero, e.suffixe, e.voie, e.nom_voie, e.insee, e.commune, e.type_position, e.lieu_dit, $2,
-                e.certifiee, e.parcelles, e.id, CASE WHEN e.x IS NULL OR e.y IS NULL THEN NULL ELSE ST_SetSRID(ST_MakePoint(e.x, e.y), 2154) END
-           FROM (SELECT DISTINCT ON (id) * FROM ban_entrante ORDER BY id) e
-          WHERE NOT EXISTS (SELECT 1 FROM adresse_ban b WHERE b.cle_d_interoperabilite = e.id)`,
+                e.certifiee, e.parcelles, e.id, e.geom
+           FROM ban_nouvelle e`,
         [m.m, `BAN adresse.data.gouv.fr (import ${jour})`]);
       // la séquence repart au-dessus des fid réels : une insertion future ne heurte aucune ligne ajoutée ici
       await q(`SELECT setval('adresse_ban_fid_seq', (SELECT max(fid) FROM adresse_ban WHERE fid < 900000000))`);
@@ -101,7 +120,7 @@ async function main(): Promise<void> {
   }
   const apres = await comptages(insee);
   const lignes = [`Base : ${base} — ${appliquer ? 'APPLIQUÉ' : 'à blanc (rien n’est écrit)'} — fichier ${fichier}`,
-    `Adresses lues : ${adresses.length} — écartées : ${ecartees}${appliquer ? ` — AJOUTÉES : ${ajoutees}` : ''}`,
+    `Adresses lues : ${adresses.length} — écartées : ${ecartees}${appliquer ? ` — AJOUTÉES : ${ajoutees} — non ajoutées, même adresse déjà là sous un autre identifiant : ${memeAdresse}` : ''}`,
     `Rue Jean-Pierre Timbaud dans 75111 : avant ${timbaudAvant} ; après ${appliquer ? await timbaud() : '(à blanc)'}`,
     'Commune : adresses avant → après (voies avant → après)',
     ...insee.map((c) => `  ${c} : ${avant.get(c)?.adresses ?? 0} → ${apres.get(c)?.adresses ?? 0} (${avant.get(c)?.voies ?? 0} → ${apres.get(c)?.voies ?? 0})`)];

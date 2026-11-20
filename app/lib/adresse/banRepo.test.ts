@@ -107,6 +107,8 @@ describe('🔴 (lot 3 ter) la même adresse sous deux identifiants (voie renumé
     expect(dedoublonnerCandidats([c('75105_x125_00001', false), c('75105_m7yz55_00001', true)]).map((x) => x.id)).toEqual(['75105_m7yz55_00001']);
     expect(dedoublonnerCandidats([c('75105_x125_00001', false), c('75105_m7yz55_00001_s', true, 652110, 's')]).map((x) => x.id)).toEqual(['75105_m7yz55_00001_s', '75105_x125_00001']);
     expect(dedoublonnerCandidats([c('a', false), c('b', false, 652400)]).map((x) => x.id)).toEqual(['a', 'b']);
+    // 🔴 (lot 3 quater) le même identifiant à deux positions éloignées (« entrée » et « bâtiment ») : une seule adresse, jamais « plusieurs se ressemblent »
+    expect(dedoublonnerCandidats([c('95197_1243_00009', true), c('95197_1243_00009', true, 652116)]).map((x) => x.id)).toEqual(['95197_1243_00009']);
   });
 });
 
