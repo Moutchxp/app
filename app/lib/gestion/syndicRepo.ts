@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { enregistrerAdressePersonne } from '../adresse/personneAdresseRepo'; // 🔴 lot 7d — le format unique de l'adresse du cabinet
 import { journaliserLienSyndic } from './journalSyndicCopro';
 import { statutBienDisponible } from './statutBienRepo';
 import { normaliserTexte } from './annuaire';
@@ -472,6 +473,7 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
       if (lot.length === 0) return { ok: false, motif: 'Note du bien : ce bien n’existe pas.' };
     }
     let syndicId: number;
+    let adresseAvant: { adresse: string | null; codePostal: string | null; ville: string | null } | null = null;
     const champs = [saisie.nom, nul(saisie.adresse), nul(saisie.codePostal), nul(saisie.ville),
       nul(saisie.telephone), nul(saisie.telephone2), nul(saisie.email), nul(saisie.note)];
     if (id === null) {
@@ -494,6 +496,9 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
         `SELECT id::text FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);
       if (existe.length === 0) return { ok: false, motif: 'Ce syndic n’existe pas.' };
       syndicId = id;
+      // 🔴 (lot 7d) l'adresse du cabinet AVANT l'écriture : pour savoir si elle a été touchée
+      const { rows: [av] } = await q<{ adresse: string | null; code_postal: string | null; ville: string | null }>('SELECT adresse, code_postal, ville FROM gestion_syndic WHERE id = $1', [id]);
+      adresseAvant = { adresse: av?.adresse ?? null, codePostal: av?.code_postal ?? null, ville: av?.ville ?? null };
       await q(
         `UPDATE gestion_syndic SET nom = $2, adresse = $3, code_postal = $4, ville = $5, telephone = $6, telephone_2 = $7,
                 email = $8, note = $9, maj_le = now(), maj_par = $10, maj_par_libelle = $11
@@ -501,6 +506,15 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
         [syndicId, ...champs, auteur.id, auteur.libelle]);
     }
 
+    // 🔴🔴 (Arno, 20/11/2026, lot 7d) l'adresse du cabinet TOUCHÉE (nouvelle, ou rue / code postal / ville changés) : son format unique, à côté du texte ;
+    // inchangée : rien (jamais réécrite)
+    const apres = { adresse: nul(saisie.adresse), codePostal: nul(saisie.codePostal), ville: nul(saisie.ville) };
+    const touchee = adresseAvant === null ? apres.adresse !== null
+      : apres.adresse !== adresseAvant.adresse || apres.codePostal !== adresseAvant.codePostal || apres.ville !== adresseAvant.ville;
+    if (touchee) {
+      await enregistrerAdressePersonne(q, 'syndic', syndicId, { adresse: apres.adresse, codePostal: apres.codePostal, commune: apres.ville,
+        nature: saisie.adresseNature === 'liste' ? 'liste' : 'hors_liste' }, { id: auteur.id ?? null, libelle: auteur.libelle });
+    }
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
     await enregistrerCoproprietes(q, syndicId, saisie, auteur, ecran);
     await enregistrerAdressesSecondaires(q, saisie, auteur);

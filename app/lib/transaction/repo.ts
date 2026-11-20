@@ -2,12 +2,13 @@
 // Pas de `import 'server-only'` (même convention que les dépôts de la Location lus par les scripts) ; aucun composant client ne
 // l'importe. 🔴 RIEN N'EST JAMAIS SUPPRIMÉ : retirer = `retire_le` ; chaque geste écrit au journal sa valeur avant / après, et
 // « Annuler » rejoue la valeur d'avant (un nouveau geste, journalisé lui aussi).
+import { enregistrerAdresseTexte } from '../adresse/personneAdresseRepo'; // 🔴 lot 7d — le format unique des adresses de la Transaction
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { SQL_EST_ASSOCIE } from '../admin/fonctionsCompteModele';
 import { activitePrincipaleDisponible, caGestionDisponible, remunerationsDisponible, coutsSaisisDisponible, coutsValidationDisponible, annulationDisponible, commissionneDisponible, droitTransactionDisponible, interCabinetDisponible, mandatDisponible, modeCommissionDisponible, mongaDisponible, personneTypeDisponible, prixVenteDisponible, repartitionDisponible, salairesLocationDisponible, statutDisponible, uniteCommissionDisponible } from '../admin/schemaDroits';
 import { estCivilite, estModeCommission, estSociete, LIBELLE_SOCIETE, societePorteuse, TVA, type Attribution, type RepresentantVente, type CaARattacher, type DossierVente, type GestionMois, type LigneVente, type ModeCommission, type Partie, type PersonneVente, type Retrocession,
   NOMS_MOIS, type MontantSaisi, type Societe, type SortePartie, type Vente } from './modele';
-import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, RetroSaisie, VenteSaisie } from './saisie';
+import type { AnnulationSaisie, ChampsVente, DossierSaisie, GestionSaisie, NatureAdresseSaisie, RetroSaisie, VenteSaisie } from './saisie';
 import { verifierRepartition } from './repartition';
 import { miroirsAttendus, planRegistre, venteDansSociete, type EntreeRegistre } from './interCabinet';
 import { calculDansUnite, estUnite, honorairesDuCote, TAUX_REMUNERATION_DEFAUT } from './commissions';
@@ -1373,6 +1374,12 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
         ...('societe' in r.apres ? { commentaire: `Société porteuse du mandat : ${LIBELLE_SOCIETE[String(r.avant.societe) as Societe] ?? r.avant.societe} → ${LIBELLE_SOCIETE[porteuse!]} (la société du négociateur d’entrée).` } : {}) });
       venteId = id;
     }
+    // 🔴🔴 (Arno, 20/11/2026, lot 7d) l'adresse du bien TOUCHÉE (nouvelle, ou chaîne changée) : son format unique, à côté de la chaîne ; inchangée : rien
+    const auteurAdresse = { id: auteur.id ?? null, libelle: auteur.libelle };
+    const adresseAvant = avantVente === null ? null : (avantVente.adresse_bien == null ? null : String(avantVente.adresse_bien));
+    if ((s.adresseBien ?? null) !== adresseAvant && (id !== null || s.adresseBien !== null)) {
+      await enregistrerAdresseTexte(q, 'transaction_vente', venteId, s.adresseBien, s.adresseBienNature, auteurAdresse);
+    }
     // ④ les personnes : réutiliser une fiche connue, sinon en créer une ; l'ensemble des liens de la vente est remplacé (réversible)
     // 🔴 LOT BJ — une fiche se réutilise seulement pour une fiche du même type (particulier / société) ; une société, aussi par son nom ; chaque
     // création ou modification d'une fiche faite depuis l'affaire est aussi inscrite au journal de l'affaire ; une société garde ses représentants.
@@ -1381,7 +1388,7 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
       type: p.type === 'societe' ? 'societe' as const : 'particulier' as const }));
     const nomNorme = (x: string): string => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
     const resoudre = async (p: { id: number | null; nom: string; telephone: string | null; email: string | null; adresse: string | null;
-      type: 'particulier' | 'societe'; civilite: string | null; prenom: string | null; typeChoisi: boolean }): Promise<number> => {
+      type: 'particulier' | 'societe'; civilite: string | null; prenom: string | null; typeChoisi: boolean; adresseNature?: NatureAdresseSaisie }): Promise<number> => {
       const memeType = fiches.filter((f) => f.type === p.type);
       let pid = p.id ?? personneExistante(p, memeType)?.id ?? (p.type === 'societe' ? memeType.find((f) => nomNorme(f.nom) === nomNorme(p.nom))?.id ?? null : null);
       const extra = avecType ? { type: p.type, civilite: p.civilite, prenom: p.prenom } : {};
@@ -1393,13 +1400,20 @@ export async function enregistrerDossier(id: number | null, s: DossierSaisie, au
         fiches.push({ id: pid, nom: p.nom, telephone: p.telephone, email: p.email, adresse: p.adresse, type: p.type });
         const fiche = { nom: p.nom, telephone: p.telephone, email: p.email, adresse: p.adresse, ...extra };
         await journaliser(q, { entite: 'personne', id: pid, action: 'saisie', avant: null, apres: fiche, auteur });
+        // 🔴🔴 (lot 7d) l'adresse d'une fiche créée : son format unique (choisie dans la liste et certaine), à côté de la chaîne
+        if (p.adresse !== null) await enregistrerAdresseTexte(q, 'transaction_personne', pid, p.adresse, p.adresseNature, { id: auteur.id ?? null, libelle: auteur.libelle });
         if (id !== null) await journaliser(q, { entite: 'vente', id, action: 'personne', avant: null, apres: { personne: pid, ...fiche }, auteur,
           commentaire: `Fiche créée : ${[p.prenom, p.nom].filter((x) => (x ?? '') !== '').join(' ')} (n° ${pid}).` });
       } else {
         // Une fiche connue : ce qui est saisi la complète ou la corrige (journalisé, réversible) ; un champ laissé vide ne l'efface pas.
         const maj: Record<string, unknown> = Object.fromEntries((['nom', 'telephone', 'email', 'adresse'] as const).filter((k) => p[k] !== null && p[k] !== '').map((k) => [k, p[k]]));
         if (avecType) { if (p.typeChoisi) maj.type = p.type; if (p.civilite !== null) maj.civilite = p.civilite; if (p.prenom !== null && p.prenom !== '') maj.prenom = p.prenom; }
+        const adresseAvant = fiches.find((f) => f.id === pid)?.adresse ?? null;
         const r = await ecrire(q, 'personne', pid, maj, true);
+        // 🔴🔴 (lot 7d) l'adresse d'une fiche connue CHANGÉE : son format unique ; inchangée (ou laissée vide) : rien, l'existant n'est jamais réécrit
+        if (typeof maj.adresse === 'string' && maj.adresse !== adresseAvant) {
+          await enregistrerAdresseTexte(q, 'transaction_personne', pid, maj.adresse, p.adresseNature, { id: auteur.id ?? null, libelle: auteur.libelle });
+        }
         if (r !== null && Object.keys(r.apres).length > 0) {
           await journaliser(q, { entite: 'personne', id: pid, action: 'modification', avant: r.avant, apres: r.apres, auteur });
           if (id !== null) await journaliser(q, { entite: 'vente', id, action: 'personne', avant: { personne: pid, ...r.avant }, apres: { personne: pid, ...r.apres }, auteur,

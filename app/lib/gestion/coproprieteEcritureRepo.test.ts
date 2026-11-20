@@ -21,6 +21,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
       : p[0] === 9 ? [{ immeuble: '99 rue Ailleurs', adresse: '99 rue Ailleurs', cp: '75011', commune: 'Paris' }] : [] };
   }
   if (s.startsWith('SELECT id::text, immeuble FROM gestion_annuaire_lot')) return { rows: [{ id: '1', immeuble: '12 rue des Lilas' }] };
+  if (s.startsWith('SELECT coalesce(a.ban_id, c.ban_id) AS ban')) return { rows: bn.autre ? [bn.autre] : [] };
   return { rows: [] };
 });
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
@@ -45,8 +46,8 @@ vi.mock('./regroupementCoproprietesRepo', () => ({ noterRetraitDAdressesRegroupe
 const js = vi.hoisted(() => ({ gestes: [] as Record<string, unknown>[] }));
 vi.mock('./journalSyndicCopro', () => ({ journaliserLienSyndic: async (_q: unknown, g: Record<string, unknown>) => { js.gestes.push(g); } }));
 // 🔴 (lot 7a) le format unique : l'identifiant BAN d'une nouvelle adresse retrouvée avec certitude (aucun par défaut : les épreuves d'avant)
-const bn = vi.hoisted(() => ({ ids: {} as Record<string, string> }));
-vi.mock('../adresse/adresseSaisieRepo', () => ({ banIdDeLAdresse: async (a: { libelle: string }) => bn.ids[a.libelle] ?? null }));
+const bn = vi.hoisted(() => ({ ids: {} as Record<string, string>, dispo: false, autre: null as null | { ban: string; libelle: string } }));
+vi.mock('../adresse/adresseSaisieRepo', () => ({ banIdDeLAdresse: async (a: { libelle: string }) => bn.ids[a.libelle] ?? null, formatUniqueDisponible: async () => bn.dispo }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -56,7 +57,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
+beforeEach(() => { bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -91,7 +92,8 @@ describe('l’enregistrement', () => {
     const r = await enregistrerCopropriete(SAISIE, AUTEUR);
     expect(r.ok).toBe(true);
     const e = ecritures().map((x) => x.s);
-    expect([e.length, e[0].startsWith('INSERT INTO gestion_copropriete (cle_immeuble'), e[1].startsWith('UPDATE gestion_copropriete SET nom = $2'), e[2].startsWith('INSERT INTO gestion_copropriete_adresse')]).toEqual([3, true, true, true]);
+    expect([e.length, e[0].startsWith('INSERT INTO gestion_copropriete (cle_immeuble'), e[1].startsWith('UPDATE gestion_copropriete SET nom = $2'), e[2].startsWith('INSERT INTO gestion_copropriete_adresse')]).toEqual([4, true, true, true]);
+    expect(e[3]).toMatch(/^INSERT INTO gestion_journal .*'adresse_ajoutee'/); // 🔴 (lot 7d) l'ajout journalisé
     expect(ecritures()[1].p).toEqual(['7', 'Les Tilleuls', false, AUTEUR.libelle]);
     expect(h.contacts).toMatchObject([{ immeuble: 'Résidence Les Tilleuls', contacts: [{ categorie: 'coproprietaire', prenom: 'Léa' }] }]);
   });
@@ -340,5 +342,28 @@ describe('🔴 le retrait d’un code : l’origine et le bien, dits par la rout
     expect(await gesteDigicodeCopro({ ...R, lotId: 9 }, 'retrait', AUTEUR, 'fiche_bien')).toEqual({ ok: false, motif: 'Ce bien n’est pas à cette adresse : rechargez la fiche. Rien n’est enregistré.' });
     expect((await gesteDigicodeCopro({ ...R, lotId: 12345 }, 'retrait', AUTEUR, 'fiche_bien')).ok).toBe(false);
     expect(un.ecrits).toEqual([]);
+  });
+});
+
+describe('🔴🔴 (Arno, 20/11/2026, lot 7d) le « + » de la fiche copropriété : une adresse OFFICIELLE seulement', () => {
+  beforeEach(() => { h.fiche = FICHE({ declaree: false, id: null, syndic: null }); bn.dispo = true; });
+  it('une adresse sans identifiant BAN (non retrouvée avec certitude, aucun choix dans la liste) : refus clair, RIEN n’est écrit', async () => {
+    expect(await enregistrerCopropriete(SAISIE, AUTEUR)).toEqual({ ok: false, motif: '12 rue des Lilas, 75011 Paris n’est pas une adresse officielle retrouvée avec certitude : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.' });
+    expect(ecritures()).toEqual([]);
+  });
+  it('l’identifiant du choix dans la liste est retenu quand la Base locale ne la connaît pas (la vérification nationale l’a confirmée)', async () => {
+    expect((await enregistrerCopropriete({ ...SAISIE, adresses: [{ ...SAISIE.adresses[0], banId: '75111_9999_00012' }] }, AUTEUR)).ok).toBe(true);
+    expect(ecritures().find((x) => x.s.startsWith('INSERT INTO gestion_copropriete_adresse'))!.p[7]).toBe('75111_9999_00012');
+  });
+  it('une adresse officielle déjà portée par une AUTRE copropriété : refus qui NOMME cette copropriété, rien n’est écrit', async () => {
+    bn.ids = { '12 rue des Lilas': '75111_5555_00012' }; bn.autre = { ban: '75111_5555_00012', libelle: 'Résidence Voisine' };
+    expect(await enregistrerCopropriete(SAISIE, AUTEUR)).toEqual({ ok: false, motif: '12 rue des Lilas, 75011 Paris est déjà l’adresse officielle de la copropriété « Résidence Voisine » : elle ne peut pas être ajoutée ici. Rien n’est ajouté.' });
+    expect(ecritures()).toEqual([]);
+  });
+  it('chaque ajout est journalisé sur la copropriété, avec son adresse officielle', async () => {
+    bn.ids = { '12 rue des Lilas': '75111_5555_00012' };
+    expect((await enregistrerCopropriete(SAISIE, AUTEUR)).ok).toBe(true);
+    const j = ecritures().filter((x) => x.s.startsWith('INSERT INTO gestion_journal') && x.s.includes("'adresse_ajoutee'"));
+    expect(j.map((x) => [x.p[0], x.p[1], x.p[2]])).toEqual([['7', '75111_5555_00012', 'Adresse ajoutée à la copropriété : 12 rue des Lilas, 75011 Paris (adresse officielle 75111_5555_00012)']]);
   });
 });

@@ -469,12 +469,16 @@ describe('LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — coordonnées générales, a
     expect(onFerme).not.toHaveBeenCalled();
     expect(document.querySelector('.fsy-pied')?.textContent).toContain('Complétez l’adresse du syndic');
     expect(document.querySelectorAll('.fsy-champ--manque')).toHaveLength(3);
+    // 🔴 (Arno, 20/11/2026, lot 7d) le code postal et la ville se remplissent par le choix dans la liste ; à la main : « Adresse absente de la liste ? »
+    expect(champ('Code postal *').readOnly).toBe(true);
+    await cliquer(bouton('Adresse absente de la liste ?'));
+    expect(champ('Code postal *').readOnly).toBe(false);
     await taper(champ('Adresse (rue) *'), '1 rue _TEST');
     await taper(champ('Code postal *'), '92400');
     await cliquer(bouton('Courbevoie'));
     expect(champ('Ville *').value).toBe('Courbevoie');
     await cliquer(bouton('Valider'));
-    expect(appels.find((a) => a.methode === 'POST')?.corps).toMatchObject({ adresse: '1 rue _TEST', codePostal: '92400', ville: 'Courbevoie' });
+    expect(appels.find((a) => a.methode === 'POST')?.corps).toMatchObject({ adresse: '1 rue _TEST', codePostal: '92400', ville: 'Courbevoie', adresseNature: 'libre' });
     expect(onFerme).toHaveBeenCalledTimes(1);
   });
 
@@ -636,12 +640,15 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     ]);
   });
 
-  it('un clic remplit les TROIS champs (rue, code postal, ville), qui restent modifiables', async () => {
+  it('un clic remplit les TROIS champs (rue, code postal, ville) ; 🔴 (lot 7d) le code postal et la ville se lisent, et se tapent derrière « Adresse absente de la liste ? »', async () => {
     await ouvrir(vi.fn(), 14);
     await act(async () => { rue().focus(); });
     await attendre(300);
     await cliquer(document.querySelector('.fsy-proposition') as Element);
     expect([rue().value, champ('Code postal *').value, champ('Ville *').value]).toEqual(['8 rue Denfert-Rochereau', '92100', 'Boulogne-Billancourt']); // le champ après le choix : la fonction d'affichage unique
+    expect([champ('Code postal *').readOnly, champ('Ville *').readOnly]).toEqual([true, true]);
+    await cliquer(bouton('Adresse absente de la liste ?'));
+    expect([champ('Code postal *').readOnly, champ('Ville *').readOnly]).toEqual([false, false]);
     await taper(champ('Ville *'), 'Boulogne');
     expect(champ('Ville *').value).toBe('Boulogne');
   });

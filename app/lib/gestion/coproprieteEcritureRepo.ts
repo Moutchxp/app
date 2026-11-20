@@ -1,4 +1,4 @@
-import { withTransaction, type RequeteTx } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import { registreParAdresse, reprendreSiRetire, retirerBatiment } from './batimentRetraitRepo';
 import type { Auteur } from './gestes';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
@@ -8,7 +8,7 @@ import { ficheCopropriete, fiche476Disponible } from './coproprieteRepo';
 import { adresseSansNumero, immeubleDuBien, motifSansNumero, type FicheCopropriete } from './copropriete';
 import { adressesIndependantes, avertissementsDesBatiments, batimentDe, connusPourAdresse, nomenclatureDeLAdresse, refusDesBatiments, type BatimentConnu } from './batimentsCopropriete';
 import { verifierAdresses } from './verificationAdresseRepo';
-import { banIdDeLAdresse } from '../adresse/adresseSaisieRepo';
+import { banIdDeLAdresse, formatUniqueDisponible } from '../adresse/adresseSaisieRepo';
 import { noterRetraitDAdressesRegroupees } from './regroupementCoproprietesRepo';
 import { journaliserLienSyndic } from './journalSyndicCopro';
 import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDigicode, retirerDigicode } from './digicodesRepo';
@@ -70,7 +70,9 @@ export function validerSaisieCopropriete(brut: unknown): { ok: true; saisie: Sai
     const cle = cleImmeuble(libelle);
     if (cle === '' || vues.has(cle)) continue;
     vues.add(cle);
-    adresses.push({ libelle, codePostal: texte(a.codePostal, 10), commune: texte(a.commune, 120) });
+    // 🔴 (lot 7d) l'identifiant BAN du choix dans la liste, quand l'écran l'envoie (il n'est retenu que si la vérification le confirme)
+    const banId = typeof a.banId === 'string' && /^[0-9A-Za-z_]{5,40}$/.test(a.banId) ? a.banId : null;
+    adresses.push({ libelle, codePostal: texte(a.codePostal, 10), commune: texte(a.commune, 120), ...(banId !== null ? { banId } : {}) });
   }
   let contacts: ContactImmeubleSaisi[] | null = null;
   if (Array.isArray(b.contacts)) {
@@ -127,10 +129,22 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
   const verif = await verifierAdresses(nouvelles);
   if (!verif.ok) return verif;
   // 🔴🔴 (Arno, 20/11/2026, lot 7a) le format unique : l'identifiant BAN de chaque NOUVELLE adresse, seulement si le module la retrouve avec certitude
+  // 🔴🔴 (lot 7d) le « + » n'accepte QU'UNE ADRESSE OFFICIELLE : l'identifiant de la Base locale, ou à défaut celui du choix dans la liste (l'adresse vient
+  // d'être confirmée par le service national, juste au-dessus) ; sans identifiant : refus, AVANT toute écriture ; une adresse officielle déjà portée par
+  // une AUTRE copropriété : refus, qui la nomme
   const banDesNouvelles = new Map<string, string>();
+  const formatUnique = await formatUniqueDisponible();
   for (const a of nouvelles) {
-    const ban = await banIdDeLAdresse({ libelle: a.libelle, codePostal: a.codePostal || null, commune: a.commune || null });
+    const ban = (await banIdDeLAdresse({ libelle: a.libelle, codePostal: a.codePostal || null, commune: a.commune || null })) ?? a.banId ?? null;
     if (ban !== null) banDesNouvelles.set(cleImmeuble(a.libelle), ban);
+    else if (formatUnique) return { ok: false, motif: `${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} n’est pas une adresse officielle retrouvée avec certitude : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.` };
+  }
+  if (formatUnique && banDesNouvelles.size > 0) {
+    const autre = await coproprieteDeLAdresseOfficielle([...banDesNouvelles.values()], lue.id ?? null);
+    if (autre !== null) {
+      const a = nouvelles.find((x) => banDesNouvelles.get(cleImmeuble(x.libelle)) === autre.banId)!;
+      return { ok: false, motif: `${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} est déjà l’adresse officielle de la copropriété « ${autre.libelle} » : elle ne peut pas être ajoutée ici. Rien n’est ajouté.` };
+    }
   }
   if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
   // 🔴 le conflit de parcelle (la même règle que la fiche syndic) : une copropriété qui reçoit un syndic, une adresse de la parcelle gérée par un
@@ -215,6 +229,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       const ban = banDesNouvelles.get(cle);
       await q(`INSERT INTO gestion_copropriete_adresse (copropriete_id, cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle${ban === undefined ? '' : ', ban_id'}) VALUES ($1, $2, $3, $4, $5, $6, $7${ban === undefined ? '' : ', $8'})`,
         [coproId, cle, a.libelle, nul(a.codePostal), nul(a.commune), auteur.id, auteur.libelle, ...(ban === undefined ? [] : [ban])]);
+      // 🔴 (lot 7d) chaque ajout est journalisé
+      await q(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('copropriete', $1, 'adresse_ajoutee', $2, $3, $4, $5)`,
+        [coproId, ban ?? null, `Adresse ajoutée à la copropriété : ${adresseImmeuble(a.libelle, nul(a.codePostal), nul(a.commune))}${ban ? ` (adresse officielle ${ban})` : ''}`, auteur.id, auteur.libelle]);
     }
     // ── ④ les habitants et gardiens ──────────────────────────────────────────────────────────────────────────────────────────────────────
     if (s.contacts !== null) await enregistrerContactsImmeuble(q, { immeuble: lue.libelle, contacts: s.contacts }, auteur);
@@ -459,3 +476,13 @@ export async function preciserAdresseBatiment(brut: unknown, auteur: Auteur): Pr
   return relue === null ? { ok: false, motif: 'Enregistré, mais la fiche n’a pas pu être relue : rechargez la page.' } : { ok: true, fiche: relue };
 }
 
+
+/** 🔴 (lot 7d) La copropriété (autre que `sauf`) qui porte déjà l'une de ces adresses officielles, ou null. LECTURE SEULE. */
+async function coproprieteDeLAdresseOfficielle(bans: readonly string[], sauf: number | string | null): Promise<{ banId: string; libelle: string } | null> {
+  const { rows } = await query<{ ban: string; libelle: string }>(
+    `SELECT coalesce(a.ban_id, c.ban_id) AS ban, coalesce(nullif(btrim(c.nom), ''), c.libelle) AS libelle
+       FROM gestion_copropriete c LEFT JOIN gestion_copropriete_adresse a ON a.copropriete_id = c.id AND a.retire_le IS NULL AND a.ban_id = ANY($1::text[])
+      WHERE (c.ban_id = ANY($1::text[]) OR a.id IS NOT NULL) AND ($2::bigint IS NULL OR c.id <> $2::bigint)
+      ORDER BY c.id LIMIT 1`, [[...bans], sauf === null ? null : Number(sauf)]);
+  return rows[0] === undefined ? null : { banId: rows[0].ban, libelle: rows[0].libelle };
+}

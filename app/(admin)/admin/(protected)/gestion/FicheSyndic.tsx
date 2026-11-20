@@ -785,26 +785,36 @@ function TriangleAlerte() {
  * La source : l'API Adresse (la même que les fiches de l'annuaire), puis la BAN locale en repli (`chercherAdresses`).
  * Les trois champs restent modifiables à la main.
  */
-function ChampRue({ form, setForm, manque }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manque: boolean }) {
+function ChampRue({ form, setForm, manque, libre, setLibre }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manque: boolean; libre: boolean; setLibre: (v: boolean) => void }) {
   // 🔴🔴 (Arno, 20/11/2026, lot 7a) un EMBALLAGE du composant unique : sa source (l'API Adresse, la BAN locale en repli), sa liste, son affichage ;
-  // l'habillage de la fiche syndic, la recherche dès qu'on entre dans un champ pré-rempli, et les trois champs modifiables à la main restent
+  // l'habillage de la fiche syndic et la recherche dès qu'on entre dans un champ pré-rempli restent.
+  // 🔴🔴 (Arno, 20/11/2026, lot 7d — décision d'Arno) le choix dans la liste remplit la rue, le code postal ET la ville ; la saisie À LA MAIN des trois reste
+  // possible derrière « Adresse absente de la liste ? » (« Revenir aux suggestions » la referme)
+  const lien = 'fsy-lien-adresse';
   return (
     <div className="fsy-bloc fsy-bloc--serre">
       <label className={`fsy-champ${manque ? ' fsy-champ--manque' : ''}`}>
         <span>Adresse (rue) *</span>
-        <ChampAdresseOfficielle valeur={form.adresse} onChange={(v) => setForm({ ...form, adresse: v })} chercher={sourceAdressesSyndic}
-          minimum={MINIMUM_ADRESSE} chercherAuFocus listeId="fsy-adresses" prefixeOption="fsy-adresse"
-          attributs={{ type: 'text', 'aria-invalid': manque }}
-          apparence={{ enveloppe: { className: 'fsy-adresse' }, champ: { className: '' }, liste: { className: 'fsy-liste' },
-            proposition: { className: 'fsy-proposition', viseeClassName: 'fsy-proposition--visee', texteClassName: 'fsy-proposition-adresse' } }}
-          onChoisir={(a) => setForm({ ...form, adresse: a.voie, codePostal: a.codePostal || form.codePostal, ville: a.commune })} />
+        {libre
+          ? <input type="text" value={form.adresse} aria-invalid={manque} onChange={(e) => setForm({ ...form, adresse: e.target.value, adresseNature: 'libre' })} data-fsy-rue-libre />
+          : <ChampAdresseOfficielle valeur={form.adresse} onChange={(v) => setForm({ ...form, adresse: v, adresseNature: null })} chercher={sourceAdressesSyndic}
+            minimum={MINIMUM_ADRESSE} chercherAuFocus listeId="fsy-adresses" prefixeOption="fsy-adresse"
+            attributs={{ type: 'text', 'aria-invalid': manque }}
+            apparence={{ enveloppe: { className: 'fsy-adresse' }, champ: { className: '' }, liste: { className: 'fsy-liste' },
+              proposition: { className: 'fsy-proposition', viseeClassName: 'fsy-proposition--visee', texteClassName: 'fsy-proposition-adresse' } }}
+            onChoisir={(a) => setForm({ ...form, adresse: a.voie, codePostal: a.codePostal || form.codePostal, ville: a.commune, adresseNature: 'liste' })} />}
       </label>
+      {libre
+        ? <button type="button" className={lien} onClick={() => setLibre(false)} data-fsy-adresse-retour>Revenir aux suggestions</button>
+        : <button type="button" className={lien} onClick={() => { setLibre(true); setForm({ ...form, adresseNature: 'libre' }); }} data-fsy-adresse-hors-liste>Adresse absente de la liste ?</button>}
     </div>
   );
 }
 
 /** Le CODE POSTAL (5 chiffres) et la VILLE ; le code postal propose la ou les villes connues de l'application. */
-function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manques: ChampAdresse[] }) {
+function ChampsCpVille({ form, setForm, manques, libre = true }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manques: ChampAdresse[];
+  /** 🔴 (lot 7d) faux : le code postal et la ville se LISENT (remplis par le choix de l'adresse) ; vrai : « Adresse absente de la liste ? », ils se tapent */
+  libre?: boolean }) {
   const [villes, setVilles] = useState<string[]>([]);
   useEffect(() => {
     if (!/^\d{5}$/.test(form.codePostal)) { setVilles([]); return; }
@@ -822,15 +832,17 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
         <label className={`fsy-champ fsy-champ--cp${manques.includes('codePostal') ? ' fsy-champ--manque' : ''}`}>
           <span>Code postal *</span>
           <input type="text" inputMode="numeric" maxLength={5} value={form.codePostal} aria-invalid={manques.includes('codePostal')}
-            onChange={(e) => setForm({ ...form, codePostal: e.target.value.replace(/\D/g, '').slice(0, 5) })} />
+            readOnly={!libre} aria-readonly={!libre} className={libre ? undefined : 'fsy-auto'} title={libre ? undefined : 'Rempli par le choix de l’adresse dans la liste'} data-fsy-cp
+            onChange={(e) => setForm({ ...form, codePostal: e.target.value.replace(/\D/g, '').slice(0, 5), adresseNature: 'libre' })} />
         </label>
         <label className={`fsy-champ${manques.includes('ville') ? ' fsy-champ--manque' : ''}`}>
           <span>Ville *</span>
           <input type="text" value={form.ville} aria-invalid={manques.includes('ville')}
-            onChange={(e) => setForm({ ...form, ville: e.target.value })} />
+            readOnly={!libre} aria-readonly={!libre} className={libre ? undefined : 'fsy-auto'} title={libre ? undefined : 'Remplie par le choix de l’adresse dans la liste'} data-fsy-ville
+            onChange={(e) => setForm({ ...form, ville: e.target.value, adresseNature: 'libre' })} />
         </label>
       </div>
-      {propositions.length > 0 && (
+      {libre && propositions.length > 0 && (
         <p className="fsy-villes">
           <span className="fsy-discret">Ville pour {form.codePostal} :</span>
           {propositions.map((v) => (
@@ -860,6 +872,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
   cleDepart: string | null;
 }) {
+  // 🔴 (Arno, 20/11/2026, lot 7d) « Adresse absente de la liste ? » : la saisie à la main de la rue, du code postal et de la ville (fermée par défaut)
+  const [adresseLibre, setAdresseLibre] = useState(false);
   /** Les copropriétés de la fiche, avec leur adresse complète : pour « Immeubles suivis » et les cases à cocher. */
   const adresses = form.immeubles.map((im) => {
     const c = connus.find((x) => x.cle === cleImmeuble(im.libelle));
@@ -941,8 +955,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         <span>Nom du cabinet *</span>
         <input type="text" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} />
       </label>
-      <ChampRue form={form} setForm={setForm} manque={manques.includes('adresse')} />
-      <ChampsCpVille form={form} setForm={setForm} manques={manques} />
+      <ChampRue form={form} setForm={setForm} manque={manques.includes('adresse')} libre={adresseLibre} setLibre={setAdresseLibre} />
+      <ChampsCpVille form={form} setForm={setForm} manques={manques} libre={adresseLibre} />
 
       <div className="fsy-champ fsy-champ--groupe">
         <span>Téléphone standard</span>
@@ -2395,6 +2409,8 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-alerte ul{margin:.25rem 0 0;padding-left:1.1rem}
 .fsy-sans-marge{margin:0}
 .fsy-adresse{display:block;min-width:0}
+.fsy-lien-adresse{align-self:flex-start;min-height:44px;padding:0;border:0;background:none;color:var(--color-svv-red);font:inherit;font-size:.78rem;font-weight:700;text-decoration:underline;cursor:pointer}
+.fsy-champ input.fsy-auto{background:var(--color-svv-field);color:var(--color-svv-muted);cursor:default}
 .fsy-adresse > input{width:100%;box-sizing:border-box}
 .fsy-proposition--visee{background:var(--color-svv-field)}
 .fsy-champ{display:flex;flex-direction:column;gap:.15rem;font-size:.78rem;color:var(--color-svv-muted);min-width:0}

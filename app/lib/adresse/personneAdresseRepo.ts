@@ -13,7 +13,8 @@ import { adresseAffichee, communeAffichee, voieAffichee } from './libelleAffiche
  *     la ligne en cours est fermée (l'adresse a changé, l'ancienne n'est plus la sienne) et rien n'est posé : l'écran et les mails lisent alors le texte ;
  *   • sans la migration 509 : rien (l'application d'avant).
  */
-export type SujetPersonne = 'proprietaire' | 'locataire' | 'carte' | 'apporteur';
+/** 🔴 (lot 7d, migration 510) la vente (adresse du bien), un vendeur / acquéreur / représentant, le cabinet d'un syndic */
+export type SujetPersonne = 'proprietaire' | 'locataire' | 'carte' | 'apporteur' | 'transaction_vente' | 'transaction_personne' | 'syndic';
 export interface AuteurAdresse { id: number | null; libelle: string }
 export interface AdresseOfficiellePersonne { banId: string; libelle: string; court: string; codePostal: string | null; commune: string | null }
 
@@ -60,4 +61,20 @@ export async function adressesOfficiellesDesPersonnes(sujet: SujetPersonne, ids:
       libelle: adresseAffichee(`${r.libelle_officiel}, ${[r.code_postal, r.commune].filter((x) => (x ?? '').trim() !== '').join(' ')}`) });
   }
   return out;
+}
+
+/** 🔴 (lot 7d) Une adresse gardée en UNE chaîne (« 3 Rue des Lilas, 75019 Paris ») : découpée en voie, code postal, commune. PUR. */
+export function decouperAdresseTexte(texte: string | null): { adresse: string | null; codePostal: string | null; commune: string | null } {
+  const t = (texte ?? '').trim();
+  const m = /^(.*\S)\s*,\s*(\d{5})\s+(\S.*)$/.exec(t);
+  return m === null ? { adresse: t === '' ? null : t, codePostal: null, commune: null } : { adresse: m[1], codePostal: m[2], commune: m[3] };
+}
+
+/**
+ * 🔴 (lot 7d) UNE ADRESSE EN UNE CHAÎNE, TOUCHÉE (l'appelant compare l'ancienne et la nouvelle) : choisie dans la liste (« liste ») → le format unique ;
+ * saisie libre ou tapée sans choisir → la ligne en cours fermée. Jamais appelée pour une chaîne inchangée : l'existant n'est jamais réécrit.
+ */
+export async function enregistrerAdresseTexte(q: RequeteTx, sujet: SujetPersonne, id: number, texte: string | null, nature: 'liste' | 'libre' | null | undefined,
+  auteur: AuteurAdresse): Promise<'pose' | 'ferme' | 'rien'> {
+  return enregistrerAdressePersonne(q, sujet, id, { ...decouperAdresseTexte(texte), nature: nature === 'liste' ? 'liste' : 'hors_liste' }, auteur);
 }

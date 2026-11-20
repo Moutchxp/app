@@ -11,7 +11,8 @@ import { Journal } from './FormulaireVente';
 import { BlocPersonnes, decrire, personneEcranDe, personneVide, type PersonneEcran, type PersonneRef } from './PersonnesDossier';
 import { ApporteurAffaire } from './ApporteurAffaire';
 // LOT H (Arno) — l'adresse du bien : LE composant d'autocomplétion d'adresse de l'administration (Base Adresse Nationale), aucune copie.
-import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
+import { ChampAdresseTexte, type NatureSaisie } from '../../../../components/adresse/ChampAdresseTexte';
 
 /**
  * ══ 🔴 TUILE « TRANSACTION », LOT D (Arno, 27/10/2026) — LE DOSSIER D'UN COMPROMIS (ou d'une vente répartie) ════════════════════
@@ -222,6 +223,8 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
   const [envoi, setEnvoi] = useState(false);
   // Une adresse déjà enregistrée n'est pas signalée « non vérifiée » ; une frappe libre l'est (sans rien bloquer), un choix BAN ne l'est pas.
   const [adresseVerifiee, setAdresseVerifiee] = useState(true);
+  // 🔴 (lot 7d) la nature de la saisie de l'adresse du bien (« liste » : choisie ; « libre » ; null : tapée sans choisir) ; rien tant qu'on n'y touche pas
+  const [adresseBienNature, setAdresseBienNature] = useState<NatureSaisie | undefined>(undefined);
   const commission = nombre(champs.commission) ?? Number.NaN;
   // 🔴 LOT AN (Arno) — le sélecteur général « HT | TTC » décide aussi de l'unité du champ « Commission » : en HT, le texte tapé (montré tel
   // quel) et la commission TTC qu'il donne, au centime (même règle de TVA et des centimes que l'affichage) ; non retouchée, la commission
@@ -271,7 +274,9 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
     if (manqueTaux !== null) return; // 🔴 Mon espace (07/11/2026) — un taux hors de 0 à 100 % : rien ne part (même par la touche Entrée)
     setEnvoi(true);
     // 🔴 MON ESPACE, LOT 6 — la version lue avec la vente : le serveur refuse (409) si un collègue a enregistré entre-temps.
-    const corps = { id: vente?.id ?? null, version: vente?.version, dossier: corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition) };
+    const corps = { id: vente?.id ?? null, version: vente?.version, dossier: { ...corpsDossier(societe, statut, avecMandat ? champs : { ...champs, numeroMandat: undefined }, personnes, repartition),
+      // 🔴 (lot 7d) la nature de l'adresse du bien, seulement quand on y a touché (le serveur n'enregistre le format unique que pour « liste »)
+      ...(adresseBienNature !== undefined ? { adresseBienNature } : {}) } };
     const r = envoyer !== undefined ? await envoyer(corps) : await posterTransactionDonnee<number>({ action: 'dossier-enregistrer', ...corps });
     setEnvoi(false);
     if (r.motif === null) onFait({ id: Number(r.data ?? vente?.id ?? 0), repartition, honorairesTtc: nombre(champs.commission) ?? 0 }); else setMotif(r.motif);
@@ -316,9 +321,9 @@ export function FormulaireDossier({ societe, vente, references: referencesRecues
             {blocPersonnes('acquereur', 'Acquéreur(s)')}
             {messagesManques('acquereurs')}
             {bloc('bien', 'Bien', <label className="trx-plein" data-champ-adresse-bien>Adresse du bien
-              <ChampAdresseBan id="trx-adresse-bien" valeur={champs.adresseBien} verifiee={adresseVerifiee} exemple="ex. 12 rue de la République, 92800 Puteaux"
-                onChange={(x) => { setAdresseVerifiee(false); setChamps((c) => ({ ...c, adresseBien: x })); }}
-                onChoisir={(a) => { setAdresseVerifiee(true); setChamps((c) => ({ ...c, adresseBien: [a.voie, [a.codePostal, a.commune].filter((y) => y !== '').join(' ')].filter((y) => y !== '').join(', ') })); }} /></label>)}
+              {/* 🔴🔴 (Arno, 20/11/2026, lot 7d) le composant unique ; la saisie libre derrière « Adresse absente de la liste ? » ; la chaîne enregistrée reste celle d'avant */}
+              <ChampAdresseTexte id="trx-adresse-bien" valeur={champs.adresseBien} verifiee={adresseVerifiee} exemple="ex. 12 rue de la République, 92800 Puteaux" className="cp-saisie"
+                onChange={(x, nature) => { setAdresseVerifiee(nature !== null); setAdresseBienNature(nature); setChamps((c) => ({ ...c, adresseBien: x })); }} /></label>)}
             {bloc('dates', 'Dates', <>
             <label>Date du compromis<input type="date" value={champs.dateCompromis} onChange={champ('dateCompromis')} data-champ="date-compromis" /></label>
             <label>Date prévue de l’acte<input type="date" value={champs.dateActePrevue} onChange={champ('dateActePrevue')} data-champ="date-acte-prevue" /></label>

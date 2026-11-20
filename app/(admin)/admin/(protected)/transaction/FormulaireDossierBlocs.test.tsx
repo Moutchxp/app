@@ -63,7 +63,10 @@ describe('🔴 D30 — le formulaire de la vente : des blocs nets, aucun champ p
     await ouvrir();
     const apres = controles(container);
     if (process.env.RELEVER_CHAMPS !== undefined) writeFileSync(`${process.env.RELEVER_CHAMPS}/champs.json`, JSON.stringify(apres));
-    expect([...apres].sort()).toEqual([...(CHAMPS_AVANT as string[])].sort());
+    // 🔴 (Arno, 20/11/2026, lot 7d) les SEULS ajouts : un lien « Adresse absente de la liste ? » par champ d'adresse (le bien, chaque personne) ; rien n'est perdu
+    const liens = apres.filter((x) => x.includes('data-adresse-texte-hors-liste'));
+    expect(liens).toEqual(Array(3).fill('button|button|data-adresse-texte-hors-liste=true||Adresse absente de la liste ?'));
+    expect([...apres.filter((x) => !liens.includes(x))].sort()).toEqual([...(CHAMPS_AVANT as string[])].sort());
   });
   it('les blocs titrés, dans l’ordre réel des champs : Mandat · Vendeur(s) · Acquéreur(s) · Bien · Dates · Prix et honoraires · Libellé · Négociateurs, structures et apporteur · Notes', async () => {
     await ouvrir();

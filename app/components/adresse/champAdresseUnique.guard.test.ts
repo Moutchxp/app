@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
  *    rattacher à la Base Adresse sont listées avec leur raison ; la liste ne fait que rétrécir.
  */
 const RACINE = path.join(process.cwd(), 'app');
-const COMPOSANTS = /ChampAdresseOfficielle|ChampAdresseBan|AdresseBien\b|AdresseAutocomplete/;
+const COMPOSANTS = /ChampAdresseOfficielle|ChampAdresseTexte|ChampAdresseBan|AdresseBien\b|AdresseAutocomplete|ChampAdressePostale/;
 const COURRIEL = /e-?mail|électronique|\bmail\b|courriel|@|type="email"|inputMode="email"|\bIP\b|url/i;
 /** une recherche, une case à cocher : pas une saisie d'adresse */
 const PAS_UNE_SAISIE = /type="(search|checkbox|radio)"|Recherch|Cherch/;
@@ -40,8 +40,7 @@ const FIGES: Readonly<Record<string, { n: number; raison: string }>> = {
   'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx': { n: 13, raison: 'hors liste, étranger, rappels du code postal et de la commune' },
   'app/(admin)/admin/(protected)/location/AdresseBien.tsx': { n: 12, raison: 'hors liste, étranger, rappels du code postal et de la commune' },
   'app/(admin)/admin/(protected)/location/CreationBien.tsx': { n: 1, raison: 'le libellé « Adresse » de l’emballage AdresseBien' },
-  'app/(admin)/admin/(protected)/permis/ChampAdressePostale.tsx': { n: 1, raison: 'hors liste : la saisie libre (BP, CS, CEDEX) derrière « Adresse absente de la liste ? » (Arno, 20/11/2026)' },
-  'app/(admin)/admin/(protected)/transaction/PersonnesDossier.tsx': { n: 1, raison: 'personne sans type : simple champ texte (lot 7d)' },
+  'app/(admin)/admin/(protected)/gestion/FicheSyndic.tsx': { n: 4, raison: 'hors liste : la rue, le code postal et la ville à la main derrière « Adresse absente de la liste ? » (décision d’Arno, 20/11/2026)' },
   'app/page.tsx': { n: 2, raison: 'rappels en lecture seule de l’adresse choisie (site public)' },
   // ne sont PAS des adresses à rattacher à la Base Adresse
   'app/(admin)/admin/(protected)/gestion/BoiteMail.tsx': { n: 1, raison: 'recherche « nom ou adresse » d’un expéditeur (mail)' },

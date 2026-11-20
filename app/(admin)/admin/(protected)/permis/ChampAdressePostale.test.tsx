@@ -24,13 +24,13 @@ describe('l’adresse postale d’un service de mairie', () => {
     expect(liste.getAttribute('role')).toBe('combobox');
     expect(liste.value).toBe('Service urbanisme, BP 12, 92001 Nanterre CEDEX');
     expect(valeurs).toEqual([]);
-    await clic('[data-adresse-postale-hors-liste]');
-    const libre = c.querySelector('[data-adresse-postale-libre]') as HTMLInputElement;
+    await clic('[data-adresse-texte-hors-liste]');
+    const libre = c.querySelector('[data-adresse-texte-libre]') as HTMLInputElement;
     expect(libre.getAttribute('role')).toBeNull();
     expect(libre.value).toBe('Service urbanisme, BP 12, 92001 Nanterre CEDEX');
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(libre, 'Service urbanisme, CS 30001, 92001 Nanterre CEDEX'); libre.dispatchEvent(new Event('input', { bubbles: true })); });
     expect(valeurs).toEqual(['Service urbanisme, CS 30001, 92001 Nanterre CEDEX']);
-    await clic('[data-adresse-postale-retour]');
+    await clic('[data-adresse-texte-retour]');
     expect(c.querySelector('input[aria-label="Adresse postale"]')!.getAttribute('role')).toBe('combobox');
   });
   it('les deux écrans du contact mairie l’emploient ; la carte d’événement et le bâtiment d’un permis passent par le composant unique', () => {

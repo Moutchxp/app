@@ -61,11 +61,13 @@ export interface ImmeubleSaisi {
   adresses?: AdresseSaisie[];
 }
 /** LOT COPRO-PLUSIEURS-ADRESSES — une adresse (rue, code postal, ville). */
-export interface AdresseSaisie { libelle: string; codePostal: string; commune: string }
+export interface AdresseSaisie { libelle: string; codePostal: string; commune: string; /** 🔴 (lot 7d) l’identifiant BAN du choix dans la liste */ banId?: string }
 /** LOT COPRO-PLUSIEURS-ADRESSES — une adresse connue, avec sa clé. */
 export interface AdresseConnue { cle: string; libelle: string; codePostal: string | null; commune: string | null }
 export interface SyndicSaisi {
   nom: string; adresse: string; codePostal: string; ville: string;
+  /** 🔴 (Arno, 20/11/2026, lot 7d) la nature de la saisie de l'adresse du cabinet : « liste » (choisie), « libre », null ; absente : non touchée */
+  adresseNature?: 'liste' | 'libre' | null;
   /** Les numéros sont enregistrés en CHIFFRES (un « + » en tête s'il y en a un) — jamais avec leurs espaces. */
   telephone: string; telephone2: string;
   email: string; note: string;
@@ -478,6 +480,7 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
         .map((x) => ({ immeuble: texte(x.immeuble), autre: texte(x.autre), parcelle: texte(x.parcelle) }))
         .filter((x) => cleImmeuble(x.immeuble) !== '' && cleImmeuble(x.autre) !== '') } : {}),
       nom, adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville),
+      ...(b.adresseNature === 'liste' || b.adresseNature === 'libre' || b.adresseNature === null ? { adresseNature: b.adresseNature as 'liste' | 'libre' | null } : {}),
       telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
       email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
     },
@@ -619,6 +622,8 @@ export interface ContactForm {
 }
 export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
+  /** 🔴 (lot 7d) la nature de la saisie de l'adresse du cabinet, seulement quand on y a touché */
+  adresseNature?: 'liste' | 'libre' | null;
   /** Un ou deux standards ; le « + » en ajoute un second, deux au plus. */
   telephones: string[];
   email: string; note: string;
@@ -723,6 +728,7 @@ export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): S
 export function versSaisie(f: SyndicForm): SyndicSaisi {
   return {
     nom: f.nom, adresse: f.adresse, codePostal: f.codePostal, ville: f.ville,
+    ...(f.adresseNature !== undefined ? { adresseNature: f.adresseNature } : {}),
     telephone: chiffresTelephone(f.telephones[0]), telephone2: chiffresTelephone(f.telephones[1]),
     email: f.email, note: f.note,
     contacts: [

@@ -29,7 +29,9 @@ const CATEGORIES: { cle: CategorieImmeuble; mot: string }[] = [
   { cle: 'gardien', mot: 'Gardien' }, { cle: 'coproprietaire', mot: 'Copropriétaire' }, { cle: 'conseil_syndical', mot: 'Conseil syndical' }, { cle: 'personnalise', mot: 'Personnaliser' }];
 interface Coord { id: number | null; sorte: 'email' | 'telephone'; libelle: string; valeur: string }
 interface ContactEdit { cle: string; id: number | null; categorie: CategorieImmeuble; libelle: string; civilite: 'M.' | 'Mme' | null; prenom: string; nom: string; note: string; coordonnees: Coord[] }
-interface Adresse { libelle: string; codePostal: string; commune: string }
+interface Adresse { libelle: string; codePostal: string; commune: string;
+  /** 🔴 (lot 7d) l'identifiant BAN du choix dans la liste (une NOUVELLE adresse) : le serveur n'accepte qu'une adresse officielle */
+  banId?: string }
 interface Proposition { libelle: string; codePostal: string; commune: string; parcelle: string; etat: 'libre' | 'prise'; copropriete: string | null; syndic: { id: number; nom: string; ville: string | null } | null }
 /* 🔴 (Arno, 20/11/2026, « Adresse officielle BAN », lot 4) l'adresse officielle, calculée par le serveur (lecture seule) ; absente ou `null` : l'affichage d'avant */
 interface Lu { fiche: Fiche | null; coproprieteDuBien: boolean | null; officielle?: ModeleOfficiel | null }
@@ -99,6 +101,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
      la frappe, et l'adresse retenue dans la liste (seule elle peut être ajoutée) */
   const [autre, setAutre] = useState('');
   const [autreChoisie, setAutreChoisie] = useState<ChoixAdresse | null>(null);
+  const [autreBan, setAutreBan] = useState<string | null>(null);
   const [introuvable, setIntrouvable] = useState(false);
   const idAutre = useId();
   /* 🔴 (16/11/2026) une adresse SANS NUMÉRO : la fenêtre d'avertissement (même style que celle des noms de bâtiment) ; les clés confirmées partent
@@ -368,15 +371,15 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <label className="fcp-champ" htmlFor={idAutre}><span>Rechercher l’adresse, puis la choisir dans la liste</span></label>
           <div data-fcp-autre-adresse>
             <ChampAdresseBan id={idAutre} valeur={autre} verifiee={autreChoisie !== null} exemple="ex. 12 rue de la République, 92800 Puteaux"
-              onChange={(v) => { setAutre(v); setAutreChoisie(null); setIntrouvable(false); }}
-              onChoisir={(a) => { setAutre(adresseImmeuble(a.voie, a.codePostal || null, a.commune || null)); setAutreChoisie(a); setIntrouvable(false); }} />
+              onChange={(v) => { setAutre(v); setAutreChoisie(null); setAutreBan(null); setIntrouvable(false); }}
+              onChoisir={(a, officielle) => { setAutre(adresseImmeuble(a.voie, a.codePostal || null, a.commune || null)); setAutreChoisie(a); setAutreBan(officielle.banId); setIntrouvable(false); }} />
           </div>
           {introuvable && <p className="fcp-alerte" role="alert" data-fcp-adresse-introuvable>Adresse introuvable dans les suggestions : choisissez-la dans la liste proposée (Base Adresse Nationale). Rien n’est ajouté.</p>}
           <button type="button" className="svv-btn svv-btn-outline gst-btn fcp-mini" disabled={autre.trim() === ''}
             onClick={() => {
               if (autreChoisie === null) { setIntrouvable(true); return; }
-              if (!ajouter({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune })) return;
-              setAutre(''); setAutreChoisie(null);
+              if (!ajouter({ libelle: autreChoisie.voie, codePostal: autreChoisie.codePostal, commune: autreChoisie.commune, ...(autreBan !== null ? { banId: autreBan } : {}) })) return;
+              setAutre(''); setAutreChoisie(null); setAutreBan(null);
             }} data-fcp-ajouter-adresse>Ajouter</button>
         </div>
       )}

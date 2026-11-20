@@ -162,8 +162,13 @@ export function lireGestion(brut: unknown): Lu<GestionSaisie> {
 // ── LOT D (migration 434) : un compromis ou une vente avec son dossier et sa répartition ─────────────────────────────────────────
 
 /** 🔴 LOT BJ — un représentant d'une société, tel que saisi (une fiche de l'annuaire, particulier). */
-export interface RepresentantSaisie { id: number | null; civilite: Civilite | null; nom: string; prenom: string | null; telephone: string | null; email: string | null; adresse: string | null }
+/** 🔴 (Arno, 20/11/2026, lot 7d) la nature de la saisie d'une adresse : « liste » (choisie dans la liste), « libre », null (tapée sans choisir) ; absente : non touchée. */
+export type NatureAdresseSaisie = 'liste' | 'libre' | null;
+const natureDe = (v: unknown): { adresseNature?: NatureAdresseSaisie } => (v === 'liste' || v === 'libre' || v === null ? { adresseNature: v as NatureAdresseSaisie } : {});
+export interface RepresentantSaisie { id: number | null; civilite: Civilite | null; nom: string; prenom: string | null; telephone: string | null; email: string | null; adresse: string | null;
+  adresseNature?: NatureAdresseSaisie }
 export interface PersonneSaisie { id: number | null; role: 'vendeur' | 'acquereur'; nom: string; telephone: string | null; email: string | null; adresse: string | null;
+  adresseNature?: NatureAdresseSaisie;
   /** 🔴 LOT BJ (443) — particulier (défaut) ou société ; civilité et prénom d'un particulier ; les représentants d'une société. */
   type?: 'particulier' | 'societe'; civilite?: Civilite | null; prenom?: string | null; representants?: RepresentantSaisie[] }
 /** LOT K — `societe` : la société CHOISIE pour cette vente (collaborateur des deux sociétés) ; pour les autres, le serveur l'ignore. */
@@ -179,6 +184,8 @@ export interface DossierSaisie {
   /** Le jour de l'acte (obligatoire pour une vente) : son mois est le mois du CA. */
   dateActe: string | null;
   adresseBien: string | null;
+  /** 🔴 (lot 7d) la nature de la saisie de l'adresse du bien ; absente : non touchée */
+  adresseBienNature?: NatureAdresseSaisie;
   note: string | null;
   entreeId: number | null;
   sortieId: number | null;
@@ -263,11 +270,12 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
         const rnom = texte(r.nom);
         if (rnom === null && rid === null) { if (texte(r.prenom) ?? texte(r.telephone) ?? texte(r.email) ?? texte(r.adresse)) return refus('Chaque représentant a un nom (ou enlevez-le).'); continue; }
         // 🔴 LOT BL — la mise en forme commune (nom en majuscules, prénom « Jean-Baptiste », espaces en trop retirées).
-        representants.push({ id: rid, civilite: rciv, nom: formeNom(rnom), prenom: texte(formePrenom(texte(r.prenom))), telephone: texte(r.telephone), email: texte(r.email), adresse: texte(r.adresse) });
+        representants.push({ id: rid, civilite: rciv, nom: formeNom(rnom), prenom: texte(formePrenom(texte(r.prenom))), telephone: texte(r.telephone), email: texte(r.email), adresse: texte(r.adresse),
+          ...natureDe(r.adresseNature) });
       }
     }
     // 🔴 LOT BL — la mise en forme commune : le nom (ou le nom de la société) en majuscules, le prénom « Jean-Baptiste », sans espaces en trop.
-    personnes.push({ id, role: o.role, nom: formeNom(nom), telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse),
+    personnes.push({ id, role: o.role, nom: formeNom(nom), telephone: texte(o.telephone), email: texte(o.email), adresse: texte(o.adresse), ...natureDe(o.adresseNature),
       ...(o.type !== undefined || civ !== null || texte(o.prenom) !== null || representants.length > 0
         ? { type, civilite: type === 'societe' ? null : civ, prenom: type === 'societe' ? null : texte(formePrenom(texte(o.prenom))), representants } : {}) });
   }
@@ -321,7 +329,9 @@ export function lireDossier(brut: unknown): Lu<DossierSaisie> {
     dateActePrevue: dates.dateActePrevue, dateActe: dates.dateActe, adresseBien: texte(c.adresseBien), note: texte(c.note),
     entreeId: ids.entreeId, sortieId: ids.sortieId, apporteurId: c.retirerApporteur === true ? null : ids.apporteurId, apporteurNom: c.retirerApporteur === true ? null : texte(c.apporteurNom),
     retroApporteurTtc: c.retirerApporteur === true ? 0 : r ?? 0, retroUnite, ...(c.retirerApporteur === true ? { retirerApporteur: true } : {}),
-    ...(commissions !== undefined ? { commissions } : {}), personnes, parties } };
+    ...(commissions !== undefined ? { commissions } : {}), personnes, parties,
+    // 🔴 (lot 7d) la nature de la saisie de l'adresse du bien, seulement quand l'écran l'envoie (on y a touché)
+    ...(c.adresseBienNature === 'liste' || c.adresseBienNature === 'libre' || c.adresseBienNature === null ? { adresseBienNature: c.adresseBienNature as 'liste' | 'libre' | null } : {}) } };
 }
 
 /** LOT G — l'annulation d'un compromis : « Défaut de crédit » (par défaut) ou un autre motif ÉCRIT (obligatoire), la date, une note. */

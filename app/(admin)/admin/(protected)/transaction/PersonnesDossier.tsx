@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChampAdresseBan } from '../gestion/ChampAdresseBan';
+import { ChampAdresseTexte, type NatureSaisie } from '../../../../components/adresse/ChampAdresseTexte';
 import { libellePersonne, type Civilite, type PersonneVente, type RepresentantVente } from '../../../../lib/transaction/modele';
 import { formeNom, formePrenom } from '../../../../lib/transaction/personnes';
 
@@ -19,9 +19,13 @@ import { formeNom, formePrenom } from '../../../../lib/transaction/personnes';
 export interface PersonneRef { id: number; nom: string; telephone: string | null; email: string | null; adresse: string | null;
   /** 🔴 LOT BJ (443) — absents : une fiche d'avant (un particulier). */
   type?: 'particulier' | 'societe'; civilite?: Civilite | null; prenom?: string | null }
-export interface RepresentantEcran { id: number | null; civilite: Civilite | ''; nom: string; prenom: string; telephone: string; email: string; adresse: string }
+export interface RepresentantEcran { id: number | null; civilite: Civilite | ''; nom: string; prenom: string; telephone: string; email: string; adresse: string;
+  /** 🔴 (lot 7d) la nature de la saisie de l'adresse, seulement quand on y a touché */
+  adresseNature?: NatureSaisie }
 export interface PersonneEcran { id: number | null; role: 'vendeur' | 'acquereur'; type: 'particulier' | 'societe'; civilite: Civilite | ''; nom: string; prenom: string;
-  telephone: string; email: string; adresse: string; representants: RepresentantEcran[] }
+  telephone: string; email: string; adresse: string; representants: RepresentantEcran[];
+  /** 🔴 (lot 7d) la nature de la saisie de l'adresse, seulement quand on y a touché */
+  adresseNature?: NatureSaisie }
 
 export const representantVide = (): RepresentantEcran => ({ id: null, civilite: '', nom: '', prenom: '', telephone: '', email: '', adresse: '' });
 export const personneVide = (role: PersonneEcran['role']): PersonneEcran => ({ id: null, role, type: 'particulier', civilite: '', nom: '', prenom: '', telephone: '', email: '', adresse: '', representants: [] });
@@ -56,7 +60,7 @@ const joindre = (xs: readonly string[]): string => (xs.length <= 1 ? xs.join('')
 
 /** Les champs d'un particulier (ou d'un représentant) : civilité, nom (avec l'annuaire), prénom, téléphone, e-mail, adresse. */
 function ChampsParticulier({ cle, v, onChange, onNom, avecType, autoFocus }: {
-  cle: string; v: { id: number | null; civilite: Civilite | ''; nom: string; prenom: string; telephone: string; email: string; adresse: string };
+  cle: string; v: { id: number | null; civilite: Civilite | ''; nom: string; prenom: string; telephone: string; email: string; adresse: string; adresseNature?: NatureSaisie };
   onChange: (x: Partial<RepresentantEcran>) => void; onNom: (texte: string) => void; avecType: boolean; autoFocus?: boolean;
 }) {
   return <>
@@ -72,11 +76,11 @@ function ChampsParticulier({ cle, v, onChange, onNom, avecType, autoFocus }: {
       data-personne-prenom={cle} /></label>}
     <label>Téléphone<input type="tel" inputMode="tel" value={v.telephone} onChange={(e) => onChange({ telephone: e.target.value })} data-personne-telephone={cle} /></label>
     <label>E-mail<input type="email" inputMode="email" autoCapitalize="none" value={v.email} onChange={(e) => onChange({ email: e.target.value })} data-personne-email={cle} /></label>
+    {/* 🔴🔴 (Arno, 20/11/2026, lot 7d) le composant unique, dans les deux formulaires ; la saisie libre derrière « Adresse absente de la liste ? » ;
+        la chaîne enregistrée reste celle d'avant tant qu'on n'y touche pas */}
     <label data-personne-adresse={cle}>Adresse
-      {avecType
-        ? <ChampAdresseBan id={`trx-adresse-${cle}`} valeur={v.adresse} verifiee onChange={(x) => onChange({ adresse: x })} exemple="ex. 12 rue de la République, 92800 Puteaux"
-          onChoisir={(a) => onChange({ adresse: [a.voie, [a.codePostal, a.commune].filter((y) => y !== '').join(' ')].filter((y) => y !== '').join(', ') })} />
-        : <input value={v.adresse} onChange={(e) => onChange({ adresse: e.target.value })} />}</label>
+      <ChampAdresseTexte id={`trx-adresse-${cle}`} valeur={v.adresse} className={avecType ? 'cp-saisie' : ''} exemple={avecType ? 'ex. 12 rue de la République, 92800 Puteaux' : undefined}
+        onChange={(x, nature) => onChange({ adresse: x, adresseNature: nature })} /></label>
   </>;
 }
 
