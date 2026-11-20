@@ -1,339 +1,391 @@
-> Passation mise à jour le 22/09/2026 à 17h25
+> Passation générée le 18/11/2026 à 11h13
 
-# PASSATION — Application Sans Vis-à-Vis®
+# PASSATION — Sans Vis-à-Vis® / CRITERIMMO
 
-Colle ce document en tête d'une nouvelle conversation Claude : il donne le projet, les rôles, les
-règles, les invariants, l'historique et la prochaine action, sans qu'Arno ait à réexpliquer.
+*(Colle ce bloc entier au début de ta nouvelle conversation Claude.)*
+
+> Établie à partir de l'état RÉEL du dépôt le 18/11/2026 (`git log`, `git status`, lecture seule) et de la conversation de
+> travail des 17-18/11/2026 (digicodes, syndic, adresses multiples d'une copropriété, mandat par bien, quatre corrections).
+> Reprend la passation du 01/11/2026 pour tout ce qui n'a pas changé.
 
 ---
 
 ## 1. Rôles & workflow
 
-- **Arno** (a.jorel@sansvisavis.com) = **fondateur non-développeur** de **Sans Vis-à-Vis**
-  (sansvisavis.com), plateforme de **certification immobilière de la vue dégagée** (« sans
-  vis-à-vis »), Paris + petite couronne. Il arbitre le métier ; il ne code pas. Communication
-  **en français, tutoiement, direct, sans flatterie**.
-- **Claude Code = implémente + teste + COMMITTE lui-même en local.** Règles du commit :
-  **`git add` des SEULS fichiers du lot** (jamais `PASSATION.md` en même temps qu'un lot de code,
-  jamais `.env`, jamais les 2 fichiers Gemini) ; **aucune ligne `Co-Authored-By`** ; **JAMAIS de
-  `git push`**. **Arno pousse lui-même depuis l'application Terminal de macOS.**
-- **Tout bloc de commande livré à Arno doit préciser DANS QUEL TERMINAL le coller** (fenêtre MinIO,
-  fenêtre serveur, fenêtre tunnel, ou une fenêtre libre) — il en a plusieurs ouvertes en permanence (§6).
-- **Workflow relais** (quand Claude ne code pas lui-même) : Claude rédige des **cartouches
-  d'instructions (FR)** → Arno les colle à l'agent Claude Code → l'agent produit les diffs, teste,
-  committe → Arno pousse.
-- **Repo** : github.com/Moutchxp/app — branche `main`. **Stack** : Next.js **16.2.9**, React 19,
-  TypeScript 5, Tailwind v4, **PostgreSQL 17 + PostGIS 3.6.4 en LOCAL** (driver `pg` sur
-  `DATABASE_URL` du `.env` ; plus de Supabase). MinIO/S3 pour les fichiers (jamais en base).
-- ⚠️ **`AGENTS.md` en tête de repo** : « This is NOT the Next.js you know » — lire
-  `node_modules/next/dist/docs/` avant d'écrire du code Next (APIs/conventions v16 différentes).
-  Précédent utile : `NextRequest.ip` et `geo` ont été **retirés en v15** — vérifié dans cette doc.
+**Arno** — fondateur **non-développeur** de **Sans Vis-à-Vis** (sansvisavis.com), agence et plateforme de
+**certification immobilière** : transformer « sans vis-à-vis » en une **norme mesurable, certifiable et auditable**
+(Paris + petite couronne). Il porte aussi **CRITERIMMO**, l'activité de **gestion locative** (boîte
+`gestion@criterimmo.fr`), d'où les modules **Gestion** et **Location**, et le module **Transaction / Mon espace**
+(ventes et CA de CRITERIMMO et MACJ). Depuis début novembre, l'essentiel du travail porte sur **Location** et
+**Gestion** (copropriétés, digicodes, syndics, mandats, préavis, pré-visites), plus **Mon espace**.
+
+**Toi (Claude, conversation web/desktop)** — architecte et relecteur : tu produis des **cartouches d'instructions en
+français** que l'agent exécute.
+
+**Workflow relais EN VIGUEUR :** tu donnes un prompt (une demande d'Arno, souvent découpée en « lots » ou en
+« points ») → Arno le colle à l'**agent Claude Code dans VS Code** → l'agent fait le travail **en RECETTE
+seulement**, vérifie (tests, Chrome, captures dans `.captures/<dossier-nommé-dans-le-prompt>/`), puis **committe
+LUI-MÊME** et rend messages + hashs :
+- `git add` **des seuls fichiers du lot** (jamais `git add -A` / `.`) ;
+- message en français citant la demande / décision d'Arno, **SANS ligne `Co-Authored-By`** ni autre attribution ;
+- **jamais de `git push`** : **Arno pousse à la main**, puis met la prod à jour lui-même ;
+- **un commit par lot / par point** quand le prompt le dit (c'est la règle dans tous les prompts récents).
+
+- Repo : **github.com/Moutchxp/app**, branche **`main`**. Répertoire : `/Users/macbookprom4arnaud/sansvisavis/app`.
+- Stack : **Next.js 16.2.9** (Turbopack en dev), **React 19.2.4**, **TypeScript 5** strict, **Tailwind 4**,
+  **PostgreSQL 17 + PostGIS** **local**, driver **`pg`** sur `DATABASE_URL`. Fichiers : **MinIO/S3** (jamais
+  d'image ni de PDF en base). IMAP via **imapflow** ; Google Workspace (Gmail, Drive, Agenda) pour la Gestion.
+- ⚠️ **Next.js 16 n'est pas celui que tu connais** : lire `AGENTS.md` et `node_modules/next/dist/docs/` avant
+  d'écrire du code Next.
+
+**Hébergement :**
+- **PRODUCTION = serveur OVH `svav-prod`** (bascule Mac → OVH le 15/10/2026). Mise à jour en une commande depuis le
+  Mac, après `git push` : `npm run prod:mettre-a-jour -- --essai` puis `-- --appliquer` (`deploy/maj/README.md`) ;
+  sauvegarde avant chaque mise à jour ; migrations nouvelles passées par l'outil (registre `svav_migration`).
+- **RECETTE = le Mac d'Arno** : `npm run recette` (next dev, port 3000) sur la base **`svav_recette`** ; bandeau
+  rouge « RECETTE — envois réels autorisés vers a.jorel@sansvisavis.com » ; tout autre mail, l'agenda et le
+  Drive sont interceptés. La base « principale » du Mac s'appelle `sansvisavis` (atelier, pas la prod).
+
+**Langue** : français, tutoiement, direct. Termes métier en français.
 
 ---
 
 ## 2. Règles de collaboration (impératives)
 
-- **Un chantier = un prompt = une modif logique = un commit.** Après chaque diff : vérifier, committer.
-- **Recon LECTURE SEULE avant tout write** sur fichier sensible (moteur pur `app/lib/svv/*`, accès
-  données `app/lib/db/*`, `app/lib/pdf/*`, `app/lib/email/*`, `app/lib/sitadel/*`, `app/lib/admin/*`,
-  front `app/page.tsx`, golden `app/lib/db/pipeline.itest.ts`).
-- **Livrables : toujours des blocs copiables labellisés** (voir §7). Ne JAMAIS mélanger prompt + commit.
-- **Ne jamais conseiller de faire une pause / d'arrêter ; Arno décide seul.** Proposer plusieurs
-  options AVANT d'implémenter sur un choix de design/ressenti.
-- **2 fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et
-  `app/api/analyse-photo/route.ts`.
-- **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert.** `npm test` = `tsc --noEmit && vitest run`
-  (le typecheck est DANS le gate depuis le 22/09). État réel au 22/09 : **596 fichiers de test /
-  7 880 tests** (+ 21 ignorés). Les suites filtrées (internaute / sitadel / permis) sont des contrôles
-  RAPIDES en cours de travail, **JAMAIS** le contrôle de fin : **~114 fichiers vivent hors de ces 3
-  sous-ensembles** (précédent : `curation.test.ts` rouge du 14/07 au 03/08/2026, invisible aux contrôles
-  filtrés). Pas d'alias `test:tout`.
-- **Les tests d'INTÉGRATION sont hors `npm test`** (`vitest.integration.config.ts`). Le golden
-  `pipeline.itest.ts` se rejoue à part : `npx vitest run --config vitest.integration.config.ts
-  app/lib/db/pipeline.itest.ts` (lecture seule, 0 écriture). ⚠️ Ne pas lancer TOUTE la suite
-  d'intégration sans intention : certains `.itest.ts` écrivent en base.
-- **Flakes** : registre versionné `docs/FLAKES_CONNUS.md`, à consulter AVANT de diagnostiquer. Flakes à
-  **relancer** (ne rien corriger) : `serverOnly.guard` (ENOENT `__garde_eslint_tmp__.ts`),
-  `comptes.test.ts`, et les tests jsdom sensibles au timing sous charge → `npx vitest run --maxWorkers=4`.
-- ⚠️ **NE PAS classer « flake connu » un échec qu'on vient de provoquer.** Précédent du 22/09 : après une
-  modification du générateur PDF, ~4 assertions de déterminisme tombaient. Mesure décisive : **4 échecs
-  sur 5 exécutions avec la modification, 0 sur 5 sans** (`git stash` du seul fichier) → c'était un vrai
-  bug introduit, pas le flake historique. **Toujours mesurer la fréquence avec ET sans sa modification.**
-- **Déterminisme du PDF = invariant testé.** `certificatPdf.ts` doit rendre les MÊMES octets pour les
-  mêmes entrées. Deux causes de rupture découvertes le 22/09, à ne pas réintroduire : (1) **mémoïser** un
-  actif et rendre le même objet `Buffer` d'une génération à l'autre ; (2) **palettiser** un PNG à canal
-  alpha — pdfkit décode ces PNG de façon ASYNCHRONE et numérote ses objets dans l'ordre d'achèvement.
-- **Tests : ne jamais figer la FORME d'un SQL émis au runtime** → asserter le COMPORTEMENT (réponse,
-  paramètres liés) + le SQL par FRAGMENTS sémantiques whitespace-normalisés. Idem pour la signature d'un
-  composant dans un source-scan.
-- **Mocks de rejet** : préférer `mockImplementationOnce(async () => { throw … })` à
-  `mockImplementation(…)` permanent — un mock qui rejette indéfiniment produit des rejets non gérés sur
-  des appels ultérieurs et fait échouer le test pour une mauvaise raison (vécu le 22/09).
-- **KNN spatial** : un `<->` ne lit JAMAIS son point d'un CTE multi-référencé (matérialisation → perte
-  d'index silencieuse) → INLINER le point dans l'`ORDER BY`. Vérifier par `EXPLAIN (ANALYZE, BUFFERS)`
-  sur la requête RÉELLE. (JOIN `ST_Intersects`/`ST_DWithin` non concernés.)
+- **Un chantier = une modif logique = un commit.** Un prompt à la fois ; après chaque lot, on vérifie, puis commit.
+- **Recon LECTURE SEULE avant tout write** sur un fichier sensible (liste au §14 de `CLAUDE.md`) — et, pour un
+  chantier qui touche un modèle de données, une **étape 1 en lecture seule** (état des lieux, rapport à blanc,
+  découpage en lots, questions métier) avant d'écrire quoi que ce soit (pratique des chantiers récents).
+- **TOUJOURS des blocs copiables**, clairement labellisés (format au §7). Un prompt par bloc.
+- **Ne jamais conseiller de faire une pause ou d'arrêter.** Arno décide seul de son rythme.
+- Sur un choix de **design ou de ressenti** : proposer **plusieurs options AVANT** d'implémenter.
+- **Question de choix métier** : l'agent l'écrit et s'arrête (formule présente dans les prompts d'Arno).
+- **Jamais retirer, masquer, conditionner ou déplacer un élément d'interface** sans l'accord d'Arno pour CET
+  élément ; un composant partagé n'est pas un écran (`grep` qui d'autre le rend) ; avant chaque commit, lister ce
+  qui a disparu. Formule d'Arno : « Rien d'autre n'est retiré, masqué ni conditionné. »
+- **Hors staging, toujours** : `app/lib/svv/adaptateurIaPhoto.ts`, `app/api/analyse-photo/route.ts` (Gemini) et
+  **`PASSATION.md`**.
+- **Migrations** : seulement si **indispensables** ; **numéro libre suivant** ; **ajout seul, idempotentes**
+  (`IF NOT EXISTS`), **enveloppées** (`psql -X -q -v ON_ERROR_STOP=1 -1 -f …`, jouées deux fois sans erreur),
+  **appliquées à la RECETTE seulement** ; le code doit tourner SANS elles (sondes de schéma `colonneExisteMemo`,
+  hors transaction). Garde à jour : `app/lib/ops/migrationsEnAttente.test.ts` (la 361 en attente se décale à
+  chaque nouvelle migration : **elle devra prendre la 493**).
+- **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`). **Mesuré le 18/11/2026 :
+  1 790 fichiers, 27 096 tests verts + 21 ignorés.** (Le « 173 fichiers » d'`AGENTS.md` est très périmé, le principe
+  reste : les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin — précédent :
+  `curation.test.ts` rouge du 14/07 au 03/08/2026, invisible aux filtres. Pas d'alias `test:tout`.) `tsc --noEmit`
+  est dans le gate. Une suite qui dépasse ~2 min = test figé : le borner.
+- **Composant client touché → preuve curl** : `curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/admin/login`
+  = 200, et la page sans « Module not found » ni « Build Error » (un 500 n'en contient aucun : **lire le statut**).
+  `curl` est refusé dans les sessions de l'agent : Arno la lance lui-même (`! curl …`) ; dernière preuve le
+  18/11/2026 : 0 erreur, statut 200.
+- **Vérification au Chrome du Mac** (Playwright, canal `chrome`, jeton de session signé) : **téléphone 390 px ET
+  ordinateur, clair ET sombre**, sur la recette ; en **lecture seule** par défaut (toute écriture bloquée par
+  interception), une écriture réelle seulement sur des **données d'essai nommées d'après ce qu'on teste**
+  (« _TEST MANDAT », « _TEST DEUX ADRESSES », « _TEST NON SAUVEGARDE PROPRIETAIRE »…). Captures « avant / après » dans
+  le seul dossier nommé par le prompt. Les scripts de vérification vivent dans ce dossier (`.tmp-*`), pas dans le
+  scratchpad (playwright ne s'y résout pas), et sont **effacés en fin de lot** avec le jeton.
+- **JAMAIS `npm run test:integration` en entier** (des itests écrivent dans la vraie base) : seulement les fichiers
+  nommés, dont `pipeline.itest.ts`.
+- **Tests — ne jamais figer la FORME d'un SQL émis** : asserter le comportement + paramètres liés, et au besoin des
+  fragments sur `sql.replace(/\s+/g, ' ')` + `toContain` (modèle : `curation.test.ts`, « entité supprimée »).
+- **Flakes connus** : jamais une hypothèse présentée comme une cause ; registre **`docs/FLAKES_CONNUS.md`** (niveau de
+  preuve par entrée). `certificatPdf.test.ts` : cause **NON ÉTABLIE** ; l'ancien diagnostic « comparaison d'octets non
+  déterministe / timestamp » est **RÉFUTÉ** (générateur prouvé déterministe octet à octet) — ne pas le réimprimer.
+- **Diagnostic → mesure → correctif**, dans cet ordre ; le rapport dit lequel des trois est établi.
+- **Dossier `location/`** : un test de garde refuse toute couleur hexadécimale et tout `var(--x, repli)` (jetons
+  `--color-svv-*` seulement). Un garde CSS exige que les éléments de 1 px absolus soient épinglés (`top:0;left:0`).
+
+### Garde-fous permanents (absolus — répétés dans chaque prompt d'Arno)
+
+- **Git** : **aucun** `git stash` (**y compris `git stash list`**), `git checkout -- …`, `git restore`, `git reset`,
+  `git clean`. État du dépôt : `git status --short`, `git log`, `git diff` uniquement. Pour comparer : écrire la
+  référence ailleurs, jamais par-dessus un fichier suivi. Un fichier se retire par `git rm`.
+- **Aucune action sur la production.** **Envois réels uniquement vers `a.jorel@sansvisavis.com`** ; **aucun mail à
+  un client** ; ne toucher à **aucun brouillon réel** ; **« Documents clients scannés » jamais touché** ; **aucun
+  secret affiché**. Une adresse de l'agence est refusée comme coordonnée d'un propriétaire : les fiches d'essai
+  prennent une adresse fictive en `@exemple.invalid`.
+- **Drive** : l'app ne s'autorise que déplacer / copier / renommer / corbeille ; jamais de suppression définitive,
+  jamais un DOSSIER à la corbeille ; un essai n'utilise QUE des pièces de mails « _TEST… ».
+- **Rien sur le Bureau** (ni Documents, ni Téléchargements) : tout dans **`.captures/<dossier>/`** (ignoré par git) ;
+  sauvegardes de base dans `.captures/sauvegardes/` (jamais effacées sans Arno). **`rm` seulement dans `.captures/`
+  ou le scratchpad** (pour régénérer des types Next : `npx next typegen`, jamais `rm -rf .next/types`).
+- **Fichiers de travail effacés en fin de lot** : copies de serveur, dumps, profils Chrome, scripts `.tmp-*`, jetons.
+- **Historique inaltérable** (Gestion) : un mail entré dans l'historique d'un bien n'en sort que par « Sortir du
+  suivi » ; verrou EN BASE (339-340). On marque, on n'efface pas.
 
 ---
 
 ## 3. Objectif à atteindre
 
-- **Objectif GLOBAL** : certifier automatiquement qu'un logement est « Sans Vis-à-Vis® » (verdict
-  géométrique binaire), produire un **certificat PDF** + une **note de qualité de vue /100**, et à
-  terme une **estimation de plus-value**. Cible : transformer un terme subjectif en **norme mesurable,
-  certifiable, auditable**. Objectif d'architecture verrouillé : **PILOTAGE SANS CODE** (voir §4).
-- **Objectif du chantier EN COURS** : rendre le parcours public **utilisable depuis un vrai téléphone**
-  et **prêt pour une mise en production**. Le lot « gains rapides » de l'audit du 21/09 est **soldé**
-  (G1-G4 ✅, G5 ⬜) ; la journée du 22/09 a traité les défauts constatés en test réel sur iPhone **et sur
-  Android**. Le temps d'émission a été instruit et **arbitré** (T15, §6) : il reste ~3 s, par choix.
-  Restent les items de mise en production (**T4** jeton dans l'URL du QR, **T3**, **T9**, **T10**, **T11**)
-  et les finitions du certificat (§6).
+**Objectif global.** Une application mobile qui **certifie automatiquement** si un logement est « Sans Vis-à-Vis® »
+(verdict géométrique binaire), produit un **certificat PDF** et une **estimation de plus-value liée à la vue** ; plus
+une **interface d'administration interne**, mobile-first, qui permette à Arno — qui ne code pas — de **piloter toutes
+les variables des moteurs sans toucher au code ni à la base**. S'y ajoutent les outils métier internes de l'agence :
+**Permis**, **Gestion** (courrier et suivi des biens CRITERIMMO, copropriétés, digicodes, syndics), **Location**
+(dossiers, biens, propriétaires, préavis, pré-visites, Outils de suivi), **Transaction / Mon espace** (ventes, CA,
+coûts des deux sociétés CRITERIMMO et MACJ).
+
+**Chantier le plus récent (17-18/11/2026), tous les lots livrés et validés par Arno, puis 4 corrections :**
+1. **Adresses multiples d'une copropriété** (lots 1-5) : les bâtiments rattachés à LEUR adresse, la proposition de
+   rattachement par parcelle.
+2. **Mandat par bien** (lots 1-4 + retrait de l'ancienne page) : le n° de mandat (gestion ET transaction locative)
+   porté par chaque bien, le propriétaire sans statut « en gestion », la nouvelle page « Créer un nouveau
+   propriétaire ».
+3. **Quatre corrections du 18/11** (un commit chacune) : « Digicode » comme texte d'exemple partout ; le message
+   « Bâtiment et digicodes enregistrés. » seulement s'il y a eu écriture ; « Non (Sauvegarde du propriétaire) » ;
+   l'alignement de la rangée « Bâtiment / cage d'escalier — Étage — N° de porte ».
+Aucun lot n'est en cours d'écriture : **Arno valide en recette et choisit la suite.**
 
 ---
 
 ## 4. Invariants verrouillés (garde-fous permanents)
 
-> Le **code fait foi** (cf. `docs/INVARIANTS_SVAV.md`, prouvés `fichier:ligne`). Ne jamais les modifier
-> sans accord explicite d'Arno.
+Prouvés `fichier:ligne` dans **`docs/INVARIANTS_SVAV.md`** — **le code fait foi**.
 
-- **Golden Asnières = `29.107259068449615`** (note Couche 1 /80), scellé `app/lib/db/pipeline.itest.ts`
-  (rejoue Asnières : lat `48.90693182287072`, lon `2.269431435588249`, azimut 90, étage 2) **et** par un
-  garde PUR sans base `app/lib/svv/golden.test.ts` (égalité STRICTE, dans `npm test`). Tout ce qui touche
-  le score change le golden → recalcul + validation main + **rescellage en commit SÉPARÉ** (jamais pour
-  « faire passer » un test : un écart = ALERTE).
-- **Verdict binaire 100 % géométrique** : 1er obstacle réel ≥ **40 m** sur l'axe → `SANS_VIS_A_VIS`,
-  sinon `VIS_A_VIS` (`THRESHOLD_M`). **Jamais couplé au score ni à la photo.** Toit obstacle = **MNS
-  LiDAR lu DIRECTEMENT** (absolu, nettoyé) ; jamais sol+hauteur côté obstacle. Hors bâtiment / hors
-  LiDAR → INDÉTERMINÉ (pas de certificat).
-- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `hauteur_vision = etage × (hauteur_sous_plafond
-  + 0,30 dalle) + 1,65 yeux`. Sous-plafond **choisi par l'internaute**, défaut **2,50 m**, fourchette
-  **[2,40 ; 4,50] m** pas 0,10. **« 2,80 »** = coefficient plancher-à-plancher du SEUL cas par défaut
-  (2,50+0,30 = `FLOOR_HEIGHT_M`), **PAS une constante**. **« 2,90 » = `FLOOR_HEIGHT_OBSTACLE_M`**,
-  constante DISTINCTE (immeuble voisin sans hauteur BD TOPO), à NE PAS confondre. 1,65 = DÉFINITIF.
-- **AUCUN ARRONDI nulle part.** Distances horizontales autoritatives en **Lambert-93 (EPSG:2154)**.
-  **`ST_Force2D` jamais retiré** des opérations distance/raster.
-- **Tolérances** : rattachement patrimoine 15 m ; point d'origine hors emprise 0,30 m.
-- **Certificat** : `SAVV-AAAA-NNNNNN`, compteur **implémenté et atomique** (`db/certificatNumero.ts`)
-  — contrairement à ce que dit encore `CLAUDE.md §6`.
-- **`config_scoring`** : pondérations externalisées (39 colonnes, singleton id=1), lues au runtime,
-  repli sûr `PROFIL_DEGAGEMENT_DEFAUT`.
-- **`prefers-reduced-motion`** respecté pour toute animation.
-- **EXIGENCE ARCHITECTURE — PILOTAGE SANS CODE** : toute variable de tout moteur DOIT être externalisée
-  et éditable au runtime, jamais codée en dur ; toute nouvelle variable naît en table de config (type,
-  défaut, plage validée). Cible : une interface d'administration native pour un non-développeur.
-- **Sécurité auth** : `verifierJeton` épingle HS256 ; cookies httpOnly/secure/SameSite=strict ; gardes
-  qui RELISENT `role/actif/perm` en base à chaque écriture. **Fail-closed depuis le 22/09 (M1)** : le
-  rôle administrateur doit être une **claim POSITIVE explicite** — un jeton signé mais mal formé n'est
-  plus admin par défaut.
-- **NOUVEAUX garde-fous du 22/09 (ne pas défaire) :**
-  - **Aucune URL de stockage ne sort vers un navigateur** dans l'espace client : l'application sert
-    elle-même les octets des 3 documents (`Cache-Control: private, no-store`). Une URL signée porte
-    l'endpoint S3 (injoignable hors du Mac) **et** est un laissez-passer transmissible vers un PDF
-    nominatif.
-  - **Aucune adresse temporaire dans un QR en production** : helper UNIQUE `lib/certificat/siteUrl.ts`
-    (partagé par le PDF, l'e-mail et le visuel). En production, refus de http, localhost, IP privée,
-    `*.trycloudflare.com`, ngrok → document NON fabriqué. En développement : accepté **avec
-    avertissement** en console.
-  - **L'attente de la base est bornée sur le SEUL chemin de l'analyse publique** (pool dédié
-    `svav_analyse_publique`, `statement_timeout` 15 s, connexion 10 s, sélectionné par
-    `AsyncLocalStorage` dans `lib/db/plafondAnalyse.ts`). **Pas de plafond global** sur le pool partagé :
-    imports, veille, relève et scripts sont légitimement longs.
-  - **Le limiteur de cadence ne doit jamais devenir une panne** : toute erreur de sa part LAISSE PASSER
-    la requête.
+- **Golden de non-régression = `40.77232776704026`** (note Couche 1 /80), scellé `app/lib/db/pipeline.itest.ts:88` et
+  `app/lib/svv/golden.test.ts` (sans base), hand-verified, BITIDENT=true. Rejoue **Asnières** (lat
+  `48.90693182287072`, lon `2.269431435588249`, azimut 90, étage 2). Rescellé le 22/10/2026 (29.12915579059343 →
+  40.77232776704026, pivot face à la façade, décision d'Arno ; verdict inchangé) ; avant : 14/10/2026 (« un frôlement
+  n'est pas un contact »). Toute modif touchant le score change le golden → recalcul + **validation manuelle** +
+  **rescellage en commit SÉPARÉ**. Asnières est un oracle faible pour le patrimoine.
+- **Verdict binaire 100 % GÉOMÉTRIQUE** : 1ᵉʳ obstacle réel **≥ 40 m** sur l'axe → `SANS_VIS_A_VIS`, sinon
+  `VIS_A_VIS` (`THRESHOLD_M`, `config.ts:82` ; `verdict.ts:103`). **Jamais couplé au score ni à la photo**
+  (`scoreTotal.ts:44`). L'IA photo n'intervient QUE dans le score de qualité de vue (/100, 50/50).
+- **Œil vs toit** : A_œil = MNT LiDAR au point exact + hauteur de vision ; A_toit = **MNS LiDAR lu DIRECTEMENT**,
+  jamais sol + hauteur. BD TOPO = emprise + `cleabs` (hauteur BD TOPO = fallback NON certifiant). Hors bâtiment / hors
+  LiDAR → INDÉTERMINÉ. Végétation jamais obstacle.
+- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `étage × (hauteur_sous_plafond + 0,30 dalle) + 1,65 yeux`
+  (`config.ts:56-61`). Sous-plafond **choisi par l'internaute**, défaut **2,50 m**, fourchette **[2,40 ; 4,50] m** par
+  pas de 0,10. ⚠️ « 2,80 » = coefficient du seul cas par défaut (2,50 + 0,30), **pas une constante** ; l'ancienne
+  formule « × 2,90 » est **PÉRIMÉE** ; ⚠️ « 2,90 » = `FLOOR_HEIGHT_OBSTACLE_M`, constante DISTINCTE (immeuble voisin
+  sans hauteur BD TOPO).
+- **AUCUN ARRONDI nulle part** ; distances autoritatives en **Lambert-93 (EPSG:2154)**. **`ST_Force2D` jamais retiré.**
+- **Tolérances** : rattachement patrimoine **15 m** ; point d'origine hors emprise **0,30 m**.
+- **Certificat `SAVV-AAAA-NNNNNN`** (cible, compteur atomique ; la Gestion utilise `GES-AAAA-NNNNNN`).
+- **Requêtes spatiales** : un KNN `<->` ne lit jamais son point d'un CTE multi-référencé (inliner) ; tout nouvel
+  index vérifié par `EXPLAIN (ANALYZE, BUFFERS)` sur la requête réelle.
+- **`prefers-reduced-motion`** respecté ; **mobile-first** (iPhone portrait, cibles ≥ 44 px, rien au survol seul, aucun
+  débordement horizontal) ; **couleurs = jetons `--color-svv-*`**, une information jamais portée par la seule couleur.
+- **EXIGENCE ARCHITECTURE — PILOTAGE SANS CODE.** Toute variable de tout moteur de score est externalisée et éditable
+  au runtime : `config_scoring` (**39 colonnes**, singleton `id=1`, lu par `profilConfig.ts:57`, repli sûr
+  `PROFIL_DEGAGEMENT_DEFAUT`). Dans CHAQUE chantier : aucune constante de score en dur (exception actée :
+  `SCORE_LABEL` 75/60) ; toute nouvelle variable naît **en table de config** (type, défaut, plage / liste fermée) ;
+  statut **VIVE / VESTIGIALE / GARDE** documenté ; schéma et nommage pensés pour une interface lisible par un
+  non-développeur. Même esprit côté Location : paramètres versionnés en base, jamais en dur.
+- **Gestion / Location — règles d'Arno à ne pas réinterpréter :**
+  * **Un bâtiment de copropriété est identifié par (adresse, nom)** ; unicité (copropriété, adresse, nom)
+    (migrations 489-490) ; le menu d'un bien ne propose QUE les bâtiments de son adresse ; la règle lettres / chiffres
+    vaut pour toute la copropriété ; un bâtiment sans adresse = « adresse à préciser », jamais deviné.
+  * **Le n° de mandat (gestion ET transaction locative) et sa date sont portés par CHAQUE BIEN** (migration 492) ; un
+    même n° ne couvre que des biens d'**EXACTEMENT le même ensemble de propriétaires** (M. Martin seul ≠ M. et
+    Mme Martin) ; même propriétaire → fenêtre « Le mandat n° X est déjà utilisé pour <adresse> de ce propriétaire.
+    L'utiliser aussi pour ce bien ? » (Confirmer / Corriger) ; autre propriétaire → refus absolu, même pour un bien
+    sorti de gestion ; gestion et transaction contrôlées séparément ; une annexe rattachée lit le n° de son logement ;
+    propriétaires changés après coup → signalement orange, jamais bloquant. Tant qu'un bien n'a pas de n°, les
+    lecteurs replient sur l'ancien n° de la fiche propriétaire.
+  * **Un propriétaire n'a plus de statut « en gestion »** : seul le bien porte « Bien en gestion ? ».
+  * **« Créer un nouveau propriétaire » + bien = tout ou rien** : les fiches et le bien sont écrits dans la MÊME
+    transaction (`creerProprietairesEtBien`).
+  * **Historique inaltérable** (voir §2).
+- **Suivi CA (Transaction)** : la fin d'année de tout graphique = le total des tuiles / du Bilan, au centime ; contrôle
+  permanent `grapheGlobal.itest.ts` (à lancer seul, par son nom).
+
+**Hors périmètre permanent** sans demande explicite : moteur de score, verdict, golden, comportement du module Permis,
+`app/lib/email/imap.ts`, fichiers Gemini, `PASSATION.md`.
 
 ---
 
 ## 5. Résumé de l'historique
 
-### Le produit & le moteur (déjà en place)
-- **Pipeline d'analyse** `app/lib/db/pipeline.ts` : `construireEntree(params)` (DB/LiDAR/géométrie) →
-  `EntreeComplete` → `analyser(entree, profil)` (**PUR, aucune I/O**). Verdict géométrique + note
-  Couche 1 /80 (61 faisceaux) + cartouches descriptives (score-only).
-- **Gros back-office « Permis de construire »** (≈ 56 % du code) : veille Sitadel, relève IMAP des
-  réponses mairies, GED, rattachement de polygones BD TOPO, projection, registre d'altitudes, saisines
-  CADA, demandes (e-mail + téléservice). Dernier gros fil : **Rattachement** (migration 226).
-- **Auth/RGPD** : argon2id, anti-énumération, voie de secours, consentement historisé + effacement,
-  EXIF/GPS retirés des photos.
+### 5.1 Corpus figé à lire AVANT tout chantier données / verdict / certificat / permis
+**`docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`** (session des 25-26/07/2026). Ne pas redécouvrir :
+- **§1-2 Fraîcheur et contrôle mixte LiDAR/BD TOPO, deux régimes.** Régime 1 (polygones *modifiés*) : altitude de
+  toit remplie à 86 % (≥ 2023) → 95,2 % (≥ 2025), la règle marche. Régime 2 (bâtiments *réellement neufs*,
+  `date_creation ≥ 2024`) : altitude de toit **7,8 %**, `nombre_d_etages` **0,1 %** — cas le plus dangereux (immeuble
+  postérieur au vol LiDAR). Remplissage **non monotone** → brancher sur la **présence du champ**, jamais un seuil de
+  date. Décision : en Régime 2, ne pas substituer une valeur plus faible au LiDAR → **certificat « à revérifier »**.
+- **§3 Sources externes de hauteur** : PLU = borne réglementaire ; BDNB = pivot, pas mesure ; DPE neufs, RNB, OSM.
+- **§4 Permis = recours d'ARBITRAGE.** Sitadel ne donne pas la hauteur. Dossier communicable par e-mail et sans frais
+  (CRPA L311-9 3°) si **délivré** ; délai 1 mois, silence = refus → CADA. **Interdit** : demande systématique ; 1-2
+  demandes/commune/an ; à visage découvert. **Automatiser le workflow, jamais la donnée** (extraction validée par un
+  humain).
+- **§5 Sitadel** : ≈ 28,6 constructions neuves/an sur 5 communes → ~10 alertes/an pour 1 000 certificats.
+- **§6 Conformité** : fond de carte du certificat conforme ; **trou** : attribution OSM/Esri désactivée à l'écran
+  (`MapContent.tsx`, `FaisceauMap.tsx`, `FaisceauMini.tsx`) ; pas de `LICENSE`/`NOTICE`.
+- **§7 Prochain gros chantier énoncé** : mise à jour continue des maps par les nouveaux permis (prérequis : index
+  `batiment.cleabs`, 2ᵉ édition BD TOPO historisée, `cleabs` de l'obstacle dans le snapshot).
 
-### Données (cf. `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md` — À LIRE avant tout chantier données/verdict/certificat/permis)
-Corpus figé les 25-26/07/2026 (ne rien redécouvrir) :
-- **Couverture LiDAR = 1 km² de test à Asnières (92) seulement.** Rien sur 75/93/78 ni le reste du 92.
-  `mns_bati_propre` VIDE. Aucun millésime LiDAR stocké. **BD TOPO ≈ mars 2026.** Aucune procédure de
-  réingestion. Extension LiDAR : 32 Mo/km² → Paris+92+93 ≈ 16 Go, complet ≈ 90 Go.
-- **Règle de contrôle mixte** : BD TOPO = **détecteur de changement**, jamais mesure du verdict.
-  **Deux régimes** : `altitude_maximale_toit` remplie à 86-95 % sur le bâti MODIFIÉ récent (Régime 1, la
-  règle marche) mais **~7-8 % sur le bâti NEUF** (Régime 2, la règle échoue — le cas le plus dangereux).
-  **Brancher la règle sur la PRÉSENCE DU CHAMP (`IS NOT NULL`), jamais sur un seuil de date.**
-  Décision Régime 2 : ne pas substituer une valeur plus faible → **MARQUER le certificat « à revérifier »**.
-- **Hiérarchie des hauteurs** : CERTIFIER = LiDAR seul ; BORNER = PLU ; TRIER = BD TOPO/DPE ; RELIER = RNB.
-  Permis = recours d'arbitrage, pas source de données.
-- **Conformité Etalab** : mentionner source + date de MàJ. Parcs/jardins : licence IPR à vérifier.
+### 5.2 Chantiers antérieurs (terminés)
+Moteur de scoring externalisé (`config_scoring`) · barème des familles patrimoine · couches LiDAR HD (MNT/MNS), BD
+TOPO, cadastre · module **Internaute** · **Banc de test** · **Curation** · **Analytics** · module **Permis** (veille,
+demandes CADA, relances, GED, liseuse, extraction assistée, rattachement, registre d'altitudes, parcelles) · audit de
+dette `docs/AUDIT_2026-09-21_diagnostic_code_et_dette.md` · mise à jour de la prod en une commande · golden rescellé
+deux fois.
 
-### Nuit du 21 au 22/09 — fin du lot « gains rapides » (poussé)
-- `4e58530` **M1 — autorisation fail-closed** : seul `role:'administrateur'` explicite donne l'admin ;
-  le raccourci voie de secours l'exige aussi. Validé manuellement par Arno avant commit. `2abf307` coche.
-- `bb8b6e8` **G4 — suppression de `/api/check-building`** (route publique morte, aucun appelant ; accord
-  d'Arno). `4947de1` coche. Résidu d'alors : « throttle des routes publiques » → **soldé le 22/09 (T8)**.
+### 5.3 Module GESTION (CRITERIMMO) — socle livré (sept.-oct.)
+Boîte mail façon Gmail (relève IMAP continue, ~56 000 mails, lu/non lu = Gmail seul, éditeur), **rattachement mail →
+bien** (la cible est toujours un BIEN), **historique inaltérable**, **événements** `GES-…` (frise, état calculé),
+**annuaire** (propriétaires, lots, locataires, syndics, copropriétés), mises à jour WIPPIMMO, **statut du bien** (403 :
+en gestion / ancienne gestion / location seule), **Drive** (sélecteur unique, arbre, rangement, « Base de données
+location seule » 404), **tâches**, journal append-only en base.
 
-### Journée du 22/09 — parcours public éprouvé sur iPhone via le tunnel (tout poussé)
-Deux diagnostics en lecture seule ont ouvert la journée : **l'analyse publique qui expirait** et **le QR
-du certificat qui n'ouvrait rien**. Résultats et correctifs :
-1. `eddf022` **attente de la base bornée** sur le seul chemin public (pool dédié, 503 propre). Le
-   diagnostic a prouvé que le calcul tient en **0,15 s à chaud / 0,69 s à froid** (réponse 2 Ko) et
-   qu'aucun plafond pg n'existait : **la défaillance était l'acheminement** (tunnel rapide cloudflared —
-   11 requêtes sans réponse sur 196, 7 reconnexions, 114 flux réinitialisés en 48 min).
-2. `375f77c` **trois messages d'erreur distincts** dans le parcours (429 saturé / 502-503-504-524-530
-   lien coupé / abandon à 60 s), au lieu d'un seul texte qui attribuait tout à la lenteur.
-3. `f3b2ac5` **refus des adresses temporaires dans un QR en production** + les 3 copies de `siteUrl()`
-   factorisées en un helper unique. Cause du QR mort : `SITE_URL` figée sur une ancienne IP locale du Mac,
-   devenue injoignable après renouvellement du bail DHCP.
-4. `87346c3` **documents de l'espace client servis par l'application** (fin de la redirection 302 vers
-   MinIO, injoignable hors du Mac) ; `0fa1dc8` inventorie les 4 autres livraisons par URL signée (T7).
-5. `1cbc327` **écran d'aperçu des 3 documents** avec boutons « Télécharger ce document » et « Retour »
-   (retour sur l'analyse d'où l'on vient, dépliée). Aperçu PDF par **réutilisation de
-   `app/verifier/PdfViewer.tsx`** (canvas PDF.js, build *legacy* choisi pour Safari iOS) — `<embed>` rend
-   mal un PDF sur iPhone. Téléchargement = même route avec `?telecharger=1` (`attachment`).
-6. `6fcbb86` **carte du certificat 8,4 s → ~4 s** : la cause n'était pas les tuiles en échec (8,1 et 8,8 s
-   mesurés avec ZÉRO échec) mais la **rafale de ~100 tuiles lancées d'un coup** — congestion
-   auto-infligée, médiane 1 236-1 460 ms par tuile contre 152-159 ms à **concurrence 8**. Les tuiles
-   « fautives » répondent HTTP 200 en isolé. Budget total 20 s ajouté.
-7. `f6dbb96` **PDF 996 → 360 Kio (−64 %)** : les images « en double » étaient des **masques alpha**
-   (`/SMask`) ; la carte, pourtant opaque, en portait 286 Kio d'inutile. Carte en JPEG q80 (aucune mise à
-   l'échelle : elle était déjà à 314 dpi), logos rééchantillonnés à 300 dpi. **Photo non touchée** (déjà
-   JPEG à 226 dpi). Texte extrait identique caractère pour caractère, 1 page avant/après.
-8. `0890df2` **limitation de cadence** (migration **227**, `config_cadence`) — solde le résidu de G4.
-   `c66005f`, `ff2e6db` : registre d'audit tenu à jour.
+### 5.4 Module LOCATION — socle livré (oct.)
+Nouveau locataire / dossier de location (honoraires au barème 392, GLI), **Outils de suivi** (Suivi du mois, Suivi
+annuel, variable des négociateurs, Résultat net, annuaire des apporteurs, paramètres versionnés), historique importé
+des fichiers « CA JBP » 2020-2026.
 
-### Après-midi du 22/09 — émission allégée et téléchargement des documents (tout poussé)
-9. `c5c01ed` **T5-bis — le mail d'émission part APRÈS la réponse** (`after()`, comme l'instrumentation
-   de `/api/analyse`). Mesure sur 8 émissions réelles : **2,83 à 3,74 s** (médiane ~3,10 s) retirés de
-   l'attente. Traçabilité inchangée (statut `'envoye'`, `envoye_le`, `derniere_erreur` écrits par la même
-   fonction, après la réponse) ; garde « jamais un 2e mail » conservée avant la réponse. `cd7b1b2` coche.
-10. `2db2cb7` **téléchargement sans attribut `download` + erreurs non mises en cache** (correctifs A et C
-    du diagnostic « 200 puis 401 sur la même URL »). **`SameSite` était hors de cause** : le cookie
-    internaute est `Lax`, pas `strict`. Constat mesuré : un 401 de cette route rend **29 octets de JSON**,
-    enregistrables sous un nom `.png` — d'où `Cache-Control: private, no-store` sur TOUTES ses réponses
-    d'erreur (401, 404, 503, et aussi 400 et 409). `c0c1bb0` coche.
-11. `3d6f159` **le bouton « Télécharger ce document » ouvre la FEUILLE DE PARTAGE native** quand
-    l'appareil la propose (décision d'Arno) ; sinon il télécharge comme avant. A et C n'avaient pas suffi :
-    même sans `download`, Safari iOS AFFICHAIT le PDF et rejouait la requête sans session. Désormais **le
-    document est récupéré UNE SEULE FOIS à l'ouverture de l'aperçu** (`fetch` same-origin, donc avec le
-    cookie) et devient un `File` ; ce même fichier sert à l'aperçu ET au bouton → **aucune requête réseau
-    au clic**, la seconde requête ne peut plus exister. `navigator.share` est appelé **dans l'élan direct
-    du geste, sans aucun `await` avant** (exigence Safari). **Testé en réel sur iPhone ET sur Android.**
-    `96d2253` coche ; **le plan B (jeton de téléchargement à usage unique) est ABANDONNÉ** — sans requête
-    au clic, il n'y a plus rien à authentifier.
+### 5.5 Module TRANSACTION — livré du 26/10 au 01/11 (≈ 190 commits, lots C → DZ, LS, LO, LG, GE, UI, CG1-12)
+Ventes / compromis de CRITERIMMO et MACJ, répartitions, inter-cabinet, écrans « Le mois » / « L'année », Gestion,
+Suivi CA › Location, FUSION Location & Gestion, **CA global** (tuiles, Bilan, graphique filtrable, contrôle permanent
+`grapheGlobal.itest.ts`, zéros masqués, zone +15 %).
+
+### 5.6 Du 02/11 au 18/11/2026 — ≈ 276 commits (feat/fix location ≈ 95, gestion ≈ 83, mon-espace ≈ 48, transaction ≈ 21)
+Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `prod:mettre-a-jour -- --essai`) :
+- **Mon espace** (448-459, 462, 471-472) : droit d'accès, n° de mandat de vente obligatoire et unique (449),
+  apporteurs, **coûts saisis et validation** (451-452), fonctions datées, permissions des tuiles (454), particulier /
+  professionnel, compromis commun, négociateur ↔ compte, taux de commission obligatoire, CA Gestion saisi,
+  rémunérations des associés ; onglets et graphiques repris du Suivi CA.
+- **Location** : mails de préavis et de sortie (457, 460, destinataires configurables), copropriété du lot (461),
+  **pré-visite** (464, 474 : compte rendu en page, vocaux, dictée, envois automatiques par minuterie), textes de mail
+  modifiables (466), validation de sortie et EDL (467-468), **préavis de TEST** réservé aux administrateurs (473), AG de
+  copropriété et ses PV (475, 481, 483), nature d'adresse (480, 485, 486 : « Adresses uniformisées »).
+- **Gestion** : nouveautés d'événement (456), traduction Monga (463), tâches (invitations de contacts 465, RDV 469-470),
+  **fiche Copropriété** séparée du syndic (476 : registre des bâtiments ; 477), **digicodes unifiés** (478-479, 482,
+  484, 487-488 : un composant unique fiche Copropriété / « Nouveau bien » / « Modifier le bien » / fiche du bien Gestion,
+  « Modifier » daté avec mails aux locataires et à la Gestion — A « Prévenir la Gestion seulement » = ALERTE, B
+  « Prévenir la Gestion et les locataires » = INFORMATION ou ALERTE avec la raison —, « Corriger une erreur »,
+  « Enregistré le … par … », « − » qui retire un bâtiment sans code), **syndic** (un seul bouton « Choisir / créer le
+  syndic », recherche d'abord partout, « Retirer le syndic » avec confirmation).
+- **Adresses multiples d'une copropriété (17/11, lots 1-5)** : `1553eae4` preuves (détacher / remplacer un syndic garde
+  toutes les adresses) · `0e988896` migration **489** (`adresse_cle` sur chaque bâtiment) + rapport à blanc ·
+  `ab4230a4` migration **490** (unicité (copropriété, adresse, nom)), écritures par adresse, reprise réelle en recette
+  (rien effacé ; script `batiments-par-adresse-reprise.ts`) · `4c1fd005` écrans (bâtiments sous leur adresse, menu
+  limité, « Bâtiments de l'adresse … », « Retirer le bâtiment A du … ? », bloc « ADRESSE À PRÉCISER ») · `fa99fa48`
+  migration **491** (refus mémorisés) : « Rattacher à la copropriété <nom> — <adresses> ? » à la saisie de l'adresse
+  d'un bien, « Non, c'est une autre copropriété » mémorisé, le rattachement crée le bloc digicode vide. Rapport à blanc
+  sur une copie de la prod (à lancer par Arno) :
+  `DATABASE_URL='<copie>' NODE_OPTIONS=--conditions=react-server npx tsx app/scripts/batiments-par-adresse.ts --rapport=.captures/copropriete/`
+- **Mandat par bien (18/11, lots 1-4)** : `4c3fae5b` migration **492** (n°, forme normalisée, date ×2 sur
+  `gestion_annuaire_lot`) + règle pure `mandatParBien.ts` / `mandatParBienRepo.ts` (verrou par n°) · `c4f23d55`
+  écritures (« Nouveau bien », geste de statut, « Modifier le bien ») + fenêtre Confirmer / Corriger + n° modifiable
+  sur le bien + signalement · `4436dd2f` lecteurs (résumé du bien, fiche propriétaire en LECTURE SEULE « N° de mandat de
+  ses biens », liste, mails ADHOC & MONGA et portefeuille, suivi des annexes) + **script de reprise À BLANC**
+  `app/scripts/mandats-par-bien-reprise.ts` (`--reel` jamais lancé ; servira sur une copie de la prod) · `c22b71f7`
+  page « Créer un nouveau propriétaire » (question « Propriétaire(s) en gestion ? » retirée, « Souhaitez-vous créer un
+  bien immédiatement ? », formulaire « Nouveau bien » complet dessous, `creer-proprietaires-et-bien` tout ou rien) ·
+  `e751d50f` retrait de l'ancienne page `/admin/location/nouveau` (404). Rapport à blanc : la base du Mac et la recette
+  n'avaient AUCUN n° de mandat (rien à reprendre ici). Commande sur une copie de la prod (lecture seule) :
+  `PGOPTIONS='-c default_transaction_read_only=on' psql "<copie>" -X -f .captures/mandats/rapport-a-blanc-mandats.sql`
+- **Quatre corrections (18/11)** : `51a89809` « Digicode » (au lieu de « facultatif » / « code » / « nouveau code »)
+  dans les quatre champs du composant unique, intitulé « Nouveau digicode » dans « Modifier » · `b23e33dc`
+  « Bâtiment et digicodes enregistrés. » seulement si un bâtiment ou un digicode a RÉELLEMENT été écrit (compteur dans
+  `ecrireDigicodesDuBien`), sinon aucun message · `779a0f63` « Non (Sauvegarde du propriétaire) » : la légende dans le
+  bouton, le clic enregistre (mêmes contrôles ; manque → rouge, pas de modale ; refus du serveur → modale rouge comme
+  avant), modale « Propriétaire enregistré » + « Le nouveau propriétaire Prénom NOM est bien enregistré. » + « Ouvrir la
+  fiche du propriétaire » (les gestes d'avant gardés en second), aucun doublon (double clic, second « Non », « Oui »
+  après « Non ») · `1f3a7e7b` rangée « Bâtiment / cage d'escalier — Étage — N° de porte » alignée en haut, ses légendes
+  dans une ligne pleine largeur sous la rangée (au téléphone, juste sous le champ Bâtiment) ; les autres rangées
+  vérifiées, aucune à corriger.
+
+### 5.7 Pièges payés (à ne pas repayer)
+1. **`withTransaction` COMMITE au retour normal** : LIRE (`FOR UPDATE`) → refuser → écrire ; un refus après une écriture
+   doit être LEVÉ.
+2. **Un repli DANS une transaction ne s'exécute jamais** : sondes de schéma hors transaction.
+3. **`pg` rend les `bigint` en chaîne** : `::int` ou `Number()`.
+4. **Un backtick dans un commentaire SQL ou CSS en gabarit** casse le littéral (500).
+5. **Classe Tailwind collée à `${}`** n'est plus générée : une espace avant.
+6. **Tester le SQL sur une base jetable** ou en transaction annulée ; les tests unitaires simulent `query`.
+7. **Migration avant le code** quand le serveur de dev tourne et qu'Arno est dans l'app.
+8. **Supprimer / renommer une route Next** casse `tsc` par le cache `.next/types` → `npx next typegen` (sans rien supprimer).
+9. **Un test d'écran qui re-rend le même composant garde son état** : démonter avant de changer les props.
+10. **Playwright** : les pages Gestion ne sont jamais « networkidle » (attendre `load` + l'élément) ; un bouton dans la
+    barre collante du bas se déclenche par `dispatchEvent('click')` au téléphone ; filtrer la sortie d'un script peut
+    cacher qu'une écriture a bien eu lieu (relire la base).
+11. **Une fenêtre (ModaleIssue) qui se ferme rend le focus** à ce qui l'avait ouverte : reposer le focus après un délai.
+12. **`.loc-ample .loc-grille{align-items:end}`** : une légende sous un champ décale ses voisins ; une rangée concernée
+    s'aligne en haut et reçoit ses légendes dans une ligne pleine largeur.
 
 ---
 
 ## 6. État courant & prochaine action
 
-### Dépôt
-- Branche `main`. Dernier commit de code : `3d6f159` ; dernier commit de doc : celui-ci.
-- **Migrations appliquées en local jusqu'à la 227 incluse.**
-- ⚠️ **Arno pousse lui-même** : vérifier `git status` en début de session pour savoir ce qui reste local.
+**Dépôt (mesuré le 18/11/2026, 11h13) :**
+- Branche **`main`**, **HEAD = `1f3a7e7b`** (alignement de la rangée Bâtiment). **89 commits d'avance sur
+  `origin/main`** : rien n'est poussé depuis le début des lots copropriété / mandat — **c'est Arno qui pousse**.
+- **Working tree** : seul **`PASSATION.md`** modifié (ne pas committer). Non suivis, laissés tels quels :
+  `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`, `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`,
+  `test-results/`. Ne pas les committer ni les supprimer sans Arno.
+- **Contrôles** : `npm test` VERT (1 790 fichiers, 27 096 tests, 21 ignorés) ; `tsc` 0 ; preuve curl d'Arno : 200, aucune
+  erreur de construction.
+- **Migrations** : dernière = **`492_location_mandat_par_bien.sql`** ; **489, 490, 491, 492 appliquées à la RECETTE
+  seulement** (deux passes sans erreur). La **361** en attente devra prendre la **493**.
+- **Données d'essai en recette** : copropriété « _TEST DEUX ADRESSES » (1, 3, 7 rue _TEST Deux Adresses, parcelle et
+  adresses BAN fictives, bâtiments A/B au 1 rue, A/B/C au 3 rue ; « Non » mémorisé pour le 5 rue) ; propriétaires
+  « _TEST MANDAT » 323-325, 327, « _TEST NON SAUVEGARDE PROPRIETAIRE » 328 ; biens 453, 454 (TM 41), 455 (MT 50), 456
+  (« _TEST LEGENDE BATIMENT RETIRE », parking au 3 rue).
+- **Captures livrées** : `.captures/copropriete/`, `.captures/mandats/`, `.captures/digicodes/`,
+  `.captures/nouveau-proprietaire/`, `.captures/alignement/`.
+- **Serveurs lancés en arrière-plan sur le Mac** : la recette (`npm run recette` avec `RECETTE_ENVOI_REEL_VERS`) et un
+  tunnel `cloudflared` (logs dans `.captures/recette-interception/`).
 
-### Redémarrer la machine de développement (procédure vécue ce matin)
-Depuis `/Users/macbookprom4arnaud/sansvisavis/app`. **Postgres redémarre seul** (service brew
-`postgresql@17`). **MinIO NE redémarre PAS seul.** Trois fenêtres de terminal dédiées :
+**Points ouverts / à valider par Arno :**
+- Modale « Propriétaire enregistré » : les gestes d'avant (« Ajouter un bien à ce propriétaire », « Créer un autre
+  propriétaire », « Fermer ») et le téléphone / e-mail ont été gardés en second ; à retirer s'il ne veut que le bouton
+  « Ouvrir la fiche du propriétaire ».
+- Le bouton « Enregistrer le propriétaire (sans bien) » est resté (même enregistrement que « Non »).
+- Avant toute mise en prod de 489-492 : passer les deux rapports à blanc (bâtiments par adresse, mandats) sur une copie
+  de la production ; la reprise des mandats (`--reel`) n'est lancée qu'après validation d'Arno.
+- Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
-```
-# fenêtre MinIO
-./.minio/minio server .minio/data --address :9000
+### 🔴 Corrections de PRODUCTION du 20/11/2026 (accord écrit d'Arno, données seulement, aucune règle changée)
+Deux sorties recopiées de WIPPIMMO (import du 20/10/2026) annulées en production, locataires toujours dans les lieux.
+Méthode : SQL en UNE transaction par `ssh svav-prod` + psql (essai en lecture seule d'abord, puis gardes, écriture,
+vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais le code de la recette contre la prod.
+- **INEO RAIL chez GBS Services** (fiche 250, occupation 262, bail 211, bien 133, 18 rue Pierre Curie, Puteaux) :
+  sortie du 02/11/2026 → vide, bail en cours ; journal **n° 52958** « location_sortie_annulee ». Fichiers :
+  `.captures/locataire-ineo/` (essai-prod, applique-prod, rapports ; le script inutilisé `locataire-annuler-sortie.ts`
+  y est rangé, non committé).
+- **EMMAIMA Fathi** (fiche 191, occupation 202, bail 490, bien 321, 4 Square Léon Blum, Puteaux) : remise occupante
+  « de force », sortie du 30/11/2026 → vide, bail en cours ; journal **n° 52959**. Fichiers : `.captures/locataire-fathi/`.
+- Le commentaire de journal reprend celui de l'application (« … occupation(s) N de nouveau en cours ») : la mise à jour
+  WIPPIMMO (`importer.ts` / `calculerMiseAJour`) ne remettra pas ces dates (conflit listé). Retirer les dates dans WIPPIMMO.
+- Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
-# fenêtre serveur
-set -a && source .env && set +a && npm run dev
+**Commits EN ATTENTE DE MISE EN PRODUCTION (recette seulement, non poussés) :**
+- `609b7aa2` — une sortie annulée dans l'application n'est plus remise par l'import (les deux chemins d'import).
+- `60570ec7` — retour à la règle de statut d'avant `8ecd8369` (une date de sortie, même à venir = ancien locataire) ;
+  `8ecd8369` (« sortie prévue le … ») est donc annulé, seul son déplacement neutre d'`annulerSortie` reste.
+- `f93bf189` — règle d'Arno : un préavis validé sans sortie validée reste « en préavis » ; l'import n'écrit plus la
+  sortie d'une occupation en préavis.
+- 🔴 **NE PAS lancer `npm run gestion:annuaire:importer` sur la production avant leur mise en production** : l'ancien
+  import réécrit la sortie d'un bail importé et défairait les deux corrections ci-dessus.
+- Données d'essai gardées en recette : « _TEST PREAVIS VALIDE SORTIE NON VALIDEE » (locataire 539, bien 460,
+  occupation 566, préavis 16) ; captures `.captures/regle-preavis/`.
 
-# fenêtre tunnel
-cloudflared tunnel --url http://localhost:3000
-```
-
-L'adresse `*.trycloudflare.com` rendue par la 3ᵉ fenêtre **CHANGE à chaque lancement**.
-
-### ⚠️ Piège `SITE_URL` (vécu 3 fois le 22/09)
-Pour qu'un **certificat d'essai** ait un QR qui s'ouvre depuis l'iPhone, `SITE_URL` doit valoir
-**l'adresse du tunnel EN COURS**, **puis le serveur doit être REDÉMARRÉ** (Ctrl+C dans la fenêtre
-serveur, puis la commande ci-dessus). Le « Reload env » automatique **ne suffit pas** : la valeur
-exportée dans la fenêtre au démarrage reste prioritaire. Chaque relance du tunnel rend **morts** les QR
-émis avant — normal pour des essais ; la page reste consultable via
-`<adresse du tunnel en cours>/verifier?ref=<référence>&doc=visuel`.
-**NE JAMAIS écrire l'adresse du tunnel du jour comme une valeur durable** (ni en dur, ni en exemple).
-
-### Décisions prises le 22/09 (à respecter, ne pas rouvrir sans Arno)
-- **Arno** — l'adresse publique **`authentification.sansvisavis.com`** et le **tunnel Cloudflare nommé**
-  se feront **LORS DU PASSAGE SUR UN VRAI SERVEUR, pas avant**. (Item T3 du registre ; le domaine porte
-  aussi la messagerie Google Workspace → recon DNS préalable.)
-- **Claude** — le **jeton de vérification passera derrière un fragment `#`** dans l'URL du QR (un
-  fragment n'est jamais transmis au serveur, donc jamais journalisé). **À faire AVANT le premier
-  certificat réel** (item T4 : aujourd'hui `?j=…` se retrouve en clair dans tout journal d'accès, ce qui
-  contredit la règle écrite « le jeton n'apparaît dans AUCUN log »).
-- **Claude** — les **liens des alertes e-mail (T7)** mèneront à la **page du permis dans le back-office**
-  (session admin), **plus jamais à une URL signée** — avec la mise en production.
-- **Claude** — **P1 (batcher les 61 faisceaux) DÉPRIORITISÉ** : le calcul mesuré ne prend que 0,15 à
-  0,7 s. L'estimation « > 3 s » du 21/09 était structurelle et pessimiste.
-
-### Décision d'Arno du 22/09 — l'émission garde ses ~3 s (NE PAS reproposer)
-On **NE sort PAS** la fabrication des documents (carte, PDF) de la réponse d'émission, alors que ce serait
-techniquement possible (répondre dès la frappe du certificat, fabriquer derrière). **Arno a tranché** :
-l'internaute attend ~3 s **mais trouve ses documents PRÊTS immédiatement**, sans jamais rencontrer d'état
-« en préparation ». ⚠️ **C'est un arbitrage produit, pas une dette** : classé ⏸️ *écarté* au registre
-(**T15**) — ne pas le réinscrire comme « à faire ».
-
-### Ouverts au registre (`docs/AUDIT_2026-09-21_diagnostic_code_et_dette.md`)
-- **Finitions du certificat** (relevées par Claude le 22/09, non traitées) : **chevauchement du pied de
-  page à côté du QR** ; **espace parasite** dans « Denfert -Rochereau » ; **lettres « fi » perdues** dans le
-  texte extractible du PDF (ligature non mappée à l'extraction — l'affichage, lui, est correct).
-  ✅ **Confirmés par Arno, à NE PAS « corriger »** : le siège imprimé **« 191-195 avenue Charles de Gaulle »
-  est correct** ; les **tirets « — »** des blocs *Qualité de vue* et *Nuisances* **restent en l'état**.
-- **T16** 📌 — une émission à **14,5 s** le 22/09 à 16:14 (`SAVV-2026-000029`), **sans défaut de code**
-  (code à jour prouvé par le poids du PDF déposé ; le mail était bien hors de la réponse). Carte et SMTP
-  ont ralenti ENSEMBLE → **hypothèse : dégradation passagère du réseau du Mac**. Rien à corriger ; à
-  rouvrir seulement si le cas se répète sur un réseau sain.
-- **T9** 🟠 — **`CADENCE_ENTETE_IP` à poser avec le tunnel nommé.** Next 16 n'expose plus l'adresse du
-  socket ; la confiance est donc **déclarée**, jamais déduite d'un en-tête. **D'ici là, tous les
-  visiteurs sans compte partagent un même compteur** (sûr, mais grossier à forte affluence). Les
-  titulaires de compte sont comptés par compte et ne sont pas concernés.
-- **T10** 🟠 — **confirmation d'adresse e-mail à l'inscription : choix produit d'Arno, à venir.**
-  Aujourd'hui aucun envoi à la création ; atténué par le jeton-capacité qui impose un vrai parcours.
-- **T11** 🟠 — **Cloudflare Turnstile avec la mise en production** (la cadence borne le rythme mais ne
-  distingue pas un robot patient d'un humain).
-- **Écran de réglage des seuils de cadence : absent** — édition en SQL sur `config_cadence` pour
-  l'instant (l'écran Réglages existant appartient au module permis/veille, domaine différent).
-- **Doublons `SMTP_PERSONNE_USER` / `_PORT` / `_PASS`** dans le `.env` (définis 3 fois chacun, seule la
-  dernière occurrence compte) — **à nettoyer par Arno** (item G5).
-- **Icône `apple-touch-icon` absente.**
-- Autres items inchangés : G5, P1, P2, P4, M2-M5, F1-F5, T3, T4, T7.
-
-### LA prochaine action immédiate
-**AUCUNE en cours.** Le fil ouvert ce matin (parcours public éprouvé sur téléphone) est allé à son terme :
-analyse, messages d'erreur, QR, livraison et aperçu des documents, émission, cadence — tout est livré et
-poussé. **Demander à Arno ce qu'il veut faire ensuite** plutôt que de choisir à sa place.
-
-Les candidats, tous inscrits au registre (§2 du document d'audit) et AUCUN engagé :
-- **T4** 🔴 le **jeton de vérification voyage dans l'URL du QR** (`?j=…`) et se retrouve en clair dans tout
-  journal d'accès → décision déjà prise (fragment `#`), **à faire AVANT le premier certificat réel** ;
-- **finitions du certificat** ci-dessus (pied de page/QR, espace parasite, ligature « fi ») ;
-- **T3 / T9 / T11** : tunnel nommé + `authentification.sansvisavis.com`, `CADENCE_ENTETE_IP`, Turnstile —
-  tous trois **au passage sur un vrai serveur**, décision d'Arno ;
-- **T10** confirmation d'e-mail à l'inscription — choix produit d'Arno ;
-- **G5** nettoyage du `.env` (doublons `SMTP_PERSONNE_*`) — à faire par Arno.
+### ⏭️ PROCHAINE ACTION IMMÉDIATE
+Aucun lot en cours. **Attendre le retour d'Arno en recette** sur les quatre corrections (`51a89809`, `b23e33dc`,
+`779a0f63`, `1f3a7e7b`) et sur les deux points de la modale ci-dessus, puis produire le 🔵 PROMPT du lot suivant qu'il
+rédige. Rien à pousser ni à appliquer côté agent : Arno pousse et met la prod à jour lui-même.
 
 ---
 
-## 7. Format des livrables (à rappeler au nouveau Claude)
+## 7. Format des livrables (à respecter systématiquement)
 
-Pour chaque instruction technique, produire un **bloc copiable** précédé d'un titre sans équivoque avec
-une pastille emoji :
+Pour **chaque** instruction technique, un **bloc copiable** précédé d'un titre sans équivoque, avec sa pastille :
 
-- 🔵 **PROMPT** — prompt de travail en relais manuel : l'agent Claude Code produit un diff, teste,
-  committe. **TOUJOURS préciser DANS QUEL TERMINAL** l'envoyer.
-- 🔴 **PROMPT AUTO** — prompt qui **DÉCLENCHE L'AUTOMATISATION** (`/svav-build` ou tout run autonome
-  multi-subagents). Pastille rouge = vigilance accrue, contrôle a posteriori via le rapport final.
-- 🟢 **COMMIT** — message de commit, si Arno committe lui-même depuis VS Code (Source Control).
+- 🔵 **PROMPT** — prompt de travail en relais manuel pour l'agent Claude Code dans VS Code (« vibe coding ») : l'agent
+  produit le lot, vérifie, puis — **pratique actuelle** — committe lui-même les seuls fichiers du lot, SANS
+  `Co-Authored-By`, SANS push ; Arno relit et **pousse à la main**. **TOUJOURS préciser DANS QUEL TERMINAL** l'envoyer.
+- 🔴 **PROMPT AUTO** — prompt qui **déclenche l'automatisation** (`/svav-build` ou tout run autonome multi-subagents).
+  Vigilance accrue, contrôle a posteriori via le rapport final (Phase 7) ; commit toujours manuel / jamais poussé par
+  l'agent.
+- 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control), **seulement** quand
+  Arno committe lui-même (si un prompt dit à l'agent de ne pas committer).
+- ⚪ Les **commandes Terminal pour Arno** (preuve curl, migration à appliquer, mise à jour de la prod) vont dans leur
+  propre bloc titré.
 
-**Règles** : tout prompt lançant un run autonome porte 🔴, jamais 🔵. Ne JAMAIS mélanger un prompt et un
-commit dans le même bloc. **L'agent committe lui-même** (`git add` des seuls fichiers du lot, aucune
-ligne `Co-Authored-By`) et **ne pousse jamais** — **Arno pousse depuis l'application Terminal de macOS**.
-
----
-
-Arno : colle ce bloc au début de ta nouvelle conversation.
+Règles : tout prompt lançant un run autonome porte 🔴 PROMPT AUTO, jamais 🔵. **Ne JAMAIS mélanger un prompt et un
+commit dans le même bloc.** Un prompt par bloc. Dans chaque prompt, reprendre les **règles permanentes** d'Arno (git
+interdit, aucune action sur la production, envois réels vers a.jorel@ seulement, aucun brouillon réel, « Documents
+clients scannés » jamais touché, aucun secret affiché, captures dans le seul dossier nommé, un commit par lot / point).
