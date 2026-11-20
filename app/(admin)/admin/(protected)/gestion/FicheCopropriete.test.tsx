@@ -428,3 +428,43 @@ describe('l’historique du syndic', () => {
     expect(document.querySelector('[data-fcp-historique-syndic]')).toBeNull();
   });
 });
+
+/** 🔴🔴 Arno (20/11/2026, « Adresse officielle BAN », lot 4) — le libellé officiel, les « Écritures d'origine », les adresses officielles différentes. */
+describe('l’adresse officielle (BAN) sur la fiche', () => {
+  const ADR = (libelle: string, principale = false) => ({ cle: libelle.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(), libelle, codePostal: '92400', commune: 'Courbevoie', principale });
+  const G = (banId: string, court: string, cles: string[]) => ({ banId, court, libelle: `${court}, 92400 Courbevoie`, cles });
+  it('le 54 : l’adresse officielle en adresse principale ; les variantes ne sont plus des adresses, mais des « Écritures d’origine », avec leur « × » ; Valider les renvoie TOUTES', async () => {
+    const adresses = [ADR('54 avenue puvis de Chavannes, 92400, Courbevoie', true), ADR('54 Avneue Puvis de Chavannes'), ADR('54 Puvis de Chavannes')];
+    const p54 = G('92026_7184_00054', '54 Avenue Puvis De Chavannes', adresses.map((a) => a.cle));
+    lu = { fiche: FICHE({ libelle: '54 avenue puvis de Chavannes, 92400, Courbevoie', cle: adresses[0].cle, codePostal: '92400', commune: 'Courbevoie', adresses }), coproprieteDuBien: true,
+      officielle: { principale: p54, adresses: [p54], aVerifier: false, ecritures: [
+        { ecriture: '54 avenue du Puvis de Chavannes / AUGIER', cle: 'x', biens: 29, statut: 'certain', banId: p54.banId },
+        { ecriture: '54 Avneue Puvis de Chavannes', cle: adresses[1].cle, biens: 1, statut: 'certain', banId: p54.banId }] } };
+    await ouvrir();
+    expect($('[data-fcp-adresse="principale"]').textContent).toBe('54 Avenue Puvis De Chavannes, 92400 Courbevoie — adresse principale');
+    // le titre : le libellé officiel quand la copropriété n'a pas de nom donné
+    expect($('[data-fcp-titre]').textContent).toBe('Copropriété · 54 Avenue Puvis De Chavannes');
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(0);
+    const ec = $('[data-fcp-ecritures]');
+    expect([ec.tagName, ec.querySelector('summary')!.textContent]).toEqual(['DETAILS', 'Écritures d’origine (2)']);
+    expect([...ec.querySelectorAll('[data-fcp-ecriture]')].map((x) => x.textContent)).toEqual(['« 54 avenue du Puvis de Chavannes / AUGIER » — 29 biens', '« 54 Avneue Puvis de Chavannes » — 1 bien']);
+    // 🔴 aucune fonctionnalité retirée : chaque adresse enregistrée garde son « × », et part toujours avec « Valider »
+    expect([...ec.querySelectorAll('[data-fcp-adresse="ecriture"] [data-fcp-retirer]')]).toHaveLength(2);
+    await clic('[data-fcp-valider]');
+    expect((posts[0].adresses as { libelle: string }[]).map((a) => a.libelle)).toEqual(['54 Avneue Puvis de Chavannes', '54 Puvis de Chavannes']);
+  });
+  it('le 80 : une ligne par adresse officielle différente (43 avenue Marceau, 74 rue de Normandie), libellé officiel, « × » gardé ; sans modèle : comme avant', async () => {
+    const adresses = [ADR('80 rue de Normandie', true), ADR('43 Avenue Marceau'), ADR('74 Rue De Normandie')];
+    const g = [G('92026_6670_00080', '80 Rue De Normandie', [adresses[0].cle]), G('92026_6120_00043', '43 Avenue Marceau', [adresses[1].cle]), G('92026_6670_00074', '74 Rue De Normandie', [adresses[2].cle])];
+    lu = { fiche: FICHE({ libelle: '80 rue de Normandie', cle: adresses[0].cle, codePostal: '92400', commune: 'Courbevoie', adresses }), coproprieteDuBien: true,
+      officielle: { principale: g[0], adresses: g, aVerifier: true, ecritures: [{ ecriture: '28-32 avenue Marceau', cle: 'y', biens: 1, statut: 'a_verifier', banId: null }] } };
+    await ouvrir();
+    expect([...document.querySelectorAll('[data-fcp-adresse="secondaire"]')].map((x) => x.firstChild!.textContent)).toEqual(['43 Avenue Marceau, 92400 Courbevoie', '74 Rue De Normandie, 92400 Courbevoie']);
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"] [data-fcp-retirer]')).toHaveLength(2);
+    expect($('[data-fcp-ecriture-a-verifier]').textContent).toBe(' · à vérifier');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    lu = { fiche: FICHE(), coproprieteDuBien: true };
+    await ouvrir();
+    expect([$('[data-fcp-adresse="principale"]').textContent, document.querySelector('[data-fcp-ecritures]')]).toEqual(['Résidence Les Tilleuls, 75011 Paris — adresse principale', null]);
+  });
+});

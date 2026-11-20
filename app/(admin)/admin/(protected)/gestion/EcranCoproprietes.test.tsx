@@ -154,3 +154,25 @@ describe('regrouper des fiches en une copropriété', () => {
     expect(container.querySelector('[data-ecp-message]')!.textContent).toBe('Dégroupé.');
   });
 });
+
+/** 🔴🔴 Arno (20/11/2026, lot 4) — la liste : le libellé officiel, les adresses officielles, la pastille « à vérifier ». */
+describe('l’adresse officielle dans la liste', () => {
+  it('posée sur la ligne sans nom propre ; un nom donné reste ; « à vérifier » quand le rapprochement n’est pas certain', async () => {
+    const LIGNES2 = [{ ...LIGNES[0], nom: 'Les Tilleuls' }, { ...LIGNES[1], nom: '3 impasse Neuve' }];
+    global.fetch = vi.fn(async (u: string | URL | Request) => {
+      const s = String(u);
+      if (s.startsWith('/api/admin/gestion/coproprietes/liste')) return json({ etat: 'ok', data: { lignes: LIGNES2, total: 2 } });
+      if (s.startsWith('/api/admin/gestion/coproprietes/officielles')) return json({ etat: 'ok', data: { lignes: {
+        'residence les tilleuls': { principale: '12 Rue des Lilas, 75011 Paris', court: '12 Rue des Lilas', adresses: ['12 Rue des Lilas, 75011 Paris'], aVerifier: false },
+        '3 impasse neuve': { principale: '3 Impasse Neuve, 75011 Paris', court: '3 Impasse Neuve', adresses: ['3 Impasse Neuve, 75011 Paris'], aVerifier: true } } } });
+      return json({ etat: 'sans_schema' });
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranCoproprietes, {})); }); await attendre();
+    const [a, b] = [...container.querySelectorAll('[data-ecp-ligne]')];
+    expect(a.querySelector('.ecp-nom')!.textContent).toBe('Les Tilleuls');
+    expect(a.querySelector('[data-ecp-adresses]')!.textContent).toBe('12 Rue des Lilas, 75011 Paris');
+    expect(a.querySelector('[data-ecp-a-verifier]')).toBeNull();
+    expect(b.querySelector('[data-ecp-officielle]')!.textContent).toMatch(/^3 Impasse Neuve/);
+    expect(b.querySelector('[data-ecp-a-verifier]')!.textContent).toBe(' · à vérifier');
+  });
+});

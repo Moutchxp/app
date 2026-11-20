@@ -4,6 +4,7 @@ import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { query } from '../../../../../../lib/db/client';
 import { colonneExisteMemo } from '../../../../../../lib/location/sondeLocation';
 import { ficheCopropriete } from '../../../../../../lib/gestion/coproprieteRepo';
+import { officielleDeLaCopropriete } from '../../../../../../lib/adresse/officielleCopro';
 import { apercuChangement, planifierEtPrevenir } from '../../../../../../lib/gestion/digicodesEnvoiRepo';
 import { enregistrerCopropriete, gesteDeLAction, gesteDigicodeCopro, preciserAdresseBatiment, propositionsParcelle, reponseGesteDigicode } from '../../../../../../lib/gestion/coproprieteEcritureRepo';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
@@ -40,7 +41,10 @@ export async function GET(request: Request): Promise<Response> {
       if (immeuble === '') immeuble = immeubleDuBien(rows[0]);
     }
     if (cleImmeuble(immeuble) === '') return Response.json({ etat: 'ok', data: { fiche: null, coproprieteDuBien } }, { headers: ENTETES });
-    return Response.json({ etat: 'ok', data: { fiche: await ficheCopropriete(immeuble), coproprieteDuBien } }, { headers: ENTETES });
+    const fiche = await ficheCopropriete(immeuble);
+    // 🔴 (Arno, 20/11/2026, lot 4) l'adresse officielle (BAN), calculée en direct par le module unique — rien n'est écrit ; `null` : l'affichage d'avant
+    const officielle = fiche === null ? null : await officielleDeLaCopropriete(fiche.adresses).catch((e: unknown) => { console.error('[gestion/coproprietes/fiche] adresse officielle', e); return null; });
+    return Response.json({ etat: 'ok', data: { fiche, coproprieteDuBien, officielle } }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/coproprietes/fiche] lecture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });

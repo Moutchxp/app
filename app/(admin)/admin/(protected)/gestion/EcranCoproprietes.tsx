@@ -26,6 +26,10 @@ interface Proposition { cles: string[]; principale: string; signature: string; f
 interface Regroupement { id: number; cle: string; principale: string; regroupees: string[]; le: string; par: string }
 interface Regroupements { propositions: Proposition[]; regroupements: Regroupement[]; disponible: boolean }
 const PROPOSITIONS_VISIBLES = 3;
+/* 🔴 (Arno, 20/11/2026, « Adresse officielle BAN », lot 4) l'adresse officielle de chaque ligne, lue À PART (calcul en direct, mémorisé 10 minutes côté
+   serveur) : la liste s'affiche sans l'attendre, puis le libellé officiel, les adresses officielles et la pastille « à vérifier » s'y posent */
+const API_OFFICIELLES = '/api/admin/gestion/coproprietes/officielles';
+interface LigneOfficielle { principale: string; court: string; adresses: string[]; aVerifier: boolean }
 const guillemets = (xs: readonly string[]): string => xs.map((x) => `« ${x} »`).join(', ');
 const jour = (iso: string): string => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }); };
 const biens = (n: number): string => `${n} bien${n > 1 ? 's' : ''}`;
@@ -45,6 +49,13 @@ export function EcranCoproprietes({ retour = null, ouvrirDepart = null }: { reto
   const [refusModale, setRefusModale] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const connues = useRef(new Map<string, FicheProposee>());
+  const [officielles, setOfficielles] = useState<Record<string, LigneOfficielle>>({});
+  useEffect(() => {
+    let vivant = true;
+    fetch(API_OFFICIELLES, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: { lignes: Record<string, LigneOfficielle> } }>)
+      .then((j) => { if (vivant && j.etat === 'ok' && j.data) setOfficielles(j.data.lignes); }).catch(() => undefined);
+    return () => { vivant = false; };
+  }, [version]);
   useEffect(() => {
     let vivant = true;
     fetch(API_REGROUPEMENT, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: Regroupements }>)
@@ -136,17 +147,18 @@ export function EcranCoproprietes({ retour = null, ouvrirDepart = null }: { reto
         <p className="ecp-discret" data-ecp-vide>{q.trim() === '' ? 'Aucun immeuble dans le portefeuille.' : 'Aucune copropriété ne répond à cette recherche.'}</p>
       ) : (
         <ul className="ecp-liste">
-          {liste.map((c) => (
+          {liste.map((c) => { const o = officielles[c.cle]; const avecOfficielle = o !== undefined && o.principale !== ''; return (
             <li key={c.cle} className="ecp-item">
               <label className="ecp-coche" title="Cocher pour regrouper">
                 <input type="checkbox" checked={coches.includes(c.cle)} onChange={(e) => cocher(c.cle, e.target.checked)} data-ecp-coche={c.cle} />
                 <span className="ecp-sr">Cocher « {c.nom} » pour la regrouper</span>
               </label>
               <button type="button" className="ecp-ligne" onClick={() => setOuverte(c.immeuble)} data-ecp-ligne={c.cle}>
-                <span className="ecp-nom">{c.nom}
+                <span className="ecp-nom" {...(avecOfficielle && c.nom === c.immeuble ? { 'data-ecp-officielle': '' } : {})}>{avecOfficielle && c.nom === c.immeuble ? o.court : c.nom}
                   {c.hors && <span className="ecp-hors" data-ecp-hors> · {TITRE_HORS_COPROPRIETE}</span>}
-                  {!c.declaree && <span className="ecp-discret" data-ecp-a-creer> · fiche à créer</span>}</span>
-                <span className="ecp-adresses" data-ecp-adresses>{c.adresses.join(' · ')}</span>
+                  {!c.declaree && <span className="ecp-discret" data-ecp-a-creer> · fiche à créer</span>}
+                  {o?.aVerifier && <span className="ecp-a-verifier" data-ecp-a-verifier> · à vérifier</span>}</span>
+                <span className="ecp-adresses" data-ecp-adresses>{(avecOfficielle ? o.adresses : c.adresses).join(' · ')}</span>
                 <span className="ecp-chiffres">
                   <span data-ecp-syndic>{c.syndic === null ? (c.hors ? 'sans syndic' : 'aucun syndic lié') : `Syndic : ${nomAvecVille(c.syndic.nom, c.syndic.ville)}`}</span>
                   {' · '}<span data-ecp-biens>{c.nbBiens} bien{c.nbBiens > 1 ? 's' : ''}</span>
@@ -159,7 +171,7 @@ export function EcranCoproprietes({ retour = null, ouvrirDepart = null }: { reto
                 </div>
               ))}
             </li>
-          ))}
+          ); })}
         </ul>
       )}
       {ouverte !== null && <FicheCopropriete immeuble={ouverte} onFerme={() => { setOuverte(null); setVersion((v) => v + 1); }} />}
@@ -254,6 +266,7 @@ export const CSS_ECRAN_COPROPRIETES = `
 .ecp-ligne:hover,.ecp-ligne:focus-visible{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
 .ecp-nom{font-weight:700;overflow-wrap:anywhere}
 .ecp-hors{color:var(--color-svv-orange);font-weight:800}
+.ecp-a-verifier{color:var(--color-svv-orange);font-weight:800}
 .ecp-adresses{font-size:.88rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .ecp-chiffres{font-size:.88rem;overflow-wrap:anywhere}
 .ecp-item{display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:.3rem;row-gap:.3rem;align-items:start}

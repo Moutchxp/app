@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
+import type { ModeleOfficiel } from '../../../../lib/adresse/officielleCopro';
 import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { AgCopropriete } from './AgCopropriete';
@@ -30,7 +31,8 @@ interface Coord { id: number | null; sorte: 'email' | 'telephone'; libelle: stri
 interface ContactEdit { cle: string; id: number | null; categorie: CategorieImmeuble; libelle: string; civilite: 'M.' | 'Mme' | null; prenom: string; nom: string; note: string; coordonnees: Coord[] }
 interface Adresse { libelle: string; codePostal: string; commune: string }
 interface Proposition { libelle: string; codePostal: string; commune: string; parcelle: string; etat: 'libre' | 'prise'; copropriete: string | null; syndic: { id: number; nom: string; ville: string | null } | null }
-interface Lu { fiche: Fiche | null; coproprieteDuBien: boolean | null }
+/* 🔴 (Arno, 20/11/2026, « Adresse officielle BAN », lot 4) l'adresse officielle, calculée par le serveur (lecture seule) ; absente ou `null` : l'affichage d'avant */
+interface Lu { fiche: Fiche | null; coproprieteDuBien: boolean | null; officielle?: ModeleOfficiel | null }
 let n = 0;
 const cleLocale = (): string => `c${++n}`;
 
@@ -128,6 +130,24 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const f = lu?.fiche ?? null;
   const toutes: Adresse[] = f === null ? [] : [{ libelle: f.libelle, codePostal: f.codePostal ?? '', commune: f.commune ?? '' }, ...adresses];
   const signature = JSON.stringify(toutes);
+  /* 🔴 (lot 4) l'adresse officielle : chaque adresse enregistrée garde sa place dans la saisie (elle part toujours avec « Valider ») ; à l'écran, une adresse
+     dont l'adresse officielle est déjà montrée devient une « écriture d'origine » (repliée, avec son « × »), une adresse officielle DIFFÉRENTE garde sa
+     ligne sous son libellé officiel, et une adresse non rapprochée s'affiche comme avant */
+  const off = lu?.officielle ?? null;
+  const rangees = (() => {
+    const montrees = new Set<string>(off === null ? [] : [off.principale.banId]);
+    return adresses.map((a) => {
+      const g = off?.adresses.find((x) => x.cles.includes(cleImmeuble(a.libelle))) ?? null;
+      if (g === null) return { a, mode: 'normale' as const, libelle: adresseImmeuble(a.libelle, a.codePostal, a.commune), banId: null };
+      if (montrees.has(g.banId)) return { a, mode: 'ecriture' as const, libelle: adresseImmeuble(a.libelle, a.codePostal, a.commune), banId: g.banId };
+      montrees.add(g.banId);
+      return { a, mode: 'officielle' as const, libelle: g.libelle, banId: g.banId };
+    });
+  })();
+  const retirer = (a: Adresse) => (aRetirer === cleImmeuble(a.libelle)
+    ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
+      <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
+    : <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setARetirer(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>);
   // les adresses de la même parcelle (proposées au « + »)
   useEffect(() => {
     if (f === null) return;
@@ -283,13 +303,26 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         <button type="button" className="fcp-plus" aria-expanded={ajoutAdresse} aria-label="Ajouter une adresse à cette copropriété" title="Ajouter une adresse"
           onClick={() => setAjoutAdresse((o) => !o)} data-fcp-plus-adresse>+</button></h3>
       <ul className="fcp-liste">
-        <li data-fcp-adresse="principale"><strong>{adresseImmeuble(f.libelle, f.codePostal, f.commune)}</strong> <span className="loc-muet">— adresse principale</span></li>
-        {adresses.map((a) => (
-          <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire">{adresseImmeuble(a.libelle, a.codePostal, a.commune)}{' '}
-            {aRetirer === cleImmeuble(a.libelle) ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
-              <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
-              : <button type="button" className="fcp-lien" aria-label={`Retirer ${a.libelle}`} onClick={() => setARetirer(cleImmeuble(a.libelle))} data-fcp-retirer>×</button>}</li>))}
+        <li data-fcp-adresse="principale" {...(off !== null ? { 'data-fcp-officielle': off.principale.banId } : {})}>
+          <strong>{off !== null ? off.principale.libelle : adresseImmeuble(f.libelle, f.codePostal, f.commune)}</strong> <span className="loc-muet">— adresse principale</span></li>
+        {rangees.filter((x) => x.mode !== 'ecriture').map(({ a, mode, libelle }) => (
+          <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}{retirer(a)}</li>))}
+        {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule */}
+        {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
+          <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
       </ul>
+      {off !== null && (
+        <details className="fcp-histo" data-fcp-ecritures>
+          <summary>Écritures d’origine ({off.ecritures.length})</summary>
+          <ul className="fcp-liste">{off.ecritures.map((e, i) => (
+            <li key={i} data-fcp-ecriture={e.statut}>« {e.ecriture} » <span className="loc-muet">— {e.biens} bien{e.biens > 1 ? 's' : ''}</span>
+              {e.statut !== 'certain' && <span className="fcp-a-verifier" data-fcp-ecriture-a-verifier> · à vérifier</span>}</li>))}</ul>
+          {rangees.some((x) => x.mode === 'ecriture') && <>
+            <p className="fcp-sous-titre">Enregistrées comme adresses de la copropriété, sous une autre écriture de la même adresse officielle</p>
+            <ul className="fcp-liste">{rangees.filter((x) => x.mode === 'ecriture').map(({ a }) => (
+              <li key={cleImmeuble(a.libelle)} data-fcp-adresse="ecriture">{adresseImmeuble(a.libelle, a.codePostal, a.commune)}{' '}{retirer(a)}</li>))}</ul>
+          </>}
+        </details>)}
       {ajoutAdresse && (
         <div className="fcp-ajout" data-fcp-ajout-adresse>
           {libres.length + prises.length > 0 && <p className="fcp-sous-titre">Sur la même parcelle</p>}
@@ -429,7 +462,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       <style>{CSS_CHAMP_ADRESSE}</style>
       <div className="fcp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId} data-fiche-copropriete={horsAffiche ? 'hors' : 'copropriete'}>
         <div className="fcp-tete">
-          <h2 id={titreId} className="fcp-h2" data-fcp-titre>{titre}{f !== null ? <span className="fcp-nom"> · {nomAffiche({ nom: nom || null, libelle: f.libelle })}</span> : null}</h2>
+          <h2 id={titreId} className="fcp-h2" data-fcp-titre>{titre}{f !== null ? <span className="fcp-nom"> · {nomAffiche({ nom: nom || null, libelle: off?.principale.court ?? f.libelle })}</span> : null}</h2>
           <button type="button" className="fcp-fermer" aria-label="Fermer" onClick={onFerme} disabled={envoi}>×</button>
         </div>
         <div className="fcp-corps">{corps}</div>
@@ -593,6 +626,7 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-plus{min-width:36px;min-height:36px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:900;font-size:1.1rem;cursor:pointer}
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
 .fcp-histo{margin-top:6px}
+.fcp-a-verifier{color:var(--color-svv-orange);font-weight:800}
 .fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:700;color:var(--color-svv-ink)}
 .fcp-a-preciser{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px 0}
 .fcp-a-preciser-choix{flex:1 1 220px}
