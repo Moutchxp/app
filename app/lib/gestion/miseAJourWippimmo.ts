@@ -125,7 +125,9 @@ export const TYPES_SQL: Readonly<Record<string, string>> = {
   taux_honos_wippimmo: 'numeric', proprietaire_id: 'bigint', lot_id: 'bigint', locataire_id: 'bigint', sujet_id: 'bigint',
   rang: 'integer', absent_le: 'timestamptz',
 };
-const ACTIONS_SORTIE = ['location_sortie_locataire', 'location_sortie_corrigee', 'location_sortie_annulee', 'location_cloture_archivage'];
+/** Les gestes de sortie de l'application, lus dans le journal (la même liste pour la mise à jour et pour l'import initial `annuaireRepo`). */
+export const ACTIONS_SORTIE_APPLI = ['location_sortie_locataire', 'location_sortie_corrigee', 'location_sortie_annulee', 'location_cloture_archivage'] as const;
+const ACTIONS_SORTIE: readonly string[] = ACTIONS_SORTIE_APPLI;
 
 /** Deux valeurs égales pour la base : `null` et `undefined` se valent, un nombre se compare en nombre. */
 const forme = (v: Val | undefined): string | null => (v === null || v === undefined ? null
@@ -401,7 +403,9 @@ export function calculerMiseAJour(
       if (rapprochement) extra.cle_import = x.wippimmoId;
       for (const [col, w] of [['entree', x.entree], ['sortie', x.sortie]] as const) {
         const a = b[col];
-        if (a === null && w !== null) voulu[col] = w;
+        // 🔴 (Arno, 20/11/2026) une sortie ANNULÉE (ou posée, corrigée) dans l'application n'est pas « complétée » par l'export : conflit listé
+        if (col === 'sortie' && a === null && w !== null && protegees.has(b.id)) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: col, wippimmo: w, appli: a, motif: 'sortie validée dans l’application : dates conservées' });
+        else if (a === null && w !== null) voulu[col] = w;
         else if (a !== null && w !== null && a !== w) conflits.push({ table: 'occupation', cle: x.wippimmoId, qui, champ: col, wippimmo: w, appli: a, motif: 'bail saisi dans l’application : date conservée' });
       }
     } else {

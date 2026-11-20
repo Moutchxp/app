@@ -49,6 +49,7 @@ import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
 // LOT BOITE-INTERNE-CORBEILLE — nos propres adresses ne se rapprochent d'aucune fiche. Règle CENTRALE, pas locale.
 import { adressesRapprochables } from './adresseInterne';
+import { ACTIONS_SORTIE_APPLI, occupationsASortieValidee } from './miseAJourWippimmo';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », module PUR. Le
    dépôt ne la réécrit pas : il l'appelle, comme la fiche, l'encart Parties et les capsules de pièces jointes. */
 import { estAncienLocataire, estLocataireEnPlace, occupationsDesSorties, sortiePrevue, sqlOccupationEnPlace, sqlSortiesDuLocataire, statutLocataire } from './historiqueBien';
@@ -572,16 +573,27 @@ async function ecrireLocataires(
   return ids;
 }
 
-async function ecrireOccupations(
+/**
+ * 🔴🔴 (Arno, 20/11/2026 — « l'annulation dans l'application est prioritaire ») UNE SORTIE TOUCHÉE DANS L'APPLICATION (posée, corrigée,
+ * ANNULÉE, close par un archivage) n'est plus jamais réécrite par l'import : ses dates sont conservées et la différence avec l'export est
+ * DITE dans le rapport (« non appliqué »), comme pour les autres valeurs saisies ici. La règle est CELLE de la mise à jour WIPPIMMO
+ * (`occupationsASortieValidee`, lue dans le journal des gestes de sortie), pas une seconde. EXPORTÉE POUR ÊTRE ÉPROUVÉE (`q` factice).
+ */
+export async function ecrireOccupations(
   q: RequeteTx, plan: PlanImport, idsLocataires: ReadonlyMap<string, number>,
   idsLots: ReadonlyMap<string, number>, appliquer: boolean, c: ComptesImport,
 ): Promise<void> {
   const rapprochement = await rapprochementAnnuaireDisponible();
-  const { rows } = await q<{ wippimmo_id: string; cle_import: string | null } & Empreinte>(
+  const { rows } = await q<{ id: string; wippimmo_id: string; cle_import: string | null; locataire_id: string } & Empreinte>(
     `SELECT id::text, wippimmo_id, locataire_id::text, lot_id::text, lot_wippimmo_id, entree::text, sortie::text,
             absent_le::text, ${rapprochement ? 'cle_import' : 'NULL::text AS cle_import'}
        FROM gestion_annuaire_occupation`);
   const existants = new Map(rows.map((r) => [r.wippimmo_id, r]));
+  const { rows: journalSorties } = await q<{ action: string; entite_id: string; valeur_apres: string | null; commentaire: string | null }>(
+    `SELECT action, entite_id::text, valeur_apres, commentaire FROM gestion_journal WHERE action = ANY($1::text[])`, [[...ACTIONS_SORTIE_APPLI]]);
+  const protegees = occupationsASortieValidee(journalSorties, rows.map((r) => ({
+    id: r.id, wippimmo_id: r.wippimmo_id, cle_import: r.cle_import, locataire_id: r.locataire_id, lot_id: r.lot_id ?? null,
+    lot_wippimmo_id: r.lot_wippimmo_id ?? null, entree: r.entree ?? null, sortie: r.sortie ?? null, absent_le: r.absent_le ?? null })));
   /**
    * 🔴 LOT L0 — LES BAUX SAISIS ICI (`ajouterOccupant`, clé « app-… »). Déjà rapprochés : par leur clé d'export.
    * À rapprocher : par (locataire, lot) — le locataire étant lui-même résolu, rapproché compris. Une seule
@@ -617,13 +629,14 @@ async function ecrireOccupations(
          * ⚠️ CE QUI A ÉTÉ SAISI ICI EST PRIORITAIRE : l'export ne fait que COMPLÉTER une date vide (une sortie que
          * WIPPIMMO connaît, une entrée jamais saisie). Une date saisie qui diffère est DITE, jamais écrasée.
          */
+        const sortieGardee = protegees.has(cible.id);   // 🔴 (20/11/2026) une sortie annulée ici n'est pas « complétée » par l'export
         for (const [col, wip] of [['entree', o.entree], ['sortie', o.sortie]] as const) {
           const app = cible[col];
-          if (app !== null && wip !== null && app !== wip) {
+          if ((app !== null && wip !== null && app !== wip) || (col === 'sortie' && sortieGardee && app === null && wip !== null)) {
             c.divergences.push(phraseDivergence(`bail WIPPIMMO ${o.wippimmoId}`, col, wip, app));
           }
         }
-        const complete = (cible.entree === null && o.entree !== null) || (cible.sortie === null && o.sortie !== null);
+        const complete = (cible.entree === null && o.entree !== null) || (!sortieGardee && cible.sortie === null && o.sortie !== null);
         if (!nouveau && !complete) { c.occupationsInchangees += 1; continue; }
         c.occupationsMajs += 1;
         if (!appliquer) continue;
@@ -632,14 +645,22 @@ async function ecrireOccupations(
               SET entree = coalesce(entree, $2::date), sortie = coalesce(sortie, $3::date), cle_import = $4,
                   rapproche_le = coalesce(rapproche_le, now()), importe_le = now()
             WHERE id = $1`,
-          [Number(cible.id), o.entree, o.sortie, o.wippimmoId]);
+          [Number(cible.id), o.entree, sortieGardee ? null : o.sortie, o.wippimmoId]);
         continue;
+      }
+    }
+    // 🔴 (20/11/2026) sortie touchée dans l'application : ses dates restent celles de l'application, la différence est dite
+    const datesGardees = avant !== undefined && protegees.has(avant.id);
+    if (datesGardees) {
+      for (const [col, wip] of [['entree', o.entree], ['sortie', o.sortie]] as const) {
+        if ((avant![col] ?? null) !== wip) c.divergences.push(phraseDivergence(`bail WIPPIMMO ${o.wippimmoId}`, col, wip, avant![col] ?? null));
       }
     }
     const apres: Empreinte = {
       locataire_id: locataireId === null ? null : String(locataireId),
       lot_id: lotId === null ? null : String(lotId),
-      lot_wippimmo_id: o.lotWippimmoId, entree: o.entree, sortie: o.sortie, absent_le: null,
+      lot_wippimmo_id: o.lotWippimmoId,
+      entree: datesGardees ? avant!.entree ?? null : o.entree, sortie: datesGardees ? avant!.sortie ?? null : o.sortie, absent_le: null,
     };
     if (avant === undefined) c.occupationsCreees += 1;
     else if (memeEmpreinte(apres, avant)) { c.occupationsInchangees += 1; continue; }
@@ -652,9 +673,11 @@ async function ecrireOccupations(
        VALUES ($1,$2,$3,$4,$5::date,$6::date,NULL,now())
        ON CONFLICT (wippimmo_id) DO UPDATE SET
          locataire_id = EXCLUDED.locataire_id, lot_id = EXCLUDED.lot_id,
-         lot_wippimmo_id = EXCLUDED.lot_wippimmo_id, entree = EXCLUDED.entree, sortie = EXCLUDED.sortie,
+         lot_wippimmo_id = EXCLUDED.lot_wippimmo_id,
+         entree = CASE WHEN $7::boolean THEN gestion_annuaire_occupation.entree ELSE EXCLUDED.entree END,
+         sortie = CASE WHEN $7::boolean THEN gestion_annuaire_occupation.sortie ELSE EXCLUDED.sortie END,
          absent_le = NULL, importe_le = now()`,
-      [o.wippimmoId, locataireId, lotId, o.lotWippimmoId, o.entree, o.sortie]);
+      [o.wippimmoId, locataireId, lotId, o.lotWippimmoId, apres.entree, apres.sortie, datesGardees]);
   }
 }
 

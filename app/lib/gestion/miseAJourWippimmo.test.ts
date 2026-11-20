@@ -150,6 +150,25 @@ describe('les locataires et leurs baux', () => {
     expect(maj(r, 'occupation').map((o) => [o.id, o.apres])).toEqual([['41', { sortie: '2026-11-30' }]]);
     expect(r.conflits.find((c) => c.table === 'occupation')).toMatchObject({ champ: 'sortie', wippimmo: '2026-09-30', appli: '2026-10-01' });
   });
+  // 🔴🔴 (Arno, 20/11/2026 — EMMAIMA Fathi, INEO RAIL) une sortie ANNULÉE dans l'application reste annulée : conflit listé, rien d'écrit
+  const ANNULEE = { action: 'location_sortie_annulee', entite_id: '30', valeur_apres: null, commentaire: 'sortie du 2026-11-30 annulée — occupation(s) 40 de nouveau en cours' };
+  const baseAnnulee = (w: string, journal: EtatBase['journalSorties']) => etat({ proprietaires: [bProp('70', '7')], lots: [bLot('10', '1', '7', '70')],
+    locataires: [bLoc('30', 'a', '50')], occupations: [bOcc('40', w, '30', '10', '1', '2025-10-01', null)], journalSorties: journal });
+  const exportAvecDate = plan({ proprietaires: [prop('7')], lots: [lot('1', '7')], locataires: [loc('a', '50')], occupations: [occ('50', 'a', '1', '2025-10-01', '2026-11-30')] });
+  it('🔴 bail IMPORTÉ, sortie annulée dans l’application : l’export ne la remet pas, le conflit est listé', () => {
+    const r = calc(exportAvecDate, baseAnnulee('50', [ANNULEE]));
+    expect(maj(r, 'occupation').filter((o) => 'sortie' in o.apres)).toEqual([]);
+    expect(r.conflits.find((c) => c.table === 'occupation')).toMatchObject({ champ: 'sortie', wippimmo: '2026-11-30', appli: null });
+  });
+  it('🔴 bail SAISI ICI, sortie annulée : l’export ne la « complète » pas, le conflit est listé', () => {
+    const r = calc(exportAvecDate, baseAnnulee('app-1', [ANNULEE]));
+    expect(maj(r, 'occupation').filter((o) => 'sortie' in o.apres)).toEqual([]);
+    expect(r.conflits.find((c) => c.table === 'occupation' && c.champ === 'sortie')).toMatchObject({ wippimmo: '2026-11-30', appli: null });
+  });
+  it('bail saisi ici, AUCUN geste de sortie : l’export complète la date vide, comme avant', () => {
+    const r = calc(exportAvecDate, baseAnnulee('app-1', []));
+    expect(maj(r, 'occupation').map((o) => o.apres.sortie)).toEqual(['2026-11-30']);
+  });
   it('les gestes de sortie journalisés désignent leurs occupations (sortie, correction, clôture d’archivage)', () => {
     const occs = [bOcc('40', '50', '30', '10', '1', null, null), bOcc('41', '51', '31', '12', '2', null, null)];
     const s = occupationsASortieValidee([
