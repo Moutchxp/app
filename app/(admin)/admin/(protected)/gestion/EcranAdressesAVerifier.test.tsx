@@ -10,9 +10,15 @@ const json = (c: unknown) => ({ ok: true, status: 200, json: async () => c }) as
 let container: HTMLDivElement; let root: Root; let posts: Record<string, unknown>[]; let reponse: Record<string, unknown>;
 const FILE = [
   { cle: 'k1', ecriture: '33-35 rue Pergolèse 75116 Paris', codePostal: '75116', commune: 'Paris', lots: [1, 2], statut: 'a_verifier', motif: 'Plage de numéros (33-35) : à vérifier',
-    propositions: [{ banId: 'B33', libelle: '33 rue Pergolèse, 75116 Paris', score: 1 }],
-    plage: { texte: '33-35', adresses: [{ banId: 'B33', libelle: '33 rue Pergolèse, 75116 Paris', score: null }, { banId: 'B35', libelle: '35 rue Pergolèse, 75116 Paris', score: null }] } },
-  { cle: 'k2', ecriture: '7 rue Inconnue', codePostal: '77000', commune: 'Melun', lots: [9], statut: 'introuvable', motif: 'Commune absente de la Base Adresse locale', propositions: [], plage: null },
+    propositions: [{ banId: 'B33', libelle: '33 rue Pergolèse, 75116 Paris', court: '33 rue Pergolèse', score: 1 }], essai: false,
+    plage: { texte: '33-35', adresses: [{ banId: 'B33', libelle: '33 rue Pergolèse, 75116 Paris', court: '33 rue Pergolèse', score: null }, { banId: 'B35', libelle: '35 rue Pergolèse, 75116 Paris', court: '35 rue Pergolèse', score: null }] } },
+  { cle: 'k2', ecriture: '7 rue Inconnue', codePostal: '77000', commune: 'MELUN', lots: [9], statut: 'introuvable', motif: 'Commune absente de la Base Adresse locale', propositions: [], plage: null, essai: false },
+  { cle: 'k3', ecriture: '18 Rue Pierre Curie', codePostal: '92800', commune: 'PUTEAUX', lots: [4, 5], statut: 'a_verifier', motif: 'Nom de voie trop différent', essai: false, plage: null,
+    propositions: [{ banId: 'B18', libelle: '18 rue Pierre et Marie Curie, 92800 Puteaux', court: '18 rue Pierre et Marie Curie', score: 0.76 }] },
+  { cle: 'k4', ecriture: '126 - 128 rue de Villiers', codePostal: '92300', commune: 'LEVALLOIS PERRET', lots: [6], statut: 'a_verifier', motif: 'Plage de numéros (126-128)', essai: false,
+    propositions: [{ banId: 'B128', libelle: '128 rue de Villiers, 92300 Levallois-Perret', court: '128 rue de Villiers', score: 1 }],
+    plage: { texte: '126-128', adresses: [{ banId: 'B128', libelle: '128 rue de Villiers, 92300 Levallois-Perret', court: '128 rue de Villiers', score: null }] } },
+  { cle: 'k5', ecriture: '7 rue _TEST Digicode', codePostal: '92600', commune: 'Asnières-sur-Seine', lots: [7, 8], statut: 'a_verifier', motif: 'Aucune proposition fiable', propositions: [], plage: null, essai: true },
 ];
 const RECENTS = [{ operationId: 7, le: '20/11/2026 à 15h02', par: 'a.jorel@sansvisavis.com', geste: 'valider', ecriture: '15 rue Cavalotti', adresses: ['15 rue Cavallotti, 75018 Paris'], raison: null }];
 beforeEach(() => {
@@ -33,9 +39,9 @@ describe('la file', () => {
   it('une carte par écriture : l’écriture, le statut ÉCRIT à côté de sa couleur, la commune, le nombre de biens, le motif, les propositions et leur ressemblance ; le compteur', async () => {
     const compte = vi.fn();
     await monter(compte);
-    expect(container.querySelector('[data-eav-compte]')!.textContent).toBe('2');
-    expect(compte).toHaveBeenCalledWith(2);
-    const [a, b] = [...container.querySelectorAll('[data-eav-ecriture]')];
+    expect(container.querySelector('[data-eav-compte]')!.textContent).toBe('4'); // la fiche d'essai n'est pas comptée
+    expect(compte).toHaveBeenCalledWith(4);
+    const [a, b] = [...container.querySelectorAll('[data-eav-principales] > [data-eav-ecriture]')];
     expect(a.querySelector('[data-eav-statut]')!.textContent).toBe('À vérifier');
     expect(b.querySelector('[data-eav-statut]')!.textContent).toBe('Introuvable');
     expect(a.textContent).toContain('75116 Paris · 2 biens');
@@ -43,6 +49,7 @@ describe('la file', () => {
     expect(a.querySelector('.eav-propositions')!.textContent).toContain('33 rue Pergolèse, 75116 Paris — ressemblance 1,00');
     expect(a.querySelector('[data-eav-plusieurs]')).not.toBeNull();
     expect(b.querySelector('[data-eav-plusieurs]')).toBeNull(); // pas de plage : pas de geste « Plusieurs adresses »
+    expect(b.querySelector('[data-eav-commune]')!.textContent).toBe('77000 Melun · 1 bien'); // la commune en casse normale
   });
 });
 
@@ -70,10 +77,13 @@ describe('les gestes, chacun après une fenêtre de confirmation', () => {
     await clic(container.querySelector('[data-eav-confirmer]'));
     expect(container.querySelector('[data-eav-refus]')!.textContent).toMatch(/AUTRE copropriété/);
   });
-  it('c) plusieurs adresses : au moins deux cochées ; la fenêtre les cite toutes', async () => {
+  it('c) plusieurs adresses : toutes les adresses de la plage DÉJÀ cochées ; décocher tout rend « Valider » inactif ; la fenêtre les cite toutes', async () => {
     await monter();
     await clic(container.querySelector('[data-eav-plusieurs]'));
     const valider = container.querySelector('[data-eav-plusieurs-valider]') as HTMLButtonElement;
+    expect([...container.querySelectorAll<HTMLInputElement>('[data-eav-coche]')].map((x) => x.checked)).toEqual([true, true]);
+    await clic(container.querySelector('[data-eav-coche="B33"]'));
+    await clic(container.querySelector('[data-eav-coche="B35"]'));
     expect(valider.disabled).toBe(true);
     await clic(container.querySelector('[data-eav-coche="B33"]'));
     await clic(container.querySelector('[data-eav-coche="B35"]'));
@@ -103,6 +113,28 @@ describe('les gestes, chacun après une fenêtre de confirmation', () => {
   });
 });
 
+describe('b) la liste de l’auto-complétion passe par la fonction d’affichage unique', () => {
+  it('« 1 Villa Des Lilas » / « COURBEVOIE » s’affiche « 1 villa des Lilas, 92400 Courbevoie », dans la liste, le champ et la fenêtre ; la valeur envoyée reste celle de la BAN', async () => {
+    const f0 = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (String(u).startsWith('https://api-adresse.data.gouv.fr/')
+      ? json({ features: [{ properties: { label: '1 Villa Des Lilas 92400 COURBEVOIE', name: '1 Villa Des Lilas', postcode: '92400', city: 'COURBEVOIE' } }] })
+      : (f0 as (a: unknown, b?: unknown) => Promise<Response>)(u, init))) as unknown as typeof fetch;
+    await monter();
+    await clic(container.querySelector('[data-eav-autre]'));
+    const champ = container.querySelector('[data-eav-panneau-autre] input') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, '1 villa des lilas'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 700)); }); await attendre();
+    const prop = container.querySelector('.cab-prop')!;
+    expect(prop.textContent).toBe('1 villa des Lilas, 92400 Courbevoie');
+    await act(async () => { prop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); }); await attendre();
+    expect((container.querySelector('[data-eav-panneau-autre] input') as HTMLInputElement).value).toBe('1 villa des Lilas, 92400 Courbevoie');
+    await clic(container.querySelector('[data-eav-autre-utiliser]'));
+    expect(container.querySelector('[data-eav-fenetre]')!.textContent).toContain('1 villa des Lilas, 92400 Courbevoie');
+    await clic(container.querySelector('[data-eav-confirmer]'));
+    expect((posts[0].adresse as Record<string, string>).voie).toBe('1 Villa Des Lilas');
+  });
+});
+
 describe('annuler ce choix', () => {
   it('les choix faits restent annulables, après confirmation', async () => {
     await monter();
@@ -111,6 +143,45 @@ describe('annuler ce choix', () => {
     expect(container.querySelector('[data-eav-fenetre="annuler"]')).not.toBeNull();
     await clic(container.querySelector('[data-eav-confirmer]'));
     expect(posts).toEqual([{ action: 'annuler', operationId: 7 }]);
+  });
+});
+
+describe('🔴 les plages de numéros (Arno, 20/11/2026)', () => {
+  it('« Plusieurs adresses » est le bouton PRINCIPAL, TOUJOURS présent (même quand la Base ne connaît qu’un numéro : 126-128) ; « Une seule adresse : … » est secondaire', async () => {
+    await monter();
+    for (const ecr of ['33-35 rue Pergolèse 75116 Paris', '126 - 128 rue de Villiers']) {
+      const c = [...container.querySelectorAll('[data-eav-ecriture]')].find((x) => x.getAttribute('data-eav-ecriture') === ecr)!;
+      expect(c.querySelector('[data-eav-plusieurs]')!.className).toContain('svv-btn-primary');
+      const seule = c.querySelector('[data-eav-valider]')!;
+      expect(seule.className).toContain('svv-btn-outline');
+      expect(seule.textContent).toMatch(/^Une seule adresse : (33 rue Pergolèse|128 rue de Villiers)$/);
+    }
+    // pas une plage : « Valider la proposition », bouton principal
+    const pc = [...container.querySelectorAll('[data-eav-ecriture]')].find((x) => x.getAttribute('data-eav-ecriture') === '18 Rue Pierre Curie')!;
+    expect(pc.querySelector('[data-eav-valider]')!.textContent).toBe('Valider la proposition');
+    expect(pc.querySelector('[data-eav-valider]')!.className).toContain('svv-btn-primary');
+    expect(pc.textContent).toContain('18 rue Pierre et Marie Curie, 92800 Puteaux');
+  });
+  it('126-128 : la seule adresse connue est cochée, « Valider ces adresses » est actif, et l’écran dit que la Base ne connaît qu’un numéro', async () => {
+    await monter();
+    const c = [...container.querySelectorAll('[data-eav-ecriture]')].find((x) => x.getAttribute('data-eav-ecriture') === '126 - 128 rue de Villiers')!;
+    await clic(c.querySelector('[data-eav-plusieurs]'));
+    expect((c.querySelector('[data-eav-coche="B128"]') as HTMLInputElement).checked).toBe(true);
+    expect(c.querySelector('[data-eav-plage-seule]')).not.toBeNull();
+    expect((c.querySelector('[data-eav-plusieurs-valider]') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('🔴 les fiches d’essai (Arno, 20/11/2026)', () => {
+  it('à part, dans un bloc replié « Fiches d’essai (N) » en bas, avec les mêmes gestes ; hors du compte', async () => {
+    await monter();
+    const bloc = container.querySelector('[data-eav-essais]') as HTMLDetailsElement;
+    expect(bloc.open).toBe(false);
+    expect(bloc.querySelector('[data-eav-essais-titre]')!.textContent).toBe('Fiches d’essai (1)');
+    const carte = bloc.querySelector('[data-eav-ecriture="7 rue _TEST Digicode"]')!;
+    expect(carte.querySelector('[data-eav-autre]')).not.toBeNull();
+    expect(carte.querySelector('[data-eav-hors]')).not.toBeNull();
+    expect(container.querySelector('[data-eav-principales] [data-eav-ecriture="7 rue _TEST Digicode"]')).toBeNull();
   });
 });
 

@@ -2,7 +2,7 @@ import { query } from '../db/client';
 import { immeubleDuBien } from '../gestion/copropriete';
 import { adresseImmeuble, cleImmeuble } from '../gestion/syndics';
 import { rapprocherAdresse, rapprocherBien, type RapprochementComplet } from './banRepo';
-import { voieAffichee } from './libelleAffiche';
+import { communeAffichee, voieAffichee } from './libelleAffiche';
 
 /**
  * ══ 🔴🔴 L'ADRESSE OFFICIELLE D'UNE COPROPRIÉTÉ, POUR L'AFFICHAGE (Arno, 20/11/2026, « Adresse officielle BAN », lot 4). LECTURE SEULE. ═══════════════
@@ -45,8 +45,8 @@ export function modeleOfficiel(entrees: readonly EntreeOfficielle[]): ModeleOffi
   for (const e of entrees) {
     if (e.r.statut !== 'certain' || e.r.ban === null) continue;
     // 🔴 (retouche après le lot 5) l'affichage passe par la fonction unique `voieAffichee` (« 54 avenue Puvis de Chavannes ») : la BAN stockée n'est pas réécrite
-    const g = groupes.get(e.r.ban.id) ?? { banId: e.r.ban.id, libelle: adresseImmeuble(voieAffichee(e.r.ban.libelle), e.r.codePostal, e.r.ban.commune), court: voieAffichee(e.r.ban.libelle),
-      codePostal: e.r.codePostal, commune: e.r.ban.commune, cles: [], biens: 0, principale: false };
+    const g = groupes.get(e.r.ban.id) ?? { banId: e.r.ban.id, libelle: adresseImmeuble(voieAffichee(e.r.ban.libelle), e.r.codePostal, communeAffichee(e.r.ban.commune)), court: voieAffichee(e.r.ban.libelle),
+      codePostal: e.r.codePostal, commune: communeAffichee(e.r.ban.commune), cles: [], biens: 0, principale: false };
     if (!g.cles.includes(e.cle)) g.cles.push(e.cle);
     g.biens += e.biens;
     g.principale ||= e.principale;

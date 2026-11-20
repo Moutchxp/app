@@ -31,7 +31,7 @@ vi.mock('./banRepo', () => ({
   parcelleDuPoint: async () => '75116000AB0001',
 }));
 vi.mock('./unificationApplicationRepo', async (orig) => ({ ...(await orig<object>()), annulerUnification: async (_q: unknown, id: number) => { ann.appels.push(id); return {}; } }));
-import { annulerChoix, compteAVerifier, fileAVerifier, gesteFile } from './fileVerificationRepo';
+import { annulerChoix, compteAVerifier, estFicheEssai, fileAVerifier, gesteFile } from './fileVerificationRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const lot = (id: string, immeuble: string, cp = '75116', commune = 'Paris', statut = 'a_verifier') => ({ id, immeuble, adresse: immeuble, code_postal: cp, commune, statut, motif: '' });
@@ -44,7 +44,7 @@ describe('la file', () => {
   it('une ligne par écriture, triée par nombre de biens ; le motif, les propositions avec leur ressemblance ; la plage et ses adresses officielles du MÊME CÔTÉ (33-35 : pas le 34) ; le compteur', async () => {
     const f = await fileAVerifier();
     expect(f.map((x) => [x.ecriture, x.lots])).toEqual([['33-35 rue Pergolèse 75116 Paris', [1, 2]], ['15 rue Cavalotti', [3]]]);
-    expect(f[0].propositions).toEqual([{ banId: '75116_7300_00033', libelle: '33 rue Pergolèse, 75116 Paris 16e Arrondissement', score: 1 }]);
+    expect(f[0].propositions).toEqual([{ banId: '75116_7300_00033', libelle: '33 rue Pergolèse, 75116 Paris 16e Arrondissement', court: '33 rue Pergolèse', score: 1 }]);
     expect(f[0].plage?.adresses.map((a) => a.banId)).toEqual(['75116_7300_00033', '75116_7300_00035']);
     expect(await compteAVerifier()).toBe(2);
   });
@@ -106,5 +106,27 @@ describe('annuler ce choix', () => {
     h.op = { source: null, ecriture: null, lots: null };
     expect(await annulerChoix(2, AUTEUR)).toMatchObject({ ok: false });
     expect(ann.appels).toEqual([]);
+  });
+});
+
+describe('les fiches d’essai (Arno, 20/11/2026)', () => {
+  it.each([
+    ['1 rue du Préavis de Test (FICTIF)', '00000', 'TEST', true], ['7 rue _TEST Digicode', '92600', 'Asnières-sur-Seine', true], ['10 rue ESSAI ENCART logement', '92600', 'Asnières-sur-Seine', true],
+    ['5 rue Normale', '00000', 'X', true], ['18 Rue Pierre Curie', '92800', 'PUTEAUX', false], ['3 rue Testelin', '59000', 'Lille', false], ['2 rue des Essarts', '92400', 'Courbevoie', false],
+  ])('« %s » %s %s → essai %s', (ecriture, codePostal, commune, attendu) => { expect(estFicheEssai({ ecriture, codePostal, commune })).toBe(attendu); });
+  it('rangées à part dans la file (marquées), et HORS du compteur', async () => {
+    h.lots = [lot('1', '33-35 rue Pergolèse 75116 Paris'), lot('5', '7 rue _TEST Digicode', '92600', 'Asnières-sur-Seine'), lot('6', '1 rue du Préavis de Test (FICTIF)', '00000', 'TEST', 'introuvable')];
+    const f = await fileAVerifier();
+    expect(Object.fromEntries(f.map((x) => [x.ecriture, x.essai]))).toEqual({ '1 rue du Préavis de Test (FICTIF)': true, '33-35 rue Pergolèse 75116 Paris': false, '7 rue _TEST Digicode': true });
+    expect(await compteAVerifier()).toBe(1);
+  });
+});
+
+describe('une plage dont la Base Adresse ne connaît qu’un numéro (« 126 - 128 rue de Villiers »)', () => {
+  it('« Plusieurs adresses » avec une seule adresse cochée est permis ; aucune cochée : refus, rien n’est écrit', async () => {
+    expect(await gesteFile({ geste: 'plusieurs', cle: cle('33-35 rue Pergolèse 75116 Paris'), banIds: [] }, AUTEUR)).toMatchObject({ ok: false, motif: expect.stringMatching(/au moins une/) });
+    expect(ecritures()).toEqual([]);
+    h.copro = { cle: '33 35 rue pergolese 75116 paris', ban_id: '75116_7300_00033' };
+    expect(await gesteFile({ geste: 'plusieurs', cle: cle('33-35 rue Pergolèse 75116 Paris'), banIds: ['75116_7300_00033'] }, AUTEUR)).toMatchObject({ ok: true });
   });
 });

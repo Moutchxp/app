@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAdresseBan';
+import { adresseAffichee, communeAffichee } from '../../../../lib/adresse/libelleAffiche';
 
 /**
  * ══ 🔴🔴 L'ÉCRAN « ADRESSES À VÉRIFIER » (Arno, 20/11/2026, « Adresse officielle BAN », lot 6) ═══════════════════════════════════════════════════════
@@ -11,9 +12,9 @@ import { ChampAdresseBan, CSS_CHAMP_ADRESSE, type ChoixAdresse } from './ChampAd
  * périmètre / sans adresse (raison obligatoire). Chaque choix se défait (« Annuler ce choix »). Mobile d'abord, cibles de 44 px, jetons --color-svv-*.
  */
 const API = '/api/admin/gestion/adresses-a-verifier';
-interface Proposition { banId: string; libelle: string; score: number | null }
+interface Proposition { banId: string; libelle: string; court: string; score: number | null }
 interface Ecriture { cle: string; ecriture: string; codePostal: string | null; commune: string | null; lots: number[]; statut: 'a_verifier' | 'introuvable'; motif: string;
-  propositions: Proposition[]; plage: { texte: string; adresses: Proposition[] } | null }
+  propositions: Proposition[]; plage: { texte: string; adresses: Proposition[] } | null; essai: boolean }
 interface Choix { operationId: number; le: string; par: string; geste: string; ecriture: string; adresses: string[]; raison: string | null }
 type Geste = 'valider' | 'autre' | 'plusieurs' | 'hors';
 interface AConfirmer { e: Ecriture; geste: Geste; corps: Record<string, unknown>; adresses: string[]; raison?: string }
@@ -21,6 +22,8 @@ const MOT_STATUT: Record<Ecriture['statut'], string> = { a_verifier: 'À vérifi
 const MOT_GESTE: Record<string, string> = { valider: 'proposition validée', autre: 'autre adresse choisie', plusieurs: 'plusieurs adresses', hors: 'hors périmètre / sans adresse' };
 const biens = (n: number) => `${n} bien${n > 1 ? 's' : ''}`;
 const ressemblance = (s: number | null) => (s === null ? '' : ` — ressemblance ${s.toFixed(2).replace('.', ',')}`);
+/** Une proposition de l'auto-complétion, à l'écran : la fonction d'affichage unique (« 1 villa des Lilas, 92400 Courbevoie »). */
+const choixAffiche = (a: { voie: string; codePostal: string; commune: string }) => adresseAffichee([a.voie, [a.codePostal, a.commune].filter(Boolean).join(' ')].filter(Boolean).join(', '));
 
 export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: React.ReactNode; onCompte?: (n: number) => void }) {
   const [file, setFile] = useState<Ecriture[] | null>(null);
@@ -43,11 +46,13 @@ export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: R
   useEffect(() => {
     let vivant = true;
     fetch(API, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: { file: Ecriture[]; recents: Choix[] }; message?: string }>)
-      .then((j) => { if (!vivant) return; setRecharge(false); if (j.etat === 'ok' && j.data) { setFile(j.data.file); setRecents(j.data.recents); setErreur(null); onCompte?.(j.data.file.length); } else { setFile([]); setErreur(j.message ?? 'Lecture impossible.'); } })
+      .then((j) => { if (!vivant) return; setRecharge(false); if (j.etat === 'ok' && j.data) { setFile(j.data.file); setRecents(j.data.recents); setErreur(null); onCompte?.(j.data.file.filter((e) => !e.essai).length); } else { setFile([]); setErreur(j.message ?? 'Lecture impossible.'); } })
       .catch(() => { if (vivant) { setRecharge(false); setFile([]); setErreur('Lecture impossible : le serveur n’a pas répondu.'); } });
     return () => { vivant = false; };
   }, [version]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ouvrir = (cle: string, geste: Geste) => { setOuvert((o) => (o?.cle === cle && o.geste === geste ? null : { cle, geste })); setAutre(''); setAutreChoisie(null); setCochees([]); setRaison(''); setMessage(null); };
+  // « Plusieurs adresses » s'ouvre avec TOUTES les adresses officielles de la plage déjà cochées (Arno, 20/11/2026)
+  const ouvrir = (e: Ecriture, geste: Geste) => { setOuvert((o) => (o?.cle === e.cle && o.geste === geste ? null : { cle: e.cle, geste })); setAutre(''); setAutreChoisie(null);
+    setCochees(geste === 'plusieurs' ? (e.plage?.adresses ?? []).map((a) => a.banId) : []); setRaison(''); setMessage(null); };
   const confirmer = (c: AConfirmer) => { setRefus(null); setAConfirmer(c); };
   const envoyer = async (corps: Record<string, unknown>): Promise<boolean> => {
     setEnvoi(true); setRefus(null);
@@ -58,65 +63,86 @@ export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: R
       setMessage(j.data?.message ?? 'Enregistré.'); setRecharge(true); setVersion((v) => v + 1); return true;
     } catch { setRefus('Le serveur n’a pas répondu. Rien n’est enregistré.'); return false; } finally { setEnvoi(false); }
   };
+  const principales = (file ?? []).filter((e) => !e.essai);
+  const essais = (file ?? []).filter((e) => e.essai);
+  const ouvertSur = (e: Ecriture, g: Geste) => ouvert?.cle === e.cle && ouvert.geste === g;
+  const carte = (e: Ecriture) => {
+    const plage = e.plage;
+    const btnPlusieurs = plage !== null && (
+      <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" aria-expanded={ouvertSur(e, 'plusieurs')} disabled={occupe} onClick={() => ouvrir(e, 'plusieurs')} data-eav-plusieurs>
+        Plusieurs adresses{plage.adresses.length > 0 ? ` (${plage.adresses.length})` : ''}</button>);
+    return (
+      <li key={e.cle} className="eav-carte" data-eav-ecriture={e.ecriture} data-eav-plage={plage !== null ? '' : undefined}>
+        <p className="eav-ecriture">« {e.ecriture} »</p>
+        <p className="eav-ligne"><span className={`eav-statut eav-statut-${e.statut}`} data-eav-statut={e.statut}>{MOT_STATUT[e.statut]}</span>
+          <span className="eav-discret" data-eav-commune>{[e.codePostal, communeAffichee(e.commune)].filter(Boolean).join(' ')} · {biens(e.lots.length)}</span></p>
+        <p className="eav-motif" data-eav-motif>{e.motif}</p>
+        {/* une PLAGE : « Plusieurs adresses » est le geste principal ; une seule adresse reste possible, en second */}
+        {btnPlusieurs !== false && <div className="eav-actions">{btnPlusieurs}</div>}
+        {e.propositions.length > 0 && <ul className="eav-propositions">{e.propositions.map((p) => (
+          <li key={p.banId}><span>{p.libelle}<span className="eav-discret">{ressemblance(p.score)}</span></span>
+            <button type="button" className={`svv-btn ${plage !== null ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn eav-btn`} disabled={occupe}
+              onClick={() => confirmer({ e, geste: 'valider', corps: { action: 'geste', geste: 'valider', cle: e.cle, banId: p.banId }, adresses: [p.libelle] })} data-eav-valider={p.banId}>
+              {plage !== null ? `Une seule adresse : ${p.court}` : 'Valider la proposition'}</button></li>))}</ul>}
+        <div className="eav-actions">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn eav-btn" aria-expanded={ouvertSur(e, 'autre')} onClick={() => ouvrir(e, 'autre')} data-eav-autre>Choisir une autre adresse</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn eav-btn" aria-expanded={ouvertSur(e, 'hors')} onClick={() => ouvrir(e, 'hors')} data-eav-hors>Hors périmètre / sans adresse</button>
+        </div>
+        {ouvertSur(e, 'autre') && (
+          <div className="eav-panneau" data-eav-panneau-autre>
+            <label className="eav-champ" htmlFor={`${idAutre}-${e.cle}`}><span>Rechercher l’adresse, puis la choisir dans la liste</span></label>
+            <ChampAdresseBan id={`${idAutre}-${e.cle}`} valeur={autre} verifiee={autreChoisie !== null} exemple="ex. 30 rue de Longchamp, 92200 Neuilly-sur-Seine" etiquetteAffichee={choixAffiche}
+              onChange={(v) => { setAutre(v); setAutreChoisie(null); }} onChoisir={(a) => { setAutre(choixAffiche(a)); setAutreChoisie(a); }} />
+            <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={autreChoisie === null || occupe}
+              onClick={() => autreChoisie && confirmer({ e, geste: 'autre', corps: { action: 'geste', geste: 'autre', cle: e.cle, adresse: autreChoisie }, adresses: [choixAffiche(autreChoisie)] })} data-eav-autre-utiliser>Utiliser cette adresse</button>
+          </div>)}
+        {ouvertSur(e, 'plusieurs') && plage !== null && (
+          <fieldset className="eav-panneau" data-eav-panneau-plusieurs>
+            <legend>Les adresses officielles de la plage {plage.texte} : cochez celles de l’immeuble</legend>
+            {plage.adresses.length === 0 && <p className="eav-sans-marge" data-eav-plage-vide>La Base Adresse locale ne connaît aucun numéro de cette plage : choisissez une autre adresse.</p>}
+            {plage.adresses.length === 1 && <p className="eav-discret eav-sans-marge" data-eav-plage-seule>La Base Adresse locale ne connaît qu’un numéro de cette plage.</p>}
+            {plage.adresses.map((a) => (
+              <label key={a.banId} className="eav-coche"><input type="checkbox" checked={cochees.includes(a.banId)}
+                onChange={(x) => setCochees((c) => (x.target.checked ? [...c, a.banId] : c.filter((y) => y !== a.banId)))} data-eav-coche={a.banId} /><span>{a.libelle}</span></label>))}
+            {plage.adresses.length > 0 && <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={cochees.length < 1 || occupe}
+              onClick={() => confirmer({ e, geste: 'plusieurs', corps: { action: 'geste', geste: 'plusieurs', cle: e.cle, banIds: cochees },
+                adresses: plage.adresses.filter((a) => cochees.includes(a.banId)).map((a) => a.libelle) })} data-eav-plusieurs-valider>Valider ces adresses</button>}
+          </fieldset>)}
+        {ouvertSur(e, 'hors') && (
+          <div className="eav-panneau" data-eav-panneau-hors>
+            <label className="eav-champ"><span>Raison (obligatoire)</span>
+              <textarea value={raison} onChange={(x) => setRaison(x.target.value)} rows={2} placeholder="ex. commune non couverte, fiche d’essai" data-eav-raison /></label>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={raison.trim() === '' || occupe}
+              onClick={() => confirmer({ e, geste: 'hors', corps: { action: 'geste', geste: 'hors', cle: e.cle, raison }, adresses: [], raison })} data-eav-hors-valider>Noter hors périmètre</button>
+          </div>)}
+      </li>
+    );
+  };
   return (
     <section className="eav" aria-labelledby="eav-titre" data-ecran-adresses-a-verifier>
       <style>{CSS_ECRAN_ADRESSES}</style><style>{CSS_CHAMP_ADRESSE}</style>
       <div className="eav-tete">
         {retour}
-        <h2 className="eav-titre" id="eav-titre">Adresses à vérifier {file !== null && <span className="eav-compte" data-eav-compte>{file.length}</span>}</h2>
+        <h2 className="eav-titre" id="eav-titre">Adresses à vérifier {file !== null && <span className="eav-compte" data-eav-compte>{principales.length}</span>}</h2>
       </div>
       <p className="eav-discret eav-sans-marge">Les écritures WIPPIMMO dont l’adresse officielle n’est pas certaine. Les adresses des biens ne sont jamais modifiées ; chaque choix se défait.</p>
       {erreur !== null && <p className="eav-refus" role="alert">{erreur}</p>}
       {message !== null && <p className="eav-message" role="status" data-eav-message>✓ {message}</p>}
-      {file === null ? <p className="eav-discret">Chargement…</p> : file.length === 0 ? <p className="eav-discret" data-eav-vide>Aucune adresse à vérifier.</p> : (
-        <ul className="eav-liste">{file.map((e) => (
-          <li key={e.cle} className="eav-carte" data-eav-ecriture={e.ecriture}>
-            <p className="eav-ecriture">« {e.ecriture} »</p>
-            <p className="eav-ligne"><span className={`eav-statut eav-statut-${e.statut}`} data-eav-statut={e.statut}>{MOT_STATUT[e.statut]}</span>
-              <span className="eav-discret">{[e.codePostal, e.commune].filter(Boolean).join(' ')} · {biens(e.lots.length)}</span></p>
-            <p className="eav-motif" data-eav-motif>{e.motif}</p>
-            {e.propositions.length > 0 && <ul className="eav-propositions">{e.propositions.map((p) => (
-              <li key={p.banId}><span>{p.libelle}<span className="eav-discret">{ressemblance(p.score)}</span></span>
-                <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={occupe}
-                  onClick={() => confirmer({ e, geste: 'valider', corps: { action: 'geste', geste: 'valider', cle: e.cle, banId: p.banId }, adresses: [p.libelle] })} data-eav-valider={p.banId}>Valider la proposition</button></li>))}</ul>}
-            <div className="eav-actions">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn eav-btn" aria-expanded={ouvert?.cle === e.cle && ouvert.geste === 'autre'} onClick={() => ouvrir(e.cle, 'autre')} data-eav-autre>Choisir une autre adresse</button>
-              {e.plage !== null && e.plage.adresses.length > 1 && <button type="button" className="svv-btn svv-btn-outline gst-btn eav-btn" aria-expanded={ouvert?.cle === e.cle && ouvert.geste === 'plusieurs'}
-                onClick={() => ouvrir(e.cle, 'plusieurs')} data-eav-plusieurs>Plusieurs adresses</button>}
-              <button type="button" className="svv-btn svv-btn-outline gst-btn eav-btn" aria-expanded={ouvert?.cle === e.cle && ouvert.geste === 'hors'} onClick={() => ouvrir(e.cle, 'hors')} data-eav-hors>Hors périmètre / sans adresse</button>
-            </div>
-            {ouvert?.cle === e.cle && ouvert.geste === 'autre' && (
-              <div className="eav-panneau" data-eav-panneau-autre>
-                <label className="eav-champ" htmlFor={`${idAutre}-${e.cle}`}><span>Rechercher l’adresse, puis la choisir dans la liste</span></label>
-                <ChampAdresseBan id={`${idAutre}-${e.cle}`} valeur={autre} verifiee={autreChoisie !== null} exemple="ex. 30 rue de Longchamp, 92200 Neuilly-sur-Seine"
-                  onChange={(v) => { setAutre(v); setAutreChoisie(null); }} onChoisir={(a) => { setAutre([a.voie, [a.codePostal, a.commune].filter(Boolean).join(' ')].filter(Boolean).join(', ')); setAutreChoisie(a); }} />
-                <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={autreChoisie === null || occupe}
-                  onClick={() => autreChoisie && confirmer({ e, geste: 'autre', corps: { action: 'geste', geste: 'autre', cle: e.cle, adresse: autreChoisie }, adresses: [autre] })} data-eav-autre-utiliser>Utiliser cette adresse</button>
-              </div>)}
-            {ouvert?.cle === e.cle && ouvert.geste === 'plusieurs' && e.plage !== null && (
-              <fieldset className="eav-panneau" data-eav-panneau-plusieurs>
-                <legend>Les adresses officielles de la plage {e.plage.texte} : cochez celles de l’immeuble</legend>
-                {e.plage.adresses.map((a) => (
-                  <label key={a.banId} className="eav-coche"><input type="checkbox" checked={cochees.includes(a.banId)}
-                    onChange={(x) => setCochees((c) => (x.target.checked ? [...c, a.banId] : c.filter((y) => y !== a.banId)))} data-eav-coche={a.banId} /><span>{a.libelle}</span></label>))}
-                <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={cochees.length < 2 || occupe}
-                  onClick={() => confirmer({ e, geste: 'plusieurs', corps: { action: 'geste', geste: 'plusieurs', cle: e.cle, banIds: cochees },
-                    adresses: (e.plage?.adresses ?? []).filter((a) => cochees.includes(a.banId)).map((a) => a.libelle) })} data-eav-plusieurs-valider>Valider ces adresses</button>
-              </fieldset>)}
-            {ouvert?.cle === e.cle && ouvert.geste === 'hors' && (
-              <div className="eav-panneau" data-eav-panneau-hors>
-                <label className="eav-champ"><span>Raison (obligatoire)</span>
-                  <textarea value={raison} onChange={(x) => setRaison(x.target.value)} rows={2} placeholder="ex. commune non couverte, fiche d’essai" data-eav-raison /></label>
-                <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={raison.trim() === '' || occupe}
-                  onClick={() => confirmer({ e, geste: 'hors', corps: { action: 'geste', geste: 'hors', cle: e.cle, raison }, adresses: [], raison })} data-eav-hors-valider>Noter hors périmètre</button>
-              </div>)}
-          </li>))}</ul>)}
+      {file === null ? <p className="eav-discret">Chargement…</p> : principales.length === 0 ? <p className="eav-discret" data-eav-vide>Aucune adresse à vérifier.</p> : (
+        <ul className="eav-liste" data-eav-principales>{principales.map(carte)}</ul>)}
+      {/* 🔴 (Arno, 20/11/2026) les fiches d'essai, à part et repliées, avec les mêmes gestes ; rien n'est supprimé, le compteur ne les compte pas */}
+      {essais.length > 0 && (
+        <details className="eav-essais" data-eav-essais>
+          <summary data-eav-essais-titre>Fiches d’essai ({essais.length})</summary>
+          <p className="eav-discret eav-sans-marge">Les écritures manifestement fictives (« TEST », « FICTIF », « ESSAI », code postal 00000). Elles ne comptent pas dans le nombre d’adresses à vérifier.</p>
+          <ul className="eav-liste">{essais.map(carte)}</ul>
+        </details>)}
       {recents.length > 0 && (
         <section className="eav-recents" aria-labelledby="eav-recents-titre" data-eav-recents>
           <h3 className="eav-sous-titre" id="eav-recents-titre">Choix faits</h3>
           <ul className="eav-liste">{recents.map((c) => (
             <li key={c.operationId} className="eav-recent" data-eav-recent={c.operationId}>
-              <span>« {c.ecriture} » — {MOT_GESTE[c.geste] ?? c.geste}{c.adresses.length ? ` : ${c.adresses.join(' · ')}` : ''}{c.raison ? ` (${c.raison})` : ''}
+              <span>« {c.ecriture} » — {MOT_GESTE[c.geste] ?? c.geste}{c.adresses.length ? ` : ${c.adresses.map(adresseAffichee).join(' · ')}` : ''}{c.raison ? ` (${c.raison})` : ''}
                 <span className="eav-discret"> — le {c.le}, par {c.par}</span></span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn eav-btn" disabled={occupe} onClick={() => { setRefus(null); setAAnnuler(c); }} data-eav-annuler={c.operationId}>Annuler ce choix</button>
             </li>))}</ul>
@@ -187,6 +213,12 @@ export const CSS_ECRAN_ADRESSES = `
 .eav-coche{display:flex;align-items:center;gap:.6rem;min-height:44px;cursor:pointer;overflow-wrap:anywhere}
 .eav-coche input{width:20px;height:20px;margin:0;flex:0 0 auto;accent-color:var(--color-svv-ink)}
 .eav-message{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border:1px solid var(--color-svv-green);overflow-wrap:anywhere}
+.eav-essais{margin-top:.6rem;padding:8px 12px;border-radius:10px;border:1px dashed var(--color-svv-line-strong);background:var(--color-svv-field);display:flex;flex-direction:column;gap:.5rem}
+.eav-essais > summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:700;color:var(--color-svv-ink);list-style:none}
+.eav-essais > summary::-webkit-details-marker{display:none}
+.eav-essais > summary::before{content:'\\25B8';display:inline-block;min-width:1em;color:var(--color-svv-muted)}
+.eav-essais[open] > summary::before{content:'\\25BE'}
+.eav-essais[open]{gap:.5rem}
 .eav-recents{display:flex;flex-direction:column;gap:.5rem;margin-top:.6rem}
 .eav-compte{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:0 8px;margin-left:6px;border-radius:999px;background:var(--color-svv-orange-soft);color:var(--color-svv-orange);border:1px solid var(--color-svv-orange);font-size:.9rem;font-weight:800;vertical-align:middle}
 .eav-refus{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-red-soft);color:var(--color-svv-red);border:1px solid var(--color-svv-red);overflow-wrap:anywhere}

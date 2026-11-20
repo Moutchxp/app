@@ -38,7 +38,9 @@ const MINIMUM_FRAPPE = 3;
 
 export interface ChoixAdresse { voie: string; codePostal: string; commune: string }
 
-export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque, id, exemple = '12 rue de l’Église…' }: {
+export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque, id, exemple = '12 rue de l’Église…', etiquetteAffichee }: {
+  /** 🔴 (Arno, 20/11/2026, file « Adresses à vérifier ») la mise en forme d'une proposition DANS LA LISTE. Absente ⇒ l'étiquette de la BAN, inchangée (tous les autres écrans). */
+  etiquetteAffichee?: (a: ChoixAdresse) => string;
   /** Le texte d'exemple (gris). Absent ⇒ celui de la Gestion, inchangé ; la tuile Location passe « ex. … » (Arno, 18/10/2026). */
   exemple?: string;
   valeur: string;
@@ -165,7 +167,7 @@ export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque,
                    se referme. Le même piège, refermé par l'autre bout. */
                 onMouseDown={(e) => { e.preventDefault(); retenir(a); }}
                 onMouseEnter={() => setVise(i)}>
-                {a.etiquette}
+                {etiquetteAffichee ? etiquetteAffichee({ voie: a.voie, codePostal: a.codePostal, commune: a.commune }) : a.etiquette}
               </button>
             </li>
           ))}

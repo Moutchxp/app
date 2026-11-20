@@ -4,7 +4,7 @@ import { immeubleDuBien } from '../gestion/copropriete';
 import { adresseImmeuble, cleImmeuble } from '../gestion/syndics';
 import { adresseBanParId, adressesDeLaPlage, enregistrerRapprochement, parcelleDuPoint, rapprocherAdresse, rapprocherBien, type RapprochementComplet } from './banRepo';
 import { analyserAdresse, libelleOfficiel, type CandidatBan } from './rapprochementBan';
-import { voieAffichee } from './libelleAffiche';
+import { communeAffichee, voieAffichee } from './libelleAffiche';
 import { annulerUnification, RefusUnification } from './unificationApplicationRepo';
 
 /**
@@ -22,19 +22,29 @@ import { annulerUnification, RefusUnification } from './unificationApplicationRe
  */
 
 export const SOURCE_FILE = 'file_verification';
-export interface PropositionFile { banId: string; libelle: string; score: number | null }
+export interface PropositionFile { banId: string; libelle: string; court: string; score: number | null }
 export interface EcritureAVerifier {
   /** la clé de l'écriture (texte, code postal, commune) : ce que les gestes désignent */
   cle: string; ecriture: string; codePostal: string | null; commune: string | null;
   lots: number[]; statut: 'a_verifier' | 'introuvable'; motif: string; propositions: PropositionFile[];
   /** une plage de numéros : ses adresses officielles possibles (le geste « Plusieurs adresses ») */
   plage: { texte: string; adresses: PropositionFile[] } | null;
+  /** une fiche d'essai (« TEST », « _TEST », « FICTIF », « ESSAI », code postal 00000) : rangée à part, hors du compteur (Arno, 20/11/2026) */
+  essai: boolean;
 }
 export interface ChoixRecent { operationId: number; le: string; par: string; geste: string; ecriture: string; adresses: string[]; raison: string | null }
 
 interface LotFile { id: string; immeuble: string | null; adresse: string | null; code_postal: string | null; commune: string | null; statut: string; motif: string | null }
 const cleDe = (l: Pick<LotFile, 'immeuble' | 'adresse' | 'code_postal' | 'commune'>): string => JSON.stringify([immeubleDuBien(l), (l.code_postal ?? '').trim(), (l.commune ?? '').trim()]);
-const libelleDe = (c: CandidatBan, cp: string | null): string => adresseImmeuble(voieAffichee(libelleOfficiel(c)), cp, c.commune);
+const libelleDe = (c: CandidatBan, cp: string | null): string => adresseImmeuble(voieAffichee(libelleOfficiel(c)), cp, communeAffichee(c.commune));
+const propositionDe = (c: CandidatBan, cp: string | null, score: number | null): PropositionFile => ({ banId: c.id, libelle: libelleDe(c, cp), court: voieAffichee(libelleOfficiel(c)), score });
+
+/** 🔴 UNE FICHE D'ESSAI (Arno, 20/11/2026) : « TEST », « _TEST », « FICTIF » ou « ESSAI » en mot entier dans l'écriture ou la commune, ou le code postal 00000. PUR. */
+const MOT_ESSAI = /(^|[^\p{L}\d])_?(test|fictif|essai)(?=$|[^\p{L}])/iu;
+export function estFicheEssai(e: { ecriture: string | null; codePostal: string | null; commune: string | null }): boolean {
+  return (e.codePostal ?? '').trim() === '00000' || MOT_ESSAI.test(e.ecriture ?? '') || MOT_ESSAI.test(e.commune ?? '');
+}
+const essaiDuLot = (l: LotFile) => estFicheEssai({ ecriture: immeubleDuBien(l), codePostal: l.code_postal, commune: l.commune });
 
 async function lotsDeLaFile(q: RequeteTx | typeof query = query): Promise<LotFile[]> {
   const { rows } = await q<LotFile>(
@@ -44,9 +54,9 @@ async function lotsDeLaFile(q: RequeteTx | typeof query = query): Promise<LotFil
   return rows;
 }
 
-/** Le nombre d'ÉCRITURES à vérifier (le compteur de l'onglet). LECTURE SEULE. */
+/** Le nombre d'ÉCRITURES à vérifier (le compteur de l'onglet), SANS les fiches d'essai. LECTURE SEULE. */
 export async function compteAVerifier(): Promise<number> {
-  return new Set((await lotsDeLaFile()).map(cleDe)).size;
+  return new Set((await lotsDeLaFile()).filter((l) => !essaiDuLot(l)).map(cleDe)).size;
 }
 
 /** LA FILE, triée par nombre de biens concernés. LECTURE SEULE. */
@@ -59,18 +69,21 @@ export async function fileAVerifier(): Promise<EcritureAVerifier[]> {
     const r = await rapprocherBien({ immeuble: l.immeuble, adresse: l.adresse, codePostal: l.code_postal, commune: l.commune });
     let plage: EcritureAVerifier['plage'] = null;
     const a = [l.immeuble, l.adresse].map((t) => analyserAdresse(t, l.commune)).find((x) => x.plage) ?? null;
-    if (a !== null && r.ban !== null) {
+    // la voie de la plage : l'adresse rapprochée, ou à défaut la meilleure proposition (une plage n'est jamais « certaine »)
+    const voie = r.ban ?? r.propositions[0] ?? null;
+    if (a !== null) {
       const m = /^(\d+)\D+(\d+)/.exec(a.plageTexte ?? '');
-      if (m !== null) {
+      if (m !== null && voie === null) plage = { texte: a.plageTexte ?? '', adresses: [] };
+      else if (m !== null && voie !== null) {
         const [de, fin] = [Number(m[1]), Number(m[2])];
         // deux bornes de même parité (« 12-28 ») : un seul côté de la rue — les numéros de l'autre côté ne sont pas proposés
         const memeCote = de % 2 === fin % 2;
-        plage = { texte: a.plageTexte ?? '', adresses: (await adressesDeLaPlage(r.ban.insee, r.ban.nomVoie, de, fin)).filter((c) => !memeCote || c.numero % 2 === de % 2)
-          .map((c) => ({ banId: c.id, libelle: libelleDe(c, r.codePostal), score: null })) };
+        plage = { texte: a.plageTexte ?? '', adresses: (await adressesDeLaPlage(voie.insee, voie.nomVoie, de, fin)).filter((c) => !memeCote || c.numero % 2 === de % 2)
+          .map((c) => propositionDe(c, r.codePostal, null)) };
       }
     }
     out.push({ cle, ecriture: immeubleDuBien(l), codePostal: l.code_postal, commune: l.commune, lots: ls.map((x) => Number(x.id)), statut: l.statut === 'introuvable' ? 'introuvable' : 'a_verifier',
-      motif: r.motif, propositions: r.propositions.map((p) => ({ banId: p.id, libelle: libelleDe(p, r.codePostal), score: p.score })), plage });
+      motif: r.motif, propositions: r.propositions.map((p) => propositionDe(p, r.codePostal, p.score)), plage, essai: essaiDuLot(l) });
   }
   return out.sort((x, y) => y.lots.length - x.lots.length || x.ecriture.localeCompare(y.ecriture, 'fr', { numeric: true }));
 }
@@ -125,7 +138,8 @@ export async function gesteFile(brut: unknown, auteur: Auteur): Promise<{ ok: tr
     choisies = [r.ban];
   } else {
     const ids = (geste === 'valider' ? [b.banId] : Array.isArray(b.banIds) ? b.banIds : []).filter((x): x is string => typeof x === 'string').slice(0, 30);
-    if (ids.length === 0 || (geste === 'plusieurs' && ids.length < 2)) return { ok: false, motif: geste === 'plusieurs' ? 'Cochez au moins deux adresses officielles.' : 'Proposition non désignée.' };
+    // une plage dont la Base Adresse ne connaît qu'un numéro (« 126 - 128 rue de Villiers » : le 126 n'existe pas) : « Plusieurs adresses » avec une seule cochée reste permis
+    if (ids.length === 0) return { ok: false, motif: geste === 'plusieurs' ? 'Cochez au moins une adresse officielle. Rien n’est enregistré.' : 'Proposition non désignée.' };
     for (const id of ids) { const c = await adresseBanParId(id); if (c === null) return { ok: false, motif: `L’adresse officielle ${id} est introuvable. Rien n’est enregistré.` }; choisies.push(c); }
   }
   const libelles = choisies.map((c) => libelleDe(c, l0.code_postal));
