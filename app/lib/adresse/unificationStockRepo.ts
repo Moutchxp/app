@@ -5,7 +5,7 @@ import { regroupementsEnCours } from '../gestion/regroupementCoproprietesRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { rapprocherAdresse, rapprocherBien, type RapprochementComplet } from './banRepo';
 import { compterTables, TABLES_COMPTEES, type Comptage } from './essaiStockRepo';
-import { planUnification, type AdresseCoproStock, type BienStock, type CoproStock, type DigicodeEnVigueur, type PlanUnification } from './unificationStock';
+import { planUnification, type AdresseCoproStock, type BienStock, type CoproStock, type DigicodeEnVigueur, type EntreeUnification, type PlanUnification } from './unificationStock';
 
 /**
  * ══ 🔴🔴 L'UNIFICATION DU STOCK — LA LECTURE (Arno, 20/11/2026, « Adresse officielle BAN », lot 5). IMPUR, LECTURE SEULE. ════════════════════════════
@@ -28,6 +28,13 @@ export async function unificationDuStock(): Promise<IssueUnification> {
   const { rows: [etat] } = await query<{ base: string; lecture_seule: string }>(`SELECT current_database() AS base, current_setting('default_transaction_read_only') AS lecture_seule`);
   if (etat?.lecture_seule !== 'on') return { ok: false, motif: `La connexion à « ${etat?.base ?? '?'} » n’est pas en lecture seule : rien n’est fait.` };
   const avant = await compterTables();
+  const plan = planUnification(await lireEntreeUnification());
+  const apres = await compterTables();
+  return { ok: true, base: etat.base, plan, avant, apres, intact: TABLES_COMPTEES.every((t) => avant[t] === apres[t]) };
+}
+
+/** LE STOCK, LU (sans écrire) : ce que reçoit le plan — partagé par l'essai et par l'application (lot 5). */
+export async function lireEntreeUnification(): Promise<EntreeUnification> {
   const avec505 = await colonneExisteMemo('gestion_copropriete_adresse', 'sorte');
   const avec476 = await colonneExisteMemo('gestion_copropriete', 'nom');
 
@@ -86,7 +93,5 @@ export async function unificationDuStock(): Promise<IssueUnification> {
     const { rows } = await query<{ cle: string; n: string }>(`SELECT ${t.composee ? `split_part(${t.colonne}, '|', 1)` : t.colonne} AS cle, count(*)::text AS n FROM ${t.table} GROUP BY 1`);
     for (const r of rows) { const m = autresParCle.get(r.cle) ?? {}; m[t.nom] = (m[t.nom] ?? 0) + Number(r.n); autresParCle.set(r.cle, m); }
   }
-  const plan = planUnification({ biens, rapprochementDesBiens, copros, adressesCopro, rapprochementDesAdresses, digicodes, regroupements, autresParCle });
-  const apres = await compterTables();
-  return { ok: true, base: etat.base, plan, avant, apres, intact: TABLES_COMPTEES.every((t) => avant[t] === apres[t]) };
+  return { biens, rapprochementDesBiens, copros, adressesCopro, rapprochementDesAdresses, digicodes, regroupements, autresParCle };
 }

@@ -6,7 +6,7 @@ import { adressesIndependantes, batimentDe, nomenclatureDe, nomenclatureDeLAdres
 import { immeubleDuBien, type DigicodesAdresseFiche } from './copropriete';
 import { etatPlace, ficheCopropriete } from './coproprieteRepo';
 import { premiereValeur, type DigicodesBienSaisis, type OrigineDigicode } from './digicodes';
-import { digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, inscrireBatiment, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode, mailsGestionDesAdresses } from './digicodesRepo';
+import { cleDeReferenceDigicode, digicodesDesAdresses, digicodesUnifiesDisponibles, ecrireDigicode, inscrireBatiment, RefusDigicode, relierBienAuBatiment, type CoproprieteDuCode, mailsGestionDesAdresses } from './digicodesRepo';
 import { cleImmeuble } from './syndics';
 
 /**
@@ -60,7 +60,8 @@ export async function digicodesPourBien(o: { lotId: number } | { adresse: string
   } else {
     immeuble = o.adresse.trim(); cp = o.codePostal; commune = o.commune;
   }
-  const adresseCle = cleImmeuble(immeuble);
+  // 🔴 (lot 5) une écriture d'origine : les digicodes de son adresse officielle (un seul bloc par adresse officielle)
+  const adresseCle = await cleDeReferenceDigicode(cleImmeuble(immeuble));
   /* 🔴 (Arno, 17/11/2026 — l'écart du lot 4 : « Nouveau bien » montrait encore « Bâtiment » libre, « Digicode » Oui / Non et « Code » tant que
      l'adresse n'était pas saisie) : SANS ADRESSE, une place VIDE — le composant unique s'affiche quand même ; `null` ne veut plus dire que
      « base sans la 478 ». Les codes connus arrivent dès l'adresse choisie. */

@@ -147,12 +147,32 @@ function lirePlaceDepuis(anciens: Awaited<ReturnType<typeof chargerAnciens>>, li
   return { adresseCle, commun, codeBatiment, aVenir, libBat, nbBiensAdresse: ici.length, nbBiensBatiment: bCle === '' ? 0 : ici.filter((x) => x.batimentCle === bCle).length };
 }
 
+/**
+ * 🔴 (Arno, 20/11/2026, « Adresse officielle BAN », lot 5) LA CLÉ DE RÉFÉRENCE DES DIGICODES D'UNE ADRESSE : une ÉCRITURE d'origine (adresse de sorte
+ * « écriture », 505) n'a plus son propre bloc — ses digicodes se lisent et s'écrivent à l'adresse officielle qu'elle écrit autrement : l'adresse principale
+ * de sa copropriété si c'est la même adresse officielle, sinon la première adresse (sorte « adresse ») de cette adresse officielle. Une adresse qui n'est
+ * pas une écriture (ou une base sans la 505) garde sa clé. LECTURE SEULE.
+ */
+export async function cleDeReferenceDigicode(adresseCle: string, q: RequeteTx = query): Promise<string> {
+  if (adresseCle === '' || !(await colonneExisteMemo('gestion_copropriete_adresse', 'sorte'))) return adresseCle;
+  const { rows: [e] } = await q<{ copro: string; ban: string | null; cle_copro: string; ban_copro: string | null }>(
+    `SELECT a.copropriete_id::text AS copro, a.ban_id AS ban, c.cle_immeuble AS cle_copro, c.ban_id AS ban_copro
+       FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id
+      WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL AND a.sorte = 'ecriture' ORDER BY a.id LIMIT 1`, [adresseCle]);
+  if (e === undefined || e.ban === null) return adresseCle;
+  if (e.ban_copro === e.ban) return e.cle_copro;
+  const { rows: [r] } = await q<{ cle: string }>(
+    `SELECT cle_immeuble AS cle FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND ban_id = $2 AND sorte = 'adresse' AND retire_le IS NULL ORDER BY id LIMIT 1`, [e.copro, e.ban]);
+  return r?.cle ?? adresseCle;
+}
+
 /** Les digicodes d'un BIEN à un instant (par défaut : maintenant). `null` : bien inconnu, ou sans adresse. LECTURE SEULE. */
 export async function digicodesDuBien(lotId: number, instant: Date = new Date(), q: RequeteTx = query): Promise<DigicodesDuBien | null> {
   const anciens = await chargerAnciens(q);
   const l = anciens.lotsBruts.find((x) => x.id === lotId);
   if (l === undefined) return null;
-  const adresseCle = adresseCleDuBien(l);
+  // 🔴 (lot 5) un bien rangé sous une écriture d'origine lit les digicodes de son adresse officielle
+  const adresseCle = await cleDeReferenceDigicode(adresseCleDuBien(l), q);
   if (adresseCle === '') return null;
   const lignes = await lignesDigicodes([adresseCle], q);
   const bCle = batimentCleDuBien(l);
@@ -167,7 +187,7 @@ export async function digicodesDuBien(lotId: number, instant: Date = new Date(),
  * création d'un bien. LECTURE SEULE.
  */
 export async function digicodesDeLaPlace(immeubleOuAdresse: string, batimentBrut: string | null, instant: Date = new Date(), q: RequeteTx = query): Promise<DigicodesDuBien | null> {
-  const adresseCle = cleImmeuble(immeubleOuAdresse);
+  const adresseCle = await cleDeReferenceDigicode(cleImmeuble(immeubleOuAdresse), q);
   if (adresseCle === '') return null;
   const anciens = await chargerAnciens(q);
   const lignes = await lignesDigicodes([adresseCle], q);

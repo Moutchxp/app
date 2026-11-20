@@ -5,7 +5,7 @@ import type { ModeleOfficiel } from '../../../../lib/adresse/officielleCopro';
 import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { AgCopropriete } from './AgCopropriete';
-import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
+import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, motValeur, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
 import type { ApercuEnvoi, IssueEnvoi } from '../../../../lib/gestion/digicodesEnvoi';
@@ -71,6 +71,12 @@ export function avertissementsContact(c: ContactEdit, autres: readonly ContactEd
     if (uniques.length > 0) out.push(...lignesDoublonCoordonnee(k.sorte, k.valeur, uniques));
   }
   return out;
+}
+
+/** La saisie des digicodes après un changement dans les blocs AFFICHÉS : les blocs cachés (autres écritures) restent tels quels, et les blocs affichés
+ *  reprennent leur adresse enregistrée (le titre officiel n'est qu'un affichage : rien d'autre n'est envoyé). PUR. */
+export function remettreDigicodes(etat: readonly DigicodesAdresseSaisis[], affiches: readonly DigicodesAdresseSaisis[]): DigicodesAdresseSaisis[] {
+  return etat.map((x) => { const n = affiches.find((y) => y.cle === x.cle); return n === undefined ? x : { ...n, voie: x.voie, codePostal: x.codePostal, commune: x.commune }; });
 }
 
 export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number | null; immeuble?: string | null; onFerme: () => void }) {
@@ -144,6 +150,32 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       return { a, mode: 'officielle' as const, libelle: g.libelle, banId: g.banId };
     });
   })();
+  /* 🔴 (Arno, 20/11/2026, lot 5) DIGICODES : un seul bloc par adresse officielle — celui de la première écriture de l'adresse (l'adresse principale d'abord),
+     titré au libellé officiel ; les autres écritures de la même adresse ne font plus de bloc (leur saisie reste dans l'état, inchangée). Leurs codes
+     connus identiques sont fusionnés (rien à dire) ; différents, ils sont tous gardés et listés « à trancher », avec leur écriture. */
+  const groupeDe = (cle: string) => off?.adresses.find((g) => g.cles.includes(cle)) ?? null;
+  const representants = new Map<string, string>(); // banId → clé du bloc affiché
+  for (const d of digi) { const g = groupeDe(d.cle); if (g !== null && !representants.has(g.banId)) representants.set(g.banId, d.cle); }
+  const digiAffiches = digi.filter((d) => { const g = groupeDe(d.cle); return g === null || representants.get(g.banId) === d.cle; })
+    .map((d) => {
+      const g = groupeDe(d.cle);
+      if (g === null) return d;
+      // les biens qui LISENT ce bloc : ceux de toutes les écritures de l'adresse officielle (le 54 : 76, et non le seul bien de cette écriture)
+      const memes = digi.filter((x) => groupeDe(x.cle)?.banId === g.banId);
+      const somme = (f: (x: DigicodesAdresseSaisis) => number | undefined) => (memes.some((x) => f(x) !== undefined) ? memes.reduce((n, x) => n + (f(x) ?? 0), 0) : undefined);
+      const communNb = somme((x) => x.communNb);
+      return { ...d, voie: g.court, codePostal: g.codePostal, commune: g.commune, ...(communNb !== undefined ? { communNb } : {}),
+        batiments: d.batiments.map((b) => { const nb = somme((x) => x.batiments.find((y) => y.libelle === b.libelle)?.nb); return nb !== undefined ? { ...b, nb } : b; }) };
+    });
+  const valeurDe = (e: { connu: boolean; valeur: { digicode: boolean | null; code: string | null } | null } | undefined) => (e?.connu && e.valeur ? motValeur(e.valeur) : null);
+  const digicodesATrancher = digi.flatMap((d) => {
+    const g = groupeDe(d.cle);
+    const rep = g === null ? undefined : digi.find((x) => x.cle === representants.get(g.banId));
+    if (g === null || rep === undefined || rep.cle === d.cle) return [];
+    const places = [{ place: 'digicode copropriété', v: valeurDe(d.communEtat), r: valeurDe(rep.communEtat) },
+      ...d.batiments.map((b) => ({ place: `bâtiment / cage ${b.libelle}`, v: valeurDe(b.etat), r: valeurDe(rep.batiments.find((y) => y.k === b.k)?.etat) }))];
+    return places.filter((x) => x.v !== null && x.v !== x.r).map((x) => ({ adresse: g.libelle, place: x.place, valeur: x.v as string, ecriture: d.voie }));
+  });
   const retirer = (a: Adresse) => (aRetirer === cleImmeuble(a.libelle)
     ? <span className="fcp-confirmer">Retirer cette adresse ? <button type="button" className="fcp-lien" onClick={() => { setAdresses((x) => x.filter((y) => y !== a)); setARetirer(null); }} data-fcp-retirer-oui>Oui</button>{' '}
       <button type="button" className="fcp-lien" onClick={() => setARetirer(null)}>Non</button></span>
@@ -291,7 +323,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     <section className="fcp-bloc" data-fcp-identite>
       <h3 className="fcp-titre">Identité</h3>
       <label className="fcp-champ"><span>Nom de la copropriété (facultatif)</span>
-        <input value={nom} disabled={!f.avec476 || envoi} placeholder={f.libelle} onChange={(e) => setNom(e.target.value)} data-fcp-nom /></label>
+        <input value={nom} disabled={!f.avec476 || envoi} placeholder={off?.principale.libelle ?? f.libelle} onChange={(e) => setNom(e.target.value)} data-fcp-nom /></label>
       {f.avec476 && <label className="fcp-case"><input type="checkbox" checked={hors} disabled={envoi} onChange={(e) => setHors(e.target.checked)} data-fcp-hors />
         <span>Immeuble hors copropriété (tout l’immeuble) : ni syndic ni AG</span></label>}
       {horsAffiche && !hors && <p className="fcp-alerte" data-fcp-bien-hors>Ce bien est noté « pas en copropriété » sur sa fiche : cochez la case pour tout l’immeuble (rien n’est changé sans « Valider »).</p>}
@@ -305,8 +337,11 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       <ul className="fcp-liste">
         <li data-fcp-adresse="principale" {...(off !== null ? { 'data-fcp-officielle': off.principale.banId } : {})}>
           <strong>{off !== null ? off.principale.libelle : adresseImmeuble(f.libelle, f.codePostal, f.commune)}</strong> <span className="loc-muet">— adresse principale</span></li>
+        {/* 🔴 (Arno, 20/11/2026, lot 5) une écriture d'origine n'est JAMAIS une adresse : elle ne vit que dans « Écritures d'origine » (elle reste dans la
+            saisie, et part avec « Valider ») ; une adresse que rien n'a encore rapprochée garde sa ligne, marquée « à vérifier » */}
         {rangees.filter((x) => x.mode !== 'ecriture').map(({ a, mode, libelle }) => (
-          <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}{retirer(a)}</li>))}
+          <li key={cleImmeuble(a.libelle)} data-fcp-adresse="secondaire" {...(mode === 'officielle' ? { 'data-fcp-officielle': '' } : {})}>{libelle}{' '}
+            {off !== null && mode === 'normale' && <span className="fcp-a-verifier" data-fcp-adresse-a-verifier>à vérifier </span>}{retirer(a)}</li>))}
         {/* une autre adresse officielle de l'immeuble, connue par ses biens mais qui n'est pas (encore) une adresse enregistrée : en lecture seule */}
         {(off?.adresses ?? []).filter((g) => g.banId !== off?.principale.banId && !rangees.some((x) => x.banId === g.banId)).map((g) => (
           <li key={g.banId} data-fcp-adresse="officielle-des-biens">{g.libelle} <span className="loc-muet">— adresse de biens de la copropriété</span></li>))}
@@ -317,11 +352,6 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
           <ul className="fcp-liste">{off.ecritures.map((e, i) => (
             <li key={i} data-fcp-ecriture={e.statut}>« {e.ecriture} » <span className="loc-muet">— {e.biens} bien{e.biens > 1 ? 's' : ''}</span>
               {e.statut !== 'certain' && <span className="fcp-a-verifier" data-fcp-ecriture-a-verifier> · à vérifier</span>}</li>))}</ul>
-          {rangees.some((x) => x.mode === 'ecriture') && <>
-            <p className="fcp-sous-titre">Enregistrées comme adresses de la copropriété, sous une autre écriture de la même adresse officielle</p>
-            <ul className="fcp-liste">{rangees.filter((x) => x.mode === 'ecriture').map(({ a }) => (
-              <li key={cleImmeuble(a.libelle)} data-fcp-adresse="ecriture">{adresseImmeuble(a.libelle, a.codePostal, a.commune)}{' '}{retirer(a)}</li>))}</ul>
-          </>}
         </details>)}
       {ajoutAdresse && (
         <div className="fcp-ajout" data-fcp-ajout-adresse>
@@ -374,7 +404,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       {/* 🔴 (lot 3) la nouvelle saisie : digicode commun, « + » pour un bâtiment ou une cage, menu des bâtiments de toute la copropriété ;
           sans la 477, l'ancienne saisie par adresse reste (rien n'est perdu) */}
       {f.saisieDigicodes
-        ? <DigicodesCopropriete parAdresse={f.batimentsParAdresse === true} s={digi} onChange={setDigi} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
+        ? <><DigicodesCopropriete parAdresse={f.batimentsParAdresse === true} s={digiAffiches} onChange={(nv) => setDigi((d) => remettreDigicodes(d, nv))} connus={f.batimentsConnus} nomenclature={f.nomenclatureEffective} desactive={envoi} tente={tenteDigi}
           {...(f.digicodesUnifies ? { onCorriger: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-corriger', a, b, v),
             onArbitrer: (a: string, b: string | null, v: { digicode: boolean; code: string | null }) => gesteDigicode('digicode-arbitrer', a, b, v),
             onPlanifier: (a: string, appliqueLe: string, changements: unknown[]) => appelDigicode({ action: 'digicode-planifier', adresseCle: a, appliqueLe, changements }),
@@ -389,6 +419,12 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               if (typeof r !== 'string') void relireDigicodes();
               return r;
             } } : {})} />
+          {digicodesATrancher.length > 0 && (
+            <div className="fcp-alerte" data-fcp-digicodes-a-trancher>
+              <p className="fcp-sans-marge"><strong>Digicodes à trancher</strong> — la même adresse officielle porte des codes différents sous d’autres écritures (aucun n’est supprimé) :</p>
+              <ul className="fcp-liste">{digicodesATrancher.map((x, i) => (
+                <li key={i}>{x.adresse} — {x.place} : <strong>{x.valeur}</strong> <span className="loc-muet fcp-petit">(écriture « {x.ecriture} »)</span></li>))}</ul>
+            </div>)}</>
         /* 🔴 (« Digicodes unifiés », lot 4, accord d'Arno) CE QU'IL Y AVAIT : l'ancienne saisie par adresse (DigicodeImmeuble), en repli sans la 477 —
            RETIRÉE : le composant unique couvre tout ce qu'elle faisait (code commun, code de chaque bâtiment, ajout d'un bâtiment, « commun aux N
            biens », message après enregistrement). Sans la mise à jour de la base, on le dit ; rien n'est saisi. */
@@ -627,6 +663,7 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
 .fcp-histo{margin-top:6px}
 .fcp-a-verifier{color:var(--color-svv-orange);font-weight:800}
+.fcp-petit{font-size:.82rem}
 .fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:700;color:var(--color-svv-ink)}
 .fcp-a-preciser{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px 0}
 .fcp-a-preciser-choix{flex:1 1 220px}

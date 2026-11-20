@@ -17,7 +17,7 @@ import { rapprocherAdresse, rapprocherBien, type RapprochementComplet } from './
  * certain : aucun modèle, et l'affichage d'avant ne change pas.
  */
 
-export interface AdresseOfficielle { banId: string; libelle: string; court: string; cles: string[] }
+export interface AdresseOfficielle { banId: string; libelle: string; court: string; codePostal: string | null; commune: string; cles: string[] }
 export interface EcritureOrigine { ecriture: string; cle: string; biens: number; statut: RapprochementComplet['statut']; banId: string | null }
 export interface ModeleOfficiel { principale: AdresseOfficielle; adresses: AdresseOfficielle[]; ecritures: EcritureOrigine[]; aVerifier: boolean }
 
@@ -35,12 +35,16 @@ export interface EntreeOfficielle {
   r: Pick<RapprochementComplet, 'statut' | 'codePostal'> & { ban: { id: string; libelle: string; commune: string } | null };
 }
 
+/** La forme d'une écriture, sans casse, accents ni espaces en trop (« 54 avenue Puvis De  Chavannes » = « 54 Avenue Puvis de Chavannes »). PUR. */
+export const formeEcriture = (t: string): string => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
 /** LE MODÈLE D'AFFICHAGE d'une copropriété, ou `null` (rien de certain : l'affichage d'avant). PUR. */
 export function modeleOfficiel(entrees: readonly EntreeOfficielle[]): ModeleOfficiel | null {
   const groupes = new Map<string, AdresseOfficielle & { biens: number; principale: boolean }>();
   for (const e of entrees) {
     if (e.r.statut !== 'certain' || e.r.ban === null) continue;
-    const g = groupes.get(e.r.ban.id) ?? { banId: e.r.ban.id, libelle: adresseImmeuble(e.r.ban.libelle, e.r.codePostal, e.r.ban.commune), court: e.r.ban.libelle, cles: [], biens: 0, principale: false };
+    const g = groupes.get(e.r.ban.id) ?? { banId: e.r.ban.id, libelle: adresseImmeuble(e.r.ban.libelle, e.r.codePostal, e.r.ban.commune), court: e.r.ban.libelle,
+      codePostal: e.r.codePostal, commune: e.r.ban.commune, cles: [], biens: 0, principale: false };
     if (!g.cles.includes(e.cle)) g.cles.push(e.cle);
     g.biens += e.biens;
     g.principale ||= e.principale;
@@ -49,7 +53,19 @@ export function modeleOfficiel(entrees: readonly EntreeOfficielle[]): ModeleOffi
   if (groupes.size === 0) return null;
   const ordre = [...groupes.values()].sort((a, b) => Number(b.principale) - Number(a.principale) || b.biens - a.biens || a.libelle.localeCompare(b.libelle, 'fr', { numeric: true }));
   const adresses = ordre.map(({ biens: _b, principale: _p, ...g }) => g);
-  const ecritures = entrees.filter((e) => e.biens > 0).map((e) => ({ ecriture: e.texte, cle: e.cle, biens: e.biens, statut: e.r.statut, banId: e.r.ban?.id ?? null }))
+  // 🔴 (lot 5, Arno) les écritures qui ne diffèrent que par la casse, les accents ou les espaces : UNE ligne, le total des biens, l'écriture la plus portée
+  const parForme = new Map<string, EcritureOrigine & { meilleure: number }>();
+  for (const e of entrees.filter((x) => x.biens > 0)) {
+    const k = formeEcriture(e.texte);
+    const x = parForme.get(k);
+    if (x === undefined) parForme.set(k, { ecriture: e.texte, cle: e.cle, biens: e.biens, statut: e.r.statut, banId: e.r.ban?.id ?? null, meilleure: e.biens });
+    else {
+      if (e.biens > x.meilleure) { x.ecriture = e.texte; x.meilleure = e.biens; }
+      x.biens += e.biens;
+      if (e.r.statut !== 'certain') x.statut = e.r.statut;
+    }
+  }
+  const ecritures = [...parForme.values()].map(({ meilleure: _m, ...x }) => x)
     .sort((a, b) => b.biens - a.biens || a.ecriture.localeCompare(b.ecriture, 'fr', { numeric: true }));
   return { principale: adresses[0], adresses, ecritures, aVerifier: ecritures.some((x) => x.statut !== 'certain') };
 }

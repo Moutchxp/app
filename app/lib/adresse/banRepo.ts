@@ -150,6 +150,8 @@ export const MOTIF_SANS_505 = 'Les adresses officielles demandent la mise à jou
  */
 export async function enregistrerRapprochement(q: RequeteTx, lotId: number, r: RapprochementComplet, o: {
   statut?: StatutEnregistre; origine: OrigineRapprochement; methode: MethodeRapprochement; motifFin?: string;
+  /** 🔴 (lot 5, migration 508) la passe d'unification qui pose ce rapprochement — ce que son annulation ferme */
+  operationId?: number;
 }, auteur: Auteur): Promise<boolean> {
   const statut = o.statut ?? r.statut;
   const banId = r.ban?.id ?? null;
@@ -163,9 +165,9 @@ export async function enregistrerRapprochement(q: RequeteTx, lotId: number, r: R
   }
   await q(
     `INSERT INTO gestion_lot_adresse_ban (lot_id, ban_id, libelle_officiel, numero, suffixe, code_postal, insee, commune, parcelle, score, methode, statut,
-                                          origine, texte_source, motif, cree_par, cree_par_libelle)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+                                          origine, texte_source, motif, cree_par, cree_par_libelle${o.operationId === undefined ? '' : ', operation_id'})
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17${o.operationId === undefined ? '' : ', $18'})`,
     [lotId, banId, r.ban?.libelle ?? null, r.ban?.numero ?? r.analyse.numero, r.ban?.suffixe ?? r.analyse.indice, r.codePostal, r.ban?.insee ?? r.insee,
-      r.ban?.commune ?? null, r.parcelle, r.score, o.methode, statut, o.origine, r.texteSource, r.motif, auteur.id, auteur.libelle]);
+      r.ban?.commune ?? null, r.parcelle, r.score, o.methode, statut, o.origine, r.texteSource, r.motif, auteur.id, auteur.libelle, ...(o.operationId === undefined ? [] : [o.operationId])]);
   return true;
 }

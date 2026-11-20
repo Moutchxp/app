@@ -67,7 +67,8 @@ export async function regroupementsEnCours(): Promise<RegroupementEnCours[]> {
             array(SELECT a.libelle FROM gestion_copropriete_adresse a WHERE a.regroupement_id = r.id AND a.retire_le IS NULL ORDER BY a.id) AS regroupees,
             r.cree_le::text AS le, r.cree_par_libelle AS par
        FROM gestion_copropriete_regroupement r JOIN gestion_copropriete c ON c.id = r.copropriete_id
-      WHERE r.degroupe_le IS NULL ORDER BY r.id`);
+      WHERE r.degroupe_le IS NULL${(await colonneExisteMemo('gestion_copropriete_regroupement', 'absorbe_le')) ? ' AND r.absorbe_le IS NULL' : ''} ORDER BY r.id`);
+  // 🔴 (lot 5, 508) un regroupement ABSORBÉ par l'unification des adresses officielles n'est plus en cours : ses adresses sont des écritures d'origine
   return rows.map((r) => ({ id: Number(r.id), cle: r.cle, principale: r.principale, regroupees: r.regroupees, le: r.le, par: r.par }));
 }
 

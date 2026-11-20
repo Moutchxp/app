@@ -433,23 +433,29 @@ describe('l’historique du syndic', () => {
 describe('l’adresse officielle (BAN) sur la fiche', () => {
   const ADR = (libelle: string, principale = false) => ({ cle: libelle.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(), libelle, codePostal: '92400', commune: 'Courbevoie', principale });
   const G = (banId: string, court: string, cles: string[]) => ({ banId, court, libelle: `${court}, 92400 Courbevoie`, cles });
-  it('le 54 : l’adresse officielle en adresse principale ; les variantes ne sont plus des adresses, mais des « Écritures d’origine », avec leur « × » ; Valider les renvoie TOUTES', async () => {
+  it('le 54 : l’adresse officielle partout (principale, titre, nom grisé) ; les écritures d’origine ne sont JAMAIS des adresses (aucun « × »), seulement dans le bloc FERMÉ, fusionnées ; Valider les renvoie TOUTES', async () => {
     const adresses = [ADR('54 avenue puvis de Chavannes, 92400, Courbevoie', true), ADR('54 Avneue Puvis de Chavannes'), ADR('54 Puvis de Chavannes')];
-    const p54 = G('92026_7184_00054', '54 Avenue Puvis De Chavannes', adresses.map((a) => a.cle));
-    lu = { fiche: FICHE({ libelle: '54 avenue puvis de Chavannes, 92400, Courbevoie', cle: adresses[0].cle, codePostal: '92400', commune: 'Courbevoie', adresses }), coproprieteDuBien: true,
+    const p54 = { ...G('92026_7184_00054', '54 Avenue Puvis De Chavannes', adresses.map((a) => a.cle)), codePostal: '92400', commune: 'Courbevoie' };
+    const dig = (a: ReturnType<typeof ADR>) => ({ cle: a.cle, voie: a.libelle, codePostal: '92400', commune: 'COURBEVOIE', commun: { digicode: null, code: null, nbBiens: 2 }, batiments: [] });
+    lu = { fiche: FICHE({ libelle: '54 avenue puvis de Chavannes, 92400, Courbevoie', cle: adresses[0].cle, codePostal: '92400', commune: 'Courbevoie', adresses,
+      saisieDigicodes: true, nomenclatureEffective: null, batimentsConnus: [], digicodes: adresses.map(dig) }), coproprieteDuBien: true,
       officielle: { principale: p54, adresses: [p54], aVerifier: false, ecritures: [
-        { ecriture: '54 avenue du Puvis de Chavannes / AUGIER', cle: 'x', biens: 29, statut: 'certain', banId: p54.banId },
+        { ecriture: '54 avenue Puvis de Chavannes', cle: 'x', biens: 38, statut: 'certain', banId: p54.banId },
         { ecriture: '54 Avneue Puvis de Chavannes', cle: adresses[1].cle, biens: 1, statut: 'certain', banId: p54.banId }] } };
     await ouvrir();
     expect($('[data-fcp-adresse="principale"]').textContent).toBe('54 Avenue Puvis De Chavannes, 92400 Courbevoie — adresse principale');
-    // le titre : le libellé officiel quand la copropriété n'a pas de nom donné
     expect($('[data-fcp-titre]').textContent).toBe('Copropriété · 54 Avenue Puvis De Chavannes');
-    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"]')).toHaveLength(0);
-    const ec = $('[data-fcp-ecritures]');
-    expect([ec.tagName, ec.querySelector('summary')!.textContent]).toEqual(['DETAILS', 'Écritures d’origine (2)']);
-    expect([...ec.querySelectorAll('[data-fcp-ecriture]')].map((x) => x.textContent)).toEqual(['« 54 avenue du Puvis de Chavannes / AUGIER » — 29 biens', '« 54 Avneue Puvis de Chavannes » — 1 bien']);
-    // 🔴 aucune fonctionnalité retirée : chaque adresse enregistrée garde son « × », et part toujours avec « Valider »
-    expect([...ec.querySelectorAll('[data-fcp-adresse="ecriture"] [data-fcp-retirer]')]).toHaveLength(2);
+    expect(($('[data-fcp-nom]') as HTMLInputElement).placeholder).toBe('54 Avenue Puvis De Chavannes, 92400 Courbevoie');
+    // aucune écriture n'est une adresse : ni ligne, ni « × »
+    expect(document.querySelectorAll('[data-fcp-adresse="secondaire"], [data-fcp-adresse="ecriture"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-fcp-adresses] [data-fcp-retirer]')).toHaveLength(0);
+    const ec = $('[data-fcp-ecritures]') as HTMLDetailsElement;
+    expect([ec.open, ec.querySelector('summary')!.textContent]).toEqual([false, 'Écritures d’origine (2)']);
+    expect([...ec.querySelectorAll('[data-fcp-ecriture]')].map((x) => x.textContent)).toEqual(['« 54 avenue Puvis de Chavannes » — 38 biens', '« 54 Avneue Puvis de Chavannes » — 1 bien']);
+    // 🔴 digicodes : UN SEUL bloc pour l'adresse officielle, titré au libellé officiel (et non trois, un par écriture)
+    expect([...document.querySelectorAll('[data-digicodes-copro] .dcp-titre')].map((x) => x.textContent)).toEqual(['54 Avenue Puvis De Chavannes, 92400 Courbevoie']);
+    // les biens qui lisent le bloc unique : ceux de toutes les écritures de l'adresse officielle
+    expect(document.querySelector('[data-digicodes-copro]')!.textContent).toContain('Commun aux 6 biens du portefeuille de cette adresse.');
     await clic('[data-fcp-valider]');
     expect((posts[0].adresses as { libelle: string }[]).map((a) => a.libelle)).toEqual(['54 Avneue Puvis de Chavannes', '54 Puvis de Chavannes']);
   });
@@ -466,5 +472,34 @@ describe('l’adresse officielle (BAN) sur la fiche', () => {
     lu = { fiche: FICHE(), coproprieteDuBien: true };
     await ouvrir();
     expect([$('[data-fcp-adresse="principale"]').textContent, document.querySelector('[data-fcp-ecritures]')]).toEqual(['Résidence Les Tilleuls, 75011 Paris — adresse principale', null]);
+  });
+});
+
+describe('les digicodes « à trancher » d’une adresse officielle', () => {
+  it('des codes connus DIFFÉRENTS sous deux écritures de la même adresse : tous gardés, listés « à trancher » avec leur écriture ; identiques : rien à dire', async () => {
+    const ADR = (libelle: string, principale = false) => ({ cle: libelle.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(), libelle, codePostal: '92400', commune: 'Courbevoie', principale });
+    const adresses = [ADR('5 rue A', true), ADR('5 r. A')];
+    const g = { banId: 'B5', libelle: '5 Rue A, 92400 Courbevoie', court: '5 Rue A', codePostal: '92400', commune: 'Courbevoie', cles: adresses.map((a) => a.cle) };
+    const etat = (code: string) => ({ connu: true, valeur: { digicode: true, code }, depuis: null, source: 'unifie', aVenir: [], aArbitrer: [], historique: [], enregistre: null });
+    const fiche = (c2: string) => FICHE({ libelle: '5 rue A', cle: adresses[0].cle, adresses, saisieDigicodes: true, digicodesUnifies: true, nomenclatureEffective: null, batimentsConnus: [],
+      digicodes: [{ cle: adresses[0].cle, voie: '5 rue A', codePostal: '92400', commune: 'Courbevoie', commun: { digicode: true, code: '1234', etat: etat('1234') }, batiments: [] },
+        { cle: adresses[1].cle, voie: '5 r. A', codePostal: '92400', commune: 'Courbevoie', commun: { digicode: true, code: c2, etat: etat(c2) }, batiments: [] }] });
+    lu = { fiche: fiche('9999'), coproprieteDuBien: true, officielle: { principale: g, adresses: [g], aVerifier: false, ecritures: [] } };
+    await ouvrir();
+    expect(document.querySelectorAll('[data-digicodes-copro] .dcp-adresse')).toHaveLength(1);
+    expect($('[data-fcp-digicodes-a-trancher] li').textContent).toBe('5 Rue A, 92400 Courbevoie — digicode copropriété : code 9999 (écriture « 5 r. A »)');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    lu = { fiche: fiche('1234'), coproprieteDuBien: true, officielle: { principale: g, adresses: [g], aVerifier: false, ecritures: [] } };
+    await ouvrir();
+    expect(document.querySelector('[data-fcp-digicodes-a-trancher]')).toBeNull();
+  });
+});
+
+describe('les digicodes d’une adresse officielle (pur)', () => {
+  it('remettreDigicodes : les blocs cachés restent tels quels ; un bloc affiché reprend son adresse enregistrée (le titre officiel n’est qu’un affichage)', async () => {
+    const { remettreDigicodes } = await import('./FicheCopropriete');
+    const etat = [{ cle: 'a', voie: '54 avenue', codePostal: '92400', commune: 'COURBEVOIE' }, { cle: 'b', voie: '54 Avneue', codePostal: '92400', commune: 'COURBEVOIE' }] as never[];
+    const affiches = [{ cle: 'a', voie: '54 Avenue Puvis De Chavannes', codePostal: '92400', commune: 'Courbevoie', commun: { code: '1234', aucun: false } }] as never[];
+    expect(remettreDigicodes(etat, affiches)).toEqual([{ cle: 'a', voie: '54 avenue', codePostal: '92400', commune: 'COURBEVOIE', commun: { code: '1234', aucun: false } }, etat[1]]);
   });
 });

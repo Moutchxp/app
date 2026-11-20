@@ -14,6 +14,8 @@ vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => tru
 vi.mock('./coproprieteRepo', () => ({ ficheCopropriete: async () => h.fiche, etatPlace: () => null }));
 vi.mock('./digicodesRepo', () => ({
   digicodesUnifiesDisponibles: async () => true, digicodesDesAdresses: async () => [], mailsGestionDesAdresses: async () => new Map(),
+  // 🔴 (lot 5) la clé de référence d'une écriture d'origine : ici, chaque adresse garde la sienne (éprouvée dans digicodeReference.test.ts)
+  cleDeReferenceDigicode: async (cle: string) => cle,
   RefusDigicode: class RefusDigicode extends Error {},
   ecrireDigicode: async (_q: unknown, e: Record<string, unknown>) => { h.ecrits.push(e); return h.issue; },
   relierBienAuBatiment: async (_q: unknown, ...a: unknown[]) => { h.liens.push(a); return { ok: true, change: h.change }; },
