@@ -8,8 +8,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
  *   · AVEC `?sortie=` : l'écran de sortie aligné sur « Supprimer un des biens », et lui seul (retrait autorisé pour cet écran).
  */
 const ficheCommune = vi.fn();
+let droitGestion = true;
 vi.mock('../../acces', () => ({
-  accesLocation: async () => ({ autorise: true, administrateur: false, gestion: true }),
+  accesLocation: async () => ({ autorise: true, administrateur: false, gestion: droitGestion }),
   identifiantPage: (b: string | undefined) => (b !== undefined && /^[1-9]\d*$/.test(b) ? Number(b) : null),
   REFUS_FICHE_COMMUNE: 'refus fiche', REFUS_LOCATION: 'refus location',
 }));
@@ -29,7 +30,7 @@ const rendre = async (sortie?: string): Promise<string> => renderToStaticMarkup(
   params: Promise.resolve({ id: '101' }), searchParams: Promise.resolve(sortie === undefined ? {} : { sortie }),
 }));
 
-beforeEach(() => ficheCommune.mockClear());
+beforeEach(() => { ficheCommune.mockClear(); droitGestion = true; });
 
 describe('la fiche locataire de la Location', () => {
   it('SANS ?sortie= : LA fiche commune avec son bloc « Annuaire » ; 🔴 plus de bloc « Sortie du logement » (Arno, 20/11/2026)', async () => {
@@ -38,8 +39,9 @@ describe('la fiche locataire de la Location', () => {
     expect(html).not.toContain('Sortie du logement');
     expect(html).toContain('data-stub="fiche-commune"');
     expect(html).not.toContain('data-stub="ecran-sortie"');
-    // 🔴 Arno (20/11/2026) — les blocs 3 et 4 de « Nouveau locataire » (le bloc 4 d'avant y est, avec « Envoi ADHOC & MONGA »).
-    expect(html).toContain('data-stub="conditions-suivi" data-locataire="101"');
+    // 🔴 Arno (20/11/2026) — « Conditions d'entrée et suivi commercial » n'est plus en haut de la page : la fiche commune la pose SOUS
+    // l'en-tête du locataire (au-dessus de « LE BAIL ») — elle lui est passée, elle n'est pas rendue avant elle.
+    expect(html).not.toContain('data-stub="conditions-suivi"');
     expect(html).not.toContain('data-envoi-fiche-locataire');
     expect(ficheCommune).toHaveBeenCalledTimes(1);
     const props = ficheCommune.mock.calls[0][0] as Record<string, unknown>;
@@ -47,6 +49,15 @@ describe('la fiche locataire de la Location', () => {
     // Aucune des options qui retirent le bloc « Fiche commune… » / « Retour » / la barre « Annuaire ».
     expect(props.sansBarreAnnuaire).toBeUndefined();
     expect(props.sansRetour).toBeUndefined();
+    const bloc = props.sousEnteteLocataire as { props: { locataireId: number } } | undefined;
+    expect(bloc?.props.locataireId).toBe(101);
+  });
+
+  it('🔴 Arno (20/11/2026) — sans le droit « Gestion » (pas de fiche commune) : la ligne reste sur la page, rien n’est retiré', async () => {
+    droitGestion = false;
+    const html = await rendre();
+    expect(html).toContain('data-stub="conditions-suivi" data-locataire="101"');
+    expect(ficheCommune).not.toHaveBeenCalled();
   });
 
   it('AVEC ?sortie= : l’écran de sortie seul — ni bloc « Fiche commune », ni fiche complète', async () => {

@@ -3,7 +3,7 @@
 import { FiltreOrigineACompleter } from '../location/FiltreOrigineACompleter';
 import { BlocOrigineProprietaire } from '../location/BlocOrigineProprietaire';
 import { corpsOrigineProprietaire, manqueOrigineProprietaire, ORIGINE_PROPRIETAIRE_VIDE, OrigineALaCreation, type CibleOrigineCreation } from '../location/ChoixOrigineProprietaire';
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ContexteEditionTracee } from './editionTracee';
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
@@ -195,8 +195,13 @@ const PHRASE_ANNUAIRE = 'Retrouvez un propriétaire, un locataire ou un ancien l
 
 export function Annuaire({
   fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil, poserSurVie = false,
-  jetonHistorique = null, onPoserJeton, evenementVise = null, redaction = null, onGesteMail, sansEntete = false,
+  jetonHistorique = null, onPoserJeton, evenementVise = null, redaction = null, onGesteMail, sansEntete = false, sousEnteteLocataire,
 }: {
+  /**
+   * 🔴 Arno (20/11/2026) — un bloc posé SOUS l'en-tête de la fiche d'un LOCATAIRE (nom, capsule, « Dossier Drive du bail ») et AU-DESSUS de
+   * « LE BAIL » : la fiche de la Location y met « Conditions d'entrée et suivi commercial ». Absent (le défaut, la Gestion) ⇒ rien ne change.
+   */
+  sousEnteteLocataire?: ReactNode;
   /**
    * 🔴 Arno (18/10/2026, accord limité aux ÉCRANS D'ARCHIVAGE de la Location) : sans la barre « ← Retour | Annuaire |
    * Chercher… » au-dessus d'une fiche — l'écran qui l'accueille a déjà son propre moteur de recherche. Absente (le défaut)
@@ -617,7 +622,7 @@ export function Annuaire({
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
                     gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil}
                     redaction={redaction} onGesteMail={onGesteMail}
-                    onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} />}
+                    onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} sousEntete={sousEnteteLocataire} />}
         </section>
       ) : (
         /**
@@ -2222,8 +2227,10 @@ function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationD
  * la même, `LigneVie`), dépliage d'un mail, compteur et pages.
  */
 function VueLocataire({
-  f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien, onCreer, redaction = null, onGesteMail,
+  f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien, onCreer, redaction = null, onGesteMail, sousEntete,
 }: {
+  /** 🔴 Arno (20/11/2026) — sous l'en-tête, au-dessus de « LE BAIL » (la Location seulement). */
+  sousEntete?: ReactNode;
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
   onHistoriqueDuBien: (lotId: number) => void;
@@ -2280,6 +2287,7 @@ function VueLocataire({
         </p>
       )}
 
+      {sousEntete}
       {/* 🔴🔴 Arno (20/10/2026) — L'ENCART DU BAIL, juste sous le titre et au-dessus de « Coordonnées » : le résumé du bail (en
           cours, sinon le dernier) et son détail dépliable, lus à la source ; les « Conditions d'entrée » et « Garants et
           contacts » de la section Location y ont fusionné (`ResumeBail.tsx`). */}

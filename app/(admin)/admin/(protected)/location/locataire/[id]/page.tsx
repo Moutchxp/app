@@ -33,14 +33,18 @@ export default async function Page({ params, searchParams }: {
           : (
             <>
               {!gestion && <LienRetour href="/admin/location" />}
-              {/* 🔴 Arno (20/11/2026) — les blocs 3 « Conditions d'entrée » et 4 « Suivi commercial » de « Nouveau locataire » (bail en cours),
-                  repliés ensemble sur une ligne ; dépliés : les deux blocs, leur « Enregistrer », puis « Bail en cours · Envoi ADHOC & MONGA »
-                  (déplacé d'ici, même composant). Le bloc 4 autonome d'avant (26/10/2026) est le même bloc, désormais dans cette partie. */}
-              <ConditionsSuiviFicheLocataire locataireId={id} />
+              {/* 🔴 Arno (20/11/2026) — sans le droit « Gestion », pas de fiche commune : la ligne « Conditions d'entrée et suivi commercial »
+                  reste ici, en haut (rien n'est retiré). Avec la fiche commune, elle est SOUS l'en-tête du locataire (ci-dessous). */}
+              {!gestion && <ConditionsSuiviFicheLocataire locataireId={id} />}
               {/* Arno (26/10/2026, 430) — la mention « locataire en place à la prise en gestion » de ses baux (rien sinon). */}
               <BauxEnPlace locataireId={id} />
               {!gestion ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_FICHE_COMMUNE}</div>
-                : <FicheCommuneLocation fiche={{ sorte: 'locataire', id }} />}
+                : (
+                  /* 🔴 Arno (20/11/2026) — les blocs 3 « Conditions d'entrée » et 4 « Suivi commercial » de « Nouveau locataire » (bail en cours),
+                     repliés ensemble sur une ligne, JUSTE SOUS l'en-tête du locataire (nom, capsule, « Dossier Drive du bail ») et au-dessus de
+                     « LE BAIL » ; dépliés : les deux blocs, leur « Enregistrer », puis « Bail en cours · Envoi ADHOC & MONGA ». */
+                  <FicheCommuneLocation fiche={{ sorte: 'locataire', id }} sousEnteteLocataire={<ConditionsSuiviFicheLocataire locataireId={id} />} />
+                )}
             </>
           )}
     </section>

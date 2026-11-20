@@ -1,7 +1,7 @@
 'use client';
 
 import { LienRetour, retourVersOrigine } from '../_composants/NavigationRetour';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { Annuaire } from './Annuaire';
 import { CSS_GESTION } from './GestionVue';
@@ -67,8 +67,10 @@ function useContexteLocation(): void {
  * de naviguer (`null` = revenir) ; `sansRetour` : sans le lien « ← Location », l'écran qui l'accueille a le sien.
  * Sans ces deux props, rien ne change.
  */
-export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBarreAnnuaire = false }: {
+export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBarreAnnuaire = false, sousEnteteLocataire }: {
   fiche: FicheUrl; ouvrir?: (f: FicheUrl | null) => void; sansRetour?: boolean;
+  /** 🔴 Arno (20/11/2026) — sous l'en-tête d'un locataire, au-dessus de « LE BAIL » (« Conditions d'entrée et suivi commercial »). */
+  sousEnteteLocataire?: ReactNode;
   /** Écrans d'archivage de la Location seulement (Arno, 18/10/2026) : sans la barre « ← Retour | Annuaire | Chercher… ». */
   sansBarreAnnuaire?: boolean;
 }) {
@@ -91,7 +93,7 @@ export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false, sansBa
       <style>{`.fco-retour{margin:0 0 10px}.fco-note{margin:0 0 12px;font-size:.85rem;color:var(--color-svv-muted)}`}</style>
       {!sansRetour && <p className="fco-retour"><LienRetour href="/admin/location" mot="Location" /></p>}
       <p className="fco-note" role="note">Fiche commune avec la Gestion. Depuis la Location, les mails sont en lecture : écrire, répondre ou transférer se fait depuis la Gestion.</p>
-      <Annuaire fiche={fiche} onFiche={onFiche} onRetour={onRetour} redaction={null} sansEntete={sansBarreAnnuaire} />
+      <Annuaire fiche={fiche} onFiche={onFiche} onRetour={onRetour} redaction={null} sansEntete={sansBarreAnnuaire} sousEnteteLocataire={sousEnteteLocataire} />
     </div>
   );
 }

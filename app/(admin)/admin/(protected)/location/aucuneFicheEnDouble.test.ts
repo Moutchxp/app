@@ -45,7 +45,8 @@ describe('🔴 aucune fiche propriétaire / locataire / bien en double sous /adm
   it('la fiche commune monte le composant `Annuaire` de la Gestion, sans rédaction ni « Écrire »', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/FicheCommune.tsx', 'utf8');
     expect(src).toContain("import { Annuaire } from './Annuaire';");
-    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{null\} sansEntete=\{sansBarreAnnuaire\} \/>/);
+    // 🔴 Arno (20/11/2026) — + l'emplacement sous l'en-tête du locataire (« Conditions d'entrée et suivi commercial ») ; rédaction toujours nulle.
+    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{null\} sansEntete=\{sansBarreAnnuaire\} sousEnteteLocataire=\{sousEnteteLocataire\} \/>/);
     expect(src).not.toMatch(/onEcrire=|onOuvrirFil=|onGesteMail=/);
   });
 });
