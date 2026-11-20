@@ -14,7 +14,7 @@ import { bailDisponible } from './bailRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { lireCollaborateursPrevenus } from '../gestion/collaborateursPrevenusRepo';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
-import { occupationsDesSorties, sortiePrevue as sortiePrevueDuLocataire, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
+import { occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from '../gestion/historiqueBien';
 import { locatairesEnPreavis } from './preavisEnCoursRepo';
 import {
   LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING,
@@ -132,8 +132,6 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
     preavisDateMax: r.preavis_date_max ?? null,
     // 🔴 Arno (18/11/2026) — l'état de la fiche de cette personne : la règle unique (`statutLocataire`).
     statut: statutLocataire(occupationsDesSorties(r.sorties), preavis[String(Number(r.locataire_id))] !== undefined),
-    // 🔴 (Arno, 20/11/2026) « en place, sortie prévue le … »
-    sortiePrevue: sortiePrevueDuLocataire(occupationsDesSorties(r.sorties)),
   }));
 }
 

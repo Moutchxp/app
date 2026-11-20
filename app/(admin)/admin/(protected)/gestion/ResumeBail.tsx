@@ -118,8 +118,7 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
           <style>{CSS_RESUME_BIEN + INFOBULLE_CSS + CSS_RESUME_BAIL}</style>
           <section className="rb-groupe rb-resume" data-groupe="bail">
             <div className="rb-tete-bail">
-              {/* 🔴 (Arno, 20/11/2026) en cours, sortie à venir : « Le bail · fin prévue le 30/11/2026 » */}
-              <h4 className="rb-titre">{b.enCours ? (b.finPrevue ? <>Le bail <span className="rb-termine" data-bail-fin-prevue>· fin prévue le {formaterDateIso(b.finPrevue)}</span></> : 'Le bail') : <>Le bail <span className="rb-termine" data-bail-termine>· bail terminé le {b.termineLe ? formaterDateIso(b.termineLe) : '—'}</span></>}</h4>
+              <h4 className="rb-titre">{b.enCours ? 'Le bail' : <>Le bail <span className="rb-termine" data-bail-termine>· bail terminé le {b.termineLe ? formaterDateIso(b.termineLe) : '—'}</span></>}</h4>
               <DossierDriveBail drive={r.drive} bailId={b.bailId} apres={relire} />
             </div>
             <div className="rb-colonnes">

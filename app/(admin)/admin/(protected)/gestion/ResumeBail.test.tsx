@@ -136,17 +136,6 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect(container.querySelector('[data-encart-bail]')).toBeNull();
   });
 
-  it('🔴 Arno (20/11/2026) — SORTIE À VENIR : « fin prévue le … » au titre, jamais « bail terminé »', async () => {
-    await rendre({ ...WIPPIMMO, bail: { ...WIPPIMMO.bail!, enCours: true, termineLe: null, finPrevue: '2026-11-30' } });
-    expect(container.querySelector('[data-bail-fin-prevue]')?.textContent).toBe('· fin prévue le 30/11/2026');
-    expect(container.querySelector('[data-bail-termine]')).toBeNull();
-  });
-
-  it('🔴 Arno (20/11/2026) — le BAIL CHOISI : une sortie À VENIR compte comme en cours (avant une sortie passée plus récente d’entrée)', () => {
-    const o = (id: string, entree: string | null, sortie: string | null) => ({ id, entree, sortie });
-    expect(choisirOccupation([o('1', '2026-01-01', '2026-02-01'), o('2', '2025-10-01', '2999-11-30')])?.id).toBe('2');
-  });
-
   it('le BAIL CHOISI : en cours d’abord, sinon le dernier', () => {
     const o = (id: string, entree: string | null, sortie: string | null) => ({ id, entree, sortie });
     expect(choisirOccupation([o('1', '2020-01-01', '2022-12-31'), o('2', '2019-01-01', null), o('3', '2023-01-01', '2024-06-30')])?.id).toBe('2');

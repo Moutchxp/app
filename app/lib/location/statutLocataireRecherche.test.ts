@@ -55,9 +55,9 @@ describe('🔴 LA RÈGLE UNIQUE — en place ou ancien locataire, d’après TOU
     expect(locataireEnPlace([{ sortie: '  ' }])).toBe(true);
     expect(locataireEnPlace([{ sortie: '2020-12-18' }, { sortie: '2025-02-24' }])).toBe(false);
   });
-  it('🔴 une sortie datée DANS LE FUTUR : EN PLACE jusqu’à cette date — 🔴 (Arno, 20/11/2026) la règle a changé : une sortie À VENIR laisse EN PLACE (« sortie prévue le … ») ; seule une sortie passée (le jour même compris) fait l’ancien', () => {
-    expect(locataireEnPlace([{ sortie: DANS_UN_MOIS }])).toBe(true);
-    expect(statutLocataire([{ sortie: DANS_UN_MOIS }], false)).toBe('en_place');
+  it('🔴 une sortie datée DANS LE FUTUR : ancien locataire — la règle de la fiche (« une date de départ est renseignée »)', () => {
+    expect(locataireEnPlace([{ sortie: DANS_UN_MOIS }])).toBe(false);
+    expect(statutLocataire([{ sortie: DANS_UN_MOIS }], false)).toBe('ancien');
     // …et un bail en cours à côté le garde en place.
     expect(statutLocataire([{ sortie: DANS_UN_MOIS }, { sortie: null }], false)).toBe('en_place');
   });
@@ -122,10 +122,9 @@ describe('🔴 LE DÉPÔT de la recherche — le statut de la fiche pour chaque 
       loc('263', 'JUVIN Paul', [null]), loc('264', 'JUPIN Léo', [DANS_UN_MOIS])];
     h.preavis = { 263: '2026-12-31' };
     const r = await rechercherPortefeuille('ju');
-    // 🔴 (Arno, 20/11/2026) la règle a changé : une sortie À VENIR laisse EN PLACE (« sortie prévue le … ») ; seule une sortie passée (le jour même compris) fait l’ancien
-    expect(r.locataires.map((l) => [l.id, l.statut])).toEqual([[261, 'ancien'], [262, 'en_place'], [263, 'en_preavis'], [264, 'en_place']]);
+    expect(r.locataires.map((l) => [l.id, l.statut])).toEqual([[261, 'ancien'], [262, 'en_place'], [263, 'en_preavis'], [264, 'ancien']]);
     expect(r.locataires.map((l) => pastilleRecherche({ ...l, groupe: 'locataires' }).mot))
-      .toEqual(['Ancien locataire', 'Locataire', 'Locataire en préavis', `Locataire, sortie prévue le ${DANS_UN_MOIS.slice(8, 10)}/${DANS_UN_MOIS.slice(5, 7)}/${DANS_UN_MOIS.slice(0, 4)}`]);
+      .toEqual(['Ancien locataire', 'Locataire', 'Locataire en préavis', 'Ancien locataire']);
     // Le préavis est demandé pour les locataires trouvés, et eux seuls.
     expect(h.idsPreavis).toEqual([[261, 262, 263, 264]]);
   });

@@ -52,7 +52,7 @@ import { adressesRapprochables } from './adresseInterne';
 import { ACTIONS_SORTIE_APPLI, occupationsASortieValidee } from './miseAJourWippimmo';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », module PUR. Le
    dépôt ne la réécrit pas : il l'appelle, comme la fiche, l'encart Parties et les capsules de pièces jointes. */
-import { estAncienLocataire, estLocataireEnPlace, occupationsDesSorties, sortiePrevue, sqlOccupationEnPlace, sqlSortiesDuLocataire, statutLocataire } from './historiqueBien';
+import { estAncienLocataire, estLocataireEnPlace, occupationsDesSorties, sqlSortiesDuLocataire, statutLocataire } from './historiqueBien';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « un evenement ouvert » ne se demande plus a la colonne `etat` : il se DEDUIT
    des cartes de borne de la frise. Le cartouche orange et les capsules de la fiche lisent donc la meme regle
    que l'etiquette des mails et que le bloc Evenements. */
@@ -2487,7 +2487,7 @@ export async function rechercherPersonnes(
                JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
               WHERE o.locataire_id = lc.id) AS lot_vise,
             EXISTS (SELECT 1 FROM lots_vises v JOIN gestion_annuaire_occupation o ON o.lot_id = v.id
-                     WHERE o.locataire_id = lc.id AND ${sqlOccupationEnPlace('o')}) AS lot_vise_en_cours
+                     WHERE o.locataire_id = lc.id AND o.sortie IS NULL) AS lot_vise_en_cours
        FROM gestion_annuaire_locataire lc
       WHERE ${vivante('lc')} AND ((NOT EXISTS (SELECT 1 FROM mots WHERE lc.nom_normalise NOT LIKE '%' || m || '%'))
          OR lc.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')
@@ -2497,7 +2497,7 @@ export async function rechercherPersonnes(
   const preavis = await locatairesEnPreavis(locsBruts.map((l) => Number(l.id)));
   const locs: LocBrut[] = locsBruts.map(({ sorties, ...l }) => {
     const statut = statutLocataire(occupationsDesSorties(sorties), preavis[String(Number(l.id))] !== undefined);
-    return { ...l, en_place: statut !== 'ancien', en_preavis: statut === 'en_preavis', sortie_prevue: sortiePrevue(occupationsDesSorties(sorties)) };
+    return { ...l, en_place: statut !== 'ancien', en_preavis: statut === 'en_preavis' };
   });
 
   return assemblerPersonnes(proprios, locs, o.avecArchivees === true, horsLS);
@@ -2514,8 +2514,6 @@ interface LocBrut {
   archive: boolean; par_nom: boolean; en_place: boolean; lot_vise: string | null; lot_vise_en_cours: boolean;
   /** 🔴 (18/11/2026) en préavis (`statutLocataire`) ; absent = non. */
   en_preavis?: boolean;
-  /** 🔴 (20/11/2026) en place, sortie À VENIR : sa date */
-  sortie_prevue?: string | null;
 }
 
 /**
@@ -2640,7 +2638,6 @@ async function assemblerPersonnes(
       raison: p.par_nom || p.lot_vise === null ? null : `propriétaire du lot ${p.lot_vise}`,
       groupe: null,
       ...(loc?.en_preavis === true ? { preavis: true } : {}),
-      ...(loc?.sortie_prevue ? { sortiePrevue: loc.sortie_prevue } : {}),
       pertinence: p.par_nom ? 0 : 1,
     });
   }
@@ -2661,7 +2658,6 @@ async function assemblerPersonnes(
         : `${l.lot_vise_en_cours ? 'locataire en place' : 'ancien locataire'} du lot ${l.lot_vise}`,
       groupe: null,
       ...(l.en_preavis === true ? { preavis: true } : {}),
-      ...(l.sortie_prevue ? { sortiePrevue: l.sortie_prevue } : {}),
       pertinence: l.par_nom ? 0 : 1,
     });
   }

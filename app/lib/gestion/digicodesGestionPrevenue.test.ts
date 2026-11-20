@@ -88,8 +88,7 @@ describe('🔴 B. « Prévenir la Gestion et les locataires »', () => {
 describe('🔴 JAMAIS d’anciens locataires ; la Gestion pour une MODIFICATION seulement ; l’historique', () => {
   const repo = readFileSync(new URL('./digicodesEnvoiRepo.ts', import.meta.url), 'utf8').replace(/\s+/g, ' ');
   it('les locataires lus : ceux dont l’occupation couvre AUJOURD’HUI (entrée passée, sortie absente ou à venir) — un ancien locataire n’est jamais lu', () => {
-    // 🔴 (Arno, 20/11/2026) la sortie absente ou à venir : la règle UNIQUE (`sqlOccupationEnPlace`, historiqueBien.ts), plus écrite à la main ici
-    expect(repo).toContain("FROM gestion_annuaire_occupation o WHERE o.lot_id = ANY($1::bigint[]) AND o.entree <= ${SQL_AUJOURDHUI_PARIS} AND ${sqlOccupationEnPlace('o')}");
+    expect(repo).toContain('FROM gestion_annuaire_occupation o WHERE o.lot_id = ANY($1::bigint[]) AND o.entree <= ${SQL_AUJOURDHUI_PARIS} AND (o.sortie IS NULL OR o.sortie > ${SQL_AUJOURDHUI_PARIS})');
   });
   it('la règle des 7 jours : en préavis, parti au plus 7 jours avant le changement — prévenu ; au-delà — non concerné', () => {
     expect(regleDepart('2026-11-20T08:00:00.000Z', '2026-11-13')).toEqual({ inclus: true, raison: null });
