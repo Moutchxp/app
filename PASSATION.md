@@ -311,9 +311,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 20/11/2026 au soir) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `f4e736fc`). `origin/main` = `5f40f193`
-  (19/11, 16h03). **39 commits d'avance sur `origin/main`**, cette passation comprise (38 de code et de doc avant elle :
-  1 du 19/11, `3ed33415`, et 37 du 20/11) : **rien n'est poussé, c'est Arno qui pousse**.
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `d1718d5e`, garde de 509/510). `origin/main` =
+  `5f40f193` (19/11, 16h03). **43 commits d'avance sur `origin/main`**, cette passation comprise (1 du 19/11, `3ed33415`,
+  et 42 du 20/11, dont 4 passations `32e1cc31`, `398533fb`, `94667b17` et celle-ci) : **rien n'est poussé, c'est Arno qui pousse**.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
 - **Contrôles** (dernier lot, `f4e736fc`) : `npm test` VERT (1 858 fichiers, 27 663 tests, 21 ignorés) ; preuve curl
@@ -332,14 +332,25 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   - **PRODUCTION** (lecture seule, `.captures/registre-migrations/lecture-prod.sh`) : registre jusqu'à **503** (19/11, commit
     `5f40f193`) ; 502 lignes dont 4 écartées (148, 212, 216, 262) ; aucune empreinte modifiée. **À appliquer : 504 → 510** (plan
     hors ligne : 7 « enveloppées », aucun refus).
-    🔴 **509 et 510 ont une GARDE « svav_recette seulement »** : en l'état, la mise à jour de production **échouerait à la 509**
-    (504-508 passées et inscrites, pas de bascule). Avant de dire « on met en production » : décider le **lot 8** (adresses BAN en
-    production) — lever la garde par une NOUVELLE migration, jamais en modifiant 509/510 déjà inscrites en recette.
-  - **RECETTE** : 128 migrations 383 → 510 vérifiées dans le schéma réel ; **114 en place, inscrites** au registre (une transaction,
-    garde de base, origine `mise_a_jour`, hash du commit d'ajout, durée 0 — rien réappliqué). **14 ABSENTES de la recette, NON
-    inscrites** (la production les a) : **410, 429, 430, 431, 432, 439, 441, 448, 450, 451, 453, 455, 458, 459**. Le registre de la
-    recette allant jusqu'à 510, l'outil les y refuserait (« numérotée sous la dernière ») : les passer en recette = décision d'Arno,
-    à la main une par une, puis inscription.
+    ✅ **Garde de 509 et 510 corrigée** (`d1718d5e`, décision d'Arno du 20/11/2026) : elle accepte `sansvisavis` (production) et
+    `svav_recette`, refuse toute autre base (⚠️ la base de DÉVELOPPEMENT du Mac s'appelle aussi `sansvisavis` : elle est acceptée).
+    Les deux migrations ne font que du schéma (aucune donnée de recette à séparer). **Éprouvé sur une copie locale de la production**
+    (serveur jetable port 5433, base `sansvisavis`, registre à 503, données LiDAR non copiées ; copie SUPPRIMÉE ensuite) par
+    `scripts/migrations-plan.ts` + la boucle d'application de `prod:mettre-a-jour` : **504 → 510 passent toutes** (36-53 ms chacune),
+    plan vide ensuite, tables / colonnes / contraintes **identiques à la recette**, une autre base refusée par la garde.
+    Rapport : `.captures/registre-migrations/epreuve-copie-prod.txt` (scripts `copie-prod/copier-prod.sh`, `copie-prod/epreuve-copie.sh`).
+    **La mise en production devra appliquer : 504, 505, 506, 507, 508, 509, 510** (puis la 361 en 511 quand elle sera décidée).
+  - **RECETTE** : 128 migrations 383 → 510 vérifiées dans le schéma réel ; 114 en place, inscrites au registre (une transaction,
+    garde de base, origine `mise_a_jour`, hash du commit d'ajout, durée 0 — rien réappliqué). Empreintes de 509 / 510 mises à jour
+    après leur correction (schéma identique prouvé). Sur les 14 absentes de la recette (la production les a) :
+    **appliquées le 20/11 au soir, une par une, effet constaté puis inscrites : 410, 429, 430, 431, 432** (la 431 a ajouté
+    `bascule_annexes_gestion = 2026-10-01` à côté du `2026-10-25` déjà en recette, et `bascule_entree_locataire = 2026-10-01`, comme en prod).
+    🔴 **ARRÊT AVANT LA 439** : appliquée telle quelle, elle RECRÉE `admin_utilisateur_log_action_check` avec sa liste et retirerait
+    `changement_commissionne`, `changement_fonctions`, `changement_taux_commission` (ajoutées par une migration plus récente, déjà en
+    place) ; même défaut pour 441 (2 valeurs) et 451 (1 valeur, et `cout_validation` de `transaction_journal_entite_check`).
+    **Restent NON appliquées en recette : 439, 441, 448, 450, 451, 453, 455, 458, 459** — proposition en attente d'Arno : les passer par
+    un script de recette (hors `db/migrations/`) qui saute seulement ces recréations de contraintes. « Mon espace » s'ouvre déjà
+    sans erreur en recette (capture `mon-espace-apres-432.jpg`). Journal : `.captures/registre-migrations/application-14.txt`.
 - **Serveurs lancés en arrière-plan sur le Mac** : la recette (`npm run recette` avec `RECETTE_ENVOI_REEL_VERS`) et un
   tunnel `cloudflared` (logs dans `.captures/recette-interception/`).
 
