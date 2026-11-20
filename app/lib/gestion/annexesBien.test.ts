@@ -66,3 +66,16 @@ describe('annexesDuLot — lecture seule', () => {
     expect(appels.at(-1)?.sql).toContain("j.action IN ('location_annexe_detachee', 'location_annexe_rattachee', 'location_annexe_reintegree')");
   });
 });
+
+describe('🔴🔴 (Arno, 20/11/2026, lot 7b) l’adresse officielle d’une annexe', () => {
+  const A = { id: 3, categorie: 'cave', etage: null, nature: null, typeBien: null, porte: '4', numLotCopro: null, adresse: '54 av. Puvis de Chavannes', commune: 'COURBEVOIE' };
+  it('même adresse officielle que le bien : aucune adresse (deux écritures d’une même adresse ne diffèrent pas)', () => {
+    expect(detailsAnnexe({ ...A, adresseOfficielle: { banId: 'B54', court: '54 avenue Puvis de Chavannes', commune: 'Courbevoie' } },
+      { adresse: '54 avenue Puvis de Chavannes', commune: 'COURBEVOIE', banId: 'B54' })).toEqual(['N° 4']);
+  });
+  it('autre adresse officielle : elle, par la fonction unique, et l’écriture d’origine', () => {
+    expect(detailsAnnexe({ ...A, adresseOfficielle: { banId: 'B56', court: '56 avenue Puvis de Chavannes', commune: 'Courbevoie' } },
+      { adresse: '54 avenue Puvis de Chavannes', commune: 'COURBEVOIE', banId: 'B54' }))
+      .toEqual(['N° 4', '56 avenue Puvis de Chavannes, Courbevoie (écriture d’origine : 54 av. Puvis de Chavannes, COURBEVOIE)']);
+  });
+});

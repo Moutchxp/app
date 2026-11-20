@@ -50,7 +50,7 @@ export function ChampAdresseOfficielle({ valeur, onChange, onChoisir, id, exempl
   siVide?: ReactNode;
   /** une touche que le composant n'a pas prise (Entrée sans proposition visée…) */
   onClavier?: (e: KeyboardEvent<HTMLInputElement>) => void;
-  attributs?: Record<string, string | boolean | undefined>;
+  attributs?: Record<string, string | number | boolean | undefined>;
   listeId?: string;
   prefixeOption?: string;
   /** le texte montré dans le champ juste après un choix ; absent : `valeur` passée par la fonction d'affichage unique */

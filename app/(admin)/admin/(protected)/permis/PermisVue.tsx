@@ -8,6 +8,7 @@ import { CartePermis } from './CartePermis';
 import { BadgeRattachement, CompteursRattachement } from './PermisRattachementRendu';
 import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, type EtatEditionContact, type FicheCommune } from './contactForm';
 import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
+import { ChampAdressePostale } from './ChampAdressePostale'; // 🔴 lot 7b — le composant unique, saisie libre derrière « Adresse absente de la liste ? »
 
 /**
  * Vue de la tuile « Permis de construire » (client) : filtres combinables + liste paginée CÔTÉ SERVEUR (jamais 29 670
@@ -350,8 +351,8 @@ export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
             <BoutonOuvrirLien url={edition.urlFormulaire} />
           </div>
           {edition.canal === 'courrier' && (
-            <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…"
-              onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 320px' }} />
+            <ChampAdressePostale valeur={edition.adressePostale} styleBloc={{ flex: '1 1 320px', width: 'auto' }} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }}
+              onChange={(v) => setEdition({ ...edition, adressePostale: v, erreur: '' })} />
           )}
           <ChampsProtocole telephone={edition.telephone} telephoneStandard={edition.telephoneStandard} responsableNom={edition.responsableNom} protocoleVerifieLe={edition.protocoleVerifieLe}
             onTelephone={(v) => setEdition({ ...edition, telephone: v, erreur: '' })}

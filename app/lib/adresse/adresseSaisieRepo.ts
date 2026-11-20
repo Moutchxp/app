@@ -1,6 +1,7 @@
 import { query, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { enregistrerRapprochement, rapprocherAdresse, rapprocherBien } from './banRepo';
+import { adresseAffichee, communeAffichee, voieAffichee } from './libelleAffiche';
 
 /**
  * ══ 🔴🔴 UNE ADRESSE SAISIE DANS L'APPLICATION, ENREGISTRÉE AU FORMAT UNIQUE (Arno, 20/11/2026, « Adresse officielle BAN », lot 7a). IMPUR (base). ══
@@ -46,3 +47,22 @@ export async function banIdDeLAdresse(a: { libelle: string; codePostal: string |
   const r = await rapprocherAdresse({ texte: a.libelle, codePostal: a.codePostal, commune: a.commune });
   return r.statut === 'certain' ? r.ban?.id ?? null : null;
 }
+
+/** 🔴 (lot 7b) L'ADRESSE OFFICIELLE D'UN BIEN, à l'écran : son rapprochement en cours, CERTAIN ou VALIDÉ (jamais « à vérifier »), par la fonction d'affichage unique. */
+export interface AdresseOfficielleDuLot { banId: string; libelle: string; court: string; codePostal: string | null; commune: string | null }
+
+/** Les adresses officielles de plusieurs biens (id → adresse) ; rien sans la migration 505. LECTURE SEULE. */
+export async function adressesOfficiellesDesLots(ids: readonly number[]): Promise<Map<number, AdresseOfficielleDuLot>> {
+  const out = new Map<number, AdresseOfficielleDuLot>();
+  if (ids.length === 0 || !(await formatUniqueDisponible())) return out;
+  const { rows } = await query<{ lot_id: string; ban_id: string; libelle_officiel: string | null; code_postal: string | null; commune: string | null }>(
+    `SELECT lot_id::text, ban_id, libelle_officiel, code_postal, commune FROM gestion_lot_adresse_ban
+      WHERE lot_id = ANY($1::bigint[]) AND fin IS NULL AND statut IN ('certain', 'valide') AND ban_id IS NOT NULL AND libelle_officiel IS NOT NULL`, [[...ids]]);
+  for (const r of rows ?? []) {
+    const court = voieAffichee(r.libelle_officiel ?? '');
+    out.set(Number(r.lot_id), { banId: r.ban_id, court, codePostal: r.code_postal, commune: r.commune === null ? null : communeAffichee(r.commune),
+      libelle: adresseAffichee(`${r.libelle_officiel ?? ''}, ${[r.code_postal, r.commune].filter((x) => (x ?? '').trim() !== '').join(' ')}`) });
+  }
+  return out;
+}
+export const adresseOfficielleDuLot = async (id: number): Promise<AdresseOfficielleDuLot | null> => (await adressesOfficiellesDesLots([id])).get(id) ?? null;

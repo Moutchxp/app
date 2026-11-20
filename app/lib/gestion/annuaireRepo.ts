@@ -23,6 +23,8 @@ import { sqlArchiveBien, sqlStatutBien, statutBienDisponible } from './statutBie
 import { dossiersDuProprietaire } from './arbreStatutDriveRepo';
 import type { StatutBien } from './statutBien';
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { rapprocherLotsImportes, type LotImporte } from '../adresse/importAdresseRepo';
+import { adresseOfficielleDuLot, type AdresseOfficielleDuLot } from '../adresse/adresseSaisieRepo';
 import { refusRattachementAnnexe } from '../location/regroupementRepo';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
 import { SQL_JOUR_PARIS, sqlCoproprietairesActifs } from './indivision';
@@ -417,6 +419,8 @@ async function ecrireLots(
        FROM gestion_annuaire_lot`);
   const existants = new Map(rows.map((r) => [r.wippimmo_id, r]));
   const ids = new Map<string, number>();
+  // 🔴🔴 (Arno, 20/11/2026, lot 7b) les biens IMPORTÉS ou dont l'ADRESSE change : rapprochés par le module unique après l'écriture
+  const aRapprocher: LotImporte[] = [];
 
   for (const l of plan.lots) {
     const proprietaireId = l.proprietaireCle === null ? null : idsProprietaires.get(l.proprietaireCle) ?? null;
@@ -447,7 +451,11 @@ async function ecrireLots(
       [l.wippimmoId, proprietaireId, l.proprietaireTexte, l.immeuble, l.nature, l.typeBien, l.adresse,
         l.commune, l.codePostal, l.adresseNormalisee, l.gestionDebut, l.gestionFin]);
     ids.set(l.wippimmoId, Number(r[0].id));
+    const adresseChangee = avant === undefined || ['immeuble', 'adresse', 'code_postal', 'commune']
+      .some((k) => ((avant as unknown as Record<string, string | null>)[k] ?? null) !== ((apres as unknown as Record<string, string | null>)[k] ?? null));
+    if (adresseChangee) aRapprocher.push({ id: Number(r[0].id), immeuble: l.immeuble, adresse: l.adresse, codePostal: l.codePostal, commune: l.commune });
   }
+  await rapprocherLotsImportes(q, aRapprocher);
   return ids;
 }
 
@@ -1194,6 +1202,8 @@ export interface OccupationDuLot {
 export interface FicheLot {
   id: number; numero: string; nature: string | null; typeBien: string | null; immeuble: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
+  /** 🔴 (lot 7b) l'adresse officielle du bien (rapprochement certain ou validé), déjà mise en forme ; null : aucune (l'adresse WIPPIMMO seule) */
+  adresseOfficielle?: AdresseOfficielleDuLot | null;
   debut: string | null; fin: string | null; absent: boolean;
   /** « Bien en gestion ? » = Non (migration 390) : l'étiquette « Hors gestion » de l'en-tête, rien d'autre. */
   horsGestion?: boolean;
@@ -2096,6 +2106,8 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     data: {
       id: Number(l.id), numero: l.wippimmo_id, nature: l.nature, typeBien: l.type_bien, immeuble: l.immeuble,
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
+      // 🔴🔴 (Arno, 20/11/2026, lot 7b) l'adresse officielle (rapprochement certain ou validé) ; l'adresse WIPPIMMO ci-dessus reste l'écriture d'origine
+      adresseOfficielle: await adresseOfficielleDuLot(Number(l.id)),
       debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null, horsGestion: l.hors_gestion === true,
       statut: l.statut as StatutBien, finStatut: l.fin_statut, archiveLe: l.archive,
       surfaceM2: null, batiment: l.batiment, escalier: l.escalier,

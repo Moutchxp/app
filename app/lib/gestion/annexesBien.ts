@@ -13,6 +13,8 @@ import { normaliserTexte } from './annuaire';
 export interface AnnexeAffichee {
   id: number; categorie: string | null; etage: string | null; nature: string | null; typeBien: string | null;
   porte: string | null; numLotCopro: string | null; adresse: string | null; commune: string | null;
+  /** 🔴 (lot 7b) son adresse officielle (rapprochement certain ou validé), déjà mise en forme */
+  adresseOfficielle?: { banId: string; court: string; commune: string | null } | null;
 }
 export interface CandidatRattachement { id: number; adresse: string | null; commune: string | null; categorie: string | null; origine: boolean }
 
@@ -30,19 +32,24 @@ export function typeDuLot(l: { categorie?: string | null; nature: string | null;
 }
 
 /** Le détail d'une case, après le type : N° affiché, N° de lot, niveau, adresse si elle diffère de celle du bien. PUR. */
-export function detailsAnnexe(a: AnnexeAffichee, bien: { adresse: string | null; commune: string | null }): string[] {
+export function detailsAnnexe(a: AnnexeAffichee, bien: { adresse: string | null; commune: string | null; banId?: string | null }): string[] {
   const place = a.categorie === 'parking' || a.categorie === 'box';
   const niveau = (() => {
     const n = etageDeLaSaisie(a.etage);
     if (n === null) return a.etage && a.etage.trim() !== '' ? `Niveau ${a.etage.trim()}` : null;
     return n === 0 ? 'Rez-de-chaussée' : n < 0 ? `Niveau ${n}` : motEtage(n);
   })();
-  const autre = normaliserTexte([a.adresse, a.commune].join(' ')) !== normaliserTexte([bien.adresse, bien.commune].join(' '));
+  // 🔴 (lot 7b) deux adresses officielles connues : c'est elles qu'on compare (deux écritures d'une même adresse ne « diffèrent » pas)
+  const off = a.adresseOfficielle ?? null;
+  const autre = off !== null && (bien.banId ?? null) !== null ? off.banId !== bien.banId
+    : normaliserTexte([a.adresse, a.commune].join(' ')) !== normaliserTexte([bien.adresse, bien.commune].join(' '));
+  const origine = [a.adresse, a.commune].filter((x) => x).join(', ');
   return [
     a.porte ? `${place ? 'Place' : 'N°'} ${a.porte}` : null,
     a.numLotCopro ? `Lot ${a.numLotCopro}` : null,
     niveau,
-    autre && (a.adresse || a.commune) ? [a.adresse, a.commune].filter((x) => x).join(', ') : null,
+    !autre ? null : off !== null ? `${[off.court, off.commune].filter((x) => x).join(', ')}${origine !== '' ? ` (écriture d’origine : ${origine})` : ''}`
+      : (a.adresse || a.commune) ? origine : null,
   ].filter((x): x is string => x !== null && x !== '');
 }
 

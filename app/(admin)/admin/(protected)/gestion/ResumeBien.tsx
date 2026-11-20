@@ -116,7 +116,9 @@ export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir
         <div className="rb-colonnes">
           <dl className="ann-champs rb-colonne" data-colonne="bien" aria-label="Le bien">
             <dt>Adresse</dt>
-            <dd data-rb="adresse">{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</dd>
+            {/* 🔴🔴 (lot 7b) l'adresse officielle par la fonction unique ; l'écriture d'origine WIPPIMMO en petit, jamais modifiée */}
+            <dd data-rb="adresse">{f.adresseOfficielle ? f.adresseOfficielle.libelle : titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}
+              {f.adresseOfficielle && <span className="ann-ecriture-origine" style={{ display: 'block' }} data-ecriture-origine>écriture d’origine : {titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</span>}</dd>
             {f.immeuble && <><dt>Immeuble</dt><dd data-rb="immeuble">{f.immeuble}</dd></>}
             <dt>Type</dt>
             <dd data-rb="type">{lr.type ?? rien()}</dd>

@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChampAdresseOfficielle } from '../../../../components/adresse/ChampAdresseOfficielle'; // 🔴 lot 7b — le composant unique d'adresse
+import { adresseDuChoix } from '../../../../components/adresse/adresseOfficielle';
+import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from '../../../../lib/permis/journalLecture';
@@ -536,7 +539,11 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
               <EditeurRepere valeur={ed.repere} journal={journalCorps['repere']} onValeur={(v) => majChamp(c.id, 'repere', v)} />
               <label className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 200px' }}>
                 <span style={styleLabel}>Adresse de ce bâtiment</span>
-                <input value={ed.adresse} placeholder="vide = non renseignée" onChange={(e) => majChamp(c.id, 'adresse', e.target.value)} style={styleInput} aria-label="Adresse du bâtiment" />
+                {/* 🔴🔴 (Arno, 20/11/2026, lot 7b) le COMPOSANT UNIQUE : propositions de la Base Adresse ; la saisie libre reste (vide = non renseignée) */}
+                <style>{CSS_CHAMP_ADRESSE}</style>
+                <ChampAdresseOfficielle valeur={ed.adresse} exemple="vide = non renseignée" onChange={(v) => majChamp(c.id, 'adresse', v)}
+                  onChoisir={(a) => majChamp(c.id, 'adresse', adresseDuChoix(a))} attributs={{ 'aria-label': 'Adresse du bâtiment' }}
+                  apparence={{ champ: { className: '', style: styleInput } }} listeId={`cab-liste-corps-${c.id}`} prefixeOption={`cab-prop-corps-${c.id}`} />
               </label>
               <button type="button" className="svv-link" style={{ width: 'auto', padding: '.2rem .5rem', color: 'var(--color-svv-red)' }} disabled={enCours} onClick={() => void supprimer(c.id, c.repere)}>supprimer ce bâtiment</button>
             </div>

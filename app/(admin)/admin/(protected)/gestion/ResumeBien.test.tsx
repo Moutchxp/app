@@ -220,3 +220,24 @@ describe('🔴 caractéristiques : répartition des deux colonnes, par famille',
     expect(css).toContain('.rb .ann-champs dt{white-space:nowrap}');
   });
 });
+
+describe('🔴🔴 (Arno, 20/11/2026, lot 7b) l’adresse officielle du bien', () => {
+  it('rapprochement certain ou validé : l’adresse officielle par la fonction unique ; l’écriture WIPPIMMO d’origine reste visible en petit', async () => {
+    await rendre(LOUE, { ...FICHE, adresse: '15 rue carle hebert', adresseOfficielle: { banId: '92026_1234_00015', libelle: '15 rue Carle Hébert, 92400 Courbevoie', court: '15 rue Carle Hébert', codePostal: '92400', commune: 'Courbevoie' } } as FicheLot);
+    expect(container.querySelector('[data-rb="adresse"]')!.firstChild!.textContent).toBe('15 rue Carle Hébert, 92400 Courbevoie');
+    expect(container.querySelector('[data-rb="adresse"] [data-ecriture-origine]')!.textContent).toBe('écriture d’origine : 15 rue carle hebert, 92400 COURBEVOIE');
+  });
+  it('sans adresse officielle : l’adresse d’avant, sans mention', async () => {
+    await rendre(LOUE);
+    expect(dd('adresse')).toBe('15 rue Carle Hebert, 92400 COURBEVOIE');
+    expect(container.querySelector('[data-ecriture-origine]')).toBeNull();
+  });
+});
+
+describe('🔴🔴 (lot 7b) l’en-tête de la fiche du bien', () => {
+  it('le titre est l’adresse officielle quand elle existe, l’écriture d’origine en petit dessous ; sinon le titre d’avant', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(src).toContain('{f.adresseOfficielle ? titreLogement(f.adresseOfficielle.court, f.adresseOfficielle.commune) : titreLogement(f.adresse, f.commune)}</h3>');
+    expect(src).toContain('{f.adresseOfficielle && <p className="ann-ecriture-origine" data-ecriture-origine>écriture d’origine : {titreLogement(f.adresse, f.commune)}</p>}');
+  });
+});

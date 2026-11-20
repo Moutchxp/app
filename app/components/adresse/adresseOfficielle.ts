@@ -74,6 +74,10 @@ export function libelleAdresse(a: Pick<AdresseOfficielle, 'voie' | 'codePostal' 
   return adresseAffichee(`${a.voie}, ${[a.codePostal, a.commune].filter((x) => x.trim() !== '').join(' ')}`);
 }
 
+/** Une adresse CHOISIE, en une seule chaîne de texte, telle que la BAN l'écrit (« 3 Rue des Lilas, 75019 Paris ») — pour les champs qui gardent un texte. PUR. */
+export const adresseDuChoix = (a: Pick<AdresseOfficielle, 'voie' | 'codePostal' | 'commune'>): string =>
+  [a.voie, [a.codePostal, a.commune].filter((x) => x.trim() !== '').join(' ')].filter((x) => x.trim() !== '').join(', ');
+
 export type ChercherAdresses = (q: string, signal: AbortSignal) => Promise<AdresseOfficielle[]>;
 
 /**

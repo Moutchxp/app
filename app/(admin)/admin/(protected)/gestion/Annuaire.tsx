@@ -1662,7 +1662,11 @@ function VueLot({
     <>
       <header className="ann-tete">
         <div className="ann-tete-mots">
-          <h3 className="ann-tete-nom">{titreLogement(f.adresse, f.commune)}</h3>
+          {/* 🔴🔴 (Arno, 20/11/2026, lot 7b) l'ADRESSE OFFICIELLE (rapprochement certain ou validé), par la fonction d'affichage unique ;
+              l'adresse WIPPIMMO d'origine reste visible en petit, jamais modifiée */}
+          <h3 className="ann-tete-nom" data-adresse-officielle={f.adresseOfficielle ? '' : undefined}>
+            {f.adresseOfficielle ? titreLogement(f.adresseOfficielle.court, f.adresseOfficielle.commune) : titreLogement(f.adresse, f.commune)}</h3>
+          {f.adresseOfficielle && <p className="ann-ecriture-origine" data-ecriture-origine>écriture d’origine : {titreLogement(f.adresse, f.commune)}</p>}
           <p className="ann-tete-sous">
             <span className="ann-role-capsule">Bien</span>
             {pastillesBien(f).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
@@ -2676,6 +2680,7 @@ export const CSS_ANNUAIRE = `
   .svv-adm-root:not([data-theme='light']) .ann-tete{box-shadow:0 1px 2px rgba(0,0,0,.35),0 6px 16px rgba(0,0,0,.28)}
 }
 .ann-tete-mots{flex:1 1 16rem;min-width:0;display:flex;flex-direction:column;gap:.35rem}
+.ann-ecriture-origine{margin:.1rem 0 0;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .ann-tete-nom{margin:0;font-size:1.35rem;line-height:1.2;font-weight:700;color:var(--color-svv-ink);
   overflow-wrap:anywhere}
 .ann-tete-sous{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0}

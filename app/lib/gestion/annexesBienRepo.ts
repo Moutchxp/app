@@ -2,6 +2,7 @@ import { query, type RequeteTx } from '../db/client';
 import { refusRattachementAnnexe } from '../location/regroupementRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { estLotAnnexe, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from './annexesBien';
+import { adressesOfficiellesDesLots } from '../adresse/adresseSaisieRepo';
 
 /**
  * ══ 🔴 LES ANNEXES D'UN BIEN, LUES POUR LA FICHE DU BIEN ET L'HISTORIQUE (Arno, 21/10/2026). LECTURE SEULE. ═════════════════════
@@ -18,7 +19,9 @@ export interface AnnexesDuLot {
   /** Le type du lot lui-même (« Logement », « Cave »…) : le compteur et la question de détachement le disent. */
   typeLot: string;
   annexes: AnnexeAffichee[];
-  principal: { id: number; adresse: string | null; commune: string | null; categorie: string | null } | null;
+  principal: { id: number; adresse: string | null; commune: string | null; categorie: string | null; adresseOfficielle?: { banId: string; court: string; commune: string | null } | null } | null;
+  /** 🔴 (lot 7b) l'identifiant BAN du bien lui-même (certain ou validé) : les annexes s'y comparent */
+  banIdDuLot?: string | null;
   detachee: boolean;
   /** Le lot peut-il être rattaché (annexe détachée, ou lot de type annexe sans bien principal) ? Et à quels biens. */
   candidats: CandidatRattachement[] | null;
@@ -72,7 +75,11 @@ export async function annexesDuLot(lotId: number): Promise<AnnexesDuLot | null> 
     candidats = c.filter((x) => !estLotAnnexe({ categorie: x.categorie, nature: x.nature, typeBien: x.type_bien }))
       .map((x) => ({ id: Number(x.id), adresse: x.adresse, commune: x.commune, categorie: x.categorie, origine: false }));
   }
-  return { lotId, typeLot: typeDuLot(versAnnexe(l), 'Bien'), annexes: annexes.map(versAnnexe), principal, detachee: l.detachee, candidats, rattachementRefus };
+  // 🔴🔴 (Arno, 20/11/2026, lot 7b) les adresses officielles (rapprochement certain ou validé) des annexes et du bien principal
+  const officielles = await adressesOfficiellesDesLots([lotId, ...annexes.map((a) => Number(a.id)), ...(principal === null ? [] : [principal.id])]);
+  const off = (id: number) => { const o = officielles.get(id); return o === undefined ? null : { banId: o.banId, court: o.court, commune: o.commune }; };
+  return { lotId, typeLot: typeDuLot(versAnnexe(l), 'Bien'), annexes: annexes.map((a) => ({ ...versAnnexe(a), adresseOfficielle: off(Number(a.id)) })),
+    principal: principal === null ? null : { ...principal, adresseOfficielle: off(principal.id) }, banIdDuLot: off(lotId)?.banId ?? null, detachee: l.detachee, candidats, rattachementRefus };
 }
 
 /** Une ligne de l'Historique : un détachement, un rattachement ou une réintégration d'annexe, sur CE bien. */

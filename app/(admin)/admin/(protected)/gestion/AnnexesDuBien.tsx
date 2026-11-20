@@ -35,7 +35,7 @@ async function geste(corps: Record<string, unknown>): Promise<string | null> {
 /** Les cases des annexes d'un bien principal, avec « Détacher ». `onApres` : relire la fiche après un geste réussi. */
 export function CasesAnnexes({ annexes, bien, typePrincipal, onOuvrir, onApres }: {
   annexes: AnnexeAffichee[];
-  bien: { adresse: string | null; commune: string | null };
+  bien: { adresse: string | null; commune: string | null; banId?: string | null };
   typePrincipal: string;
   onOuvrir: (lotId: number) => void;
   onApres: () => void;
@@ -143,11 +143,13 @@ export function RattacherABien({ lotId, typeLot, candidats, onApres, refus = nul
  * fond ambre clair, bordure ambre, pleine largeur, sous le titre ; le lot principal est un lien vers sa fiche.
  */
 export function CartoucheAnnexeDetachee({ principal, onOuvrir }: {
-  principal: { id: number; adresse: string | null; commune?: string | null; categorie: string | null };
+  principal: { id: number; adresse: string | null; commune?: string | null; categorie: string | null; adresseOfficielle?: { court: string; commune: string | null } | null };
   onOuvrir: (lotId: number) => void;
 }) {
   const type = typeDuLot({ categorie: principal.categorie, nature: null, typeBien: null }, 'bien').toLowerCase();
-  const nom = [principal.adresse, principal.commune].filter((x) => x).join(', ') || `n° ${principal.id}`;
+  // 🔴 (lot 7b) l'adresse officielle du bien principal, quand elle est connue (certaine ou validée)
+  const off = principal.adresseOfficielle ?? null;
+  const nom = (off !== null ? [off.court, off.commune] : [principal.adresse, principal.commune]).filter((x) => x).join(', ') || `n° ${principal.id}`;
   return (
     <span className="anx-cartouche" data-cartouche-detachee>
       <style>{CSS_ANNEXES_DU_BIEN}</style>
@@ -161,8 +163,10 @@ export function CartoucheAnnexeDetachee({ principal, onOuvrir }: {
 
 interface AnnexesLues {
   lotId: number; typeLot: string; annexes: AnnexeAffichee[]; detachee: boolean; candidats: CandidatRattachement[] | null;
-  principal: { id: number; adresse: string | null; commune: string | null; categorie: string | null } | null;
+  principal: { id: number; adresse: string | null; commune: string | null; categorie: string | null; adresseOfficielle?: { court: string; commune: string | null } | null } | null;
   rattachementRefus?: string | null;
+  /** 🔴 (lot 7b) l'identifiant BAN du bien (certain ou validé) */
+  banIdDuLot?: string | null;
 }
 
 /**
@@ -195,7 +199,7 @@ export function AnnexesDeLaFiche({ lotId, bien, onOuvrir, partie = 'tout' }: {
     <div className="anx-fiche" data-annexes-de-la-fiche={lotId}>
       <style>{CSS_ANNEXES_DU_BIEN}</style>
       {compteur !== null && <p className="anx-compteur" data-compteur-annexes>{compteur}</p>}
-      <CasesAnnexes annexes={lu.annexes} bien={bien} typePrincipal={typePrincipal} onOuvrir={onOuvrir} onApres={relire} />
+      <CasesAnnexes annexes={lu.annexes} bien={{ ...bien, banId: lu.banIdDuLot ?? null }} typePrincipal={typePrincipal} onOuvrir={onOuvrir} onApres={relire} />
       {partie === 'tout' && cartouche}
       {lu.candidats !== null && (
         <p className="anx-autonome" data-bien-autonome>

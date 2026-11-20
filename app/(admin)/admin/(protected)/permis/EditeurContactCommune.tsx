@@ -8,6 +8,7 @@ import {
 } from './contactForm';
 import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
 import { processDeCanal } from '../../../../lib/sitadel/process';
+import { ChampAdressePostale } from './ChampAdressePostale'; // 🔴 lot 7b — le composant unique, saisie libre derrière « Adresse absente de la liste ? »
 
 /**
  * Lot B — ÉDITEUR DE CONTACT OUVRABLE PAR COMMUNE (code INSEE). Composant CONTRÔLÉ : `codeInsee` non nul → il charge la
@@ -230,8 +231,8 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
               <BoutonOuvrirLien url={edition.urlFormulaire} />
             </div>
             {edition.canal === 'courrier' && (
-              <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…" aria-label="Adresse postale"
-                onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+              <ChampAdressePostale valeur={edition.adressePostale} ariaLabel="Adresse postale" style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }}
+                onChange={(v) => setEdition({ ...edition, adressePostale: v, erreur: '' })} />
             )}
             <ChampsProtocole telephone={edition.telephone} telephoneStandard={edition.telephoneStandard} responsableNom={edition.responsableNom} protocoleVerifieLe={edition.protocoleVerifieLe}
               onTelephone={(v) => setEdition({ ...edition, telephone: v, erreur: '' })}

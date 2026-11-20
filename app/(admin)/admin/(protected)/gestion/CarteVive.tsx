@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChampAdresseOfficielle } from '../../../../components/adresse/ChampAdresseOfficielle';
+import { adresseDuChoix } from '../../../../components/adresse/adresseOfficielle';
+import { CSS_CHAMP_ADRESSE } from './ChampAdresseBan';
 import { LocatairesConcernes, PucesConcernes, type ChoixConcernes } from './LocatairesConcernes';
 import type { Concerne } from '../../../../lib/gestion/locatairesEvenement';
 import { BlocRepliable } from '../permis/BlocRepliable';
@@ -1213,7 +1216,10 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
       </label>
       <label className="gst-champ">
         <span className="svv-label">Adresse (texte libre)</span>
-        <input className="gst-saisie" value={adresse} onChange={(e) => setAdresse(e.target.value)} maxLength={300} />
+        {/* 🔴🔴 (Arno, 20/11/2026, lot 7b) le COMPOSANT UNIQUE : propositions de la Base Adresse, la saisie libre reste entière (le texte part tel que tapé) */}
+        <style>{CSS_CHAMP_ADRESSE}</style>
+        <ChampAdresseOfficielle valeur={adresse} onChange={setAdresse} attributs={{ maxLength: 300 }} apparence={{ champ: { className: 'gst-saisie' } }}
+          onChoisir={(a) => setAdresse(adresseDuChoix(a))} />
       </label>
       <label className="gst-champ">
         <span className="svv-label">Type</span>

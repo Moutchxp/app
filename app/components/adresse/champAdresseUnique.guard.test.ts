@@ -15,17 +15,21 @@ import { describe, expect, it } from 'vitest';
 const RACINE = path.join(process.cwd(), 'app');
 const COMPOSANTS = /ChampAdresseOfficielle|ChampAdresseBan|AdresseBien\b|AdresseAutocomplete/;
 const COURRIEL = /e-?mail|électronique|\bmail\b|courriel|@|type="email"|inputMode="email"|\bIP\b|url/i;
+/** une recherche, une case à cocher : pas une saisie d'adresse */
+const PAS_UNE_SAISIE = /type="(search|checkbox|radio)"|Recherch|Cherch/;
 
 /** Les champs d'adresse d'un fichier source (repérage par le texte, comme les autres gardes). */
 export function champsAdresse(src: string): number[] {
   const lignes: number[] = [];
   const ligne = (i: number) => src.slice(0, i).split('\n').length;
-  for (const m of src.matchAll(/<input\b[^>]*>/g)) if (/adress/i.test(m[0]) && !COURRIEL.test(m[0])) lignes.push(ligne(m.index ?? 0));
+  // la balise ENTIÈRE, jusqu'à sa fermeture « /> » (un `=>` dans un attribut ne l'arrête pas)
+  for (const m of src.matchAll(/<input\b[\s\S]*?\/>/g)) if (/adress/i.test(m[0]) && !COURRIEL.test(m[0]) && !PAS_UNE_SAISIE.test(m[0])) lignes.push(ligne(m.index ?? 0));
   for (const m of src.matchAll(/>\s*(Adresse[^<]{0,40})</g)) {
     if (COURRIEL.test(m[1])) continue;
     const suite = src.slice((m.index ?? 0) + m[0].length - 1, (m.index ?? 0) + m[0].length + 300);
     const i = suite.indexOf('<input');
-    if (i >= 0 && !COURRIEL.test(suite.slice(0, i + 200))) lignes.push(ligne(m.index ?? 0));
+    const balise = i >= 0 ? (/^<input\b[\s\S]*?\/>/.exec(suite.slice(i))?.[0] ?? '') : '';
+    if (i >= 0 && !COURRIEL.test(suite.slice(0, i + 200)) && !PAS_UNE_SAISIE.test(balise)) lignes.push(ligne(m.index ?? 0));
   }
   return [...new Set(lignes)].sort((a, b) => a - b);
 }
@@ -35,20 +39,19 @@ const FIGES: Readonly<Record<string, { n: number; raison: string }>> = {
   // emploient le composant unique : la saisie libre est celle de « Adresse absente de la liste ? », « à l'étranger », et les rappels en lecture seule
   'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx': { n: 13, raison: 'hors liste, étranger, rappels du code postal et de la commune' },
   'app/(admin)/admin/(protected)/location/AdresseBien.tsx': { n: 12, raison: 'hors liste, étranger, rappels du code postal et de la commune' },
-  'app/(admin)/admin/(protected)/location/CreationBien.tsx': { n: 2, raison: 'le libellé « Adresse » de l’emballage AdresseBien' },
+  'app/(admin)/admin/(protected)/location/CreationBien.tsx': { n: 1, raison: 'le libellé « Adresse » de l’emballage AdresseBien' },
+  'app/(admin)/admin/(protected)/permis/ChampAdressePostale.tsx': { n: 1, raison: 'hors liste : la saisie libre (BP, CS, CEDEX) derrière « Adresse absente de la liste ? » (Arno, 20/11/2026)' },
   'app/(admin)/admin/(protected)/transaction/PersonnesDossier.tsx': { n: 1, raison: 'personne sans type : simple champ texte (lot 7d)' },
   'app/page.tsx': { n: 2, raison: 'rappels en lecture seule de l’adresse choisie (site public)' },
-  // ne sont PAS des adresses à rattacher à la Base Adresse — ou pas encore : à trancher par Arno (lots 7b à 7e)
+  // ne sont PAS des adresses à rattacher à la Base Adresse
   'app/(admin)/admin/(protected)/gestion/BoiteMail.tsx': { n: 1, raison: 'recherche « nom ou adresse » d’un expéditeur (mail)' },
-  'app/(admin)/admin/(protected)/gestion/CarteVive.tsx': { n: 2, raison: '« Adresse (texte libre) » d’une carte d’événement — à trancher' },
-  'app/(admin)/admin/(protected)/gestion/EncartMonga.tsx': { n: 1, raison: 'recherche d’un bien du portefeuille (pas une saisie)' },
-  'app/(admin)/admin/(protected)/gestion/EcranCoproprietes.tsx': { n: 1, raison: 'choix de l’adresse principale parmi celles de la copropriété (pas une saisie)' },
-  'app/(admin)/admin/(protected)/gestion/HistoriqueCible.tsx': { n: 1, raison: 'case à cocher d’un interlocuteur (adresse e-mail)' },
-  'app/(admin)/admin/(protected)/gestion/PanneauAffecter.tsx': { n: 1, raison: '« ce que le mail indique » : l’adresse lue dans un mail — à trancher' },
-  'app/(admin)/admin/(protected)/permis/BlocDemandePieces.tsx': { n: 1, raison: 'case à cocher d’un destinataire (adresse e-mail)' },
-  'app/(admin)/admin/(protected)/permis/CaracteristiquesBloc.tsx': { n: 2, raison: '« Adresse de ce bâtiment » d’un permis — à trancher' },
-  'app/(admin)/admin/(protected)/permis/EditeurContactCommune.tsx': { n: 2, raison: 'adresse POSTALE d’un service de mairie (avec le nom du service) et sa note' },
-  'app/(admin)/admin/(protected)/permis/PermisVue.tsx': { n: 2, raison: 'adresse POSTALE d’un service de mairie (avec le nom du service) et sa note' },
+  'app/(admin)/admin/(protected)/permis/EditeurContactCommune.tsx': { n: 1, raison: 'la NOTE de traçabilité (« ex. Ancienne adresse courrier »), pas une adresse' },
+  'app/(admin)/admin/(protected)/permis/PermisVue.tsx': { n: 1, raison: 'la NOTE de traçabilité (« ex. Ancienne adresse courrier »), pas une adresse' },
+};
+
+/** 🔴 HORS DE LA GARDE, sur décision d'Arno (20/11/2026) : ce ne sont pas des saisies d'adresse. */
+const EXCLUS: Readonly<Record<string, string>> = {
+  'app/(admin)/admin/(protected)/gestion/PanneauAffecter.tsx': '« ce que le mail indique » est une COPIE de ce que dit le mail, pas une saisie d’adresse (Arno, 20/11/2026) : il ne change pas',
 };
 
 function fichiers(dossier: string): string[] {
@@ -75,7 +78,7 @@ describe('🔴🔴 un seul composant d’adresse', () => {
     const fautifs: string[] = [];
     for (const p of fichiers(RACINE)) {
       const f = rel(p);
-      if (f.startsWith('app/components/adresse/')) continue;
+      if (f.startsWith('app/components/adresse/') || EXCLUS[f] !== undefined) continue;
       const n = champsAdresse(readFileSync(p, 'utf8')).length;
       const permis = FIGES[f]?.n ?? 0;
       if (n > permis) fautifs.push(`${f} : ${n} champ(s) d’adresse pour ${permis} permis — employez ChampAdresseOfficielle (ou un de ses emballages)`);
@@ -93,5 +96,8 @@ describe('🔴🔴 un seul composant d’adresse', () => {
     expect(champsAdresse('<input aria-label="Adresse à localiser" />')).toEqual([1]);
     expect(champsAdresse('<label>Adresse e-mail<input type="email" /></label>')).toEqual([]);
     expect(champsAdresse('<input placeholder="ex. 12 rue" />')).toEqual([]);
+    expect(champsAdresse('<input onChange={(e) => f(e)} data-adresse-libre />')).toEqual([1]); // un `=>` n'arrête pas la lecture de la balise
+    expect(champsAdresse('<input type="search" placeholder="Chercher un bien : adresse" />')).toEqual([]);
+    expect(champsAdresse('<input type="checkbox" onChange={() => b(i.adresse)} />')).toEqual([]);
   });
 });
