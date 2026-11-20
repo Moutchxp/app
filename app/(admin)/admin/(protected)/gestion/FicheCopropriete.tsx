@@ -664,7 +664,10 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-histo{margin-top:6px}
 .fcp-a-verifier{color:var(--color-svv-orange);font-weight:800}
 .fcp-petit{font-size:.82rem}
-.fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:700;color:var(--color-svv-ink)}
+.fcp-histo summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:700;color:var(--color-svv-ink);list-style:none}
+.fcp-histo summary::-webkit-details-marker{display:none}
+.fcp-histo summary::before{content:'\\25B8';display:inline-block;min-width:1em;color:var(--color-svv-muted)}
+.fcp-histo[open] > summary::before{content:'\\25BE'}
 .fcp-a-preciser{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px 0}
 .fcp-a-preciser-choix{flex:1 1 220px}
 .fcp-a-preciser-choix select{min-height:44px;width:100%;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;padding:6px 10px}

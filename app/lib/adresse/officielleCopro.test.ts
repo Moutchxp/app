@@ -15,7 +15,8 @@ describe('le modèle d’affichage', () => {
       e('54 avenue du puvis de chavannes augier', '54 avenue du Puvis de Chavannes / AUGIER', 29, P54),
       e('54 avneue puvis de chavannes', '54 Avneue Puvis de Chavannes', 1, P54),
     ])!;
-    expect(m.principale.libelle).toBe('54 Avenue Puvis De Chavannes, 92400 Courbevoie');
+    // le libellé à l'écran : type de voie et petits mots en minuscule (la BAN stockée reste « 54 Avenue Puvis De Chavannes »)
+    expect(m.principale.libelle).toBe('54 avenue Puvis de Chavannes, 92400 Courbevoie');
     expect(m.adresses).toHaveLength(1);
     expect(m.adresses[0].cles).toEqual(['54 avenue puvis de chavannes 92400 courbevoie', '54 avneue puvis de chavannes', '54 avenue du puvis de chavannes augier']);
     expect(m.ecritures.map((x) => [x.ecriture, x.biens])).toEqual([['54 avenue du Puvis de Chavannes / AUGIER', 29], ['54 Avneue Puvis de Chavannes', 1]]);
@@ -29,7 +30,7 @@ describe('le modèle d’affichage', () => {
       e('43 avenue marceau', '43 avenue Marceau', 2, certain('92026_6120_00043', '43 Avenue Marceau')),
       e('80 rue de normandie', '80 rue de Normandie', 2, certain('92026_6670_00080', '80 Rue De Normandie')),
     ])!;
-    expect(m.adresses.map((a) => a.court)).toEqual(['80 Rue De Normandie', '43 Avenue Marceau', '74 Rue De Normandie']);
+    expect(m.adresses.map((a) => a.court)).toEqual(['80 rue de Normandie', '43 avenue Marceau', '74 rue de Normandie']);
   });
   it('une écriture non certaine : « à vérifier », sans devenir une adresse ; rien de certain : aucun modèle (l’affichage d’avant)', () => {
     const doute: EntreeOfficielle['r'] = { statut: 'a_verifier', codePostal: '92400', ban: { id: '92026_6120_00028', libelle: '28 Avenue Marceau', commune: 'Courbevoie' } };

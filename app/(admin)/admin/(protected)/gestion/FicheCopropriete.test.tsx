@@ -503,3 +503,14 @@ describe('les digicodes d’une adresse officielle (pur)', () => {
     expect(remettreDigicodes(etat, affiches)).toEqual([{ cle: 'a', voie: '54 avenue', codePostal: '92400', commune: 'COURBEVOIE', commun: { code: '1234', aucun: false } }, etat[1]]);
   });
 });
+
+describe('la flèche des blocs repliables', () => {
+  it('▸ fermé, ▾ ouvert, devant le titre ; la ligne cliquable fait au moins 44 px ; le marqueur du navigateur caché', async () => {
+    const { CSS_FICHE_COPROPRIETE } = await import('./FicheCopropriete');
+    const css = CSS_FICHE_COPROPRIETE.replace(/\s+/g, ' ');
+    expect(css).toContain(".fcp-histo summary::before{content:'\\25B8'");
+    expect(css).toContain(".fcp-histo[open] > summary::before{content:'\\25BE'}");
+    expect(css).toMatch(/\.fcp-histo summary\{[^}]*min-height:44px[^}]*list-style:none/);
+    expect(css).toContain('.fcp-histo summary::-webkit-details-marker{display:none}');
+  });
+});
