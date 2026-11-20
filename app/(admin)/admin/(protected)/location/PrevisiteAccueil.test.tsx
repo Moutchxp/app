@@ -136,6 +136,10 @@ describe('🔴 Règle 1 — les pastilles de statut, avec compteur ; filtrer ; t
 });
 
 describe('🔴 Règles 2-3 — la ligne : cartouche « Aucune pré-visite fixée », date et heure de la pré-visite', () => {
+  // la pré-visite du jeu d'essai (20/11/2026 10h00) doit être À VENIR : sans horloge figée, ce test devenait « date dépassée » le 20/11 à 10h
+  // (constaté le 20/11/2026 à 10h28). Seule la date est figée, les minuteries restent réelles.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-18T09:00:00+01:00') }); });
+  afterEach(() => { vi.useRealTimers(); });
   it('en alerte : le cartouche ; programmée : « Pré-visite le 20/11/2026 à 10h00 » dans le détail', async () => {
     await rendre();
     expect(container.querySelector('[data-ligne-preavis="A"] [data-cartouche-previsite="alerte"]')?.textContent).toBe('Aucune pré-visite fixée');
