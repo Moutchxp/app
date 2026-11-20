@@ -7,13 +7,14 @@
 --     une carte de contact ou de garant (gestion_contact_carte, son adresse POSTALE) ou un apporteur (gestion_location_apporteur).
 -- 🔴 LES ADRESSES TEXTE DES PERSONNES (adresse, code_postal, commune, adresse_postale, adresse_nature, adresse_pays) NE SONT NI MODIFIÉES NI SUPPRIMÉES ;
 --    les adresses déjà enregistrées ne reçoivent RIEN : seule une NOUVELLE saisie choisie dans la liste (et retrouvée avec certitude) remplit cette table.
--- 🔴 GARDE : elle ne s'applique qu'à la base de recette `svav_recette` (la production : lot 8, décision d'Arno).
+-- 🔴 GARDE (décision d'Arno du 20/11/2026, remplace la garde « svav_recette seulement ») : elle ne s'applique qu'à la base de PRODUCTION
+--    `sansvisavis` ou à la recette `svav_recette` ; toute autre base est refusée. Le schéma produit est inchangé.
 -- Pas de BEGIN/COMMIT : l'appel l'enveloppe (psql -1). IDEMPOTENTE (IF NOT EXISTS) : rejouable.
 
 DO $$
 BEGIN
-  IF current_database() <> 'svav_recette' THEN
-    RAISE EXCEPTION 'GARDE 509 : la base est « % », pas svav_recette. Rien n''est appliqué.', current_database();
+  IF current_database() NOT IN ('sansvisavis', 'svav_recette') THEN
+    RAISE EXCEPTION 'GARDE 509 : la base est « % », ni sansvisavis ni svav_recette. Rien n''est appliqué.', current_database();
   END IF;
 END $$;
 

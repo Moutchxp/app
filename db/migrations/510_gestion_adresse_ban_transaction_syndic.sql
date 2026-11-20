@@ -6,13 +6,14 @@
 --   · 'syndic'               : l'adresse du cabinet d'un syndic (gestion_syndic).
 -- 🔴 AUCUNE DONNÉE N'EST TOUCHÉE : les chaînes d'adresse existantes (adresse_bien, adresse, rue / code postal / ville du syndic) ne changent pas ; seule
 --    une NOUVELLE saisie choisie dans la liste et retrouvée avec certitude remplit le format unique, à côté de la chaîne, jamais à sa place.
--- 🔴 GARDE : elle ne s'applique qu'à la base de recette `svav_recette` (la production : lot 8, décision d'Arno).
+-- 🔴 GARDE (décision d'Arno du 20/11/2026, remplace la garde « svav_recette seulement ») : elle ne s'applique qu'à la base de PRODUCTION
+--    `sansvisavis` ou à la recette `svav_recette` ; toute autre base est refusée. Le schéma produit est inchangé.
 -- Pas de BEGIN/COMMIT : l'appel l'enveloppe (psql -1). REJOUABLE : la contrainte est remplacée par la même, élargie.
 
 DO $$
 BEGIN
-  IF current_database() <> 'svav_recette' THEN
-    RAISE EXCEPTION 'GARDE 510 : la base est « % », pas svav_recette. Rien n''est appliqué.', current_database();
+  IF current_database() NOT IN ('sansvisavis', 'svav_recette') THEN
+    RAISE EXCEPTION 'GARDE 510 : la base est « % », ni sansvisavis ni svav_recette. Rien n''est appliqué.', current_database();
   END IF;
 END $$;
 
