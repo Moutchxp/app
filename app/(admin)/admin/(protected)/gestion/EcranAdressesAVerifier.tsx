@@ -23,6 +23,23 @@ const MOT_GESTE: Record<string, string> = { valider: 'proposition validée', aut
 const biens = (n: number) => `${n} bien${n > 1 ? 's' : ''}`;
 const ressemblance = (s: number | null) => (s === null ? '' : ` — ressemblance ${s.toFixed(2).replace('.', ',')}`);
 /** Une proposition de l'auto-complétion, à l'écran : la fonction d'affichage unique (« 1 villa des Lilas, 92400 Courbevoie »). */
+/**
+ * 🔴 (Arno, 20/11/2026) UNE PLAGE DONT LA BASE NE CONNAÎT QU'UN NUMÉRO (« 126 - 128 rue de Villiers ») : la phrase qui le dit.
+ * Les numéros absents se lisent sur la plage (même côté de la rue quand les deux bornes ont la même parité). PUR.
+ */
+export function phraseNumeroSeul(plageTexte: string, court: string): string {
+  const connu = /^\d+/.exec(court.trim())?.[0] ?? court;
+  const m = /^(\d+)\D+(\d+)/.exec(plageTexte);
+  let manquants: string[] = [];
+  if (m !== null) {
+    const [de, fin] = [Math.min(Number(m[1]), Number(m[2])), Math.max(Number(m[1]), Number(m[2]))];
+    const pas = de % 2 === fin % 2 ? 2 : 1;
+    for (let n = de; n <= fin && manquants.length <= 20; n += pas) if (String(n) !== connu) manquants.push(String(n));
+  }
+  const liste = manquants.length <= 1 ? manquants.join('') : `${manquants.slice(0, -1).join(', ')} et ${manquants[manquants.length - 1]}`;
+  return manquants.length === 0 ? `La base officielle ne connaît que le ${connu}`
+    : `La base officielle ne connaît que le ${connu} : ${manquants.length === 1 ? `le ${liste} n’existe pas` : `les ${liste} n’existent pas`}`;
+}
 const choixAffiche = (a: { voie: string; codePostal: string; commune: string }) => adresseAffichee([a.voie, [a.codePostal, a.commune].filter(Boolean).join(' ')].filter(Boolean).join(', '));
 
 export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: React.ReactNode; onCompte?: (n: number) => void }) {
@@ -68,7 +85,9 @@ export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: R
   const ouvertSur = (e: Ecriture, g: Geste) => ouvert?.cle === e.cle && ouvert.geste === g;
   const carte = (e: Ecriture) => {
     const plage = e.plage;
-    const btnPlusieurs = plage !== null && (
+    // la Base ne connaît qu'UN numéro de la plage : pas de « Plusieurs adresses (1) », mais « Rattacher au … » (même geste que « Une seule adresse »)
+    const seule = plage !== null && plage.adresses.length === 1 ? plage.adresses[0] : null;
+    const btnPlusieurs = plage !== null && seule === null && (
       <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" aria-expanded={ouvertSur(e, 'plusieurs')} disabled={occupe} onClick={() => ouvrir(e, 'plusieurs')} data-eav-plusieurs>
         Plusieurs adresses{plage.adresses.length > 0 ? ` (${plage.adresses.length})` : ''}</button>);
     return (
@@ -79,7 +98,16 @@ export function EcranAdressesAVerifier({ retour = null, onCompte }: { retour?: R
         <p className="eav-motif" data-eav-motif>{e.motif}</p>
         {/* une PLAGE : « Plusieurs adresses » est le geste principal ; une seule adresse reste possible, en second */}
         {btnPlusieurs !== false && <div className="eav-actions">{btnPlusieurs}</div>}
-        {e.propositions.length > 0 && <ul className="eav-propositions">{e.propositions.map((p) => (
+        {seule !== null && plage !== null && (
+          <div className="eav-seul" data-eav-numero-seul>
+            <p className="eav-sans-marge" data-eav-numero-seul-phrase>{phraseNumeroSeul(plage.texte, seule.court)}</p>
+            <div className="eav-actions">
+              <button type="button" className="svv-btn svv-btn-primary gst-btn eav-btn" disabled={occupe}
+                onClick={() => confirmer({ e, geste: 'valider', corps: { action: 'geste', geste: 'valider', cle: e.cle, banId: seule.banId }, adresses: [seule.libelle] })} data-eav-rattacher={seule.banId}>
+                Rattacher au {seule.court}</button>
+            </div>
+          </div>)}
+        {e.propositions.filter((p) => p.banId !== seule?.banId).length > 0 && <ul className="eav-propositions">{e.propositions.filter((p) => p.banId !== seule?.banId).map((p) => (
           <li key={p.banId}><span>{p.libelle}<span className="eav-discret">{ressemblance(p.score)}</span></span>
             <button type="button" className={`svv-btn ${plage !== null ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn eav-btn`} disabled={occupe}
               onClick={() => confirmer({ e, geste: 'valider', corps: { action: 'geste', geste: 'valider', cle: e.cle, banId: p.banId }, adresses: [p.libelle] })} data-eav-valider={p.banId}>
@@ -213,6 +241,7 @@ export const CSS_ECRAN_ADRESSES = `
 .eav-coche{display:flex;align-items:center;gap:.6rem;min-height:44px;cursor:pointer;overflow-wrap:anywhere}
 .eav-coche input{width:20px;height:20px;margin:0;flex:0 0 auto;accent-color:var(--color-svv-ink)}
 .eav-message{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border:1px solid var(--color-svv-green);overflow-wrap:anywhere}
+.eav-seul{display:flex;flex-direction:column;gap:.5rem;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink);overflow-wrap:anywhere}
 .eav-essais{margin-top:.6rem;padding:8px 12px;border-radius:10px;border:1px dashed var(--color-svv-line-strong);background:var(--color-svv-field);display:flex;flex-direction:column;gap:.5rem}
 .eav-essais > summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:700;color:var(--color-svv-ink);list-style:none}
 .eav-essais > summary::-webkit-details-marker{display:none}

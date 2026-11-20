@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { CSS_ECRAN_ADRESSES, EcranAdressesAVerifier } from './EcranAdressesAVerifier';
+import { CSS_ECRAN_ADRESSES, EcranAdressesAVerifier, phraseNumeroSeul } from './EcranAdressesAVerifier';
 
 /** 🔴🔴 Arno (20/11/2026, « Adresse officielle BAN », lot 6) — l'écran « Adresses à vérifier » : la file, les quatre gestes confirmés, l'annulation. */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -147,14 +147,15 @@ describe('annuler ce choix', () => {
 });
 
 describe('🔴 les plages de numéros (Arno, 20/11/2026)', () => {
-  it('« Plusieurs adresses » est le bouton PRINCIPAL, TOUJOURS présent (même quand la Base ne connaît qu’un numéro : 126-128) ; « Une seule adresse : … » est secondaire', async () => {
+  it('dès deux adresses connues, « Plusieurs adresses (N) » est le bouton PRINCIPAL ; « Une seule adresse : … » est secondaire', async () => {
     await monter();
-    for (const ecr of ['33-35 rue Pergolèse 75116 Paris', '126 - 128 rue de Villiers']) {
+    for (const ecr of ['33-35 rue Pergolèse 75116 Paris']) {
       const c = [...container.querySelectorAll('[data-eav-ecriture]')].find((x) => x.getAttribute('data-eav-ecriture') === ecr)!;
       expect(c.querySelector('[data-eav-plusieurs]')!.className).toContain('svv-btn-primary');
       const seule = c.querySelector('[data-eav-valider]')!;
       expect(seule.className).toContain('svv-btn-outline');
-      expect(seule.textContent).toMatch(/^Une seule adresse : (33 rue Pergolèse|128 rue de Villiers)$/);
+      expect(seule.textContent).toBe('Une seule adresse : 33 rue Pergolèse');
+      expect(c.querySelector('[data-eav-plusieurs]')!.textContent).toBe('Plusieurs adresses (2)');
     }
     // pas une plage : « Valider la proposition », bouton principal
     const pc = [...container.querySelectorAll('[data-eav-ecriture]')].find((x) => x.getAttribute('data-eav-ecriture') === '18 Rue Pierre Curie')!;
@@ -162,14 +163,28 @@ describe('🔴 les plages de numéros (Arno, 20/11/2026)', () => {
     expect(pc.querySelector('[data-eav-valider]')!.className).toContain('svv-btn-primary');
     expect(pc.textContent).toContain('18 rue Pierre et Marie Curie, 92800 Puteaux');
   });
-  it('126-128 : la seule adresse connue est cochée, « Valider ces adresses » est actif, et l’écran dit que la Base ne connaît qu’un numéro', async () => {
+  it('126-128, la Base ne connaît que le 128 : pas de « Plusieurs adresses (1) » ; la phrase visible, « Rattacher au 128 rue de Villiers » en bouton principal ; « Choisir une autre adresse » et « Hors périmètre » restent', async () => {
     await monter();
     const c = [...container.querySelectorAll('[data-eav-ecriture]')].find((x) => x.getAttribute('data-eav-ecriture') === '126 - 128 rue de Villiers')!;
-    await clic(c.querySelector('[data-eav-plusieurs]'));
-    expect((c.querySelector('[data-eav-coche="B128"]') as HTMLInputElement).checked).toBe(true);
-    expect(c.querySelector('[data-eav-plage-seule]')).not.toBeNull();
-    expect((c.querySelector('[data-eav-plusieurs-valider]') as HTMLButtonElement).disabled).toBe(false);
+    expect(c.querySelector('[data-eav-plusieurs]')).toBeNull();
+    expect(c.querySelector('[data-eav-numero-seul-phrase]')!.textContent).toBe('La base officielle ne connaît que le 128 : le 126 n’existe pas');
+    const b = c.querySelector('[data-eav-rattacher="B128"]')!;
+    expect(b.textContent).toBe('Rattacher au 128 rue de Villiers');
+    expect(b.className).toContain('svv-btn-primary');
+    expect(c.querySelector('[data-eav-valider]')).toBeNull(); // le même geste n'est pas proposé deux fois
+    expect(c.querySelector('[data-eav-autre]')).not.toBeNull();
+    expect(c.querySelector('[data-eav-hors]')).not.toBeNull();
+    await clic(b);
+    expect(container.querySelector('[data-eav-fenetre]')!.textContent).toContain('128 rue de Villiers, 92300 Levallois-Perret');
+    await clic(container.querySelector('[data-eav-confirmer]'));
+    expect(posts).toEqual([{ action: 'geste', geste: 'valider', cle: 'k4', banId: 'B128' }]);
   });
+  it.each([
+    ['126-128', '128 rue de Villiers', 'La base officielle ne connaît que le 128 : le 126 n’existe pas'],
+    ['1-3', '1 rue Deltéral', 'La base officielle ne connaît que le 1 : le 3 n’existe pas'],
+    ['1-7', '3 rue X', 'La base officielle ne connaît que le 3 : les 1, 5 et 7 n’existent pas'],
+    ['1-2', '2 square Y', 'La base officielle ne connaît que le 2 : le 1 n’existe pas'],
+  ])('la phrase : plage %s, connu « %s »', (plage, court, phrase) => { expect(phraseNumeroSeul(plage, court)).toBe(phrase); });
 });
 
 describe('🔴 les fiches d’essai (Arno, 20/11/2026)', () => {
