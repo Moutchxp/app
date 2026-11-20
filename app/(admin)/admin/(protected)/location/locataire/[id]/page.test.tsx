@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 /**
  * La page « fiche locataire » de la Location (Arno, 18-19/10/2026) :
- *   · SANS `?sortie=` : STRICTEMENT la fiche de toujours — le bloc « Sortie du logement » puis LA fiche commune, AVEC son
+ *   · SANS `?sortie=` : LA fiche commune (🔴 le bloc « Sortie du logement » est retiré, accord d'Arno du 20/11/2026, option B), AVEC son
  *     bloc « Fiche commune avec la Gestion… » et sa barre « Annuaire » (aucune option qui les retire) ;
  *   · AVEC `?sortie=` : l'écran de sortie aligné sur « Supprimer un des biens », et lui seul (retrait autorisé pour cet écran).
  */
@@ -17,7 +17,6 @@ vi.mock('../../../gestion/FicheCommune', () => ({
   FicheCommuneLocation: (p: Record<string, unknown>) => { ficheCommune(p); return <div data-stub="fiche-commune" />; },
 }));
 vi.mock('../../SortieLocataires', () => ({
-  BlocSortieLogement: (p: { occupationDemandee: number | null }) => <div data-stub="bloc-sortie" data-occupation={String(p.occupationDemandee)} />,
   EcranSortieLocataire: (p: { occupationInitiale: number }) => <div data-stub="ecran-sortie" data-occupation={p.occupationInitiale} />,
 }));
 
@@ -30,9 +29,10 @@ const rendre = async (sortie?: string): Promise<string> => renderToStaticMarkup(
 beforeEach(() => ficheCommune.mockClear());
 
 describe('la fiche locataire de la Location', () => {
-  it('SANS ?sortie= : le bloc de sortie, puis LA fiche commune avec son bloc « Annuaire » (rien n’est retiré)', async () => {
+  it('SANS ?sortie= : LA fiche commune avec son bloc « Annuaire » ; 🔴 plus de bloc « Sortie du logement » (Arno, 20/11/2026)', async () => {
     const html = await rendre();
-    expect(html).toContain('data-stub="bloc-sortie"');
+    expect(html).not.toContain('data-sortie-logement');
+    expect(html).not.toContain('Sortie du logement');
     expect(html).toContain('data-stub="fiche-commune"');
     expect(html).not.toContain('data-stub="ecran-sortie"');
     // 🔴 Arno (26/10/2026) — et le bloc 4 « Suivi commercial » (ajout seul).
@@ -50,7 +50,6 @@ describe('la fiche locataire de la Location', () => {
     expect(html).toContain('data-stub="ecran-sortie"');
     expect(html).toContain('data-occupation="11"');
     expect(html).not.toContain('data-stub="fiche-commune"');
-    expect(html).not.toContain('data-stub="bloc-sortie"');
     expect(html).not.toContain('data-bloc-suivi-locataire');
     expect(ficheCommune).not.toHaveBeenCalled();
   });

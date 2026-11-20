@@ -9,7 +9,7 @@ import { MOT_STATUT_LOCATAIRE, type StatutLocataire } from '../../../../lib/gest
 /** Le ton de la pastille d'un occupant (`loc-res-type--…`, défini dans CSS_RESULTATS) : vert, bleu, violet. */
 const TON_OCCUPANT: Record<StatutLocataire, string> = { en_place: 'locataires', en_preavis: 'preavis', ancien: 'ancien-locataire' };
 import { ModaleEnvois } from './ConfirmationEnvois';
-import { ParcoursPreavisSortie, ParcoursSurBail, type FinParcours } from './ParcoursPreavisSortie';
+import { ParcoursPreavisSortie } from './ParcoursPreavisSortie';
 import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
@@ -153,56 +153,8 @@ export function EcranAjouterLocatairesAVenir() {
 
 // ══ LE BLOC « SORTIE DU LOGEMENT », au-dessus de la fiche locataire commune ═══════════════════════════════════════════
 
-interface Baux { enPlace: { occupationId: number; adresse: string | null }[]; sorties: SortieEnregistree[] }
-
-export function BlocSortieLogement({ locataireId, occupationDemandee, gestion = true }: { locataireId: number; occupationDemandee: number | null; gestion?: boolean }) {
-  const baux = useLecture<Baux>(`bauxLocataire=${locataireId}`);
-  const [choisie, setChoisie] = useState<number | null>(occupationDemandee);
-  const [resultat, setResultat] = useState<{ geste: 'preavis' | 'sortie'; phrase: string; mail: string | null; sansMail: boolean } | null>(null);
-  if (baux.etat.etat !== 'ok') return <section className="loc-bloc sor-bloc"><style>{CSS_LOCATION_ECRANS + CSS_SORTIE}</style><EtatLecture etat={baux.etat} /></section>;
-  const d = baux.etat.data;
-  const enPlace = d.enPlace;
-  const occupation = choisie !== null && enPlace.some((b) => b.occupationId === choisie) ? choisie
-    : enPlace.length === 1 ? enPlace[0].occupationId : null;
-  if (enPlace.length === 0 && d.sorties.length === 0 && resultat === null) return null;
-  return (
-    <section className="loc-bloc sor-bloc" data-sortie-logement aria-label="Sortie du logement">
-      <style>{CSS_LOCATION_ECRANS + CSS_SORTIE + CSS_PREAVIS}</style>
-      <h3>Sortie du logement</h3>
-      {resultat !== null && (
-        <div className="sor-fait" role="status" {...(resultat.geste === 'sortie' ? { 'data-sortie-faite': '' } : { 'data-preavis-fait': '' })}>
-          <p><strong>{resultat.geste === 'sortie' ? 'Sortie enregistrée.' : 'Préavis enregistré.'}</strong> {resultat.phrase}</p>
-          {resultat.sansMail ? <p className="loc-muet" data-aucun-mail>Aucun mail n’a été envoyé.</p>
-            : resultat.mail !== null ? <p className="cp-refus" role="alert" data-mail-echec>{resultat.mail}</p>
-            : resultat.geste === 'sortie' ? <p className="loc-muet" data-mail-envoye>Mail de confirmation envoyé.</p> : null}
-        </div>
-      )}
-      {enPlace.length === 0 ? <p className="loc-muet">Ce locataire n’occupe aucun logement aujourd’hui.</p>
-        : occupation === null ? (
-          <div className="sor-choix">
-            <p>Ce locataire occupe plusieurs logements : lequel quitte-t-il ?</p>
-            {enPlace.map((b) => (
-              <button key={b.occupationId} type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setChoisie(b.occupationId)}>
-                {b.adresse ?? `Logement (occupation ${b.occupationId})`}</button>
-            ))}
-          </div>
-        ) : (
-          <FormulaireSortie key={occupation} occupationId={occupation} gestion={gestion}
-            apres={(f) => { setResultat({ geste: f.geste, phrase: f.phrase, sansMail: !f.avecMails, mail: f.geste === 'sortie' && f.avecMails && f.mail !== undefined ? phraseMail(f.mail) : null });
-              baux.rafraichir(); }} />
-        )}
-      {d.sorties.length > 0 && <SortiesEnregistrees sorties={d.sorties} apres={() => { setResultat(null); baux.rafraichir(); }} />}
-    </section>
-  );
-}
-
-/** 🔴 Arno (06/11/2026) — la fiche locataire : LE MÊME PARCOURS que l'écran de sortie (cartes, Préavis / Sortie, deux boutons, récapitulatif, résultat). */
-function FormulaireSortie({ occupationId, apres, gestion }: { occupationId: number; apres: (f: FinParcours) => void; gestion: boolean }) {
-  const [version, setVersion] = useState(0);
-  const lu = useLecture<BailLogement>(`bail=${occupationId}&v=${version}`);
-  if (lu.etat.etat !== 'ok') return <EtatLecture etat={lu.etat} />;
-  return <ParcoursSurBail bail={lu.etat.data} occupationId={occupationId} gestion={gestion} onFini={(f) => { setVersion((v) => v + 1); apres(f); }} />;
-}
+// 🔴🔴 Arno (20/11/2026, option B) — le bloc « Sortie du logement » de la fiche locataire (`BlocSortieLogement`) est RETIRÉ, sur son accord :
+// tout ce qui touche à une sortie passe par « Supprimer un/des locataire(s) » (occupants → écran de sortie ; sorties enregistrées → `LigneSortie`).
 
 // ══ L'ÉCRAN DE SORTIE ALIGNÉ SUR « SUPPRIMER UN DES BIENS » (Arno, 18-19/10/2026) ═════════════════════════════════════
 
@@ -537,17 +489,6 @@ function CoordonneesEncart({ e }: { e: EncartLogement }) {
       <ul>
         {proprio && <li data-coord-proprietaire><strong>{e.proprietaire!.nom}</strong> (propriétaire) {liste(c.proprietaire!)}</li>}
         {locataires.map((l) => <li key={l.occupationId} data-coord-locataire={l.locataireId}><strong>{l.nom}</strong> (locataire) {liste(l)}</li>)}
-      </ul>
-    </div>
-  );
-}
-
-function SortiesEnregistrees({ sorties, apres }: { sorties: SortieEnregistree[]; apres: () => void }) {
-  return (
-    <div className="sor-enregistrees" data-sorties-enregistrees>
-      <h4>Sorties enregistrées</h4>
-      <ul className="loc-liste">
-        {sorties.map((s) => <LigneSortie key={`${s.lotId}-${s.sortie}-${s.occupationIds.join('-')}`} s={s} apres={apres} />)}
       </ul>
     </div>
   );

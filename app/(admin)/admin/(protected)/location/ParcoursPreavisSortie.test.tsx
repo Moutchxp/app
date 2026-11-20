@@ -16,7 +16,8 @@ vi.mock('../gestion/BlocHistoriqueEchanges', async (orig) => ({
   useFichePersonne: () => ({ fiche: { titre: 'X', sousTitre: null, adresses: [], occupations: [] }, erreur: null }),
   BlocHistoriqueEchanges: () => createElement('div', { 'data-stub': 'historique' }),
 }));
-const { EcranSortieLocataire, BlocSortieLogement } = await import('./SortieLocataires');
+const SortieLocataires = await import('./SortieLocataires');
+const { EcranSortieLocataire } = SortieLocataires;
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ok = (data: unknown, extra: Record<string, unknown> = {}) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data, ...extra }) }) as unknown as Response;
@@ -274,19 +275,12 @@ describe('④ la sortie, avec chacun des deux boutons', () => {
   });
 });
 
-describe('⑦ la fiche locataire : le MÊME parcours', () => {
-  it('cartes sans présélection, Préavis / Sortie, les deux boutons ; un préavis enregistré passe en bleu', async () => {
-    await act(async () => { root.render(createElement(BlocSortieLogement, { locataireId: 101, occupationDemandee: 11 })); }); await calmer();
-    expect(container.querySelector('[data-parcours-sur-bail] [data-parcours-preavis-sortie]')).not.toBeNull();
-    expect(choisis()).toEqual([]);
-    await preparerPreavis([12]);
-    expect(container.querySelector('[data-enregistrer-sans-mail]')).not.toBeNull();
-    expect(container.querySelector('[data-enregistrer-avec-mails]')).not.toBeNull();
-    await clic(container.querySelector('[data-enregistrer-sans-mail]'));
-    await clic(fenetre()!.querySelector('[data-confirmer-parcours]'));
-    await clic(fenetre()!.querySelector('[data-fermer-parcours]'));
-    expect([...container.querySelectorAll('[data-locataire] [data-en-preavis]')].map((x) => x.closest('[data-locataire]')!.getAttribute('data-locataire'))).toEqual(['12']);
-    expect(container.querySelector('[data-preavis-fait] [data-aucun-mail]')).not.toBeNull();
+describe('⑦ 🔴 Arno (20/11/2026, option B) — la fiche locataire n’a PLUS de bloc de sortie : le parcours reste sur l’écran de sortie', () => {
+  it('le bloc « Sortie du logement » de la fiche n’existe plus ; préavis et sortie restent sur l’écran de sortie (chemin dédié)', async () => {
+    expect('BlocSortieLogement' in SortieLocataires).toBe(false);
+    await ecran();
+    expect(container.querySelector('[data-enregistrer-un-preavis]')).not.toBeNull();
+    expect(container.querySelector('[data-faire-sortir]')).not.toBeNull();
   });
 });
 

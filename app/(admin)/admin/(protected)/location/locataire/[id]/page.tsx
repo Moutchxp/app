@@ -1,7 +1,7 @@
 import { accesLocation, identifiantPage, REFUS_FICHE_COMMUNE, REFUS_LOCATION } from '../../acces';
 import { FicheCommuneLocation } from '../../../gestion/FicheCommune';
 import { LienRetour } from '../../../_composants/EnTetePage';
-import { BlocSortieLogement, EcranSortieLocataire } from '../../SortieLocataires';
+import { EcranSortieLocataire } from '../../SortieLocataires';
 import { BlocEnvoiFicheLocataire } from '../../EnvoiAdhocMonga';
 import { BauxEnPlace } from '../../BauxEnPlace';
 import { BlocSuiviCommercialLocataire } from '../../SuiviCommercialLocataire';
@@ -15,6 +15,10 @@ import { BlocSuiviCommercialLocataire } from '../../SuiviCommercialLocataire';
  * et la fiche complète n'y sont pas (accord d'Arno pour cet écran). Sans `?sortie=`, la page est celle de toujours.
  * Arno (21/10/2026) : sous le bloc de sortie, le bouton « Envoi ADHOC & MONGA » de chaque bail en cours (ajout seul).
  * 🔴 Arno (26/10/2026) : le bloc 4 « Suivi commercial » de « Nouveau locataire », sur la ligne de suivi du bail en cours (ajout seul).
+ * 🔴🔴 Arno (20/11/2026, option B) — RETRAIT ACCORDÉ : le bloc « Sortie du logement » (`BlocSortieLogement` : cartes, « Sélectionner »,
+ * « Enregistrer un préavis », « Faire sortir », « Sorties enregistrées » avec « Corriger la date » / « Annuler la sortie ») n'est plus sur la
+ * fiche. « Tout ce qui touche à une sortie passe par le chemin dédié » : /admin/location/locataires/supprimer (occupants → écran de sortie :
+ * préavis, sortie, gestes du préavis ; sorties enregistrées : corriger, annuler).
  */
 export default async function Page({ params, searchParams }: {
   params: Promise<{ id: string }>; searchParams: Promise<{ sortie?: string }>;
@@ -30,7 +34,6 @@ export default async function Page({ params, searchParams }: {
           : (
             <>
               {!gestion && <LienRetour href="/admin/location" />}
-              <BlocSortieLogement locataireId={id} occupationDemandee={sortie} gestion={gestion} />
               {/* Arno (21/10/2026) — « Envoi ADHOC & MONGA » pour chaque bail en cours (rien sans bail en cours). */}
               <BlocEnvoiFicheLocataire locataireId={id} />
               {/* Arno (26/10/2026, 430) — la mention « locataire en place à la prise en gestion » de ses baux (rien sinon). */}
