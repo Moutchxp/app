@@ -223,3 +223,23 @@ export function chercherPreavis(lignes: readonly LignePreavisAccueil[], texte: s
   if (t === '') return [...lignes];
   return lignes.filter((l) => plat(`${l.locataires.map((x) => x.nom).join(' ')} ${l.adresse ?? ''}`).includes(t));
 }
+
+/**
+ * 🔴 Arno (21/11/2026) — LES PRÉAVIS DE PLUSIEURS COLOCATAIRES REÇUS LE MÊME JOUR (même logement) : un groupe par date de réception,
+ * seulement s'il compte au moins deux préavis ouverts. Sert les gestes « Corriger / Annuler le préavis des N locataires ». PUR.
+ */
+export function groupesPreavisMemeJour<P extends Pick<PreavisAffiche, 'id' | 'recuLe'>>(
+  locataires: readonly { occupationId: number; nom: string; entree: string | null; preavis: P | null }[],
+): { recuLe: string; membres: { occupationId: number; nom: string; entree: string | null; preavis: P }[] }[] {
+  const parJour = new Map<string, { occupationId: number; nom: string; entree: string | null; preavis: P }[]>();
+  for (const l of locataires) {
+    if (l.preavis === null) continue;
+    const g = parJour.get(l.preavis.recuLe) ?? [];
+    g.push({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, preavis: l.preavis });
+    parJour.set(l.preavis.recuLe, g);
+  }
+  return [...parJour.entries()].filter(([, m]) => m.length >= 2).sort(([a], [b]) => a.localeCompare(b)).map(([recuLe, membres]) => ({ recuLe, membres }));
+}
+
+/** « Corriger le préavis des 2 locataires » / « Annuler le préavis des 2 locataires ». PUR. */
+export const libelleGestePreavisGroupe = (geste: 'corriger' | 'annuler', n: number): string => `${geste === 'corriger' ? 'Corriger' : 'Annuler'} le préavis des ${n} locataires`;

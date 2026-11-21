@@ -55,7 +55,7 @@ describe('🔴 ce qui s’annonce', () => {
     const actions = ['modifier', 'ordonner', 'archiver', 'restaurer', 'supprimer', 'separer', 'creer', 'ajouter-proprietaire', 'remplacer-proprietaire', 'ajouter-occupant',
       'depart', 'numero-mandat', 'en-gestion', 'modifier-bien', 'complements-bien', 'ajouter-annexe', 'rattacher-annexe', 'creer-locataire', 'ajouter-contact-syndic',
       'reactiver', 'sortir-biens', 'sortie-locataires', 'corriger-sortie-locataires', 'annuler-sortie-locataires', 'enregistrer-preavis', 'corriger-preavis',
-      'annuler-preavis', 'planifier-edls', 'deplacer-edls', 'reattribuer-edls', 'etat-des-lieux', 'conditions-location', 'conditions-entree', 'creer-dossier-bail',
+      'annuler-preavis', 'corriger-preavis-groupe', 'annuler-preavis-groupe', 'planifier-edls', 'deplacer-edls', 'reattribuer-edls', 'etat-des-lieux', 'conditions-location', 'conditions-entree', 'creer-dossier-bail',
       'statut-bien', 'reglages', 'bareme', 'corriger-bareme', 'tva', 'destinataires', 'detacher-annexe', 'sortir', 'dossier-drive-bien'];
     for (const a of actions) {
       const l = libelleAction(a, {});

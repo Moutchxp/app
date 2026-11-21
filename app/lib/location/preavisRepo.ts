@@ -177,24 +177,41 @@ export async function corrigerPreavis(
     if (occ[0].sortie !== null) return { etat: 'refus' as const, motif: 'Ce locataire est déjà sorti : le préavis ne se corrige plus.' };
     const v = verifierPreavis({ recuLe: d.recuLe, choix: d.choix, motif: texteMotif(d.motif), entrees: [occ[0].entree] }, await aujourdhui(q));
     if (!v.ok) return { etat: 'refus' as const, motif: v.motif };
-    const choix = d.choix as ModePreavis;
-    // Un seul préavis OUVERT par occupation (index unique en base) : on RÉSERVE l'identifiant de la nouvelle ligne, on CLÔT
-    // l'ancienne en la faisant pointer vers lui (clé vérifiée en fin de transaction), puis on INSÈRE la nouvelle.
-    const { rows: suivant } = await q<{ id: string }>(`SELECT nextval(pg_get_serial_sequence('gestion_location_preavis', 'id'))::text AS id`);
-    const nouvelId = Number(suivant[0].id);
-    await q('UPDATE gestion_location_preavis SET remplace_le = now(), remplace_par_id = $2 WHERE id = $1 AND remplace_le IS NULL AND annule_le IS NULL',
-      [d.preavisId, nouvelId]);
-    await q(
-      `INSERT INTO gestion_location_preavis (id, occupation_id, recu_le, mode, duree_mois, date_max, duree_proposee_mois, meuble, zone_tendue, motif, cree_par, cree_par_libelle)
-       VALUES ($1, $2, $3::date, $4, $5, $6::date, $7, $8, $9, $10, $11, $12)`,
-      [nouvelId, Number(p.occupation_id), d.recuLe, choix.mode, choix.mode === 'mois' ? choix.duree : null, v.dateMax, p.duree_proposee_mois, p.meuble, p.zone_tendue,
-        texteMotif(d.motif), auteur.id, auteur.libelle]);
-    await journaliser(q, Number(occ[0].locataire_id), 'location_preavis_corrige', `reçu le ${p.recu_le}, au plus tard le ${p.date_max}`,
-      `reçu le ${d.recuLe as string}, au plus tard le ${v.dateMax}`,
-      `préavis corrigé (${choix.mode === 'mois' ? `${choix.duree} mois` : 'date saisie'})${texteMotif(d.motif) ? ` — motif : ${texteMotif(d.motif)}` : ''}`
-      + ` — préavis ${p.id} remplacé par ${nouvelId} ; l’ancienne ligne est gardée`, auteur);
+    await ecrireCorrection(q, p, Number(occ[0].locataire_id), d, v.dateMax, auteur);
     return { etat: 'ok' as const, data: { dateMax: v.dateMax } };
   });
+}
+
+type LigneACorriger = Pick<LignePreavis, 'id' | 'occupation_id' | 'recu_le' | 'date_max' | 'duree_proposee_mois'> & { meuble: boolean | null; zone_tendue: boolean | null };
+
+/** L'ÉCRITURE d'une correction (contrôles faits) — la même pour un préavis seul et pour ceux d'un groupe. */
+async function ecrireCorrection(q: RequeteTx, p: LigneACorriger, locataireId: number,
+  d: { recuLe: unknown; choix: ModePreavis | null; motif?: unknown }, dateMax: string, auteur: Auteur): Promise<void> {
+  const choix = d.choix as ModePreavis;
+  // Un seul préavis OUVERT par occupation (index unique en base) : on RÉSERVE l'identifiant de la nouvelle ligne, on CLÔT
+  // l'ancienne en la faisant pointer vers lui (clé vérifiée en fin de transaction), puis on INSÈRE la nouvelle.
+  const { rows: suivant } = await q<{ id: string }>(`SELECT nextval(pg_get_serial_sequence('gestion_location_preavis', 'id'))::text AS id`);
+  const nouvelId = Number(suivant[0].id);
+  await q('UPDATE gestion_location_preavis SET remplace_le = now(), remplace_par_id = $2 WHERE id = $1 AND remplace_le IS NULL AND annule_le IS NULL',
+    [Number(p.id), nouvelId]);
+  await q(
+    `INSERT INTO gestion_location_preavis (id, occupation_id, recu_le, mode, duree_mois, date_max, duree_proposee_mois, meuble, zone_tendue, motif, cree_par, cree_par_libelle)
+     VALUES ($1, $2, $3::date, $4, $5, $6::date, $7, $8, $9, $10, $11, $12)`,
+    [nouvelId, Number(p.occupation_id), d.recuLe, choix.mode, choix.mode === 'mois' ? choix.duree : null, dateMax, p.duree_proposee_mois, p.meuble, p.zone_tendue,
+      texteMotif(d.motif), auteur.id, auteur.libelle]);
+  await journaliser(q, locataireId, 'location_preavis_corrige', `reçu le ${p.recu_le}, au plus tard le ${p.date_max}`,
+    `reçu le ${d.recuLe as string}, au plus tard le ${dateMax}`,
+    `préavis corrigé (${choix.mode === 'mois' ? `${choix.duree} mois` : 'date saisie'})${texteMotif(d.motif) ? ` — motif : ${texteMotif(d.motif)}` : ''}`
+    + ` — préavis ${p.id} remplacé par ${nouvelId} ; l’ancienne ligne est gardée`, auteur);
+}
+
+/** L'ÉCRITURE d'une annulation (contrôles faits) — la même pour un préavis seul et pour ceux d'un groupe. */
+async function ecrireAnnulation(q: RequeteTx, p: { id: string; occupation_id: string; date_max: string }, locataireId: number | null, auteur: Auteur): Promise<void> {
+  await q('UPDATE gestion_location_preavis SET annule_le = now(), annule_par_libelle = $2 WHERE id = $1 AND remplace_le IS NULL AND annule_le IS NULL', [Number(p.id), auteur.libelle]);
+  if (locataireId !== null) {
+    await journaliser(q, locataireId, 'location_preavis_annule', p.date_max, null,
+      `préavis annulé (sortie au plus tard le ${p.date_max} n’a plus cours) — préavis ${p.id}, occupation ${p.occupation_id} ; la ligne est gardée`, auteur);
+  }
 }
 
 /** ANNULE UN PRÉAVIS : la ligne est close (`annule_le`), jamais effacée. */
@@ -207,12 +224,64 @@ export async function annulerPreavis(d: { preavisId: number }, auteur: Auteur): 
     if (p === undefined) return { etat: 'inconnu' as const };
     if (p.remplace_le !== null || p.annule_le !== null) return { etat: 'refus' as const, motif: 'Ce préavis a déjà été corrigé ou annulé : rechargez la page.' };
     const { rows: occ } = await q<{ locataire_id: string }>('SELECT locataire_id::text FROM gestion_annuaire_occupation WHERE id = $1', [Number(p.occupation_id)]);
-    await q('UPDATE gestion_location_preavis SET annule_le = now(), annule_par_libelle = $2 WHERE id = $1 AND remplace_le IS NULL AND annule_le IS NULL', [d.preavisId, auteur.libelle]);
-    if (occ[0] !== undefined) {
-      await journaliser(q, Number(occ[0].locataire_id), 'location_preavis_annule', p.date_max, null,
-        `préavis annulé (sortie au plus tard le ${p.date_max} n’a plus cours) — préavis ${p.id}, occupation ${p.occupation_id} ; la ligne est gardée`, auteur);
-    }
+    await ecrireAnnulation(q, p, occ[0] === undefined ? null : Number(occ[0].locataire_id), auteur);
     return { etat: 'ok' as const, data: { annule: Number(p.id) } };
+  });
+}
+
+// ══ 🔴 LE PRÉAVIS DES N LOCATAIRES (Arno, 21/11/2026) — corriger / annuler en UN geste les préavis reçus le même jour ══════════════
+// Colocataires d'un même logement, préavis reçus le MÊME JOUR : un geste pour tous. Mêmes contrôles et mêmes écritures que le geste
+// d'un seul (une ligne de journal par locataire), aucun mail. TOUT est verrouillé et contrôlé AVANT la première écriture : un refus
+// n'écrit rien (`withTransaction` commite au retour normal).
+
+/** Au plus 20 préavis par geste groupé (comme l'enregistrement). */
+export const PREAVIS_GROUPE_MAX = 20;
+export const MOTIF_GROUPE_INCOHERENT = 'Ces préavis ne sont pas ceux d’un même logement reçus le même jour : corrigez-les ou annulez-les un par un.';
+
+type LigneGroupe = LigneACorriger & { remplace_le: string | null; annule_le: string | null; locataire_id: string; entree: string | null; sortie: string | null; lot_id: string | null };
+
+/** Les préavis du groupe, verrouillés avec leurs occupations, et le refus éventuel (rien n'est écrit). */
+async function lireGroupe(q: RequeteTx, preavisIds: readonly number[]): Promise<{ lignes: LigneGroupe[] } | { issue: { etat: 'refus'; motif: string } | { etat: 'inconnu' } }> {
+  const ids = [...new Set(preavisIds)];
+  if (ids.length < 2) return { issue: { etat: 'refus', motif: 'Un geste groupé porte sur au moins deux préavis.' } };
+  if (ids.length > PREAVIS_GROUPE_MAX) return { issue: { etat: 'refus', motif: `Au plus ${PREAVIS_GROUPE_MAX} préavis en un geste.` } };
+  const { rows } = await q<LigneGroupe>(
+    `SELECT ${CHAMPS}, p.remplace_le::text, p.annule_le::text, p.meuble, p.zone_tendue,
+            o.locataire_id::text, o.entree::text, o.sortie::text, o.lot_id::text
+       FROM gestion_location_preavis p JOIN gestion_annuaire_occupation o ON o.id = p.occupation_id
+      WHERE p.id = ANY($1::bigint[]) ORDER BY p.id FOR UPDATE OF p, o`, [ids]);
+  if (rows.length !== ids.length) return { issue: { etat: 'inconnu' } };
+  if (rows.some((p) => p.remplace_le !== null || p.annule_le !== null)) {
+    return { issue: { etat: 'refus', motif: 'Un de ces préavis a déjà été corrigé ou annulé : rechargez la page.' } };
+  }
+  if (new Set(rows.map((p) => p.lot_id)).size !== 1 || new Set(rows.map((p) => p.recu_le)).size !== 1) return { issue: { etat: 'refus', motif: MOTIF_GROUPE_INCOHERENT } };
+  return { lignes: rows };
+}
+
+/** CORRIGE LES PRÉAVIS DE N COLOCATAIRES reçus le même jour : pour chacun, une nouvelle ligne et l'ancienne close (jamais modifiée). */
+export async function corrigerPreavisGroupe(
+  d: { preavisIds: readonly number[]; recuLe: unknown; choix: ModePreavis | null; motif?: unknown }, auteur: Auteur,
+): Promise<IssuePreavis<{ dateMax: string; corriges: number }>> {
+  if (!(await preavisDisponible())) return { etat: 'sans_schema' };
+  return withTransaction(async (q) => {
+    const g = await lireGroupe(q, d.preavisIds);
+    if ('issue' in g) return g.issue;
+    if (g.lignes.some((p) => p.sortie !== null)) return { etat: 'refus' as const, motif: 'Un de ces locataires est déjà sorti : son préavis ne se corrige plus.' };
+    const v = verifierPreavis({ recuLe: d.recuLe, choix: d.choix, motif: texteMotif(d.motif), entrees: g.lignes.map((p) => p.entree) }, await aujourdhui(q));
+    if (!v.ok) return { etat: 'refus' as const, motif: v.motif };
+    for (const p of g.lignes) await ecrireCorrection(q, p, Number(p.locataire_id), d, v.dateMax, auteur);
+    return { etat: 'ok' as const, data: { dateMax: v.dateMax, corriges: g.lignes.length } };
+  });
+}
+
+/** ANNULE LES PRÉAVIS DE N COLOCATAIRES reçus le même jour : chaque ligne close (`annule_le`), jamais effacée. */
+export async function annulerPreavisGroupe(d: { preavisIds: readonly number[] }, auteur: Auteur): Promise<IssuePreavis<{ annules: number[] }>> {
+  if (!(await preavisDisponible())) return { etat: 'sans_schema' };
+  return withTransaction(async (q) => {
+    const g = await lireGroupe(q, d.preavisIds);
+    if ('issue' in g) return g.issue;
+    for (const p of g.lignes) await ecrireAnnulation(q, p, Number(p.locataire_id), auteur);
+    return { etat: 'ok' as const, data: { annules: g.lignes.map((p) => Number(p.id)) } };
   });
 }
 

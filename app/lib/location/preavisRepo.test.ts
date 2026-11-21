@@ -10,11 +10,13 @@ const norme = (s: string): string => s.replace(/\s+/g, ' ');
 let occupations: { id: string; locataire_id: string; entree: string | null; sortie: string | null; nom: string }[] = [];
 let ouverts: { occupation_id: string }[] = [];
 let ligne: Record<string, unknown> | null = null;
+let groupe: Record<string, unknown>[] = [];
 let edl: { id: string; locataire_id: string; sortie: string | null; edl: string | null; recu_le: string | null; date_max: string | null }[] = [];
 
 function repondre(sql: string, params: unknown[]): { rows: unknown[]; rowCount: number } {
   const s = norme(sql);
   appels.push({ sql: s, params });
+  if (s.includes('FOR UPDATE OF p, o')) return { rows: groupe, rowCount: groupe.length };
   if (s.includes('AS j')) return { rows: [{ j: '2026-10-19' }], rowCount: 1 };
   if (s.includes('AS edl') && s.includes('FOR UPDATE OF o')) return { rows: edl, rowCount: edl.length };
   if (s.includes('FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l') && s.includes('FOR UPDATE')) return { rows: occupations, rowCount: occupations.length };
@@ -34,7 +36,7 @@ vi.mock('../db/client', () => ({
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('./sortieLocatairesRepo', () => ({ lireBail: vi.fn(async () => null) }));
 
-import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, enregistrerPreavis } from './preavisRepo';
+import { annulerPreavis, annulerPreavisGroupe, corrigerPreavis, corrigerPreavisGroupe, enregistrerEtatDesLieux, enregistrerPreavis, MOTIF_GROUPE_INCOHERENT } from './preavisRepo';
 
 const AUTEUR = { id: 3, libelle: 'arno@exemple.fr' };
 const ecritures = (): Appel[] => appels.filter((a) => /^(UPDATE|INSERT|DELETE)/.test(a.sql));
@@ -47,6 +49,7 @@ beforeEach(() => {
   ];
   ouverts = [];
   ligne = null;
+  groupe = [];
 });
 
 /** `enregistrerPreavis` lit d'abord le contexte (durée proposée) : on le simule par la lecture du bail. */
@@ -154,6 +157,55 @@ describe('la date d’état des lieux de sortie prévu (accueil, Arno 18/10/2026
     expect((await enregistrerEtatDesLieux({ occupationIds: [11], date: '2026-11-05' }, AUTEUR)).etat).toBe('refus');
     edl = [OCC('11', { recu_le: null, date_max: null })];
     expect((await enregistrerEtatDesLieux({ occupationIds: [11], date: '2026-11-05' }, AUTEUR)).etat).toBe('refus');
+    expect(ecritures()).toHaveLength(0);
+  });
+});
+
+describe('🔴 Arno (21/11/2026) — le préavis des N colocataires reçu le même jour : corriger / annuler en UN geste', () => {
+  const COLOC = (id: string, occ: string, loc: string, o: Record<string, unknown> = {}) => ({
+    id, occupation_id: occ, recu_le: '2026-10-15', date_max: '2026-11-15', mode: 'mois', duree_mois: 1, duree_proposee_mois: 3, motif: null,
+    cree_par_libelle: 'x', cree_le: '2026-10-15', remplace_le: null, annule_le: null, meuble: false, zone_tendue: false,
+    locataire_id: loc, entree: '2022-09-01', sortie: null, lot_id: '7', ...o });
+  const journal = (action: string) => ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal') && a.params[1] === action);
+
+  it('annuler : chaque préavis CLOS (jamais effacé), UNE ligne de journal PAR locataire', async () => {
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102')];
+    expect(await annulerPreavisGroupe({ preavisIds: [50, 51] }, AUTEUR)).toEqual({ etat: 'ok', data: { annules: [50, 51] } });
+    const clos = ecritures().filter((a) => a.sql.startsWith('UPDATE gestion_location_preavis'));
+    expect(clos.map((a) => a.params[0])).toEqual([50, 51]);
+    expect(clos.every((a) => a.sql.includes('SET annule_le = now()'))).toBe(true);
+    expect(journal('location_preavis_annule').map((a) => a.params[0])).toEqual([101, 102]);
+    expect(appels.some((a) => /\bDELETE\b/.test(a.sql))).toBe(false);
+  });
+
+  it('corriger : pour chacun, l’ancienne ligne close et une nouvelle insérée avec la MÊME date ; un journal par locataire', async () => {
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102')];
+    const r = await corrigerPreavisGroupe({ preavisIds: [50, 51], recuLe: '2026-10-15', choix: { mode: 'mois', duree: 3 }, motif: ' mutation ' }, AUTEUR);
+    expect(r).toEqual({ etat: 'ok', data: { dateMax: '2027-01-15', corriges: 2 } });
+    const inserts = ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_location_preavis'));
+    expect(inserts.map((a) => [a.params[1], a.params[5], a.params[9]])).toEqual([[11, '2027-01-15', 'mutation'], [12, '2027-01-15', 'mutation']]);
+    expect(ecritures().filter((a) => a.sql.startsWith('UPDATE gestion_location_preavis')).map((a) => a.params[0])).toEqual([50, 51]);
+    expect(journal('location_preavis_corrige').map((a) => a.params[0])).toEqual([101, 102]);
+  });
+
+  it('les MÊMES contrôles que le geste d’un seul : saisie invalide, préavis déjà clos, locataire sorti → refus, AUCUNE écriture', async () => {
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102')];
+    expect((await corrigerPreavisGroupe({ preavisIds: [50, 51], recuLe: '2026-12-31', choix: { mode: 'mois', duree: 3 } }, AUTEUR)).etat).toBe('refus');
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102', { annule_le: '2026-10-16' })];
+    expect((await annulerPreavisGroupe({ preavisIds: [50, 51] }, AUTEUR)).etat).toBe('refus');
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102', { sortie: '2026-10-18' })];
+    expect((await corrigerPreavisGroupe({ preavisIds: [50, 51], recuLe: '2026-10-15', choix: { mode: 'mois', duree: 3 } }, AUTEUR)).etat).toBe('refus');
+    expect(ecritures()).toHaveLength(0);
+  });
+
+  it('un groupe ne mêle jamais deux logements ni deux dates de réception ; il faut au moins deux préavis', async () => {
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102', { recu_le: '2026-10-14' })];
+    expect(await annulerPreavisGroupe({ preavisIds: [50, 51] }, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_GROUPE_INCOHERENT });
+    groupe = [COLOC('50', '11', '101'), COLOC('51', '12', '102', { lot_id: '8' })];
+    expect(await annulerPreavisGroupe({ preavisIds: [50, 51] }, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_GROUPE_INCOHERENT });
+    expect((await annulerPreavisGroupe({ preavisIds: [50, 50] }, AUTEUR)).etat).toBe('refus');
+    groupe = [COLOC('50', '11', '101')];
+    expect(await annulerPreavisGroupe({ preavisIds: [50, 51] }, AUTEUR)).toEqual({ etat: 'inconnu' });
     expect(ecritures()).toHaveLength(0);
   });
 });

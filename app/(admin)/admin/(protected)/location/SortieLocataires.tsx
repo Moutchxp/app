@@ -13,7 +13,8 @@ import { ParcoursPreavisSortie } from './ParcoursPreavisSortie';
 import type { ConfirmationAction } from '../../../../lib/location/confirmationEnvois';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
-import { CSS_PREAVIS, GestesPreavis, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
+import { CSS_PREAVIS, GestesPreavis, GestesPreavisGroupe, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
+import { groupesPreavisMemeJour } from '../../../../lib/location/preavis';
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
   dateFr, descriptionLogement, libelleLotEncart, lignesEncart, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree, type SortieTrouvee,
@@ -393,6 +394,10 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
         </div>
         <div className="sor-partie" data-partie="locataires">
         <h2 className="arc-biens-titre">Les locataires <span className="loc-pastille">{bail.locataires.length}</span></h2>
+        {/* 🔴 Arno (21/11/2026) — les préavis de plusieurs colocataires reçus le même jour : corriger / annuler en un geste (les gestes de chaque carte restent). */}
+        {pv !== null && Array.isArray(pv.locataires) && groupesPreavisMemeJour(pv.locataires).map((g) => (
+          <GestesPreavisGroupe key={`${g.recuLe}-${g.membres.map((m) => m.preavis.id).join('-')}`} recuLe={g.recuLe} membres={g.membres} envoyerGeste={envoyerGeste} apres={relirePreavis} />
+        ))}
         {bail.locataires.length === 0 ? <p className="loc-muet">Plus aucun locataire en place dans ce logement : rien à faire sortir.</p>
           : autres.length === 0 ? <ul className="arc-biens-liste">{carte(recherche, true)}</ul> : (
             <>

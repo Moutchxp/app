@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  dateFrPreavis, dateIsoValide, dateMaxPreavis, mentionCourtePreavis, mentionPreavis, MOTIF_MAX, statutPreavis, verifierPreavis,
+  dateFrPreavis, dateIsoValide, dateMaxPreavis, libelleGestePreavisGroupe, mentionCourtePreavis, mentionPreavis, MOTIF_MAX, statutPreavis, verifierPreavis,
   type DureeMois, type ModePreavis, type PreavisAffiche,
 } from '../../../../lib/location/preavis';
 
@@ -165,6 +165,60 @@ export function GestesPreavis({ p, entree, envoyerGeste, apres }: {
   );
 }
 
+/**
+ * 🔴 Arno (21/11/2026) — « CORRIGER / ANNULER LE PRÉAVIS DES N LOCATAIRES » : les préavis de plusieurs colocataires reçus le MÊME JOUR, en un
+ * geste. Même confirmation dans la page et même formulaire que le geste d'un seul (`GestesPreavis`, qui reste sur chaque carte) ; le
+ * serveur refait les mêmes contrôles et écrit une ligne de journal par locataire ; aucun mail.
+ */
+export function GestesPreavisGroupe({ recuLe, membres, envoyerGeste, apres }: {
+  recuLe: string;
+  membres: readonly { occupationId: number; nom: string; entree: string | null; preavis: PreavisAffiche & { dureeProposee?: number | null } }[];
+  envoyerGeste: (corps: Record<string, unknown>) => Promise<string | null>;
+  apres: () => void;
+}) {
+  const [mode, setMode] = useState<'lecture' | 'corriger' | 'annuler'>('lecture');
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const n = membres.length;
+  const ids = membres.map((m) => m.preavis.id);
+  const p = membres[0].preavis;
+  const proposee: DureeMois = p.dureeProposee === 1 || p.dureeProposee === 3 ? p.dureeProposee : (p.dureeMois === 1 ? 1 : 3);
+  return (
+    <div className="pvs-groupe" data-preavis-groupe={recuLe} data-nombre={n}>
+      <p className="pvs-groupe-titre">Préavis reçu le {dateFrPreavis(recuLe)} pour {n} locataires : {membres.map((m) => m.nom).join(', ')}</p>
+      {mode === 'corriger' ? (
+        <FormulairePreavis entrees={membres.map((m) => m.entree)} dureeProposee={proposee} raison="durée proposée à la saisie"
+          initial={{ recuLe: p.recuLe, choix: p.mode === 'date_manuelle' ? { mode: 'date_manuelle', dateMax: p.dateMax } : { mode: 'mois', duree: p.dureeMois === 1 ? 1 : 3 }, motif: p.motif }}
+          libelleBouton={`Enregistrer la correction des ${n} préavis`} onAnnuler={() => setMode('lecture')}
+          onEnregistrer={async (s) => {
+            const r = await envoyerGeste({ action: 'corriger-preavis-groupe', preavisIds: ids, recuLe: s.recuLe, choix: s.choix, motif: s.motif });
+            if (r === null) { setMode('lecture'); apres(); }
+            return r;
+          }} />
+      ) : mode === 'lecture' ? (
+        <span className="pvs-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMode('corriger'); setRefus(null); }} data-corriger-preavis-groupe>{libelleGestePreavisGroupe('corriger', n)}</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMode('annuler'); setRefus(null); }} data-annuler-preavis-groupe>{libelleGestePreavisGroupe('annuler', n)}</button>
+        </span>
+      ) : (
+        <span className="pvs-boutons">
+          <span>Annuler les {n} préavis ? Les lignes sont gardées au journal.</span>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => { setMode('lecture'); setRefus(null); }}>Revenir</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} data-confirmer-annulation-preavis-groupe onClick={() => {
+            void (async () => {
+              setEnvoi(true);
+              const r = await envoyerGeste({ action: 'annuler-preavis-groupe', preavisIds: ids });
+              setEnvoi(false);
+              if (r === null) { setMode('lecture'); apres(); } else setRefus(r);
+            })();
+          }}>{envoi ? 'Annulation…' : 'Confirmer l’annulation'}</button>
+        </span>
+      )}
+      {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
+    </div>
+  );
+}
+
 /** Orange d'alerte du thème + mot : jamais la couleur seule. */
 export const CSS_PREAVIS = `
 /* Arno (19/10/2026) — « en préavis » en BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre) ; « Préavis échu — sortie à
@@ -211,4 +265,7 @@ export const CSS_PREAVIS = `
 .pvs-mail-entete dd{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
 .pvs-mail-texte{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.9rem;line-height:1.45;color:var(--color-svv-ink);max-height:24rem;overflow:auto;border-top:1px solid var(--color-svv-line);padding-top:8px}
 .pvs-boutons{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* 🔴 Arno (21/11/2026) — le préavis des N colocataires reçu le même jour : la paire bleue du préavis, au-dessus des cartes. */
+.pvs-groupe{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;background:var(--color-svv-blue-soft);border:1px solid var(--color-svv-blue);min-width:0}
+.pvs-groupe-titre{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 `;

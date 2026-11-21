@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ajouterMois, dateMaxPreavis, dureeProposee, enZoneTendue, lireTri, mentionCourtePreavis, mentionPreavis, statutPreavis, trierPreavis,
+  ajouterMois, dateMaxPreavis, dureeProposee, enZoneTendue, groupesPreavisMemeJour, libelleGestePreavisGroupe, lireTri, mentionCourtePreavis, mentionPreavis, statutPreavis, trierPreavis,
   TRI_DEFAUT, verifierEtatDesLieux, verifierPreavis, type LignePreavisAccueil, type RegleZoneTendue,
 } from './preavis';
 
@@ -112,5 +112,19 @@ describe('l’accueil « Locataires en préavis » (Arno, 18/10/2026)', () => {
     expect(lireTri('edl:desc')).toEqual({ cle: 'edl', sens: 'desc' });
     expect(lireTri(null)).toEqual(TRI_DEFAUT);
     expect(lireTri('n’importe:quoi')).toEqual(TRI_DEFAUT);
+  });
+});
+
+describe('🔴 Arno (21/11/2026) — les préavis de colocataires reçus le même jour (groupesPreavisMemeJour)', () => {
+  const p = (id: number, recuLe: string) => ({ id, recuLe });
+  const l = (occ: number, preavis: { id: number; recuLe: string } | null) => ({ occupationId: occ, nom: `L${occ}`, entree: null, preavis });
+  it('un groupe par date de réception, seulement à partir de deux préavis ; les sans-préavis ignorés', () => {
+    expect(groupesPreavisMemeJour([l(1, p(10, '2026-11-15')), l(2, p(11, '2026-11-15')), l(3, null), l(4, p(12, '2026-11-16'))]))
+      .toEqual([{ recuLe: '2026-11-15', membres: [{ occupationId: 1, nom: 'L1', entree: null, preavis: p(10, '2026-11-15') }, { occupationId: 2, nom: 'L2', entree: null, preavis: p(11, '2026-11-15') }] }]);
+    expect(groupesPreavisMemeJour([l(1, p(10, '2026-11-15')), l(2, null)])).toEqual([]);
+  });
+  it('les libellés suivent le nombre', () => {
+    expect(libelleGestePreavisGroupe('annuler', 2)).toBe('Annuler le préavis des 2 locataires');
+    expect(libelleGestePreavisGroupe('corriger', 3)).toBe('Corriger le préavis des 3 locataires');
   });
 });

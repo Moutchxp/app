@@ -12,7 +12,7 @@ import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arb
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
-import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
+import { annulerPreavis, annulerPreavisGroupe, corrigerPreavis, corrigerPreavisGroupe, enregistrerEtatDesLieux, PREAVIS_GROUPE_MAX, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdition';
 import { archiverPersonne, modifierPersonne, separerPersonne } from '../../../../lib/gestion/annuaireEditionRepo';
@@ -758,6 +758,14 @@ async function postLocation(request: Request): Promise<Response> {
         const pid = identifiant(corps.preavisId);
         if (pid === null) return incomplet();
         return repondre(await annulerPreavis({ preavisId: pid }, auteur));
+      }
+      // 🔴 Arno (21/11/2026) — le préavis des N colocataires reçu le même jour : corriger / annuler en UN geste (mêmes contrôles, un journal par locataire, aucun mail).
+      case 'corriger-preavis-groupe':
+      case 'annuler-preavis-groupe': {
+        const pids = Array.isArray(corps.preavisIds) ? (corps.preavisIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, PREAVIS_GROUPE_MAX + 1) : [];
+        if (pids.length === 0) return incomplet();
+        return repondre(action === 'annuler-preavis-groupe' ? await annulerPreavisGroupe({ preavisIds: pids }, auteur)
+          : await corrigerPreavisGroupe({ preavisIds: pids, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
       }
       // 🔴 Arno (10/11/2026) — le récapitulatif avant envoi de l'état des lieux de sortie (LECTURE : rien n'est écrit, rien ne part).
       case 'apercu-edls': {

@@ -67,6 +67,9 @@ const LIBELLES: Record<string, Libelle> = {
   'enregistrer-preavis': L('Préavis enregistré', 'Le préavis n’a pas été enregistré.'),
   'corriger-preavis': L('Préavis corrigé', 'La correction du préavis n’a pas été enregistrée.'),
   'annuler-preavis': L('Préavis annulé', 'L’annulation du préavis n’a pas été enregistrée.'),
+  // 🔴 Arno (21/11/2026) — le préavis des N colocataires reçu le même jour, corrigé / annulé en un geste.
+  'corriger-preavis-groupe': L('Préavis corrigés', 'La correction des préavis n’a pas été enregistrée.'),
+  'annuler-preavis-groupe': L('Préavis annulés', 'L’annulation des préavis n’a pas été enregistrée.'),
   'planifier-edls': L('États des lieux planifiés', 'Les états des lieux n’ont pas été planifiés.'),
   'deplacer-edls': L('État des lieux déplacé', 'L’état des lieux n’a pas été déplacé.'),
   'reattribuer-edls': L('État des lieux réattribué', 'L’état des lieux n’a pas été réattribué.'),

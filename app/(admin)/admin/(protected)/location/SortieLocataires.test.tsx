@@ -413,6 +413,60 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
   });
 });
 
+describe('🔴 Arno (21/11/2026) — le préavis des N colocataires reçu le même jour : corriger / annuler en UN geste sur l’écran de sortie', () => {
+  const P = (id: number, occ: number, recuLe = '2026-11-15') => ({ id, occupationId: occ, recuLe, dateMax: '2099-02-15', mode: 'mois', dureeMois: 3, motif: null,
+    creePar: 'x', creeLe: recuLe, dureeProposee: 3 });
+  const rendre = async (preavis: unknown): Promise<ReturnType<typeof vi.fn>> => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' ? ok({ annules: [50, 51] }) : String(u).includes('encartBail=') ? ok(ENCART)
+      : String(u).includes('preavisBail=') ? ok(preavis) : ok(BAIL)));
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+  const cliquer = async (el: Element | null) => { await act(async () => { (el as HTMLElement).click(); }); await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
+  const deux = { ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: P(50, 11) }, { ...PREAVIS.locataires[1], preavis: P(51, 12) }] };
+
+  it('deux préavis reçus le même jour : les deux gestes groupés, ET les gestes de chaque carte restent tels quels', async () => {
+    await rendre(deux);
+    const bloc = container.querySelector('[data-preavis-groupe="2026-11-15"]')!;
+    expect(bloc.textContent).toContain('Préavis reçu le 15/11/2026 pour 2 locataires : BERNARD Alice, BERNARD Paul');
+    expect(bloc.querySelector('button[data-corriger-preavis-groupe]')?.textContent).toBe('Corriger le préavis des 2 locataires');
+    expect(bloc.querySelector('button[data-annuler-preavis-groupe]')?.textContent).toBe('Annuler le préavis des 2 locataires');
+    for (const occ of [11, 12]) {
+      const carte = container.querySelector(`[data-carte-preavis="${occ}"]`)!;
+      expect(carte.querySelector('button[data-corriger-preavis]')?.textContent).toBe('Corriger le préavis');
+      expect(carte.querySelector('button[data-annuler-preavis]')?.textContent).toBe('Annuler le préavis');
+    }
+  });
+
+  it('un seul préavis, ou deux reçus des jours différents : aucun geste groupé', async () => {
+    await rendre({ ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: P(50, 11) }, PREAVIS.locataires[1]] });
+    expect(container.querySelector('[data-preavis-groupe]')).toBeNull();
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre({ ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: P(50, 11) }, { ...PREAVIS.locataires[1], preavis: P(51, 12, '2026-11-16') }] });
+    expect(container.querySelector('[data-preavis-groupe]')).toBeNull();
+  });
+
+  it('« Annuler le préavis des 2 locataires » : la confirmation dans la page, puis UNE requête qui porte les deux préavis — aucun mail demandé', async () => {
+    const f = await rendre(deux);
+    await cliquer(container.querySelector('button[data-annuler-preavis-groupe]'));
+    expect(container.querySelector('[data-preavis-groupe]')!.textContent).toContain('Annuler les 2 préavis ? Les lignes sont gardées au journal.');
+    expect(posts(f)).toHaveLength(0);
+    await cliquer(container.querySelector('button[data-confirmer-annulation-preavis-groupe]'));
+    expect(posts(f)).toEqual([{ action: 'annuler-preavis-groupe', preavisIds: [50, 51] }]);
+  });
+
+  it('« Corriger le préavis des 2 locataires » : le formulaire du geste d’un seul, prérempli ; une requête pour les deux préavis', async () => {
+    const f = await rendre(deux);
+    await cliquer(container.querySelector('button[data-corriger-preavis-groupe]'));
+    const form = container.querySelector('[data-preavis-groupe] [data-formulaire-preavis]')!;
+    expect((form.querySelector('input[data-recu-le]') as HTMLInputElement).value).toBe('2026-11-15');
+    await cliquer(form.querySelector('button[data-enregistrer-preavis]'));
+    expect(posts(f)).toEqual([{ action: 'corriger-preavis-groupe', preavisIds: [50, 51], recuLe: '2026-11-15', choix: { mode: 'mois', duree: 3 }, motif: null }]);
+  });
+});
+
 describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blancs, puis rouge à la sélection', () => {
   const rendre = async (preavis: unknown = PREAVIS): Promise<void> => {
     global.fetch = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(ENCART)
