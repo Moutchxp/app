@@ -310,14 +310,26 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 20/11/2026 au soir) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `b50eb2a9`). `origin/main` =
-  `5f40f193` (19/11, 16h03). **44 commits d'avance sur `origin/main`**, cette passation comprise (1 du 19/11, `3ed33415`,
-  et 43 du 20/11, dont 5 passations `32e1cc31`, `398533fb`, `94667b17`, `b50eb2a9` et celle-ci) : **rien n'est poussé, c'est Arno qui pousse**.
+**Dépôt (mesuré le 21/11/2026) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `72af1d4b`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **4 commits d'avance, NON POUSSÉS** : `b3819054`,
+  `ec3aff05`, `72af1d4b` (préavis, 21/11 — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `f4e736fc`) : `npm test` VERT (1 858 fichiers, 27 663 tests, 21 ignorés) ; preuve curl
-  d'Arno : 0 « Module not found / Build Error », statut 200.
+- **Contrôles** (dernier lot, `72af1d4b`) : `npm test` VERT (1 858 fichiers, 27 676 tests, 21 ignorés) ; pages vérifiées dans
+  Chrome sur la recette (aucune « Build Error »).
+
+### ✅ MISE EN PRODUCTION DU 20/11/2026 — RÉUSSIE (lancée par Arno, scripts `.captures/maj/1-…6-*.sh`)
+- **A. Sauvegarde complète avant tout** : `/home/ubuntu/sauvegardes/2026-11-20_2231` (témoin TERMINEE, base lisible
+  3 928 objets, `minio.tar` 2,9 Go, `reglages.tgz` 169 Mo ; 544 Go libres) — journal `.captures/maj/1-sauvegarde-2026-11-20-2230.txt`.
+- **B. Push** de `351f04de` (44 commits) ; **C. essai** réussi (`essai-2026-11-20.txt`) ; **D. `--appliquer`** :
+  **MISE À JOUR RÉUSSIE — `351f04de` en service** (22:46, 277 s ; `appliquer-2026-11-20.txt`). Sauvegarde de l'outil sans
+  LiDAR : `/home/ubuntu/sauvegardes-maj/20261120-224144_351f04de/`. **Migrations 504 → 510 appliquées et inscrites**
+  (34-52 ms chacune) ; golden 11/11 ; services redémarrés ; vérifications et minuteries OK.
+- ⚠️ Le script **E (`5-verifier.sh`) n'a laissé aucune trace** dans `.captures/maj/` : à lancer par Arno pour relire le registre
+  de production (attendu : 509 lignes dont 4 écartées, 510 inscrite par `351f04de`).
+- Conséquence : la mise en garde « ne pas lancer l'import WIPPIMMO avant la mise en production de `609b7aa2` et `f93bf189` »
+  (plus bas) est levée — ces deux commits sont en production.
 - **Migrations** : dernière = **`510_gestion_adresse_ban_transaction_syndic.sql`** — **appliquées en RECETTE jusqu'à 510**
   (510 appliquée le 20/11/2026 au soir : `psql svav_recette -v ON_ERROR_STOP=1 -1 -f …`, garde de base comprise ;
   la contrainte `gestion_personne_adresse_ban_sujet_check` admet désormais `transaction_vente`, `transaction_personne`,
@@ -329,7 +341,7 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     `planifier()` (`app/lib/ops/migrationsNouvelles.ts`) : est NOUVELLE toute migration `db/migrations/NNN_nom.sql` dont le **nom
     n'est pas au registre de la base visée** ; refus si une nouvelle est numérotée **sous la dernière inscrite**. Un fichier déjà
     inscrit n'est jamais rejoué. `db/migrations-en-attente/` n'est pas lu.
-  - **PRODUCTION** (lecture seule, `.captures/registre-migrations/lecture-prod.sh`) : registre jusqu'à **503** (19/11, commit
+  - **PRODUCTION** — ⏩ **depuis le 20/11 au soir : registre jusqu'à 510** (mise en production ci-dessus). Avant : (lecture seule, `.captures/registre-migrations/lecture-prod.sh`) registre jusqu'à **503** (19/11, commit
     `5f40f193`) ; 502 lignes dont 4 écartées (148, 212, 216, 262) ; aucune empreinte modifiée. **À appliquer : 504 → 510** (plan
     hors ligne : 7 « enveloppées », aucun refus).
     ✅ **Garde de 509 et 510 corrigée** (`d1718d5e`, décision d'Arno du 20/11/2026) : elle accepte `sansvisavis` (production) et
@@ -362,7 +374,7 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 - **Déjà POUSSÉS** (dans `origin/main`) : mandats par bien et « Créer un nouveau propriétaire » (`4c3fae5b` → `e751d50f`),
   « Non (Sauvegarde du propriétaire) » (`779a0f63`), placeholders « Digicode » (`51a89809`), alignement des légendes
   de la rangée Bâtiment (`1f3a7e7b`), frise (`c16dbb2a`).
-- **EN RECETTE, NON POUSSÉS** (20/11 sauf mention) :
+- **POUSSÉS ET EN PRODUCTION depuis le 20/11 au soir** (jusqu'à `351f04de`) — ils étaient « en recette, non poussés » :
   - copropriétés en double, « Regrouper » (`3ed33415`, 19/11) ; correctif 504 (`92efafce`) ; journal des syndics (`79d81dfb`) ;
   - **adresses officielles BAN, lots 2 → 7d** (`88c2d787`, `ab621949`, `ce3cd64c`, `0db7b801`, `b9238882`, `f716ed04`,
     `102ce075`, `285844bd`, `d88ee231`, `5c979735`, `2c514e40`, `6cac5ad6`, `59f657d1`, `1bde59bc`, `6d5275c4`,
@@ -382,6 +394,22 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   - **« Retirer le syndic »** dans la modale Copropriété, retrait seul ou suivi du choix / de la création d'un autre
     syndic, préparé jusqu'à « Valider » (`ed6c79f3`) ;
   - **en-tête de la Gestion retiré de l'écran Copropriétés seul** (`f4e736fc`).
+- **21/11/2026 — préavis (EN RECETTE, NON POUSSÉS)** :
+  - `b3819054` — **« Corriger / Annuler le préavis des N locataires »** sur l'écran de sortie : colocataires d'un même logement
+    au préavis reçu le même jour, un geste pour tous (actions `corriger-preavis-groupe` / `annuler-preavis-groupe`, mêmes
+    contrôles, tout vérifié avant la première écriture, une ligne de journal par locataire, aucun mail). Les gestes de chaque
+    carte restent.
+  - `ec3aff05` — le formulaire présélectionne la **durée proposée** dès qu'elle est connue (avant : « 1 mois » figé au premier
+    rendu) ; sans proposition, rien n'est présélectionné et la durée est obligatoire. + registre des flakes (photo du compte
+    rendu de pré-visite).
+  - `72af1d4b` — 🔴 **RÈGLE D'ARNO (21/11/2026) : préavis par défaut = 1 MOIS pour tous nos logements (zone tendue), vides comme
+    meublés** (« non le mois de préavis par défaut doit être 1 mois et pas 3 mois car nos logements sont en zone tendue, donc
+    1 mois »). Avant : 3 mois pour un logement vide hors de `gestion_zone_tendue` (75, 92, 93, 94 seulement) — en recette, 6
+    logements occupés (95 ×4, 77, 78). « 3 mois » reste choisissable ; aucun préavis enregistré n'a été modifié.
+  - Captures : `.captures/preavis-groupe/` (01-24).
+- **Données d'essai en recette** (21/11) : « _TEST PREAVIS GROUPE » (bien 463, code postal 00000, colocataires A / B =
+  locataires 542 / 543, occupations 569 / 570, bail 552) ; préavis d'essai 17 → 22 tous annulés ou remplacés (journal
+  46811-46820), aucun ouvert. Compte d'essai de recette `essai.preavis@exemple.test` (id 10) : DÉSACTIVÉ.
 - **Données d'essai en recette** (20/11) : syndics 49 « _TEST SYNDIC CONTACTS » (contacts 81-86), 50 « … BIS », 51
   « _TEST SYNDIC CREE DEPUIS COPRO », 52 « _TEST SYNDIC APRES RETRAIT » ; copropriété 297 « 12 rue _TEST Syndic Contacts »
   (rattachée au 49, sans contact) ; syndic 53 et compromis 342 « _TEST ADRESSE 510 » (vendeur 3, acquéreur 4) ;
@@ -402,10 +430,16 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
   « de force », sortie du 30/11/2026 → vide, bail en cours ; journal **n° 52959**. Fichiers : `.captures/locataire-fathi/`.
 - 🔴 **NE PAS lancer `npm run gestion:annuaire:importer` sur la production avant la mise en production de `609b7aa2` et
   `f93bf189`** : l'import actuel réécrit la sortie d'un bail importé et défairait les deux corrections.
+  ⏩ **Levé le 20/11 au soir** : les deux commits sont en production (`351f04de`).
 - 🔴 **Arno doit retirer ces deux dates de sortie dans WIPPIMMO** (INEO RAIL 02/11/2026, EMMAIMA Fathi 30/11/2026).
 - Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
 **Points ouverts / à valider par Arno :**
+- 🔴 **Préavis groupé — colocataire arrivé plus tard (QUESTION OUVERTE)** : un « bail » = occupants d'un même logement entrés le
+  même jour (`bail_id`). Un colocataire entré à une autre date (avenant) est sur un AUTRE bail : il n'a pas de carte sur l'écran
+  de sortie et ne peut pas être joint au préavis groupé (il n'apparaît que dans « le logement reste loué à … »). En recette :
+  aucun logement dans ce cas (un seul logement à 2 occupants séparés). Proposition à décider : un groupe « Autres occupants du
+  logement (autre bail) », sélectionnables.
 - « Supprimer un/des locataire(s) » : le compteur « Sorties enregistrées (N) » n'apparaît qu'après une recherche.
 - La ligne « Conditions d'entrée et suivi commercial » est absente de la fiche locataire de la **Gestion** (seule la
   fiche de la Location la porte).
@@ -419,10 +453,12 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Aucun lot en cours. Attendre le retour d'Arno en recette. 🔴 **Mise en production UNIQUEMENT quand Arno dit « on met en
-production »**, et seulement après les **rapports d'essai sur une copie de la production** (bâtiments par adresse,
-mandats par bien) ; la reprise des mandats (`--reel`) n'est lancée qu'après sa validation. Rien à pousser ni à
-appliquer côté agent : Arno pousse et met la prod à jour lui-même.
+Aucun lot en cours. Arno : lancer `bash .captures/maj/5-verifier.sh` (vérification d'après mise en production, jamais
+faite) — ⚠️ il exige HEAD = `351f04de` : avec les commits du 21/11, relire plutôt `lecture-prod.sh`, les deux pages et
+`systemctl is-active` à la main. Puis retour en recette sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et réponse à la
+question du colocataire d'un autre bail. 🔴 **Prochaine mise en production UNIQUEMENT quand Arno dit « on met en
+production »** (nouveaux scripts, HEAD à jour). Les reprises de données (bâtiments par adresse, mandats par bien) restent
+soumises à leurs rapports d'essai sur une copie de la production. Rien à pousser ni à appliquer côté agent.
 
 ---
 
