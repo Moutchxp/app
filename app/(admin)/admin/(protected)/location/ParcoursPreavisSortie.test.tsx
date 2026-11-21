@@ -507,3 +507,47 @@ describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » s’ouvre VISIB
     await ouvrirVisible('sortie_adhoc');
   });
 });
+
+describe('🔴 Arno (21/11/2026) — la durée PROPOSÉE est présélectionnée dès qu’elle est connue ; sans proposition, rien n’est présélectionné', () => {
+  /** La lecture du préavis du bail rend `dureeProposee` (elle arrive APRÈS le premier rendu de l'écran, comme en vrai). */
+  const proposer = (duree: number | null) => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const r = await (avant as (u: string | URL | Request, i?: RequestInit) => Promise<Response>)(u, init);
+      if (init?.method === 'POST' || !String(u).includes('preavisBail=')) return r;
+      const d = await r.json() as { data: Record<string, unknown> };
+      return ok({ ...d.data, dureeProposee: duree, raison: duree === null ? '' : 'logement vide hors zone tendue' });
+    }) as unknown as typeof fetch;
+  };
+  const presse = () => [...container.querySelectorAll('.pvs-segment')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+
+  it('« 3 mois (proposé) » est enfoncé (et non « 1 mois ») ; l’enregistrement part avec 3 mois', async () => {
+    proposer(3);
+    await ecran();
+    await preparerPreavis([11, 12]);
+    expect(presse()).toEqual(['3 mois (proposé)']);
+    expect(container.querySelector('[data-raison]')?.textContent).toBe('Durée proposée : 3 mois (logement vide hors zone tendue).');
+    await clic(container.querySelector('[data-enregistrer-sans-mail]'));
+    expect(posts.at(-1)?.corps).toMatchObject({ action: 'apercu-preavis', choix: { mode: 'mois', duree: 3 } });
+  });
+
+  it('un choix de l’utilisateur remplace la proposition', async () => {
+    proposer(3);
+    await ecran();
+    await preparerPreavis([11]);
+    await clic([...container.querySelectorAll('.pvs-segment')].find((b) => b.textContent === '1 mois') ?? null);
+    expect(presse()).toEqual(['1 mois']);
+  });
+
+  it('aucune durée proposée : rien n’est enfoncé, on le dit, et la saisie reste obligatoire (aucun récapitulatif, rien d’envoyé)', async () => {
+    proposer(null);
+    await ecran();
+    await preparerPreavis([11, 12]);
+    expect(presse()).toEqual([]);
+    expect(container.querySelector('[data-sans-duree-proposee]')?.textContent).toBe('Aucune durée proposée : choisissez la durée du préavis.');
+    await clic(container.querySelector('[data-enregistrer-sans-mail]'));
+    expect(container.querySelector('[data-message-parcours]')?.textContent).toBe('Choisissez la durée du préavis');
+    expect(fenetre()).toBeNull();
+    expect(posts).toEqual([]);
+  });
+});

@@ -357,7 +357,7 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
               récapitulatif → résultat) ; le même sur l'accueil et la fiche locataire. */}
           <ParcoursPreavisSortie bail={bail} occupationId={occupationId} choix={choix} gestion={gestion}
             locataires={bail.locataires.map((l) => ({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, dateMaxPreavis: preavisDe(l.occupationId)?.dateMax ?? null }))}
-            dureeProposee={pv?.dureeProposee ?? 1} raison={pv?.raison ?? ''} preavisDisponible={pv !== null && pv.disponible}
+            dureeProposee={pv?.dureeProposee ?? null} raison={pv?.raison ?? ''} preavisDisponible={pv !== null && pv.disponible}
             libellePreavis={libellePreavis} libelleSortie={libelleFaireSortir(n)}
             onFini={(f) => {
               setChoix([]);

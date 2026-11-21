@@ -54,7 +54,8 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
   bail: BailLogement; occupationId: number;
   /** Les locataires en place (et leur préavis ouvert) ; `choix` : ceux sélectionnés sur les cartes. */
   locataires: readonly LocataireParcours[]; choix: readonly number[];
-  dureeProposee: DureeMois; raison: string; preavisDisponible: boolean;
+  /** 🔴 Arno (21/11/2026) — la durée proposée, PRÉSÉLECTIONNÉE dès qu'elle est connue ; `null` (pas encore lue) : rien de présélectionné. */
+  dureeProposee: DureeMois | null; raison: string; preavisDisponible: boolean;
   /** Le droit « Gestion » : la sortie officielle lui est réservée (le serveur le revérifie). */
   gestion: boolean;
   /** La fenêtre fermée après un enregistrement réussi : l'écran se relit. */
@@ -65,7 +66,10 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
   const jour = aujourdhui();
   const [geste, setGeste] = useState<Geste | null>(null);
   const [recuLe, setRecuLe] = useState('');
-  const [duree, setDuree] = useState<Duree>(String(dureeProposee) as Duree);
+  // 🔴 Arno (21/11/2026) — la durée PRÉSÉLECTIONNÉE est la durée proposée dès qu'elle est connue (elle arrive après le premier rendu) ;
+  // un choix de l'utilisateur la remplace ; sans durée proposée, rien n'est présélectionné et le choix reste obligatoire.
+  const [dureeChoisie, setDureeChoisie] = useState<Duree | null>(null);
+  const duree: Duree | null = dureeChoisie ?? (dureeProposee === null ? null : String(dureeProposee) as Duree);
   const [dateManuelle, setDateManuelle] = useState('');
   const [motif, setMotif] = useState('');
   const [dateSortie, setDateSortie] = useState('');
@@ -75,8 +79,8 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
   const [retouches, setRetouches] = useState<Retouches>({});
   const choisis = locataires.filter((l) => choix.includes(l.occupationId));
   const concernes = geste === 'preavis' ? choisis.filter((l) => l.dateMaxPreavis === null) : choisis;
-  const mode: ModePreavis = duree === 'manuelle' ? { mode: 'date_manuelle', dateMax: dateManuelle } : { mode: 'mois', duree: Number(duree) as DureeMois };
-  const dateMax = dateIsoValide(recuLe) && (mode.mode === 'mois' || dateIsoValide(mode.dateMax)) ? dateMaxPreavis(recuLe, mode) : null;
+  const mode: ModePreavis | null = duree === null ? null : duree === 'manuelle' ? { mode: 'date_manuelle', dateMax: dateManuelle } : { mode: 'mois', duree: Number(duree) as DureeMois };
+  const dateMax = mode !== null && dateIsoValide(recuLe) && (mode.mode === 'mois' || dateIsoValide(mode.dateMax)) ? dateMaxPreavis(recuLe, mode) : null;
   // Les règles du serveur, à l'écran (il refait le contrôle).
   const verdict = geste === 'preavis'
     ? (concernes.length === 0 ? { ok: false as const, motif: choisis.length > 0 ? 'Les locataires sélectionnés sont déjà en préavis.' : 'Sélectionnez au moins un locataire (cliquez sur sa carte).' }
@@ -147,7 +151,7 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
   const fermer = (): void => {
     if (fenetre?.etape === 'resultat') {
       const f = fenetre.fin;
-      setFenetre(null); setGeste(null); setTente(false); setRecuLe(''); setDateManuelle(''); setMotif(''); setDateSortie(''); setDuree(String(dureeProposee) as Duree);
+      setFenetre(null); setGeste(null); setTente(false); setRecuLe(''); setDateManuelle(''); setMotif(''); setDateSortie(''); setDureeChoisie(null);
       onFini(f);
       return;
     }
@@ -188,7 +192,7 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
               <label className="pss-champ" htmlFor={`${id}-recu`}><span className="pss-libelle">Réception du recommandé *</span>
                 <input id={`${id}-recu`} type="date" value={recuLe} max={jour} onChange={(e) => setRecuLe(e.target.value)} required aria-required="true" data-recu-le /></label>
               <span className="pvs-segments" role="group" aria-label="Durée du préavis" title={`Proposé : ${raison}`}>
-                {segments.map((x) => <button key={x.cle} type="button" className="pvs-segment" aria-pressed={duree === x.cle} onClick={() => setDuree(x.cle)}
+                {segments.map((x) => <button key={x.cle} type="button" className="pvs-segment" aria-pressed={duree === x.cle} onClick={() => setDureeChoisie(x.cle)}
                   data-duree={x.cle === String(dureeProposee) ? 'proposee' : x.cle === 'manuelle' ? 'manuelle' : 'autre'}>{x.mot}</button>)}
               </span>
               {duree === 'manuelle' && <input type="date" className="pvs-date-manuelle" value={dateManuelle} min={dateIsoValide(recuLe) ? recuLe : undefined}
@@ -199,7 +203,8 @@ export function ParcoursPreavisSortie({ bail, occupationId, locataires, choix, d
               <label className="pss-champ pss-motif"><span className="pss-libelle">Motif (facultatif)</span>
                 <input type="text" value={motif} onChange={(e) => setMotif(e.target.value)} maxLength={MOTIF_MAX} placeholder="ex. mutation professionnelle" data-motif /></label>
             </div>
-            <p className="loc-muet pss-raison" data-raison>Durée proposée : {dureeProposee} mois ({raison}).</p>
+            {dureeProposee === null ? <p className="loc-muet pss-raison" data-raison data-sans-duree-proposee>Aucune durée proposée : choisissez la durée du préavis.</p>
+              : <p className="loc-muet pss-raison" data-raison>Durée proposée : {dureeProposee} mois ({raison}).</p>}
           </> : (
             <div className="pss-ligne">
               <label className="pss-champ" htmlFor={`${id}-sortie`}><span className="pss-libelle">Date de sortie *</span>
@@ -261,7 +266,7 @@ export function ParcoursSurBail({ bail, occupationId, gestion, onFini }: { bail:
       </ul>
       <ParcoursPreavisSortie bail={bail} occupationId={occupationId} choix={choix} gestion={gestion}
         locataires={bail.locataires.map((l) => ({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, dateMaxPreavis: dateMaxDe(l.occupationId) }))}
-        dureeProposee={pv?.dureeProposee ?? 1} raison={pv?.raison ?? ''} preavisDisponible={pv?.disponible === true}
+        dureeProposee={pv?.dureeProposee ?? null} raison={pv?.raison ?? ''} preavisDisponible={pv?.disponible === true}
         libellePreavis={n > 1 ? `Enregistrer le préavis de ${n} locataires` : 'Enregistrer un préavis'} libelleSortie={n > 1 ? `Faire sortir ${n} locataires` : 'Faire sortir'}
         onFini={(f) => { setChoix([]); setVersion((v) => v + 1); onFini(f); }} />
     </div>

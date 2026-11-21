@@ -308,3 +308,34 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 - Écrire la sortie ENTIÈRE de chaque passe dans un fichier distinct (`npm test > .../npmtest-1.log 2>&1`) AVANT de relancer,
   puis y chercher `Error`, `timed out`, `FAIL` : le nom du test et le message sont la donnée qui manque.
 - Après un import massif en base, noter la charge (`top -l 1 | head -12`) au lancement de la suite.
+
+---
+
+## `PreavisAccueil.test.tsx` — « page rechargée pendant la coupure : la photo … REVIENT dans le formulaire et repart » (21/11/2026)
+
+- **Fichier / test** : `app/(admin)/admin/(protected)/location/PreavisAccueil.test.tsx`, bloc « SAUVEGARDE AUTOMATIQUE du compte
+  rendu : rien ne se perd » (Arno, 15/11/2026, 6e retour), test « page rechargée pendant la coupure : la photo gardée dans le
+  téléphone REVIENT dans le formulaire et repart ».
+- **Symptôme** : en `npm test` complet, `expected +0 to be 1` sur `expect(photosDeposees).toBe(1)` (dernière ligne du test) ;
+  le test a duré **3 066 ms**.
+
+### ✅ PROUVÉ
+
+- Une occurrence, le 21/11/2026 (lot « préavis des N colocataires » et « durée proposée présélectionnée »), sortie entière
+  gardée. Les fichiers modifiés par ce lot ne touchent ni la pré-visite, ni son compte rendu, ni la file d'attente locale.
+- Le même fichier, lancé **seul trois fois de suite** juste après, est **vert** (196 / 196) ; la suite complète relancée
+  aussitôt est **verte** (1858 fichiers, 27 676 tests), sans aucune modification du code entre-temps.
+- L'attente du test (`patienter`, défini dans ce bloc) **abandonne au bout de 3 000 ms** sans échouer, puis l'assertion suit :
+  une durée de 3 066 ms veut dire que la photo n'était pas encore passée à « ok » au bout des 3 s — d'où 0 photo déposée.
+
+### ❓ NON ÉTABLI
+
+- Pourquoi la reprise de la photo depuis la file d'attente locale (IndexedDB simulé) a dépassé 3 s ce jour-là : la charge de la
+  suite complète est l'hypothèse **plausible mais NON MESURÉE** (charge CPU non relevée au moment de l'échec).
+
+### Conduite à tenir si rouge
+
+- Regarder la **durée** du test dans la sortie : **≈ 3 000 ms** → c'est ce flake (l'attente a expiré) ; relancer le fichier seul.
+- Si le test échoue **seul**, ou bien avant 3 s : ce n'est pas ce flake — la reprise de la photo après rechargement est à
+  instruire (c'est la promesse d'Arno « rien ne se perd »).
+- S'il revient en suite complète : allonger l'attente de **ce test seul** (`patienter(…, 10_000)`), sans toucher aux assertions.
