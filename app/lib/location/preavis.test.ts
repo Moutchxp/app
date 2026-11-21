@@ -13,11 +13,12 @@ const REGLES: RegleZoneTendue[] = [
 ];
 
 describe('la durée proposée', () => {
-  it('meublé → 1 mois ; vide en zone tendue → 1 mois ; vide hors zone → 3 mois ; meublé inconnu = vide', () => {
+  // 🔴 Arno (21/11/2026) — « le mois de préavis par défaut doit être 1 mois et pas 3 mois car nos logements sont en zone tendue, donc 1 mois ».
+  it('1 MOIS proposé pour tous nos logements : meublé, vide en zone tendue, vide hors de la table des zones, meublé inconnu', () => {
     expect(dureeProposee({ meuble: true, zoneTendue: false })).toEqual({ duree: 1, raison: 'logement meublé' });
     expect(dureeProposee({ meuble: false, zoneTendue: true })).toEqual({ duree: 1, raison: 'logement vide en zone tendue' });
-    expect(dureeProposee({ meuble: false, zoneTendue: false })).toEqual({ duree: 3, raison: 'logement vide hors zone tendue' });
-    expect(dureeProposee({ meuble: null, zoneTendue: false }).duree).toBe(3);
+    expect(dureeProposee({ meuble: false, zoneTendue: false })).toEqual({ duree: 1, raison: 'logement vide — zone tendue : 1 mois pour tous nos logements' });
+    expect(dureeProposee({ meuble: null, zoneTendue: false }).duree).toBe(1);
   });
 });
 

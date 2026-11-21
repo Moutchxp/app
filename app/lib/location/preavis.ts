@@ -43,11 +43,16 @@ export function ajouterMois(iso: string, n: number): string {
 
 export type DureeMois = 1 | 3;
 
-/** La durée proposée par défaut. Un bien dont le caractère meublé est inconnu est traité comme VIDE (la règle la plus longue). */
+/**
+ * La durée proposée par défaut. 🔴 Arno (21/11/2026) : « le mois de préavis par défaut doit être 1 mois et pas 3 mois car nos logements
+ * sont en zone tendue, donc 1 mois » — 1 MOIS POUR TOUS NOS LOGEMENTS, vides comme meublés, quel que soit le code postal (la table
+ * `gestion_zone_tendue` ne couvre que 75, 92, 93, 94 : un logement du 95, 77 ou 78 recevait 3 mois). « 3 mois » reste choisissable à
+ * la saisie. `zoneTendue` (lu en base, gardé sur chaque préavis pour l'audit) ne change plus la proposition, seulement sa raison. PUR.
+ */
 export function dureeProposee(o: { meuble: boolean | null; zoneTendue: boolean }): { duree: DureeMois; raison: string } {
   if (o.meuble === true) return { duree: 1, raison: 'logement meublé' };
   const vide = o.meuble === false ? 'logement vide' : 'logement vide (caractère meublé non renseigné)';
-  return o.zoneTendue ? { duree: 1, raison: `${vide} en zone tendue` } : { duree: 3, raison: `${vide} hors zone tendue` };
+  return { duree: 1, raison: o.zoneTendue ? `${vide} en zone tendue` : `${vide} — zone tendue : 1 mois pour tous nos logements` };
 }
 
 export type ModePreavis = { mode: 'mois'; duree: DureeMois } | { mode: 'date_manuelle'; dateMax: string };

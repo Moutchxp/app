@@ -508,7 +508,8 @@ describe('🔴🔴 Arno (11/11/2026) — « Modifier le texte » s’ouvre VISIB
   });
 });
 
-describe('🔴 Arno (21/11/2026) — la durée PROPOSÉE est présélectionnée dès qu’elle est connue ; sans proposition, rien n’est présélectionné', () => {
+// 🔴 Arno (21/11/2026, correction) — « le mois de préavis par défaut doit être 1 mois et pas 3 mois car nos logements sont en zone tendue, donc 1 mois ».
+describe('🔴 Arno (21/11/2026) — la durée PROPOSÉE (1 mois) est présélectionnée dès qu’elle est connue ; « 3 mois » reste choisissable ; sans proposition, rien n’est présélectionné', () => {
   /** La lecture du préavis du bail rend `dureeProposee` (elle arrive APRÈS le premier rendu de l'écran, comme en vrai). */
   const proposer = (duree: number | null) => {
     const avant = global.fetch;
@@ -516,27 +517,29 @@ describe('🔴 Arno (21/11/2026) — la durée PROPOSÉE est présélectionnée 
       const r = await (avant as (u: string | URL | Request, i?: RequestInit) => Promise<Response>)(u, init);
       if (init?.method === 'POST' || !String(u).includes('preavisBail=')) return r;
       const d = await r.json() as { data: Record<string, unknown> };
-      return ok({ ...d.data, dureeProposee: duree, raison: duree === null ? '' : 'logement vide hors zone tendue' });
+      return ok({ ...d.data, dureeProposee: duree, raison: duree === null ? '' : 'logement vide en zone tendue' });
     }) as unknown as typeof fetch;
   };
   const presse = () => [...container.querySelectorAll('.pvs-segment')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
 
-  it('« 3 mois (proposé) » est enfoncé (et non « 1 mois ») ; l’enregistrement part avec 3 mois', async () => {
-    proposer(3);
+  it('« 1 mois (proposé) » est enfoncé ; l’enregistrement part avec 1 mois', async () => {
+    proposer(1);
     await ecran();
     await preparerPreavis([11, 12]);
-    expect(presse()).toEqual(['3 mois (proposé)']);
-    expect(container.querySelector('[data-raison]')?.textContent).toBe('Durée proposée : 3 mois (logement vide hors zone tendue).');
+    expect(presse()).toEqual(['1 mois (proposé)']);
+    expect(container.querySelector('[data-raison]')?.textContent).toBe('Durée proposée : 1 mois (logement vide en zone tendue).');
     await clic(container.querySelector('[data-enregistrer-sans-mail]'));
-    expect(posts.at(-1)?.corps).toMatchObject({ action: 'apercu-preavis', choix: { mode: 'mois', duree: 3 } });
+    expect(posts.at(-1)?.corps).toMatchObject({ action: 'apercu-preavis', choix: { mode: 'mois', duree: 1 } });
   });
 
-  it('un choix de l’utilisateur remplace la proposition', async () => {
-    proposer(3);
+  it('« 3 mois » reste disponible : le choix de l’utilisateur remplace la proposition et part au serveur', async () => {
+    proposer(1);
     await ecran();
     await preparerPreavis([11]);
-    await clic([...container.querySelectorAll('.pvs-segment')].find((b) => b.textContent === '1 mois') ?? null);
-    expect(presse()).toEqual(['1 mois']);
+    await clic([...container.querySelectorAll('.pvs-segment')].find((b) => b.textContent === '3 mois') ?? null);
+    expect(presse()).toEqual(['3 mois']);
+    await clic(container.querySelector('[data-enregistrer-sans-mail]'));
+    expect(posts.at(-1)?.corps).toMatchObject({ action: 'apercu-preavis', choix: { mode: 'mois', duree: 3 } });
   });
 
   it('aucune durée proposée : rien n’est enfoncé, on le dit, et la saisie reste obligatoire (aucun récapitulatif, rien d’envoyé)', async () => {
