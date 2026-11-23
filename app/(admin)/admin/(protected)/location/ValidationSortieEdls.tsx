@@ -179,7 +179,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         )}
         {/* 🔴 Arno (16/11/2026, 475) — sous la case cochée : les dates d'AG de la copropriété */}
         {retenueAppliquee && (luAg.etat.etat !== 'ok' ? <EtatLecture etat={luAg.etat} />
-          : ag !== null && saisieAg !== null && <AgSortie lu={ag} s={saisieAg} onChange={changerAg} desactive={envoi} dateSortie={date} onRelire={() => { luAg.rafraichir(); copro.rafraichir(); }} />)}
+          : ag !== null && saisieAg !== null && <AgSortie key={`copro-${ag.copropriete?.id ?? 'aucune'}`} lu={ag} s={saisieAg} onChange={changerAg} desactive={envoi} dateSortie={date} onRelire={() => { luAg.rafraichir(); copro.rafraichir(); }} />)}
         {retenueAppliquee && (
           <label className="pvs-champ"><span className="pvs-libelle">Paragraphe ajouté aux mails des locataires (modifiable)</span>
             <textarea value={paragrapheRetenue} onChange={(e) => setParagrapheRetenue(e.target.value)} rows={6} data-retenue-paragraphe /></label>

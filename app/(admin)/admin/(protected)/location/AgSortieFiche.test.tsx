@@ -17,7 +17,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
 }));
 const arrete = vi.fn();
 vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return null; } }));
-const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee } = await import('./AgSortie');
+const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee, ARRETE_SANS_COPROPRIETE } = await import('./AgSortie');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement; let root: Root;
@@ -110,5 +110,26 @@ describe('🔴 Arno (23/11/2026) — « le bouton "Créer une copropriété" doi
     expect(regle).toContain('align-self:stretch');
     expect(regle).not.toContain('width:auto');
     expect(regle).not.toContain('flex-start');
+  });
+});
+
+describe('🔴 Arno (23/11/2026) — « Si une date de clôture des comptes n’a jamais été renseignée […] cela doit être possible directement dans cette modale »', () => {
+  it('sans copropriété : « Rattachez ou créez la copropriété pour saisir sa date d’arrêté des comptes. » ; aucun champ d’arrêté', async () => {
+    arrete.mockClear();
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: false })); });
+    expect(container.querySelector('[data-ag-arrete-sans-copro]')?.textContent).toBe(ARRETE_SANS_COPROPRIETE);
+    expect(ARRETE_SANS_COPROPRIETE).toBe('Rattachez ou créez la copropriété pour saisir sa date d’arrêté des comptes.');
+    expect(arrete).not.toHaveBeenCalled();
+  });
+  it('juste après « Créer une copropriété » (fiche validée, fenêtre relue) : le champ d’arrêté de LA nouvelle copropriété, avec son bandeau', async () => {
+    arrete.mockClear();
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: false })); });
+    const relue = luAgPropre({ ...LU, copropriete: { id: 313, libelle: '_TEST SORTIE CREATION COPRO' } });
+    await act(async () => { root.render(createElement(AgSortie, { key: 'copro-313', lu: relue, s: saisieAgInitiale(relue), onChange: () => {}, desactive: false })); });
+    expect(arrete).toHaveBeenCalledWith(expect.objectContaining({ coproprieteId: 313, alerteSiManquante: true }));
+    expect(container.querySelector('[data-ag-arrete-sans-copro]')).toBeNull();
+  });
+  it('la fenêtre repart de la copropriété relue (clé par copropriété) : l’arrêté d’une copropriété rattachée n’est pas celui d’avant', () => {
+    expect(readFileSync('app/(admin)/admin/(protected)/location/ValidationSortieEdls.tsx', 'utf8')).toContain("<AgSortie key={`copro-${ag.copropriete?.id ?? 'aucune'}`}");
   });
 });

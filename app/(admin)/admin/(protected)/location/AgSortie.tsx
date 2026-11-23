@@ -21,6 +21,8 @@ import { ArreteComptes } from '../gestion/ArreteComptes';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 
+/** 🔴 Arno (23/11/2026) — sans copropriété rattachée : la date d'arrêté des comptes ne peut pas se saisir. */
+export const ARRETE_SANS_COPROPRIETE = 'Rattachez ou créez la copropriété pour saisir sa date d’arrêté des comptes.';
 /** 🔴 Arno (23/11/2026) — le bandeau quand la copropriété n'a aucune AGO connue. */
 export const BANDEAU_DERNIERE_AGO_MANQUANTE = 'Dernière AGO manquante : sans elle, le suivi des 20 % ne peut pas être fiable. Saisissez-la ci-dessous.';
 
@@ -173,6 +175,8 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
           </div>
           <label className="pvv-case"><input type="radio" name="vag-copro" checked={s.copro === 'aucune'} disabled={desactive} onChange={() => onChange({ ...s, copro: 'aucune' })} data-ag-copro="aucune" />
             <span>Ne pas rattacher maintenant</span></label>
+          {/* 🔴 Arno (23/11/2026) — sans copropriété, pas d'arrêté des comptes possible : on dit comment l'obtenir */}
+          <p className="vag-bandeau" data-ag-arrete-sans-copro>{ARRETE_SANS_COPROPRIETE}</p>
           {s.copro === 'aucune' && <p className="vse-orange" data-ag-a-rattacher>Les dates seront enregistrées avec la sortie, {A_RATTACHER}.</p>}
         </fieldset>
       )}
