@@ -6,6 +6,7 @@ import type { ModeleOfficiel } from '../../../../lib/adresse/officielleCopro';
 import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { AgCopropriete } from './AgCopropriete';
+import { ArreteComptes } from './ArreteComptes';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, motValeur, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
@@ -433,6 +434,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     {!horsAffiche && <section className="fcp-bloc" data-fcp-ag>
       <h3 className="fcp-titre">AG</h3>
       {/* 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » et « Corriger » : dans cette fiche seulement */}
+      {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes, à côté des dates d'AGO (facultative) — le même composant que la fenêtre de la sortie */}
+      {f.declaree && f.id !== null && <ArreteComptes coproprieteId={f.id} />}
       {f.declaree ? <AgCopropriete immeuble={f.cle} edition /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>}
 
     <section className="fcp-bloc" data-fcp-contacts>

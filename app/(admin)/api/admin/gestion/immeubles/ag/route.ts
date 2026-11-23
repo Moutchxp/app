@@ -3,6 +3,7 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { coproprieteDeCle, enregistrerPv, entreesAg, entreesAgDuLot, historiqueAgDisponible, pvAgDisponible } from '../../../../../../lib/location/agCoproprieteRepo';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
+import { enregistrerArrete, lireArrete, arreteDisponible } from '../../../../../../lib/location/arreteComptesRepo';
 
 /**
  * /api/admin/gestion/immeubles/ag — L'HISTORIQUE DES AG D'UNE COPROPRIÉTÉ (Arno, 16/11/2026, migration 475), pour le bloc « AG de la
@@ -12,6 +13,8 @@ import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
  * Le syndic n'intervient jamais : les AG sont celles de la copropriété.
  *   🔴 (Arno, 17/11/2026, migration 481) POST `{ action: 'pv', immeuble, date, nature, note?, corrige? }` : « + Ajouter un PV d'AG » et
  *   « Corriger » de la fiche Copropriété (date officielle passée ou du jour, AGO / AGE, note ; ajout seul, la saisie corrigée reste en base).
+ *   🔴 (Arno, 23/11/2026, migration 512) GET `?arreteCopropriete=<id>` / POST `{ action: 'arrete-comptes', coproprieteId, jour, mois }` : la date
+ *   d'arrêté des comptes de la copropriété (fiche Copropriété et fenêtre de la sortie, même composant) ; vide des deux côtés = effacée ; journalisée.
  */
 export const runtime = 'nodejs';
 
@@ -22,6 +25,12 @@ export async function GET(request: Request): Promise<Response> {
   if (refus) return refus;
   const u = new URL(request.url).searchParams;
   try {
+    if (u.has('arreteCopropriete')) {
+      const id = Number(u.get('arreteCopropriete'));
+      if (!Number.isSafeInteger(id) || id <= 0) return Response.json({ etat: 'refus', motif: 'Demande incomplète.' }, { status: 400, headers: ENTETES });
+      const lu = await lireArrete(id);
+      return Response.json(lu === null ? { etat: 'inconnu' } : { etat: 'ok', data: { ...lu, disponible: await arreteDisponible() } }, { headers: ENTETES });
+    }
     if (!(await historiqueAgDisponible())) return Response.json({ etat: 'sans_schema' }, { headers: ENTETES });
     const lot = Number(u.get('lotId'));
     if (Number.isSafeInteger(lot) && lot > 0) {
@@ -47,6 +56,15 @@ export async function POST(request: Request): Promise<Response> {
   if (refus) return refus;
   let corps: Record<string, unknown>;
   try { corps = await request.json() as Record<string, unknown>; } catch { return Response.json({ etat: 'refus', motif: 'Demande illisible.' }, { status: 400, headers: ENTETES }); }
+  if (corps.action === 'arrete-comptes') {
+    try {
+      const r = await enregistrerArrete({ coproprieteId: corps.coproprieteId, jour: corps.jour, mois: corps.mois }, await auteurDeLaRequete(request));
+      return Response.json(r, { headers: ENTETES });
+    } catch (e) {
+      console.error('[gestion/immeubles/ag] arrêté des comptes non enregistré', e);
+      return Response.json({ etat: 'erreur', message: 'La date d’arrêté des comptes n’a pas été enregistrée : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
+    }
+  }
   if (corps.action !== 'pv') return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
   try {
     const r = await enregistrerPv(corps, await auteurDeLaRequete(request));

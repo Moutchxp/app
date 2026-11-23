@@ -6,6 +6,7 @@ import {
   AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
+import { ArreteComptes } from '../gestion/ArreteComptes';
 
 /**
  * ══ 🔴🔴 « VALIDER LA SORTIE » — LES DATES D'AG, case « Retenue de 20 % » cochée (Arno, 16/11/2026, migration 475) ══════════════════════════
@@ -107,7 +108,11 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
   return (
     <div className="vag" data-ag-sortie>
       {/* la copropriété du bien, ou de quoi l'y rattacher */}
-      {lu.copropriete !== null ? <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p> : (
+      {lu.copropriete !== null ? <>
+        <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
+        {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes de la copropriété (facultative), le même composant que la fiche Copropriété */}
+        <ArreteComptes coproprieteId={lu.copropriete.id} />
+      </> : (
         <fieldset className="pvv-choix vag-rattacher" data-ag-rattacher>
           <legend className="pvs-libelle">Ce bien n’est relié à aucune copropriété</legend>
           {/* une case par copropriété qui couvre son adresse (pas de liste déroulante dans la Location) */}
