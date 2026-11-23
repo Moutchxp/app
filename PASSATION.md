@@ -311,18 +311,18 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `86f8829e`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **33 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c` et `64c4c852`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cb744be3`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **36 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852` et `f4bf2c9b`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
-  des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé —
-  détail plus bas) : `b3819054`,
+  des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
+  `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie » — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `86f8829e`) : `npm test` VERT (1 865 fichiers, 27 769 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `cb744be3`) : `npm test` VERT (1 865 fichiers, 27 774 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -503,6 +503,17 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     le propriétaire ni la copie interne. Vu au Chrome SANS pièce (préavis « TESTTEST » 1 rue du Préavis de Test, le locataire de « _TEST SORTIE
     CREATION COPRO » n'ayant pas d'e-mail) ; le cas AVEC pièce n'est éprouvé que par les tests (joindre une pièce = un dépôt, non fait).
     Captures 50-52.
+  - `c146e4fe` — fiche Copropriété : « Renseigner la date d'arrêté des comptes » pleine largeur (date absente ; « Modifier » garde sa taille).
+    ⚠ Constat : sur une fiche ENREGISTRÉE, « + Ajouter une AG » n'est PAS pleine largeur (145 px ; il l'est sur une fiche nouvelle) — non
+    demandé, non touché ; à aligner si Arno le souhaite.
+  - `cb744be3` — « Valider la sortie », bloc 20 % : la ligne « Date d'arrêté des comptes » DESCEND juste au-dessus de « Dernière AGO connue » ;
+    le bandeau « Date d'arrêté des comptes manquante » est FUSIONNÉ dans la ligne (« ⚠ Date d'arrêté des comptes : non renseignée — sans elle,
+    le suivi des 20 % ne peut pas être fiable. ») ; sans copropriété : « Date d'arrêté des comptes : aucune copropriété rattachée » +
+    « Créer une copropriété pour la renseigner » (la même fiche). Le cas « copropriété rattachée SANS arrêté » n'existe pas en recette sur un
+    préavis : éprouvé par les tests seulement. Captures 53-60.
+  - ⚠ Constat en recette (23/11, 21:49) : une copropriété 315 « 1 rue du Préavis de Test (FICTIF) » a été créée (auteur a.jorel@…) sans
+    requête d'écriture dans le journal du serveur de recette ni geste de l'agent (seules des lectures « parcelle ») — origine à éclaircir
+    avec Arno (autre session, script ?). Non touchée.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
