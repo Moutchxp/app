@@ -311,20 +311,20 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `90e05b93`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **47 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6` et `bcf4356e`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `74061ea5`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **49 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6`, `bcf4356e` et `498f7d56`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
   des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
   `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie », `520ce23d` → `36b1a2ea`, retours du 23/11 au
   soir (date d'AG, agencement de l'arrêté, texte propriétaire modifiable, bouton copropriété, case « Immeuble en copropriété »), `976079cc` → `90e05b93` (boutons de statut, mois de restitution, messages
-  verts de la fiche, « Accéder à la fiche de copropriété ») — détail plus bas) : `b3819054`,
+  verts de la fiche, « Accéder à la fiche de copropriété »), `74061ea5` (texte des propriétaires en trois paragraphes) — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `90e05b93`) : `npm test` VERT (1 865 fichiers, 27 789 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `74061ea5`) : `npm test` VERT (1 865 fichiers, 27 793 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -547,6 +547,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     toute suppression (trigger « ajout seul »), une date d'essai resterait à jamais — l'ajout d'AG n'est éprouvé que par les tests.
   - `90e05b93` — « Accéder à la copropriété » → « Accéder à la fiche de copropriété ».
   - Captures 72-77.
+  - `74061ea5` — TEXTE DES PROPRIÉTAIRES refait (trois paragraphes, `texteProprietaire`) : la retenue (base légale, exercice clos le … / « couvrant
+    sa période d'occupation »), la date (AGO qui compte + restitution le mois suivant, projetée / officielle), la demande de transmettre la date de
+    l'AGO et son PV (officielle : le seul PV) ; « vos locataires » / « leur » s'ils sont plusieurs ; sans date (case non cochée) : restitution « dans
+    le mois qui suit l'approbation des comptes » + demande de la date (repli du mail). Modifiable, en direct tant que non modifié. La ligne
+    « Date indiquée au(x) propriétaire(s) » du récapitulatif reprend le 2e paragraphe. Texte du locataire inchangé. Aucun propriétaire des biens
+    d'essai n'a d'e-mail : zone vue grisée ; récapitulatif et mail éprouvés par les tests. Captures 78-81.
+  - Constat : arrêté de la copropriété 315 saisi par Arno à 22:44 (01/03, journal 46831).
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
