@@ -270,7 +270,8 @@ function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { al
 export const CSS_AG_SORTIE = `
 .vag-bandeau{margin:0;padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft);font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vag-creer{display:flex;flex-direction:column;gap:6px}
-.vag-creer-btn{align-self:flex-start;min-height:44px;width:auto}
+/* Arno (23/11/2026) : le bouton Creer une copropriete prend TOUTE la largeur de la colonne (390 px et ordinateur) */
+.vag-creer-btn{align-self:stretch;box-sizing:border-box;width:100%;min-height:44px}
 .vag{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .vag input[type=date],.vag input:not([type]){min-height:44px;box-sizing:border-box;max-width:100%}
 .vag-copro,.vag-auteur{margin:0;overflow-wrap:anywhere}

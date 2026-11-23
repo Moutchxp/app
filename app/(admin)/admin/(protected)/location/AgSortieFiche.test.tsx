@@ -101,3 +101,14 @@ describe('🔴 Arno (23/11/2026) — « Prochaine AGO » PRÉREMPLIE par le calc
     expect(change).toHaveBeenCalledWith(expect.objectContaining({ prochaine: expect.stringMatching(/^20(2[7-9])-03-12$/) }));
   });
 });
+
+describe('🔴 Arno (23/11/2026) — « le bouton "Créer une copropriété" doit prendre toute la largeur de la colonne »', () => {
+  it('la règle du bouton : étiré sur toute la largeur (aucune largeur automatique, aucun alignement à gauche)', async () => {
+    const { CSS_AG_SORTIE } = await import('./AgSortie');
+    const regle = /\.vag-creer-btn\{([^}]*)\}/.exec(CSS_AG_SORTIE)?.[1] ?? '';
+    expect(regle).toContain('width:100%');
+    expect(regle).toContain('align-self:stretch');
+    expect(regle).not.toContain('width:auto');
+    expect(regle).not.toContain('flex-start');
+  });
+});
