@@ -3534,22 +3534,22 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(q('[data-ag-aide-ago]').textContent).toBe('Seule l’AGO compte : c’est l’assemblée qui clôture les comptes de la copropriété.');
   });
 
-  it('préremplies depuis l’historique : la dernière AG (« saisie par … le … »), la prochaine à + 1 an avec « projection — … » ; aucun statut choisi', async () => {
+  // 🔴 Arno (23/11/2026) — « lorsque la date est calculée automatiquement […] il faut sélectionner par défaut le bouton "Date projetée" »
+  it('préremplies depuis l’historique : la dernière AG (« saisie par … le … »), la prochaine calculée avec « projection — … » ; « Date projetée » sélectionné d’office', async () => {
     await ouvrir();
     expect((q('input[data-ag-derniere]') as HTMLInputElement).value).toBe('2026-03-12');
     expect(q('[data-ag-derniere-auteur]').textContent).toContain('saisie par Claire TEST le 01/04/2026');
     expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('2027-03-12');
     expect(q('[data-ag-projection]').textContent).toBe('projection — généralement à la même période chaque année');
-    expect([...document.querySelectorAll('[data-ag-statut-choix]')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Date projetée', 'false'], ['Date officielle', 'false']]);
+    expect([...document.querySelectorAll('[data-ag-statut-choix]')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([['Date projetée', 'true'], ['Date officielle', 'false']]);
     expect(q('[data-ag-prochaine-auteur]').textContent).toBe('renseignée par Arnaud JOREL');
     expect(q('[data-ag-copropriete]').textContent).toContain('Résidence Fictive');
   });
-  it('🔴 statut OBLIGATOIRE : « Voir le récapitulatif » fermé, message clair, statut en rouge ; choisi : ouvert, et les dates partent avec l’aperçu', async () => {
+  // 🔴 Arno (23/11/2026) — la date calculée arrive avec « Date projetée » : le statut (toujours obligatoire — épreuve verdictAg, AgSortieFiche.test.tsx)
+  // est déjà choisi ; sans calcul possible (projection périmée), rien n'est présélectionné (épreuves « projection PÉRIMÉE » ci-dessous)
+  it('🔴 statut : « Date projetée » déjà choisi pour la date calculée — récapitulatif ouvert, et les dates partent avec l’aperçu', async () => {
     await ouvrir();
-    expect(recap().disabled).toBe(true);
-    expect(q('[data-ag-message]').textContent).toBe('Choisissez le statut de la prochaine AGO : « Date projetée » ou « Date officielle ».');
-    expect(q('[data-ag-statut]').className).toContain('vag-defaut');
-    act(() => q('[data-ag-statut-choix="projetee"]').click());
+    expect(q('[data-ag-statut]').getAttribute('data-ag-statut')).toBe('projetee');
     expect(recap().disabled).toBe(false);
     act(() => q('[data-ag-confirmer]').click());
     expect(q('[data-ag-confirmee]').textContent).toBe('✓ confirmée comme référence');

@@ -82,10 +82,10 @@ describe('🔴 Arno (23/11/2026) — « Prochaine AGO » PRÉREMPLIE par le calc
     expect(prochaineCalculee({ officielles: [], derniere: '2026-06-10', dateSortie: '2026-11-15', arrete: { jour: 31, mois: 12 }, jour: JOUR }))
       .toEqual({ date: '2027-06-10', statut: 'projetee' });
   });
-  it('à l’ouverture : la prochaine AGO préremplie par le calcul (statut à choisir, comme aujourd’hui) ; une officielle à venir reste prioritaire', () => {
+  it('à l’ouverture : la prochaine AGO préremplie par le calcul, « Date projetée » sélectionné d’office (Arno, 23/11) ; une officielle à venir reste prioritaire', () => {
     const lu = luAgPropre({ ...LU, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },
       proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: { date: '2027-03-25', statut: null, mention: 'x', par: null, le: null } } });
-    expect(saisieAgInitiale(lu, JOUR)).toMatchObject({ derniere: '2026-03-25', prochaine: '2027-03-25', statut: null, alerte: null });
+    expect(saisieAgInitiale(lu, JOUR)).toMatchObject({ derniere: '2026-03-25', prochaine: '2027-03-25', statut: 'projetee', alerte: null });
     const off = luAgPropre({ ...LU, officielles: ['2026-03-25', '2027-02-14'], arrete: { jour: 31, mois: 12 },
       proposition: { derniere: { date: '2026-03-25', par: 'x', le: 'y' }, prochaine: { date: '2027-02-14', statut: 'officielle', mention: null, par: 'z', le: 'w' } } });
     expect(saisieAgInitiale(off, JOUR)).toMatchObject({ prochaine: '2027-02-14', statut: 'officielle' });
@@ -144,5 +144,23 @@ describe('🔴 Arno (23/11/2026) — « les 2 boutons (projetée et officielle) 
     expect(CSS_AG_SORTIE).toContain('.vag-defaut input,.vag-defaut input:focus{border-color:var(--color-svv-red)');
     const s = { ...saisieAgInitiale(LU, '2026-11-23'), derniere: '2026-03-25', prochaine: '2027-03-25', statut: null };
     expect(verdictAg(s, LU)).toMatchObject({ ok: false, champs: ['statut'] });
+  });
+});
+
+describe('🔴 Arno (23/11/2026) — « sélectionner par défaut le bouton "Date projetée" […] passer cette date projetée en date officielle d’un clic »', () => {
+  const LU2 = luAgPropre({ ...LU, copropriete: { id: 310, libelle: 'Copro Essai' }, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },
+    proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: null } });
+  it('un clic sur « Date officielle » : statut officielle, la date ne suit plus le calcul ; la saisie à la main reste possible', async () => {
+    const change = vi.fn();
+    const s = saisieAgInitiale(LU2);
+    expect(s.statut).toBe('projetee');
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU2, s, onChange: change, desactive: false })); });
+    change.mockClear();
+    await act(async () => { (container.querySelector('[data-ag-statut-choix="officielle"]') as HTMLButtonElement).click(); });
+    expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ statut: 'officielle', prochaineTouchee: true, prochaine: s.prochaine }));
+    expect((container.querySelector('input[data-ag-prochaine]') as HTMLInputElement).disabled).toBe(false);
+  });
+  it('sans calcul possible (aucune AGO connue) : aucun bouton présélectionné', () => {
+    expect(saisieAgInitiale(LU, '2026-11-23').statut).toBeNull();
   });
 });

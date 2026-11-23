@@ -94,7 +94,8 @@ export function saisieAgInitiale(lu: LuAgSortie, jour: string = aujourdhuiParis(
   // 🔴 Arno (23/11/2026, option A) — dernière AGO de plus d'un an : la décision du 17/11 d'abord (champ vide, alerte, sortie bloquée)
   const calc = officielleAVenir || p.projectionPerimee ? null : prochaineCalculee({ officielles: lu.officielles, derniere: p.derniere?.date ?? '', dateSortie: '', arrete: lu.arrete, jour });
   return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine: calc?.date ?? p.prochaine?.date ?? '', prochaineTouchee: false,
-    statut: calc !== null ? (calc.statut === 'officielle' ? 'officielle' : null) : p.prochaine?.statut ?? null, mention: false,
+    // 🔴 Arno (23/11/2026) — « lorsque la date est calculée automatiquement […] il faut sélectionner par défaut le bouton "Date projetée" »
+    statut: calc !== null ? calc.statut : p.prochaine?.statut ?? null, mention: false,
     // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre (sans calcul possible seulement)
     alerte: calc === null && p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
     coproOui: false };
@@ -141,7 +142,10 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
   const calcule = calc(s.derniere);
   const projection = suit && calcule !== null && calcule.statut === 'projetee' && calcule.date === s.prochaine;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (suit && calcule !== null && calcule.date !== s.prochaine) onChange({ ...s, prochaine: calcule.date, alerte: null }); }, [suit, calcule?.date, s.prochaine]);
+  // 🔴 Arno (23/11/2026) — préremplie par le calcul : « Date projetée » sélectionné d'office (sauf statut déjà choisi pour cette date)
+  useEffect(() => {
+    if (suit && calcule !== null && (calcule.date !== s.prochaine || s.statut === null)) onChange({ ...s, prochaine: calcule.date, statut: s.statut ?? calcule.statut, alerte: null });
+  }, [suit, calcule?.date, s.prochaine, s.statut]);
   const changerDerniere = (d: string): void => {
     const libre = !s.prochaineTouchee && officielleConnue === null;
     // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : pas conservée, la fenêtre d'alerte s'ouvre (gardé, option A du 23/11)
@@ -214,7 +218,8 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
         {(['projetee', 'officielle'] as const).map((x) => (
           <button key={x} type="button" className="pva-segment" aria-pressed={s.statut === x} disabled={desactive} onClick={() => {
             if (projeteePassee(s.prochaine, x)) { onChange({ ...s, prochaine: '', prochaineTouchee: true, statut: x, alerte: { date: s.prochaine, sorte: 'saisie' } }); return; }
-            onChange({ ...s, statut: x });
+            // 🔴 Arno (23/11/2026) — « passer cette date projetée en date officielle d'un clic » : officielle, la date ne suit plus le calcul (c'est un fait)
+            onChange({ ...s, statut: x, ...(x === 'officielle' ? { prochaineTouchee: true } : {}) });
           }} data-ag-statut-choix={x}>
             {x === 'projetee' ? 'Date projetée' : 'Date officielle'}</button>))}
       </div>
