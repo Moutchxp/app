@@ -16,7 +16,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
   },
 }));
 const arrete = vi.fn();
-vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return null; } }));
+vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return createElement('div', { 'data-stub-arrete': String(p.coproprieteId) }); }, CSS_ARRETE_COMPTES: '' }));
 const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee, ARRETE_SANS_COPROPRIETE, agoQuiCompte, libelleCaseAgoQuiCompte, texteAjouteAuMail, AIDE_PROCHAINE_AGO } = await import('./AgSortie');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -226,5 +226,46 @@ describe('🔴 correctif (23/11/2026) — l’arrêté saisi dans la fenêtre su
     const change = vi.fn();
     await act(async () => { root.render(createElement(AgSortie, { lu: relue, s: { ...saisieAgInitiale(avant), mention: true }, onChange: change, desactive: false, dateSortie: '2026-11-20' })); });
     expect(container.querySelector('[data-ag-mention-libelle]')?.textContent).toContain('exercice clôturé le 30/06/2027');
+  });
+});
+
+/**
+ * 🔴🔴 Arno (23/11/2026) — « au-dessus du champ de saisie "Dernière AGO connue", ajouter un champ/bouton qui affiche la date de clôture des comptes
+ * de la copropriété ou qui permet de renseigner cette information. »
+ */
+describe('🔴🔴 la date d’arrêté des comptes juste au-dessus de « Dernière AGO connue »', () => {
+  const avant = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  it('copropriété rattachée : le MÊME composant ArreteComptes (mis en avant), placé au-dessus du champ « Dernière AGO connue » ; une seule fois', async () => {
+    const lu = luAgPropre({ ...LU, copropriete: { id: 310, libelle: 'Copro Essai' } });
+    await act(async () => { root.render(createElement(AgSortie, { lu, s: saisieAgInitiale(lu), onChange: () => {}, desactive: false })); });
+    const stubs = container.querySelectorAll('[data-stub-arrete]');
+    expect(stubs).toHaveLength(1);
+    expect(stubs[0].getAttribute('data-stub-arrete')).toBe('310');
+    expect(arrete).toHaveBeenLastCalledWith(expect.objectContaining({ coproprieteId: 310, alerteSiManquante: true }));
+    expect(avant(stubs[0], container.querySelector('input[data-ag-derniere]')!)).toBe(true);
+    expect(avant(container.querySelector('[data-ag-copropriete]')!, stubs[0])).toBe(true);
+    expect(container.querySelector('[data-ag-arrete-ligne-sans-copro]')).toBeNull();
+  });
+  it('aucune copropriété : « Date d’arrêté des comptes : aucune copropriété rattachée » + « Créer une copropriété pour la renseigner » (pleine largeur) qui ouvre LA même fiche', async () => {
+    const relire = vi.fn();
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: { ...saisieAgInitiale(LU), copro: 'aucune' }, onChange: () => {}, desactive: false, onRelire: relire })); });
+    const ligne = container.querySelector('[data-ag-arrete-ligne-sans-copro]')!;
+    expect(ligne.querySelector('.arc-arrete-ligne')?.textContent).toBe('Date d’arrêté des comptes : aucune copropriété rattachée');
+    const b = ligne.querySelector('button[data-ag-arrete-creer-copro]') as HTMLButtonElement;
+    expect(b.textContent).toBe('Créer une copropriété pour la renseigner');
+    expect(b.classList.contains('arc-arrete-btn--plein')).toBe(true);
+    expect(avant(ligne, container.querySelector('input[data-ag-derniere]')!)).toBe(true);
+    expect(container.querySelector('[data-stub-arrete]')).toBeNull();
+    await act(async () => { b.click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ lotId: 7 }));
+    await act(async () => { (container.querySelector('[data-stub-fiche="7"]') as HTMLButtonElement).click(); });
+    expect(relire).toHaveBeenCalledTimes(1);
+    // rien d'autre ne bouge : « Créer une copropriété », « Ne pas rattacher maintenant » et le bandeau d'avant restent
+    expect(container.querySelector('button[data-ag-copro="creer"]')).not.toBeNull();
+    expect(container.querySelector('[data-ag-arrete-sans-copro]')?.textContent).toBe(ARRETE_SANS_COPROPRIETE);
+  });
+  it('désactivé pendant un envoi', async () => {
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: true })); });
+    expect((container.querySelector('button[data-ag-arrete-creer-copro]') as HTMLButtonElement).disabled).toBe(true);
   });
 });

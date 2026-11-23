@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { agoApres, suiviVingtPourcent, MENTION_INCERTAINE } from '../../../../lib/location/vingtPourcent';
-import type { ArreteComptes as Arrete } from '../../../../lib/location/arreteComptes';
+import { LIBELLE_ARRETE_COMPTES, type ArreteComptes as Arrete } from '../../../../lib/location/arreteComptes';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
   AIDE_AGO, mentionAgLocataire, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
-import { ArreteComptes } from '../gestion/ArreteComptes';
+import { ArreteComptes, CSS_ARRETE_COMPTES } from '../gestion/ArreteComptes';
 
 /**
  * ══ 🔴🔴 « VALIDER LA SORTIE » — LES DATES D'AG, case « Retenue de 20 % » cochée (Arno, 16/11/2026, migration 475) ══════════════════════════
@@ -26,6 +26,8 @@ export const SANS_COPROPRIETE_INCOMPLET = 'Sans copropriété, le suivi des 20 %
 /** 🔴 Arno (23/11/2026) — sans copropriété rattachée : la date d'arrêté des comptes ne peut pas se saisir. */
 /** 🔴 Arno (23/11/2026, suite) — « Ne pas rattacher maintenant » : le bandeau dit où saisir l'arrêté ET les AG (avant : « Rattachez ou créez la
  *  copropriété pour saisir sa date d'arrêté des comptes. ») */
+/** 🔴 Arno (23/11/2026, suite) — la ligne « Date d'arrêté des comptes » quand le bien n'a aucune copropriété rattachée. */
+export const ARRETE_AUCUNE_COPROPRIETE = 'aucune copropriété rattachée';
 export const ARRETE_SANS_COPROPRIETE = 'Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).';
 /** 🔴 Arno (23/11/2026) — le bandeau quand la copropriété n'a aucune AGO connue. */
 export const BANDEAU_DERNIERE_AGO_MANQUANTE = 'Dernière AGO manquante : sans elle, le suivi des 20 % ne peut pas être fiable. Saisissez-la ci-dessous.';
@@ -193,8 +195,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       {/* la copropriété du bien, ou de quoi l'y rattacher */}
       {lu.copropriete !== null ? <>
         <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
-        {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes de la copropriété (facultative), le même composant que la fiche Copropriété */}
-        <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => { setArrete(x.arrete); onRelire?.(); }} />
+        {/* 🔴 (Arno, 23/11/2026, suite) la date d'arrêté des comptes a DESCENDU, juste au-dessus de « Dernière AGO connue » (voir plus bas) */}
       </> : (
         <fieldset className="pvv-choix vag-rattacher" data-ag-rattacher>
           <legend className="pvs-libelle">Ce bien n’est relié à aucune copropriété</legend>
@@ -227,6 +228,21 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       {/* 🔴 (Arno, 17/11/2026) « Seule l'AGO compte : c'est l'assemblée qui clôture les comptes de la copropriété. » */}
       {/* 🔴 Arno (23/11/2026) — la dernière AGO manquante est MISE EN AVANT (même raison que l'arrêté : le suivi des 20 % en dépend) ; saisie ici,
           elle est enregistrée sur la COPROPRIÉTÉ à la confirmation (jamais sur la sortie) */}
+      {/* 🔴🔴 Arno (23/11/2026) — « au-dessus du champ de saisie "Dernière AGO connue", ajouter un champ/bouton qui affiche la date de clôture des comptes
+          de la copropriété ou qui permet de renseigner cette information » : copropriété rattachée → la ligne « Date d'arrêté des comptes : … »
+          (« Modifier », ou « Renseigner … » pleine largeur ; le MÊME composant ArreteComptes, écrit une seule fois sur la copropriété, journal ; le
+          bandeau « manquante » fusionné dans la ligne) ; aucune copropriété → la ligne le dit, et « Créer une copropriété pour la renseigner » ouvre
+          la MÊME fiche Copropriété que « Créer une copropriété » (aucune copie). */}
+      {lu.copropriete !== null
+        ? <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => { setArrete(x.arrete); onRelire?.(); }} />
+        : (
+          <div className="arc-arrete vag-arrete-sans-copro" data-ag-arrete-ligne-sans-copro>
+            <p className="arc-arrete-ligne"><span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
+              <span className="arc-arrete-vide">{ARRETE_AUCUNE_COPROPRIETE}</span></p>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn arc-arrete-btn arc-arrete-btn--plein" disabled={desactive} onClick={() => setFicheOuverte(true)}
+              data-ag-arrete-creer-copro>Créer une copropriété pour la renseigner</button>
+            <style>{CSS_ARRETE_COMPTES}</style>
+          </div>)}
       {p.derniere === null && s.derniere === '' && <p className="vag-bandeau" role="status" data-ag-bandeau-derniere>⚠ {BANDEAU_DERNIERE_AGO_MANQUANTE}</p>}
       <p className="loc-muet vag-aide" data-ag-aide-ago>{AIDE_AGO}</p>
       <label className={`pvs-champ${enDefaut('derniere') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_DERNIERE_AGO}</span>

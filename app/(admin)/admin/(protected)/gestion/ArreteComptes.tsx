@@ -18,8 +18,13 @@ const API = '/api/admin/gestion/immeubles/ag';
 
 type Lu = ArreteComptesLu & { disponible: boolean };
 
-/** 🔴 Arno (23/11/2026) — le bandeau de la fenêtre de sortie quand la date manque (le suivi des 20 % en dépend). */
-export const BANDEAU_ARRETE_MANQUANT = 'Date d’arrêté des comptes manquante : sans elle, le suivi des 20 % ne peut pas être fiable.';
+/**
+ * 🔴 Arno (23/11/2026) — la fenêtre de sortie, date manquante (le suivi des 20 % en dépend). 🔴 (23/11, suite) « Le bandeau « Date d'arrêté des
+ * comptes manquante » existant ne doit pas faire doublon : fusionne-le dans cette ligne » : il n'y a plus de bandeau à part (avant : « ⚠ Date
+ * d'arrêté des comptes manquante : sans elle, le suivi des 20 % ne peut pas être fiable. » au-dessus de la ligne) — la LIGNE le dit, dans le cadre
+ * orange : « ⚠ Date d'arrêté des comptes : non renseignée — sans elle, le suivi des 20 % ne peut pas être fiable. »
+ */
+export const MOT_ARRETE_MANQUANT = 'sans elle, le suivi des 20 % ne peut pas être fiable.';
 
 export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = false }: { coproprieteId: number; onChange?: (lu: ArreteComptesLu) => void;
   /** 🔴 Arno (23/11/2026) — fenêtre « Valider la sortie » : la date manquante est MISE EN AVANT (bandeau), la saisie juste dessous. */
@@ -67,11 +72,11 @@ export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = fal
   const maxJour = mois === '' ? 31 : joursDuMois(Number(mois));
   return (
     <div className={`arc-arrete${alerteSiManquante && d.arrete === null ? ' arc-arrete--manquante' : ''}`} data-arrete-comptes={d.arrete === null ? 'vide' : 'renseignee'}>
-      {alerteSiManquante && d.arrete === null && <p className="arc-bandeau" role="status" data-arrete-bandeau>⚠ {BANDEAU_ARRETE_MANQUANT}</p>}
-      <p className="arc-arrete-ligne">
-        <span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
+      <p className={`arc-arrete-ligne${alerteSiManquante && d.arrete === null ? ' arc-bandeau' : ''}`} {...(alerteSiManquante && d.arrete === null ? { role: 'status', 'data-arrete-bandeau': '' } : {})}>
+        {alerteSiManquante && d.arrete === null && '⚠ '}<span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
         {d.arrete === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
           : <strong data-arrete-valeur={arreteFr(d.arrete)}>{arreteFr(d.arrete)}</strong>}
+        {alerteSiManquante && d.arrete === null && <> — {MOT_ARRETE_MANQUANT}</>}
         {d.arrete !== null && d.par !== null && <span className="loc-muet"> — saisie par {prenomNom(d.par)}{d.le ? ` le ${new Date(d.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}</span>}
       </p>
       {!edition ? (

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { ArreteComptes, BANDEAU_ARRETE_MANQUANT } from './ArreteComptes';
+import { ArreteComptes, MOT_ARRETE_MANQUANT } from './ArreteComptes';
 
 /** 🔴 Arno (23/11/2026, 512) — « Date d'arrêté des comptes » : le composant unique (fiche Copropriété et fenêtre de la sortie), route simulée. */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,10 +74,14 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
     expect(readFileSync('app/(admin)/admin/(protected)/location/AgSortie.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => { setArrete(x.arrete); onRelire?.(); }} />');
   });
   // 🔴 Arno (23/11/2026) — « Valider la sortie » : la date manquante MISE EN AVANT
-  it('fenêtre de sortie (alerteSiManquante) : bandeau « Date d’arrêté des comptes manquante … » tant qu’elle manque, plus après la saisie', async () => {
+  // 🔴 Arno (23/11/2026, suite) — le bandeau « fusionné dans cette ligne » : plus de doublon
+  it('fenêtre de sortie (alerteSiManquante) : LA ligne dit la date manquante (une seule fois), tant qu’elle manque, plus après la saisie', async () => {
     await act(async () => { root.render(createElement(ArreteComptes, { coproprieteId: 7, alerteSiManquante: true })); }); await calmer();
-    expect(container.querySelector('[data-arrete-bandeau]')?.textContent).toBe(`⚠ ${BANDEAU_ARRETE_MANQUANT}`);
-    expect(BANDEAU_ARRETE_MANQUANT).toBe('Date d’arrêté des comptes manquante : sans elle, le suivi des 20 % ne peut pas être fiable.');
+    expect(container.querySelector('[data-arrete-bandeau]')?.textContent).toBe('⚠ Date d’arrêté des comptes : non renseignée — sans elle, le suivi des 20 % ne peut pas être fiable.');
+    expect(container.querySelector('[data-arrete-bandeau]')?.classList.contains('arc-arrete-ligne')).toBe(true);
+    expect(container.querySelectorAll('.arc-arrete-ligne')).toHaveLength(1);
+    expect(container.textContent?.split(MOT_ARRETE_MANQUANT)).toHaveLength(2);
+    expect(container.textContent).not.toContain('Date d’arrêté des comptes manquante');
     await clic('[data-arrete-modifier]');
     await choisir('[data-arrete-mois]', '12'); await choisir('[data-arrete-jour]', '31');
     await clic('[data-arrete-enregistrer]');
