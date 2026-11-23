@@ -113,3 +113,16 @@ describe('point 4 — les accès : colonne de gauche de la Gestion et accueil Lo
     expect(g).toContain('<EcranVingtPourcent api={API_PREAVIS_GESTION}');
   });
 });
+
+describe('🔴 Arno (23/11/2026) — « Bien sans copropriété » dans « Dates manquantes » (compté dans la pastille)', () => {
+  it('l’étiquette « Bien sans copropriété », le lien pour créer la fiche ; la pastille le compte', async () => {
+    donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['arrete'], locataires: ['SANS Copro'] }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const m = container.querySelector('[data-vgp-manque="immeuble-c"]')!;
+    expect(m.querySelector('[data-vgp-bien-sans-copro]')?.textContent).toBe('Bien sans copropriété');
+    expect(m.querySelector('[data-vgp-completer]')).not.toBeNull();
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('2');
+  });
+});

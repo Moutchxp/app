@@ -3637,7 +3637,8 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(posts.at(-1)).toMatchObject({ coproprieteChoix: { rattacher: 7 }, coproprieteOui: true, ag: { statut: 'officielle' } });
     act(() => (document.querySelector('button[data-revenir-validation]') as HTMLButtonElement).click());
     act(() => (q('[data-ag-copro="aucune"]') as HTMLInputElement).click());
-    expect(q('[data-ag-a-rattacher]').textContent).toBe('Les dates seront enregistrées avec la sortie, à rattacher à une copropriété.');
+    // 🔴 Arno (23/11/2026) — plus aucune date gardée avec la sortie
+    expect(q('[data-ag-a-rattacher]').textContent).toBe('Sans copropriété, le suivi des 20 % restera incomplet : rattachez le bien dès que possible.');
     // 🔴🔴 Arno (23/11/2026) — « Créer une copropriété » ouvre LA fiche Copropriété (même composant que la Gestion) ; plus de nom tapé ici
     expect(q('input[data-ag-copro-nom]')).toBeNull();
     await act(async () => { (q('button[data-ag-copro="creer"]') as HTMLButtonElement).click(); }); await attendre();

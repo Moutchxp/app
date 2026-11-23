@@ -269,7 +269,13 @@ async function enregistrerAgDeLaSortie(ag: NonNullable<Preparation['ag']>, sorti
         if (!r.ok) throw new RefusAg(r.motif);
         copro = r.copropriete;
       }
-      await ajouterEntreesAg(q, { coproprieteId: copro?.id ?? null, cle: c.immeuble?.cle ?? null, lotId: c.lotId, sortieId }, entreesAAjouter(ag.saisie, ag.connue), 'sortie', auteur);
+      // 🔴🔴 Arno (23/11/2026) — « plus aucune date n'est écrite sur la sortie ; une date officielle va sur la copropriété (même table, même journal), une
+      // date projetée n'est jamais enregistrée, seulement calculée à l'affichage. » Sans copropriété (« Ne pas rattacher maintenant ») : RIEN n'est
+      // enregistré (les dates n'ont servi qu'à la phrase du mail au locataire) ; avec : les seules dates OFFICIELLES, sur la copropriété.
+      if (copro !== null) {
+        const officielles = entreesAAjouter(ag.saisie, ag.connue).filter((e) => e.statut === 'officielle');
+        if (officielles.length > 0) await ajouterEntreesAg(q, { coproprieteId: copro.id, cle: c.immeuble?.cle ?? null, lotId: c.lotId, sortieId }, officielles, 'sortie', auteur);
+      }
       return { lignes: lignesAg(ag.saisie), copropriete: copro?.libelle ?? null, aRattacher: copro === null, motif: null };
     });
   } catch (e) {

@@ -16,10 +16,12 @@ const query = vi.fn(async (sql: string, _p?: unknown[]) => {
 vi.mock('../db/client', () => ({ query: (sql: string, p?: unknown[]) => query(sql, p) }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('./agCoproprieteRepo', () => ({
-  contexteAgDuLot: vi.fn(async (lotId: number) => (lotId === 1
+  contexteAgDuLot: vi.fn(async (lotId: number) => (lotId === 9 ? { lotId, immeuble: { cle: 'c', libelle: '9 rue C' }, copropriete: null } : lotId === 1
     ? { lotId, immeuble: { cle: 'a', libelle: 'A rue' }, copropriete: { id: 10, libelle: 'Copro A', cle: 'a' } }
     : { lotId, immeuble: { cle: 'b', libelle: 'B rue' }, copropriete: { id: 20, libelle: 'Copro B', cle: 'b' } })),
-  entreesAg: vi.fn(async (c: { coproprieteId: number }) => (c.coproprieteId === 10
+  entreesAg: vi.fn(async (c: { coproprieteId: number | null }) => (c.coproprieteId === null
+    ? [{ type: 'derniere', statut: 'officielle', date: '2026-02-01', nature: 'ago', origine: 'sortie' }, { type: 'derniere', statut: 'officielle', date: '2025-05-05', nature: 'ago', origine: 'fiche_bien' }]
+    : c.coproprieteId === 10
     ? [{ type: 'derniere', statut: 'officielle', date: '2026-03-25', nature: 'ago' }, { type: 'prochaine', statut: 'projetee', date: '2027-01-01', nature: 'ago' }]
     : [])),
 }));
@@ -63,5 +65,15 @@ describe('lireSuiviVingtPourcent', () => {
     expect(r.lignes.map((l) => [l.sortieId, l.arrete, l.suivi.etat === 'ok' ? l.suivi.exercice : null])).toEqual([
       [5, { jour: 31, mois: 12 }, '2026-12-31'], [8, { jour: 31, mois: 12 }, '2026-12-31']]);
     expect(r.manquantes).toEqual([]);
+  });
+  // 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : le bien figure dans « Dates manquantes » sous « Bien sans copropriété » (compté)
+  it('un bien SANS copropriété : dans « Dates manquantes » (arrêté manquant), les dates gardées avec une sortie n’y comptent plus', async () => {
+    sorties = [{ id: '12', lot_id: '9', date_sortie: '2026-11-10', valide_le: '2026-11-12', logement: '9 rue C', noms: ['SANS Copro'] }];
+    const r = await lireSuiviVingtPourcent();
+    expect(r.manquantes).toEqual([{ cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['arrete'], locataires: ['SANS Copro'] }]);
+    const l = r.lignes[0];
+    expect(l.copropriete).toBeNull();
+    // la dernière AGO de la fiche du bien (05/05/2025) sert ; celle gardée avec une sortie (01/02/2026) non
+    expect(l.suivi).toMatchObject({ etat: 'ok', ago: { date: '2027-05-05', statut: 'projetee' }, incertaine: true });
   });
 });

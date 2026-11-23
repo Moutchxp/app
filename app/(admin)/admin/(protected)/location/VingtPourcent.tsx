@@ -74,7 +74,9 @@ function DatesManquantes({ lignes, onCompleter }: { lignes: readonly LigneDatesM
         <ul className="vgp-liste">
           {lignes.map((m) => (
             <li key={m.cle} className="vgp-carte" data-vgp-manque={m.cle}>
-              <p className="vgp-nom">{m.libelle}{m.coproprieteId === null ? <span className="loc-muet"> — bien relié à aucune copropriété</span> : null}</p>
+              {/* 🔴 Arno (23/11/2026) — un bien sans copropriété : sous « Bien sans copropriété » (compté dans la pastille) */}
+              {m.coproprieteId === null ? <p className="vgp-sans-copro" data-vgp-bien-sans-copro>Bien sans copropriété</p> : null}
+              <p className="vgp-nom">{m.libelle}</p>
               <p className="vgp-manque" data-vgp-ce-qui-manque={m.manque.join(',')}>Manque : <strong>{m.manque.map((x) => LIBELLE_MANQUE[x]).join(' et ')}</strong></p>
               <p className="vgp-locataires" data-vgp-locataires={m.locataires.length}>
                 {m.locataires.length} locataire{m.locataires.length > 1 ? 's' : ''} concerné{m.locataires.length > 1 ? 's' : ''} : {m.locataires.join(', ')}</p>
@@ -97,7 +99,7 @@ function LigneLocataire({ l }: { l: LigneVingtPourcent }) {
       <p className="vgp-nom">{l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</p>
       <dl className="vgp-dl">
         <div><dt>Logement</dt><dd>{l.logement ?? `Bien ${l.lotId}`}</dd></div>
-        <div><dt>Copropriété</dt><dd>{l.copropriete === null ? 'non renseignée' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>
+        <div><dt>Copropriété</dt><dd>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>
         <div><dt>Date de sortie</dt><dd>{dateFr(l.dateSortie)}</dd></div>
         <div><dt>Exercice concerné</dt><dd data-vgp-exercice>{libelleExercice(s.exercice)}{l.arrete !== null ? ` (arrêté au ${arreteFr(l.arrete)})` : ''}</dd></div>
         <div><dt>AGO qui compte</dt><dd data-vgp-ago={s.etat === 'ok' ? `${s.ago.date}:${s.ago.statut}` : 'inconnue'}>
@@ -127,6 +129,7 @@ export const CSS_VINGT_POURCENT = `
 .vgp-carte--depassee{border-left:4px solid var(--color-svv-red)}
 .vgp-carte--proche{border-left:4px solid var(--color-svv-urgence-orange)}
 .vgp-nom{margin:0;font-weight:800;color:var(--color-svv-ink)}
+.vgp-sans-copro{margin:0;align-self:flex-start;padding:2px 10px;border-radius:999px;font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.02em;background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-urgence-orange)}
 .vgp-manque,.vgp-locataires{margin:0;color:var(--color-svv-ink)}
 .vgp-completer{align-self:flex-start;min-height:44px;width:auto}
 .vgp-dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:6px 16px;margin:0}

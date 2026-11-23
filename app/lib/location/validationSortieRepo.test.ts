@@ -167,14 +167,19 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     expect(r.data.mails.find((m) => m.famille === 'interne')!.texte).toContain('Prochaine AGO : 12/03/2027 (date projetée)');
     expect(ag.ajouts).toEqual([]); // l'aperçu n'écrit rien
   });
-  it('la confirmation : APRÈS la sortie, la dernière AG et la PROJETÉE rangées sur la copropriété avec le numéro de la sortie', async () => {
+  // 🔴🔴 Arno (23/11/2026) — « une date officielle va sur la copropriété (même table, même journal), une date projetée n'est jamais enregistrée »
+  it('la confirmation : APRÈS la sortie, la dernière AG (officielle) rangée sur la copropriété ; la PROJETÉE n’est JAMAIS enregistrée', async () => {
     const r = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG }, AUTEUR);
     expect(r).toMatchObject({ etat: 'ok', data: { ag: { copropriete: 'Résidence Fictive', aRattacher: false, motif: null } } });
     expect(ag.ajouts).toHaveLength(1);
     const [, cible, entrees, origine] = ag.ajouts[0];
     expect(cible).toEqual({ coproprieteId: 7, cle: '4 rue fictive', lotId: 7, sortieId: 41 });
-    expect(entrees).toEqual([{ type: 'derniere', statut: 'officielle', date: '2026-03-12', confirmation: false }, { type: 'prochaine', statut: 'projetee', date: '2027-03-12', confirmation: false }]);
+    expect(entrees).toEqual([{ type: 'derniere', statut: 'officielle', date: '2026-03-12', confirmation: false }]);
     expect(origine).toBe('sortie');
+    ag.ajouts = [];
+    // une prochaine OFFICIELLE saisie, elle, va sur la copropriété
+    await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, statut: 'officielle' } }, AUTEUR);
+    expect(ag.ajouts[0][2]).toEqual([{ type: 'derniere', statut: 'officielle', date: '2026-03-12', confirmation: false }, { type: 'prochaine', statut: 'officielle', date: '2027-03-12', confirmation: false }]);
     expect(h.enregistrerSortie.mock.invocationCallOrder[0]).toBeLessThan(h.envoyerSerie.mock.invocationCallOrder[0]);
   });
   // 🔴🔴 Arno (23/11/2026) — la sortie ne crée plus de copropriété par un nom tapé : c'est la fiche Copropriété (parcours de la Gestion) qui la crée
@@ -187,6 +192,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     ag.ajouts = [];
     const r2 = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG }, AUTEUR);
     expect(r2).toMatchObject({ etat: 'ok', data: { ag: { copropriete: null, aRattacher: true } } });
-    expect(ag.ajouts[0][1]).toEqual({ coproprieteId: null, cle: '4 rue fictive', lotId: 7, sortieId: 41 });
+    // 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : AUCUNE date enregistrée (elles n'ont servi qu'à la phrase du mail)
+    expect(ag.ajouts).toEqual([]);
   });
 });

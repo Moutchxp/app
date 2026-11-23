@@ -32,14 +32,16 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
         AND NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.id = ANY(s.occupation_ids) AND o.sortie IS NULL)
       ORDER BY s.date_sortie DESC, s.id DESC`);
   // une lecture des AG et du contexte par bien (peu de sorties avec retenue) ; les arrêtés en une requête
-  const parLot = new Map<number, { copro: CoproConcernee | null; officielles: string[] }>();
+  const parLot = new Map<number, { copro: CoproConcernee; officielles: string[] }>();
   for (const lotId of new Set(rows.map((r) => Number(r.lot_id)))) {
     const c = await contexteAgDuLot(lotId);
     const entrees = await entreesAg({ coproprieteId: c?.copropriete?.id ?? null, cle: c?.immeuble?.cle ?? null, lotId });
-    const copro: CoproConcernee | null = c === null || (c.copropriete === null && c.immeuble === null) ? null
-      : c.copropriete !== null ? { cle: `copro-${c.copropriete.id}`, coproprieteId: c.copropriete.id, libelle: c.copropriete.libelle, immeuble: c.copropriete.cle, lotId }
-        : { cle: `immeuble-${c.immeuble!.cle}`, coproprieteId: null, libelle: c.immeuble!.libelle, immeuble: c.immeuble!.cle, lotId };
-    parLot.set(lotId, { copro, officielles: agosOfficielles(entrees) });
+    // 🔴 Arno (23/11/2026) — un bien SANS copropriété figure aussi dans « Dates manquantes » (sous « Bien sans copropriété », compté dans la pastille)
+    const copro: CoproConcernee = c !== null && c.copropriete !== null ? { cle: `copro-${c.copropriete.id}`, coproprieteId: c.copropriete.id, libelle: c.copropriete.libelle, immeuble: c.copropriete.cle, lotId }
+      : c !== null && c.immeuble !== null ? { cle: `immeuble-${c.immeuble.cle}`, coproprieteId: null, libelle: c.immeuble.libelle, immeuble: c.immeuble.cle, lotId }
+        : { cle: `lot-${lotId}`, coproprieteId: null, libelle: `Bien ${lotId}`, immeuble: null, lotId };
+    // sans copropriété : les dates gardées AVEC UNE SORTIE ne comptent plus (Arno, 23/11/2026 : aucune date sur la sortie) ; celles de la fiche du bien, oui
+    parLot.set(lotId, { copro, officielles: agosOfficielles(c?.copropriete != null ? entrees : entrees.filter((e) => e.origine !== 'sortie')) });
   }
   const ids = [...new Set([...parLot.values()].map((x) => x.copro?.coproprieteId).filter((x): x is number => typeof x === 'number'))];
   const arretes = await arretesDe(ids);
@@ -48,13 +50,13 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
     const arrete = p.copro?.coproprieteId != null ? arretes.get(p.copro.coproprieteId) ?? null : null;
     return {
       sortieId: Number(r.id), lotId: Number(r.lot_id), locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, valideLe: r.valide_le,
-      copropriete: p.copro === null ? null : { id: p.copro.coproprieteId, libelle: p.copro.libelle, aRattacher: p.copro.coproprieteId === null },
+      copropriete: p.copro.coproprieteId === null ? null : { id: p.copro.coproprieteId, libelle: p.copro.libelle, aRattacher: false },
       arrete, suivi: suiviVingtPourcent({ dateSortie: r.date_sortie, valideLe: r.valide_le, arrete, officielles: p.officielles, aujourdhui }),
     };
   });
   const manquantes = datesManquantes(lignes.flatMap((l) => {
     const p = parLot.get(l.lotId)!;
-    return p.copro === null ? [] : [{ copro: p.copro, arrete: l.arrete, officielles: p.officielles, locataires: l.locataires }];
+    return [{ copro: p.copro, arrete: l.arrete, officielles: p.officielles, locataires: l.locataires }];
   }));
   return { aujourdhui, lignes, manquantes };
 }
