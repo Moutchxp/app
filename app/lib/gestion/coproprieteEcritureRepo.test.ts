@@ -413,7 +413,7 @@ describe('🔴🔴 fiche nouvelle : arrêté des comptes et AG officielles avec 
     const arrete = w.findIndex((x) => x.s.startsWith('UPDATE gestion_copropriete SET arrete_comptes_jour'));
     expect(iCopro).toBeGreaterThanOrEqual(0);
     expect(arrete).toBeGreaterThan(iCopro);
-    expect(w[arrete].p).toEqual(['7', 31, 12, AUTEUR.libelle]);
+    expect(w[arrete].p).toEqual(['7', 31, 12, 'Arnaud JOREL']); // (23/11/2026) prénom NOM de l'auteur, comme pour les AG
     const journal = w.find((x) => x.s.startsWith('INSERT INTO gestion_journal') && x.p.includes('31/12'))!;
     expect(journal.s).toContain("'copropriete', $1, 'copropriete_arrete_comptes'");
     const ags = w.filter((x) => x.s.startsWith('INSERT INTO gestion_copropriete_ag'));

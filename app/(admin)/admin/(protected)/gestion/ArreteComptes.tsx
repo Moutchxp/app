@@ -72,13 +72,16 @@ export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = fal
   const maxJour = mois === '' ? 31 : joursDuMois(Number(mois));
   return (
     <div className={`arc-arrete${alerteSiManquante && d.arrete === null ? ' arc-arrete--manquante' : ''}`} data-arrete-comptes={d.arrete === null ? 'vide' : 'renseignee'}>
-      <p className={`arc-arrete-ligne${alerteSiManquante && d.arrete === null ? ' arc-bandeau' : ''}`} {...(alerteSiManquante && d.arrete === null ? { role: 'status', 'data-arrete-bandeau': '' } : {})}>
+      {/* 🔴 Arno (23/11/2026) — « afficher la date d'arrêté des comptes en plus gros sur une seule ligne, et la légende concernant la date de saisie et
+          par qui en dessous, dans la police actuelle » */}
+      <p className={`arc-arrete-ligne arc-arrete-ligne--grande${alerteSiManquante && d.arrete === null ? ' arc-bandeau' : ''}`} {...(alerteSiManquante && d.arrete === null ? { role: 'status', 'data-arrete-bandeau': '' } : {})}>
         {alerteSiManquante && d.arrete === null && '⚠ '}<span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
         {d.arrete === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
           : <strong data-arrete-valeur={arreteFr(d.arrete)}>{arreteFr(d.arrete)}</strong>}
         {alerteSiManquante && d.arrete === null && <> — {MOT_ARRETE_MANQUANT}</>}
-        {d.arrete !== null && d.par !== null && <span className="loc-muet"> — saisie par {prenomNom(d.par)}{d.le ? ` le ${new Date(d.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}</span>}
       </p>
+      {d.arrete !== null && d.par !== null && (
+        <p className="loc-muet arc-arrete-qui" data-arrete-qui>saisie par {prenomNom(d.par)}{d.le ? ` le ${new Date(d.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}</p>)}
       {!edition ? (
         <button type="button" className={`svv-btn svv-btn-outline gst-btn arc-arrete-btn${d.arrete === null ? ' arc-arrete-btn--plein' : ''}`} onClick={ouvrir} data-arrete-modifier>
           {d.arrete === null ? 'Renseigner la date d’arrêté des comptes' : 'Modifier la date d’arrêté des comptes'}</button>
@@ -127,6 +130,8 @@ export const CSS_ARRETE_COMPTES = `
 .arc-arrete--manquante{padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft)}
 .arc-bandeau{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .arc-arrete-libelle{font-weight:800}
+.arc-arrete-ligne--grande{font-size:1.15rem;line-height:1.35}
+.arc-arrete-qui{margin:-4px 0 0;font-size:.85rem}
 .arc-arrete-vide{color:var(--color-svv-muted);font-style:italic}
 .arc-arrete-btn{align-self:stretch;min-height:44px;width:100%;box-sizing:border-box;margin:0}
 .arc-arrete-btn--plein{align-self:stretch;width:100%;box-sizing:border-box}
@@ -153,11 +158,12 @@ export function ArreteComptesLocal({ valeur, onChange, desactive = false }: { va
   const maxJour = mois === '' ? 31 : joursDuMois(Number(mois));
   return (
     <div className="arc-arrete" data-arrete-comptes={valeur === null ? 'vide' : 'renseignee'} data-arrete-local>
-      <p className="arc-arrete-ligne">
+      <p className="arc-arrete-ligne arc-arrete-ligne--grande">
         <span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
         {valeur === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
-          : <><strong data-arrete-valeur={arreteFr(valeur)}>{arreteFr(valeur)}</strong><span className="loc-muet"> — {MOT_ARRETE_AVEC_LA_FICHE}</span></>}
+          : <strong data-arrete-valeur={arreteFr(valeur)}>{arreteFr(valeur)}</strong>}
       </p>
+      {valeur !== null && <p className="loc-muet arc-arrete-qui" data-arrete-qui>{MOT_ARRETE_AVEC_LA_FICHE}</p>}
       {!edition ? (
         <button type="button" className={`svv-btn svv-btn-outline gst-btn arc-arrete-btn${valeur === null ? ' arc-arrete-btn--plein' : ''}`} disabled={desactive}
           onClick={() => { setJour(valeur === null ? '' : String(valeur.jour)); setMois(valeur === null ? '' : String(valeur.mois)); setTente(false); setEdition(true); }} data-arrete-modifier>

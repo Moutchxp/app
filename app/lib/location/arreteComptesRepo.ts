@@ -2,6 +2,19 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
 import { arreteFr, verifierArrete, type ArreteComptes, type ArreteComptesLu } from './arreteComptes';
+import { nomAuteurAg } from './agCoproprieteRepo';
+import { nomCollaborateur } from './texteCompteRendu';
+
+/**
+ * 🔴 Arno (23/11/2026) — « la légende concernant la date de saisie et par qui en dessous » : « saisie par Arnaud JOREL le … » (prénom NOM, pas l'adresse
+ * e-mail, comme pour les AG). Désormais ÉCRIT ainsi ; une saisie d'avant (adresse e-mail) est traduite à la lecture par son compte, si on le trouve.
+ */
+async function nomDeLaSaisie(par: string | null): Promise<string | null> {
+  if (par === null || !par.includes('@')) return par;
+  const { rows } = await query<{ prenom: string | null; nom: string | null }>('SELECT prenom, nom FROM admin_utilisateur WHERE lower(identifiant) = lower($1) LIMIT 1', [par]);
+  const n = rows[0] === undefined ? '' : nomCollaborateur(rows[0]);
+  return n === '' ? par : n;
+}
 
 /**
  * ══ 🔴 LA DATE D'ARRÊTÉ DES COMPTES DE LA COPROPRIÉTÉ (Arno, 23/11/2026, migration 512). IMPUR (base). ═════════════════════════════════════════
@@ -24,7 +37,9 @@ export async function lireArrete(coproprieteId: number): Promise<ArreteComptesLu
     ? `SELECT arrete_comptes_jour AS jour, arrete_comptes_mois AS mois, arrete_comptes_le::text AS le, arrete_comptes_par_libelle AS par
          FROM gestion_copropriete WHERE id = $1`
     : 'SELECT NULL::smallint AS jour, NULL::smallint AS mois, NULL::text AS le, NULL::text AS par FROM gestion_copropriete WHERE id = $1', [coproprieteId]);
-  return rows[0] === undefined ? null : versLu(rows[0]);
+  if (rows[0] === undefined) return null;
+  const lu = versLu(rows[0]);
+  return { ...lu, par: await nomDeLaSaisie(lu.par) };
 }
 
 /** Les dates d'arrêté de plusieurs copropriétés (le suivi des 20 %). Sans la 512 : aucune. */
@@ -57,13 +72,14 @@ export async function enregistrerArrete(d: { coproprieteId: unknown; jour: unkno
     const { rows: apres } = await q<Ligne>(
       `UPDATE gestion_copropriete SET arrete_comptes_jour = $2, arrete_comptes_mois = $3, arrete_comptes_le = now(), arrete_comptes_par_libelle = $4
         WHERE id = $1 RETURNING arrete_comptes_jour AS jour, arrete_comptes_mois AS mois, arrete_comptes_le::text AS le, arrete_comptes_par_libelle AS par`,
-      [id, v.arrete?.jour ?? null, v.arrete?.mois ?? null, auteur.libelle]);
+      [id, v.arrete?.jour ?? null, v.arrete?.mois ?? null, await nomAuteurAg(auteur)]);
     await q(
       `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
        VALUES ('copropriete', $1, 'copropriete_arrete_comptes', $2, $3, $4, $5, $6)`,
       [id, avant === null ? null : arreteFr(avant), v.arrete === null ? null : arreteFr(v.arrete),
         `date d’arrêté des comptes de « ${r.libelle} » : ${arreteFr(avant)} → ${arreteFr(v.arrete)}`, auteur.id, auteur.libelle]);
-    return { etat: 'ok' as const, data: versLu(apres[0]) };
+    const lu = versLu(apres[0]);
+    return { etat: 'ok' as const, data: { ...lu, par: await nomDeLaSaisie(lu.par) } };
   });
 }
 
@@ -81,7 +97,7 @@ export async function ecrireArreteDans(q: RequeteTx, coproprieteId: number | str
   const avant = versLu(r).arrete;
   if (arreteFr(avant) === arreteFr(arrete)) return;
   await q(`UPDATE gestion_copropriete SET arrete_comptes_jour = $2, arrete_comptes_mois = $3, arrete_comptes_le = now(), arrete_comptes_par_libelle = $4 WHERE id = $1`,
-    [coproprieteId, arrete.jour, arrete.mois, auteur.libelle]);
+    [coproprieteId, arrete.jour, arrete.mois, await nomAuteurAg(auteur)]);
   await q(
     `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
      VALUES ('copropriete', $1, 'copropriete_arrete_comptes', $2, $3, $4, $5, $6)`,

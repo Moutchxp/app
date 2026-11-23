@@ -134,3 +134,25 @@ describe('🔴 l’agencement du bloc « Date d’arrêté des comptes »', () =
     expect(container.querySelectorAll('.arc-arrete-boutons > button')).toHaveLength(2);
   });
 });
+
+/** 🔴 Arno (23/11/2026) — « afficher la date d'arrêté des comptes en plus gros sur une seule ligne, et la légende concernant la date de saisie et par qui en dessous ». */
+describe('🔴 la date en gros, la légende dessous', () => {
+  it('ligne 1 en gros : « Date d’arrêté des comptes : 01/03 » ; ligne 2 en petit gris : « saisie par Arnaud JOREL le 23/11/2026 »', async () => {
+    lu = { arrete: { jour: 1, mois: 3 }, par: 'Arnaud Jorel', le: '2026-11-23T09:00:00.000Z', disponible: true };
+    await rendre();
+    const l1 = container.querySelector('.arc-arrete-ligne') as HTMLElement;
+    expect(l1.textContent).toBe('Date d’arrêté des comptes : 01/03');
+    expect(l1.classList.contains('arc-arrete-ligne--grande')).toBe(true);
+    const l2 = container.querySelector('[data-arrete-qui]') as HTMLElement;
+    expect(l2.textContent).toBe('saisie par Arnaud JOREL le 23/11/2026');
+    expect(l2.classList.contains('loc-muet')).toBe(true);
+    expect(l1.nextElementSibling).toBe(l2);
+    const { CSS_ARRETE_COMPTES } = await import('./ArreteComptes');
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-ligne--grande{font-size:1.15rem;line-height:1.35}');
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-qui{margin:-4px 0 0;font-size:.85rem}');
+  });
+  it('non renseignée : une seule ligne, pas de légende', async () => {
+    await rendre();
+    expect(container.querySelector('[data-arrete-qui]')).toBeNull();
+  });
+});
