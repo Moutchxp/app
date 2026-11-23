@@ -311,18 +311,19 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cb744be3`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **36 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852` et `f4bf2c9b`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `36b1a2ea`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **42 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b` et `3188bac6`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
   des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
-  `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie » — détail plus bas) : `b3819054`,
+  `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie », `520ce23d` → `36b1a2ea`, retours du 23/11 au
+  soir (date d'AG, agencement de l'arrêté, texte propriétaire modifiable, bouton copropriété, case « Immeuble en copropriété ») — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `cb744be3`) : `npm test` VERT (1 865 fichiers, 27 774 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `36b1a2ea`) : `npm test` VERT (1 865 fichiers, 27 783 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -514,6 +515,24 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   - ⚠ Constat en recette (23/11, 21:49) : une copropriété 315 « 1 rue du Préavis de Test (FICTIF) » a été créée (auteur a.jorel@…) sans
     requête d'écriture dans le journal du serveur de recette ni geste de l'agent (seules des lectures « parcelle ») — origine à éclaircir
     avec Arno (autre session, script ?). Non touchée.
+  - `520ce23d` — « + Ajouter une AG » → « + Ajouter une date d'AG » (fiche nouvelle et enregistrée), pleine largeur partout ; formulaire « Nouvelle
+    date d'AG ». (Constat de `3188bac6` sur la largeur : RÉSOLU.)
+  - `77c9ce31` — bloc « Date d'arrêté des comptes » (fiche et sortie) : Jour / Mois et Annuler / Enregistrer en grille 50 / 50, même hauteur,
+    empilés s'ils ne tiennent pas (à 390 px ils tiennent : 148 px chacun) ; « Renseigner » ET « Modifier » pleine largeur.
+  - `fc7830e2` — « Valider la sortie » : « Texte ajouté au mail du (des) locataire(s) — modifiable » et « Texte ajouté au mail du (des)
+    propriétaire(s) — modifiable » ; le texte propriétaire devient une zone modifiable (calculé et en direct tant qu'on n'y touche pas, puis
+    gardé et envoyé tel quel : `phraseProprietaire` côté serveur) ; grisée « Aucun mail au propriétaire pour cette sortie » sans propriétaire
+    coché ; récapitulatif : ligne « Texte ajouté au mail du (des) propriétaire(s) ». Aucun propriétaire des biens d'essai n'a d'e-mail : la
+    zone ACTIVE n'est éprouvée que par les tests.
+  - `1883f206` — en tête du bloc 20 % : « Créer une copropriété pour cette adresse » / « Accéder à la copropriété » (pleine largeur, LA fiche
+    Copropriété du bien, relecture à la fermeture) ; « Créer une copropriété pour la renseigner » (cb744be3) remplacé. 🔴 QUESTION OUVERTE : le
+    bouton « Créer une copropriété » de « Ce bien n'est relié à aucune copropriété » (même action) est GARDÉ — doublon visible sans
+    copropriété ; le retirer seulement avec l'accord d'Arno.
+  - `36b1a2ea` — copropriété rattachée au bien : « Immeuble en copropriété » coché d'office, plus de « Copropriété non renseignée sur la fiche
+    du bien ». ÉCART = DONNÉE DU BIEN : biens 442-448 (1 rue du Préavis de Test (FICTIF)) au champ « Copropriété » vide, alors que la
+    copropriété 315 (créée par la fiche le 23/11 à 21:49) porte la clé de leur adresse ; la fiche Copropriété ne renseigne pas ce champ.
+    Rien corrigé en base. Copropriété 315 non touchée (AG du 23/04/2026 et du 04/11/2026 saisies à 22:14 par Arno).
+  - Captures 61-71.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
