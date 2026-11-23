@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
+import { libelleCaseMentionAg,
   avecMentionAgLocataire, avecMentionAgProprietaire, derniereAgTenue, entreesAAjouter, ligneEntreeAg, lignesAg, moisAnnee, propositionAg, prochaineAgOfficielle,
   sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, mentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO, projectionPassee, texteAlerteProjection, MOTIF_AG_PROJETEE_PASSEE, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
 import { mailsValidationSortie, PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, type DonneesValidationSortie } from './validationSortie';
@@ -82,11 +82,21 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
   it('la mention de la prochaine AG dans le paragraphe des locataires et la phrase des propriétaires ; retirée sans trace ; texte modifié gardé', () => {
     expect(moisAnnee('2027-03-12')).toBe('mars 2027');
     const p = avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-03-12');
-    expect(p).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale ordinaire de mars 2027. Une régularisation');
-    expect(avecMentionAgLocataire(p, '2027-06-01')).toContain('de juin 2027.');
+    // 🔴 Arno (23/11/2026) — pour le LOCATAIRE : projetée (ou statut à choisir) = « attendue vers [mois année] (date approximative…) »
+    expect(p).toContain('couvrant votre période d’occupation, lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété). Une régularisation');
+    expect(p).not.toContain('12/03/2027');
+    expect(avecMentionAgLocataire(p, '2027-06-01', 'projetee')).toContain('attendue vers juin 2027 (date approximative');
+    // officielle = « prévue le JJ/MM/AAAA »
+    expect(avecMentionAgLocataire(p, '2027-07-17', 'officielle')).toContain('couvrant votre période d’occupation, lors de l’assemblée générale ordinaire prévue le 17/07/2027. Une régularisation');
+    expect(sansMentionAg(avecMentionAgLocataire(p, '2027-07-17', 'officielle'))).toBe(PARAGRAPHE_RETENUE_LOCATAIRE);
+    // l'ancienne mention (« prévue en principe … de mars 2027 ») se retire et se remplace de même
+    expect(avecMentionAgLocataire(`${PARAGRAPHE_RETENUE_LOCATAIRE.replace('d’occupation.', 'd’occupation, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.')}`, '2027-07-17', 'officielle'))
+      .not.toContain('prévue en principe');
     expect(avecMentionAgLocataire(p, '2027-06-01')).not.toContain('mars 2027');
     expect(sansMentionAg(p)).toBe(PARAGRAPHE_RETENUE_LOCATAIRE);
-    expect(avecMentionAgLocataire('Provision gardée jusqu’à l’approbation des comptes. Merci.', '2027-03-12')).toBe('Provision gardée jusqu’à l’approbation des comptes, prévue en principe lors de l’assemblée générale ordinaire de mars 2027. Merci.');
+    expect(avecMentionAgLocataire('Provision gardée jusqu’à l’approbation des comptes. Merci.', '2027-03-12', 'officielle')).toBe('Provision gardée jusqu’à l’approbation des comptes, lors de l’assemblée générale ordinaire prévue le 12/03/2027. Merci.');
+    expect(libelleCaseMentionAg('2027-07-17', 'projetee')).toBe('Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire attendue vers juillet 2027 (date approximative)');
+    expect(libelleCaseMentionAg('2027-07-17', 'officielle')).toBe('Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire prévue le 17/07/2027');
     expect(avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2027-03-12'))
       .toBe('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
   });
@@ -99,7 +109,8 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     retenue: { appliquee: true, paragrapheLocataire: avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-03-12'),
       phraseProprietaire: avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2027-03-12'), ag: { derniere: '2026-03-12', prochaine: '2027-03-12', statut: 'projetee' } } };
     const m = mailsValidationSortie(d);
-    expect(m.parties[0].mail.texte).toContain('assemblée générale ordinaire de mars 2027');
+    expect(m.parties[0].mail.texte).toContain('assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété)');
+    expect(m.parties[0].mail.texte).not.toContain('12/03/2027');
     expect(m.parties[1].mail.texte).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
     expect(m.interne!.texte).toContain('Dernière AGO (assemblée générale ordinaire) : 12/03/2026\nProchaine AGO : 12/03/2027 (date projetée)');
     const sans = mailsValidationSortie({ ...d, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } });

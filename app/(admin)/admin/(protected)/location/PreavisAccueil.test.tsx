@@ -3615,7 +3615,12 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
   it('« Mentionner … l’assemblée générale de mars 2027 » : le paragraphe des locataires et la phrase des propriétaires la portent ; décoché : retirée', async () => {
     await ouvrir();
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
-    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('couvrant votre période d’occupation, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
+    // 🔴 Arno (23/11/2026) — date projetée : « attendue vers mars 2027 (date approximative…) », jamais le jour présenté comme fixé
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('couvrant votre période d’occupation, lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété).');
+    expect(q('[data-ag-mention-libelle]').textContent).toBe('Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire attendue vers mars 2027 (date approximative)');
+    // officielle : « prévue le 12/03/2027 » (le paragraphe suit le statut)
+    act(() => q('[data-ag-statut-choix="officielle"]').click());
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
     expect(q('[data-retenue-proprietaires]').textContent).toContain('approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');

@@ -6,7 +6,7 @@ import type { ArreteComptes as Arrete } from '../../../../lib/location/arreteCom
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
-  AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
+  AIDE_AGO, libelleCaseMentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 import { ArreteComptes } from '../gestion/ArreteComptes';
@@ -221,7 +221,8 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       {/* e) la mention de la prochaine AG dans le paragraphe « 20 % » (proposée, modifiable) */}
       {s.prochaine !== '' && /^\d{4}-\d{2}-\d{2}$/.test(s.prochaine) && (
         <label className="pvv-case" data-ag-mention><input type="checkbox" checked={s.mention} disabled={desactive} onChange={(e) => onChange({ ...s, mention: e.target.checked })} />
-          <span>Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire de {moisAnnee(s.prochaine)} ({dateFr(s.prochaine)})</span></label>)}
+          {/* 🔴 Arno (23/11/2026) — projetée : « attendue vers [mois année] (date approximative) » ; officielle : « prévue le JJ/MM/AAAA » */}
+          <span data-ag-mention-libelle>{libelleCaseMentionAg(s.prochaine, s.statut)}</span></label>)}
       {ficheOuverte && <FicheCopropriete lotId={lu.lotId} onFerme={() => { setFicheOuverte(false); onRelire?.(); }} />}
       {s.alerte !== null && <AlerteProjection alerte={s.alerte} derniere={s.derniere} jour={jour}
         onFermer={() => onChange({ ...s, alerte: null })}

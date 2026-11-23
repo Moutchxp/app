@@ -103,7 +103,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   /** la saisie AG change : la mention de la prochaine AG suit dans le paragraphe des locataires (le reste du texte, modifié, est gardé) */
   const changerAg = (n: SaisieAgEcran): void => {
     setSaisieAg(n);
-    setParagrapheRetenue((t) => (n.mention && /^\d{4}-\d{2}-\d{2}$/.test(n.prochaine) ? avecMentionAgLocataire(t, n.prochaine) : sansMentionAg(t)));
+    setParagrapheRetenue((t) => (n.mention && /^\d{4}-\d{2}-\d{2}$/.test(n.prochaine) ? avecMentionAgLocataire(t, n.prochaine, n.statut) : sansMentionAg(t)));
   };
   const phraseProprietaires = saisieAg !== null && saisieAg.mention && /^\d{4}-\d{2}-\d{2}$/.test(saisieAg.prochaine)
     ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.prochaine) : PHRASE_RETENUE_PROPRIETAIRE;
