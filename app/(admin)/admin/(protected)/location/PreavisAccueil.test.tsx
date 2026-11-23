@@ -3558,6 +3558,18 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect([...document.querySelectorAll('[data-resume-ag]')].map((x) => x.textContent)).toEqual(['Dernière AGO (assemblée générale ordinaire)12/03/2026', 'Prochaine AGO12/03/2027 (date projetée)']);
     expect(q('[data-resume-ag-copropriete]').textContent).toBe('CopropriétéRésidence Fictive');
   });
+  // 🔴 Arno (23/11/2026) — « Le récapitulatif avant validation reprend la même phrase et la date »
+  it('récapitulatif : l’AGO indiquée au(x) locataire(s) et le texte EXACT ajouté au mail, comme dans la fenêtre', async () => {
+    await ouvrir();
+    act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
+    const phrase = q('[data-ag-texte-mail-phrase]').textContent;
+    act(() => q('[data-ag-confirmer]').click());
+    await act(async () => { recap().click(); }); await attendre();
+    const ligne = q('[data-resume-ago-locataire]').textContent ?? '';
+    expect(ligne).toContain('attendue vers mars 2027 (date approximative)');
+    expect(ligne).toContain(`Texte ajouté au mail : ${phrase}`);
+    expect(String((posts.at(-1) as { paragrapheRetenue?: string }).paragrapheRetenue)).toContain(String(phrase).replace(/^« … /, '').replace(/ »$/, ''));
+  });
   it('rien de connu : dernière AG vide, en rouge, bloquante ; la saisir propose la prochaine à + 1 an', async () => {
     luAg = LU({ proposition: { derniere: null, prochaine: null } });
     await ouvrir();
@@ -3617,7 +3629,9 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     // 🔴 Arno (23/11/2026) — date projetée : « attendue vers mars 2027 (date approximative…) », jamais le jour présenté comme fixé
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('couvrant votre période d’occupation, lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété).');
-    expect(q('[data-ag-mention-libelle]').textContent).toBe('Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire attendue vers mars 2027 (date approximative)');
+    // 🔴 Arno (23/11/2026, point 10) — la case dit en clair l'AGO qui permettra de restituer les 20 % (ici l'arrêté n'est pas connu : incertaine)
+    expect(q('[data-ag-mention-libelle]').textContent).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2027 (date approximative) (estimation incertaine : date d’arrêté des comptes manquante).');
+    expect(q('[data-ag-texte-mail-phrase]').textContent).toBe('« … lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété) »');
     // officielle : « prévue le 12/03/2027 » (le paragraphe suit le statut)
     act(() => q('[data-ag-statut-choix="officielle"]').click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('lors de l’assemblée générale ordinaire prévue le 12/03/2027.');

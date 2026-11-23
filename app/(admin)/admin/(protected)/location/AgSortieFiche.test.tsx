@@ -17,7 +17,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
 }));
 const arrete = vi.fn();
 vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return null; } }));
-const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee, ARRETE_SANS_COPROPRIETE } = await import('./AgSortie');
+const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee, ARRETE_SANS_COPROPRIETE, agoQuiCompte, libelleCaseAgoQuiCompte, texteAjouteAuMail, AIDE_PROCHAINE_AGO } = await import('./AgSortie');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement; let root: Root;
@@ -70,17 +70,14 @@ describe('🔴 Arno (23/11/2026) — copropriété rattachée : ce qui manque es
 
 describe('🔴 Arno (23/11/2026) — « Prochaine AGO » PRÉREMPLIE par le calcul du suivi des 20 % (b0453dc2), option A', () => {
   const JOUR = '2026-11-23';
-  it('projection après l’arrêté qui clôt l’exercice de la sortie, jamais avant la validation ; arrêté inconnu : après la validation', () => {
-    expect(prochaineCalculee({ officielles: ['2026-03-25'], derniere: '', dateSortie: '2026-11-15', arrete: { jour: 31, mois: 12 }, jour: JOUR }))
-      .toEqual({ date: '2027-03-25', statut: 'projetee' });
-    expect(prochaineCalculee({ officielles: ['2026-03-25'], derniere: '', dateSortie: '2026-11-15', arrete: { jour: 30, mois: 6 }, jour: JOUR }))
-      .toEqual({ date: '2028-03-25', statut: 'projetee' });
-    expect(prochaineCalculee({ officielles: ['2026-09-22'], derniere: '', dateSortie: '', arrete: null, jour: JOUR }))
-      .toEqual({ date: '2027-09-22', statut: 'projetee' });
-    expect(prochaineCalculee({ officielles: [], derniere: '', dateSortie: '', arrete: null, jour: JOUR })).toBeNull();
+  // 🔴 Arno (23/11/2026, point 10) — « Prochaine AGO » = celle de la COPROPRIÉTÉ (la première après le jour de la validation) ; l'AGO QUI COMPTE est à part
+  it('la prochaine AGO de la copropriété : la première après le jour de la validation (officielle de l’année, sinon projetée)', () => {
+    expect(prochaineCalculee({ officielles: ['2026-03-25'], derniere: '', jour: JOUR })).toEqual({ date: '2027-03-25', statut: 'projetee' });
+    expect(prochaineCalculee({ officielles: ['2026-09-22'], derniere: '', jour: JOUR })).toEqual({ date: '2027-09-22', statut: 'projetee' });
+    expect(prochaineCalculee({ officielles: ['2026-03-25', '2027-03-15'], derniere: '', jour: JOUR })).toEqual({ date: '2027-03-15', statut: 'officielle' });
+    expect(prochaineCalculee({ officielles: [], derniere: '', jour: JOUR })).toBeNull();
     // la dernière AGO SAISIE dans la fenêtre sert aussi de base
-    expect(prochaineCalculee({ officielles: [], derniere: '2026-06-10', dateSortie: '2026-11-15', arrete: { jour: 31, mois: 12 }, jour: JOUR }))
-      .toEqual({ date: '2027-06-10', statut: 'projetee' });
+    expect(prochaineCalculee({ officielles: [], derniere: '2026-06-10', jour: JOUR })).toEqual({ date: '2027-06-10', statut: 'projetee' });
   });
   it('à l’ouverture : la prochaine AGO préremplie par le calcul, « Date projetée » sélectionné d’office (Arno, 23/11) ; une officielle à venir reste prioritaire', () => {
     const lu = luAgPropre({ ...LU, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },
@@ -162,5 +159,45 @@ describe('🔴 Arno (23/11/2026) — « sélectionner par défaut le bouton "Dat
   });
   it('sans calcul possible (aucune AGO connue) : aucun bouton présélectionné', () => {
     expect(saisieAgInitiale(LU, '2026-11-23').statut).toBeNull();
+  });
+});
+
+describe('🔴🔴 Arno (23/11/2026) — « l’utilisateur […] doit clairement savoir pour quelle date il prévient son ou ses locataires » : l’AGO QUI COMPTE', () => {
+  const JOUR = '2026-11-23';
+  const base = { officielles: ['2026-03-25'], derniere: '', prochaine: '2027-03-25', statut: 'projetee' as const, arrete: { jour: 31, mois: 12 }, jour: JOUR };
+  it('sortie APRÈS l’arrêté : l’AGO qui compte (2028) ≠ la prochaine AGO (2027) — c’est elle qui part au locataire', () => {
+    const a = agoQuiCompte({ ...base, dateSortie: '2027-01-10' })!;
+    expect(a).toEqual({ date: '2028-03-25', statut: 'projetee', incertaine: false, cloture: '2027-12-31' });
+    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2028 (date approximative) — exercice clôturé le 31/12/2027.');
+    expect(texteAjouteAuMail(a)).toBe('lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété)');
+  });
+  it('sortie avant l’arrêté : l’AGO qui compte = la prochaine ; la prochaine saisie OFFICIELLE compte comme officielle (« prévue le … »)', () => {
+    const a = agoQuiCompte({ ...base, dateSortie: '2026-11-15', prochaine: '2027-03-15', statut: 'officielle' })!;
+    expect(a).toEqual({ date: '2027-03-15', statut: 'officielle', incertaine: false, cloture: '2026-12-31' });
+    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : prévue le 15/03/2027 — exercice clôturé le 31/12/2026.');
+    // l'année suivante se recale sur l'officielle
+    expect(agoQuiCompte({ ...base, dateSortie: '2027-01-10', prochaine: '2027-03-15', statut: 'officielle' })?.date).toBe('2028-03-15');
+  });
+  it('arrêté MANQUANT : « estimation incertaine : date d’arrêté des comptes manquante »', () => {
+    const a = agoQuiCompte({ ...base, arrete: null, dateSortie: '2026-11-15' })!;
+    expect(a.incertaine).toBe(true);
+    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2027 (date approximative) (estimation incertaine : date d’arrêté des comptes manquante).');
+  });
+  it('la fenêtre : aide sous « Prochaine AGO » ; case = AGO qui compte ; encadré « Texte ajouté au mail du locataire : » = la phrase EXACTE du paragraphe', async () => {
+    const lu = luAgPropre({ ...LU, copropriete: { id: 310, libelle: 'Copro' }, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },
+      proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: null } });
+    const change = vi.fn();
+    const s = { ...saisieAgInitiale(lu), mention: true };
+    await act(async () => { root.render(createElement(AgSortie, { lu, s, onChange: change, desactive: false, dateSortie: '2027-01-10' })); });
+    expect(container.querySelector('[data-ag-aide-prochaine]')?.textContent).toBe(AIDE_PROCHAINE_AGO);
+    expect(AIDE_PROCHAINE_AGO).toBe('Prochaine AGO de la copropriété — pas forcément celle qui libère les 20 % : voir ci-dessous.');
+    expect(container.querySelector('[data-ag-mention-libelle]')?.textContent).toContain('attendue vers mars 2028 (date approximative) — exercice clôturé le 31/12/2027');
+    const phrase = container.querySelector('[data-ag-texte-mail-phrase]')?.textContent ?? '';
+    // la fenêtre remonte l'AGO qui compte : le paragraphe du mail porte la MÊME phrase
+    const ago = (change.mock.calls.at(-1)?.[0] as { ago: { date: string; statut: 'projetee' } }).ago;
+    expect(ago).toMatchObject({ date: '2028-03-25', statut: 'projetee' });
+    const { avecMentionAgLocataire } = await import('../../../../lib/location/agCopropriete');
+    const { PARAGRAPHE_RETENUE_LOCATAIRE } = await import('../../../../lib/location/validationSortie');
+    expect(avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, ago.date, ago.statut)).toContain(phrase.replace(/^« … /, '').replace(/ »$/, ''));
   });
 });

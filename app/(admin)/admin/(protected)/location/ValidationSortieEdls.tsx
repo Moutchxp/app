@@ -21,7 +21,7 @@ import {
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
-import { AgSortie, corpsAg, CSS_AG_SORTIE, luAgPropre, saisieAgInitiale, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
+import { AgSortie, corpsAg, CSS_AG_SORTIE, libelleCaseAgoQuiCompte, luAgPropre, saisieAgInitiale, texteAjouteAuMail, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
 import { avecMentionAgLocataire, avecMentionAgProprietaire, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
 /**
@@ -103,7 +103,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   /** la saisie AG change : la mention de la prochaine AG suit dans le paragraphe des locataires (le reste du texte, modifié, est gardé) */
   const changerAg = (n: SaisieAgEcran): void => {
     setSaisieAg(n);
-    setParagrapheRetenue((t) => (n.mention && /^\d{4}-\d{2}-\d{2}$/.test(n.prochaine) ? avecMentionAgLocataire(t, n.prochaine, n.statut) : sansMentionAg(t)));
+    // 🔴 Arno (23/11/2026) — l'AGO QUI COMPTE pour le locataire (et non la simple prochaine AGO) part dans son paragraphe
+    setParagrapheRetenue((t) => (n.mention && n.ago ? avecMentionAgLocataire(t, n.ago.date, n.ago.statut) : sansMentionAg(t)));
   };
   const phraseProprietaires = saisieAg !== null && saisieAg.mention && /^\d{4}-\d{2}-\d{2}$/.test(saisieAg.prochaine)
     ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.prochaine) : PHRASE_RETENUE_PROPRIETAIRE;
@@ -226,6 +227,11 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         <div><dt>Action</dt><dd>Sortie effective le {dateFrPreavis(a.date)} — {a.vacant ? 'le logement devient libre' : 'le logement reste loué'}</dd></div>
         <div><dt>Locataires concernés</dt><dd>{l.locataires.filter((x) => sortants.includes(x.occupationId)).map((x) => x.nom).join(', ')}</dd></div>
         {a.ag !== undefined && <LignesAg ag={a.ag} />}
+        {/* 🔴 Arno (23/11/2026) — le récapitulatif reprend l'AGO indiquée au locataire et la phrase EXACTE ajoutée à son mail (la même pour tous) */}
+        {a.ag !== undefined && saisieAg !== null && saisieAg.mention && saisieAg.ago != null && (
+          <div data-resume-ago-locataire><dt>AGO indiquée au(x) locataire(s)</dt>
+            <dd>{libelleCaseAgoQuiCompte(saisieAg.ago).replace(/^Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : /, '')}
+              <br />Texte ajouté au mail : « … {texteAjouteAuMail(saisieAg.ago)} »</dd></div>)}
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
       <p className="pss-sous-titre" data-nombre-mails>{a.mails.length === 1 ? '1 mail partira.' : `${a.mails.length} mails partiront.`}</p>

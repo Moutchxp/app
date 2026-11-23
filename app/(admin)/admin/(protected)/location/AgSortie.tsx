@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { suiviVingtPourcent } from '../../../../lib/location/vingtPourcent';
+import { agoApres, suiviVingtPourcent, MENTION_INCERTAINE } from '../../../../lib/location/vingtPourcent';
 import type { ArreteComptes as Arrete } from '../../../../lib/location/arreteComptes';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
-  AIDE_AGO, libelleCaseMentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
+  AIDE_AGO, mentionAgLocataire, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 import { ArreteComptes } from '../gestion/ArreteComptes';
@@ -44,16 +44,43 @@ export interface LuAgSortie {
 }
 
 const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const offsDe = (officielles: readonly string[], ...autres: (string | null)[]): string[] =>
+  [...new Set([...officielles, ...autres.filter((d): d is string => d !== null && DATE_ISO.test(d))])].sort();
+
 /**
- * 🔴🔴 Arno (23/11/2026) — LA PROCHAINE AGO PRÉREMPLIE PAR LE CALCUL DU SUIVI DES 20 % (b0453dc2), à la place de « dernière + 1 an » : la première AGO
- * après l'arrêté des comptes qui clôt l'exercice de la sortie (arrêté inconnu : après la validation), une projection n'étant JAMAIS antérieure au
- * jour de la validation ; les AGO officielles connues (et la dernière AGO saisie ici) servent de base. `null` : aucune AGO connue. PUR.
+ * 🔴🔴 Arno (23/11/2026) — « PROCHAINE AGO » = LA PROCHAINE AGO DE LA COPROPRIÉTÉ (« pas forcément celle qui libère les 20 % ») : la première AGO après
+ * le jour de la validation, l'officielle de l'année si elle est connue, sinon projetée sur le jour et le mois de la dernière AGO officielle (calcul
+ * b0453dc2, `agoApres`), à la place de « dernière + 1 an ». Les AGO officielles connues et la dernière AGO saisie ici servent de base. `null` :
+ * aucune AGO connue. PUR.
  */
-export function prochaineCalculee(o: { officielles: readonly string[]; derniere: string; dateSortie: string; arrete: Arrete | null; jour: string }): { date: string; statut: StatutAg } | null {
-  const offs = [...new Set([...o.officielles, ...(DATE_ISO.test(o.derniere) ? [o.derniere] : [])])].sort();
-  const r = suiviVingtPourcent({ dateSortie: DATE_ISO.test(o.dateSortie) ? o.dateSortie : o.jour, valideLe: o.jour, arrete: o.arrete, officielles: offs, aujourdhui: o.jour });
-  return r.etat === 'ok' ? { date: r.ago.date, statut: r.ago.statut } : null;
+export function prochaineCalculee(o: { officielles: readonly string[]; derniere: string; jour: string }): { date: string; statut: StatutAg } | null {
+  const a = agoApres(offsDe(o.officielles, o.derniere), o.jour, o.jour);
+  return a === null ? null : { date: a.date, statut: a.statut };
 }
+
+/** L'AGO QUI COMPTE pour le locataire, telle que la fenêtre la montre et l'envoie. */
+export interface AgoQuiCompteEcran { date: string; statut: StatutAg; incertaine: boolean; cloture: string | null }
+/**
+ * 🔴🔴 Arno (23/11/2026) — « l'utilisateur, avant de valider la sortie et l'envoi du mail, doit clairement savoir pour quelle date il prévient son ou ses
+ * locataires » : l'AGO QUI COMPTE (calcul b0453dc2 : exercice clos au premier arrêté ≥ date de sortie, puis première AGO après cet arrêté ; arrêté
+ * inconnu : après la validation, « incertaine »), et non la simple « Prochaine AGO ». Une prochaine AGO saisie « officielle » compte comme une AGO
+ * officielle (elle sera écrite sur la copropriété). `null` : aucune AGO connue. PUR.
+ */
+export function agoQuiCompte(o: { officielles: readonly string[]; derniere: string; prochaine: string; statut: StatutAg | null; dateSortie: string; arrete: Arrete | null; jour: string }): AgoQuiCompteEcran | null {
+  const offs = offsDe(o.officielles, o.derniere, o.statut === 'officielle' ? o.prochaine : null);
+  const r = suiviVingtPourcent({ dateSortie: DATE_ISO.test(o.dateSortie) ? o.dateSortie : o.jour, valideLe: o.jour, arrete: o.arrete, officielles: offs, aujourdhui: o.jour });
+  return r.etat === 'ok' ? { date: r.ago.date, statut: r.ago.statut, incertaine: r.incertaine, cloture: r.exercice } : null;
+}
+
+/** Le libellé de la case, en clair : l'AGO qui permettra de restituer les 20 %, son statut, l'exercice (ou l'incertitude). PUR. */
+export function libelleCaseAgoQuiCompte(a: AgoQuiCompteEcran): string {
+  const quand = a.statut === 'officielle' ? `prévue le ${dateFr(a.date)}` : `attendue vers ${moisAnnee(a.date)} (date approximative)`;
+  const exercice = a.cloture === null ? ` (estimation incertaine : date d’arrêté des comptes manquante)` : ` — exercice clôturé le ${dateFr(a.cloture)}`;
+  return `Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : ${quand}${exercice}.`;
+}
+/** Le texte EXACT ajouté au paragraphe du locataire (sans la virgule d'attache). PUR. */
+export const texteAjouteAuMail = (a: AgoQuiCompteEcran): string => mentionAgLocataire(a.date, a.statut).replace(/^, /, '');
+export const AIDE_PROCHAINE_AGO = 'Prochaine AGO de la copropriété — pas forcément celle qui libère les 20 % : voir ci-dessous.';
 
 export interface SaisieAgEcran {
   derniere: string;
@@ -69,6 +96,8 @@ export interface SaisieAgEcran {
   copro: 'rattacher' | 'aucune';
   rattacher: number | null;
   coproOui: boolean;
+  /** 🔴 Arno (23/11/2026) — l'AGO QUI COMPTE pour le locataire (tenue à jour par la fenêtre) : c'est elle que la case et le mail indiquent */
+  ago?: AgoQuiCompteEcran | null;
 }
 
 /** Aujourd'hui à Paris, « AAAA-MM-JJ ». */
@@ -92,10 +121,13 @@ export function saisieAgInitiale(lu: LuAgSortie, jour: string = aujourdhuiParis(
   // qui n'est jamais antérieure au jour de la validation (l'ancienne « dernière + 1 an » déjà passée ne peut plus se produire)
   const officielleAVenir = p.prochaine !== null && p.prochaine.statut === 'officielle';
   // 🔴 Arno (23/11/2026, option A) — dernière AGO de plus d'un an : la décision du 17/11 d'abord (champ vide, alerte, sortie bloquée)
-  const calc = officielleAVenir || p.projectionPerimee ? null : prochaineCalculee({ officielles: lu.officielles, derniere: p.derniere?.date ?? '', dateSortie: '', arrete: lu.arrete, jour });
-  return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine: calc?.date ?? p.prochaine?.date ?? '', prochaineTouchee: false,
-    // 🔴 Arno (23/11/2026) — « lorsque la date est calculée automatiquement […] il faut sélectionner par défaut le bouton "Date projetée" »
-    statut: calc !== null ? calc.statut : p.prochaine?.statut ?? null, mention: false,
+  const calc = officielleAVenir || p.projectionPerimee ? null : prochaineCalculee({ officielles: lu.officielles, derniere: p.derniere?.date ?? '', jour });
+  const prochaine = calc?.date ?? p.prochaine?.date ?? '';
+  // 🔴 Arno (23/11/2026) — « lorsque la date est calculée automatiquement […] il faut sélectionner par défaut le bouton "Date projetée" »
+  const statut = calc !== null ? calc.statut : p.prochaine?.statut ?? null;
+  // l'AGO qui compte (date de sortie pas encore saisie : le jour) ; dernière AGO de plus d'un an non confirmée (option A) : rien
+  const ago = p.projectionPerimee ? null : agoQuiCompte({ officielles: lu.officielles, derniere: p.derniere?.date ?? '', prochaine, statut, dateSortie: '', arrete: lu.arrete, jour });
+  return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine, prochaineTouchee: false, statut, mention: false, ago,
     // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre (sans calcul possible seulement)
     alerte: calc === null && p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
     coproOui: false };
@@ -138,14 +170,20 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
   // vide, alerte, sortie bloquée) : aucun préremplissage ; confirmée comme référence ou corrigée, la prochaine AGO suit le calcul
   const perimee = DATE_ISO.test(s.derniere) && !s.derniereConfirmee && projectionPassee(s.derniere, jour) !== null;
   const suit = !s.prochaineTouchee && officielleConnue === null && !perimee;
-  const calc = (derniere: string) => prochaineCalculee({ officielles: lu.officielles, derniere, dateSortie, arrete, jour });
+  const calc = (derniere: string) => prochaineCalculee({ officielles: lu.officielles, derniere, jour });
   const calcule = calc(s.derniere);
+  // 🔴 Arno (23/11/2026) — l'AGO QUI COMPTE pour le locataire (date de sortie, arrêté, AGO officielles, dernière saisie, prochaine si officielle)
+  const ago = perimee ? null : agoQuiCompte({ officielles: lu.officielles, derniere: s.derniere, prochaine: s.prochaine, statut: s.statut, dateSortie, arrete, jour });
+  const cleAgo = ago === null ? '' : `${ago.date}|${ago.statut}|${ago.incertaine}|${ago.cloture ?? ''}`;
+  const cleAgoSaisie = s.ago == null ? '' : `${s.ago.date}|${s.ago.statut}|${s.ago.incertaine}|${s.ago.cloture ?? ''}`;
   const projection = suit && calcule !== null && calcule.statut === 'projetee' && calcule.date === s.prochaine;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // 🔴 Arno (23/11/2026) — préremplie par le calcul : « Date projetée » sélectionné d'office (sauf statut déjà choisi pour cette date)
   useEffect(() => {
-    if (suit && calcule !== null && (calcule.date !== s.prochaine || s.statut === null)) onChange({ ...s, prochaine: calcule.date, statut: s.statut ?? calcule.statut, alerte: null });
-  }, [suit, calcule?.date, s.prochaine, s.statut]);
+    const preremplir = suit && calcule !== null && (calcule.date !== s.prochaine || s.statut === null);
+    if (!preremplir && cleAgo === cleAgoSaisie) return;
+    onChange({ ...s, ...(preremplir && calcule !== null ? { prochaine: calcule.date, statut: s.statut ?? calcule.statut, alerte: null } : {}), ago });
+  }, [suit, calcule?.date, s.prochaine, s.statut, cleAgo, cleAgoSaisie]);
   const changerDerniere = (d: string): void => {
     const libre = !s.prochaineTouchee && officielleConnue === null;
     // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : pas conservée, la fenêtre d'alerte s'ouvre (gardé, option A du 23/11)
@@ -214,6 +252,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
             onChange({ ...s, prochaine: e.target.value, prochaineTouchee: true, statut });
           }} data-ag-prochaine /></label>
       {projection && <p className="loc-muet" data-ag-projection>{MENTION_PROJECTION}</p>}
+      <p className="loc-muet vag-aide" data-ag-aide-prochaine>{AIDE_PROCHAINE_AGO}</p>
       <div className={`vag-statut${enDefaut('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine AGO" data-ag-statut={s.statut ?? 'aucun'}>
         {(['projetee', 'officielle'] as const).map((x) => (
           <button key={x} type="button" className="pva-segment" aria-pressed={s.statut === x} disabled={desactive} onClick={() => {
@@ -230,11 +269,18 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
             : <>renseignée par {prenomNom(lu.moi)}</>}</p>)}
       {!v.ok && <p className="cp-refus" role="status" data-ag-message>{v.motif}</p>}
 
-      {/* e) la mention de la prochaine AG dans le paragraphe « 20 % » (proposée, modifiable) */}
-      {s.prochaine !== '' && /^\d{4}-\d{2}-\d{2}$/.test(s.prochaine) && (
-        <label className="pvv-case" data-ag-mention><input type="checkbox" checked={s.mention} disabled={desactive} onChange={(e) => onChange({ ...s, mention: e.target.checked })} />
-          {/* 🔴 Arno (23/11/2026) — projetée : « attendue vers [mois année] (date approximative) » ; officielle : « prévue le JJ/MM/AAAA » */}
-          <span data-ag-mention-libelle>{libelleCaseMentionAg(s.prochaine, s.statut)}</span></label>)}
+      {/* e) 🔴🔴 Arno (23/11/2026) — la mention dans le paragraphe « 20 % » du LOCATAIRE porte l'AGO QUI COMPTE pour lui (celle qui permettra de
+          restituer ses 20 %), pas la simple « Prochaine AGO » : la case la dit en clair, l'encadré montre le texte EXACT ajouté au mail */}
+      {ago !== null && <>
+        <label className="pvv-case" data-ag-mention><input type="checkbox" checked={s.mention} disabled={desactive} onChange={(e) => onChange({ ...s, mention: e.target.checked, ago })} />
+          <span data-ag-mention-libelle>{libelleCaseAgoQuiCompte(ago)}</span></label>
+        {s.mention && (
+          <div className="vag-texte-mail" data-ag-texte-mail>
+            <p className="vag-texte-mail-titre">Texte ajouté au mail du locataire :</p>
+            <p className="vag-texte-mail-phrase" data-ag-texte-mail-phrase>« … {texteAjouteAuMail(ago)} »</p>
+            {ago.incertaine && <p className="loc-muet vag-texte-mail-note" data-ag-texte-mail-incertain>{MENTION_INCERTAINE}.</p>}
+          </div>)}
+      </>}
       {ficheOuverte && <FicheCopropriete lotId={lu.lotId} onFerme={() => { setFicheOuverte(false); onRelire?.(); }} />}
       {s.alerte !== null && <AlerteProjection alerte={s.alerte} derniere={s.derniere} jour={jour}
         onFermer={() => onChange({ ...s, alerte: null })}
@@ -280,6 +326,10 @@ function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { al
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. */
 export const CSS_AG_SORTIE = `
+.vag-texte-mail{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:2px solid var(--color-svv-blue);border-radius:12px;background:var(--color-svv-blue-soft);min-width:0}
+.vag-texte-mail-titre{margin:0;font-weight:800;color:var(--color-svv-ink)}
+.vag-texte-mail-phrase{margin:0;font-size:1rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.vag-texte-mail-note{margin:0;font-size:.85rem}
 .vag-bandeau{margin:0;padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft);font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vag-creer{display:flex;flex-direction:column;gap:6px}
 /* Arno (23/11/2026) : le bouton Creer une copropriete prend TOUTE la largeur de la colonne (390 px et ordinateur) */
