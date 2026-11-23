@@ -177,12 +177,12 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     expect(origine).toBe('sortie');
     expect(h.enregistrerSortie.mock.invocationCallOrder[0]).toBeLessThan(h.envoyerSerie.mock.invocationCallOrder[0]);
   });
-  it('un bien sans copropriété : créée (nom + adresse) puis les dates dessus ; sans choix : gardées avec la sortie, « à rattacher » ; « immeuble en copropriété » coché', async () => {
+  // 🔴🔴 Arno (23/11/2026) — la sortie ne crée plus de copropriété par un nom tapé : c'est la fiche Copropriété (parcours de la Gestion) qui la crée
+  it('un bien sans copropriété : un `{ creer }` (écran plus ancien) est IGNORÉ — rien n’est créé ; « immeuble en copropriété » coché', async () => {
     ag.copro = null; h.copro = null;
     const r = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG, coproprieteChoix: { creer: 'Résidence Neuve' }, coproprieteOui: true }, AUTEUR);
-    expect(r).toMatchObject({ etat: 'ok', data: { ag: { copropriete: 'Résidence Neuve', aRattacher: false } } });
-    expect(ag.creees).toEqual(['Résidence Neuve']);
-    expect((ag.ajouts[0][1] as { coproprieteId: number }).coproprieteId).toBe(99);
+    expect(r).toMatchObject({ etat: 'ok', data: { ag: { copropriete: null, aRattacher: true } } });
+    expect(ag.creees).toEqual([]);
     expect(h.query.mock.calls.some(([sql]) => String(sql).includes('SET copropriete = true WHERE id = $1 AND copropriete IS NULL'))).toBe(true);
     ag.ajouts = [];
     const r2 = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG }, AUTEUR);

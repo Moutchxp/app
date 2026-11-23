@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, unAnApres, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
   AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
@@ -40,9 +41,9 @@ export interface SaisieAgEcran {
   mention: boolean;
   /** 🔴 (Arno, 17/11/2026) la fenêtre d'alerte « projection périmée » : la date calculée (ou projetée tapée) déjà passée ; `null` : fermée */
   alerte: { date: string; sorte: 'calculee' | 'saisie' } | null;
-  copro: 'rattacher' | 'creer' | 'aucune';
+  /** 🔴 Arno (23/11/2026) — « Créer une copropriété » n'est plus un choix ici : il ouvre la fiche Copropriété (le parcours de la Gestion). */
+  copro: 'rattacher' | 'aucune';
   rattacher: number | null;
-  creer: string;
   coproOui: boolean;
 }
 
@@ -66,7 +67,7 @@ export function saisieAgInitiale(lu: LuAgSortie): SaisieAgEcran {
     statut: p.prochaine?.statut ?? null, mention: false,
     // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre
     alerte: p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
-    creer: lu.adresse ?? '', coproOui: false };
+    coproOui: false };
 }
 
 /** Le corps envoyé au serveur. PUR. */
@@ -74,7 +75,7 @@ export function corpsAg(s: SaisieAgEcran, lu: LuAgSortie | null): Record<string,
   if (lu === null || !lu.disponible) return {};
   return { ag: { derniere: s.derniere, derniereConfirmee: s.derniereConfirmee, prochaine: s.prochaine, statut: s.statut }, mentionAg: s.mention,
     coproprieteOui: s.coproOui,
-    ...(lu.copropriete === null ? { coproprieteChoix: s.copro === 'rattacher' && s.rattacher !== null ? { rattacher: s.rattacher } : s.copro === 'creer' ? { creer: s.creer } : null } : {}) };
+    ...(lu.copropriete === null ? { coproprieteChoix: s.copro === 'rattacher' && s.rattacher !== null ? { rattacher: s.rattacher } : null } : {}) };
 }
 
 /** Le contrôle de la fenêtre (le serveur le refait). PUR. */
@@ -82,11 +83,13 @@ export function verdictAg(s: SaisieAgEcran, lu: LuAgSortie | null): { ok: true }
   if (lu === null || !lu.disponible) return { ok: true };
   const v = verifierSaisieAg(s, aujourdhuiParis());
   if (!v.ok) return v;
-  if (lu.copropriete === null && s.copro === 'creer' && s.creer.trim() === '') return { ok: false, motif: 'Donnez un nom à la copropriété à créer.', champs: [] };
   return { ok: true };
 }
 
-export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: SaisieAgEcran; onChange: (s: SaisieAgEcran) => void; desactive: boolean }) {
+export function AgSortie({ lu, s, onChange, desactive, onRelire }: { lu: LuAgSortie; s: SaisieAgEcran; onChange: (s: SaisieAgEcran) => void; desactive: boolean;
+  /** 🔴 Arno (23/11/2026) — la fiche Copropriété refermée : la fenêtre relit la copropriété du bien (créée ou rattachée par la fiche). */
+  onRelire?: () => void }) {
+  const [ficheOuverte, setFicheOuverte] = useState(false);
   if (!lu.disponible) return <p className="loc-muet" data-ag-indisponible>Dates d’assemblée générale : la mise à jour de la base (migration 475) reste à appliquer.</p>;
   const v = verdictAg(s, lu);
   const enDefaut = (c: ChampAg): boolean => !v.ok && v.champs.includes(c);
@@ -120,11 +123,14 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
             <label key={c.id} className="pvv-case"><input type="radio" name="vag-copro" checked={s.copro === 'rattacher' && s.rattacher === c.id} disabled={desactive}
               onChange={() => onChange({ ...s, copro: 'rattacher', rattacher: c.id })} data-ag-copro="rattacher" data-ag-copro-choisie={c.id} />
               <span>Le rattacher à la copropriété « {c.libelle} » (elle couvre son adresse)</span></label>))}
-          <label className="pvv-case"><input type="radio" name="vag-copro" checked={s.copro === 'creer'} disabled={desactive} onChange={() => onChange({ ...s, copro: 'creer' })} data-ag-copro="creer" />
-            <span>Créer une copropriété</span></label>
-          {s.copro === 'creer' && (
-            <label className="pvs-champ"><span className="pvs-libelle">Nom de la copropriété (adresse du bien par défaut)</span>
-              <input value={s.creer} disabled={desactive} onChange={(e) => onChange({ ...s, creer: e.target.value })} data-ag-copro-nom /></label>)}
+          {/* 🔴🔴 Arno (23/11/2026) — « Créer une copropriété » = EXACTEMENT le parcours de la Gestion : la fiche Copropriété elle-même (même composant,
+              aucune copie) pour l'adresse du bien — adresse officielle, adresses de la même parcelle, adresses déjà rattachées, garde anti-doublon,
+              « Rattacher à … ? » et « Non » mémorisé. À son « Valider », la copropriété existe ; à sa fermeture, la fenêtre la relit. */}
+          <div className="vag-creer" data-ag-creer>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn vag-creer-btn" disabled={desactive} onClick={() => setFicheOuverte(true)} data-ag-copro="creer">
+              Créer une copropriété</button>
+            <p className="loc-muet vag-aide">Ouvre la fiche Copropriété de l’adresse du bien, comme dans la Gestion : adresse officielle, autres adresses de la même parcelle, copropriété déjà rattachée à l’une d’elles. Une fois la fiche validée, la copropriété apparaît ici.</p>
+          </div>
           <label className="pvv-case"><input type="radio" name="vag-copro" checked={s.copro === 'aucune'} disabled={desactive} onChange={() => onChange({ ...s, copro: 'aucune' })} data-ag-copro="aucune" />
             <span>Ne pas rattacher maintenant</span></label>
           {s.copro === 'aucune' && <p className="vse-orange" data-ag-a-rattacher>Les dates seront enregistrées avec la sortie, {A_RATTACHER}.</p>}
@@ -173,6 +179,7 @@ export function AgSortie({ lu, s, onChange, desactive }: { lu: LuAgSortie; s: Sa
       {s.prochaine !== '' && /^\d{4}-\d{2}-\d{2}$/.test(s.prochaine) && (
         <label className="pvv-case" data-ag-mention><input type="checkbox" checked={s.mention} disabled={desactive} onChange={(e) => onChange({ ...s, mention: e.target.checked })} />
           <span>Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire de {moisAnnee(s.prochaine)} ({dateFr(s.prochaine)})</span></label>)}
+      {ficheOuverte && <FicheCopropriete lotId={lu.lotId} onFerme={() => { setFicheOuverte(false); onRelire?.(); }} />}
       {s.alerte !== null && <AlerteProjection alerte={s.alerte} derniere={s.derniere} jour={jour}
         onFermer={() => onChange({ ...s, alerte: null })}
         onReporter={(date, statut) => onChange({ ...s, prochaine: date, statut, prochaineTouchee: true, alerte: null })} />}

@@ -19,7 +19,7 @@ import {
   avecMentionAgProprietaire, entreesAAjouter, lignesAg, propositionAg, saisieAgPropre, verifierSaisieAg, type PropositionAg, type SaisieAg,
 } from './agCopropriete';
 import {
-  ajouterEntreesAg, coproprietesPourLot, creerCoproprietePourLot, entreesAgDuLot, historiqueAgDisponible, rattacherLotACopropriete, type ContexteAgLot, type CoproprieteAg,
+  ajouterEntreesAg, coproprietesPourLot, entreesAgDuLot, historiqueAgDisponible, rattacherLotACopropriete, type ContexteAgLot, type CoproprieteAg,
 } from './agCoproprieteRepo';
 import { PHRASE_RETENUE_PROPRIETAIRE } from './validationSortie';
 
@@ -60,14 +60,16 @@ export interface DemandeValidation {
   coproprieteOui?: boolean;
 }
 
-/** Le choix de copropriété d'un bien qui n'en a pas : en rattacher une existante, en créer une, ou rien (« à rattacher »). PUR. */
-export type ChoixCopropriete = { sorte: 'rattacher'; id: number } | { sorte: 'creer'; nom: string } | null;
+/**
+ * Le choix de copropriété d'un bien qui n'en a pas : en rattacher une existante, ou rien (« Ne pas rattacher maintenant »). PUR.
+ * 🔴🔴 Arno (23/11/2026) — la sortie NE CRÉE PLUS de copropriété par un nom tapé : « Créer une copropriété » ouvre la fiche Copropriété (le parcours
+ * de la Gestion, avec ses vérifications), qui l'enregistre à son « Valider ». Un `{ creer }` reçu (écran plus ancien) est ignoré : rien n'est créé.
+ */
+export type ChoixCopropriete = { sorte: 'rattacher'; id: number } | null;
 export function choixCopropriete(brut: unknown): ChoixCopropriete {
   const o = (brut ?? {}) as Record<string, unknown>;
   const id = typeof o.rattacher === 'number' && Number.isSafeInteger(o.rattacher) && o.rattacher > 0 ? o.rattacher : null;
-  if (id !== null) return { sorte: 'rattacher', id };
-  const nom = typeof o.creer === 'string' ? o.creer.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
-  return nom !== '' ? { sorte: 'creer', nom } : null;
+  return id !== null ? { sorte: 'rattacher', id } : null;
 }
 
 /** 🔴 Arno (16/11/2026, 475) — ce que la fenêtre propose (case 20 % cochée) : l'historique, la copropriété du bien, celles qui couvrent son adresse. */
@@ -219,7 +221,7 @@ export type IssueApercuValidation =
 /** 🔴 (16/11/2026, 475) Les dates d'AG pour le récapitulatif et la fenêtre de résultat. */
 export interface ResumeAg { lignes: [string, string][]; copropriete: string | null; aRattacher: boolean; motif?: string | null }
 function resumeAg(ag: NonNullable<Preparation['ag']>, copropriete?: string | null): ResumeAg {
-  const nom = copropriete !== undefined ? copropriete : ag.contexte.copropriete?.libelle ?? (ag.choix?.sorte === 'creer' ? ag.choix.nom : null);
+  const nom = copropriete !== undefined ? copropriete : ag.contexte.copropriete?.libelle ?? null;
   return { lignes: lignesAg(ag.saisie), copropriete: nom, aRattacher: nom === null && ag.choix === null };
 }
 
@@ -254,7 +256,8 @@ async function enregistrerAgDeLaSortie(ag: NonNullable<Preparation['ag']>, sorti
       }
       let copro = c.copropriete;
       if (copro === null && ag.choix !== null) {
-        const r = ag.choix.sorte === 'rattacher' ? await rattacherLotACopropriete(q, c, ag.choix.id, auteur) : await creerCoproprietePourLot(q, c, ag.choix.nom, auteur);
+        // 🔴 Arno (23/11/2026) — plus de création par nom ici (la fonction de création par nom d'agCoproprieteRepo n'est plus appelée) : la fiche Copropriété la crée
+        const r = await rattacherLotACopropriete(q, c, ag.choix.id, auteur);
         if (!r.ok) throw new RefusAg(r.motif);
         copro = r.copropriete;
       }

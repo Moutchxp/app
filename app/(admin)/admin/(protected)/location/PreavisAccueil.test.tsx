@@ -3620,7 +3620,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');
   });
-  it('un bien relié à AUCUNE copropriété : la rattacher (celles qui couvrent son adresse), en créer une, ou « à rattacher » ; copropriété non renseignée : « Immeuble en copropriété » proposé, le bandeau reste', async () => {
+  it('un bien relié à AUCUNE copropriété : la rattacher (celles qui couvrent son adresse), en créer une PAR LA FICHE COPROPRIÉTÉ, ou « à rattacher » ; copropriété non renseignée : « Immeuble en copropriété » proposé, le bandeau reste', async () => {
     luAg = LU({ copropriete: null, coproprieteSaisie: null, suggestions: [{ id: 7, libelle: 'Résidence Fictive' }] });
     await ouvrir();
     expect(q('[data-retenue-a-verifier]')).not.toBeNull(); // « Copropriété non renseignée sur la fiche du bien » reste
@@ -3633,8 +3633,10 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     act(() => (document.querySelector('button[data-revenir-validation]') as HTMLButtonElement).click());
     act(() => (q('[data-ag-copro="aucune"]') as HTMLInputElement).click());
     expect(q('[data-ag-a-rattacher]').textContent).toBe('Les dates seront enregistrées avec la sortie, à rattacher à une copropriété.');
-    act(() => (q('[data-ag-copro="creer"]') as HTMLInputElement).click());
-    expect((q('input[data-ag-copro-nom]') as HTMLInputElement).value).toBe('4 rue Fictive');
+    // 🔴🔴 Arno (23/11/2026) — « Créer une copropriété » ouvre LA fiche Copropriété (même composant que la Gestion) ; plus de nom tapé ici
+    expect(q('input[data-ag-copro-nom]')).toBeNull();
+    await act(async () => { (q('button[data-ag-copro="creer"]') as HTMLButtonElement).click(); }); await attendre();
+    expect(document.querySelector('.fcp-boite[role="dialog"]')).not.toBeNull();
     expect(document.querySelectorAll('[data-fenetre-validation-sortie] select')).toHaveLength(0);
   });
   it('case 20 % décochée : aucune date demandée ; historique non installé : la fenêtre le dit, rien n’est bloqué', async () => {
