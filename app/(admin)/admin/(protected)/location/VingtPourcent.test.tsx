@@ -11,6 +11,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
   FicheCopropriete: (p: { immeuble?: string | null; onFerme: () => void }) => { fiche(p); return createElement('button', { 'data-stub-fiche': p.immeuble ?? '', onClick: p.onFerme }, 'fermer'); },
 }));
 const { EcranVingtPourcent } = await import('./VingtPourcent');
+const { BoutonVingtPourcent } = await import('./BoutonVingtPourcent');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const LU: SuiviVingtLu = {
@@ -81,3 +82,34 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
   });
 });
 
+describe('point 4 — les accès : colonne de gauche de la Gestion et accueil Location avec pastille', () => {
+  it('la pastille ROUGE dit le nombre de copropriétés à compléter ; le bouton ouvre la pleine page', async () => {
+    await rendre(createElement(BoutonVingtPourcent));
+    const b = container.querySelector('a[data-bouton-vingt-pourcent]')!;
+    expect(b.getAttribute('href')).toBe('/admin/location/vingt-pourcent');
+    expect(b.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
+    expect(lectures[0]).toMatch(/^\/api\/admin\/location\?vingtPourcent=1/);
+  });
+  it('AUCUNE pastille à 0', async () => {
+    donnees = { ...LU, manquantes: [] };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')).not.toBeNull();
+    expect(container.querySelector('[data-pastille-vingt-pourcent]')).toBeNull();
+  });
+  it('accueil Location : le bouton est dans la zone « actions » de la ligne de titre, rien d’autre ne change', () => {
+    const page = readFileSync('app/(admin)/admin/(protected)/location/page.tsx', 'utf8');
+    expect(page).toContain('<EnTetePage titre="Location" intro={INTRO_LOCATION} {...(autorise ? { actions: <BoutonVingtPourcent /> } : {})} />');
+    expect(page).toContain('<AccueilLocation gestion={gestion} />');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/vingt-pourcent/page.tsx', 'utf8')).toContain('<PageVingtPourcent />');
+  });
+  it('colonne de gauche de la Gestion : « 20 % à restituer » JUSTE SOUS « Préavis », avant « Syndics » ; l’ordre des autres est gardé', () => {
+    const s = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
+    const i = (x: string) => s.indexOf(x);
+    expect(i('data-raccourci="taches"')).toBeLessThan(i('data-raccourci="preavis"'));
+    expect(i('data-raccourci="preavis"')).toBeLessThan(i('data-raccourci="vingt-pourcent"'));
+    expect(i('data-raccourci="vingt-pourcent"')).toBeLessThan(i('{onSyndics && ('));
+    const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
+    expect(g).toContain("onVingtPourcent={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'vingt_pourcent' }); }}");
+    expect(g).toContain('<EcranVingtPourcent api={API_PREAVIS_GESTION}');
+  });
+});

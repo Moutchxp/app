@@ -33,6 +33,7 @@ import { TableauBordEvenements } from './TableauBordEvenements';
 /* 🔴🔴 LOT TACHES-1 — le récapitulatif général des tâches, tout en bas de l'écran partagé. */
 import { TableauTaches } from './TableauTaches';
 import { BlocPreavisAccueil } from '../location/PreavisAccueil';
+import { EcranVingtPourcent } from '../location/VingtPourcent';
 import { API_PREAVIS_GESTION, usePreavisEnAlerte } from '../location/preavisSynchro';
 /* 🔴 LOT GESTION-TACHES-PAGE — la pastille du raccourci « Tâches » : les tâches d'aujourd'hui, ni faites ni annulées. */
 import { ecouterTaches, lireTaches } from './tachesClient';
@@ -1521,6 +1522,13 @@ export function GestionVue({ intro, location = false }: {
           <p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut} data-retour-gestion>← Retour à la Gestion</button></p>
           <BlocPreavisAccueil gestion plein lecture="gestion" ecriture={location} />
         </div>
+      ) : ecran === 'vingt_pourcent' ? (
+        /* 🔴 Arno (23/11/2026) — « 20 % à restituer », ouvert par l'entrée de la colonne de gauche (sous « Préavis ») : le MÊME écran que la
+           pleine page de la Location, lu côté Gestion (lecture seule). */
+        <div className="pe pe-vingt-pourcent" data-ecran-gestion-vingt-pourcent>
+          <EcranVingtPourcent api={API_PREAVIS_GESTION}
+            retour={<p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut} data-retour-gestion>← Retour à la Gestion</button></p>} />
+        </div>
       ) : ecran === 'syndics' ? (
         /* 🔴🔴 LOT ANNUAIRE-SYNDICS — L'ÉCRAN « SYNDICS ». Le composant ne sait rien de cet écran : il reçoit son
            retour et le composeur, et la future tuile Location le posera tel quel. */
@@ -1710,6 +1718,8 @@ export function GestionVue({ intro, location = false }: {
           /* 🔴 Arno (10/11/2026) — « Préavis », entre « Tâches » et « Syndics » ; sa pastille : les préavis en alerte. */
           onPreavis={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'preavis' }); }}
           preavisEnAlerte={preavisEnAlerte}
+          /* 🔴 Arno (23/11/2026) — « 20 % à restituer », juste sous « Préavis ». */
+          onVingtPourcent={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'vingt_pourcent' }); }}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */

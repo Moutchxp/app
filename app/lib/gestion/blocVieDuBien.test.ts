@@ -137,3 +137,10 @@ describe('🔴🔴 ③ le cartouche et l’adresse se rejoignent', () => {
     expect(src.slice(i, i + 700)).not.toContain('bloc');
   });
 });
+
+describe('🔴 Arno (23/11/2026) — l’écran « 20 % à restituer » dans l’adresse de la Gestion', () => {
+  it('?ecran=vingt_pourcent se lit et se réécrit', () => {
+    expect(lireEtatUrl('?ecran=vingt_pourcent').ecran).toBe('vingt_pourcent');
+    expect(ecrireEtatUrl(lireEtatUrl('?ecran=vingt_pourcent'))).toBe('?ecran=vingt_pourcent');
+  });
+});

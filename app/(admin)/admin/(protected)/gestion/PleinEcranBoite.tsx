@@ -99,7 +99,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -192,6 +192,8 @@ export function PleinEcranBoite({
   tachesDuJour?: number;
   /** 🔴 Arno (10/11/2026) — « Préavis » (entre « Tâches » et « Syndics ») : le module en pleine page ; absent : pas d'entrée. */
   onPreavis?: () => void;
+  /** 🔴 Arno (23/11/2026) — « 20 % à restituer », l'entrée juste sous « Préavis ». */
+  onVingtPourcent?: () => void;
   /** Le nombre de préavis EN ALERTE (pastille rouge ; aucune à 0). */
   preavisEnAlerte?: number;
   onAnnuaire?: () => void;
@@ -1048,6 +1050,17 @@ export function PleinEcranBoite({
                       {preavisEnAlerte}
                     </span>
                   )}
+                </button>
+              </li>
+            )}
+            {/* 🔴 Arno (23/11/2026) — « 20 % à restituer », juste SOUS « Préavis », même style : l'écran des locataires sortis avec 20 % retenus.
+                Une entrée AJOUTÉE : les autres gardent leur ordre et leur place. */}
+            {onVingtPourcent && (
+              <li>
+                <button type="button" className="cm-entree" data-raccourci="vingt-pourcent"
+                  onClick={() => { onVingtPourcent(); setPanneauMobile('contenu'); }}
+                  title="Les locataires sortis avec 20 % retenus : AGO qui compte, date limite de restitution, dates manquantes">
+                  <span className="cm-nom"><span className="cm-texte">20 % à restituer</span></span>
                 </button>
               </li>
             )}

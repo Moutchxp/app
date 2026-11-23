@@ -212,7 +212,9 @@ describe('🔴 2 — « Préavis » dans le menu de gauche, entre « Tâches » 
     const c = await gestion('');
     const e = entrees(c);
     expect(e.indexOf('Préavis')).toBe(e.indexOf('RDV / Tâches') + 1); // 🔴 lot C : « Tâches » → « RDV / Tâches »
-    expect(e.indexOf('Syndics')).toBe(e.indexOf('Préavis') + 1);
+    // 🔴 Arno (23/11/2026) — « 20 % à restituer » s'insère juste sous « Préavis », puis « Syndics » (aucune entrée retirée ni déplacée)
+    expect(e.indexOf('20 % à restituer')).toBe(e.indexOf('Préavis') + 1);
+    expect(e.indexOf('Syndics')).toBe(e.indexOf('20 % à restituer') + 1);
     expect(c.querySelector('[data-pastille-preavis]')?.textContent).toBe('2');
   });
   it('aucun préavis en alerte : aucune pastille', async () => {

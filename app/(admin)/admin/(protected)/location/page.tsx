@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { EnTetePage } from '../_composants/EnTetePage';
 import { accesLocation, REFUS_LOCATION } from './acces';
 import { AccueilLocation } from './AccueilLocation';
+import { BoutonVingtPourcent } from './BoutonVingtPourcent';
 import { redirectionAncienLien } from '../../../../lib/location/cheminCompteRendu';
 
 /**
@@ -20,7 +21,8 @@ export default async function LocationPage({ searchParams }: { searchParams: Pro
   const { autorise, gestion } = await accesLocation();
   return (
     <section className="gst-page">
-      <EnTetePage titre="Location" intro={INTRO_LOCATION} />
+      {/* 🔴 Arno (23/11/2026) — sur la ligne du titre, à droite : « 20 % à restituer » en pleine page, avec sa pastille (rien d'autre ne bouge) */}
+      <EnTetePage titre="Location" intro={INTRO_LOCATION} {...(autorise ? { actions: <BoutonVingtPourcent /> } : {})} />
       {autorise ? <AccueilLocation gestion={gestion} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_LOCATION}</div>
       )}
