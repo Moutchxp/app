@@ -3693,6 +3693,21 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     await act(async () => { recap().click(); }); await attendre();
     expect(posts.at(-1)).not.toHaveProperty('phraseProprietaire');
   });
+  // 🔴 Arno (23/11/2026) — « copropriété rattachée […] alors que la case « Immeuble en copropriété » est décochée et que le message « Copropriété non
+  // renseignée sur la fiche du bien » reste affiché. Quand une copropriété est rattachée au bien, la case est cochée d'office et ce message disparaît »
+  it('copropriété RATTACHÉE mais fiche du bien non renseignée : « Immeuble en copropriété » coché d’office, plus de « copropriété non renseignée » ; la case part avec l’aperçu', async () => {
+    luAg = LU({ coproprieteSaisie: null });
+    await ouvrir();
+    expect(q('[data-ag-copropriete]')?.textContent ?? '').toBe(''); // retenue pas encore cochée (fiche du bien non renseignée)
+    expect(q('[data-retenue-a-verifier]')).toBeNull();
+    act(() => (q('[data-retenue-case]') as HTMLInputElement).click());
+    expect(q('[data-ag-copropriete]').textContent).toContain('Résidence Fictive');
+    expect((q('[data-ag-copro-oui] input') as HTMLInputElement).checked).toBe(true);
+    expect(q('[data-retenue-a-verifier]')).toBeNull();
+    act(() => q('[data-ag-confirmer]').click());
+    await act(async () => { recap().click(); }); await attendre();
+    expect(posts.at(-1)).toMatchObject({ coproprieteOui: true });
+  });
   it('un bien relié à AUCUNE copropriété : la rattacher (celles qui couvrent son adresse), en créer une PAR LA FICHE COPROPRIÉTÉ, ou « à rattacher » ; copropriété non renseignée : « Immeuble en copropriété » proposé, le bandeau reste', async () => {
     luAg = LU({ copropriete: null, coproprieteSaisie: null, suggestions: [{ id: 7, libelle: 'Résidence Fictive' }] });
     await ouvrir();

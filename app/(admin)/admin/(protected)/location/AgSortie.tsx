@@ -126,7 +126,9 @@ export function saisieAgInitiale(lu: LuAgSortie, jour: string = aujourdhuiParis(
   return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine, prochaineTouchee: false, statut, mention: false, ago,
     // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre (sans calcul possible seulement)
     alerte: calc === null && p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
-    coproOui: false };
+    // 🔴 Arno (23/11/2026) — une copropriété RATTACHÉE au bien : « Immeuble en copropriété » coché d'office (la fiche du bien n'est pas encore
+    // renseignée : elle le sera à la confirmation, comme quand on coche à la main)
+    coproOui: lu.copropriete !== null };
 }
 
 /** Le corps envoyé au serveur. PUR. */

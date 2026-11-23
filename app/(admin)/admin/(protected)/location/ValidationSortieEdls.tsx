@@ -105,6 +105,10 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const [saisieAg, setSaisieAg] = useState<SaisieAgEcran | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (saisieAg === null && ag !== null) setSaisieAg(saisieAgInitiale(ag)); }, [saisieAg, ag]);
+  // 🔴 Arno (23/11/2026) — une copropriété vient d'être rattachée (fiche créée depuis la fenêtre, relue) : « Immeuble en copropriété » coché d'office
+  const coproRattacheeId = ag?.copropriete?.id ?? null;
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (coproRattacheeId !== null) setSaisieAg((x) => (x === null || x.coproOui ? x : { ...x, coproOui: true })); }, [coproRattacheeId]);
   /** la saisie AG change : la mention de la prochaine AG suit dans le paragraphe des locataires (le reste du texte, modifié, est gardé) */
   const changerAg = (n: SaisieAgEcran): void => {
     setSaisieAg(n);
@@ -186,7 +190,9 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
           <span>Retenue de 20 % du dépôt de garantie</span>
         </label>
         {etatCase === 'impossible' && <p className="loc-muet" data-retenue-impossible>{MOTIF_RETENUE_IMPOSSIBLE}</p>}
-        {etatCase === 'a_verifier' && (
+        {/* 🔴 Arno (23/11/2026) — une copropriété RATTACHÉE au bien : plus de « copropriété non renseignée » (la case « Immeuble en copropriété »
+            est cochée d'office et renseigne la fiche du bien à la confirmation) */}
+        {etatCase === 'a_verifier' && coproRattacheeId === null && (
           <p className="vse-orange" role="status" data-retenue-a-verifier>{ALERTE_COPROPRIETE_NON_RENSEIGNEE}{' '}
             {copro.etat.etat === 'ok' && <a href={`/admin/location/bien/${copro.etat.data.lotId}`} target="_blank" rel="noopener" data-lien-copropriete>Renseigner la copropriété sur la fiche du bien</a>}</p>
         )}

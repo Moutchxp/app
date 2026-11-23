@@ -295,3 +295,11 @@ describe('🔴🔴 le bouton de tête du bloc 20 % : « Créer une copropriété
     expect((container.querySelector('[data-ag-bouton-copro]') as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+/** 🔴 Arno (23/11/2026) — une copropriété rattachée au bien : « Immeuble en copropriété » coché d'office. */
+describe('🔴 « Immeuble en copropriété » coché d’office quand une copropriété est rattachée', () => {
+  it('rattachée : cochée ; aucune : décochée (comme avant)', () => {
+    expect(saisieAgInitiale(luAgPropre({ ...LU, copropriete: { id: 315, libelle: '1 rue du Préavis de Test (FICTIF)' }, coproprieteSaisie: null })).coproOui).toBe(true);
+    expect(saisieAgInitiale(luAgPropre({ ...LU, coproprieteSaisie: null })).coproOui).toBe(false);
+  });
+});
