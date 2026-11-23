@@ -24,7 +24,9 @@ import { ArreteComptes } from '../gestion/ArreteComptes';
 /** 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : rien n'est enregistré, le suivi des 20 % reste incomplet. */
 export const SANS_COPROPRIETE_INCOMPLET = 'Sans copropriété, le suivi des 20 % restera incomplet : rattachez le bien dès que possible.';
 /** 🔴 Arno (23/11/2026) — sans copropriété rattachée : la date d'arrêté des comptes ne peut pas se saisir. */
-export const ARRETE_SANS_COPROPRIETE = 'Rattachez ou créez la copropriété pour saisir sa date d’arrêté des comptes.';
+/** 🔴 Arno (23/11/2026, suite) — « Ne pas rattacher maintenant » : le bandeau dit où saisir l'arrêté ET les AG (avant : « Rattachez ou créez la
+ *  copropriété pour saisir sa date d'arrêté des comptes. ») */
+export const ARRETE_SANS_COPROPRIETE = 'Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).';
 /** 🔴 Arno (23/11/2026) — le bandeau quand la copropriété n'a aucune AGO connue. */
 export const BANDEAU_DERNIERE_AGO_MANQUANTE = 'Dernière AGO manquante : sans elle, le suivi des 20 % ne peut pas être fiable. Saisissez-la ci-dessous.';
 

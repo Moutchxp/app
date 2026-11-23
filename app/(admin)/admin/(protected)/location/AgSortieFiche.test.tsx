@@ -114,11 +114,12 @@ describe('🔴 Arno (23/11/2026) — « le bouton "Créer une copropriété" doi
 });
 
 describe('🔴 Arno (23/11/2026) — « Si une date de clôture des comptes n’a jamais été renseignée […] cela doit être possible directement dans cette modale »', () => {
-  it('sans copropriété : « Rattachez ou créez la copropriété pour saisir sa date d’arrêté des comptes. » ; aucun champ d’arrêté', async () => {
+  it('sans copropriété : « Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (…) » ; aucun champ d’arrêté', async () => {
     arrete.mockClear();
     await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: false })); });
     expect(container.querySelector('[data-ag-arrete-sans-copro]')?.textContent).toBe(ARRETE_SANS_COPROPRIETE);
-    expect(ARRETE_SANS_COPROPRIETE).toBe('Rattachez ou créez la copropriété pour saisir sa date d’arrêté des comptes.');
+    // 🔴 Arno (23/11/2026, suite) — le nouveau texte, mot pour mot
+    expect(ARRETE_SANS_COPROPRIETE).toBe('Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).');
     expect(arrete).not.toHaveBeenCalled();
   });
   it('juste après « Créer une copropriété » (fiche validée, fenêtre relue) : le champ d’arrêté de LA nouvelle copropriété, avec son bandeau', async () => {
