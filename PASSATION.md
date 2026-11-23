@@ -310,14 +310,19 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 21/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `72af1d4b`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **4 commits d'avance, NON POUSSÉS** : `b3819054`,
-  `ec3aff05`, `72af1d4b` (préavis, 21/11 — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse.
+**Dépôt (mesuré le 23/11/2026) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cf05a27a`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **9 commits d'avance, NON POUSSÉS** : `b3819054`,
+  `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
+  (suivi des 20 %, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `72af1d4b`) : `npm test` VERT (1 858 fichiers, 27 676 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `cf05a27a`) : `npm test` VERT (1 864 fichiers, 27 720 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
+- ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
+  `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
+  erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
+  `/api/admin/location` répondait 500 (« module factory is not available »). Le tunnel `cloudflared` n'a pas été touché.
 
 ### ✅ MISE EN PRODUCTION DU 20/11/2026 — RÉUSSIE (lancée par Arno, scripts `.captures/maj/1-…6-*.sh`)
 - **A. Sauvegarde complète avant tout** : `/home/ubuntu/sauvegardes/2026-11-20_2231` (témoin TERMINEE, base lisible
@@ -335,7 +340,11 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   la contrainte `gestion_personne_adresse_ban_sujet_check` admet désormais `transaction_vente`, `transaction_personne`,
   `syndic`). Vérifiée à l'écran : adresse officielle enregistrée pour un syndic (« _TEST ADRESSE 510 », syndic 53),
   l'adresse du bien d'un compromis (vente 342) et un vendeur (personne 3) ; `.captures/migration-510/`.
-  La **361** en attente (`db/migrations-en-attente/`) prendra la **511** ; non touchée.
+  ⏩ **Depuis le 23/11 : la 512** (`512_gestion_copropriete_arrete_comptes.sql`, arrêté des comptes) — appliquée en RECETTE seulement
+  (deux passes) et inscrite au registre de la recette (commit `1819b9f5`) ; la prochaine mise en production devra l'appliquer.
+  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra le prochain numéro libre, la 513, le jour où Arno la sortira** (décision
+  d'Arno du 23/11/2026) — la 511 reste vide : une fois la 512 inscrite, l'outil refuserait une 511 (numérotée sous la dernière inscrite ;
+  épreuve dans `migrationsEnAttente.test.ts`). Non touchée.
 - **Registre des migrations (`svav_migration`) — état au 20/11/2026 au soir** (rapport : `.captures/registre-migrations/RAPPORT.txt`) :
   - **Comment la mise en production choisit** : `npm run prod:mettre-a-jour` → sur le serveur, `scripts/migrations-plan.ts` +
     `planifier()` (`app/lib/ops/migrationsNouvelles.ts`) : est NOUVELLE toute migration `db/migrations/NNN_nom.sql` dont le **nom
@@ -407,6 +416,27 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     1 mois »). Avant : 3 mois pour un logement vide hors de `gestion_zone_tendue` (75, 92, 93, 94 seulement) — en recette, 6
     logements occupés (95 ×4, 77, 78). « 3 mois » reste choisissable ; aucun préavis enregistré n'a été modifié.
   - Captures : `.captures/preavis-groupe/` (01-24).
+- **23/11/2026 — suivi des 20 % retenus (EN RECETTE, NON POUSSÉS ; demandes d'Arno du 23/11/2026)** :
+  - `1819b9f5` — **« Date d'arrêté des comptes »** par copropriété (jour + mois annuels, FACULTATIVE ; 29/02 refusé), migration 512 ;
+    composant unique `ArreteComptes` dans la fiche Copropriété (bloc « AG ») et dans la fenêtre « Valider la sortie » ; journalisée
+    (entité « copropriete »).
+  - `b0453dc2` — **le calcul** (`app/lib/location/vingtPourcent.ts`) : exercice = premier arrêté ≥ sortie ; AGO qui compte = première AGO
+    après l'arrêté ; projection = jour/mois de la dernière AGO officielle, jamais avant la validation de la sortie ; une AGO officielle
+    remplace la projection de son année et recale les suivantes ; restitution ≤ AGO + 1 mois ; alerte à 30 jours et une fois dépassée ;
+    arrêté manquant → première AGO après la validation, « Projection incertaine » ; aucune AGO → « Dernière AGO inconnue ».
+    🔴 RÈGLES D'ARNO : les dates projetées sont CALCULÉES à l'affichage, jamais stockées par locataire ; seules les AGO officielles et la
+    dernière AGO connue servent (la date projetée enregistrée par la fenêtre de sortie reste en base, NON lue) ; « date de validation » =
+    jour de validation de la sortie dans l'application.
+  - `34c49f0e` — **écran « 20 % à restituer »** (rubrique « Dates manquantes » en tête : copropriété, ce qui manque, locataires,
+    « Compléter la fiche Copropriété » = la fenêtre de la fiche ; puis les locataires) ; pleine page `/admin/location/vingt-pourcent` ;
+    lecture `?vingtPourcent=1` (routes Location et Gestion, lecture seule).
+  - `cf05a27a` — **accès** : entrée « 20 % à restituer » dans la colonne de gauche de la Gestion, juste sous « Préavis »
+    (`?ecran=vingt_pourcent`) ; petit bouton à droite sur la ligne de titre « Location » avec pastille rouge (copropriétés à compléter ;
+    aucune à 0).
+  - Captures : `.captures/vingt-pourcent/` (01-15).
+- **Données d'essai en recette** (23/11) : « _TEST ARRETE COMPTES 20 POURCENT 1 / 2 / 3 » — copropriétés 310 / 311 / 312, biens 464-466,
+  locataires 1-3, occupations 571-573 (sorties validées avec 20 %) ; 310 : AGO 25/03/2026 + arrêté 31/12 saisi à l'écran (journal 46821) ;
+  311 : ni AGO ni arrêté ; 312 : AGO 22/09/2020, sans arrêté (restitution en retard). Pastille de l'accueil Location : 2.
 - **Données d'essai en recette** (21/11) : « _TEST PREAVIS GROUPE » (bien 463, code postal 00000, colocataires A / B =
   locataires 542 / 543, occupations 569 / 570, bail 552) ; préavis d'essai 17 → 22 tous annulés ou remplacés (journal
   46811-46820), aucun ouvert. Compte d'essai de recette `essai.preavis@exemple.test` (id 10) : DÉSACTIVÉ.
@@ -435,6 +465,11 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
 **Points ouverts / à valider par Arno :**
+- 🔴 **20 % — restitution jamais marquée « faite »** : aucun geste ne dit qu'une restitution des 20 % a été faite ; toutes les sorties avec
+  retenue restent dans « 20 % à restituer » (et leurs copropriétés dans « Dates manquantes »). Proposition : un geste « Restitution faite »
+  (date, montant restitué / ajusté, journalisé) qui sort le locataire de la liste — à décider.
+- 20 % — l'arrêté des comptes dans la fenêtre « Valider la sortie » est vérifié par les tests seulement (aucune sortie à valider dans la
+  recette) ; à regarder à l'écran à la prochaine sortie validée avec 20 %.
 - 🔴 **Préavis groupé — colocataire arrivé plus tard (QUESTION OUVERTE)** : un « bail » = occupants d'un même logement entrés le
   même jour (`bail_id`). Un colocataire entré à une autre date (avenant) est sur un AUTRE bail : il n'a pas de carte sur l'écran
   de sortie et ne peut pas être joint au préavis groupé (il n'apparaît que dans « le logement reste loué à … »). En recette :
@@ -453,7 +488,8 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Aucun lot en cours. Arno : lancer `bash .captures/maj/5-verifier.sh` (vérification d'après mise en production, jamais
+Aucun lot en cours. Retour d'Arno en recette sur « 20 % à restituer » (`1819b9f5` → `cf05a27a`) et décision sur le geste « Restitution
+faite ». Arno : lancer `bash .captures/maj/5-verifier.sh` (vérification d'après mise en production, jamais
 faite) — ⚠️ il exige HEAD = `351f04de` : avec les commits du 21/11, relire plutôt `lecture-prod.sh`, les deux pages et
 `systemctl is-active` à la main. Puis retour en recette sur le préavis (`b3819054`, `ec3aff05`, `72af1d4b`) et réponse à la
 question du colocataire d'un autre bail. 🔴 **Prochaine mise en production UNIQUEMENT quand Arno dit « on met en
