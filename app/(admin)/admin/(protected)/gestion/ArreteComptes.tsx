@@ -116,7 +116,11 @@ export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = fal
   );
 }
 
-/** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
+/**
+ * AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px. 🔴 (Arno, 23/11/2026) « l'agencement de ces champs n'est pas propre […] il
+ * faut utiliser tout l'espace et ne pas faire des boutons de tailles differentes » : Jour / Mois et Annuler / Enregistrer cote a cote, 50 % chacun,
+ * meme hauteur (empiles pleine largeur s'ils ne tiennent pas) ; « Renseigner » et « Modifier » pleine largeur. Meme rendu fiche et fenetre de sortie.
+ */
 export const CSS_ARRETE_COMPTES = `
 .arc-arrete{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0 0 10px}
 .arc-arrete-ligne{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
@@ -124,16 +128,14 @@ export const CSS_ARRETE_COMPTES = `
 .arc-bandeau{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .arc-arrete-libelle{font-weight:800}
 .arc-arrete-vide{color:var(--color-svv-muted);font-style:italic}
-.arc-arrete-btn{align-self:flex-start;min-height:44px;width:auto}
+.arc-arrete-btn{align-self:stretch;min-height:44px;width:100%;box-sizing:border-box;margin:0}
 .arc-arrete-btn--plein{align-self:stretch;width:100%;box-sizing:border-box}
 .arc-arrete-form{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface)}
 .arc-arrete-aide{margin:0;font-size:.85rem}
-.arc-arrete-champs{display:flex;flex-wrap:wrap;gap:8px 14px}
-.arc-arrete-champ{display:flex;flex-direction:column;gap:4px;font-weight:700;color:var(--color-svv-ink)}
-.arc-arrete-champ select{min-height:44px;min-width:7rem;padding:6px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit}
-.arc-arrete-boutons{display:flex;flex-wrap:wrap;gap:8px}
-.arc-arrete-boutons .gst-btn{min-height:44px;width:auto}
-@media (max-width:640px){ .arc-arrete-btn{align-self:stretch;width:100%} .arc-arrete-boutons .gst-btn{flex:1} }
+.arc-arrete-champs,.arc-arrete-boutons{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:8px;min-width:0}
+.arc-arrete-champ{display:flex;flex-direction:column;gap:4px;min-width:0;font-weight:700;color:var(--color-svv-ink)}
+.arc-arrete-champ select{min-height:44px;width:100%;min-width:0;box-sizing:border-box;padding:6px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit}
+.arc-arrete-boutons .gst-btn{min-height:44px;width:100%;min-width:0;box-sizing:border-box;margin:0}
 `;
 
 /**

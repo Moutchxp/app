@@ -96,7 +96,8 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
 
 /** 🔴 Arno (23/11/2026) — « il faut agrandir le bouton "Renseigner la date d'arrêté des comptes" pour qu'il occupe toute la largeur de la colonne ». */
 describe('🔴 « Renseigner la date d’arrêté des comptes » : toute la largeur de la colonne', () => {
-  it('non renseignée : le bouton pleine largeur (comme « + Ajouter une AG ») ; renseignée : « Modifier » garde sa taille', async () => {
+  // (23/11/2026, suite) « Modifier » aussi pleine largeur désormais : la règle de base .arc-arrete-btn (épreuve de l'agencement, plus bas)
+  it('non renseignée : le bouton pleine largeur (comme « + Ajouter une AG ») ; renseignée : « Modifier » (règle de base, pleine largeur aussi)', async () => {
     await rendre();
     const b = container.querySelector('[data-arrete-modifier]') as HTMLElement;
     expect(b.textContent).toBe('Renseigner la date d’arrêté des comptes');
@@ -111,5 +112,25 @@ describe('🔴 « Renseigner la date d’arrêté des comptes » : toute la larg
     const { ArreteComptesLocal } = await import('./ArreteComptes');
     await act(async () => { root.render(createElement(ArreteComptesLocal, { valeur: null, onChange: () => {} })); });
     expect((container.querySelector('[data-arrete-modifier]') as HTMLElement).classList.contains('arc-arrete-btn--plein')).toBe(true);
+  });
+});
+
+/** 🔴 Arno (23/11/2026) — « l'agencement de ces champs n'est pas propre, l'esthétique est mauvaise, il faut utiliser tout l'espace et ne pas faire des boutons de tailles différentes pour harmoniser ce bloc. » */
+describe('🔴 l’agencement du bloc « Date d’arrêté des comptes »', () => {
+  it('Jour / Mois et Annuler / Enregistrer : deux colonnes égales (empilées si elles ne tiennent pas), même hauteur ; « Renseigner » et « Modifier » pleine largeur', async () => {
+    const { CSS_ARRETE_COMPTES } = await import('./ArreteComptes');
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-champs,.arc-arrete-boutons{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:8px;min-width:0}');
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-boutons .gst-btn{min-height:44px;width:100%;min-width:0;box-sizing:border-box;margin:0}');
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-champ select{min-height:44px;width:100%;min-width:0;');
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-btn{align-self:stretch;min-height:44px;width:100%;box-sizing:border-box;margin:0}');
+    // les marges internes du formulaire : celles des autres blocs (formulaire d'AG : 10px 12px)
+    expect(CSS_ARRETE_COMPTES).toContain('.arc-arrete-form{display:flex;flex-direction:column;gap:8px;padding:10px 12px;');
+    // plus de règle « au téléphone » qui changeait les tailles des boutons
+    expect(CSS_ARRETE_COMPTES).not.toContain('@media');
+    // la structure : deux champs dans la grille, deux boutons dans la grille
+    await rendre();
+    await clic('[data-arrete-modifier]');
+    expect(container.querySelectorAll('.arc-arrete-champs > .arc-arrete-champ')).toHaveLength(2);
+    expect(container.querySelectorAll('.arc-arrete-boutons > button')).toHaveLength(2);
   });
 });
