@@ -121,7 +121,7 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
     expect($('[data-agc-resume-derniere]').textContent).toBe('Dernière AGO : 12/03/2015 — saisie par Claire Test le 01/04/2026');
     expect($('[data-agc-resume-prochaine]').textContent).toBe('Prochaine AG : 12/03/2027 — AGO, projetée — saisie par Claire Test le 01/04/2026');
-    expect($('[data-agc-ajouter-pv]').textContent).toBe('+ Ajouter une AG');
+    expect($('[data-agc-ajouter-pv]').textContent).toBe('+ Ajouter une date d’AG');
     const lien = $('[data-agc-historique-lien]');
     expect([lien.textContent, lien.getAttribute('aria-expanded')]).toEqual(['Afficher l’historique des AG (3)', 'false']);
     expect($('[data-agc-historique]')).toBeNull();
@@ -241,5 +241,26 @@ describe('🔴🔴 la fiche Copropriété nouvelle : AG gardées jusqu’au « V
     expect($('[data-agc-en-attente]').textContent).toContain('15/03/2999 — AGO (assemblée générale ordinaire) — officielleEnregistrée avec la copropriété au « Valider ».');
     await act(async () => { $('[data-agc-en-attente-retirer="0"]').click(); });
     expect(enAttente).toEqual([]);
+  });
+});
+
+/** 🔴 Arno (23/11/2026) — « modifier l'intitulé du bouton "Ajouter une AG" par "Ajouter une date d'AG" » ; pleine largeur sur la fiche enregistrée aussi. */
+describe('🔴 « + Ajouter une date d’AG » (fiche nouvelle et enregistrée)', () => {
+  it('le libellé, le titre du formulaire, et la pleine largeur, sur les deux fiches', async () => {
+    const lu = { etat: 'ok', data: { copropriete: 'Résidence _TEST AG', immeuble: 'Résidence _TEST AG', applicable: true, pv: true, entrees: [] } };
+    global.fetch = vi.fn(async () => json(lu)) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    const b = container.querySelector('[data-agc-ajouter-pv]') as HTMLButtonElement;
+    expect(b.textContent).toBe('+ Ajouter une date d’AG');
+    expect(b.classList.contains('agc-bouton--plein')).toBe(true);
+    expect(container.querySelector('style')!.textContent).toContain('.agc-bouton--plein{width:100%;box-sizing:border-box}');
+    await act(async () => { b.click(); }); await calmer();
+    expect(container.querySelector('.agc-form-titre')?.textContent).toBe('Nouvelle date d’AG');
+    expect(container.querySelector('[data-agc-form]')?.getAttribute('aria-label')).toBe('Ajouter une date d’AG');
+    expect(container.textContent).not.toContain('Ajouter une AG');
+    const { AgFicheNouvelle } = await import('./AgCopropriete');
+    await act(async () => { root.render(createElement(AgFicheNouvelle, { enAttente: [], onEnAttente: () => {} })); });
+    const n = container.querySelector('[data-agc-ajouter-pv]') as HTMLButtonElement;
+    expect([n.textContent, n.classList.contains('agc-bouton--plein')]).toEqual(['+ Ajouter une date d’AG', true]);
   });
 });

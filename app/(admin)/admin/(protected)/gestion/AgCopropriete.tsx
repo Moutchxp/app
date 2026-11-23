@@ -58,6 +58,8 @@ export function AgCopropriete({ lotId, immeuble, edition = false }: { lotId?: nu
   );
 }
 
+/** 🔴 (Arno, 23/11/2026) « modifier l'intitulé du bouton "Ajouter une AG" par "Ajouter une date d'AG" » — fiche nouvelle et enregistrée, pleine largeur. */
+export const LIBELLE_AJOUTER_DATE_AG = '+ Ajouter une date d’AG';
 /** 🔴 (Arno, 23/11/2026) le libellé du lien qui déplie / replie l'historique complet des AG. PUR. */
 export const lienHistoriqueAg = (n: number, ouvert: boolean): string => (ouvert ? 'Masquer l’historique des AG' : `Afficher l’historique des AG (${n})`);
 /** « 25/03/2026 — AGO » ; « 15/03/2027 — AGE, officielle ». PUR. */
@@ -92,7 +94,7 @@ function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble
           : <><strong>{resumeAg(prochaine, true)}</strong> <span className="agc-pv-qui">— saisie par {prochaine.saisiePar} le {jourFrDe(prochaine.saisieLe)}</span></>}</li>
       </ul>
       {form === null
-        ? <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" onClick={() => setForm({ corrige: null })} data-agc-ajouter-pv>+ Ajouter une AG</button></p>
+        ? <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton agc-bouton--plein" onClick={() => setForm({ corrige: null })} data-agc-ajouter-pv>{LIBELLE_AJOUTER_DATE_AG}</button></p>
         : form.corrige === null && <FormulairePv immeuble={immeuble} corrige={null} officielle onFermer={() => setForm(null)} onEnregistre={(e) => { setForm(null); onEntrees(e); }} />}
       {entrees.length > 0 && (
         <p className="agc-ajouter"><button type="button" className="fcp-lien agc-lien" aria-expanded={histo} onClick={() => setHisto((o) => !o)} data-agc-historique-lien>
@@ -146,8 +148,8 @@ export function AgFicheNouvelle({ enAttente, onEnAttente, desactive = false }: {
       {form
         ? <FormulairePv immeuble="" corrige={null} officielle onFermer={() => setForm(false)} onEnregistre={() => setForm(false)}
             onLocal={(x) => { setForm(false); onEnAttente([...enAttente, x]); }} />
-        : <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" disabled={desactive || enAttente.length >= AG_EN_ATTENTE_MAX}
-            onClick={() => setForm(true)} data-agc-ajouter-pv>+ Ajouter une AG</button></p>}
+        : <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton agc-bouton--plein" disabled={desactive || enAttente.length >= AG_EN_ATTENTE_MAX}
+            onClick={() => setForm(true)} data-agc-ajouter-pv>{LIBELLE_AJOUTER_DATE_AG}</button></p>}
       <style>{CSS_AG_COPROPRIETE}</style>
     </div>
   );
@@ -182,9 +184,9 @@ function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, ac
       .catch(() => { setEnvoi(false); setRefus('Le serveur n’a pas répondu : le PV n’a pas été enregistré.'); });
   };
   return (
-    <div className="agc-form" role="group" aria-label={officielle ? (corrige === null ? 'Ajouter une AG' : 'Corriger cette AG') : corrige === null ? 'Ajouter un PV d’AG' : 'Corriger ce PV d’AG'} data-agc-form={corrige === null ? 'ajout' : 'correction'}
+    <div className="agc-form" role="group" aria-label={officielle ? (corrige === null ? 'Ajouter une date d’AG' : 'Corriger cette date d’AG') : corrige === null ? 'Ajouter un PV d’AG' : 'Corriger ce PV d’AG'} data-agc-form={corrige === null ? 'ajout' : 'correction'}
       onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onFermer(); } }}>
-      <p className="agc-form-titre">{officielle ? (corrige === null ? 'Nouvelle AG' : `Corriger l’AG du ${dateFr(corrige.date as string)}`) : corrige === null ? 'Nouveau PV d’AG' : `Corriger le PV du ${dateFr(corrige.date as string)}`}</p>
+      <p className="agc-form-titre">{officielle ? (corrige === null ? 'Nouvelle date d’AG' : `Corriger l’AG du ${dateFr(corrige.date as string)}`) : corrige === null ? 'Nouveau PV d’AG' : `Corriger le PV du ${dateFr(corrige.date as string)}`}</p>
       {officielle
         ? <p className="agc-form-mention" role="note" data-agc-mention-officielle>{MENTION_AG_OFFICIELLE}{corrige !== null ? ' La saisie d’avant reste dans l’historique.' : ''}</p>
         : <p className="loc-muet agc-form-aide">Seules les dates OFFICIELLES de PV se saisissent ici (aucune date projetée).{corrige !== null ? ' La saisie d’avant reste dans l’historique.' : ''}</p>}
@@ -294,6 +296,7 @@ export const CSS_AG_COPROPRIETE = `
 .agc-sous-titre{margin:6px 0 0;font-weight:700;font-size:.9rem;color:var(--color-svv-ink)}
 .agc-ajouter{margin:2px 0}
 .agc-bouton{min-height:44px}
+.agc-bouton--plein{width:100%;box-sizing:border-box}
 .agc-pv{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
 .agc-pv-qui,.agc-pv-note,.agc-pv-trace{font-size:.82rem}
 .agc-pv-trace{font-style:italic}
