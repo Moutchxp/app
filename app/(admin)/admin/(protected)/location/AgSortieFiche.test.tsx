@@ -59,6 +59,9 @@ describe('🔴 Arno (23/11/2026) — copropriété rattachée : ce qui manque es
   it('la dernière AGO manquante : bandeau ; connue : pas de bandeau', async () => {
     await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: false })); });
     expect(container.querySelector('[data-ag-bandeau-derniere]')?.textContent).toBe(`⚠ ${BANDEAU_DERNIERE_AGO_MANQUANTE}`);
+    // saisie dans la fenêtre : le bandeau a fait son office, il disparaît
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: { ...saisieAgInitiale(LU), derniere: '2026-03-25' }, onChange: () => {}, desactive: false })); });
+    expect(container.querySelector('[data-ag-bandeau-derniere]')).toBeNull();
     const connu = luAgPropre({ ...LU, proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: null } });
     await act(async () => { root.render(createElement(AgSortie, { lu: connu, s: saisieAgInitiale(connu), onChange: () => {}, desactive: false })); });
     expect(container.querySelector('[data-ag-bandeau-derniere]')).toBeNull();
