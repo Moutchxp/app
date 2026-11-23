@@ -10,7 +10,8 @@ import { prenomNom } from '../../../../lib/location/triRdvPreavis';
  * ══ 🔴 « DATE D'ARRÊTÉ DES COMPTES » DE LA COPROPRIÉTÉ — LE COMPOSANT UNIQUE (Arno, 23/11/2026, migration 512) ═══════════════════════════════════
  * Rendu dans la fiche Copropriété (bloc « AG », à côté des dates d'AGO) et dans la fenêtre « Valider la sortie » (case 20 % cochée), le MÊME :
  * la date (jour / mois annuels) ou « non renseignée », qui l'a saisie et quand ; « Renseigner » / « Modifier » ouvre deux listes (jour, mois) ;
- * vides toutes les deux = date effacée (elle est facultative). Enregistrée tout de suite (POST /api/admin/gestion/immeubles/ag, droit Gestion,
+ * vides toutes les deux = date effacée (elle est facultative). 🔴 (Arno, 23/11/2026) « Renseigner … » occupe toute la largeur de la colonne
+ * (comme « + Ajouter une AG »). Enregistrée tout de suite (POST /api/admin/gestion/immeubles/ag, droit Gestion,
  * journalisée), indépendamment de la sortie. Jetons --color-svv-* seulement ; cibles ≥ 44 px. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 const API = '/api/admin/gestion/immeubles/ag';
@@ -74,7 +75,7 @@ export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = fal
         {d.arrete !== null && d.par !== null && <span className="loc-muet"> — saisie par {prenomNom(d.par)}{d.le ? ` le ${new Date(d.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}</span>}
       </p>
       {!edition ? (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn arc-arrete-btn" onClick={ouvrir} data-arrete-modifier>
+        <button type="button" className={`svv-btn svv-btn-outline gst-btn arc-arrete-btn${d.arrete === null ? ' arc-arrete-btn--plein' : ''}`} onClick={ouvrir} data-arrete-modifier>
           {d.arrete === null ? 'Renseigner la date d’arrêté des comptes' : 'Modifier la date d’arrêté des comptes'}</button>
       ) : (
         <div className="arc-arrete-form" role="group" aria-label={LIBELLE_ARRETE_COMPTES} data-arrete-formulaire>
@@ -119,6 +120,7 @@ export const CSS_ARRETE_COMPTES = `
 .arc-arrete-libelle{font-weight:800}
 .arc-arrete-vide{color:var(--color-svv-muted);font-style:italic}
 .arc-arrete-btn{align-self:flex-start;min-height:44px;width:auto}
+.arc-arrete-btn--plein{align-self:stretch;width:100%;box-sizing:border-box}
 .arc-arrete-form{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface)}
 .arc-arrete-aide{margin:0;font-size:.85rem}
 .arc-arrete-champs{display:flex;flex-wrap:wrap;gap:8px 14px}
@@ -150,7 +152,7 @@ export function ArreteComptesLocal({ valeur, onChange, desactive = false }: { va
           : <><strong data-arrete-valeur={arreteFr(valeur)}>{arreteFr(valeur)}</strong><span className="loc-muet"> — {MOT_ARRETE_AVEC_LA_FICHE}</span></>}
       </p>
       {!edition ? (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn arc-arrete-btn" disabled={desactive}
+        <button type="button" className={`svv-btn svv-btn-outline gst-btn arc-arrete-btn${valeur === null ? ' arc-arrete-btn--plein' : ''}`} disabled={desactive}
           onClick={() => { setJour(valeur === null ? '' : String(valeur.jour)); setMois(valeur === null ? '' : String(valeur.mois)); setTente(false); setEdition(true); }} data-arrete-modifier>
           {valeur === null ? 'Renseigner la date d’arrêté des comptes' : 'Modifier la date d’arrêté des comptes'}</button>
       ) : (

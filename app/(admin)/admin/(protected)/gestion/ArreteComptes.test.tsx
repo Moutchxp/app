@@ -89,3 +89,23 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
     expect(container.querySelector('[data-arrete-bandeau]')).toBeNull();
   });
 });
+
+/** 🔴 Arno (23/11/2026) — « il faut agrandir le bouton "Renseigner la date d'arrêté des comptes" pour qu'il occupe toute la largeur de la colonne ». */
+describe('🔴 « Renseigner la date d’arrêté des comptes » : toute la largeur de la colonne', () => {
+  it('non renseignée : le bouton pleine largeur (comme « + Ajouter une AG ») ; renseignée : « Modifier » garde sa taille', async () => {
+    await rendre();
+    const b = container.querySelector('[data-arrete-modifier]') as HTMLElement;
+    expect(b.textContent).toBe('Renseigner la date d’arrêté des comptes');
+    expect(b.classList.contains('arc-arrete-btn--plein')).toBe(true);
+    expect(container.querySelector('style')!.textContent).toContain('.arc-arrete-btn--plein{align-self:stretch;width:100%;box-sizing:border-box}');
+    act(() => root.unmount()); root = createRoot(container);
+    lu = { arrete: { jour: 31, mois: 12 }, par: 'arno@exemple.fr', le: '2026-11-23T09:00:00.000Z', disponible: true };
+    await rendre();
+    expect((container.querySelector('[data-arrete-modifier]') as HTMLElement).classList.contains('arc-arrete-btn--plein')).toBe(false);
+  });
+  it('fiche Copropriété nouvelle (saisie gardée) : le même bouton pleine largeur', async () => {
+    const { ArreteComptesLocal } = await import('./ArreteComptes');
+    await act(async () => { root.render(createElement(ArreteComptesLocal, { valeur: null, onChange: () => {} })); });
+    expect((container.querySelector('[data-arrete-modifier]') as HTMLElement).classList.contains('arc-arrete-btn--plein')).toBe(true);
+  });
+});
