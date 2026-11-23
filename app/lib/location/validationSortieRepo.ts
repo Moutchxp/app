@@ -19,12 +19,12 @@ import {
 } from './validationSortie';
 import { metaPieces, MOTIF_SANS_468, piecesPourEnvoi, piecesSortieDisponibles } from './piecesSortieRepo';
 import {
-  avecMentionAgProprietaire, entreesAAjouter, lignesAg, propositionAg, saisieAgPropre, verifierSaisieAg, type PropositionAg, type SaisieAg,
+  entreesAAjouter, lignesAg, propositionAg, saisieAgPropre, verifierSaisieAg, type PropositionAg, type SaisieAg,
 } from './agCopropriete';
 import {
   ajouterEntreesAg, coproprietesPourLot, entreesAgDuLot, historiqueAgDisponible, rattacherLotACopropriete, type ContexteAgLot, type CoproprieteAg,
 } from './agCoproprieteRepo';
-import { PHRASE_RETENUE_PROPRIETAIRE } from './validationSortie';
+import { texteProprietaire } from './validationSortie';
 
 /**
  * ══ 🔴🔴 « VALIDER L'ÉTAT DES LIEUX DE SORTIE » — LE SERVEUR (spec d'Arno du 11/11/2026, lot 4). IMPUR (base + envoi). ═══════════════════════
@@ -191,8 +191,10 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   // AGO officielles, dernière et prochaine saisies), jamais la simple « Prochaine AGO »
   const agoQc = ag === null || d.mentionAg !== true ? null : agoQuiCompte({ officielles: officiellesAg, derniere: ag.saisie.derniere,
     prochaine: ag.saisie.prochaine, statut: ag.saisie.statut, dateSortie: date, arrete: ag.contexte.copropriete === null ? null : (await lireArrete(ag.contexte.copropriete.id))?.arrete ?? null, jour });
-  const phraseProprietaire = phraseSaisie ?? (ag !== null && d.mentionAg === true && agoQc !== null
-    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, agoQc.date, agoQc.statut, agoQc.cloture) : undefined);
+  // 🔴 Arno (23/11/2026) — le texte des PROPRIÉTAIRES (trois paragraphes ; la MÊME date que le locataire ; « vos locataires » s'ils sont plusieurs)
+  const avecDate = ag !== null && d.mentionAg === true && agoQc !== null;
+  const phraseProprietaire = phraseSaisie ?? texteProprietaire({ jour: avecDate ? agoQc.date : null, statut: avecDate ? agoQc.statut : null,
+    cloture: avecDate ? agoQc.cloture : null, pluriel: sortants.length > 1 });
   if ((d.pieceIds ?? []).length > 0 && !(await piecesSortieDisponibles())) return { etat: 'refus', motif: MOTIF_SANS_468 };
   const pieces = await metaPieces(d.pieceIds ?? [], [d.occupationId, ...sortants]);
   if (pieces.length !== new Set(d.pieceIds ?? []).size) return { etat: 'refus', motif: 'Une pièce jointe est introuvable pour ce préavis : retirez-la puis ajoutez-la de nouveau.', champ: 'pieces' };

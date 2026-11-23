@@ -98,9 +98,9 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     expect(sansMentionAg('occupation, lors de l’assemblée générale ordinaire prévue le 17/07/2027. Fin')).toBe('occupation. Fin');
     // un paragraphe modifié sans l'ancre : la phrase de la date va à la fin
     expect(avecMentionAgLocataire('Provision conservée.', '2027-03-12', 'officielle')).toBe('Provision conservée. Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde vous sera donc restitué ou ajusté au plus tard le 12/04/2027.');
-    // le PROPRIÉTAIRE : la MÊME date, même ton
-    expect(avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2028-03-25', 'projetee', '2027-12-31'))
-      .toContain('dans le mois qui suit l’approbation des comptes. Il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2028. Nous vous tiendrons informé(e)');
+    // la phrase de date du PROPRIÉTAIRE (sur un texte libre : le texte par défaut des propriétaires est désormais `texteProprietaire`, 23/11)
+    expect(avecMentionAgProprietaire('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété, dans le mois qui suit l’approbation des comptes.', '2028-03-25', 'projetee', '2027-12-31'))
+      .toContain('dans le mois qui suit l’approbation des comptes. Il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2028.');
   });
   it('la base légale citée EN ENTIER, une fois, dans les deux textes', () => {
     const loi = 'l’article 22 de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et portant modification de la loi n° 86-1290 du 23 décembre 1986 (dans sa rédaction issue de la loi n° 2014-366 du 24 mars 2014, dite loi ALUR)';
@@ -251,6 +251,6 @@ describe('🔴🔴 le mois SUIVANT l’AGO : quand le solde sera restitué ou aj
     // la nouvelle phrase se retire et se remplace comme les autres
     const t = avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-11-25', 'projetee');
     expect(sansMentionAg(t)).toBe(PARAGRAPHE_RETENUE_LOCATAIRE);
-    expect(sansMentionAg(avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2028-03-15', 'officielle'))).toBe(PHRASE_RETENUE_PROPRIETAIRE);
+    expect(sansMentionAg(avecMentionAgProprietaire('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété, dans le mois qui suit l’approbation des comptes.', '2028-03-15', 'officielle'))).toBe('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété, dans le mois qui suit l’approbation des comptes.');
   });
 });

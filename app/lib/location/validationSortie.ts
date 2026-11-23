@@ -14,6 +14,7 @@
  */
 import { adressesUniques, composerMailLocation, prenomNom, unMailParAdresse, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { dateFrPreavis } from './preavis';
+import { dateFr, moisAnnee, unMoisApres, type StatutAg } from './agCopropriete';
 import type { mentionEnvoyePar } from './mentionEnvoyePar';
 import { lignesAg } from './agCopropriete';
 
@@ -237,8 +238,37 @@ export const BASE_LEGALE_ARTICLE_22 = 'l’article 22 de la loi n° 89-462 du 6 
  * restons à votre disposition pour toute question. » suit déjà dans le mail : elle n'est pas répétée ici.
  */
 export const PARAGRAPHE_RETENUE_LOCATAIRE = `Le logement que vous occupiez se trouve dans un immeuble en copropriété. Pour cette raison, et comme le prévoit ${BASE_LEGALE_ARTICLE_22}, nous conservons au plus 20 % de votre dépôt de garantie jusqu’à l’arrêté annuel des comptes de l’immeuble couvrant votre période d’occupation. Une régularisation des charges sera alors établie au prorata de votre durée d’occupation : si les charges réelles correspondent aux provisions que vous avez versées, ce solde vous sera restitué intégralement ; dans le cas contraire, il sera ajusté en conséquence, dans le mois qui suit l’approbation des comptes. Notre équipe reviendra vers vous dès l’approbation des comptes, pour vous en présenter le détail.`;
-/** La phrase des PROPRIÉTAIRES, à la place du paragraphe : même ton, même base légale, et (insérée) la MÊME date que pour le locataire. */
-export const PHRASE_RETENUE_PROPRIETAIRE = `Le logement étant situé dans un immeuble en copropriété, nous conservons, comme le prévoit ${BASE_LEGALE_ARTICLE_22}, au plus 20 % du dépôt de garantie du locataire jusqu’à l’arrêté annuel des comptes de l’immeuble couvrant sa période d’occupation. Le solde lui sera restitué intégralement, ou ajusté selon les charges réelles, dans le mois qui suit l’approbation des comptes. Nous vous tiendrons informé(e) à ce moment-là.`;
+/**
+ * 🔴🔴 Arno (23/11/2026) — LE TEXTE DES PROPRIÉTAIRES : « il faut ajouter qu'il doit nous communiquer, dès qu'il en aura connaissance, la date de tenue
+ * de l'AGO (rappeler la date approximative projetée qui concerne son/ses locataires sortants), afin de pouvoir préparer/anticiper la restitution des
+ * 20 % aux locataires. La bonne gestion de la sortie complète de son locataire dépend aussi de la bonne transmission des éléments nécessaires au
+ * service Gestion. Refaire le texte plus synthétique et clair. » Trois paragraphes : la retenue (base légale, exercice), la date (l'AGO qui compte,
+ * la MÊME que pour le locataire, et la restitution le mois suivant), ce qu'on attend du propriétaire. Projetée (ou statut à choisir) / officielle ;
+ * arrêté inconnu : « l'exercice couvrant sa période d'occupation » ; plusieurs locataires sortants : « vos locataires » / « leur ». Sans date
+ * (case « Indiquer … » non cochée) : la restitution « dans le mois qui suit l'approbation des comptes » et la demande de la date. PUR.
+ */
+export function texteProprietaire(o: { jour: string | null; statut: StatutAg | null; cloture: string | null; pluriel: boolean }): string {
+  const loc = o.pluriel ? 'vos locataires' : 'votre locataire';
+  const exercice = o.cloture !== null ? `de l’exercice clos le ${dateFr(o.cloture)}` : `de l’exercice couvrant ${o.pluriel ? 'leur' : 'sa'} période d’occupation`;
+  const p1 = `Le logement étant situé dans une copropriété, nous conservons, comme le prévoit ${BASE_LEGALE_ARTICLE_22}, au plus 20 % du dépôt de garantie de ${loc} jusqu’à l’approbation des comptes ${exercice}.`;
+  const demande = (quoi: string): string => `Pour préparer cette restitution dans les délais, merci de nous communiquer ${quoi} dès que vous la connaîtrez, puis son procès-verbal dès sa réception. La bonne clôture de la sortie de ${loc} dépend de la transmission de ces éléments à notre service Gestion.`;
+  if (o.jour === null) {
+    return [p1, `Le solde sera ensuite restitué ou ajusté à ${loc} dans le mois qui suit l’approbation des comptes.`,
+      demande('la date de l’assemblée générale ordinaire qui approuvera ces comptes')].join('\n\n');
+  }
+  return [p1, paragrapheDateProprietaire(o.jour, o.statut, o.pluriel), o.statut === 'officielle'
+    ? `Merci de nous transmettre le procès-verbal de cette assemblée dès sa réception : la bonne clôture de la sortie de ${loc} en dépend.`
+    : demande('la date précise de cette assemblée')].join('\n\n');
+}
+/** Le 2e paragraphe du texte des propriétaires : l'AGO qui compte et la restitution (le mois suivant). PUR. */
+export function paragrapheDateProprietaire(jour: string, statut: StatutAg | null, pluriel = false): string {
+  const loc = pluriel ? 'vos locataires' : 'votre locataire';
+  return statut === 'officielle'
+    ? `Ces comptes seront approuvés lors de l’assemblée générale ordinaire prévue le ${dateFr(jour)}. Le solde sera ensuite restitué ou ajusté à ${loc} au plus tard le ${dateFr(unMoisApres(jour))}.`
+    : `Ces comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers ${moisAnnee(jour)} (date approximative, estimée d’après les précédentes assemblées). Le solde sera ensuite restitué ou ajusté à ${loc} vers ${moisAnnee(unMoisApres(jour))}.`;
+}
+/** Le texte des propriétaires par défaut (aucune date connue, un locataire) : le repli du mail. */
+export const PHRASE_RETENUE_PROPRIETAIRE = texteProprietaire({ jour: null, statut: null, cloture: null, pluriel: false });
 export const MOTIF_RETENUE_IMPOSSIBLE = 'Retenue impossible : le bien n’est pas en copropriété (article 22).';
 export const ALERTE_COPROPRIETE_NON_RENSEIGNEE = 'Copropriété non renseignée sur la fiche du bien : vérifiez avant d’appliquer la retenue.';
 

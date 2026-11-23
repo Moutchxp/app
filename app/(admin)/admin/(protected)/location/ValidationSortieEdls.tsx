@@ -17,12 +17,12 @@ import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import {
   ALERTE_COPROPRIETE_NON_RENSEIGNEE, AVERTISSEMENT_PIECES, AVERTISSEMENT_SANS_EDL_JOINT, cleLocataire, cleProprietaire, COMPTE_RENDU_MAX, etatRetenue, MOTIF_RETENUE_IMPOSSIBLE,
-  PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, verifierValidation,
+  PARAGRAPHE_RETENUE_LOCATAIRE, paragrapheDateProprietaire, texteProprietaire, verifierValidation,
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 import { AgSortie, corpsAg, CSS_AG_SORTIE, libelleCaseAgoQuiCompte, luAgPropre, saisieAgInitiale, texteAjouteAuMail, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
-import { avecMentionAgLocataire, avecMentionAgProprietaire, phraseDateAg, sansMentionAg } from '../../../../lib/location/agCopropriete';
+import { avecMentionAgLocataire, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
 /**
  * ══ 🔴🔴 « VALIDER L'ÉTAT DES LIEUX DE SORTIE » — LA FENÊTRE (spec d'Arno du 11/11/2026, lot 4) ═══════════════════════════════════════════════
@@ -116,8 +116,9 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
     setParagrapheRetenue((t) => (n.mention && n.ago ? avecMentionAgLocataire(t, n.ago.date, n.ago.statut, n.ago.cloture) : sansMentionAg(t)));
   };
   // 🔴 Arno (23/11/2026) — le propriétaire reçoit la MÊME date que le locataire : l'AGO qui compte (jamais deux dates différentes)
-  const phraseProprietaires = saisieAg !== null && saisieAg.mention && saisieAg.ago != null
-    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture) : PHRASE_RETENUE_PROPRIETAIRE;
+  const agoProprio = saisieAg !== null && saisieAg.mention && saisieAg.ago != null ? saisieAg.ago : null;
+  // 🔴 Arno (23/11/2026) — trois paragraphes, plus synthétiques ; « vos locataires » s'ils sont plusieurs à sortir
+  const phraseProprietaires = texteProprietaire({ jour: agoProprio?.date ?? null, statut: agoProprio?.statut ?? null, cloture: agoProprio?.cloture ?? null, pluriel: sortants.length > 1 });
   /* 🔴 Arno (23/11/2026) — « créer le même bloc de texte pour le texte qui sera envoyé au propriétaire, avec la même possibilité de le modifier » :
      `null` = le texte calculé (il suit la date en direct) ; modifié à la main, il est gardé tel quel et c'est lui qui part */
   const [phraseProprioSaisie, setPhraseProprioSaisie] = useState<string | null>(null);
@@ -263,7 +264,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         {/* 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s) : sa phrase, telle qu'elle partira */}
         {a.ag !== undefined && saisieAg !== null && saisieAg.mention && saisieAg.ago != null && (
           <div data-resume-ago-proprietaire><dt>Date indiquée au(x) propriétaire(s)</dt>
-            <dd>« … {phraseDateAg(saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture, 'proprietaire')} »{phraseProprioSaisie !== null ? ' (texte modifié à la main : voir ci-dessous)' : ''}</dd></div>)}
+            <dd>« … {paragrapheDateProprietaire(saisieAg.ago.date, saisieAg.ago.statut, sortants.length > 1)} »{phraseProprioSaisie !== null ? ' (texte modifié à la main : voir ci-dessous)' : ''}</dd></div>)}
         {/* 🔴 Arno (23/11/2026) — le texte des propriétaires TEL QU'IL PARTIRA (modifié ou non) */}
         {a.retenue === true && a.mails.some((m) => m.famille === 'proprietaire') && (
           <div data-resume-texte-proprietaires><dt>{TITRE_TEXTE_PROPRIETAIRES.replace(/ — modifiable$/, '')}</dt><dd>« {phraseProprioTexte} »</dd></div>)}

@@ -3587,7 +3587,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(ligne).toContain('attendue vers mars 2027 (date approximative)');
     expect(ligne).toContain(`Texte ajouté au mail : ${phrase}`);
     // 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s), visible au récapitulatif
-    expect(q('[data-resume-ago-proprietaire]').textContent).toBe('Date indiquée au(x) propriétaire(s)« … Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2027. »');
+    expect(q('[data-resume-ago-proprietaire]').textContent).toBe('Date indiquée au(x) propriétaire(s)« … Ces comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées). Le solde sera ensuite restitué ou ajusté à vos locataires vers avril 2027. »');
     expect(String(phrase)).toContain('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
     expect(String((posts.at(-1) as { paragrapheRetenue?: string }).paragrapheRetenue)).toContain(String(phrase).replace(/^« … /, '').replace(/ »$/, ''));
   });
@@ -3657,7 +3657,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     act(() => q('[data-ag-statut-choix="officielle"]').click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde vous sera donc restitué ou ajusté au plus tard le 12/04/2027.');
     // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire (l'AGO qui compte)
-    expect((q('textarea[data-retenue-proprietaires-texte]') as HTMLTextAreaElement).value).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde lui sera donc restitué ou ajusté au plus tard le 12/04/2027.');
+    expect((q('textarea[data-retenue-proprietaires-texte]') as HTMLTextAreaElement).value).toContain('Ces comptes seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027. Le solde sera ensuite restitué ou ajusté à vos locataires au plus tard le 12/04/2027.\n\nMerci de nous transmettre le procès-verbal de cette assemblée dès sa réception : la bonne clôture de la sortie de vos locataires en dépend.');
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');
   });
@@ -3677,9 +3677,15 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(zone().disabled).toBe(false);
     expect(q('[data-retenue-sans-mail-proprietaire]')).toBeNull();
     // préremplie, et EN DIRECT : la date de l'AGO qui compte arrive avec la case « Indiquer … »
-    expect(zone().value.startsWith('Le logement étant situé dans un immeuble en copropriété, nous conservons')).toBe(true);
+    expect(zone().value.startsWith('Le logement étant situé dans une copropriété, nous conservons')).toBe(true);
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
-    expect(zone().value).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
+    expect(zone().value).toContain('Ces comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
+    // 🔴 (23/11/2026) trois paragraphes ; deux locataires sortants : « vos locataires » ; en direct : décocher un locataire → « votre locataire »
+    expect(zone().value.split('\n\n')).toHaveLength(3);
+    expect(zone().value).toContain('dépôt de garantie de vos locataires');
+    act(() => (f.querySelector('input[data-sortant]') as HTMLInputElement).click());
+    expect(zone().value).toContain('dépôt de garantie de votre locataire');
+    act(() => (f.querySelector('input[data-sortant]') as HTMLInputElement).click());
     // modifiée à la main : GARDÉE (la date ne la réécrit plus) et ENVOYÉE telle quelle
     act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(zone(), 'Texte propriétaire _TEST modifié.'); zone().dispatchEvent(new Event('input', { bubbles: true })); });
     act(() => q('[data-ag-statut-choix="officielle"]').click());

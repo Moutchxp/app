@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   alertesDuCompteRendu, AVERTISSEMENT_SANS_EDL_JOINT, coordonneesDeTiers, paragraphePiecesLocataire, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
-  PHRASE_RETENUE_PROPRIETAIRE, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
+  PHRASE_RETENUE_PROPRIETAIRE, texteProprietaire, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
 } from './validationSortie';
 
 /** 🔴🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie » : contrôles, alerte de coordonnées, confidentialité des mails. PUR. */
@@ -180,5 +180,43 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => 
     expect(par('locataire')).toHaveLength(2);
     for (const t of par('locataire')) expect(t).toContain(`${DATE}\n\n${SINGULIER}`);
     for (const t of [...par('proprietaire'), m.interne!.texte]) expect(t).not.toContain(SINGULIER);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (23/11/2026) — le texte des PROPRIÉTAIRES : « il faut ajouter qu'il doit nous communiquer, dès qu'il en aura connaissance, la date de tenue
+ * de l'AGO […] afin de pouvoir préparer/anticiper la restitution des 20 % aux locataires. […] Refaire le texte plus synthétique et clair. »
+ */
+describe('🔴🔴 le texte des propriétaires, en trois paragraphes', () => {
+  const LOI = 'l’article 22 de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et portant modification de la loi n° 86-1290 du 23 décembre 1986 (dans sa rédaction issue de la loi n° 2014-366 du 24 mars 2014, dite loi ALUR)';
+  it('date PROJETÉE : les trois paragraphes d’Arno, mot pour mot', () => {
+    expect(texteProprietaire({ jour: '2027-04-10', statut: 'projetee', cloture: '2027-12-31', pluriel: false }).split('\n\n')).toEqual([
+      `Le logement étant situé dans une copropriété, nous conservons, comme le prévoit ${LOI}, au plus 20 % du dépôt de garantie de votre locataire jusqu’à l’approbation des comptes de l’exercice clos le 31/12/2027.`,
+      'Ces comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers avril 2027 (date approximative, estimée d’après les précédentes assemblées). Le solde sera ensuite restitué ou ajusté à votre locataire vers mai 2027.',
+      'Pour préparer cette restitution dans les délais, merci de nous communiquer la date précise de cette assemblée dès que vous la connaîtrez, puis son procès-verbal dès sa réception. La bonne clôture de la sortie de votre locataire dépend de la transmission de ces éléments à notre service Gestion.']);
+  });
+  it('date OFFICIELLE : « prévue le … », « au plus tard le … », et la demande du seul procès-verbal', () => {
+    const t = texteProprietaire({ jour: '2028-03-15', statut: 'officielle', cloture: '2027-12-31', pluriel: false }).split('\n\n');
+    expect(t.slice(1)).toEqual([
+      'Ces comptes seront approuvés lors de l’assemblée générale ordinaire prévue le 15/03/2028. Le solde sera ensuite restitué ou ajusté à votre locataire au plus tard le 15/04/2028.',
+      'Merci de nous transmettre le procès-verbal de cette assemblée dès sa réception : la bonne clôture de la sortie de votre locataire en dépend.']);
+  });
+  it('arrêté inconnu : « de l’exercice couvrant sa période d’occupation » ; plusieurs locataires : « vos locataires » / « leur » ; décembre → janvier', () => {
+    const t = texteProprietaire({ jour: '2027-12-10', statut: 'projetee', cloture: null, pluriel: true });
+    expect(t).toContain('au plus 20 % du dépôt de garantie de vos locataires jusqu’à l’approbation des comptes de l’exercice couvrant leur période d’occupation.');
+    expect(t).toContain('Le solde sera ensuite restitué ou ajusté à vos locataires vers janvier 2028.');
+    expect(t).toContain('La bonne clôture de la sortie de vos locataires dépend');
+    expect(t).not.toContain('votre locataire');
+    expect(texteProprietaire({ jour: null, statut: null, cloture: null, pluriel: false })).toContain('l’exercice couvrant sa période d’occupation');
+  });
+  it('sans date (case « Indiquer … » non cochée) : trois paragraphes aussi, la restitution dans le mois qui suit, la demande de la date ; c’est le repli du mail', () => {
+    const t = texteProprietaire({ jour: null, statut: null, cloture: null, pluriel: false }).split('\n\n');
+    expect(t).toHaveLength(3);
+    expect(t[1]).toBe('Le solde sera ensuite restitué ou ajusté à votre locataire dans le mois qui suit l’approbation des comptes.');
+    expect(t[2]).toContain('merci de nous communiquer la date de l’assemblée générale ordinaire qui approuvera ces comptes dès que vous la connaîtrez');
+    expect(PHRASE_RETENUE_PROPRIETAIRE).toBe(texteProprietaire({ jour: null, statut: null, cloture: null, pluriel: false }));
+    // dans le mail : trois paragraphes, tels quels
+    const pro = mailsValidationSortie(D({ destinataires: [JEAN], retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } })).parties[0].mail.texte;
+    for (const p of t) expect(pro).toContain(`${p}\n\n`);
   });
 });
