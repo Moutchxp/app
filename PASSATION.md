@@ -311,13 +311,15 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cf05a27a`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **9 commits d'avance, NON POUSSÉS** : `b3819054`,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `03a4db8a`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **19 commits d'avance, NON POUSSÉS** : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
-  (suivi des 20 %, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse.
+  (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
+  `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
+  l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `cf05a27a`) : `npm test` VERT (1 864 fichiers, 27 720 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `03a4db8a`) : `npm test` VERT (1 865 fichiers, 27 738 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -434,6 +436,34 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     (`?ecran=vingt_pourcent`) ; petit bouton à droite sur la ligne de titre « Location » avec pastille rouge (copropriétés à compléter ;
     aucune à 0).
   - Captures : `.captures/vingt-pourcent/` (01-15).
+- **23/11/2026 (suite) — « Valider la sortie » et la copropriété (EN RECETTE, NON POUSSÉS ; demandes d'Arno du 23/11/2026)** :
+  - `068bb9dd` — **« Créer une copropriété »** ouvre LA fiche Copropriété (même composant que la Gestion : adresse officielle, parcelle,
+    adresses prises, anti-doublon, « Rattacher à … ? », « Non » mémorisé) ; à sa fermeture la fenêtre se relit. CONSTAT : l'ancienne création
+    de la sortie identifiait la copropriété par le NOM tapé (sans adresse officielle ni parcelle : doublon possible). La sortie ne crée plus
+    rien par un nom ; `creerCoproprietePourLot` (qui ne servait qu'à la sortie) n'est plus appelé, GARDÉ dans `agCoproprieteRepo.ts`.
+  - `d56c0315` + `03a4db8a` — bandeaux « Date d'arrêté des comptes manquante » (avec ArreteComptes, la date écrite UNE fois sur la
+    copropriété) et « Dernière AGO manquante » (disparaît dès qu'elle est saisie).
+  - `f6274d92` — **« Prochaine AGO » préremplie par le calcul des 20 %** (après l'arrêté, jamais avant la validation) ; 🔴 OPTION A d'Arno :
+    dernière AGO de plus d'un an, ni confirmée ni corrigée → la décision du 17/11 (champ vide, alerte, sortie bloquée) ; confirmée ou
+    corrigée → le calcul.
+  - `8e949180` — 🔴 RÈGLE D'ARNO : une prochaine AGO **projetée** n'est jamais présentée au locataire comme planifiée — « attendue vers
+    [mois année] (date approximative, estimée d'après les dates des précédentes assemblées de la copropriété) » ; **officielle** : « prévue le
+    JJ/MM/AAAA ». Paragraphe du locataire (donc récapitulatif et mail) et case. La phrase des propriétaires et la copie interne : inchangées.
+  - `4e8353e2` — le bouton « Créer une copropriété » sur toute la largeur de la colonne.
+  - `fc736919` — l'arrêté se saisit dans la fenêtre dès qu'une copropriété est rattachée, y compris juste après sa création (bloc rendu par
+    copropriété) ; sans copropriété : « Rattachez ou créez la copropriété pour saisir sa date d'arrêté des comptes. »
+  - `803dc30a` — 🔴 RÈGLE D'ARNO : **plus aucune date d'AG écrite sur la sortie** — officielle : sur la copropriété ; projetée : jamais
+    enregistrée ; sans copropriété : rien (les champs restent obligatoires, pour la phrase du mail). « Ne pas rattacher maintenant » gardé
+    (« Sans copropriété, le suivi des 20 % restera incomplet… ») ; le bien figure dans « Dates manquantes » sous « Bien sans copropriété »
+    (compté dans la pastille). Recette : AUCUNE date stockée avec une sortie. Production : script de LECTURE SEULE prêt, NON LANCÉ —
+    `bash .captures/vingt-pourcent/dates-sur-sorties-prod.sh` (READ ONLY + ROLLBACK ; dit pour chaque ligne la copropriété trouvée par
+    l'immeuble, de quoi décider d'un rattachement ; rien supprimé).
+  - Captures : `.captures/vingt-pourcent/` (16-28).
+- **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
+  adresse officielle, choisie libre de tout bien et de toute copropriété en recette), locataire, occupation 574, préavis 23 en cours ;
+  copropriété **313** créée par la fiche depuis la sortie (nom « _TEST SORTIE CREATION COPRO », alerte de parcelle vue, arrêté 31/12 saisi
+  depuis la sortie, journal 46823) ; biens 468 (préavis 24 en cours, sans copropriété) et 469 (sortie validée avec 20 % le 05/11/2026, sans
+  copropriété). Aucune sortie validée pendant les essais, aucun mail.
 - **Données d'essai en recette** (23/11) : « _TEST ARRETE COMPTES 20 POURCENT 1 / 2 / 3 » — copropriétés 310 / 311 / 312, biens 464-466,
   locataires 1-3, occupations 571-573 (sorties validées avec 20 %) ; 310 : AGO 25/03/2026 + arrêté 31/12 saisi à l'écran (journal 46821) ;
   311 : ni AGO ni arrêté ; 312 : AGO 22/09/2020, sans arrêté (restitution en retard). Pastille de l'accueil Location : 2.
@@ -465,6 +495,11 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
 **Points ouverts / à valider par Arno :**
+- Fenêtre de sortie : la copropriété rattachée s'affiche par son LIBELLÉ (« 64 Avenue des Bergères ») et non par son NOM saisi dans la fiche
+  (« _TEST SORTIE CREATION COPRO ») — la lecture commune `coproprieteDeCle` ne lit que le libellé ; à aligner si Arno le souhaite (touche
+  aussi les blocs AG des fiches).
+- Un « Rattacher » choisi par case dans la fenêtre de sortie ne s'applique qu'à la confirmation : l'arrêté de cette copropriété ne peut donc
+  se saisir qu'après (ou par « Créer une copropriété » / la fiche).
 - 🔴 **20 % — restitution jamais marquée « faite »** : aucun geste ne dit qu'une restitution des 20 % a été faite ; toutes les sorties avec
   retenue restent dans « 20 % à restituer » (et leurs copropriétés dans « Dates manquantes »). Proposition : un geste « Restitution faite »
   (date, montant restitué / ajusté, journalisé) qui sort le locataire de la liste — à décider.
