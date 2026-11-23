@@ -311,16 +311,17 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4699df09`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **26 commits d'avance, NON POUSSÉS** (dont `3c215ca2`, passation,
-  et `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir — détail plus bas) : `b3819054`,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `82037e4c`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **27 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2` et `6c9132f4`, passations,
+  `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
+  des mails — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `4699df09`) : `npm test` VERT (1 865 fichiers, 27 748 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `82037e4c`) : `npm test` VERT (1 865 fichiers, 27 750 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -473,6 +474,15 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   - `4699df09` — DÉFAUT trouvé au Chrome et corrigé : après « Voir le récapitulatif » puis « Revenir », l'AGO indiquée (et le paragraphe du
     mail) repartait de l'arrêté lu à l'OUVERTURE ; une saisie d'arrêté fait désormais relire la copropriété.
   - Captures : `.captures/vingt-pourcent/` (29-33). Aucune sortie validée, aucun mail (récapitulatif ouvert en lecture, jamais « Confirmer »).
+  - `e3249124` — **textes « 20 % » plus « ronds »** (demande d'Arno du 23/11) : paragraphe des locataires et phrase des propriétaires
+    réécrits, l'article 22 cité EN ENTIER une fois (loi n° 89-462 du 6 juillet 1989 …, rédaction issue de la loi ALUR n° 2014-366 du
+    24 mars 2014) ; la date devient une phrase à part après « … dans le mois qui suit l'approbation des comptes. » (« Pour votre logement,
+    il s'agit de l'exercice clos le …, dont les comptes seront approuvés lors de l'assemblée générale ordinaire attendue vers … (date
+    approximative, estimée d'après les précédentes assemblées de la copropriété). ») ; 🔴 le PROPRIÉTAIRE reçoit la MÊME date (l'AGO qui
+    compte, calculée au serveur avec `agoQuiCompte`, désormais dans `app/lib/location/vingtPourcent.ts`). Point ouvert d'avant RÉSOLU.
+  - `82037e4c` — encadré et récapitulatif en direct ; ligne « Date indiquée au(x) propriétaire(s) » au récapitulatif.
+  - Captures : `.captures/vingt-pourcent/` (34-39). Arrêté d'essai de la copropriété 313 passé à 30/06 pour l'essai puis REMIS à 31/12
+    (journal 46825-46828). Aucune sortie validée, aucun mail.
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
   adresse officielle, choisie libre de tout bien et de toute copropriété en recette), locataire, occupation 574, préavis 23 en cours ;
   copropriété **313** créée par la fiche depuis la sortie (nom « _TEST SORTIE CREATION COPRO », alerte de parcelle vue, arrêté 31/12 saisi
@@ -509,9 +519,6 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
 **Points ouverts / à valider par Arno :**
-- 🔴 **20 % — la phrase des PROPRIÉTAIRES** (« prévue en principe lors de l'assemblée générale ordinaire de mars 2027 ») suit encore la
-  « Prochaine AGO » de la copropriété, alors que le locataire est prévenu de l'AGO QUI COMPTE (ex. mars 2028) : les deux mails peuvent donner
-  deux dates différentes. Hors des demandes du 23/11 (qui visent le locataire) : à aligner si Arno le souhaite.
 - Fenêtre de sortie : la copropriété rattachée s'affiche par son LIBELLÉ (« 64 Avenue des Bergères ») et non par son NOM saisi dans la fiche
   (« _TEST SORTIE CREATION COPRO ») — la lecture commune `coproprieteDeCle` ne lit que le libellé ; à aligner si Arno le souhaite (touche
   aussi les blocs AG des fiches).
