@@ -1,3 +1,4 @@
+import { PHRASE_RETENUE_PROPRIETAIRE } from './validationSortie';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie », le serveur : refus AVANT toute écriture, un mail par destinataire, historiques. */
@@ -21,6 +22,7 @@ vi.mock('./agCoproprieteRepo', () => ({
   rattacherLotACopropriete: async (_q: unknown, _c: unknown, id: number) => ({ ok: true, copropriete: { id, libelle: 'Résidence Fictive', cle: 'residence fictive' } }),
   creerCoproprietePourLot: async (_q: unknown, _c: unknown, nom: string) => { ag.creees.push(nom); return { ok: true, copropriete: { id: 99, libelle: nom, cle: 'x' } }; },
 }));
+vi.mock('./arreteComptesRepo', () => ({ lireArrete: async () => ({ arrete: null, par: null, le: null }) }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@exemple.test' }) }));
 vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'arno@exemple.test', nom: 'Arno Test' }) }));
 vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async () => [] }));
@@ -109,7 +111,9 @@ describe('🔴🔴 Arno (11/11/2026, 468) — pièces jointes et retenue de 20 %
     expect(mails.map((m) => [m.sorte, (m.pieces ?? []).map((p) => [p.nom, p.octets?.length])])).toEqual([
       ['sortie_edls_locataire', [['edl.pdf', 3], ['salon.jpg', 3]]], ['sortie_edls_proprietaire', [['edl.pdf', 3], ['salon.jpg', 3]]], ['sortie_edls_interne', [['edl.pdf', 3], ['salon.jpg', 3]]]]);
     expect(mails[0].texte).toContain('Provision de 20 % conservée.');
-    expect(mails[1].texte).toContain('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété.');
+    // 🔴 Arno (23/11/2026) — la phrase des propriétaires, plus « ronde », avec la référence COMPLÈTE de la loi
+    expect(mails[1].texte).toContain(PHRASE_RETENUE_PROPRIETAIRE);
+    expect(mails[1].texte).toContain('loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs');
     const inscrite = h.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO gestion_location_sortie_validee'));
     expect(inscrite?.[1]).toEqual([7, [11, 12], '2026-11-10', true, [1, 2], 1, 'Arno Test']);
   });
@@ -163,7 +167,8 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(r.etat);
     expect(r.data.ag).toEqual({ lignes: [['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false });
-    expect(r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('prévue en principe lors de l’assemblée générale ordinaire de mars 2027.');
+    // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire (l'AGO qui compte ; ici arrêté inconnu → la première après la validation)
+    expect(r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété).');
     expect(r.data.mails.find((m) => m.famille === 'interne')!.texte).toContain('Prochaine AGO : 12/03/2027 (date projetée)');
     expect(ag.ajouts).toEqual([]); // l'aperçu n'écrit rien
   });

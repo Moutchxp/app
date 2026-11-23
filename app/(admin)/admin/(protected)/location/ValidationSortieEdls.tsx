@@ -104,10 +104,11 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const changerAg = (n: SaisieAgEcran): void => {
     setSaisieAg(n);
     // 🔴 Arno (23/11/2026) — l'AGO QUI COMPTE pour le locataire (et non la simple prochaine AGO) part dans son paragraphe
-    setParagrapheRetenue((t) => (n.mention && n.ago ? avecMentionAgLocataire(t, n.ago.date, n.ago.statut) : sansMentionAg(t)));
+    setParagrapheRetenue((t) => (n.mention && n.ago ? avecMentionAgLocataire(t, n.ago.date, n.ago.statut, n.ago.cloture) : sansMentionAg(t)));
   };
-  const phraseProprietaires = saisieAg !== null && saisieAg.mention && /^\d{4}-\d{2}-\d{2}$/.test(saisieAg.prochaine)
-    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.prochaine) : PHRASE_RETENUE_PROPRIETAIRE;
+  // 🔴 Arno (23/11/2026) — le propriétaire reçoit la MÊME date que le locataire : l'AGO qui compte (jamais deux dates différentes)
+  const phraseProprietaires = saisieAg !== null && saisieAg.mention && saisieAg.ago != null
+    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture) : PHRASE_RETENUE_PROPRIETAIRE;
   const parties = useMemo(() => (encart.etat.etat === 'ok' ? partiesDeLEncart(encart.etat.data) : []), [encart.etat]);
   const enGestion = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion && partenaires.etat.data.liste.length > 0;
   useEffect(() => {

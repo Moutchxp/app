@@ -211,37 +211,50 @@ export const mentionAg = (jour: string): string => `, prévue en principe lors d
  * pas encore choisi) → « lors de l'assemblée générale ordinaire attendue vers juillet 2027 (date approximative, estimée d'après les dates des
  * précédentes assemblées de la copropriété) » : le mois et l'année seulement, jamais le jour présenté comme fixé. PUR.
  */
-export const MENTION_APPROXIMATIVE = 'date approximative, estimée d’après les dates des précédentes assemblées de la copropriété';
-export const mentionAgLocataire = (jour: string, statut: StatutAg | null): string => (statut === 'officielle'
-  ? `, lors de l’assemblée générale ordinaire prévue le ${dateFr(jour)}`
-  : `, lors de l’assemblée générale ordinaire attendue vers ${moisAnnee(jour)} (${MENTION_APPROXIMATIVE})`);
-/** Le libellé de la case « Mentionner … » selon le statut (même règle). PUR. */
+export const MENTION_APPROXIMATIVE = 'date approximative, estimée d’après les précédentes assemblées de la copropriété';
+/**
+ * 🔴🔴 Arno (23/11/2026) — LA PHRASE DE LA DATE (locataire ET propriétaire : la MÊME AGO, celle qui compte), insérée après « … dans le mois qui suit
+ * l'approbation des comptes. » : l'exercice concerné, puis l'AGO — OFFICIELLE « prévue le 15/03/2028 » ; PROJETÉE (ou statut à choisir) « attendue
+ * vers mars 2028 (date approximative, estimée d'après les précédentes assemblées de la copropriété) » : le mois et l'année seulement. PUR.
+ */
+export function phraseDateAg(jour: string, statut: StatutAg | null, cloture: string | null = null, pour: 'locataire' | 'proprietaire' = 'locataire'): string {
+  const quand = statut === 'officielle' ? `prévue le ${dateFr(jour)}` : `attendue vers ${moisAnnee(jour)} (${MENTION_APPROXIMATIVE})`;
+  const coeur = cloture !== null
+    ? `il s’agit de l’exercice clos le ${dateFr(cloture)}, dont les comptes seront approuvés lors de l’assemblée générale ordinaire ${quand}.`
+    : `les comptes concernés seront approuvés lors de l’assemblée générale ordinaire ${quand}.`;
+  return pour === 'locataire' ? `Pour votre logement, ${coeur}` : `${coeur.charAt(0).toUpperCase()}${coeur.slice(1)}`;
+}
+/** 🔴 (23/11/2026, f35f53a2) la mention pour le locataire, telle que l'encadré la montre — désormais la phrase de la date, attachée par une espace. */
+export const mentionAgLocataire = (jour: string, statut: StatutAg | null, cloture: string | null = null): string => ` ${phraseDateAg(jour, statut, cloture, 'locataire')}`;
+/** Le libellé de la case « Mentionner … » selon le statut (8e949180, gardé pour les écrans qui l'emploient). PUR. */
 export const libelleCaseMentionAg = (jour: string, statut: StatutAg | null): string => (statut === 'officielle'
   ? `Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire prévue le ${dateFr(jour)}`
   : `Mentionner dans le paragraphe « 20 % » l’assemblée générale ordinaire attendue vers ${moisAnnee(jour)} (date approximative)`);
-/** la mention — celle d'avant (« … l'assemblée générale de … ») et celles du 23/11 (prévue le / attendue vers) comprises : retirée ou remplacée de même */
-const RE_MENTION = /, (?:prévue en principe lors de l’assemblée générale (?:ordinaire )?de [a-zéû]+ \d{4}|lors de l’assemblée générale ordinaire (?:prévue le \d{2}\/\d{2}\/\d{4}|attendue vers [a-zéû]+ \d{4} \(date approximative, estimée d’après les dates des précédentes assemblées de la copropriété\)))/g;
+/** la mention — celles d'avant (« prévue en principe … », « lors de l'assemblée … ») et la phrase du 23/11 au soir comprises : retirée ou remplacée de même */
+const RE_MENTION = new RegExp([
+  ', prévue en principe lors de l’assemblée générale (?:ordinaire )?de [a-zéû]+ \\d{4}',
+  ', lors de l’assemblée générale ordinaire (?:prévue le \\d{2}/\\d{2}/\\d{4}|attendue vers [a-zéû]+ \\d{4} \\(date approximative, estimée d’après les dates des précédentes assemblées de la copropriété\\))',
+  ' (?:Pour votre logement, )?(?:[Ii]l s’agit de l’exercice clos le \\d{2}/\\d{2}/\\d{4}, dont les comptes|[Ll]es comptes concernés) seront approuvés lors de l’assemblée générale ordinaire (?:prévue le \\d{2}/\\d{2}/\\d{4}|attendue vers [a-zéû]+ \\d{4} \\(date approximative, estimée d’après les précédentes assemblées de la copropriété\\))\\.',
+].join('|'), 'g');
 
 /** Le texte SANS mention de l'AG (pour la retirer, ou la remplacer). PUR. */
 export const sansMentionAg = (texte: string): string => texte.replace(RE_MENTION, '');
 
-/**
- * Le paragraphe des LOCATAIRES avec la mention de la prochaine AG, juste après « … couvrant votre période d’occupation » (sinon après la
- * première « approbation … des comptes … » ; à défaut, rien n'est changé). Une mention déjà présente est remplacée. PUR.
- */
-export function avecMentionAgLocataire(texte: string, jour: string, statut: StatutAg | null = null): string {
+/** La phrase de la date, juste après « … dans le mois qui suit l'approbation des comptes. » ; à défaut, à la fin. Une mention déjà là est remplacée. PUR. */
+const ANCRE_DATE = 'dans le mois qui suit l’approbation des comptes.';
+function avecPhraseDate(texte: string, phrase: string): string {
   const t = sansMentionAg(texte);
-  const mention = mentionAgLocataire(jour, statut);
-  const i = t.indexOf(ANCRE_LOCATAIRE);
-  if (i >= 0) return `${t.slice(0, i + ANCRE_LOCATAIRE.length)}${mention}${t.slice(i + ANCRE_LOCATAIRE.length)}`;
-  const m = /approbation[^.]*?comptes[^.,]*/.exec(t);
-  return m === null ? t : `${t.slice(0, m.index + m[0].length)}${mention}${t.slice(m.index + m[0].length)}`;
+  const i = t.indexOf(ANCRE_DATE);
+  if (i >= 0) return `${t.slice(0, i + ANCRE_DATE.length)} ${phrase}${t.slice(i + ANCRE_DATE.length)}`;
+  return `${t.trimEnd()} ${phrase}`;
 }
-/** La phrase des PROPRIÉTAIRES avec la même mention. PUR. */
-export function avecMentionAgProprietaire(phrase: string, jour: string): string {
-  const t = sansMentionAg(phrase);
-  const i = t.indexOf(ANCRE_PROPRIETAIRE);
-  return i < 0 ? t : `${t.slice(0, i + ANCRE_PROPRIETAIRE.length)}${mentionAg(jour)}${t.slice(i + ANCRE_PROPRIETAIRE.length)}`;
+/** Le paragraphe des LOCATAIRES avec la phrase de la date (l'AGO qui compte, avec l'exercice). PUR. */
+export function avecMentionAgLocataire(texte: string, jour: string, statut: StatutAg | null = null, cloture: string | null = null): string {
+  return avecPhraseDate(texte, phraseDateAg(jour, statut, cloture, 'locataire'));
+}
+/** La phrase des PROPRIÉTAIRES avec la MÊME date que le locataire. PUR. */
+export function avecMentionAgProprietaire(phrase: string, jour: string, statut: StatutAg | null = null, cloture: string | null = null): string {
+  return avecPhraseDate(phrase, phraseDateAg(jour, statut, cloture, 'proprietaire'));
 }
 
 /** La ligne d'une entrée sur la fiche : « 12/03/2027 — prochaine AG, projetée — saisie par Arnaud JOREL le 16/11/2026 (sortie n° 12) ». PUR. */

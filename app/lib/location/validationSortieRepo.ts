@@ -1,4 +1,4 @@
-import { agosOfficielles } from './vingtPourcent';
+import { agosOfficielles, agoQuiCompte } from './vingtPourcent';
 import { lireArrete } from './arreteComptesRepo';
 import type { ArreteComptes } from './arreteComptes';
 import { query, withTransaction } from '../db/client';
@@ -166,6 +166,7 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   if (paragrapheRetenue.length > COMPTE_RENDU_MAX) return { etat: 'refus', motif: `Le paragraphe de la retenue dépasse ${COMPTE_RENDU_MAX} caractères.`, champ: 'retenue' };
   // 🔴 Arno (16/11/2026, 475) — case 20 % cochée : la dernière AG et la prochaine (date ET statut) sont OBLIGATOIRES ; refus avant tout.
   let ag: Preparation['ag'] = null;
+  let officiellesAg: string[] = [];
   if (retenue && (await historiqueAgDisponible())) {
     // 🔴 (Arno, 17/11/2026) une date PROJETÉE déjà passée est refusée (une officielle passée reste admise)
     const va = verifierSaisieAg((d.ag ?? {}) as Record<string, unknown>, jour);
@@ -176,10 +177,16 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
     if (choix?.sorte === 'rattacher' && !(await coproprietesPourLot(h.contexte)).some((c) => c.id === choix.id)) {
       return { etat: 'refus', motif: 'Cette copropriété ne couvre pas l’adresse du bien : rechargez la fenêtre.', champ: 'ag' };
     }
+    officiellesAg = agosOfficielles(h.entrees);
     ag = { saisie: saisieAgPropre(d.ag, jour) as SaisieAg, connue: propositionAg(h.entrees, jour), contexte: h.contexte, choix,
       coproprieteOui: d.coproprieteOui === true && logement.copropriete === null };
   }
-  const phraseProprietaire = ag !== null && d.mentionAg === true ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, ag.saisie.prochaine) : undefined;
+  // 🔴 Arno (23/11/2026) — le propriétaire reçoit la MÊME date que le locataire : l'AGO QUI COMPTE (même calcul que la fenêtre : date de sortie, arrêté,
+  // AGO officielles, dernière et prochaine saisies), jamais la simple « Prochaine AGO »
+  const agoQc = ag === null || d.mentionAg !== true ? null : agoQuiCompte({ officielles: officiellesAg, derniere: ag.saisie.derniere,
+    prochaine: ag.saisie.prochaine, statut: ag.saisie.statut, dateSortie: date, arrete: ag.contexte.copropriete === null ? null : (await lireArrete(ag.contexte.copropriete.id))?.arrete ?? null, jour });
+  const phraseProprietaire = ag !== null && d.mentionAg === true && agoQc !== null
+    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, agoQc.date, agoQc.statut, agoQc.cloture) : undefined;
   if ((d.pieceIds ?? []).length > 0 && !(await piecesSortieDisponibles())) return { etat: 'refus', motif: MOTIF_SANS_468 };
   const pieces = await metaPieces(d.pieceIds ?? [], [d.occupationId, ...sortants]);
   if (pieces.length !== new Set(d.pieceIds ?? []).size) return { etat: 'refus', motif: 'Une pièce jointe est introuvable pour ce préavis : retirez-la puis ajoutez-la de nouveau.', champ: 'pieces' };

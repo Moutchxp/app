@@ -152,3 +152,19 @@ export function datesManquantes(lignes: readonly { copro: CoproConcernee; arrete
 
 /** Le nombre de copropriétés à compléter : la pastille de l'accueil Location (0 : aucune pastille). PUR. */
 export const nombreCoproprietesACompleter = (lu: Pick<SuiviVingtLu, 'manquantes'> | null): number => (lu === null ? 0 : lu.manquantes.length);
+
+// ══ 🔴 Arno (23/11/2026) — L'AGO QUI COMPTE d'une sortie (fenêtre « Valider la sortie » ET serveur : la même pour le locataire et le propriétaire) ══
+/** L'AGO QUI COMPTE pour le locataire, telle que la fenêtre la montre et l'envoie. */
+export interface AgoQuiCompteEcran { date: string; statut: 'officielle' | 'projetee'; incertaine: boolean; cloture: string | null }
+/**
+ * 🔴🔴 Arno (23/11/2026) — « l'utilisateur, avant de valider la sortie et l'envoi du mail, doit clairement savoir pour quelle date il prévient son ou ses
+ * locataires » : l'AGO QUI COMPTE (calcul b0453dc2 : exercice clos au premier arrêté ≥ date de sortie, puis première AGO après cet arrêté ; arrêté
+ * inconnu : après la validation, « incertaine »), et non la simple « Prochaine AGO ». Une prochaine AGO saisie « officielle » compte comme une AGO
+ * officielle (elle sera écrite sur la copropriété). `null` : aucune AGO connue. PUR.
+ */
+export function agoQuiCompte(o: { officielles: readonly string[]; derniere: string; prochaine: string; statut: 'officielle' | 'projetee' | null; dateSortie: string; arrete: ArreteComptes | null; jour: string }): AgoQuiCompteEcran | null {
+  const offs = [...new Set([...o.officielles, ...[o.derniere, o.statut === 'officielle' ? o.prochaine : null].filter((d): d is string => d !== null && /^\d{4}-\d{2}-\d{2}$/.test(d))])].sort();
+  const r = suiviVingtPourcent({ dateSortie: /^\d{4}-\d{2}-\d{2}$/.test(o.dateSortie) ? o.dateSortie : o.jour, valideLe: o.jour, arrete: o.arrete, officielles: offs, aujourdhui: o.jour });
+  return r.etat === 'ok' ? { date: r.ago.date, statut: r.ago.statut, incertaine: r.incertaine, cloture: r.exercice } : null;
+}
+

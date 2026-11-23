@@ -212,10 +212,20 @@ export function alertesDuCompteRendu(compteRendu: string, destinataires: readonl
 
 // ── 🔴 Arno (11/11/2026) — LA RETENUE DE 20 % DU DÉPÔT DE GARANTIE (article 22) ────────────────────────────────────────────────
 
-/** Le paragraphe des LOCATAIRES, mot pour mot (modifiable avant l'envoi), apostrophes typographiques. */
-export const PARAGRAPHE_RETENUE_LOCATAIRE = 'Le logement étant situé dans un immeuble en copropriété, et conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989, une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation définitive des comptes annuels de la copropriété couvrant votre période d’occupation. Une régularisation des charges sera alors établie au prorata de votre durée d’occupation. Ce solde vous sera restitué intégralement si les dépenses réelles de la copropriété correspondent aux provisions versées, ou ajusté en fonction de ces dépenses réelles, dans le mois qui suit l’approbation des comptes.';
-/** La phrase des PROPRIÉTAIRES, à la place du paragraphe. */
-export const PHRASE_RETENUE_PROPRIETAIRE = 'Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété.';
+/**
+ * 🔴🔴 Arno (23/11/2026) — « le texte du mail aux locataires et au propriétaire […] doit être un peu plus développé/rond […] un peu plus humain
+ * qu'uniquement factuel, et donner le nom complet de l'article de loi 22 avec sa date de vote ». La base légale, citée EN ENTIER une fois.
+ */
+export const BASE_LEGALE_ARTICLE_22 = 'l’article 22 de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et portant modification de la loi n° 86-1290 du 23 décembre 1986 (dans sa rédaction issue de la loi n° 2014-366 du 24 mars 2014, dite loi ALUR)';
+/**
+ * Le paragraphe des LOCATAIRES (modifiable avant l'envoi), apostrophes typographiques — dans l'ordre voulu par Arno : pourquoi (copropriété), la
+ * base légale, ce qu'elle permet (au plus 20 % jusqu'à l'arrêté annuel des comptes), ce qui se passera (régularisation au prorata, restitution
+ * ou ajustement dans le mois qui suit l'approbation), [la date : phrase insérée par `avecMentionAgLocataire`], la réassurance. La formule « Nous
+ * restons à votre disposition pour toute question. » suit déjà dans le mail : elle n'est pas répétée ici.
+ */
+export const PARAGRAPHE_RETENUE_LOCATAIRE = `Le logement que vous occupiez se trouve dans un immeuble en copropriété. Pour cette raison, et comme le prévoit ${BASE_LEGALE_ARTICLE_22}, nous conservons au plus 20 % de votre dépôt de garantie jusqu’à l’arrêté annuel des comptes de l’immeuble couvrant votre période d’occupation. Une régularisation des charges sera alors établie au prorata de votre durée d’occupation : si les charges réelles correspondent aux provisions que vous avez versées, ce solde vous sera restitué intégralement ; dans le cas contraire, il sera ajusté en conséquence, dans le mois qui suit l’approbation des comptes. Notre équipe reviendra vers vous dès l’approbation des comptes, pour vous en présenter le détail.`;
+/** La phrase des PROPRIÉTAIRES, à la place du paragraphe : même ton, même base légale, et (insérée) la MÊME date que pour le locataire. */
+export const PHRASE_RETENUE_PROPRIETAIRE = `Le logement étant situé dans un immeuble en copropriété, nous conservons, comme le prévoit ${BASE_LEGALE_ARTICLE_22}, au plus 20 % du dépôt de garantie du locataire jusqu’à l’arrêté annuel des comptes de l’immeuble couvrant sa période d’occupation. Le solde lui sera restitué intégralement, ou ajusté selon les charges réelles, dans le mois qui suit l’approbation des comptes. Nous vous tiendrons informé(e) à ce moment-là.`;
 export const MOTIF_RETENUE_IMPOSSIBLE = 'Retenue impossible : le bien n’est pas en copropriété (article 22).';
 export const ALERTE_COPROPRIETE_NON_RENSEIGNEE = 'Copropriété non renseignée sur la fiche du bien : vérifiez avant d’appliquer la retenue.';
 

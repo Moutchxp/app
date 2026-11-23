@@ -58,19 +58,8 @@ export function prochaineCalculee(o: { officielles: readonly string[]; derniere:
   return a === null ? null : { date: a.date, statut: a.statut };
 }
 
-/** L'AGO QUI COMPTE pour le locataire, telle que la fenêtre la montre et l'envoie. */
-export interface AgoQuiCompteEcran { date: string; statut: StatutAg; incertaine: boolean; cloture: string | null }
-/**
- * 🔴🔴 Arno (23/11/2026) — « l'utilisateur, avant de valider la sortie et l'envoi du mail, doit clairement savoir pour quelle date il prévient son ou ses
- * locataires » : l'AGO QUI COMPTE (calcul b0453dc2 : exercice clos au premier arrêté ≥ date de sortie, puis première AGO après cet arrêté ; arrêté
- * inconnu : après la validation, « incertaine »), et non la simple « Prochaine AGO ». Une prochaine AGO saisie « officielle » compte comme une AGO
- * officielle (elle sera écrite sur la copropriété). `null` : aucune AGO connue. PUR.
- */
-export function agoQuiCompte(o: { officielles: readonly string[]; derniere: string; prochaine: string; statut: StatutAg | null; dateSortie: string; arrete: Arrete | null; jour: string }): AgoQuiCompteEcran | null {
-  const offs = offsDe(o.officielles, o.derniere, o.statut === 'officielle' ? o.prochaine : null);
-  const r = suiviVingtPourcent({ dateSortie: DATE_ISO.test(o.dateSortie) ? o.dateSortie : o.jour, valideLe: o.jour, arrete: o.arrete, officielles: offs, aujourdhui: o.jour });
-  return r.etat === 'ok' ? { date: r.ago.date, statut: r.ago.statut, incertaine: r.incertaine, cloture: r.exercice } : null;
-}
+export { agoQuiCompte, type AgoQuiCompteEcran } from '../../../../lib/location/vingtPourcent';
+import { agoQuiCompte, type AgoQuiCompteEcran } from '../../../../lib/location/vingtPourcent';
 
 /** Le libellé de la case, en clair : l'AGO qui permettra de restituer les 20 %, son statut, l'exercice (ou l'incertitude). PUR. */
 export function libelleCaseAgoQuiCompte(a: AgoQuiCompteEcran): string {
@@ -79,7 +68,7 @@ export function libelleCaseAgoQuiCompte(a: AgoQuiCompteEcran): string {
   return `Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : ${quand}${exercice}.`;
 }
 /** Le texte EXACT ajouté au paragraphe du locataire (sans la virgule d'attache). PUR. */
-export const texteAjouteAuMail = (a: AgoQuiCompteEcran): string => mentionAgLocataire(a.date, a.statut).replace(/^, /, '');
+export const texteAjouteAuMail = (a: AgoQuiCompteEcran): string => mentionAgLocataire(a.date, a.statut, a.cloture).trim();
 export const AIDE_PROCHAINE_AGO = 'Prochaine AGO de la copropriété — pas forcément celle qui libère les 20 % : voir ci-dessous.';
 
 export interface SaisieAgEcran {

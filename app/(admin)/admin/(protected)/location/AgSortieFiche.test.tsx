@@ -169,7 +169,7 @@ describe('🔴🔴 Arno (23/11/2026) — « l’utilisateur […] doit clairemen
     const a = agoQuiCompte({ ...base, dateSortie: '2027-01-10' })!;
     expect(a).toEqual({ date: '2028-03-25', statut: 'projetee', incertaine: false, cloture: '2027-12-31' });
     expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2028 (date approximative) — exercice clôturé le 31/12/2027.');
-    expect(texteAjouteAuMail(a)).toBe('lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les dates des précédentes assemblées de la copropriété)');
+    expect(texteAjouteAuMail(a)).toBe('Pour votre logement, il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété).');
   });
   it('sortie avant l’arrêté : l’AGO qui compte = la prochaine ; la prochaine saisie OFFICIELLE compte comme officielle (« prévue le … »)', () => {
     const a = agoQuiCompte({ ...base, dateSortie: '2026-11-15', prochaine: '2027-03-15', statut: 'officielle' })!;
@@ -198,7 +198,7 @@ describe('🔴🔴 Arno (23/11/2026) — « l’utilisateur […] doit clairemen
     expect(ago).toMatchObject({ date: '2028-03-25', statut: 'projetee' });
     const { avecMentionAgLocataire } = await import('../../../../lib/location/agCopropriete');
     const { PARAGRAPHE_RETENUE_LOCATAIRE } = await import('../../../../lib/location/validationSortie');
-    expect(avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, ago.date, ago.statut)).toContain(phrase.replace(/^« … /, '').replace(/ »$/, ''));
+    expect(avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, ago.date, ago.statut, (ago as unknown as { cloture: string | null }).cloture)).toContain(phrase.replace(/^« … /, '').replace(/ »$/, ''));
   });
 });
 

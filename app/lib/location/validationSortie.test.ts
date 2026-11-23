@@ -86,14 +86,17 @@ describe('🔴 les mails : un par destinataire, aucune coordonnée d’un tiers,
 describe('🔴🔴 Arno (11/11/2026, 468) — la retenue de 20 % et les pièces jointes', () => {
   it('case cochée : le paragraphe EXACT en fin de compte rendu des LOCATAIRES, la phrase courte chez les PROPRIÉTAIRES, la mention dans la copie interne ; apostrophes typographiques', () => {
     expect(PARAGRAPHE_RETENUE_LOCATAIRE).not.toContain("'");
-    expect(PARAGRAPHE_RETENUE_LOCATAIRE.startsWith('Le logement étant situé dans un immeuble en copropriété, et conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989')).toBe(true);
+    // 🔴 Arno (23/11/2026) — plus « rond », la base légale citée EN ENTIER
+    expect(PARAGRAPHE_RETENUE_LOCATAIRE.startsWith('Le logement que vous occupiez se trouve dans un immeuble en copropriété. Pour cette raison, et comme le prévoit l’article 22 de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et portant modification de la loi n° 86-1290 du 23 décembre 1986 (dans sa rédaction issue de la loi n° 2014-366 du 24 mars 2014, dite loi ALUR)')).toBe(true);
     const m = mailsValidationSortie(D({ destinataires: [ALICE, JEAN], retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } }));
     const loc = m.parties[0].mail.texte;
     expect(loc.indexOf('Compteurs relevés.')).toBeLessThan(loc.indexOf(PARAGRAPHE_RETENUE_LOCATAIRE));
     expect(loc).not.toContain(PHRASE_RETENUE_PROPRIETAIRE);
     const pro = m.parties[1].mail.texte;
-    expect(pro).toContain('Une provision de 20 % du dépôt de garantie est conservée jusqu’à l’approbation des comptes de la copropriété.');
-    expect(pro).not.toContain('article 22');
+    // 🔴 Arno (23/11/2026) — « même ton, même base légale » chez le propriétaire (avant : une phrase courte, sans l'article 22)
+    expect(pro).toContain(PHRASE_RETENUE_PROPRIETAIRE);
+    expect(pro).toContain('article 22 de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs');
+    expect(pro).not.toContain(PARAGRAPHE_RETENUE_LOCATAIRE);
     expect(m.interne?.texte).toContain('Retenue de 20 % du dépôt de garantie : appliquée (article 22).');
   });
   it('le paragraphe est modifiable ; case décochée : ni paragraphe, ni phrase (et plus le paragraphe automatique d’avant)', () => {
