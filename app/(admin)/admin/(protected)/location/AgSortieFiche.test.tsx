@@ -206,7 +206,8 @@ describe('🔴🔴 Arno (23/11/2026) — « l’utilisateur […] doit clairemen
 describe('🔴 Arno (23/11/2026) — « élargir la zone de texte explicative à destination du locataire pour qu’elle occupe toute la largeur de la colonne »', () => {
   it('le champ « Paragraphe ajouté aux mails des locataires » est étiré sur toute la largeur du bloc', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/ValidationSortieEdls.tsx', 'utf8');
-    expect(src).toContain('<label className="pvs-champ vse-paragraphe-retenue"><span className="pvs-libelle">Paragraphe ajouté aux mails des locataires (modifiable)</span>');
+    // (23/11/2026, suite) le titre dit à qui le texte est destiné : « Texte ajouté au mail du (des) locataire(s) — modifiable »
+    expect(src).toContain('<label className="pvs-champ vse-paragraphe-retenue"><span className="pvs-libelle">{TITRE_TEXTE_LOCATAIRES}</span>');
     expect(src).toMatch(/\.vse-retenue \.vse-paragraphe-retenue\{align-self:stretch;box-sizing:border-box;width:100%;min-width:0\}/);
   });
 });

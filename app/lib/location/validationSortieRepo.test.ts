@@ -163,6 +163,17 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     expect(h.enregistrerSortie).not.toHaveBeenCalled();
     expect((await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'officielle' } }, AUTEUR)).etat).toBe('ok');
   });
+  // 🔴 Arno (23/11/2026) — le texte des propriétaires, modifiable dans la fenêtre : c'est LUI qui part (ses paragraphes), borné comme celui des locataires
+  it('le texte des propriétaires modifié part TEL QUEL dans leur mail (et seulement le leur) ; trop long : refus avant tout', async () => {
+    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true, phraseProprietaire: '  Premier paragraphe _TEST.\n\nSecond paragraphe _TEST.  ' }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error(r.etat);
+    const pro = r.data.mails.find((m) => m.famille === 'proprietaire')!.texte;
+    expect(pro).toContain('Premier paragraphe _TEST.\n\nSecond paragraphe _TEST.');
+    expect(pro).not.toContain('Le logement étant situé dans un immeuble en copropriété');
+    expect(r.data.mails.find((m) => m.famille === 'locataire')!.texte).not.toContain('_TEST.');
+    expect(await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, phraseProprietaire: 'x'.repeat(20_001) }, AUTEUR))
+      .toMatchObject({ etat: 'refus', champ: 'retenue', motif: expect.stringContaining('Le texte des propriétaires dépasse') });
+  });
   it('l’aperçu dit les deux dates avec leur statut et la copropriété ; la phrase des propriétaires porte la mention si elle est choisie', async () => {
     const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(r.etat);

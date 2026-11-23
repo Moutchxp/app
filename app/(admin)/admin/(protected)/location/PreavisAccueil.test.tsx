@@ -3657,9 +3657,41 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     act(() => q('[data-ag-statut-choix="officielle"]').click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
     // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire (l'AGO qui compte)
-    expect(q('[data-retenue-proprietaires]').textContent).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
+    expect((q('textarea[data-retenue-proprietaires-texte]') as HTMLTextAreaElement).value).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');
+  });
+  // 🔴🔴 Arno (23/11/2026) — « créer le même bloc de texte pour le texte qui sera envoyé au propriétaire, avec la même possibilité de le modifier
+  // (copier le fonctionnement du locataire, avec son texte dédié et un titre pour bien comprendre à qui il est destiné) »
+  it('les deux textes titrés ; celui des propriétaires modifiable, en direct tant qu’il n’est pas modifié, puis gardé et envoyé ; grisé sans mail au propriétaire', async () => {
+    const f = await ouvrir();
+    expect([...f.querySelectorAll('.vse-paragraphe-retenue > .pvs-libelle')].map((x) => x.textContent))
+      .toEqual(['Texte ajouté au mail du (des) locataire(s) — modifiable', 'Texte ajouté au mail du (des) propriétaire(s) — modifiable']);
+    const zone = () => q('textarea[data-retenue-proprietaires-texte]') as HTMLTextAreaElement;
+    // aucun propriétaire coché : grisé, et on le dit
+    expect(zone().disabled).toBe(true);
+    expect(q('[data-retenue-proprietaires]').classList.contains('vse-grise')).toBe(true);
+    expect(q('[data-retenue-sans-mail-proprietaire]').textContent).toBe('Aucun mail au propriétaire pour cette sortie');
+    const proprio = f.querySelector('[data-famille-destinataires="proprietaire"] input:not([disabled])') as HTMLInputElement;
+    act(() => proprio.click());
+    expect(zone().disabled).toBe(false);
+    expect(q('[data-retenue-sans-mail-proprietaire]')).toBeNull();
+    // préremplie, et EN DIRECT : la date de l'AGO qui compte arrive avec la case « Indiquer … »
+    expect(zone().value.startsWith('Le logement étant situé dans un immeuble en copropriété, nous conservons')).toBe(true);
+    act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
+    expect(zone().value).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
+    // modifiée à la main : GARDÉE (la date ne la réécrit plus) et ENVOYÉE telle quelle
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(zone(), 'Texte propriétaire _TEST modifié.'); zone().dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => q('[data-ag-statut-choix="officielle"]').click());
+    expect(zone().value).toBe('Texte propriétaire _TEST modifié.');
+    await act(async () => { recap().click(); }); await attendre();
+    expect(posts.at(-1)).toMatchObject({ phraseProprietaire: 'Texte propriétaire _TEST modifié.' });
+  });
+  it('le texte des propriétaires non modifié : rien de plus n’est envoyé (le serveur le calcule, même date que le locataire)', async () => {
+    const f = await ouvrir();
+    act(() => (f.querySelector('[data-famille-destinataires="proprietaire"] input:not([disabled])') as HTMLInputElement).click());
+    await act(async () => { recap().click(); }); await attendre();
+    expect(posts.at(-1)).not.toHaveProperty('phraseProprietaire');
   });
   it('un bien relié à AUCUNE copropriété : la rattacher (celles qui couvrent son adresse), en créer une PAR LA FICHE COPROPRIÉTÉ, ou « à rattacher » ; copropriété non renseignée : « Immeuble en copropriété » proposé, le bandeau reste', async () => {
     luAg = LU({ copropriete: null, coproprieteSaisie: null, suggestions: [{ id: 7, libelle: 'Résidence Fictive' }] });

@@ -67,6 +67,11 @@ export function partiesDeLEncart(e: EncartLogement): PartieVue[] {
   return [...locs, ...pros];
 }
 
+/** 🔴 Arno (23/11/2026) — les titres des deux textes de la retenue (à qui ils sont destinés), et le bloc propriétaire sans mail. */
+export const TITRE_TEXTE_LOCATAIRES = 'Texte ajouté au mail du (des) locataire(s) — modifiable';
+export const TITRE_TEXTE_PROPRIETAIRES = 'Texte ajouté au mail du (des) propriétaire(s) — modifiable';
+export const AUCUN_MAIL_PROPRIETAIRE = 'Aucun mail au propriétaire pour cette sortie';
+
 export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; onFermer: (fin: FinParcours | null) => void }) {
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
   useVerrouDefilement();
@@ -109,7 +114,12 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   // 🔴 Arno (23/11/2026) — le propriétaire reçoit la MÊME date que le locataire : l'AGO qui compte (jamais deux dates différentes)
   const phraseProprietaires = saisieAg !== null && saisieAg.mention && saisieAg.ago != null
     ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture) : PHRASE_RETENUE_PROPRIETAIRE;
+  /* 🔴 Arno (23/11/2026) — « créer le même bloc de texte pour le texte qui sera envoyé au propriétaire, avec la même possibilité de le modifier » :
+     `null` = le texte calculé (il suit la date en direct) ; modifié à la main, il est gardé tel quel et c'est lui qui part */
+  const [phraseProprioSaisie, setPhraseProprioSaisie] = useState<string | null>(null);
+  const phraseProprioTexte = phraseProprioSaisie ?? phraseProprietaires;
   const parties = useMemo(() => (encart.etat.etat === 'ok' ? partiesDeLEncart(encart.etat.data) : []), [encart.etat]);
+  const mailProprietaire = parties.some((p) => p.famille === 'proprietaire' && p.email && destinataires.includes(p.cle));
   const enGestion = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion && partenaires.etat.data.liste.length > 0;
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && etape.etape !== 'resultat') onFermer(null); };
@@ -124,7 +134,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
     : luAg.etat.etat === 'charge' || saisieAg === null ? { ok: false as const, motif: 'Lecture des assemblées générales en cours…', champs: [] } : verdictAg(saisieAg, ag);
   const verdict = !verdictSaisie.ok ? verdictSaisie : verdictAgSaisie;
   const corps = { occupationId: l.occupationId, realise, date, sortants, compteRendu, destinataires, informerPartenaires: enGestion && informer,
-    pieceIds: pieces.map((p) => p.id), retenue: retenueAppliquee, paragrapheRetenue, ...(retenueAppliquee && saisieAg !== null ? corpsAg(saisieAg, ag) : {}) };
+    pieceIds: pieces.map((p) => p.id), retenue: retenueAppliquee, paragrapheRetenue, ...(retenueAppliquee && phraseProprioSaisie !== null ? { phraseProprietaire: phraseProprioSaisie } : {}),
+    ...(retenueAppliquee && saisieAg !== null ? corpsAg(saisieAg, ag) : {}) };
   const basculer = (cle: string): void => setDestinataires((d) => (d.includes(cle) ? d.filter((x) => x !== cle) : [...d, cle]));
 
   const voirRecap = async (): Promise<void> => {
@@ -184,10 +195,19 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
           : ag !== null && saisieAg !== null && <AgSortie key={`copro-${ag.copropriete?.id ?? 'aucune'}`} lu={ag} s={saisieAg} onChange={changerAg} desactive={envoi} dateSortie={date} onRelire={() => { luAg.rafraichir(); copro.rafraichir(); }} />)}
         {retenueAppliquee && (
           // 🔴 Arno (23/11/2026) — la zone occupe TOUTE la largeur de la colonne (le bloc aligne ses enfants à gauche : elle s'y réduisait)
-          <label className="pvs-champ vse-paragraphe-retenue"><span className="pvs-libelle">Paragraphe ajouté aux mails des locataires (modifiable)</span>
+          // 🔴 Arno (23/11/2026, suite) — un titre qui dit à qui le texte est destiné (avant : « Paragraphe ajouté aux mails des locataires (modifiable) »)
+          <label className="pvs-champ vse-paragraphe-retenue"><span className="pvs-libelle">{TITRE_TEXTE_LOCATAIRES}</span>
             <textarea value={paragrapheRetenue} onChange={(e) => setParagrapheRetenue(e.target.value)} rows={6} data-retenue-paragraphe /></label>
         )}
-        {retenueAppliquee && <p className="loc-muet" data-retenue-proprietaires>Aux propriétaires : « {phraseProprietaires} »</p>}
+        {/* 🔴🔴 Arno (23/11/2026) — le texte des PROPRIÉTAIRES : la même zone, modifiable (avant : « Aux propriétaires : « … » », en lecture) ;
+            préremplie par le texte calculé (même date que le locataire : l'AGO qui compte), qui suit en direct tant qu'on ne l'a pas modifié ;
+            sans mail au propriétaire : grisée, et on le dit */}
+        {retenueAppliquee && (
+          <label className={`pvs-champ vse-paragraphe-retenue${mailProprietaire ? '' : ' vse-grise'}`} data-retenue-proprietaires>
+            <span className="pvs-libelle">{TITRE_TEXTE_PROPRIETAIRES}</span>
+            <textarea value={phraseProprioTexte} disabled={!mailProprietaire} onChange={(e) => setPhraseProprioSaisie(e.target.value)} rows={6} data-retenue-proprietaires-texte />
+            {!mailProprietaire && <span className="loc-muet" data-retenue-sans-mail-proprietaire>{AUCUN_MAIL_PROPRIETAIRE}</span>}</label>
+        )}
       </fieldset>
       <PiecesSortie occupationId={l.occupationId} lotId={copro.etat.etat === 'ok' ? copro.etat.data.lotId : null} pieces={pieces} onChange={setPieces} desactive={envoi} />
       <fieldset className="pvv-choix vse-destinataires" data-destinataires-sortie>
@@ -237,7 +257,10 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         {/* 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s) : sa phrase, telle qu'elle partira */}
         {a.ag !== undefined && saisieAg !== null && saisieAg.mention && saisieAg.ago != null && (
           <div data-resume-ago-proprietaire><dt>Date indiquée au(x) propriétaire(s)</dt>
-            <dd>« … {phraseDateAg(saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture, 'proprietaire')} »</dd></div>)}
+            <dd>« … {phraseDateAg(saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture, 'proprietaire')} »{phraseProprioSaisie !== null ? ' (texte modifié à la main : voir ci-dessous)' : ''}</dd></div>)}
+        {/* 🔴 Arno (23/11/2026) — le texte des propriétaires TEL QU'IL PARTIRA (modifié ou non) */}
+        {a.retenue === true && a.mails.some((m) => m.famille === 'proprietaire') && (
+          <div data-resume-texte-proprietaires><dt>{TITRE_TEXTE_PROPRIETAIRES.replace(/ — modifiable$/, '')}</dt><dd>« {phraseProprioTexte} »</dd></div>)}
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
       {/* 🔴 Arno (23/11/2026) — sans pièce jointe, le mail du locataire n'annonce pas l'état des lieux : on le dit (aucun envoi bloqué) */}
@@ -324,6 +347,7 @@ export const CSS_VALIDATION_SORTIE = `
 .vse-orange a{color:var(--color-svv-orange);text-decoration:underline}
 .vse-retenue{display:flex;flex-direction:column;gap:6px}
 .vse-retenue .vse-paragraphe-retenue{align-self:stretch;box-sizing:border-box;width:100%;min-width:0}
+.vse-retenue .vse-grise{opacity:.6}
 .vse-pieces-mail{margin:0;font-weight:700;overflow-wrap:anywhere}
 .vse-frise{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:600px){.vse-frise{grid-template-columns:1fr 1fr}}

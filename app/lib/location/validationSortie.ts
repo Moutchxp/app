@@ -171,7 +171,8 @@ export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'preno
   }
   return [`Bonjour ${prenomNom(p)},`,
     `L’état des lieux de sortie de votre bien situé ${d.adresse} a été réalisé le ${date}.${d.vacant ? ' Le logement est désormais libre de toute occupation.' : ''}`,
-    ...compteRendu, ...(d.retenue?.appliquee ? [d.retenue.phraseProprietaire?.trim() || PHRASE_RETENUE_PROPRIETAIRE] : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
+    // 🔴 Arno (23/11/2026) — le texte des propriétaires est modifiable (comme celui des locataires) : ses paragraphes, tels qu'écrits
+    ...compteRendu, ...(d.retenue?.appliquee ? paragraphesLibres(d.retenue.phraseProprietaire?.trim() || PHRASE_RETENUE_PROPRIETAIRE) : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
 }
 
 /** Le mail d'UNE partie : elle seule en destinataire, aucune copie. `null` : pas d'adresse e-mail. PUR. */

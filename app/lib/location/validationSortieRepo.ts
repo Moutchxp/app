@@ -55,6 +55,8 @@ export interface DemandeValidation {
   /** 🔴 Arno (11/11/2026, 468) — la case « Retenue de 20 % du dépôt de garantie » et son paragraphe (modifiable) pour les locataires. */
   retenue?: boolean;
   paragrapheRetenue?: unknown;
+  /** 🔴 Arno (23/11/2026) — le texte des PROPRIÉTAIRES, modifiable dans la fenêtre comme celui des locataires ; absent ou vide : calculé (AGO qui compte). */
+  phraseProprietaire?: unknown;
   /** 🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d'AG (`{ derniere, derniereConfirmee, prochaine, statut }`), la mention de la
    *  prochaine AG dans la phrase des propriétaires, la copropriété à rattacher ou à créer, « immeuble en copropriété » coché. */
   ag?: unknown;
@@ -164,6 +166,10 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   const paragrapheRetenue = typeof d.paragrapheRetenue === 'string' && d.paragrapheRetenue.trim() !== '' ? d.paragrapheRetenue.trim() : PARAGRAPHE_RETENUE_LOCATAIRE;
   if (retenue && etatRetenue(logement.copropriete) === 'impossible') return { etat: 'refus', motif: MOTIF_RETENUE_IMPOSSIBLE, champ: 'retenue' };
   if (paragrapheRetenue.length > COMPTE_RENDU_MAX) return { etat: 'refus', motif: `Le paragraphe de la retenue dépasse ${COMPTE_RENDU_MAX} caractères.`, champ: 'retenue' };
+  // 🔴 Arno (23/11/2026) — « créer le même bloc de texte pour le texte qui sera envoyé au propriétaire, avec la même possibilité de le modifier » :
+  // le texte de la fenêtre part TEL QUEL (même borne que celui des locataires)
+  const phraseSaisie = typeof d.phraseProprietaire === 'string' && d.phraseProprietaire.trim() !== '' ? d.phraseProprietaire.trim() : null;
+  if (phraseSaisie !== null && phraseSaisie.length > COMPTE_RENDU_MAX) return { etat: 'refus', motif: `Le texte des propriétaires dépasse ${COMPTE_RENDU_MAX} caractères.`, champ: 'retenue' };
   // 🔴 Arno (16/11/2026, 475) — case 20 % cochée : la dernière AG et la prochaine (date ET statut) sont OBLIGATOIRES ; refus avant tout.
   let ag: Preparation['ag'] = null;
   let officiellesAg: string[] = [];
@@ -185,8 +191,8 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   // AGO officielles, dernière et prochaine saisies), jamais la simple « Prochaine AGO »
   const agoQc = ag === null || d.mentionAg !== true ? null : agoQuiCompte({ officielles: officiellesAg, derniere: ag.saisie.derniere,
     prochaine: ag.saisie.prochaine, statut: ag.saisie.statut, dateSortie: date, arrete: ag.contexte.copropriete === null ? null : (await lireArrete(ag.contexte.copropriete.id))?.arrete ?? null, jour });
-  const phraseProprietaire = ag !== null && d.mentionAg === true && agoQc !== null
-    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, agoQc.date, agoQc.statut, agoQc.cloture) : undefined;
+  const phraseProprietaire = phraseSaisie ?? (ag !== null && d.mentionAg === true && agoQc !== null
+    ? avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, agoQc.date, agoQc.statut, agoQc.cloture) : undefined);
   if ((d.pieceIds ?? []).length > 0 && !(await piecesSortieDisponibles())) return { etat: 'refus', motif: MOTIF_SANS_468 };
   const pieces = await metaPieces(d.pieceIds ?? [], [d.occupationId, ...sortants]);
   if (pieces.length !== new Set(d.pieceIds ?? []).size) return { etat: 'refus', motif: 'Une pièce jointe est introuvable pour ce préavis : retirez-la puis ajoutez-la de nouveau.', champ: 'pieces' };
@@ -223,7 +229,7 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
     }
   }
   // 🔴 L'alerte de coordonnées porte aussi sur le paragraphe de la retenue (modifiable) quand il part.
-  const texteControle = retenue ? `${compteRendu}\n\n${paragrapheRetenue}` : compteRendu;
+  const texteControle = retenue ? [compteRendu, paragrapheRetenue, ...(phraseSaisie !== null ? [phraseSaisie] : [])].join('\n\n') : compteRendu;
   return { etat: 'ok', mails: prevus, alertes: alertesDuCompteRendu(texteControle, choisies, parties), sansEmail: m.sansEmail, vacant: prevue.vacant,
     restants: prevue.restants, enGestion: logement.enGestion, lotId: logement.lotId, brute: sig.brute, date, sortants, retenue, copropriete: logement.copropriete, pieces, ag };
 }
