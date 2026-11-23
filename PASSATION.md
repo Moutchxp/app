@@ -311,19 +311,20 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `36b1a2ea`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **42 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b` et `3188bac6`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `90e05b93`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **47 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6` et `bcf4356e`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
   des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
   `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie », `520ce23d` → `36b1a2ea`, retours du 23/11 au
-  soir (date d'AG, agencement de l'arrêté, texte propriétaire modifiable, bouton copropriété, case « Immeuble en copropriété ») — détail plus bas) : `b3819054`,
+  soir (date d'AG, agencement de l'arrêté, texte propriétaire modifiable, bouton copropriété, case « Immeuble en copropriété »), `976079cc` → `90e05b93` (boutons de statut, mois de restitution, messages
+  verts de la fiche, « Accéder à la fiche de copropriété ») — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `36b1a2ea`) : `npm test` VERT (1 865 fichiers, 27 783 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `90e05b93`) : `npm test` VERT (1 865 fichiers, 27 789 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -533,6 +534,19 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     copropriété 315 (créée par la fiche le 23/11 à 21:49) porte la clé de leur adresse ; la fiche Copropriété ne renseigne pas ce champ.
     Rien corrigé en base. Copropriété 315 non touchée (AG du 23/04/2026 et du 04/11/2026 saisies à 22:14 par Arno).
   - Captures 61-71.
+  - `976079cc` — « Date projetée » / « Date officielle » : boutons de la fenêtre (plein = choisi, contour = l'autre), grille 50 / 50, 44 px
+    (aussi dans la fenêtre d'alerte « projection périmée »).
+  - `c787dd4c` — le MOIS DE RESTITUTION (mois suivant l'AGO, délai d'un mois) : « … attendue vers novembre 2027 (date approximative, …) ; le solde
+    vous sera donc restitué ou ajusté vers décembre 2027. » / « … prévue le 15/03/2028 ; le solde vous sera donc restitué ou ajusté au plus tard le
+    15/04/2028. » (propriétaire : « lui ») ; case, encadré, récapitulatif, mails. Décembre → janvier. « 20 % à restituer » : colonne déjà en DATE
+    (AGO + 1 mois) → inchangée.
+  - `fda0c461` — fiche Copropriété : bandeau VERT dans le pied (toujours visible) : « Date d'AG du 04/11/2026 enregistrée. », « Date d'arrêté des
+    comptes enregistrée : 31/12. », « Fiche copropriété enregistrée. » ou, rien de changé, « Aucune modification à enregistrer — les dates d'AG sont
+    enregistrées dès leur ajout. » (la requête de « Valider » part COMME AVANT : elle peut compléter la fiche côté serveur). Vérifié au Chrome par
+    l'arrêté de la copropriété 313 (30/06 puis remis à 31/12, journal 46829-46830) ; AUCUNE date d'AG d'essai ajoutée : la table des AG refuse
+    toute suppression (trigger « ajout seul »), une date d'essai resterait à jamais — l'ajout d'AG n'est éprouvé que par les tests.
+  - `90e05b93` — « Accéder à la copropriété » → « Accéder à la fiche de copropriété ».
+  - Captures 72-77.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
