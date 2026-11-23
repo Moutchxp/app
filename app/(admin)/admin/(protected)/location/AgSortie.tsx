@@ -26,6 +26,9 @@ export const SANS_COPROPRIETE_INCOMPLET = 'Sans copropriété, le suivi des 20 %
 /** 🔴 Arno (23/11/2026) — sans copropriété rattachée : la date d'arrêté des comptes ne peut pas se saisir. */
 /** 🔴 Arno (23/11/2026, suite) — « Ne pas rattacher maintenant » : le bandeau dit où saisir l'arrêté ET les AG (avant : « Rattachez ou créez la
  *  copropriété pour saisir sa date d'arrêté des comptes. ») */
+/** 🔴 Arno (23/11/2026) — le bouton de tête du bloc 20 % : créer la copropriété de l'adresse, ou y accéder. */
+export const LIBELLE_CREER_COPRO_ADRESSE = 'Créer une copropriété pour cette adresse';
+export const LIBELLE_ACCEDER_COPRO = 'Accéder à la copropriété';
 /** 🔴 Arno (23/11/2026, suite) — la ligne « Date d'arrêté des comptes » quand le bien n'a aucune copropriété rattachée. */
 export const ARRETE_AUCUNE_COPROPRIETE = 'aucune copropriété rattachée';
 export const ARRETE_SANS_COPROPRIETE = 'Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).';
@@ -192,6 +195,13 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
   const projeteePassee = (date: string, statut: StatutAg | null): boolean => statut === 'projetee' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < jour;
   return (
     <div className="vag" data-ag-sortie>
+      {/* 🔴🔴 Arno (23/11/2026) — « refaire le bouton "Créer une copropriété pour cette adresse" si aucune copropriété n'a été créée pour cette adresse,
+          avec toujours le même système de création de copropriété déjà validé […] et lorsque la copropriété est déjà créée, garder ce même bouton en
+          changeant juste le titre par "Accéder à la copropriété" ; en cliquant dessus, la modale de copropriété s'ouvre. » — UN bouton, pleine largeur,
+          en tête du bloc : la MÊME fiche Copropriété (création : parcours parcelle / doublons inchangé) ; à sa fermeture, la fenêtre se relit. */}
+      <button type="button" className="svv-btn svv-btn-outline gst-btn vag-copro-btn" disabled={desactive} onClick={() => setFicheOuverte(true)}
+        data-ag-bouton-copro={lu.copropriete === null ? 'creer' : 'acceder'}>
+        {lu.copropriete === null ? LIBELLE_CREER_COPRO_ADRESSE : LIBELLE_ACCEDER_COPRO}</button>
       {/* la copropriété du bien, ou de quoi l'y rattacher */}
       {lu.copropriete !== null ? <>
         <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
@@ -236,11 +246,11 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       {lu.copropriete !== null
         ? <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => { setArrete(x.arrete); onRelire?.(); }} />
         : (
+          // 🔴 (23/11/2026, suite) « Créer une copropriété pour la renseigner » (cb744be3) est REMPLACÉ par le bouton de tête « Créer une copropriété
+          // pour cette adresse » (même action, pas de doublon, demande d'Arno) ; la ligne reste
           <div className="arc-arrete vag-arrete-sans-copro" data-ag-arrete-ligne-sans-copro>
             <p className="arc-arrete-ligne"><span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
               <span className="arc-arrete-vide">{ARRETE_AUCUNE_COPROPRIETE}</span></p>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn arc-arrete-btn arc-arrete-btn--plein" disabled={desactive} onClick={() => setFicheOuverte(true)}
-              data-ag-arrete-creer-copro>Créer une copropriété pour la renseigner</button>
             <style>{CSS_ARRETE_COMPTES}</style>
           </div>)}
       {p.derniere === null && s.derniere === '' && <p className="vag-bandeau" role="status" data-ag-bandeau-derniere>⚠ {BANDEAU_DERNIERE_AGO_MANQUANTE}</p>}
@@ -336,6 +346,7 @@ function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { al
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. */
 export const CSS_AG_SORTIE = `
+.vag-copro-btn{width:100%;min-height:44px;box-sizing:border-box;margin:0 0 8px}
 .vag-texte-mail{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:2px solid var(--color-svv-blue);border-radius:12px;background:var(--color-svv-blue-soft);min-width:0}
 .vag-texte-mail-titre{margin:0;font-weight:800;color:var(--color-svv-ink)}
 .vag-texte-mail-phrase{margin:0;font-size:1rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
