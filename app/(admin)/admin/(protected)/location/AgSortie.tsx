@@ -156,7 +156,10 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
   onRelire?: () => void }) {
   const [ficheOuverte, setFicheOuverte] = useState(false);
   /** 🔴 Arno (23/11/2026) — l'arrêté des comptes de la copropriété (lu, puis saisi ici par ArreteComptes) : il recalcule la prochaine AGO */
-  const [arrete, setArrete] = useState<Arrete | null>(lu.arrete);
+  // 🔴 (23/11/2026, correctif) au retour du récapitulatif ce bloc se remonte : l'arrêté saisi ici n'est gardé qu'en appoint, le temps que la fenêtre
+  // relise la copropriété (onRelire) — sinon l'arrêté de la PREMIÈRE lecture revenait, et l'AGO qui compte (donc le mail) avec lui
+  const [arreteSaisi, setArrete] = useState<Arrete | null | undefined>(undefined);
+  const arrete = arreteSaisi !== undefined ? arreteSaisi : lu.arrete;
   if (!lu.disponible) return <p className="loc-muet" data-ag-indisponible>Dates d’assemblée générale : la mise à jour de la base (migration 475) reste à appliquer.</p>;
   const v = verdictAg(s, lu);
   const enDefaut = (c: ChampAg): boolean => !v.ok && v.champs.includes(c);
@@ -200,7 +203,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       {lu.copropriete !== null ? <>
         <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
         {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes de la copropriété (facultative), le même composant que la fiche Copropriété */}
-        <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => setArrete(x.arrete)} />
+        <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => { setArrete(x.arrete); onRelire?.(); }} />
       </> : (
         <fieldset className="pvv-choix vag-rattacher" data-ag-rattacher>
           <legend className="pvs-libelle">Ce bien n’est relié à aucune copropriété</legend>

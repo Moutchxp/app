@@ -209,3 +209,21 @@ describe('🔴 Arno (23/11/2026) — « élargir la zone de texte explicative à
     expect(src).toMatch(/\.vse-retenue \.vse-paragraphe-retenue\{align-self:stretch;box-sizing:border-box;width:100%;min-width:0\}/);
   });
 });
+
+describe('🔴 correctif (23/11/2026) — l’arrêté saisi dans la fenêtre survit au retour du récapitulatif (l’AGO qui compte, donc le mail, avec lui)', () => {
+  it('saisie de l’arrêté → la fenêtre relit la copropriété ; un bloc remonté repart de la copropriété RELUE, pas de la première lecture', async () => {
+    const relire = vi.fn();
+    const avant = luAgPropre({ ...LU, copropriete: { id: 313, libelle: 'Copro' }, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },
+      proposition: { derniere: { date: '2026-03-25', par: 'x', le: 'y' }, prochaine: null } });
+    await act(async () => { root.render(createElement(AgSortie, { lu: avant, s: saisieAgInitiale(avant), onChange: () => {}, desactive: false, onRelire: relire })); });
+    const p = arrete.mock.calls.at(-1)?.[0] as { onChange: (x: { arrete: { jour: number; mois: number } | null }) => void };
+    await act(async () => { p.onChange({ arrete: { jour: 30, mois: 6 } }); });
+    expect(relire).toHaveBeenCalledTimes(1);
+    // le bloc remonté (retour du récapitulatif) avec la copropriété relue : l'AGO qui compte suit le 30/06
+    const relue = { ...avant, arrete: { jour: 30, mois: 6 } };
+    act(() => root.unmount()); root = createRoot(container);
+    const change = vi.fn();
+    await act(async () => { root.render(createElement(AgSortie, { lu: relue, s: { ...saisieAgInitiale(avant), mention: true }, onChange: change, desactive: false, dateSortie: '2026-11-20' })); });
+    expect(container.querySelector('[data-ag-mention-libelle]')?.textContent).toContain('exercice clôturé le 30/06/2027');
+  });
+});
