@@ -1,3 +1,6 @@
+import { agosOfficielles } from './vingtPourcent';
+import { lireArrete } from './arreteComptesRepo';
+import type { ArreteComptes } from './arreteComptes';
 import { query, withTransaction } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
@@ -82,6 +85,10 @@ export interface AgPourSortie {
   suggestions: CoproprieteAg[];
   proposition: PropositionAg;
   adresse: string | null;
+  /** 🔴 Arno (23/11/2026) — de quoi PRÉREMPLIR la prochaine AGO par le calcul du suivi des 20 % (b0453dc2) : les AGO officielles de la copropriété
+   *  (jamais les projetées enregistrées) et sa date d'arrêté des comptes (512). */
+  officielles?: string[];
+  arrete?: ArreteComptes | null;
 }
 export async function agPourSortie(occupationId: number): Promise<AgPourSortie | null> {
   const logement = await logementDe(occupationId);
@@ -95,7 +102,8 @@ export async function agPourSortie(occupationId: number): Promise<AgPourSortie |
   const { rows } = await query<{ j: string }>(`SELECT ${SQL_AUJOURDHUI_PARIS}::text AS j`);
   return { disponible: true, lotId: logement.lotId, copropriete: h.contexte.copropriete, immeuble: h.contexte.immeuble?.libelle ?? null,
     coproprieteSaisie: h.contexte.coproprieteSaisie, suggestions: h.contexte.copropriete === null ? await coproprietesPourLot(h.contexte) : [],
-    proposition: propositionAg(h.entrees, rows[0].j), adresse: logement.adresse };
+    proposition: propositionAg(h.entrees, rows[0].j), adresse: logement.adresse,
+    officielles: agosOfficielles(h.entrees), arrete: h.contexte.copropriete === null ? null : (await lireArrete(h.contexte.copropriete.id))?.arrete ?? null };
 }
 
 /** Les parties du bail (locataires en place, puis propriétaires), avec LEURS coordonnées. `null` : bail inconnu. */

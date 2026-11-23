@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { suiviVingtPourcent } from '../../../../lib/location/vingtPourcent';
+import type { ArreteComptes as Arrete } from '../../../../lib/location/arreteComptes';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import {
-  dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, unAnApres, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
+  dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
   AIDE_AGO, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
@@ -32,6 +34,21 @@ export interface LuAgSortie {
   proposition: PropositionAg;
   adresse: string | null;
   moi: string;
+  /** 🔴 Arno (23/11/2026) — les AGO officielles de la copropriété et sa date d'arrêté : la prochaine AGO est PRÉREMPLIE par le calcul des 20 % */
+  officielles: string[];
+  arrete: Arrete | null;
+}
+
+const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * 🔴🔴 Arno (23/11/2026) — LA PROCHAINE AGO PRÉREMPLIE PAR LE CALCUL DU SUIVI DES 20 % (b0453dc2), à la place de « dernière + 1 an » : la première AGO
+ * après l'arrêté des comptes qui clôt l'exercice de la sortie (arrêté inconnu : après la validation), une projection n'étant JAMAIS antérieure au
+ * jour de la validation ; les AGO officielles connues (et la dernière AGO saisie ici) servent de base. `null` : aucune AGO connue. PUR.
+ */
+export function prochaineCalculee(o: { officielles: readonly string[]; derniere: string; dateSortie: string; arrete: Arrete | null; jour: string }): { date: string; statut: StatutAg } | null {
+  const offs = [...new Set([...o.officielles, ...(DATE_ISO.test(o.derniere) ? [o.derniere] : [])])].sort();
+  const r = suiviVingtPourcent({ dateSortie: DATE_ISO.test(o.dateSortie) ? o.dateSortie : o.jour, valideLe: o.jour, arrete: o.arrete, officielles: offs, aujourdhui: o.jour });
+  return r.etat === 'ok' ? { date: r.ago.date, statut: r.ago.statut } : null;
 }
 
 export interface SaisieAgEcran {
@@ -60,16 +77,22 @@ export function luAgPropre(x: unknown): LuAgSortie {
   return { disponible: o.disponible === true && typeof o.lotId === 'number', lotId: typeof o.lotId === 'number' ? o.lotId : 0, copropriete: o.copropriete ?? null,
     immeuble: o.immeuble ?? null, coproprieteSaisie: o.coproprieteSaisie ?? null, suggestions: Array.isArray(o.suggestions) ? o.suggestions : [],
     proposition: { derniere: p.derniere ?? null, prochaine: p.prochaine ?? null, projectionPerimee: typeof p.projectionPerimee === 'string' ? p.projectionPerimee : null },
-    adresse: o.adresse ?? null, moi: typeof o.moi === 'string' ? o.moi : '' };
+    adresse: o.adresse ?? null, moi: typeof o.moi === 'string' ? o.moi : '',
+    officielles: Array.isArray(o.officielles) ? o.officielles.filter((d) => typeof d === 'string') : [], arrete: o.arrete ?? null };
 }
 
 /** La saisie de départ, d'après ce que la copropriété connaît. PUR. */
-export function saisieAgInitiale(lu: LuAgSortie): SaisieAgEcran {
+export function saisieAgInitiale(lu: LuAgSortie, jour: string = aujourdhuiParis()): SaisieAgEcran {
   const p = lu.proposition;
-  return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine: p.prochaine?.date ?? '', prochaineTouchee: false,
-    statut: p.prochaine?.statut ?? null, mention: false,
-    // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre
-    alerte: p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
+  // 🔴 Arno (23/11/2026) — sans AGO officielle à venir déjà connue (elle reste prioritaire) : la prochaine AGO PRÉREMPLIE par le calcul des 20 %,
+  // qui n'est jamais antérieure au jour de la validation (l'ancienne « dernière + 1 an » déjà passée ne peut plus se produire)
+  const officielleAVenir = p.prochaine !== null && p.prochaine.statut === 'officielle';
+  // 🔴 Arno (23/11/2026, option A) — dernière AGO de plus d'un an : la décision du 17/11 d'abord (champ vide, alerte, sortie bloquée)
+  const calc = officielleAVenir || p.projectionPerimee ? null : prochaineCalculee({ officielles: lu.officielles, derniere: p.derniere?.date ?? '', dateSortie: '', arrete: lu.arrete, jour });
+  return { derniere: p.derniere?.date ?? '', derniereConfirmee: false, prochaine: calc?.date ?? p.prochaine?.date ?? '', prochaineTouchee: false,
+    statut: calc !== null ? (calc.statut === 'officielle' ? 'officielle' : null) : p.prochaine?.statut ?? null, mention: false,
+    // 🔴 (Arno, 17/11/2026) la projection déjà passée : le champ reste vide, la fenêtre d'alerte s'ouvre (sans calcul possible seulement)
+    alerte: calc === null && p.projectionPerimee ? { date: p.projectionPerimee, sorte: 'calculee' } : null, copro: lu.suggestions.length > 0 ? 'rattacher' : 'aucune', rattacher: lu.suggestions[0]?.id ?? null,
     coproOui: false };
 }
 
@@ -89,25 +112,39 @@ export function verdictAg(s: SaisieAgEcran, lu: LuAgSortie | null): { ok: true }
   return { ok: true };
 }
 
-export function AgSortie({ lu, s, onChange, desactive, onRelire }: { lu: LuAgSortie; s: SaisieAgEcran; onChange: (s: SaisieAgEcran) => void; desactive: boolean;
+export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = '' }: { lu: LuAgSortie; s: SaisieAgEcran; onChange: (s: SaisieAgEcran) => void; desactive: boolean;
+  /** 🔴 Arno (23/11/2026) — la date de sortie saisie : l'exercice concerné, donc la prochaine AGO calculée, en dépendent */
+  dateSortie?: string;
   /** 🔴 Arno (23/11/2026) — la fiche Copropriété refermée : la fenêtre relit la copropriété du bien (créée ou rattachée par la fiche). */
   onRelire?: () => void }) {
   const [ficheOuverte, setFicheOuverte] = useState(false);
+  /** 🔴 Arno (23/11/2026) — l'arrêté des comptes de la copropriété (lu, puis saisi ici par ArreteComptes) : il recalcule la prochaine AGO */
+  const [arrete, setArrete] = useState<Arrete | null>(lu.arrete);
   if (!lu.disponible) return <p className="loc-muet" data-ag-indisponible>Dates d’assemblée générale : la mise à jour de la base (migration 475) reste à appliquer.</p>;
   const v = verdictAg(s, lu);
   const enDefaut = (c: ChampAg): boolean => !v.ok && v.champs.includes(c);
   const p = lu.proposition;
   const derniereConnue = p.derniere !== null && p.derniere.date === s.derniere ? p.derniere : null;
   const officielleConnue = p.prochaine !== null && p.prochaine.statut === 'officielle' && p.prochaine.date === s.prochaine ? p.prochaine : null;
-  const projection = !s.prochaineTouchee && officielleConnue === null && s.derniere !== '' && unAnApres(s.derniere) === s.prochaine;
   const jour = aujourdhuiParis();
+  // 🔴🔴 Arno (23/11/2026) — la prochaine AGO SUIT le calcul du suivi des 20 % (date de sortie, arrêté, AGO officielles, dernière saisie) tant qu'elle
+  // n'a pas été modifiée à la main et qu'aucune AGO officielle à venir n'est connue (à la place de « dernière + 1 an »)
+  // 🔴 Arno (23/11/2026, option A) — tant que la dernière AGO a plus d'un an et n'est ni confirmée ni corrigée, la décision du 17/11 vaut (champ
+  // vide, alerte, sortie bloquée) : aucun préremplissage ; confirmée comme référence ou corrigée, la prochaine AGO suit le calcul
+  const perimee = DATE_ISO.test(s.derniere) && !s.derniereConfirmee && projectionPassee(s.derniere, jour) !== null;
+  const suit = !s.prochaineTouchee && officielleConnue === null && !perimee;
+  const calc = (derniere: string) => prochaineCalculee({ officielles: lu.officielles, derniere, dateSortie, arrete, jour });
+  const calcule = calc(s.derniere);
+  const projection = suit && calcule !== null && calcule.statut === 'projetee' && calcule.date === s.prochaine;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (suit && calcule !== null && calcule.date !== s.prochaine) onChange({ ...s, prochaine: calcule.date, alerte: null }); }, [suit, calcule?.date, s.prochaine]);
   const changerDerniere = (d: string): void => {
-    const suit = !s.prochaineTouchee && officielleConnue === null;
-    // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : pas conservée, la fenêtre d'alerte s'ouvre
-    const perimee = suit && d !== '' ? projectionPassee(d, jour) : null;
-    if (perimee !== null) { onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: '', statut: s.statut === 'officielle' ? s.statut : null, alerte: { date: perimee, sorte: 'calculee' } }); return; }
-    const suite = suit ? (unAnApres(d) ?? s.prochaine) : s.prochaine;
-    onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: d === '' && !s.prochaineTouchee ? '' : suite });
+    const libre = !s.prochaineTouchee && officielleConnue === null;
+    // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : pas conservée, la fenêtre d'alerte s'ouvre (gardé, option A du 23/11)
+    const perimeeSaisie = libre && d !== '' ? projectionPassee(d, jour) : null;
+    if (perimeeSaisie !== null) { onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: '', statut: s.statut === 'officielle' ? s.statut : null, alerte: { date: perimeeSaisie, sorte: 'calculee' } }); return; }
+    const c = libre ? calc(d) : null;
+    onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: libre ? (c?.date ?? (d === '' ? '' : s.prochaine)) : s.prochaine, ...(libre && c !== null ? { alerte: null } : {}) });
   };
   /** une date PROJETÉE déjà passée (tapée, ou le statut « projetée » choisi sur une date passée) : même contrôle, même fenêtre */
   const projeteePassee = (date: string, statut: StatutAg | null): boolean => statut === 'projetee' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < jour;
@@ -117,7 +154,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire }: { lu: LuAgSor
       {lu.copropriete !== null ? <>
         <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
         {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes de la copropriété (facultative), le même composant que la fiche Copropriété */}
-        <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante />
+        <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => setArrete(x.arrete)} />
       </> : (
         <fieldset className="pvv-choix vag-rattacher" data-ag-rattacher>
           <legend className="pvs-libelle">Ce bien n’est relié à aucune copropriété</legend>

@@ -71,7 +71,7 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
   });
   it('le MÊME composant dans la fiche Copropriété (bloc « AG ») et dans la fenêtre de la sortie', () => {
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/FicheCopropriete.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={f.id} />');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/AgSortie.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante />');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/AgSortie.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => setArrete(x.arrete)} />');
   });
   // 🔴 Arno (23/11/2026) — « Valider la sortie » : la date manquante MISE EN AVANT
   it('fenêtre de sortie (alerteSiManquante) : bandeau « Date d’arrêté des comptes manquante … » tant qu’elle manque, plus après la saisie', async () => {

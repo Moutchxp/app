@@ -17,7 +17,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
 }));
 const arrete = vi.fn();
 vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return null; } }));
-const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE } = await import('./AgSortie');
+const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee } = await import('./AgSortie');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement; let root: Root;
@@ -62,5 +62,42 @@ describe('🔴 Arno (23/11/2026) — copropriété rattachée : ce qui manque es
     const connu = luAgPropre({ ...LU, proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: null } });
     await act(async () => { root.render(createElement(AgSortie, { lu: connu, s: saisieAgInitiale(connu), onChange: () => {}, desactive: false })); });
     expect(container.querySelector('[data-ag-bandeau-derniere]')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (23/11/2026) — « Prochaine AGO » PRÉREMPLIE par le calcul du suivi des 20 % (b0453dc2), option A', () => {
+  const JOUR = '2026-11-23';
+  it('projection après l’arrêté qui clôt l’exercice de la sortie, jamais avant la validation ; arrêté inconnu : après la validation', () => {
+    expect(prochaineCalculee({ officielles: ['2026-03-25'], derniere: '', dateSortie: '2026-11-15', arrete: { jour: 31, mois: 12 }, jour: JOUR }))
+      .toEqual({ date: '2027-03-25', statut: 'projetee' });
+    expect(prochaineCalculee({ officielles: ['2026-03-25'], derniere: '', dateSortie: '2026-11-15', arrete: { jour: 30, mois: 6 }, jour: JOUR }))
+      .toEqual({ date: '2028-03-25', statut: 'projetee' });
+    expect(prochaineCalculee({ officielles: ['2026-09-22'], derniere: '', dateSortie: '', arrete: null, jour: JOUR }))
+      .toEqual({ date: '2027-09-22', statut: 'projetee' });
+    expect(prochaineCalculee({ officielles: [], derniere: '', dateSortie: '', arrete: null, jour: JOUR })).toBeNull();
+    // la dernière AGO SAISIE dans la fenêtre sert aussi de base
+    expect(prochaineCalculee({ officielles: [], derniere: '2026-06-10', dateSortie: '2026-11-15', arrete: { jour: 31, mois: 12 }, jour: JOUR }))
+      .toEqual({ date: '2027-06-10', statut: 'projetee' });
+  });
+  it('à l’ouverture : la prochaine AGO préremplie par le calcul (statut à choisir, comme aujourd’hui) ; une officielle à venir reste prioritaire', () => {
+    const lu = luAgPropre({ ...LU, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },
+      proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: { date: '2027-03-25', statut: null, mention: 'x', par: null, le: null } } });
+    expect(saisieAgInitiale(lu, JOUR)).toMatchObject({ derniere: '2026-03-25', prochaine: '2027-03-25', statut: null, alerte: null });
+    const off = luAgPropre({ ...LU, officielles: ['2026-03-25', '2027-02-14'], arrete: { jour: 31, mois: 12 },
+      proposition: { derniere: { date: '2026-03-25', par: 'x', le: 'y' }, prochaine: { date: '2027-02-14', statut: 'officielle', mention: null, par: 'z', le: 'w' } } });
+    expect(saisieAgInitiale(off, JOUR)).toMatchObject({ prochaine: '2027-02-14', statut: 'officielle' });
+  });
+  it('option A : dernière AGO de plus d’un an → la décision du 17/11 (champ vide, alerte) ; rien n’est prérempli tant qu’elle n’est pas confirmée', () => {
+    const vieille = luAgPropre({ ...LU, officielles: ['2015-03-12'], proposition: { derniere: { date: '2015-03-12', par: 'x', le: 'y' }, prochaine: null, projectionPerimee: '2016-03-12' } });
+    expect(saisieAgInitiale(vieille, JOUR)).toMatchObject({ prochaine: '', alerte: { date: '2016-03-12', sorte: 'calculee' } });
+  });
+  it('option A : la dernière AGO ancienne CONFIRMÉE comme référence → la prochaine AGO suit alors le calcul (la sortie se débloque)', async () => {
+    const vieille = luAgPropre({ ...LU, officielles: ['2015-03-12'], proposition: { derniere: { date: '2015-03-12', par: 'x', le: 'y' }, prochaine: null, projectionPerimee: '2016-03-12' } });
+    const change = vi.fn();
+    const s0 = { ...saisieAgInitiale(vieille, JOUR), alerte: null };
+    await act(async () => { root.render(createElement(AgSortie, { lu: vieille, s: s0, onChange: change, desactive: false })); });
+    expect(change).not.toHaveBeenCalled(); // tant qu'elle n'est pas confirmée : rien n'est prérempli
+    await act(async () => { root.render(createElement(AgSortie, { lu: vieille, s: { ...s0, derniereConfirmee: true }, onChange: change, desactive: false })); });
+    expect(change).toHaveBeenCalledWith(expect.objectContaining({ prochaine: expect.stringMatching(/^20(2[7-9])-03-12$/) }));
   });
 });
