@@ -3587,7 +3587,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(ligne).toContain('attendue vers mars 2027 (date approximative)');
     expect(ligne).toContain(`Texte ajouté au mail : ${phrase}`);
     // 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s), visible au récapitulatif
-    expect(q('[data-resume-ago-proprietaire]').textContent).toBe('Date indiquée au(x) propriétaire(s)« … Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété). »');
+    expect(q('[data-resume-ago-proprietaire]').textContent).toBe('Date indiquée au(x) propriétaire(s)« … Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2027. »');
     expect(String(phrase)).toContain('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
     expect(String((posts.at(-1) as { paragrapheRetenue?: string }).paragrapheRetenue)).toContain(String(phrase).replace(/^« … /, '').replace(/ »$/, ''));
   });
@@ -3649,15 +3649,15 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     await ouvrir();
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     // 🔴 Arno (23/11/2026) — date projetée : « attendue vers mars 2027 (date approximative…) », jamais le jour présenté comme fixé
-    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('dans le mois qui suit l’approbation des comptes. Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété). Notre équipe reviendra vers vous');
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('dans le mois qui suit l’approbation des comptes. Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde vous sera donc restitué ou ajusté vers avril 2027. Notre équipe reviendra vers vous');
     // 🔴 Arno (23/11/2026, point 10) — la case dit en clair l'AGO qui permettra de restituer les 20 % (ici l'arrêté n'est pas connu : incertaine)
-    expect(q('[data-ag-mention-libelle]').textContent).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2027 (date approximative) (estimation incertaine : date d’arrêté des comptes manquante).');
-    expect(q('[data-ag-texte-mail-phrase]').textContent).toBe('« … Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété). »');
+    expect(q('[data-ag-mention-libelle]').textContent).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2027 (date approximative) (estimation incertaine : date d’arrêté des comptes manquante) — solde restitué ou ajusté vers avril 2027.');
+    expect(q('[data-ag-texte-mail-phrase]').textContent).toBe('« … Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde vous sera donc restitué ou ajusté vers avril 2027. »');
     // officielle : « prévue le 12/03/2027 » (le paragraphe suit le statut)
     act(() => q('[data-ag-statut-choix="officielle"]').click());
-    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
+    expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).toContain('approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde vous sera donc restitué ou ajusté au plus tard le 12/04/2027.');
     // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire (l'AGO qui compte)
-    expect((q('textarea[data-retenue-proprietaires-texte]') as HTMLTextAreaElement).value).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
+    expect((q('textarea[data-retenue-proprietaires-texte]') as HTMLTextAreaElement).value).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde lui sera donc restitué ou ajusté au plus tard le 12/04/2027.');
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     expect((q('textarea[data-retenue-paragraphe]') as HTMLTextAreaElement).value).not.toContain('assemblée générale');
   });

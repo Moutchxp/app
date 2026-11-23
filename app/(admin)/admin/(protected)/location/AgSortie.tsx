@@ -6,7 +6,7 @@ import { LIBELLE_ARRETE_COMPTES, type ArreteComptes as Arrete } from '../../../.
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import {
   dateFr, jourFrDe, MENTION_PROJECTION, moisAnnee, verifierSaisieAg, A_RATTACHER, type ChampAg, type PropositionAg, type StatutAg,
-  AIDE_AGO, mentionAgLocataire, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
+  AIDE_AGO, mentionAgLocataire, quandRestitution, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, CONSIGNE_ALERTE_PROJECTION, projectionPassee, texteAlerteProjection,
 } from '../../../../lib/location/agCopropriete';
 import { prenomNom } from '../../../../lib/location/triRdvPreavis';
 import { ArreteComptes, CSS_ARRETE_COMPTES } from '../gestion/ArreteComptes';
@@ -72,7 +72,8 @@ import { agoQuiCompte, type AgoQuiCompteEcran } from '../../../../lib/location/v
 export function libelleCaseAgoQuiCompte(a: AgoQuiCompteEcran): string {
   const quand = a.statut === 'officielle' ? `prévue le ${dateFr(a.date)}` : `attendue vers ${moisAnnee(a.date)} (date approximative)`;
   const exercice = a.cloture === null ? ` (estimation incertaine : date d’arrêté des comptes manquante)` : ` — exercice clôturé le ${dateFr(a.cloture)}`;
-  return `Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : ${quand}${exercice}.`;
+  // 🔴 Arno (23/11/2026) — le mois SUIVANT l'AGO (délai d'un mois) : quand le solde sera restitué ou ajusté
+  return `Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : ${quand}${exercice} — solde restitué ou ajusté ${quandRestitution(a.date, a.statut)}.`;
 }
 /** Le texte EXACT ajouté au paragraphe du locataire (sans la virgule d'attache). PUR. */
 export const texteAjouteAuMail = (a: AgoQuiCompteEcran): string => mentionAgLocataire(a.date, a.statut, a.cloture).trim();

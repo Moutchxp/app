@@ -169,20 +169,20 @@ describe('🔴🔴 Arno (23/11/2026) — « l’utilisateur […] doit clairemen
   it('sortie APRÈS l’arrêté : l’AGO qui compte (2028) ≠ la prochaine AGO (2027) — c’est elle qui part au locataire', () => {
     const a = agoQuiCompte({ ...base, dateSortie: '2027-01-10' })!;
     expect(a).toEqual({ date: '2028-03-25', statut: 'projetee', incertaine: false, cloture: '2027-12-31' });
-    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2028 (date approximative) — exercice clôturé le 31/12/2027.');
-    expect(texteAjouteAuMail(a)).toBe('Pour votre logement, il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété).');
+    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2028 (date approximative) — exercice clôturé le 31/12/2027 — solde restitué ou ajusté vers avril 2028.');
+    expect(texteAjouteAuMail(a)).toBe('Pour votre logement, il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde vous sera donc restitué ou ajusté vers avril 2028.');
   });
   it('sortie avant l’arrêté : l’AGO qui compte = la prochaine ; la prochaine saisie OFFICIELLE compte comme officielle (« prévue le … »)', () => {
     const a = agoQuiCompte({ ...base, dateSortie: '2026-11-15', prochaine: '2027-03-15', statut: 'officielle' })!;
     expect(a).toEqual({ date: '2027-03-15', statut: 'officielle', incertaine: false, cloture: '2026-12-31' });
-    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : prévue le 15/03/2027 — exercice clôturé le 31/12/2026.');
+    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : prévue le 15/03/2027 — exercice clôturé le 31/12/2026 — solde restitué ou ajusté au plus tard le 15/04/2027.');
     // l'année suivante se recale sur l'officielle
     expect(agoQuiCompte({ ...base, dateSortie: '2027-01-10', prochaine: '2027-03-15', statut: 'officielle' })?.date).toBe('2028-03-15');
   });
   it('arrêté MANQUANT : « estimation incertaine : date d’arrêté des comptes manquante »', () => {
     const a = agoQuiCompte({ ...base, arrete: null, dateSortie: '2026-11-15' })!;
     expect(a.incertaine).toBe(true);
-    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2027 (date approximative) (estimation incertaine : date d’arrêté des comptes manquante).');
+    expect(libelleCaseAgoQuiCompte(a)).toBe('Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : attendue vers mars 2027 (date approximative) (estimation incertaine : date d’arrêté des comptes manquante) — solde restitué ou ajusté vers avril 2027.');
   });
   it('la fenêtre : aide sous « Prochaine AGO » ; case = AGO qui compte ; encadré « Texte ajouté au mail du locataire : » = la phrase EXACTE du paragraphe', async () => {
     const lu = luAgPropre({ ...LU, copropriete: { id: 310, libelle: 'Copro' }, officielles: ['2026-03-25'], arrete: { jour: 31, mois: 12 },

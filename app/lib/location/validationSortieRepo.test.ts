@@ -179,7 +179,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     if (r.etat !== 'ok') throw new Error(r.etat);
     expect(r.data.ag).toEqual({ lignes: [['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false });
     // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire (l'AGO qui compte ; ici arrêté inconnu → la première après la validation)
-    expect(r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété).');
+    expect(r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2027.');
     expect(r.data.mails.find((m) => m.famille === 'interne')!.texte).toContain('Prochaine AGO : 12/03/2027 (date projetée)');
     expect(ag.ajouts).toEqual([]); // l'aperçu n'écrit rien
   });

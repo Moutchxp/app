@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { prochaineAgConnue, phraseDateAg, libelleCaseMentionAg,
+import { quandRestitution, unMoisApres, prochaineAgConnue, phraseDateAg, libelleCaseMentionAg,
   avecMentionAgLocataire, avecMentionAgProprietaire, derniereAgTenue, entreesAAjouter, ligneEntreeAg, lignesAg, moisAnnee, propositionAg, prochaineAgOfficielle,
   sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, mentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO, projectionPassee, texteAlerteProjection, MOTIF_AG_PROJETEE_PASSEE, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
 import { mailsValidationSortie, PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, type DonneesValidationSortie } from './validationSortie';
@@ -83,11 +83,11 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
   it('la phrase de la date dans le paragraphe des locataires et la phrase des propriétaires (MÊME date) ; retirée sans trace ; texte modifié gardé', () => {
     expect(moisAnnee('2027-03-12')).toBe('mars 2027');
     const p = avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2028-03-25', 'projetee', '2027-12-31');
-    expect(p).toContain('dans le mois qui suit l’approbation des comptes. Pour votre logement, il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété). Notre équipe reviendra vers vous');
+    expect(p).toContain('dans le mois qui suit l’approbation des comptes. Pour votre logement, il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde vous sera donc restitué ou ajusté vers avril 2028. Notre équipe reviendra vers vous');
     expect(p).not.toContain('25/03/2028');
     // officielle = « prévue le JJ/MM/AAAA » ; une mention déjà là est REMPLACÉE
     const o = avecMentionAgLocataire(p, '2028-03-15', 'officielle', '2027-12-31');
-    expect(o).toContain('dont les comptes seront approuvés lors de l’assemblée générale ordinaire prévue le 15/03/2028.');
+    expect(o).toContain('dont les comptes seront approuvés lors de l’assemblée générale ordinaire prévue le 15/03/2028 ; le solde vous sera donc restitué ou ajusté au plus tard le 15/04/2028.');
     expect(o).not.toContain('mars 2028 (date approximative');
     // arrêté inconnu : sans exercice
     expect(avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-09-22', null)).toContain('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers septembre 2027');
@@ -97,10 +97,10 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     expect(sansMentionAg('comptes, prévue en principe lors de l’assemblée générale ordinaire de mars 2027. Fin')).toBe('comptes. Fin');
     expect(sansMentionAg('occupation, lors de l’assemblée générale ordinaire prévue le 17/07/2027. Fin')).toBe('occupation. Fin');
     // un paragraphe modifié sans l'ancre : la phrase de la date va à la fin
-    expect(avecMentionAgLocataire('Provision conservée.', '2027-03-12', 'officielle')).toBe('Provision conservée. Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
+    expect(avecMentionAgLocataire('Provision conservée.', '2027-03-12', 'officielle')).toBe('Provision conservée. Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde vous sera donc restitué ou ajusté au plus tard le 12/04/2027.');
     // le PROPRIÉTAIRE : la MÊME date, même ton
     expect(avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2028-03-25', 'projetee', '2027-12-31'))
-      .toContain('dans le mois qui suit l’approbation des comptes. Il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété). Nous vous tiendrons informé(e)');
+      .toContain('dans le mois qui suit l’approbation des comptes. Il s’agit de l’exercice clos le 31/12/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2028 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2028. Nous vous tiendrons informé(e)');
   });
   it('la base légale citée EN ENTIER, une fois, dans les deux textes', () => {
     const loi = 'l’article 22 de la loi n° 89-462 du 6 juillet 1989 tendant à améliorer les rapports locatifs et portant modification de la loi n° 86-1290 du 23 décembre 1986 (dans sa rédaction issue de la loi n° 2014-366 du 24 mars 2014, dite loi ALUR)';
@@ -118,7 +118,7 @@ describe('l’affichage : récapitulatif, fiche (auteur), paragraphe « 20 % »'
     expect(m.parties[0].mail.texte).toContain('assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété)');
     expect(m.parties[0].mail.texte).not.toContain('12/03/2027');
     // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire
-    expect(m.parties[1].mail.texte).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété).');
+    expect(m.parties[1].mail.texte).toContain('Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers avril 2027.');
     expect(m.interne!.texte).toContain('Dernière AGO (assemblée générale ordinaire) : 12/03/2026\nProchaine AGO : 12/03/2027 (date projetée)');
     const sans = mailsValidationSortie({ ...d, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } });
     expect(sans.parties[1].mail.texte).toContain(PHRASE_RETENUE_PROPRIETAIRE);
@@ -171,7 +171,7 @@ describe('🔴🔴 la retenue des 20 % : seule l’AGO compte', () => {
     expect(mentionAg('2027-03-12')).toBe(', prévue en principe lors de l’assemblée générale ordinaire de mars 2027');
     expect(sansMentionAg('comptes, prévue en principe lors de l’assemblée générale de mars 2027. Fin')).toBe('comptes. Fin');
     expect(avecMentionAgProprietaire('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété, prévue en principe lors de l’assemblée générale de mars 2026.', '2027-03-12', 'officielle'))
-      .toBe('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété. Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027.');
+      .toBe('Une provision est conservée jusqu’à l’approbation des comptes de la copropriété. Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 12/03/2027 ; le solde lui sera donc restitué ou ajusté au plus tard le 12/04/2027.');
   });
   it('les libellés et la phrase d’aide, mot pour mot', () => {
     expect([LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO]).toEqual(['Dernière AGO connue (assemblée générale ordinaire) *', 'Prochaine AGO *',
@@ -217,7 +217,7 @@ describe('🔴 Arno (23/11/2026) — « pour que les deux mails ne donnent jamai
     for (const [jour, statut, cloture] of [['2028-03-25', 'projetee', '2027-12-31'], ['2028-03-15', 'officielle', '2027-12-31'], ['2027-09-22', null, null]] as const) {
       const l = phraseDateAg(jour, statut, cloture, 'locataire');
       const p = phraseDateAg(jour, statut, cloture, 'proprietaire');
-      expect(l.replace(/^Pour votre logement, /, '')).toBe(p.charAt(0).toLowerCase() + p.slice(1));
+      expect(l.replace(/^Pour votre logement, /, '').replace('le solde vous sera', 'le solde lui sera')).toBe(p.charAt(0).toLowerCase() + p.slice(1));
     }
   });
 });
@@ -230,5 +230,27 @@ describe('🔴 la prochaine AG connue (fiche Copropriété)', () => {
     expect(prochaineAgConnue([E({ id: 1, date: '2027-06-01' }), E({ id: 2, date: '2027-03-15', nature: 'age' }), E({ id: 3, statut: 'projetee', date: '2027-01-01' })], '2026-11-23')?.id).toBe(2);
     expect(prochaineAgConnue([E({ id: 3, statut: 'projetee', date: '2027-03-12' }), E({ id: 4, statut: 'projetee', date: '2027-04-01', saisieLe: '2026-11-20T10:00:00.000Z' })], '2026-11-23')?.id).toBe(4);
     expect(prochaineAgConnue([E({ date: '2026-03-15' }), E({ id: 5, type: 'derniere', date: '2026-03-15' })], '2026-11-23')).toBeNull();
+  });
+});
+
+/** 🔴🔴 Arno (23/11/2026) — « il faut parler du mois suivant le mois de la tenue de l'AG qui le concerne et non pas du mois de la tenue de l'AG, car il y a un délai d'un mois. » */
+describe('🔴🔴 le mois SUIVANT l’AGO : quand le solde sera restitué ou ajusté', () => {
+  it('projetée : « vers [mois suivant] » ; officielle : « au plus tard le [un mois après] » ; décembre → janvier de l’année suivante ; fin de mois', () => {
+    expect([unMoisApres('2027-11-25'), unMoisApres('2027-12-15'), unMoisApres('2028-01-31'), unMoisApres('2027-01-31'), unMoisApres('2028-03-15')])
+      .toEqual(['2027-12-25', '2028-01-15', '2028-02-29', '2027-02-28', '2028-04-15']);
+    expect(quandRestitution('2027-11-25', 'projetee')).toBe('vers décembre 2027');
+    expect(quandRestitution('2027-12-10', 'projetee')).toBe('vers janvier 2028');
+    expect(quandRestitution('2027-12-10', null)).toBe('vers janvier 2028');
+    expect(quandRestitution('2028-03-15', 'officielle')).toBe('au plus tard le 15/04/2028');
+    expect(quandRestitution('2027-12-20', 'officielle')).toBe('au plus tard le 20/01/2028');
+  });
+  it('les phrases d’Arno, mot pour mot (locataire), et la même logique pour le propriétaire', () => {
+    expect(phraseDateAg('2027-11-25', 'projetee', null, 'locataire')).toBe('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers novembre 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde vous sera donc restitué ou ajusté vers décembre 2027.');
+    expect(phraseDateAg('2028-03-15', 'officielle', null, 'locataire')).toBe('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire prévue le 15/03/2028 ; le solde vous sera donc restitué ou ajusté au plus tard le 15/04/2028.');
+    expect(phraseDateAg('2027-12-10', 'projetee', '2027-06-30', 'proprietaire')).toBe('Il s’agit de l’exercice clos le 30/06/2027, dont les comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers décembre 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété) ; le solde lui sera donc restitué ou ajusté vers janvier 2028.');
+    // la nouvelle phrase se retire et se remplace comme les autres
+    const t = avecMentionAgLocataire(PARAGRAPHE_RETENUE_LOCATAIRE, '2027-11-25', 'projetee');
+    expect(sansMentionAg(t)).toBe(PARAGRAPHE_RETENUE_LOCATAIRE);
+    expect(sansMentionAg(avecMentionAgProprietaire(PHRASE_RETENUE_PROPRIETAIRE, '2028-03-15', 'officielle'))).toBe(PHRASE_RETENUE_PROPRIETAIRE);
   });
 });

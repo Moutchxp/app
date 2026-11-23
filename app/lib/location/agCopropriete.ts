@@ -217,11 +217,26 @@ export const MENTION_APPROXIMATIVE = 'date approximative, estimée d’après le
  * l'approbation des comptes. » : l'exercice concerné, puis l'AGO — OFFICIELLE « prévue le 15/03/2028 » ; PROJETÉE (ou statut à choisir) « attendue
  * vers mars 2028 (date approximative, estimée d'après les précédentes assemblées de la copropriété) » : le mois et l'année seulement. PUR.
  */
+/** La date + 1 mois (le 31 devient le dernier jour du mois suivant ; décembre → janvier de l'année suivante). PUR. */
+export function unMoisApres(jour: string): string {
+  const [a, m, j] = jour.split('-').map(Number);
+  const a2 = m === 12 ? a + 1 : a; const m2 = m === 12 ? 1 : m + 1;
+  const jj = Math.min(j, new Date(Date.UTC(a2, m2, 0)).getUTCDate());
+  return `${a2}-${String(m2).padStart(2, '0')}-${String(jj).padStart(2, '0')}`;
+}
+/**
+ * 🔴🔴 Arno (23/11/2026) — « il faut parler du mois suivant le mois de la tenue de l'AG qui le concerne et non pas du mois de la tenue de l'AG, car il y a
+ * un délai d'un mois » : la RESTITUTION — projetée « vers décembre 2027 » (le mois suivant celui de l'AGO), officielle « au plus tard le
+ * 15/04/2028 » (un mois après l'AGO). PUR.
+ */
+export const quandRestitution = (jour: string, statut: StatutAg | null): string => (statut === 'officielle'
+  ? `au plus tard le ${dateFr(unMoisApres(jour))}` : `vers ${moisAnnee(unMoisApres(jour))}`);
 export function phraseDateAg(jour: string, statut: StatutAg | null, cloture: string | null = null, pour: 'locataire' | 'proprietaire' = 'locataire'): string {
   const quand = statut === 'officielle' ? `prévue le ${dateFr(jour)}` : `attendue vers ${moisAnnee(jour)} (${MENTION_APPROXIMATIVE})`;
+  const solde = `le solde ${pour === 'locataire' ? 'vous' : 'lui'} sera donc restitué ou ajusté ${quandRestitution(jour, statut)}`;
   const coeur = cloture !== null
-    ? `il s’agit de l’exercice clos le ${dateFr(cloture)}, dont les comptes seront approuvés lors de l’assemblée générale ordinaire ${quand}.`
-    : `les comptes concernés seront approuvés lors de l’assemblée générale ordinaire ${quand}.`;
+    ? `il s’agit de l’exercice clos le ${dateFr(cloture)}, dont les comptes seront approuvés lors de l’assemblée générale ordinaire ${quand} ; ${solde}.`
+    : `les comptes concernés seront approuvés lors de l’assemblée générale ordinaire ${quand} ; ${solde}.`;
   return pour === 'locataire' ? `Pour votre logement, ${coeur}` : `${coeur.charAt(0).toUpperCase()}${coeur.slice(1)}`;
 }
 /** 🔴 (23/11/2026, f35f53a2) la mention pour le locataire, telle que l'encadré la montre — désormais la phrase de la date, attachée par une espace. */
@@ -234,7 +249,7 @@ export const libelleCaseMentionAg = (jour: string, statut: StatutAg | null): str
 const RE_MENTION = new RegExp([
   ', prévue en principe lors de l’assemblée générale (?:ordinaire )?de [a-zéû]+ \\d{4}',
   ', lors de l’assemblée générale ordinaire (?:prévue le \\d{2}/\\d{2}/\\d{4}|attendue vers [a-zéû]+ \\d{4} \\(date approximative, estimée d’après les dates des précédentes assemblées de la copropriété\\))',
-  ' (?:Pour votre logement, )?(?:[Ii]l s’agit de l’exercice clos le \\d{2}/\\d{2}/\\d{4}, dont les comptes|[Ll]es comptes concernés) seront approuvés lors de l’assemblée générale ordinaire (?:prévue le \\d{2}/\\d{2}/\\d{4}|attendue vers [a-zéû]+ \\d{4} \\(date approximative, estimée d’après les précédentes assemblées de la copropriété\\))\\.',
+  ' (?:Pour votre logement, )?(?:[Ii]l s’agit de l’exercice clos le \\d{2}/\\d{2}/\\d{4}, dont les comptes|[Ll]es comptes concernés) seront approuvés lors de l’assemblée générale ordinaire (?:prévue le \\d{2}/\\d{2}/\\d{4}|attendue vers [a-zéû]+ \\d{4} \\(date approximative, estimée d’après les précédentes assemblées de la copropriété\\))(?: ; le solde (?:vous|lui) sera donc restitué ou ajusté (?:vers [a-zéû]+ \\d{4}|au plus tard le \\d{2}/\\d{2}/\\d{4}))?\\.',
 ].join('|'), 'g');
 
 /** Le texte SANS mention de l'AG (pour la retirer, ou la remplacer). PUR. */
