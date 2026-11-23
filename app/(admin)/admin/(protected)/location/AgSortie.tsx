@@ -26,6 +26,8 @@ export const SANS_COPROPRIETE_INCOMPLET = 'Sans copropriété, le suivi des 20 %
 /** 🔴 Arno (23/11/2026) — sans copropriété rattachée : la date d'arrêté des comptes ne peut pas se saisir. */
 /** 🔴 Arno (23/11/2026, suite) — « Ne pas rattacher maintenant » : le bandeau dit où saisir l'arrêté ET les AG (avant : « Rattachez ou créez la
  *  copropriété pour saisir sa date d'arrêté des comptes. ») */
+/** 🔴 Arno (23/11/2026) — la dernière AGO a plus d'un an : comment lever le blocage, sans le bouton « Confirmer cette date comme référence » (retiré). */
+export const CONSIGNE_DERNIERE_ANCIENNE = 'Vérifiez la date de la dernière AGO : la saisir ou la corriger suffit à continuer.';
 /** 🔴 Arno (23/11/2026) — le bouton de tête du bloc 20 % : créer la copropriété de l'adresse, ou y accéder. */
 export const LIBELLE_CREER_COPRO_ADRESSE = 'Créer une copropriété pour cette adresse';
 export const LIBELLE_ACCEDER_COPRO = 'Accéder à la fiche de copropriété';
@@ -188,11 +190,15 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
   }, [suit, calcule?.date, s.prochaine, s.statut, cleAgo, cleAgoSaisie]);
   const changerDerniere = (d: string): void => {
     const libre = !s.prochaineTouchee && officielleConnue === null;
-    // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : pas conservée, la fenêtre d'alerte s'ouvre (gardé, option A du 23/11)
+    // 🔴🔴 Arno (23/11/2026) — « Confirmer cette date comme référence » retiré : une date SAISIE (ou corrigée) dans « Dernière AGO connue » VAUT
+    // confirmation — la prochaine AGO suit alors le calcul (jamais antérieur au jour), la sortie n'est plus bloquée. La date effacée : plus rien de confirmé.
+    const confirmee = d !== '';
+    // 🔴 (Arno, 17/11/2026) « dernière AGO + 1 an » déjà passée : la fenêtre d'alerte s'ouvre toujours (l'explication), mais le champ n'est plus vidé
     const perimeeSaisie = libre && d !== '' ? projectionPassee(d, jour) : null;
-    if (perimeeSaisie !== null) { onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: '', statut: s.statut === 'officielle' ? s.statut : null, alerte: { date: perimeeSaisie, sorte: 'calculee' } }); return; }
     const c = libre ? calc(d) : null;
-    onChange({ ...s, derniere: d, derniereConfirmee: false, prochaine: libre ? (c?.date ?? (d === '' ? '' : s.prochaine)) : s.prochaine, ...(libre && c !== null ? { alerte: null } : {}) });
+    onChange({ ...s, derniere: d, derniereConfirmee: confirmee, prochaine: libre ? (c?.date ?? (d === '' ? '' : s.prochaine)) : s.prochaine,
+      ...(libre && c !== null ? { statut: s.statut ?? c.statut } : {}),
+      ...(perimeeSaisie !== null ? { alerte: { date: perimeeSaisie, sorte: 'calculee' as const } } : libre && c !== null ? { alerte: null } : {}) });
   };
   /** une date PROJETÉE déjà passée (tapée, ou le statut « projetée » choisi sur une date passée) : même contrôle, même fenêtre */
   const projeteePassee = (date: string, statut: StatutAg | null): boolean => statut === 'projetee' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < jour;
@@ -260,10 +266,14 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       <p className="loc-muet vag-aide" data-ag-aide-ago>{AIDE_AGO}</p>
       <label className={`pvs-champ${enDefaut('derniere') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_DERNIERE_AGO}</span>
         <input type="date" value={s.derniere} disabled={desactive} aria-invalid={enDefaut('derniere')} onChange={(e) => changerDerniere(e.target.value)} data-ag-derniere /></label>
+      {/* 🔴 Arno (23/11/2026) — RETIRÉ, accord d'Arno (« supprimer le bouton "Confirmer cette date comme référence", je ne comprends pas son utilité ») :
+          ce bouton confirmait une dernière AGO de plus d'un an comme référence (règle du 17/11) pour débloquer la sortie ; désormais, saisir ou
+          corriger la date suffit (elle vaut confirmation) — ou saisir la prochaine AGO à la main. La ligne « saisie par … le … » reste. */}
       {derniereConnue !== null && (
-        <p className="loc-muet vag-auteur" data-ag-derniere-auteur>saisie par {prenomNom(derniereConnue.par)} le {jourFrDe(derniereConnue.le)}{' '}
-          {s.derniereConfirmee ? <span className="vag-confirmee" data-ag-confirmee>✓ confirmée comme référence</span>
-            : <button type="button" className="svv-btn svv-btn-outline gst-btn vag-mini" disabled={desactive} onClick={() => onChange({ ...s, derniereConfirmee: true })} data-ag-confirmer>Confirmer cette date comme référence</button>}</p>)}
+        <p className="loc-muet vag-auteur" data-ag-derniere-auteur>saisie par {prenomNom(derniereConnue.par)} le {jourFrDe(derniereConnue.le)}</p>)}
+      {/* 🔴 (Arno, 17/11/2026, gardé le 23/11) l'alerte reste affichée tant que la dernière AGO a plus d'un an */}
+      {DATE_ISO.test(s.derniere) && projectionPassee(s.derniere, jour) !== null && (
+        <p className="vag-bandeau" role="status" data-ag-alerte-ancienne>⚠ {texteAlerteProjection(projectionPassee(s.derniere, jour) as string, 'calculee')} {CONSIGNE_DERNIERE_ANCIENNE}</p>)}
       {p.derniere === null && s.derniere === '' && <p className="loc-muet" data-ag-derniere-vide>Aucune AGO connue pour cette copropriété : saisissez la dernière.</p>}
 
       {/* b) la prochaine AG et son statut */}
@@ -305,7 +315,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
           </div>)}
       </>}
       {ficheOuverte && <FicheCopropriete lotId={lu.lotId} onFerme={() => { setFicheOuverte(false); onRelire?.(); }} />}
-      {s.alerte !== null && <AlerteProjection alerte={s.alerte} derniere={s.derniere} jour={jour}
+      {s.alerte !== null && <AlerteProjection alerte={s.alerte} derniere={s.derniere} jour={jour} champVide={s.prochaine === ''}
         onFermer={() => onChange({ ...s, alerte: null })}
         onReporter={(date, statut) => onChange({ ...s, prochaine: date, statut, prochaineTouchee: true, alerte: null })} />}
     </div>
@@ -316,7 +326,9 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
  * 🔴🔴 (Arno, 17/11/2026) LA FENÊTRE D'ALERTE « PROJECTION PÉRIMÉE » : l'incohérence dite mot pour mot, la date à saisir à la main avec le choix
  * « Date projetée » (à venir) ou « Date officielle » ; « Fermer » laisse le champ VIDE (la sortie reste bloquée tant qu'une date valable manque).
  */
-function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { alerte: { date: string; sorte: 'calculee' | 'saisie' }; derniere: string; jour: string;
+function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter, champVide = true }: { alerte: { date: string; sorte: 'calculee' | 'saisie' }; derniere: string; jour: string;
+  /** (23/11/2026) la date saisie valant confirmation, la prochaine AGO peut être déjà calculée : « Fermer » ne la vide pas */
+  champVide?: boolean;
   onFermer: () => void; onReporter: (date: string, statut: StatutAg) => void }) {
   const [date, setDate] = useState('');
   const [statut, setStatut] = useState<StatutAg | null>(null);
@@ -339,7 +351,7 @@ function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { al
         </div>
         {tente && motif !== null && <p className="cp-refus" role="alert" data-ag-alerte-motif>{motif}</p>}
         <div className="vag-alerte-actions">
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-ag-alerte-fermer>Fermer (le champ reste vide)</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer} data-ag-alerte-fermer>{champVide ? 'Fermer (le champ reste vide)' : 'Fermer'}</button>
           <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setTente(true); if (v.ok && statut !== null) onReporter(date, statut); }} data-ag-alerte-reporter>Reporter cette date</button>
         </div>
       </div>

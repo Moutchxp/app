@@ -3631,10 +3631,10 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     await ouvrir();
     expect(q('[data-ag-statut]').getAttribute('data-ag-statut')).toBe('projetee');
     expect(recap().disabled).toBe(false);
-    act(() => q('[data-ag-confirmer]').click());
-    expect(q('[data-ag-confirmee]').textContent).toBe('✓ confirmée comme référence');
+    // 🔴 (23/11/2026) « Confirmer cette date comme référence » retiré (accord d'Arno)
+    expect(document.querySelector('[data-ag-confirmer]')).toBeNull();
     await act(async () => { recap().click(); }); await attendre();
-    expect(posts.at(-1)).toMatchObject({ retenue: true, ag: { derniere: '2026-03-12', derniereConfirmee: true, prochaine: '2027-03-12', statut: 'projetee' }, mentionAg: false });
+    expect(posts.at(-1)).toMatchObject({ retenue: true, ag: { derniere: '2026-03-12', derniereConfirmee: false, prochaine: '2027-03-12', statut: 'projetee' }, mentionAg: false });
     expect([...document.querySelectorAll('[data-resume-ag]')].map((x) => x.textContent)).toEqual(['Dernière AGO (assemblée générale ordinaire)12/03/2026', 'Prochaine AGO12/03/2027 (date projetée)']);
     expect(q('[data-resume-ag-copropriete]').textContent).toBe('CopropriétéRésidence Fictive');
   });
@@ -3643,7 +3643,6 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     await ouvrir();
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     const phrase = q('[data-ag-texte-mail-phrase]').textContent;
-    act(() => q('[data-ag-confirmer]').click());
     await act(async () => { recap().click(); }); await attendre();
     const ligne = q('[data-resume-ago-locataire]').textContent ?? '';
     expect(ligne).toContain('attendue vers mars 2027 (date approximative)');
@@ -3691,12 +3690,35 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(q('[data-ag-statut-choix="officielle"]').getAttribute('aria-pressed')).toBe('true');
     expect(recap().disabled).toBe(false);
   });
-  it('🔴 (Arno, 17/11/2026) saisir une dernière AGO ancienne : la projection passée n’est pas reprise, la fenêtre s’ouvre', async () => {
+  // 🔴🔴 Arno (23/11/2026) — « Confirmer cette date comme référence » retiré : la date SAISIE vaut confirmation ; la sortie n'est jamais bloquée sans issue
+  it('🔴 (Arno, 17/11/2026 → 23/11) saisir une dernière AGO ancienne : la fenêtre d’alerte s’ouvre toujours, mais la date saisie vaut confirmation — la prochaine AGO suit le calcul, la sortie n’est pas bloquée', async () => {
     luAg = LU({ proposition: { derniere: null, prochaine: null } });
     await ouvrir();
     act(() => saisir(q('input[data-ag-derniere]') as HTMLInputElement, '2015-03-12'));
-    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('');
     expect(q('[data-ag-alerte-texte]').textContent).toBe('La prochaine AGO calculée, le 12/03/2016, est déjà passée : une AGO plus récente a sans doute eu lieu.');
+    const prochaine = (q('input[data-ag-prochaine]') as HTMLInputElement).value;
+    expect(prochaine >= new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' })).toBe(true); // jamais une date passée
+    expect(q('[data-ag-alerte-fermer]').textContent).toBe('Fermer');
+    act(() => q('[data-ag-alerte-fermer]').click());
+    // l'alerte reste affichée (dans la fenêtre) tant que la dernière AGO a plus d'un an
+    expect(q('[data-ag-alerte-ancienne]').textContent).toBe('⚠ La prochaine AGO calculée, le 12/03/2016, est déjà passée : une AGO plus récente a sans doute eu lieu. Vérifiez la date de la dernière AGO : la saisir ou la corriger suffit à continuer.');
+    expect(recap().disabled).toBe(false);
+    await act(async () => { recap().click(); }); await attendre();
+    expect(posts.at(-1)).toMatchObject({ ag: { derniere: '2015-03-12', derniereConfirmee: true, prochaine } });
+  });
+  it('🔴 (23/11/2026) dernière AGO ancienne CONNUE (préremplie) : bloquée comme le 17/11 ; la corriger débloque, l’alerte disparaît si elle a moins d’un an ; plus de bouton de confirmation', async () => {
+    luAg = LU({ proposition: { derniere: { date: '2015-03-12', par: 'Claire Test', le: '2016-04-01T10:00:00.000Z' }, prochaine: null, projectionPerimee: '2016-03-12' } });
+    await ouvrir();
+    expect(document.querySelector('[data-ag-confirmer]')).toBeNull();
+    expect(q('[data-ag-derniere-auteur]').textContent).toBe('saisie par Claire TEST le 01/04/2016');
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).toBe('');
+    expect(recap().disabled).toBe(true);
+    act(() => q('[data-ag-alerte-fermer]').click());
+    expect(q('[data-ag-alerte-ancienne]')).not.toBeNull();
+    act(() => saisir(q('input[data-ag-derniere]') as HTMLInputElement, '2026-03-12'));
+    expect((q('input[data-ag-prochaine]') as HTMLInputElement).value).not.toBe('');
+    expect(document.querySelector('[data-ag-alerte-ancienne]')).toBeNull();
+    expect(recap().disabled).toBe(false);
   });
   it('une prochaine AG OFFICIELLE déjà connue : proposée en priorité, statut officielle, avec qui l’a saisie', async () => {
     luAg = LU({ proposition: { derniere: { date: '2026-03-12', par: 'Claire Test', le: '2026-04-01T10:00:00.000Z' }, prochaine: { date: '2027-04-02', statut: 'officielle', mention: null, par: 'Paul Syndic', le: '2026-10-01T09:00:00.000Z' } } });
@@ -3772,7 +3794,6 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(q('[data-ag-copropriete]').textContent).toContain('Résidence Fictive');
     expect((q('[data-ag-copro-oui] input') as HTMLInputElement).checked).toBe(true);
     expect(q('[data-retenue-a-verifier]')).toBeNull();
-    act(() => q('[data-ag-confirmer]').click());
     await act(async () => { recap().click(); }); await attendre();
     expect(posts.at(-1)).toMatchObject({ coproprieteOui: true });
   });
