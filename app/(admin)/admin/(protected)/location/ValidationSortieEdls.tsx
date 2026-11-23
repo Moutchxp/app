@@ -182,7 +182,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         {retenueAppliquee && (luAg.etat.etat !== 'ok' ? <EtatLecture etat={luAg.etat} />
           : ag !== null && saisieAg !== null && <AgSortie key={`copro-${ag.copropriete?.id ?? 'aucune'}`} lu={ag} s={saisieAg} onChange={changerAg} desactive={envoi} dateSortie={date} onRelire={() => { luAg.rafraichir(); copro.rafraichir(); }} />)}
         {retenueAppliquee && (
-          <label className="pvs-champ"><span className="pvs-libelle">Paragraphe ajouté aux mails des locataires (modifiable)</span>
+          // 🔴 Arno (23/11/2026) — la zone occupe TOUTE la largeur de la colonne (le bloc aligne ses enfants à gauche : elle s'y réduisait)
+          <label className="pvs-champ vse-paragraphe-retenue"><span className="pvs-libelle">Paragraphe ajouté aux mails des locataires (modifiable)</span>
             <textarea value={paragrapheRetenue} onChange={(e) => setParagrapheRetenue(e.target.value)} rows={6} data-retenue-paragraphe /></label>
         )}
         {retenueAppliquee && <p className="loc-muet" data-retenue-proprietaires>Aux propriétaires : « {phraseProprietaires} »</p>}
@@ -314,6 +315,7 @@ export const CSS_VALIDATION_SORTIE = `
 .vse-orange{margin:0;color:var(--color-svv-orange);font-weight:800}
 .vse-orange a{color:var(--color-svv-orange);text-decoration:underline}
 .vse-retenue{display:flex;flex-direction:column;gap:6px}
+.vse-retenue .vse-paragraphe-retenue{align-self:stretch;box-sizing:border-box;width:100%;min-width:0}
 .vse-pieces-mail{margin:0;font-weight:700;overflow-wrap:anywhere}
 .vse-frise{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:600px){.vse-frise{grid-template-columns:1fr 1fr}}
