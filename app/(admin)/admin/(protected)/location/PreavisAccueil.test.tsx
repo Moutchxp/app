@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
@@ -771,6 +771,11 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
         postsPieces.push({ type: 'drive', corps: c.driveIds });
         return ok({ pieces: c.driveIds.map((id, i) => PIECE(100 + i, `${id}.pdf`, 'drive')), refus: [] });
       }
+      // 🔴 (23/11/2026) la confirmation : enregistrée ici (rien ne part), réponse de résultat minimale
+      if (init?.method === 'POST' && String(init.body).includes('valider-sortie-edls')) {
+        posts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return ok({ date: HIER, vacant: true, restants: [], envois: [], retenue: false });
+      }
       if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
         posts.push(c);
@@ -888,6 +893,63 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     expect(document.querySelector('[data-avertissement-pieces]')?.textContent).toBe('Vérifiez que les pièces jointes ne contiennent pas de coordonnées qui ne doivent pas être transmises à ce destinataire.');
     // 🔴 Arno (23/11/2026) — une pièce jointe : le mail annonce l'état des lieux, aucun avertissement
     expect(document.querySelector('[data-avertissement-sans-edl]')).toBeNull();
+  });
+  // 🔴🔴 Arno (23/11/2026) — « lorsque l'utilisateur valide la sortie sans y avoir inclus au moins une pièce jointe, afficher une modale en plein écran […]
+  // Deux boutons : revenir en arrière pour ajouter la pièce jointe manquante, ou "Valider sans pièce jointe". »
+  const auRecap = async (): Promise<Element> => {
+    const f = await ouvrir();
+    act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+    await attendre();
+    return f;
+  };
+  const envoisValider = () => posts.filter((c) => c.action === 'valider-sortie-edls');
+  it('sans pièce jointe : « Confirmer et envoyer » ouvre la fenêtre plein écran, RIEN n’est envoyé ; « Revenir ajouter l’état des lieux » ramène au bloc des pièces', async () => {
+    piecesApercu = [];
+    try {
+      await auRecap();
+      const vu = vi.fn();
+      Element.prototype.scrollIntoView = vu as never;
+      onTestFinished(() => { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; });
+      await act(async () => { (document.querySelector('button[data-confirmer-validation]') as HTMLButtonElement).click(); });
+      const m = document.querySelector('[data-alerte-sans-piece]') as HTMLElement;
+      expect(m.getAttribute('role')).toBe('alertdialog');
+      expect(m.querySelector('.vse-plein-titre')?.textContent).toBe('Aucun état des lieux joint');
+      expect(m.querySelector('.vse-plein-texte')?.textContent).toBe('Pour la bonne clôture du dossier de sortie, le fichier d’état des lieux doit être joint à ce mail.');
+      expect([...m.querySelectorAll('button')].map((b) => [b.textContent, b.classList.contains('svv-btn-primary')]))
+        .toEqual([['Revenir ajouter l’état des lieux', true], ['Valider sans pièce jointe', false]]);
+      expect(envoisValider()).toEqual([]);
+      // l'avertissement du récapitulatif reste
+      expect(document.querySelector('[data-avertissement-sans-edl]')).not.toBeNull();
+      await act(async () => { (m.querySelector('[data-sans-piece-revenir]') as HTMLButtonElement).click(); });
+      await attendre();
+      expect(document.querySelector('[data-alerte-sans-piece]')).toBeNull();
+      expect(document.querySelector('[data-fenetre-validation-sortie]')?.getAttribute('data-fenetre-validation-sortie')).toBe('saisie');
+      expect(vu).toHaveBeenCalled();
+      expect(vu.mock.contexts.some((x) => (x as Element).hasAttribute?.('data-pieces-sortie'))).toBe(true);
+      expect(envoisValider()).toEqual([]);
+    } finally { piecesApercu = ['salon.jpg']; }
+  });
+  it('« Valider sans pièce jointe » : la MÊME demande que « Confirmer et envoyer » d’avant (même corps que l’aperçu, action de validation)', async () => {
+    piecesApercu = [];
+    try {
+      await auRecap();
+      const apercu = posts.find((c) => c.action === 'apercu-validation-sortie')!;
+      await act(async () => { (document.querySelector('button[data-confirmer-validation]') as HTMLButtonElement).click(); });
+      await act(async () => { (document.querySelector('[data-sans-piece-valider]') as HTMLButtonElement).click(); });
+      await attendre();
+      expect(envoisValider()).toHaveLength(1);
+      expect({ ...envoisValider()[0], action: 'apercu-validation-sortie' }).toEqual(apercu);
+      expect(document.querySelector('[data-alerte-sans-piece]')).toBeNull();
+    } finally { piecesApercu = ['salon.jpg']; }
+  });
+  it('avec une pièce jointe : pas de fenêtre, « Confirmer et envoyer » envoie directement, comme avant', async () => {
+    await auRecap();
+    await act(async () => { (document.querySelector('button[data-confirmer-validation]') as HTMLButtonElement).click(); });
+    await attendre();
+    expect(document.querySelector('[data-alerte-sans-piece]')).toBeNull();
+    expect(envoisValider()).toHaveLength(1);
   });
   // 🔴 Arno (23/11/2026) — « sinon il est absent et le récapitulatif affiche un avertissement visible […] (aucun envoi bloqué) »
   it('récapitulatif SANS pièce jointe : « Aucun état des lieux joint : le mail ne l’annoncera pas. » ; « Confirmer et envoyer » reste possible', async () => {

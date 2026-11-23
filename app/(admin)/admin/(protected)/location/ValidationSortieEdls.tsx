@@ -72,6 +72,8 @@ export const TITRE_TEXTE_LOCATAIRES = 'Texte ajouté au mail du (des) locataire(
 export const TITRE_TEXTE_PROPRIETAIRES = 'Texte ajouté au mail du (des) propriétaire(s) — modifiable';
 export const AUCUN_MAIL_PROPRIETAIRE = 'Aucun mail au propriétaire pour cette sortie';
 
+export const TITRE_SANS_PIECE = 'Aucun état des lieux joint';
+export const TEXTE_SANS_PIECE = 'Pour la bonne clôture du dossier de sortie, le fichier d’état des lieux doit être joint à ce mail.';
 /** Au moins un mail au locataire ou au propriétaire part, et AUCUN ne porte de pièce jointe. PUR. */
 export const sansPieceJointe = (a: { mails: readonly { famille: string; pieces?: readonly string[] }[] }): boolean => {
   const vises = a.mails.filter((m) => m.famille === 'locataire' || m.famille === 'proprietaire');
@@ -127,15 +129,31 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   /* 🔴 Arno (23/11/2026) — « créer le même bloc de texte pour le texte qui sera envoyé au propriétaire, avec la même possibilité de le modifier » :
      `null` = le texte calculé (il suit la date en direct) ; modifié à la main, il est gardé tel quel et c'est lui qui part */
   const [phraseProprioSaisie, setPhraseProprioSaisie] = useState<string | null>(null);
+  /* 🔴 Arno (23/11/2026) — « Confirmer et envoyer » sans aucune pièce jointe : la fenêtre plein écran « Aucun état des lieux joint » ; « Revenir ajouter
+     l'état des lieux » ramène au bloc « Pièces jointes au compte rendu » */
+  const [alerteSansPiece, setAlerteSansPiece] = useState(false);
+  const [allerAuxPieces, setAllerAuxPieces] = useState(false);
   const phraseProprioTexte = phraseProprioSaisie ?? phraseProprietaires;
   const parties = useMemo(() => (encart.etat.etat === 'ok' ? partiesDeLEncart(encart.etat.data) : []), [encart.etat]);
   const mailProprietaire = parties.some((p) => p.famille === 'proprietaire' && p.email && destinataires.includes(p.cle));
   const enGestion = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion && partenaires.etat.data.liste.length > 0;
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi && etape.etape !== 'resultat') onFermer(null); };
+    const clavier = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || envoi) return;
+      // la fenêtre « Aucun état des lieux joint » d'abord : Échap la referme seule (rien n'est envoyé)
+      if (alerteSansPiece) { setAlerteSansPiece(false); return; }
+      if (etape.etape !== 'resultat') onFermer(null);
+    };
     window.addEventListener('keydown', clavier);
     return () => window.removeEventListener('keydown', clavier);
-  }, [envoi, etape, onFermer]);
+  }, [envoi, etape, onFermer, alerteSansPiece]);
+  // « Revenir ajouter l'état des lieux » : retour à la saisie, défilement jusqu'au bloc des pièces jointes
+  useEffect(() => {
+    if (!allerAuxPieces || etape.etape !== 'saisie') return;
+    const bloc = document.querySelector('[data-fenetre-validation-sortie] [data-pieces-sortie]') as HTMLElement | null;
+    bloc?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    setAllerAuxPieces(false); // eslint-disable-line react-hooks/set-state-in-effect
+  }, [allerAuxPieces, etape.etape]);
 
   const verdictSaisie = verifierValidation({ realise, date, sortants, compteRendu }, jour);
   // 🔴 (16/11/2026, 475) case 20 % cochée : rien ne part sans la dernière AG, la prochaine ET son statut (l'historique installé)
@@ -304,7 +322,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       {refus !== null && <p className="cev-alerte" role="alert" data-validation-refus>{refus}</p>}
       <div className="mis-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn mis-action" onClick={() => setEtape({ etape: 'saisie' })} disabled={envoi} data-revenir-validation>Revenir</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { void confirmer(); }} disabled={envoi || a.alertes.length > 0} data-confirmer-validation>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn mis-action" onClick={() => { if (sansPieceJointe(a)) setAlerteSansPiece(true); else void confirmer(); }} disabled={envoi || a.alertes.length > 0} data-confirmer-validation>
           {envoi ? 'Envoi…' : 'Confirmer et envoyer'}</button>
       </div>
     </>;
@@ -339,6 +357,22 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         aria-labelledby={titreId} data-fenetre-validation-sortie={etape.etape}>
         {contenu}
       </div>
+      {/* 🔴 Arno (23/11/2026) — « afficher une modale en plein écran qui lui signale l'absence de pièce jointe, et lui rappelle que pour la bonne clôture
+          du dossier de sortie du locataire il faut joindre à ce mail le fichier d'état des lieux. Deux boutons : revenir en arrière pour ajouter la
+          pièce jointe manquante, ou "Valider sans pièce jointe". » — « Valider sans pièce jointe » envoie EXACTEMENT comme avant */}
+      {alerteSansPiece && etape.etape === 'recap' && (
+        <div className="vse-plein" role="alertdialog" aria-modal="true" aria-labelledby="vse-plein-titre" data-alerte-sans-piece>
+          <div className="vse-plein-boite">
+            <h2 id="vse-plein-titre" className="vse-plein-titre">{TITRE_SANS_PIECE}</h2>
+            <p className="vse-plein-texte">{TEXTE_SANS_PIECE}</p>
+            <div className="vse-plein-actions">
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" autoFocus
+                onClick={() => { setAlerteSansPiece(false); setEtape({ etape: 'saisie' }); setAllerAuxPieces(true); }} data-sans-piece-revenir>Revenir ajouter l’état des lieux</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi}
+                onClick={() => { setAlerteSansPiece(false); void confirmer(); }} data-sans-piece-valider>Valider sans pièce jointe</button>
+            </div>
+          </div>
+        </div>)}
     </div>
   );
   return typeof document === 'undefined' ? boite : createPortal(boite, document.querySelector('.svv-adm-root') ?? document.body);
@@ -346,6 +380,12 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme (couleurs de famille = celles du bloc PARTIES : locataire vert, proprietaire rouge). */
 export const CSS_VALIDATION_SORTIE = `
+.vse-plein{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:var(--color-svv-surface)}
+.vse-plein-boite{width:100%;max-width:560px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;padding:20px;border-radius:14px;border-top:6px solid var(--color-svv-urgence-orange);background:var(--color-svv-amber-soft);color:var(--color-svv-ink)}
+.vse-plein-titre{margin:0;font-size:1.35rem;font-weight:800;overflow-wrap:anywhere}
+.vse-plein-texte{margin:0;font-size:1.05rem;line-height:1.5;overflow-wrap:anywhere}
+.vse-plein-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:10px}
+.vse-plein-actions .gst-btn{min-height:48px;width:100%;margin:0;box-sizing:border-box}
 .vse-realise{font-weight:800}
 .vse-date input{min-height:44px}
 .vse-famille{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface);min-width:0}
