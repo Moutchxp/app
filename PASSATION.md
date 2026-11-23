@@ -311,8 +311,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `8f58b039`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **59 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6`, `bcf4356e`, `498f7d56`, `7bd9afd0`, `a6dc9366` et `7b0e5e02`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `ec528f8e`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **61 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6`, `bcf4356e`, `498f7d56`, `7bd9afd0`, `a6dc9366`, `7b0e5e02` et `23b55362`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
   des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
   `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie », `520ce23d` → `36b1a2ea`, retours du 23/11 au
@@ -320,14 +320,14 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   verts de la fiche, « Accéder à la fiche de copropriété »), `74061ea5` (texte des propriétaires en trois paragraphes), `e642bbe0` → `14e01401` (arrêté en gros, pièce jointe
   annoncée, fenêtre « Aucun état des lieux joint »), `8c86daff`, `04e448fa` (bouton « Confirmer cette date comme référence »
   retiré, pièces jointes sans « Modification enregistrée »), `46958f1b`, `8f58b039` (pièce jointe sous le compte rendu, ligne
-  unique « Restitution des 20 % annoncée ») — détail plus bas) : `b3819054`,
+  unique « Restitution des 20 % annoncée »), `ec528f8e` (« le rapport complet ») — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `8f58b039`) : `npm test` VERT (1 866 fichiers, 27 807 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `ec528f8e`) : `npm test` VERT (1 866 fichiers, 27 807 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -587,6 +587,11 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     propriétaire(s) » (texte complet, seulement si un mail au propriétaire part), non citée, est GARDÉE — la retirer aussi ? Captures 99-103.
   - Constat (recette) : pièces 136-138 et 143 (occupation 555) déposées par le compte d'Arno le 23/11 entre 23:19 et 23:37 (une capture d'écran et un
     « Contrat d'agent commercial immobilier » au nom d'un tiers) — ni d'un essai de l'agent, ni touchées.
+  - `ec528f8e` — paragraphe pièce jointe : « le rapport complet de l'état des lieux de sortie » (locataire et propriétaire, singulier « … le rapport
+    complet de … », pluriel « … le rapport complet et les documents … »). Vu en lecture seule par l'APERÇU serveur (aucune écriture) avec la pièce
+    _TEST 139 existante sur le préavis TESTTEST (occupation 554) : ouverture → compte rendu → « … le rapport complet … » → fin. Capture 104.
+  - Constat (recette, 23-24/11) : le compte d'Arno a validé deux sorties d'essai (gestion_location_sortie_validee 5 et 6 : lots 445 / 446,
+    occupations 557 / 558, 23:59 et 00:01) et déposé la pièce 144 (occupation 557) — essais d'Arno, rien de l'agent.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
