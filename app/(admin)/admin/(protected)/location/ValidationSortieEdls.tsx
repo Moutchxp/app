@@ -17,12 +17,12 @@ import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import {
   ALERTE_COPROPRIETE_NON_RENSEIGNEE, AVERTISSEMENT_PIECES, AVERTISSEMENT_SANS_EDL_JOINT, cleLocataire, cleProprietaire, COMPTE_RENDU_MAX, etatRetenue, MOTIF_RETENUE_IMPOSSIBLE,
-  PARAGRAPHE_RETENUE_LOCATAIRE, paragrapheDateProprietaire, texteProprietaire, verifierValidation,
+  PARAGRAPHE_RETENUE_LOCATAIRE, texteProprietaire, verifierValidation,
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
-import { AgSortie, corpsAg, CSS_AG_SORTIE, libelleCaseAgoQuiCompte, luAgPropre, saisieAgInitiale, texteAjouteAuMail, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
-import { avecMentionAgLocataire, sansMentionAg } from '../../../../lib/location/agCopropriete';
+import { AgSortie, corpsAg, CSS_AG_SORTIE, luAgPropre, saisieAgInitiale, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
+import { avecMentionAgLocataire, moisAnnee, quandRestitution, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
 /**
  * ══ 🔴🔴 « VALIDER L'ÉTAT DES LIEUX DE SORTIE » — LA FENÊTRE (spec d'Arno du 11/11/2026, lot 4) ═══════════════════════════════════════════════
@@ -72,6 +72,13 @@ export const TITRE_TEXTE_LOCATAIRES = 'Texte ajouté au mail du (des) locataire(
 export const TITRE_TEXTE_PROPRIETAIRES = 'Texte ajouté au mail du (des) propriétaire(s) — modifiable';
 export const AUCUN_MAIL_PROPRIETAIRE = 'Aucun mail au propriétaire pour cette sortie';
 
+/**
+ * 🔴 Arno (23/11/2026) — la ligne unique du récapitulatif : « vers mai 2027 (AGO attendue vers avril 2027, date approximative) » ; « au plus tard le
+ * 15/04/2028 (AGO prévue le 15/03/2028) » ; case non cochée (ou aucune AGO) : « sans date ». PUR.
+ */
+export const restitutionAnnoncee = (ago: { date: string; statut: 'officielle' | 'projetee' | null } | null): string => (ago === null ? 'sans date'
+  : ago.statut === 'officielle' ? `${quandRestitution(ago.date, 'officielle')} (AGO prévue le ${dateFrPreavis(ago.date)})`
+    : `${quandRestitution(ago.date, ago.statut)} (AGO attendue vers ${moisAnnee(ago.date)}, date approximative)`);
 export const TITRE_SANS_PIECE = 'Aucun état des lieux joint';
 export const TEXTE_SANS_PIECE = 'Pour la bonne clôture du dossier de sortie, le fichier d’état des lieux doit être joint à ce mail.';
 /** Au moins un mail au locataire ou au propriétaire part, et AUCUN ne porte de pièce jointe. PUR. */
@@ -279,15 +286,11 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         <div><dt>Action</dt><dd>Sortie effective le {dateFrPreavis(a.date)} — {a.vacant ? 'le logement devient libre' : 'le logement reste loué'}</dd></div>
         <div><dt>Locataires concernés</dt><dd>{l.locataires.filter((x) => sortants.includes(x.occupationId)).map((x) => x.nom).join(', ')}</dd></div>
         {a.ag !== undefined && <LignesAg ag={a.ag} />}
-        {/* 🔴 Arno (23/11/2026) — le récapitulatif reprend l'AGO indiquée au locataire et la phrase EXACTE ajoutée à son mail (la même pour tous) */}
-        {a.ag !== undefined && saisieAg !== null && saisieAg.mention && saisieAg.ago != null && (
-          <div data-resume-ago-locataire><dt>AGO indiquée au(x) locataire(s)</dt>
-            <dd>{libelleCaseAgoQuiCompte(saisieAg.ago).replace(/^Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : /, '')}
-              <br />Texte ajouté au mail : « … {texteAjouteAuMail(saisieAg.ago)} »</dd></div>)}
-        {/* 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s) : sa phrase, telle qu'elle partira */}
-        {a.ag !== undefined && saisieAg !== null && saisieAg.mention && saisieAg.ago != null && (
-          <div data-resume-ago-proprietaire><dt>Date indiquée au(x) propriétaire(s)</dt>
-            <dd>« … {paragrapheDateProprietaire(saisieAg.ago.date, saisieAg.ago.statut, sortants.length > 1)} »{phraseProprioSaisie !== null ? ' (texte modifié à la main : voir ci-dessous)' : ''}</dd></div>)}
+        {/* 🔴🔴 Arno (23/11/2026) — RETIRÉ, accord d'Arno (« supprimer de la page le bloc d'information (AGO indiquée au(x) locataire(s), Texte ajouté au mail,
+            Date indiquée au(x) propriétaire(s)) : il y a trop d'informations, il faut aller à l'essentiel ») : ces trois rubriques sont remplacées par UNE
+            ligne — quand le solde sera restitué, et l'AGO qui le permet ; le texte exact reste dans « Afficher le texte » de chaque mail */}
+        {a.ag !== undefined && saisieAg !== null && (
+          <div data-resume-restitution><dt>Restitution des 20 % annoncée</dt><dd>{restitutionAnnoncee(saisieAg.mention ? saisieAg.ago ?? null : null)}</dd></div>)}
         {/* 🔴 Arno (23/11/2026) — le texte des propriétaires TEL QU'IL PARTIRA (modifié ou non) */}
         {a.retenue === true && a.mails.some((m) => m.famille === 'proprietaire') && (
           <div data-resume-texte-proprietaires><dt>{TITRE_TEXTE_PROPRIETAIRES.replace(/ — modifiable$/, '')}</dt><dd>« {phraseProprioTexte} »</dd></div>)}

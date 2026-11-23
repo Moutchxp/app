@@ -3664,18 +3664,31 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(q('[data-resume-ag-copropriete]').textContent).toBe('CopropriétéRésidence Fictive');
   });
   // 🔴 Arno (23/11/2026) — « Le récapitulatif avant validation reprend la même phrase et la date »
-  it('récapitulatif : l’AGO indiquée au(x) locataire(s) et le texte EXACT ajouté au mail, comme dans la fenêtre', async () => {
+  // 🔴🔴 Arno (23/11/2026) — « supprimer de la page le bloc d'information (AGO indiquée au(x) locataire(s), Texte ajouté au mail, Date indiquée au(x)
+  // propriétaire(s)) : il y a trop d'informations, il faut aller à l'essentiel » : UNE ligne « Restitution des 20 % annoncée »
+  it('récapitulatif : UNE ligne « Restitution des 20 % annoncée » à la place des trois rubriques ; le texte exact part toujours (paragraphe envoyé)', async () => {
     await ouvrir();
     act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
     const phrase = q('[data-ag-texte-mail-phrase]').textContent;
     await act(async () => { recap().click(); }); await attendre();
-    const ligne = q('[data-resume-ago-locataire]').textContent ?? '';
-    expect(ligne).toContain('attendue vers mars 2027 (date approximative)');
-    expect(ligne).toContain(`Texte ajouté au mail : ${phrase}`);
-    // 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s), visible au récapitulatif
-    expect(q('[data-resume-ago-proprietaire]').textContent).toBe('Date indiquée au(x) propriétaire(s)« … Ces comptes seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées). Le solde sera ensuite restitué ou ajusté à vos locataires vers avril 2027. »');
-    expect(String(phrase)).toContain('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
+    expect(q('[data-resume-restitution]').textContent).toBe('Restitution des 20 % annoncéevers avril 2027 (AGO attendue vers mars 2027, date approximative)');
+    for (const r of ['[data-resume-ago-locataire]', '[data-resume-ago-proprietaire]']) expect(document.querySelector(r)).toBeNull();
+    expect(document.querySelector('[data-resume-validation]')?.textContent).not.toContain('Texte ajouté au mail :');
+    // les autres rubriques restent
+    expect([...document.querySelectorAll('[data-resume-ag]')]).toHaveLength(2);
+    expect(q('[data-resume-ag-copropriete]')).not.toBeNull();
     expect(String((posts.at(-1) as { paragrapheRetenue?: string }).paragrapheRetenue)).toContain(String(phrase).replace(/^« … /, '').replace(/ »$/, ''));
+  });
+  it('récapitulatif : date officielle → « au plus tard le … (AGO prévue le …) » ; case non cochée → « sans date »', async () => {
+    await ouvrir();
+    act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
+    act(() => q('[data-ag-statut-choix="officielle"]').click());
+    await act(async () => { recap().click(); }); await attendre();
+    expect(q('[data-resume-restitution]').textContent).toBe('Restitution des 20 % annoncéeau plus tard le 12/04/2027 (AGO prévue le 12/03/2027)');
+    act(() => q('[data-revenir-validation]').click());
+    act(() => (q('[data-ag-mention] input') as HTMLInputElement).click());
+    await act(async () => { recap().click(); }); await attendre();
+    expect(q('[data-resume-restitution]').textContent).toBe('Restitution des 20 % annoncéesans date');
   });
   it('rien de connu : dernière AG vide, en rouge, bloquante ; la saisir propose la prochaine à + 1 an', async () => {
     luAg = LU({ proposition: { derniere: null, prochaine: null } });
@@ -4117,5 +4130,16 @@ describe('🔴 « aucune pièce jointe » : locataires ET propriétaires', () =>
     expect(sansPieceJointe({ mails: [{ famille: 'locataire' }] })).toBe(true);
     expect(sansPieceJointe({ mails: [{ famille: 'locataire', pieces: ['edl.pdf'] }, { famille: 'proprietaire', pieces: ['edl.pdf'] }] })).toBe(false);
     expect(sansPieceJointe({ mails: [{ famille: 'interne', pieces: [] }, { famille: 'partenaires', pieces: [] }] })).toBe(false);
+  });
+});
+
+/** 🔴 Arno (23/11/2026) — la ligne unique du récapitulatif, mot pour mot (les exemples d'Arno). */
+describe('🔴 restitutionAnnoncee', () => {
+  it('projetée, officielle, sans date ; décembre → janvier', async () => {
+    const { restitutionAnnoncee } = await import('./ValidationSortieEdls');
+    expect(restitutionAnnoncee({ date: '2027-04-10', statut: 'projetee' })).toBe('vers mai 2027 (AGO attendue vers avril 2027, date approximative)');
+    expect(restitutionAnnoncee({ date: '2028-03-15', statut: 'officielle' })).toBe('au plus tard le 15/04/2028 (AGO prévue le 15/03/2028)');
+    expect(restitutionAnnoncee({ date: '2027-12-10', statut: null })).toBe('vers janvier 2028 (AGO attendue vers décembre 2027, date approximative)');
+    expect(restitutionAnnoncee(null)).toBe('sans date');
   });
 });
