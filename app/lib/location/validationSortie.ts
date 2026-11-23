@@ -169,17 +169,22 @@ export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'preno
   if (p.famille === 'locataire') {
     return [`Bonjour ${prenomNom(p)},`,
       `L’état des lieux de sortie de votre logement situé ${d.adresse} a été réalisé le ${date}. Votre sortie du logement est enregistrée à cette date.`,
+      // 🔴 Arno (23/11/2026) — « le paragraphe "Vous trouverez en pièce jointe …" doit être placé SOUS le bloc "Compte rendu de l'état des lieux de
+      // sortie : …", et non avant » : ouverture, compte rendu, pièce jointe, 20 %, formule de fin (sans compte rendu : la pièce jointe suit l'ouverture)
+      ...compteRendu,
       ...[paragraphePiecesLocataire((d.pieces ?? []).length)].filter((x): x is string => x !== null),
       // 🔴 Arno (11/11/2026) — la provision de 20 % : SEULEMENT si la case « Retenue de 20 % » est cochée (elle remplace le paragraphe
       // automatique d'avant) ; le texte, modifiable, est celui de la fenêtre.
-      ...compteRendu, ...(d.retenue?.appliquee && d.retenue.paragrapheLocataire.trim() !== '' ? paragraphesLibres(d.retenue.paragrapheLocataire) : []),
+      ...(d.retenue?.appliquee && d.retenue.paragrapheLocataire.trim() !== '' ? paragraphesLibres(d.retenue.paragrapheLocataire) : []),
       'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
   }
   return [`Bonjour ${prenomNom(p)},`,
     `L’état des lieux de sortie de votre bien situé ${d.adresse} a été réalisé le ${date}.${d.vacant ? ' Le logement est désormais libre de toute occupation.' : ''}`,
+    // 🔴 Arno (23/11/2026) — même ordre que le locataire : le compte rendu, PUIS la pièce jointe
+    ...compteRendu,
     ...[paragraphePiecesProprietaire((d.pieces ?? []).length, d.adresse)].filter((x): x is string => x !== null),
     // 🔴 Arno (23/11/2026) — le texte des propriétaires est modifiable (comme celui des locataires) : ses paragraphes, tels qu'écrits
-    ...compteRendu, ...(d.retenue?.appliquee ? paragraphesLibres(d.retenue.phraseProprietaire?.trim() || PHRASE_RETENUE_PROPRIETAIRE) : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
+    ...(d.retenue?.appliquee ? paragraphesLibres(d.retenue.phraseProprietaire?.trim() || PHRASE_RETENUE_PROPRIETAIRE) : []), 'Nous restons à votre disposition pour toute question.', 'Bien cordialement,'];
 }
 
 /** Le mail d'UNE partie : elle seule en destinataire, aucune copie. `null` : pas d'adresse e-mail. PUR. */

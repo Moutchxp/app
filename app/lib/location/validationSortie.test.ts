@@ -152,19 +152,24 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => 
   const SINGULIER = 'Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement. Nous vous invitons à le conserver.';
   const PLURIEL = 'Vous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement. Nous vous invitons à les conserver.';
   const DATE = 'Votre sortie du logement est enregistrée à cette date.';
-  it('une pièce : le paragraphe au singulier, JUSTE après « … à cette date. », avant le compte rendu et le paragraphe « 20 % »', () => {
+  // 🔴 Arno (23/11/2026, suite) — « le paragraphe "Vous trouverez en pièce jointe …" doit être placé SOUS le bloc "Compte rendu de l'état des lieux de
+  // sortie : …", et non avant » : 1) ouverture 2) compte rendu 3) pièce jointe 4) 20 % 5) formule de fin
+  it('une pièce : l’ordre ouverture → compte rendu → pièce jointe → 20 % → fin', () => {
     const loc = mailsValidationSortie(D({ destinataires: [ALICE], pieces: UNE, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } })).parties[0].mail.texte;
-    const i = [loc.indexOf(DATE), loc.indexOf(SINGULIER), loc.indexOf('Compte rendu de l’état des lieux de sortie :'), loc.indexOf('Le logement que vous occupiez'), loc.indexOf('Nous restons à votre disposition')];
+    const i = [loc.indexOf(DATE), loc.indexOf('Compte rendu de l’état des lieux de sortie :'), loc.indexOf(SINGULIER), loc.indexOf('Le logement que vous occupiez'), loc.indexOf('Nous restons à votre disposition')];
     expect(i.every((x) => x >= 0)).toBe(true);
     expect([...i].sort((a, b) => a - b)).toEqual(i);
-    // un paragraphe à lui : rien entre « cette date. » et lui que la séparation des paragraphes
-    expect(loc).toContain(`${DATE}\n\n${SINGULIER}\n\n`);
+    // juste SOUS le compte rendu saisi (son dernier paragraphe), un paragraphe à lui
+    expect(loc).toContain(`Compteurs relevés.\n\n${SINGULIER}\n\nLe logement que vous occupiez`);
     expect(loc).not.toContain(PLURIEL);
   });
-  it('deux pièces : au pluriel (« les documents ») ; sans retenue, le paragraphe suivant est le compte rendu', () => {
+  it('deux pièces : au pluriel ; sans compte rendu saisi, la pièce jointe suit directement l’ouverture', () => {
     const loc = mailsValidationSortie(D({ destinataires: [ALICE], pieces: DEUX })).parties[0].mail.texte;
-    expect(loc).toContain(`${DATE}\n\n${PLURIEL}\n\nCompte rendu de l’état des lieux de sortie :`);
+    expect(loc).toContain(`Compteurs relevés.\n\n${PLURIEL}\n\nNous restons à votre disposition`);
     expect(loc).not.toContain(SINGULIER);
+    const sansCr = mailsValidationSortie(D({ destinataires: [ALICE], pieces: UNE, compteRendu: '' })).parties[0].mail.texte;
+    expect(sansCr).toContain(`${DATE}\n\n${SINGULIER}\n\nNous restons à votre disposition`);
+    expect(sansCr).not.toContain('Compte rendu de l’état des lieux de sortie :');
   });
   it('sans pièce : aucun paragraphe (le reste du mail inchangé) ; l’avertissement du récapitulatif, mot pour mot', () => {
     const avec = mailsValidationSortie(D({ destinataires: [ALICE], pieces: UNE })).parties[0].mail.texte;
@@ -179,7 +184,7 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => 
     const m = mailsValidationSortie(D({ destinataires: [ALICE, PAUL, JEAN], pieces: UNE }));
     const par = (f: string) => m.parties.filter((p) => p.partie.famille === f).map((p) => p.mail.texte);
     expect(par('locataire')).toHaveLength(2);
-    for (const t of par('locataire')) expect(t).toContain(`${DATE}\n\n${SINGULIER}`);
+    for (const t of par('locataire')) expect(t).toContain(`Compteurs relevés.\n\n${SINGULIER}`);
     for (const t of [...par('proprietaire'), m.interne!.texte]) expect(t).not.toContain(SINGULIER);
     expect(m.interne!.texte).not.toContain('Vous trouverez en pièce jointe');
   });
@@ -231,11 +236,13 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux propriétaires', ()
   const UNE = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 10 }];
   const DEUX = [...UNE, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 20 }];
   const OUVERTURE = 'L’état des lieux de sortie de votre bien situé 4 rue Fictive, 92800 Puteaux a été réalisé le 10/11/2026. Le logement est désormais libre de toute occupation.';
-  it('une pièce : juste après la phrase d’ouverture ; deux : « le rapport et les documents » ; aucune : absent', () => {
+  it('une pièce : après le compte rendu (même ordre que le locataire), sinon après l’ouverture ; deux : « le rapport et les documents » ; aucune : absent', () => {
     const un = mailsValidationSortie(D({ destinataires: [JEAN], pieces: UNE })).parties[0].mail.texte;
-    expect(un).toContain(`${OUVERTURE}\n\nVous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nCompte rendu`);
+    expect(un).toContain(`${OUVERTURE}\n\nCompte rendu de l’état des lieux de sortie :\n\nLogement rendu propre.\n\nCompteurs relevés.\n\nVous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nNous restons`);
+    const sansCr = mailsValidationSortie(D({ destinataires: [JEAN], pieces: UNE, compteRendu: '' })).parties[0].mail.texte;
+    expect(sansCr).toContain(`${OUVERTURE}\n\nVous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nNous restons`);
     const deux = mailsValidationSortie(D({ destinataires: [JEAN], pieces: DEUX })).parties[0].mail.texte;
-    expect(deux).toContain(`${OUVERTURE}\n\nVous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n`);
+    expect(deux).toContain(`Compteurs relevés.\n\nVous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n`);
     const sans = mailsValidationSortie(D({ destinataires: [JEAN] })).parties[0].mail.texte;
     expect(sans).not.toContain('Vous trouverez en pièce');
     expect(un.replace('Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n', '')).toBe(sans);
