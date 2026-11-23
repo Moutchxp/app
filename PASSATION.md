@@ -311,17 +311,17 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `82037e4c`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **27 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2` et `6c9132f4`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `d1b57b8f`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **31 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4` et `33e57c2c`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
-  des mails — détail plus bas) : `b3819054`,
+  des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `82037e4c`) : `npm test` VERT (1 865 fichiers, 27 750 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `d1b57b8f`) : `npm test` VERT (1 865 fichiers, 27 764 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -483,6 +483,20 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   - `82037e4c` — encadré et récapitulatif en direct ; ligne « Date indiquée au(x) propriétaire(s) » au récapitulatif.
   - Captures : `.captures/vingt-pourcent/` (34-39). Arrêté d'essai de la copropriété 313 passé à 30/06 pour l'essai puis REMIS à 31/12
     (journal 46825-46828). Aucune sortie validée, aucun mail.
+  - `79ff9020` — **fiche Copropriété : « AG et arrêté des comptes »** (demande d'Arno du 23/11 : « je ne vois pas où saisir la date d'arrêté
+    des comptes […] ni où ajouter une ou des dates d'AG ») : le bloc existe AUSSI pour une fiche NOUVELLE (avant : « aucune encore (fiche à
+    créer) ») ; arrêté et AG y sont GARDÉS puis écrits avec la copropriété au premier « Valider », dans la même transaction (« Fermer » : rien
+    d'écrit) ; « + Ajouter un PV d'AG » devient « + Ajouter une AG » avec la mention verte « Date officielle uniquement : l'assemblée a eu lieu
+    ou sa date est fixée par convocation. ». 🔴 INTERPRÉTATION à faire confirmer par Arno : une date À VENIR est acceptée (« fixée par
+    convocation ») et rangée en « prochaine AG », OFFICIELLE ; une date passée reste un PV. Les PV de « Nouveau bien » / « Modifier le bien »
+    restent passés seulement. Action « ag » de la route des AG.
+  - `f06248d9` — par défaut « Dernière AGO » et « Prochaine AG » (officielle la plus proche, à défaut projetée) ; « Afficher l'historique des
+    AG (N) » déplie la liste d'avant (PV avec « Corriger », autres dates), « Masquer … » la replie — fiche Copropriété SEULE (fiche du bien et
+    fiche syndic inchangées). Sans aucune AG, le lien n'apparaît pas.
+  - `d1b57b8f` — « Valider la sortie », « Ne pas rattacher maintenant » : bandeau « Pour saisir la date d'arrêté des comptes et les AG, créez
+    ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus). ».
+  - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
+    aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
   adresse officielle, choisie libre de tout bien et de toute copropriété en recette), locataire, occupation 574, préavis 23 en cours ;
   copropriété **313** créée par la fiche depuis la sortie (nom « _TEST SORTIE CREATION COPRO », alerte de parcelle vue, arrêté 31/12 saisi
@@ -519,6 +533,12 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Les 6 locataires réellement partis (ROUSSEL, FAUGERE, POYET, JONQUEUR, POUPOT, PLACE et MUNEKATA) : laissés « anciens ».
 
 **Points ouverts / à valider par Arno :**
+- 🔴 **AG « à venir » dans la fiche Copropriété** : interprétation de « sa date est fixée par convocation » (voir `79ff9020`) — à confirmer.
+- Écran Copropriétés de la Gestion : la ligne « _TEST ARRETE COMPTES 20 POURCENT 1 » (copropriété 310, libellé ≠ clé d'immeuble des données
+  d'essai) ouvre « Ce bien n'a ni immeuble ni adresse : aucune fiche copropriété possible. » ; la même fiche s'ouvre bien depuis le bien 464.
+  Non touché (lecture de la fiche inchangée) : données d'essai ou défaut d'ouverture par libellé, à regarder si Arno le souhaite.
+- Fiche Copropriété nouvelle : un « regroupement » proposé (« Même syndic ») avec un arrêté ou des AG en attente est REFUSÉ (message clair) :
+  le regroupement ne les reprend pas.
 - Fenêtre de sortie : la copropriété rattachée s'affiche par son LIBELLÉ (« 64 Avenue des Bergères ») et non par son NOM saisi dans la fiche
   (« _TEST SORTIE CREATION COPRO ») — la lecture commune `coproprieteDeCle` ne lit que le libellé ; à aligner si Arno le souhaite (touche
   aussi les blocs AG des fiches).
