@@ -7,6 +7,7 @@ import {
   ACCEPT_PIECES, mo, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, TYPES_PIECE_LIBELLE,
 } from '../../../../lib/location/validationSortie';
 import { dateFrPreavis } from '../../../../lib/location/preavis';
+import { ENTETE_CONFIRMATION } from '../../../../lib/location/confirmationEnregistrement';
 
 /**
  * ══ 🔴🔴 LES PIÈCES JOINTES AU COMPTE RENDU DE L'ÉTAT DES LIEUX DE SORTIE (Arno, 11/11/2026, migration 468) ══════════════════════════════════
@@ -24,6 +25,9 @@ export function PiecesSortie({ occupationId, lotId, pieces, onChange, desactive 
   occupationId: number; lotId: number | null; pieces: readonly PieceListee[]; onChange: (p: PieceListee[]) => void; desactive?: boolean;
 }) {
   const [refus, setRefus] = useState<string[]>([]);
+  /* 🔴 Arno (23/11/2026) — « quand je la valide, j'arrive sur la modale "Modification enregistrée" […] je dois revenir sur la modale de sortie avec la
+     pièce jointe validée » : la confirmation s'affiche ICI (ligne verte), la fenêtre de sortie reste ouverte, sa saisie avec */
+  const [confirmation, setConfirmation] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [survol, setSurvol] = useState(false);
   const [drive, setDrive] = useState(false);
@@ -31,13 +35,14 @@ export function PiecesSortie({ occupationId, lotId, pieces, onChange, desactive 
   const total = pieces.reduce((n, p) => n + p.taille, 0);
 
   const ajouter = async (reponse: Promise<Response>, avant: string[] = []): Promise<void> => {
-    setEnvoi(true);
+    setEnvoi(true); setConfirmation(null);
     try {
       const r = await reponse;
       const d = await r.json().catch(() => null) as { etat?: string; motif?: string; data?: { pieces: PieceListee[]; refus: string[] } } | null;
       if (d?.etat !== 'ok' || !d.data) { setRefus([...avant, d?.motif ?? 'Ajout impossible : rien n’a été joint.']); return; }
       onChange([...pieces, ...d.data.pieces]);
       setRefus([...avant, ...d.data.refus]);
+      if (d.data.pieces.length > 0) setConfirmation(`${d.data.pieces.length > 1 ? 'Pièces jointes ajoutées' : 'Pièce jointe ajoutée'} : ${d.data.pieces.map((p) => p.nom).join(', ')}`);
     } catch {
       setRefus([...avant, 'Le serveur n’a pas répondu : rien n’a été joint.']);
     } finally { setEnvoi(false); }
@@ -55,11 +60,12 @@ export function PiecesSortie({ occupationId, lotId, pieces, onChange, desactive 
     fd.set('occupationId', String(occupationId));
     fd.set('dejaJointes', JSON.stringify(pieces.map((p) => p.taille)));
     for (const f of acceptes) fd.append('fichier', f, f.name);
-    void ajouter(fetch(API, { method: 'POST', body: fd }), avant);
+    // l'en-tête « je confirme moi-même » : pas d'annonce générale « Modification enregistrée » par-dessus la fenêtre de sortie
+    void ajouter(fetch(API, { method: 'POST', headers: { [ENTETE_CONFIRMATION]: 'propre' }, body: fd }), avant);
   };
   const depuisDrive = (ids: string[]): void => {
     setDrive(false);
-    void ajouter(fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ occupationId, driveIds: ids, dejaJointes: pieces.map((p) => p.taille) }) }));
+    void ajouter(fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', [ENTETE_CONFIRMATION]: 'propre' }, body: JSON.stringify({ occupationId, driveIds: ids, dejaJointes: pieces.map((p) => p.taille) }) }));
   };
 
   return (
@@ -76,6 +82,7 @@ export function PiecesSortie({ occupationId, lotId, pieces, onChange, desactive 
         onDrop={(e) => { e.preventDefault(); setSurvol(false); if (e.dataTransfer?.files?.length) depuisOrdinateur(e.dataTransfer.files); }}>
         {envoi ? 'Ajout en cours…' : 'Glissez-déposez ici des fichiers de votre ordinateur'}
       </div>
+      {confirmation !== null && <p className="vps-ok" role="status" data-piece-confirmation>✓ {confirmation}</p>}
       {refus.map((m) => <p key={m} className="cev-alerte vps-refus" role="alert" data-piece-refus>{m}</p>)}
       {pieces.length > 0 && (
         <ul className="vps-liste" data-pieces-liste>
@@ -83,7 +90,7 @@ export function PiecesSortie({ occupationId, lotId, pieces, onChange, desactive 
             <li key={p.id} data-piece={p.id}>
               <span className="vps-nom">{p.nom}</span>
               <span className="vps-meta">{mo(p.taille)} · {p.provenance === 'drive' ? 'Drive' : 'ordinateur'}</span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn vps-retirer" onClick={() => onChange(pieces.filter((x) => x.id !== p.id))} data-retirer-piece={p.id}>Retirer</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn vps-retirer" onClick={() => { onChange(pieces.filter((x) => x.id !== p.id)); setConfirmation(`Pièce jointe retirée : ${p.nom}`); }} data-retirer-piece={p.id}>Retirer</button>
             </li>))}
         </ul>
       )}
@@ -173,6 +180,7 @@ function FenetreDriveBien({ occupationId, lotId, onFermer, onJoindre }: { occupa
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_PIECES_SORTIE = `
+.vps-ok{margin:0;padding:8px 12px;border-radius:10px;border-left:4px solid var(--color-svv-green);background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:800;overflow-wrap:anywhere}
 .vps{display:flex;flex-direction:column;gap:8px;min-width:0}
 .vps > *:not(legend){align-self:stretch}
 .vps-boutons{display:flex;flex-wrap:wrap;gap:8px}

@@ -753,6 +753,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
   let postsPieces: { type: string; corps: unknown }[] = [];
   let reponseDrive: unknown = null;
   let piecesApercu: string[] = ['salon.jpg'];
+  let entetesPieces: (string | null)[] = [];
   const PIECE = (id: number, nom: string, provenance: 'drive' | 'ordinateur', taille = 2048) => ({ id, nom, typeMime: 'application/pdf', taille, provenance });
   const brancher = (): void => {
     const base = global.fetch;
@@ -762,6 +763,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
       if (s.includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
       if (s.startsWith('/api/admin/location/pieces-sortie')) {
         if ((init?.method ?? 'GET') === 'GET') return { ok: true, status: 200, json: async () => reponseDrive } as unknown as Response;
+        if (init?.method === 'POST') entetesPieces.push(new Headers(init.headers).get('x-svav-confirmation'));
         if (init?.body instanceof FormData) {
           const noms = (init.body.getAll('fichier') as File[]).map((f) => f.name);
           postsPieces.push({ type: 'ordinateur', corps: noms });
@@ -832,6 +834,29 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     expect(f.querySelector('[data-retenue-a-verifier] a[data-lien-copropriete]')?.getAttribute('href')).toBe('/admin/location/bien/7');
   });
 
+  // 🔴🔴 Arno (23/11/2026) — « à chaque fois que je veux ajouter une pièce jointe et que je la valide, j'arrive sur la modale "Modification enregistrée"
+  // […] quand je la ferme ça me fait sortir du process de sortie locataire » : la confirmation dans la fenêtre, la fenêtre reste ouverte, la saisie aussi
+  it('ajouter une pièce : PAS d’annonce générale (en-tête « propre »), une ligne verte dans la fenêtre, la fenêtre reste ouverte et la saisie est conservée ; « Retirer » le dit aussi', async () => {
+    entetesPieces = [];
+    const f = await ouvrir();
+    act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    const cr = f.querySelector('textarea[data-compte-rendu-edls]') as HTMLTextAreaElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(cr, '_TEST saisie conservée'); cr.dispatchEvent(new Event('input', { bubbles: true })); });
+    const champ = f.querySelector('input[data-pieces-champ]') as HTMLInputElement;
+    Object.defineProperty(champ, 'files', { configurable: true, value: [new File(['%PDF'], '_TEST etat des lieux.pdf', { type: 'application/pdf' })] });
+    await act(async () => { champ.dispatchEvent(new Event('change', { bubbles: true })); });
+    await attendre();
+    expect(entetesPieces).toEqual(['propre']);
+    const g = document.querySelector('[data-fenetre-validation-sortie]')!;
+    expect(g.getAttribute('data-fenetre-validation-sortie')).toBe('saisie');
+    expect(g.querySelector('[data-piece-confirmation]')?.textContent).toBe('✓ Pièce jointe ajoutée : _TEST etat des lieux.pdf');
+    expect([...g.querySelectorAll('[data-pieces-liste] .vps-nom')].map((x) => x.textContent)).toEqual(['_TEST etat des lieux.pdf']);
+    expect((g.querySelector('textarea[data-compte-rendu-edls]') as HTMLTextAreaElement).value).toBe('_TEST saisie conservée');
+    expect((g.querySelector('input[data-edls-realise]') as HTMLInputElement).checked).toBe(true);
+    act(() => (g.querySelector('[data-pieces-liste] [data-retirer-piece]') as HTMLButtonElement).click());
+    expect(g.querySelector('[data-piece-confirmation]')?.textContent).toBe('✓ Pièce jointe retirée : _TEST etat des lieux.pdf');
+    expect(document.querySelector('[data-fenetre-validation-sortie]')).not.toBeNull();
+  });
   it('pièces — « Parcourir », glisser-déposer, « Depuis le Drive du bien » : une seule liste (nom, taille, provenance), « Retirer » ; trop lourd refusé à l’écran', async () => {
     reponseDrive = { etat: 'ok', data: { tronque: false, fichiers: [
       { id: 'EDLSORTIE0001', nom: 'EDL sortie.pdf', typeMime: 'application/pdf', taille: 1000, modifieLe: '2026-11-10T09:00:00Z', chemin: ['6 Locataires'], joignable: true, etatDesLieux: true },

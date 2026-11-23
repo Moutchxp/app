@@ -43,11 +43,14 @@ export function ModaleIssue({ sorte, titre, lignes = [], echec, notes = [], acti
   const fermer = useRef(onFermer);
   useEffect(() => { fermer.current = onFermer; }, [onFermer]);
   // Une seule fois à l'ouverture : Échap ferme, le focus va sur le premier bouton.
+  // 🔴🔴 Arno (23/11/2026) — « quand je la ferme ça me fait sortir du process de sortie locataire » : Échap ne fermait pas QUE cette modale — la
+  // fenêtre de travail en dessous (« Valider la sortie »…) écoute aussi Échap et se fermait avec elle, saisie perdue. Désormais la modale garde
+  // Échap pour ELLE SEULE (écoute en premier, propagation arrêtée) : aucune modale générale ne ferme une fenêtre de travail en cours.
   useEffect(() => {
-    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') fermer.current(); };
-    window.addEventListener('keydown', clavier);
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopImmediatePropagation(); fermer.current(); } };
+    window.addEventListener('keydown', clavier, true);
     boite.current?.querySelector<HTMLElement>('a, button')?.focus();
-    return () => window.removeEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier, true);
   }, []);
   const contenu = (
     <div className="mis-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
