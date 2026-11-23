@@ -303,3 +303,17 @@ describe('🔴 « Immeuble en copropriété » coché d’office quand une copro
     expect(saisieAgInitiale(luAgPropre({ ...LU, coproprieteSaisie: null })).coproOui).toBe(false);
   });
 });
+
+/** 🔴 Arno (23/11/2026) — « les deux boutons doivent respecter le même esprit graphique que la page et occuper à eux deux toute la largeur de la colonne ». */
+describe('🔴 « Date projetée » / « Date officielle » : 50 / 50, le style des boutons de la fenêtre', () => {
+  it('deux boutons de la fenêtre (plein = choisi, contour = l’autre), grille de deux colonnes égales, même hauteur', async () => {
+    const s = { ...saisieAgInitiale(LU), prochaine: '2027-03-12', statut: 'projetee' as const };
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s, onChange: () => {}, desactive: false })); });
+    const b = [...container.querySelectorAll('[data-ag-statut-choix]')] as HTMLButtonElement[];
+    expect(b.map((x) => [x.textContent, x.getAttribute('aria-pressed'), x.classList.contains('svv-btn-primary'), x.classList.contains('svv-btn-outline'), x.classList.contains('vag-statut-btn')]))
+      .toEqual([['Date projetée', 'true', true, false, true], ['Date officielle', 'false', false, true, true]]);
+    expect(b.some((x) => x.classList.contains('pva-segment'))).toBe(false);
+    expect(CSS_AG_SORTIE).toContain('.vag-statut{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:8px;min-width:0}');
+    expect(CSS_AG_SORTIE).toContain('.vag-statut .vag-statut-btn{min-height:44px;width:100%;min-width:0;box-sizing:border-box;margin:0}');
+  });
+});

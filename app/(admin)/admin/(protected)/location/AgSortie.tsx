@@ -277,7 +277,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       <p className="loc-muet vag-aide" data-ag-aide-prochaine>{AIDE_PROCHAINE_AGO}</p>
       <div className={`vag-statut${enDefaut('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine AGO" data-ag-statut={s.statut ?? 'aucun'}>
         {(['projetee', 'officielle'] as const).map((x) => (
-          <button key={x} type="button" className="pva-segment" aria-pressed={s.statut === x} disabled={desactive} onClick={() => {
+          <button key={x} type="button" className={`svv-btn gst-btn vag-statut-btn ${s.statut === x ? 'svv-btn-primary' : 'svv-btn-outline'}`} aria-pressed={s.statut === x} disabled={desactive} onClick={() => {
             if (projeteePassee(s.prochaine, x)) { onChange({ ...s, prochaine: '', prochaineTouchee: true, statut: x, alerte: { date: s.prochaine, sorte: 'saisie' } }); return; }
             // 🔴 Arno (23/11/2026) — « passer cette date projetée en date officielle d'un clic » : officielle, la date ne suit plus le calcul (c'est un fait)
             onChange({ ...s, statut: x, ...(x === 'officielle' ? { prochaineTouchee: true } : {}) });
@@ -333,7 +333,7 @@ function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { al
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-ag-alerte-date autoFocus /></label>
         <div className={`vag-statut${tente && !v.ok && v.champs.includes('statut') ? ' vag-defaut' : ''}`} role="group" aria-label="Statut de la prochaine AGO">
           {(['projetee', 'officielle'] as const).map((x) => (
-            <button key={x} type="button" className="pva-segment" aria-pressed={statut === x} onClick={() => setStatut(x)} data-ag-alerte-statut={x}>
+            <button key={x} type="button" className={`svv-btn gst-btn vag-statut-btn ${statut === x ? 'svv-btn-primary' : 'svv-btn-outline'}`} aria-pressed={statut === x} onClick={() => setStatut(x)} data-ag-alerte-statut={x}>
               {x === 'projetee' ? 'Date projetée' : 'Date officielle'}</button>))}
         </div>
         {tente && motif !== null && <p className="cp-refus" role="alert" data-ag-alerte-motif>{motif}</p>}
@@ -361,7 +361,9 @@ export const CSS_AG_SORTIE = `
 .vag input[type=date],.vag input:not([type]){min-height:44px;box-sizing:border-box;max-width:100%}
 .vag-copro,.vag-auteur{margin:0;overflow-wrap:anywhere}
 .vag-rattacher{display:flex;flex-direction:column;gap:4px}
-.vag-statut{display:flex;flex-wrap:wrap;gap:6px;border-radius:10px;padding:2px}
+/* Arno (23/11/2026) : Date projetee / Date officielle, a eux deux toute la largeur de la colonne, 50 % chacun, meme hauteur et meme style que les autres boutons de la fenetre (Annuler / Enregistrer de l'arrete des comptes) ; le choix est plein, l'autre en contour ; empiles s'ils ne tiennent pas */
+.vag-statut{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:8px;min-width:0}
+.vag-statut .vag-statut-btn{min-height:44px;width:100%;min-width:0;box-sizing:border-box;margin:0}
 .vag-defaut input,.vag-defaut input:focus{border-color:var(--color-svv-red);outline-color:var(--color-svv-red)}
 .vag-defaut .pvs-libelle{color:var(--color-svv-red)}
 /* Arno (23/11/2026) : plus de cerclage rouge autour des deux boutons Date projetee / Date officielle (ce n'est pas un champ de saisie) ; l'obligation reste dite par le message et le champ date */
