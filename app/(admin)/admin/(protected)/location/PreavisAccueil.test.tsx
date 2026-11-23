@@ -4000,3 +4000,14 @@ describe('🔴 Arno (19/11/2026, 2e retour) — légendes retirées sous « Éta
   });
 });
 
+
+/** 🔴 Arno (23/11/2026, suite) — le mail du PROPRIÉTAIRE annonce aussi l'état des lieux joint : « sans pièce jointe » vaut pour les deux familles. */
+describe('🔴 « aucune pièce jointe » : locataires ET propriétaires', () => {
+  it('vrai dès qu’un mail locataire ou propriétaire part sans pièce ; faux avec une pièce, ou sans tel mail (copie interne seule)', async () => {
+    const { sansPieceJointe } = await import('./ValidationSortieEdls');
+    expect(sansPieceJointe({ mails: [{ famille: 'proprietaire', pieces: [] }, { famille: 'interne', pieces: [] }] })).toBe(true);
+    expect(sansPieceJointe({ mails: [{ famille: 'locataire' }] })).toBe(true);
+    expect(sansPieceJointe({ mails: [{ famille: 'locataire', pieces: ['edl.pdf'] }, { famille: 'proprietaire', pieces: ['edl.pdf'] }] })).toBe(false);
+    expect(sansPieceJointe({ mails: [{ famille: 'interne', pieces: [] }, { famille: 'partenaires', pieces: [] }] })).toBe(false);
+  });
+});

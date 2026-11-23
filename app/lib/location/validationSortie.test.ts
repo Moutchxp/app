@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  alertesDuCompteRendu, AVERTISSEMENT_SANS_EDL_JOINT, coordonneesDeTiers, paragraphePiecesLocataire, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
+  alertesDuCompteRendu, AVERTISSEMENT_SANS_EDL_JOINT, coordonneesDeTiers, paragraphePiecesLocataire, paragraphePiecesProprietaire, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
   PHRASE_RETENUE_PROPRIETAIRE, texteProprietaire, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
 } from './validationSortie';
 
@@ -148,8 +148,9 @@ describe('🔴🔴 un mail = une seule adresse (état des lieux de sortie)', () 
 describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => {
   const UNE = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 10 }];
   const DEUX = [...UNE, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 20 }];
-  const SINGULIER = 'Vous trouverez en pièce jointe de ce mail l’état des lieux de sortie réalisé ce jour-là. Nous vous invitons à le conserver.';
-  const PLURIEL = 'Vous trouverez en pièces jointes de ce mail les documents de l’état des lieux de sortie réalisé ce jour-là. Nous vous invitons à les conserver.';
+  // 🔴 (23/11/2026, suite) reformulé : « le rapport de l'état des lieux de sortie de votre logement »
+  const SINGULIER = 'Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement. Nous vous invitons à le conserver.';
+  const PLURIEL = 'Vous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement. Nous vous invitons à les conserver.';
   const DATE = 'Votre sortie du logement est enregistrée à cette date.';
   it('une pièce : le paragraphe au singulier, JUSTE après « … à cette date. », avant le compte rendu et le paragraphe « 20 % »', () => {
     const loc = mailsValidationSortie(D({ destinataires: [ALICE], pieces: UNE, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } })).parties[0].mail.texte;
@@ -174,12 +175,13 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => 
     expect(AVERTISSEMENT_SANS_EDL_JOINT).toBe('Aucun état des lieux joint : le mail ne l’annoncera pas.');
     expect([paragraphePiecesLocataire(0), paragraphePiecesLocataire(1), paragraphePiecesLocataire(3)]).toEqual([null, SINGULIER, PLURIEL]);
   });
-  it('plusieurs locataires : un mail par personne, chacun avec le paragraphe ; jamais chez le propriétaire ni dans la copie interne', () => {
+  it('plusieurs locataires : un mail par personne, chacun avec le paragraphe ; le propriétaire a le sien ; jamais dans la copie interne', () => {
     const m = mailsValidationSortie(D({ destinataires: [ALICE, PAUL, JEAN], pieces: UNE }));
     const par = (f: string) => m.parties.filter((p) => p.partie.famille === f).map((p) => p.mail.texte);
     expect(par('locataire')).toHaveLength(2);
     for (const t of par('locataire')) expect(t).toContain(`${DATE}\n\n${SINGULIER}`);
     for (const t of [...par('proprietaire'), m.interne!.texte]) expect(t).not.toContain(SINGULIER);
+    expect(m.interne!.texte).not.toContain('Vous trouverez en pièce jointe');
   });
 });
 
@@ -218,5 +220,25 @@ describe('🔴🔴 le texte des propriétaires, en trois paragraphes', () => {
     // dans le mail : trois paragraphes, tels quels
     const pro = mailsValidationSortie(D({ destinataires: [JEAN], retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } })).parties[0].mail.texte;
     for (const p of t) expect(pro).toContain(`${p}\n\n`);
+  });
+});
+
+/**
+ * 🔴 Arno (23/11/2026, suite) — « à partir du moment où une pièce jointe a été ajoutée, un paragraphe qui indique que le destinataire de ce mail
+ * trouvera en pièce jointe le rapport de l'état des lieux de sortie de son logement » : le PROPRIÉTAIRE aussi, juste après sa phrase d'ouverture.
+ */
+describe('🔴 le paragraphe « pièce jointe » du mail aux propriétaires', () => {
+  const UNE = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 10 }];
+  const DEUX = [...UNE, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 20 }];
+  const OUVERTURE = 'L’état des lieux de sortie de votre bien situé 4 rue Fictive, 92800 Puteaux a été réalisé le 10/11/2026. Le logement est désormais libre de toute occupation.';
+  it('une pièce : juste après la phrase d’ouverture ; deux : « le rapport et les documents » ; aucune : absent', () => {
+    const un = mailsValidationSortie(D({ destinataires: [JEAN], pieces: UNE })).parties[0].mail.texte;
+    expect(un).toContain(`${OUVERTURE}\n\nVous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nCompte rendu`);
+    const deux = mailsValidationSortie(D({ destinataires: [JEAN], pieces: DEUX })).parties[0].mail.texte;
+    expect(deux).toContain(`${OUVERTURE}\n\nVous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n`);
+    const sans = mailsValidationSortie(D({ destinataires: [JEAN] })).parties[0].mail.texte;
+    expect(sans).not.toContain('Vous trouverez en pièce');
+    expect(un.replace('Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n', '')).toBe(sans);
+    expect([paragraphePiecesProprietaire(0, 'x'), paragraphePiecesProprietaire(1, '1 rue A')]).toEqual([null, 'Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 1 rue A.']);
   });
 });

@@ -72,6 +72,11 @@ export const TITRE_TEXTE_LOCATAIRES = 'Texte ajouté au mail du (des) locataire(
 export const TITRE_TEXTE_PROPRIETAIRES = 'Texte ajouté au mail du (des) propriétaire(s) — modifiable';
 export const AUCUN_MAIL_PROPRIETAIRE = 'Aucun mail au propriétaire pour cette sortie';
 
+/** Au moins un mail au locataire ou au propriétaire part, et AUCUN ne porte de pièce jointe. PUR. */
+export const sansPieceJointe = (a: { mails: readonly { famille: string; pieces?: readonly string[] }[] }): boolean => {
+  const vises = a.mails.filter((m) => m.famille === 'locataire' || m.famille === 'proprietaire');
+  return vises.length > 0 && vises.every((m) => (m.pieces ?? []).length === 0);
+};
 export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; onFermer: (fin: FinParcours | null) => void }) {
   // 🔴 Arno (11/11/2026) — la fenêtre bloque le défilement de la page, COMPTÉ (commun à toutes les fenêtres ; toujours rendu à la dernière fermée).
   useVerrouDefilement();
@@ -271,7 +276,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
       {/* 🔴 Arno (23/11/2026) — sans pièce jointe, le mail du locataire n'annonce pas l'état des lieux : on le dit (aucun envoi bloqué) */}
-      {a.mails.some((m) => m.famille === 'locataire') && a.mails.filter((m) => m.famille === 'locataire').every((m) => (m.pieces ?? []).length === 0) && (
+      {/* (23/11/2026, suite) le mail du PROPRIÉTAIRE annonce aussi l'état des lieux joint : l'avertissement vaut pour les deux familles */}
+      {sansPieceJointe(a) && (
         <p className="cev-alerte" role="status" data-avertissement-sans-edl>{AVERTISSEMENT_SANS_EDL_JOINT}</p>)}
       <p className="pss-sous-titre" data-nombre-mails>{a.mails.length === 1 ? '1 mail partira.' : `${a.mails.length} mails partiront.`}</p>
       {groupes.map(([f, mot]) => {
