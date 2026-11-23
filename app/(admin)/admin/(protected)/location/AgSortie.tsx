@@ -28,7 +28,7 @@ export const SANS_COPROPRIETE_INCOMPLET = 'Sans copropriété, le suivi des 20 %
  *  copropriété pour saisir sa date d'arrêté des comptes. ») */
 /** 🔴 Arno (23/11/2026) — le bouton de tête du bloc 20 % : créer la copropriété de l'adresse, ou y accéder. */
 export const LIBELLE_CREER_COPRO_ADRESSE = 'Créer une copropriété pour cette adresse';
-export const LIBELLE_ACCEDER_COPRO = 'Accéder à la copropriété';
+export const LIBELLE_ACCEDER_COPRO = 'Accéder à la fiche de copropriété';
 /** 🔴 Arno (23/11/2026, suite) — la ligne « Date d'arrêté des comptes » quand le bien n'a aucune copropriété rattachée. */
 export const ARRETE_AUCUNE_COPROPRIETE = 'aucune copropriété rattachée';
 export const ARRETE_SANS_COPROPRIETE = 'Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).';

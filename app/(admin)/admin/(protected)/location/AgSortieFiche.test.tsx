@@ -282,11 +282,12 @@ describe('🔴🔴 le bouton de tête du bloc 20 % : « Créer une copropriété
     expect(relire).toHaveBeenCalledTimes(1);
     expect(container.querySelectorAll('[data-ag-bouton-copro]')).toHaveLength(1);
   });
-  it('copropriété rattachée : le MÊME bouton, « Accéder à la copropriété » ; il ouvre la fiche de la copropriété du bien', async () => {
+  // 🔴 Arno (23/11/2026, suite) — « Accéder à la copropriété » devient « Accéder à la fiche de copropriété »
+  it('copropriété rattachée : le MÊME bouton, « Accéder à la fiche de copropriété » ; il ouvre la fiche de la copropriété du bien', async () => {
     const lu = luAgPropre({ ...LU, copropriete: { id: 310, libelle: 'Copro Essai' } });
     await act(async () => { root.render(createElement(AgSortie, { lu, s: saisieAgInitiale(lu), onChange: () => {}, desactive: false })); });
     const b = container.querySelector('[data-ag-bouton-copro]') as HTMLButtonElement;
-    expect([b.textContent, b.getAttribute('data-ag-bouton-copro')]).toEqual(['Accéder à la copropriété', 'acceder']);
+    expect([b.textContent, b.getAttribute('data-ag-bouton-copro')]).toEqual(['Accéder à la fiche de copropriété', 'acceder']);
     await act(async () => { b.click(); });
     expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ lotId: 7 }));
   });
