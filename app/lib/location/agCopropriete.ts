@@ -321,3 +321,13 @@ export function verifierAgOfficielle(s: { date?: unknown; nature?: unknown; note
 /** Une AG officielle en attente (fiche Copropriété pas encore enregistrée), telle que l'écran la garde et l'envoie au « Valider ». */
 export const AG_EN_ATTENTE_MAX = 10;
 
+/**
+ * 🔴🔴 Arno (23/11/2026) — « par défaut, la fiche montre la dernière AGO et la prochaine AG connues » : la dernière AGO tenue (la règle de l'arrêté des
+ * comptes) et la prochaine AG à venir — l'officielle la plus proche (AGO ou AGE) ; à défaut, la plus récente saisie projetée encore à venir. PUR.
+ */
+export function prochaineAgConnue(entrees: readonly EntreeAg[], aujourdhui: string): EntreeAg | null {
+  const aVenir = entrees.filter((e) => e.type === 'prochaine' && e.date !== null && e.date >= aujourdhui);
+  const off = aVenir.filter((e) => e.statut === 'officielle').sort((a, b) => (a.date as string).localeCompare(b.date as string) || b.id - a.id)[0];
+  if (off !== undefined) return off;
+  return recentes(aVenir.filter((e) => e.statut === 'projetee'))[0] ?? null;
+}

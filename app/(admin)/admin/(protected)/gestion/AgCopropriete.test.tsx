@@ -71,6 +71,8 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
   });
   it('les PV du plus récent au plus ancien (type, auteur, date de saisie, note), chacun avec « Corriger » ; les autres dates restent, en dessous', async () => {
     await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    // 🔴 (Arno, 23/11/2026) la liste complète est repliée par défaut : « Afficher l'historique des AG (N) » la déplie
+    await clic($('[data-agc-historique-lien]'));
     expect([...container.querySelectorAll('[data-agc-pv]')].map((l) => [l.querySelector('[data-agc-pv-date]')?.textContent, l.querySelector('[data-agc-pv-type]')?.textContent]))
       .toEqual([['01/06/2024', 'AGE (assemblée générale extraordinaire)'], ['12/03/2015', 'AGO (assemblée générale ordinaire)']]);
     expect($('[data-agc-pv="1"]').textContent).toContain('saisie par Claire Test le 01/04/2026 (fiche copropriété)');
@@ -97,10 +99,12 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     await clic($('[data-agc-pv-enregistrer]'));
     expect(posts).toEqual([{ action: 'ag', immeuble: 'Résidence _TEST AG', date: '2026-03-12', nature: 'ago', note: 'PV reçu du syndic' }]);
     expect($('[data-agc-form]')).toBeNull();
+    await clic($('[data-agc-historique-lien]'));
     expect([...container.querySelectorAll('[data-agc-pv-date]')].map((x) => x.textContent)).toEqual(['12/03/2026']);
   });
   it('« Corriger » : le formulaire prérempli (date, type, note), envoyé avec la saisie corrigée ; « Annuler » ne change rien', async () => {
     await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    await clic($('[data-agc-historique-lien]'));
     await clic($('[data-agc-corriger="2"]'));
     expect(($('[data-agc-form="correction"] [data-agc-pv-date-saisie]') as HTMLInputElement).value).toBe('2015-03-12');
     expect($('[data-agc-pv-type-choix="ago"]').getAttribute('aria-pressed')).toBe('true');
@@ -112,13 +116,32 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     await clic($('[data-agc-pv-enregistrer]'));
     expect(posts).toEqual([{ action: 'ag', immeuble: 'Résidence _TEST AG', date: '2015-03-12', nature: 'age', note: null, corrige: 2 }]);
   });
-  it('« + Ajouter une AG » ; une AG OFFICIELLE à venir se corrige dans l’historique (une projection, non)', async () => {
+  // 🔴🔴 Arno (23/11/2026) — « pouvoir voir l'historique complet des anciennes dates d'AG de la copropriété si on le souhaite (option d'affichage) »
+  it('par défaut : la dernière AGO et la prochaine AG connues ; « Afficher l’historique des AG (N) » déplie la liste complète, un nouveau clic la replie', async () => {
+    await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    expect($('[data-agc-resume-derniere]').textContent).toBe('Dernière AGO : 12/03/2015 — saisie par Claire Test le 01/04/2026');
+    expect($('[data-agc-resume-prochaine]').textContent).toBe('Prochaine AG : 12/03/2027 — AGO, projetée — saisie par Claire Test le 01/04/2026');
+    expect($('[data-agc-ajouter-pv]').textContent).toBe('+ Ajouter une AG');
+    const lien = $('[data-agc-historique-lien]');
+    expect([lien.textContent, lien.getAttribute('aria-expanded')]).toEqual(['Afficher l’historique des AG (3)', 'false']);
+    expect($('[data-agc-historique]')).toBeNull();
+    await clic(lien);
+    expect([lien.textContent, lien.getAttribute('aria-expanded')]).toEqual(['Masquer l’historique des AG', 'true']);
+    expect(container.querySelectorAll('[data-agc-historique] [data-agc-pv]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-agc-historique] [data-agc-autres] [data-agc-entree]')).toHaveLength(1);
+    expect($('[data-agc-pv="1"]').textContent).toContain('AGE (assemblée générale extraordinaire) — officielle');
+    await clic(lien);
+    expect($('[data-agc-historique]')).toBeNull();
+  });
+  it('une AG OFFICIELLE à venir l’emporte sur une projection comme « prochaine AG » ; elle se corrige dans l’historique', async () => {
     const lu = { etat: 'ok', data: { copropriete: 'Résidence _TEST AG', immeuble: 'Résidence _TEST AG', applicable: true, pv: true, entrees: [
       ENTREE({ id: 4, type: 'prochaine', statut: 'officielle', date: '2999-03-15', nature: 'age', origine: 'fiche_copropriete' }),
       ENTREE({ id: 3, type: 'prochaine', statut: 'projetee', date: '2999-03-12', origine: 'sortie', sortieId: 11 })] } };
     global.fetch = vi.fn(async () => json(lu)) as unknown as typeof fetch;
     await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
-    expect($('[data-agc-ajouter-pv]').textContent).toBe('+ Ajouter une AG');
+    expect($('[data-agc-resume-derniere]').textContent).toBe('Dernière AGO : aucune connue');
+    expect($('[data-agc-resume-prochaine]').textContent).toContain('Prochaine AG : 15/03/2999 — AGE, officielle');
+    await clic($('[data-agc-historique-lien]'));
     expect(container.querySelectorAll('[data-agc-corriger]')).toHaveLength(1);
     expect($('[data-agc-corriger="4"]')).not.toBeNull();
   });

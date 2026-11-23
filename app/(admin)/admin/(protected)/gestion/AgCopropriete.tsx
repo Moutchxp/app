@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { A_RATTACHER, AG_EN_ATTENTE_MAX, dateFr, jourFrDe, LIBELLE_NATURE_AG, LIBELLE_ORIGINE_AG, ligneEntreeAg, MENTION_AG_OFFICIELLE, natureDe, NOTE_PV_MAX,
-  pvsDeLaCopropriete, TITRE_BLOC_AG, traceCorrection, verifierAgOfficielle, verifierPv, derniereAgTenue, type ChampPv, type EntreeAg,
+import { A_RATTACHER, AG_EN_ATTENTE_MAX, dateFr, jourFrDe, LIBELLE_NATURE_AG, LIBELLE_ORIGINE_AG, LIBELLE_STATUT_AG, ligneEntreeAg, MENTION_AG_OFFICIELLE, natureDe, NOTE_PV_MAX,
+  prochaineAgConnue, pvsDeLaCopropriete, SIGLE_NATURE_AG, TITRE_BLOC_AG, traceCorrection, verifierAgOfficielle, verifierPv, derniereAgTenue, type ChampPv, type EntreeAg,
   type NatureAg, type SaisiePv } from '../../../../lib/location/agCopropriete';
 
 /**
@@ -58,15 +58,25 @@ export function AgCopropriete({ lotId, immeuble, edition = false }: { lotId?: nu
   );
 }
 
+/** 🔴 (Arno, 23/11/2026) le libellé du lien qui déplie / replie l'historique complet des AG. PUR. */
+export const lienHistoriqueAg = (n: number, ouvert: boolean): string => (ouvert ? 'Masquer l’historique des AG' : `Afficher l’historique des AG (${n})`);
+/** « 25/03/2026 — AGO » ; « 15/03/2027 — AGE, officielle ». PUR. */
+const resumeAg = (e: EntreeAg, statut: boolean): string => `${dateFr(e.date as string)} — ${SIGLE_NATURE_AG[natureDe(e)]}${statut ? `, ${LIBELLE_STATUT_AG[e.statut]}` : ''}`;
+
 /**
- * La fiche Copropriété : les PV (ajout, « Corriger »), puis les autres dates de l'historique, comme avant. 🔴🔴 (Arno, 23/11/2026) « on devrait […]
- * pouvoir y ajouter des dates d'AG (date officielle uniquement, bien le préciser lorsqu'on ajoute une date via cette modale) » : « + Ajouter une AG »
- * (date OFFICIELLE, tenue ou fixée par convocation) ; une AG officielle à venir se corrige comme un PV.
+ * La fiche Copropriété. 🔴🔴 (Arno, 23/11/2026) « on devrait non seulement pouvoir y ajouter des dates d'AG (date officielle uniquement […]), mais
+ * aussi pouvoir voir l'historique complet des anciennes dates d'AG de la copropriété si on le souhaite (option d'affichage) » : « + Ajouter une AG »
+ * (date OFFICIELLE, tenue ou fixée par convocation) ; par défaut la dernière AGO et la prochaine AG connues ; « Afficher l'historique des AG (N) »
+ * déplie la liste complète d'avant — PV (avec « Corriger »), puis les autres dates — et un nouveau clic la replie.
  */
 function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble: string; copropriete: string | null; entrees: EntreeAg[]; onEntrees: (e: EntreeAg[]) => void }) {
   const [form, setForm] = useState<{ corrige: EntreeAg | null } | null>(null);
+  const [histo, setHisto] = useState(false);
   const pvs = pvsDeLaCopropriete(entrees);
   const autres = entrees.filter((e) => !pvs.includes(e));
+  const jour = aujourdhui();
+  const derniereAgo = derniereAgTenue(entrees);
+  const prochaine = prochaineAgConnue(entrees, jour);
   // une AG officielle à venir (saisie ici) se corrige comme un PV
   const corrigeable = (e: EntreeAg): boolean => e.type === 'prochaine' && e.statut === 'officielle' && e.date !== null;
   const corriger = (e: EntreeAg) => (form !== null && form.corrige?.id === e.id
@@ -75,9 +85,19 @@ function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble
   return (
     <div className="agc" data-ag-copropriete-bloc data-agc-edition>
       <p className="agc-titre">{TITRE_BLOC_AG}{copropriete !== null ? <> — <span data-agc-copropriete>{copropriete}</span></> : null}</p>
+      <ul className="agc-liste" data-agc-resume>
+        <li className={`agc-entree${derniereAgo !== null ? ' agc-entree--tenue' : ''}`} data-agc-resume-derniere>Dernière AGO : {derniereAgo === null ? <span className="loc-muet">aucune connue</span>
+          : <><strong>{dateFr(derniereAgo.date as string)}</strong> <span className="agc-pv-qui">— saisie par {derniereAgo.saisiePar} le {jourFrDe(derniereAgo.saisieLe)}</span></>}</li>
+        <li className={`agc-entree${prochaine !== null ? ` agc-entree--${prochaine.statut}` : ''}`} data-agc-resume-prochaine>Prochaine AG : {prochaine === null ? <span className="loc-muet">aucune connue</span>
+          : <><strong>{resumeAg(prochaine, true)}</strong> <span className="agc-pv-qui">— saisie par {prochaine.saisiePar} le {jourFrDe(prochaine.saisieLe)}</span></>}</li>
+      </ul>
       {form === null
         ? <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" onClick={() => setForm({ corrige: null })} data-agc-ajouter-pv>+ Ajouter une AG</button></p>
         : form.corrige === null && <FormulairePv immeuble={immeuble} corrige={null} officielle onFermer={() => setForm(null)} onEnregistre={(e) => { setForm(null); onEntrees(e); }} />}
+      {entrees.length > 0 && (
+        <p className="agc-ajouter"><button type="button" className="fcp-lien agc-lien" aria-expanded={histo} onClick={() => setHisto((o) => !o)} data-agc-historique-lien>
+          {lienHistoriqueAg(entrees.length, histo)}</button></p>)}
+      {histo && <div data-agc-historique>
         <p className="agc-sous-titre">Procès-verbaux d’AG (du plus récent au plus ancien)</p>
         {pvs.length === 0 ? <p className="loc-muet agc-vide" data-agc-vide>Aucun PV d’AG enregistré.</p> : (
           <ul className="agc-liste" data-agc-pvs>
@@ -98,6 +118,7 @@ function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble
                 {ligneEntreeAg(e)}{corrigeable(e) && corriger(e)}</li>
             ))}
           </ul></>}
+      </div>}
       <style>{CSS_AG_COPROPRIETE}</style>
     </div>
   );
@@ -280,6 +301,7 @@ export const CSS_AG_COPROPRIETE = `
 .agc-form-titre{margin:0;font-weight:800}
 .agc-form-aide{margin:0;font-size:.85rem}
 .agc-form-mention{margin:0;padding:8px 10px;border-left:4px solid var(--color-svv-green);border-radius:8px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:800;font-size:.9rem;overflow-wrap:anywhere}
+.agc-lien{min-height:44px;padding:0;text-align:left}
 .agc-champ{display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:700;min-width:0}
 .agc-champ input,.agc-champ textarea{min-height:44px;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:8px 10px;font:inherit;font-weight:400}
 .agc-types{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;border:0;min-width:0}

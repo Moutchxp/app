@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { phraseDateAg, libelleCaseMentionAg,
+import { prochaineAgConnue, phraseDateAg, libelleCaseMentionAg,
   avecMentionAgLocataire, avecMentionAgProprietaire, derniereAgTenue, entreesAAjouter, ligneEntreeAg, lignesAg, moisAnnee, propositionAg, prochaineAgOfficielle,
   sansMentionAg, unAnApres, verifierSaisieAg, MENTION_PROJECTION, MOTIF_AG_DERNIERE, MOTIF_AG_PROCHAINE, MOTIF_AG_STATUT, type EntreeAg, verifierPv, mentionAg, LIBELLE_DERNIERE_AGO, LIBELLE_PROCHAINE_AGO, AIDE_AGO, projectionPassee, texteAlerteProjection, MOTIF_AG_PROJETEE_PASSEE, pvsDeLaCopropriete, LIBELLE_NATURE_AG, MOTIF_PV_DATE, MOTIF_PV_FUTUR, MOTIF_PV_NATURE } from './agCopropriete';
 import { mailsValidationSortie, PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, type DonneesValidationSortie } from './validationSortie';
@@ -219,5 +219,16 @@ describe('🔴 Arno (23/11/2026) — « pour que les deux mails ne donnent jamai
       const p = phraseDateAg(jour, statut, cloture, 'proprietaire');
       expect(l.replace(/^Pour votre logement, /, '')).toBe(p.charAt(0).toLowerCase() + p.slice(1));
     }
+  });
+});
+
+/** 🔴 Arno (23/11/2026) — « par défaut, la fiche montre la dernière AGO et la prochaine AG connues ». */
+describe('🔴 la prochaine AG connue (fiche Copropriété)', () => {
+  const E = (o: Partial<EntreeAg>): EntreeAg => ({ id: 1, type: 'prochaine', statut: 'officielle', date: '2027-03-15', confirmation: false, origine: 'fiche_copropriete',
+    saisieLe: '2026-11-01T10:00:00.000Z', saisiePar: 'Arnaud JOREL', sortieId: null, aRattacher: false, nature: 'ago', ...o });
+  it('l’officielle à venir la plus proche (AGO ou AGE) ; à défaut la projetée à venir la plus récente ; une date passée : aucune', () => {
+    expect(prochaineAgConnue([E({ id: 1, date: '2027-06-01' }), E({ id: 2, date: '2027-03-15', nature: 'age' }), E({ id: 3, statut: 'projetee', date: '2027-01-01' })], '2026-11-23')?.id).toBe(2);
+    expect(prochaineAgConnue([E({ id: 3, statut: 'projetee', date: '2027-03-12' }), E({ id: 4, statut: 'projetee', date: '2027-04-01', saisieLe: '2026-11-20T10:00:00.000Z' })], '2026-11-23')?.id).toBe(4);
+    expect(prochaineAgConnue([E({ date: '2026-03-15' }), E({ id: 5, type: 'derniere', date: '2026-03-15' })], '2026-11-23')).toBeNull();
   });
 });
