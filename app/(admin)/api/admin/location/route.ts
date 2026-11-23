@@ -12,6 +12,7 @@ import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arb
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
+import { lireSuiviVingtPourcent } from '../../../../lib/location/vingtPourcentRepo';
 import { annulerPreavis, annulerPreavisGroupe, corrigerPreavis, corrigerPreavisGroupe, enregistrerEtatDesLieux, PREAVIS_GROUPE_MAX, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdition';
@@ -165,6 +166,8 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const idProp = identifiant(p('proprietaire'));
     if (idProp !== null) return Response.json(await ficheProprietaireLocation(idProp), { headers: ENTETES });
+    // 🔴 Arno (23/11/2026) — « 20 % à restituer » : les locataires sortis avec 20 % retenus, l'AGO qui compte, la limite, les dates manquantes (LECTURE SEULE).
+    if (p('vingtPourcent') !== null) return Response.json({ etat: 'ok', data: await lireSuiviVingtPourcent() }, { headers: ENTETES });
     // Sortie d'un ou plusieurs locataires (Arno, 19/10/2026) — LECTURE SEULE.
     // 🔴 Arno (20/11/2026, option B) — la page « Supprimer un/des locataire(s) » retrouve aussi les sorties déjà enregistrées.
     if (p('sortiesEnregistrees') !== null) {

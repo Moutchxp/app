@@ -33,6 +33,8 @@ const SOUS_PAGES: Record<string, { fichier: string; lien: string }[]> = {
   'location/locataire/[id]': [FICHE, { fichier: `${L}/locataire/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' },
     { fichier: `${L}/SortieLocataires.tsx`, lien: '<LienRetour href="/admin/location/locataires" mot="Ajouter ou supprimer un locataire" />' }],
   'location/syndic/[id]': [RETOUR_LOCATION, { fichier: `${L}/syndic/[id]/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
+  // 🔴 Arno (23/11/2026) — « 20 % à restituer » en pleine page, ouverte depuis la ligne de titre de l'accueil Location
+  'location/vingt-pourcent': [{ fichier: `${L}/VingtPourcentPage.tsx`, lien: '<LienRetour href="/admin/location" mot="Location" />' }],
   // 🔴 Arno (16/11/2026, fiche Copropriété, lot 4) — la liste « Copropriétés », ouverte depuis le groupe de la recherche.
   'location/coproprietes': [{ fichier: `${L}/coproprietes/page.tsx`, lien: '<LienRetour href="/admin/location" />' }],
   // 🔴 Arno (10/11/2026) — le module « Préavis » en pleine page.

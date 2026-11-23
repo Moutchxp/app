@@ -5,6 +5,7 @@ import { avecPrevisites } from '../../../../../lib/location/previsiteRepo';
 import { avecReponsesRdv, versionRdv } from '../../../../../lib/location/reponsesRdvRepo';
 import { dureesRdvReglees, minutesRdvAutorisees, plageRdvAutorisee } from '../../../../../lib/location/minutesRdvRepo';
 import { encartDuBail } from '../../../../../lib/location/sortieLocatairesRepo';
+import { lireSuiviVingtPourcent } from '../../../../../lib/location/vingtPourcentRepo';
 
 /**
  * ══ 🔴🔴 LES PRÉAVIS, LUS CÔTÉ GESTION (Arno, 10/11/2026, option A) ═══════════════════════════════════════════════════════════════
@@ -14,6 +15,7 @@ import { encartDuBail } from '../../../../../lib/location/sortieLocatairesRepo';
  *
  *   · GET ?preavisEnCours=1 → la MÊME donnée que `/api/admin/location?preavisEnCours=1` (mêmes fonctions : `preavisEnCours`, `avecPrevisites`) ;
  *   · GET ?encartBail=<occupation> → l'encart « Le logement » de la ligne dépliée (même fonction : `encartDuBail`).
+ *   · 🔴 (Arno, 23/11/2026) GET ?vingtPourcent=1 → « 20 % à restituer », la MÊME donnée que `/api/admin/location?vingtPourcent=1` (`lireSuiviVingtPourcent`).
  * 🔒 LECTURE SEULE, au droit « Gestion » (relu en base). AUCUNE écriture n'est atteignable d'ici : ni POST, ni PUT, ni DELETE. Les gestes
  * (pré-visite, état des lieux, sortie) passent par `/api/admin/location`, qui exige le droit « Location » (relu en base).
  */
@@ -33,6 +35,7 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage 498 ; sans lui : 00, 15, 30, 45)
       return Response.json({ etat: 'ok', data: { ...(await avecReponsesRdv(await avecPrevisites(await preavisEnCours()))), minutesRdv: await minutesRdvAutorisees(), plageRdv: await plageRdvAutorisee(), dureesRdv: await dureesRdvReglees() } }, { headers: ENTETES });
     }
+    if (p.get('vingtPourcent') !== null) return Response.json({ etat: 'ok', data: await lireSuiviVingtPourcent() }, { headers: ENTETES });
     const brut = p.get('encartBail') ?? '';
     if (/^[1-9]\d{0,15}$/.test(brut) && Number.isSafeInteger(Number(brut))) {
       const e = await encartDuBail(Number(brut));
