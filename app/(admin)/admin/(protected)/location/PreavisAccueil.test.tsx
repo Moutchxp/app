@@ -3568,6 +3568,9 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     const ligne = q('[data-resume-ago-locataire]').textContent ?? '';
     expect(ligne).toContain('attendue vers mars 2027 (date approximative)');
     expect(ligne).toContain(`Texte ajouté au mail : ${phrase}`);
+    // 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s), visible au récapitulatif
+    expect(q('[data-resume-ago-proprietaire]').textContent).toBe('Date indiquée au(x) propriétaire(s)« … Les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027 (date approximative, estimée d’après les précédentes assemblées de la copropriété). »');
+    expect(String(phrase)).toContain('Pour votre logement, les comptes concernés seront approuvés lors de l’assemblée générale ordinaire attendue vers mars 2027');
     expect(String((posts.at(-1) as { paragrapheRetenue?: string }).paragrapheRetenue)).toContain(String(phrase).replace(/^« … /, '').replace(/ »$/, ''));
   });
   it('rien de connu : dernière AG vide, en rouge, bloquante ; la saisir propose la prochaine à + 1 an', async () => {

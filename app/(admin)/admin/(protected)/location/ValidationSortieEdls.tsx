@@ -22,7 +22,7 @@ import {
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
 import { AgSortie, corpsAg, CSS_AG_SORTIE, libelleCaseAgoQuiCompte, luAgPropre, saisieAgInitiale, texteAjouteAuMail, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
-import { avecMentionAgLocataire, avecMentionAgProprietaire, sansMentionAg } from '../../../../lib/location/agCopropriete';
+import { avecMentionAgLocataire, avecMentionAgProprietaire, phraseDateAg, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
 /**
  * ══ 🔴🔴 « VALIDER L'ÉTAT DES LIEUX DE SORTIE » — LA FENÊTRE (spec d'Arno du 11/11/2026, lot 4) ═══════════════════════════════════════════════
@@ -234,6 +234,10 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
           <div data-resume-ago-locataire><dt>AGO indiquée au(x) locataire(s)</dt>
             <dd>{libelleCaseAgoQuiCompte(saisieAg.ago).replace(/^Indiquer au locataire l’AGO qui permettra de restituer ses 20 % : /, '')}
               <br />Texte ajouté au mail : « … {texteAjouteAuMail(saisieAg.ago)} »</dd></div>)}
+        {/* 🔴 Arno (23/11/2026) — la MÊME date chez le(s) propriétaire(s) : sa phrase, telle qu'elle partira */}
+        {a.ag !== undefined && saisieAg !== null && saisieAg.mention && saisieAg.ago != null && (
+          <div data-resume-ago-proprietaire><dt>Date indiquée au(x) propriétaire(s)</dt>
+            <dd>« … {phraseDateAg(saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture, 'proprietaire')} »</dd></div>)}
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
       <p className="pss-sous-titre" data-nombre-mails>{a.mails.length === 1 ? '1 mail partira.' : `${a.mails.length} mails partiront.`}</p>
