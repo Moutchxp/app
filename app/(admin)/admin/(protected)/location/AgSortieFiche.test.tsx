@@ -15,8 +15,9 @@ vi.mock('../gestion/FicheCopropriete', () => ({
     fiche(p); return createElement('button', { 'data-stub-fiche': String(p.lotId), onClick: p.onFerme }, 'Fermer la fiche');
   },
 }));
-vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: () => null }));
-const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg } = await import('./AgSortie');
+const arrete = vi.fn();
+vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return null; } }));
+const { AgSortie, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE } = await import('./AgSortie');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement; let root: Root;
@@ -45,5 +46,21 @@ describe('« Créer une copropriété » depuis la fenêtre de sortie', () => {
   it('le serveur ne crée plus de copropriété depuis la sortie : `creerCoproprietePourLot` n’y est plus appelé (gardé dans agCoproprieteRepo)', () => {
     expect(readFileSync('app/lib/location/validationSortieRepo.ts', 'utf8')).not.toContain('creerCoproprietePourLot');
     expect(readFileSync('app/lib/location/agCoproprieteRepo.ts', 'utf8')).toContain('export async function creerCoproprietePourLot');
+  });
+
+});
+
+describe('🔴 Arno (23/11/2026) — copropriété rattachée : ce qui manque est MIS EN AVANT dans la fenêtre de sortie', () => {
+  it('l’arrêté des comptes : le MÊME composant que la fiche Copropriété, pour la copropriété du bien, avec son bandeau', async () => {
+    const lu = { ...LU, copropriete: { id: 310, libelle: 'Copro Essai' } };
+    await act(async () => { root.render(createElement(AgSortie, { lu, s: saisieAgInitiale(lu), onChange: () => {}, desactive: false })); });
+    expect(arrete).toHaveBeenCalledWith(expect.objectContaining({ coproprieteId: 310, alerteSiManquante: true }));
+  });
+  it('la dernière AGO manquante : bandeau ; connue : pas de bandeau', async () => {
+    await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: false })); });
+    expect(container.querySelector('[data-ag-bandeau-derniere]')?.textContent).toBe(`⚠ ${BANDEAU_DERNIERE_AGO_MANQUANTE}`);
+    const connu = luAgPropre({ ...LU, proposition: { derniere: { date: '2026-03-25', par: 'x', le: '2026-03-26T10:00:00Z' }, prochaine: null } });
+    await act(async () => { root.render(createElement(AgSortie, { lu: connu, s: saisieAgInitiale(connu), onChange: () => {}, desactive: false })); });
+    expect(container.querySelector('[data-ag-bandeau-derniere]')).toBeNull();
   });
 });

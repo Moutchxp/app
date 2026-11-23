@@ -17,7 +17,12 @@ const API = '/api/admin/gestion/immeubles/ag';
 
 type Lu = ArreteComptesLu & { disponible: boolean };
 
-export function ArreteComptes({ coproprieteId, onChange }: { coproprieteId: number; onChange?: (lu: ArreteComptesLu) => void }) {
+/** 🔴 Arno (23/11/2026) — le bandeau de la fenêtre de sortie quand la date manque (le suivi des 20 % en dépend). */
+export const BANDEAU_ARRETE_MANQUANT = 'Date d’arrêté des comptes manquante : sans elle, le suivi des 20 % ne peut pas être fiable.';
+
+export function ArreteComptes({ coproprieteId, onChange, alerteSiManquante = false }: { coproprieteId: number; onChange?: (lu: ArreteComptesLu) => void;
+  /** 🔴 Arno (23/11/2026) — fenêtre « Valider la sortie » : la date manquante est MISE EN AVANT (bandeau), la saisie juste dessous. */
+  alerteSiManquante?: boolean }) {
   const id = useId();
   const [lu, setLu] = useState<{ pour: number; etat: 'ok'; data: Lu } | { pour: number; etat: 'erreur' } | null>(null);
   const [edition, setEdition] = useState(false);
@@ -60,7 +65,8 @@ export function ArreteComptes({ coproprieteId, onChange }: { coproprieteId: numb
   };
   const maxJour = mois === '' ? 31 : joursDuMois(Number(mois));
   return (
-    <div className="arc-arrete" data-arrete-comptes={d.arrete === null ? 'vide' : 'renseignee'}>
+    <div className={`arc-arrete${alerteSiManquante && d.arrete === null ? ' arc-arrete--manquante' : ''}`} data-arrete-comptes={d.arrete === null ? 'vide' : 'renseignee'}>
+      {alerteSiManquante && d.arrete === null && <p className="arc-bandeau" role="status" data-arrete-bandeau>⚠ {BANDEAU_ARRETE_MANQUANT}</p>}
       <p className="arc-arrete-ligne">
         <span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
         {d.arrete === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
@@ -108,6 +114,8 @@ export function ArreteComptes({ coproprieteId, onChange }: { coproprieteId: numb
 export const CSS_ARRETE_COMPTES = `
 .arc-arrete{display:flex;flex-direction:column;gap:8px;min-width:0;margin:0 0 10px}
 .arc-arrete-ligne{margin:0;overflow-wrap:anywhere;color:var(--color-svv-ink)}
+.arc-arrete--manquante{padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft)}
+.arc-bandeau{margin:0;font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .arc-arrete-libelle{font-weight:800}
 .arc-arrete-vide{color:var(--color-svv-muted);font-style:italic}
 .arc-arrete-btn{align-self:flex-start;min-height:44px;width:auto}

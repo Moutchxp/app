@@ -53,4 +53,15 @@ describe('lireSuiviVingtPourcent', () => {
     expect(r.manquantes).toEqual([{ cle: 'copro-20', coproprieteId: 20, libelle: 'Copro B', immeuble: 'b', lotId: 2, manque: ['derniere_ago', 'arrete'], locataires: ['MARTIN Paul', 'MARTIN Léa'] }]);
     expect(r.lignes.find((l) => l.sortieId === 6)!.suivi).toEqual({ etat: 'sans_ago', exercice: null, mention: 'Dernière AGO inconnue' });
   });
+  // 🔴 Arno (23/11/2026) — « cette date remonte dans la copropriété et redescend dans l'ensemble des biens concernés par les 20 % »
+  it('l’arrêté, écrit UNE fois sur la copropriété, vaut pour TOUS ses locataires en attente (un autre bien, une autre sortie)', async () => {
+    sorties = [
+      { id: '5', lot_id: '1', date_sortie: '2026-11-15', valide_le: '2026-11-20', logement: '1 rue A', noms: ['DUPONT Alice'] },
+      { id: '8', lot_id: '1', date_sortie: '2026-05-10', valide_le: '2026-05-12', logement: '1 rue A bis', noms: ['VOISIN Marc'] },
+    ];
+    const r = await lireSuiviVingtPourcent();
+    expect(r.lignes.map((l) => [l.sortieId, l.arrete, l.suivi.etat === 'ok' ? l.suivi.exercice : null])).toEqual([
+      [5, { jour: 31, mois: 12 }, '2026-12-31'], [8, { jour: 31, mois: 12 }, '2026-12-31']]);
+    expect(r.manquantes).toEqual([]);
+  });
 });

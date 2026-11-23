@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { ArreteComptes } from './ArreteComptes';
+import { ArreteComptes, BANDEAU_ARRETE_MANQUANT } from './ArreteComptes';
 
 /** 🔴 Arno (23/11/2026, 512) — « Date d'arrêté des comptes » : le composant unique (fiche Copropriété et fenêtre de la sortie), route simulée. */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,6 +71,21 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
   });
   it('le MÊME composant dans la fiche Copropriété (bloc « AG ») et dans la fenêtre de la sortie', () => {
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/FicheCopropriete.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={f.id} />');
-    expect(readFileSync('app/(admin)/admin/(protected)/location/AgSortie.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={lu.copropriete.id} />');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/AgSortie.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante />');
+  });
+  // 🔴 Arno (23/11/2026) — « Valider la sortie » : la date manquante MISE EN AVANT
+  it('fenêtre de sortie (alerteSiManquante) : bandeau « Date d’arrêté des comptes manquante … » tant qu’elle manque, plus après la saisie', async () => {
+    await act(async () => { root.render(createElement(ArreteComptes, { coproprieteId: 7, alerteSiManquante: true })); }); await calmer();
+    expect(container.querySelector('[data-arrete-bandeau]')?.textContent).toBe(`⚠ ${BANDEAU_ARRETE_MANQUANT}`);
+    expect(BANDEAU_ARRETE_MANQUANT).toBe('Date d’arrêté des comptes manquante : sans elle, le suivi des 20 % ne peut pas être fiable.');
+    await clic('[data-arrete-modifier]');
+    await choisir('[data-arrete-mois]', '12'); await choisir('[data-arrete-jour]', '31');
+    await clic('[data-arrete-enregistrer]');
+    expect(posts).toEqual([{ action: 'arrete-comptes', coproprieteId: 7, jour: '31', mois: '12' }]);
+    expect(container.querySelector('[data-arrete-bandeau]')).toBeNull();
+  });
+  it('fiche Copropriété (sans alerteSiManquante) : pas de bandeau', async () => {
+    await rendre();
+    expect(container.querySelector('[data-arrete-bandeau]')).toBeNull();
   });
 });

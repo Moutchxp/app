@@ -19,6 +19,9 @@ import { ArreteComptes } from '../gestion/ArreteComptes';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 
+/** 🔴 Arno (23/11/2026) — le bandeau quand la copropriété n'a aucune AGO connue. */
+export const BANDEAU_DERNIERE_AGO_MANQUANTE = 'Dernière AGO manquante : sans elle, le suivi des 20 % ne peut pas être fiable. Saisissez-la ci-dessous.';
+
 export interface LuAgSortie {
   disponible: boolean;
   lotId: number;
@@ -114,7 +117,7 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire }: { lu: LuAgSor
       {lu.copropriete !== null ? <>
         <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
         {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes de la copropriété (facultative), le même composant que la fiche Copropriété */}
-        <ArreteComptes coproprieteId={lu.copropriete.id} />
+        <ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante />
       </> : (
         <fieldset className="pvv-choix vag-rattacher" data-ag-rattacher>
           <legend className="pvs-libelle">Ce bien n’est relié à aucune copropriété</legend>
@@ -142,6 +145,9 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire }: { lu: LuAgSor
 
       {/* a) la dernière AG connue */}
       {/* 🔴 (Arno, 17/11/2026) « Seule l'AGO compte : c'est l'assemblée qui clôture les comptes de la copropriété. » */}
+      {/* 🔴 Arno (23/11/2026) — la dernière AGO manquante est MISE EN AVANT (même raison que l'arrêté : le suivi des 20 % en dépend) ; saisie ici,
+          elle est enregistrée sur la COPROPRIÉTÉ à la confirmation (jamais sur la sortie) */}
+      {p.derniere === null && <p className="vag-bandeau" role="status" data-ag-bandeau-derniere>⚠ {BANDEAU_DERNIERE_AGO_MANQUANTE}</p>}
       <p className="loc-muet vag-aide" data-ag-aide-ago>{AIDE_AGO}</p>
       <label className={`pvs-champ${enDefaut('derniere') ? ' vag-defaut' : ''}`}><span className="pvs-libelle">{LIBELLE_DERNIERE_AGO}</span>
         <input type="date" value={s.derniere} disabled={desactive} aria-invalid={enDefaut('derniere')} onChange={(e) => changerDerniere(e.target.value)} data-ag-derniere /></label>
@@ -224,6 +230,9 @@ function AlerteProjection({ alerte, derniere, jour, onFermer, onReporter }: { al
 
 /* AUCUN ACCENT GRAVE DANS CE LITTERAL. */
 export const CSS_AG_SORTIE = `
+.vag-bandeau{margin:0;padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft);font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.vag-creer{display:flex;flex-direction:column;gap:6px}
+.vag-creer-btn{align-self:flex-start;min-height:44px;width:auto}
 .vag{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .vag input[type=date],.vag input:not([type]){min-height:44px;box-sizing:border-box;max-width:100%}
 .vag-copro,.vag-auteur{margin:0;overflow-wrap:anywhere}
