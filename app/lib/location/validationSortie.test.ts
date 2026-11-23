@@ -149,8 +149,8 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => 
   const UNE = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 10 }];
   const DEUX = [...UNE, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 20 }];
   // 🔴 (23/11/2026, suite) reformulé : « le rapport de l'état des lieux de sortie de votre logement »
-  const SINGULIER = 'Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement. Nous vous invitons à le conserver.';
-  const PLURIEL = 'Vous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement. Nous vous invitons à les conserver.';
+  const SINGULIER = 'Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement. Nous vous invitons à le conserver.';
+  const PLURIEL = 'Vous trouverez en pièces jointes de ce mail le rapport complet et les documents de l’état des lieux de sortie de votre logement. Nous vous invitons à les conserver.';
   const DATE = 'Votre sortie du logement est enregistrée à cette date.';
   // 🔴 Arno (23/11/2026, suite) — « le paragraphe "Vous trouverez en pièce jointe …" doit être placé SOUS le bloc "Compte rendu de l'état des lieux de
   // sortie : …", et non avant » : 1) ouverture 2) compte rendu 3) pièce jointe 4) 20 % 5) formule de fin
@@ -238,14 +238,14 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux propriétaires', ()
   const OUVERTURE = 'L’état des lieux de sortie de votre bien situé 4 rue Fictive, 92800 Puteaux a été réalisé le 10/11/2026. Le logement est désormais libre de toute occupation.';
   it('une pièce : après le compte rendu (même ordre que le locataire), sinon après l’ouverture ; deux : « le rapport et les documents » ; aucune : absent', () => {
     const un = mailsValidationSortie(D({ destinataires: [JEAN], pieces: UNE })).parties[0].mail.texte;
-    expect(un).toContain(`${OUVERTURE}\n\nCompte rendu de l’état des lieux de sortie :\n\nLogement rendu propre.\n\nCompteurs relevés.\n\nVous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nNous restons`);
+    expect(un).toContain(`${OUVERTURE}\n\nCompte rendu de l’état des lieux de sortie :\n\nLogement rendu propre.\n\nCompteurs relevés.\n\nVous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nNous restons`);
     const sansCr = mailsValidationSortie(D({ destinataires: [JEAN], pieces: UNE, compteRendu: '' })).parties[0].mail.texte;
-    expect(sansCr).toContain(`${OUVERTURE}\n\nVous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nNous restons`);
+    expect(sansCr).toContain(`${OUVERTURE}\n\nVous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\nNous restons`);
     const deux = mailsValidationSortie(D({ destinataires: [JEAN], pieces: DEUX })).parties[0].mail.texte;
-    expect(deux).toContain(`Compteurs relevés.\n\nVous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n`);
+    expect(deux).toContain(`Compteurs relevés.\n\nVous trouverez en pièces jointes de ce mail le rapport complet et les documents de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n`);
     const sans = mailsValidationSortie(D({ destinataires: [JEAN] })).parties[0].mail.texte;
     expect(sans).not.toContain('Vous trouverez en pièce');
-    expect(un.replace('Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n', '')).toBe(sans);
-    expect([paragraphePiecesProprietaire(0, 'x'), paragraphePiecesProprietaire(1, '1 rue A')]).toEqual([null, 'Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé 1 rue A.']);
+    expect(un.replace('Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n', '')).toBe(sans);
+    expect([paragraphePiecesProprietaire(0, 'x'), paragraphePiecesProprietaire(1, '1 rue A')]).toEqual([null, 'Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé 1 rue A.']);
   });
 });

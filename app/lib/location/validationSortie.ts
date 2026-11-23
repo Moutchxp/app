@@ -151,14 +151,14 @@ export interface DonneesValidationSortie {
  * déjà écrit au paragraphe suivant. » — SEULEMENT si au moins une pièce est jointe au compte rendu ; au pluriel (« les documents ») s'il y en a
  * plusieurs. Sans pièce : rien (le récapitulatif l'annonce : AVERTISSEMENT_SANS_EDL_JOINT). PUR.
  */
-// 🔴 Arno (23/11/2026, suite) — « un paragraphe qui indique que le destinataire de ce mail trouvera en pièce jointe le rapport de l'état des lieux de
+// 🔴 Arno (23/11/2026, suite) — « le rapport COMPLET » (23/11, tard) ; « un paragraphe qui indique que le destinataire de ce mail trouvera en pièce jointe le rapport de l'état des lieux de
 // sortie de son logement » : locataire (reformulé) et PROPRIÉTAIRE (même principe, juste après sa phrase d'ouverture).
 export const paragraphePiecesLocataire = (n: number): string | null => (n <= 0 ? null : n === 1
-  ? 'Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement. Nous vous invitons à le conserver.'
-  : 'Vous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement. Nous vous invitons à les conserver.');
+  ? 'Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement. Nous vous invitons à le conserver.'
+  : 'Vous trouverez en pièces jointes de ce mail le rapport complet et les documents de l’état des lieux de sortie de votre logement. Nous vous invitons à les conserver.');
 export const paragraphePiecesProprietaire = (n: number, adresse: string): string | null => (n <= 0 ? null : n === 1
-  ? `Vous trouverez en pièce jointe de ce mail le rapport de l’état des lieux de sortie de votre logement situé ${adresse}.`
-  : `Vous trouverez en pièces jointes de ce mail le rapport et les documents de l’état des lieux de sortie de votre logement situé ${adresse}.`);
+  ? `Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé ${adresse}.`
+  : `Vous trouverez en pièces jointes de ce mail le rapport complet et les documents de l’état des lieux de sortie de votre logement situé ${adresse}.`);
 export const AVERTISSEMENT_SANS_EDL_JOINT = 'Aucun état des lieux joint : le mail ne l’annoncera pas.';
 
 /** Les paragraphes du mail d'UNE partie : rien d'un tiers dans les textes fixes ; le compte rendu tel qu'écrit (contrôlé à part). PUR. */
