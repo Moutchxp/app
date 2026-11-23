@@ -311,21 +311,22 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `14e01401`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **53 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6`, `bcf4356e`, `498f7d56` et `7bd9afd0`, passations,
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `04e448fa`). `origin/main` = **`351f04de`**
+  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **56 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6`, `bcf4356e`, `498f7d56`, `7bd9afd0` et `a6dc9366`, passations,
   `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
   des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
   `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie », `520ce23d` → `36b1a2ea`, retours du 23/11 au
   soir (date d'AG, agencement de l'arrêté, texte propriétaire modifiable, bouton copropriété, case « Immeuble en copropriété »), `976079cc` → `90e05b93` (boutons de statut, mois de restitution, messages
   verts de la fiche, « Accéder à la fiche de copropriété »), `74061ea5` (texte des propriétaires en trois paragraphes), `e642bbe0` → `14e01401` (arrêté en gros, pièce jointe
-  annoncée, fenêtre « Aucun état des lieux joint ») — détail plus bas) : `b3819054`,
+  annoncée, fenêtre « Aucun état des lieux joint »), `8c86daff`, `04e448fa` (bouton « Confirmer cette date comme référence »
+  retiré, pièces jointes sans « Modification enregistrée ») — détail plus bas) : `b3819054`,
   `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
   (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
   `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
   l'agent : c'est Arno qui pousse.
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `14e01401`) : `npm test` VERT (1 865 fichiers, 27 802 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `04e448fa`) : `npm test` VERT (1 866 fichiers, 27 805 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette (aucune « Build Error »).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
@@ -566,6 +567,18 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     (« Revenir ajouter l'état des lieux » → saisie, défilement aux pièces ; « Valider sans pièce jointe » → l'envoi d'avant, même corps). Vérifié au
     Chrome sur le préavis « TESTTEST » avec un VERROU dans la page (toute demande « valider-sortie-edls » bloquée, éprouvé avant le clic) :
     seul « Revenir … » cliqué, aucune demande de validation partie. Captures 82-89.
+  - `8c86daff` — « Confirmer cette date comme référence » RETIRÉ (accord d'Arno) : il servait, quand la dernière AGO avait plus d'un an (règle du
+    17/11), à confirmer cette date pour que la prochaine AGO suive le calcul (sinon champ vide, sortie bloquée). Désormais une date SAISIE ou
+    corrigée dans « Dernière AGO connue » vaut confirmation (prochaine AGO calculée, jamais passée) ; la fenêtre d'alerte du 17/11 s'ouvre toujours
+    (son bouton dit « Fermer ») et un rappel reste affiché tant que la dernière AGO a plus d'un an. Une dernière AGO ancienne PRÉREMPLIE reste
+    bloquée jusqu'à une saisie (de la dernière ou de la prochaine AGO). Petit écart : la fenêtre d'alerte garde son titre « Prochaine AGO à saisir »
+    alors que le champ peut être déjà rempli.
+  - `04e448fa` — pièces jointes de « Valider la sortie » : plus de « Modification enregistrée » (en-tête « propre ») ; ligne verte « ✓ Pièce jointe
+    ajoutée : … » / « retirée : … » dans la fenêtre, saisie conservée. CAUSE de la sortie du parcours (reproduite) : Échap fermait la modale ET la
+    fenêtre de sortie (deux écouteurs Échap) ; ModaleIssue garde désormais Échap pour elle seule (partout). « Voir la fiche » de la modale générale
+    recharge toujours la page (inchangé). Recette : 4 pièces fictives « _TEST etat des lieux.pdf » (gestion_location_sortie_piece 139-142, occupation
+    554, + leurs fichiers au stockage de recette) restent, rattachées à aucune sortie — aucun geste d'effacement dans l'application ; à purger si
+    Arno le souhaite. Captures 90-98.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
