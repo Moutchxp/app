@@ -128,3 +128,58 @@ export const CSS_ARRETE_COMPTES = `
 .arc-arrete-boutons .gst-btn{min-height:44px;width:auto}
 @media (max-width:640px){ .arc-arrete-btn{align-self:stretch;width:100%} .arc-arrete-boutons .gst-btn{flex:1} }
 `;
+
+/**
+ * 🔴🔴 (Arno, 23/11/2026) — LA MÊME SAISIE pour une fiche Copropriété NOUVELLE (pas encore enregistrée) : rien n'est envoyé ici ; la date est GARDÉE
+ * et part avec la copropriété à son premier « Valider » (tout ou rien). Fermer la fiche sans valider : rien n'est écrit.
+ */
+export const MOT_ARRETE_AVEC_LA_FICHE = 'Enregistrée avec la copropriété au « Valider ».';
+export function ArreteComptesLocal({ valeur, onChange, desactive = false }: { valeur: { jour: number; mois: number } | null; onChange: (a: { jour: number; mois: number } | null) => void; desactive?: boolean }) {
+  const id = useId();
+  const [edition, setEdition] = useState(false);
+  const [jour, setJour] = useState('');
+  const [mois, setMois] = useState('');
+  const [tente, setTente] = useState(false);
+  const v = verifierArrete(jour, mois);
+  const maxJour = mois === '' ? 31 : joursDuMois(Number(mois));
+  return (
+    <div className="arc-arrete" data-arrete-comptes={valeur === null ? 'vide' : 'renseignee'} data-arrete-local>
+      <p className="arc-arrete-ligne">
+        <span className="arc-arrete-libelle">{LIBELLE_ARRETE_COMPTES} :</span>{' '}
+        {valeur === null ? <span className="arc-arrete-vide" data-arrete-valeur="">non renseignée</span>
+          : <><strong data-arrete-valeur={arreteFr(valeur)}>{arreteFr(valeur)}</strong><span className="loc-muet"> — {MOT_ARRETE_AVEC_LA_FICHE}</span></>}
+      </p>
+      {!edition ? (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn arc-arrete-btn" disabled={desactive}
+          onClick={() => { setJour(valeur === null ? '' : String(valeur.jour)); setMois(valeur === null ? '' : String(valeur.mois)); setTente(false); setEdition(true); }} data-arrete-modifier>
+          {valeur === null ? 'Renseigner la date d’arrêté des comptes' : 'Modifier la date d’arrêté des comptes'}</button>
+      ) : (
+        <div className="arc-arrete-form" role="group" aria-label={LIBELLE_ARRETE_COMPTES} data-arrete-formulaire>
+          <p className="loc-muet arc-arrete-aide">{AIDE_ARRETE_COMPTES}</p>
+          <div className="arc-arrete-champs">
+            <label className="arc-arrete-champ" htmlFor={`${id}-j`}><span>Jour</span>
+              <select id={`${id}-j`} value={jour} onChange={(e) => setJour(e.target.value)} data-arrete-jour>
+                <option value="">—</option>
+                {Array.from({ length: maxJour }, (_, i) => i + 1).map((n) => <option key={n} value={String(n)}>{String(n).padStart(2, '0')}</option>)}
+              </select></label>
+            <label className="arc-arrete-champ" htmlFor={`${id}-m`}><span>Mois</span>
+              <select id={`${id}-m`} value={mois} onChange={(e) => {
+                const m = e.target.value; setMois(m);
+                if (m !== '' && jour !== '' && Number(jour) > joursDuMois(Number(m))) setJour(String(joursDuMois(Number(m))));
+              }} data-arrete-mois>
+                <option value="">—</option>
+                {MOIS_FR.map((nom, i) => <option key={nom} value={String(i + 1)}>{nom}</option>)}
+              </select></label>
+          </div>
+          {tente && !v.ok && <p className="cp-refus" role="status" data-arrete-message>{v.motif}</p>}
+          <div className="arc-arrete-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition(false)} data-arrete-annuler>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setTente(true); if (!v.ok) return; onChange(v.arrete); setEdition(false); }} data-arrete-enregistrer>
+              Garder cette date</button>
+          </div>
+        </div>
+      )}
+      <style>{CSS_ARRETE_COMPTES}</style>
+    </div>
+  );
+}

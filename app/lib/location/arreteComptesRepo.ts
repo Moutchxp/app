@@ -1,4 +1,4 @@
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
 import { arreteFr, verifierArrete, type ArreteComptes, type ArreteComptesLu } from './arreteComptes';
@@ -65,4 +65,25 @@ export async function enregistrerArrete(d: { coproprieteId: unknown; jour: unkno
         `date d’arrêté des comptes de « ${r.libelle} » : ${arreteFr(avant)} → ${arreteFr(v.arrete)}`, auteur.id, auteur.libelle]);
     return { etat: 'ok' as const, data: versLu(apres[0]) };
   });
+}
+
+/**
+ * 🔴 (Arno, 23/11/2026) la date d'arrêté saisie dans une fiche Copropriété NOUVELLE : écrite DANS LA TRANSACTION qui crée la copropriété (tout ou
+ * rien), journalisée comme une saisie ordinaire. Rien à écrire : rien n'est écrit. Sans la 512 : rien (la fiche ne la propose pas).
+ */
+export async function ecrireArreteDans(q: RequeteTx, coproprieteId: number | string, arrete: ArreteComptes | null, auteur: Auteur): Promise<void> {
+  if (arrete === null || !(await arreteDisponible())) return;
+  const { rows } = await q<Ligne & { libelle: string }>(
+    `SELECT libelle, arrete_comptes_jour AS jour, arrete_comptes_mois AS mois, arrete_comptes_le::text AS le, arrete_comptes_par_libelle AS par
+       FROM gestion_copropriete WHERE id = $1 FOR UPDATE`, [coproprieteId]);
+  const r = rows[0];
+  if (r === undefined) return;
+  const avant = versLu(r).arrete;
+  if (arreteFr(avant) === arreteFr(arrete)) return;
+  await q(`UPDATE gestion_copropriete SET arrete_comptes_jour = $2, arrete_comptes_mois = $3, arrete_comptes_le = now(), arrete_comptes_par_libelle = $4 WHERE id = $1`,
+    [coproprieteId, arrete.jour, arrete.mois, auteur.libelle]);
+  await q(
+    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+     VALUES ('copropriete', $1, 'copropriete_arrete_comptes', $2, $3, $4, $5, $6)`,
+    [coproprieteId, avant === null ? null : arreteFr(avant), arreteFr(arrete), `date d’arrêté des comptes de « ${r.libelle} » : ${arreteFr(avant)} → ${arreteFr(arrete)} (à la création de la fiche)`, auteur.id, auteur.libelle]);
 }

@@ -85,7 +85,9 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     expect($('[data-agc-pv-erreur]')).toBeNull();
     expect(container.querySelector('[data-agc-pv-type-choix][aria-pressed="true"]')).toBeNull();
     await clic($('[data-agc-pv-enregistrer]'));
-    expect($('[data-agc-pv-erreur]').textContent).toBe('Renseignez la date du PV.');
+    // 🔴 (Arno, 23/11/2026) « + Ajouter une AG » : la mention de la date officielle, bien visible
+    expect($('[data-agc-mention-officielle]').textContent).toBe('Date officielle uniquement : l’assemblée a eu lieu ou sa date est fixée par convocation.');
+    expect($('[data-agc-pv-erreur]').textContent).toBe('Renseignez la date de l’AG.');
     expect(posts).toEqual([]);
     await saisir($('[data-agc-pv-date-saisie]'), '2026-03-12');
     await clic($('[data-agc-pv-enregistrer]'));
@@ -93,7 +95,7 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     await clic($('[data-agc-pv-type-choix="ago"]'));
     await saisir($('[data-agc-pv-note-saisie]'), 'PV reçu du syndic');
     await clic($('[data-agc-pv-enregistrer]'));
-    expect(posts).toEqual([{ action: 'pv', immeuble: 'Résidence _TEST AG', date: '2026-03-12', nature: 'ago', note: 'PV reçu du syndic' }]);
+    expect(posts).toEqual([{ action: 'ag', immeuble: 'Résidence _TEST AG', date: '2026-03-12', nature: 'ago', note: 'PV reçu du syndic' }]);
     expect($('[data-agc-form]')).toBeNull();
     expect([...container.querySelectorAll('[data-agc-pv-date]')].map((x) => x.textContent)).toEqual(['12/03/2026']);
   });
@@ -108,7 +110,17 @@ describe('🔴🔴 la fiche Copropriété : « + Ajouter un PV d’AG » et « C
     await clic($('[data-agc-corriger="2"]'));
     await clic($('[data-agc-pv-type-choix="age"]'));
     await clic($('[data-agc-pv-enregistrer]'));
-    expect(posts).toEqual([{ action: 'pv', immeuble: 'Résidence _TEST AG', date: '2015-03-12', nature: 'age', note: null, corrige: 2 }]);
+    expect(posts).toEqual([{ action: 'ag', immeuble: 'Résidence _TEST AG', date: '2015-03-12', nature: 'age', note: null, corrige: 2 }]);
+  });
+  it('« + Ajouter une AG » ; une AG OFFICIELLE à venir se corrige dans l’historique (une projection, non)', async () => {
+    const lu = { etat: 'ok', data: { copropriete: 'Résidence _TEST AG', immeuble: 'Résidence _TEST AG', applicable: true, pv: true, entrees: [
+      ENTREE({ id: 4, type: 'prochaine', statut: 'officielle', date: '2999-03-15', nature: 'age', origine: 'fiche_copropriete' }),
+      ENTREE({ id: 3, type: 'prochaine', statut: 'projetee', date: '2999-03-12', origine: 'sortie', sortieId: 11 })] } };
+    global.fetch = vi.fn(async () => json(lu)) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(AgCopropriete, { immeuble: 'Résidence _TEST AG', edition: true })); }); await calmer();
+    expect($('[data-agc-ajouter-pv]').textContent).toBe('+ Ajouter une AG');
+    expect(container.querySelectorAll('[data-agc-corriger]')).toHaveLength(1);
+    expect($('[data-agc-corriger="4"]')).not.toBeNull();
   });
   it('hors de la fiche Copropriété (sans `edition`) : la lecture seule d’avant, aucun bouton', async () => {
     await act(async () => { root.render(createElement(AgCopropriete, { lotId: 7 })); }); await calmer();
@@ -178,6 +190,33 @@ describe('🔴🔴 le bloc AG de « Nouveau bien » / « Modifier le bien »', (
     await monter({ immeuble: 'residence test ag' });
     expect($('[data-ag-bien-en-attente]').textContent).toContain('12/03/2026 — AGO (assemblée générale ordinaire) — _TEST AGà enregistrer avec le bien');
     await clic($('[data-ag-bien-retirer="0"]'));
+    expect(enAttente).toEqual([]);
+  });
+});
+
+/** 🔴🔴 Arno (23/11/2026) — la fiche Copropriété NOUVELLE : « + Ajouter une AG » ; les AG sont GARDÉES et partent avec le « Valider ». */
+describe('🔴🔴 la fiche Copropriété nouvelle : AG gardées jusqu’au « Valider »', () => {
+  it('une AG saisie (passée ou à venir) est GARDÉE, rien n’est envoyé ; « Retirer » l’ôte', async () => {
+    const { AgFicheNouvelle } = await import('./AgCopropriete');
+    let enAttente: unknown[] = [];
+    const posts: unknown[] = [];
+    global.fetch = vi.fn(async (_u: unknown, init?: RequestInit) => { if (init?.method === 'POST') posts.push(init.body); return json({ etat: 'ok' }); }) as unknown as typeof fetch;
+    const monter = async () => { await act(async () => { root.render(createElement(AgFicheNouvelle, { enAttente: enAttente as never, onEnAttente: (x: unknown[]) => { enAttente = x; } } as never)); }); await calmer(); };
+    await monter();
+    const $ = (q: string) => container.querySelector(q) as HTMLElement;
+    expect($('[data-agc-vide]').textContent).toBe('Aucune AG saisie.');
+    await act(async () => { $('[data-agc-ajouter-pv]').click(); }); await calmer();
+    expect($('[data-agc-mention-officielle]').textContent).toBe('Date officielle uniquement : l’assemblée a eu lieu ou sa date est fixée par convocation.');
+    expect(($('[data-agc-pv-date-saisie]') as HTMLInputElement).max).toBe('');
+    await act(async () => { const el = $('[data-agc-pv-date-saisie]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '2999-03-15'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { $('[data-agc-pv-type-choix="ago"]').click(); });
+    expect($('[data-agc-pv-enregistrer]').textContent).toBe('Garder cette AG');
+    await act(async () => { $('[data-agc-pv-enregistrer]').click(); }); await calmer();
+    expect(enAttente).toEqual([{ date: '2999-03-15', nature: 'ago', note: null }]);
+    expect(posts).toEqual([]);
+    await monter();
+    expect($('[data-agc-en-attente]').textContent).toContain('15/03/2999 — AGO (assemblée générale ordinaire) — officielleEnregistrée avec la copropriété au « Valider ».');
+    await act(async () => { $('[data-agc-en-attente-retirer="0"]').click(); });
     expect(enAttente).toEqual([]);
   });
 });

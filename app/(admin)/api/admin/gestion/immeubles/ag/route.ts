@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
-import { coproprieteDeCle, enregistrerPv, entreesAg, entreesAgDuLot, historiqueAgDisponible, pvAgDisponible } from '../../../../../../lib/location/agCoproprieteRepo';
+import { coproprieteDeCle, enregistrerAgOfficielle, enregistrerPv, entreesAg, entreesAgDuLot, historiqueAgDisponible, pvAgDisponible } from '../../../../../../lib/location/agCoproprieteRepo';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { cleImmeuble } from '../../../../../../lib/gestion/syndics';
 import { enregistrerArrete, lireArrete, arreteDisponible } from '../../../../../../lib/location/arreteComptesRepo';
@@ -13,6 +13,7 @@ import { enregistrerArrete, lireArrete, arreteDisponible } from '../../../../../
  * Le syndic n'intervient jamais : les AG sont celles de la copropriété.
  *   🔴 (Arno, 17/11/2026, migration 481) POST `{ action: 'pv', immeuble, date, nature, note?, corrige? }` : « + Ajouter un PV d'AG » et
  *   « Corriger » de la fiche Copropriété (date officielle passée ou du jour, AGO / AGE, note ; ajout seul, la saisie corrigée reste en base).
+ *   🔴 (Arno, 23/11/2026) POST `{ action: 'ag', immeuble, date, nature, note?, corrige? }` : « + Ajouter une AG » (date officielle, passée ou à venir).
  *   🔴 (Arno, 23/11/2026, migration 512) GET `?arreteCopropriete=<id>` / POST `{ action: 'arrete-comptes', coproprieteId, jour, mois }` : la date
  *   d'arrêté des comptes de la copropriété (fiche Copropriété et fenêtre de la sortie, même composant) ; vide des deux côtés = effacée ; journalisée.
  */
@@ -65,9 +66,10 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ etat: 'erreur', message: 'La date d’arrêté des comptes n’a pas été enregistrée : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
     }
   }
-  if (corps.action !== 'pv') return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
+  // 🔴 (Arno, 23/11/2026) `ag` : « + Ajouter une AG » de la fiche Copropriété — date OFFICIELLE, tenue ou fixée par convocation (à venir)
+  if (corps.action !== 'pv' && corps.action !== 'ag') return Response.json({ etat: 'refus', motif: 'Action inconnue.' }, { status: 400, headers: ENTETES });
   try {
-    const r = await enregistrerPv(corps, await auteurDeLaRequete(request));
+    const r = corps.action === 'ag' ? await enregistrerAgOfficielle(corps, await auteurDeLaRequete(request)) : await enregistrerPv(corps, await auteurDeLaRequete(request));
     return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/immeubles/ag] PV non enregistré', e);

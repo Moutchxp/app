@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { A_RATTACHER, dateFr, jourFrDe, LIBELLE_NATURE_AG, LIBELLE_ORIGINE_AG, ligneEntreeAg, natureDe, NOTE_PV_MAX, pvsDeLaCopropriete, TITRE_BLOC_AG, traceCorrection,
-  verifierPv, derniereAgTenue, type ChampPv, type EntreeAg, type NatureAg, type SaisiePv } from '../../../../lib/location/agCopropriete';
+import { A_RATTACHER, AG_EN_ATTENTE_MAX, dateFr, jourFrDe, LIBELLE_NATURE_AG, LIBELLE_ORIGINE_AG, ligneEntreeAg, MENTION_AG_OFFICIELLE, natureDe, NOTE_PV_MAX,
+  pvsDeLaCopropriete, TITRE_BLOC_AG, traceCorrection, verifierAgOfficielle, verifierPv, derniereAgTenue, type ChampPv, type EntreeAg,
+  type NatureAg, type SaisiePv } from '../../../../lib/location/agCopropriete';
 
 /**
  * ══ 🔴🔴 LE BLOC « AG DE LA COPROPRIÉTÉ » (Arno, 16/11/2026, migration 475) ═══════════════════════════════════════════════════════════════════
@@ -57,46 +58,85 @@ export function AgCopropriete({ lotId, immeuble, edition = false }: { lotId?: nu
   );
 }
 
-/** La fiche Copropriété : les PV (ajout, « Corriger »), puis les autres dates de l'historique, comme avant. */
+/**
+ * La fiche Copropriété : les PV (ajout, « Corriger »), puis les autres dates de l'historique, comme avant. 🔴🔴 (Arno, 23/11/2026) « on devrait […]
+ * pouvoir y ajouter des dates d'AG (date officielle uniquement, bien le préciser lorsqu'on ajoute une date via cette modale) » : « + Ajouter une AG »
+ * (date OFFICIELLE, tenue ou fixée par convocation) ; une AG officielle à venir se corrige comme un PV.
+ */
 function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble: string; copropriete: string | null; entrees: EntreeAg[]; onEntrees: (e: EntreeAg[]) => void }) {
   const [form, setForm] = useState<{ corrige: EntreeAg | null } | null>(null);
   const pvs = pvsDeLaCopropriete(entrees);
   const autres = entrees.filter((e) => !pvs.includes(e));
+  // une AG officielle à venir (saisie ici) se corrige comme un PV
+  const corrigeable = (e: EntreeAg): boolean => e.type === 'prochaine' && e.statut === 'officielle' && e.date !== null;
+  const corriger = (e: EntreeAg) => (form !== null && form.corrige?.id === e.id
+    ? <FormulairePv immeuble={immeuble} corrige={e} officielle onFermer={() => setForm(null)} onEnregistre={(x) => { setForm(null); onEntrees(x); }} />
+    : <button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton agc-corriger" disabled={form !== null} onClick={() => setForm({ corrige: e })} data-agc-corriger={e.id}>Corriger</button>);
   return (
     <div className="agc" data-ag-copropriete-bloc data-agc-edition>
       <p className="agc-titre">{TITRE_BLOC_AG}{copropriete !== null ? <> — <span data-agc-copropriete>{copropriete}</span></> : null}</p>
       {form === null
-        ? <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" onClick={() => setForm({ corrige: null })} data-agc-ajouter-pv>+ Ajouter un PV d’AG</button></p>
-        : form.corrige === null && <FormulairePv immeuble={immeuble} corrige={null} onFermer={() => setForm(null)} onEnregistre={(e) => { setForm(null); onEntrees(e); }} />}
-      <p className="agc-sous-titre">Procès-verbaux d’AG (du plus récent au plus ancien)</p>
-      {pvs.length === 0 ? <p className="loc-muet agc-vide" data-agc-vide>Aucun PV d’AG enregistré.</p> : (
-        <ul className="agc-liste" data-agc-pvs>
-          {pvs.map((e) => (
-            <li key={e.id} className="agc-entree agc-entree--tenue agc-pv" data-agc-pv={e.id} data-agc-nature={natureDe(e)}>
-              <span className="agc-pv-tete"><strong data-agc-pv-date>{dateFr(e.date as string)}</strong> — <span data-agc-pv-type>{LIBELLE_NATURE_AG[natureDe(e)]}</span></span>
-              <span className="agc-pv-qui">saisie par {e.saisiePar} le {jourFrDe(e.saisieLe)} ({LIBELLE_ORIGINE_AG[e.origine] ?? e.origine})</span>
-              {e.note ? <span className="agc-pv-note" data-agc-pv-note>Note : {e.note}</span> : null}
-              {e.corrige ? <span className="agc-pv-trace" data-agc-pv-trace>{traceCorrection(e.corrige)}</span> : null}
-              {form !== null && form.corrige?.id === e.id
-                ? <FormulairePv immeuble={immeuble} corrige={e} onFermer={() => setForm(null)} onEnregistre={(x) => { setForm(null); onEntrees(x); }} />
-                : <button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton agc-corriger" disabled={form !== null} onClick={() => setForm({ corrige: e })} data-agc-corriger={e.id}>Corriger</button>}
+        ? <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" onClick={() => setForm({ corrige: null })} data-agc-ajouter-pv>+ Ajouter une AG</button></p>
+        : form.corrige === null && <FormulairePv immeuble={immeuble} corrige={null} officielle onFermer={() => setForm(null)} onEnregistre={(e) => { setForm(null); onEntrees(e); }} />}
+        <p className="agc-sous-titre">Procès-verbaux d’AG (du plus récent au plus ancien)</p>
+        {pvs.length === 0 ? <p className="loc-muet agc-vide" data-agc-vide>Aucun PV d’AG enregistré.</p> : (
+          <ul className="agc-liste" data-agc-pvs>
+            {pvs.map((e) => (
+              <li key={e.id} className="agc-entree agc-entree--tenue agc-pv" data-agc-pv={e.id} data-agc-nature={natureDe(e)}>
+                <span className="agc-pv-tete"><strong data-agc-pv-date>{dateFr(e.date as string)}</strong> — <span data-agc-pv-type>{LIBELLE_NATURE_AG[natureDe(e)]}</span> — officielle</span>
+                <span className="agc-pv-qui">saisie par {e.saisiePar} le {jourFrDe(e.saisieLe)} ({LIBELLE_ORIGINE_AG[e.origine] ?? e.origine})</span>
+                {e.note ? <span className="agc-pv-note" data-agc-pv-note>Note : {e.note}</span> : null}
+                {e.corrige ? <span className="agc-pv-trace" data-agc-pv-trace>{traceCorrection(e.corrige)}</span> : null}
+                {corriger(e)}
+              </li>))}
+          </ul>)}
+        {autres.length > 0 && <>
+          <p className="agc-sous-titre">Autres dates (prochaines AG, dates retirées)</p>
+          <ul className="agc-liste" data-agc-autres>
+            {autres.map((e) => (
+              <li key={e.id} className={`agc-entree agc-entree--${e.type === 'derniere' ? 'tenue' : e.statut}${corrigeable(e) ? ' agc-pv' : ''}`} data-agc-entree={e.type} data-agc-statut={e.statut}>
+                {ligneEntreeAg(e)}{corrigeable(e) && corriger(e)}</li>
+            ))}
+          </ul></>}
+      <style>{CSS_AG_COPROPRIETE}</style>
+    </div>
+  );
+}
+
+/**
+ * 🔴🔴 (Arno, 23/11/2026) — LA FICHE COPROPRIÉTÉ NOUVELLE (pas encore enregistrée) : « + Ajouter une AG », le même formulaire ; les AG sont GARDÉES
+ * et partent avec la copropriété à son premier « Valider » (tout ou rien) ; fermer la fiche sans valider : rien n'est écrit.
+ */
+export const MOT_AG_AVEC_LA_FICHE = 'Enregistrée avec la copropriété au « Valider ».';
+export function AgFicheNouvelle({ enAttente, onEnAttente, desactive = false }: { enAttente: readonly SaisiePv[]; onEnAttente: (a: SaisiePv[]) => void; desactive?: boolean }) {
+  const [form, setForm] = useState(false);
+  return (
+    <div className="agc" data-ag-copropriete-bloc data-agc-nouvelle>
+      <p className="agc-titre">{TITRE_BLOC_AG}</p>
+      {enAttente.length === 0 ? <p className="loc-muet agc-vide" data-agc-vide>Aucune AG saisie.</p> : (
+        <ul className="agc-liste" data-agc-en-attente>
+          {enAttente.map((x, i) => (
+            <li key={`${x.date}-${i}`} className="agc-entree agc-entree--officielle agc-pv">
+              <span><strong>{dateFr(x.date)}</strong> — {LIBELLE_NATURE_AG[x.nature]} — officielle{x.note ? ` — ${x.note}` : ''}</span>
+              <span className="agc-pv-qui">{MOT_AG_AVEC_LA_FICHE}</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" disabled={desactive} onClick={() => onEnAttente(enAttente.filter((_, j) => j !== i))} data-agc-en-attente-retirer={i}>Retirer</button>
             </li>))}
         </ul>)}
-      {autres.length > 0 && <>
-        <p className="agc-sous-titre">Autres dates (prochaines AG, dates retirées)</p>
-        <ul className="agc-liste" data-agc-autres>
-          {autres.map((e) => (
-            <li key={e.id} className={`agc-entree agc-entree--${e.type === 'derniere' ? 'tenue' : e.statut}`} data-agc-entree={e.type} data-agc-statut={e.statut}>{ligneEntreeAg(e)}</li>
-          ))}
-        </ul></>}
+      {form
+        ? <FormulairePv immeuble="" corrige={null} officielle onFermer={() => setForm(false)} onEnregistre={() => setForm(false)}
+            onLocal={(x) => { setForm(false); onEnAttente([...enAttente, x]); }} />
+        : <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" disabled={desactive || enAttente.length >= AG_EN_ATTENTE_MAX}
+            onClick={() => setForm(true)} data-agc-ajouter-pv>+ Ajouter une AG</button></p>}
       <style>{CSS_AG_COPROPRIETE}</style>
     </div>
   );
 }
 
 /** Le formulaire d'un PV : date (passée ou du jour), type obligatoire AGO / AGE, note facultative ; les messages après une tentative. */
-function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, action = 'pv', onLocal }: { immeuble: string; corrige: EntreeAg | null; onFermer: () => void;
+function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, action, onLocal, officielle = false }: { immeuble: string; corrige: EntreeAg | null; onFermer: () => void;
   onEnregistre: (e: EntreeAg[]) => void;
+  /** 🔴 (Arno, 23/11/2026) « + Ajouter une AG » de la fiche Copropriété : date OFFICIELLE, tenue OU fixée par convocation (à venir) — la mention bien visible */
+  officielle?: boolean;
   /** 🔴 (Arno, 17/11/2026) la route (Location pour la fiche du bien) et son action ; `onLocal` : le PV est GARDÉ (enregistré avec le bien), rien n'est envoyé */
   api?: string; action?: string; onLocal?: (s: SaisiePv) => void }) {
   const [date, setDate] = useState(corrige?.date ?? '');
@@ -106,7 +146,8 @@ function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, ac
   const [envoi, setEnvoi] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
   const jour = aujourdhui();
-  const v = verifierPv({ date, nature, note }, jour);
+  const v = officielle ? verifierAgOfficielle({ date, nature, note }) : verifierPv({ date, nature, note }, jour);
+  const geste = action ?? (officielle ? 'ag' : 'pv');
   const enDefaut = (c: ChampPv): boolean => tente && !v.ok && v.champs.includes(c);
   const enregistrer = (): void => {
     setTente(true); setRefus(null);
@@ -114,18 +155,20 @@ function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, ac
     if (onLocal !== undefined) { onLocal(v.saisie); return; }
     setEnvoi(true);
     void fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, immeuble, date: v.saisie.date, nature: v.saisie.nature, note: v.saisie.note, ...(corrige !== null ? { corrige: corrige.id } : {}) }) })
+      body: JSON.stringify({ action: geste, immeuble, date: v.saisie.date, nature: v.saisie.nature, note: v.saisie.note, ...(corrige !== null ? { corrige: corrige.id } : {}) }) })
       .then((r) => r.json() as Promise<{ etat?: string; data?: { entrees: EntreeAg[] }; motif?: string; message?: string }>)
       .then((x) => { setEnvoi(false); if (x.etat === 'ok' && x.data) onEnregistre(x.data.entrees); else setRefus(x.motif ?? x.message ?? 'Le PV n’a pas été enregistré.'); })
       .catch(() => { setEnvoi(false); setRefus('Le serveur n’a pas répondu : le PV n’a pas été enregistré.'); });
   };
   return (
-    <div className="agc-form" role="group" aria-label={corrige === null ? 'Ajouter un PV d’AG' : 'Corriger ce PV d’AG'} data-agc-form={corrige === null ? 'ajout' : 'correction'}
+    <div className="agc-form" role="group" aria-label={officielle ? (corrige === null ? 'Ajouter une AG' : 'Corriger cette AG') : corrige === null ? 'Ajouter un PV d’AG' : 'Corriger ce PV d’AG'} data-agc-form={corrige === null ? 'ajout' : 'correction'}
       onKeyDown={(e) => { if (e.key === 'Escape' && !envoi) { e.stopPropagation(); onFermer(); } }}>
-      <p className="agc-form-titre">{corrige === null ? 'Nouveau PV d’AG' : `Corriger le PV du ${dateFr(corrige.date as string)}`}</p>
-      <p className="loc-muet agc-form-aide">Seules les dates OFFICIELLES de PV se saisissent ici (aucune date projetée).{corrige !== null ? ' La saisie d’avant reste dans l’historique.' : ''}</p>
-      <label className={`agc-champ${enDefaut('date') ? ' agc-champ--defaut' : ''}`}><span>Date du PV <span className="loc-oblig">*</span></span>
-        <input type="date" value={date} max={jour} disabled={envoi} onChange={(e) => setDate(e.target.value)} aria-invalid={enDefaut('date')} data-agc-pv-date-saisie /></label>
+      <p className="agc-form-titre">{officielle ? (corrige === null ? 'Nouvelle AG' : `Corriger l’AG du ${dateFr(corrige.date as string)}`) : corrige === null ? 'Nouveau PV d’AG' : `Corriger le PV du ${dateFr(corrige.date as string)}`}</p>
+      {officielle
+        ? <p className="agc-form-mention" role="note" data-agc-mention-officielle>{MENTION_AG_OFFICIELLE}{corrige !== null ? ' La saisie d’avant reste dans l’historique.' : ''}</p>
+        : <p className="loc-muet agc-form-aide">Seules les dates OFFICIELLES de PV se saisissent ici (aucune date projetée).{corrige !== null ? ' La saisie d’avant reste dans l’historique.' : ''}</p>}
+      <label className={`agc-champ${enDefaut('date') ? ' agc-champ--defaut' : ''}`}><span>{officielle ? 'Date de l’AG' : 'Date du PV'} <span className="loc-oblig">*</span></span>
+        <input type="date" value={date} {...(officielle ? {} : { max: jour })} disabled={envoi} onChange={(e) => setDate(e.target.value)} aria-invalid={enDefaut('date')} data-agc-pv-date-saisie /></label>
       <fieldset className={`agc-types${enDefaut('nature') ? ' agc-champ--defaut' : ''}`} aria-invalid={enDefaut('nature')}>
         <legend>Type <span className="loc-oblig">*</span></legend>
         {(['ago', 'age'] as const).map((n) => (
@@ -139,7 +182,7 @@ function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, ac
       <p className="agc-actions">
         <button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton" disabled={envoi} onClick={onFermer} data-agc-pv-annuler>Annuler</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn agc-bouton" disabled={envoi} onClick={enregistrer} data-agc-pv-enregistrer>
-          {envoi ? 'Enregistrement…' : corrige === null ? 'Enregistrer le PV' : 'Enregistrer la correction'}</button>
+          {envoi ? 'Enregistrement…' : corrige !== null ? 'Enregistrer la correction' : onLocal !== undefined && officielle ? 'Garder cette AG' : officielle ? 'Enregistrer l’AG' : 'Enregistrer le PV'}</button>
       </p>
     </div>
   );
@@ -236,6 +279,7 @@ export const CSS_AG_COPROPRIETE = `
 .agc-form{display:flex;flex-direction:column;gap:8px;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-style:normal}
 .agc-form-titre{margin:0;font-weight:800}
 .agc-form-aide{margin:0;font-size:.85rem}
+.agc-form-mention{margin:0;padding:8px 10px;border-left:4px solid var(--color-svv-green);border-radius:8px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:800;font-size:.9rem;overflow-wrap:anywhere}
 .agc-champ{display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:700;min-width:0}
 .agc-champ input,.agc-champ textarea{min-height:44px;box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:8px 10px;font:inherit;font-weight:400}
 .agc-types{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;border:0;min-width:0}

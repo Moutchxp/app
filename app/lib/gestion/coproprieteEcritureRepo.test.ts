@@ -22,6 +22,7 @@ const q = vi.hoisted(() => async (sql: string, p: unknown[] = []) => {
   }
   if (s.startsWith('SELECT id::text, immeuble FROM gestion_annuaire_lot')) return { rows: [{ id: '1', immeuble: '12 rue des Lilas' }] };
   if (s.startsWith('SELECT coalesce(a.ban_id, c.ban_id) AS ban')) return { rows: bn.autre ? [bn.autre] : [] };
+  if (s.startsWith('SELECT libelle, arrete_comptes_jour AS jour')) return { rows: [{ libelle: 'Résidence Les Tilleuls', jour: null, mois: null, le: null, par: null }] };
   return { rows: [] };
 });
 vi.mock('../db/client', () => ({ query: q, withTransaction: async (fn: (x: typeof q) => Promise<unknown>) => fn(q) }));
@@ -48,6 +49,10 @@ vi.mock('./journalSyndicCopro', () => ({ journaliserLienSyndic: async (_q: unkno
 // 🔴 (lot 7a) le format unique : l'identifiant BAN d'une nouvelle adresse retrouvée avec certitude (aucun par défaut : les épreuves d'avant)
 const bn = vi.hoisted(() => ({ ids: {} as Record<string, string>, dispo: false, autre: null as null | { ban: string; libelle: string } }));
 vi.mock('../adresse/adresseSaisieRepo', () => ({ banIdDeLAdresse: async (a: { libelle: string }) => bn.ids[a.libelle] ?? null, formatUniqueDisponible: async () => bn.dispo }));
+// 🔴 (Arno, 23/11/2026) les sondes des migrations 481 (AG) et 512 (arrêté des comptes), et le nom de l'auteur
+const sl = vi.hoisted(() => ({ dispo: true }));
+vi.mock('../location/sondeLocation', () => ({ colonneExisteMemo: async () => sl.dispo }));
+vi.mock('../location/mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nomFamille: 'Jorel' }) }));
 import { enregistrerCopropriete, gesteDigicodeCopro, reponseGesteDigicode, validerSaisieCopropriete } from './coproprieteEcritureRepo';
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
@@ -57,7 +62,7 @@ const FICHE = (o: Record<string, unknown> = {}) => ({ cle: 'residence les tilleu
 const SAISIE = { immeuble: 'Résidence Les Tilleuls', nom: 'Les Tilleuls', horsCopropriete: false, adresses: [{ libelle: '12 rue des Lilas', codePostal: '75011', commune: 'Paris' }],
   contacts: [{ id: null, categorie: 'coproprietaire', civilite: 'Mme', prenom: 'Léa', nom: 'Martin', coordonnees: [{ sorte: 'email', valeur: 'lea@exemple.test' }] }] };
 const ecritures = () => h.sql.filter((x) => /^(INSERT|UPDATE|DELETE)/.test(x.s));
-beforeEach(() => { bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
+beforeEach(() => { sl.dispo = true; bn.ids = {}; bn.dispo = false; bn.autre = null; dg.avec477 = true; dg.ecrits = []; h.sql = []; h.coproDeCle = {}; h.syndicExiste = true; h.liens = [{ id: '30', syndic_id: '2' }]; h.enCours = []; h.contacts = []; h.fiche = FICHE(); h.parcelle = []; h.prise = {}; h.porteur = {}; va.vues = []; va.issue = { ok: true }; un.avec478 = false; un.ecrits = []; un.issue = { ok: true, change: true, id: 1 }; });
 
 describe('la saisie', () => {
   it('adresses dédoublonnées, statuts du carnet validés (Copropriétaire accepté ; Personnaliser exige son texte), syndic', () => {
@@ -391,5 +396,40 @@ describe('🔴🔴 (Arno, 20/11/2026, lot 7d) le « + » de la fiche copropriét
     expect((await enregistrerCopropriete(SAISIE, AUTEUR)).ok).toBe(true);
     const j = ecritures().filter((x) => x.s.startsWith('INSERT INTO gestion_journal') && x.s.includes("'adresse_ajoutee'"));
     expect(j.map((x) => [x.p[0], x.p[1], x.p[2]])).toEqual([['7', '75111_5555_00012', 'Adresse ajoutée à la copropriété : 12 rue des Lilas, 75011 Paris (adresse officielle 75111_5555_00012)']]);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (23/11/2026) — fiche Copropriété NOUVELLE : « ces saisies sont enregistrées avec la copropriété au « Valider » (tout ou rien) » ; une fiche
+ * existante : comme aujourd'hui (même table gestion_copropriete_ag, même journal).
+ */
+describe('🔴🔴 fiche nouvelle : arrêté des comptes et AG officielles avec le premier « Valider »', () => {
+  const NOUVELLE = { ...SAISIE, adresses: [], contacts: [], arrete: { jour: '31', mois: '12' }, ags: [{ date: '2026-03-25', nature: 'ago' }, { date: '2999-03-15', nature: 'age', note: ' convocation reçue ' }] };
+  it('écrits DANS la transaction qui crée la copropriété : l’arrêté (journalisé) et les AG (tenue : dernière ; à venir : prochaine), toutes officielles', async () => {
+    h.fiche = FICHE({ declaree: false, id: null, syndic: null });
+    expect((await enregistrerCopropriete(NOUVELLE, AUTEUR)).ok).toBe(true);
+    const w = ecritures();
+    const iCopro = w.findIndex((x) => x.s.startsWith('INSERT INTO gestion_copropriete ('));
+    const arrete = w.findIndex((x) => x.s.startsWith('UPDATE gestion_copropriete SET arrete_comptes_jour'));
+    expect(iCopro).toBeGreaterThanOrEqual(0);
+    expect(arrete).toBeGreaterThan(iCopro);
+    expect(w[arrete].p).toEqual(['7', 31, 12, AUTEUR.libelle]);
+    const journal = w.find((x) => x.s.startsWith('INSERT INTO gestion_journal') && x.p.includes('31/12'))!;
+    expect(journal.s).toContain("'copropriete', $1, 'copropriete_arrete_comptes'");
+    const ags = w.filter((x) => x.s.startsWith('INSERT INTO gestion_copropriete_ag'));
+    expect(ags.map((x) => x.p)).toEqual([['7', 'derniere', '2026-03-25', 2, 'Arnaud JOREL', 'ago', null], ['7', 'prochaine', '2999-03-15', 2, 'Arnaud JOREL', 'age', 'convocation reçue']]);
+    for (const x of ags) expect(x.s).toContain("'officielle', $3::date, 'fiche_copropriete'");
+  });
+  it('refus AVANT toute écriture : un arrêté ou une AG invalide, ou sans la 481 — rien n’est écrit, pas même la copropriété', async () => {
+    h.fiche = FICHE({ declaree: false, id: null, syndic: null });
+    expect(await enregistrerCopropriete({ ...NOUVELLE, arrete: { jour: '31', mois: '2' } }, AUTEUR)).toMatchObject({ ok: false });
+    expect(await enregistrerCopropriete({ ...NOUVELLE, ags: [{ date: '2026-03-25' }] }, AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('AG : Choisissez le type') });
+    sl.dispo = false;
+    expect(await enregistrerCopropriete({ ...NOUVELLE, arrete: null }, AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('migration 481') });
+    expect(ecritures()).toEqual([]);
+  });
+  it('une fiche DÉJÀ enregistrée : « Valider » n’écrit ni arrêté ni AG (ses propres gestes le font, tout de suite)', async () => {
+    expect((await enregistrerCopropriete(NOUVELLE, AUTEUR)).ok).toBe(true);
+    expect(ecritures().some((x) => x.s.startsWith('INSERT INTO gestion_copropriete_ag') || x.s.includes('arrete_comptes_jour'))).toBe(false);
   });
 });

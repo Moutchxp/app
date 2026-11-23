@@ -301,3 +301,23 @@ export function verifierPv(s: { date?: unknown; nature?: unknown; note?: unknown
   if (champs.length > 0) return { ok: false, motif: motif as string, champs };
   return { ok: true, saisie: { date: s.date as string, nature: s.nature as NatureAg, note: note === '' ? null : note } };
 }
+
+// ── 🔴🔴 « + Ajouter une AG » DE LA FICHE COPROPRIÉTÉ (Arno, 23/11/2026) ─────────────────────────────────────────────────────────────────────
+// Demande d'Arno : « on devrait non seulement pouvoir y ajouter des dates d'AG (date officielle uniquement, bien le préciser lorsqu'on ajoute une date
+// via cette modale) » ; précision : « Date officielle uniquement : l'assemblée a eu lieu ou sa date est fixée par convocation. — aucune date projetée ne
+// se saisit ici ». Une date passée (ou du jour) : l'AG a eu lieu (un PV, « dernière AG tenue ») ; une date à venir : sa date est fixée par convocation
+// (« prochaine AG », OFFICIELLE). Jamais une projection.
+
+export const MENTION_AG_OFFICIELLE = 'Date officielle uniquement : l’assemblée a eu lieu ou sa date est fixée par convocation.';
+/** Le type d'une AG officielle saisie sur la fiche : tenue (date passée ou du jour) ou à venir (convocation). PUR. */
+export const typeAgOfficielle = (date: string, aujourdhui: string): TypeAg => (date <= aujourdhui ? 'derniere' : 'prochaine');
+
+/** Le contrôle d'une AG OFFICIELLE de la fiche (l'écran et le serveur) : date valide, passée OU à venir ; type AGO / AGE ; note bornée. PUR. */
+export const MOTIF_AG_DATE = 'Renseignez la date de l’AG.';
+export function verifierAgOfficielle(s: { date?: unknown; nature?: unknown; note?: unknown }): { ok: true; saisie: SaisiePv } | { ok: false; motif: string; champs: ChampPv[] } {
+  const v = verifierPv(s, '9999-12-31');
+  return v.ok || v.motif !== MOTIF_PV_DATE ? v : { ...v, motif: MOTIF_AG_DATE };
+}
+/** Une AG officielle en attente (fiche Copropriété pas encore enregistrée), telle que l'écran la garde et l'envoie au « Valider ». */
+export const AG_EN_ATTENTE_MAX = 10;
+

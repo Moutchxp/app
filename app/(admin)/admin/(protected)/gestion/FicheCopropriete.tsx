@@ -5,8 +5,9 @@ import { useEffect, useId, useState } from 'react';
 import type { ModeleOfficiel } from '../../../../lib/adresse/officielleCopro';
 import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
-import { AgCopropriete } from './AgCopropriete';
-import { ArreteComptes } from './ArreteComptes';
+import { AgCopropriete, AgFicheNouvelle } from './AgCopropriete';
+import { ArreteComptes, ArreteComptesLocal } from './ArreteComptes';
+import type { SaisiePv } from '../../../../lib/location/agCopropriete';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, motValeur, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
@@ -100,6 +101,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   const [retraitSyndic, setRetraitSyndic] = useState(false);
   const [confirmerRetrait, setConfirmerRetrait] = useState(false);
   const [digi, setDigi] = useState<DigicodesAdresseSaisis[]>([]);
+  /* 🔴🔴 (Arno, 23/11/2026) fiche NOUVELLE : la date d'arrêté des comptes et les AG officielles, GARDÉES ici et envoyées avec le premier « Valider »
+     (tout ou rien) ; fermer sans valider : rien n'est écrit */
+  const [arreteNouvelle, setArreteNouvelle] = useState<{ jour: number; mois: number } | null>(null);
+  const [agsNouvelle, setAgsNouvelle] = useState<SaisiePv[]>([]);
   // l'interface
   const [ajoutAdresse, setAjoutAdresse] = useState(false);
   /* 🔴 (16/11/2026) « Une autre adresse » : UNIQUEMENT par les suggestions de la Base Adresse Nationale (ChampAdresseBan, le champ commun) —
@@ -130,6 +135,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     setNom(f.nom ?? ''); setHors(f.declaree ? f.horsCopropriete : l.coproprieteDuBien === false);
     setAdresses(f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' })));
     setContacts(versEdition(f)); setSyndicChoisi(null); setRetraitSyndic(false); setConfirmerRetrait(false); setDigi(saisieDigicodesInitiale(f));
+    if (f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
   };
   useEffect(() => {
     let vivant = true;
@@ -235,6 +241,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
         adresses, sansNumeroConfirmees: confirmeesSansNumero.filter((k) => adresses.some((a) => cleImmeuble(a.libelle) === k)), syndicId: passe.syndicId ?? syndicChoisi?.id ?? null, retirerSyndic: retraitSyndic, alerteParcelleVue: passe.alerte === true, ...(passe.regrouperAvec ? { regrouperAvec: passe.regrouperAvec } : {}), ...(f.saisieDigicodes ? { digicodes: digicodesModifies(digi) } : {}),
         conflitsParcelle: passe.conflit ? conflits.map((k) => ({ autre: k.libelle, parcelle: k.parcelle })) : [],
+        ...(!f.declaree && !hors ? { arrete: arreteNouvelle, ags: agsNouvelle } : {}),
         contacts: contacts.map((c) => ({ id: c.id, categorie: c.categorie, libelle: c.libelle, civilite: c.civilite, prenom: c.prenom, nom: c.nom, note: c.note,
           coordonnees: c.coordonnees.filter((k) => k.valeur.trim() !== '').map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })) })) };
       const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
@@ -432,11 +439,15 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
         carte (titre net, fond et bordure distincts). Rien n'est retiré, masqué ni conditionné : AG et Syndic gardent leur condition d'avant
         (absents d'un immeuble « hors copropriété »). */}
     {!horsAffiche && <section className="fcp-bloc" data-fcp-ag>
-      <h3 className="fcp-titre">AG</h3>
-      {/* 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » et « Corriger » : dans cette fiche seulement */}
+      {/* 🔴🔴 (Arno, 23/11/2026) « je ne vois pas où saisir la date d'arrêté des comptes pour la copropriété. Je ne vois pas non plus où ajouter une ou
+          des dates d'AG » : le bloc « AG et arrêté des comptes », AUSSI pour une fiche nouvelle (avant : « AG de la copropriété : aucune encore (fiche
+          à créer). ») — ses saisies partent alors avec le « Valider » ; une fiche enregistrée les écrit tout de suite, comme avant. */}
+      <h3 className="fcp-titre">AG et arrêté des comptes</h3>
+      {/* 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » (devenu « + Ajouter une AG », 23/11) et « Corriger » : dans cette fiche seulement */}
       {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes, à côté des dates d'AGO (facultative) — le même composant que la fenêtre de la sortie */}
       {f.declaree && f.id !== null && <ArreteComptes coproprieteId={f.id} />}
-      {f.declaree ? <AgCopropriete immeuble={f.cle} edition /> : <p className="loc-muet fcp-sans-marge">AG de la copropriété : aucune encore (fiche à créer).</p>}</section>}
+      {!f.declaree && <ArreteComptesLocal valeur={arreteNouvelle} onChange={setArreteNouvelle} desactive={envoi} />}
+      {f.declaree ? <AgCopropriete immeuble={f.cle} edition /> : <AgFicheNouvelle enAttente={agsNouvelle} onEnAttente={setAgsNouvelle} desactive={envoi} />}</section>}
 
     <section className="fcp-bloc" data-fcp-contacts>
       <h3 className="fcp-titre">Habitants et gardiens</h3>

@@ -4,7 +4,7 @@ import { cleImmeuble } from '../gestion/syndics';
 import { colonneExisteMemo } from './sondeLocation';
 import { immeubleDeLAg } from './immeubleAg';
 import { familleDeCategorie } from './bienComplet';
-import { verifierPv, type EntreeAg, type NatureAg, type OrigineAg, type StatutAg, type TypeAg } from './agCopropriete';
+import { AG_EN_ATTENTE_MAX, typeAgOfficielle, verifierAgOfficielle, verifierPv, type EntreeAg, type NatureAg, type OrigineAg, type StatutAg, type TypeAg } from './agCopropriete';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { nomCollaborateur } from './texteCompteRendu';
 
@@ -192,12 +192,25 @@ const aujourdhuiParis = (): string => new Date().toLocaleDateString('sv-SE', { t
  * qui désigne celle qu'elle corrige (une seule correction vivante par ligne ; la ligne corrigée reste en base). Contrôles refaits ici.
  */
 export async function enregistrerPv(brut: unknown, auteur: Auteur): Promise<{ ok: true; entrees: EntreeAg[] } | { ok: false; motif: string }> {
+  return enregistrerDateAg(brut, auteur, 'pv');
+}
+/**
+ * 🔴🔴 « + Ajouter une AG » de la FICHE COPROPRIÉTÉ (Arno, 23/11/2026) : « Date officielle uniquement : l'assemblée a eu lieu ou sa date est fixée par
+ * convocation. » — passée (ou du jour) : un PV (« dernière AG tenue ») ; à venir : « prochaine AG », OFFICIELLE. Même table, même origine
+ * (« fiche copropriété »), même « Corriger » (une officielle, tenue ou à venir ; la ligne corrigée reste en base). Jamais une date projetée.
+ */
+export async function enregistrerAgOfficielle(brut: unknown, auteur: Auteur): Promise<{ ok: true; entrees: EntreeAg[] } | { ok: false; motif: string }> {
+  return enregistrerDateAg(brut, auteur, 'officielle');
+}
+async function enregistrerDateAg(brut: unknown, auteur: Auteur, mode: 'pv' | 'officielle'): Promise<{ ok: true; entrees: EntreeAg[] } | { ok: false; motif: string }> {
   if (!(await pvAgDisponible())) return { ok: false, motif: 'La saisie des PV d’AG attend la mise à jour de la base (migration 481) : rien n’est enregistré.' };
   const b = (brut ?? {}) as Record<string, unknown>;
   const cle = cleImmeuble(typeof b.immeuble === 'string' ? b.immeuble.slice(0, 300) : '');
   if (cle === '') return { ok: false, motif: 'Demande incomplète : la copropriété manque.' };
-  const v = verifierPv(b, aujourdhuiParis());
+  const jour = aujourdhuiParis();
+  const v = mode === 'pv' ? verifierPv(b, jour) : verifierAgOfficielle(b);
   if (!v.ok) return { ok: false, motif: v.motif };
+  const type = mode === 'pv' ? 'derniere' : typeAgOfficielle(v.saisie.date, jour);
   const corrige = b.corrige === undefined || b.corrige === null ? null : Number(b.corrige);
   if (corrige !== null && !(Number.isSafeInteger(corrige) && corrige > 0)) return { ok: false, motif: 'Demande illisible : la saisie à corriger est inconnue.' };
   const copro = await coproprieteDeCle(cle);
@@ -208,18 +221,47 @@ export async function enregistrerPv(brut: unknown, auteur: Auteur): Promise<{ ok
       const actives = await entreesAg({ coproprieteId: copro.id, cle: null, lotId: null }, q);
       const cible = actives.find((e) => e.id === corrige);
       const { rows: verrou } = await q<{ id: string }>('SELECT id::text FROM gestion_copropriete_ag WHERE id = $1 FOR UPDATE', [corrige]);
-      if (verrou[0] === undefined || cible === undefined || cible.type !== 'derniere') return { ok: false as const, motif: 'Cette saisie a déjà été corrigée (ou n’est pas un PV de cette copropriété) : rechargez la fiche.' };
+      const corrigeable = cible !== undefined && (mode === 'pv' ? cible.type === 'derniere' : cible.statut === 'officielle');
+      if (verrou[0] === undefined || !corrigeable) return { ok: false as const, motif: 'Cette saisie a déjà été corrigée (ou n’est pas un PV de cette copropriété) : rechargez la fiche.' };
       const { rows: deja } = await q<{ n: string }>('SELECT count(*)::text AS n FROM gestion_copropriete_ag WHERE corrige_id = $1', [corrige]);
       if (Number(deja[0]?.n ?? 0) > 0) return { ok: false as const, motif: 'Cette saisie a déjà été corrigée : rechargez la fiche.' };
-      if (cible.date === v.saisie.date && (cible.nature ?? 'ago') === v.saisie.nature && (cible.note ?? null) === v.saisie.note) return { ok: false as const, motif: 'Rien n’a changé : modifiez la date, le type ou la note.' };
+      if (cible!.date === v.saisie.date && (cible!.nature ?? 'ago') === v.saisie.nature && (cible!.note ?? null) === v.saisie.note) return { ok: false as const, motif: 'Rien n’a changé : modifiez la date, le type ou la note.' };
     }
     await q(`INSERT INTO gestion_copropriete_ag (copropriete_id, type_ag, statut, date_ag, origine, saisie_par, saisie_par_libelle, nature_ag, note, corrige_id)
-             VALUES ($1, 'derniere', 'officielle', $2::date, 'fiche_copropriete', $3, $4, $5, $6, $7)`,
-      [copro.id, v.saisie.date, auteur.id, qui, v.saisie.nature, v.saisie.note, corrige]);
+             VALUES ($1, $8, 'officielle', $2::date, 'fiche_copropriete', $3, $4, $5, $6, $7)`,
+      [copro.id, v.saisie.date, auteur.id, qui, v.saisie.nature, v.saisie.note, corrige, type]);
     return { ok: true as const };
   });
   if (!r.ok) return r;
   return { ok: true, entrees: await entreesAg({ coproprieteId: copro.id, cle, lotId: null }) };
+}
+
+/** 🔴 (Arno, 23/11/2026) les AG officielles d'une fiche NOUVELLE, contrôlées AVANT toute écriture (10 au plus). PUR quant à la base, sauf la sonde. */
+export async function agOfficiellesValides(brut: unknown): Promise<{ ok: true; ags: { date: string; nature: NatureAg; note: string | null }[] } | { ok: false; motif: string }> {
+  const liste = Array.isArray(brut) ? brut : [];
+  if (liste.length === 0) return { ok: true, ags: [] };
+  if (liste.length > AG_EN_ATTENTE_MAX) return { ok: false, motif: `${AG_EN_ATTENTE_MAX} AG au plus par enregistrement.` };
+  if (!(await pvAgDisponible())) return { ok: false, motif: 'La saisie des AG attend la mise à jour de la base (migration 481) : rien n’est enregistré.' };
+  const ags: { date: string; nature: NatureAg; note: string | null }[] = [];
+  for (const x of liste) {
+    const v = verifierAgOfficielle((x ?? {}) as Record<string, unknown>);
+    if (!v.ok) return { ok: false, motif: `AG : ${v.motif}` };
+    ags.push(v.saisie);
+  }
+  return { ok: true, ags };
+}
+/** Écrit, DANS LA TRANSACTION de la fiche, les AG officielles d'une copropriété (même table, même origine que « + Ajouter une AG »). */
+export async function ajouterAgOfficiellesDans(q: Q, coproprieteId: number | string, ags: readonly { date: string; nature: NatureAg; note: string | null }[], auteur: Auteur): Promise<number> {
+  if (ags.length === 0) return 0;
+  const qui = await nomAuteurAg(auteur);
+  const jour = aujourdhuiParis();
+  for (const a of ags) {
+    await (q as typeof query)(
+      `INSERT INTO gestion_copropriete_ag (copropriete_id, type_ag, statut, date_ag, origine, saisie_par, saisie_par_libelle, nature_ag, note)
+       VALUES ($1, $2, 'officielle', $3::date, 'fiche_copropriete', $4, $5, $6, $7)`,
+      [coproprieteId, typeAgOfficielle(a.date, jour), a.date, auteur.id, qui, a.nature, a.note]);
+  }
+  return ags.length;
 }
 
 // ══ 🔴🔴 LES PV D'AG DANS « NOUVEAU BIEN » ET « MODIFIER LE BIEN » (Arno, 17/11/2026) ═══════════════════════════════════════════════════════

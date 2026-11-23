@@ -382,7 +382,7 @@ describe('🔴 (16/11/2026, point 3) la mise en page : le Syndic en DERNIER, cha
     await ouvrir();
     expect(ordre()).toEqual(['data-fcp-identite', 'data-fcp-adresses', 'data-fcp-digicodes', 'data-fcp-ag', 'data-fcp-contacts', 'data-fcp-syndic']);
     expect([...document.querySelectorAll('.fcp-corps > section.fcp-bloc > h3.fcp-titre')].map((h) => h.childNodes[0].textContent))
-      .toEqual(['Identité', 'Adresses', 'Digicodes', 'AG', 'Habitants et gardiens', 'Syndic']);
+      .toEqual(['Identité', 'Adresses', 'Digicodes', 'AG et arrêté des comptes', 'Habitants et gardiens', 'Syndic']);
     // tout ce que portait chaque partie y est toujours
     for (const s of ['[data-fcp-plus-adresse]', '[data-fcp-ouvrir-syndic]', '[data-fcp-gestionnaires]', '[data-fcp-choisir-syndic]', '[data-fcp-ajouter-contact]', '[data-fcp-usage-interne]', '[data-fcp-nom]', '[data-fcp-hors]', '[data-fcp-biens]']) {
       expect(document.querySelector(s), s).not.toBeNull();
@@ -593,5 +593,56 @@ describe('la flèche des blocs repliables', () => {
     expect(css).toContain(".fcp-histo[open] > summary::before{content:'\\25BE'}");
     expect(css).toMatch(/\.fcp-histo summary\{[^}]*min-height:44px[^}]*list-style:none/);
     expect(css).toContain('.fcp-histo summary::-webkit-details-marker{display:none}');
+  });
+});
+
+/**
+ * 🔴🔴 Arno (23/11/2026) — « je ne vois pas où saisir la date d'arrêté des comptes pour la copropriété. Je ne vois pas non plus où ajouter une ou des
+ * dates d'AG alors que l'on est directement dans la fiche copropriété » : le bloc « AG et arrêté des comptes », AUSSI pour une fiche nouvelle ; ses
+ * saisies partent avec le « Valider » (tout ou rien) ; fermer sans valider : rien n'est écrit.
+ */
+describe('🔴🔴 « AG et arrêté des comptes » d’une fiche NOUVELLE', () => {
+  const choisir = async (sel: string, v: string) => { const el = $(sel) as HTMLSelectElement; await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); }); };
+  const remplir = async () => {
+    lu = { fiche: FICHE({ declaree: false, id: null, syndic: null, gestionnaires: [] }), coproprieteDuBien: true };
+    parcelle = [];
+    await ouvrir();
+    // plus de « aucune encore (fiche à créer) » : la saisie est là
+    expect($('[data-fcp-ag]').textContent).not.toContain('fiche à créer');
+    await clic('[data-fcp-ag] [data-arrete-modifier]');
+    await choisir('[data-arrete-mois]', '12'); await choisir('[data-arrete-jour]', '31');
+    await clic('[data-fcp-ag] [data-arrete-enregistrer]');
+    expect($('[data-fcp-ag] [data-arrete-valeur]').getAttribute('data-arrete-valeur')).toBe('31/12');
+    await clic('[data-fcp-ag] [data-agc-ajouter-pv]');
+    expect($('[data-agc-mention-officielle]').textContent).toBe('Date officielle uniquement : l’assemblée a eu lieu ou sa date est fixée par convocation.');
+    await saisir('[data-agc-pv-date-saisie]', '2026-03-25');
+    await clic('[data-agc-pv-type-choix="ago"]');
+    await clic('[data-agc-pv-enregistrer]');
+  };
+  it('arrêté et AG GARDÉS, puis enregistrés AVEC la copropriété au « Valider » (une seule demande)', async () => {
+    await remplir();
+    expect(posts).toEqual([]); // rien d'écrit avant « Valider »
+    await clic('[data-fcp-valider]');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ action: 'enregistrer', arrete: { jour: 31, mois: 12 }, ags: [{ date: '2026-03-25', nature: 'ago', note: null }] });
+  });
+  it('« Fermer » sans valider : rien n’est écrit', async () => {
+    let ferme = false;
+    lu = { fiche: FICHE({ declaree: false, id: null, syndic: null, gestionnaires: [] }), coproprieteDuBien: true };
+    await act(async () => { root.render(createElement(FicheCopropriete, { lotId: 1, onFerme: () => { ferme = true; } })); }); await calmer();
+    await clic('[data-fcp-ag] [data-agc-ajouter-pv]');
+    await saisir('[data-agc-pv-date-saisie]', '2026-03-25');
+    await clic('[data-agc-pv-type-choix="ago"]');
+    await clic('[data-agc-pv-enregistrer]');
+    await clic('[data-fcp-annuler]');
+    expect(ferme).toBe(true);
+    expect(posts).toEqual([]);
+  });
+  it('une fiche déjà enregistrée : rien de tout cela ne part avec « Valider » (ses gestes écrivent tout de suite, comme avant)', async () => {
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    expect(posts[0]).not.toHaveProperty('arrete');
+    expect(posts[0]).not.toHaveProperty('ags');
   });
 });

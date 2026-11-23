@@ -18,7 +18,7 @@ const rep = async (sql: string, p: unknown[] = []) => {
 vi.mock('../db/client', () => ({ query: (s: string, p?: unknown[]) => rep(s, p), withTransaction: (fn: (q: unknown) => Promise<unknown>) => fn((s: string, p?: unknown[]) => rep(s, p)) }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (_t: string, c: string) => (c === 'corrige_id' ? h.avec481 : true) }));
 vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'a.jorel@sansvisavis.com', prenom: 'Arnaud', nomFamille: 'Jorel' }) }));
-const { enregistrerPv } = await import('./agCoproprieteRepo');
+const { enregistrerPv, enregistrerAgOfficielle, agOfficiellesValides } = await import('./agCoproprieteRepo');
 
 const AUTEUR = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 const LIGNE = (o: Record<string, unknown> = {}) => ({ id: '7', type_ag: 'derniere', statut: 'officielle', date_ag: '2015-03-12', confirmation: false, origine: 'reprise',
@@ -40,12 +40,13 @@ describe('🔴🔴 enregistrer un PV d’AG', () => {
   it('un ajout : une ligne « dernière AG tenue », officielle, AGE, la note, d’origine « fiche copropriété », QUI l’a saisie ; aucune correction', async () => {
     expect((await enregistrerPv({ immeuble: 'Résidence _TEST AG', date: '2024-06-01', nature: 'age', note: ' travaux ' }, AUTEUR)).ok).toBe(true);
     const [i] = insertions();
-    expect(i.s).toContain("VALUES ($1, 'derniere', 'officielle', $2::date, 'fiche_copropriete', $3, $4, $5, $6, $7)");
-    expect(i.p).toEqual([5, '2024-06-01', 2, 'Arnaud JOREL', 'age', 'travaux', null]);
+    // (23/11/2026) le type est désormais un paramètre lié : le COMPORTEMENT (paramètres) et des fragments du SQL, jamais sa forme exacte
+    expect(i.s).toContain("'officielle', $2::date, 'fiche_copropriete'");
+    expect(i.p).toEqual([5, '2024-06-01', 2, 'Arnaud JOREL', 'age', 'travaux', null, 'derniere']);
   });
   it('« Corriger » : une ligne de PLUS qui désigne celle qu’elle corrige (la reprise devient une AGE) ; jamais d’UPDATE ni de DELETE', async () => {
     expect((await enregistrerPv({ immeuble: 'Résidence _TEST AG', date: '2015-03-12', nature: 'age', corrige: 7 }, AUTEUR)).ok).toBe(true);
-    expect(insertions()[0].p).toEqual([5, '2015-03-12', 2, 'Arnaud JOREL', 'age', null, 7]);
+    expect(insertions()[0].p).toEqual([5, '2015-03-12', 2, 'Arnaud JOREL', 'age', null, 7, 'derniere']);
     expect(h.sql.some((x) => /^(UPDATE|DELETE)\b/.test(x.s))).toBe(false);
   });
   it('« Corriger » refusé : saisie déjà corrigée, inconnue, ou rien de changé — aucune écriture', async () => {
@@ -70,5 +71,42 @@ describe('🔴🔴 les PV saisis avec le bien (« Nouveau bien », « Modifier l
     expect(await pvsDuBienValides([{ date: '2024-03-12', nature: 'ago' }])).toMatchObject({ ok: false, motif: expect.stringContaining('migration 481') });
     h.avec481 = true;
     expect(await pvsDuBienValides([{ date: '2024-03-12', nature: 'age', note: ' travaux ' }])).toEqual({ ok: true, pvs: [{ date: '2024-03-12', nature: 'age', note: 'travaux' }] });
+  });
+});
+
+/**
+ * 🔴🔴 Arno (23/11/2026) — « + Ajouter une AG » de la fiche Copropriété : « Date officielle uniquement : l'assemblée a eu lieu ou sa date est fixée par
+ * convocation. » Passée : un PV ; à venir : une « prochaine AG » OFFICIELLE. Jamais une projection. Même table, même origine, « Corriger » conservé.
+ */
+describe('🔴🔴 « + Ajouter une AG » (date officielle, tenue ou fixée par convocation)', () => {
+  it('une date passée : « dernière AG tenue » ; une date à venir : « prochaine AG », toujours OFFICIELLE, origine « fiche copropriété »', async () => {
+    expect((await enregistrerAgOfficielle({ immeuble: 'Résidence _TEST AG', date: '2024-06-01', nature: 'ago' }, AUTEUR)).ok).toBe(true);
+    expect((await enregistrerAgOfficielle({ immeuble: 'Résidence _TEST AG', date: '2999-03-12', nature: 'age' }, AUTEUR)).ok).toBe(true);
+    const [a, b] = insertions();
+    expect(a.p).toEqual([5, '2024-06-01', 2, 'Arnaud JOREL', 'ago', null, null, 'derniere']);
+    expect(b.p).toEqual([5, '2999-03-12', 2, 'Arnaud JOREL', 'age', null, null, 'prochaine']);
+    for (const x of [a, b]) expect(x.s).toContain("'officielle', $2::date, 'fiche_copropriete'");
+  });
+  it('refus AVANT toute écriture : date ou type manquant, copropriété sans fiche', async () => {
+    expect(await enregistrerAgOfficielle({ immeuble: 'Résidence _TEST AG', nature: 'ago' }, AUTEUR)).toMatchObject({ ok: false, motif: 'Renseignez la date de l’AG.' });
+    expect(await enregistrerAgOfficielle({ immeuble: 'Résidence _TEST AG', date: '2024-06-01' }, AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('Choisissez le type') });
+    h.copro = false;
+    expect(await enregistrerAgOfficielle({ immeuble: 'Résidence _TEST AG', date: '2024-06-01', nature: 'ago' }, AUTEUR)).toMatchObject({ ok: false, motif: expect.stringContaining('pas encore de fiche') });
+    expect(insertions()).toEqual([]);
+  });
+  it('« Corriger » une AG officielle à venir : une ligne de PLUS ; jamais d’UPDATE ni de DELETE', async () => {
+    h.actives = [LIGNE({ id: '8', type_ag: 'prochaine', date_ag: '2999-03-12', origine: 'fiche_copropriete' })];
+    expect((await enregistrerAgOfficielle({ immeuble: 'Résidence _TEST AG', date: '2999-03-19', nature: 'ago', corrige: 8 }, AUTEUR)).ok).toBe(true);
+    expect(insertions()[0].p).toEqual([5, '2999-03-19', 2, 'Arnaud JOREL', 'ago', null, 8, 'prochaine']);
+    expect(h.sql.some((x) => /^(UPDATE|DELETE)\b/.test(x.s))).toBe(false);
+  });
+  it('les AG d’une fiche NOUVELLE : contrôlées avant toute écriture (date, type, 10 au plus, la 481)', async () => {
+    expect(await agOfficiellesValides(undefined)).toEqual({ ok: true, ags: [] });
+    expect(await agOfficiellesValides([{ date: '2999-03-12', nature: 'ago' }])).toEqual({ ok: true, ags: [{ date: '2999-03-12', nature: 'ago', note: null }] });
+    expect(await agOfficiellesValides([{ date: '2024-03-12' }])).toMatchObject({ ok: false, motif: expect.stringContaining('AG : Choisissez le type') });
+    expect(await agOfficiellesValides(Array.from({ length: 11 }, () => ({ date: '2024-03-12', nature: 'ago' })))).toMatchObject({ ok: false });
+    h.avec481 = false;
+    expect(await agOfficiellesValides([{ date: '2024-03-12', nature: 'ago' }])).toMatchObject({ ok: false, motif: expect.stringContaining('migration 481') });
+    expect(insertions()).toEqual([]);
   });
 });

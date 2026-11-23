@@ -16,6 +16,9 @@ import { annulerChangement, digicodesUnifiesDisponibles, ecrireDigicode, RefusDi
 import { validerChangements } from './digicodes';
 import { depuisCoproprieteDisponible, enregistrerDigicodeDans } from '../location/digicodeImmeubleRepo';
 import { verifierDigicode } from '../location/digicodeImmeuble';
+import { agOfficiellesValides, ajouterAgOfficiellesDans } from '../location/agCoproprieteRepo';
+import { arreteDisponible, ecrireArreteDans } from '../location/arreteComptesRepo';
+import { verifierArrete, type ArreteComptes } from '../location/arreteComptes';
 
 /**
  * ══ 🔴🔴 LA FICHE COPROPRIÉTÉ — L'ÉCRITURE (Arno, 16/11/2026, chantier « Fiche Copropriété », lot 2). IMPUR (base). ═════════════════════════════
@@ -149,6 +152,20 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
       return { ok: false, motif: `${adresseImmeuble(a.libelle, a.codePostal || null, a.commune || null)} est déjà l’adresse officielle de la copropriété « ${autre.libelle} » : elle ne peut pas être ajoutée ici. Rien n’est ajouté.` };
     }
   }
+  // 🔴🔴 (Arno, 23/11/2026) une fiche NOUVELLE : la date d'arrêté des comptes et les AG officielles saisies avant son premier « Valider » partent AVEC
+  // elle (tout ou rien) ; contrôlées ici, AVANT toute écriture. Une fiche déjà enregistrée les écrit tout de suite (ses propres gestes) : rien ici.
+  const b = (brut ?? {}) as Record<string, unknown>;
+  let arrete: ArreteComptes | null = null;
+  if (!lue.declaree && b.arrete !== undefined && b.arrete !== null) {
+    const a = b.arrete as Record<string, unknown>;
+    const va = verifierArrete(a.jour, a.mois);
+    if (!va.ok) return { ok: false, motif: va.motif };
+    if (va.arrete !== null && !(await arreteDisponible())) return { ok: false, motif: 'La date d’arrêté des comptes demande la mise à jour de la base (migration 512) : rien n’est enregistré.' };
+    arrete = va.arrete;
+  }
+  const ags = lue.declaree ? { ok: true as const, ags: [] } : await agOfficiellesValides(b.ags);
+  if (!ags.ok) return ags;
+  if (s.regrouperAvec !== null && (arrete !== null || ags.ags.length > 0)) return { ok: false, motif: 'Un regroupement ne reprend ni la date d’arrêté des comptes ni les AG saisies : retirez-les, ou validez sans regrouper. Rien n’est enregistré.' };
   if (s.regrouperAvec !== null) return regrouper(s, lue, auteur);
   // 🔴 le conflit de parcelle (la même règle que la fiche syndic) : une copropriété qui reçoit un syndic, une adresse de la parcelle gérée par un
   // AUTRE syndic — refusé sans la confirmation de l'écran, AVANT toute écriture ; confirmé, il est noté plus bas
@@ -314,6 +331,9 @@ export async function enregistrerCopropriete(brut: unknown, auteur: Auteur): Pro
         await q('UPDATE gestion_copropriete SET nomenclature_batiments = $2 WHERE id = $1 AND nomenclature_batiments IS NULL', [coproId, lue.nomenclatureEffective]);
       }
     }
+    // ── ⑦ 🔴 (Arno, 23/11/2026) fiche nouvelle : l'arrêté des comptes et les AG officielles saisis avant le premier « Valider » ──────────────
+    await ecrireArreteDans(q, coproId, arrete, auteur);
+    await ajouterAgOfficiellesDans(q, coproId, ags.ags, auteur);
     if (s.alerteParcelleVue) {
       await q('UPDATE gestion_copropriete SET alerte_parcelle_le = now(), alerte_parcelle_par_libelle = $2 WHERE id = $1 AND alerte_parcelle_le IS NULL', [coproId, auteur.libelle]);
     }
