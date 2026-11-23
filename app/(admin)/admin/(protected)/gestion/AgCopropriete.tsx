@@ -23,7 +23,9 @@ const aujourdhui = (): string => new Date().toLocaleDateString('sv-SE', { timeZo
  * l'historique des PV du plus récent au plus ancien (type, auteur, date de saisie) avec « Corriger » (trace, rien d'effacé), puis les autres
  * dates comme avant. Sans `edition` (fiche du bien, fiche syndic) : la lecture seule d'avant.
  */
-export function AgCopropriete({ lotId, immeuble, edition = false }: { lotId?: number; immeuble?: string; edition?: boolean }) {
+export function AgCopropriete({ lotId, immeuble, edition = false, onEnregistre }: { lotId?: number; immeuble?: string; edition?: boolean;
+  /** 🔴 (Arno, 23/11/2026) une date d'AG ajoutée ou corrigée : la fiche le dit (« Date d'AG du 04/11/2026 enregistrée. ») */
+  onEnregistre?: (date: string) => void }) {
   const q = lotId !== undefined ? `lotId=${lotId}` : `immeuble=${encodeURIComponent(immeuble ?? '')}`;
   const [lu, setLu] = useState<{ q: string; etat: 'ok'; data: Lu } | { q: string; etat: 'sans_schema' | 'erreur' } | null>(null);
   useEffect(() => {
@@ -41,7 +43,7 @@ export function AgCopropriete({ lotId, immeuble, edition = false }: { lotId?: nu
   if (!d.applicable) return null;
   if (edition && d.pv === true && immeuble !== undefined) {
     return <PvCopropriete immeuble={immeuble} copropriete={d.copropriete} entrees={d.entrees}
-      onEntrees={(entrees) => setLu({ q, etat: 'ok', data: { ...d, entrees } })} />;
+      onEntrees={(entrees, date) => { setLu({ q, etat: 'ok', data: { ...d, entrees } }); if (date !== undefined) onEnregistre?.(date); }} />;
   }
   return (
     <div className="agc" data-ag-copropriete-bloc>
@@ -71,7 +73,7 @@ const resumeAg = (e: EntreeAg, statut: boolean): string => `${dateFr(e.date as s
  * (date OFFICIELLE, tenue ou fixée par convocation) ; par défaut la dernière AGO et la prochaine AG connues ; « Afficher l'historique des AG (N) »
  * déplie la liste complète d'avant — PV (avec « Corriger »), puis les autres dates — et un nouveau clic la replie.
  */
-function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble: string; copropriete: string | null; entrees: EntreeAg[]; onEntrees: (e: EntreeAg[]) => void }) {
+function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble: string; copropriete: string | null; entrees: EntreeAg[]; onEntrees: (e: EntreeAg[], date?: string) => void }) {
   const [form, setForm] = useState<{ corrige: EntreeAg | null } | null>(null);
   const [histo, setHisto] = useState(false);
   const pvs = pvsDeLaCopropriete(entrees);
@@ -82,7 +84,7 @@ function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble
   // une AG officielle à venir (saisie ici) se corrige comme un PV
   const corrigeable = (e: EntreeAg): boolean => e.type === 'prochaine' && e.statut === 'officielle' && e.date !== null;
   const corriger = (e: EntreeAg) => (form !== null && form.corrige?.id === e.id
-    ? <FormulairePv immeuble={immeuble} corrige={e} officielle onFermer={() => setForm(null)} onEnregistre={(x) => { setForm(null); onEntrees(x); }} />
+    ? <FormulairePv immeuble={immeuble} corrige={e} officielle onFermer={() => setForm(null)} onEnregistre={(x, date) => { setForm(null); onEntrees(x, date); }} />
     : <button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton agc-corriger" disabled={form !== null} onClick={() => setForm({ corrige: e })} data-agc-corriger={e.id}>Corriger</button>);
   return (
     <div className="agc" data-ag-copropriete-bloc data-agc-edition>
@@ -95,7 +97,7 @@ function PvCopropriete({ immeuble, copropriete, entrees, onEntrees }: { immeuble
       </ul>
       {form === null
         ? <p className="agc-ajouter"><button type="button" className="svv-btn svv-btn-outline gst-btn agc-bouton agc-bouton--plein" onClick={() => setForm({ corrige: null })} data-agc-ajouter-pv>{LIBELLE_AJOUTER_DATE_AG}</button></p>
-        : form.corrige === null && <FormulairePv immeuble={immeuble} corrige={null} officielle onFermer={() => setForm(null)} onEnregistre={(e) => { setForm(null); onEntrees(e); }} />}
+        : form.corrige === null && <FormulairePv immeuble={immeuble} corrige={null} officielle onFermer={() => setForm(null)} onEnregistre={(e, date) => { setForm(null); onEntrees(e, date); }} />}
       {entrees.length > 0 && (
         <p className="agc-ajouter"><button type="button" className="fcp-lien agc-lien" aria-expanded={histo} onClick={() => setHisto((o) => !o)} data-agc-historique-lien>
           {lienHistoriqueAg(entrees.length, histo)}</button></p>)}
@@ -157,7 +159,7 @@ export function AgFicheNouvelle({ enAttente, onEnAttente, desactive = false }: {
 
 /** Le formulaire d'un PV : date (passée ou du jour), type obligatoire AGO / AGE, note facultative ; les messages après une tentative. */
 function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, action, onLocal, officielle = false }: { immeuble: string; corrige: EntreeAg | null; onFermer: () => void;
-  onEnregistre: (e: EntreeAg[]) => void;
+  onEnregistre: (e: EntreeAg[], date: string) => void;
   /** 🔴 (Arno, 23/11/2026) « + Ajouter une AG » de la fiche Copropriété : date OFFICIELLE, tenue OU fixée par convocation (à venir) — la mention bien visible */
   officielle?: boolean;
   /** 🔴 (Arno, 17/11/2026) la route (Location pour la fiche du bien) et son action ; `onLocal` : le PV est GARDÉ (enregistré avec le bien), rien n'est envoyé */
@@ -180,7 +182,7 @@ function FormulairePv({ immeuble, corrige, onFermer, onEnregistre, api = API, ac
     void fetch(api, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: geste, immeuble, date: v.saisie.date, nature: v.saisie.nature, note: v.saisie.note, ...(corrige !== null ? { corrige: corrige.id } : {}) }) })
       .then((r) => r.json() as Promise<{ etat?: string; data?: { entrees: EntreeAg[] }; motif?: string; message?: string }>)
-      .then((x) => { setEnvoi(false); if (x.etat === 'ok' && x.data) onEnregistre(x.data.entrees); else setRefus(x.motif ?? x.message ?? 'Le PV n’a pas été enregistré.'); })
+      .then((x) => { setEnvoi(false); if (x.etat === 'ok' && x.data) onEnregistre(x.data.entrees, v.saisie.date); else setRefus(x.motif ?? x.message ?? 'Le PV n’a pas été enregistré.'); })
       .catch(() => { setEnvoi(false); setRefus('Le serveur n’a pas répondu : le PV n’a pas été enregistré.'); });
   };
   return (

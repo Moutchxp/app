@@ -70,7 +70,7 @@ describe('« Date d’arrêté des comptes » (composant unique)', () => {
     expect(container.querySelector('[data-arrete-modifier]')).toBeNull();
   });
   it('le MÊME composant dans la fiche Copropriété (bloc « AG ») et dans la fenêtre de la sortie', () => {
-    expect(readFileSync('app/(admin)/admin/(protected)/gestion/FicheCopropriete.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={f.id} />');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/FicheCopropriete.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={f.id} onChange={(x) => { setErreur(null); setInfo(motArreteEnregistre(x.arrete)); }} />');
     expect(readFileSync('app/(admin)/admin/(protected)/location/AgSortie.tsx', 'utf8')).toContain('<ArreteComptes coproprieteId={lu.copropriete.id} alerteSiManquante onChange={(x) => { setArrete(x.arrete); onRelire?.(); }} />');
   });
   // 🔴 Arno (23/11/2026) — « Valider la sortie » : la date manquante MISE EN AVANT

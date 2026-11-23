@@ -646,3 +646,55 @@ describe('🔴🔴 « AG et arrêté des comptes » d’une fiche NOUVELLE', () 
     expect(posts[0]).not.toHaveProperty('ags');
   });
 });
+
+/**
+ * 🔴 Arno (23/11/2026) — « lorsque je rentre des dates d'AG et que je veux valider la fiche pour valider sa mise à jour, il ne se passe rien, comme si
+ * rien n'avait été enregistré ; ajouter un message pour dire que l'information a bien été mise à jour et enregistrée. »
+ */
+describe('🔴 les messages verts de la fiche Copropriété', () => {
+  const brancherAg = (): void => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.startsWith('/api/admin/gestion/immeubles/ag?arreteCopropriete=')) return json({ etat: 'ok', data: { arrete: null, par: null, le: null, disponible: true } });
+      if (u.startsWith('/api/admin/gestion/immeubles/ag?')) return json({ etat: 'ok', data: { copropriete: 'Résidence Les Tilleuls', immeuble: 'Résidence Les Tilleuls', applicable: true, pv: true, entrees: [] } });
+      if (u === '/api/admin/gestion/immeubles/ag' && init?.method === 'POST') {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (c.action === 'arrete-comptes') return json({ etat: 'ok', data: { arrete: { jour: Number(c.jour), mois: Number(c.mois) }, par: 'a.jorel@sansvisavis.com', le: '2026-11-23T09:00:00.000Z' } });
+        return json({ etat: 'ok', data: { entrees: [] } });
+      }
+      return base(url, init);
+    }) as unknown as typeof fetch;
+  };
+  const choisir = async (sel: string, v: string) => { const el = $(sel) as HTMLSelectElement; await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('change', { bubbles: true })); }); };
+  it('une date d’AG ajoutée : « Date d’AG du 04/11/2026 enregistrée. », en vert bien visible', async () => {
+    brancherAg();
+    await ouvrir();
+    await clic('[data-fcp-ag] [data-agc-ajouter-pv]');
+    await saisir('[data-agc-pv-date-saisie]', '2026-11-04');
+    await clic('[data-agc-pv-type-choix="ago"]');
+    await clic('[data-agc-pv-enregistrer]');
+    expect($('[data-fcp-info]').textContent).toBe('Date d’AG du 04/11/2026 enregistrée.');
+    expect($('[data-fcp-info]').classList.contains('fcp-confirmation')).toBe(true);
+    expect(document.body.innerHTML).toContain('.fcp-confirmation{padding:10px 12px;border-radius:10px;border-left:4px solid var(--color-svv-green);background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:800');
+  });
+  it('la date d’arrêté des comptes enregistrée : « Date d’arrêté des comptes enregistrée : 31/12. »', async () => {
+    brancherAg();
+    await ouvrir();
+    await clic('[data-fcp-ag] [data-arrete-modifier]');
+    await choisir('[data-fcp-ag] [data-arrete-mois]', '12'); await choisir('[data-fcp-ag] [data-arrete-jour]', '31');
+    await clic('[data-fcp-ag] [data-arrete-enregistrer]');
+    expect($('[data-fcp-info]').textContent).toBe('Date d’arrêté des comptes enregistrée : 31/12.');
+  });
+  it('« Valider » : rien de changé → « Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout. » (la requête part comme avant) ; un changement → « Fiche copropriété enregistrée. »', async () => {
+    await ouvrir();
+    await clic('[data-fcp-valider]');
+    expect(posts).toHaveLength(1);
+    expect($('[data-fcp-info]').textContent).toBe('Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout.');
+    expect($('[data-fcp-info]').classList.contains('fcp-confirmation')).toBe(true);
+    await saisir('[data-fcp-nom]', 'Les Tilleuls _TEST');
+    await clic('[data-fcp-valider]');
+    expect($('[data-fcp-info]').textContent).toBe('Fiche copropriété enregistrée.');
+  });
+});

@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { AgCopropriete, AgFicheNouvelle } from './AgCopropriete';
 import { ArreteComptes, ArreteComptesLocal } from './ArreteComptes';
-import type { SaisiePv } from '../../../../lib/location/agCopropriete';
+import { dateFr, type SaisiePv } from '../../../../lib/location/agCopropriete';
+import { arreteFr } from '../../../../lib/location/arreteComptes';
 import { CSS_DIGICODES_COPRO, DigicodesCopropriete, digicodesModifies, motValeur, refusDigicodes, saisieDigicodesInitiale, type DigicodesAdresseSaisis } from './DigicodesCopropriete';
 import { FicheSyndic } from './FicheSyndic';
 import { questionConflitParcelle } from '../../../../lib/gestion/conflitParcelle';
@@ -44,6 +45,17 @@ const cleLocale = (): string => `c${++n}`;
 const versEdition = (f: Fiche): ContactEdit[] => f.contacts.map((c) => ({ cle: cleLocale(), id: c.id, categorie: c.categorie, libelle: c.libelle ?? '',
   civilite: c.civilite === 'M.' || c.civilite === 'Mme' ? c.civilite : null, prenom: c.prenom ?? '', nom: c.nom ?? '', note: c.note ?? '',
   coordonnees: c.coordonnees.map((k) => ({ id: k.id, sorte: k.sorte, libelle: k.libelle ?? '', valeur: k.valeur })) }));
+/**
+ * 🔴 Arno (23/11/2026) — « lorsque je rentre des dates d'AG et que je veux valider la fiche pour valider sa mise à jour, il ne se passe rien, comme si
+ * rien n'avait été enregistré » : les messages verts de la fiche. « Valider » sans rien de changé enregistre comme avant, et le dit.
+ */
+export const MOT_FICHE_ENREGISTREE = 'Fiche copropriété enregistrée.';
+export const MOT_AUCUNE_MODIFICATION = 'Aucune modification à enregistrer — les dates d’AG sont enregistrées dès leur ajout.';
+export const motDateAgEnregistree = (jour: string): string => `Date d’AG du ${dateFr(jour)} enregistrée.`;
+export const motArreteEnregistre = (a: { jour: number; mois: number } | null): string => (a === null ? 'Date d’arrêté des comptes effacée.' : `Date d’arrêté des comptes enregistrée : ${arreteFr(a)}.`);
+/** Ce que « Valider » enregistre, figé pour savoir si quelque chose a changé depuis l'ouverture (la clé locale des contacts n'en fait pas partie). PUR. */
+const signatureSaisie = (x: { nom: string; hors: boolean; adresses: readonly Adresse[]; contacts: readonly ContactEdit[]; syndic: number | null; retrait: boolean }): string =>
+  JSON.stringify({ nom: x.nom.trim(), hors: x.hors, adresses: x.adresses, contacts: x.contacts.map(({ cle: _c, ...c }) => c), syndic: x.syndic, retrait: x.retrait });
 const nomContact = (c: Pick<ContactEdit, 'civilite' | 'prenom' | 'nom'>): string => [c.civilite, c.prenom.trim(), c.nom.trim().toLocaleUpperCase('fr-FR')].filter(Boolean).join(' ');
 /** Ce qui manque pour valider un contact (`null` : rien). PUR. */
 export function refusContact(c: ContactEdit, autres: readonly ContactEdit[] = [], immeuble = ''): string | null {
@@ -105,6 +117,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
      (tout ou rien) ; fermer sans valider : rien n'est écrit */
   const [arreteNouvelle, setArreteNouvelle] = useState<{ jour: number; mois: number } | null>(null);
   const [agsNouvelle, setAgsNouvelle] = useState<SaisiePv[]>([]);
+  /* 🔴 (Arno, 23/11/2026) la saisie telle qu'à l'ouverture (ou au dernier enregistrement) : « Valider » sans changement le dit, sans requête */
+  const [initiale, setInitiale] = useState<string | null>(null);
   // l'interface
   const [ajoutAdresse, setAjoutAdresse] = useState(false);
   /* 🔴 (16/11/2026) « Une autre adresse » : UNIQUEMENT par les suggestions de la Base Adresse Nationale (ChampAdresseBan, le champ commun) —
@@ -132,9 +146,13 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     const f = l.fiche;
     if (f === null) return;
     // la case : celle de la fiche ; une fiche encore à créer part de ce que dit le bien (« pas en copropriété » : cochée)
-    setNom(f.nom ?? ''); setHors(f.declaree ? f.horsCopropriete : l.coproprieteDuBien === false);
-    setAdresses(f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' })));
-    setContacts(versEdition(f)); setSyndicChoisi(null); setRetraitSyndic(false); setConfirmerRetrait(false); setDigi(saisieDigicodesInitiale(f));
+    const h = f.declaree ? f.horsCopropriete : l.coproprieteDuBien === false;
+    const adr = f.adresses.filter((a) => !a.principale).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' }));
+    const cts = versEdition(f);
+    setNom(f.nom ?? ''); setHors(h);
+    setAdresses(adr);
+    setContacts(cts);
+    setInitiale(signatureSaisie({ nom: f.nom ?? '', hors: h, adresses: adr, contacts: cts, syndic: null, retrait: false })); setSyndicChoisi(null); setRetraitSyndic(false); setConfirmerRetrait(false); setDigi(saisieDigicodesInitiale(f));
     if (f.declaree) { setArreteNouvelle(null); setAgsNouvelle([]); }
   };
   useEffect(() => {
@@ -236,6 +254,10 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
     if (!passe.meme && !memeTraite && memeSyndic.length > 0) { setEtape('meme'); return; }
     const alerteDue = !passe.alerte && libres.length > 0 && !rattacheeIci && !f.declaree;
     if (alerteDue) { setEtape('alerte'); return; }
+    // 🔴 Arno (23/11/2026) — une fiche déjà enregistrée, rien de changé depuis l'ouverture : « Valider » fait sa requête COMME AVANT (elle peut
+    // compléter la fiche côté serveur), mais le message le dit : les dates d'AG et l'arrêté sont enregistrés dès leur saisie
+    const inchangee = f.declaree && !passe.regrouperAvec && passe.syndicId === undefined && digicodesModifies(digi).length === 0
+      && initiale === signatureSaisie({ nom, hors, adresses, contacts, syndic: syndicChoisi?.id ?? null, retrait: retraitSyndic });
     setEtape(null); setEnvoi(true); setErreur(null);
     try {
       const corps = { action: 'enregistrer', immeuble: f.cle, nom: nom.trim() === '' ? null : nom, ...(f.avec476 ? { horsCopropriete: hors } : {}),
@@ -248,7 +270,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       const d = (await r.json()) as { etat?: string; data?: Fiche; motif?: string; message?: string };
       if (d.etat !== 'ok' || !d.data) { setErreur(d.motif ?? d.message ?? 'Enregistrement refusé.'); return; }
       appliquer({ fiche: d.data, coproprieteDuBien: lu?.coproprieteDuBien ?? null }); setRattacheeIci(false); setMemeTraite(false);
-      setInfo(passe.regrouperAvec ? `Copropriété regroupée avec « ${passe.regrouperAvec} ».` : 'Fiche copropriété enregistrée.');
+      setInfo(passe.regrouperAvec ? `Copropriété regroupée avec « ${passe.regrouperAvec} ».` : inchangee ? MOT_AUCUNE_MODIFICATION : MOT_FICHE_ENREGISTREE);
     } catch { setErreur('Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.'); } finally { setEnvoi(false); }
   };
 
@@ -445,9 +467,9 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
       <h3 className="fcp-titre">AG et arrêté des comptes</h3>
       {/* 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » (devenu « + Ajouter une AG », 23/11) et « Corriger » : dans cette fiche seulement */}
       {/* 🔴 (Arno, 23/11/2026, 512) la date d'arrêté des comptes, à côté des dates d'AGO (facultative) — le même composant que la fenêtre de la sortie */}
-      {f.declaree && f.id !== null && <ArreteComptes coproprieteId={f.id} />}
+      {f.declaree && f.id !== null && <ArreteComptes coproprieteId={f.id} onChange={(x) => { setErreur(null); setInfo(motArreteEnregistre(x.arrete)); }} />}
       {!f.declaree && <ArreteComptesLocal valeur={arreteNouvelle} onChange={setArreteNouvelle} desactive={envoi} />}
-      {f.declaree ? <AgCopropriete immeuble={f.cle} edition /> : <AgFicheNouvelle enAttente={agsNouvelle} onEnAttente={setAgsNouvelle} desactive={envoi} />}</section>}
+      {f.declaree ? <AgCopropriete immeuble={f.cle} edition onEnregistre={(jour) => { setErreur(null); setInfo(motDateAgEnregistree(jour)); }} /> : <AgFicheNouvelle enAttente={agsNouvelle} onEnAttente={setAgsNouvelle} desactive={envoi} />}</section>}
 
     <section className="fcp-bloc" data-fcp-contacts>
       <h3 className="fcp-titre">Habitants et gardiens</h3>
@@ -570,7 +592,8 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider({ alerte: true, conflit: conflits.length > 0 ? true : undefined }); }} data-fcp-valider-quand-meme>Valider quand même</button></div>
           </div>)}
         {erreur !== null && lu !== null && <p className="cp-refus fcp-pied-msg" role="alert" data-fcp-erreur>{erreur}</p>}
-        {info !== null && <p className="gst-info fcp-pied-msg" role="status" data-fcp-info>{info}</p>}
+        {/* 🔴 Arno (23/11/2026) — un message vert bien visible (avant : un petit texte gris) ; le pied de la fiche reste toujours à l'écran */}
+        {info !== null && <p className="fcp-confirmation fcp-pied-msg" role="status" data-fcp-info>{info}</p>}
         <div className="fcp-actions fcp-pied">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme} disabled={envoi} data-fcp-annuler>Fermer</button>
           {f !== null && <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void valider(); }} disabled={envoi || etape !== null} data-fcp-valider>{envoi ? 'Enregistrement…' : 'Valider'}</button>}
@@ -733,6 +756,7 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-gauche{justify-content:flex-start}
 .fcp-pied{padding:12px 16px;border-top:1px solid var(--color-svv-line)}
 .fcp-pied-msg{margin:6px 16px 0}
+.fcp-confirmation{padding:10px 12px;border-radius:10px;border-left:4px solid var(--color-svv-green);background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:800;overflow-wrap:anywhere}
 .fcp-sans-marge{margin:0}
 @media (max-width:600px){.fcp-pied .svv-btn{flex:1 1 100%}}
 `;
