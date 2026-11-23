@@ -136,3 +136,13 @@ describe('🔴 Arno (23/11/2026) — « Si une date de clôture des comptes n’
     expect(readFileSync('app/(admin)/admin/(protected)/location/ValidationSortieEdls.tsx', 'utf8')).toContain("<AgSortie key={`copro-${ag.copropriete?.id ?? 'aucune'}`}");
   });
 });
+
+describe('🔴 Arno (23/11/2026) — « les 2 boutons (projetée et officielle) sont cerclés de rouge […] retirer le cerclage »', () => {
+  it('aucun cerclage rouge du groupe de statut ; le champ date garde son contour rouge et le message reste (rien d’assoupli)', async () => {
+    const { CSS_AG_SORTIE, verdictAg } = await import('./AgSortie');
+    expect(CSS_AG_SORTIE).not.toMatch(/\.vag-statut\.vag-defaut\s*\{[^}]*outline/);
+    expect(CSS_AG_SORTIE).toContain('.vag-defaut input,.vag-defaut input:focus{border-color:var(--color-svv-red)');
+    const s = { ...saisieAgInitiale(LU, '2026-11-23'), derniere: '2026-03-25', prochaine: '2027-03-25', statut: null };
+    expect(verdictAg(s, LU)).toMatchObject({ ok: false, champs: ['statut'] });
+  });
+});

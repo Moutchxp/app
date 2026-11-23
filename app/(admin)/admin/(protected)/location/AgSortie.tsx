@@ -286,7 +286,7 @@ export const CSS_AG_SORTIE = `
 .vag-statut{display:flex;flex-wrap:wrap;gap:6px;border-radius:10px;padding:2px}
 .vag-defaut input,.vag-defaut input:focus{border-color:var(--color-svv-red);outline-color:var(--color-svv-red)}
 .vag-defaut .pvs-libelle{color:var(--color-svv-red)}
-.vag-statut.vag-defaut{outline:2px solid var(--color-svv-red)}
+/* Arno (23/11/2026) : plus de cerclage rouge autour des deux boutons Date projetee / Date officielle (ce n'est pas un champ de saisie) ; l'obligation reste dite par le message et le champ date */
 .vag-mini{min-height:36px;padding:4px 10px;font-size:.85rem}
 .vag-confirmee{color:var(--color-svv-green-ink);font-weight:800}
 .vag-aide{margin:0}
