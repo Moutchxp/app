@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  alertesDuCompteRendu, coordonneesDeTiers, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
+  alertesDuCompteRendu, AVERTISSEMENT_SANS_EDL_JOINT, coordonneesDeTiers, paragraphePiecesLocataire, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
   PHRASE_RETENUE_PROPRIETAIRE, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
 } from './validationSortie';
 
@@ -138,5 +138,47 @@ describe('🔴🔴 un mail = une seule adresse (état des lieux de sortie)', () 
     const m = mailsValidationSortie(D({ destinataires: [ALICE, COUPLE] }));
     expect(m.parties.map((x) => [x.partie.cle, x.mail.a, x.mail.cc, x.mail.client])).toEqual([
       ['loc-11', ['alice@exemple.test'], [], 'locataire'], ['pro-5', ['jean@exemple.test'], [], 'proprietaire'], ['pro-5', ['marie.dupont@exemple.test'], [], 'proprietaire']]);
+  });
+});
+
+/**
+ * 🔴 Arno (23/11/2026) — « après le 1er paragraphe du mail qui valide la sortie du locataire et qui se finit par "cette date", il faut ajouter un
+ * paragraphe qui indique qu'il trouvera en pièce jointe de ce mail le document d'état des lieux de sortie effectué, puis garder le reste du mail ».
+ */
+describe('🔴 le paragraphe « pièce jointe » du mail aux locataires', () => {
+  const UNE = [{ id: 1, nom: 'edl.pdf', typeMime: 'application/pdf', taille: 10 }];
+  const DEUX = [...UNE, { id: 2, nom: 'salon.jpg', typeMime: 'image/jpeg', taille: 20 }];
+  const SINGULIER = 'Vous trouverez en pièce jointe de ce mail l’état des lieux de sortie réalisé ce jour-là. Nous vous invitons à le conserver.';
+  const PLURIEL = 'Vous trouverez en pièces jointes de ce mail les documents de l’état des lieux de sortie réalisé ce jour-là. Nous vous invitons à les conserver.';
+  const DATE = 'Votre sortie du logement est enregistrée à cette date.';
+  it('une pièce : le paragraphe au singulier, JUSTE après « … à cette date. », avant le compte rendu et le paragraphe « 20 % »', () => {
+    const loc = mailsValidationSortie(D({ destinataires: [ALICE], pieces: UNE, retenue: { appliquee: true, paragrapheLocataire: PARAGRAPHE_RETENUE_LOCATAIRE } })).parties[0].mail.texte;
+    const i = [loc.indexOf(DATE), loc.indexOf(SINGULIER), loc.indexOf('Compte rendu de l’état des lieux de sortie :'), loc.indexOf('Le logement que vous occupiez'), loc.indexOf('Nous restons à votre disposition')];
+    expect(i.every((x) => x >= 0)).toBe(true);
+    expect([...i].sort((a, b) => a - b)).toEqual(i);
+    // un paragraphe à lui : rien entre « cette date. » et lui que la séparation des paragraphes
+    expect(loc).toContain(`${DATE}\n\n${SINGULIER}\n\n`);
+    expect(loc).not.toContain(PLURIEL);
+  });
+  it('deux pièces : au pluriel (« les documents ») ; sans retenue, le paragraphe suivant est le compte rendu', () => {
+    const loc = mailsValidationSortie(D({ destinataires: [ALICE], pieces: DEUX })).parties[0].mail.texte;
+    expect(loc).toContain(`${DATE}\n\n${PLURIEL}\n\nCompte rendu de l’état des lieux de sortie :`);
+    expect(loc).not.toContain(SINGULIER);
+  });
+  it('sans pièce : aucun paragraphe (le reste du mail inchangé) ; l’avertissement du récapitulatif, mot pour mot', () => {
+    const avec = mailsValidationSortie(D({ destinataires: [ALICE], pieces: UNE })).parties[0].mail.texte;
+    const sans = mailsValidationSortie(D({ destinataires: [ALICE] })).parties[0].mail.texte;
+    expect(sans).not.toContain('pièce jointe');
+    expect(sans).not.toContain('pièces jointes');
+    expect(avec.replace(`${SINGULIER}\n\n`, '')).toBe(sans);
+    expect(AVERTISSEMENT_SANS_EDL_JOINT).toBe('Aucun état des lieux joint : le mail ne l’annoncera pas.');
+    expect([paragraphePiecesLocataire(0), paragraphePiecesLocataire(1), paragraphePiecesLocataire(3)]).toEqual([null, SINGULIER, PLURIEL]);
+  });
+  it('plusieurs locataires : un mail par personne, chacun avec le paragraphe ; jamais chez le propriétaire ni dans la copie interne', () => {
+    const m = mailsValidationSortie(D({ destinataires: [ALICE, PAUL, JEAN], pieces: UNE }));
+    const par = (f: string) => m.parties.filter((p) => p.partie.famille === f).map((p) => p.mail.texte);
+    expect(par('locataire')).toHaveLength(2);
+    for (const t of par('locataire')) expect(t).toContain(`${DATE}\n\n${SINGULIER}`);
+    for (const t of [...par('proprietaire'), m.interne!.texte]) expect(t).not.toContain(SINGULIER);
   });
 });

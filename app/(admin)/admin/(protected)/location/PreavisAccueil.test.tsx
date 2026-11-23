@@ -752,6 +752,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
   let copro: boolean | null = true;
   let postsPieces: { type: string; corps: unknown }[] = [];
   let reponseDrive: unknown = null;
+  let piecesApercu: string[] = ['salon.jpg'];
   const PIECE = (id: number, nom: string, provenance: 'drive' | 'ordinateur', taille = 2048) => ({ id, nom, typeMime: 'application/pdf', taille, provenance });
   const brancher = (): void => {
     const base = global.fetch;
@@ -774,7 +775,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
         const c = JSON.parse(String(init.body)) as Record<string, unknown>;
         posts.push(c);
         return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], retenue: c.retenue, mails: [
-          { sorte: 'sortie_edls_locataire', objet: 'État des lieux de sortie — 4 rue Fictive', a: ['alice@exemple.test'], cc: [], texte: 'Bonjour', cle: 'loc-11', famille: 'locataire', pieces: ['salon.jpg'] }] });
+          { sorte: 'sortie_edls_locataire', objet: 'État des lieux de sortie — 4 rue Fictive', a: ['alice@exemple.test'], cc: [], texte: 'Bonjour', cle: 'loc-11', famille: 'locataire', pieces: piecesApercu }] });
       }
       return base(u, init);
     }) as unknown as typeof fetch;
@@ -885,6 +886,23 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     await attendre();
     expect(document.querySelector('[data-pieces-mail]')?.textContent).toBe('📎 Pièces jointes : salon.jpg');
     expect(document.querySelector('[data-avertissement-pieces]')?.textContent).toBe('Vérifiez que les pièces jointes ne contiennent pas de coordonnées qui ne doivent pas être transmises à ce destinataire.');
+    // 🔴 Arno (23/11/2026) — une pièce jointe : le mail annonce l'état des lieux, aucun avertissement
+    expect(document.querySelector('[data-avertissement-sans-edl]')).toBeNull();
+  });
+  // 🔴 Arno (23/11/2026) — « sinon il est absent et le récapitulatif affiche un avertissement visible […] (aucun envoi bloqué) »
+  it('récapitulatif SANS pièce jointe : « Aucun état des lieux joint : le mail ne l’annoncera pas. » ; « Confirmer et envoyer » reste possible', async () => {
+    piecesApercu = [];
+    try {
+      const f = await ouvrir();
+      act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+      act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      await act(async () => { (f.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+      await attendre();
+      expect(document.querySelector('[data-avertissement-sans-edl]')?.textContent).toBe('Aucun état des lieux joint : le mail ne l’annoncera pas.');
+      expect(document.querySelector('[data-pieces-mail]')).toBeNull();
+      const confirmer = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Confirmer et envoyer') as HTMLButtonElement;
+      expect(confirmer.disabled).toBe(false);
+    } finally { piecesApercu = ['salon.jpg']; }
   });
 });
 

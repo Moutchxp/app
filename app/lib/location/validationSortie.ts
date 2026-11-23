@@ -144,14 +144,26 @@ export interface DonneesValidationSortie {
   internes: readonly string[];
 }
 
+/**
+ * 🔴 Arno (23/11/2026) — « après le 1er paragraphe du mail qui valide la sortie du locataire et qui se finit par "cette date", il faut ajouter un
+ * paragraphe qui indique qu'il trouvera en pièce jointe de ce mail le document d'état des lieux de sortie effectué, puis garder le reste du mail
+ * déjà écrit au paragraphe suivant. » — SEULEMENT si au moins une pièce est jointe au compte rendu ; au pluriel (« les documents ») s'il y en a
+ * plusieurs. Sans pièce : rien (le récapitulatif l'annonce : AVERTISSEMENT_SANS_EDL_JOINT). PUR.
+ */
+export const paragraphePiecesLocataire = (n: number): string | null => (n <= 0 ? null : n === 1
+  ? 'Vous trouverez en pièce jointe de ce mail l’état des lieux de sortie réalisé ce jour-là. Nous vous invitons à le conserver.'
+  : 'Vous trouverez en pièces jointes de ce mail les documents de l’état des lieux de sortie réalisé ce jour-là. Nous vous invitons à les conserver.');
+export const AVERTISSEMENT_SANS_EDL_JOINT = 'Aucun état des lieux joint : le mail ne l’annoncera pas.';
+
 /** Les paragraphes du mail d'UNE partie : rien d'un tiers dans les textes fixes ; le compte rendu tel qu'écrit (contrôlé à part). PUR. */
-export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'prenom'>, d: Pick<DonneesValidationSortie, 'adresse' | 'date' | 'compteRendu' | 'vacant' | 'copropriete' | 'retenue'>): string[] {
+export function paragraphesPour(p: Pick<PartieSortie, 'famille' | 'nom' | 'prenom'>, d: Pick<DonneesValidationSortie, 'adresse' | 'date' | 'compteRendu' | 'vacant' | 'copropriete' | 'retenue' | 'pieces'>): string[] {
   const date = dateFrPreavis(d.date);
   const cr = paragraphesLibres(d.compteRendu);
   const compteRendu = cr.length > 0 ? ['Compte rendu de l’état des lieux de sortie :', ...cr] : [];
   if (p.famille === 'locataire') {
     return [`Bonjour ${prenomNom(p)},`,
       `L’état des lieux de sortie de votre logement situé ${d.adresse} a été réalisé le ${date}. Votre sortie du logement est enregistrée à cette date.`,
+      ...[paragraphePiecesLocataire((d.pieces ?? []).length)].filter((x): x is string => x !== null),
       // 🔴 Arno (11/11/2026) — la provision de 20 % : SEULEMENT si la case « Retenue de 20 % » est cochée (elle remplace le paragraphe
       // automatique d'avant) ; le texte, modifiable, est celui de la fenêtre.
       ...compteRendu, ...(d.retenue?.appliquee && d.retenue.paragrapheLocataire.trim() !== '' ? paragraphesLibres(d.retenue.paragrapheLocataire) : []),

@@ -16,7 +16,7 @@ import { etapesPreavis } from '../../../../lib/location/frisePreavis';
 import type { EncartLogement } from '../../../../lib/location/sortieLocataires';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import {
-  ALERTE_COPROPRIETE_NON_RENSEIGNEE, AVERTISSEMENT_PIECES, cleLocataire, cleProprietaire, COMPTE_RENDU_MAX, etatRetenue, MOTIF_RETENUE_IMPOSSIBLE,
+  ALERTE_COPROPRIETE_NON_RENSEIGNEE, AVERTISSEMENT_PIECES, AVERTISSEMENT_SANS_EDL_JOINT, cleLocataire, cleProprietaire, COMPTE_RENDU_MAX, etatRetenue, MOTIF_RETENUE_IMPOSSIBLE,
   PARAGRAPHE_RETENUE_LOCATAIRE, PHRASE_RETENUE_PROPRIETAIRE, verifierValidation,
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
@@ -240,6 +240,9 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
             <dd>« … {phraseDateAg(saisieAg.ago.date, saisieAg.ago.statut, saisieAg.ago.cloture, 'proprietaire')} »</dd></div>)}
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
+      {/* 🔴 Arno (23/11/2026) — sans pièce jointe, le mail du locataire n'annonce pas l'état des lieux : on le dit (aucun envoi bloqué) */}
+      {a.mails.some((m) => m.famille === 'locataire') && a.mails.filter((m) => m.famille === 'locataire').every((m) => (m.pieces ?? []).length === 0) && (
+        <p className="cev-alerte" role="status" data-avertissement-sans-edl>{AVERTISSEMENT_SANS_EDL_JOINT}</p>)}
       <p className="pss-sous-titre" data-nombre-mails>{a.mails.length === 1 ? '1 mail partira.' : `${a.mails.length} mails partiront.`}</p>
       {groupes.map(([f, mot]) => {
         const mails = a.mails.filter((m) => m.famille === f);
