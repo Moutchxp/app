@@ -125,6 +125,9 @@ export interface LigneVingtPourcent {
   suivi: SuiviVingt;
   /** 🔴 (24/11/2026) la clé de sa copropriété (ou de son immeuble, ou du bien) — la même que celle de « Dates manquantes » ; absente : déduite */
   cleCopro?: string;
+  /** 🔴 (Arno, 24/11/2026, 23h16) l'immeuble par lequel la fiche Copropriété s'ouvre (`null` : par le bien, `lotId`) ; et la dernière AGO tenue */
+  immeuble?: string | null;
+  derniereAgo?: string | null;
 }
 export interface SuiviVingtLu {
   aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[];

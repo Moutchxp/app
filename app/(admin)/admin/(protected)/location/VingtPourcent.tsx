@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useState, type ReactNode } from 'react';
+import { moisAnnee } from '../../../../lib/location/agCopropriete';
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
@@ -43,7 +44,7 @@ export { nombreCoproprietesACompleter, TITRE_VINGT_POURCENT };
 export function EcranVingtPourcent({ api, retour }: { api: string; retour?: ReactNode }) {
   const [lu, setLu] = useState<{ etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; data: SuiviVingtLu }>({ etat: 'charge' });
   const [version, setVersion] = useState(0);
-  const [fiche, setFiche] = useState<LigneDatesManquantes | null>(null);
+  const [fiche, setFiche] = useState<{ immeuble: string | null; lotId: number } | null>(null);
   const [restituer, setRestituer] = useState<LigneVingtPourcent | null>(null);
   useEffect(() => {
     let vivant = true;
@@ -66,7 +67,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
         <p className="svv-page-sub">Les locataires sortis avec 20 % du dépôt de garantie retenus : l’AGO qui arrête leurs comptes et la date limite de restitution (un mois après l’AGO).</p>
       </header>
       {lu.etat === 'charge' ? <p className="loc-muet" role="status">Lecture…</p>
-        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <>
+        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche }}>
           {(() => {
             const cl = classerVingtPourcent(lu.data);
             return <>
@@ -77,7 +78,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
           {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
           <RestitutionsFaites faites={lu.data.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />
           <AlerteDuLundi api={api} />
-        </>}
+        </GestesLigne.Provider>}
       {restituer !== null && lu.etat === 'ok' && <FenetreRestitution l={restituer} aujourdhui={lu.data.aujourdhui}
         onFermer={(fait) => { setRestituer(null); if (fait) setVersion((v) => v + 1); }} />}
       {fiche !== null && <FicheCopropriete immeuble={fiche.immeuble} lotId={fiche.immeuble === null ? fiche.lotId : null}
@@ -139,35 +140,73 @@ function DatesManquantes({ lignes, groupes, onCompleter, onRestituer }: { lignes
   );
 }
 
-/** Une ligne de locataire sorti avec 20 % retenus. */
+/** 🔴 (Arno, 24/11/2026, 23h16) les gestes d'une ligne qui sortent de l'écran : ouvrir la fiche Copropriété (puis tout relire). */
+const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void }>({ onFiche: () => {} });
+
+/** « AGO du 15/03/2027 » / « AGO vers mars 2027 (projetée) ». PUR. */
+export const agoCourte = (ago: { date: string; statut: 'officielle' | 'projetee' }): string =>
+  (ago.statut === 'officielle' ? `AGO du ${dateFr(ago.date)}` : `AGO vers ${moisAnnee(ago.date)} (projetée)`);
+/** Ce qui manque à une ligne SANS date calculable (« Dates manquantes »), à la place de la date. PUR. */
+export function manquesDeLaLigne(l: Pick<LigneVingtPourcent, 'copropriete' | 'suivi' | 'arrete'>): string[] {
+  if (l.copropriete === null) return ['Aucune copropriété'];
+  return [...(l.suivi.etat !== 'ok' ? ['Dernière AGO manquante'] : []), ...(l.arrete === null ? ['Arrêté des comptes manquant'] : [])];
+}
+
+/**
+ * 🔴🔴 Arno (24/11/2026, 23h16) — « chaque bloc de locataire est trop important : le limiter à deux lignes qui se déploient à la demande. Jamais
+ * d'information en doublon. » UNE ligne par sortie (colocataires ensemble) : à gauche l'adresse du bien puis le(s) nom(s) ; à droite l'AGO qui compte
+ * (ou ce qui manque, en orange), « Fiche copropriété » (« Créer la copropriété » si aucune) et « Restitution faite ». Un clic sur la ligne (hors
+ * boutons) déplie le détail : RIEN de ce qui est déjà sur la ligne.
+ */
 function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer: (l: LigneVingtPourcent) => void }) {
+  const { onFiche } = useContext(GestesLigne);
+  const [ouvert, setOuvert] = useState(false);
+  const detailId = useId();
   const s = l.suivi;
   const alerte = s.etat === 'ok' ? s.alerte : 'sans';
+  const basculer = (): void => setOuvert((o) => !o);
+  const manques = s.etat === 'ok' ? [] : manquesDeLaLigne(l);
   return (
-    <li className={`vgp-carte vgp-carte--${alerte}`} data-vgp-sortie={l.sortieId} data-vgp-alerte={alerte}>
-      <p className="vgp-nom">{l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</p>
-      <dl className="vgp-dl">
-        <div><dt>Logement</dt><dd>{l.logement ?? `Bien ${l.lotId}`}</dd></div>
-        <div><dt>Copropriété</dt><dd>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>
-        <div><dt>Date de sortie</dt><dd>{dateFr(l.dateSortie)}</dd></div>
-        <div><dt>Exercice concerné</dt><dd data-vgp-exercice>{libelleExercice(s.exercice)}{l.arrete !== null ? ` (arrêté au ${arreteFr(l.arrete)})` : ''}</dd></div>
-        <div><dt>AGO qui compte</dt><dd data-vgp-ago={s.etat === 'ok' ? `${s.ago.date}:${s.ago.statut}` : 'inconnue'}>
-          {s.etat !== 'ok' ? <span className="vgp-inconnue">{s.mention}</span> : <>
-            <span className={s.ago.statut === 'projetee' ? 'vgp-projetee' : 'vgp-officielle'}>{dateFr(s.ago.date)} — {s.ago.statut === 'projetee' ? 'date projetée' : 'date officielle'}</span>
-            {s.incertaine && <span className="vgp-incertaine" data-vgp-incertaine> · {MENTION_DATE_PROVISOIRE}</span>}
-          </>}</dd></div>
-        <div><dt>Restitution au plus tard le</dt><dd data-vgp-limite={s.etat === 'ok' ? s.limite : ''}>{s.etat === 'ok' ? dateFr(s.limite) : '—'}</dd></div>
-        {/* 🔴 Arno (24/11/2026) — les jours restants ; dépassée : « Date limite dépassée de N jours », en rouge */}
-        {s.etat === 'ok' && (() => {
-          const j = joursRestantsVingt(s.joursRestants);
-          return <div><dt>Jours restants</dt><dd className={j.depasse ? 'vgp-depasse' : undefined} data-vgp-jours={s.joursRestants}>{j.texte}</dd></div>;
-        })()}
-      </dl>
-      {s.etat === 'ok'
-        ? <p className={`vgp-alerte vgp-alerte--${s.alerte}`} role={s.alerte === 'a_venir' ? undefined : 'status'} data-vgp-alerte-texte>{libelleAlerte(s.alerte, s.limite, s.joursRestants)}</p>
-        : <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
-      {/* 🔴 Arno (24/11/2026) — « Restitution faite » : la fenêtre ; enregistrée, la ligne quitte la liste (section « Restitutions faites ») */}
-      <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>Restitution faite</button>
+    <li className={`vgp-ligne vgp-ligne--${alerte}`} data-vgp-sortie={l.sortieId} data-vgp-alerte={alerte} data-vgp-ouvert={ouvert ? '1' : '0'}>
+      <div className="vgp-ligne-tete" onClick={basculer}>
+        <button type="button" className="vgp-chevron" aria-expanded={ouvert} aria-controls={detailId} onClick={(e) => { e.stopPropagation(); basculer(); }}
+          aria-label={ouvert ? 'Replier le détail' : 'Déplier le détail'} data-vgp-deplier>{ouvert ? '▾' : '▸'}</button>
+        <div className="vgp-ligne-gauche">
+          <p className="vgp-ligne-adresse" data-vgp-adresse>{l.logement ?? `Bien ${l.lotId}`}</p>
+          <p className="vgp-nom" data-vgp-noms>{l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</p>
+        </div>
+        <div className="vgp-ligne-droite" onClick={(e) => e.stopPropagation()}>
+          {s.etat === 'ok'
+            ? <span className="vgp-ligne-ago" data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>
+              <span className={s.ago.statut === 'projetee' ? 'vgp-projetee' : 'vgp-officielle'}>{agoCourte(s.ago)}</span>
+              {s.incertaine && <span className="vgp-incertaine" data-vgp-incertaine> · {MENTION_DATE_PROVISOIRE}</span>}</span>
+            : <span className="vgp-ligne-manque" data-vgp-manque-ligne={manques.join(',')}>{manques.join(' · ')}</span>}
+          <span className="vgp-ligne-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onFiche({ immeuble: l.immeuble ?? null, lotId: l.lotId })}
+              data-vgp-fiche={l.sortieId}>{l.copropriete === null ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
+            {/* 🔴 Arno (24/11/2026) — « Restitution faite » : la fenêtre (inchangée) ; enregistrée, la ligne quitte la liste */}
+            <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>Restitution faite</button>
+          </span>
+        </div>
+      </div>
+      <div id={detailId} className="vgp-ligne-detail" hidden={!ouvert} data-vgp-detail>
+        <dl className="vgp-dl">
+          <div><dt>Copropriété</dt><dd>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>
+          <div><dt>Date de sortie</dt><dd>{dateFr(l.dateSortie)}</dd></div>
+          <div><dt>Exercice concerné</dt><dd data-vgp-exercice>{libelleExercice(s.exercice)}</dd></div>
+          <div><dt>Arrêté des comptes</dt><dd data-vgp-arrete>{l.arrete !== null ? arreteFr(l.arrete) : 'non renseigné'}</dd></div>
+          <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
+          <div><dt>Restitution au plus tard le</dt><dd data-vgp-limite={s.etat === 'ok' ? s.limite : ''}>{s.etat === 'ok' ? dateFr(s.limite) : '—'}</dd></div>
+          {/* 🔴 Arno (24/11/2026) — les jours restants ; dépassée : « Date limite dépassée de N jours », en rouge */}
+          {s.etat === 'ok' && (() => {
+            const j = joursRestantsVingt(s.joursRestants);
+            return <div><dt>Jours restants</dt><dd className={j.depasse ? 'vgp-depasse' : undefined} data-vgp-jours={s.joursRestants}>{j.texte}</dd></div>;
+          })()}
+        </dl>
+        {s.etat === 'ok'
+          ? <p className={`vgp-alerte vgp-alerte--${s.alerte}`} role={s.alerte === 'a_venir' ? undefined : 'status'} data-vgp-alerte-texte>{libelleAlerte(s.alerte, s.limite, s.joursRestants)}</p>
+          : <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
+      </div>
     </li>
   );
 }
@@ -335,6 +374,20 @@ export const CSS_VINGT_POURCENT = `
 .vgp-alerte--proche{background:var(--color-svv-amber-soft);border-color:var(--color-svv-urgence-orange)}
 .vgp-alerte--sans{border-style:dashed;color:var(--color-svv-muted)}
 .vgp-restituer{align-self:flex-start;min-height:44px;width:auto}
+.vgp-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0;overflow-wrap:anywhere}
+.vgp-ligne--depassee{border-left:4px solid var(--color-svv-red)}
+.vgp-ligne--proche{border-left:4px solid var(--color-svv-urgence-orange)}
+.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}
+.vgp-chevron{flex:0 0 auto;width:32px;min-height:44px;border:0;background:none;color:var(--color-svv-muted);font:inherit;font-size:1rem;cursor:pointer}
+.vgp-ligne-gauche{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.vgp-ligne-adresse{margin:0;color:var(--color-svv-ink);font-size:.9rem}
+.vgp-ligne-droite{flex:0 1 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;cursor:default}
+.vgp-ligne-ago{font-size:.9rem;color:var(--color-svv-ink);text-align:right}
+.vgp-ligne-manque{font-size:.9rem;font-weight:700;color:var(--color-svv-urgence-orange-texte);text-align:right}
+.vgp-ligne-boutons{display:flex;gap:6px;flex-wrap:wrap}
+.vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px}
+.vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
+.vgp-ligne-detail[hidden]{display:none}
 .vgp-texte{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.88rem;color:var(--color-svv-ink)}
 .vgp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .vgp-boite{width:min(560px,100%);max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;
@@ -345,5 +398,7 @@ export const CSS_VINGT_POURCENT = `
 .vgp-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .vgp-actions .gst-btn{min-height:44px;width:auto;margin:0}
 .vgp-confirmer{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-field)}
-@media (max-width:640px){ .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }
+@media (max-width:640px){ .vgp-ligne-tete{flex-wrap:wrap} .vgp-ligne-gauche{flex:1 1 calc(100% - 42px)} .vgp-ligne-droite{flex:1 1 100%;justify-content:stretch;flex-direction:column;align-items:stretch}
+  .vgp-ligne-ago,.vgp-ligne-manque{text-align:left;padding-left:42px} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
+  .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }
 `;

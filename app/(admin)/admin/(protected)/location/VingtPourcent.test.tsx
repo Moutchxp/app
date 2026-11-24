@@ -68,16 +68,20 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const a = container.querySelector('[data-vgp-sortie="5"]')!;
     expect(a.textContent).toContain('1 rue A, 92800 Puteaux');
-    expect(a.querySelector('[data-vgp-exercice]')?.textContent).toBe('Exercice clos le 31/12/2026 (arrêté au 31/12)');
-    expect(a.querySelector('[data-vgp-ago]')?.textContent).toBe('25/03/2027 — date projetée');
+    // 🔴 (Arno, 24/11/2026, 23h16) deux lignes + détail : l'arrêté a sa rubrique dans le détail ; l'AGO est sur la ligne, en court
+    expect(a.querySelector('[data-vgp-exercice]')?.textContent).toBe('Exercice clos le 31/12/2026');
+    expect(a.querySelector('[data-vgp-arrete]')?.textContent).toBe('31/12');
+    expect(a.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO vers mars 2027 (projetée)');
     expect(a.querySelector('[data-vgp-limite]')?.textContent).toBe('25/04/2027');
     expect(a.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('À restituer au plus tard le 25/04/2027');
     const c = container.querySelector('[data-vgp-sortie="7"]')!;
     expect(c.getAttribute('data-vgp-alerte')).toBe('depassee');
-    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('22/09/2026 — date officielle · date provisoire — arrêté des comptes manquant');
+    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO du 22/09/2026 · date provisoire — arrêté des comptes manquant');
     expect(c.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('Restitution en retard — la limite du 22/10/2026 est dépassée de 32 jours');
     const b = container.querySelector('[data-vgp-sortie="6"]')!;
-    expect(b.querySelector('[data-vgp-ago]')?.textContent).toBe('Dernière AGO inconnue');
+    // sans date : à droite, ce qui manque (orange), à la place de la date
+    expect(b.querySelector('[data-vgp-ago]')).toBeNull();
+    expect(b.querySelector('[data-vgp-manque-ligne]')?.textContent).toBe('Dernière AGO manquante · Arrêté des comptes manquant');
     expect(b.querySelector('[data-vgp-limite]')?.textContent).toBe('—');
     expect(b.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('Pas de date limite — Dernière AGO inconnue : à compléter dans la fiche Copropriété.');
   });
@@ -262,5 +266,55 @@ describe('🔴🔴 Arno (24/11/2026) — la pastille « Urgence » (accueil Loca
     expect(entree).toContain('data-pastille-vingt-copros');
     expect(entree).toContain('className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-urgence');
     expect(readFileSync('app/globals.css', 'utf8').match(/--color-svv-rouge-vif:/g)).toHaveLength(3); // clair, sombre, système
+  });
+});
+
+/**
+ * 🔴🔴 Arno (24/11/2026, 23h16) — « chaque bloc de locataire est trop important : le limiter à deux lignes qui se déploient à la demande. Jamais
+ * d'information en doublon. » Ligne repliée : adresse, nom(s) ; à droite l'AGO (ou ce qui manque), « Fiche copropriété », « Restitution faite ».
+ */
+describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', () => {
+  const ligne = (id: number) => container.querySelector(`[data-vgp-sortie="${id}"]`)!;
+  it('repliée par défaut : adresse puis noms à gauche ; à droite l’AGO, « Fiche copropriété », « Restitution faite » ; le détail caché', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const a = ligne(5);
+    expect([a.querySelector('[data-vgp-adresse]')?.textContent, a.querySelector('[data-vgp-noms]')?.textContent]).toEqual(['1 rue A, 92800 Puteaux', 'DUPONT Alice']);
+    expect([...a.querySelectorAll('.vgp-ligne-droite button')].map((x) => x.textContent)).toEqual(['Fiche copropriété', 'Restitution faite']);
+    expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
+    // une ligne par sortie, colocataires ensemble
+    expect(ligne(6).querySelector('[data-vgp-noms]')?.textContent).toBe('MARTIN Paul, MARTIN Léa');
+  });
+  it('un clic sur la ligne (hors boutons) déplie / replie ; un clic sur un bouton ne déplie pas ; le détail ne répète RIEN de la ligne', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const a = ligne(5);
+    await act(async () => { (a.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
+    expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(false);
+    expect(a.querySelector('[data-vgp-deplier]')?.getAttribute('aria-expanded')).toBe('true');
+    const detail = a.querySelector('[data-vgp-detail]')!.textContent ?? '';
+    for (const deja of ['1 rue A, 92800 Puteaux', 'DUPONT Alice', 'AGO vers mars 2027']) expect(detail).not.toContain(deja);
+    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Arrêté des comptes', 'Dernière AGO', 'Restitution au plus tard le', 'Jours restants']);
+    await act(async () => { (a.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
+    expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
+    await act(async () => { (a.querySelector('[data-vgp-restituer]') as HTMLElement).click(); });
+    expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
+    expect(container.querySelector('[data-fenetre-restitution="5"]')).not.toBeNull(); // la modale, inchangée
+  });
+  it('« Fiche copropriété » ouvre LA fiche par l’immeuble (ou par le bien sans copropriété : « Créer la copropriété ») ; à sa fermeture tout se relit', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], immeuble: 'copro a' }, { ...LU.lignes[1], copropriete: null, immeuble: null, cleCopro: 'lot-3' }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(ligne(7).querySelector('[data-vgp-fiche]')?.textContent).toBe('Créer la copropriété');
+    expect(ligne(7).querySelector('[data-vgp-manque-ligne]')).toBeNull(); // une date provisoire existe : elle est montrée
+    await act(async () => { (ligne(5).querySelector('[data-vgp-fiche]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: 'copro a', lotId: null }));
+    await act(async () => { (container.querySelector('[data-stub-fiche]') as HTMLButtonElement).click(); }); await calmer();
+    expect(lectures).toHaveLength(2);
+    await act(async () => { (ligne(7).querySelector('[data-vgp-fiche]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: null, lotId: 3 }));
+  });
+  it('« Dates manquantes » : à droite, ce qui manque en orange (« Aucune copropriété » pour un bien sans copropriété) ; la carte de la copropriété est gardée', async () => {
+    donnees = { ...LU, lignes: [...LU.lignes, { ...LU.lignes[2], sortieId: 8, copropriete: null, immeuble: null, cleCopro: 'copro-20' }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(ligne(8).querySelector('[data-vgp-manque-ligne]')?.textContent).toBe('Aucune copropriété');
+    expect(container.querySelector('[data-vgp-completer="copro-20"]')).not.toBeNull();
   });
 });

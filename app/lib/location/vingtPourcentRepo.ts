@@ -56,7 +56,8 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
       sortieId: Number(r.id), lotId: Number(r.lot_id), locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, valideLe: r.valide_le,
       copropriete: p.copro.coproprieteId === null ? null : { id: p.copro.coproprieteId, libelle: p.copro.libelle, aRattacher: false },
       arrete, suivi: suiviVingtPourcent({ dateSortie: r.date_sortie, valideLe: r.valide_le, arrete, officielles: p.officielles, aujourdhui }),
-      cleCopro: p.copro.cle,
+      cleCopro: p.copro.cle, immeuble: p.copro.immeuble,
+      derniereAgo: [...p.officielles].filter((d) => d <= aujourdhui).pop() ?? null,
     };
   });
   const manquantes = datesManquantes(lignes.flatMap((l) => {
