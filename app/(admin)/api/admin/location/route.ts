@@ -13,6 +13,7 @@ import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clien
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
 import { lireSuiviVingtPourcent } from '../../../../lib/location/vingtPourcentRepo';
+import { passeAlerteVingt } from '../../../../lib/location/alerteVingtRepo';
 import { annulerRestitution, enregistrerRestitution } from '../../../../lib/location/restitutionVingtRepo';
 import { annulerPreavis, annulerPreavisGroupe, corrigerPreavis, corrigerPreavisGroupe, enregistrerEtatDesLieux, PREAVIS_GROUPE_MAX, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
@@ -168,6 +169,8 @@ export async function GET(request: Request): Promise<Response> {
     const idProp = identifiant(p('proprietaire'));
     if (idProp !== null) return Response.json(await ficheProprietaireLocation(idProp), { headers: ENTETES });
     // 🔴 Arno (23/11/2026) — « 20 % à restituer » : les locataires sortis avec 20 % retenus, l'AGO qui compte, la limite, les dates manquantes (LECTURE SEULE).
+    // 🔴 Arno (24/11/2026) — le MODE ESSAI de l'alerte du lundi : le mail tel qu'il partirait, RIEN n'est envoyé ni écrit
+    if (p('alerteVingtEssai') !== null) return Response.json({ etat: 'ok', data: await passeAlerteVingt({ essai: true }) }, { headers: ENTETES });
     if (p('vingtPourcent') !== null) return Response.json({ etat: 'ok', data: await lireSuiviVingtPourcent() }, { headers: ENTETES });
     // Sortie d'un ou plusieurs locataires (Arno, 19/10/2026) — LECTURE SEULE.
     // 🔴 Arno (20/11/2026, option B) — la page « Supprimer un/des locataire(s) » retrouve aussi les sorties déjà enregistrées.

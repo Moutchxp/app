@@ -39,6 +39,8 @@ const montage = () => {
     appels,
     programmer: (f: () => void, ms: number) => { appels.push({ f, ms, sorte: 'intervalle' }); return {}; },
     differer: (f: () => void, ms: number) => { appels.push({ f, ms, sorte: 'premiere' }); return {}; },
+    // 🔴 (24/11/2026) l'alerte du lundi « 20 % à restituer » : doublée (jamais la base sous les tests, quel que soit le jour)
+    alerteVingt: async () => ({ etat: 'pas_le_moment' }),
   };
 };
 
@@ -122,5 +124,27 @@ describe('🔴 VERROU RECETTE = AUCUN ENVOI', () => {
       expect(src, f).not.toMatch(/nodemailer|obtenirTransporteur|\bfetch\(|transportReel/);
     }
     expect(readFileSync('app/lib/location/mailsPreavisSortieRepo.ts', 'utf8')).toContain('(deps.transport ?? transportParDefaut()).envoyer(');
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026) — la MÊME minuterie porte l'alerte du lundi « 20 % à restituer » : après la passe de la pré-visite, chaque tour. */
+describe('🔴🔴 l’alerte du lundi « 20 % à restituer » sur la minuterie existante', () => {
+  it('appelée à chaque tour, après la passe ; un envoi ou un échec est dit au journal ; les autres issues sont muettes ; une erreur ne remonte pas', async () => {
+    const m = montage();
+    const alerteVingt = vi.fn(async () => ({ etat: 'pas_le_moment' } as { etat: string; motif?: string | null; mail?: { nombre: number } | null }));
+    const journal = vi.fn();
+    demarrerMinuteriePrevisite({ env: DEV, passe: async () => null, journal, ...m, alerteVingt });
+    m.appels[0].f(); await new Promise((r) => setTimeout(r, 0));
+    expect(alerteVingt).toHaveBeenCalledTimes(1);
+    expect(journal).not.toHaveBeenCalled();
+    alerteVingt.mockImplementationOnce(async () => ({ etat: 'envoye', motif: null, mail: { nombre: 2 } }));
+    m.appels[1].f(); await new Promise((r) => setTimeout(r, 0));
+    expect(journal).toHaveBeenLastCalledWith('[20 % à restituer] alerte du lundi envoyée (2 locataire(s) en urgence)');
+    alerteVingt.mockImplementationOnce(async () => ({ etat: 'echec', motif: 'jeton expiré', mail: { nombre: 2 } }));
+    m.appels[1].f(); await new Promise((r) => setTimeout(r, 0));
+    expect(journal).toHaveBeenLastCalledWith('[20 % à restituer] alerte du lundi en échec : jeton expiré (réessayée à la passe suivante)');
+    alerteVingt.mockImplementationOnce(async () => { throw new Error('base injoignable'); });
+    m.appels[1].f(); await new Promise((r) => setTimeout(r, 0));
+    expect(journal).toHaveBeenLastCalledWith('[20 % à restituer] alerte impossible : base injoignable');
   });
 });

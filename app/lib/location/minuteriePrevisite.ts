@@ -23,6 +23,8 @@ export interface DepsMinuterie {
   programmer?: (f: () => void, ms: number) => { unref?: () => void };
   differer?: (f: () => void, ms: number) => { unref?: () => void };
   journal?: (l: string) => void;
+  /** 🔴 Arno (24/11/2026) — l'alerte hebdomadaire « 20 % à restituer » (le lundi matin) ; absente : la vraie (`passeAlerteVingt`). */
+  alerteVingt?: () => Promise<{ etat: string; motif?: string | null; mail?: { nombre: number } | null }>;
 }
 
 /** Lance la minuterie (idempotent). Rend `true` si elle vient d'être lancée. */
@@ -32,6 +34,8 @@ export function demarrerMinuteriePrevisite(d: DepsMinuterie): boolean {
   drapeaux[POSEE] = true;
   const journal = d.journal ?? ((l: string) => console.log(l));
   const passe = d.passe ?? (async () => (await import('./previsiteAuto')).passePrevisite());
+  type AlerteVue = { etat: string; motif?: string | null; mail?: { nombre: number } | null };
+  const alerteVingt: () => Promise<AlerteVue> = d.alerteVingt ?? (async () => (await import('./alerteVingtRepo')).passeAlerteVingt() as Promise<AlerteVue>);
   let enCours = false;
   const tour = (): void => {
     if (enCours) return;
@@ -44,6 +48,14 @@ export function demarrerMinuteriePrevisite(d: DepsMinuterie): boolean {
         }
       })
       .catch((e: unknown) => journal(`[pré-visite] passe impossible : ${(e as Error)?.message ?? 'erreur'}`))
+      // 🔴 Arno (24/11/2026) — la même minuterie porte l'alerte du lundi « 20 % à restituer » (elle ne fait rien les autres jours)
+      .then(() => alerteVingt())
+      .then((a) => {
+        if (a !== undefined && (a.etat === 'envoye' || a.etat === 'echec')) {
+          journal(`[20 % à restituer] alerte du lundi ${a.etat === 'envoye' ? `envoyée (${a.mail?.nombre ?? 0} locataire(s) en urgence)` : `en échec : ${a.motif ?? 'raison inconnue'} (réessayée à la passe suivante)`}`);
+        }
+      })
+      .catch((e: unknown) => journal(`[20 % à restituer] alerte impossible : ${(e as Error)?.message ?? 'erreur'}`))
       .finally(() => { enCours = false; });
   };
   (d.differer ?? setTimeout)(tour, PREMIERE_PASSE_MS).unref?.();

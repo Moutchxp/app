@@ -181,8 +181,8 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '478_gestion_digicode_unifie.sql', '479_gestion_digicode_mails.sql', '480_adresse_nature_personnes.sql', '481_location_copropriete_ag_pv.sql', '482_gestion_digicode_code_15.sql', '483_location_copropriete_ag_origine_fiche_bien.sql', '484_gestion_digicode_mail_gestion.sql', '485_adresse_nature_biens.sql', '486_adresse_apporteurs.sql', '487_gestion_digicode_retrait.sql', '488_gestion_copropriete_batiment_retrait.sql', '489_gestion_copropriete_batiment_adresse.sql', '490_gestion_copropriete_batiment_unicite_adresse.sql', '491_gestion_copropriete_rattachement_refus.sql', '492_location_mandat_par_bien.sql', '493_gestion_collaborateurs_prevenus.sql', '494_gestion_regles_courrier_location.sql', '495_location_reponses_rdv_locataires.sql', '496_gestion_regles_courrier_rdv.sql', '497_location_rdv_non_invites.sql', '498_location_minutes_rdv.sql', '499_location_plage_horaire_rdv.sql', '500_gestion_regle_courrier_rdv_modifie.sql', '501_location_durees_rdv.sql', '502_gestion_annulation_tache.sql', '503_gestion_durees_par_defaut.sql', '504_gestion_copropriete_regroupement.sql', '505_gestion_adresse_officielle_ban.sql', '506_gestion_journal_copropriete.sql', '507_code_postal_insee.sql', '508_gestion_adresse_unification.sql', '509_gestion_personne_adresse_ban.sql', '510_gestion_adresse_ban_transaction_syndic.sql',
     // 🔴 (Arno, 23/11/2026) la 512 (arrêté des comptes) ; la 511 reste réservée à la 361 en attente
     '512_gestion_copropriete_arrete_comptes.sql',
-    // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite » des 20 %) ; la 361 en attente prendra le premier numéro libre suivant (514)
-    '513_location_restitution_vingt_pourcent.sql'];
+    // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite » des 20 %) et la 514 (alerte du lundi) ; la 361 en attente prendra le premier numéro libre suivant (515)
+    '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -195,7 +195,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 510, la 512 et la 513 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 510, puis 512 à 514 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -207,19 +207,19 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
 
   // 🔴 (Arno, 23/11/2026) « la 511 reste réservée à la 361 en attente » : la 512 l'a dépassée. Le plan refuse toute nouvelle migration numérotée SOUS la
   // dernière INSCRITE : la 511 passe si elle part avec la 512 (ou avant), et serait REFUSÉE une fois la 512 inscrite (elle prendrait alors la 513).
-  // 🔴 (Arno, 24/11/2026) la 513 est prise (« Restitution faite ») : une fois inscrite, la 361 prend la 514.
-  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec la 512 et la 513 dans la même mise à jour, REFUSÉE une fois inscrites (514 alors)', () => {
+  // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite ») et la 514 (alerte du lundi) sont prises : une fois inscrites, la 361 prend la 515.
+  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 514 dans la même mise à jour, REFUSÉE une fois inscrites (515 alors)', () => {
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
-    const jusqua510 = inscrire(A_VENIR.filter((f) => f !== '512_gestion_copropriete_arrete_comptes.sql' && f !== '513_location_restitution_vingt_pourcent.sql'));
+    const jusqua510 = inscrire(A_VENIR.filter((f) => !['512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql'].includes(f)));
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
     expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(510\)/);
     const avec512 = planifier([...existants, { fichier: '511_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
     expect(avec512.refus).toEqual([]);
-    expect(avec512.nouvelles.map((n) => n.fichier)).toEqual(['511_permis_emprise_numero_reveil.sql', '512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql']);
+    expect(avec512.nouvelles.map((n) => n.fichier)).toEqual(['511_permis_emprise_numero_reveil.sql', '512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql']);
     const apres512 = planifier([...existants, { fichier: '511_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
-    expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(513\)/);
-    const en514 = planifier([...existants, { fichier: '514_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
-    expect(en514.refus).toEqual([]);
+    expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(514\)/);
+    const en515 = planifier([...existants, { fichier: '515_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
+    expect(en515.refus).toEqual([]);
   });
 });
 

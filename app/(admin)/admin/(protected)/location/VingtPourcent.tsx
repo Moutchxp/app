@@ -76,6 +76,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
           })()}
           {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
           <RestitutionsFaites faites={lu.data.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />
+          <AlerteDuLundi api={api} />
         </>}
       {restituer !== null && lu.etat === 'ok' && <FenetreRestitution l={restituer} aujourdhui={lu.data.aujourdhui}
         onFermer={(fait) => { setRestituer(null); if (fait) setVersion((v) => v + 1); }} />}
@@ -265,6 +266,39 @@ function RestitutionsFaites({ faites, onAnnule }: { faites: readonly Restitution
   );
 }
 
+/** 🔴 Arno (24/11/2026) — LE MODE ESSAI de l'alerte du lundi : le mail tel qu'il partirait, lu (GET) — rien n'est envoyé, rien n'est écrit. */
+function AlerteDuLundi({ api }: { api: string }) {
+  const [vu, setVu] = useState<{ etat: 'rien' } | { etat: 'charge' } | { etat: 'erreur'; message: string }
+    | { etat: 'ok'; mail: { a: string[]; objet: string; texte: string; nombre: number } | null }>({ etat: 'rien' });
+  const voir = async (): Promise<void> => {
+    setVu({ etat: 'charge' });
+    try {
+      const r = await fetch(`${api}?alerteVingtEssai=1`, { cache: 'no-store' });
+      const d = await r.json() as { etat?: string; data?: { mail?: { a: string[]; objet: string; texte: string; nombre: number } | null }; message?: string };
+      setVu(d.etat === 'ok' ? { etat: 'ok', mail: d.data?.mail ?? null } : { etat: 'erreur', message: d.message ?? 'Lecture impossible.' });
+    } catch { setVu({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' }); }
+  };
+  return (
+    <section className="vgp-bloc" aria-label="Alerte du lundi" data-vgp-alerte-lundi>
+      <details className="vgp-repli">
+        <summary className="vgp-titre">Alerte du lundi</summary>
+        <p className="loc-muet vgp-aide">Chaque lundi matin (heure de Paris), si au moins un locataire est en « Urgence », un mail récapitulatif part à l’adresse de la Gestion.
+          Aucun mail si personne n’est en urgence ; jamais deux fois le même lundi.</p>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => { void voir(); }} disabled={vu.etat === 'charge'} data-vgp-alerte-essai>
+          Voir le mail tel qu’il partirait (essai : rien n’est envoyé)</button>
+        {vu.etat === 'charge' && <p className="loc-muet" role="status">Lecture…</p>}
+        {vu.etat === 'erreur' && <p className="cp-refus" role="alert">{vu.message}</p>}
+        {vu.etat === 'ok' && (vu.mail === null
+          ? <p className="loc-muet" data-vgp-alerte-aucune>Aucun locataire en « Urgence » : aucun mail ne partirait.</p>
+          : <div className="vgp-carte" data-vgp-alerte-apercu>
+            <dl className="vgp-dl"><div><dt>À</dt><dd>{vu.mail.a.join(', ')}</dd></div><div><dt>Objet</dt><dd data-vgp-alerte-objet>{vu.mail.objet}</dd></div></dl>
+            <pre className="vgp-texte" data-vgp-alerte-texte-mail>{vu.mail.texte}</pre>
+          </div>)}
+      </details>
+    </section>
+  );
+}
+
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme ; cibles de 44 px ; une colonne au telephone. */
 export const CSS_VINGT_POURCENT = `
 .vgp{display:flex;flex-direction:column;gap:14px;min-width:0}
@@ -301,6 +335,7 @@ export const CSS_VINGT_POURCENT = `
 .vgp-alerte--proche{background:var(--color-svv-amber-soft);border-color:var(--color-svv-urgence-orange)}
 .vgp-alerte--sans{border-style:dashed;color:var(--color-svv-muted)}
 .vgp-restituer{align-self:flex-start;min-height:44px;width:auto}
+.vgp-texte{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.88rem;color:var(--color-svv-ink)}
 .vgp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .vgp-boite{width:min(560px,100%);max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;
   border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink)}

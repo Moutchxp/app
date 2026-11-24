@@ -47,7 +47,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(lectures[0]).toMatch(/^\/api\/admin\/gestion\/preavis\?vingtPourcent=1/);
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
     // 🔴 Arno (24/11/2026) — cinq catégories exclusives, dans cet ordre (« Dates manquantes » toujours en tête)
-    expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites']);
+    expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites', 'Alerte du lundi']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
     expect(m.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Manque : dernière AGO et date d’arrêté des comptes');
@@ -199,7 +199,7 @@ describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restituti
   it('« Restitutions faites (1) » repliée en bas de page : la restitution, puis « Annuler » → confirmation → POST d’annulation', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
-    expect(blocs.at(-1)).toBe('Restitutions faites');
+    expect(blocs.slice(-2)).toEqual(['Restitutions faites', 'Alerte du lundi']);
     const d = container.querySelector('[data-vgp-faites] > details') as HTMLDetailsElement;
     expect(d.open).toBe(false);
     expect(d.querySelector('summary')?.textContent).toBe('Restitutions faites (1)');
@@ -210,5 +210,23 @@ describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restituti
     await act(async () => { (d.querySelector('[data-vgp-annuler-oui="9"]') as HTMLButtonElement).click(); }); await calmer();
     expect(posts).toEqual([{ action: 'restitution-20-annuler', restitutionId: 9 }]);
     expect(lectures).toHaveLength(2);
+  });
+});
+
+/** 🔴 Arno (24/11/2026) — le MODE ESSAI de l'alerte du lundi : une LECTURE (GET), le mail tel qu'il partirait, rien n'est envoyé. */
+describe('🔴 Arno (24/11/2026) — « Alerte du lundi » : le mode essai', () => {
+  it('« Voir le mail tel qu’il partirait » lit la route de l’écran (GET ?alerteVingtEssai=1) et montre l’objet et le texte ; aucun envoi', async () => {
+    const methodes: string[] = [];
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      methodes.push(init?.method ?? 'GET'); lectures.push(String(u));
+      if (String(u).includes('alerteVingtEssai=1')) return { status: 200, json: async () => ({ etat: 'ok', data: { etat: 'essai', mail: { a: ['gestion@exemple.test'], objet: '[Urgent] 20 % à restituer — 1 locataire', texte: 'Bonjour,\n\n- LOC 1', nombre: 1 } } }) } as Response;
+      return { status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis' }));
+    await act(async () => { (container.querySelector('[data-vgp-alerte-essai]') as HTMLButtonElement).click(); }); await calmer();
+    expect(lectures.at(-1)).toBe('/api/admin/gestion/preavis?alerteVingtEssai=1');
+    expect(methodes.every((m) => m === 'GET')).toBe(true);
+    expect(container.querySelector('[data-vgp-alerte-objet]')?.textContent).toBe('[Urgent] 20 % à restituer — 1 locataire');
+    expect(container.querySelector('[data-vgp-alerte-texte-mail]')?.textContent).toContain('- LOC 1');
   });
 });

@@ -6,6 +6,7 @@ import { avecReponsesRdv, versionRdv } from '../../../../../lib/location/reponse
 import { dureesRdvReglees, minutesRdvAutorisees, plageRdvAutorisee } from '../../../../../lib/location/minutesRdvRepo';
 import { encartDuBail } from '../../../../../lib/location/sortieLocatairesRepo';
 import { lireSuiviVingtPourcent } from '../../../../../lib/location/vingtPourcentRepo';
+import { passeAlerteVingt } from '../../../../../lib/location/alerteVingtRepo';
 
 /**
  * ══ 🔴🔴 LES PRÉAVIS, LUS CÔTÉ GESTION (Arno, 10/11/2026, option A) ═══════════════════════════════════════════════════════════════
@@ -35,6 +36,8 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 Arno (18/11/2026) — + les minutes autorisées des rendez-vous (réglage 498 ; sans lui : 00, 15, 30, 45)
       return Response.json({ etat: 'ok', data: { ...(await avecReponsesRdv(await avecPrevisites(await preavisEnCours()))), minutesRdv: await minutesRdvAutorisees(), plageRdv: await plageRdvAutorisee(), dureesRdv: await dureesRdvReglees() } }, { headers: ENTETES });
     }
+    // 🔴 Arno (24/11/2026) — le MODE ESSAI de l'alerte du lundi (lecture seule : rien n'est envoyé ni écrit)
+    if (p.get('alerteVingtEssai') !== null) return Response.json({ etat: 'ok', data: await passeAlerteVingt({ essai: true }) }, { headers: ENTETES });
     if (p.get('vingtPourcent') !== null) return Response.json({ etat: 'ok', data: await lireSuiviVingtPourcent() }, { headers: ENTETES });
     const brut = p.get('encartBail') ?? '';
     if (/^[1-9]\d{0,15}$/.test(brut) && Number.isSafeInteger(Number(brut))) {
