@@ -310,19 +310,20 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 24/11/2026, après `4bde8fc2`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4bde8fc2`). `origin/main` = **`b1d4d866`** (poussé par Arno le
-  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **6 commits d'avance, NON
+**Dépôt (mesuré le 24/11/2026, après `cf7ecb2f`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cf7ecb2f`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **9 commits d'avance, NON
   POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
-  pleine largeur — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
+  mail chacun), `cf7ecb2f` (mail aux partenaires : retenue de 20 % et date de restitution — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `4bde8fc2`) : `npm test` VERT (1 866 fichiers, 27 817 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `cf7ecb2f`) : `npm test` VERT (1 866 fichiers, 27 840 tests, 21 ignorés), `tsc` sans erreur ; pages vérifiées dans
   Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celles de
-  `761222a0` et `4bde8fc2` restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
+  `761222a0`, `4bde8fc2` et `6f79c98a` (composant client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
@@ -615,6 +616,24 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     concernés (leur propre classe) : fiche syndic, carte vive, Caractéristiques et planche des permis, site public. Fonctionnement inchangé ;
     rien retiré. Vu au Chrome (ordinateur et 390 px, clair et sombre ; « Valider » / « Ajouter » jamais cliqués ; seul POST = la recherche par
     parcelle `action: 'parcelle'`, lecture seule, bloquée par le garde). Captures `.captures/adresse-champ/` 01 (avant) à 10.
+  - `6f79c98a` (24/11) — « lorsque l'on coche "Informer nos partenaires", il faut afficher en dessous les différents partenaires possibles à
+    informer et pouvoir les sélectionner individuellement ». CONSTAT D'AVANT : la liste vient du réglage « Paramètres Location › Destinataires
+    mails », liste « Sorties » (table `gestion_location_mail_destinataires`, `sorte = 'sortie'`, dernière version ; aucune adresse dans le code) —
+    en recette : ADHOC seul (`gestion.criterimmo@gmail.com`, posé par la migration 460) ; MONGA n'est que dans « Nouvelles locations ». Un SEUL
+    mail partait, tous les partenaires en « À », en copie gestion@ et la personne qui valide (`copiesAvis`). APRÈS : sous la case, une case par
+    partenaire (nom + adresse), toutes cochées par défaut ; case principale décochée = liste décochée et masquée (recochée : tous recochés) ;
+    aucun coché = aucun mail partenaire ; UN mail par partenaire coché, un seul « À » ; seule la liste « Sorties » décide (adresse inconnue
+    ignorée ; sans sélection transmise : tous, comme avant) ; récapitulatif « Mail à nos partenaires — ADHOC » par bloc. Copies gestion@ + valideur
+    GARDÉES sur chaque mail partenaire. 🔴 POINT À CONFIRMER : les mails locataire/propriétaire partent sans copie visible (la copie interne est un
+    mail à part) — faut-il aussi retirer gestion@ et le valideur de la copie des mails partenaires ? (retrait non fait sans accord).
+  - `cf7ecb2f` (24/11) — « indiquer s'il y a une retenue ou pas des 20 % de l'article 22, et la date approximative ou non » : paragraphe après
+    « Le logement est désormais vacant. » (`paragrapheRetenuePartenaires`, `validationSortie.ts`) — 4 variantes (projetée « est attendue vers …
+    (date approximative) », officielle « est prévue au plus tard le … », sans date « interviendra dans le mois qui suit l'approbation des comptes
+    de l'immeuble », pas de retenue « Aucune retenue … n'a été appliquée. ») ; « aux locataires » s'ils sont plusieurs. Même AGO qui compte que
+    le locataire et le propriétaire ; calculé par le serveur, identique aperçu / envoi. L'écran de sortie plus ancien (`envoyerMailsSortie`) inchangé.
+    Vu au Chrome sur ESSAIPREAVIS Paul (aperçu seul, « Revenir » / « Annuler » ; aucun envoi, seuls POST = `apercu-validation-sortie`) : sans
+    retenue et retenue sans date (Paul n'a pas de copropriété → arrêté inconnu) ; variantes projetée / officielle par les tests seulement.
+    Captures `.captures/vingt-pourcent/` 116-119 (partenaires), 120-123 (paragraphe).
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
