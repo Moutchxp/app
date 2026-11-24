@@ -3840,6 +3840,9 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     await ouvrir();
     expect(q('[data-retenue-a-verifier]')).not.toBeNull(); // « Copropriété non renseignée sur la fiche du bien » reste
     act(() => (q('[data-retenue-case]') as HTMLInputElement).click()); // non renseigné : case décochée au départ
+    // 🔴🔴 Arno (24/11/2026) — case cochée : le message orange du haut disparaît (doublon de la ligne « Copropriété : aucune copropriété rattachée … »)
+    expect(q('[data-retenue-a-verifier]')).toBeNull();
+    expect(q('[data-ag-copropriete="aucune"]').textContent).toBe('Copropriété : aucune copropriété rattachée — sans elle, le suivi des 20 % restera incomplet.');
     expect((q('[data-ag-copro-choisie="7"]') as HTMLInputElement).checked).toBe(true);
     act(() => (q('[data-ag-copro-oui] input') as HTMLInputElement).click());
     act(() => q('[data-ag-statut-choix="officielle"]').click());
@@ -3847,11 +3850,14 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect(posts.at(-1)).toMatchObject({ coproprieteChoix: { rattacher: 7 }, coproprieteOui: true, ag: { statut: 'officielle' } });
     act(() => (document.querySelector('button[data-revenir-validation]') as HTMLButtonElement).click());
     act(() => (q('[data-ag-copro="aucune"]') as HTMLInputElement).click());
-    // 🔴 Arno (23/11/2026) — plus aucune date gardée avec la sortie
-    expect(q('[data-ag-a-rattacher]').textContent).toBe('Sans copropriété, le suivi des 20 % restera incomplet : rattachez le bien dès que possible.');
+    // 🔴🔴 Arno (24/11/2026) — « Sans copropriété, le suivi des 20 % restera incomplet… » fusionné dans la ligne « Copropriété : … » (doublon retiré)
+    expect(q('[data-ag-a-rattacher]')).toBeNull();
+    expect(q('[data-ag-copropriete="aucune"]').textContent).toContain('sans elle, le suivi des 20 % restera incomplet.');
     // 🔴🔴 Arno (23/11/2026) — « Créer une copropriété » ouvre LA fiche Copropriété (même composant que la Gestion) ; plus de nom tapé ici
+    // 🔴🔴 (24/11/2026) le bouton du bloc retiré (doublon) : c'est celui de tête, « Créer une copropriété pour cette adresse »
     expect(q('input[data-ag-copro-nom]')).toBeNull();
-    await act(async () => { (q('button[data-ag-copro="creer"]') as HTMLButtonElement).click(); }); await attendre();
+    expect(q('button[data-ag-copro="creer"]')).toBeNull();
+    await act(async () => { (q('button[data-ag-bouton-copro="creer"]') as HTMLButtonElement).click(); }); await attendre();
     expect(document.querySelector('.fcp-boite[role="dialog"]')).not.toBeNull();
     expect(document.querySelectorAll('[data-fenetre-validation-sortie] select')).toHaveLength(0);
   });

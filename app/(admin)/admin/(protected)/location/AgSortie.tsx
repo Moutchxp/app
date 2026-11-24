@@ -17,15 +17,15 @@ import { ArreteComptes, CSS_ARRETE_COMPTES } from '../gestion/ArreteComptes';
  * « Confirmer cette date comme référence », modifiable) ; b) « Prochaine assemblée générale » (l'officielle à venir si elle existe, sinon
  * dernière + 1 an, « projection — … ») avec le statut OBLIGATOIRE « Date projetée » / « Date officielle » ; c) rien ne part sans les deux
  * dates et le statut (message, champs en rouge). Un bien relié à aucune copropriété : la rattacher à une copropriété qui couvre son adresse,
- * en créer une, ou laisser « à rattacher ». Copropriété non renseignée sur la fiche : « Immeuble en copropriété » proposé.
+ * en créer une (bouton de tête), ou rien (implicite s'il n'y a rien à rattacher). Copropriété non renseignée sur la fiche : « Immeuble en
+ * copropriété » proposé. 🔴 (Arno, 24/11/2026) Les deux cas, avec ou sans copropriété, ont le même agencement.
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 
-/** 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : rien n'est enregistré, le suivi des 20 % reste incomplet. */
-export const SANS_COPROPRIETE_INCOMPLET = 'Sans copropriété, le suivi des 20 % restera incomplet : rattachez le bien dès que possible.';
-/** 🔴 Arno (23/11/2026) — sans copropriété rattachée : la date d'arrêté des comptes ne peut pas se saisir. */
-/** 🔴 Arno (23/11/2026, suite) — « Ne pas rattacher maintenant » : le bandeau dit où saisir l'arrêté ET les AG (avant : « Rattachez ou créez la
- *  copropriété pour saisir sa date d'arrêté des comptes. ») */
+/** 🔴🔴 Arno (24/11/2026) — « pourquoi il y a 2 modales différentes pour la même fonction ? » : sans copropriété, UNE ligne au même endroit et dans le
+ *  même style que « Copropriété : … — ses AG valent pour tous ses biens. » (elle fusionne « Sans copropriété, le suivi des 20 % restera incomplet… »). */
+export const COPROPRIETE_AUCUNE = 'aucune copropriété rattachée';
+export const COPROPRIETE_AUCUNE_SUITE = ' — sans elle, le suivi des 20 % restera incomplet.';
 /** 🔴 Arno (23/11/2026) — la dernière AGO a plus d'un an : comment lever le blocage, sans le bouton « Confirmer cette date comme référence » (retiré). */
 export const CONSIGNE_DERNIERE_ANCIENNE = 'Vérifiez la date de la dernière AGO : la saisir ou la corriger suffit à continuer.';
 /** 🔴 Arno (23/11/2026) — le bouton de tête du bloc 20 % : créer la copropriété de l'adresse, ou y accéder. */
@@ -33,7 +33,6 @@ export const LIBELLE_CREER_COPRO_ADRESSE = 'Créer une copropriété pour cette 
 export const LIBELLE_ACCEDER_COPRO = 'Accéder à la fiche de copropriété';
 /** 🔴 Arno (23/11/2026, suite) — la ligne « Date d'arrêté des comptes » quand le bien n'a aucune copropriété rattachée. */
 export const ARRETE_AUCUNE_COPROPRIETE = 'aucune copropriété rattachée';
-export const ARRETE_SANS_COPROPRIETE = 'Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).';
 /** 🔴 Arno (23/11/2026) — le bandeau quand la copropriété n'a aucune AGO connue. */
 export const BANDEAU_DERNIERE_AGO_MANQUANTE = 'Dernière AGO manquante : sans elle, le suivi des 20 % ne peut pas être fiable. Saisissez-la ci-dessous.';
 
@@ -211,32 +210,26 @@ export function AgSortie({ lu, s, onChange, desactive, onRelire, dateSortie = ''
       <button type="button" className="svv-btn svv-btn-outline gst-btn vag-copro-btn" disabled={desactive} onClick={() => setFicheOuverte(true)}
         data-ag-bouton-copro={lu.copropriete === null ? 'creer' : 'acceder'}>
         {lu.copropriete === null ? LIBELLE_CREER_COPRO_ADRESSE : LIBELLE_ACCEDER_COPRO}</button>
-      {/* la copropriété du bien, ou de quoi l'y rattacher */}
-      {lu.copropriete !== null ? <>
-        <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
-        {/* 🔴 (Arno, 23/11/2026, suite) la date d'arrêté des comptes a DESCENDU, juste au-dessus de « Dernière AGO connue » (voir plus bas) */}
-      </> : (
-        <fieldset className="pvv-choix vag-rattacher" data-ag-rattacher>
-          <legend className="pvs-libelle">Ce bien n’est relié à aucune copropriété</legend>
+      {/* 🔴🔴 Arno (24/11/2026) — « Je préfère l'agencement de la modale 1 (bien rattaché à une copropriété), applique-le partout dans cette fonction,
+          car il y a un doublon dans la modale 2 (bien sans copropriété). » — les deux cas dans le MÊME ordre et le MÊME style : la ligne
+          « Copropriété : … », la case « Immeuble en copropriété », la ligne « Date d'arrêté des comptes : … », puis les AGO. RETIRÉS (accord d'Arno,
+          doublons du bouton de tête et de la ligne) : le bloc « Ce bien n'est relié à aucune copropriété » (son bouton « Créer une copropriété » et
+          son texte d'aide), l'encadré « Pour saisir la date d'arrêté des comptes et les AG, créez ou rattachez la copropriété… » et la ligne « Sans
+          copropriété, le suivi des 20 % restera incomplet… » (fusionnée ici). */}
+      {lu.copropriete !== null
+        ? <p className="loc-muet vag-copro" data-ag-copropriete>Copropriété : <strong>{lu.copropriete.libelle}</strong> — ses AG valent pour tous ses biens.</p>
+        : <p className="loc-muet vag-copro" data-ag-copropriete="aucune">Copropriété : <strong>{COPROPRIETE_AUCUNE}</strong>{COPROPRIETE_AUCUNE_SUITE}</p>}
+      {/* « Ne pas rattacher maintenant » seul choix possible : implicite, plus de bouton radio (sortie possible sans copropriété, champs AGO toujours
+          obligatoires). Des copropriétés existantes couvrent l'adresse (même parcelle) : la liste de choix, telle quelle, sous la ligne. */}
+      {lu.copropriete === null && lu.suggestions.length > 0 && (
+        <fieldset className="pvv-choix vag-rattacher" aria-label="Rattacher le bien à une copropriété" data-ag-rattacher>
           {/* une case par copropriété qui couvre son adresse (pas de liste déroulante dans la Location) */}
           {lu.suggestions.map((c) => (
             <label key={c.id} className="pvv-case"><input type="radio" name="vag-copro" checked={s.copro === 'rattacher' && s.rattacher === c.id} disabled={desactive}
               onChange={() => onChange({ ...s, copro: 'rattacher', rattacher: c.id })} data-ag-copro="rattacher" data-ag-copro-choisie={c.id} />
               <span>Le rattacher à la copropriété « {c.libelle} » (elle couvre son adresse)</span></label>))}
-          {/* 🔴🔴 Arno (23/11/2026) — « Créer une copropriété » = EXACTEMENT le parcours de la Gestion : la fiche Copropriété elle-même (même composant,
-              aucune copie) pour l'adresse du bien — adresse officielle, adresses de la même parcelle, adresses déjà rattachées, garde anti-doublon,
-              « Rattacher à … ? » et « Non » mémorisé. À son « Valider », la copropriété existe ; à sa fermeture, la fenêtre la relit. */}
-          <div className="vag-creer" data-ag-creer>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn vag-creer-btn" disabled={desactive} onClick={() => setFicheOuverte(true)} data-ag-copro="creer">
-              Créer une copropriété</button>
-            <p className="loc-muet vag-aide">Ouvre la fiche Copropriété de l’adresse du bien, comme dans la Gestion : adresse officielle, autres adresses de la même parcelle, copropriété déjà rattachée à l’une d’elles. Une fois la fiche validée, la copropriété apparaît ici.</p>
-          </div>
           <label className="pvv-case"><input type="radio" name="vag-copro" checked={s.copro === 'aucune'} disabled={desactive} onChange={() => onChange({ ...s, copro: 'aucune' })} data-ag-copro="aucune" />
             <span>Ne pas rattacher maintenant</span></label>
-          {/* 🔴 Arno (23/11/2026) — sans copropriété, pas d'arrêté des comptes possible : on dit comment l'obtenir */}
-          <p className="vag-bandeau" data-ag-arrete-sans-copro>{ARRETE_SANS_COPROPRIETE}</p>
-          {/* 🔴 Arno (23/11/2026) — plus aucune date n'est gardée avec la sortie (avant : « Les dates seront enregistrées avec la sortie, à rattacher… ») */}
-          {s.copro === 'aucune' && <p className="vse-orange" data-ag-a-rattacher>{SANS_COPROPRIETE_INCOMPLET}</p>}
         </fieldset>
       )}
       {lu.coproprieteSaisie === null && (
@@ -367,9 +360,6 @@ export const CSS_AG_SORTIE = `
 .vag-texte-mail-phrase{margin:0;font-size:1rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .vag-texte-mail-note{margin:0;font-size:.85rem}
 .vag-bandeau{margin:0;padding:10px 12px;border:2px solid var(--color-svv-urgence-orange);border-radius:12px;background:var(--color-svv-amber-soft);font-weight:800;color:var(--color-svv-ink);overflow-wrap:anywhere}
-.vag-creer{display:flex;flex-direction:column;gap:6px}
-/* Arno (23/11/2026) : le bouton Creer une copropriete prend TOUTE la largeur de la colonne (390 px et ordinateur) */
-.vag-creer-btn{align-self:stretch;box-sizing:border-box;width:100%;min-height:44px}
 .vag{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;border-left:4px solid var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .vag input[type=date],.vag input:not([type]){min-height:44px;box-sizing:border-box;max-width:100%}
 .vag-copro,.vag-auteur{margin:0;overflow-wrap:anywhere}

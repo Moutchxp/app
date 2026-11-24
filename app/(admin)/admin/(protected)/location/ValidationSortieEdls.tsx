@@ -223,7 +223,10 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         {etatCase === 'impossible' && <p className="loc-muet" data-retenue-impossible>{MOTIF_RETENUE_IMPOSSIBLE}</p>}
         {/* 🔴 Arno (23/11/2026) — une copropriété RATTACHÉE au bien : plus de « copropriété non renseignée » (la case « Immeuble en copropriété »
             est cochée d'office et renseigne la fiche du bien à la confirmation) */}
-        {etatCase === 'a_verifier' && coproRattacheeId === null && (
+        {/* 🔴🔴 Arno (24/11/2026) — RETIRÉ quand la case 20 % est cochée (accord d'Arno, doublon de « Copropriété : aucune copropriété rattachée — sans
+            elle, le suivi des 20 % restera incomplet. » et du bouton de tête du bloc) ; case décochée, le bloc 20 % n'est pas affiché : rien d'autre ne
+            le dit, le message reste (question posée à Arno) */}
+        {etatCase === 'a_verifier' && coproRattacheeId === null && !retenueAppliquee && (
           <p className="vse-orange" role="status" data-retenue-a-verifier>{ALERTE_COPROPRIETE_NON_RENSEIGNEE}{' '}
             {copro.etat.etat === 'ok' && <a href={`/admin/location/bien/${copro.etat.data.lotId}`} target="_blank" rel="noopener" data-lien-copropriete>Renseigner la copropriété sur la fiche du bien</a>}</p>
         )}

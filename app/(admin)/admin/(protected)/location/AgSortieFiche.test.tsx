@@ -17,7 +17,7 @@ vi.mock('../gestion/FicheCopropriete', () => ({
 }));
 const arrete = vi.fn();
 vi.mock('../gestion/ArreteComptes', () => ({ ArreteComptes: (p: Record<string, unknown>) => { arrete(p); return createElement('div', { 'data-stub-arrete': String(p.coproprieteId) }); }, CSS_ARRETE_COMPTES: '' }));
-const { AgSortie, CSS_AG_SORTIE, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee, ARRETE_SANS_COPROPRIETE, agoQuiCompte, libelleCaseAgoQuiCompte, texteAjouteAuMail, AIDE_PROCHAINE_AGO } = await import('./AgSortie');
+const { AgSortie, CSS_AG_SORTIE, saisieAgInitiale, luAgPropre, corpsAg, BANDEAU_DERNIERE_AGO_MANQUANTE, prochaineCalculee, agoQuiCompte, libelleCaseAgoQuiCompte, texteAjouteAuMail, AIDE_PROCHAINE_AGO } = await import('./AgSortie');
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let container: HTMLDivElement; let root: Root;
@@ -32,7 +32,7 @@ describe('« Créer une copropriété » depuis la fenêtre de sortie', () => {
     const s = saisieAgInitiale(LU);
     await act(async () => { root.render(createElement(AgSortie, { lu: LU, s, onChange: () => {}, desactive: false, onRelire: relire })); });
     expect(container.querySelector('input[data-ag-copro-nom]')).toBeNull();
-    await act(async () => { (container.querySelector('button[data-ag-copro="creer"]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('button[data-ag-bouton-copro="creer"]') as HTMLButtonElement).click(); });
     expect(fiche).toHaveBeenCalledWith(expect.objectContaining({ lotId: 7 }));
     await act(async () => { (container.querySelector('[data-stub-fiche="7"]') as HTMLButtonElement).click(); });
     expect(relire).toHaveBeenCalledTimes(1);
@@ -103,23 +103,19 @@ describe('🔴 Arno (23/11/2026) — « Prochaine AGO » PRÉREMPLIE par le calc
 });
 
 describe('🔴 Arno (23/11/2026) — « le bouton "Créer une copropriété" doit prendre toute la largeur de la colonne »', () => {
-  it('la règle du bouton : étiré sur toute la largeur (aucune largeur automatique, aucun alignement à gauche)', async () => {
+  it('(24/11/2026) le bouton du bloc retiré (doublon) : le seul « Créer une copropriété » est celui de tête, pleine largeur', async () => {
     const { CSS_AG_SORTIE } = await import('./AgSortie');
-    const regle = /\.vag-creer-btn\{([^}]*)\}/.exec(CSS_AG_SORTIE)?.[1] ?? '';
-    expect(regle).toContain('width:100%');
-    expect(regle).toContain('align-self:stretch');
-    expect(regle).not.toContain('width:auto');
-    expect(regle).not.toContain('flex-start');
+    expect(CSS_AG_SORTIE).not.toContain('.vag-creer-btn');
+    expect(CSS_AG_SORTIE).toContain('.vag-copro-btn{width:100%;');
   });
 });
 
 describe('🔴 Arno (23/11/2026) — « Si une date de clôture des comptes n’a jamais été renseignée […] cela doit être possible directement dans cette modale »', () => {
-  it('sans copropriété : « Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (…) » ; aucun champ d’arrêté', async () => {
+  it('sans copropriété : aucun champ d’arrêté ; (24/11/2026) l’encadré « Pour saisir la date d’arrêté des comptes et les AG… » retiré (doublon)', async () => {
     arrete.mockClear();
     await act(async () => { root.render(createElement(AgSortie, { lu: LU, s: saisieAgInitiale(LU), onChange: () => {}, desactive: false })); });
-    expect(container.querySelector('[data-ag-arrete-sans-copro]')?.textContent).toBe(ARRETE_SANS_COPROPRIETE);
-    // 🔴 Arno (23/11/2026, suite) — le nouveau texte, mot pour mot
-    expect(ARRETE_SANS_COPROPRIETE).toBe('Pour saisir la date d’arrêté des comptes et les AG, créez ou rattachez la copropriété (bouton « Créer une copropriété » ci-dessus).');
+    expect(container.querySelector('[data-ag-arrete-sans-copro]')).toBeNull();
+    expect(container.textContent).not.toContain('Pour saisir la date d’arrêté des comptes et les AG');
     expect(arrete).not.toHaveBeenCalled();
   });
   it('juste après « Créer une copropriété » (fiche validée, fenêtre relue) : le champ d’arrêté de LA nouvelle copropriété, avec son bandeau', async () => {
@@ -255,10 +251,9 @@ describe('🔴🔴 la date d’arrêté des comptes juste au-dessus de « Derni�
     expect(container.querySelector('[data-ag-arrete-creer-copro]')).toBeNull();
     expect(container.textContent).not.toContain('Créer une copropriété pour la renseigner');
     expect(container.querySelector('[data-stub-arrete]')).toBeNull();
-    // rien d'autre ne bouge : « Créer une copropriété », « Ne pas rattacher maintenant » et le bandeau d'avant restent
-    expect(container.querySelector('button[data-ag-copro="creer"]')).not.toBeNull();
-    expect(container.querySelector('input[data-ag-copro="aucune"]')).not.toBeNull();
-    expect(container.querySelector('[data-ag-arrete-sans-copro]')?.textContent).toBe(ARRETE_SANS_COPROPRIETE);
+    // 🔴🔴 (24/11/2026) le bouton de tête reste, seul « Créer une copropriété » (doublons retirés)
+    expect(container.querySelector('button[data-ag-bouton-copro="creer"]')).not.toBeNull();
+    expect(container.querySelector('button[data-ag-copro="creer"]')).toBeNull();
   });
 });
 
@@ -316,5 +311,76 @@ describe('🔴 « Date projetée » / « Date officielle » : 50 / 50, le style 
     expect(b.some((x) => x.classList.contains('pva-segment'))).toBe(false);
     expect(CSS_AG_SORTIE).toContain('.vag-statut{display:grid;grid-template-columns:repeat(auto-fit,minmax(8rem,1fr));gap:8px;min-width:0}');
     expect(CSS_AG_SORTIE).toContain('.vag-statut .vag-statut-btn{min-height:44px;width:100%;min-width:0;box-sizing:border-box;margin:0}');
+  });
+});
+
+/**
+ * 🔴🔴 Arno (24/11/2026) — « pourquoi il y a 2 modales différentes pour la même fonction ? Je préfère l'agencement de la modale 1 (bien rattaché à une
+ * copropriété), applique-le partout dans cette fonction, car il y a un doublon dans la modale 2 (bien sans copropriété). »
+ */
+describe('🔴🔴 bien sans copropriété : le MÊME agencement que le bien rattaché, sans doublon', () => {
+  const RATTACHE = luAgPropre({ ...LU, coproprieteSaisie: null, copropriete: { id: 310, libelle: '64 Avenue des Bergères' } });
+  const SANS = luAgPropre({ ...LU, coproprieteSaisie: null });
+  /** la suite des éléments du bloc, dans l'ordre du document */
+  const SUITE: [string, string][] = [['bouton', '[data-ag-bouton-copro]'], ['copropriete', '[data-ag-copropriete]'], ['case', '[data-ag-copro-oui]'],
+    ['arrete', '[data-stub-arrete], [data-ag-arrete-ligne-sans-copro]'], ['bandeau', '[data-ag-bandeau-derniere]'], ['aide', '[data-ag-aide-ago]'],
+    ['derniere', 'input[data-ag-derniere]'], ['prochaine', 'input[data-ag-prochaine]'], ['statut', '[data-ag-statut]']];
+  const ordre = (): string[] => {
+    const tous = [...container.querySelectorAll(SUITE.map(([, sel]) => sel).join(', '))];
+    return tous.map((e) => SUITE.find(([, sel]) => e.matches(sel))![0]);
+  };
+  const rendre = async (lu: typeof LU): Promise<void> => {
+    await act(async () => { root.render(createElement(AgSortie, { lu, s: saisieAgInitiale(lu), onChange: () => {}, desactive: false })); });
+  };
+  it('ordre identique dans les deux cas : bouton de tête, ligne « Copropriété : … », case, arrêté, dernière AGO manquante, aide, Dernière AGO, Prochaine AGO, statut', async () => {
+    const attendu = SUITE.map(([n]) => n);
+    await rendre(RATTACHE);
+    expect(ordre()).toEqual(attendu);
+    await rendre(SANS);
+    expect(ordre()).toEqual(attendu);
+  });
+  it('la ligne du point 2, même élément et même style que « Copropriété : 64 Avenue des Bergères — ses AG valent pour tous ses biens. »', async () => {
+    await rendre(RATTACHE);
+    const avec = container.querySelector('[data-ag-copropriete]')!;
+    expect(avec.textContent).toBe('Copropriété : 64 Avenue des Bergères — ses AG valent pour tous ses biens.');
+    const classeAvec = avec.className;
+    await rendre(SANS);
+    const sans = container.querySelector('[data-ag-copropriete]')!;
+    expect(sans.textContent).toBe('Copropriété : aucune copropriété rattachée — sans elle, le suivi des 20 % restera incomplet.');
+    expect([sans.tagName, sans.className, sans.querySelector('strong')?.textContent]).toEqual(['P', classeAvec, 'aucune copropriété rattachée']);
+    expect(container.querySelector('[data-ag-arrete-ligne-sans-copro] .arc-arrete-ligne')?.textContent).toBe('Date d’arrêté des comptes : aucune copropriété rattachée');
+  });
+  it('doublons absents : ni « Ce bien n’est relié à aucune copropriété », ni son bouton ni son aide, ni l’encadré d’arrêté, ni la ligne « Sans copropriété… »', async () => {
+    await rendre(SANS);
+    const t = container.textContent ?? '';
+    expect(t).not.toContain('Ce bien n’est relié à aucune copropriété');
+    expect(t).not.toContain('Ouvre la fiche Copropriété de l’adresse du bien');
+    expect(t).not.toContain('Pour saisir la date d’arrêté des comptes et les AG');
+    expect(t).not.toContain('Sans copropriété, le suivi des 20 % restera incomplet');
+    expect(container.querySelector('button[data-ag-copro="creer"]')).toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(3); // le bouton de tête, Date projetée, Date officielle
+    expect(container.querySelector('[data-ag-bouton-copro="creer"]')?.textContent).toBe('Créer une copropriété pour cette adresse');
+  });
+  it('« Ne pas rattacher maintenant » seul choix : implicite, sans bouton radio ; la sortie sans copropriété reste possible, champs AGO toujours obligatoires', async () => {
+    const { verdictAg } = await import('./AgSortie');
+    await rendre(SANS);
+    expect(container.querySelector('[data-ag-rattacher]')).toBeNull();
+    expect(container.querySelector('input[type="radio"]')).toBeNull();
+    const s = saisieAgInitiale(SANS);
+    expect(s.copro).toBe('aucune');
+    expect(corpsAg(s, SANS)).toMatchObject({ coproprieteChoix: null });
+    // rien d'assoupli : sans dates ni statut, refus ; avec, la sortie passe sans copropriété
+    expect(verdictAg(s, SANS).ok).toBe(false);
+    expect(verdictAg({ ...s, derniere: '2026-03-25', prochaine: '2027-03-25', statut: 'projetee' }, SANS).ok).toBe(true);
+  });
+  it('des copropriétés existantes couvrent l’adresse : la liste de choix telle quelle, sous la ligne « Copropriété : … »', async () => {
+    const lu = luAgPropre({ ...LU, coproprieteSaisie: null, suggestions: [{ id: 12, libelle: 'Résidence Fictive' }] });
+    await rendre(lu);
+    const liste = container.querySelector('[data-ag-rattacher]')!;
+    expect([...liste.querySelectorAll('label')].map((x) => x.textContent)).toEqual(['Le rattacher à la copropriété « Résidence Fictive » (elle couvre son adresse)', 'Ne pas rattacher maintenant']);
+    expect((liste.querySelector('[data-ag-copro-choisie="12"]') as HTMLInputElement).checked).toBe(true);
+    const suit = (a: Element, b: Element): boolean => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(suit(container.querySelector('[data-ag-copropriete]')!, liste)).toBe(true);
+    expect(suit(liste, container.querySelector('[data-ag-copro-oui]')!)).toBe(true);
   });
 });
