@@ -29,6 +29,8 @@ const dateFr = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.sl
 /** 🔴 Arno (24/11/2026) — les gestes (« Restitution faite », « Annuler ») passent par la route de la Location, depuis la Gestion comme depuis la Location
  *  (la route de la Gestion reste en lecture seule). */
 export const API_GESTES_VINGT = '/api/admin/location';
+/** 🔴 (Arno, 24/11/2026, 23h53) « Le bouton « Restitution faite » devient « Faire restitution » partout ; la modale ne change pas. » */
+export const LIBELLE_FAIRE_RESTITUTION = 'Faire restitution';
 type Geste = (corps: Record<string, unknown>) => Promise<string | null>;
 const geste: Geste = async (corps) => {
   try {
@@ -177,7 +179,7 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
                   {cat === 'manquantes' ? <span className="loc-muet"> — sans date : figure seulement ici</span>
                     : <span className="vgp-incertaine"> — date provisoire : apparaît dans « {TITRES_CATEGORIES[cat]} »</span>}
                 </span>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>Restitution faite</button>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
               </li>
             );
           })}</ul>
@@ -239,7 +241,7 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onFiche({ immeuble: l.immeuble ?? null, lotId: l.lotId })}
               data-vgp-fiche={l.sortieId}>{l.copropriete === null ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
             {/* 🔴 Arno (24/11/2026) — « Restitution faite » : la fenêtre (inchangée) ; enregistrée, la ligne quitte la liste */}
-            <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>Restitution faite</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
           </span>
         </div>
       </div>

@@ -281,7 +281,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const a = ligne(5);
     expect([a.querySelector('[data-vgp-adresse]')?.textContent, a.querySelector('[data-vgp-noms]')?.textContent]).toEqual(['1 rue A, 92800 Puteaux', 'DUPONT Alice']);
-    expect([...a.querySelectorAll('.vgp-ligne-droite button')].map((x) => x.textContent)).toEqual(['Fiche copropriété', 'Restitution faite']);
+    expect([...a.querySelectorAll('.vgp-ligne-droite button')].map((x) => x.textContent)).toEqual(['Fiche copropriété', 'Faire restitution']);
     expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     // une ligne par sortie, colocataires ensemble
     expect(container.querySelector('[data-vgp-concerne="6"] strong')?.textContent).toBe('MARTIN Paul, MARTIN Léa');
@@ -340,7 +340,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h40) — « Dates manquantes » : un bloc
     expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     await act(async () => { (c.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
     expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(false);
-    expect(c.querySelector('[data-vgp-concerne="7"]')?.textContent).toBe('DURAND Léo — Bien 3 — sorti le 10/01/2026 — date provisoire : apparaît dans « Urgence »Restitution faite');
+    expect(c.querySelector('[data-vgp-concerne="7"]')?.textContent).toBe('DURAND Léo — Bien 3 — sorti le 10/01/2026 — date provisoire : apparaît dans « Urgence »Faire restitution');
     await act(async () => { (c.querySelector('[data-vgp-restituer-concerne="7"]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-fenetre-restitution="7"]')).not.toBeNull();
     // « Fiche copropriété » ouvre la fiche, comme « Compléter la fiche Copropriété » avant
@@ -385,5 +385,19 @@ describe('🔴 Arno (24/11/2026, 23h40) — 390 px', () => {
     expect(mobile).toContain('-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3;min-height:2.6em}');
     expect(css).toContain('.vgp-rebours{font-weight:800;flex:0 0 auto}');
     expect(mobile).toContain('.vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}');
+  });
+});
+
+/** 🔴 Arno (24/11/2026, 23h53) — « Restitution faite » devient « Faire restitution » partout ; la modale et la section « Restitutions faites » gardent leurs mots. */
+describe('🔴 Arno (24/11/2026, 23h53) — « Faire restitution »', () => {
+  it('lignes et « Dates manquantes » : « Faire restitution » ; plus aucun bouton « Restitution faite » ; la modale garde son titre, la section le sien', async () => {
+    donnees = { ...LU, faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const boutons = [...container.querySelectorAll('button')].map((b) => b.textContent);
+    expect(boutons.filter((t) => t === 'Faire restitution').length).toBe(container.querySelectorAll('[data-vgp-restituer],[data-vgp-restituer-concerne]').length);
+    expect(boutons).not.toContain('Restitution faite');
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-fenetre-restitution="5"] h2')?.textContent).toBe('Restitution faite — DUPONT Alice');
+    expect(container.querySelector('[data-vgp-faites] summary')?.textContent).toBe('Restitutions faites (0)');
   });
 });
