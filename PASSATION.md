@@ -310,25 +310,17 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 23/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `ec528f8e`). `origin/main` = **`351f04de`**
-  (poussé par Arno le 20/11 au soir, étape B de la mise en production). **61 commits d'avance (cette passation comprise), NON POUSSÉS** (dont `3c215ca2`, `6c9132f4`, `33e57c2c`, `64c4c852`, `f4bf2c9b`, `3188bac6`, `bcf4356e`, `498f7d56`, `7bd9afd0`, `a6dc9366`, `7b0e5e02` et `23b55362`, passations,
-  `2cb281cc`, `8a845ae0`, `f35f53a2`, `c4405330`, `4699df09`, retours d'Arno du 23/11 au soir, et `e3249124`, `82037e4c`, textes « 20 % »
-  des mails, `79ff9020`, `f06248d9`, `d1b57b8f`, AG et arrêté dans la fiche Copropriété, `86f8829e`, état des lieux joint annoncé,
-  `c146e4fe`, `cb744be3`, arrêté des comptes pleine largeur et dans « Valider la sortie », `520ce23d` → `36b1a2ea`, retours du 23/11 au
-  soir (date d'AG, agencement de l'arrêté, texte propriétaire modifiable, bouton copropriété, case « Immeuble en copropriété »), `976079cc` → `90e05b93` (boutons de statut, mois de restitution, messages
-  verts de la fiche, « Accéder à la fiche de copropriété »), `74061ea5` (texte des propriétaires en trois paragraphes), `e642bbe0` → `14e01401` (arrêté en gros, pièce jointe
-  annoncée, fenêtre « Aucun état des lieux joint »), `8c86daff`, `04e448fa` (bouton « Confirmer cette date comme référence »
-  retiré, pièces jointes sans « Modification enregistrée »), `46958f1b`, `8f58b039` (pièce jointe sous le compte rendu, ligne
-  unique « Restitution des 20 % annoncée »), `ec528f8e` (« le rapport complet ») — détail plus bas) : `b3819054`,
-  `ec3aff05`, `72af1d4b` (préavis, 21/11), `1968e642` (passation du 21/11), `1819b9f5`, `b0453dc2`, `34c49f0e`, `cf05a27a`
-  (suivi des 20 %, 23/11), `627535e5` (passation du 23/11), `068bb9dd`, `d56c0315`, `f6274d92`, `8e949180`, `4e8353e2`, `fc736919`,
-  `803dc30a`, `03a4db8a` (fenêtre « Valider la sortie » et copropriété, 23/11 — détail plus bas) et cette passation. Rien n'est poussé par
-  l'agent : c'est Arno qui pousse.
+**Dépôt (mesuré le 24/11/2026) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4f3c1e3f`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **2 commits d'avance, NON
+  POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  avec l'accord d'Arno — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `ec528f8e`) : `npm test` VERT (1 866 fichiers, 27 807 tests, 21 ignorés) ; pages vérifiées dans
-  Chrome sur la recette (aucune « Build Error »).
+- **Contrôles** (dernier lot, `4f3c1e3f`) : `npm test` VERT (1 866 fichiers, 27 812 tests, 21 ignorés) ; pages vérifiées dans
+  Chrome sur la recette. Preuve curl de `ec528f8e` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celle de
+  `4f3c1e3f` reste à faire (curl refusé à l'agent dans ce mode) — la page de la recette s'est construite et affichée au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
@@ -529,9 +521,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     coché ; récapitulatif : ligne « Texte ajouté au mail du (des) propriétaire(s) ». Aucun propriétaire des biens d'essai n'a d'e-mail : la
     zone ACTIVE n'est éprouvée que par les tests.
   - `1883f206` — en tête du bloc 20 % : « Créer une copropriété pour cette adresse » / « Accéder à la copropriété » (pleine largeur, LA fiche
-    Copropriété du bien, relecture à la fermeture) ; « Créer une copropriété pour la renseigner » (cb744be3) remplacé. 🔴 QUESTION OUVERTE : le
-    bouton « Créer une copropriété » de « Ce bien n'est relié à aucune copropriété » (même action) est GARDÉ — doublon visible sans
-    copropriété ; le retirer seulement avec l'accord d'Arno.
+    Copropriété du bien, relecture à la fermeture) ; « Créer une copropriété pour la renseigner » (cb744be3) remplacé. ✅ (24/11) Question
+    réglée : le bouton « Créer une copropriété » de « Ce bien n'est relié à aucune copropriété » est retiré avec son bloc, accord d'Arno (`4f3c1e3f`).
   - `36b1a2ea` — copropriété rattachée au bien : « Immeuble en copropriété » coché d'office, plus de « Copropriété non renseignée sur la fiche
     du bien ». ÉCART = DONNÉE DU BIEN : biens 442-448 (1 rue du Préavis de Test (FICTIF)) au champ « Copropriété » vide, alors que la
     copropriété 315 (créée par la fiche le 23/11 à 21:49) porte la clé de leur adresse ; la fiche Copropriété ne renseigne pas ce champ.
@@ -592,6 +583,18 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     _TEST 139 existante sur le préavis TESTTEST (occupation 554) : ouverture → compte rendu → « … le rapport complet … » → fin. Capture 104.
   - Constat (recette, 23-24/11) : le compte d'Arno a validé deux sorties d'essai (gestion_location_sortie_validee 5 et 6 : lots 445 / 446,
     occupations 557 / 558, 23:59 et 00:01) et déposé la pièce 144 (occupation 557) — essais d'Arno, rien de l'agent.
+  - `4f3c1e3f` (24/11) — « pourquoi il y a 2 modales différentes pour la même fonction ? » : le bien SANS copropriété prend l'agencement du bien
+    rattaché (bouton de tête « Créer une copropriété pour cette adresse » → « Copropriété : aucune copropriété rattachée — sans elle, le suivi des
+    20 % restera incomplet. » → case « Immeuble en copropriété » → « Date d'arrêté des comptes : aucune copropriété rattachée » → AGO…). RETIRÉS
+    (accord d'Arno, doublons) : bloc « Ce bien n'est relié à aucune copropriété » (bouton « Créer une copropriété » + aide), encadré « Pour saisir
+    la date d'arrêté des comptes et les AG… », ligne « Sans copropriété, le suivi des 20 % restera incomplet… » (fusionnée), message orange
+    « Copropriété non renseignée sur la fiche du bien … » quand la case 20 % est cochée. « Ne pas rattacher maintenant » seul choix : implicite
+    (plus de radio) ; copropriétés proposées (même parcelle) : liste gardée sous la ligne « Copropriété : … ». Aucun contrôle assoupli.
+    🔴 POINT À CONFIRMER : case 20 % DÉCOCHÉE, le bloc 20 % n'est pas affiché et le message orange (avec son lien « Renseigner la copropriété sur
+    la fiche du bien ») reste la seule trace de la copropriété non renseignée : il est GARDÉ dans ce cas — le retirer aussi ? Vérifié au Chrome
+    (ESSAIPREAVIS Paul sans copropriété, _TEST SORTIE CREATION COPRO rattaché ; ordinateur et 390 px, clair et sombre ; aucune requête
+    d'écriture, fenêtres abandonnées par « Annuler »). Captures 105 (avant, copie de 69) et 106-111 (après).
+  - 🔴 QUESTION ENCORE OUVERTE : la ligne « Texte ajouté au mail du (des) propriétaire(s) » du récapitulatif (voir `8f58b039`) est gardée.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
