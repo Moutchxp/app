@@ -310,17 +310,18 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 24/11/2026) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4f3c1e3f`). `origin/main` = **`b1d4d866`** (poussé par Arno le
-  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **2 commits d'avance, NON
+**Dépôt (mesuré le 24/11/2026, après `761222a0`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `761222a0`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **4 commits d'avance, NON
   POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
-  avec l'accord d'Arno — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
+  du (des) propriétaire(s) » retirée — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `4f3c1e3f`) : `npm test` VERT (1 866 fichiers, 27 812 tests, 21 ignorés) ; pages vérifiées dans
-  Chrome sur la recette. Preuve curl de `ec528f8e` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celle de
-  `4f3c1e3f` reste à faire (curl refusé à l'agent dans ce mode) — la page de la recette s'est construite et affichée au Chrome.
+- **Contrôles** (dernier lot, `761222a0`) : `npm test` VERT (1 866 fichiers, 27 814 tests, 21 ignorés) ; pages vérifiées dans
+  Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celle de
+  `761222a0` reste à faire (curl refusé à l'agent dans ce mode) — la page de la recette s'est construite et affichée au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
@@ -594,7 +595,14 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     la fiche du bien ») reste la seule trace de la copropriété non renseignée : il est GARDÉ dans ce cas — le retirer aussi ? Vérifié au Chrome
     (ESSAIPREAVIS Paul sans copropriété, _TEST SORTIE CREATION COPRO rattaché ; ordinateur et 390 px, clair et sombre ; aucune requête
     d'écriture, fenêtres abandonnées par « Annuler »). Captures 105 (avant, copie de 69) et 106-111 (après).
-  - 🔴 QUESTION ENCORE OUVERTE : la ligne « Texte ajouté au mail du (des) propriétaire(s) » du récapitulatif (voir `8f58b039`) est gardée.
+  - ✅ Question réglée (24/11) : la rubrique « Texte ajouté au mail du (des) propriétaire(s) » du récapitulatif est retirée (`761222a0`).
+  - `761222a0` (24/11) — récapitulatif de « Valider la sortie » : « ajouter la date de clôture des comptes en plus de la dernière AGO connue et de
+    l'AGO projetée » → rubrique « Date d'arrêté des comptes » juste avant « Dernière AGO » (« 31/12 » lu sur la copropriété, « non renseignée »,
+    « aucune copropriété rattachée ») — récapitulatif seulement (résultat et mails inchangés). RETIRÉE (accord d'Arno) : la rubrique « Texte
+    ajouté au mail du (des) propriétaire(s) » (le texte reste dans « Afficher le texte du mail » ; la zone modifiable de la saisie reste). Vu au
+    Chrome en lecture seule (aperçu seul, puis « Revenir » / « Annuler ») : _TEST SORTIE CREATION COPRO → « 31/12 », ESSAIPREAVIS Paul →
+    « aucune copropriété rattachée » ; « non renseignée » et « mail au propriétaire » par les tests seulement (aucun des deux biens n'a de
+    propriétaire avec e-mail, aucune copropriété d'essai sans arrêté ouverte). Captures 112-115.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
