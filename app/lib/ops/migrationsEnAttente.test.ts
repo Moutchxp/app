@@ -1128,3 +1128,24 @@ describe('455 (D38 : l’apporteur Particulier / Professionnel) : enveloppée, d
     expect(t).not.toMatch(/UPDATE transaction_/);
   });
 });
+
+/**
+ * 🔴 (Arno, 24/11/2026, 23h20) « inscris 513 et 514 au registre de la RECETTE (après vérification qu'elles sont réellement en place), au format
+ * existant ». Inscrites le 24/11 (origine « mise_a_jour », commits 5b046e8e / 81f08a64) avec CES empreintes : un fichier modifié depuis serait
+ * signalé par le plan (empreinte différente) — elles sont figées ici.
+ */
+describe('513 et 514 (« 20 % à restituer ») : additives, enveloppées, empreintes inscrites au registre de la recette', () => {
+  const cas: [string, string, string[]][] = [
+    ['513_location_restitution_vingt_pourcent.sql', '9f0246533215a522e01acc29239418ac802e50cbe37b02e37ca5dd94425c91b6', ['gestion_location_restitution_vingt']],
+    ['514_location_alerte_vingt_pourcent.sql', '8dcc418a9a6df5fee6f3c6fa2eab33167f468c59320e65ddc7e8c36ffc783e32', ['gestion_location_alerte_vingt']],
+  ];
+  for (const [fichier, sha, tables] of cas) {
+    it(`${fichier} : passe le garde, enveloppée, crée ${tables.join(', ')}, empreinte ${sha.slice(0, 8)}…`, () => {
+      const a = analyserMigration({ fichier, contenu: lire(MIGRATIONS, fichier) });
+      expect(a.refus).toEqual([]);
+      expect(a.mode).toBe('enveloppee');
+      expect(a.tablesCreees).toEqual(tables);
+      expect(a.sha256).toBe(sha);
+    });
+  }
+});
