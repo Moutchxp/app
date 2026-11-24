@@ -3602,6 +3602,7 @@ describe('🔴🔴 Arno (16/11/2026) — la pré-visite ET l’état des lieux f
 
 describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 % cochée : les dates d’AG de la copropriété', () => {
   let luAg: Record<string, unknown> = {};
+  let mailsApercu: unknown[] = [];
   const LU = (o: Record<string, unknown> = {}) => ({ disponible: true, lotId: 7, copropriete: { id: 7, libelle: 'Résidence Fictive' }, immeuble: 'Résidence Fictive',
     coproprieteSaisie: true, suggestions: [], adresse: '4 rue Fictive', moi: 'Arnaud Jorel',
     proposition: { derniere: { date: '2026-03-12', par: 'Claire Test', le: '2026-04-01T10:00:00.000Z' }, prochaine: { date: '2027-03-12', statut: null, mention: 'projection — généralement à la même période chaque année', par: null, le: null } }, ...o });
@@ -3614,7 +3615,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
       if (s.includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
       if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>; posts.push(c);
-        return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], retenue: true, mails: [],
+        return ok({ date: HIER, vacant: true, enGestion: false, sansEmail: [], alertes: [], retenue: true, mails: mailsApercu,
           ag: { lignes: [['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false } });
       }
       return base(u, init);
@@ -3630,7 +3631,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
   };
   const q = (s: string) => document.querySelector(s) as HTMLElement;
   const recap = () => document.querySelector('button[data-recap-validation]') as HTMLButtonElement;
-  beforeEach(() => { luAg = LU(); });
+  beforeEach(() => { luAg = LU(); mailsApercu = []; });
 
   it('🔴 (Arno, 17/11/2026) « Dernière AGO connue (assemblée générale ordinaire) * », « Prochaine AGO * » et la phrase d’aide « Seule l’AGO compte … »', async () => {
     await ouvrir();
@@ -3678,6 +3679,34 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     expect([...document.querySelectorAll('[data-resume-ag]')]).toHaveLength(2);
     expect(q('[data-resume-ag-copropriete]')).not.toBeNull();
     expect(String((posts.at(-1) as { paragrapheRetenue?: string }).paragrapheRetenue)).toContain(String(phrase).replace(/^« … /, '').replace(/ »$/, ''));
+  });
+  // 🔴🔴 Arno (24/11/2026) — « ajouter la date de clôture des comptes en plus de la dernière AGO connue et de l'AGO projetée »
+  it('récapitulatif : « Date d’arrêté des comptes » juste avant « Dernière AGO » — « 31/12 », « non renseignée », « aucune copropriété rattachée »', async () => {
+    const rubriques = (): string[] => [...document.querySelectorAll('[data-resume-validation] > div')].map((x) => x.querySelector('dt')?.textContent ?? '');
+    const cas: [Record<string, unknown>, string][] = [[{ arrete: { jour: 31, mois: 12 } }, '31/12'], [{ arrete: null }, 'non renseignée'],
+      [{ copropriete: null, arrete: null }, 'aucune copropriété rattachée']];
+    for (const [o, attendu] of cas) {
+      luAg = LU(o);
+      await ouvrir();
+      await act(async () => { recap().click(); }); await attendre();
+      expect(q('[data-resume-arrete]').textContent).toBe(`Date d’arrêté des comptes${attendu}`);
+      const r = rubriques();
+      expect(r.indexOf('Date d’arrêté des comptes')).toBe(r.indexOf('Dernière AGO (assemblée générale ordinaire)') - 1);
+      expect(document.querySelectorAll('[data-resume-arrete]')).toHaveLength(1);
+      act(() => root.unmount()); root = createRoot(container);
+    }
+  });
+  // 🔴🔴 Arno (24/11/2026) — retrait accordé : la rubrique « Texte ajouté au mail du (des) propriétaire(s) » (le texte reste dans « Afficher le texte »)
+  it('récapitulatif : plus de rubrique « Texte ajouté au mail du (des) propriétaire(s) », même quand un mail part au propriétaire ; le texte reste dans le mail', async () => {
+    mailsApercu = [{ sorte: 'proprietaire', objet: 'Sortie', a: ['proprio@exemple.test'], cc: [], texte: 'Texte du mail _TEST au propriétaire.', cle: 'P1', famille: 'proprietaire' }];
+    const f = await ouvrir();
+    act(() => (f.querySelector('[data-famille-destinataires="proprietaire"] input:not([disabled])') as HTMLInputElement).click());
+    await act(async () => { recap().click(); }); await attendre();
+    expect(document.querySelector('[data-titre-validation-sortie]')?.textContent).toContain('Récapitulatif');
+    expect(document.querySelector('[data-resume-texte-proprietaires]')).toBeNull();
+    expect(document.querySelector('[data-resume-validation]')?.textContent).not.toContain('Texte ajouté au mail du (des) propriétaire(s)');
+    // le texte reste lisible dans le mail du propriétaire (« Afficher le texte du mail » / « Masquer le texte »)
+    expect(document.querySelector('[data-fenetre-validation-sortie]')?.textContent).toMatch(/(Afficher le texte du mail|Masquer le texte)Texte du mail _TEST au propriétaire\./);
   });
   it('récapitulatif : date officielle → « au plus tard le … (AGO prévue le …) » ; case non cochée → « sans date »', async () => {
     await ouvrir();

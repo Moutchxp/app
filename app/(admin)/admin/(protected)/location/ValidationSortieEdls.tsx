@@ -21,7 +21,8 @@ import {
 } from '../../../../lib/location/validationSortie';
 import { CSS_PIECES_SORTIE, PiecesSortie, type PieceListee } from './PiecesSortie';
 import { prenomNom } from '../../../../lib/location/mailsPreavisSortie';
-import { AgSortie, corpsAg, CSS_AG_SORTIE, luAgPropre, saisieAgInitiale, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
+import { LIBELLE_ARRETE_COMPTES, arreteFr } from '../../../../lib/location/arreteComptes';
+import { AgSortie, ARRETE_AUCUNE_COPROPRIETE, corpsAg, CSS_AG_SORTIE, luAgPropre, saisieAgInitiale, verdictAg, type LuAgSortie, type SaisieAgEcran } from './AgSortie';
 import { avecMentionAgLocataire, moisAnnee, quandRestitution, sansMentionAg } from '../../../../lib/location/agCopropriete';
 
 /**
@@ -46,9 +47,15 @@ interface ResumeAg { lignes: [string, string][]; copropriete: string | null; aRa
 interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean; ag?: ResumeAg }
 interface Resultat { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (MailParti & { famille: MailPrevu['famille']; pieces?: string[] })[]; retenue?: boolean; ag?: ResumeAg }
 
-/** Les lignes AG du récapitulatif et du résultat (avec la copropriété, ou « à rattacher »). */
-function LignesAg({ ag }: { ag: ResumeAg }) {
+/** 🔴🔴 Arno (24/11/2026) — « ajouter la date de clôture des comptes en plus de la dernière AGO connue et de l'AGO projetée » : la valeur de la
+ *  rubrique « Date d'arrêté des comptes » du récapitulatif, lue sur la copropriété (« 31/12 », « non renseignée », « aucune copropriété rattachée »). PUR. */
+export const valeurArreteRecap = (lu: Pick<LuAgSortie, 'copropriete' | 'arrete'>): string => (lu.copropriete === null ? ARRETE_AUCUNE_COPROPRIETE : arreteFr(lu.arrete));
+
+/** Les lignes AG du récapitulatif et du résultat (avec la copropriété, ou « à rattacher »). `arrete` : la rubrique de l'arrêté des comptes, juste
+ *  avant « Dernière AGO » (récapitulatif seulement). */
+function LignesAg({ ag, arrete }: { ag: ResumeAg; arrete?: string }) {
   return <>
+    {arrete !== undefined && <div data-resume-arrete><dt>{LIBELLE_ARRETE_COMPTES}</dt><dd>{arrete}</dd></div>}
     {ag.lignes.map(([k, v]) => <div key={k} data-resume-ag={k}><dt>{k}</dt><dd>{v}</dd></div>)}
     <div data-resume-ag-copropriete><dt>Copropriété</dt><dd>{ag.copropriete ?? 'à rattacher à une copropriété'}</dd></div>
   </>;
@@ -288,15 +295,14 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       <dl className="mis-resume" data-resume-validation>
         <div><dt>Action</dt><dd>Sortie effective le {dateFrPreavis(a.date)} — {a.vacant ? 'le logement devient libre' : 'le logement reste loué'}</dd></div>
         <div><dt>Locataires concernés</dt><dd>{l.locataires.filter((x) => sortants.includes(x.occupationId)).map((x) => x.nom).join(', ')}</dd></div>
-        {a.ag !== undefined && <LignesAg ag={a.ag} />}
+        {a.ag !== undefined && <LignesAg ag={a.ag} arrete={ag !== null ? valeurArreteRecap(ag) : undefined} />}
         {/* 🔴🔴 Arno (23/11/2026) — RETIRÉ, accord d'Arno (« supprimer de la page le bloc d'information (AGO indiquée au(x) locataire(s), Texte ajouté au mail,
             Date indiquée au(x) propriétaire(s)) : il y a trop d'informations, il faut aller à l'essentiel ») : ces trois rubriques sont remplacées par UNE
             ligne — quand le solde sera restitué, et l'AGO qui le permet ; le texte exact reste dans « Afficher le texte » de chaque mail */}
         {a.ag !== undefined && saisieAg !== null && (
           <div data-resume-restitution><dt>Restitution des 20 % annoncée</dt><dd>{restitutionAnnoncee(saisieAg.mention ? saisieAg.ago ?? null : null)}</dd></div>)}
-        {/* 🔴 Arno (23/11/2026) — le texte des propriétaires TEL QU'IL PARTIRA (modifié ou non) */}
-        {a.retenue === true && a.mails.some((m) => m.famille === 'proprietaire') && (
-          <div data-resume-texte-proprietaires><dt>{TITRE_TEXTE_PROPRIETAIRES.replace(/ — modifiable$/, '')}</dt><dd>« {phraseProprioTexte} »</dd></div>)}
+        {/* 🔴🔴 Arno (24/11/2026) — RETIRÉ, accord d'Arno : la rubrique « Texte ajouté au mail du (des) propriétaire(s) » (le texte reste lisible par
+            « Afficher le texte du mail » sous le mail du propriétaire) */}
       </dl>
       {a.alertes.map((x) => <p key={x.cle} className="cev-alerte" role="alert" data-alerte-coordonnees={x.cle}>Mail à {x.libelle} — {x.phrase} Corrigez le compte rendu avant l’envoi.</p>)}
       {/* 🔴 Arno (23/11/2026) — sans pièce jointe, le mail du locataire n'annonce pas l'état des lieux : on le dit (aucun envoi bloqué) */}
