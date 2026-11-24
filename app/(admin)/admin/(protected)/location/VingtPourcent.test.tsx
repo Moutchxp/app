@@ -50,8 +50,9 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites', 'Alerte du lundi']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
-    expect(m.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Manque : dernière AGO et date d’arrêté des comptes');
-    expect(m.querySelector('[data-vgp-locataires]')?.textContent).toBe('2 locataires concernés : MARTIN Paul, MARTIN Léa');
+    // 🔴 (Arno, 24/11/2026, 23h40) un bloc de trois lignes : l'immeuble, les locataires concernés, ce qui manque (orange)
+    expect(m.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Manque : dernière AGO et arrêté des comptes');
+    expect(m.querySelector('[data-vgp-locataires]')?.textContent).toBe('MARTIN Paul, MARTIN Léa');
   });
   it('« Compléter la fiche Copropriété » ouvre LA fenêtre de la fiche (même composant que l’annuaire) ; à sa fermeture, la liste se relit', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
@@ -80,12 +81,9 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO 22/09/2026 (officielle)');
     expect(c.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
     expect(c.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 22/10/2026 Dépassé de 32 jours');
-    const b = container.querySelector('[data-vgp-sortie="6"]')!;
-    // sans date : à droite, ce qui manque (orange), à la place de la date
-    expect(b.querySelector('[data-vgp-ago]')).toBeNull();
-    expect(b.querySelector('[data-vgp-manque-ligne]')?.textContent).toBe('Dernière AGO manquante · Arrêté des comptes manquant');
-    expect(b.querySelector('[data-vgp-limite]')).toBeNull();
-    expect(b.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('Pas de date limite — Dernière AGO inconnue : à compléter dans la fiche Copropriété.');
+    // sans date : la sortie 6 n'a de ligne que dans le détail du bloc de sa copropriété (« Dates manquantes »)
+    expect(container.querySelector('[data-vgp-sortie="6"]')).toBeNull();
+    expect(container.querySelector('[data-vgp-concerne="6"]')?.textContent).toContain('sans date : figure seulement ici');
   });
 });
 
@@ -154,7 +152,8 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     expect(dans('ag_passee')).toEqual([12]);
     expect(dans('a_preparer')).toEqual([13, 14]);
     expect(dans('en_attente')).toEqual([5]);
-    expect(dans('manquantes')).toEqual([6]);
+    expect([...container.querySelectorAll('[data-vgp-categorie="manquantes"] [data-vgp-concerne]')].map((x) => [x.getAttribute('data-vgp-concerne'), x.getAttribute('data-vgp-concerne-categorie')]))
+      .toEqual([['6', 'manquantes']]); // Copro B (6, sans date) ; Copro C n'est pas dans les copropriétés lues ici (épreuve dédiée plus bas)
     // un locataire n'apparaît qu'une fois sur tout l'écran
     expect(container.querySelectorAll('[data-vgp-sortie="7"]')).toHaveLength(1);
     // « Dates manquantes » compte les COPROPRIÉTÉS à compléter (la pastille) : Copro B, et Copro C (celle de DURAND Léo) via sa carte
@@ -188,7 +187,8 @@ describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restituti
   };
   it('chaque ligne a « Restitution faite » ; la fenêtre vérifie la saisie, puis envoie à la route de la Location ; la liste se relit', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis' }));
-    expect(container.querySelectorAll('[data-vgp-restituer]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-vgp-restituer]')).toHaveLength(2); // les lignes datées
+    expect(container.querySelectorAll('[data-vgp-restituer-concerne]')).toHaveLength(1); // et, dans « Dates manquantes », chaque locataire concerné
     await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
     const f = container.querySelector('[data-fenetre-restitution="5"]')!;
     expect((f.querySelector('[data-restitution-date]') as HTMLInputElement).value).toBe('2026-11-23');
@@ -284,7 +284,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     expect([...a.querySelectorAll('.vgp-ligne-droite button')].map((x) => x.textContent)).toEqual(['Fiche copropriété', 'Restitution faite']);
     expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     // une ligne par sortie, colocataires ensemble
-    expect(ligne(6).querySelector('[data-vgp-noms]')?.textContent).toBe('MARTIN Paul, MARTIN Léa');
+    expect(container.querySelector('[data-vgp-concerne="6"] strong')?.textContent).toBe('MARTIN Paul, MARTIN Léa');
   });
   it('un clic sur la ligne (hors boutons) déplie / replie ; un clic sur un bouton ne déplie pas ; le détail ne répète RIEN de la ligne', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
@@ -315,11 +315,44 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     await act(async () => { (ligne(7).querySelector('[data-vgp-fiche]') as HTMLButtonElement).click(); });
     expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: null, lotId: 3 }));
   });
-  it('« Dates manquantes » : à droite, ce qui manque en orange (« Aucune copropriété » pour un bien sans copropriété) ; la carte de la copropriété est gardée', async () => {
-    donnees = { ...LU, lignes: [...LU.lignes, { ...LU.lignes[2], sortieId: 8, copropriete: null, immeuble: null, cleCopro: 'copro-20' }] };
+});
+
+/**
+ * 🔴🔴 Arno (24/11/2026, 23h40) — « Dates manquantes » : « réduire sur 3 lignes le bloc principal, déployable comme les autres ; tous les blocs
+ * principaux doivent avoir la même taille ». UN bloc par copropriété à compléter ; déplié, chaque locataire concerné avec « Restitution faite ».
+ */
+describe('🔴🔴 Arno (24/11/2026, 23h40) — « Dates manquantes » : un bloc de trois lignes par copropriété', () => {
+  const bloc = (cle: string) => container.querySelector(`[data-vgp-manque="${cle}"]`)!;
+  it('TOUTES les copropriétés de la pastille, même celles dont les locataires ont une date provisoire ; trois lignes, un seul bouton, même hauteur', async () => {
+    donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'copro-30', coproprieteId: 30, libelle: '3 rue C', immeuble: 'c', lotId: 3, manque: ['arrete'], locataires: ['DURAND Léo'] }] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect(ligne(8).querySelector('[data-vgp-manque-ligne]')?.textContent).toBe('Aucune copropriété');
-    expect(container.querySelector('[data-vgp-completer="copro-20"]')).not.toBeNull();
+    expect([...container.querySelectorAll('[data-vgp-manque]')].map((x) => x.getAttribute('data-vgp-manque'))).toEqual(['copro-30', 'copro-20']); // sortie la plus ancienne d'abord
+    const c = bloc('copro-30');
+    expect([...c.querySelectorAll('.vgp-ligne-gauche > p')].map((x) => x.textContent)).toEqual(['3 rue C', 'DURAND Léo', 'Manque : arrêté des comptes']);
+    expect([...c.querySelectorAll('.vgp-ligne-tete button')].map((x) => x.textContent)).toEqual(['▸', 'Fiche copropriété']); // un seul bouton (plus de doublon)
+    expect(c.querySelector('.vgp-ligne-tete')?.className).toBe('vgp-ligne-tete'); // la même tête (même hauteur) que les autres lignes
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('2');
+  });
+  it('déplié : une ligne par locataire concerné (nom, logement, date de sortie, catégorie s’il a une date provisoire), chacune avec « Restitution faite »', async () => {
+    donnees = { ...LU, manquantes: [...LU.manquantes, { cle: 'copro-30', coproprieteId: 30, libelle: '3 rue C', immeuble: 'c', lotId: 3, manque: ['arrete'], locataires: ['DURAND Léo'] }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const c = bloc('copro-30');
+    expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
+    await act(async () => { (c.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
+    expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(false);
+    expect(c.querySelector('[data-vgp-concerne="7"]')?.textContent).toBe('DURAND Léo — Bien 3 — sorti le 10/01/2026 — date provisoire : apparaît dans « Urgence »Restitution faite');
+    await act(async () => { (c.querySelector('[data-vgp-restituer-concerne="7"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-fenetre-restitution="7"]')).not.toBeNull();
+    // « Fiche copropriété » ouvre la fiche, comme « Compléter la fiche Copropriété » avant
+    await act(async () => { (c.querySelector('[data-vgp-completer="copro-30"]') as HTMLButtonElement).click(); });
+    expect(fiche).toHaveBeenLastCalledWith(expect.objectContaining({ immeuble: 'c' }));
+  });
+  it('un bien sans copropriété : « Bien sans copropriété » + « Aucune copropriété » en orange, et « Créer la copropriété »', async () => {
+    donnees = { ...LU, manquantes: [{ cle: 'immeuble-c', coproprieteId: null, libelle: '9 rue C', immeuble: 'c', lotId: 9, manque: ['arrete'], locataires: ['SANS Copro'] }], lignes: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const c = bloc('immeuble-c');
+    expect(c.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Bien sans copropriété Aucune copropriété');
+    expect(c.querySelector('[data-vgp-completer]')?.textContent).toBe('Créer la copropriété');
   });
 });
 

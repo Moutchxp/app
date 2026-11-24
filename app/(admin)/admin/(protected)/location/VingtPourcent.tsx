@@ -1,13 +1,12 @@
 'use client';
 
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from 'react';
-import { moisAnnee } from '../../../../lib/location/agCopropriete';
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  classerVingtPourcent, compteAReboursVingt, etiquetteAgo, LIBELLE_MANQUE, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleAlerte, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  categorieVingt, classerVingtPourcent, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -71,7 +70,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
           {(() => {
             const cl = classerVingtPourcent(lu.data);
             return <>
-              <DatesManquantes lignes={lu.data.manquantes} groupes={cl.manquantes} onCompleter={setFiche} onRestituer={setRestituer} />
+              <DatesManquantes lignes={lu.data.manquantes} groupes={cl.manquantes} toutes={lu.data.lignes} aujourdhui={lu.data.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).map((k) => <Categorie key={k} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
             </>;
           })()}
@@ -100,14 +99,27 @@ function Categorie({ cle, lignes, onRestituer }: { cle: Exclude<CategorieVingt, 
   );
 }
 
-/** La rubrique « Dates manquantes » : en tête de l'écran. */
-function DatesManquantes({ lignes, groupes, onCompleter, onRestituer }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[];
-  onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
-  // 🔴 Arno (24/11/2026) — les copropriétés dans l'ordre de leur locataire sorti le plus anciennement ; celles sans locataire classé ici, ensuite
-  const ordre = new Map(groupes.map((g, i) => [g.copro.cle, i]));
-  // une ligne classée ici dont la copropriété ne serait pas dans la liste lue garde sa carte (jamais une ligne perdue)
+/** 🔴 (Arno, 24/11/2026, 23h40) « Manque : dernière AGO et arrêté des comptes ». */
+const MOT_MANQUE: Record<'derniere_ago' | 'arrete', string> = { derniere_ago: 'dernière AGO', arrete: 'arrêté des comptes' };
+
+/**
+ * La rubrique « Dates manquantes » : en tête de l'écran.
+ * 🔴🔴 Arno (24/11/2026, 23h40) — « pourquoi ces blocs sont aussi grands avec des boutons en doublon : réduire sur 3 lignes le bloc principal,
+ * déployable comme les autres ; tous les blocs principaux doivent avoir la même taille ». UN bloc de trois lignes par copropriété à compléter
+ * (TOUTES celles de la pastille, même si leurs locataires ont une date provisoire) : l'immeuble, les locataires concernés, ce qui manque (orange) ;
+ * à droite « Fiche copropriété » ; déplié : une ligne par locataire concerné (logement, sortie, catégorie où il apparaît), avec « Restitution faite ».
+ */
+function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onRestituer }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[];
+  toutes: readonly LigneVingtPourcent[]; aujourdhui: string; onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
+  // une ligne classée ici dont la copropriété ne serait pas dans la liste lue garde son bloc (jamais une ligne perdue)
   const cartes = [...lignes, ...groupes.filter((g) => !lignes.some((m) => m.cle === g.copro.cle)).map((g) => g.copro)];
-  const triees = cartes.sort((a, b) => (ordre.get(a.cle) ?? 1e9) - (ordre.get(b.cle) ?? 1e9));
+  const manquantes = [...lignes];
+  // les locataires concernés de chaque copropriété (datés ou non), par date de sortie
+  const concernesDe = new Map(cartes.map((m) => [m.cle, toutes.filter((l) => cleDeLaLigne(l, manquantes) === m.cle)
+    .sort((a, b) => a.dateSortie.localeCompare(b.dateSortie) || a.sortieId - b.sortieId)]));
+  // 🔴 Arno (24/11/2026) — les copropriétés dans l'ordre de leur locataire sorti le plus anciennement (tous ses locataires concernés) ; sans locataire : ensuite
+  const premiere = (m: LigneDatesManquantes): string => concernesDe.get(m.cle)?.[0]?.dateSortie ?? '9999-12-31';
+  const triees = cartes.sort((a, b) => premiere(a).localeCompare(premiere(b)) || a.libelle.localeCompare(b.libelle, 'fr'));
   // 🔴 (Arno, 24/11/2026, 23h20) le compteur : les COPROPRIÉTÉS à compléter (la pastille) ; leurs locataires datés sont classés ailleurs
   return (
     <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label="Dates manquantes" data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={lignes.length}>
@@ -117,22 +129,7 @@ function DatesManquantes({ lignes, groupes, onCompleter, onRestituer }: { lignes
         <p className="loc-muet vgp-aide">Ces copropriétés ont au moins un locataire en attente de restitution des 20 % : complétez leur fiche pour un suivi complet et fiable.</p>
         <p className="loc-muet vgp-aide" data-vgp-coproprietes-a-completer>{cartes.length} copropriété{cartes.length > 1 ? 's' : ''} à compléter.</p>
         <ul className="vgp-liste">
-          {triees.map((m) => (
-            <li key={m.cle} className="vgp-carte" data-vgp-manque={m.cle}>
-              {/* 🔴 Arno (23/11/2026) — un bien sans copropriété : sous « Bien sans copropriété » (compté dans la pastille) */}
-              {m.coproprieteId === null ? <p className="vgp-sans-copro" data-vgp-bien-sans-copro>Bien sans copropriété</p> : null}
-              <p className="vgp-nom">{m.libelle}</p>
-              {m.manque.length > 0 && <p className="vgp-manque" data-vgp-ce-qui-manque={m.manque.join(',')}>Manque : <strong>{m.manque.map((x) => LIBELLE_MANQUE[x]).join(' et ')}</strong></p>}
-              {m.locataires.length > 0 && <p className="vgp-locataires" data-vgp-locataires={m.locataires.length}>
-                {m.locataires.length} locataire{m.locataires.length > 1 ? 's' : ''} concerné{m.locataires.length > 1 ? 's' : ''} : {m.locataires.join(', ')}</p>}
-              <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-completer" onClick={() => onCompleter(m)} data-vgp-completer={m.cle}>
-                Compléter la fiche Copropriété</button>
-              {(() => {
-                const g = groupes.find((x) => x.copro.cle === m.cle);
-                return g === undefined ? null : <ul className="vgp-liste vgp-sous-liste" data-vgp-lignes-manquantes={m.cle}>{g.lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} onRestituer={onRestituer} />)}</ul>;
-              })()}
-            </li>
-          ))}
+          {triees.map((m) => <BlocCoproACompleter key={m.cle} m={m} aujourdhui={aujourdhui} onCompleter={onCompleter} onRestituer={onRestituer} concernes={concernesDe.get(m.cle) ?? []} />)}
         </ul>
       </>}
       </details>
@@ -140,12 +137,59 @@ function DatesManquantes({ lignes, groupes, onCompleter, onRestituer }: { lignes
   );
 }
 
+/** Un bloc de « Dates manquantes » : même taille que les lignes des autres catégories. */
+function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestituer }: { m: LigneDatesManquantes; concernes: readonly LigneVingtPourcent[]; aujourdhui: string;
+  onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  const detailId = useId();
+  const basculer = (): void => setOuvert((o) => !o);
+  const noms = m.locataires.length > 0 ? m.locataires.join(', ') : concernes.flatMap((l) => l.locataires).join(', ');
+  const sansCopro = m.coproprieteId === null;
+  return (
+    <li className="vgp-ligne vgp-ligne--manque" data-vgp-manque={m.cle} data-vgp-ouvert={ouvert ? '1' : '0'}>
+      <div className="vgp-ligne-tete" onClick={basculer}>
+        <button type="button" className="vgp-chevron" aria-expanded={ouvert} aria-controls={detailId} onClick={(e) => { e.stopPropagation(); basculer(); }}
+          aria-label={ouvert ? 'Replier les locataires concernés' : 'Déplier les locataires concernés'} data-vgp-deplier>{ouvert ? '▾' : '▸'}</button>
+        <div className="vgp-ligne-gauche">
+          <p className="vgp-ligne-adresse vgp-une-ligne" title={m.libelle} data-vgp-adresse>{m.libelle}</p>
+          <p className="vgp-nom vgp-une-ligne" title={noms} data-vgp-noms data-vgp-locataires={m.locataires.length}>{noms}</p>
+          <p className="vgp-ligne-limite vgp-ligne-manque vgp-une-ligne" data-vgp-ce-qui-manque={sansCopro ? 'copropriete' : m.manque.join(',')}>
+            {/* 🔴 Arno (23/11/2026) — un bien sans copropriété : « Bien sans copropriété » (compté dans la pastille) */}
+            {sansCopro ? <><span className="vgp-sans-copro" data-vgp-bien-sans-copro>Bien sans copropriété</span> Aucune copropriété</>
+              : `Manque : ${m.manque.map((x) => MOT_MANQUE[x]).join(' et ')}`}</p>
+        </div>
+        <div className="vgp-ligne-droite" onClick={(e) => e.stopPropagation()}>
+          <span className="vgp-ligne-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onCompleter(m)} data-vgp-completer={m.cle}>
+              {sansCopro ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
+          </span>
+        </div>
+      </div>
+      <div id={detailId} className="vgp-ligne-detail" hidden={!ouvert} data-vgp-detail>
+        {concernes.length === 0 ? <p className="loc-muet">Aucun locataire en attente.</p> : (
+          <ul className="vgp-liste vgp-concernes">{concernes.map((l) => {
+            const cat = categorieVingt(l, aujourdhui);
+            return (
+              <li key={l.sortieId} className="vgp-concerne" data-vgp-concerne={l.sortieId} data-vgp-concerne-categorie={cat}>
+                <span className="vgp-concerne-texte">
+                  <strong>{l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</strong>
+                  {' — '}{l.logement ?? `Bien ${l.lotId}`}{' — sorti'}{l.locataires.length > 1 ? 's' : ''} le {dateFr(l.dateSortie)}
+                  {cat === 'manquantes' ? <span className="loc-muet"> — sans date : figure seulement ici</span>
+                    : <span className="vgp-incertaine"> — date provisoire : apparaît dans « {TITRES_CATEGORIES[cat]} »</span>}
+                </span>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>Restitution faite</button>
+              </li>
+            );
+          })}</ul>
+        )}
+      </div>
+    </li>
+  );
+}
+
 /** 🔴 (Arno, 24/11/2026, 23h16) les gestes d'une ligne qui sortent de l'écran : ouvrir la fiche Copropriété (puis tout relire). */
 const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void }>({ onFiche: () => {} });
 
-/** « AGO du 15/03/2027 » / « AGO vers mars 2027 (projetée) ». PUR. */
-export const agoCourte = (ago: { date: string; statut: 'officielle' | 'projetee' }): string =>
-  (ago.statut === 'officielle' ? `AGO du ${dateFr(ago.date)}` : `AGO vers ${moisAnnee(ago.date)} (projetée)`);
 /** Ce qui manque à une ligne SANS date calculable (« Dates manquantes »), à la place de la date. PUR. */
 export function manquesDeLaLigne(l: Pick<LigneVingtPourcent, 'copropriete' | 'suivi' | 'arrete'>): string[] {
   if (l.copropriete === null) return ['Aucune copropriété'];
@@ -399,6 +443,12 @@ export const CSS_VINGT_POURCENT = `
 .vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
 .vgp-ligne-detail[hidden]{display:none}
+.vgp-ligne--manque{border-left:4px solid var(--color-svv-urgence-orange)}
+.vgp-ligne-manque .vgp-sans-copro{margin-right:6px;padding:1px 8px}
+.vgp-concernes{gap:6px}
+.vgp-concerne{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--color-svv-line);min-width:0}
+.vgp-concerne-texte{min-width:0;overflow-wrap:anywhere;font-size:.88rem;color:var(--color-svv-ink)}
+.vgp-concerne .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-texte{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.88rem;color:var(--color-svv-ink)}
 .vgp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
 .vgp-boite{width:min(560px,100%);max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;

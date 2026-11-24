@@ -237,7 +237,7 @@ export interface ClassementVingt {
   urgence: LigneVingtPourcent[]; ag_passee: LigneVingtPourcent[]; a_preparer: LigneVingtPourcent[]; en_attente: LigneVingtPourcent[];
 }
 
-const cleDeLaLigne = (l: LigneVingtPourcent, manquantes: readonly LigneDatesManquantes[]): string =>
+export const cleDeLaLigne = (l: LigneVingtPourcent, manquantes: readonly LigneDatesManquantes[]): string =>
   l.cleCopro ?? manquantes.find((m) => (l.copropriete?.id != null ? m.coproprieteId === l.copropriete.id : m.coproprieteId === null && m.lotId === l.lotId))?.cle
     ?? (l.copropriete?.id != null ? `copro-${l.copropriete.id}` : `lot-${l.lotId}`);
 const parLimite = (a: LigneVingtPourcent, b: LigneVingtPourcent): number => {
