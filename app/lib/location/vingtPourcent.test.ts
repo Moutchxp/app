@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, type LigneVingtPourcent,
 } from './vingtPourcent';
+import { ajouterMois } from './preavis';
 
 /**
  * 🔴🔴 Arno (23/11/2026) — LE SUIVI DES 20 % RETENUS. Exemple de référence : aujourd'hui 23/11/2026, arrêté 31/12, dernière AGO 25/03/2026.
@@ -102,5 +103,57 @@ describe('🔴 la rubrique « Dates manquantes » (règle 5)', () => {
       { ...copro('a', 'A rue'), manque: ['arrete'], locataires: ['DURAND'] },
       { ...copro('b', 'B rue'), manque: ['derniere_ago', 'arrete'], locataires: ['DUPONT', 'MARTIN'] },
     ]);
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026) — les catégories exclusives de l'écran « 20 % à restituer » : bornes, tri, exclusivité. */
+describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent', () => {
+  const AUJ = '2026-11-24';
+  const plus = (j: number): string => { const d = new Date(Date.parse(`${AUJ}T12:00:00Z`) + j * 86_400_000); return d.toISOString().slice(0, 10); };
+  let n = 0;
+  const ligne = (ago: string | null, statut: 'officielle' | 'projetee' = 'projetee', o: Partial<LigneVingtPourcent> = {}): LigneVingtPourcent => ({
+    sortieId: ++n, lotId: n, locataires: [`LOC ${n}`], logement: null, dateSortie: '2026-01-15', valideLe: '2026-01-20',
+    copropriete: { id: 1, libelle: 'Copro', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-1',
+    suivi: ago === null ? { etat: 'sans_ago', exercice: null, mention: MENTION_SANS_AGO }
+      : { etat: 'ok', exercice: '2026-12-31', ago: { date: ago, statut }, incertaine: false, limite: ajouterMois(ago, 1), alerte: 'a_venir', joursRestants: 0 },
+    ...o,
+  });
+  it('b / c : AG + 20 jours EXACT → « AG passée » ; AG + 21 jours → « Urgence » ; le jour de l’AG → « AG passée »', () => {
+    expect(categorieVingt(ligne(plus(-20)), AUJ)).toBe('ag_passee');
+    expect(categorieVingt(ligne(plus(-21)), AUJ)).toBe('urgence');
+    expect(categorieVingt(ligne(AUJ), AUJ)).toBe('ag_passee');
+    // date limite dépassée (AG il y a 3 mois) : toujours « Urgence »
+    expect(categorieVingt(ligne(plus(-90), 'officielle'), AUJ)).toBe('urgence');
+  });
+  it('d / e : AG dans 30 jours → « À préparer » ; dans 31 jours → « En attente » ; OFFICIELLE lointaine → « À préparer »', () => {
+    expect(categorieVingt(ligne(plus(30)), AUJ)).toBe('a_preparer');
+    expect(categorieVingt(ligne(plus(31)), AUJ)).toBe('en_attente');
+    expect(categorieVingt(ligne(plus(1)), AUJ)).toBe('a_preparer');
+    expect(categorieVingt(ligne(plus(200), 'officielle'), AUJ)).toBe('a_preparer');
+  });
+  it('a : pas de dernière AGO, pas d’arrêté, ou pas de copropriété → « Dates manquantes », même si la date provisoire est dépassée', () => {
+    expect(categorieVingt(ligne(null), AUJ)).toBe('manquantes');
+    expect(categorieVingt(ligne(plus(-90), 'officielle', { arrete: null }), AUJ)).toBe('manquantes');
+    expect(categorieVingt(ligne(plus(10), 'projetee', { copropriete: null }), AUJ)).toBe('manquantes');
+  });
+  it('EXCLUSIVITÉ et TRI : chaque ligne dans une seule catégorie ; b à e par date limite croissante ; a groupé par copropriété, sortie la plus ancienne d’abord', () => {
+    const u1 = ligne(plus(-40)); const u2 = ligne(plus(-60)); const p1 = ligne(plus(5)); const e1 = ligne(plus(100)); const e2 = ligne(plus(60));
+    const m1 = ligne(null, 'projetee', { cleCopro: 'copro-9', copropriete: { id: 9, libelle: 'Copro Z', aRattacher: false }, dateSortie: '2026-05-01' });
+    const m2 = ligne(null, 'projetee', { cleCopro: 'copro-8', copropriete: { id: 8, libelle: 'Copro A', aRattacher: false }, dateSortie: '2026-03-01' });
+    const m3 = ligne(null, 'projetee', { cleCopro: 'copro-9', copropriete: { id: 9, libelle: 'Copro Z', aRattacher: false }, dateSortie: '2026-02-01' });
+    const manq = [{ cle: 'copro-8', coproprieteId: 8, libelle: 'Copro A', immeuble: null, lotId: 1, manque: ['derniere_ago' as const], locataires: [] },
+      { cle: 'copro-9', coproprieteId: 9, libelle: 'Copro Z', immeuble: null, lotId: 1, manque: ['derniere_ago' as const], locataires: [] }];
+    const c = classerVingtPourcent({ aujourdhui: AUJ, lignes: [u1, e1, m1, p1, u2, m2, e2, m3], manquantes: manq });
+    expect(c.urgence.map((x) => x.sortieId)).toEqual([u2.sortieId, u1.sortieId]);
+    expect(c.a_preparer.map((x) => x.sortieId)).toEqual([p1.sortieId]);
+    expect(c.en_attente.map((x) => x.sortieId)).toEqual([e2.sortieId, e1.sortieId]);
+    expect(c.manquantes.map((g) => [g.copro.cle, g.lignes.map((x) => x.sortieId)])).toEqual([['copro-9', [m3.sortieId, m1.sortieId]], ['copro-8', [m2.sortieId]]]);
+    const toutes = [...c.manquantes.flatMap((g) => g.lignes), ...c.urgence, ...c.ag_passee, ...c.a_preparer, ...c.en_attente].map((x) => x.sortieId);
+    expect(toutes.sort((a, b) => a - b)).toEqual([u1, e1, m1, p1, u2, m2, e2, m3].map((x) => x.sortieId).sort((a, b) => a - b));
+  });
+  it('les jours restants : « Dans 3 jours », « Aujourd’hui », « Date limite dépassée de 2 jours » (rouge)', () => {
+    expect(joursRestantsVingt(3)).toEqual({ texte: 'Dans 3 jours', depasse: false });
+    expect(joursRestantsVingt(0)).toEqual({ texte: 'Aujourd’hui', depasse: false });
+    expect(joursRestantsVingt(-2)).toEqual({ texte: 'Date limite dépassée de 2 jours', depasse: true });
   });
 });

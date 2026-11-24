@@ -46,7 +46,8 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis' }));
     expect(lectures[0]).toMatch(/^\/api\/admin\/gestion\/preavis\?vingtPourcent=1/);
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
-    expect(blocs).toEqual(['Dates manquantes', 'Locataires sortis avec 20 % retenus']);
+    // 🔴 Arno (24/11/2026) — cinq catégories exclusives, dans cet ordre (« Dates manquantes » toujours en tête)
+    expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
     expect(m.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Manque : dernière AGO et date d’arrêté des comptes');
@@ -56,7 +57,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     await act(async () => { (container.querySelector('[data-vgp-completer="copro-20"]') as HTMLButtonElement).click(); });
     expect(fiche).toHaveBeenCalledWith(expect.objectContaining({ immeuble: 'b' }));
-    donnees = { ...LU, manquantes: [] };
+    donnees = { ...LU, manquantes: [], lignes: [LU.lignes[0]] }; // la fiche complétée : plus rien ne manque
     await act(async () => { (container.querySelector('[data-stub-fiche]') as HTMLButtonElement).click(); });
     await calmer();
     expect(lectures).toHaveLength(2);
@@ -124,5 +125,38 @@ describe('🔴 Arno (23/11/2026) — « Bien sans copropriété » dans « Dates
     act(() => root.unmount()); root = createRoot(container);
     await rendre(createElement(BoutonVingtPourcent));
     expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('2');
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026) — les catégories exclusives : un locataire = une catégorie ; titre + compteur, repliable ; jours restants. */
+describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', () => {
+  const ligne = (sortieId: number, ago: string, limite: string, joursRestants: number, statut: 'officielle' | 'projetee' = 'projetee') => ({
+    sortieId, lotId: sortieId, locataires: [`LOC ${sortieId}`], logement: `${sortieId} rue Test`, dateSortie: '2026-01-15', valideLe: '2026-01-20',
+    copropriete: { id: 50, libelle: 'Copro OK', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-50',
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants } });
+  it('chaque ligne dans UNE catégorie, compteurs, « Date limite dépassée de N jours » en rouge ; « Dates manquantes » garde la ligne complète sous sa copropriété', async () => {
+    donnees = { ...LU, lignes: [...LU.lignes,
+      ligne(11, '2026-09-01', '2026-10-01', -53), // urgence
+      ligne(12, '2026-11-10', '2026-12-10', 16), // AG passée
+      ligne(13, '2026-12-10', '2027-01-10', 47, 'projetee'), // à préparer (AG dans 16 jours)
+      ligne(14, '2027-09-01', '2027-10-01', 311, 'officielle'), // à préparer (officielle lointaine)
+    ] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const dans = (cat: string) => [...container.querySelectorAll(`[data-vgp-categorie="${cat}"] [data-vgp-sortie]`)].map((x) => Number(x.getAttribute('data-vgp-sortie')));
+    expect(dans('urgence')).toEqual([11]);
+    expect(dans('ag_passee')).toEqual([12]);
+    expect(dans('a_preparer')).toEqual([13, 14]);
+    expect(dans('en_attente')).toEqual([5]);
+    expect(dans('manquantes').sort()).toEqual([6, 7]);
+    // un locataire n'apparaît qu'une fois sur tout l'écran
+    expect(container.querySelectorAll('[data-vgp-sortie="7"]')).toHaveLength(1);
+    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['2', '1', '1', '2', '1']);
+    expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(5);
+    const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-jours]')!;
+    expect([u.textContent, u.className]).toEqual(['Date limite dépassée de 53 jours', 'vgp-depasse']);
+    expect(container.querySelector('[data-vgp-sortie="12"] [data-vgp-jours]')?.textContent).toBe('Dans 16 jours');
+    // la ligne de DURAND Léo (arrêté manquant, date provisoire dépassée) reste lisible sous sa copropriété, rien n'est masqué
+    const d = container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-sortie="7"]')!;
+    expect(d.querySelector('[data-vgp-jours]')?.textContent).toBe('Date limite dépassée de 32 jours');
   });
 });

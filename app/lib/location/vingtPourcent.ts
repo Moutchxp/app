@@ -121,6 +121,8 @@ export interface LigneVingtPourcent {
   copropriete: { id: number | null; libelle: string; aRattacher: boolean } | null;
   arrete: ArreteComptes | null;
   suivi: SuiviVingt;
+  /** 🔴 (24/11/2026) la clé de sa copropriété (ou de son immeuble, ou du bien) — la même que celle de « Dates manquantes » ; absente : déduite */
+  cleCopro?: string;
 }
 export interface SuiviVingtLu { aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[] }
 
@@ -168,3 +170,80 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
   return r.etat === 'ok' ? { date: r.ago.date, statut: r.ago.statut, incertaine: r.incertaine, cloture: r.exercice } : null;
 }
 
+
+// ══ 🔴🔴 Arno (24/11/2026) — LES CATÉGORIES DE L'ÉCRAN « 20 % À RESTITUER » ══════════════════════════════════════════════════════════════════════════
+/**
+ * « classer les locataires sortis avec retenue de 20 % en catégories exclusives (un locataire = une seule catégorie, la plus avancée), chaque catégorie
+ * triée de la restitution la plus urgente à la plus lointaine. » L'AG qui compte : celle du calcul b0453dc2 (`suiviVingtPourcent`) ; la date limite :
+ * AG + 1 mois. Une ligne = une sortie validée (ses colocataires partagent le même dépôt et les mêmes dates).
+ *   a. « Dates manquantes » — la copropriété n'a pas de dernière AGO et/ou pas de date d'arrêté des comptes, ou le bien n'a pas de copropriété ;
+ *   b. « Urgence » — aujourd'hui > AG + 20 jours (date limite dépassée comprise) ;
+ *   c. « AG passée — restitution à faire » — AG ≤ aujourd'hui ≤ AG + 20 jours ;
+ *   d. « À préparer » — l'AG a lieu dans les 30 prochains jours, OU sa date est officielle (même lointaine) — choix d'Arno « 1 et 3 » ;
+ *   e. « En attente » — tous les autres.
+ * a : par copropriété (date de sortie la plus ancienne d'abord) ; b à e : par date limite croissante. Jours comptés à la date de Paris. PUR.
+ */
+export type CategorieVingt = 'manquantes' | 'urgence' | 'ag_passee' | 'a_preparer' | 'en_attente';
+export const ORDRE_CATEGORIES: readonly CategorieVingt[] = ['manquantes', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'];
+export const TITRES_CATEGORIES: Record<CategorieVingt, string> = {
+  manquantes: 'Dates manquantes', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'À préparer', en_attente: 'En attente',
+};
+/** b / c : au-delà de AG + 20 jours, l'urgence. */
+export const JOURS_APRES_AG_URGENCE = 20;
+/** d : une AG dans les 30 prochains jours est « à préparer ». */
+export const JOURS_AVANT_AG_A_PREPARER = 30;
+
+/** La ligne manque-t-elle de dates (rubrique a) ? PUR. */
+export const datesIncompletes = (l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>): boolean =>
+  l.suivi.etat !== 'ok' || l.arrete === null || l.copropriete === null;
+
+/** La catégorie d'une ligne à la date `aujourdhui` (AAAA-MM-JJ, Paris). PUR. */
+export function categorieVingt(l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>, aujourdhui: string): CategorieVingt {
+  if (datesIncompletes(l) || l.suivi.etat !== 'ok') return 'manquantes';
+  const apresAg = joursEntre(l.suivi.ago.date, aujourdhui);
+  if (apresAg > JOURS_APRES_AG_URGENCE) return 'urgence';
+  if (apresAg >= 0) return 'ag_passee';
+  if (-apresAg <= JOURS_AVANT_AG_A_PREPARER || l.suivi.ago.statut === 'officielle') return 'a_preparer';
+  return 'en_attente';
+}
+
+/** « Dans 12 jours » / « Aujourd'hui » / « Date limite dépassée de 3 jours » (rouge). PUR. */
+export function joursRestantsVingt(joursRestants: number): { texte: string; depasse: boolean } {
+  if (joursRestants < 0) return { texte: `Date limite dépassée de ${-joursRestants} jour${-joursRestants > 1 ? 's' : ''}`, depasse: true };
+  if (joursRestants === 0) return { texte: 'Aujourd’hui', depasse: false };
+  return { texte: `Dans ${joursRestants} jour${joursRestants > 1 ? 's' : ''}`, depasse: false };
+}
+
+export interface GroupeManquant { copro: LigneDatesManquantes; lignes: LigneVingtPourcent[] }
+export interface ClassementVingt {
+  manquantes: GroupeManquant[];
+  urgence: LigneVingtPourcent[]; ag_passee: LigneVingtPourcent[]; a_preparer: LigneVingtPourcent[]; en_attente: LigneVingtPourcent[];
+}
+
+const cleDeLaLigne = (l: LigneVingtPourcent, manquantes: readonly LigneDatesManquantes[]): string =>
+  l.cleCopro ?? manquantes.find((m) => (l.copropriete?.id != null ? m.coproprieteId === l.copropriete.id : m.coproprieteId === null && m.lotId === l.lotId))?.cle
+    ?? (l.copropriete?.id != null ? `copro-${l.copropriete.id}` : `lot-${l.lotId}`);
+const parLimite = (a: LigneVingtPourcent, b: LigneVingtPourcent): number => {
+  const la = a.suivi.etat === 'ok' ? a.suivi.limite : '9999-12-31'; const lb = b.suivi.etat === 'ok' ? b.suivi.limite : '9999-12-31';
+  return la.localeCompare(lb) || a.dateSortie.localeCompare(b.dateSortie) || a.sortieId - b.sortieId;
+};
+const parSortie = (a: LigneVingtPourcent, b: LigneVingtPourcent): number => a.dateSortie.localeCompare(b.dateSortie) || a.sortieId - b.sortieId;
+
+/** Le classement de tout l'écran : chaque ligne dans UNE catégorie. PUR. */
+export function classerVingtPourcent(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'>): ClassementVingt {
+  const c: ClassementVingt = { manquantes: [], urgence: [], ag_passee: [], a_preparer: [], en_attente: [] };
+  const groupes = new Map<string, GroupeManquant>();
+  for (const l of lu.lignes) {
+    const cat = categorieVingt(l, lu.aujourdhui);
+    if (cat !== 'manquantes') { c[cat].push(l); continue; }
+    const cle = cleDeLaLigne(l, lu.manquantes);
+    const g = groupes.get(cle) ?? { copro: lu.manquantes.find((m) => m.cle === cle) ?? { cle, coproprieteId: l.copropriete?.id ?? null, libelle: l.copropriete?.libelle ?? l.logement ?? `Bien ${l.lotId}`,
+      immeuble: null, lotId: l.lotId, manque: [], locataires: [] }, lignes: [] };
+    g.lignes.push(l);
+    groupes.set(cle, g);
+  }
+  for (const g of groupes.values()) g.lignes.sort(parSortie);
+  c.manquantes = [...groupes.values()].sort((a, b) => parSortie(a.lignes[0], b.lignes[0]));
+  for (const k of ['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const) c[k].sort(parLimite);
+  return c;
+}
