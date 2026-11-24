@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 24/11/2026, après `d5cb90f4`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `d5cb90f4`). `origin/main` = **`b1d4d866`** (poussé par Arno le
-  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **24 commits d'avance, NON
+**Dépôt (mesuré le 24/11/2026, après `09a51b86`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `09a51b86`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **28 commits d'avance, NON
   POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
@@ -322,13 +322,14 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   « Adresses » avant « Identité »), `59759271` (passation), puis le lot « 20 % à restituer » : `18f248d5` (cinq catégories), `5b046e8e`
   (« Restitution faite », migration 513), `81f08a64` (alerte du lundi, migration 514), `b9c726d8` (pastille « Urgence »), `cd52f0c2` (passation), puis les décisions de 23h20 : `3cfdef15`
   (date provisoire classée), `418e54e6` (513/514 au registre de la recette), `ed1b0b45` (fiche vide : données d'essai), `d5cb90f4` (lignes
-  sur deux lignes) — détail plus bas — et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  sur deux lignes), `03a81b9d` (passation), puis 23h40 : `b68d51de` (trois lignes, étiquette d'AG, compte à rebours), `07dd2bf4`
+  (« Dates manquantes » en blocs de trois lignes), `09a51b86` (390 px) — détail plus bas — et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `d5cb90f4`) : `npm test` VERT (1 869 fichiers, 27 881 tests, 21 ignorés ; `tsc` compris) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `09a51b86`) : `npm test` VERT (1 869 fichiers, 27 887 tests, 21 ignorés ; `tsc` compris) ; pages vérifiées dans
   Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celles de
-  `761222a0`, `4bde8fc2`, `6f79c98a`, `75f3488f`, `18f248d5`, `5b046e8e`, `81f08a64`, `b9c726d8`, `3cfdef15` et `d5cb90f4` (composants client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
+  `761222a0`, `4bde8fc2`, `6f79c98a`, `75f3488f`, `18f248d5`, `5b046e8e`, `81f08a64`, `b9c726d8`, `3cfdef15`, `d5cb90f4`, `b68d51de`, `07dd2bf4` et `09a51b86` (composants client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
@@ -700,12 +701,21 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       d'information en doublon » : une ligne par sortie, repliée (adresse, puis nom(s) ; à droite « AGO du … » / « AGO vers … (projetée) »
       ou, en orange, ce qui manque ; « Fiche copropriété » / « Créer la copropriété » ; « Restitution faite ») ; clic = détail (copropriété,
       sortie, exercice, arrêté, dernière AGO, limite, jours, alerte) ; 390 px : boutons pleine largeur. Fiche fermée : tout se relit.
-      🔴 QUESTION OUVERTE (arrêt demandé par Arno si le remplacement retire autre chose) : les CARTES de « Dates manquantes » ne sont PAS
-      remplacées par les lignes. Depuis `3cfdef15`, une copropriété sans arrêté dont tous les locataires ont une date provisoire
-      (« _TEST ARRETE COMPTES 20 POURCENT 1 » et « 3 », « 1 rue du Préavis de Test ») n'a aucune ligne dans « Dates manquantes » : remplacer
-      sa carte la ferait disparaître de la rubrique (elle resterait comptée dans le compteur et la pastille). Le remplacement retirerait
-      aussi : « N copropriétés à compléter », « Manque : … » au niveau de la copropriété, « N locataires concernés : … », l'étiquette
-      « Bien sans copropriété ». Les cartes gardées montrent l'adresse de l'immeuble en titre ET sur la ligne (doublon à régler avec la décision).
+      ✅ Question des CARTES « Dates manquantes » tranchée par Arno (24/11, 23h40, « option A adaptée ») → `07dd2bf4`.
+    · `b68d51de` (23h40) — ligne repliée (catégories b-e) sur TROIS lignes de même hauteur (92 px à l'ordinateur) : adresse ; nom(s) ;
+      « Restitution au plus tard le … » + compte à rebours (`compteAReboursVingt` : « AG dans N jours » gris avant l'AG, « J-N » de l'AG à la
+      limite, « Dépassé de N jours » rouge après). À droite : étiquette `etiquetteAgo` ROUGE « AGO vers mars 2027 (projetée) » / VERTE « AGO
+      15/03/2027 (officielle) » (encre --color-svv-green-ink), dessous la mention orange « date provisoire — arrêté manquant » (texte raccourci
+      sur décision d'Arno ; place réservée sinon), puis les deux boutons. Le détail perd date limite, jours restants et la phrase d'alerte.
+      ⚠️ Choix fait : une AGO projetée s'affiche « vers mois année » (jamais le jour, règle d'Arno du 23/11), pas « AGO 15/03/2027 (projetée) ».
+    · `07dd2bf4` (23h40) — « Dates manquantes » : la grande carte par copropriété REMPLACÉE par un bloc de trois lignes (immeuble ; locataires
+      concernés ; « Manque : dernière AGO et arrêté des comptes » orange, ou « Bien sans copropriété » + « Aucune copropriété ») et UN bouton
+      « Fiche copropriété » / « Créer la copropriété » ; déplié : chaque locataire concerné (nom, logement, sortie, « sans date : figure
+      seulement ici » ou « date provisoire : apparaît dans « Urgence » »), avec « Restitution faite ». TOUTES les copropriétés de la pastille
+      visibles ; tri par le locataire concerné sorti le plus anciennement. Aide et « N copropriétés à compléter » gardées.
+    · `09a51b86` (23h40) — 390 px : tête en colonne (3 lignes, étiquette, boutons pleine largeur) ; hauteurs réservées (adresse et noms sur 2
+      lignes coupées, 3e ligne sur 2 lignes sans troncature) ; mesuré : 289 px pour les lignes datées, 178 px pour « Dates manquantes ».
+    · Captures 152-156.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
