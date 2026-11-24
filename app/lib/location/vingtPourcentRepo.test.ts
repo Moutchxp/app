@@ -77,3 +77,30 @@ describe('lireSuiviVingtPourcent', () => {
     expect(l.suivi).toMatchObject({ etat: 'ok', ago: { date: '2027-05-05', statut: 'projetee' }, incertaine: true });
   });
 });
+
+/** 🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées au strict minimum : « Prénom NOM », premier e-mail, premier téléphone formaté (lecture seule). */
+describe('🔴🔴 les coordonnées des locataires et des propriétaires', () => {
+  it('par sortie : ses locataires et les propriétaires du bien (titulaire puis indivision) ; premier e-mail, premier téléphone « 06 12 34 56 78 » ; « tel: » ; absent : null', async () => {
+    query.mockImplementation(async (sql: string) => {
+      const s = sql.replace(/\s+/g, ' '); appels.push(s);
+      if (s.includes('AS j')) return { rows: [{ j: '2026-11-23' }] };
+      if (s.includes('AS sortie, l.id::text')) return { rows: [{ sortie: '5', id: '101', nom: 'DUPONT', prenom: 'Alice' }, { sortie: '6', id: '102', nom: 'MARTIN', prenom: null }] };
+      if (s.includes('JOIN gestion_annuaire_proprietaire p ON p.id = x.pid')) return { rows: [{ lot: '1', id: '7', nom: 'DURAND', prenom: 'Jean', complet: 'DURAND Jean' }, { lot: '1', id: '8', nom: 'SCI', prenom: null, complet: 'SCI Les Tilleuls' }] };
+      if (s.includes('FROM gestion_annuaire_contact c')) return { rows: [
+        { sujet: 'locataire', sujet_id: '101', sorte: 'email', valeur: 'alice@exemple.test', brute: 'alice@exemple.test' },
+        { sujet: 'locataire', sujet_id: '101', sorte: 'email', valeur: 'autre@exemple.test', brute: 'autre@exemple.test' },
+        { sujet: 'locataire', sujet_id: '101', sorte: 'telephone', valeur: '+33612345678', brute: '0612345678' },
+        { sujet: 'proprietaire', sujet_id: '7', sorte: 'telephone', valeur: '+33145678901', brute: '01 45 67 89 01' }] };
+      if (s.includes('FROM gestion_location_sortie_validee') && s.includes('array_agg(l.nom')) return { rows: sorties };
+      return { rows: [] };
+    });
+    const lu = await lireSuiviVingtPourcent();
+    const a = lu.lignes.find((l) => l.sortieId === 5)!;
+    expect(a.contacts).toEqual({
+      locataires: [{ nom: 'Alice DUPONT', email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
+      proprietaires: [{ nom: 'Jean DURAND', email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', email: null, telephone: null }],
+    });
+    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', email: null, telephone: null }], proprietaires: [] });
+    expect(appels.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false);
+  });
+});

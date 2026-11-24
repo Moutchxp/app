@@ -130,7 +130,12 @@ export interface LigneVingtPourcent {
   /** 🔴 (Arno, 24/11/2026, 23h16) l'immeuble par lequel la fiche Copropriété s'ouvre (`null` : par le bien, `lotId`) ; et la dernière AGO tenue */
   immeuble?: string | null;
   derniereAgo?: string | null;
+  /** 🔴 (Arno, 24/11/2026, 23h53) les coordonnées réduites au strict minimum (écran interne) ; absentes : non lues */
+  contacts?: ContactsSortie;
 }
+/** Une personne : « Prénom NOM », son premier e-mail, son premier téléphone (affiché « 06 12 34 56 78 », lien « tel: »). */
+export interface PersonneContact { nom: string; email: string | null; telephone: { affiche: string; lien: string } | null }
+export interface ContactsSortie { locataires: PersonneContact[]; proprietaires: PersonneContact[] }
 export interface SuiviVingtLu {
   aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[];
   /** 🔴 Arno (24/11/2026) — les restitutions faites (en cours, non annulées) ; absent : base sans la 513 */

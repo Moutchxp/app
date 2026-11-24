@@ -5,7 +5,9 @@ import { contexteAgDuLot, entreesAg } from './agCoproprieteRepo';
 import { arretesDe } from './arreteComptesRepo';
 import type { ArreteComptes } from './arreteComptes';
 import { lireRestitutionsFaites, restitutionVingtDisponible, SQL_SANS_RESTITUTION_EN_COURS } from './restitutionVingtRepo';
-import { agosOfficielles, datesManquantes, suiviVingtPourcent, type CoproConcernee, type LigneVingtPourcent, type SuiviVingtLu } from './vingtPourcent';
+import { agosOfficielles, datesManquantes, suiviVingtPourcent, type ContactsSortie, type CoproConcernee, type LigneVingtPourcent, type PersonneContact, type SuiviVingtLu } from './vingtPourcent';
+import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
+import { formaterTelephone } from '../gestion/telephoneAffichage';
 export type { LigneVingtPourcent, SuiviVingtLu } from './vingtPourcent';
 
 /**
@@ -60,9 +62,57 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
       derniereAgo: [...p.officielles].filter((d) => d <= aujourdhui).pop() ?? null,
     };
   });
+  // 🔴 (Arno, 24/11/2026, 23h53) les coordonnées des locataires et des propriétaires, au strict minimum (écran interne, rien n'est envoyé)
+  const contacts = await contactsDesSorties(rows.map((r) => ({ sortieId: Number(r.id), lotId: Number(r.lot_id) }))).catch(() => new Map<number, ContactsSortie>());
+  for (const l of lignes) { const c = contacts.get(l.sortieId); if (c !== undefined) l.contacts = c; }
   const manquantes = datesManquantes(lignes.flatMap((l) => {
     const p = parLot.get(l.lotId)!;
     return [{ copro: p.copro, arrete: l.arrete, officielles: p.officielles, locataires: l.locataires }];
   }));
   return { aujourdhui, lignes, manquantes, restitutionDisponible: avec513, faites: avec513 ? await lireRestitutionsFaites() : [] };
+}
+
+/**
+ * 🔴🔴 Arno (24/11/2026, 23h53) — « voir toutes les coordonnées des locataires et des propriétaires réduites au strict minimum : nom, prénom, e-mail,
+ * téléphone ». Par sortie : ses locataires (les occupations de la sortie) et les propriétaires du bien (le titulaire et l'indivision en cours) ; pour
+ * chacun le PREMIER e-mail et le PREMIER téléphone encore valables (dans l'ordre de la fiche). LECTURE SEULE ; l'écran est interne.
+ */
+async function contactsDesSorties(sorties: readonly { sortieId: number; lotId: number }[]): Promise<Map<number, ContactsSortie>> {
+  const out = new Map<number, ContactsSortie>();
+  if (sorties.length === 0) return out;
+  const ids = sorties.map((x) => x.sortieId);
+  const lots = [...new Set(sorties.map((x) => x.lotId))];
+  const { rows: locs } = await query<{ sortie: string; id: string; nom: string | null; prenom: string | null }>(
+    `SELECT s.id::text AS sortie, l.id::text, l.nom, nullif(btrim(l.prenom), '') AS prenom
+       FROM gestion_location_sortie_validee s JOIN gestion_annuaire_occupation o ON o.id = ANY(s.occupation_ids) JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+      WHERE s.id = ANY($1::bigint[]) ORDER BY l.nom_normalise, l.id`, [ids]);
+  const avecIndivision = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'proprietaire_id');
+  const { rows: pros } = await query<{ lot: string; id: string; nom: string | null; prenom: string | null; complet: string | null }>(
+    `SELECT x.lot::text, p.id::text, p.nom, nullif(btrim(p.prenom), '') AS prenom, p.nom_complet AS complet
+       FROM (SELECT id AS lot, proprietaire_id AS pid, 0 AS rang FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) AND proprietaire_id IS NOT NULL
+             ${avecIndivision ? 'UNION SELECT lot_id, proprietaire_id, 1 FROM gestion_annuaire_lot_proprietaire WHERE lot_id = ANY($1::bigint[]) AND jusqu_a IS NULL' : ''}) x
+       JOIN gestion_annuaire_proprietaire p ON p.id = x.pid
+      ORDER BY x.lot, x.rang, p.id`, [lots]);
+  const vivante = await conditionCoordonneeVivante('c');
+  const { rows: co } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string | null; brute: string | null }>(
+    `SELECT c.sujet, c.sujet_id::text, c.sorte, c.valeur, c.valeur_brute AS brute FROM gestion_annuaire_contact c
+      WHERE ((c.sujet = 'locataire' AND c.sujet_id = ANY($1::bigint[])) OR (c.sujet = 'proprietaire' AND c.sujet_id = ANY($2::bigint[])))
+        AND c.sorte IN ('telephone', 'email') AND c.absent_le IS NULL${vivante} ORDER BY c.rang, c.id`,
+    [[...new Set(locs.map((x) => Number(x.id)))], [...new Set(pros.map((x) => Number(x.id)))]]);
+  const premier = (sujet: string, id: string, sorte: string) => co.find((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === sorte && ((c.brute ?? c.valeur ?? '').trim() !== ''));
+  const personne = (sujet: 'locataire' | 'proprietaire', id: string, nom: string): PersonneContact => {
+    const e = premier(sujet, id, 'email'); const t = premier(sujet, id, 'telephone');
+    const affiche = t === undefined ? '' : formaterTelephone(t.valeur, t.brute);
+    return { nom, email: e === undefined ? null : (e.brute ?? e.valeur ?? '').trim(),
+      telephone: t === undefined || affiche === '' ? null : { affiche, lien: `tel:${(t.valeur ?? t.brute ?? '').replace(/[^\d+]/g, '')}` } };
+  };
+  const nomDe = (prenom: string | null, nom: string | null, complet?: string | null): string =>
+    (prenom !== null && (nom ?? '').trim() !== '' ? `${prenom} ${(nom ?? '').trim()}` : (complet ?? nom ?? '').trim()) || '—';
+  for (const s of sorties) {
+    out.set(s.sortieId, {
+      locataires: locs.filter((l) => Number(l.sortie) === s.sortieId).map((l) => personne('locataire', l.id, nomDe(l.prenom, l.nom))),
+      proprietaires: pros.filter((p) => Number(p.lot) === s.lotId).map((p) => personne('proprietaire', p.id, nomDe(p.prenom, p.nom, p.complet))),
+    });
+  }
+  return out;
 }

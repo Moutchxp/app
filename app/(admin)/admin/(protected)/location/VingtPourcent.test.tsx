@@ -439,3 +439,29 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — aucun doublon', () => {
     expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-copropriete]')?.textContent).toBe('Copro C'); // un vrai nom : gardé
   });
 });
+
+/** 🔴🔴 Arno (24/11/2026, 23h53) — dans le détail déplié, « Locataire(s) » et « Propriétaire(s) » : « Prénom NOM · e-mail · téléphone », compact, cliquable. */
+describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail', () => {
+  const CONTACTS = { locataires: [{ nom: 'Alice DUPONT', email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
+    proprietaires: [{ nom: 'Jean DURAND', email: null, telephone: null }, { nom: 'SCI Les Tilleuls', email: 'sci@exemple.test', telephone: null }] };
+  it('ligne datée : deux rubriques, une ligne par personne, « — » si absent, e-mail « mailto: », téléphone « tel: »', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], contacts: CONTACTS }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail]')!;
+    expect(d.querySelector('[data-vgp-coordonnees="locataires"] .vgp-coord-titre')?.textContent).toBe('Locataire');
+    expect(d.querySelector('[data-vgp-coordonnees="proprietaires"] .vgp-coord-titre')?.textContent).toBe('Propriétaires');
+    expect([...d.querySelectorAll('[data-vgp-personne]')].map((p) => p.textContent)).toEqual([
+      'Alice DUPONT · alice@exemple.test · 06 12 34 56 78', 'Jean DURAND · — · —', 'SCI Les Tilleuls · sci@exemple.test · —']);
+    expect(d.querySelector('[data-vgp-email]')?.getAttribute('href')).toBe('mailto:alice@exemple.test');
+    expect(d.querySelector('[data-vgp-telephone]')?.getAttribute('href')).toBe('tel:+33612345678');
+    // pas de doublon avec la ligne repliée : ni l'adresse, ni l'AG, ni la date limite
+    expect(d.textContent).not.toContain('1 rue A, 92800 Puteaux');
+  });
+  it('« Dates manquantes » : les coordonnées sous chaque locataire concerné', async () => {
+    donnees = { ...LU, lignes: [LU.lignes[0], { ...LU.lignes[2], contacts: { locataires: [{ nom: 'Paul MARTIN', email: null, telephone: { affiche: '06 00 00 00 00', lien: 'tel:+33600000000' } }], proprietaires: [] } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const r = container.querySelector('[data-vgp-concerne="6"]')!;
+    expect(r.querySelector('[data-vgp-personne]')?.textContent).toBe('Paul MARTIN · — · 06 00 00 00 00');
+    expect(r.querySelector('[data-vgp-coordonnees="proprietaires"]')?.textContent).toBe('Propriétaire—');
+  });
+});

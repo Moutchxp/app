@@ -7,7 +7,7 @@ import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
   categorieVingt, classerVingtPourcent, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
-  type CategorieVingt, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
+  type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
 /**
@@ -106,6 +106,28 @@ const sansMarques = (x: string): string => x.normalize('NFD').replace(/[\u0300-\
 export const dejaDit = (texte: string | null | undefined, sur: string | null | undefined): boolean =>
   texte != null && sur != null && sansMarques(texte) !== '' && sansMarques(sur).startsWith(sansMarques(texte));
 
+/**
+ * 🔴🔴 Arno (24/11/2026, 23h53) — « quand on déploie un bloc, voir toutes les coordonnées des locataires et des propriétaires réduites au strict
+ * minimum : nom, prénom, e-mail, téléphone, ça doit rester compact ». Deux petites rubriques, une ligne par personne : « Prénom NOM · e-mail ·
+ * téléphone » (« — » si absent ; e-mail et téléphone cliquables). Écran interne : rien n'est envoyé à qui que ce soit.
+ */
+function Coordonnees({ c }: { c: ContactsSortie | undefined }) {
+  if (c === undefined) return null;
+  const rubrique = (titre: string, cle: string, gens: ContactsSortie['locataires']) => (
+    <div className="vgp-coord" data-vgp-coordonnees={cle}>
+      <p className="vgp-coord-titre">{titre}</p>
+      {gens.length === 0 ? <p className="vgp-coord-ligne loc-muet">—</p> : gens.map((g, i) => (
+        <p key={i} className="vgp-coord-ligne" data-vgp-personne>
+          <span className="vgp-coord-nom">{g.nom}</span>{' · '}
+          {g.email !== null ? <a href={`mailto:${g.email}`} data-vgp-email>{g.email}</a> : <span className="loc-muet">—</span>}{' · '}
+          {g.telephone !== null ? <a href={g.telephone.lien} data-vgp-telephone>{g.telephone.affiche}</a> : <span className="loc-muet">—</span>}
+        </p>))}
+    </div>
+  );
+  return <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires)}
+    {rubrique(c.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire', 'proprietaires', c.proprietaires)}</div>;
+}
+
 /** 🔴 (Arno, 24/11/2026, 23h40) « Manque : dernière AGO et arrêté des comptes ». */
 const MOT_MANQUE: Record<'derniere_ago' | 'arrete', string> = { derniere_ago: 'dernière AGO', arrete: 'arrêté des comptes' };
 
@@ -190,6 +212,7 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
                     : <span className="vgp-incertaine" data-vgp-statut-court>Date provisoire → {TITRES_CATEGORIES[cat]}</span>}
                 </span>
                 <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
+                <Coordonnees c={l.contacts} />
               </li>
             );
           })}</ul>
@@ -266,6 +289,7 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
           <div><dt>Arrêté des comptes</dt><dd data-vgp-arrete>{l.arrete !== null ? arreteFr(l.arrete) : 'non renseigné'}</dd></div>
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
         </dl>
+        <Coordonnees c={l.contacts} />
         {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>
     </li>
@@ -462,7 +486,14 @@ export const CSS_VINGT_POURCENT = `
 .vgp-ligne--manque{border-left:4px solid var(--color-svv-urgence-orange)}
 .vgp-ligne-manque .vgp-sans-copro{margin-right:6px;padding:1px 8px}
 .vgp-concernes{gap:6px}
-.vgp-concerne{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--color-svv-line);min-width:0}
+.vgp-concerne{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;padding:6px 0;border-top:1px solid var(--color-svv-line);min-width:0}
+.vgp-concerne .vgp-coords{flex:1 1 100%}
+.vgp-coords{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:4px 16px;min-width:0}
+.vgp-coord{display:flex;flex-direction:column;gap:1px;min-width:0}
+.vgp-coord-titre{margin:0;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
+.vgp-coord-ligne{margin:0;font-size:.85rem;color:var(--color-svv-ink);overflow-wrap:anywhere;line-height:1.35}
+.vgp-coord-ligne a{color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:2px}
+.vgp-coord-nom{font-weight:700}
 .vgp-concerne-texte{min-width:0;overflow-wrap:anywhere;font-size:.88rem;color:var(--color-svv-ink)}
 .vgp-concerne .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-texte{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.88rem;color:var(--color-svv-ink)}
