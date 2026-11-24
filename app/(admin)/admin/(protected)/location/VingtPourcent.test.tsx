@@ -465,3 +465,36 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail
     expect(r.querySelector('[data-vgp-coordonnees="proprietaires"]')?.textContent).toBe('Propriétaire—');
   });
 });
+
+/** 🔴🔴 Arno (24/11/2026, 23h53) — la recherche : sous le titre, au-dessus du listing ; instantanée ; compteurs filtrés ; catégories vides masquées ; « Aucun résultat » ; la croix. */
+describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', () => {
+  const taper = async (v: string) => {
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const visibles = () => [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
+  it('le champ (texte d’exemple) est sous le titre, avant la première catégorie ; filtrage instantané avec accents ; compteurs mis à jour ; catégories vides masquées', async () => {
+    donnees = { ...LU, faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const champ = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    expect(champ.placeholder).toBe('Rechercher un locataire, une adresse ou un propriétaire');
+    expect(champ.compareDocumentPosition(container.querySelector('[data-vgp-categorie]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector('h1')!.compareDocumentPosition(champ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await taper('LÉO dur');
+    expect(visibles()).toEqual(['Urgence', 'Alerte du lundi']);
+    expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
+    await taper('martin');
+    expect(visibles()).toEqual(['Dates manquantes', 'Alerte du lundi']);
+    expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('1');
+  });
+  it('« Aucun résultat » ; la croix efface la recherche et tout revient ; les pastilles de l’accueil ne lisent pas la recherche', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await taper('zzz introuvable');
+    expect(container.querySelector('[data-vgp-aucun-resultat]')?.textContent).toBe('Aucun résultat');
+    await act(async () => { (container.querySelector('[data-vgp-recherche-effacer]') as HTMLButtonElement).click(); });
+    expect((container.querySelector('[data-vgp-recherche]') as HTMLInputElement).value).toBe('');
+    expect(container.querySelector('[data-vgp-aucun-resultat]')).toBeNull();
+    expect(visibles().slice(0, 5)).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
+    expect(readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8')).not.toContain('recherche');
+  });
+});

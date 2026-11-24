@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  categorieVingt, classerVingtPourcent, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -47,6 +47,8 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
   const [version, setVersion] = useState(0);
   const [fiche, setFiche] = useState<{ immeuble: string | null; lotId: number } | null>(null);
   const [restituer, setRestituer] = useState<LigneVingtPourcent | null>(null);
+  const [recherche, setRecherche] = useState('');
+  const active = rechercheActive(recherche);
   useEffect(() => {
     let vivant = true;
     fetch(`${api}?vingtPourcent=1&v=${version}`, { cache: 'no-store' })
@@ -69,15 +71,25 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
       </header>
       {lu.etat === 'charge' ? <p className="loc-muet" role="status">Lecture…</p>
         : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche }}>
+          {/* 🔴🔴 Arno (24/11/2026, 23h53) — la recherche, sous le titre et au-dessus du listing : filtrage instantané, sur toutes les catégories */}
+          <div className="vgp-recherche" role="search">
+            <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder={PLACEHOLDER_RECHERCHE_VINGT}
+              aria-label={PLACEHOLDER_RECHERCHE_VINGT} autoComplete="off" data-vgp-recherche />
+            {active && <button type="button" className="vgp-recherche-effacer" onClick={() => setRecherche('')} aria-label="Effacer la recherche" data-vgp-recherche-effacer>×</button>}
+          </div>
           {(() => {
-            const cl = classerVingtPourcent(lu.data);
+            const vu = filtrerVingtPourcent(lu.data, recherche);
+            const cl = classerVingtPourcent(vu);
+            const rien = active && vu.lignes.length === 0 && vu.manquantes.length === 0 && (vu.faites ?? []).length === 0;
             return <>
-              <DatesManquantes lignes={lu.data.manquantes} groupes={cl.manquantes} toutes={lu.data.lignes} aujourdhui={lu.data.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />
-              {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).map((k) => <Categorie key={k} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
+              {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
+              {!(active && vu.manquantes.length === 0) && <DatesManquantes lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
+              {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))
+                .map((k) => <Categorie key={k} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
+              {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
+              {!(active && (vu.faites ?? []).length === 0) && <RestitutionsFaites faites={vu.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />}
             </>;
           })()}
-          {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
-          <RestitutionsFaites faites={lu.data.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />
           <AlerteDuLundi api={api} />
         </GestesLigne.Provider>}
       {restituer !== null && lu.etat === 'ok' && <FenetreRestitution l={restituer} aujourdhui={lu.data.aujourdhui}
@@ -459,6 +471,12 @@ export const CSS_VINGT_POURCENT = `
 .vgp-alerte--proche{background:var(--color-svv-amber-soft);border-color:var(--color-svv-urgence-orange)}
 .vgp-alerte--sans{border-style:dashed;color:var(--color-svv-muted)}
 .vgp-restituer{align-self:flex-start;min-height:44px;width:auto}
+.vgp-recherche{position:relative;display:block;width:100%;min-width:0}
+.vgp-recherche input{box-sizing:border-box;width:100%;min-height:44px;padding:8px 44px 8px 12px;border:1px solid var(--color-svv-line-strong);border-radius:10px;
+  background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.95rem}
+.vgp-recherche input::-webkit-search-cancel-button{display:none}
+.vgp-recherche-effacer{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:40px;border:0;border-radius:8px;background:none;color:var(--color-svv-muted);font:inherit;font-size:1.3rem;cursor:pointer}
+.vgp-aucun-resultat{margin:0;padding:12px 14px;border:1px dashed var(--color-svv-line-strong);border-radius:12px}
 .vgp-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0}
 .vgp-ligne--depassee{border-left:4px solid var(--color-svv-red)}
 .vgp-ligne--proche{border-left:4px solid var(--color-svv-urgence-orange)}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -196,5 +196,30 @@ describe('🔴🔴 Arno (24/11/2026, 23h40) — étiquette de l’AG et compte �
     expect(compteAReboursVingt({ ago, limite, joursRestants: 12 })).toEqual({ texte: 'J-12', ton: 'normal' });
     expect(compteAReboursVingt({ ago, limite, joursRestants: 0 })).toEqual({ texte: 'J-0', ton: 'normal' });
     expect(compteAReboursVingt({ ago, limite, joursRestants: -5 })).toEqual({ texte: 'Dépassé de 5 jours', ton: 'rouge' });
+  });
+});
+
+describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche', () => {
+  it('sans accents ni majuscules, mots partiels : chaque mot tapé doit se trouver quelque part', () => {
+    expect(correspondRecherche(['MARTIN Léa', '2 rue des Écoles, 92800 Puteaux'], 'lea ecol')).toBe(true);
+    expect(correspondRecherche(['MARTIN Léa'], 'LÉA mart')).toBe(true);
+    expect(correspondRecherche(['MARTIN Léa'], 'lea dupont')).toBe(false);
+    expect(correspondRecherche(['x'], '   ')).toBe(true);
+  });
+  it('filtre lignes (locataire, adresse du logement, propriétaire), copropriétés à compléter et restitutions faites ; vide : rien ne change', () => {
+    const base = { sortieId: 1, lotId: 1, logement: '2 rue des Écoles', dateSortie: '2026-01-01', valideLe: '2026-01-02', copropriete: { id: 9, libelle: '2 rue des Écoles', aRattacher: false },
+      arrete: null, cleCopro: 'copro-9', suivi: { etat: 'sans_ago' as const, exercice: null, mention: MENTION_SANS_AGO } };
+    const lu = { aujourdhui: '2026-11-24', manquantes: [{ cle: 'copro-9', coproprieteId: 9, libelle: '2 rue des Écoles', immeuble: null, lotId: 1, manque: ['arrete' as const], locataires: ['MARTIN Léa'] }],
+      lignes: [{ ...base, locataires: ['MARTIN Léa'], contacts: { locataires: [], proprietaires: [{ nom: 'Hélène DURAND', email: null, telephone: null }] } },
+        { ...base, sortieId: 2, lotId: 2, logement: '5 avenue Foch', locataires: ['NOËL Paul'], cleCopro: 'lot-2', copropriete: null }],
+      faites: [{ id: 1, sortieId: 3, locataires: ['PETIT Zoé'], logement: '8 rue Haute', dateSortie: '2026-01-01', date: '2026-11-01', montantRestitue: 1, montantRetenuCharges: null, commentaire: null, par: 'x', le: '2026-11-01 10:00' }] };
+    expect(filtrerVingtPourcent(lu, '')).toBe(lu);
+    expect(filtrerVingtPourcent(lu, 'helene').lignes.map((l) => l.sortieId)).toEqual([1]); // par le propriétaire
+    expect(filtrerVingtPourcent(lu, 'noel').lignes.map((l) => l.sortieId)).toEqual([2]); // par le locataire
+    expect(filtrerVingtPourcent(lu, 'FOCH').lignes.map((l) => l.sortieId)).toEqual([2]); // par l'adresse
+    expect(filtrerVingtPourcent(lu, 'noel').manquantes).toEqual([]);
+    expect(filtrerVingtPourcent(lu, 'ecoles').manquantes.map((m) => m.cle)).toEqual(['copro-9']);
+    expect(filtrerVingtPourcent(lu, 'zoe').faites?.map((f) => f.id)).toEqual([1]);
+    expect(filtrerVingtPourcent(lu, 'zoe').lignes).toEqual([]);
   });
 });

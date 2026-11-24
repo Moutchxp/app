@@ -342,3 +342,27 @@ export function compteAReboursVingt(s: { ago: { date: string }; limite: string; 
   if (s.joursRestants < 0) return { texte: `Dépassé de ${pl(-s.joursRestants)}`, ton: 'rouge' };
   return { texte: `J-${s.joursRestants}`, ton: 'normal' };
 }
+
+// ══ 🔴🔴 Arno (24/11/2026, 23h53) — LA RECHERCHE ═════════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * « Au-dessus du listing et sous le titre de la page, un champ de saisie de recherche qui trouve un bloc par nom du locataire, adresse du logement ou
+ * nom du propriétaire » : sans accents ni majuscules, mots partiels (chaque mot tapé doit se trouver quelque part) ; sur toutes les catégories,
+ * « Dates manquantes » (son immeuble, ses locataires, ou un de ses locataires concernés trouvé) et « Restitutions faites » comprises. PUR.
+ */
+export const PLACEHOLDER_RECHERCHE_VINGT = 'Rechercher un locataire, une adresse ou un propriétaire';
+const pourRecherche = (x: string): string => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+export function correspondRecherche(textes: readonly (string | null | undefined)[], q: string): boolean {
+  const mots = pourRecherche(q).split(/\s+/).filter((m) => m !== '');
+  if (mots.length === 0) return true;
+  const botte = pourRecherche(textes.filter((t): t is string => typeof t === 'string').join(' '));
+  return mots.every((m) => botte.includes(m));
+}
+export const rechercheActive = (q: string): boolean => q.trim() !== '';
+export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu {
+  if (!rechercheActive(q)) return lu;
+  const lignes = lu.lignes.filter((l) => correspondRecherche([...l.locataires, l.logement, ...(l.contacts?.locataires ?? []).map((p) => p.nom),
+    ...(l.contacts?.proprietaires ?? []).map((p) => p.nom)], q));
+  const manquantes = lu.manquantes.filter((m) => correspondRecherche([m.libelle, ...m.locataires], q)
+    || lignes.some((l) => cleDeLaLigne(l, lu.manquantes) === m.cle));
+  return { ...lu, lignes, manquantes, ...(lu.faites !== undefined ? { faites: lu.faites.filter((f) => correspondRecherche([...f.locataires, f.logement], q)) } : {}) };
+}
