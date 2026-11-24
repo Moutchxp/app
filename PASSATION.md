@@ -310,21 +310,22 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 24/11/2026, après `4d09d602`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4d09d602`). `origin/main` = **`b1d4d866`** (poussé par Arno le
-  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **11 commits d'avance, NON
+**Dépôt (mesuré le 24/11/2026, après `75f3488f`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `75f3488f`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **13 commits d'avance, NON
   POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
   mail chacun), `cf7ecb2f` (mail aux partenaires : retenue de 20 % et date de restitution — détail plus bas), `56d6b7a7` (passation), `4d09d602` (ce
-  paragraphe remplacé par le bloc « Retenue de 20 % … : OUI / NON » — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  paragraphe remplacé par le bloc « Retenue de 20 % … : OUI / NON » — détail plus bas), `e79abe93` (passation), `75f3488f` (fiche Copropriété :
+  « Adresses » avant « Identité ») et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `4d09d602`) : `npm test` VERT (1 866 fichiers, 27 841 tests, 21 ignorés), `tsc` sans erreur ; pages vérifiées dans
+- **Contrôles** (dernier lot, `75f3488f`) : `npm test` VERT (1 866 fichiers, 27 842 tests, 21 ignorés) ; pages vérifiées dans
   Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celles de
-  `761222a0`, `4bde8fc2` et `6f79c98a` (composant client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
+  `761222a0`, `4bde8fc2`, `6f79c98a` et `75f3488f` (composants client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
@@ -650,6 +651,14 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     « … (article 22) : NON », seul. ⚠️ L'AGO de la ligne « AGO qui permettra la restitution » est l'AGO qui compte calculée MÊME case non cochée
     (seule la restitution perd sa date). Vu au Chrome sur _TEST PREAVIS VALIDE SORTIE NON VALIDEE (aperçu seul, « Revenir » / « Annuler », seuls
     POST = aperçu) : OUI projetée, bien sans copropriété, même bloc pour ADHOC et MONGA. Captures 124-126.
+  - `75f3488f` (24/11) — fiche Copropriété, « inverser l'ordre entre le bloc Adresses et le bloc Identité » : Adresses, Identité, puis Digicodes,
+    AG et arrêté des comptes, Habitants et gardiens, Syndic (fiche nouvelle et existante ; composant unique `FicheCopropriete`, donc partout).
+    Blocs déplacés tels quels. L'épreuve d'ordre du 16/11 (`FicheCopropriete.test.tsx`) mise à jour + épreuve « fiche nouvelle ». Vu au Chrome
+    (ordinateur et 390 px, clair et sombre ; « Fermer », jamais « Valider » ; seul POST = recherche par parcelle, lecture seule, bloquée) sur
+    « _TEST ARRETE COMPTES 20 POURCENT 2 » ouverte depuis « 20 % à restituer » (« Compléter la fiche Copropriété ») et sur la fiche à créer
+    « _TEST PREAVIS VALIDE SORTIE NON VALIDEE ». ⚠️ CONSTAT (antérieur, non traité) : depuis Gestion › Copropriétés, la ligne « _TEST ARRETE COMPTES
+    20 POURCENT 2 » ouvre « Ce bien n'a ni immeuble ni adresse : aucune fiche copropriété possible. » (cause non instruite ; même affichage quel que soit l'ordre des blocs : ce message précède les blocs).
+    Captures 127-130.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
