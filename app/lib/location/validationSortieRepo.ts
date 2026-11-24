@@ -24,7 +24,7 @@ import {
 import {
   ajouterEntreesAg, coproprietesPourLot, entreesAgDuLot, historiqueAgDisponible, rattacherLotACopropriete, type ContexteAgLot, type CoproprieteAg,
 } from './agCoproprieteRepo';
-import { paragrapheRetenuePartenaires, texteProprietaire } from './validationSortie';
+import { blocRetenuePartenaires, texteProprietaire } from './validationSortie';
 
 /**
  * ══ 🔴🔴 « VALIDER L'ÉTAT DES LIEUX DE SORTIE » — LE SERVEUR (spec d'Arno du 11/11/2026, lot 4). IMPUR (base + envoi). ═══════════════════════
@@ -204,8 +204,11 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   }
   // 🔴 Arno (23/11/2026) — le propriétaire reçoit la MÊME date que le locataire : l'AGO QUI COMPTE (même calcul que la fenêtre : date de sortie, arrêté,
   // AGO officielles, dernière et prochaine saisies), jamais la simple « Prochaine AGO »
-  const agoQc = ag === null || d.mentionAg !== true ? null : agoQuiCompte({ officielles: officiellesAg, derniere: ag.saisie.derniere,
-    prochaine: ag.saisie.prochaine, statut: ag.saisie.statut, dateSortie: date, arrete: ag.contexte.copropriete === null ? null : (await lireArrete(ag.contexte.copropriete.id))?.arrete ?? null, jour });
+  // 🔴 Arno (24/11/2026) — l'arrêté et l'AGO qui compte sont lus UNE fois : la date du locataire (case « Indiquer l'AGO » cochée) et le bloc des partenaires
+  const arreteCopro = ag === null || ag.contexte.copropriete === null ? null : (await lireArrete(ag.contexte.copropriete.id))?.arrete ?? null;
+  const agoCalculee = ag === null ? null : agoQuiCompte({ officielles: officiellesAg, derniere: ag.saisie.derniere,
+    prochaine: ag.saisie.prochaine, statut: ag.saisie.statut, dateSortie: date, arrete: arreteCopro, jour });
+  const agoQc = d.mentionAg === true ? agoCalculee : null;
   // 🔴 Arno (23/11/2026) — le texte des PROPRIÉTAIRES (trois paragraphes ; la MÊME date que le locataire ; « vos locataires » s'ils sont plusieurs)
   const avecDate = ag !== null && d.mentionAg === true && agoQc !== null;
   const phraseProprietaire = phraseSaisie ?? texteProprietaire({ jour: avecDate ? agoQc.date : null, statut: avecDate ? agoQc.statut : null,
@@ -239,8 +242,10 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   // Comme avant (« Valider la sortie ») : l'information à nos partenaires, bien en gestion, case cochée — sans copie d'aucun mail de départ.
   // 🔴 Arno (24/11/2026) — « afficher en dessous les différents partenaires possibles à informer et pouvoir les sélectionner individuellement » :
   // UN MAIL PAR PARTENAIRE COCHÉ, un seul destinataire (« À ») par mail ; aucun coché : aucun mail partenaire.
-  // 🔴 Arno (24/11/2026) — la retenue de 20 % ou non, et la MÊME date que le locataire (l'AGO qui compte, case « Indiquer l'AGO » cochée)
-  const retenue20 = paragrapheRetenuePartenaires({ retenue, ago: retenue ? agoQc : null, pluriel: sortants.length > 1 });
+  // 🔴 Arno (24/11/2026) — le bloc « Retenue de 20 % … : OUI / NON » du mail aux partenaires : arrêté, dernière AGO, AGO qui compte (la MÊME que le
+  // locataire), restitution (datée si la case « Indiquer l'AGO » est cochée) ; un seul bloc pour la sortie, le même pour chaque partenaire
+  const retenue20 = blocRetenuePartenaires({ retenue, coproprieteRattachee: ag === null ? null : ag.contexte.copropriete !== null, arrete: arreteCopro,
+    derniere: ag?.saisie.derniere ?? null, ago: agoCalculee === null ? null : { date: agoCalculee.date, statut: agoCalculee.statut }, restitutionDatee: agoQc !== null });
   if (d.informerPartenaires && logement.enGestion) {
     for (const p of partenairesCoches(await lireDestinatairesDefaut('sortie'), d.partenaires)) {
       const adhoc = mailAdhocSortie({ ...donneesMailSortie(prevue, qui, new Date().toISOString()), enGestion: true, expediteur: config.adresseGestion, signature: sig.ecran,

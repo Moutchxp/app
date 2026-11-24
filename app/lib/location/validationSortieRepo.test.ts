@@ -268,49 +268,60 @@ describe('🔴🔴 Arno (24/11/2026) — les partenaires, un par un', () => {
 });
 
 /**
- * 🔴🔴 Arno (24/11/2026) — « Dans l'email envoyé aux partenaires, il faut aussi indiquer s'il y a une retenue ou pas des 20 % de l'article 22, et la
- * date approximative ou non à laquelle le remboursement devra se faire au bénéfice du locataire. » Le paragraphe, juste après « Le logement est
- * désormais vacant. » ; la MÊME date que le locataire ; le MÊME texte dans l'aperçu (le récapitulatif) et l'envoi.
+ * 🔴🔴 Arno (24/11/2026, remplace le paragraphe de cf7ecb2f) — le bloc « Retenue de 20 % … : OUI / NON » du mail aux partenaires, juste après
+ * « Le logement est désormais vacant. » ; la MÊME AGO qui compte que le locataire ; un seul bloc pour la sortie ; le MÊME texte au récapitulatif
+ * et à l'envoi, pour chaque partenaire.
  */
-describe('🔴🔴 Arno (24/11/2026) — le mail aux partenaires dit la retenue de 20 % et la date de restitution', () => {
+describe('🔴🔴 Arno (24/11/2026) — le bloc « Retenue de 20 % » du mail aux partenaires', () => {
   const AG = { derniere: '2026-03-12', derniereConfirmee: false, prochaine: '2027-03-12', statut: 'projetee' };
-  const texteAdhoc = async (d: Record<string, unknown>): Promise<string> => {
+  const textesAdhoc = async (d: Record<string, unknown>): Promise<string[]> => {
     const r = await apercuValidationSortie({ ...DEMANDE, ...d }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(JSON.stringify(r));
-    return r.data.mails.find((m) => m.famille === 'partenaires')!.texte;
+    return r.data.mails.filter((m) => m.famille === 'partenaires').map((m) => m.texte);
   };
+  const texteAdhoc = async (d: Record<string, unknown>): Promise<string> => (await textesAdhoc(d))[0];
   beforeEach(() => {
-    h.enGestion = true; h.partenaires = [{ adresse: 'adhoc@exemple.test', libelle: 'ADHOC' }];
+    h.enGestion = true; h.partenaires = [{ adresse: 'adhoc@exemple.test', libelle: 'ADHOC' }, { adresse: 'monga@exemple.test', libelle: 'MONGA' }];
     ag.dispo = true; ag.copro = { id: 7, libelle: 'Résidence Fictive', cle: 'residence fictive' }; ag.entrees = []; ag.ajouts = []; ag.arrete = null; h.copro = true;
   });
 
-  it('🔴 pas de retenue : « Aucune retenue … n’a été appliquée. », juste après « Le logement est désormais vacant. »', async () => {
-    expect(await texteAdhoc({ retenue: false })).toContain('Le logement est désormais vacant.\n\nAucune retenue de 20 % du dépôt de garantie n’a été appliquée.\n\nCe message est purement informatif');
+  it('🔴 NON : « … (article 22) : NON », juste après « Le logement est désormais vacant. », et rien d’autre', async () => {
+    expect(await texteAdhoc({ retenue: false })).toContain('Le logement est désormais vacant.\n\nRetenue de 20 % du dépôt de garantie (article 22) : NON\n\nCe message est purement informatif');
   });
-  it('🔴 retenue, case « Indiquer l’AGO » NON cochée : la restitution « interviendra dans le mois qui suit l’approbation des comptes de l’immeuble »', async () => {
-    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: false })).toContain('Le logement est désormais vacant.\n\nUne retenue de 20 % du dépôt de garantie a été appliquée, '
-      + 'conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989. Sa restitution aux locataires interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.\n\n');
-  });
-  it('🔴 retenue, arrêté des comptes INCONNU : sans date, même la case cochée', async () => {
-    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: true })).toContain('interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.');
-  });
-  it('🔴🔴 retenue, date PROJETÉE et arrêté au 31/12 : l’exercice clos, « est attendue vers … (date approximative) » — la date du locataire', async () => {
+  it('🔴🔴 OUI projetée, arrêté 31/12, case cochée : le bloc entier, et la MÊME AGO que le locataire (mars 2027)', async () => {
     ag.arrete = { jour: 31, mois: 12 };
     const t = await texteAdhoc({ retenue: true, ag: AG, mentionAg: true });
-    expect(t).toContain('Sa restitution aux locataires, après approbation des comptes de l’exercice clos le 31/12/2026, est attendue vers avril 2027 (date approximative).');
-    // le locataire, de son côté, a la même AGO (mars 2027) ; ici le paragraphe des partenaires est calculé par le serveur, à partir de la même AGO qui compte
+    expect(t).toContain(['Le logement est désormais vacant.', '',
+      'Retenue de 20 % du dépôt de garantie (article 22 de la loi n° 89-462 du 6 juillet 1989) : OUI',
+      '– Date d’arrêté des comptes de la copropriété : 31/12',
+      '– Dernière AGO connue : 12/03/2026',
+      '– AGO qui permettra la restitution : vers mars 2027 (date projetée, approximative)',
+      '– Restitution au locataire attendue : vers avril 2027', '', 'Ce message est purement informatif'].join('\n'));
+    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
+    expect(r.etat === 'ok' && r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('vers avril 2027');
   });
-  it('🔴🔴 retenue, date OFFICIELLE : « est prévue au plus tard le … » (un mois après l’AGO)', async () => {
+  it('🔴 OUI officielle : « le 12/03/2027 (date officielle) » et « au plus tard le 12/04/2027 »', async () => {
     ag.arrete = { jour: 31, mois: 12 };
-    expect(await texteAdhoc({ retenue: true, ag: { ...AG, statut: 'officielle' }, mentionAg: true }))
-      .toContain('après approbation des comptes de l’exercice clos le 31/12/2026, est prévue au plus tard le 12/04/2027.');
+    const t = await texteAdhoc({ retenue: true, ag: { ...AG, statut: 'officielle' }, mentionAg: true });
+    expect(t).toContain('– AGO qui permettra la restitution : le 12/03/2027 (date officielle)\n– Restitution au locataire attendue : au plus tard le 12/04/2027');
   });
-  it('🔴 le MÊME texte part à l’envoi que celui du récapitulatif', async () => {
+  it('🔴 OUI sans date : case « Indiquer l’AGO » non cochée — la restitution « dans le mois qui suit l’approbation des comptes de l’immeuble »', async () => {
+    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: false })).toContain('– Restitution au locataire attendue : dans le mois qui suit l’approbation des comptes de l’immeuble');
+  });
+  it('🔴 arrêté MANQUANT : « non renseignée » ; bien SANS copropriété : « aucune copropriété rattachée »', async () => {
+    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: true })).toContain('– Date d’arrêté des comptes de la copropriété : non renseignée\n');
+    ag.copro = null; h.copro = null;
+    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: true })).toContain('– Date d’arrêté des comptes de la copropriété : aucune copropriété rattachée\n');
+  });
+  it('🔴 le MÊME bloc pour chaque partenaire, et le MÊME texte à l’envoi qu’au récapitulatif ; deux locataires sortis : UN bloc', async () => {
     ag.arrete = { jour: 31, mois: 12 };
     const d = { retenue: true, ag: AG, mentionAg: true };
-    const apercu = await texteAdhoc(d);
+    const apercus = await textesAdhoc(d);
+    expect(apercus).toHaveLength(2);
+    expect(apercus[0]).toBe(apercus[1]);
+    expect(apercus[0].match(/Retenue de 20 %/g)).toHaveLength(1);
     await validerSortieEdls({ ...DEMANDE, ...d }, AUTEUR);
-    const envoye = h.envoyerSerie.mock.calls.map(([m]) => m[0]).find((m) => m.sorte === 'sortie_adhoc') as { texte: string };
-    expect(envoye.texte).toBe(apercu);
+    const envoyes = h.envoyerSerie.mock.calls.map(([m]) => m[0]).filter((m) => m.sorte === 'sortie_adhoc').map((m) => (m as { texte: string }).texte);
+    expect(envoyes).toEqual(apercus);
   });
 });

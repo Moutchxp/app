@@ -17,6 +17,7 @@ import { dateFrPreavis } from './preavis';
 import { dateFr, moisAnnee, quandRestitution, unMoisApres, type StatutAg } from './agCopropriete';
 import type { mentionEnvoyePar } from './mentionEnvoyePar';
 import { lignesAg } from './agCopropriete';
+import { arreteFr, type ArreteComptes } from './arreteComptes';
 
 export const COMPTE_RENDU_MAX = 20_000;
 export const PREFIXE_COPIE_INTERNE_SORTIE = '[Copie interne] ';
@@ -259,21 +260,39 @@ export const PARAGRAPHE_RETENUE_LOCATAIRE = `Le logement que vous occupiez se tr
  * (case « Indiquer … » non cochée) : la restitution « dans le mois qui suit l'approbation des comptes » et la demande de la date. PUR.
  */
 /**
- * 🔴🔴 Arno (24/11/2026) — « Dans l'email envoyé aux partenaires, il faut aussi indiquer s'il y a une retenue ou pas des 20 % de l'article 22, et la
- * date approximative ou non à laquelle le remboursement devra se faire au bénéfice du locataire. » Le paragraphe du mail aux partenaires, juste après
- * la phrase du logement (« Le logement est désormais vacant. ») : la MÊME date que celle du locataire (l'AGO qui compte, la case « Indiquer l'AGO »
- * cochée), un mois après l'AGO — officielle « est prévue au plus tard le 15/04/2028 », projetée « est attendue vers avril 2028 (date approximative) » ;
- * sans date (case non cochée, arrêté des comptes inconnu) : « interviendra dans le mois qui suit l'approbation des comptes de l'immeuble. » PUR.
+ * 🔴🔴 Arno (24/11/2026, remplace le paragraphe de cf7ecb2f) — « dans le mail à destination des partenaires, ajouter si ce locataire est assujetti
+ * à la retenue de l'article 22 (20 %), avec les dates de dernière AGO, de la projection de la future AGO ou de sa date officielle, de la date
+ * anniversaire de clôture des comptes de la copropriété, et enfin le mois auquel la restitution des 20 % au locataire est projetée/probable. »
+ * Le bloc du mail aux partenaires, juste après la phrase du logement ; UN bloc pour la sortie (plusieurs locataires : le même). Les dates sont
+ * celles du locataire : l'AGO QUI COMPTE ; la restitution un mois après, datée seulement si la case « Indiquer l'AGO » est cochée et le calcul
+ * possible. Valeur absente : « non renseignée » ; arrêté d'un bien sans copropriété : « aucune copropriété rattachée ». PUR.
  */
-export const PHRASE_RETENUE_PARTENAIRES = 'Une retenue de 20 % du dépôt de garantie a été appliquée, conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989.';
-export const PHRASE_SANS_RETENUE_PARTENAIRES = 'Aucune retenue de 20 % du dépôt de garantie n’a été appliquée.';
-export function paragrapheRetenuePartenaires(o: { retenue: boolean; ago: { date: string; statut: StatutAg | null; cloture: string | null } | null; pluriel: boolean }): string {
-  if (!o.retenue) return PHRASE_SANS_RETENUE_PARTENAIRES;
-  const qui = o.pluriel ? 'aux locataires' : 'au locataire';
-  if (o.ago === null || o.ago.cloture === null) return `${PHRASE_RETENUE_PARTENAIRES} Sa restitution ${qui} interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.`;
-  const quand = o.ago.statut === 'officielle' ? `est prévue ${quandRestitution(o.ago.date, 'officielle')}` : `est attendue ${quandRestitution(o.ago.date, o.ago.statut)} (date approximative)`;
-  return `${PHRASE_RETENUE_PARTENAIRES} Sa restitution ${qui}, après approbation des comptes de l’exercice clos le ${dateFr(o.ago.cloture)}, ${quand}.`;
+export const TITRE_RETENUE_PARTENAIRES = 'Retenue de 20 % du dépôt de garantie (article 22 de la loi n° 89-462 du 6 juillet 1989) : OUI';
+export const SANS_RETENUE_PARTENAIRES = 'Retenue de 20 % du dépôt de garantie (article 22) : NON';
+export const RESTITUTION_SANS_DATE = 'dans le mois qui suit l’approbation des comptes de l’immeuble';
+export function blocRetenuePartenaires(o: {
+  retenue: boolean;
+  /** la copropriété est-elle rattachée au bien ? `null` : inconnu (historique des AG indisponible) */
+  coproprieteRattachee: boolean | null;
+  arrete: ArreteComptes | null;
+  derniere: string | null;
+  /** l'AGO qui compte (calculée), ou null (calcul impossible) */
+  ago: { date: string; statut: StatutAg | null } | null;
+  /** la case « Indiquer l'AGO » cochée (la date part aussi au locataire) */
+  restitutionDatee: boolean;
+}): string {
+  if (!o.retenue) return SANS_RETENUE_PARTENAIRES;
+  const nr = 'non renseignée';
+  const arrete = o.coproprieteRattachee === false ? ARRETE_AUCUNE_COPROPRIETE_TEXTE : arreteFr(o.arrete);
+  const ago = o.ago === null ? nr : o.ago.statut === 'officielle' ? `le ${dateFr(o.ago.date)} (date officielle)` : `vers ${moisAnnee(o.ago.date)} (date projetée, approximative)`;
+  const restitution = o.ago !== null && o.restitutionDatee ? quandRestitution(o.ago.date, o.ago.statut) : RESTITUTION_SANS_DATE;
+  return [TITRE_RETENUE_PARTENAIRES,
+    `– Date d’arrêté des comptes de la copropriété : ${arrete}`,
+    `– Dernière AGO connue : ${o.derniere !== null && o.derniere !== '' ? dateFr(o.derniere) : nr}`,
+    `– AGO qui permettra la restitution : ${ago}`,
+    `– Restitution au locataire attendue : ${restitution}`].join('\n');
 }
+const ARRETE_AUCUNE_COPROPRIETE_TEXTE = 'aucune copropriété rattachée';
 
 export function texteProprietaire(o: { jour: string | null; statut: StatutAg | null; cloture: string | null; pluriel: boolean }): string {
   const loc = o.pluriel ? 'vos locataires' : 'votre locataire';

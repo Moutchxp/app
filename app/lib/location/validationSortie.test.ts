@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { paragrapheRetenuePartenaires,
+import { blocRetenuePartenaires,
   alertesDuCompteRendu, AVERTISSEMENT_SANS_EDL_JOINT, coordonneesDeTiers, paragraphePiecesLocataire, paragraphePiecesProprietaire, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
   PHRASE_RETENUE_PROPRIETAIRE, texteProprietaire, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
 } from './validationSortie';
@@ -250,27 +250,42 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux propriétaires', ()
   });
 });
 
-/** 🔴🔴 Arno (24/11/2026) — le paragraphe « 20 % » du mail aux partenaires : les quatre variantes demandées, mot pour mot. */
-describe('🔴🔴 Arno (24/11/2026) — paragrapheRetenuePartenaires', () => {
-  const RETENUE = 'Une retenue de 20 % du dépôt de garantie a été appliquée, conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989.';
-  it('retenue, date PROJETÉE : « est attendue vers avril 2028 (date approximative) »', () => {
-    expect(paragrapheRetenuePartenaires({ retenue: true, ago: { date: '2028-03-15', statut: 'projetee', cloture: '2027-12-31' }, pluriel: false }))
-      .toBe(`${RETENUE} Sa restitution au locataire, après approbation des comptes de l’exercice clos le 31/12/2027, est attendue vers avril 2028 (date approximative).`);
+/**
+ * 🔴🔴 Arno (24/11/2026, remplace le paragraphe de cf7ecb2f) — « ajouter si ce locataire est assujetti à la retenue de l'article 22 (20 %), avec les
+ * dates de dernière AGO, de la projection de la future AGO ou de sa date officielle, de la date anniversaire de clôture des comptes de la
+ * copropriété, et enfin le mois auquel la restitution des 20 % au locataire est projetée/probable. » Le bloc, mot pour mot.
+ */
+describe('🔴🔴 Arno (24/11/2026) — blocRetenuePartenaires', () => {
+  const BASE = { retenue: true, coproprieteRattachee: true, arrete: { jour: 31, mois: 12 }, derniere: '2026-03-25', restitutionDatee: true };
+  const TETE = 'Retenue de 20 % du dépôt de garantie (article 22 de la loi n° 89-462 du 6 juillet 1989) : OUI';
+  it('OUI, date PROJETÉE : « vers mars 2027 (date projetée, approximative) », restitution « vers avril 2027 »', () => {
+    expect(blocRetenuePartenaires({ ...BASE, ago: { date: '2027-03-15', statut: 'projetee' } })).toBe([TETE,
+      '– Date d’arrêté des comptes de la copropriété : 31/12',
+      '– Dernière AGO connue : 25/03/2026',
+      '– AGO qui permettra la restitution : vers mars 2027 (date projetée, approximative)',
+      '– Restitution au locataire attendue : vers avril 2027'].join('\n'));
   });
-  it('retenue, date OFFICIELLE : « est prévue au plus tard le 15/04/2028 »', () => {
-    expect(paragrapheRetenuePartenaires({ retenue: true, ago: { date: '2028-03-15', statut: 'officielle', cloture: '2027-12-31' }, pluriel: false }))
-      .toBe(`${RETENUE} Sa restitution au locataire, après approbation des comptes de l’exercice clos le 31/12/2027, est prévue au plus tard le 15/04/2028.`);
+  it('OUI, date OFFICIELLE : « le 15/03/2027 (date officielle) », restitution « au plus tard le 15/04/2027 »', () => {
+    const b = blocRetenuePartenaires({ ...BASE, ago: { date: '2027-03-15', statut: 'officielle' } });
+    expect(b).toContain('\n– AGO qui permettra la restitution : le 15/03/2027 (date officielle)\n');
+    expect(b.endsWith('\n– Restitution au locataire attendue : au plus tard le 15/04/2027')).toBe(true);
   });
-  it('retenue SANS date (case non cochée → ago null ; arrêté inconnu → cloture null)', () => {
-    const attendu = `${RETENUE} Sa restitution au locataire interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.`;
-    expect(paragrapheRetenuePartenaires({ retenue: true, ago: null, pluriel: false })).toBe(attendu);
-    expect(paragrapheRetenuePartenaires({ retenue: true, ago: { date: '2028-03-15', statut: 'projetee', cloture: null }, pluriel: false })).toBe(attendu);
+  it('OUI SANS date : case « Indiquer l’AGO » non cochée, ou calcul impossible — la restitution « dans le mois qui suit l’approbation des comptes de l’immeuble »', () => {
+    const sansCase = blocRetenuePartenaires({ ...BASE, ago: { date: '2027-03-15', statut: 'projetee' }, restitutionDatee: false });
+    expect(sansCase.endsWith('\n– Restitution au locataire attendue : dans le mois qui suit l’approbation des comptes de l’immeuble')).toBe(true);
+    expect(sansCase).toContain('– AGO qui permettra la restitution : vers mars 2027 (date projetée, approximative)');
+    const sansCalcul = blocRetenuePartenaires({ ...BASE, ago: null });
+    expect(sansCalcul).toContain('– AGO qui permettra la restitution : non renseignée\n– Restitution au locataire attendue : dans le mois qui suit l’approbation des comptes de l’immeuble');
   });
-  it('PAS de retenue : « Aucune retenue de 20 % du dépôt de garantie n’a été appliquée. » (quelle que soit la date)', () => {
-    expect(paragrapheRetenuePartenaires({ retenue: false, ago: { date: '2028-03-15', statut: 'officielle', cloture: '2027-12-31' }, pluriel: true }))
-      .toBe('Aucune retenue de 20 % du dépôt de garantie n’a été appliquée.');
+  it('arrêté MANQUANT : « non renseignée » ; dernière AGO absente : « non renseignée »', () => {
+    const b = blocRetenuePartenaires({ ...BASE, arrete: null, derniere: null, ago: { date: '2027-03-15', statut: 'projetee' } });
+    expect(b).toContain('– Date d’arrêté des comptes de la copropriété : non renseignée\n– Dernière AGO connue : non renseignée\n');
   });
-  it('⚠️ plusieurs locataires sortis : « aux locataires »', () => {
-    expect(paragrapheRetenuePartenaires({ retenue: true, ago: null, pluriel: true })).toContain('Sa restitution aux locataires interviendra');
+  it('SANS copropriété : « aucune copropriété rattachée »', () => {
+    expect(blocRetenuePartenaires({ ...BASE, coproprieteRattachee: false, arrete: null, ago: { date: '2027-03-15', statut: 'projetee' } }))
+      .toContain('– Date d’arrêté des comptes de la copropriété : aucune copropriété rattachée\n');
+  });
+  it('NON : une ligne, rien d’autre', () => {
+    expect(blocRetenuePartenaires({ ...BASE, retenue: false, ago: { date: '2027-03-15', statut: 'officielle' } })).toBe('Retenue de 20 % du dépôt de garantie (article 22) : NON');
   });
 });

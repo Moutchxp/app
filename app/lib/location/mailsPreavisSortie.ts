@@ -427,7 +427,7 @@ export const PAS_DE_MAIL_DE_DEPART = 'Aucun des locataires n’a d’adresse e-m
  */
 export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[];
   depart?: MailAvis | null; nDeparts?: number; retouches?: Retouches;
-  /** 🔴 Arno (24/11/2026) — « Valider la sortie » : la retenue de 20 % ou non, et la date de restitution (`paragrapheRetenuePartenaires`) ; absent : rien (comme avant) */
+  /** 🔴 Arno (24/11/2026) — « Valider la sortie » : le bloc « Retenue de 20 % … : OUI / NON » (`blocRetenuePartenaires`) ; absent : rien (comme avant) */
   retenue20?: string }): MailAvis | null {
   if (!d.enGestion) return null;
   const a = adressesUniques(d.partenaires);
