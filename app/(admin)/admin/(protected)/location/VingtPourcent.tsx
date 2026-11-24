@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  classerVingtPourcent, joursRestantsVingt, LIBELLE_MANQUE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleAlerte, libelleExercice, MENTION_INCERTAINE, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  classerVingtPourcent, joursRestantsVingt, LIBELLE_MANQUE, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleAlerte, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -107,11 +107,11 @@ function DatesManquantes({ lignes, groupes, onCompleter, onRestituer }: { lignes
   // une ligne classée ici dont la copropriété ne serait pas dans la liste lue garde sa carte (jamais une ligne perdue)
   const cartes = [...lignes, ...groupes.filter((g) => !lignes.some((m) => m.cle === g.copro.cle)).map((g) => g.copro)];
   const triees = cartes.sort((a, b) => (ordre.get(a.cle) ?? 1e9) - (ordre.get(b.cle) ?? 1e9));
-  const nb = groupes.reduce((n, g) => n + g.lignes.length, 0);
+  // 🔴 (Arno, 24/11/2026, 23h20) le compteur : les COPROPRIÉTÉS à compléter (la pastille) ; leurs locataires datés sont classés ailleurs
   return (
-    <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label="Dates manquantes" data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={nb}>
+    <section className={`vgp-bloc vgp-manquantes${lignes.length > 0 ? ' vgp-manquantes--a-faire' : ''}`} aria-label="Dates manquantes" data-vgp-manquantes={lignes.length} data-vgp-categorie="manquantes" data-vgp-nombre={lignes.length}>
       <details open className="vgp-repli">
-      <summary className="vgp-titre">Dates manquantes <span className={nb > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{nb}</span></summary>
+      <summary className="vgp-titre">Dates manquantes <span className={lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
       {cartes.length === 0 ? <p className="loc-muet" data-vgp-manquantes-aucune>Toutes les copropriétés concernées ont leur dernière AGO et leur date d’arrêté des comptes.</p> : <>
         <p className="loc-muet vgp-aide">Ces copropriétés ont au moins un locataire en attente de restitution des 20 % : complétez leur fiche pour un suivi complet et fiable.</p>
         <p className="loc-muet vgp-aide" data-vgp-coproprietes-a-completer>{cartes.length} copropriété{cartes.length > 1 ? 's' : ''} à compléter.</p>
@@ -154,7 +154,7 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
         <div><dt>AGO qui compte</dt><dd data-vgp-ago={s.etat === 'ok' ? `${s.ago.date}:${s.ago.statut}` : 'inconnue'}>
           {s.etat !== 'ok' ? <span className="vgp-inconnue">{s.mention}</span> : <>
             <span className={s.ago.statut === 'projetee' ? 'vgp-projetee' : 'vgp-officielle'}>{dateFr(s.ago.date)} — {s.ago.statut === 'projetee' ? 'date projetée' : 'date officielle'}</span>
-            {s.incertaine && <span className="vgp-incertaine" data-vgp-incertaine> · {MENTION_INCERTAINE}</span>}
+            {s.incertaine && <span className="vgp-incertaine" data-vgp-incertaine> · {MENTION_DATE_PROVISOIRE}</span>}
           </>}</dd></div>
         <div><dt>Restitution au plus tard le</dt><dd data-vgp-limite={s.etat === 'ok' ? s.limite : ''}>{s.etat === 'ok' ? dateFr(s.limite) : '—'}</dd></div>
         {/* 🔴 Arno (24/11/2026) — les jours restants ; dépassée : « Date limite dépassée de N jours », en rouge */}

@@ -131,10 +131,18 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
     expect(categorieVingt(ligne(plus(1)), AUJ)).toBe('a_preparer');
     expect(categorieVingt(ligne(plus(200), 'officielle'), AUJ)).toBe('a_preparer');
   });
-  it('a : pas de dernière AGO, pas d’arrêté, ou pas de copropriété → « Dates manquantes », même si la date provisoire est dépassée', () => {
+  // 🔴🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable restent dans « Dates manquantes » ; une date
+  // PROVISOIRE (dernière AGO connue, arrêté manquant ; ou bien sans copropriété avec une AGO connue) classe dans la catégorie réelle
+  it('a : SEULEMENT sans aucune date calculable ; une date provisoire classe dans la catégorie réelle', () => {
     expect(categorieVingt(ligne(null), AUJ)).toBe('manquantes');
-    expect(categorieVingt(ligne(plus(-90), 'officielle', { arrete: null }), AUJ)).toBe('manquantes');
-    expect(categorieVingt(ligne(plus(10), 'projetee', { copropriete: null }), AUJ)).toBe('manquantes');
+    expect(categorieVingt(ligne(plus(-90), 'officielle', { arrete: null }), AUJ)).toBe('urgence');
+    expect(categorieVingt(ligne(plus(10), 'projetee', { copropriete: null, arrete: null }), AUJ)).toBe('a_preparer');
+  });
+  it('le cas « _TEST ARRETE COMPTES 20 POURCENT Locataire 3 » : AGO projetée 22/09/2026, arrêté manquant, limite 22/10/2026 dépassée de 33 jours → « Urgence »', () => {
+    const l = ligne('2026-09-22', 'projetee', { arrete: null });
+    expect(l.suivi.etat === 'ok' && l.suivi.limite).toBe('2026-10-22');
+    expect(categorieVingt(l, AUJ)).toBe('urgence');
+    expect(classerVingtPourcent({ aujourdhui: AUJ, lignes: [l], manquantes: [] }).urgence).toHaveLength(1);
   });
   it('EXCLUSIVITÉ et TRI : chaque ligne dans une seule catégorie ; b à e par date limite croissante ; a groupé par copropriété, sortie la plus ancienne d’abord', () => {
     const u1 = ligne(plus(-40)); const u2 = ligne(plus(-60)); const p1 = ligne(plus(5)); const e1 = ligne(plus(100)); const e2 = ligne(plus(60));

@@ -24,6 +24,8 @@ export const TITRE_VINGT_POURCENT = '20 % à restituer';
 export const JOURS_ALERTE = 30;
 export const MENTION_INCERTAINE = 'Projection incertaine — date d’arrêté des comptes manquante';
 export const MENTION_SANS_AGO = 'Dernière AGO inconnue';
+/** 🔴 (Arno, 24/11/2026, 23h20) la mention orange d'une date PROVISOIRE sur l'écran « 20 % à restituer » (arrêté des comptes manquant). */
+export const MENTION_DATE_PROVISOIRE = 'date provisoire — arrêté des comptes manquant';
 
 export type AlerteVingt = 'a_venir' | 'proche' | 'depassee';
 export interface AgoQuiCompte { date: string; statut: 'officielle' | 'projetee' }
@@ -183,6 +185,9 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
  * triée de la restitution la plus urgente à la plus lointaine. » L'AG qui compte : celle du calcul b0453dc2 (`suiviVingtPourcent`) ; la date limite :
  * AG + 1 mois. Une ligne = une sortie validée (ses colocataires partagent le même dépôt et les mêmes dates).
  *   a. « Dates manquantes » — la copropriété n'a pas de dernière AGO et/ou pas de date d'arrêté des comptes, ou le bien n'a pas de copropriété ;
+ *      🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable y restent ; une date PROVISOIRE calculable
+ *      (dernière AGO connue, arrêté manquant) classe le locataire dans sa catégorie réelle (b à e), avec la mention « date provisoire — arrêté des
+ *      comptes manquant », et il entre dans l'alerte du lundi s'il est en Urgence ; sa copropriété reste dans « Dates manquantes » et la pastille ;
  *   b. « Urgence » — aujourd'hui > AG + 20 jours (date limite dépassée comprise) ;
  *   c. « AG passée — restitution à faire » — AG ≤ aujourd'hui ≤ AG + 20 jours ;
  *   d. « À préparer » — l'AG a lieu dans les 30 prochains jours, OU sa date est officielle (même lointaine) — choix d'Arno « 1 et 3 » ;
@@ -205,7 +210,8 @@ export const datesIncompletes = (l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' 
 
 /** La catégorie d'une ligne à la date `aujourdhui` (AAAA-MM-JJ, Paris). PUR. */
 export function categorieVingt(l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>, aujourdhui: string): CategorieVingt {
-  if (datesIncompletes(l) || l.suivi.etat !== 'ok') return 'manquantes';
+  // 🔴 (Arno, 24/11/2026, 23h20) « Dates manquantes » : seulement sans AUCUNE date calculable
+  if (l.suivi.etat !== 'ok') return 'manquantes';
   const apresAg = joursEntre(l.suivi.ago.date, aujourdhui);
   if (apresAg > JOURS_APRES_AG_URGENCE) return 'urgence';
   if (apresAg >= 0) return 'ag_passee';

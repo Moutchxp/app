@@ -74,7 +74,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(a.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('À restituer au plus tard le 25/04/2027');
     const c = container.querySelector('[data-vgp-sortie="7"]')!;
     expect(c.getAttribute('data-vgp-alerte')).toBe('depassee');
-    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('22/09/2026 — date officielle · Projection incertaine — date d’arrêté des comptes manquante');
+    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('22/09/2026 — date officielle · date provisoire — arrêté des comptes manquant');
     expect(c.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('Restitution en retard — la limite du 22/10/2026 est dépassée de 32 jours');
     const b = container.querySelector('[data-vgp-sortie="6"]')!;
     expect(b.querySelector('[data-vgp-ago]')?.textContent).toBe('Dernière AGO inconnue');
@@ -143,21 +143,23 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     ] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const dans = (cat: string) => [...container.querySelectorAll(`[data-vgp-categorie="${cat}"] [data-vgp-sortie]`)].map((x) => Number(x.getAttribute('data-vgp-sortie')));
-    expect(dans('urgence')).toEqual([11]);
+    // 🔴 (Arno, 24/11/2026, 23h20) DURAND Léo (7) : arrêté manquant, date PROVISOIRE dépassée → « Urgence », avec la mention orange
+    expect(dans('urgence')).toEqual([11, 7]); // par date limite : 01/10 puis 22/10
     expect(dans('ag_passee')).toEqual([12]);
     expect(dans('a_preparer')).toEqual([13, 14]);
     expect(dans('en_attente')).toEqual([5]);
-    expect(dans('manquantes').sort()).toEqual([6, 7]);
+    expect(dans('manquantes')).toEqual([6]);
     // un locataire n'apparaît qu'une fois sur tout l'écran
     expect(container.querySelectorAll('[data-vgp-sortie="7"]')).toHaveLength(1);
-    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['2', '1', '1', '2', '1']);
+    // « Dates manquantes » compte les COPROPRIÉTÉS à compléter (la pastille) : Copro B, et Copro C (celle de DURAND Léo) via sa carte
+    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['1', '2', '1', '2', '1']);
     expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(5);
     const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-jours]')!;
     expect([u.textContent, u.className]).toEqual(['Date limite dépassée de 53 jours', 'vgp-depasse']);
     expect(container.querySelector('[data-vgp-sortie="12"] [data-vgp-jours]')?.textContent).toBe('Dans 16 jours');
-    // la ligne de DURAND Léo (arrêté manquant, date provisoire dépassée) reste lisible sous sa copropriété, rien n'est masqué
-    const d = container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-sortie="7"]')!;
+    const d = container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-sortie="7"]')!;
     expect(d.querySelector('[data-vgp-jours]')?.textContent).toBe('Date limite dépassée de 32 jours');
+    expect(d.querySelector('[data-vgp-incertaine]')?.textContent).toBe(' · date provisoire — arrêté des comptes manquant');
   });
 });
 
@@ -241,10 +243,11 @@ describe('🔴🔴 Arno (24/11/2026) — la pastille « Urgence » (accueil Loca
     await rendre(createElement(BoutonVingtPourcent));
     expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
     const u = container.querySelector('[data-pastille-vingt-urgence]')!;
-    expect([u.textContent, u.className]).toEqual(['2', 'bvp-pastille bvp-pastille--urgence']);
-    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 2 locataires en urgence — 1 copropriété en attente de données');
+    // les deux ajoutées + DURAND Léo (date provisoire dépassée, décision du 24/11 23h20)
+    expect([u.textContent, u.className]).toEqual(['3', 'bvp-pastille bvp-pastille--urgence']);
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 3 locataires en urgence — 1 copropriété en attente de données');
     act(() => root.unmount()); root = createRoot(container);
-    donnees = LU; // personne en urgence
+    donnees = { ...LU, lignes: LU.lignes.filter((l) => l.sortieId !== 7) }; // personne en urgence
     await rendre(createElement(BoutonVingtPourcent));
     expect(container.querySelector('[data-pastille-vingt-urgence]')).toBeNull();
     expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
