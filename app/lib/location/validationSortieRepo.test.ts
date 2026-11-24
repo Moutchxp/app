@@ -14,7 +14,8 @@ vi.mock('./piecesSortieRepo', () => ({
 }));
 vi.mock('../db/client', () => ({ query: h.query, withTransaction: async (fn: (q: unknown) => Promise<unknown>) => fn(h.query) }));
 // 🔴 (16/11/2026, 475) l'historique des AG de la copropriété : absent par défaut (les épreuves d'avant inchangées)
-const ag = vi.hoisted(() => ({ dispo: false, copro: null as { id: number; libelle: string; cle: string } | null, entrees: [] as unknown[], ajouts: [] as unknown[][], creees: [] as string[] }));
+const ag = vi.hoisted(() => ({ dispo: false, copro: null as { id: number; libelle: string; cle: string } | null, entrees: [] as unknown[], ajouts: [] as unknown[][], creees: [] as string[],
+  arrete: null as { jour: number; mois: number } | null }));
 vi.mock('./agCoproprieteRepo', () => ({
   historiqueAgDisponible: async () => ag.dispo,
   entreesAgDuLot: async () => ({ contexte: { lotId: 7, immeuble: { cle: '4 rue fictive', libelle: '4 rue Fictive' }, copropriete: ag.copro,
@@ -24,7 +25,7 @@ vi.mock('./agCoproprieteRepo', () => ({
   rattacherLotACopropriete: async (_q: unknown, _c: unknown, id: number) => ({ ok: true, copropriete: { id, libelle: 'Résidence Fictive', cle: 'residence fictive' } }),
   creerCoproprietePourLot: async (_q: unknown, _c: unknown, nom: string) => { ag.creees.push(nom); return { ok: true, copropriete: { id: 99, libelle: nom, cle: 'x' } }; },
 }));
-vi.mock('./arreteComptesRepo', () => ({ lireArrete: async () => ({ arrete: null, par: null, le: null }) }));
+vi.mock('./arreteComptesRepo', () => ({ lireArrete: async () => ({ arrete: ag.arrete, par: null, le: null }) }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@exemple.test' }) }));
 vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'arno@exemple.test', nom: 'Arno Test' }) }));
 vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async () => h.partenaires }));
@@ -149,7 +150,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — pièces jointes et retenue de 20 %
 describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’AG de la copropriété', () => {
   const AG = { derniere: '2026-03-12', derniereConfirmee: false, prochaine: '2027-03-12', statut: 'projetee' };
   beforeEach(() => {
-    ag.dispo = true; ag.copro = { id: 7, libelle: 'Résidence Fictive', cle: 'residence fictive' }; ag.entrees = []; ag.ajouts = []; ag.creees = []; h.copro = true;
+    ag.dispo = true; ag.copro = { id: 7, libelle: 'Résidence Fictive', cle: 'residence fictive' }; ag.entrees = []; ag.ajouts = []; ag.creees = []; ag.arrete = null; h.copro = true;
     h.query.mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : sql.includes('RETURNING id') ? { rows: [{ id: '41' }] } : { rows: [] }));
   });
   it('dernière AG vide, ou prochaine sans statut : REFUS avant toute écriture (champ « ag ») ; sans la 475 : rien n’est demandé', async () => {
@@ -263,5 +264,53 @@ describe('🔴🔴 Arno (24/11/2026) — les partenaires, un par un', () => {
   it('⚠️ bien hors gestion : aucun mail partenaire, même cochés', async () => {
     h.enGestion = false;
     expect(await partenaires({ partenaires: ['adhoc@exemple.test'] })).toEqual([]);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (24/11/2026) — « Dans l'email envoyé aux partenaires, il faut aussi indiquer s'il y a une retenue ou pas des 20 % de l'article 22, et la
+ * date approximative ou non à laquelle le remboursement devra se faire au bénéfice du locataire. » Le paragraphe, juste après « Le logement est
+ * désormais vacant. » ; la MÊME date que le locataire ; le MÊME texte dans l'aperçu (le récapitulatif) et l'envoi.
+ */
+describe('🔴🔴 Arno (24/11/2026) — le mail aux partenaires dit la retenue de 20 % et la date de restitution', () => {
+  const AG = { derniere: '2026-03-12', derniereConfirmee: false, prochaine: '2027-03-12', statut: 'projetee' };
+  const texteAdhoc = async (d: Record<string, unknown>): Promise<string> => {
+    const r = await apercuValidationSortie({ ...DEMANDE, ...d }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error(JSON.stringify(r));
+    return r.data.mails.find((m) => m.famille === 'partenaires')!.texte;
+  };
+  beforeEach(() => {
+    h.enGestion = true; h.partenaires = [{ adresse: 'adhoc@exemple.test', libelle: 'ADHOC' }];
+    ag.dispo = true; ag.copro = { id: 7, libelle: 'Résidence Fictive', cle: 'residence fictive' }; ag.entrees = []; ag.ajouts = []; ag.arrete = null; h.copro = true;
+  });
+
+  it('🔴 pas de retenue : « Aucune retenue … n’a été appliquée. », juste après « Le logement est désormais vacant. »', async () => {
+    expect(await texteAdhoc({ retenue: false })).toContain('Le logement est désormais vacant.\n\nAucune retenue de 20 % du dépôt de garantie n’a été appliquée.\n\nCe message est purement informatif');
+  });
+  it('🔴 retenue, case « Indiquer l’AGO » NON cochée : la restitution « interviendra dans le mois qui suit l’approbation des comptes de l’immeuble »', async () => {
+    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: false })).toContain('Le logement est désormais vacant.\n\nUne retenue de 20 % du dépôt de garantie a été appliquée, '
+      + 'conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989. Sa restitution aux locataires interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.\n\n');
+  });
+  it('🔴 retenue, arrêté des comptes INCONNU : sans date, même la case cochée', async () => {
+    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: true })).toContain('interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.');
+  });
+  it('🔴🔴 retenue, date PROJETÉE et arrêté au 31/12 : l’exercice clos, « est attendue vers … (date approximative) » — la date du locataire', async () => {
+    ag.arrete = { jour: 31, mois: 12 };
+    const t = await texteAdhoc({ retenue: true, ag: AG, mentionAg: true });
+    expect(t).toContain('Sa restitution aux locataires, après approbation des comptes de l’exercice clos le 31/12/2026, est attendue vers avril 2027 (date approximative).');
+    // le locataire, de son côté, a la même AGO (mars 2027) ; ici le paragraphe des partenaires est calculé par le serveur, à partir de la même AGO qui compte
+  });
+  it('🔴🔴 retenue, date OFFICIELLE : « est prévue au plus tard le … » (un mois après l’AGO)', async () => {
+    ag.arrete = { jour: 31, mois: 12 };
+    expect(await texteAdhoc({ retenue: true, ag: { ...AG, statut: 'officielle' }, mentionAg: true }))
+      .toContain('après approbation des comptes de l’exercice clos le 31/12/2026, est prévue au plus tard le 12/04/2027.');
+  });
+  it('🔴 le MÊME texte part à l’envoi que celui du récapitulatif', async () => {
+    ag.arrete = { jour: 31, mois: 12 };
+    const d = { retenue: true, ag: AG, mentionAg: true };
+    const apercu = await texteAdhoc(d);
+    await validerSortieEdls({ ...DEMANDE, ...d }, AUTEUR);
+    const envoye = h.envoyerSerie.mock.calls.map(([m]) => m[0]).find((m) => m.sorte === 'sortie_adhoc') as { texte: string };
+    expect(envoye.texte).toBe(apercu);
   });
 });

@@ -14,7 +14,7 @@
  */
 import { adressesUniques, composerMailLocation, prenomNom, unMailParAdresse, type MailAvis, type Signature } from './mailsPreavisSortie';
 import { dateFrPreavis } from './preavis';
-import { dateFr, moisAnnee, unMoisApres, type StatutAg } from './agCopropriete';
+import { dateFr, moisAnnee, quandRestitution, unMoisApres, type StatutAg } from './agCopropriete';
 import type { mentionEnvoyePar } from './mentionEnvoyePar';
 import { lignesAg } from './agCopropriete';
 
@@ -258,6 +258,23 @@ export const PARAGRAPHE_RETENUE_LOCATAIRE = `Le logement que vous occupiez se tr
  * arrêté inconnu : « l'exercice couvrant sa période d'occupation » ; plusieurs locataires sortants : « vos locataires » / « leur ». Sans date
  * (case « Indiquer … » non cochée) : la restitution « dans le mois qui suit l'approbation des comptes » et la demande de la date. PUR.
  */
+/**
+ * 🔴🔴 Arno (24/11/2026) — « Dans l'email envoyé aux partenaires, il faut aussi indiquer s'il y a une retenue ou pas des 20 % de l'article 22, et la
+ * date approximative ou non à laquelle le remboursement devra se faire au bénéfice du locataire. » Le paragraphe du mail aux partenaires, juste après
+ * la phrase du logement (« Le logement est désormais vacant. ») : la MÊME date que celle du locataire (l'AGO qui compte, la case « Indiquer l'AGO »
+ * cochée), un mois après l'AGO — officielle « est prévue au plus tard le 15/04/2028 », projetée « est attendue vers avril 2028 (date approximative) » ;
+ * sans date (case non cochée, arrêté des comptes inconnu) : « interviendra dans le mois qui suit l'approbation des comptes de l'immeuble. » PUR.
+ */
+export const PHRASE_RETENUE_PARTENAIRES = 'Une retenue de 20 % du dépôt de garantie a été appliquée, conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989.';
+export const PHRASE_SANS_RETENUE_PARTENAIRES = 'Aucune retenue de 20 % du dépôt de garantie n’a été appliquée.';
+export function paragrapheRetenuePartenaires(o: { retenue: boolean; ago: { date: string; statut: StatutAg | null; cloture: string | null } | null; pluriel: boolean }): string {
+  if (!o.retenue) return PHRASE_SANS_RETENUE_PARTENAIRES;
+  const qui = o.pluriel ? 'aux locataires' : 'au locataire';
+  if (o.ago === null || o.ago.cloture === null) return `${PHRASE_RETENUE_PARTENAIRES} Sa restitution ${qui} interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.`;
+  const quand = o.ago.statut === 'officielle' ? `est prévue ${quandRestitution(o.ago.date, 'officielle')}` : `est attendue ${quandRestitution(o.ago.date, o.ago.statut)} (date approximative)`;
+  return `${PHRASE_RETENUE_PARTENAIRES} Sa restitution ${qui}, après approbation des comptes de l’exercice clos le ${dateFr(o.ago.cloture)}, ${quand}.`;
+}
+
 export function texteProprietaire(o: { jour: string | null; statut: StatutAg | null; cloture: string | null; pluriel: boolean }): string {
   const loc = o.pluriel ? 'vos locataires' : 'votre locataire';
   const exercice = o.cloture !== null ? `de l’exercice clos le ${dateFr(o.cloture)}` : `de l’exercice couvrant ${o.pluriel ? 'leur' : 'sa'} période d’occupation`;

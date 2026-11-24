@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
+import { paragrapheRetenuePartenaires,
   alertesDuCompteRendu, AVERTISSEMENT_SANS_EDL_JOINT, coordonneesDeTiers, paragraphePiecesLocataire, paragraphePiecesProprietaire, estEtatDesLieux, etatRetenue, mailsValidationSortie, MOTIF_RETENUE_IMPOSSIBLE, PARAGRAPHE_RETENUE_LOCATAIRE,
   PHRASE_RETENUE_PROPRIETAIRE, texteProprietaire, PIECE_MAX_OCTETS, PIECES_MAX_OCTETS, refusPiece, typePiece, verifierValidation, type PartieSortie,
 } from './validationSortie';
@@ -247,5 +247,30 @@ describe('🔴 le paragraphe « pièce jointe » du mail aux propriétaires', ()
     expect(sans).not.toContain('Vous trouverez en pièce');
     expect(un.replace('Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé 4 rue Fictive, 92800 Puteaux.\n\n', '')).toBe(sans);
     expect([paragraphePiecesProprietaire(0, 'x'), paragraphePiecesProprietaire(1, '1 rue A')]).toEqual([null, 'Vous trouverez en pièce jointe de ce mail le rapport complet de l’état des lieux de sortie de votre logement situé 1 rue A.']);
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026) — le paragraphe « 20 % » du mail aux partenaires : les quatre variantes demandées, mot pour mot. */
+describe('🔴🔴 Arno (24/11/2026) — paragrapheRetenuePartenaires', () => {
+  const RETENUE = 'Une retenue de 20 % du dépôt de garantie a été appliquée, conformément à l’article 22 de la loi n° 89-462 du 6 juillet 1989.';
+  it('retenue, date PROJETÉE : « est attendue vers avril 2028 (date approximative) »', () => {
+    expect(paragrapheRetenuePartenaires({ retenue: true, ago: { date: '2028-03-15', statut: 'projetee', cloture: '2027-12-31' }, pluriel: false }))
+      .toBe(`${RETENUE} Sa restitution au locataire, après approbation des comptes de l’exercice clos le 31/12/2027, est attendue vers avril 2028 (date approximative).`);
+  });
+  it('retenue, date OFFICIELLE : « est prévue au plus tard le 15/04/2028 »', () => {
+    expect(paragrapheRetenuePartenaires({ retenue: true, ago: { date: '2028-03-15', statut: 'officielle', cloture: '2027-12-31' }, pluriel: false }))
+      .toBe(`${RETENUE} Sa restitution au locataire, après approbation des comptes de l’exercice clos le 31/12/2027, est prévue au plus tard le 15/04/2028.`);
+  });
+  it('retenue SANS date (case non cochée → ago null ; arrêté inconnu → cloture null)', () => {
+    const attendu = `${RETENUE} Sa restitution au locataire interviendra dans le mois qui suit l’approbation des comptes de l’immeuble.`;
+    expect(paragrapheRetenuePartenaires({ retenue: true, ago: null, pluriel: false })).toBe(attendu);
+    expect(paragrapheRetenuePartenaires({ retenue: true, ago: { date: '2028-03-15', statut: 'projetee', cloture: null }, pluriel: false })).toBe(attendu);
+  });
+  it('PAS de retenue : « Aucune retenue de 20 % du dépôt de garantie n’a été appliquée. » (quelle que soit la date)', () => {
+    expect(paragrapheRetenuePartenaires({ retenue: false, ago: { date: '2028-03-15', statut: 'officielle', cloture: '2027-12-31' }, pluriel: true }))
+      .toBe('Aucune retenue de 20 % du dépôt de garantie n’a été appliquée.');
+  });
+  it('⚠️ plusieurs locataires sortis : « aux locataires »', () => {
+    expect(paragrapheRetenuePartenaires({ retenue: true, ago: null, pluriel: true })).toContain('Sa restitution aux locataires interviendra');
   });
 });

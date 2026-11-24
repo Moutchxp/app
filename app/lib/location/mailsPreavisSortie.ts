@@ -426,7 +426,9 @@ export const PAS_DE_MAIL_DE_DEPART = 'Aucun des locataires n’a d’adresse e-m
  * avant (ni copie, ni ligne). PUR.
  */
 export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; expediteur: string; signature: Signature; partenaires: readonly string[];
-  depart?: MailAvis | null; nDeparts?: number; retouches?: Retouches }): MailAvis | null {
+  depart?: MailAvis | null; nDeparts?: number; retouches?: Retouches;
+  /** 🔴 Arno (24/11/2026) — « Valider la sortie » : la retenue de 20 % ou non, et la date de restitution (`paragrapheRetenuePartenaires`) ; absent : rien (comme avant) */
+  retenue20?: string }): MailAvis | null {
   if (!d.enGestion) return null;
   const a = adressesUniques(d.partenaires);
   if (a.length === 0) return null;
@@ -438,6 +440,7 @@ export function mailAdhocSortie(d: DonneesMailSortie & { enGestion: boolean; exp
     [`${plusieurs ? 'Locataires sortis' : 'Locataire sorti'} :`,
       ...d.sortants.map((s) => `- ${prenomNom({ nom: s.nom, prenom: null })} — ${s.entree === null ? 'date d’entrée non renseignée' : `entré(e) le ${dateFrPreavis(s.entree)}`}, sorti(e) le ${dateFrPreavis(s.sortie)}`)].join('\n'),
     d.vacant ? 'Le logement est désormais vacant.' : `Le logement reste loué à ${enumerer(d.restants.map((n) => prenomNom({ nom: n, prenom: null })))}.`,
+    ...(d.retenue20 !== undefined && d.retenue20 !== '' ? [d.retenue20] : []),
     'Ce message est purement informatif : aucune action n’est attendue de votre part.',
     ...(d.depart === null ? [PAS_DE_MAIL_DE_DEPART] : []),
     // 🔴 Arno (10/11/2026) — un mail de départ par locataire : la copie du premier, et le nombre.
