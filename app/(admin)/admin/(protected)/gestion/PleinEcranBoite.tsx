@@ -99,7 +99,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, vingtCopros = 0, vingtUrgences = 0, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -194,6 +194,9 @@ export function PleinEcranBoite({
   onPreavis?: () => void;
   /** 🔴 Arno (23/11/2026) — « 20 % à restituer », l'entrée juste sous « Préavis ». */
   onVingtPourcent?: () => void;
+  /** 🔴 Arno (24/11/2026) — « 20 % à restituer » : copropriétés à compléter (pastille rouge) et locataires en « Urgence » (pastille rouge vif) ; aucune à 0. */
+  vingtCopros?: number;
+  vingtUrgences?: number;
   /** Le nombre de préavis EN ALERTE (pastille rouge ; aucune à 0). */
   preavisEnAlerte?: number;
   onAnnuaire?: () => void;
@@ -1061,6 +1064,15 @@ export function PleinEcranBoite({
                   onClick={() => { onVingtPourcent(); setPanneauMobile('contenu'); }}
                   title="Les locataires sortis avec 20 % retenus : AGO qui compte, date limite de restitution, dates manquantes">
                   <span className="cm-nom"><span className="cm-texte">20 % à restituer</span></span>
+                  {/* 🔴 Arno (24/11/2026) — les copropriétés à compléter (rouge) et, en plus, les locataires en « Urgence » (rouge vif) */}
+                  {(vingtCopros > 0 || vingtUrgences > 0) && <span className="cm-pastilles">
+                  {vingtCopros > 0 && (
+                    <span className="cm-pastille-jour" data-pastille-vingt-copros aria-label={`${vingtCopros} copropriété${vingtCopros > 1 ? 's' : ''} à compléter`}>{vingtCopros}</span>
+                  )}
+                  {vingtUrgences > 0 && (
+                    <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-urgence aria-label={`${vingtUrgences} locataire${vingtUrgences > 1 ? 's' : ''} en urgence`}>{vingtUrgences}</span>
+                  )}
+                  </span>}
                 </button>
               </li>
             )}

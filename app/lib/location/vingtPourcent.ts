@@ -304,3 +304,6 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
   if (commentaire !== null && commentaire.length > COMMENTAIRE_RESTITUTION_MAX) return { ok: false, motif: `Le commentaire dépasse ${COMMENTAIRE_RESTITUTION_MAX} caractères.`, champ: 'commentaire' };
   return { ok: true, valeur: { date, montantRestitue: restitue, montantRetenuCharges: retenu ?? null, commentaire } };
 }
+
+/** 🔴 Arno (24/11/2026) — la seconde pastille (accueil Location, colonne de gauche) : le nombre de locataires en « Urgence » (0 : aucune pastille). PUR. */
+export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => (lu === null ? 0 : classerVingtPourcent(lu).urgence.length);

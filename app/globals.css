@@ -95,6 +95,9 @@
      Contrastes MESURÉS (WCAG) : fond plein #b85c00 sous texte blanc 4,60:1 ; texte #a35200 sur orange-soft 4,71:1. */
   --color-svv-urgence-orange: #b85c00;       /* fond plein du niveau « Intermédiaire » (texte = --color-svv-surface) */
   --color-svv-urgence-orange-texte: #a35200; /* le mot / le chiffre « Intermédiaire » sur fond clair ou sur orange-soft */
+  /* 🔴 Arno (24/11/2026) — « 20 % à restituer » : la pastille « Urgence » en ROUGE VIF, distincte du rouge de marque de la pastille des copropriétés
+     à compléter. Chiffre = --color-svv-surface : blanc sur #d70000 ≈ 5,3:1 (clair) ; encre sombre sur #ff4d40 (sombre). */
+  --color-svv-rouge-vif: #d70000;
   --color-svv-violet: #7d3ac1;               /* « à confirmer » : texte + bordure (le MOT porte l'info, le violet n'est qu'un appui) */
   --color-svv-violet-soft: #f3e8ff;          /* fond de la pastille « à confirmer » (texte = --color-svv-violet) */
   --color-svv-violet-faint: #faf5ff;         /* fond de la carte d'édition du sommet « à confirmer » (texte = ink/red) */
@@ -343,6 +346,7 @@
      6,79:1 ; texte sur orange-soft 6,85:1. */
   --color-svv-urgence-orange: #ff8c1a;
   --color-svv-urgence-orange-texte: #ff9933;
+  --color-svv-rouge-vif: #ff4d40;            /* 🔴 (24/11/2026) pastille « Urgence » des 20 % */
   --color-svv-violet: #c9a9f0;
   --color-svv-violet-soft: #2b1d3d;
   --color-svv-violet-faint: #241a33;
@@ -401,6 +405,7 @@
     --color-svv-orange-soft: #3a2410;
     --color-svv-urgence-orange: #ff8c1a;     /* LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — identique au bloc [data-theme='dark'] */
     --color-svv-urgence-orange-texte: #ff9933;
+    --color-svv-rouge-vif: #ff4d40;            /* identique au bloc [data-theme='dark'] */
     --color-svv-violet: #c9a9f0;
     --color-svv-violet-soft: #2b1d3d;
     --color-svv-violet-faint: #241a33;

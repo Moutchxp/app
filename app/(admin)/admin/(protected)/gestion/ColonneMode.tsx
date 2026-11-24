@@ -139,6 +139,9 @@ const CSS_COLONNE = `
    (meme regle que la selection de l'admin, globals.css). */
 .cm-pastille-jour{display:inline-flex;align-items:center;justify-content:center;min-width:1.35rem;height:1.35rem;padding:0 .35rem;
   box-sizing:border-box;border-radius:999px;background:var(--color-svv-red);color:var(--color-svv-surface);font-size:12px;font-weight:700;line-height:1}
+/* 🔴 Arno (24/11/2026) — « 20 % à restituer » : la pastille « Urgence » en rouge vif (jeton --color-svv-rouge-vif), à côté de celle des copropriétés */
+.cm-pastille-jour.cm-pastille-vif{background:var(--color-svv-rouge-vif)}
+.cm-pastilles{display:inline-flex;align-items:center;gap:.25rem;flex:0 0 auto}
 /* L'enveloppe de « Réception » n'est pas focalisable : c'est l'un de ses trois boutons qui l'est. On montre donc le
    focus SUR L'ENVELOPPE quand il est quelque part dedans — sans quoi la ligne entière paraîtrait inerte au clavier. */
 .cm-entree--recep:focus-within{border-color:var(--color-svv-line-strong)}

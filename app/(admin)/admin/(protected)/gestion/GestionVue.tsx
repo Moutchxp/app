@@ -35,6 +35,7 @@ import { TableauTaches } from './TableauTaches';
 import { BlocPreavisAccueil } from '../location/PreavisAccueil';
 import { EcranVingtPourcent } from '../location/VingtPourcent';
 import { API_PREAVIS_GESTION, usePreavisEnAlerte } from '../location/preavisSynchro';
+import { usePastillesVingt } from '../location/BoutonVingtPourcent';
 /* 🔴 LOT GESTION-TACHES-PAGE — la pastille du raccourci « Tâches » : les tâches d'aujourd'hui, ni faites ni annulées. */
 import { ecouterTaches, lireTaches } from './tachesClient';
 import { compterTachesDuJour, type Tache } from '../../../../lib/gestion/taches';
@@ -687,6 +688,8 @@ export function GestionVue({ intro, location = false }: {
   const tachesDuJour = compterTachesDuJour(tachesLues, minute);
   // 🔴 Arno (10/11/2026) — la pastille « Préavis » du menu : les préavis EN ALERTE, relus comme le bloc (30 s, retour sur l'onglet, après un geste).
   const preavisEnAlerte = usePreavisEnAlerte(true, API_PREAVIS_GESTION);
+  // 🔴 Arno (24/11/2026) — les deux pastilles de « 20 % à restituer » dans la colonne de gauche (copropriétés à compléter ; locataires en urgence)
+  const pastillesVingt = usePastillesVingt(API_PREAVIS_GESTION);
   // 🔴 (Arno, 20/11/2026, lot 6) le nombre d'écritures dans la file « Adresses à vérifier » (relu à chaque écran ; l'écran de la file le tient à jour)
   const [adressesAVerifier, setAdressesAVerifier] = useState(0);
   useEffect(() => {
@@ -1720,6 +1723,8 @@ export function GestionVue({ intro, location = false }: {
           preavisEnAlerte={preavisEnAlerte}
           /* 🔴 Arno (23/11/2026) — « 20 % à restituer », juste sous « Préavis ». */
           onVingtPourcent={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'vingt_pourcent' }); }}
+          vingtCopros={pastillesVingt.copros}
+          vingtUrgences={pastillesVingt.urgences}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */

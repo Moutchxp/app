@@ -230,3 +230,34 @@ describe('🔴 Arno (24/11/2026) — « Alerte du lundi » : le mode essai', () 
     expect(container.querySelector('[data-vgp-alerte-texte-mail]')?.textContent).toContain('- LOC 1');
   });
 });
+
+/** 🔴🔴 Arno (24/11/2026) — la seconde pastille : les locataires en « Urgence », rouge vif ; la première (copropriétés à compléter) est gardée. */
+describe('🔴🔴 Arno (24/11/2026) — la pastille « Urgence » (accueil Location et colonne de gauche de la Gestion)', () => {
+  const urgence = { sortieId: 21, lotId: 21, locataires: ['URG Ent'], logement: null, dateSortie: '2026-03-01', valideLe: '2026-03-03',
+    copropriete: { id: 60, libelle: 'Copro U', aRattacher: false }, arrete: { jour: 30, mois: 6 }, cleCopro: 'copro-60',
+    suivi: { etat: 'ok' as const, exercice: '2026-06-30', ago: { date: '2026-09-15', statut: 'officielle' as const }, incertaine: false, limite: '2026-10-15', alerte: 'depassee' as const, joursRestants: -39 } };
+  it('accueil Location : la pastille des copropriétés reste (1), la pastille « Urgence » s’ajoute (rouge vif) ; aucune à 0', async () => {
+    donnees = { ...LU, lignes: [...LU.lignes, urgence, { ...urgence, sortieId: 22 }] };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
+    const u = container.querySelector('[data-pastille-vingt-urgence]')!;
+    expect([u.textContent, u.className]).toEqual(['2', 'bvp-pastille bvp-pastille--urgence']);
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 2 locataires en urgence — 1 copropriété en attente de données');
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = LU; // personne en urgence
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-urgence]')).toBeNull();
+    expect(container.querySelector('[data-pastille-vingt-pourcent]')?.textContent).toBe('1');
+  });
+  it('colonne de gauche de la Gestion : les deux pastilles sur « 20 % à restituer », lues sur la route de la Gestion ; le reste inchangé', () => {
+    const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
+    expect(g).toContain('const pastillesVingt = usePastillesVingt(API_PREAVIS_GESTION);');
+    expect(g).toContain('vingtCopros={pastillesVingt.copros}');
+    expect(g).toContain('vingtUrgences={pastillesVingt.urgences}');
+    const s = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
+    const entree = s.slice(s.indexOf('data-raccourci="vingt-pourcent"'), s.indexOf('{onSyndics && ('));
+    expect(entree).toContain('data-pastille-vingt-copros');
+    expect(entree).toContain('className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-urgence');
+    expect(readFileSync('app/globals.css', 'utf8').match(/--color-svv-rouge-vif:/g)).toHaveLength(3); // clair, sombre, système
+  });
+});
