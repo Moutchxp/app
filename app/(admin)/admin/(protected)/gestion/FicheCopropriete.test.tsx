@@ -378,11 +378,12 @@ describe('🔴 (lot 6, repris du cadre « Ajouter un contact de l’immeuble » 
 
 describe('🔴 (16/11/2026, point 3) la mise en page : le Syndic en DERNIER, chaque partie en carte — rien retiré ni masqué', () => {
   const ordre = () => [...document.querySelectorAll('.fcp-corps > section.fcp-bloc')].map((x) => [...x.attributes].find((a) => a.name.startsWith('data-fcp-'))!.name);
-  it('l’ordre : Identité, Adresses, Digicodes, AG, Habitants et gardiens, Syndic ; chaque carte a son titre', async () => {
+  // 🔴 (Arno, 24/11/2026) « inverser l'ordre entre le bloc Adresses et le bloc Identité »
+  it('l’ordre : Adresses, Identité, Digicodes, AG, Habitants et gardiens, Syndic ; chaque carte a son titre', async () => {
     await ouvrir();
-    expect(ordre()).toEqual(['data-fcp-identite', 'data-fcp-adresses', 'data-fcp-digicodes', 'data-fcp-ag', 'data-fcp-contacts', 'data-fcp-syndic']);
+    expect(ordre()).toEqual(['data-fcp-adresses', 'data-fcp-identite', 'data-fcp-digicodes', 'data-fcp-ag', 'data-fcp-contacts', 'data-fcp-syndic']);
     expect([...document.querySelectorAll('.fcp-corps > section.fcp-bloc > h3.fcp-titre')].map((h) => h.childNodes[0].textContent))
-      .toEqual(['Identité', 'Adresses', 'Digicodes', 'AG et arrêté des comptes', 'Habitants et gardiens', 'Syndic']);
+      .toEqual(['Adresses', 'Identité', 'Digicodes', 'AG et arrêté des comptes', 'Habitants et gardiens', 'Syndic']);
     // tout ce que portait chaque partie y est toujours
     for (const s of ['[data-fcp-plus-adresse]', '[data-fcp-ouvrir-syndic]', '[data-fcp-gestionnaires]', '[data-fcp-choisir-syndic]', '[data-fcp-ajouter-contact]', '[data-fcp-usage-interne]', '[data-fcp-nom]', '[data-fcp-hors]', '[data-fcp-biens]']) {
       expect(document.querySelector(s), s).not.toBeNull();
@@ -391,7 +392,7 @@ describe('🔴 (16/11/2026, point 3) la mise en page : le Syndic en DERNIER, cha
   it('« hors copropriété » : ni AG ni Syndic, comme avant ; le syndic encore lié reste dit, en fin de fenêtre', async () => {
     lu = { fiche: FICHE({ horsCopropriete: true }), coproprieteDuBien: null };
     await ouvrir();
-    expect(ordre()).toEqual(['data-fcp-identite', 'data-fcp-adresses', 'data-fcp-digicodes', 'data-fcp-contacts']);
+    expect(ordre()).toEqual(['data-fcp-adresses', 'data-fcp-identite', 'data-fcp-digicodes', 'data-fcp-contacts']);
     expect(document.querySelector('.fcp-corps')!.lastElementChild!.hasAttribute('data-fcp-hors-avec-syndic')).toBe(true);
   });
   it('les cartes : fond et bordure distincts du fond de la fenêtre, titre souligné ; jetons de couleur (clair et sombre)', async () => {
@@ -696,5 +697,18 @@ describe('🔴 les messages verts de la fiche Copropriété', () => {
     await saisir('[data-fcp-nom]', 'Les Tilleuls _TEST');
     await clic('[data-fcp-valider]');
     expect($('[data-fcp-info]').textContent).toBe('Fiche copropriété enregistrée.');
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026) — « inverser l'ordre entre le bloc Adresses et le bloc Identité » : Adresses d'abord, puis Identité, puis le reste inchangé. */
+describe('🔴🔴 Arno (24/11/2026) — l’ordre des blocs : Adresses, puis Identité', () => {
+  const ordre = () => [...document.querySelectorAll('section.fcp-bloc')].map((s) => s.querySelector('.fcp-titre')?.firstChild?.textContent?.trim());
+  // la fiche EXISTANTE : l'épreuve « l’ordre : Adresses, Identité, … » plus haut
+  it('fiche NOUVELLE : le même ordre, après la phrase « créée au premier « Valider » »', async () => {
+    lu = { fiche: FICHE({ declaree: false, id: null, syndic: null, gestionnaires: [] }), coproprieteDuBien: null };
+    await ouvrir();
+    expect(ordre().slice(0, 3)).toEqual(['Adresses', 'Identité', 'Digicodes']);
+    const nouvelle = $('[data-fcp-nouvelle]');
+    expect(nouvelle.compareDocumentPosition($('[data-fcp-adresses]')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

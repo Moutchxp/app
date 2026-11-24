@@ -346,16 +346,7 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
   else corps = <>
     {f.desaccord && <p className="fcp-alerte" role="status" data-fcp-desaccord>{ALERTE_DESACCORD}</p>}
     {!f.declaree && <p className="loc-muet" data-fcp-nouvelle>Cette fiche n’existe pas encore : elle sera créée au premier « Valider ».</p>}
-    <section className="fcp-bloc" data-fcp-identite>
-      <h3 className="fcp-titre">Identité</h3>
-      <label className="fcp-champ"><span>Nom de la copropriété (facultatif)</span>
-        <input value={nom} disabled={!f.avec476 || envoi} placeholder={off?.principale.libelle ?? f.libelle} onChange={(e) => setNom(e.target.value)} data-fcp-nom /></label>
-      {f.avec476 && <label className="fcp-case"><input type="checkbox" checked={hors} disabled={envoi} onChange={(e) => setHors(e.target.checked)} data-fcp-hors />
-        <span>Immeuble hors copropriété (tout l’immeuble) : ni syndic ni AG</span></label>}
-      {horsAffiche && !hors && <p className="fcp-alerte" data-fcp-bien-hors>Ce bien est noté « pas en copropriété » sur sa fiche : cochez la case pour tout l’immeuble (rien n’est changé sans « Valider »).</p>}
-      <p className="loc-muet fcp-sans-marge" data-fcp-biens>{f.biens.length} bien{f.biens.length > 1 ? 's' : ''} du portefeuille dans cet immeuble</p>
-    </section>
-
+    {/* 🔴 (Arno, 24/11/2026) « inverser l'ordre entre le bloc Adresses et le bloc Identité » : Adresses d'abord, puis Identité, puis le reste inchangé */}
     <section className="fcp-bloc" data-fcp-adresses>
       <h3 className="fcp-titre">Adresses
         <button type="button" className="fcp-plus" aria-expanded={ajoutAdresse} aria-label="Ajouter une adresse à cette copropriété" title="Ajouter une adresse"
@@ -406,6 +397,16 @@ export function FicheCopropriete({ lotId, immeuble, onFerme }: { lotId?: number 
             }} data-fcp-ajouter-adresse>Ajouter</button>
         </div>
       )}
+    </section>
+
+    <section className="fcp-bloc" data-fcp-identite>
+      <h3 className="fcp-titre">Identité</h3>
+      <label className="fcp-champ"><span>Nom de la copropriété (facultatif)</span>
+        <input value={nom} disabled={!f.avec476 || envoi} placeholder={off?.principale.libelle ?? f.libelle} onChange={(e) => setNom(e.target.value)} data-fcp-nom /></label>
+      {f.avec476 && <label className="fcp-case"><input type="checkbox" checked={hors} disabled={envoi} onChange={(e) => setHors(e.target.checked)} data-fcp-hors />
+        <span>Immeuble hors copropriété (tout l’immeuble) : ni syndic ni AG</span></label>}
+      {horsAffiche && !hors && <p className="fcp-alerte" data-fcp-bien-hors>Ce bien est noté « pas en copropriété » sur sa fiche : cochez la case pour tout l’immeuble (rien n’est changé sans « Valider »).</p>}
+      <p className="loc-muet fcp-sans-marge" data-fcp-biens>{f.biens.length} bien{f.biens.length > 1 ? 's' : ''} du portefeuille dans cet immeuble</p>
     </section>
 
     <section className="fcp-bloc" data-fcp-digicodes>
