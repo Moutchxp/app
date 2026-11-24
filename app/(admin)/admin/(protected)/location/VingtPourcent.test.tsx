@@ -450,8 +450,9 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail
     const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail]')!;
     expect(d.querySelector('[data-vgp-coordonnees="locataires"] .vgp-coord-titre')?.textContent).toBe('Locataire');
     expect(d.querySelector('[data-vgp-coordonnees="proprietaires"] .vgp-coord-titre')?.textContent).toBe('Propriétaires');
+    // 🔴 (Arno, 25/11/2026) un seul locataire : son nom est déjà sur la ligne repliée → « e-mail · téléphone » ; les propriétaires gardent leur nom
     expect([...d.querySelectorAll('[data-vgp-personne]')].map((p) => p.textContent)).toEqual([
-      'Alice DUPONT · alice@exemple.test · 06 12 34 56 78', 'Jean DURAND · — · —', 'SCI Les Tilleuls · sci@exemple.test · —']);
+      'alice@exemple.test · 06 12 34 56 78', 'Jean DURAND · — · —', 'SCI Les Tilleuls · sci@exemple.test · —']);
     expect(d.querySelector('[data-vgp-email]')?.getAttribute('href')).toBe('mailto:alice@exemple.test');
     expect(d.querySelector('[data-vgp-telephone]')?.getAttribute('href')).toBe('tel:+33612345678');
     // pas de doublon avec la ligne repliée : ni l'adresse, ni l'AG, ni la date limite
@@ -461,6 +462,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — les coordonnées dans le détail
     donnees = { ...LU, lignes: [LU.lignes[0], { ...LU.lignes[2], contacts: { locataires: [{ nom: 'Paul MARTIN', email: null, telephone: { affiche: '06 00 00 00 00', lien: 'tel:+33600000000' } }], proprietaires: [] } }] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const r = container.querySelector('[data-vgp-concerne="6"]')!;
+    // la sortie 6 a deux colocataires (MARTIN Paul, MARTIN Léa) : le nom reste
     expect(r.querySelector('[data-vgp-personne]')?.textContent).toBe('Paul MARTIN · — · 06 00 00 00 00');
     expect(r.querySelector('[data-vgp-coordonnees="proprietaires"]')?.textContent).toBe('Propriétaire—');
   });
@@ -496,5 +498,31 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     expect(container.querySelector('[data-vgp-aucun-resultat]')).toBeNull();
     expect(visibles().slice(0, 5)).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
     expect(readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8')).not.toContain('recherche');
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — « pas de doublon » : UN locataire → « e-mail · téléphone » ; plusieurs → « Prénom NOM · e-mail · téléphone » ; propriétaires inchangés. */
+describe('🔴 Arno (25/11/2026) — le nom du locataire seulement s’ils sont plusieurs', () => {
+  const P = (nom: string) => ({ nom, email: `${nom.split(' ')[0].toLowerCase()}@exemple.test`, telephone: null });
+  it('ligne datée : un locataire sans nom ; deux colocataires avec leurs noms ; le propriétaire toujours nommé', async () => {
+    donnees = { ...LU, lignes: [
+      { ...LU.lignes[0], contacts: { locataires: [P('Alice DUPONT')], proprietaires: [P('Jean DURAND')] } },
+      { ...LU.lignes[0], sortieId: 15, locataires: ['MARTIN Paul', 'MARTIN Léa'], contacts: { locataires: [P('Paul MARTIN'), P('Léa MARTIN')], proprietaires: [] } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const lignes = (id: number) => [...container.querySelectorAll(`[data-vgp-sortie="${id}"] [data-vgp-personne]`)].map((p) => p.textContent);
+    expect(lignes(5)).toEqual(['alice@exemple.test · —', 'Jean DURAND · jean@exemple.test · —']);
+    expect(lignes(15)).toEqual(['Paul MARTIN · paul@exemple.test · —', 'Léa MARTIN · léa@exemple.test · —']);
+  });
+  it('« Dates manquantes » : bloc d’un seul locataire → sans nom ; plusieurs locataires dans le bloc → avec leur nom', async () => {
+    const MANQ = { cle: 'copro-40', coproprieteId: 40, libelle: '4 rue D', immeuble: '4 rue d', lotId: 40, manque: ['arrete' as const], locataires: ['UN Seul'] };
+    const L = (id: number, noms: string[]) => ({ ...LU.lignes[2], sortieId: id, lotId: id, locataires: noms, logement: '4 rue D', cleCopro: 'copro-40',
+      copropriete: { id: 40, libelle: '4 rue D', aRattacher: false }, contacts: { locataires: noms.map((n) => P(n)), proprietaires: [] } });
+    donnees = { ...LU, manquantes: [MANQ], lignes: [L(41, ['UN Seul'])] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-concerne="41"] [data-vgp-personne]')?.textContent).toBe('un@exemple.test · —');
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = { ...LU, manquantes: [{ ...MANQ, locataires: ['UN Seul', 'DEUX Autre'] }], lignes: [L(41, ['UN Seul']), L(42, ['DEUX Autre'])] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-concerne="42"] [data-vgp-personne]')?.textContent).toBe('DEUX Autre · deux@exemple.test · —');
   });
 });

@@ -123,20 +123,22 @@ export const dejaDit = (texte: string | null | undefined, sur: string | null | u
  * minimum : nom, prénom, e-mail, téléphone, ça doit rester compact ». Deux petites rubriques, une ligne par personne : « Prénom NOM · e-mail ·
  * téléphone » (« — » si absent ; e-mail et téléphone cliquables). Écran interne : rien n'est envoyé à qui que ce soit.
  */
-function Coordonnees({ c }: { c: ContactsSortie | undefined }) {
+function Coordonnees({ c, unSeulLocataire = false }: { c: ContactsSortie | undefined; unSeulLocataire?: boolean }) {
   if (c === undefined) return null;
-  const rubrique = (titre: string, cle: string, gens: ContactsSortie['locataires']) => (
+  // 🔴 (Arno, 25/11/2026) « pas de doublon » : un bloc qui ne concerne qu'UN locataire → sa ligne dit seulement « e-mail · téléphone » (son nom est
+  //    déjà sur la ligne repliée) ; plusieurs locataires → « Prénom NOM · e-mail · téléphone » ; les propriétaires, toujours avec leur nom
+  const rubrique = (titre: string, cle: string, gens: ContactsSortie['locataires'], sansNom = false) => (
     <div className="vgp-coord" data-vgp-coordonnees={cle}>
       <p className="vgp-coord-titre">{titre}</p>
       {gens.length === 0 ? <p className="vgp-coord-ligne loc-muet">—</p> : gens.map((g, i) => (
         <p key={i} className="vgp-coord-ligne" data-vgp-personne>
-          <span className="vgp-coord-nom">{g.nom}</span>{' · '}
+          {!sansNom && <><span className="vgp-coord-nom">{g.nom}</span>{' · '}</>}
           {g.email !== null ? <a href={`mailto:${g.email}`} data-vgp-email>{g.email}</a> : <span className="loc-muet">—</span>}{' · '}
           {g.telephone !== null ? <a href={g.telephone.lien} data-vgp-telephone>{g.telephone.affiche}</a> : <span className="loc-muet">—</span>}
         </p>))}
     </div>
   );
-  return <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires)}
+  return <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires, unSeulLocataire && c.locataires.length === 1)}
     {rubrique(c.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire', 'proprietaires', c.proprietaires)}</div>;
 }
 
@@ -224,7 +226,7 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
                     : <span className="vgp-incertaine" data-vgp-statut-court>Date provisoire → {TITRES_CATEGORIES[cat]}</span>}
                 </span>
                 <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
-                <Coordonnees c={l.contacts} />
+                <Coordonnees c={l.contacts} unSeulLocataire={concernes.reduce((n, x) => n + Math.max(1, x.locataires.length), 0) === 1} />
               </li>
             );
           })}</ul>
@@ -301,7 +303,7 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
           <div><dt>Arrêté des comptes</dt><dd data-vgp-arrete>{l.arrete !== null ? arreteFr(l.arrete) : 'non renseigné'}</dd></div>
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
         </dl>
-        <Coordonnees c={l.contacts} />
+        <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} />
         {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>
     </li>
