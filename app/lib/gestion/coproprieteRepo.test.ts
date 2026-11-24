@@ -33,6 +33,7 @@ vi.mock('../db/client', () => ({
   },
 }));
 import { cleImmeubleDuBien, etatPlace, ficheCopropriete, listerCoproprietes } from './coproprieteRepo';
+import { cleImmeuble } from './syndics';
 
 const LOT = (id: number, immeuble: string | null, adresse: string, copropriete: boolean | null = null) => ({ id: String(id), numero: `W${id}`, immeuble, adresse, code_postal: '75011', commune: 'Paris', copropriete });
 beforeEach(() => {
@@ -129,5 +130,26 @@ describe('🔴 l’état d’une place porte qui a enregistré le code', () => {
     expect(e.enregistre).toBe('Enregistré le 01/11/2026 à 11:00 par Arnaud JOREL');
     expect(e.aVenir.map((x) => x.prevu)).toEqual(['Nouveau code prévu le 20/11/2026 à 09:00 — saisi le 16/11/2026 par Arnaud JOREL']);
     expect(etatPlace({ cle: 'a', libelle: 'A', nbBiens: 0, historique: [], code: null, aVenir: [] }).enregistre).toBeNull();
+  });
+});
+
+/**
+ * 🔴 (Arno, 24/11/2026, 23h20) « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide (« ni immeuble ni
+ * adresse ») ». CAUSE : la DONNÉE D'ESSAI — le nom affiché avait été écrit dans « libelle », qui porte le texte de l'IMMEUBLE (cle_immeuble en est la
+ * forme normalisée) ; la liste ouvre la fiche par ce texte, qui ne retrouvait plus la clé. La forme juste (celle des vraies copropriétés, et de la
+ * 313 créée par l'application) : libelle = l'immeuble, le nom dans « nom » — la liste montre le nom, et ouvre la fiche par une clé retrouvée.
+ */
+describe('🔴 (24/11/2026) une copropriété NOMMÉE s’ouvre depuis la liste : libelle = l’immeuble, le nom dans « nom »', () => {
+  it('la ligne montre le NOM, et son « immeuble » retrouve la clé (la fiche s’ouvre, avec ses AG et son arrêté)', async () => {
+    b.autres = [{ id: '311', cle: '2 rue test arrete comptes 20 pourcent', libelle: '2 rue _TEST ARRETE COMPTES 20 POURCENT', code_postal: '00000', commune: 'TEST',
+      nom: '_TEST ARRETE COMPTES 20 POURCENT 2 — ni AGO ni arrêté', hors: false }];
+    const l = (await listerCoproprietes()).find((x) => x.cle === '2 rue test arrete comptes 20 pourcent')!;
+    expect(l.nom).toBe('_TEST ARRETE COMPTES 20 POURCENT 2 — ni AGO ni arrêté');
+    expect(cleImmeuble(l.immeuble)).toBe(l.cle);
+  });
+  it('la forme FAUTIVE (le nom dans « libelle ») ne retrouve pas sa clé : c’est elle qui ouvrait la fiche vide', async () => {
+    b.autres = [{ id: '311', cle: '2 rue test arrete comptes 20 pourcent', libelle: '_TEST ARRETE COMPTES 20 POURCENT 2 — ni AGO ni arrêté', code_postal: null, commune: null, nom: null, hors: false }];
+    const l = (await listerCoproprietes()).find((x) => x.cle === '2 rue test arrete comptes 20 pourcent')!;
+    expect(cleImmeuble(l.immeuble)).not.toBe(l.cle);
   });
 });
