@@ -19,13 +19,15 @@
 import type { ArreteComptes } from './arreteComptes';
 import type { EntreeAg } from './agCopropriete';
 import { ajouterMois } from './preavis';
+import { moisAnnee } from './agCopropriete';
 
 export const TITRE_VINGT_POURCENT = '20 % à restituer';
 export const JOURS_ALERTE = 30;
 export const MENTION_INCERTAINE = 'Projection incertaine — date d’arrêté des comptes manquante';
 export const MENTION_SANS_AGO = 'Dernière AGO inconnue';
 /** 🔴 (Arno, 24/11/2026, 23h20) la mention orange d'une date PROVISOIRE sur l'écran « 20 % à restituer » (arrêté des comptes manquant). */
-export const MENTION_DATE_PROVISOIRE = 'date provisoire — arrêté des comptes manquant';
+// 🔴 (Arno, 24/11/2026, 23h40) le libellé court, sous l'étiquette de l'AG : « date provisoire — arrêté manquant »
+export const MENTION_DATE_PROVISOIRE = 'date provisoire — arrêté manquant';
 
 export type AlerteVingt = 'a_venir' | 'proche' | 'depassee';
 export interface AgoQuiCompte { date: string; statut: 'officielle' | 'projetee' }
@@ -316,3 +318,22 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
 
 /** 🔴 Arno (24/11/2026) — la seconde pastille (accueil Location, colonne de gauche) : le nombre de locataires en « Urgence » (0 : aucune pastille). PUR. */
 export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => (lu === null ? 0 : classerVingtPourcent(lu).urgence.length);
+
+// ══ 🔴🔴 Arno (24/11/2026, 23h40) — LA LIGNE REPLIÉE SUR TROIS LIGNES : l'étiquette de l'AG et le compte à rebours ════════════════════════════════════
+/** L'étiquette colorée de l'AG qui compte : ROUGE « AGO vers mars 2027 (projetée) », VERTE « AGO 15/03/2027 (officielle) ». PUR. */
+export function etiquetteAgo(ago: AgoQuiCompte): { texte: string; ton: 'rouge' | 'vert' } {
+  return ago.statut === 'officielle'
+    ? { texte: `AGO ${ago.date.slice(8, 10)}/${ago.date.slice(5, 7)}/${ago.date.slice(0, 4)} (officielle)`, ton: 'vert' }
+    : { texte: `AGO vers ${moisAnnee(ago.date)} (projetée)`, ton: 'rouge' };
+}
+/**
+ * Le compte à rebours de la 3e ligne : avant l'AG « AG dans 40 jours » (gris) ; à partir du jour de l'AG « J-12 » (jours restants jusqu'à la date
+ * limite) ; après la date limite « Dépassé de 5 jours » (rouge). PUR.
+ */
+export function compteAReboursVingt(s: { ago: { date: string }; limite: string; joursRestants: number }): { texte: string; ton: 'gris' | 'normal' | 'rouge' } {
+  const avantAg = s.joursRestants - joursEntre(s.ago.date, s.limite);
+  const pl = (n: number): string => `${n} jour${n > 1 ? 's' : ''}`;
+  if (avantAg > 0) return { texte: `AG dans ${pl(avantAg)}`, ton: 'gris' };
+  if (s.joursRestants < 0) return { texte: `Dépassé de ${pl(-s.joursRestants)}`, ton: 'rouge' };
+  return { texte: `J-${s.joursRestants}`, ton: 'normal' };
+}

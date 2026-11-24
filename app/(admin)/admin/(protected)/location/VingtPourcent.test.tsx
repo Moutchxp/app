@@ -72,17 +72,19 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(a.querySelector('[data-vgp-exercice]')?.textContent).toBe('Exercice clos le 31/12/2026');
     expect(a.querySelector('[data-vgp-arrete]')?.textContent).toBe('31/12');
     expect(a.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO vers mars 2027 (projetée)');
-    expect(a.querySelector('[data-vgp-limite]')?.textContent).toBe('25/04/2027');
-    expect(a.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('À restituer au plus tard le 25/04/2027');
+    // 🔴 (Arno, 24/11/2026, 23h40) la date limite et son compte à rebours sur la 3e ligne ; le détail ne les répète plus
+    expect(a.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 25/04/2027 AG dans 122 jours');
+    expect(a.querySelector('[data-vgp-alerte-texte]')).toBeNull();
     const c = container.querySelector('[data-vgp-sortie="7"]')!;
     expect(c.getAttribute('data-vgp-alerte')).toBe('depassee');
-    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO du 22/09/2026 · date provisoire — arrêté des comptes manquant');
-    expect(c.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('Restitution en retard — la limite du 22/10/2026 est dépassée de 32 jours');
+    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO 22/09/2026 (officielle)');
+    expect(c.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
+    expect(c.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 22/10/2026 Dépassé de 32 jours');
     const b = container.querySelector('[data-vgp-sortie="6"]')!;
     // sans date : à droite, ce qui manque (orange), à la place de la date
     expect(b.querySelector('[data-vgp-ago]')).toBeNull();
     expect(b.querySelector('[data-vgp-manque-ligne]')?.textContent).toBe('Dernière AGO manquante · Arrêté des comptes manquant');
-    expect(b.querySelector('[data-vgp-limite]')?.textContent).toBe('—');
+    expect(b.querySelector('[data-vgp-limite]')).toBeNull();
     expect(b.querySelector('[data-vgp-alerte-texte]')?.textContent).toBe('Pas de date limite — Dernière AGO inconnue : à compléter dans la fiche Copropriété.');
   });
 });
@@ -158,12 +160,12 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     // « Dates manquantes » compte les COPROPRIÉTÉS à compléter (la pastille) : Copro B, et Copro C (celle de DURAND Léo) via sa carte
     expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['1', '2', '1', '2', '1']);
     expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(5);
-    const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-jours]')!;
-    expect([u.textContent, u.className]).toEqual(['Date limite dépassée de 53 jours', 'vgp-depasse']);
-    expect(container.querySelector('[data-vgp-sortie="12"] [data-vgp-jours]')?.textContent).toBe('Dans 16 jours');
+    const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-rebours]')!;
+    expect([u.textContent, u.className]).toEqual(['Dépassé de 53 jours', 'vgp-rebours vgp-rebours--rouge']);
+    expect(container.querySelector('[data-vgp-sortie="12"] [data-vgp-rebours]')?.textContent).toBe('J-16');
     const d = container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-sortie="7"]')!;
-    expect(d.querySelector('[data-vgp-jours]')?.textContent).toBe('Date limite dépassée de 32 jours');
-    expect(d.querySelector('[data-vgp-incertaine]')?.textContent).toBe(' · date provisoire — arrêté des comptes manquant');
+    expect(d.querySelector('[data-vgp-rebours]')?.textContent).toBe('Dépassé de 32 jours');
+    expect(d.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
   });
 });
 
@@ -292,7 +294,9 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     expect(a.querySelector('[data-vgp-deplier]')?.getAttribute('aria-expanded')).toBe('true');
     const detail = a.querySelector('[data-vgp-detail]')!.textContent ?? '';
     for (const deja of ['1 rue A, 92800 Puteaux', 'DUPONT Alice', 'AGO vers mars 2027']) expect(detail).not.toContain(deja);
-    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Arrêté des comptes', 'Dernière AGO', 'Restitution au plus tard le', 'Jours restants']);
+    // 🔴 (Arno, 24/11/2026, 23h40) ni la date limite ni les jours restants : ils sont sur la ligne
+    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Arrêté des comptes', 'Dernière AGO']);
+    expect(detail).not.toContain('25/04/2027');
     await act(async () => { (a.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
     expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     await act(async () => { (a.querySelector('[data-vgp-restituer]') as HTMLElement).click(); });
@@ -316,5 +320,21 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect(ligne(8).querySelector('[data-vgp-manque-ligne]')?.textContent).toBe('Aucune copropriété');
     expect(container.querySelector('[data-vgp-completer="copro-20"]')).not.toBeNull();
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026, 23h40) — la ligne repliée sur TROIS lignes : étiquette d'AG colorée, compte à rebours avant / pendant / après. */
+describe('🔴🔴 Arno (24/11/2026, 23h40) — trois lignes, étiquette colorée, compte à rebours', () => {
+  it('trois lignes à gauche (adresse, noms, date limite + compte à rebours), chacune sur UNE ligne ; à droite l’étiquette puis les boutons', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const a = container.querySelector('[data-vgp-sortie="5"]')!;
+    expect([...a.querySelectorAll('.vgp-ligne-gauche > p')].map((x) => [x.className.includes('vgp-une-ligne'), x.textContent])).toEqual([
+      [true, '1 rue A, 92800 Puteaux'], [true, 'DUPONT Alice'], [true, 'Restitution au plus tard le 25/04/2027 AG dans 122 jours']]);
+    const e = a.querySelector('[data-vgp-ago]')!;
+    expect(e.className).toBe('vgp-etiquette vgp-etiquette--rouge');
+    expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-ago]')?.className).toBe('vgp-etiquette vgp-etiquette--vert');
+    // même hauteur : la place de la mention est gardée même vide
+    expect(a.querySelector('.vgp-ligne-ago .vgp-incertaine')?.getAttribute('aria-hidden')).toBe('true');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8')).toContain('.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;height:92px;');
   });
 });

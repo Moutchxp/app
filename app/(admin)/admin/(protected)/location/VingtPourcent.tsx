@@ -7,7 +7,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  classerVingtPourcent, joursRestantsVingt, LIBELLE_MANQUE, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleAlerte, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  classerVingtPourcent, compteAReboursVingt, etiquetteAgo, LIBELLE_MANQUE, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleAlerte, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -166,21 +166,30 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
   const alerte = s.etat === 'ok' ? s.alerte : 'sans';
   const basculer = (): void => setOuvert((o) => !o);
   const manques = s.etat === 'ok' ? [] : manquesDeLaLigne(l);
+  const adresse = l.logement ?? `Bien ${l.lotId}`;
+  const noms = l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`;
   return (
     <li className={`vgp-ligne vgp-ligne--${alerte}`} data-vgp-sortie={l.sortieId} data-vgp-alerte={alerte} data-vgp-ouvert={ouvert ? '1' : '0'}>
       <div className="vgp-ligne-tete" onClick={basculer}>
         <button type="button" className="vgp-chevron" aria-expanded={ouvert} aria-controls={detailId} onClick={(e) => { e.stopPropagation(); basculer(); }}
           aria-label={ouvert ? 'Replier le détail' : 'Déplier le détail'} data-vgp-deplier>{ouvert ? '▾' : '▸'}</button>
+        {/* 🔴 (Arno, 24/11/2026, 23h40) À GAUCHE, trois lignes : l'adresse, le(s) nom(s), la date limite et son compte à rebours */}
         <div className="vgp-ligne-gauche">
-          <p className="vgp-ligne-adresse" data-vgp-adresse>{l.logement ?? `Bien ${l.lotId}`}</p>
-          <p className="vgp-nom" data-vgp-noms>{l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</p>
+          <p className="vgp-ligne-adresse vgp-une-ligne" title={adresse} data-vgp-adresse>{adresse}</p>
+          <p className="vgp-nom vgp-une-ligne" title={noms} data-vgp-noms>{noms}</p>
+          {s.etat === 'ok' ? (() => {
+            const c = compteAReboursVingt(s);
+            return <p className="vgp-ligne-limite vgp-une-ligne" data-vgp-limite={s.limite}>Restitution au plus tard le {dateFr(s.limite)}{' '}
+              <span className={`vgp-rebours vgp-rebours--${c.ton}`} data-vgp-rebours={c.ton}>{c.texte}</span></p>;
+          })() : <p className="vgp-ligne-limite vgp-ligne-manque vgp-une-ligne" data-vgp-manque-ligne={manques.join(',')}>{manques.join(' · ')}</p>}
         </div>
+        {/* À DROITE : l'étiquette colorée de l'AG (et, dessous, la mention de date provisoire), puis les deux boutons */}
         <div className="vgp-ligne-droite" onClick={(e) => e.stopPropagation()}>
-          {s.etat === 'ok'
-            ? <span className="vgp-ligne-ago" data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>
-              <span className={s.ago.statut === 'projetee' ? 'vgp-projetee' : 'vgp-officielle'}>{agoCourte(s.ago)}</span>
-              {s.incertaine && <span className="vgp-incertaine" data-vgp-incertaine> · {MENTION_DATE_PROVISOIRE}</span>}</span>
-            : <span className="vgp-ligne-manque" data-vgp-manque-ligne={manques.join(',')}>{manques.join(' · ')}</span>}
+          <span className="vgp-ligne-ago">
+            {s.etat === 'ok' && (() => { const e = etiquetteAgo(s.ago); return <span className={`vgp-etiquette vgp-etiquette--${e.ton}`} data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>{e.texte}</span>; })()}
+            <span className="vgp-incertaine vgp-une-ligne" {...(s.etat === 'ok' && s.incertaine ? { 'data-vgp-incertaine': '' } : { 'aria-hidden': true })}>
+              {s.etat === 'ok' && s.incertaine ? MENTION_DATE_PROVISOIRE : '\u00a0'}</span>
+          </span>
           <span className="vgp-ligne-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onFiche({ immeuble: l.immeuble ?? null, lotId: l.lotId })}
               data-vgp-fiche={l.sortieId}>{l.copropriete === null ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
@@ -189,6 +198,7 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
           </span>
         </div>
       </div>
+      {/* le détail : RIEN de ce qui est déjà sur la ligne (ni la date limite, ni le compte à rebours, ni l'AG) */}
       <div id={detailId} className="vgp-ligne-detail" hidden={!ouvert} data-vgp-detail>
         <dl className="vgp-dl">
           <div><dt>Copropriété</dt><dd>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>
@@ -196,16 +206,8 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
           <div><dt>Exercice concerné</dt><dd data-vgp-exercice>{libelleExercice(s.exercice)}</dd></div>
           <div><dt>Arrêté des comptes</dt><dd data-vgp-arrete>{l.arrete !== null ? arreteFr(l.arrete) : 'non renseigné'}</dd></div>
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
-          <div><dt>Restitution au plus tard le</dt><dd data-vgp-limite={s.etat === 'ok' ? s.limite : ''}>{s.etat === 'ok' ? dateFr(s.limite) : '—'}</dd></div>
-          {/* 🔴 Arno (24/11/2026) — les jours restants ; dépassée : « Date limite dépassée de N jours », en rouge */}
-          {s.etat === 'ok' && (() => {
-            const j = joursRestantsVingt(s.joursRestants);
-            return <div><dt>Jours restants</dt><dd className={j.depasse ? 'vgp-depasse' : undefined} data-vgp-jours={s.joursRestants}>{j.texte}</dd></div>;
-          })()}
         </dl>
-        {s.etat === 'ok'
-          ? <p className={`vgp-alerte vgp-alerte--${s.alerte}`} role={s.alerte === 'a_venir' ? undefined : 'status'} data-vgp-alerte-texte>{libelleAlerte(s.alerte, s.limite, s.joursRestants)}</p>
-          : <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
+        {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>
     </li>
   );
@@ -374,18 +376,27 @@ export const CSS_VINGT_POURCENT = `
 .vgp-alerte--proche{background:var(--color-svv-amber-soft);border-color:var(--color-svv-urgence-orange)}
 .vgp-alerte--sans{border-style:dashed;color:var(--color-svv-muted)}
 .vgp-restituer{align-self:flex-start;min-height:44px;width:auto}
-.vgp-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0;overflow-wrap:anywhere}
+.vgp-ligne{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface);min-width:0}
 .vgp-ligne--depassee{border-left:4px solid var(--color-svv-red)}
 .vgp-ligne--proche{border-left:4px solid var(--color-svv-urgence-orange)}
-.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0}
+.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;height:92px;box-sizing:border-box}
 .vgp-chevron{flex:0 0 auto;width:32px;min-height:44px;border:0;background:none;color:var(--color-svv-muted);font:inherit;font-size:1rem;cursor:pointer}
 .vgp-ligne-gauche{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.vgp-une-ligne{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .vgp-ligne-adresse{margin:0;color:var(--color-svv-ink);font-size:.9rem}
-.vgp-ligne-droite{flex:0 1 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;cursor:default}
-.vgp-ligne-ago{font-size:.9rem;color:var(--color-svv-ink);text-align:right}
-.vgp-ligne-manque{font-size:.9rem;font-weight:700;color:var(--color-svv-urgence-orange-texte);text-align:right}
-.vgp-ligne-boutons{display:flex;gap:6px;flex-wrap:wrap}
-.vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px}
+.vgp-ligne-limite{margin:0;color:var(--color-svv-ink);font-size:.85rem}
+.vgp-rebours{font-weight:800}
+.vgp-rebours--gris{color:var(--color-svv-muted);font-weight:700}
+.vgp-rebours--rouge{color:var(--color-svv-red)}
+.vgp-ligne-droite{flex:0 0 auto;display:flex;align-items:center;gap:10px;justify-content:flex-end;cursor:default;max-width:60%}
+.vgp-ligne-ago{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+.vgp-etiquette{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.82rem;font-weight:800;white-space:nowrap;border:1px solid}
+.vgp-etiquette--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red)}
+.vgp-etiquette--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green)}
+.vgp-ligne-ago .vgp-incertaine{font-size:.78rem;max-width:100%}
+.vgp-ligne-manque{font-weight:700;color:var(--color-svv-urgence-orange-texte)}
+.vgp-ligne-boutons{display:flex;gap:6px}
+.vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
 .vgp-ligne-detail[hidden]{display:none}
 .vgp-texte{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:.88rem;color:var(--color-svv-ink)}

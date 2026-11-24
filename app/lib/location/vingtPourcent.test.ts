@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -180,5 +180,21 @@ describe('🔴 Arno (24/11/2026) — la saisie « Restitution faite »', () => {
     expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '' }, O)).toMatchObject({ ok: false, champ: 'montantRestitue' });
     expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '1', montantRetenuCharges: 'x' }, O)).toMatchObject({ ok: false, champ: 'montantRetenuCharges' });
     expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '1', commentaire: 'x'.repeat(2001) }, O)).toMatchObject({ ok: false, champ: 'commentaire' });
+  });
+});
+
+describe('🔴🔴 Arno (24/11/2026, 23h40) — étiquette de l’AG et compte à rebours', () => {
+  it('étiquette : ROUGE « AGO vers mars 2027 (projetée) », VERTE « AGO 15/03/2027 (officielle) »', () => {
+    expect(etiquetteAgo({ date: '2027-03-15', statut: 'projetee' })).toEqual({ texte: 'AGO vers mars 2027 (projetée)', ton: 'rouge' });
+    expect(etiquetteAgo({ date: '2027-03-15', statut: 'officielle' })).toEqual({ texte: 'AGO 15/03/2027 (officielle)', ton: 'vert' });
+  });
+  it('compte à rebours : AVANT l’AG « AG dans 40 jours » (gris) ; le jour de l’AG « J-31 » ; PENDANT « J-12 » ; la date limite « J-0 » ; APRÈS « Dépassé de 5 jours » (rouge)', () => {
+    const ago = { date: '2027-03-15' }; const limite = '2027-04-15'; // 31 jours entre l'AG et la limite
+    expect(compteAReboursVingt({ ago, limite, joursRestants: 71 })).toEqual({ texte: 'AG dans 40 jours', ton: 'gris' });
+    expect(compteAReboursVingt({ ago, limite, joursRestants: 32 })).toEqual({ texte: 'AG dans 1 jour', ton: 'gris' });
+    expect(compteAReboursVingt({ ago, limite, joursRestants: 31 })).toEqual({ texte: 'J-31', ton: 'normal' });
+    expect(compteAReboursVingt({ ago, limite, joursRestants: 12 })).toEqual({ texte: 'J-12', ton: 'normal' });
+    expect(compteAReboursVingt({ ago, limite, joursRestants: 0 })).toEqual({ texte: 'J-0', ton: 'normal' });
+    expect(compteAReboursVingt({ ago, limite, joursRestants: -5 })).toEqual({ texte: 'Dépassé de 5 jours', ton: 'rouge' });
   });
 });
