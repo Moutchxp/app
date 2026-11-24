@@ -310,18 +310,19 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 24/11/2026, après `cf7ecb2f`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cf7ecb2f`). `origin/main` = **`b1d4d866`** (poussé par Arno le
-  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **9 commits d'avance, NON
+**Dépôt (mesuré le 24/11/2026, après `4d09d602`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4d09d602`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **11 commits d'avance, NON
   POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
-  mail chacun), `cf7ecb2f` (mail aux partenaires : retenue de 20 % et date de restitution — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  mail chacun), `cf7ecb2f` (mail aux partenaires : retenue de 20 % et date de restitution — détail plus bas), `56d6b7a7` (passation), `4d09d602` (ce
+  paragraphe remplacé par le bloc « Retenue de 20 % … : OUI / NON » — détail plus bas) et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `cf7ecb2f`) : `npm test` VERT (1 866 fichiers, 27 840 tests, 21 ignorés), `tsc` sans erreur ; pages vérifiées dans
+- **Contrôles** (dernier lot, `4d09d602`) : `npm test` VERT (1 866 fichiers, 27 841 tests, 21 ignorés), `tsc` sans erreur ; pages vérifiées dans
   Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celles de
   `761222a0`, `4bde8fc2` et `6f79c98a` (composant client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
@@ -634,6 +635,21 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     Vu au Chrome sur ESSAIPREAVIS Paul (aperçu seul, « Revenir » / « Annuler » ; aucun envoi, seuls POST = `apercu-validation-sortie`) : sans
     retenue et retenue sans date (Paul n'a pas de copropriété → arrêté inconnu) ; variantes projetée / officielle par les tests seulement.
     Captures `.captures/vingt-pourcent/` 116-119 (partenaires), 120-123 (paragraphe).
+  - Diagnostic (24/11, 22h, lecture seule) « pourquoi pas de case partenaires sur le préavis TEST — 1 rue du Préavis de Test (FICTIF) » : la case
+    n'existe que pour un bien `en_gestion` (`logementDe`, `mailsPreavisSortieRepo.ts:92`) ; `creerPreavisTest` crée le bien en `location_seule`
+    (`preavisTestRepo.ts:49-50`) — biens 442-448. Et un préavis de test ne laisse partir un mail qu'au créateur (`filtrerPourTest`). DÉCISION
+    D'ARNO (24/11) : règles inchangées. Liste « Sorties » en recette depuis le 24/11 21:58 (versions 7 et 8, identiques) : ADHOC
+    (gestion.criterimmo@gmail.com) + MONGA (laura@monga.io).
+  - `4d09d602` (24/11) — REMPLACE le paragraphe de `cf7ecb2f` : « ajouter si ce locataire est assujetti à la retenue de l'article 22 (20 %), avec
+    les dates de dernière AGO, de la projection de la future AGO ou de sa date officielle, de la date anniversaire de clôture des comptes de la
+    copropriété, et enfin le mois auquel la restitution des 20 % au locataire est projetée/probable » → bloc (`blocRetenuePartenaires`,
+    `validationSortie.ts`) « Retenue de 20 % du dépôt de garantie (article 22 de la loi n° 89-462 du 6 juillet 1989) : OUI » + 4 lignes « – »
+    (arrêté « 31/12 » / « non renseignée » / « aucune copropriété rattachée » ; dernière AGO ; AGO qui permettra la restitution « vers mars 2027
+    (date projetée, approximative) » ou « le 15/03/2027 (date officielle) » ; restitution « vers avril 2027 » / « au plus tard le 15/04/2027 » /
+    « dans le mois qui suit l'approbation des comptes de l'immeuble » si case « Indiquer l'AGO » non cochée ou calcul impossible). Sans retenue :
+    « … (article 22) : NON », seul. ⚠️ L'AGO de la ligne « AGO qui permettra la restitution » est l'AGO qui compte calculée MÊME case non cochée
+    (seule la restitution perd sa date). Vu au Chrome sur _TEST PREAVIS VALIDE SORTIE NON VALIDEE (aperçu seul, « Revenir » / « Annuler », seuls
+    POST = aperçu) : OUI projetée, bien sans copropriété, même bloc pour ADHOC et MONGA. Captures 124-126.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
