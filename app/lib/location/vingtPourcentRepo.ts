@@ -4,6 +4,7 @@ import { colonneExisteMemo } from './sondeLocation';
 import { contexteAgDuLot, entreesAg } from './agCoproprieteRepo';
 import { arretesDe } from './arreteComptesRepo';
 import type { ArreteComptes } from './arreteComptes';
+import { lireRestitutionsFaites, restitutionVingtDisponible, SQL_SANS_RESTITUTION_EN_COURS } from './restitutionVingtRepo';
 import { agosOfficielles, datesManquantes, suiviVingtPourcent, type CoproConcernee, type LigneVingtPourcent, type SuiviVingtLu } from './vingtPourcent';
 export type { LigneVingtPourcent, SuiviVingtLu } from './vingtPourcent';
 
@@ -13,7 +14,8 @@ export type { LigneVingtPourcent, SuiviVingtLu } from './vingtPourcent';
  * depuis n'y figure plus). Pour chacune : la copropriété du bien (sinon son immeuble, « à rattacher »), ses AGO OFFICIELLES (jamais les dates
  * projetées enregistrées à la sortie — décision d'Arno du 23/11/2026) et sa date d'arrêté des comptes (512) ; le calcul est `suiviVingtPourcent`,
  * fait ici à chaque lecture : rien n'est stocké par locataire. Sans la 468 : aucune ligne.
- * ⚠️ Rien ne dit encore qu'une restitution a été FAITE : toutes les sorties avec retenue restent listées (point ouvert, à décider par Arno).
+ * 🔴 Arno (24/11/2026) — « Restitution faite » (513) : une sortie dont la restitution est EN COURS quitte la liste (et toute alerte) ; elle figure
+ * dans `faites` (section repliée « Restitutions faites ») ; une annulation l'y remet. Sans la 513 : toutes les sorties avec retenue restent listées.
  */
 
 export const vingtPourcentDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_sortie_validee', 'retenue_20');
@@ -22,6 +24,7 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   const { rows: j } = await query<{ j: string }>(`SELECT ${SQL_AUJOURDHUI_PARIS}::text AS j`);
   const aujourdhui = j[0].j;
   if (!(await vingtPourcentDisponible())) return { aujourdhui, lignes: [], manquantes: [] };
+  const avec513 = await restitutionVingtDisponible();
   const { rows } = await query<{ id: string; lot_id: string; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null }>(
     `SELECT s.id::text, s.lot_id::text, s.date_sortie::text, (s.valide_le AT TIME ZONE 'Europe/Paris')::date::text AS valide_le,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS logement,
@@ -29,7 +32,8 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
               WHERE o.id = ANY(s.occupation_ids)) AS noms
        FROM gestion_location_sortie_validee s JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id
       WHERE s.retenue_20
-        AND NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.id = ANY(s.occupation_ids) AND o.sortie IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.id = ANY(s.occupation_ids) AND o.sortie IS NULL)${avec513 ? `
+        AND ${SQL_SANS_RESTITUTION_EN_COURS}` : ''}
       ORDER BY s.date_sortie DESC, s.id DESC`);
   // une lecture des AG et du contexte par bien (peu de sorties avec retenue) ; les arrêtés en une requête
   const parLot = new Map<number, { copro: CoproConcernee; officielles: string[] }>();
@@ -59,5 +63,5 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
     const p = parLot.get(l.lotId)!;
     return [{ copro: p.copro, arrete: l.arrete, officielles: p.officielles, locataires: l.locataires }];
   }));
-  return { aujourdhui, lignes, manquantes };
+  return { aujourdhui, lignes, manquantes, restitutionDisponible: avec513, faites: avec513 ? await lireRestitutionsFaites() : [] };
 }

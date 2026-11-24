@@ -124,7 +124,13 @@ export interface LigneVingtPourcent {
   /** 🔴 (24/11/2026) la clé de sa copropriété (ou de son immeuble, ou du bien) — la même que celle de « Dates manquantes » ; absente : déduite */
   cleCopro?: string;
 }
-export interface SuiviVingtLu { aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[] }
+export interface SuiviVingtLu {
+  aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[];
+  /** 🔴 Arno (24/11/2026) — les restitutions faites (en cours, non annulées) ; absent : base sans la 513 */
+  faites?: RestitutionFaite[];
+  /** la base porte-t-elle la 513 (« Restitution faite » possible) ? */
+  restitutionDisponible?: boolean;
+}
 
 
 // ══ LA RUBRIQUE « DATES MANQUANTES » (règle 5) ════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -246,4 +252,55 @@ export function classerVingtPourcent(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lign
   c.manquantes = [...groupes.values()].sort((a, b) => parSortie(a.lignes[0], b.lignes[0]));
   for (const k of ['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const) c[k].sort(parLimite);
   return c;
+}
+
+// ══ 🔴🔴 Arno (24/11/2026) — « RESTITUTION FAITE » ══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * « Bouton « Restitution faite » sur chaque ligne : fenêtre avec date de restitution, montant restitué, montant retenu au titre des charges
+ * (facultatif), commentaire ; enregistrement journalisé dans le dossier du locataire (rien n'est supprimé) ; le locataire quitte la liste et ne
+ * déclenche plus d'alerte. Une section repliée « Restitutions faites (N) » […] avec « Annuler » (journalisé) en cas d'erreur. »
+ */
+export const TITRE_RESTITUTIONS_FAITES = 'Restitutions faites';
+export const COMMENTAIRE_RESTITUTION_MAX = 2000;
+export const MONTANT_MAX = 10_000_000;
+export const MOTIF_SANS_513 = 'La restitution des 20 % s’enregistre après la mise à jour de la base (migration 513) : rien n’est enregistré.';
+
+/** Une restitution enregistrée (section « Restitutions faites »). */
+export interface RestitutionFaite {
+  id: number; sortieId: number; locataires: string[]; logement: string | null; dateSortie: string;
+  date: string; montantRestitue: number; montantRetenuCharges: number | null; commentaire: string | null; par: string; le: string;
+}
+
+/** « 1 234,56 », « 1234.5 », 300 → un montant en euros (2 décimales au plus, ≥ 0) ; vide : `undefined` ; illisible : `null`. PUR. */
+export function montantEuros(x: unknown): number | null | undefined {
+  if (typeof x === 'number') return Number.isFinite(x) && x >= 0 && x <= MONTANT_MAX && Math.round(x * 100) === x * 100 ? x : null;
+  if (typeof x !== 'string') return x === null || x === undefined ? undefined : null;
+  const t = x.replace(/[\s  €]/g, '').replace(',', '.');
+  if (t === '') return undefined;
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  const n = Number(t);
+  return n <= MONTANT_MAX ? n : null;
+}
+
+/** « 1 234,56 € ». PUR. */
+export const montantFr = (n: number): string => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`.replace(/ /g, ' ');
+
+/** La saisie de la fenêtre « Restitution faite », vérifiée : date entre la sortie et aujourd'hui, montant restitué obligatoire. PUR. */
+export function verifierRestitution(d: { date: unknown; montantRestitue: unknown; montantRetenuCharges?: unknown; commentaire?: unknown }, o: { dateSortie: string; aujourdhui: string }):
+  | { ok: true; valeur: { date: string; montantRestitue: number; montantRetenuCharges: number | null; commentaire: string | null } }
+  | { ok: false; motif: string; champ: 'date' | 'montantRestitue' | 'montantRetenuCharges' | 'commentaire' } {
+  const date = typeof d.date === 'string' ? d.date.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) {
+    return { ok: false, motif: 'Indiquez la date de restitution.', champ: 'date' };
+  }
+  if (date < o.dateSortie) return { ok: false, motif: `La restitution ne peut pas précéder la sortie (${o.dateSortie.slice(8, 10)}/${o.dateSortie.slice(5, 7)}/${o.dateSortie.slice(0, 4)}).`, champ: 'date' };
+  if (date > o.aujourdhui) return { ok: false, motif: 'La date de restitution ne peut pas être dans le futur.', champ: 'date' };
+  const restitue = montantEuros(d.montantRestitue);
+  if (restitue === undefined) return { ok: false, motif: 'Indiquez le montant restitué (0 s’il n’y a rien à rendre).', champ: 'montantRestitue' };
+  if (restitue === null) return { ok: false, motif: 'Montant restitué illisible : un nombre en euros, deux décimales au plus (ex. 312,50).', champ: 'montantRestitue' };
+  const retenu = montantEuros(d.montantRetenuCharges);
+  if (retenu === null) return { ok: false, motif: 'Montant retenu au titre des charges illisible : un nombre en euros, deux décimales au plus.', champ: 'montantRetenuCharges' };
+  const commentaire = typeof d.commentaire === 'string' && d.commentaire.trim() !== '' ? d.commentaire.trim() : null;
+  if (commentaire !== null && commentaire.length > COMMENTAIRE_RESTITUTION_MAX) return { ok: false, motif: `Le commentaire dépasse ${COMMENTAIRE_RESTITUTION_MAX} caractères.`, champ: 'commentaire' };
+  return { ok: true, valeur: { date, montantRestitue: restitue, montantRetenuCharges: retenu ?? null, commentaire } };
 }

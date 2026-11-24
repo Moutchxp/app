@@ -47,7 +47,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(lectures[0]).toMatch(/^\/api\/admin\/gestion\/preavis\?vingtPourcent=1/);
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
     // 🔴 Arno (24/11/2026) — cinq catégories exclusives, dans cet ordre (« Dates manquantes » toujours en tête)
-    expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
+    expect(blocs).toEqual(['Dates manquantes', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
     expect(m.querySelector('[data-vgp-ce-qui-manque]')?.textContent).toBe('Manque : dernière AGO et date d’arrêté des comptes');
@@ -158,5 +158,57 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     // la ligne de DURAND Léo (arrêté manquant, date provisoire dépassée) reste lisible sous sa copropriété, rien n'est masqué
     const d = container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-sortie="7"]')!;
     expect(d.querySelector('[data-vgp-jours]')?.textContent).toBe('Date limite dépassée de 32 jours');
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026) — « Restitution faite » (fenêtre, POST vers la route de la Location) et « Restitutions faites (N) » repliée, avec « Annuler ». */
+describe('🔴🔴 Arno (24/11/2026) — « Restitution faite » et « Restitutions faites »', () => {
+  let posts: Record<string, unknown>[];
+  beforeEach(() => {
+    posts = [];
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ id: 9, sortieId: 3, locataires: ['FAIT Jean'], logement: '3 rue F', dateSortie: '2026-01-01', date: '2026-11-02',
+      montantRestitue: 312.5, montantRetenuCharges: 40, commentaire: 'Virement _TEST', par: 'Arno Test', le: '2026-11-02 10:15' }] };
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') { posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return { status: 200, json: async () => ({ etat: 'ok', data: { id: 1 } }) } as Response; }
+      lectures.push(String(u));
+      return { status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  });
+  const saisir = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  it('chaque ligne a « Restitution faite » ; la fenêtre vérifie la saisie, puis envoie à la route de la Location ; la liste se relit', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis' }));
+    expect(container.querySelectorAll('[data-vgp-restituer]')).toHaveLength(3);
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
+    const f = container.querySelector('[data-fenetre-restitution="5"]')!;
+    expect((f.querySelector('[data-restitution-date]') as HTMLInputElement).value).toBe('2026-11-23');
+    // montant manquant : refus à l'écran, rien n'est envoyé
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    expect(f.querySelector('[data-restitution-refus]')?.textContent).toContain('Indiquez le montant restitué');
+    expect(posts).toEqual([]);
+    await act(async () => { saisir(f.querySelector('[data-restitution-montant]') as HTMLInputElement, '312,50'); });
+    await act(async () => { saisir(f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement, 'Virement _TEST'); });
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(posts).toEqual([{ action: 'restitution-20-faite', sortieId: 5, date: '2026-11-23', montantRestitue: '312,50', montantRetenuCharges: '', commentaire: 'Virement _TEST' }]);
+    expect((global.fetch as unknown as { mock: { calls: [string, RequestInit | undefined][] } }).mock.calls.find(([, i]) => i?.method === 'POST')?.[0]).toBe('/api/admin/location');
+    expect(container.querySelector('[data-fenetre-restitution]')).toBeNull();
+    expect(lectures).toHaveLength(2);
+  });
+  it('« Restitutions faites (1) » repliée en bas de page : la restitution, puis « Annuler » → confirmation → POST d’annulation', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
+    expect(blocs.at(-1)).toBe('Restitutions faites');
+    const d = container.querySelector('[data-vgp-faites] > details') as HTMLDetailsElement;
+    expect(d.open).toBe(false);
+    expect(d.querySelector('summary')?.textContent).toBe('Restitutions faites (1)');
+    expect(d.querySelector('[data-vgp-faite-montant]')?.textContent).toBe('312,50 €');
+    expect(d.querySelector('[data-vgp-faite-retenu]')?.textContent).toBe('40,00 €');
+    await act(async () => { (d.querySelector('[data-vgp-annuler="9"]') as HTMLButtonElement).click(); });
+    expect(posts).toEqual([]);
+    await act(async () => { (d.querySelector('[data-vgp-annuler-oui="9"]') as HTMLButtonElement).click(); }); await calmer();
+    expect(posts).toEqual([{ action: 'restitution-20-annuler', restitutionId: 9 }]);
+    expect(lectures).toHaveLength(2);
   });
 });

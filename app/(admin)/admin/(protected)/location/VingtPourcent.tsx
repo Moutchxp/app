@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { CSS_LOCATION_ECRANS } from './commun';
+import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  classerVingtPourcent, joursRestantsVingt, LIBELLE_MANQUE, libelleAlerte, libelleExercice, MENTION_INCERTAINE, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  classerVingtPourcent, joursRestantsVingt, LIBELLE_MANQUE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleAlerte, libelleExercice, MENTION_INCERTAINE, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -25,6 +26,17 @@ import {
 
 
 const dateFr = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+/** 🔴 Arno (24/11/2026) — les gestes (« Restitution faite », « Annuler ») passent par la route de la Location, depuis la Gestion comme depuis la Location
+ *  (la route de la Gestion reste en lecture seule). */
+export const API_GESTES_VINGT = '/api/admin/location';
+type Geste = (corps: Record<string, unknown>) => Promise<string | null>;
+const geste: Geste = async (corps) => {
+  try {
+    const r = await fetch(API_GESTES_VINGT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
+    const d = await r.json().catch(() => ({})) as { etat?: string; motif?: string };
+    return d.etat === 'ok' ? null : d.motif ?? (r.status === 403 ? 'Accès refusé : droit « Location » nécessaire.' : 'Enregistrement impossible.');
+  } catch { return 'Enregistrement impossible : le serveur n’a pas répondu.'; }
+};
 
 export { nombreCoproprietesACompleter, TITRE_VINGT_POURCENT };
 
@@ -32,6 +44,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
   const [lu, setLu] = useState<{ etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; data: SuiviVingtLu }>({ etat: 'charge' });
   const [version, setVersion] = useState(0);
   const [fiche, setFiche] = useState<LigneDatesManquantes | null>(null);
+  const [restituer, setRestituer] = useState<LigneVingtPourcent | null>(null);
   useEffect(() => {
     let vivant = true;
     fetch(`${api}?vingtPourcent=1&v=${version}`, { cache: 'no-store' })
@@ -57,12 +70,15 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
           {(() => {
             const cl = classerVingtPourcent(lu.data);
             return <>
-              <DatesManquantes lignes={lu.data.manquantes} groupes={cl.manquantes} onCompleter={setFiche} />
-              {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).map((k) => <Categorie key={k} cle={k} lignes={cl[k]} />)}
+              <DatesManquantes lignes={lu.data.manquantes} groupes={cl.manquantes} onCompleter={setFiche} onRestituer={setRestituer} />
+              {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).map((k) => <Categorie key={k} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
             </>;
           })()}
           {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
+          <RestitutionsFaites faites={lu.data.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />
         </>}
+      {restituer !== null && lu.etat === 'ok' && <FenetreRestitution l={restituer} aujourdhui={lu.data.aujourdhui}
+        onFermer={(fait) => { setRestituer(null); if (fait) setVersion((v) => v + 1); }} />}
       {fiche !== null && <FicheCopropriete immeuble={fiche.immeuble} lotId={fiche.immeuble === null ? fiche.lotId : null}
         onFerme={() => { setFiche(null); setVersion((v) => v + 1); }} />}
     </div>
@@ -70,20 +86,21 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
 }
 
 /** 🔴 Arno (24/11/2026) — une catégorie (b à e) : titre, compteur, repliable ; lignes par date limite croissante. */
-function Categorie({ cle, lignes }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[] }) {
+function Categorie({ cle, lignes, onRestituer }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[]; onRestituer: (l: LigneVingtPourcent) => void }) {
   return (
     <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && lignes.length > 0 ? ' vgp-cat--a-faire' : ''}`} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={lignes.length}>
       <details open className="vgp-repli">
         <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={cle === 'urgence' && lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
         {lignes.length === 0 ? <p className="loc-muet" data-vgp-categorie-vide>Aucun locataire.</p>
-          : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} />)}</ul>}
+          : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} onRestituer={onRestituer} />)}</ul>}
       </details>
     </section>
   );
 }
 
 /** La rubrique « Dates manquantes » : en tête de l'écran. */
-function DatesManquantes({ lignes, groupes, onCompleter }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[]; onCompleter: (l: LigneDatesManquantes) => void }) {
+function DatesManquantes({ lignes, groupes, onCompleter, onRestituer }: { lignes: readonly LigneDatesManquantes[]; groupes: readonly GroupeManquant[];
+  onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
   // 🔴 Arno (24/11/2026) — les copropriétés dans l'ordre de leur locataire sorti le plus anciennement ; celles sans locataire classé ici, ensuite
   const ordre = new Map(groupes.map((g, i) => [g.copro.cle, i]));
   // une ligne classée ici dont la copropriété ne serait pas dans la liste lue garde sa carte (jamais une ligne perdue)
@@ -110,7 +127,7 @@ function DatesManquantes({ lignes, groupes, onCompleter }: { lignes: readonly Li
                 Compléter la fiche Copropriété</button>
               {(() => {
                 const g = groupes.find((x) => x.copro.cle === m.cle);
-                return g === undefined ? null : <ul className="vgp-liste vgp-sous-liste" data-vgp-lignes-manquantes={m.cle}>{g.lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} />)}</ul>;
+                return g === undefined ? null : <ul className="vgp-liste vgp-sous-liste" data-vgp-lignes-manquantes={m.cle}>{g.lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} onRestituer={onRestituer} />)}</ul>;
               })()}
             </li>
           ))}
@@ -122,7 +139,7 @@ function DatesManquantes({ lignes, groupes, onCompleter }: { lignes: readonly Li
 }
 
 /** Une ligne de locataire sorti avec 20 % retenus. */
-function LigneLocataire({ l }: { l: LigneVingtPourcent }) {
+function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer: (l: LigneVingtPourcent) => void }) {
   const s = l.suivi;
   const alerte = s.etat === 'ok' ? s.alerte : 'sans';
   return (
@@ -148,7 +165,103 @@ function LigneLocataire({ l }: { l: LigneVingtPourcent }) {
       {s.etat === 'ok'
         ? <p className={`vgp-alerte vgp-alerte--${s.alerte}`} role={s.alerte === 'a_venir' ? undefined : 'status'} data-vgp-alerte-texte>{libelleAlerte(s.alerte, s.limite, s.joursRestants)}</p>
         : <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
+      {/* 🔴 Arno (24/11/2026) — « Restitution faite » : la fenêtre ; enregistrée, la ligne quitte la liste (section « Restitutions faites ») */}
+      <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>Restitution faite</button>
     </li>
+  );
+}
+
+/** 🔴 Arno (24/11/2026) — la fenêtre « Restitution faite » : date, montant restitué, montant retenu au titre des charges (facultatif), commentaire. */
+function FenetreRestitution({ l, aujourdhui, onFermer }: { l: LigneVingtPourcent; aujourdhui: string; onFermer: (fait: boolean) => void }) {
+  const titreId = useId();
+  const [date, setDate] = useState(aujourdhui);
+  const [restitue, setRestitue] = useState('');
+  const [retenu, setRetenu] = useState('');
+  const [commentaire, setCommentaire] = useState('');
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  useEffect(() => {
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !envoi) onFermer(false); };
+    window.addEventListener('keydown', clavier);
+    return () => window.removeEventListener('keydown', clavier);
+  }, [envoi, onFermer]);
+  const enregistrer = async (): Promise<void> => {
+    const v = verifierRestitution({ date, montantRestitue: restitue, montantRetenuCharges: retenu, commentaire }, { dateSortie: l.dateSortie, aujourdhui });
+    if (!v.ok) { setRefus(v.motif); return; }
+    setEnvoi(true); setRefus(null);
+    const motif = await geste({ action: 'restitution-20-faite', sortieId: l.sortieId, date, montantRestitue: restitue, montantRetenuCharges: retenu, commentaire });
+    setEnvoi(false);
+    if (motif !== null) { setRefus(motif); return; }
+    onFermer(true);
+  };
+  return (
+    <div className="vgp-voile" data-fenetre-restitution={l.sortieId}>
+      <div className="vgp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId}>
+        <h2 id={titreId} className="vgp-titre">Restitution faite — {l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</h2>
+        <p className="loc-muet vgp-aide">{l.logement ?? `Bien ${l.lotId}`} — sortie le {dateFr(l.dateSortie)}. Enregistrée, la restitution est journalisée dans le dossier du locataire
+          et la ligne quitte la liste (elle reste dans « {TITRE_RESTITUTIONS_FAITES} », où elle peut être annulée).</p>
+        <label className="vgp-champ"><span>Date de restitution *</span>
+          <input type="date" value={date} max={aujourdhui} min={l.dateSortie} onChange={(e) => setDate(e.target.value)} disabled={envoi} data-restitution-date /></label>
+        <label className="vgp-champ"><span>Montant restitué (€) *</span>
+          <ChampNombre value={restitue} placeholder="ex. 312,50" onChange={(e) => setRestitue(e.target.value)} disabled={envoi} data-restitution-montant /></label>
+        <label className="vgp-champ"><span>Montant retenu au titre des charges (€, facultatif)</span>
+          <ChampNombre value={retenu} placeholder="ex. 40,00" onChange={(e) => setRetenu(e.target.value)} disabled={envoi} data-restitution-retenu /></label>
+        <label className="vgp-champ"><span>Commentaire (facultatif)</span>
+          <textarea value={commentaire} rows={3} onChange={(e) => setCommentaire(e.target.value)} disabled={envoi} data-restitution-commentaire /></label>
+        {refus !== null && <p className="cp-refus" role="alert" data-restitution-refus>{refus}</p>}
+        <div className="vgp-actions">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onFermer(false)} disabled={envoi} data-restitution-annuler>Annuler</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrer(); }} disabled={envoi} data-restitution-enregistrer>
+            {envoi ? 'Enregistrement…' : 'Enregistrer la restitution'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 🔴 Arno (24/11/2026) — « Restitutions faites (N) », repliée, en bas de page : l'historique, avec « Annuler » (journalisé) en cas d'erreur. */
+function RestitutionsFaites({ faites, onAnnule }: { faites: readonly RestitutionFaite[]; onAnnule: () => void }) {
+  const [confirmer, setConfirmer] = useState<number | null>(null);
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const annuler = async (id: number): Promise<void> => {
+    setEnvoi(true); setRefus(null);
+    const motif = await geste({ action: 'restitution-20-annuler', restitutionId: id });
+    setEnvoi(false);
+    if (motif !== null) { setRefus(motif); return; }
+    setConfirmer(null); onAnnule();
+  };
+  return (
+    <section className="vgp-bloc vgp-faites" aria-label={TITRE_RESTITUTIONS_FAITES} data-vgp-faites={faites.length}>
+      <details className="vgp-repli">
+        <summary className="vgp-titre">{TITRE_RESTITUTIONS_FAITES} ({faites.length})</summary>
+        {faites.length === 0 ? <p className="loc-muet" data-vgp-faites-aucune>Aucune restitution enregistrée.</p> : (
+          <ul className="vgp-liste">{faites.map((f) => (
+            <li key={f.id} className="vgp-carte" data-vgp-faite={f.id}>
+              <p className="vgp-nom">{f.locataires.length > 0 ? f.locataires.join(', ') : `Sortie n° ${f.sortieId}`}</p>
+              <dl className="vgp-dl">
+                <div><dt>Logement</dt><dd>{f.logement ?? '—'}</dd></div>
+                <div><dt>Date de sortie</dt><dd>{dateFr(f.dateSortie)}</dd></div>
+                <div><dt>Restituée le</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
+                <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
+                {f.montantRetenuCharges !== null && <div><dt>Retenu au titre des charges</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
+                {f.commentaire !== null && <div><dt>Commentaire</dt><dd>{f.commentaire}</dd></div>}
+                <div><dt>Enregistrée par</dt><dd>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
+              </dl>
+              {confirmer === f.id ? (
+                <div className="vgp-confirmer" role="group" aria-label="Confirmer l’annulation" data-vgp-confirmer-annulation={f.id}>
+                  <p className="vgp-aide">Annuler cette restitution ? Elle reste dans l’historique du dossier, et le locataire revient dans la liste « 20 % à restituer ».</p>
+                  <div className="vgp-actions">
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmer(null)} disabled={envoi}>Non, garder</button>
+                    <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void annuler(f.id); }} disabled={envoi} data-vgp-annuler-oui={f.id}>Oui, annuler</button>
+                  </div>
+                  {refus !== null && <p className="cp-refus" role="alert">{refus}</p>}
+                </div>
+              ) : <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => { setRefus(null); setConfirmer(f.id); }} data-vgp-annuler={f.id}>Annuler</button>}
+            </li>))}</ul>
+        )}
+      </details>
+    </section>
   );
 }
 
@@ -187,5 +300,15 @@ export const CSS_VINGT_POURCENT = `
 .vgp-alerte--depassee{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red)}
 .vgp-alerte--proche{background:var(--color-svv-amber-soft);border-color:var(--color-svv-urgence-orange)}
 .vgp-alerte--sans{border-style:dashed;color:var(--color-svv-muted)}
-@media (max-width:640px){ .vgp-completer{align-self:stretch;width:100%} }
+.vgp-restituer{align-self:flex-start;min-height:44px;width:auto}
+.vgp-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+.vgp-boite{width:min(560px,100%);max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:16px;
+  border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.vgp-champ{display:flex;flex-direction:column;gap:3px;font-size:.88rem;font-weight:700;min-width:0}
+.vgp-champ input,.vgp-champ textarea{min-height:44px;box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;
+  background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:400}
+.vgp-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.vgp-actions .gst-btn{min-height:44px;width:auto;margin:0}
+.vgp-confirmer{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-field)}
+@media (max-width:640px){ .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }
 `;

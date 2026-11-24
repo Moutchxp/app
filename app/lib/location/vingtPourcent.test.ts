@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -155,5 +155,22 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
     expect(joursRestantsVingt(3)).toEqual({ texte: 'Dans 3 jours', depasse: false });
     expect(joursRestantsVingt(0)).toEqual({ texte: 'Aujourd’hui', depasse: false });
     expect(joursRestantsVingt(-2)).toEqual({ texte: 'Date limite dépassée de 2 jours', depasse: true });
+  });
+});
+
+describe('🔴 Arno (24/11/2026) — la saisie « Restitution faite »', () => {
+  const O = { dateSortie: '2026-03-01', aujourdhui: '2026-11-24' };
+  it('montants : « 1 234,56 », « 312.5 », 0 ; vide = absent ; illisible ou 3 décimales = refus', () => {
+    expect([montantEuros('1 234,56'), montantEuros('312.5'), montantEuros(0), montantEuros(''), montantEuros('abc'), montantEuros('1,234'), montantEuros(-3)]).toEqual([1234.56, 312.5, 0, undefined, null, null, null]);
+    expect(montantFr(1234.5)).toBe('1 234,50 €');
+  });
+  it('date obligatoire, entre la sortie et aujourd’hui ; montant restitué obligatoire ; retenu facultatif ; commentaire borné', () => {
+    expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '312,50' }, O)).toEqual({ ok: true, valeur: { date: '2026-11-24', montantRestitue: 312.5, montantRetenuCharges: null, commentaire: null } });
+    expect(verifierRestitution({ date: '', montantRestitue: '1' }, O)).toMatchObject({ ok: false, champ: 'date' });
+    expect(verifierRestitution({ date: '2026-02-28', montantRestitue: '1' }, O)).toMatchObject({ ok: false, champ: 'date' });
+    expect(verifierRestitution({ date: '2026-11-25', montantRestitue: '1' }, O)).toMatchObject({ ok: false, champ: 'date' });
+    expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '' }, O)).toMatchObject({ ok: false, champ: 'montantRestitue' });
+    expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '1', montantRetenuCharges: 'x' }, O)).toMatchObject({ ok: false, champ: 'montantRetenuCharges' });
+    expect(verifierRestitution({ date: '2026-11-24', montantRestitue: '1', commentaire: 'x'.repeat(2001) }, O)).toMatchObject({ ok: false, champ: 'commentaire' });
   });
 });

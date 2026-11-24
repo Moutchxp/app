@@ -13,6 +13,7 @@ import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clien
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
 import { lireSuiviVingtPourcent } from '../../../../lib/location/vingtPourcentRepo';
+import { annulerRestitution, enregistrerRestitution } from '../../../../lib/location/restitutionVingtRepo';
 import { annulerPreavis, annulerPreavisGroupe, corrigerPreavis, corrigerPreavisGroupe, enregistrerEtatDesLieux, PREAVIS_GROUPE_MAX, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdition';
@@ -486,6 +487,9 @@ async function postLocation(request: Request): Promise<Response> {
     // 🔴 (« Digicodes unifiés », lot 4) « Corriger une erreur » / « Garder ce code » depuis la fiche du bien : la même fonction serveur que la fiche
     // Copropriété (le chemin unique), avec le droit de la Location
     // 🔴 (Arno, 17/11/2026) « + Ajouter un PV d'AG » d'un bien DÉJÀ enregistré et relié à sa copropriété : la même écriture que la fiche Copropriété
+    // 🔴🔴 (Arno, 24/11/2026) « 20 % à restituer » — « Restitution faite » et son « Annuler » : gestes en ajout seul (513), journalisés au dossier du locataire
+    if (action === 'restitution-20-faite') return repondre(await enregistrerRestitution(corps, auteur));
+    if (action === 'restitution-20-annuler') return repondre(await annulerRestitution(corps, auteur));
     if (action === 'pv-ag') {
       const r = await enregistrerPv(corps, auteur);
       return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
