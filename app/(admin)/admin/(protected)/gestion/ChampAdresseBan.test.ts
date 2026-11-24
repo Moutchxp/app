@@ -208,3 +208,50 @@ describe('🔴🔴 rien n’est jamais bloqué', () => {
     expect(propositions()).toEqual([]);
   });
 });
+
+/**
+ * ══ 🔴🔴 UN VRAI CHAMP, PLEINE LARGEUR (Arno, 24/11/2026, fiche Copropriété, « Une autre adresse ») ═══════════════════════════════════════════════
+ * « il faut faire un vrai champ de saisie visible, là où le curseur clique et qui est entouré de bleu ; faire un vrai champ qui prend toute la largeur
+ * de la colonne. » Le champ y était nu (aucun écran n'y habillait « cp-saisie ») : le style partagé lui donne celui des champs de la fiche, à
+ * spécificité nulle pour qu'un écran qui l'habille déjà garde exactement son rendu.
+ */
+describe('🔴🔴 le champ par défaut est un vrai champ (Arno, 24/11/2026)', () => {
+  const regle = (css: string, selecteur: string): Record<string, string> => {
+    const i = css.indexOf(`${selecteur}{`);
+    expect(i, `règle « ${selecteur} » absente`).toBeGreaterThanOrEqual(0);
+    const corps = css.slice(i + selecteur.length + 1, css.indexOf('}', i));
+    return Object.fromEntries(corps.split(';').map((d) => d.trim()).filter(Boolean).map((d) => {
+      const k = d.indexOf(':');
+      return [d.slice(0, k).trim(), d.slice(k + 1).trim().replace(/\s+/g, ' ')];
+    }));
+  };
+
+  it('🔴 le champ rendu porte la classe que vise la règle, dans l’enveloppe dont la liste prend la largeur', async () => {
+    const { CSS_CHAMP_ADRESSE } = await import('./ChampAdresseBan');
+    expect(champ().classList.contains('cp-saisie')).toBe(true);
+    expect(champ().parentElement?.classList.contains('cab-enveloppe')).toBe(true);
+    // la liste s'ouvre SOUS le champ, à SA largeur (inchangé)
+    const liste = regle(CSS_CHAMP_ADRESSE, '.cab-liste');
+    expect([liste.position, liste.left, liste.right, liste.top]).toEqual(['absolute', '0', '0', '100%']);
+  });
+
+  it('🔴🔴 pleine largeur, et la bordure, la hauteur, les marges et le texte des champs de la fiche Copropriété', async () => {
+    const { CSS_CHAMP_ADRESSE } = await import('./ChampAdresseBan');
+    const { CSS_FICHE_COPROPRIETE } = await import('./FicheCopropriete');
+    const r = regle(CSS_CHAMP_ADRESSE, ':where(.cab-enveloppe > input.cp-saisie)');
+    expect(r.width).toBe('100%');
+    expect(r['box-sizing']).toBe('border-box');
+    // « Nom de la copropriété » : `.fcp-champ input` (deux règles) et `.fcp-champ` (la taille du texte)
+    const fiche = { ...regle(CSS_FICHE_COPROPRIETE, '.fcp-champ input'), ...regle(CSS_FICHE_COPROPRIETE.slice(CSS_FICHE_COPROPRIETE.indexOf('.fcp-champ input{min-height')), '.fcp-champ input') };
+    for (const k of ['border', 'border-radius', 'background', 'color', 'padding', 'min-height', 'font-weight']) expect([k, r[k]]).toEqual([k, fiche[k]]);
+    expect(r['font-size']).toBe(regle(CSS_FICHE_COPROPRIETE, '.fcp-champ')['font-size']);
+  });
+
+  it('⚠️ spécificité NULLE : la règle est entièrement sous :where, un écran qui habille « cp-saisie » garde la main', async () => {
+    const { CSS_CHAMP_ADRESSE } = await import('./ChampAdresseBan');
+    const selecteurs = [...CSS_CHAMP_ADRESSE.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim());
+    expect(selecteurs.filter((s) => s.includes('cp-saisie'))).toEqual([':where(.cab-enveloppe > input.cp-saisie)']);
+    // et aucune largeur imposée à l'enveloppe (elle reste un bloc : une rangée flex d'un autre écran n'est pas touchée)
+    expect(regle(CSS_CHAMP_ADRESSE, '.cab-enveloppe')).toEqual({ position: 'relative', display: 'block' });
+  });
+});

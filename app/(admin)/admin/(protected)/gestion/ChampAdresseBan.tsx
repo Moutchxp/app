@@ -64,6 +64,12 @@ export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque,
 /** Le style, posé par l'écran qui monte le champ — comme partout dans ce module. */
 export const CSS_CHAMP_ADRESSE = `
 .cab-enveloppe{position:relative;display:block}
+/* 🔴 (Arno, 24/11/2026, fiche Copropriété, « Une autre adresse » : « il faut faire un vrai champ de saisie visible […] qui prend toute la largeur de
+   la colonne ») LE CHAMP PAR DÉFAUT DU COMPOSANT est un vrai champ : pleine largeur, bordure, hauteur et marges des champs des fiches. Spécificité NULLE
+   (:where) : un écran qui habille déjà « cp-saisie » (Location, Gestion, Transaction, adresses à vérifier) garde exactement son rendu ; seul l'écran
+   qui ne l'habillait pas (la fiche Copropriété : le champ y était nu, sans bordure, sur 196 px) prend celui-ci. */
+:where(.cab-enveloppe > input.cp-saisie){box-sizing:border-box;width:100%;max-width:100%;min-height:44px;padding:8px 10px;
+  border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.88rem;font-weight:400}
 .cab-liste{position:absolute;z-index:40;left:0;right:0;top:100%;margin:.15rem 0 0;padding:.2rem;list-style:none;
   max-height:15rem;overflow:auto;border:1px solid var(--color-svv-line);border-radius:.5rem;
   background:var(--color-svv-surface);box-shadow:0 6px 18px rgba(0,0,0,.18)}
