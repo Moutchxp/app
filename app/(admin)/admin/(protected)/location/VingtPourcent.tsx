@@ -223,7 +223,8 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
           <p className="vgp-nom vgp-une-ligne" title={noms} data-vgp-noms>{noms}</p>
           {s.etat === 'ok' ? (() => {
             const c = compteAReboursVingt(s);
-            return <p className="vgp-ligne-limite vgp-une-ligne" data-vgp-limite={s.limite}>Restitution au plus tard le {dateFr(s.limite)}{' '}
+            // le compte à rebours ne se tronque JAMAIS : à l'ordinateur seule la date cède de la place ; au téléphone la ligne passe sur deux lignes réservées
+            return <p className="vgp-ligne-limite" data-vgp-limite={s.limite}><span className="vgp-limite-texte vgp-une-ligne">Restitution au plus tard le {dateFr(s.limite)}</span>{' '}
               <span className={`vgp-rebours vgp-rebours--${c.ton}`} data-vgp-rebours={c.ton}>{c.texte}</span></p>;
           })() : <p className="vgp-ligne-limite vgp-ligne-manque vgp-une-ligne" data-vgp-manque-ligne={manques.join(',')}>{manques.join(' · ')}</p>}
         </div>
@@ -428,8 +429,9 @@ export const CSS_VINGT_POURCENT = `
 .vgp-ligne-gauche{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 .vgp-une-ligne{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .vgp-ligne-adresse{margin:0;color:var(--color-svv-ink);font-size:.9rem}
-.vgp-ligne-limite{margin:0;color:var(--color-svv-ink);font-size:.85rem}
-.vgp-rebours{font-weight:800}
+.vgp-ligne-limite{margin:0;color:var(--color-svv-ink);font-size:.85rem;display:flex;align-items:baseline;gap:4px;min-width:0;white-space:nowrap}
+.vgp-limite-texte{flex:0 1 auto}
+.vgp-rebours{font-weight:800;flex:0 0 auto}
 .vgp-rebours--gris{color:var(--color-svv-muted);font-weight:700}
 .vgp-rebours--rouge{color:var(--color-svv-red)}
 .vgp-ligne-droite{flex:0 0 auto;display:flex;align-items:center;gap:10px;justify-content:flex-end;cursor:default;max-width:60%}
@@ -459,7 +461,15 @@ export const CSS_VINGT_POURCENT = `
 .vgp-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .vgp-actions .gst-btn{min-height:44px;width:auto;margin:0}
 .vgp-confirmer{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-field)}
-@media (max-width:640px){ .vgp-ligne-tete{flex-wrap:wrap} .vgp-ligne-gauche{flex:1 1 calc(100% - 42px)} .vgp-ligne-droite{flex:1 1 100%;justify-content:stretch;flex-direction:column;align-items:stretch}
-  .vgp-ligne-ago,.vgp-ligne-manque{text-align:left;padding-left:42px} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
+/* 🔴 (Arno, 24/11/2026, 23h40) 390 px : les 3 lignes de gauche en haut, l'étiquette AG puis les boutons pleine largeur dessous ; la hauteur suit le
+   contenu, mais chaque élément tient sur UNE ligne (et la place de la mention est gardée) : même hauteur entre blocs d'une même catégorie */
+@media (max-width:640px){ .vgp-ligne-tete{flex-wrap:wrap;height:auto;align-items:flex-start} .vgp-ligne-gauche{flex:1 1 calc(100% - 42px)}
+  .vgp-ligne-droite{flex:1 1 100%;max-width:none;justify-content:stretch;flex-direction:column;align-items:stretch;gap:6px}
+  .vgp-ligne-gauche > .vgp-ligne-adresse,.vgp-ligne-gauche > .vgp-nom{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3;min-height:2.6em}
+  .vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}
+  .vgp-ligne-gauche > .vgp-ligne-limite .vgp-une-ligne,.vgp-ligne-gauche > .vgp-ligne-limite.vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
+  .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
+  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
+  .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }
 `;

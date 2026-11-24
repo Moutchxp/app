@@ -361,13 +361,29 @@ describe('🔴🔴 Arno (24/11/2026, 23h40) — trois lignes, étiquette coloré
   it('trois lignes à gauche (adresse, noms, date limite + compte à rebours), chacune sur UNE ligne ; à droite l’étiquette puis les boutons', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const a = container.querySelector('[data-vgp-sortie="5"]')!;
-    expect([...a.querySelectorAll('.vgp-ligne-gauche > p')].map((x) => [x.className.includes('vgp-une-ligne'), x.textContent])).toEqual([
-      [true, '1 rue A, 92800 Puteaux'], [true, 'DUPONT Alice'], [true, 'Restitution au plus tard le 25/04/2027 AG dans 122 jours']]);
+    expect([...a.querySelectorAll('.vgp-ligne-gauche > p')].map((x) => x.textContent)).toEqual(['1 rue A, 92800 Puteaux', 'DUPONT Alice', 'Restitution au plus tard le 25/04/2027 AG dans 122 jours']);
+    // 3e ligne : la date cède de la place (une ligne, points de suspension), le compte à rebours JAMAIS
+    expect(a.querySelector('[data-vgp-limite] .vgp-limite-texte')?.className).toBe('vgp-limite-texte vgp-une-ligne');
+    expect(a.querySelector('[data-vgp-limite] [data-vgp-rebours]')?.className).toBe('vgp-rebours vgp-rebours--gris');
     const e = a.querySelector('[data-vgp-ago]')!;
     expect(e.className).toBe('vgp-etiquette vgp-etiquette--rouge');
     expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-ago]')?.className).toBe('vgp-etiquette vgp-etiquette--vert');
     // même hauteur : la place de la mention est gardée même vide
     expect(a.querySelector('.vgp-ligne-ago .vgp-incertaine')?.getAttribute('aria-hidden')).toBe('true');
     expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8')).toContain('.vgp-ligne-tete{display:flex;align-items:center;gap:10px;cursor:pointer;min-width:0;height:92px;');
+  });
+});
+
+/** 🔴 Arno (24/11/2026, 23h40) — 390 px : « les 3 lignes de gauche en haut, l'étiquette AG puis les boutons pleine largeur dessous ; même hauteur entre blocs d'une même catégorie ». */
+describe('🔴 Arno (24/11/2026, 23h40) — 390 px', () => {
+  it('la règle du téléphone : tête en colonne (gauche, puis étiquette, puis boutons pleine largeur), hauteurs réservées, compte à rebours jamais tronqué', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    const mobile = css.slice(css.indexOf('@media (max-width:640px){ .vgp-ligne-tete'));
+    expect(mobile).toContain('.vgp-ligne-tete{flex-wrap:wrap;height:auto;align-items:flex-start}');
+    expect(mobile).toContain('.vgp-ligne-droite{flex:1 1 100%;max-width:none;justify-content:stretch;flex-direction:column;align-items:stretch;gap:6px}');
+    expect(mobile).toContain('.vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%}');
+    expect(mobile).toContain('-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3;min-height:2.6em}');
+    expect(css).toContain('.vgp-rebours{font-weight:800;flex:0 0 auto}');
+    expect(mobile).toContain('.vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}');
   });
 });
