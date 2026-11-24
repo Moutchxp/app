@@ -310,22 +310,24 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 24/11/2026, après `75f3488f`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `75f3488f`). `origin/main` = **`b1d4d866`** (poussé par Arno le
-  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **13 commits d'avance, NON
+**Dépôt (mesuré le 24/11/2026, après `b9c726d8`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `b9c726d8`). `origin/main` = **`b1d4d866`** (poussé par Arno le
+  24/11/2026 à 00:10 : tous les commits du 20/11 au 23/11 au soir, jusqu'à la passation `b1d4d866` comprise). **19 commits d'avance, NON
   POUSSÉS** : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
   mail chacun), `cf7ecb2f` (mail aux partenaires : retenue de 20 % et date de restitution — détail plus bas), `56d6b7a7` (passation), `4d09d602` (ce
   paragraphe remplacé par le bloc « Retenue de 20 % … : OUI / NON » — détail plus bas), `e79abe93` (passation), `75f3488f` (fiche Copropriété :
-  « Adresses » avant « Identité ») et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
+  « Adresses » avant « Identité »), `59759271` (passation), puis le lot « 20 % à restituer » : `18f248d5` (cinq catégories), `5b046e8e`
+  (« Restitution faite », migration 513), `81f08a64` (alerte du lundi, migration 514), `b9c726d8` (pastille « Urgence ») — détail plus bas —
+  et cette passation. Rien n'est poussé par l'agent : c'est Arno qui pousse. Rien n'est parti en
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `75f3488f`) : `npm test` VERT (1 866 fichiers, 27 842 tests, 21 ignorés) ; pages vérifiées dans
+- **Contrôles** (dernier lot, `b9c726d8`) : `npm test` VERT (1 869 fichiers, 27 872 tests, 21 ignorés ; `tsc` compris) ; pages vérifiées dans
   Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celles de
-  `761222a0`, `4bde8fc2`, `6f79c98a` et `75f3488f` (composants client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
+  `761222a0`, `4bde8fc2`, `6f79c98a`, `75f3488f`, `18f248d5`, `5b046e8e`, `81f08a64` et `b9c726d8` (composants client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
@@ -349,9 +351,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   l'adresse du bien d'un compromis (vente 342) et un vendeur (personne 3) ; `.captures/migration-510/`.
   ⏩ **Depuis le 23/11 : la 512** (`512_gestion_copropriete_arrete_comptes.sql`, arrêté des comptes) — appliquée en RECETTE seulement
   (deux passes) et inscrite au registre de la recette (commit `1819b9f5`) ; la prochaine mise en production devra l'appliquer.
-  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra le prochain numéro libre, la 513, le jour où Arno la sortira** (décision
-  d'Arno du 23/11/2026) — la 511 reste vide : une fois la 512 inscrite, l'outil refuserait une 511 (numérotée sous la dernière inscrite ;
-  épreuve dans `migrationsEnAttente.test.ts`). Non touchée.
+  ⏩ **Depuis le 24/11 : la 513** (`513_location_restitution_vingt_pourcent.sql`, « Restitution faite », table de gestes en ajout seul) **et la
+  514** (`514_location_alerte_vingt_pourcent.sql`, journal de l'alerte du lundi, un seul « envoye » par lundi) — appliquées en RECETTE
+  seulement (deux passes chacune), ⚠️ PAS inscrites au registre `svav_migration` de la recette (idempotentes : un rejeu est sans effet) ; la
+  prochaine mise en production devra appliquer **512, 513, 514**.
+  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra le prochain numéro libre, désormais la 515, le jour où Arno la sortira** (décision
+  d'Arno du 23/11/2026, « garde le premier libre suivant » redit le 24/11) — la 511 reste vide (refusée une fois 512-514 inscrites ;
+  épreuve dans `migrationsEnAttente.test.ts`, mise à jour). Non touchée.
 - **Registre des migrations (`svav_migration`) — état au 20/11/2026 au soir** (rapport : `.captures/registre-migrations/RAPPORT.txt`) :
   - **Comment la mise en production choisit** : `npm run prod:mettre-a-jour` → sur le serveur, `scripts/migrations-plan.ts` +
     `planifier()` (`app/lib/ops/migrationsNouvelles.ts`) : est NOUVELLE toute migration `db/migrations/NNN_nom.sql` dont le **nom
@@ -659,6 +665,36 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     « _TEST PREAVIS VALIDE SORTIE NON VALIDEE ». ⚠️ CONSTAT (antérieur, non traité) : depuis Gestion › Copropriétés, la ligne « _TEST ARRETE COMPTES
     20 POURCENT 2 » ouvre « Ce bien n'a ni immeuble ni adresse : aucune fiche copropriété possible. » (cause non instruite ; même affichage quel que soit l'ordre des blocs : ce message précède les blocs).
     Captures 127-130.
+  - 🔴🔴 LOT « 20 % À RESTITUER » (24/11, demande d'Arno, un commit par point) — AG qui compte = calcul b0453dc2 ; date limite = AG + 1 mois ;
+    une ligne = une sortie validée (colocataires ensemble).
+    · `18f248d5` — cinq catégories exclusives (`classerVingtPourcent`, `vingtPourcent.ts`) : « Dates manquantes » (pas de dernière AGO, pas
+      d'arrêté, ou pas de copropriété ; par copropriété, sortie la plus ancienne d'abord ; la ligne complète de chaque locataire sous sa
+      copropriété), « Urgence » (> AG + 20 j), « AG passée — restitution à faire » (AG ≤ j ≤ AG + 20), « À préparer » (AG dans 30 j OU
+      officielle), « En attente » ; b-e par date limite ; repliables, compteurs ; « Jours restants » (rouge si dépassée).
+      🔴 POINT À CONFIRMER (question impossible à poser en direct, mode sans question) : appliqué À LA LETTRE — un locataire dont la
+      copropriété n'a PAS d'arrêté mais a une dernière AGO va dans « Dates manquantes » et NULLE PART ailleurs, donc ni en « Urgence » ni dans
+      l'alerte du lundi, même si sa date provisoire est dépassée (cas réel en recette : « _TEST ARRETE COMPTES 20 POURCENT Locataire 3 »,
+      dépassée de 33 j). Sa date provisoire reste affichée sous la copropriété. Variante possible : ne mettre en « Dates manquantes » que les
+      locataires SANS date calculable, et classer les autres par leur date provisoire (« projection incertaine »).
+    · `5b046e8e` — « Restitution faite » (migration 513, `restitutionVingtRepo.ts`) : fenêtre (date, montant restitué, retenu au titre des
+      charges facultatif, commentaire ; montants par `ChampNombre`) ; gestes en ajout seul « faite » / « annulee » ; journal du dossier de
+      CHAQUE locataire (`gestion_journal`, entité « annuaire », `location_restitution_20_faite` / `_annulee`) ; actions POST
+      `restitution-20-faite` / `restitution-20-annuler` sur /api/admin/location (droit Location ; la route Gestion reste en lecture seule) ;
+      la sortie quitte la liste et toute alerte ; « Restitutions faites (N) » repliée, « Annuler » avec confirmation. Essai recette : sortie 8
+      restituée puis annulée (restitution 1 / annulation 2, journal 551).
+    · `81f08a64` — alerte du lundi (migration 514, `alerteVingt.ts`, `alerteVingtRepo.ts`) : sur la minuterie du serveur web existante
+      (`minuteriePrevisite.ts`) ; le lundi à partir de 8 h (Paris), si ≥ 1 locataire en « Urgence », UN mail à l'adresse de la Gestion (réglage =
+      gestion@criterimmo.fr), objet « [Urgent] 20 % à restituer — 1 locataire / N locataires » (accord singulier/pluriel au lieu de
+      « locataire(s) »), une ligne par locataire, lien vers l'écran ; journal 514 (« envoye » / « echec ») ; un seul « envoye » par lundi
+      (index unique + verrou) ; échec réessayé le même lundi. Transport `transportParDefaut` (en recette : intercepté). Mode essai : GET
+      `?alerteVingtEssai=1` + section « Alerte du lundi » en bas de l'écran (« Voir le mail tel qu'il partirait »). Aucun envoi fait (table 514
+      vide en recette).
+    · `b9c726d8` — pastilles : accueil Location, pastille des copropriétés gardée + pastille « Urgence » rouge vif (jeton
+      `--color-svv-rouge-vif`, #d70000 / #ff4d40). ⚠️ CONSTAT : l'entrée « 20 % à restituer » de la colonne de gauche de la Gestion n'avait
+      AUCUNE pastille ; elle reçoit les DEUX (à confirmer par Arno).
+    · Données d'essai RECETTE « _TEST 20 POURCENT CATEGORIES 1-6 » (script `.captures/vingt-pourcent/donnees-test-20-pourcent-categories.sql`) :
+      copropriétés « _TEST 20 POURCENT CATEGORIES n — … », biens 470-475, sorties validées 7-12 (une par catégorie + une officielle lointaine).
+    · Captures `.captures/vingt-pourcent/` 131-146.
   - Captures : `.captures/vingt-pourcent/` (40-49). Fiches ouvertes et saisies faites puis abandonnées (« Fermer » / « Annuler ») : aucune AG,
     aucune copropriété, aucune sortie, aucun mail écrits (vérifié en base).
 - **Données d'essai en recette** (23/11, suite) : « _TEST SORTIE CREATION COPRO » — bien 467 (64 avenue des Bergères, Puteaux — VRAIE
