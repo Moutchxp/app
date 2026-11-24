@@ -50,6 +50,9 @@ export interface DemandeValidation {
   /** Les clés des parties cochées (`loc-<occupation>`, `pro-<propriétaire>`). */
   destinataires: readonly string[];
   informerPartenaires: boolean;
+  /** 🔴 Arno (24/11/2026) — « pouvoir les sélectionner individuellement » : les adresses des partenaires COCHÉS (seules celles de la liste « Sorties »
+   *  des Paramètres Location sont retenues — jamais une adresse venue de la requête) ; absent : tous (comme avant) ; vide : aucun mail partenaire. */
+  partenaires?: readonly string[];
   /** 🔴 Arno (11/11/2026, 468) — les pièces jointes (identifiants inscrits par la fenêtre) : les mêmes à chaque mail. */
   pieceIds?: readonly number[];
   /** 🔴 Arno (11/11/2026, 468) — la case « Retenue de 20 % du dépôt de garantie » et son paragraphe (modifiable) pour les locataires. */
@@ -123,6 +126,8 @@ export async function partiesDuBail(occupationId: number): Promise<PartieSortie[
 
 /** Un mail prévu, tel que le récapitulatif le montre (texte intégral) — et à qui il est destiné. */
 export interface MailPrevuSortie { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; cle: string | null; famille: 'locataire' | 'proprietaire' | 'interne' | 'partenaires';
+  /** 🔴 Arno (24/11/2026) — un mail par partenaire : son nom (le libellé de la liste « Sorties »), pour le récapitulatif */
+  libelle?: string;
   /** 🔴 Arno (11/11/2026) — les noms des pièces jointes à CE mail. */
   pieces: string[] }
 
@@ -144,6 +149,16 @@ type Preparation = {
   /** 🔴 (16/11/2026, 475) les AG saisies (case 20 % cochée, historique installé) */
   ag: { saisie: SaisieAg; connue: PropositionAg; contexte: ContexteAgLot; choix: ChoixCopropriete; coproprieteOui: boolean } | null;
 };
+
+/**
+ * 🔴 Arno (24/11/2026) — les partenaires de la liste « Sorties » que la fenêtre a cochés (comparés sans tenir compte de la casse) ; `coches` absent : tous,
+ * comme avant. Une adresse qui n'est pas dans la liste est ignorée : seul le réglage d'Arno décide à qui l'on écrit. PUR.
+ */
+export function partenairesCoches<T extends { adresse: string }>(liste: readonly T[], coches: readonly string[] | undefined): T[] {
+  if (coches === undefined) return [...liste];
+  const voulus = new Set(coches.map((x) => x.trim().toLowerCase()));
+  return liste.filter((x) => voulus.has(x.adresse.trim().toLowerCase()));
+}
 
 async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): Promise<Preparation | { etat: 'refus'; motif: string; champ?: string } | { etat: 'inconnu' }> {
   if (!(await mailsAvisDisponibles())) return { etat: 'refus', motif: MOTIF_SANS_457 };
@@ -222,12 +237,15 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
       occupationIds: prevue.occupationIds, proprietaireIds: tousProprios });
   }
   // Comme avant (« Valider la sortie ») : l'information à nos partenaires, bien en gestion, case cochée — sans copie d'aucun mail de départ.
+  // 🔴 Arno (24/11/2026) — « afficher en dessous les différents partenaires possibles à informer et pouvoir les sélectionner individuellement » :
+  // UN MAIL PAR PARTENAIRE COCHÉ, un seul destinataire (« À ») par mail ; aucun coché : aucun mail partenaire.
   if (d.informerPartenaires && logement.enGestion) {
-    const partenaires = (await lireDestinatairesDefaut('sortie')).map((x) => x.adresse);
-    const adhoc = mailAdhocSortie({ ...donneesMailSortie(prevue, qui, new Date().toISOString()), enGestion: true, expediteur: config.adresseGestion, signature: sig.ecran, partenaires });
-    if (adhoc !== null) {
-      prevus.push({ mail: adhoc, prevu: { sorte: adhoc.sorte, objet: adhoc.objet, a: adhoc.a, cc: adhoc.cc, texte: adhoc.texte, cle: null, famille: 'partenaires', pieces: [] },
-        occupationIds: prevue.occupationIds, proprietaireIds: [] });
+    for (const p of partenairesCoches(await lireDestinatairesDefaut('sortie'), d.partenaires)) {
+      const adhoc = mailAdhocSortie({ ...donneesMailSortie(prevue, qui, new Date().toISOString()), enGestion: true, expediteur: config.adresseGestion, signature: sig.ecran,
+        partenaires: [p.adresse] });
+      if (adhoc === null) continue;
+      prevus.push({ mail: adhoc, prevu: { sorte: adhoc.sorte, objet: adhoc.objet, a: adhoc.a, cc: adhoc.cc, texte: adhoc.texte, cle: null, famille: 'partenaires', pieces: [],
+        libelle: p.libelle !== '' ? p.libelle : p.adresse }, occupationIds: prevue.occupationIds, proprietaireIds: [] });
     }
   }
   // 🔴 L'alerte de coordonnées porte aussi sur le paragraphe de la retenue (modifiable) quand il part.

@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   query: vi.fn(), enregistrerSortie: vi.fn(), envoyerSerie: vi.fn(), sans467: false,
   copro: false as boolean | null, piecesLues: { ok: true, pieces: [] } as unknown, metas: [] as unknown[],
+  // 🔴 (24/11/2026) le bien en gestion et la liste « Sorties » des Paramètres Location : hors gestion et vide par défaut (les épreuves d'avant inchangées)
+  enGestion: false, partenaires: [] as { adresse: string; libelle: string }[],
 }));
 vi.mock('./piecesSortieRepo', () => ({
   MOTIF_SANS_468: 'sans 468', piecesSortieDisponibles: async () => true,
@@ -25,15 +27,17 @@ vi.mock('./agCoproprieteRepo', () => ({
 vi.mock('./arreteComptesRepo', () => ({ lireArrete: async () => ({ arrete: null, par: null, le: null }) }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@exemple.test' }) }));
 vi.mock('./mailPortefeuilleRepo', () => ({ emailDeLAuteur: async () => ({ email: 'arno@exemple.test', nom: 'Arno Test' }) }));
-vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async () => [] }));
+vi.mock('./mailNouvelleLocationRepo', () => ({ lireDestinatairesDefaut: async () => h.partenaires }));
 vi.mock('./mailsPreavisSortieRepo', () => ({
   MOTIF_SANS_457: 'sans 457', mailsAvisDisponibles: async () => true, proprietairesDuMailDisponible: async () => !h.sans467,
   signatureEcran: async () => ({ brute: '', ecran: { html: '', texte: '' } }), envoyerSerie: h.envoyerSerie,
-  logementDe: async () => ({ lotId: 7, adresse: '4 rue Fictive', proprietaire: 'DUPONT Jean', enGestion: false, copropriete: h.copro }),
+  logementDe: async () => ({ lotId: 7, adresse: '4 rue Fictive', proprietaire: 'DUPONT Jean', enGestion: h.enGestion, copropriete: h.copro }),
 }));
 const BAIL = { lotId: 7, adresse: '4 rue Fictive', locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }, { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2022-09-01' }], annexes: [] };
 vi.mock('./sortieLocatairesRepo', () => ({
-  lireBail: async () => BAIL, enregistrerSortie: h.enregistrerSortie, donneesMailSortie: () => ({}),
+  lireBail: async () => BAIL, enregistrerSortie: h.enregistrerSortie,
+  donneesMailSortie: () => ({ adresse: '4 rue Fictive', lotId: 7, type: 'T2', etage: null, porte: null, annexes: [], proprietaire: 'DUPONT Jean',
+    sortants: [{ nom: 'BERNARD Alice', entree: '2022-09-01', sortie: '2026-11-10' }], vacant: true, restants: [], auteur: { nom: 'Arno Test', email: 'arno@exemple.test' }, quand: '2026-11-11T10:00:00Z' }),
   sortiePrevue: (b: typeof BAIL, s: number[], date: string) => ({ bail: b, date, sortants: b.locataires.filter((l) => s.includes(l.occupationId)), occupationIds: s, vacant: s.length === 2, restants: [], annexes: [] }),
   encartDuBail: async () => ({ lotId: 7, proprietaire: { id: 5, nom: 'DUPONT Jean' }, coordonnees: {
     proprietaire: null,
@@ -46,7 +50,7 @@ import { apercuValidationSortie, MOTIF_SANS_467, validerSortieEdls } from './val
 const AUTEUR = { id: 1, libelle: 'Arno Test' };
 const DEMANDE = { occupationId: 11, realise: true, date: '2026-11-10', sortants: [11, 12], compteRendu: 'Logement rendu propre.', destinataires: ['loc-11', 'pro-5', 'pro-99'], informerPartenaires: true };
 beforeEach(() => {
-  h.sans467 = false; h.copro = false; h.metas = []; h.piecesLues = { ok: true, pieces: [] };
+  h.sans467 = false; h.copro = false; h.metas = []; h.piecesLues = { ok: true, pieces: [] }; h.enGestion = false; h.partenaires = [];
   h.query.mockReset().mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : { rows: [] }));
   h.enregistrerSortie.mockReset().mockResolvedValue({ etat: 'ok', data: { bail: BAIL, date: '2026-11-10', sortants: BAIL.locataires, occupationIds: [11, 12], vacant: true, restants: [], annexes: [] } });
   h.envoyerSerie.mockReset().mockImplementation(async (mails: { sorte: string; objet: string; a: string[]; cc: string[] }[]) => mails.map((m) => ({ sorte: m.sorte, objet: m.objet, a: m.a, cc: m.cc, envoye: true, motif: null })));
@@ -211,5 +215,53 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     expect(r2).toMatchObject({ etat: 'ok', data: { ag: { copropriete: null, aRattacher: true } } });
     // 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : AUCUNE date enregistrée (elles n'ont servi qu'à la phrase du mail)
     expect(ag.ajouts).toEqual([]);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (24/11/2026) — « lorsque l'on coche "Informer nos partenaires", il faut afficher en dessous les différents partenaires possibles à informer
+ * et pouvoir les sélectionner individuellement. » Côté serveur : UN mail par partenaire coché, un seul destinataire « À » par mail ; aucun coché =
+ * aucun mail partenaire ; seule la liste « Sorties » des Paramètres Location décide (une adresse venue de la requête est ignorée).
+ */
+describe('🔴🔴 Arno (24/11/2026) — les partenaires, un par un', () => {
+  const ADHOC = { adresse: 'adhoc@exemple.test', libelle: 'ADHOC' };
+  const MONGA = { adresse: 'monga@exemple.test', libelle: 'MONGA' };
+  const partenaires = async (d: Partial<typeof DEMANDE> & { partenaires?: string[] }) => {
+    const r = await apercuValidationSortie({ ...DEMANDE, ...d }, AUTEUR);
+    if (r.etat !== 'ok') throw new Error('aperçu refusé');
+    return r.data.mails.filter((m) => m.famille === 'partenaires').map((m) => ({ a: m.a, cc: m.cc, libelle: m.libelle }));
+  };
+  beforeEach(() => { h.enGestion = true; h.partenaires = [ADHOC, MONGA]; });
+
+  it('🔴 sans sélection transmise (comme avant) : tous les partenaires — mais UN mail chacun, un seul destinataire « À », nos copies inchangées', async () => {
+    expect(await partenaires({})).toEqual([
+      { a: ['adhoc@exemple.test'], cc: ['gestion@exemple.test', 'arno@exemple.test'], libelle: 'ADHOC' },
+      { a: ['monga@exemple.test'], cc: ['gestion@exemple.test', 'arno@exemple.test'], libelle: 'MONGA' },
+    ]);
+  });
+  it('🔴 sélection individuelle : seul le partenaire coché reçoit SON mail (casse indifférente)', async () => {
+    expect((await partenaires({ partenaires: ['MONGA@exemple.test'] })).map((x) => x.a)).toEqual([['monga@exemple.test']]);
+  });
+  it('🔴🔴 aucun partenaire coché : aucun mail partenaire (les autres mails partent)', async () => {
+    expect(await partenaires({ partenaires: [] })).toEqual([]);
+    const r = await apercuValidationSortie({ ...DEMANDE, partenaires: [] }, AUTEUR);
+    expect(r.etat === 'ok' && r.data.mails.map((m) => m.famille)).toEqual(['locataire', 'proprietaire', 'interne']);
+  });
+  it('🔴 case principale décochée : aucun mail partenaire, quelle que soit la liste', async () => {
+    expect(await partenaires({ informerPartenaires: false, partenaires: ['adhoc@exemple.test'] })).toEqual([]);
+  });
+  it('🔴🔴 une adresse qui n’est pas dans la liste « Sorties » est IGNORÉE : jamais un destinataire venu de la requête', async () => {
+    expect(await partenaires({ partenaires: ['pirate@exemple.test', 'adhoc@exemple.test'] })).toEqual([
+      { a: ['adhoc@exemple.test'], cc: ['gestion@exemple.test', 'arno@exemple.test'], libelle: 'ADHOC' }]);
+  });
+  it('🔴 à la validation : un envoi par partenaire coché, chacun à un seul destinataire', async () => {
+    const r = await validerSortieEdls({ ...DEMANDE, partenaires: ['adhoc@exemple.test', 'monga@exemple.test'] }, AUTEUR);
+    expect(r.etat).toBe('ok');
+    const adhoc = h.envoyerSerie.mock.calls.map(([m]) => m[0]).filter((m) => m.sorte === 'sortie_adhoc');
+    expect(adhoc.map((m) => m.a)).toEqual([['adhoc@exemple.test'], ['monga@exemple.test']]);
+  });
+  it('⚠️ bien hors gestion : aucun mail partenaire, même cochés', async () => {
+    h.enGestion = false;
+    expect(await partenaires({ partenaires: ['adhoc@exemple.test'] })).toEqual([]);
   });
 });

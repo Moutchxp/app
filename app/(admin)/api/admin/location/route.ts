@@ -711,6 +711,8 @@ async function postLocation(request: Request): Promise<Response> {
           occupationId: occ, realise: corps.realise, date: corps.date, sortants: idsOccupations(corps.sortants), compteRendu: corps.compteRendu,
           destinataires: (Array.isArray(corps.destinataires) ? corps.destinataires : []).filter((x): x is string => typeof x === 'string' && /^(loc|pro)-\d{1,16}$/.test(x)).slice(0, 40),
           informerPartenaires: corps.informerPartenaires !== false,
+          // 🔴 Arno (24/11/2026) — les partenaires cochés un par un (filtrés ensuite sur la liste « Sorties ») ; absent : tous, comme avant
+          ...(Array.isArray(corps.partenaires) ? { partenaires: (corps.partenaires as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 30) } : {}),
           // 🔴 Arno (11/11/2026, 468) — les pièces jointes (identifiants inscrits) et la retenue de 20 %.
           pieceIds: idsOccupations(corps.pieceIds), retenue: corps.retenue === true, paragrapheRetenue: corps.paragrapheRetenue,
           // 🔴 Arno (16/11/2026, 475) — les dates d'AG, la mention dans la phrase des propriétaires, la copropriété à rattacher ou à créer.

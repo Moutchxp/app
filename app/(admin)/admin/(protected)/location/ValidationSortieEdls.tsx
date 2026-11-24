@@ -41,7 +41,7 @@ import { avecMentionAgLocataire, moisAnnee, quandRestitution, sansMentionAg } fr
 
 type FamilleVue = 'locataire' | 'proprietaire';
 interface PartieVue { cle: string; famille: FamilleVue; nom: string; email: boolean }
-interface MailPrevu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; cle: string | null; famille: FamilleVue | 'interne' | 'partenaires'; pieces?: string[] }
+interface MailPrevu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; cle: string | null; famille: FamilleVue | 'interne' | 'partenaires'; pieces?: string[]; libelle?: string }
 /** 🔴 (16/11/2026, 475) les dates d'AG dites par le serveur (récapitulatif, résultat) */
 interface ResumeAg { lignes: [string, string][]; copropriete: string | null; aRattacher: boolean; motif?: string | null }
 interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean; ag?: ResumeAg }
@@ -108,6 +108,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const [compteRendu, setCompteRendu] = useState('');
   const [destinataires, setDestinataires] = useState<string[]>([]);
   const [informer, setInformer] = useState(true);
+  // 🔴 Arno (24/11/2026) — les partenaires cochés un par un ; `null` : tous (cochés par défaut, comme avant)
+  const [partenairesChoisis, setPartenairesChoisis] = useState<string[] | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [refus, setRefus] = useState<string | null>(null);
   // 🔴 Arno (11/11/2026, 468) — les pièces jointes (Drive du bien, ordinateur) et la retenue de 20 % (selon la copropriété de la fiche du bien).
@@ -151,6 +153,10 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const parties = useMemo(() => (encart.etat.etat === 'ok' ? partiesDeLEncart(encart.etat.data) : []), [encart.etat]);
   const mailProprietaire = parties.some((p) => p.famille === 'proprietaire' && p.email && destinataires.includes(p.cle));
   const enGestion = partenaires.etat.etat === 'ok' && partenaires.etat.data.enGestion && partenaires.etat.data.liste.length > 0;
+  const listePartenaires = partenaires.etat.etat === 'ok' ? partenaires.etat.data.liste ?? [] : [];
+  const partenairesCoches = informer ? partenairesChoisis ?? listePartenaires.map((x) => x.adresse) : [];
+  const basculerPartenaire = (adresse: string): void => setPartenairesChoisis(partenairesCoches.includes(adresse)
+    ? partenairesCoches.filter((x) => x !== adresse) : [...partenairesCoches, adresse]);
   useEffect(() => {
     const clavier = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || envoi) return;
@@ -176,6 +182,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
     : luAg.etat.etat === 'charge' || saisieAg === null ? { ok: false as const, motif: 'Lecture des assemblées générales en cours…', champs: [] } : verdictAg(saisieAg, ag);
   const verdict = !verdictSaisie.ok ? verdictSaisie : verdictAgSaisie;
   const corps = { occupationId: l.occupationId, realise, date, sortants, compteRendu, destinataires, informerPartenaires: enGestion && informer,
+    ...(enGestion && informer ? { partenaires: partenairesCoches } : {}),
     pieceIds: pieces.map((p) => p.id), retenue: retenueAppliquee, paragrapheRetenue, ...(retenueAppliquee && phraseProprioSaisie !== null ? { phraseProprietaire: phraseProprioSaisie } : {}),
     ...(retenueAppliquee && saisieAg !== null ? corpsAg(saisieAg, ag) : {}) };
   const basculer = (cle: string): void => setDestinataires((d) => (d.includes(cle) ? d.filter((x) => x !== cle) : [...d, cle]));
@@ -275,8 +282,22 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         <p className="loc-muet" data-copie-interne>Chaque destinataire coché reçoit SON mail (seul destinataire, sans copie visible). Aucun coché : copie interne seule (gestion@ et vous).</p>
       </fieldset>
       {enGestion && (
-        <label className="pvv-case"><input type="checkbox" checked={informer} onChange={(e) => setInformer(e.target.checked)} data-informer-partenaires />
-          <span>Informer nos partenaires (bien en gestion)</span></label>
+        <div className="vse-partenaires" data-bloc-partenaires>
+          {/* 🔴 Arno (24/11/2026) — décocher la case principale décoche et masque la liste ; la recocher recoche tous les partenaires */}
+          <label className="pvv-case"><input type="checkbox" checked={informer} onChange={(e) => { setInformer(e.target.checked); setPartenairesChoisis(null); }} data-informer-partenaires />
+            <span>Informer nos partenaires (bien en gestion)</span></label>
+          {/* 🔴 Arno (24/11/2026) — « afficher en dessous les différents partenaires possibles à informer et pouvoir les sélectionner individuellement » */}
+          {informer && (
+            <fieldset className="vse-partenaires-liste" aria-label="Partenaires à informer" data-liste-partenaires>
+              {listePartenaires.map((x) => (
+                <label key={x.adresse} className="pvv-case">
+                  <input type="checkbox" checked={partenairesCoches.includes(x.adresse)} onChange={() => basculerPartenaire(x.adresse)} data-partenaire-sortie={x.adresse} />
+                  <span>{x.libelle ? <><strong>{x.libelle}</strong> — </> : null}{x.adresse}</span>
+                </label>))}
+              {partenairesCoches.length === 0 && <p className="loc-muet" data-aucun-partenaire>Aucun partenaire coché : aucun mail ne leur partira.</p>}
+              <p className="loc-muet" data-partenaires-un-par-mail>Chaque partenaire coché reçoit SON mail : il en est le seul destinataire (gestion@ et vous en copie, comme avant).</p>
+            </fieldset>)}
+        </div>
       )}
       {!verdict.ok && (realise || compteRendu !== '' || !verdictAgSaisie.ok) && <p className="cp-refus" role="status" data-validation-message>{verdict.motif}</p>}
       {refus !== null && <p className="cev-alerte" role="alert" data-validation-refus>{refus}</p>}
@@ -318,7 +339,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
             <p className="vse-famille-titre"><span aria-hidden="true" className="vse-pastille" />{mot} ({mails.length})</p>
             <ul className="cev-mails">{mails.map((m, i) => (
               <li key={`${i}-${m.sorte}`} className="cev-mail" data-mail-prevu={m.sorte}>
-                <p className="cev-mail-titre">{libelleMail(m)}</p>
+                <p className="cev-mail-titre">{libelleMail(m)}{f === 'partenaires' && m.libelle ? <> — <span data-nom-partenaire>{m.libelle}</span></> : null}</p>
                 <dl className="cev-dl"><dt>Objet</dt><dd data-objet>{m.objet}</dd><dt>Destinataire</dt><dd data-a>{m.a.join(', ')}</dd>
                   <dt>En copie</dt><dd data-cc>{m.cc.length > 0 ? m.cc.join(', ') : 'aucune'}</dd></dl>
                 {(m.pieces ?? []).length > 0 && <>
@@ -408,6 +429,9 @@ export const CSS_VALIDATION_SORTIE = `
 .vse-famille--vert .vse-pastille{background:var(--color-svv-green)}
 .vse-famille--rouge .vse-pastille{background:var(--color-svv-red)}
 .vse-destinataires{display:flex;flex-direction:column;gap:8px}
+.vse-partenaires{display:flex;flex-direction:column;gap:4px;min-width:0}
+.vse-partenaires-liste{margin:0 0 0 30px;padding:0;border:0;display:flex;flex-direction:column;gap:2px;min-width:0}
+.vse-partenaires-liste .pvv-case span{overflow-wrap:anywhere}
 .vse-orange{margin:0;color:var(--color-svv-orange);font-weight:800}
 .vse-orange a{color:var(--color-svv-orange);text-decoration:underline}
 .vse-retenue{display:flex;flex-direction:column;gap:6px}

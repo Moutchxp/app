@@ -4178,3 +4178,81 @@ describe('🔴 restitutionAnnoncee', () => {
     expect(restitutionAnnoncee(null)).toBe('sans date');
   });
 });
+
+/**
+ * 🔴🔴 Arno (24/11/2026) — « lorsque l'on coche "Informer nos partenaires", il faut afficher en dessous les différents partenaires possibles à informer
+ * et pouvoir les sélectionner individuellement. » La fenêtre : la liste (nom + adresse) sous la case, tous cochés par défaut ; décocher la case
+ * principale décoche et masque la liste ; aucun coché = aucun mail partenaire ; le récapitulatif : un bloc par partenaire, son texte dépliable.
+ */
+describe('🔴🔴 Arno (24/11/2026) — « Valider la sortie » : les partenaires, sélectionnés un par un', () => {
+  let mailsApercu: unknown[] = [];
+  const LISTE = [{ adresse: 'adhoc@exemple.test', libelle: 'ADHOC' }, { adresse: 'monga@exemple.test', libelle: 'MONGA' }];
+  const ouvrir = async (): Promise<Element> => {
+    const base = global.fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const s = String(u);
+      if (s.includes('partenairesSortie=')) return ok({ enGestion: true, liste: LISTE });
+      if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
+        const c = JSON.parse(String(init.body)) as Record<string, unknown>; posts.push(c);
+        return ok({ date: HIER, vacant: true, enGestion: true, sansEmail: [], alertes: [], retenue: false, mails: mailsApercu });
+      }
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    await rendre(true);
+    clic('button[data-ouvrir-preavis="C"]');
+    clic('button[data-valider-sortie]');
+    await attendre(); await attendre(); await attendre();
+    const f = document.querySelector('[data-fenetre-validation-sortie]')!;
+    act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+    act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+    return f;
+  };
+  const cases = (): [string, boolean][] => [...document.querySelectorAll<HTMLInputElement>('input[data-partenaire-sortie]')]
+    .map((x) => [x.closest('label')?.textContent ?? '', x.checked]);
+  const principale = () => document.querySelector('input[data-informer-partenaires]') as HTMLInputElement;
+  const recap = async (): Promise<Record<string, unknown>> => {
+    await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); }); await attendre();
+    return posts.at(-1) as Record<string, unknown>;
+  };
+  beforeEach(() => { mailsApercu = []; });
+
+  it('🔴 sous la case cochée : chaque partenaire (nom + adresse e-mail), TOUS cochés par défaut ; l’aperçu part avec tous', async () => {
+    await ouvrir();
+    expect(principale().checked).toBe(true);
+    expect(cases()).toEqual([['ADHOC — adhoc@exemple.test', true], ['MONGA — monga@exemple.test', true]]);
+    expect(await recap()).toMatchObject({ informerPartenaires: true, partenaires: ['adhoc@exemple.test', 'monga@exemple.test'] });
+  });
+  it('🔴 sélection individuelle : décocher MONGA → seul ADHOC part', async () => {
+    await ouvrir();
+    act(() => (document.querySelector('input[data-partenaire-sortie="monga@exemple.test"]') as HTMLInputElement).click());
+    expect(cases().map(([, c]) => c)).toEqual([true, false]);
+    expect((await recap()).partenaires).toEqual(['adhoc@exemple.test']);
+  });
+  it('🔴🔴 aucun partenaire coché : la fenêtre le dit, et l’aperçu part avec une liste VIDE (aucun mail partenaire)', async () => {
+    await ouvrir();
+    for (const a of ['adhoc@exemple.test', 'monga@exemple.test']) act(() => (document.querySelector(`input[data-partenaire-sortie="${a}"]`) as HTMLInputElement).click());
+    expect(document.querySelector('[data-aucun-partenaire]')?.textContent).toBe('Aucun partenaire coché : aucun mail ne leur partira.');
+    expect((await recap()).partenaires).toEqual([]);
+  });
+  it('🔴 décocher la case principale décoche ET masque la liste ; la recocher recoche tous les partenaires', async () => {
+    await ouvrir();
+    act(() => (document.querySelector('input[data-partenaire-sortie="monga@exemple.test"]') as HTMLInputElement).click());
+    act(() => principale().click());
+    expect(document.querySelector('[data-liste-partenaires]')).toBeNull();
+    const c = await recap();
+    expect(c.informerPartenaires).toBe(false);
+    expect('partenaires' in c).toBe(false);
+    act(() => (document.querySelector('button[data-revenir-validation]') as HTMLButtonElement).click()); await attendre();
+    act(() => principale().click());
+    expect(cases().map(([, x]) => x)).toEqual([true, true]);
+  });
+  it('🔴 récapitulatif : un bloc par partenaire (nom, un seul destinataire), chacun avec son texte du mail', async () => {
+    mailsApercu = LISTE.map((p) => ({ sorte: 'sortie_adhoc', objet: '[Information] Sortie de locataire(s) — 4 rue Fictive', a: [p.adresse], cc: ['gestion@exemple.test'],
+      texte: `Texte _TEST pour ${p.libelle}.`, cle: null, famille: 'partenaires', pieces: [], libelle: p.libelle }));
+    await ouvrir();
+    await recap();
+    const blocs = [...document.querySelectorAll('[data-recap-famille="partenaires"] [data-mail-prevu="sortie_adhoc"]')];
+    expect(blocs.map((b) => [b.querySelector('[data-nom-partenaire]')?.textContent, b.querySelector('[data-a]')?.textContent])).toEqual([['ADHOC', 'adhoc@exemple.test'], ['MONGA', 'monga@exemple.test']]);
+    blocs.forEach((b, i) => expect(b.textContent).toMatch(new RegExp(`(Afficher le texte du mail|Masquer le texte)Texte _TEST pour ${LISTE[i].libelle}\\.`)));
+  });
+});
