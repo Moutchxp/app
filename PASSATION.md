@@ -330,8 +330,10 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
 - **Contrôles** (dernier lot, `8031f942`) : `npm test` VERT (1 869 fichiers, 27 901 tests, 21 ignorés ; `tsc` compris) ; pages vérifiées dans
-  Chrome sur la recette. Preuve curl de `4f3c1e3f` faite par l'utilisateur (statut 200, 0 « Build Error » / « Module not found ») ; celles de
-  `761222a0`, `4bde8fc2`, `6f79c98a`, `75f3488f`, `18f248d5`, `5b046e8e`, `81f08a64`, `b9c726d8`, `3cfdef15`, `d5cb90f4`, `b68d51de`, `07dd2bf4`, `09a51b86`, `8c3776c0`, `75067861`, `03a514f5`, `5ac1e617` et `8031f942` (composants client) restent à faire (curl refusé à l'agent dans ce mode) — les pages de la recette se sont construites et affichées au Chrome.
+  Chrome sur la recette. Preuve curl faite par l'utilisateur le 25/11/2026 sur HEAD `8031f942` (+ passation `1775615f`) : `/admin/login` statut
+  **200** et **0** « Build Error » / « Module not found » — elle vaut pour tous les commits non poussés qui touchent des composants client, de
+  `4f3c1e3f` à `8031f942` (`761222a0`, `4bde8fc2`, `6f79c98a`, `75f3488f`, `18f248d5`, `5b046e8e`, `81f08a64`, `b9c726d8`, `3cfdef15`,
+  `d5cb90f4`, `b68d51de`, `07dd2bf4`, `09a51b86`, `8c3776c0`, `75067861`, `03a514f5`, `5ac1e617`, `8031f942`).
 - ⚠️ **Serveur de recette REDÉMARRÉ le 23/11 vers 13h50** (même commande : `npm run recette` avec `RECETTE_URL_PUBLIQUE` et
   `RECETTE_ENVOI_REEL_VERS=a.jorel@…`, base `svav_recette` ; journal `.captures/recette-interception/serveur-2026-11-23.log`) : après une
   erreur passagère de l'agent (import en double), le rechargement à chaud avait gardé un graphe de modules périmé et TOUTE la route
