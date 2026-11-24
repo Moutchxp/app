@@ -83,7 +83,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(c.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 22/10/2026 Dépassé de 32 jours');
     // sans date : la sortie 6 n'a de ligne que dans le détail du bloc de sa copropriété (« Dates manquantes »)
     expect(container.querySelector('[data-vgp-sortie="6"]')).toBeNull();
-    expect(container.querySelector('[data-vgp-concerne="6"]')?.textContent).toContain('sans date : figure seulement ici');
+    expect(container.querySelector('[data-vgp-concerne="6"]')?.textContent).toContain('Sans date');
   });
 });
 
@@ -284,7 +284,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     expect([...a.querySelectorAll('.vgp-ligne-droite button')].map((x) => x.textContent)).toEqual(['Fiche copropriété', 'Faire restitution']);
     expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     // une ligne par sortie, colocataires ensemble
-    expect(container.querySelector('[data-vgp-concerne="6"] strong')?.textContent).toBe('MARTIN Paul, MARTIN Léa');
+    expect(container.querySelector('[data-vgp-manque="copro-20"] [data-vgp-noms]')?.textContent).toBe('MARTIN Paul, MARTIN Léa'); // colocataires : une ligne
   });
   it('un clic sur la ligne (hors boutons) déplie / replie ; un clic sur un bouton ne déplie pas ; le détail ne répète RIEN de la ligne', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
@@ -340,7 +340,8 @@ describe('🔴🔴 Arno (24/11/2026, 23h40) — « Dates manquantes » : un bloc
     expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
     await act(async () => { (c.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
     expect((c.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(false);
-    expect(c.querySelector('[data-vgp-concerne="7"]')?.textContent).toBe('DURAND Léo — Bien 3 — sorti le 10/01/2026 — date provisoire : apparaît dans « Urgence »Faire restitution');
+    // 🔴 (23h53) ni le nom (seul locataire du bloc : déjà sur la 2e ligne) ; le logement « Bien 3 » n'est pas l'adresse « 3 rue C » du bloc : il reste
+    expect(c.querySelector('[data-vgp-concerne="7"]')?.textContent).toBe('Bien 3 — Sortie le 10/01/2026 — Date provisoire → UrgenceFaire restitution');
     await act(async () => { (c.querySelector('[data-vgp-restituer-concerne="7"]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-fenetre-restitution="7"]')).not.toBeNull();
     // « Fiche copropriété » ouvre la fiche, comme « Compléter la fiche Copropriété » avant
@@ -399,5 +400,42 @@ describe('🔴 Arno (24/11/2026, 23h53) — « Faire restitution »', () => {
     await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-fenetre-restitution="5"] h2')?.textContent).toBe('Restitution faite — DUPONT Alice');
     expect(container.querySelector('[data-vgp-faites] summary')?.textContent).toBe('Restitutions faites (0)');
+  });
+});
+
+/** 🔴🔴 Arno (24/11/2026, 23h53) — « Il y a toujours des doublons d'information » : rien de ce qui est sur les lignes ne se répète dans le détail. */
+describe('🔴🔴 Arno (24/11/2026, 23h53) — aucun doublon', () => {
+  const MANQ = { cle: 'copro-40', coproprieteId: 40, libelle: '4 rue D', immeuble: '4 rue d', lotId: 40, manque: ['arrete' as const], locataires: ['UN Seul', 'DEUX Autre'] };
+  const L = (id: number, noms: string[], logement: string) => ({ ...LU.lignes[2], sortieId: id, lotId: id, locataires: noms, logement, cleCopro: 'copro-40',
+    copropriete: { id: 40, libelle: '4 rue D', aRattacher: false } });
+  it('« Dates manquantes » : un seul locataire concerné → ni nom ni adresse dans le détail ; statut court « Sans date »', async () => {
+    donnees = { ...LU, manquantes: [{ ...MANQ, locataires: ['UN Seul'] }], lignes: [L(41, ['UN Seul'], '4 rue D, 75011 Paris')] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const r = container.querySelector('[data-vgp-concerne="41"]')!;
+    expect(r.querySelector('[data-vgp-concerne-nom]')).toBeNull();
+    expect(r.textContent).toBe('Sortie le 01/10/2026 — Sans dateFaire restitution');
+  });
+  it('plusieurs locataires dans le bloc : le nom de chacun (pour les distinguer), jamais l’adresse déjà dite', async () => {
+    donnees = { ...LU, manquantes: [MANQ], lignes: [L(41, ['UN Seul'], '4 rue D, 75011 Paris'), L(42, ['DEUX Autre'], '4 Rue D, 75011 PARIS')] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect([...container.querySelectorAll('[data-vgp-concerne]')].map((r) => r.textContent)).toEqual([
+      'UN Seul — Sortie le 01/10/2026 — Sans dateFaire restitution', 'DEUX Autre — Sortie le 01/10/2026 — Sans dateFaire restitution']);
+  });
+  it('« N copropriétés à compléter » retiré (la pastille de la rubrique le dit) ; l’aide reste', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-coproprietes-a-completer]')).toBeNull();
+    expect(container.querySelector('[data-vgp-categorie="manquantes"]')?.textContent).toContain('complétez leur fiche pour un suivi complet et fiable');
+  });
+  it('lignes datées : le détail ne répète ni l’adresse, ni les noms, ni l’AG, ni la date limite ; la copropriété seulement si ce n’est pas l’adresse de la ligne', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], copropriete: { id: 10, libelle: '1 rue A', aRattacher: false } }, LU.lignes[1]] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    for (const id of [5, 7]) {
+      const li = container.querySelector(`[data-vgp-sortie="${id}"]`)!;
+      const tete = li.querySelector('.vgp-ligne-tete')!; const detail = li.querySelector('[data-vgp-detail]')!.textContent ?? '';
+      for (const p of [...tete.querySelectorAll('[data-vgp-adresse],[data-vgp-noms],[data-vgp-ago]')].map((x) => x.textContent ?? '')) expect(detail).not.toContain(p);
+      expect(detail).not.toContain(li.querySelector('[data-vgp-limite]')?.getAttribute('data-vgp-limite')?.split('-').reverse().join('/'));
+    }
+    expect(container.querySelector('[data-vgp-sortie="5"] [data-vgp-copropriete]')).toBeNull(); // « 1 rue A » = l'adresse de la ligne
+    expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-copropriete]')?.textContent).toBe('Copro C'); // un vrai nom : gardé
   });
 });

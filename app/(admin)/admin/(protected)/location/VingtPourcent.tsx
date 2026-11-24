@@ -101,6 +101,11 @@ function Categorie({ cle, lignes, onRestituer }: { cle: Exclude<CategorieVingt, 
   );
 }
 
+/** 🔴 (Arno, 24/11/2026, 23h53) « Jamais d'information en doublon » : un texte déjà sur la ligne (forme normalisée : sans accents, majuscules ni ponctuation). PUR. */
+const sansMarques = (x: string): string => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+export const dejaDit = (texte: string | null | undefined, sur: string | null | undefined): boolean =>
+  texte != null && sur != null && sansMarques(texte) !== '' && sansMarques(sur).startsWith(sansMarques(texte));
+
 /** 🔴 (Arno, 24/11/2026, 23h40) « Manque : dernière AGO et arrêté des comptes ». */
 const MOT_MANQUE: Record<'derniere_ago' | 'arrete', string> = { derniere_ago: 'dernière AGO', arrete: 'arrêté des comptes' };
 
@@ -129,7 +134,7 @@ function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onR
       <summary className="vgp-titre">Dates manquantes <span className={lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
       {cartes.length === 0 ? <p className="loc-muet" data-vgp-manquantes-aucune>Toutes les copropriétés concernées ont leur dernière AGO et leur date d’arrêté des comptes.</p> : <>
         <p className="loc-muet vgp-aide">Ces copropriétés ont au moins un locataire en attente de restitution des 20 % : complétez leur fiche pour un suivi complet et fiable.</p>
-        <p className="loc-muet vgp-aide" data-vgp-coproprietes-a-completer>{cartes.length} copropriété{cartes.length > 1 ? 's' : ''} à compléter.</p>
+        {/* 🔴 (Arno, 24/11/2026, 23h53) « N copropriétés à compléter » retiré : la pastille de la rubrique le dit déjà */}
         <ul className="vgp-liste">
           {triees.map((m) => <BlocCoproACompleter key={m.cle} m={m} aujourdhui={aujourdhui} onCompleter={onCompleter} onRestituer={onRestituer} concernes={concernesDe.get(m.cle) ?? []} />)}
         </ul>
@@ -171,13 +176,18 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
         {concernes.length === 0 ? <p className="loc-muet">Aucun locataire en attente.</p> : (
           <ul className="vgp-liste vgp-concernes">{concernes.map((l) => {
             const cat = categorieVingt(l, aujourdhui);
+            // 🔴 (Arno, 24/11/2026, 23h53) « il y a toujours des doublons » : ni le nom (déjà sur la 2e ligne du bloc, sauf s'ils sont plusieurs),
+            //    ni l'adresse (déjà sur la 1re, sauf si le logement est à une autre adresse de la copropriété)
+            const nom = concernes.length > 1 ? (l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`) : null;
+            const logement = dejaDit(m.libelle, l.logement) ? null : l.logement ?? `Bien ${l.lotId}`;
             return (
               <li key={l.sortieId} className="vgp-concerne" data-vgp-concerne={l.sortieId} data-vgp-concerne-categorie={cat}>
                 <span className="vgp-concerne-texte">
-                  <strong>{l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</strong>
-                  {' — '}{l.logement ?? `Bien ${l.lotId}`}{' — sorti'}{l.locataires.length > 1 ? 's' : ''} le {dateFr(l.dateSortie)}
-                  {cat === 'manquantes' ? <span className="loc-muet"> — sans date : figure seulement ici</span>
-                    : <span className="vgp-incertaine"> — date provisoire : apparaît dans « {TITRES_CATEGORIES[cat]} »</span>}
+                  {nom !== null && <><strong data-vgp-concerne-nom>{nom}</strong>{' — '}</>}
+                  {logement !== null && <>{logement}{' — '}</>}
+                  Sortie le {dateFr(l.dateSortie)}{' — '}
+                  {cat === 'manquantes' ? <span className="loc-muet" data-vgp-statut-court>Sans date</span>
+                    : <span className="vgp-incertaine" data-vgp-statut-court>Date provisoire → {TITRES_CATEGORIES[cat]}</span>}
                 </span>
                 <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
               </li>
@@ -248,7 +258,9 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
       {/* le détail : RIEN de ce qui est déjà sur la ligne (ni la date limite, ni le compte à rebours, ni l'AG) */}
       <div id={detailId} className="vgp-ligne-detail" hidden={!ouvert} data-vgp-detail>
         <dl className="vgp-dl">
-          <div><dt>Copropriété</dt><dd>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>
+          {/* 🔴 (Arno, 24/11/2026, 23h53) jamais en doublon : la copropriété n'est dite que si elle n'est pas déjà l'adresse de la ligne */}
+          {!(l.copropriete !== null && dejaDit(l.copropriete.libelle, adresse)) && (
+            <div><dt>Copropriété</dt><dd data-vgp-copropriete>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>)}
           <div><dt>Date de sortie</dt><dd>{dateFr(l.dateSortie)}</dd></div>
           <div><dt>Exercice concerné</dt><dd data-vgp-exercice>{libelleExercice(s.exercice)}</dd></div>
           <div><dt>Arrêté des comptes</dt><dd data-vgp-arrete>{l.arrete !== null ? arreteFr(l.arrete) : 'non renseigné'}</dd></div>
