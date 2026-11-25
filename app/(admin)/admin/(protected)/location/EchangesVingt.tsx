@@ -5,6 +5,8 @@ import { MessageConversation, CSS_CONVERSATION } from '../gestion/Conversation';
 import { CSS_PIECES } from '../gestion/PiecesJointes';
 import { CSS_PIECES_CONVERSATION } from '../gestion/PiecesDeLaConversation';
 import { chargerCorpsDuMessage } from '../gestion/chargerCorps';
+import { ApercuFichierDrive } from '../gestion/ApercuFichierDrive';
+import { PARENT_PIECES_CONVERSATION, piecesDeLaConversation, voisinagePiecesConversation } from '../../../../lib/gestion/piecesConversation';
 import type { MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { VoieRedaction } from '../../../../lib/gestion/redaction';
 import { MODELES_VINGT } from '../../../../lib/location/mailVingtPourcent';
@@ -57,6 +59,9 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
   const [erreur, setErreur] = useState<string | null>(null);
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
   const [corps, setCorps] = useState<Map<number, Corps>>(new Map());
+  // 🔴 (Arno, 25/11/2026, 21h24) « le picto œil dans la pièce jointe, qui permet d'utiliser notre liseuse habituelle » : la pièce ouverte dans la
+  //    visionneuse de la boîte Gestion (ApercuFichierDrive, mêmes octets par la route des pièces), sans téléchargement ; pas de « Ranger » d'ici
+  const [pieceVue, setPieceVue] = useState<number | null>(null);
   const cleFils = fils.join(',');
   const deplier = async (m: MessageDeFil, ouvrir: boolean): Promise<void> => {
     setDeplies((s) => { const n = new Set(s); if (ouvrir) n.add(m.messageId); else n.delete(m.messageId); return n; });
@@ -99,6 +104,8 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
       </section>);
   }
   const envoiDe = (messageId: number): MailVingtEnvoye | undefined => (l.mails ?? []).find((x) => x.messageId === messageId);
+  const piecesFil = piecesDeLaConversation((lus ?? []).map((x) => x.m));
+  const pieceAffichee = pieceVue === null ? undefined : piecesFil.find((p) => p.pieceId === pieceVue);
   const nombre = l.echanges?.nombre ?? (lus?.length ?? 0) + enAttente.length;
   return (
     <section className="vgp-echanges" data-vgp-echanges={nombre} aria-label="Échanges">
@@ -122,9 +129,19 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
             <MessageConversation message={m} maintenant={maintenant} filId={filId} ouvert={deplies.has(m.messageId)}
               corpsCharge={c?.texte} htmlCharge={c?.html} cssMailCharge={c?.cssMail}
               onBasculer={() => void deplier(m, !deplies.has(m.messageId))}
+              onVisualiser={(id) => setPieceVue(id)}
               onRepondre={onRepondre !== undefined ? (voie) => onRepondre(voie, m, filId, { texte: c?.texte, html: c?.html }) : undefined} />
           </div>);
       })}
+      {pieceAffichee !== undefined && (
+        <ApercuFichierDrive
+          fichier={{ id: String(pieceAffichee.pieceId), nom: pieceAffichee.nomFichier, typeMime: pieceAffichee.typeMime ?? '', lien: null,
+            parentId: PARENT_PIECES_CONVERSATION, source: 'piece' }}
+          voisinage={voisinagePiecesConversation(piecesFil)}
+          etiquetteNav="Pièces de la conversation"
+          joindreAutorise={false} estDeja={() => false} onJoindre={() => {}}
+          onFermer={() => setPieceVue(null)} />
+      )}
     </section>
   );
 }

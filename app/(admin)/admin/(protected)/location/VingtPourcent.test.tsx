@@ -1398,11 +1398,22 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
 const carte = vi.fn();
 vi.mock('../gestion/Conversation', () => ({
   CSS_CONVERSATION: '',
-  MessageConversation: (p: { message: { messageId: number; sens: string; de: string }; filId: number; ouvert: boolean; onBasculer: () => void; onRepondre?: (v: string) => void }) => {
+  MessageConversation: (p: { message: { messageId: number; sens: string; de: string; pieces?: Array<{ pieceId: number }> }; filId: number; ouvert: boolean; onBasculer: () => void;
+    onRepondre?: (v: string) => void; onVisualiser?: (id: number) => void }) => {
     carte(p);
+    const piece = p.message.pieces?.[0];
     return createElement('div', { 'data-stub-carte': p.message.messageId, 'data-stub-fil': p.filId, 'data-stub-ouvert': p.ouvert ? '1' : '0' },
-      `${p.message.sens} ${p.message.de}`,
-      p.onRepondre ? createElement('button', { 'data-stub-repondre': p.message.messageId, onClick: () => p.onRepondre!('repondre') }, 'Répondre') : null);
+      createElement('button', { 'data-stub-entete': p.message.messageId, onClick: p.onBasculer }, `${p.message.sens} ${p.message.de}`),
+      p.onRepondre ? createElement('button', { 'data-stub-repondre': p.message.messageId, onClick: () => p.onRepondre!('repondre') }, 'Répondre') : null,
+      piece !== undefined && p.onVisualiser ? createElement('button', { 'data-stub-oeil': piece.pieceId, onClick: () => p.onVisualiser!(piece.pieceId) }, 'œil') : null);
+  },
+}));
+// 🔴 (21h24) la liseuse habituelle (ApercuFichierDrive), doublée : on éprouve CE qu'on lui donne
+const liseuse = vi.fn();
+vi.mock('../gestion/ApercuFichierDrive', () => ({
+  ApercuFichierDrive: (p: { fichier: { id: string; nom: string; source?: string }; joindreAutorise: boolean; onFermer: () => void }) => {
+    liseuse(p);
+    return createElement('div', { 'data-stub-liseuse': p.fichier.id }, createElement('button', { 'data-stub-liseuse-fermer': '', onClick: p.onFermer }, 'fermer'));
   },
 }));
 vi.mock('../gestion/chargerCorps', () => ({ chargerCorpsDuMessage: async () => ({ texte: 'Bonjour', html: null, cssMail: '' }) }));
@@ -1418,7 +1429,8 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
   const M = (messageId: number, sens: string, de: string, recuLe: string) => ({ messageId, sens, de, deNom: null, recuLe, objet: 'Date de la prochaine AGO',
     corps: null, extrait: '…', pieces: [], destA: [{ adresse: 'gestion@exemple.test' }], destCc: [], destinatairesFondus: null, html: null });
   const FILS: Record<string, unknown[]> = {
-    55: [M(903, 'recu', 'syndic@exemple.test', '2026-11-25T08:00:00+01:00'), M(901, 'envoye', 'gestion@exemple.test', '2026-11-24T09:05:00+01:00')],
+    55: [{ ...M(903, 'recu', 'syndic@exemple.test', '2026-11-25T08:00:00+01:00'), pieces: [{ pieceId: 77, nomFichier: 'Convocation.pdf', typeMime: 'application/pdf', tailleOctets: 700,
+      disponible: true, motifNonStocke: null, nomOrigine: 'Convocation.pdf', empreinte: 'x' }] }, M(901, 'envoye', 'gestion@exemple.test', '2026-11-24T09:05:00+01:00')],
     56: [M(904, 'recu', 'jean@exemple.test', '2026-11-24T18:30:00+01:00')],
   };
   const avecFils = (): void => {
@@ -1473,6 +1485,20 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     expect(redaction).not.toHaveBeenCalled();
   });
 
+  it('🔴 (21h24) l’œil de la pièce jointe ouvre la LISEUSE habituelle sur cette pièce (sans « Ranger » ni téléchargement) ; « fermer » la referme', async () => {
+    liseuse.mockClear();
+    donnees = { ...LU, lignes: [LIGNE()] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    expect(container.querySelector('[data-stub-liseuse]')).toBeNull();
+    await act(async () => { (container.querySelector('[data-stub-oeil="77"]') as HTMLElement).click(); });
+    expect(container.querySelector('[data-stub-liseuse]')?.getAttribute('data-stub-liseuse')).toBe('77');
+    expect(liseuse.mock.calls.at(-1)![0]).toMatchObject({ fichier: { id: '77', nom: 'Convocation.pdf', source: 'piece' }, joindreAutorise: false });
+    await act(async () => { (container.querySelector('[data-stub-liseuse-fermer]') as HTMLElement).click(); });
+    expect(container.querySelector('[data-stub-liseuse]')).toBeNull();
+    expect(lectures.every((u) => !u.includes('/gestion/pieces/'))).toBe(true);        // rien n'est téléchargé
+  });
   it('« Répondre » sur un mail : le module s’ouvre EN RÉPONSE dans le même fil (destinataire, « Re: », mail visé, fil), bien verrouillé, sortie marquée ; la règle « un mail par locataire » tient', async () => {
     donnees = { ...LU, lignes: [{ ...LIGNE(), contacts: { locataires: [{ nom: 'Alice', email: 'alice@exemple.test', telephone: null }, { nom: 'Léo', email: 'leo@exemple.test', telephone: null }], proprietaires: [] } }] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
