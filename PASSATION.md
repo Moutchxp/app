@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `c1cf0891`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `c1cf0891`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **68 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `67f9e8b2`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `67f9e8b2`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **69 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -329,7 +329,7 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   échangés » sous la capsule AGO `9f31e125`, la passation `fbcbd36f`, la nouvelle règle Urgence / Alerte `2c97de46`, les échanges dans
   « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880`, les passations `e6c0c7b7` et `1bde3793`, les échanges dans
   « Dates / copropriétés manquantes » `e7817637`, la passation `108e8f84`, l'ordre du plus récent au plus ancien `3251b835`, l'œil des pièces
-  jointes `129d9e81`, les mails fermés par défaut `c1cf0891` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  jointes `129d9e81`, les mails fermés par défaut `c1cf0891`, la passation `67f9e8b2` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -1013,6 +1013,39 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       ⚠️ Brouillons 171 (21:29) et 172 (21:30) en recette, « nouveau », auteur Arnaud Jorel (le compte de la session), destinataires
       a.jorel+syndic / +proprio, objet « Date de la prochaine AGO — 58 rue _TEST JEU … » : PAS écrits par les vérifications (aucune action Chrome
       entre 21:23 et 21:33) — très probablement les essais d'Arno ; laissés tels quels.
+    · 21h34 — JEU D'ESSAI RÉALISTE (dérogation voulue par Arno à « _TEST » dans les noms AFFICHÉS ; recette seulement ; aucune suppression, aucun
+      verrou levé, AUCUN mail envoyé ; aucun code changé). Script (non commité) `.captures/vingt-pourcent/creer-jeu-realiste-20-pourcent.ts`, compte
+      rendu `creation-jeu-realiste-25-11.txt`. 🔴 MARQUE INTERNE (jamais affichée) : identifiants `app-exemple-20-…` (lots 491-503, locataires,
+      propriétaires, occupations), clés `…#exemple-20`, Message-ID `<exemple-20-…@criterimmo.fr>`, envois `exemple-20-…` (15). Aucune note interne
+      non affichée n'existe (les champs « note » des fiches s'affichent) : la marque n'est donc que dans ces clés et ici. Signé « Gestion locative ».
+      Syndics inventés (4) : Cabinet Martel Gestion (Mme Laurence Petit, a.jorel+syndic-martel@), Syndic Duval & Associés (M. Olivier Fabre,
+      +syndic-duval@), Agence Rivière Copropriétés (Mme Nathalie Roussel, +syndic-riviere@), Lemoine Immobilier Syndic (M. Bertrand Caron,
+      +syndic-lemoine@). Propriétaires a.jorel+proprio-<nom>@, locataires a.jorel+locataire-<nom>@sansvisavis.com.
+        - sortie 28 Camille DURAND, 14 rue Jean Jaurès 92800 Puteaux (bien sans copropriété) → Dates manquantes — 4 mails
+        - sortie 29 Thomas BERNARD, 7 allée des Glycines 92400 Courbevoie (copropriété sans dates, Duval) → Dates manquantes — 0
+        - sortie 30 Julie MOREAU, 22 rue Charles Lorilleux 92800 Puteaux, Résidence Les Marronniers (Martel), AGO 20/09/2026 → Alerte — 7 (PDF)
+        - sortie 31 Nicolas LEFORT, 48 rue de Villiers 92200 Neuilly-sur-Seine (Duval), AGO projetée sept. 2026 → Alerte — 0
+        - sortie 32 Émilie ROUSSEAU, 15 rue Cartault 92800 Puteaux (Martel), AGO 01/11/2026 → Urgence — 0
+        - sortie 33 Antoine MERCIER, 9 rue Lauriston 75016 Paris, Résidence du Parc Lauriston (Rivière), projetée nov. 2026 → Urgence — 2
+        - sortie 34 Claire DUMONT, 31 boulevard Richard Wallace 92800 Puteaux, Résidence Les Jardins de Wallace (Lemoine), AGO 15/11/2026 → AGO passée — 4
+        - sortie 35 Julien FAURE, 5 rue Madeleine Michelis 92200 Neuilly-sur-Seine (Duval), projetée nov. 2026 → AGO passée — 0
+        - sortie 36 Sarah BENOÎT, 63 rue de la Convention 75015 Paris, Résidence Convention (Rivière), AGO 10/12/2026 → À préparer — 0
+        - sortie 37 Maxime GAUTHIER, 18 rue de Bezons 92400 Courbevoie (Lemoine), projetée déc. 2026 → À préparer — 3
+        - sortie 38 Léa FONTAINE, 3 rue Voltaire 92800 Puteaux, Résidence Voltaire (Martel), AGO 20/03/2027 → En attente — 6 (PDF)
+        - sortie 39 Hugo BARBIER, 40 avenue Charles de Gaulle 92200 Neuilly-sur-Seine (Duval), projetée mars 2027 → En attente — 0
+        - sortie 40 Manon LACROIX, 11 rue de l’Abreuvoir 92400 Courbevoie, Résidence Les Acacias (Rivière) → Restitutions faites (restitution n° 4,
+          263,90 € restitués / 36,10 € retenus, par enregistrerRestitution) — 4 (PDF)
+      Défauts connus (les mails ne se modifient pas) : « l’assemblée générale ordinaire de Résidence Les Marronniers » (article manquant dans les
+      réponses de syndic que j'ai rédigées) ; certaines AGO tombent un dimanche ; les annexes (lots 45, 112, 61) sont citées dans les mails
+      mais ne sont pas créées comme biens annexes (l'aperçu des modèles ne cite que le lot principal).
+      Retrait plus tard : mêmes gestes normaux que les jeux précédents (« Faire restitution », « Sortir du suivi », corbeille de la boîte Gestion).
+    · SORT DE L'ANCIEN JEU (« _TEST JEU 20 POURCENT … », « _TEST CONVERSATION 20 POURCENT A/B ») : RIEN FAIT, question de choix pour Arno. Une
+      ligne ne quitte l'écran que si ① une restitution est enregistrée (« Faire restitution » → elle reste visible dans « Restitutions faites ») ou
+      ② une occupation de la sortie n'est plus « sortie » (« Annuler la sortie » : ne supprime rien, mais remet le faux locataire OCCUPANT du lot,
+      visible ailleurs dans la Location). Aucun autre geste sans suppression. Brouillons 171-172 non touchés.
+      Vérifié dans Chrome (localhost:3000, rechargement complet, ordinateur et 390 px, clair et sombre) : les 13 aux bonnes catégories, capsules =
+      compteurs ; 3 mails relus en entier (syndic Moreau, propriétaire Girard, locataire Durand), aperçu du modèle « Syndic » sur Benoît, convocation
+      PDF lisible dans la liseuse ; aucun « _TEST / JEU / essai / exemple » dans ces textes. Aucun brouillon. Captures `25-11-W-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
