@@ -353,7 +353,7 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
 - **Contrôles** (26/11, `c7ed7867`) : `npm test` VERT (1 877 fichiers, 28 165 tests, 21 ignorés ; `.captures/historique-locataire/npm-test-complet-26-11.txt`) ; `tsc` = 0 ;
-  Chrome (banc du vrai bloc d'historique, données réelles de LACROIX). ⚠️ **Preuve curl À FAIRE par Arno sur `c7ed7867`**. Avant (`d1d501cd`) : `npm test` VERT (1 876 fichiers, 28 160 tests, 21 ignorés ; `.captures/enregistree-par/npm-test-complet-26-11.txt`) ; `tsc` = 0 ;
+  Chrome (banc du vrai bloc d'historique, données réelles de LACROIX). ✅ **Preuve curl FAITE par Arno le 26/11/2026 sur HEAD `0eeb5583` (code `c7ed7867`)** : `/admin/login` statut **200**, **0** « Build Error » / « Module not found » — vaut pour tous les commits non poussés. Avant (`d1d501cd`) : `npm test` VERT (1 876 fichiers, 28 160 tests, 21 ignorés ; `.captures/enregistree-par/npm-test-complet-26-11.txt`) ; `tsc` = 0 ;
   Chrome (ordinateur et 390 px, clair et sombre). ⚠️ **Preuve curl À FAIRE par Arno sur `d1d501cd`**. Lot de 23h52 (`d5de05b4`) : `npm test` VERT (1 876 fichiers, 28 157 tests, 21 ignorés ; `.captures/recherche-vingt/npm-test-complet-26-11.txt`) ;
   `tsc` = 0 ; Chrome (rechargement complet, ordinateur et 390 px, clair et sombre). ⚠️ **Preuve curl À FAIRE par Arno sur `d5de05b4`**. Lot de 23h42 (`ba382337`) : `npm test` VERT (1 875 fichiers, 28 148 tests, 21 ignorés ; `.captures/restitution-note/npm-test-complet-25-11.txt`) ;
   `tsc` = 0 ; Chrome (fenêtre « Faire restitution » de DUMONT Claire, puis « Annuler » ; ordinateur et 390 px, clair et sombre ; écritures bloquées). ⚠️ **Preuve curl
@@ -1231,7 +1231,7 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Aucun lot en cours. Arno : preuve curl sur `c7ed7867`, retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes, bandeaux des mails de
+Aucun lot en cours. Preuve curl faite (26/11, 200, 0 erreur). Arno : retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes, bandeaux des mails de
 restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % enfin transmis, arrêté « 1er MARS », date de sortie à valider) : refaire une
 vraie validation de sortie avec 20 % en recette, la panne étant corrigée. Retour d'Arno en recette sur « 20 % à restituer » (`1819b9f5` → `cf05a27a`) et décision sur le geste « Restitution
 faite ». Arno : lancer `bash .captures/maj/5-verifier.sh` (vérification d'après mise en production, jamais
