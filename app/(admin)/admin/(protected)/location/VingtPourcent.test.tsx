@@ -708,3 +708,20 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « 
     expect(capsules('urgence')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
   });
 });
+
+/** 🔴 Arno (25/11/2026) — « compter en locataires partout » : la pastille « Urgence » (accueil Location, et colonne de gauche de la Gestion par le même `usePastillesVingt`) compte des LOCATAIRES. */
+describe('🔴 Arno (25/11/2026) — la pastille « Urgence » compte des locataires', () => {
+  it('une colocation en urgence (une ligne, deux locataires) + DURAND Léo : pastille 3, = le compteur de la catégorie', async () => {
+    const coloc = { ...LU.lignes[1], sortieId: 31, lotId: 31, locataires: ['COLOC Un', 'COLOC Deux'] };
+    donnees = { ...LU, lignes: [...LU.lignes, coloc] };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(container.querySelector('[data-pastille-vingt-urgence]')?.textContent).toBe('3');
+    expect(container.querySelector('a[data-bouton-vingt-pourcent]')?.getAttribute('aria-label')).toBe('20 % à restituer — 3 locataires en urgence — 1 copropriété en attente de données');
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('3');
+    expect(container.querySelectorAll('[data-vgp-categorie="urgence"] [data-vgp-sortie]')).toHaveLength(2);
+    // la Gestion lit la même pastille (même hook, même calcul)
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).toContain('const pastillesVingt = usePastillesVingt(API_PREAVIS_GESTION);');
+  });
+});

@@ -321,8 +321,12 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
   return { ok: true, valeur: { date, montantRestitue: restitue, montantRetenuCharges: retenu ?? null, commentaire } };
 }
 
-/** 🔴 Arno (24/11/2026) — la seconde pastille (accueil Location, colonne de gauche) : le nombre de locataires en « Urgence » (0 : aucune pastille). PUR. */
-export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => (lu === null ? 0 : classerVingtPourcent(lu).urgence.length);
+/**
+ * 🔴 Arno (24/11/2026) — la seconde pastille (accueil Location, colonne de gauche) : le nombre de locataires en « Urgence » (0 : aucune pastille).
+ * 🔴 (Arno, 25/11/2026) « compter en locataires partout » : des LOCATAIRES (colocataires un par un), le même total que le compteur de la catégorie
+ * (avant : des sorties). PUR.
+ */
+export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => (lu === null ? 0 : capsulesAgo(classerVingtPourcent(lu).urgence).total);
 
 // ══ 🔴🔴 Arno (24/11/2026, 23h40) — LA LIGNE REPLIÉE SUR TROIS LIGNES : l'étiquette de l'AG et le compte à rebours ════════════════════════════════════
 /** L'étiquette colorée de l'AG qui compte : ROUGE « AGO vers mars 2027 (projetée) », VERTE « AGO 15/03/2027 (officielle) ». PUR. */

@@ -4,7 +4,7 @@ import { messageIdDemande } from '../gestion/acceptationTache';
 import { adresseApplication } from '../gestion/adresseApplication';
 import { chargerConfigGestion } from '../gestion/config';
 import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
-import { alerteDue, CHEMIN_ECRAN_VINGT, mailAlerteVingt, momentParis } from './alerteVingt';
+import { alerteDue, CHEMIN_ECRAN_VINGT, mailAlerteVingt, momentParis, nombreLocatairesAlerte } from './alerteVingt';
 import { colonneExisteMemo } from './sondeLocation';
 import { classerVingtPourcent } from './vingtPourcent';
 import { lireSuiviVingtPourcent } from './vingtPourcentRepo';
@@ -42,7 +42,7 @@ async function preparerMail(jour: string, env: Record<string, string | undefined
   const config = await chargerConfigGestion();
   const lien = `${adresseApplication(env).base.replace(/\/+$/, '')}${CHEMIN_ECRAN_VINGT}`;
   const m = mailAlerteVingt(urgence, lien, lu.aujourdhui);
-  return { de: config.adresseGestion, a: [config.adresseGestion], ...m, nombre: urgence.length, lundi: jour };
+  return { de: config.adresseGestion, a: [config.adresseGestion], ...m, nombre: nombreLocatairesAlerte(urgence), lundi: jour };
 }
 
 /** UNE PASSE : rien hors du lundi matin ; personne en urgence : rien ; déjà envoyée ce lundi : rien ; sinon UN mail, journalisé. Ne lève jamais. */

@@ -8,7 +8,7 @@
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 
-import type { LigneVingtPourcent } from './vingtPourcent';
+import { capsulesAgo, type LigneVingtPourcent } from './vingtPourcent';
 
 export const HEURE_ALERTE = 8;
 export const CHEMIN_ECRAN_VINGT = '/admin/location/vingt-pourcent';
@@ -41,10 +41,15 @@ export function ligneAlerteVingt(l: LigneVingtPourcent): string {
   return `${qui} — ${l.logement ?? `Bien ${l.lotId}`} — AG du ${dateFr(s.ago.date)} (${s.ago.statut === 'officielle' ? 'date officielle' : 'date projetée'}) — date limite ${dateFr(s.limite)} — ${jours}`;
 }
 
+/** Le nombre de LOCATAIRES de l'alerte (colocataires un par un) — le même que la pastille et le compteur « Urgence ». PUR. */
+export const nombreLocatairesAlerte = (lignes: readonly LigneVingtPourcent[]): number => capsulesAgo(lignes).total;
+
 /** LE MAIL (objet, texte, HTML) : la liste des locataires en « Urgence » et le lien vers l'écran. PUR. */
 export function mailAlerteVingt(lignes: readonly LigneVingtPourcent[], lien: string, aujourdhui: string): { objet: string; texte: string; html: string } {
-  const objet = objetAlerteVingt(lignes.length);
-  const intro = `${lignes.length === 1 ? 'Un locataire est' : `${lignes.length} locataires sont`} en « Urgence » sur l’écran « 20 % à restituer » au ${dateFr(aujourdhui)} : l’AG qui arrête ses comptes est passée depuis plus de 20 jours, la restitution des 20 % retenus est à faire.`;
+  // 🔴 (Arno, 25/11/2026) « compter en locataires partout » : l'objet et l'intro comptent des LOCATAIRES (colocataires un par un), plus des sorties
+  const n = nombreLocatairesAlerte(lignes);
+  const objet = objetAlerteVingt(n);
+  const intro = `${n === 1 ? 'Un locataire est' : `${n} locataires sont`} en « Urgence » sur l’écran « 20 % à restituer » au ${dateFr(aujourdhui)} : l’AG qui arrête ses comptes est passée depuis plus de 20 jours, la restitution des 20 % retenus est à faire.`;
   const items = lignes.map(ligneAlerteVingt);
   const fin = 'Une fois la restitution faite, cliquez sur « Restitution faite » sur sa ligne : il sort de la liste et de cette alerte.';
   const texte = ['Bonjour,', intro, items.map((x) => `- ${x}`).join('\n'), `Ouvrir l’écran : ${lien}`, fin, 'Alerte automatique du lundi — Sans Vis-à-Vis.'].join('\n\n');

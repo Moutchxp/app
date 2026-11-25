@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** 🔴🔴 Arno (24/11/2026) — la passe de l'alerte du lundi : urgence → 1 mail ; aucune → 0 ; deuxième lancement le même lundi → 0 ; essai → 0. */
-const h = vi.hoisted(() => ({ query: vi.fn(), avec514: true, urgence: 1, journal: [] as unknown[][], sql: [] as string[] }));
+const h = vi.hoisted(() => ({ query: vi.fn(), avec514: true, urgence: 1, coloc: false, journal: [] as unknown[][], sql: [] as string[] }));
 vi.mock('../db/client', () => ({ query: h.query, withTransaction: async (fn: (q: unknown) => Promise<unknown>) => fn(h.query) }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => h.avec514 }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@exemple.test' }) }));
 vi.mock('./vingtPourcentRepo', () => ({
   lireSuiviVingtPourcent: async () => ({ aujourdhui: '2026-11-30', manquantes: [], lignes: Array.from({ length: h.urgence }, (_, i) => ({
-    sortieId: i + 1, lotId: i + 1, locataires: [`LOC ${i + 1}`], logement: `${i + 1} rue Test`, dateSortie: '2026-03-01', valideLe: '2026-03-03',
+    sortieId: i + 1, lotId: i + 1, locataires: h.coloc && i === 0 ? ['COLOC Un', 'COLOC Deux'] : [`LOC ${i + 1}`], logement: `${i + 1} rue Test`, dateSortie: '2026-03-01', valideLe: '2026-03-03',
     copropriete: { id: 1, libelle: 'Copro', aRattacher: false }, arrete: { jour: 30, mois: 6 }, cleCopro: 'copro-1',
     suivi: { etat: 'ok', exercice: '2026-06-30', ago: { date: '2026-09-15', statut: 'officielle' }, incertaine: false, limite: '2026-10-15', alerte: 'depassee', joursRestants: -46 } })) }),
 }));
@@ -19,7 +19,7 @@ const ENV = { GESTION_URL_APPLICATION: 'https://exemple.test' };
 const envoyes: unknown[] = [];
 const transport = { envoyer: vi.fn(async (m: unknown) => { envoyes.push(m); return { ok: true as const, id: 'x', factice: true }; }) };
 beforeEach(() => {
-  h.avec514 = true; h.urgence = 1; h.journal = []; h.sql = []; envoyes.length = 0; transport.envoyer.mockClear();
+  h.avec514 = true; h.urgence = 1; h.coloc = false; h.journal = []; h.sql = []; envoyes.length = 0; transport.envoyer.mockClear();
   h.query.mockReset().mockImplementation(async (sql: string, p: unknown[] = []) => {
     const s = sql.replace(/\s+/g, ' '); h.sql.push(s);
     if (s.startsWith('SELECT count(*)::text AS n FROM gestion_location_alerte_vingt')) return { rows: [{ n: String(h.journal.filter((j) => j[0] === p[0] && j[1] === 'envoye').length) }] };
@@ -73,5 +73,15 @@ describe('la passe du lundi', () => {
     h.avec514 = false;
     expect(await passeAlerteVingt({ maintenant: LUNDI, transport, env: ENV })).toEqual({ etat: 'sans_schema', jour: '2026-11-30' });
     expect(envoyes).toHaveLength(0);
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — « compter en locataires partout » : objet et journal (514, colonne `nombre`) comptent des LOCATAIRES. */
+describe('🔴 Arno (25/11/2026) — l’alerte compte des locataires', () => {
+  it('une colocation en urgence (une ligne, deux locataires) : « 2 locataires », journalisé nombre = 2', async () => {
+    h.coloc = true;
+    const r = await passeAlerteVingt({ maintenant: LUNDI, transport, env: ENV });
+    expect(r).toMatchObject({ etat: 'envoye', mail: { objet: '[Urgent] 20 % à restituer — 2 locataires', nombre: 2 } });
+    expect(h.journal).toEqual([['2026-11-30', 'envoye', 2, ['gestion@exemple.test'], '[Urgent] 20 % à restituer — 2 locataires', null]]);
   });
 });
