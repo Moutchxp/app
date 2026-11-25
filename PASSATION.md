@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `e6c0c7b7`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `e6c0c7b7`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **62 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `e7817637`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `e7817637`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **64 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -327,7 +327,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   « Classer ce mail » verrouillé sur le bien de la sortie `5c3a9d50`, la passation `3c038828`, la restitution au journal du bien `e3de40e7`, les
   locataires proposés limités aux sortis `5ab06e63`, la conversation de la ligne `c0312cc7`, « Répondre » et module fermé `5a8c43c1`, « N mails
   échangés » sous la capsule AGO `9f31e125`, la passation `fbcbd36f`, la nouvelle règle Urgence / Alerte `2c97de46`, les échanges dans
-  « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880`, la passation `e6c0c7b7` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880`, les passations `e6c0c7b7` et `1bde3793`, les échanges dans
+  « Dates / copropriétés manquantes » `e7817637` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -963,6 +964,42 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       Vérifié dans Chrome (ordinateur et 390 px, clair et sombre) : niveau 1 « 7 mails échangés — dernier le 23/11/2026 » sous la capsule AGO (A en
       AGO passée, B en Urgence, hauteur 92 px) ; niveau 2 « Échanges (7) », PDF visible, module fermé ; niveau 3 « Répondre » : même fil, destinataire
       prérempli (syndic, locataire), « Re: … », classement verrouillé — « Envoyer » jamais cliqué ; aucun brouillon. Captures `25-11-T-*`.
+    · 21h14 (Arno : « Il n'y a toujours aucun locataire avec des échanges de mails ») — PREUVE : le serveur de localhost:3000 (next-server, pid 89178,
+      lancé par `npm run recette`) a ses DEUX connexions PostgreSQL sur `svav_recette` (pg_stat_activity, ports clients du processus) ; les scripts
+      écrivent dans `svav_recette` (garde current_database). Après rechargement complet, A et B s'affichaient bien (A en AGO passée, B en Urgence,
+      « 7 mails échangés »). Si Arno ne les voit pas, il regarde une autre adresse (tunnel, autre poste, production) ou une page non rechargée.
+    · `e7817637` (rappel d'Arno : « tout bloc locataire qui inclut des échanges mails doit apparaître dans le bloc original […] ») « Dates /
+      copropriétés manquantes » : « N mails échangés » sur le bloc (colonne de droite), conversation du locataire déplié avec « Répondre » (même
+      module, même fil). Sans mail : bloc inchangé.
+    · JEU D'ESSAI COMPLET « _TEST JEU 20 POURCENT » (recette, 25/11/2026 vers 21h30, signé « essai _TEST JEU (25/11/2026) » ; choix (a) : aucune
+      suppression, aucun verrou levé, AUCUN mail envoyé). Script (non commité) `.captures/vingt-pourcent/creer-jeu-essai-20-pourcent.ts`, compte
+      rendu `creation-jeu-essai-25-11.txt`. Sortie de tous : 01/03/2026, arrêté 30/06 (exercice clos le 30/06/2026), syndic n° 54 commun,
+      un « _TEST Propriétaire » <a.jorel+proprio@…> par bien, locataire <a.jorel+locataire@…>, adresses « 51 à 63 rue _TEST JEU 20 POURCENT » :
+        - sortie 15 « Dates manquantes sans copropriété » (lot 478, aucune copropriété) — 4 mails (modèles b, d) ;
+        - sortie 16 « Dates manquantes copropriété sans date » (lot 479, copropriété 343 sans AGO ni arrêté) — 0 mail ;
+        - sortie 17 « Alerte officielle » (lot 480, copro 344, AGO 20/09/2025 et 20/09/2026) — 8 mails (a avec PDF, c, d) ⚠️ un de plus que
+          le maximum demandé (7) ; ne se supprime pas ;
+        - sortie 18 « Alerte projetée » (lot 481, copro 345, AGO 20/09/2025 → projetée 20/09/2026) — 0 mail ;
+        - sortie 19 « Urgence officielle » (lot 482, copro 346, AGO 01/11/2025 et 01/11/2026) — 0 mail ;
+        - sortie 20 « Urgence projetée » (lot 483, copro 347, AGO 01/11/2025 → 01/11/2026) — 2 mails (a) ;
+        - sortie 21 « AGO passée officielle » (lot 484, copro 348, AGO 15/11/2025 et 15/11/2026) — 4 mails (b, d) ;
+        - sortie 22 « AGO passée projetée » (lot 485, copro 349, AGO 15/11/2025 → 15/11/2026) — 0 mail ;
+        - sortie 23 « À préparer officielle » (lot 486, copro 350, AGO 10/12/2025 et 10/12/2026) — 0 mail ;
+        - sortie 24 « À préparer projetée » (lot 487, copro 351, AGO 10/12/2025 → 10/12/2026) — 3 mails (c) ;
+        - sortie 25 « En attente officielle » (lot 488, copro 352, AGO 20/03/2026 et 20/03/2027) — 6 mails (a, b, d) ;
+        - sortie 26 « En attente projetée » (lot 489, copro 353, AGO 20/03/2026 → 20/03/2027) — 0 mail ;
+        - sortie 27 « Restitution faite » (lot 490, copro 354, AGO 05/10/2025 et 05/10/2026) — 4 mails (a avec PDF, d) ; restitution n° 3
+          enregistrée par `enregistrerRestitution` (le chemin de « Faire restitution » : 284,00 € restitués, 36,00 € retenus, journal locataire + bien).
+      Les catégories suivent les DATES : le jeu glissera avec les jours (ex. « AGO passée » devient « Urgence » le 04/12/2026).
+      🔴 RETRAIT, PAR LES GESTES NORMAUX (jamais une suppression) : « Faire restitution » sur chaque ligne « _TEST JEU 20 POURCENT … » (la ligne
+      passe dans « Restitutions faites ») ; « Sortir du suivi » sur chaque mail dans la fiche du bien (lots 478-490) ; mise à la corbeille des
+      conversations dans la boîte Gestion (objets « Date de la prochaine AGO — 5x rue _TEST JEU 20 POURCENT … », « Restitution du solde de votre
+      dépôt de garantie — … »). Les fiches restent, marquées « _TEST ».
+      Contrôle à l'écran (localhost:3000, rechargement complet, ordinateur et 390 px, clair et sombre) : chaque catégorie contient les locataires
+      attendus ; capsules = compteurs (Alerte 2+2, Urgence 2+1, AGO passée 3+1, À préparer 1+2, En attente 2+5) ; pastilles de l'accueil Location :
+      rouge 13 (4 + 3 + 6), verte 7 (4 + 3) ; niveau 1 « N mails échangés » sous la capsule sur chaque ligne à mails ; niveau 2 conversation visible
+      (dont « Dates manquantes » et « Restitutions faites ») ; niveau 3 « Répondre » prérempli — « Envoyer » jamais cliqué, aucun brouillon.
+      Captures `25-11-U-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
