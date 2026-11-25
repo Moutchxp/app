@@ -725,3 +725,16 @@ describe('🔴 Arno (25/11/2026) — la pastille « Urgence » compte des locata
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).toContain('const pastillesVingt = usePastillesVingt(API_PREAVIS_GESTION);');
   });
 });
+
+/** 🔴 Arno (25/11/2026, 10h14) — « pour les 2 blocs gris d'extrémité, agrandir légèrement l'espace avec les autres blocs en contact » : le double de l'écart des blocs colorés. */
+describe('🔴 Arno (25/11/2026, 10h14) — l’écart des deux blocs gris d’extrémité', () => {
+  it('écart des blocs colorés inchangé (14 px) ; « Dates / copropriétés manquantes » et « Restitutions faites » : 14 px de plus, sans règle propre au téléphone', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    const css = src.slice(src.indexOf('export const CSS_VINGT_POURCENT'));
+    expect(css).toContain('.vgp{display:flex;flex-direction:column;gap:14px;min-width:0}');
+    expect(css).toContain('.vgp-bloc.vgp-manquantes{margin-bottom:14px}');
+    expect(css).toContain('.vgp-bloc.vgp-faites{margin-top:14px}');
+    const mobile = css.slice(css.indexOf('@media (max-width:640px)'));
+    expect(mobile).not.toMatch(/vgp-manquantes|vgp-faites|\.vgp\{/);
+  });
+});

@@ -476,6 +476,10 @@ export const CSS_VINGT_POURCENT = `
 .vgp{display:flex;flex-direction:column;gap:14px;min-width:0}
 .vgp-bloc{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--color-svv-line);border-radius:16px;background:var(--color-svv-field);min-width:0}
 .vgp-manquantes--a-faire,.vgp-cat--a-faire{border-color:var(--color-svv-red)}
+/* 🔴 (Arno, 25/11/2026, 10h14) « pour les 2 blocs gris d'extrémité, agrandir légèrement l'espace avec les autres blocs en contact pour bien les
+   dissocier du process coloré » : l'écart vaut le DOUBLE de celui des blocs colorés (14 px de gap + 14 px), à l'ordinateur comme au téléphone */
+.vgp-bloc.vgp-manquantes{margin-bottom:14px}
+.vgp-bloc.vgp-faites{margin-top:14px}
 .vgp-repli{display:flex;flex-direction:column;gap:10px;min-width:0}
 .vgp-repli > summary{cursor:pointer;min-height:44px;list-style:none}
 .vgp-repli > summary::-webkit-details-marker{display:none}
