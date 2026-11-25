@@ -367,6 +367,23 @@ export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu 
   return { ...lu, lignes, manquantes, ...(lu.faites !== undefined ? { faites: lu.faites.filter((f) => correspondRecherche([...f.locataires, f.logement], q)) } : {}) };
 }
 
+// ══ 🔴🔴 Arno (25/11/2026) — LES CAPSULES « AGO OFFICIELLE » / « AGO PROJETÉE » ET LE COMPTEUR DES CATÉGORIES ════════════════════════════════════
+/**
+ * « pour chaque bloc de catégorie, […] une capsule verte "AGO officielle" avec le nombre de locataires dont le dossier contient une AGO officielle, et
+ * la même chose en rouge pour "AGO projetée" ; le cumul des deux doit être égal au chiffre indiqué à droite de l'intitulé ».
+ * On compte des LOCATAIRES (une ligne = une sortie, ses colocataires ensemble ; une sortie sans nom compte pour un). Une date PROVISOIRE (arrêté
+ * manquant) compte comme projetée, même si l'AG qu'elle retient est officielle. Une ligne sans date (« Dates manquantes ») compte comme projetée :
+ * elle n'est jamais dans ces catégories. PUR.
+ */
+export const locatairesDeLaLigne = (l: Pick<LigneVingtPourcent, 'locataires'>): number => Math.max(1, l.locataires.length);
+export const agoOfficielleDuDossier = (l: Pick<LigneVingtPourcent, 'suivi'>): boolean =>
+  l.suivi.etat === 'ok' && l.suivi.ago.statut === 'officielle' && !l.suivi.incertaine;
+export function capsulesAgo(lignes: readonly Pick<LigneVingtPourcent, 'locataires' | 'suivi'>[]): { officielle: number; projetee: number; total: number } {
+  let officielle = 0; let projetee = 0;
+  for (const l of lignes) { if (agoOfficielleDuDossier(l)) officielle += locatairesDeLaLigne(l); else projetee += locatairesDeLaLigne(l); }
+  return { officielle, projetee, total: officielle + projetee };
+}
+
 // ══ 🔴🔴 Arno (25/11/2026) — « PAR DÉFAUT TOUTES LES LIGNES DE CHAQUE CATÉGORIE SONT FERMÉES » ═══════════════════════════════════════════════════════
 /** Les blocs repliables qui suivent la recherche : les cinq catégories et « Restitutions faites ». */
 export type BlocRepliableVingt = CategorieVingt | 'faites';

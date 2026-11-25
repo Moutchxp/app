@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  blocsOuvertsPourRecherche, type BlocRepliableVingt, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -129,10 +129,17 @@ type Repli = { ouvert: boolean; onBasculer: (ouvert: boolean) => void };
 
 /** 🔴 Arno (24/11/2026) — une catégorie (b à e) : titre, compteur, repliable ; lignes par date limite croissante. */
 function Categorie({ cle, lignes, onRestituer, ouvert, onBasculer }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[]; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
+  // 🔴 (Arno, 25/11/2026) le compteur compte des LOCATAIRES (avant : des sorties) — le même total que les deux capsules
+  const c = capsulesAgo(lignes);
   return (
-    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && lignes.length > 0 ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={lignes.length}>
+    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && c.total > 0 ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={c.total}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
-        <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={cle === 'urgence' && lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
+        <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={cle === 'urgence' && c.total > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
+          {/* 🔴🔴 Arno (25/11/2026) — deux capsules empilées, visibles même repliée : verte « AGO officielle · N », rouge « AGO projetée · N » ; à 0, grisée */}
+          <span className="vgp-capsules" data-vgp-capsules>
+            <span className={`vgp-capsule vgp-capsule--${c.officielle > 0 ? 'vert' : 'zero'}`} data-vgp-capsule="officielle" data-vgp-capsule-nombre={c.officielle}>AGO officielle · {c.officielle}</span>
+            <span className={`vgp-capsule vgp-capsule--${c.projetee > 0 ? 'rouge' : 'zero'}`} data-vgp-capsule="projetee" data-vgp-capsule-nombre={c.projetee}>AGO projetée · {c.projetee}</span>
+          </span></summary>
         {lignes.length === 0 ? <p className="loc-muet" data-vgp-categorie-vide>Aucun locataire.</p>
           : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} onRestituer={onRestituer} />)}</ul>}
       </details>
@@ -488,6 +495,11 @@ export const CSS_VINGT_POURCENT = `
 .vgp-teinte--preparer{--vgp-fond:var(--color-svv-vgp-preparer-fond);--vgp-accent:var(--color-svv-vgp-preparer-accent)}
 .vgp-teinte--attente{--vgp-fond:var(--color-svv-vgp-attente-fond);--vgp-accent:var(--color-svv-vgp-attente-accent)}
 .vgp-teinte--faites{--vgp-fond:var(--color-svv-vgp-faites-fond);--vgp-accent:var(--color-svv-vgp-faites-accent)}
+.vgp-capsules{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.vgp-capsule{display:inline-block;padding:1px 9px;border-radius:999px;font-size:.75rem;font-weight:800;line-height:1.35;white-space:nowrap;border:1px solid}
+.vgp-capsule--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green)}
+.vgp-capsule--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red)}
+.vgp-capsule--zero{background:var(--color-svv-field);color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .vgp-sous-liste{margin-top:6px;padding-left:10px;border-left:3px solid var(--color-svv-line-strong)}
 .vgp-dl dd.vgp-depasse{color:var(--color-svv-red);font-weight:800}
 .vgp-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap}

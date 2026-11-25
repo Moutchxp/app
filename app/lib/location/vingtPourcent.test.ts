@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -237,5 +237,17 @@ describe('🔴🔴 Arno (25/11/2026) — les blocs ouverts par la recherche', ()
     expect(blocsOuvertsPourRecherche(lu, 'ana')).toEqual(['urgence']);
     expect(blocsOuvertsPourRecherche(lu, 'rue')).toEqual(['urgence', 'en_attente', 'faites']);
     expect(blocsOuvertsPourRecherche(lu, 'introuvable')).toEqual([]);
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — les capsules : des LOCATAIRES ; officielle + projetée = total ; une date provisoire compte projetée. */
+describe('🔴🔴 Arno (25/11/2026) — capsulesAgo', () => {
+  const l = (locataires: string[], statut: 'officielle' | 'projetee', incertaine = false): Pick<LigneVingtPourcent, 'locataires' | 'suivi'> => ({ locataires,
+    suivi: { etat: 'ok', exercice: null, ago: { date: '2027-03-15', statut }, incertaine, limite: '2027-04-15', alerte: 'a_venir', joursRestants: 0 } });
+  it('colocataires comptés un par un, sortie sans nom = 1, provisoire = projetée, la somme = le total', () => {
+    expect(capsulesAgo([])).toEqual({ officielle: 0, projetee: 0, total: 0 });
+    const c = capsulesAgo([l(['A', 'B'], 'officielle'), l([], 'officielle'), l(['C'], 'officielle', true), l(['D'], 'projetee')]);
+    expect(c).toEqual({ officielle: 3, projetee: 2, total: 5 });
+    expect(c.officielle + c.projetee).toBe(c.total);
   });
 });

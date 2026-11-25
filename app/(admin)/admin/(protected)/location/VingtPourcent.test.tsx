@@ -648,3 +648,63 @@ describe('🔴🔴 Arno (25/11/2026) — une trame de fond par catégorie', () =
     }
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « pour chaque bloc de catégorie, afficher sur deux lignes l'une au-dessus de l'autre une capsule verte "AGO officielle" […] et
+ * la même chose en rouge pour "AGO projetée" ; le cumul des deux doit être égal au chiffre indiqué à droite de l'intitulé ».
+ */
+describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « AGO projetée »', () => {
+  const L = (sortieId: number, ago: string, limite: string, statut: 'officielle' | 'projetee', locataires: string[], incertaine = false) => ({
+    sortieId, lotId: sortieId, locataires, logement: `${sortieId} rue Capsule`, dateSortie: '2026-01-15', valideLe: '2026-01-20',
+    copropriete: { id: 50, libelle: 'Copro OK', aRattacher: false }, arrete: incertaine ? null : { jour: 31, mois: 12 }, cleCopro: 'copro-50',
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut }, incertaine, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
+  const DONNEES = { ...LU, faites: [], lignes: [...LU.lignes,
+    L(11, '2026-09-01', '2026-10-01', 'officielle', ['OFF Un', 'OFF Deux']), // urgence : 2 locataires, officielle
+    L(12, '2026-09-02', '2026-10-02', 'projetee', ['PROJ Trois']), // urgence : projetée
+    L(13, '2026-11-10', '2026-12-10', 'officielle', ['PROV Quatre'], true), // AG passée : officielle MAIS provisoire → projetée
+    L(14, '2027-09-01', '2027-10-01', 'officielle', ['LOIN Cinq']), // à préparer : officielle
+  ] };
+  const capsules = (cat: string) => {
+    const s = container.querySelector(`[data-vgp-categorie="${cat}"]`)!;
+    const n = (k: string) => Number(s.querySelector(`summary [data-vgp-capsule="${k}"]`)?.getAttribute('data-vgp-capsule-nombre'));
+    return { compteur: Number(s.querySelector('summary [data-vgp-compteur]')?.textContent), officielle: n('officielle'), projetee: n('projetee'), nombre: Number(s.getAttribute('data-vgp-nombre')) };
+  };
+  it('dans chaque catégorie, officielle + projetée = le compteur, qui compte des LOCATAIRES (colocataires comptés un par un) ; la date provisoire compte projetée', async () => {
+    donnees = DONNEES;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    // urgence : 11 (2 officielle), 12 (1 projetée), DURAND Léo 7 (officielle mais provisoire → projetée)
+    expect(capsules('urgence')).toEqual({ compteur: 4, officielle: 2, projetee: 2, nombre: 4 });
+    expect(capsules('ag_passee')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
+    expect(capsules('a_preparer')).toEqual({ compteur: 1, officielle: 1, projetee: 0, nombre: 1 });
+    expect(capsules('en_attente')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
+    for (const cat of ['urgence', 'ag_passee', 'a_preparer', 'en_attente']) { const c = capsules(cat); expect(c.officielle + c.projetee).toBe(c.compteur); }
+    // le compteur compte des locataires, pas des sorties : 3 lignes en urgence, 4 locataires
+    expect(container.querySelectorAll('[data-vgp-categorie="urgence"] [data-vgp-sortie]')).toHaveLength(3);
+  });
+  it('deux capsules empilées dans l’en-tête (visibles repliée) : verte « AGO officielle · N », rouge « AGO projetée · N », grisée à 0', async () => {
+    donnees = DONNEES;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const s = container.querySelector('[data-vgp-categorie="a_preparer"]')!;
+    expect((s.querySelector('details') as HTMLDetailsElement).open).toBe(false);
+    expect([...s.querySelectorAll('summary [data-vgp-capsules] > span')].map((x) => [x.textContent, x.className])).toEqual([
+      ['AGO officielle · 1', 'vgp-capsule vgp-capsule--vert'], ['AGO projetée · 0', 'vgp-capsule vgp-capsule--zero']]);
+    expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-capsule="projetee"]')?.className).toBe('vgp-capsule vgp-capsule--rouge');
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    expect(src).toContain('.vgp-capsules{margin-left:auto;display:flex;flex-direction:column;'); // l'une au-dessus de l'autre
+  });
+  it('pas de capsules sur « Dates manquantes », « Alerte du lundi » ni « Restitutions faites »', async () => {
+    donnees = DONNEES;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    for (const sel of ['[data-vgp-categorie="manquantes"]', '[data-vgp-alerte-lundi]', '[data-vgp-faites]']) expect(container.querySelector(`${sel} [data-vgp-capsules]`)).toBeNull();
+    expect(container.querySelectorAll('[data-vgp-capsules]')).toHaveLength(4);
+  });
+  it('avec une recherche, capsules et compteurs reflètent les résultats filtrés', async () => {
+    donnees = DONNEES;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'off'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(capsules('urgence')).toEqual({ compteur: 2, officielle: 2, projetee: 0, nombre: 2 });
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'léo'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(capsules('urgence')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
+  });
+});
