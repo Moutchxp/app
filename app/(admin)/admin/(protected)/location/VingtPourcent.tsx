@@ -679,6 +679,8 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-rebours{font-weight:800;flex:0 0 auto}
 .vgp-rebours--gris{color:var(--color-svv-muted);font-weight:700}
 .vgp-rebours--rouge{color:var(--color-svv-red)}
+/* 🔴 (Arno, 25/11/2026) le compte à rebours « J-15 » (de l'AG à la date limite) passe en ROUGE ; « AG dans N jours » reste gris */
+.vgp-rebours--normal{color:var(--color-svv-red)}
 .vgp-ligne-droite{flex:0 0 auto;display:flex;align-items:center;gap:10px;justify-content:flex-end;cursor:default;max-width:60%}
 .vgp-ligne-ago{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
 .vgp-etiquette{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.82rem;font-weight:800;white-space:nowrap;border:1px solid}

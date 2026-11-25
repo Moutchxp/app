@@ -1419,3 +1419,20 @@ describe('🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette pa
     expect(src).toContain('vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId }');
   });
 });
+
+/** 🔴 Arno (25/11/2026) — le compte à rebours « J-15 » passe en rouge ; « Dépassé de N jours » reste rouge ; « AG dans N jours » reste gris. */
+describe('🔴 Arno (25/11/2026) — « J-N » en rouge', () => {
+  it('J-N rouge, Dépassé rouge, AG dans N jours gris ; rouge du thème (lisible en clair et en sombre)', async () => {
+    const L = (sortieId: number, ago: string, limite: string, joursRestants: number) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, cleCopro: 'copro-10',
+      suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' as const }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants } });
+    donnees = { ...LU, lignes: [L(12, '2026-11-10', '2026-12-10', 17), L(13, '2026-09-01', '2026-10-01', -53), L(14, '2027-03-25', '2027-04-25', 153)] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const r = (id: number) => container.querySelector(`[data-vgp-sortie="${id}"] [data-vgp-rebours]`)!;
+    expect([r(12).textContent, r(12).className]).toEqual(['J-17', 'vgp-rebours vgp-rebours--normal']);
+    expect([r(13).textContent, r(13).className]).toEqual(['Dépassé de 53 jours', 'vgp-rebours vgp-rebours--rouge']);
+    expect(r(14).className).toBe('vgp-rebours vgp-rebours--gris');
+    const css = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    expect(css).toContain('.vgp-rebours--normal{color:var(--color-svv-red)}');
+    expect(css).toContain('.vgp-rebours--gris{color:var(--color-svv-muted);font-weight:700}');
+  });
+});
