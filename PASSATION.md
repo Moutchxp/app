@@ -310,16 +310,18 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `88764960`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `88764960`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **32 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `cfdf2faf`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `cfdf2faf`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **38 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
   le titre « AGO passée — restitution à faire » `8f9e7243`, la passation `d47f3592`, le filtre par capsule AGO `5969e3dd`, la passation `98efb28c`,
   la confirmation avant restitution `fb8b6885`, la passation `971e2a2c`,
-  puis `d5507919` (pastilles vertes), `0cc3ef99` (pastille verte des boutons), `88764960` (en-tête de la Gestion retiré sur « 20 % à restituer »)
-  et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  puis `d5507919` (pastilles vertes), `0cc3ef99` (pastille verte des boutons), `88764960` (en-tête de la Gestion retiré sur « 20 % à restituer »),
+  la passation `af2d7f76`, puis « Envoyer un mail » : `a1ca94a7` (rubrique « Arrêté des comptes » retirée), `8dfb127d` (bouton + module existant
+  + un mail par locataire), `08268902` (quatre modèles), `f1e5f678` (historique), `cfdf2faf` (correctif : liste verte, commentaire) et cette passation
+  (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -336,9 +338,12 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `88764960`) : `npm test` VERT du premier coup (1 870 fichiers, 27 978 tests, 21 ignorés ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-K.txt`) ; Chrome recette, ordinateur et 390 px, clair et sombre. ⚠️ **Preuve curl À FAIRE par
-  Arno sur `88764960`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
+- **Contrôles** (dernier lot, `cfdf2faf`) : `npm test` VERT du premier coup (1 872 fichiers, 28 009 tests, 21 ignorés ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-L2.txt`) — la passe précédente (`npm-test-complet-25-11-L.txt`) avait rougi sur deux GARDES de
+  la Location (`<select>` natif, mot « HistoriqueDuBien » dans un commentaire), corrigées par `cfdf2faf` ; le flake connu `PreavisAccueil.test.tsx`
+  (3 061 ms) est revenu une fois en suite filtrée, fichier seul vert deux fois. Chrome recette, ordinateur et 390 px, clair et sombre, APERÇU SEULEMENT :
+  aucun mail envoyé, aucun POST d'écriture (seul l'appel de LECTURE `POST /api/admin/gestion/classement` du module, bloqué par le garde de
+  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `cfdf2faf`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
   table des restitutions de la recette inchangée (2 lignes du 24/11). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
   `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
@@ -842,6 +847,24 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
         autres écrans inchangés (constaté : sur la boîte en plein écran, l'en-tête était DÉJÀ masqué par `:root[data-gst-plein="1"]`, lot 5-GMAIL
         8d25f2e5 du 24/09 — rien à voir avec ce lot ; l'alerte de relève y reste). Épreuve `GestionVue.vingtPourcent.test.ts`.
       Captures `.captures/vingt-pourcent/25-11-K*-*`.
+    · « Envoyer un mail » (demandes d'Arno du 25/11 ; décisions 1A, 2A, 3A ; quatre modèles validés), un commit par point, NON poussés :
+      - `a1ca94a7` (retrait accordé) : plus de rubrique « Arrêté des comptes » dans le détail déplié (doublon de « Exercice clos le … »).
+      - `8dfb127d` bouton « Envoyer un mail » à droite de la ligne « Locataire / Propriétaire » du détail. CÔTÉ GESTION : le module EXISTANT
+        `Redaction` monté dans la ligne (`MailVingtPourcent.tsx`, comme « Nouveau message » de la fiche d'un bien : bien pré-coché, propositions
+        du bien en couleurs — ancien locataire violet, propriétaire rouge, syndic rose —, saisie libre) ; « Fermer » / nouveau clic = la porte de
+        l'éditeur (`fermetureDemandee`). CÔTÉ LOCATION : un lien vers `/admin/gestion?ecran=vingt_pourcent&vingtMail=<sortie>` (catégorie, ligne et
+        module ouverts) — garde-fou Location (`requeteDepuisLaLocation`) INCHANGÉ. UN MAIL PAR LOCATAIRE (`refusUnLocataireParMail`) : écran (motif
+        au-dessus du module) + serveur (marque `vingtPourcent: { sortieId }`, seul ajout à Redaction ; la route `envois` relit en base les adresses
+        des locataires de la sortie, `mailVingtPourcentRepo.ts`, refus 422 avant file et envoi direct ; mails non marqués : inchangés).
+      - `08268902` les quatre modèles (`texteModeleVingt`, `destinatairesModeleVingt`) : a syndic ; b propriétaire(s) ; c syndic + propriétaire(s)
+        EN COPIE ; d un module PAR LOCATAIRE. Seule adaptation aux textes validés : l'estimation de l'AGO n'est dite que si elle est PROJETÉE.
+        Sur les lignes des catégories, aucune restitution n'est enregistrée (elle ferait quitter la liste) : le modèle d y est toujours « [à compléter] ».
+      - `f1e5f678` historique : le bien de la ligne part en cible EXPLICITE (`ciblesAvecLeBien`, jamais écartée par `ciblesCoherentes`) → cible
+        d'envoi → rattachement confirmé à la capture → historique du bien ; personnes par leurs adresses ; copropriété par ses biens (3A) ; journal
+        par la route.
+      - `cfdf2faf` correctif des gardes de la Location : liste verte `ListeChoix` au lieu d'un `<select>` ; commentaire reformulé.
+      Captures `.captures/vingt-pourcent/25-11-L*-*`. À noter : choisir un modèle REMPLACE le message en cours (si l'on avait déjà tapé, l'ancien
+      brouillon enregistré par le module reste dans les Brouillons).
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
