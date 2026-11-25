@@ -2086,3 +2086,82 @@ describe('🔴 Arno (25/11/2026, 23h42) — note interne et date de validation d
       .toMatchObject({ ok: false, motif: 'La date de validation de la restitution ne peut pas être dans le futur.' });
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026, 23h52) — PANNE DE LA RECHERCHE : « lorsque j'efface le mot, quand j'arrive à la dernière lettre […] le système m'envoie directement
+ * sur l'écran "Nouveau message" (… &vingtMail=35) ». Le n° de la ligne visée par l'adresse ne sert qu'UNE fois ; la recherche n'ouvre jamais rien seule.
+ */
+describe('🔴🔴 Arno (25/11/2026, 23h52) — la recherche n’ouvre jamais un module ni une ligne', () => {
+  const champ = (): HTMLInputElement => container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+  const taper = async (v: string): Promise<void> => {
+    const el = champ();
+    el.focus();
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await calmer();
+  };
+  const etat = () => ({
+    modules: container.querySelectorAll('[data-stub-redaction]').length,
+    lignesOuvertes: [...container.querySelectorAll('[data-vgp-ouvert="1"]')].map((x) => x.getAttribute('data-vgp-sortie')),
+    categoriesOuvertes: [...container.querySelectorAll('section > details')].filter((d) => (d as HTMLDetailsElement).open).length,
+  });
+  const arriver = async (adresse: string): Promise<void> => {
+    window.history.replaceState(null, '', adresse);
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await calmer();
+  };
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+  it('arrivée par l’adresse (?vingtMail=5) : la ligne s’ouvre UNE fois, puis vingtMail est retiré de l’adresse (ecran gardé)', async () => {
+    await arriver('/admin/gestion?ecran=vingt_pourcent&vingtMail=5');
+    expect(etat()).toMatchObject({ modules: 1, lignesOuvertes: ['5'] });
+    expect(window.location.search).toBe('?ecran=vingt_pourcent');
+  });
+  it('frappe puis effacement LETTRE PAR LETTRE jusqu’à vide : la ligne visée qui réapparaît reste FERMÉE, aucun module, le curseur reste dans le champ ; vide → état normal', async () => {
+    await arriver('/admin/gestion?ecran=vingt_pourcent&vingtMail=5');
+    const mot = 'durand';
+    for (let i = 1; i <= mot.length; i++) { await taper(mot.slice(0, i)); expect(document.activeElement).toBe(champ()); }
+    expect(container.querySelector('[data-vgp-sortie="5"]')).toBeNull();          // DUPONT Alice masquée par la recherche
+    for (let i = mot.length - 1; i >= 1; i--) {
+      await taper(mot.slice(0, i));
+      expect(etat().modules).toBe(0);
+      expect(etat().lignesOuvertes).toEqual([]);
+      expect(document.activeElement).toBe(champ());
+    }
+    expect(container.querySelector('[data-vgp-sortie="5"]')).not.toBeNull();      // « d » : DUPONT Alice réapparue… fermée
+    await taper('');
+    expect(etat()).toEqual({ modules: 0, lignesOuvertes: [], categoriesOuvertes: 0 });
+    expect(document.activeElement).toBe(champ());
+    expect(window.location.search).not.toContain('vingtMail');
+  });
+  it('la croix « × » : même retour à l’état normal (catégories fermées, aucune ligne, aucun module)', async () => {
+    await arriver('/admin/gestion?ecran=vingt_pourcent&vingtMail=5');
+    await taper('durand');
+    await taper('d');
+    await act(async () => { (container.querySelector('[data-vgp-recherche-effacer]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(champ().value).toBe('');
+    expect(etat()).toEqual({ modules: 0, lignesOuvertes: [], categoriesOuvertes: 0 });
+  });
+  it('un SEUL résultat : sa catégorie s’ouvre, mais la ligne reste fermée et aucun module ne s’ouvre', async () => {
+    await arriver('/admin/gestion?ecran=vingt_pourcent');
+    await taper('dupont');
+    expect(container.querySelectorAll('[data-vgp-sortie]')).toHaveLength(1);
+    expect(etat()).toMatchObject({ modules: 0, lignesOuvertes: [], categoriesOuvertes: 1 });
+  });
+  it('un module ouvert À LA MAIN ne se rouvre pas tout seul après une recherche', async () => {
+    await arriver('/admin/gestion?ecran=vingt_pourcent');
+    await taper('dupont');
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-envoyer-mail]') as HTMLButtonElement).click(); });
+    expect(etat().modules).toBe(1);
+    await taper('durand');
+    await taper('d');
+    expect(etat()).toMatchObject({ modules: 0, lignesOuvertes: [] });
+    await taper('');
+    expect(etat().modules).toBe(0);
+  });
+  it('la ligne visée n’existe pas (restitution faite depuis) : vingtMail est oublié, rien ne s’ouvrira plus tard', async () => {
+    await arriver('/admin/gestion?ecran=vingt_pourcent&vingtMail=999');
+    expect(window.location.search).toBe('?ecran=vingt_pourcent');
+    expect(etat().modules).toBe(0);
+  });
+});

@@ -52,6 +52,14 @@ export { libelleModeleVingt } from './EchangesVingt';
 
 /** 🔴 (Arno, 25/11/2026) l'adresse de la ligne sur l'écran Gestion › « 20 % à restituer », module d'envoi déplié (le bouton de la Location y mène). */
 export const lienMailGestion = (sortieId: number): string => `/admin/gestion?ecran=vingt_pourcent&vingtMail=${sortieId}`;
+/** 🔴 (23h52) retire vingtMail de l'adresse (sans recharger ni ajouter d'entrée à l'historique) : un rechargement ne rouvre plus le module. */
+const retirerMailDeLAdresse = (): void => {
+  if (typeof window === 'undefined') return;
+  const u = new URL(window.location.href);
+  if (!u.searchParams.has('vingtMail')) return;
+  u.searchParams.delete('vingtMail');
+  window.history.replaceState(window.history.state, '', `${u.pathname}${u.search}${u.hash}`);
+};
 const lireMailInitial = (): number | null => {
   if (typeof window === 'undefined') return null;
   const n = Number(new URLSearchParams(window.location.search).get('vingtMail'));
@@ -64,7 +72,12 @@ const lireMailInitial = (): number | null => {
  */
 export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?: ReactNode; mail?: MailVingt | null }) {
   // 🔴 (Arno, 25/11/2026) arrivé de la Location par « Envoyer un mail » : la ligne s'ouvre, sa catégorie aussi, module déplié (une fois)
-  const [mailInitial] = useState<number | null>(() => (mail !== undefined ? lireMailInitial() : null));
+  // 🔴🔴 (Arno, 25/11/2026, 23h52) PANNE : « quand j'arrive à la dernière lettre […] le système m'envoie directement sur l'écran "Nouveau message" ». CAUSE :
+  //    le n° de la ligne restait dans l'adresse (vingtMail) et dans l'écran ; chaque fois que la recherche faisait réapparaître la ligne, elle se recréait
+  //    et rouvrait son module, qui prenait le curseur. Désormais le n° sert UNE fois : la ligne visée l'utilise à sa première apparition, puis il est
+  //    oublié (`consommerMailInitial`) et retiré de l'adresse — ni une recherche, ni un rechargement ne rouvrent le module.
+  const [mailInitial, setMailInitial] = useState<number | null>(() => (mail !== undefined ? lireMailInitial() : null));
+  const consommerMailInitial = (): void => { setMailInitial(null); retirerMailDeLAdresse(); };
   const [lu, setLu] = useState<{ etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; data: SuiviVingtLu }>({ etat: 'charge' });
   const [version, setVersion] = useState(0);
   const [fiche, setFiche] = useState<{ immeuble: string | null; lotId: number } | null>(null);
@@ -99,7 +112,8 @@ export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?
   useEffect(() => {
     if (mailInitial === null || lu.etat !== 'ok') return;
     const l = lu.data.lignes.find((x) => x.sortieId === mailInitial);
-    if (l === undefined) return;
+    // ligne absente (restitution faite depuis, sortie annulée) : le n° est oublié, rien ne s'ouvrira plus tard
+    if (l === undefined) { consommerMailInitial(); return; }
     const cat = categorieVingt(l, lu.data.aujourdhui);
     setOuverts((s) => (s.has(cat) ? s : new Set([...s, cat])));
     const t = setTimeout(() => document.querySelector(`[data-vgp-sortie="${mailInitial}"]`)?.scrollIntoView({ block: 'start' }), 50);
@@ -114,7 +128,7 @@ export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?
         <p className="svv-page-sub">Les locataires sortis avec 20 % du dépôt de garantie retenus : l’AGO qui arrête leurs comptes et la date limite de restitution (un mois après l’AGO).</p>
       </header>
       {lu.etat === 'charge' ? <p className="loc-muet" role="status">Lecture…</p>
-        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche, mail, mailInitial, onRelire: () => setVersion((v) => v + 1) }}>
+        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche, mail, mailInitial, onMailInitialConsomme: consommerMailInitial, onRelire: () => setVersion((v) => v + 1) }}>
           {/* 🔴🔴 Arno (24/11/2026, 23h53) — la recherche, sous le titre et au-dessus du listing : filtrage instantané, sur toutes les catégories */}
           <div className="vgp-recherche" role="search">
             <input type="search" value={recherche} onChange={(e) => chercher(e.target.value)} placeholder={PLACEHOLDER_RECHERCHE_VINGT}
@@ -360,7 +374,8 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
 }
 
 /** 🔴 (Arno, 24/11/2026, 23h16) les gestes d'une ligne qui sortent de l'écran : ouvrir la fiche Copropriété (puis tout relire). */
-const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void; mail?: MailVingt | null; mailInitial?: number | null; onRelire?: () => void }>({ onFiche: () => {} });
+const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void; mail?: MailVingt | null; mailInitial?: number | null;
+  /** 🔴 (23h52) la ligne visée par l'adresse l'a utilisé : il est oublié (et retiré de l'adresse) */ onMailInitialConsomme?: () => void; onRelire?: () => void }>({ onFiche: () => {} });
 
 /**
  * 🔴🔴 (Arno, 25/11/2026, 22h06) — LE MONTANT DES 20 % RETENUS dans le détail de la ligne : « 400,00 € » et son origine (calculé sur le dépôt / saisi à la main) ;
@@ -408,8 +423,11 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
   // 🔴 (Arno, 25/11/2026) une AGO PROJETÉE dont la date limite est passée : « AGO à confirmer — saisir la date officielle » (orange), à la place
   //    de la mention de date provisoire (une seule ligne réservée sous l'étiquette)
   const aConfirmer = agoAConfirmer(l, aujourdhui);
-  const { onFiche, mail, mailInitial } = useContext(GestesLigne);
+  const { onFiche, mail, mailInitial, onMailInitialConsomme } = useContext(GestesLigne);
   const [ouvert, setOuvert] = useState(mailInitial === l.sortieId);
+  // 🔴 (23h52) ouverte une fois par l'adresse : le n° est aussitôt oublié (une nouvelle apparition de la ligne, après une recherche, reste FERMÉE)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- une seule fois, à la première apparition
+  useEffect(() => { if (mailInitial === l.sortieId) onMailInitialConsomme?.(); }, []);
   // 🔴🔴 (Arno, 25/11/2026) « Envoyer un mail » : le module existant, déplié sous les coordonnées ; un nouveau clic (ou « Fermer ») le replie
   const [mailOuvert, setMailOuvert] = useState(mailInitial === l.sortieId && mail != null);
   const [fermetureMail, setFermetureMail] = useState(0);
