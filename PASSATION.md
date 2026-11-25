@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `98cef2c6`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `98cef2c6`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **44 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `905e0e0a`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `905e0e0a`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **47 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -322,7 +322,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   la passation `af2d7f76`, puis « Envoyer un mail » : `a1ca94a7` (rubrique « Arrêté des comptes » retirée), `8dfb127d` (bouton + module existant
   + un mail par locataire), `08268902` (quatre modèles), `f1e5f678` (historique), `cfdf2faf` (correctif : liste verte, commentaire), la passation `36e581bd`,
   les modèles revus `a20a86f6`, la passation `40facb47`, les modèles revus (adresse une fois) `4d255049`, la passation `abc1c736`,
-  l'introduction syndic réécrite `98cef2c6` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  l'introduction syndic réécrite `98cef2c6`, la passation `c186d986`, le classement « À préparer » corrigé `4be4b89e`, « x mails envoyés depuis cette
+  page » `905e0e0a` (MIGRATION 515) et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -339,13 +340,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `98cef2c6`) : `npm test` VERT du premier coup (1 872 fichiers, 28 014 tests, 21 ignorés ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-O.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
+- **Contrôles** (dernier lot, `905e0e0a`) : `npm test` VERT du premier coup (1 872 fichiers, 28 022 tests, 21 ignorés ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-P.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
   (`npm-test-complet-25-11-L2.txt`) — la passe précédente (`npm-test-complet-25-11-L.txt`) avait rougi sur deux GARDES de
   la Location (`<select>` natif, mot « HistoriqueDuBien » dans un commentaire), corrigées par `cfdf2faf` ; le flake connu `PreavisAccueil.test.tsx`
   (3 061 ms) est revenu une fois en suite filtrée, fichier seul vert deux fois. Chrome recette, ordinateur et 390 px, clair et sombre, APERÇU SEULEMENT :
   aucun mail envoyé, aucun POST d'écriture (seul l'appel de LECTURE `POST /api/admin/gestion/classement` du module, bloqué par le garde de
-  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `98cef2c6`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
+  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `905e0e0a`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
   table des restitutions de la recette inchangée (2 lignes du 24/11). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
   `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
@@ -387,8 +388,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   514** (`514_location_alerte_vingt_pourcent.sql`, journal de l'alerte du lundi, un seul « envoye » par lundi) — appliquées en RECETTE
   seulement (deux passes chacune) et, depuis le 24/11 à 23h30 (décision d'Arno), INSCRITES au registre `svav_migration` de la recette au
   format de la 512 (« mise_a_jour », sha256 du fichier, commits `5b046e8e` / `81f08a64`, duree_ms 0 ; empreintes figées dans
-  `migrationsEnAttente.test.ts`, commit `418e54e6`). **La prochaine mise en production appliquera 512, 513 et 514.**
-  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra la 515, le jour où Arno la sortira** (décision
+  `migrationsEnAttente.test.ts`, commit `418e54e6`). **La prochaine mise en production appliquera 512, 513, 514 et 515** (🔴 515 : `gestion_location_mail_vingt`, « x mails envoyés depuis cette page »,
+  commit `905e0e0a`, appliquée deux fois et inscrite au registre de la RECETTE le 25/11/2026).
+  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra la 516 (la 515 est prise depuis le 25/11/2026), le jour où Arno la sortira** (décision
   d'Arno du 23/11/2026, « garde le premier libre suivant » redit le 24/11) — la 511 reste vide (refusée une fois 512-514 inscrites ;
   épreuve dans `migrationsEnAttente.test.ts`, mise à jour). Non touchée.
 - **Registre des migrations (`svav_migration`) — état au 20/11/2026 au soir** (rapport : `.captures/registre-migrations/RAPPORT.txt`) :
@@ -888,6 +890,15 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       DONNÉES D'ESSAI (recette, hors dépôt) : noms des copropriétés 335-340 → « _TEST Les Tilleuls N », la 339 SANS nom (valeurs d'avant :
       `.captures/vingt-pourcent/noms-coproprietes-essai-avant-25-11.txt`, script `noms-coproprietes-essai-lisibles.sql`, script de création aligné).
       Captures `25-11-O-*`.
+    · `4be4b89e` (demande d'Arno du 25/11) : « AGO < 1 mois – À préparer » = l'AGO qui compte dans les 30 prochains jours SEULEMENT (officielle ou
+      projetée) ; la règle du 24/11 « officielle, même lointaine » est abandonnée : au-delà de 30 jours, « AGO > 1 mois – En attente », officielle
+      comprise. Recette : « CATEGORIES 4 » (officielle à 202 j) passe en En attente ; pastille verte 3 → 2.
+    · `905e0e0a` (demande d'Arno du 25/11) « x mail(s) envoyé(s) depuis cette page » : MIGRATION 515 `gestion_location_mail_vingt` (sortie, clé
+      d'idempotence, modèle ; ajout seul), notée par la route `envois` après le contrôle « un mail par locataire » ; la marque `vingtPourcent` porte
+      le modèle. Compte = envois `gestion_envoi.etat = 'envoye'` et partis, JAMAIS une simulation de la recette (identifiant Gmail « recette-… » :
+      intercepté, pas parti, pas compté). Ligne repliée : mention discrète sous les boutons ; détail : liste (date et heure, destinataires, copies,
+      modèle, « Voir dans l'historique » dès la relève). Aucun mail envoyé en recette : affichage vérifié dans Chrome par une réponse modifiée dans
+      le navigateur seulement. Captures `25-11-P*-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
