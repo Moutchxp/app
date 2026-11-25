@@ -310,13 +310,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `f54002df`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `f54002df`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **22 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `8f9e7243`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `8f9e7243`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **24 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
-  puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons) et cette
-  passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
+  le titre « AGO passée — restitution à faire » `8f9e7243` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -333,9 +333,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `f54002df`) : `npm test` VERT du premier coup (1 869 fichiers, 27 951 tests, 21 ignorés ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-G.txt`) ; Chrome recette, ordinateur et 390 px, clair et sombre. ⚠️ **Preuve curl À FAIRE par
-  Arno sur `f54002df`** (couvre tous les commits non poussés). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
+- **Contrôles** (dernier lot, `8f9e7243`) : `npm test` VERT du premier coup (1 869 fichiers, 27 952 tests, 21 ignorés ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-H.txt`) ; Chrome recette, ordinateur et 390 px, clair et sombre. ⚠️ **Preuve curl À FAIRE par
+  Arno sur `8f9e7243`** (couvre tous les commits non poussés). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
   `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
   de la seule porte ») : `ENOENT … app/lib/svv/__garde_eslint_tmp__.ts` — fichier temporaire que `app/lib/analytics/gardeImports.test.ts`
@@ -814,6 +814,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
         urgence, sinon d'origine (`niveauBoutonVingt`) ; pastille unique = retard + urgence + copropriétés (recette 1 + 1 + 4 = 6), détail à trois
         nombres. Orange vérifié dans Chrome par permutation de la classe à l'écran (la recette n'a pas de cas « urgence sans retard »).
       Captures `.captures/vingt-pourcent/25-11-G*-*`.
+    · `8f9e7243` (demande d'Arno du 25/11) : la catégorie s'appelle « AGO passée — restitution à faire » (avant : « AG passée … »), partout
+      (`TITRES_CATEGORIES`, commentaires, tests) ; le mail et l'aide ne citaient pas ce titre. Règles inchangées. Captures `25-11-H-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
