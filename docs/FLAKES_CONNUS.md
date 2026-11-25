@@ -339,3 +339,37 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 - Si le test échoue **seul**, ou bien avant 3 s : ce n'est pas ce flake — la reprise de la photo après rechargement est à
   instruire (c'est la promesse d'Arno « rien ne se perd »).
 - S'il revient en suite complète : allonger l'attente de **ce test seul** (`patienter(…, 10_000)`), sans toucher aux assertions.
+
+---
+
+## `dateSortieUnique.test.ts` — « aucune écriture hors de la seule porte » : `ENOENT … __garde_eslint_tmp__.ts` (25/11/2026) — ✅ CORRIGÉ
+
+- **Fichier / test** : `app/lib/location/dateSortieUnique.test.ts`, test « aucune écriture hors de la seule porte (et de l'import
+  WIPPIMMO, nommé) ».
+- **Symptôme** : en `npm test` complet, `Error: ENOENT: no such file or directory, open 'app/lib/svv/__garde_eslint_tmp__.ts'`
+  (ligne `readFileSync(f, 'utf8')`). Fichier seul : vert.
+
+### ✅ PROUVÉ
+
+- Une occurrence, le 25/11/2026 (lot « Alerte du lundi seulement avec une urgence », `0d1a809a`), sortie gardée dans
+  `.captures/vingt-pourcent/npm-test-complet-25-11-E.txt` ; suite relancée aussitôt : verte, sans changement de code.
+- **Cause : une COURSE entre deux fichiers de test** qui tournent en parallèle. `app/lib/analytics/gardeImports.test.ts` (garde ESLint
+  réelle) **crée** `app/lib/svv/__garde_eslint_tmp__.ts`, lance `npx eslint` dessus, puis l'**efface** (`finally`). Pendant ce temps,
+  `dateSortieUnique.test.ts` **liste** tout `app/` et `scripts/` (à la collecte), puis **lit** chaque fichier : quand la liste tombe
+  dans la fenêtre où le fichier temporaire existe et que la lecture tombe après son effacement, `readFileSync` lève ENOENT.
+  Aucun code applicatif en cause.
+
+### Correction (25/11/2026, décision d'Arno)
+
+- `dateSortieUnique.test.ts` ignore un fichier **listé puis disparu** : `lireSiPresent` rend `null` sur **ENOENT seulement** (toute
+  autre erreur — droits, dossier… — fait toujours échouer l'épreuve) ; la liste tolère de même un `statSync` en ENOENT.
+- **Le contrôle n'est pas affaibli** : chaque fichier sauté est vérifié **absent** à la fin de l'épreuve (`existsSync` faux), et ils
+  doivent rester marginaux (< 5) ; un vrai fichier du code est donc toujours lu. Épreuve dédiée de `lireSiPresent` (absent → null ;
+  dossier → erreur ; vrai fichier → lu).
+- `gardeImports.test.ts` n'est pas modifié (sa garde ESLint a besoin d'un vrai fichier sous `app/lib/svv/`).
+
+### Conduite à tenir si rouge
+
+- Si une AUTRE garde qui parcourt `app/` (même motif `readdirSync` → `readFileSync`) échoue en ENOENT sur `__garde_eslint_tmp__.ts`
+  ou un autre fichier temporaire d'épreuve : même course, même remède (tolérer ENOENT seul + vérifier l'absence).
+- Si `dateSortieUnique.test.ts` échoue sur « sauté alors qu'il existe » : ce n'est PAS ce flake — un fichier réel a été ignoré, à instruire.

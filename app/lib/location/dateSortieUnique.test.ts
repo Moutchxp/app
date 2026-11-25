@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -16,6 +16,18 @@ const SEULE_PORTE = 'app/lib/location/dateSortieOccupation.ts';
 const EXCEPTION_IMPORT = 'app/lib/gestion/annuaireRepo.ts';
 const EPREUVES_JETABLES = ['app/scripts/rattachement-epreuve.ts', 'app/scripts/rattachement-auto-epreuve.ts'];
 
+/**
+ * 🔴 (Arno, 25/11/2026) — UN FICHIER LISTÉ PUIS DISPARU N'EST PAS UNE FAUTE. Pendant `npm test`, d'autres épreuves tournent EN MÊME TEMPS et
+ * créent puis effacent des fichiers temporaires dans `app/` (constaté : `app/lib/svv/__garde_eslint_tmp__.ts`, posé par
+ * `app/lib/analytics/gardeImports.test.ts` le temps d'un lint). Si la liste le voit et qu'il a disparu à la lecture : ENOENT → il est ignoré.
+ * SEUL ENOENT est toléré (toute autre erreur fait échouer l'épreuve), et l'épreuve vérifie ensuite qu'un fichier ignoré N'EXISTE
+ * vraiment plus : un vrai fichier du code n'est jamais sauté. Voir `docs/FLAKES_CONNUS.md`.
+ */
+const disparu = (e: unknown): boolean => (e as NodeJS.ErrnoException)?.code === 'ENOENT';
+export function lireSiPresent(f: string): string | null {
+  try { return readFileSync(f, 'utf8'); } catch (e) { if (disparu(e)) return null; throw e; }
+}
+
 function fichiers(d: string): string[] {
   let l: string[] = [];
   let entrees: string[];
@@ -23,7 +35,9 @@ function fichiers(d: string): string[] {
   for (const n of entrees) {
     if (n === 'node_modules' || n.startsWith('.')) continue;
     const p = join(d, n);
-    if (statSync(p).isDirectory()) l = l.concat(fichiers(p));
+    let dossier: boolean;
+    try { dossier = statSync(p).isDirectory(); } catch (e) { if (disparu(e)) continue; throw e; }
+    if (dossier) l = l.concat(fichiers(p));
     else if (/\.(ts|tsx|sql)$/.test(n) && !/\.(test|itest)\.tsx?$/.test(n)) l.push(p);
   }
   return l;
@@ -42,9 +56,23 @@ describe('🔴 une seule fonction écrit la date de sortie d’une occupation', 
   it('le code est bien lu', () => { expect(tous.length).toBeGreaterThan(500); });
 
   it('aucune écriture hors de la seule porte (et de l’import WIPPIMMO, nommé)', () => {
-    const fautifs = tous.filter((f) => f !== SEULE_PORTE && f !== EXCEPTION_IMPORT && !EPREUVES_JETABLES.includes(f)
-      && ecrituresDeSortie(readFileSync(f, 'utf8')).length > 0);
+    const disparus: string[] = [];
+    const fautifs = tous.filter((f) => {
+      if (f === SEULE_PORTE || f === EXCEPTION_IMPORT || EPREUVES_JETABLES.includes(f)) return false;
+      const src = lireSiPresent(f);
+      if (src === null) { disparus.push(f); return false; }
+      return ecrituresDeSortie(src).length > 0;
+    });
     expect(fautifs).toEqual([]);
+    // 🔴 (25/11/2026) un fichier sauté a VRAIMENT disparu (fichier temporaire d'une autre épreuve), et il reste marginal
+    for (const f of disparus) expect(existsSync(f), `${f} sauté alors qu'il existe`).toBe(false);
+    expect(disparus.length).toBeLessThan(5);
+  });
+
+  it('🔴 (25/11/2026) lireSiPresent : un fichier absent → null ; toute autre erreur reste une erreur ; un vrai fichier est lu', () => {
+    expect(lireSiPresent('app/lib/svv/__fichier_qui_n_existe_pas__.ts')).toBeNull();
+    expect(() => lireSiPresent('app/lib/location')).toThrow(/EISDIR/); // un dossier : pas toléré
+    expect(lireSiPresent(SEULE_PORTE)).toContain('gestion_annuaire_occupation');
   });
 
   it('la seule porte écrit bien, et l’import aussi (l’exception est réelle, pas un oubli)', () => {
