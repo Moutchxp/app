@@ -392,3 +392,20 @@ describe('🔴🔴 le calcul des 20 %', () => {
     expect(origineDite({ montant: 380, origine: 'saisi', depot: 2000 })).toBe('saisi à la main');
   });
 });
+
+/** 🔴🔴 (Arno, 25/11/2026, 23h12) le montant des 20 % tapé dans « Valider la sortie » : lu quelle que soit l'écriture ; vide, nul, négatif, illisible : refus clair. */
+describe('🔴🔴 verifierMontantVingt', () => {
+  it.each([['1200', 1200], ['1200,00', 1200], ['1 200,50', 1200.5], ['1200.5', 1200.5], ['1 200 €', 1200], ['1 200,50 €', 1200.5], ['1 200', 1200], [1200, 1200]])(
+    '« %s » → %s', async (brut, attendu) => {
+      const { verifierMontantVingt } = await import('./vingtPourcent');
+      expect(verifierMontantVingt(brut)).toEqual({ ok: true, montant: attendu });
+    });
+  it('vide, zéro, négatif, illisible : un refus qui dit lequel', async () => {
+    const { verifierMontantVingt, MOTIF_MONTANT_VINGT_OBLIGATOIRE, MOTIF_MONTANT_VINGT_NUL, MOTIF_MONTANT_VINGT_ILLISIBLE, estMotifMontantVingt } = await import('./vingtPourcent');
+    for (const x of ['', '   ', undefined, null]) expect(verifierMontantVingt(x)).toEqual({ ok: false, motif: MOTIF_MONTANT_VINGT_OBLIGATOIRE });
+    for (const x of ['0', '0,00', '-50', '- 1 200,50', 0, -3]) expect(verifierMontantVingt(x)).toEqual({ ok: false, motif: MOTIF_MONTANT_VINGT_NUL });
+    for (const x of ['abc', '12,345', '1,2,3', '99999999999']) expect(verifierMontantVingt(x)).toEqual({ ok: false, motif: MOTIF_MONTANT_VINGT_ILLISIBLE });
+    expect([MOTIF_MONTANT_VINGT_OBLIGATOIRE, MOTIF_MONTANT_VINGT_NUL, MOTIF_MONTANT_VINGT_ILLISIBLE].every(estMotifMontantVingt)).toBe(true);
+    expect(estMotifMontantVingt('Autre refus.')).toBe(false);
+  });
+});

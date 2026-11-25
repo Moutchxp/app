@@ -59,7 +59,7 @@ import { etatDuRdv, prevenirCollaborateurInitial, tacheDuRdvPreavis } from '../.
 import { MOTIF_RDV_NON_MODIFIABLE, rdvModifiable } from '../../../../lib/gestion/modificationRdv';
 import { envoyerLienCompteRenduMaintenant } from '../../../../lib/location/previsiteAuto';
 import { dureesRdvReglees, minutesRdvAutorisees, plageRdvAutorisee } from '../../../../lib/location/minutesRdvRepo';
-import { apercuValidationSortie, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
+import { apercuValidationSortie, demandeValidationDuCorps, validerSortieEdls, agPourSortie } from '../../../../lib/location/validationSortieRepo';
 import {
   apercuCompteRendu, apercuRdvPrevisite, apercuRefus, avecPrevisites, collegesPrevisite, deplacerPrevisite, destinatairesCompteRendu, envoyerCompteRendu, envoyerMailLocatairesPrevisite,
   envoyerRefus, programmerPrevisite, reaffecterPrevisite, texteRefusPropose,
@@ -724,17 +724,9 @@ async function postLocation(request: Request): Promise<Response> {
         }
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();
-        const demande = {
-          occupationId: occ, realise: corps.realise, date: corps.date, sortants: idsOccupations(corps.sortants), compteRendu: corps.compteRendu,
-          destinataires: (Array.isArray(corps.destinataires) ? corps.destinataires : []).filter((x): x is string => typeof x === 'string' && /^(loc|pro)-\d{1,16}$/.test(x)).slice(0, 40),
-          informerPartenaires: corps.informerPartenaires !== false,
-          // 🔴 Arno (24/11/2026) — les partenaires cochés un par un (filtrés ensuite sur la liste « Sorties ») ; absent : tous, comme avant
-          ...(Array.isArray(corps.partenaires) ? { partenaires: (corps.partenaires as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 30) } : {}),
-          // 🔴 Arno (11/11/2026, 468) — les pièces jointes (identifiants inscrits) et la retenue de 20 %.
-          pieceIds: idsOccupations(corps.pieceIds), retenue: corps.retenue === true, paragrapheRetenue: corps.paragrapheRetenue,
-          // 🔴 Arno (16/11/2026, 475) — les dates d'AG, la mention dans la phrase des propriétaires, la copropriété à rattacher ou à créer.
-          ag: corps.ag, mentionAg: corps.mentionAg === true, coproprieteChoix: corps.coproprieteChoix, coproprieteOui: corps.coproprieteOui === true,
-        };
+        // 🔴🔴 (Arno, 25/11/2026, 23h12) la demande est construite par le dépôt (chaque champ de la fenêtre transmis, épreuve à l'appui) : avant, le
+        //    montant des 20 % et le texte modifié des propriétaires étaient perdus ici
+        const demande = demandeValidationDuCorps(corps as Record<string, unknown>, occ, idsOccupations);
         return repondre(action === 'apercu-validation-sortie' ? await apercuValidationSortie(demande, auteur) : await validerSortieEdls(demande, auteur));
       }
       case 'corriger-sortie-locataires':

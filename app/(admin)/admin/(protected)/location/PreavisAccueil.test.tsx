@@ -29,6 +29,9 @@ vi.mock('../../../../lib/location/photoEcran', () => (charges.photo += 1, {
  * part, rien n'est écrit.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+/** 🔴 (Arno, 25/11/2026, 23h12) le dépôt de garantie des biens d’essai (centimes) : le montant des 20 % est prérempli (400,00), comme pour un vrai dossier. */
+const DEPOT_CONNU = 200000;
+let depotEssai: number | null = DEPOT_CONNU;
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
 const HIER = (() => { const d = new Date(Date.now() - 86_400_000); return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' }); })();
 
@@ -759,7 +762,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     const base = global.fetch;
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
       const s = String(u);
-      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: copro });
+      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: copro, depotCentimes: depotEssai }); // 🔴 (23h12) le dépôt connu : montant des 20 % prérempli
       if (s.includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
       if (s.startsWith('/api/admin/location/pieces-sortie')) {
         if ((init?.method ?? 'GET') === 'GET') return { ok: true, status: 200, json: async () => reponseDrive } as unknown as Response;
@@ -796,6 +799,61 @@ describe('🔴🔴 Arno (11/11/2026, 468) — « Valider l’état des lieux de 
     return document.querySelector('[data-fenetre-validation-sortie]')!;
   };
   beforeEach(() => { copro = true; postsPieces = []; reponseDrive = null; });
+
+  /** 🔴🔴 (Arno, 25/11/2026, 23h12) PANNE : « j'ai bien instruit le champ des 20 % mais j'ai l'impression qu'il n'en tient pas compte » — dépôt inconnu. */
+  describe('🔴🔴 (23h12) le montant des 20 % tapé à la main', () => {
+    beforeEach(() => { depotEssai = null; });
+    afterEach(() => { depotEssai = DEPOT_CONNU; });
+    const preparer = async (montantTape: string): Promise<Element> => {
+      const f = await ouvrir();
+      act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+      act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      const champ = f.querySelector('input[data-montant-vingt-champ]') as HTMLInputElement;
+      expect(champ.value).toBe('');                                                 // dépôt inconnu : rien de prérempli
+      act(() => saisir(champ, montantTape));
+      return f;
+    };
+    it.each(['1200', '1200,00', '1 200,50', '1200.5'])('« %s » : le montant tapé part avec l’aperçu (le récapitulatif s’ouvre)', async (tape) => {
+      await preparer(tape);
+      await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+      await attendre();
+      const apercu = posts.filter((c) => c.action === 'apercu-validation-sortie').at(-1)!;
+      expect(apercu.retenue).toBe(true);
+      expect(String(apercu.montantVingt).replace(/\s/g, '')).toBe(tape.replace(/\s/g, '').replace('.', ','));
+      expect(document.querySelector('[data-montant-vingt-erreur]')).toBeNull();
+    });
+    it.each([['', 'Saisissez le montant des 20 % retenus'], ['0', 'doit être supérieur à 0'], ['0,00', 'doit être supérieur à 0']])(
+      '« %s » : refus SOUS le champ, le champ amené à l’écran ; rien ne part', async (tape, motif) => {
+        const vus: Element[] = [];
+        const avant = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = function (this: Element) { vus.push(this); };
+        try {
+          const f = await preparer(tape);
+          const n = posts.length;
+          await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+          await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+          expect(posts.length).toBe(n);
+          const erreur = f.querySelector('[data-montant-vingt] [data-montant-vingt-erreur]')!;
+          expect(erreur.textContent).toContain(motif);
+          // juste sous le champ, dans son bloc
+          expect(erreur.previousElementSibling?.querySelector('input[data-montant-vingt-champ]')).not.toBeNull();
+          expect(vus.some((x) => x.hasAttribute('data-montant-vingt-champ'))).toBe(true);
+          // une nouvelle frappe efface le refus
+          act(() => saisir(f.querySelector('input[data-montant-vingt-champ]') as HTMLInputElement, '300'));
+          expect(f.querySelector('[data-montant-vingt-erreur]')).toBeNull();
+        } finally { Element.prototype.scrollIntoView = avant; }
+      });
+    it('dépôt connu : le montant calculé (400,00) est prérempli et part tel quel', async () => {
+      depotEssai = DEPOT_CONNU;
+      const f = await ouvrir();
+      expect((f.querySelector('input[data-montant-vingt-champ]') as HTMLInputElement).value).toBe('400,00');
+      act(() => (f.querySelector('input[data-edls-realise]') as HTMLInputElement).click());
+      act(() => saisir(f.querySelector('input[data-date-sortie-effective]') as HTMLInputElement, HIER));
+      await act(async () => { (document.querySelector('button[data-recap-validation]') as HTMLButtonElement).click(); });
+      await attendre();
+      expect(posts.filter((c) => c.action === 'apercu-validation-sortie').at(-1)).toMatchObject({ retenue: true, montantVingt: '400,00' });
+    });
+  });
 
   it('« Voir la fiche du bien » en PREMIER, avant « Voir la fiche du locataire » et « Écran de sortie » (rien de retiré)', async () => {
     await rendre(true);
@@ -1064,7 +1122,7 @@ describe('🔴🔴 Arno (11/11/2026) — la page DÉFILE toujours après chaque 
       if (s.startsWith('/api/admin/location/pieces-sortie')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { fichiers: [], tronque: false, lotId: 7 } }) } as unknown as Response;
       if (s.includes('previsiteCollegues=1')) return ok([{ id: 3, libelle: 'Collègue Test' }]);
       if (s.includes('previsiteRefus=')) return ok({ texte: 'Bonjour', objet: 'Pré-visite', sansEmail: [] });
-      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: true });
+      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: true, depotCentimes: DEPOT_CONNU });
       if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) return ok({ mails: [], alertes: [], sansEmail: [], vacant: true, enGestion: false, date: HIER });
       return base(u, init);
     }) as unknown as typeof fetch;
@@ -3611,7 +3669,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — « Valider la sortie », case 20 %
     global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
       const s = String(u);
       if (s.includes('agSortie=')) return ok(luAg);
-      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: 'coproprieteSaisie' in luAg ? luAg.coproprieteSaisie : true });
+      if (s.includes('retenueSortie=')) return ok({ lotId: 7, copropriete: 'coproprieteSaisie' in luAg ? luAg.coproprieteSaisie : true, depotCentimes: DEPOT_CONNU });
       if (s.includes('partenairesSortie=')) return ok({ enGestion: false, liste: [] });
       if (init?.method === 'POST' && String(init.body).includes('apercu-validation-sortie')) {
         const c = JSON.parse(String(init.body)) as Record<string, unknown>; posts.push(c);

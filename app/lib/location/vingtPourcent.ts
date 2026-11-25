@@ -352,6 +352,25 @@ export const MOTIF_SANS_513 = 'La restitution des 20 % s’enregistre après la 
 export interface MontantVingt { montant: number; origine: 'calcule' | 'saisi'; depot: number | null }
 export const MONTANT_VINGT_A_SAISIR = 'Montant des 20 % à saisir';
 export const MOTIF_MONTANT_VINGT_OBLIGATOIRE = 'Saisissez le montant des 20 % retenus (en euros) : le dépôt de garantie n’est pas connu, ou le montant est vide.';
+/** 🔴 (Arno, 25/11/2026, 23h12) les refus du montant des 20 % saisi dans « Valider la sortie » (dits sous le champ). */
+export const MOTIF_MONTANT_VINGT_NUL = 'Le montant des 20 % retenus doit être supérieur à 0 €.';
+export const MOTIF_MONTANT_VINGT_ILLISIBLE = 'Montant des 20 % illisible : un nombre en euros, deux décimales au plus (ex. 1 200,50).';
+/**
+ * 🔴🔴 (Arno, 25/11/2026, 23h12) — le montant des 20 % tapé dans « Valider la sortie », LU quelle que soit l'écriture : « 1200 », « 1200,00 »,
+ * « 1 200,50 », « 1200.5 », « 1 200 € » ; vide, nul, négatif ou illisible : un refus qui dit lequel. La fenêtre et le serveur appliquent la MÊME règle. PUR.
+ */
+export function verifierMontantVingt(brut: unknown): { ok: true; montant: number } | { ok: false; motif: string } {
+  const t = typeof brut === 'string' ? brut.replace(/[\s  €]/g, '') : brut;
+  if (t === undefined || t === null || t === '') return { ok: false, motif: MOTIF_MONTANT_VINGT_OBLIGATOIRE };
+  if (typeof t === 'string' && t.startsWith('-')) return { ok: false, motif: MOTIF_MONTANT_VINGT_NUL };
+  if (typeof t === 'number' && t <= 0) return { ok: false, motif: MOTIF_MONTANT_VINGT_NUL };
+  const m = montantEuros(t);
+  if (typeof m !== 'number') return { ok: false, motif: MOTIF_MONTANT_VINGT_ILLISIBLE };
+  return m > 0 ? { ok: true, montant: m } : { ok: false, motif: MOTIF_MONTANT_VINGT_NUL };
+}
+/** Le motif est-il un refus du montant des 20 % (à dire sous le champ) ? PUR. */
+export const estMotifMontantVingt = (motif: string | null): boolean =>
+  motif === MOTIF_MONTANT_VINGT_OBLIGATOIRE || motif === MOTIF_MONTANT_VINGT_NUL || motif === MOTIF_MONTANT_VINGT_ILLISIBLE;
 export const MOTIF_SANS_516 = 'Le montant des 20 % s’enregistre après la mise à jour de la base (migration 516) : rien n’est enregistré.';
 /** 20 % d'un dépôt donné en CENTIMES, en euros, arrondi au centime. PUR. */
 export const vingtPourcentDuDepot = (depotCentimes: number): number => Math.round(depotCentimes * 0.2) / 100;

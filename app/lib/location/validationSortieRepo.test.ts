@@ -1,5 +1,6 @@
 import { texteProprietaire } from './validationSortie';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 /** 🔴🔴 Arno (11/11/2026, lot 4) — « Valider l'état des lieux de sortie », le serveur : refus AVANT toute écriture, un mail par destinataire, historiques. */
 const h = vi.hoisted(() => ({
@@ -52,7 +53,7 @@ vi.mock('./sortieLocatairesRepo', () => ({
     locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephones: [], emails: ['alice@exemple.test'] },
       { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', telephones: [], emails: [] }] } }),
 }));
-import { apercuValidationSortie, MOTIF_SANS_467, validerSortieEdls } from './validationSortieRepo';
+import { apercuValidationSortie, demandeValidationDuCorps, MOTIF_SANS_467, validerSortieEdls } from './validationSortieRepo';
 
 const AUTEUR = { id: 1, libelle: 'Arno Test' };
 const DEMANDE = { occupationId: 11, realise: true, date: '2026-11-10', sortants: [11, 12], compteRendu: 'Logement rendu propre.', destinataires: ['loc-11', 'pro-5', 'pro-99'], informerPartenaires: true };
@@ -358,5 +359,57 @@ describe('🔴🔴 le montant des 20 % retenus à la validation de la sortie', (
     montant.depot = null;
     const r2 = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '412,50' }, AUTEUR);
     expect(r2).toMatchObject({ etat: 'ok', data: { montantVingt: { montant: 412.5, origine: 'saisi', depot: null } } });
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026, 23h12) — PANNE : « je n'arrive pas à valider une sortie de locataire ; j'ai bien instruit le champ des 20 % mais j'ai l'impression
+ * qu'il n'en tient pas compte ». La route ne transmettait pas `montantVingt` (ni `phraseProprietaire`) : la demande est désormais construite par
+ * `demandeValidationDuCorps`, et CHAQUE champ du type `DemandeValidation` doit en sortir.
+ */
+describe('🔴🔴 la panne du montant des 20 % (23h12)', () => {
+  const CORPS = { action: 'apercu-validation-sortie', occupationId: 7, realise: true, date: '2026-11-25', sortants: [7, '8'], compteRendu: 'RAS', destinataires: ['loc-7', 'pro-3', 'x'],
+    informerPartenaires: true, partenaires: ['a@exemple.test'], pieceIds: [1], retenue: true, paragrapheRetenue: 'P', phraseProprietaire: 'Texte modifié _TEST',
+    ag: { derniere: '2026-04-23' }, mentionAg: true, coproprieteChoix: null, coproprieteOui: true, montantVingt: '1200' };
+  const ids = (b: unknown): number[] => (Array.isArray(b) ? b.map(Number).filter((n) => Number.isInteger(n) && n > 0) : []);
+  it('le montant tapé et le texte modifié des propriétaires sont TRANSMIS au serveur (avant : perdus par la route)', () => {
+    const d = demandeValidationDuCorps(CORPS, 7, ids);
+    expect(d.montantVingt).toBe('1200');
+    expect(d.phraseProprietaire).toBe('Texte modifié _TEST');
+    expect(d).toMatchObject({ occupationId: 7, sortants: [7, 8], destinataires: ['loc-7', 'pro-3'], partenaires: ['a@exemple.test'], retenue: true, mentionAg: true, coproprieteOui: true });
+  });
+  it('GARDE : chaque champ du type DemandeValidation sort de la construction (un champ ajouté au type sans être transmis fait rougir cette épreuve)', () => {
+    const src = readFileSync('app/lib/location/validationSortieRepo.ts', 'utf8');
+    const corpsType = src.slice(src.indexOf('export interface DemandeValidation {'), src.indexOf('\n}\n', src.indexOf('export interface DemandeValidation {')));
+    const champs = [...corpsType.matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]);
+    expect(champs).toContain('montantVingt');
+    expect(Object.keys(demandeValidationDuCorps(CORPS, 7, ids)).sort()).toEqual([...champs].sort());
+    // la route passe par elle
+    const route = readFileSync('app/(admin)/api/admin/location/route.ts', 'utf8');
+    expect(route).toContain('const demande = demandeValidationDuCorps(corps as Record<string, unknown>, occ, idsOccupations);');
+  });
+  describe('le montant tapé, quelle que soit l’écriture (dépôt inconnu)', () => {
+    beforeEach(() => {
+      ag.dispo = false; h.copro = null; montant.depot = null; montant.notes = [];
+      h.query.mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : sql.includes('RETURNING id') ? { rows: [{ id: '41' }] } : { rows: [] }));
+    });
+    it.each([['1200', 1200], ['1200,00', 1200], ['1 200,50', 1200.5], ['1200.5', 1200.5], ['1 200 €', 1200], ['1 200,50 €', 1200.5]])('« %s » → %s € au récapitulatif', async (saisi, attendu) => {
+      // le chemin de la route : le corps de la fenêtre → la demande → l'aperçu
+      const corps = { ...DEMANDE, action: 'apercu-validation-sortie', retenue: true, montantVingt: saisi } as unknown as Record<string, unknown>;
+      const r = await apercuValidationSortie(demandeValidationDuCorps(corps, DEMANDE.occupationId, ids), AUTEUR);
+      expect(r).toMatchObject({ etat: 'ok', data: { montantVingt: { montant: attendu, origine: 'saisi', depot: null } } });
+    });
+    it.each([['', 'Saisissez le montant des 20 % retenus'], ['0', 'doit être supérieur à 0'], ['0,00', 'doit être supérieur à 0'], ['-50', 'doit être supérieur à 0'],
+      ['12,345', 'illisible'], ['abc', 'illisible']])('« %s » : refus clair, champ « montantVingt », rien n’est écrit', async (saisi, motif) => {
+      const r = await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: saisi }, AUTEUR);
+      expect(r).toMatchObject({ etat: 'refus', champ: 'montantVingt' });
+      expect((r as { motif: string }).motif).toContain(motif);
+      expect(montant.notes).toEqual([]);
+    });
+    it('dépôt connu (1 400,00 €) : le montant calculé (280,00) passe, « calculé »', async () => {
+      montant.depot = 140000;
+      const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '280,00' }, AUTEUR);
+      expect(r).toMatchObject({ etat: 'ok', data: { montantVingt: { montant: 280, origine: 'calcule', depot: 1400 } } });
+    });
   });
 });

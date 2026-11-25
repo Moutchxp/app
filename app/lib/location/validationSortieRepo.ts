@@ -1,5 +1,5 @@
-import { agosOfficielles, agoQuiCompte, montantFr, MOTIF_MONTANT_VINGT_OBLIGATOIRE, origineMontantVingt, type MontantVingt } from './vingtPourcent';
-import { depotDeLaSortie, depotsDesOccupations, montantVingtDisponible, montantVingtSaisi, noterMontantVingt } from './montantVingtRepo';
+import { agosOfficielles, agoQuiCompte, montantFr, origineMontantVingt, verifierMontantVingt, type MontantVingt } from './vingtPourcent';
+import { depotDeLaSortie, depotsDesOccupations, montantVingtDisponible, noterMontantVingt } from './montantVingtRepo';
 import { lireArrete } from './arreteComptesRepo';
 import type { ArreteComptes } from './arreteComptes';
 import { query, withTransaction } from '../db/client';
@@ -69,6 +69,31 @@ export interface DemandeValidation {
   coproprieteOui?: boolean;
   /** 🔴 Arno (25/11/2026, 22h06) — case 20 % cochée : le MONTANT des 20 % retenus (euros ; prérempli à 20 % du dépôt connu, modifiable ; obligatoire). */
   montantVingt?: unknown;
+}
+
+/**
+ * 🔴🔴 (Arno, 25/11/2026, 23h12) — « je n'arrive pas à valider une sortie de locataire ; j'ai bien instruit le champ des 20 % mais j'ai l'impression qu'il
+ * n'en tient pas compte ». CAUSE : la route recopiait le corps de la requête champ par champ dans la demande, et deux champs envoyés par la fenêtre n'y
+ * avaient jamais été ajoutés — `montantVingt` (887aec04 : le serveur le croyait vide, refus systématique) et `phraseProprietaire` (fc7830e2 : le texte
+ * modifié des propriétaires était perdu, le texte calculé partait à sa place). La demande est désormais construite ICI, au même endroit que son type,
+ * et une épreuve vérifie que CHAQUE champ du type est transmis. `ids` : la lecture des identifiants de la route (au plus 20). PUR.
+ */
+export function demandeValidationDuCorps(corps: Record<string, unknown>, occupationId: number, ids: (brut: unknown) => number[]): DemandeValidation {
+  return {
+    occupationId, realise: corps.realise, date: corps.date, sortants: ids(corps.sortants), compteRendu: corps.compteRendu,
+    destinataires: (Array.isArray(corps.destinataires) ? corps.destinataires : []).filter((x): x is string => typeof x === 'string' && /^(loc|pro)-\d{1,16}$/.test(x)).slice(0, 40),
+    informerPartenaires: corps.informerPartenaires !== false,
+    // 🔴 Arno (24/11/2026) — les partenaires cochés un par un (filtrés ensuite sur la liste « Sorties ») ; absent : tous, comme avant
+    ...(Array.isArray(corps.partenaires) ? { partenaires: (corps.partenaires as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 30) } : {}),
+    // 🔴 Arno (11/11/2026, 468) — les pièces jointes (identifiants inscrits) et la retenue de 20 %.
+    pieceIds: ids(corps.pieceIds), retenue: corps.retenue === true, paragrapheRetenue: corps.paragrapheRetenue,
+    // 🔴 (23h12) le texte des propriétaires modifié dans la fenêtre (fc7830e2) : absent ou vide, le serveur le calcule
+    phraseProprietaire: corps.phraseProprietaire,
+    // 🔴 Arno (16/11/2026, 475) — les dates d'AG, la mention dans la phrase des propriétaires, la copropriété à rattacher ou à créer.
+    ag: corps.ag, mentionAg: corps.mentionAg === true, coproprieteChoix: corps.coproprieteChoix, coproprieteOui: corps.coproprieteOui === true,
+    // 🔴🔴 (23h12) le montant des 20 % retenus tel que saisi (887aec04) : le serveur le lit et le vérifie lui-même
+    montantVingt: corps.montantVingt,
+  };
 }
 
 /**
@@ -190,8 +215,11 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   //    (calculé / saisi) est tranchée ICI, sur le dépôt relu, jamais sur ce que dit l'écran
   let montantVingt: Preparation['montantVingt'] = null;
   if (retenue) {
-    const m = montantVingtSaisi(d.montantVingt);
-    if (m === null) return { etat: 'refus', motif: MOTIF_MONTANT_VINGT_OBLIGATOIRE, champ: 'montantVingt' };
+    // 🔴 (Arno, 25/11/2026, 23h12) la même règle que la fenêtre : toute écriture lisible (« 1 200,50 », « 1200.5 », « 1 200 € ») ; vide, nul, négatif ou
+    //    illisible : un refus qui dit lequel
+    const v = verifierMontantVingt(d.montantVingt);
+    if (!v.ok) return { etat: 'refus', motif: v.motif, champ: 'montantVingt' };
+    const m = v.montant;
     const occ = [d.occupationId, ...sortants];
     montantVingt = { montant: m, depotCentimes: depotDeLaSortie(occ, await depotsDesOccupations(occ)) };
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import { ChampNombre } from './ChampNombre';
-import { calculVingtPourcent, montantFr, origineDite, vingtPourcentDuDepot, type MontantVingt } from '../../../../lib/location/vingtPourcent';
+import { calculVingtPourcent, estMotifMontantVingt, montantFr, origineDite, verifierMontantVingt, vingtPourcentDuDepot, type MontantVingt } from '../../../../lib/location/vingtPourcent';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -124,6 +124,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   //    sinon saisi à la main (obligatoire) ; `null` = la valeur calculée, telle quelle
   const depotCentimes = copro.etat.etat === 'ok' ? copro.etat.data.depotCentimes ?? null : null;
   const [montantVingtSaisi, setMontantVingtSaisi] = useState<string | null>(null);
+  // 🔴 (Arno, 25/11/2026, 23h12) un montant vide, nul, négatif ou illisible : le refus est dit SOUS le champ, qui défile à l'écran
+  const [erreurMontant, setErreurMontant] = useState<string | null>(null);
   const montantVingtTexte = montantVingtSaisi ?? (depotCentimes !== null ? vingtPourcentDuDepot(depotCentimes).toFixed(2).replace('.', ',') : '');
   const etatCase = copropriete === undefined ? null : etatRetenue(copropriete);
   const [retenue, setRetenue] = useState<boolean | null>(null);
@@ -197,18 +199,39 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
     ...(retenueAppliquee && saisieAg !== null ? corpsAg(saisieAg, ag) : {}) };
   const basculer = (cle: string): void => setDestinataires((d) => (d.includes(cle) ? d.filter((x) => x !== cle) : [...d, cle]));
 
+  /** 🔴 (23h12) le refus du montant sous son champ, le champ amené à l'écran (et le curseur dedans) */
+  const montrerErreurMontant = (motif: string): void => {
+    setErreurMontant(motif);
+    setTimeout(() => {
+      const champ = document.querySelector('[data-fenetre-validation-sortie] [data-montant-vingt-champ]') as HTMLInputElement | null;
+      champ?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      champ?.focus({ preventScroll: true });
+    }, 0);
+  };
+  /** la règle du montant, avant tout appel (le serveur la refait) ; `false` : refusé, dit sous le champ */
+  const montantLisible = (): boolean => {
+    if (!retenueAppliquee) return true;
+    const v = verifierMontantVingt(montantVingtTexte);
+    if (v.ok) return true;
+    montrerErreurMontant(v.motif);
+    return false;
+  };
   const voirRecap = async (): Promise<void> => {
-    setEnvoi(true); setRefus(null);
+    setRefus(null); setErreurMontant(null);
+    if (!montantLisible()) return;
+    setEnvoi(true);
     const r = await envoyer({ action: 'apercu-validation-sortie', ...corps }, { propre: true });
     setEnvoi(false);
-    if (r.motif !== null) { setRefus(r.motif); return; }
+    if (r.motif !== null) { if (estMotifMontantVingt(r.motif)) montrerErreurMontant(r.motif); else setRefus(r.motif); return; }
     setEtape({ etape: 'recap', a: r.data as Apercu });
   };
   const confirmer = async (): Promise<void> => {
-    setEnvoi(true); setRefus(null);
+    setRefus(null);
+    if (!montantLisible()) { setEtape({ etape: 'saisie' }); return; }
+    setEnvoi(true);
     const r = await envoyer({ action: 'valider-sortie-edls', ...corps }, { propre: true });
     setEnvoi(false);
-    if (r.motif !== null) { setRefus(r.motif); return; }
+    if (r.motif !== null) { if (estMotifMontantVingt(r.motif)) { setEtape({ etape: 'saisie' }); montrerErreurMontant(r.motif); } else setRefus(r.motif); return; }
     setEtape({ etape: 'resultat', r: r.data as Resultat });
   };
   const fermerResultat = (r: Resultat): void => {
@@ -258,8 +281,9 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
         {retenueAppliquee && (
           <div className="vse-montant-vingt" data-montant-vingt>
             <label className="pvs-champ"><span className="pvs-libelle">Montant des 20 % retenus (€) *</span>
-              <ChampNombre value={montantVingtTexte} placeholder="ex. 400,00" onChange={(e) => { setMontantVingtSaisi(e.target.value); setRefus(null); }}
-                aria-describedby={`${titreId}-calcul-vingt`} data-montant-vingt-champ /></label>
+              <ChampNombre value={montantVingtTexte} placeholder="ex. 400,00" onChange={(e) => { setMontantVingtSaisi(e.target.value); setRefus(null); setErreurMontant(null); }}
+                aria-describedby={`${titreId}-calcul-vingt`} aria-invalid={erreurMontant !== null} data-montant-vingt-champ /></label>
+            {erreurMontant !== null && <p className="cp-refus vse-erreur-champ" role="alert" data-montant-vingt-erreur>{erreurMontant}</p>}
             <p id={`${titreId}-calcul-vingt`} className="loc-muet" data-montant-vingt-calcul>
               {depotCentimes !== null ? `${calculVingtPourcent(depotCentimes)}${montantVingtSaisi !== null && montantVingtSaisi !== vingtPourcentDuDepot(depotCentimes).toFixed(2).replace('.', ',') ? ' — montant modifié à la main' : ''}`
                 : 'Dépôt de garantie non renseigné dans les conditions d’entrée : saisissez le montant des 20 % retenus.'}</p>
@@ -463,6 +487,7 @@ export const CSS_VALIDATION_SORTIE = `
    le bloc s'etire, le champ perd la borne de 22rem du style commun des champs du preavis */
 .vse-retenue .vse-montant-vingt{align-self:stretch;box-sizing:border-box;width:100%;min-width:0;display:flex;flex-direction:column;gap:4px}
 .vse-montant-vingt .pvs-champ input{width:100%;max-width:none}
+.vse-erreur-champ{margin:0}
 .vse-pieces-mail{margin:0;font-weight:700;overflow-wrap:anywhere}
 .vse-frise{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:600px){.vse-frise{grid-template-columns:1fr 1fr}}
