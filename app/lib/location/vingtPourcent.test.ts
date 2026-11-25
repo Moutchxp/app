@@ -125,7 +125,7 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
     // date limite dépassée (AG il y a 3 mois) : toujours « Urgence »
     expect(categorieVingt(ligne(plus(-90), 'officielle'), AUJ)).toBe('urgence');
   });
-  it('d / e : AG dans 30 jours → « À préparer » ; dans 31 jours → « En attente » ; OFFICIELLE lointaine → « À préparer »', () => {
+  it('d / e : AG dans 30 jours → « AGO < 1 mois – À préparer » ; dans 31 jours → « AGO > 1 mois – En attente » ; OFFICIELLE lointaine → « AGO < 1 mois – À préparer »', () => {
     expect(categorieVingt(ligne(plus(30)), AUJ)).toBe('a_preparer');
     expect(categorieVingt(ligne(plus(31)), AUJ)).toBe('en_attente');
     expect(categorieVingt(ligne(plus(1)), AUJ)).toBe('a_preparer');

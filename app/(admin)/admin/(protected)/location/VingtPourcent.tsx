@@ -18,7 +18,7 @@ import {
  * copropriété, date de sortie, exercice concerné, AGO qui compte (projetée / officielle, « incertaine » si besoin), limite de restitution,
  * alerte (toujours en mots). Tout est CALCULÉ à la lecture (`lireSuiviVingtPourcent`), rien n'est stocké par locataire. LECTURE SEULE.
  * 🔴🔴 Arno (24/11/2026) — CINQ CATÉGORIES EXCLUSIVES (`classerVingtPourcent`) : « Dates / copropriétés manquantes » (par copropriété, chaque locataire concerné
- * avec sa ligne complète dessous — rien n'est masqué), « Urgence », « AG passée — restitution à faire », « À préparer », « En attente » ; chacune
+ * avec sa ligne complète dessous — rien n'est masqué), « Urgence », « AG passée — restitution à faire », « AGO < 1 mois – À préparer », « AGO > 1 mois – En attente » ; chacune
  * repliable, avec son compteur, triée de la restitution la plus urgente à la plus lointaine.
  * Le même écran sert la Location (`/api/admin/location`) et la Gestion (`/api/admin/gestion/preavis`). Jetons --color-svv-* ; cibles ≥ 44 px.
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` (les types du dépôt seulement).

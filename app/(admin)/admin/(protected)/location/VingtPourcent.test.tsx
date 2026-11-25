@@ -48,7 +48,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
     // 🔴 Arno (24/11/2026) — cinq catégories exclusives, dans cet ordre (« Dates / copropriétés manquantes » toujours en tête)
     // 🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position
-    expect(blocs).toEqual(['Dates / copropriétés manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites']);
+    expect(blocs).toEqual(['Dates / copropriétés manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente', 'Restitutions faites']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
     // 🔴 (Arno, 24/11/2026, 23h40) un bloc de trois lignes : l'immeuble, les locataires concernés, ce qui manque (orange)
@@ -496,7 +496,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     await act(async () => { (container.querySelector('[data-vgp-recherche-effacer]') as HTMLButtonElement).click(); });
     expect((container.querySelector('[data-vgp-recherche]') as HTMLInputElement).value).toBe('');
     expect(container.querySelector('[data-vgp-aucun-resultat]')).toBeNull();
-    expect(visibles().slice(0, 6)).toEqual(['Dates / copropriétés manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente']);
+    expect(visibles().slice(0, 6)).toEqual(['Dates / copropriétés manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente']);
     expect(readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8')).not.toContain('recherche');
   });
 });
@@ -551,7 +551,7 @@ describe('🔴🔴 Arno (25/11/2026) — tout replié à l’ouverture', () => {
     expect(ouverts()).toEqual(['Urgence']);
     expect(lignesOuvertes()).toBe(0);
     await taper('rue');
-    expect(ouverts()).toEqual(['Dates / copropriétés manquantes', 'En attente', 'Restitutions faites']);
+    expect(ouverts()).toEqual(['Dates / copropriétés manquantes', 'AGO > 1 mois – En attente', 'Restitutions faites']);
     // une ligne dépliée à la main pendant la recherche…
     await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-adresse]') as HTMLElement).click(); });
     expect(lignesOuvertes()).toBe(1);
@@ -569,11 +569,11 @@ describe('🔴🔴 Arno (25/11/2026) — tout replié à l’ouverture', () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const d = container.querySelector('[data-vgp-categorie="en_attente"] > details') as HTMLDetailsElement;
     await act(async () => { d.open = true; d.dispatchEvent(new Event('toggle')); });
-    expect(ouverts()).toEqual(['En attente']);
+    expect(ouverts()).toEqual(['AGO > 1 mois – En attente']);
     await act(async () => { (container.querySelector('[data-vgp-completer="copro-20"]') as HTMLButtonElement).click(); });
     await act(async () => { (container.querySelector('[data-stub-fiche]') as HTMLButtonElement).click(); }); await calmer();
     expect(lectures).toHaveLength(2);
-    expect(ouverts()).toEqual(['En attente']);
+    expect(ouverts()).toEqual(['AGO > 1 mois – En attente']);
   });
 });
 
@@ -583,7 +583,7 @@ describe('🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position
     donnees = { ...LU, faites: [] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(
-      ['Dates / copropriétés manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'À préparer', 'En attente', 'Restitutions faites']);
+      ['Dates / copropriétés manquantes', 'Alerte du lundi', 'Urgence', 'AG passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente', 'Restitutions faites']);
     const a = container.querySelector('[data-vgp-alerte-lundi]')!;
     expect(a.querySelector('summary')?.textContent).toBe('Alerte du lundi');
     expect(a.textContent).toContain('Chaque lundi matin (heure de Paris), si au moins un locataire est en « Urgence », un mail récapitulatif part à l’adresse de la Gestion.');
@@ -594,7 +594,7 @@ describe('🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'dupont'); el.dispatchEvent(new Event('input', { bubbles: true })); });
-    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(['Alerte du lundi', 'En attente']);
+    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(['Alerte du lundi', 'AGO > 1 mois – En attente']);
   });
 });
 
@@ -616,7 +616,7 @@ describe('🔴🔴 Arno (25/11/2026) — une trame de fond par catégorie', () =
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect([...container.querySelectorAll('section')].map((s) => [s.getAttribute('aria-label'), s.getAttribute('data-vgp-teinte')])).toEqual([
       ['Dates / copropriétés manquantes', null], ['Alerte du lundi', 'alerte'], ['Urgence', 'urgence'], ['AG passée — restitution à faire', 'agpassee'],
-      ['À préparer', 'preparer'], ['En attente', 'attente'], ['Restitutions faites', 'faites']]);
+      ['AGO < 1 mois – À préparer', 'preparer'], ['AGO > 1 mois – En attente', 'attente'], ['Restitutions faites', 'faites']]);
     expect(container.querySelector('[data-vgp-categorie="urgence"]')?.className).toContain('vgp-teinte vgp-teinte--urgence');
     expect(container.querySelector('[data-vgp-categorie="manquantes"]')?.className).not.toContain('vgp-teinte');
     const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
@@ -824,5 +824,27 @@ describe('🔴🔴 Arno (25/11/2026) — une seule pastille rouge qui cumule les
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('1');
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — « renommer « En attente » en « AGO > 1 mois – En attente » et « À préparer » en « AGO < 1 mois – À préparer » » ; classement inchangé. */
+describe('🔴 Arno (25/11/2026) — les titres « AGO > 1 mois – En attente » et « AGO < 1 mois – À préparer »', () => {
+  const L = (sortieId: number, ago: string, limite: string, statut: 'officielle' | 'projetee') => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires: [`LOC ${sortieId}`], cleCopro: 'copro-10',
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
+  it('titres et noms accessibles ; une AGO officielle lointaine reste dans « AGO < 1 mois – À préparer » ; l’ancien intitulé seul n’apparaît plus', async () => {
+    donnees = { ...LU, faites: [], lignes: [...LU.lignes, L(13, '2026-12-10', '2027-01-10', 'projetee'), L(14, '2027-09-01', '2027-10-01', 'officielle')] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const titre = (cat: string) => container.querySelector(`[data-vgp-categorie="${cat}"] summary`)?.firstChild?.textContent;
+    expect(titre('a_preparer')).toBe('AGO < 1 mois – À préparer');
+    expect(titre('en_attente')).toBe('AGO > 1 mois – En attente');
+    expect(container.querySelector('[data-vgp-categorie="a_preparer"]')?.getAttribute('aria-label')).toBe('AGO < 1 mois – À préparer');
+    expect(container.querySelector('[data-vgp-categorie="en_attente"]')?.getAttribute('aria-label')).toBe('AGO > 1 mois – En attente');
+    expect([...container.querySelectorAll('[data-vgp-categorie="a_preparer"] [data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['13', '14']);
+    expect([...container.querySelectorAll('[data-vgp-categorie="en_attente"] [data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['5']);
+    const texte = (container.textContent ?? '').replace(/AGO [<>] 1 mois – (À préparer|En attente)/g, '');
+    expect(texte).not.toMatch(/À préparer|En attente/);
+  });
+  it('le mail du lundi ne cite pas ces titres (rien à renommer)', () => {
+    expect(readFileSync('app/lib/location/alerteVingt.ts', 'utf8')).not.toMatch(/À préparer|En attente/);
   });
 });

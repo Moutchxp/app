@@ -200,14 +200,16 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
  *      comptes manquant », et il entre dans l'alerte du lundi s'il est en Urgence ; sa copropriété reste dans « Dates / copropriétés manquantes » et la pastille ;
  *   b. « Urgence » — aujourd'hui > AG + 20 jours (date limite dépassée comprise) ;
  *   c. « AG passée — restitution à faire » — AG ≤ aujourd'hui ≤ AG + 20 jours ;
- *   d. « À préparer » — l'AG a lieu dans les 30 prochains jours, OU sa date est officielle (même lointaine) — choix d'Arno « 1 et 3 » ;
- *   e. « En attente » — tous les autres.
+ *   d. « AGO < 1 mois – À préparer » — l'AG a lieu dans les 30 prochains jours, OU sa date est officielle (même lointaine) — choix d'Arno « 1 et 3 » ;
+ *   e. « AGO > 1 mois – En attente » — tous les autres.
  * a : par copropriété (date de sortie la plus ancienne d'abord) ; b à e : par date limite croissante. Jours comptés à la date de Paris. PUR.
  */
 export type CategorieVingt = 'manquantes' | 'urgence' | 'ag_passee' | 'a_preparer' | 'en_attente';
 export const ORDRE_CATEGORIES: readonly CategorieVingt[] = ['manquantes', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'];
+// 🔴 (Arno, 25/11/2026) « renommer « En attente » en « AGO > 1 mois – En attente » et « À préparer » en « AGO < 1 mois – À préparer » » — titres
+//    seulement : le classement ne change pas (une AGO officielle lointaine reste dans « AGO < 1 mois – À préparer », choix d'Arno « 1 et 3 »)
 export const TITRES_CATEGORIES: Record<CategorieVingt, string> = {
-  manquantes: 'Dates / copropriétés manquantes', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'À préparer', en_attente: 'En attente',
+  manquantes: 'Dates / copropriétés manquantes', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'AGO < 1 mois – À préparer', en_attente: 'AGO > 1 mois – En attente',
 };
 /** b / c : au-delà de AG + 20 jours, l'urgence. */
 export const JOURS_APRES_AG_URGENCE = 20;
