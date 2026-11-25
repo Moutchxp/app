@@ -76,7 +76,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(a.textContent).toContain('1 rue A, 92800 Puteaux');
     // 🔴 (Arno, 24/11/2026, 23h16) deux lignes + détail : l'arrêté a sa rubrique dans le détail ; l'AGO est sur la ligne, en court
     expect(a.querySelector('[data-vgp-exercice]')?.textContent).toBe('Exercice clos le 31/12/2026');
-    expect(a.querySelector('[data-vgp-arrete]')?.textContent).toBe('31/12');
+    expect(a.querySelector('[data-vgp-arrete]')).toBeNull(); // 🔴 (25/11/2026) rubrique retirée : doublon de « Exercice clos le … »
     expect(a.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO vers mars 2027 (projetée)');
     // 🔴 (Arno, 24/11/2026, 23h40) la date limite et son compte à rebours sur la 3e ligne ; le détail ne les répète plus
     expect(a.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 25/04/2027 AG dans 122 jours');
@@ -304,7 +304,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     const detail = a.querySelector('[data-vgp-detail]')!.textContent ?? '';
     for (const deja of ['1 rue A, 92800 Puteaux', 'DUPONT Alice', 'AGO vers mars 2027']) expect(detail).not.toContain(deja);
     // 🔴 (Arno, 24/11/2026, 23h40) ni la date limite ni les jours restants : ils sont sur la ligne
-    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Arrêté des comptes', 'Dernière AGO']);
+    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Dernière AGO']);
     expect(detail).not.toContain('25/04/2027');
     await act(async () => { (a.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
     expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
@@ -1207,5 +1207,17 @@ describe('🔴 Arno (25/11/2026) — la pastille verte des boutons « 20 % à re
     expect(entree).toContain('data-pastille-vingt-preparer={vingtAPreparer} title={detailAPreparer(vingtAPreparer)} aria-label={detailAPreparer(vingtAPreparer)}');
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).toContain('vingtAPreparer={pastillesVingt.aPreparer}');
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/ColonneMode.tsx', 'utf8')).toContain('.cm-pastille-jour.cm-pastille-vert{background:var(--color-svv-green-ink)}');
+  });
+});
+
+/** 🔴 Arno (25/11/2026, retrait accordé) — plus de rubrique « Arrêté des comptes » dans le détail déplié : doublon de « Exercice clos le … ». */
+describe('🔴 Arno (25/11/2026) — « Arrêté des comptes » retiré du détail', () => {
+  it('le détail : Copropriété, Date de sortie, Exercice concerné, Dernière AGO ; l’exercice dit la clôture, ou que l’arrêté manque', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const a = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail]')!;
+    expect([...a.querySelectorAll('dt')].map((x) => x.textContent)).not.toContain('Arrêté des comptes');
+    expect(a.querySelector('[data-vgp-exercice]')?.textContent).toBe('Exercice clos le 31/12/2026');
+    expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-exercice]')?.textContent).toBe('Exercice inconnu (date d’arrêté des comptes manquante)');
+    expect(container.querySelectorAll('[data-vgp-arrete]')).toHaveLength(0);
   });
 });
