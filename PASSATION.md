@@ -310,11 +310,12 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `59000b2a`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `59000b2a`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **18 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `f54002df`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `f54002df`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **22 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
-  (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a` et cette
+  (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
+  puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons) et cette
   passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
@@ -332,8 +333,10 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier commit, `59000b2a`) : `npm test` complet VERT DEUX FOIS DE SUITE (1 869 fichiers, 27 937 tests, 21 ignorés ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
+- **Contrôles** (dernier lot, `f54002df`) : `npm test` VERT du premier coup (1 869 fichiers, 27 951 tests, 21 ignorés ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-G.txt`) ; Chrome recette, ordinateur et 390 px, clair et sombre. ⚠️ **Preuve curl À FAIRE par
+  Arno sur `f54002df`** (couvre tous les commits non poussés). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
+  `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
   de la seule porte ») : `ENOENT … app/lib/svv/__garde_eslint_tmp__.ts` — fichier temporaire que `app/lib/analytics/gardeImports.test.ts`
   crée puis efface pendant que la garde liste et lit tous les fichiers : COURSE ENTRE DEUX FICHIERS DE TEST (sortie
@@ -795,6 +798,22 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       `lireSiPresent` ; même chose pour le `stat` de la liste) — cause : le fichier temporaire `app/lib/svv/__garde_eslint_tmp__.ts` que
       `gardeImports.test.ts` crée puis efface en parallèle. Contrôle gardé : chaque fichier sauté est vérifié ABSENT, et ils restent < 5 ;
       toute autre erreur fait échouer. `gardeImports.test.ts` inchangé. Cas inscrit (cause, correction, conduite) dans `docs/FLAKES_CONNUS.md`.
+    · « Alerte restitution en retard » (demandes d'Arno du 25/11, un commit par point, NON poussés) :
+      - `a3376e28` catégorie `retard` « Alerte restitution en retard », 2e place, fond rouge, À LA PLACE du bloc « Alerte du lundi » (retiré, comme
+        demandé) : AGO OFFICIELLE (date provisoire exclue, même règle que les capsules) ET date limite dépassée (le lendemain de la limite).
+        Absente si vide. « Urgence » = AGO + 21 j → date limite incluse ; une AGO PROJETÉE dont la limite est passée y reste, avec la mention
+        orange « AGO à confirmer — saisir la date officielle » (`agoAConfirmer`) ; une date provisoire dépassée y reste avec sa mention. Recette :
+        « CATEGORIES 1 » passe en retard (41 j) ; « Locataire 3 » (projetée, 34 j) reste en Urgence avec la mention.
+      - `a0877bca` le mail d'alerte REMPLACE celui du lundi : dès 8 h (Paris), si le dernier envoi réussi de cette alerte date d'au moins 2 jours
+        (`alerteDue(m, dernierEnvoi)`), et s'il y a au moins un locataire en retard : objet « [Alerte] 20 % à restituer en retard — N locataire(s) »,
+        liste (locataire, logement, AGO officielle, date limite, jours de retard), lien ; à l'adresse Gestion du réglage. Serveur arrêté le jour
+        prévu : envoi le jour suivant. SANS MIGRATION : journal = table de la 514 (colonne `lundi` = jour de l'envoi ; ces envois reconnus à leur
+        objet « [Alerte] … » ; les lignes « [Urgent] … » du lundi restent et ne comptent pas dans le rythme ; un envoi par jour, index unique).
+        Mode essai dans la catégorie (rubrique « Alerte par mail »). Recette : journal de la 514 VIDE à la fin du lot (aucun envoi automatique).
+      - `f54002df` boutons de raccourci (accueil Location, colonne de gauche de la Gestion) : ROUGE si un locataire en retard, ORANGE si une
+        urgence, sinon d'origine (`niveauBoutonVingt`) ; pastille unique = retard + urgence + copropriétés (recette 1 + 1 + 4 = 6), détail à trois
+        nombres. Orange vérifié dans Chrome par permutation de la classe à l'écran (la recette n'a pas de cas « urgence sans retard »).
+      Captures `.captures/vingt-pourcent/25-11-G*-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
