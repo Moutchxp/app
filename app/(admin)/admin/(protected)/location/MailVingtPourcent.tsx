@@ -84,7 +84,7 @@ export function brouillonsDuModele(base: BrouillonEcran, l: LigneVingtPourcent, 
     const formule = formulePour(d.a, civilites);
     const c = brouillonMailSyndic({ objet, surlignage: null, corps: `${formule}\n\n${texte}\n\n\n` }, signature);
     return { ...base, id: null, a: d.a, cc: d.cc, cci: [], objet: c.objet, corps: c.corps, corpsHtml: c.corpsHtml, surlignageObjet: null,
-      appel: { formule, civilites }, vingtPourcent: { sortieId: l.sortieId } };
+      appel: { formule, civilites }, vingtPourcent: { sortieId: l.sortieId, modele: cle } };
   });
 }
 
@@ -140,7 +140,7 @@ export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVing
             {/* 🔴 le contrôle à l'écran : le même motif que le refus du serveur */}
             {refus !== null && <p className="cp-refus" role="alert" data-vgp-mail-refus>{refus}</p>}
             <Redaction brouillon={b} contexte={mail.contexte} lotFiche={l.lotId} fermetureDemandee={demande}
-              onChange={(nb) => setBrouillons((bs) => (bs ?? []).map((x, j) => (j === i ? { ...nb, vingtPourcent: { sortieId: l.sortieId } } : x)))}
+              onChange={(nb) => setBrouillons((bs) => (bs ?? []).map((x, j) => (j === i ? { ...nb, vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId } } : x)))}
               onFerme={() => retirer(i)}
               onEnvoye={() => retirer(i)}
               onGeste={(m, o) => mail.onGeste?.(m, o)} />

@@ -1322,7 +1322,7 @@ describe('🔴🔴 Arno (25/11/2026) — « Envoyer un mail » dans la ligne dé
     const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
     expect(g).toContain('mail={redaction !== null && redaction.schemaPret && redaction.peutEnvoyer ? { contexte: redaction,');
     const r = readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8');
-    expect(r).toContain('vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId } : undefined,');
+    expect(r).toContain('vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId, modele: b.vingtPourcent.modele ?? null } : undefined,');
     expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcentPage.tsx', 'utf8')).not.toContain('mail=');
   });
 });
@@ -1362,7 +1362,7 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
     expect(b.objet).toBe('Date de la prochaine AGO — 1 rue A, 92800 Puteaux');
     expect(b.corps).toContain('Nous sommes le cabinet CRITERIMMO, gestionnaire du lot situé 1 rue A, 92800 Puteaux, pour le compte de notre client M. Jean DURAND, copropriétaire dans cet immeuble, dont vous êtes le syndic.');
     expect(b.corps.trim().endsWith('— Gestion')).toBe(true);
-    expect(b.vingtPourcent).toEqual({ sortieId: 5 });
+    expect(b.vingtPourcent).toEqual({ sortieId: 5, modele: 'syndic' }); // 🔴 (25/11) le modèle part avec la marque
     await choisir('proprietaire');
     expect(modules()).toEqual(['jean@exemple.test']);
     expect(derniers(1)[0].brouillon.corps).toContain('Suite au départ de vos locataires Alice DUPONT et Léo DUPONT le 15/11/2026');
@@ -1381,5 +1381,41 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
     // retour au message libre : un seul module, vide
     await choisir('');
     expect(modules()).toEqual(['']);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « Lorsqu'un mail a été envoyé depuis le module 20 %, il faut que cela soit indiqué dans le bloc en format fermé (x mail(s)
+ * envoyé(s) depuis cette page) » ; dans le détail, la liste (date, destinataire, modèle) avec le lien vers le mail ; aucune information en doublon.
+ */
+describe('🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette page »', () => {
+  const MAILS = [{ le: '2026-11-24T09:05', a: ['syndic@exemple.test'], copies: 1, modele: 'syndic_copie', lien: '/admin/gestion?fil=55&message=901' },
+    { le: '2026-11-25T10:12', a: ['jean@exemple.test'], copies: 0, modele: null, lien: null }];
+  it('ligne repliée : « 2 mails envoyés depuis cette page — dernier le 25/11/2026 » (singulier : « 1 mail envoyé ») ; absente sans mail', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], mails: MAILS }, { ...LU.lignes[1], mails: [MAILS[0]] }, LU.lignes[2]] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const tete = (id: number) => container.querySelector(`[data-vgp-sortie="${id}"] .vgp-ligne-tete`)!;
+    expect(tete(5).querySelector('[data-vgp-mails-envoyes]')?.textContent).toBe('2 mails envoyés depuis cette page — dernier le 25/11/2026');
+    expect(tete(7).querySelector('[data-vgp-mails-envoyes]')?.textContent).toBe('1 mail envoyé depuis cette page — dernier le 24/11/2026');
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = LU;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-mails-envoyes]')).toBeNull();
+    expect(container.querySelector('[data-vgp-liste-mails]')).toBeNull();
+  });
+  it('détail : la liste (date et heure, destinataire, copies, modèle) et le lien vers le mail, ou « dès la prochaine relève » ; sans répéter le compte', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], mails: MAILS }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail] [data-vgp-liste-mails]')!;
+    expect([...d.querySelectorAll('[data-vgp-mail-envoye]')].map((p) => p.textContent)).toEqual([
+      '24/11/2026 à 09:05 — syndic@exemple.test (+ 1 en copie) — Syndic, propriétaire(s) en copie — date de la prochaine AGO — Voir dans l’historique',
+      '25/11/2026 à 10:12 — jean@exemple.test — Message libre — dans l’historique dès la prochaine relève']);
+    expect(d.querySelector('[data-vgp-mail-lien]')?.getAttribute('href')).toBe('/admin/gestion?fil=55&message=901');
+    expect(d.textContent).not.toContain('mails envoyés depuis cette page —');
+  });
+  it('le modèle choisi part avec la marque (et y reste quand on modifie le message)', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/MailVingtPourcent.tsx', 'utf8');
+    expect(src).toContain('vingtPourcent: { sortieId: l.sortieId, modele: cle } };');
+    expect(src).toContain('vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId }');
   });
 });

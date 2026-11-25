@@ -20,7 +20,7 @@ describe('🔴🔴 refusUnLocataireParMail', () => {
     expect(refusUnLocataireParMail([], ['x@exemple.test'])).toBeNull();
   });
   it('la marque est lue strictement (un entier positif)', () => {
-    expect(marqueVingtPourcent({ sortieId: 5 })).toEqual({ sortieId: 5 });
+    expect(marqueVingtPourcent({ sortieId: 5 })).toEqual({ sortieId: 5, modele: null }); // 🔴 (25/11) + le modèle (absent : message libre)
     for (const x of [undefined, null, 5, {}, { sortieId: '5' }, { sortieId: 0 }, { sortieId: 1.5 }]) expect(marqueVingtPourcent(x)).toBeNull();
   });
 });
@@ -28,6 +28,7 @@ describe('🔴🔴 refusUnLocataireParMail', () => {
 const h = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('../db/client', () => ({ query: h.query }));
 vi.mock('../gestion/coordonneeVivante', () => ({ conditionCoordonneeVivante: async () => '' }));
+vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 const { adressesDesLocatairesDeLaSortie, refusMailVingtPourcent } = await import('./mailVingtPourcentRepo');
 
 describe('🔴🔴 le contrôle du serveur', () => {
@@ -137,5 +138,43 @@ describe('🔴🔴 les quatre modèles', () => {
     expect(destinatairesModeleVingt('locataire', S)).toEqual([{ a: ['alice@x.test'], cc: [], locataire: 0 }, { a: ['leo@x.test'], cc: [], locataire: 1 }, { a: [], cc: [], locataire: 2 }]);
     // chaque envoi du modèle d respecte « un mail par locataire »
     for (const e of destinatairesModeleVingt('locataire', S)) expect(refusUnLocataireParMail(S.locataires, [...e.a, ...e.cc])).toBeNull();
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette page » : la marque porte le modèle ; le lien est noté à la demande ; seuls les envois PARTIS comptent. */
+describe('🔴🔴 les mails envoyés depuis la ligne', () => {
+  it('la marque porte le modèle choisi (l’un des quatre, sinon null = message libre)', () => {
+    expect(marqueVingtPourcent({ sortieId: 5, modele: 'syndic_copie' })).toEqual({ sortieId: 5, modele: 'syndic_copie' });
+    expect(marqueVingtPourcent({ sortieId: 5, modele: 'autre' })).toEqual({ sortieId: 5, modele: null });
+    expect(marqueVingtPourcent({ sortieId: 5 })).toEqual({ sortieId: 5, modele: null });
+  });
+  it('noterMailVingt : la sortie, la clé d’idempotence, le modèle (paramètres liés) ; jamais deux fois la même clé', async () => {
+    h.query.mockReset().mockResolvedValue({ rows: [] });
+    const { noterMailVingt } = await import('./mailVingtPourcentRepo');
+    await noterMailVingt({ sortieId: 7, cleIdempotence: 'cle-123456', modele: 'syndic' });
+    const [sql, p] = h.query.mock.calls.at(-1)! as [string, unknown[]];
+    expect(sql.replace(/\s+/g, ' ')).toContain('INSERT INTO gestion_location_mail_vingt (sortie_validee_id, cle_idempotence, modele) VALUES ($1, $2, $3) ON CONFLICT (cle_idempotence) DO NOTHING');
+    expect(p).toEqual([7, 'cle-123456', 'syndic']);
+  });
+  it('mailsEnvoyesDesSorties : seulement les envois « envoye » et partis, JAMAIS une simulation de la recette (« recette-… ») ; le lien dès la relève', async () => {
+    h.query.mockReset().mockResolvedValue({ rows: [
+      { sortie: '7', modele: 'syndic', le: '2026-11-25T10:12', a: ['syndic@x.test'], cc: ['jean@x.test'], cci: [], message: '901', fil: '55' },
+      { sortie: '7', modele: null, le: '2026-11-25T11:00', a: ['alice@x.test'], cc: [], cci: [], message: null, fil: null }] });
+    const { mailsEnvoyesDesSorties } = await import('./mailVingtPourcentRepo');
+    const m = await mailsEnvoyesDesSorties([7]);
+    expect(m.get(7)).toEqual([
+      { le: '2026-11-25T10:12', a: ['syndic@x.test'], copies: 1, modele: 'syndic', lien: '/admin/gestion?fil=55&message=901' },
+      { le: '2026-11-25T11:00', a: ['alice@x.test'], copies: 0, modele: null, lien: null }]);
+    const sql = String(h.query.mock.calls.at(-1)![0]).replace(/\s+/g, ' ');
+    expect(sql).toContain("e.etat = 'envoye' AND e.parti_le IS NOT NULL");
+    expect(sql).toContain("coalesce(e.gmail_message_id, '') NOT LIKE 'recette-%'");
+    expect(sql).toContain('JOIN gestion_envoi e ON e.cle_idempotence = l.cle_idempotence');
+    expect(h.query.mock.calls.at(-1)![1]).toEqual([[7]]);
+  });
+  it('la route note le lien APRÈS le contrôle « un mail par locataire » (un mail refusé n’est jamais noté)', () => {
+    const r = readFileSync('app/(admin)/api/admin/gestion/envois/route.ts', 'utf8');
+    expect(r.indexOf('await noterMailVingt({ sortieId: vingt.sortieId, cleIdempotence: demande.cleIdempotence, modele: vingt.modele });'))
+      .toBeGreaterThan(r.indexOf('const motif = await refusMailVingtPourcent(vingt.sortieId'));
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8')).toContain('modele: b.vingtPourcent.modele ?? null');
   });
 });

@@ -26,11 +26,16 @@ export function refusUnLocataireParMail(locataires: readonly (readonly string[])
   return null;
 }
 
-/** La marque qu'un mail est parti de l'écran « 20 % à restituer » (lue STRICTEMENT par le serveur : un entier positif). PUR. */
-export function marqueVingtPourcent(x: unknown): { sortieId: number } | null {
+/**
+ * La marque qu'un mail est parti de l'écran « 20 % à restituer » (lue STRICTEMENT par le serveur : un entier positif) ; 🔴 (25/11/2026) et le modèle choisi
+ * (l'un des quatre, sinon `null` = message libre). PUR.
+ */
+export function marqueVingtPourcent(x: unknown): { sortieId: number; modele: CleModeleVingt | null } | null {
   if (x === null || typeof x !== 'object') return null;
   const id = (x as { sortieId?: unknown }).sortieId;
-  return typeof id === 'number' && Number.isInteger(id) && id > 0 ? { sortieId: id } : null;
+  const m = (x as { modele?: unknown }).modele;
+  const modele = typeof m === 'string' && MODELES_VINGT.some((c) => c.cle === m) ? (m as CleModeleVingt) : null;
+  return typeof id === 'number' && Number.isInteger(id) && id > 0 ? { sortieId: id, modele } : null;
 }
 
 // ══ 🔴🔴 Arno (25/11/2026) — LES QUATRE MODÈLES (textes validés par Arno le 25/11/2026), au choix dans le module, modifiables avant envoi ══════════════

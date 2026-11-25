@@ -137,7 +137,11 @@ export interface LigneVingtPourcent {
   derniereAgo?: string | null;
   /** 🔴 (Arno, 24/11/2026, 23h53) les coordonnées réduites au strict minimum (écran interne) ; absentes : non lues */
   contacts?: ContactsSortie;
+  /** 🔴 (Arno, 25/11/2026) les mails RÉELLEMENT partis du module « Envoyer un mail » de cette ligne, du plus ancien au plus récent ; absents : aucun */
+  mails?: MailVingtEnvoye[];
 }
+/** Un mail parti du module d'une ligne : quand (AAAA-MM-JJTHH:MM, Paris), à qui (À), combien en copie, le modèle (`null` : libre), le lien (dès la relève). */
+export interface MailVingtEnvoye { le: string; a: string[]; copies: number; modele: string | null; lien: string | null }
 /** Une personne : « Prénom NOM », son premier e-mail, son premier téléphone (affiché « 06 12 34 56 78 », lien « tel: »). */
 export interface PersonneContact { nom: string; email: string | null; telephone: { affiche: string; lien: string } | null;
   /** 🔴 (Arno, 25/11/2026) toutes ses adresses encore valables (« Envoyer un mail ») ; absent : la seule `email` */

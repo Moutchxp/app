@@ -36,7 +36,7 @@ import { biensDesClients } from '../../../../../lib/gestion/biensDesClientsRepo'
 import { ciblesAPoserALEnvoi, type OrigineCible } from '../../../../../lib/gestion/contexteClients';
 import { rattachementRecu } from '../../../../../lib/gestion/rattachementBrouillon';
 import { marqueVingtPourcent } from '../../../../../lib/location/mailVingtPourcent';
-import { refusMailVingtPourcent } from '../../../../../lib/location/mailVingtPourcentRepo';
+import { noterMailVingt, refusMailVingtPourcent } from '../../../../../lib/location/mailVingtPourcentRepo';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -225,6 +225,8 @@ export async function POST(request: Request): Promise<Response> {
   if (vingt !== null) {
     const motif = await refusMailVingtPourcent(vingt.sortieId, [...demande.a, ...demande.cc, ...demande.cci]);
     if (motif !== null) return Response.json({ erreur: motif, code: 'invalide' }, { status: 422 });
+    // 🔴 (Arno, 25/11/2026) le lien envoi ↔ ligne (515) ; le compte de l'écran ne retient que les envois réellement partis
+    await noterMailVingt({ sortieId: vingt.sortieId, cleIdempotence: demande.cleIdempotence, modele: vingt.modele });
   }
   if (await fileEnvoiDisponible()) {
     const pret = pretAEnvoyer({

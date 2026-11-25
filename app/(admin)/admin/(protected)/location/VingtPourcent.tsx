@@ -5,6 +5,7 @@ import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
+import { MODELES_VINGT } from '../../../../lib/location/mailVingtPourcent';
 import {
   agoAConfirmer, agoOfficielleDuDossier, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
@@ -41,6 +42,16 @@ const geste: Geste = async (corps) => {
 };
 
 export { nombreCoproprietesACompleter, TITRE_VINGT_POURCENT };
+
+/** 🔴 (Arno, 25/11/2026) « 2 mails envoyés depuis cette page — dernier le 25/11/2026 » ; `null` : aucun. PUR. */
+export function mentionMailsEnvoyes(mails: LigneVingtPourcent['mails']): string | null {
+  const n = (mails ?? []).length;
+  if (n === 0) return null;
+  const dernier = mails![n - 1].le;
+  return `${n} mail${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} depuis cette page — dernier le ${dateFr(dernier.slice(0, 10))}`;
+}
+/** Le modèle d'un mail parti : son libellé, ou « Message libre ». PUR. */
+export const libelleModeleVingt = (m: string | null): string => MODELES_VINGT.find((x) => x.cle === m)?.libelle ?? 'Message libre';
 
 /** 🔴 (Arno, 25/11/2026) l'adresse de la ligne sur l'écran Gestion › « 20 % à restituer », module d'envoi déplié (le bouton de la Location y mène). */
 export const lienMailGestion = (sortieId: number): string => `/admin/gestion?ecran=vingt_pourcent&vingtMail=${sortieId}`;
@@ -385,11 +396,15 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
             <span className="vgp-incertaine vgp-une-ligne" {...(aConfirmer ? { 'data-vgp-ago-a-confirmer': '' } : s.etat === 'ok' && s.incertaine ? { 'data-vgp-incertaine': '' } : { 'aria-hidden': true })}>
               {aConfirmer ? MENTION_AGO_A_CONFIRMER : s.etat === 'ok' && s.incertaine ? MENTION_DATE_PROVISOIRE : '\u00a0'}</span>
           </span>
+          <span className="vgp-ligne-actions">
           <span className="vgp-ligne-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onFiche({ immeuble: l.immeuble ?? null, lotId: l.lotId })}
               data-vgp-fiche={l.sortieId}>{l.copropriete === null ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
             {/* 🔴 Arno (24/11/2026) — « Restitution faite » : la fenêtre (inchangée) ; enregistrée, la ligne quitte la liste */}
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
+          </span>
+          {/* 🔴🔴 (Arno, 25/11/2026) « x mail(s) envoyé(s) depuis cette page », discret, sur la ligne repliée ; absent s'il n'y en a aucun */}
+          {mentionMailsEnvoyes(l.mails) !== null && <span className="vgp-mails-envoyes" data-vgp-mails-envoyes={l.mails!.length}>{mentionMailsEnvoyes(l.mails)}</span>}
           </span>
         </div>
       </div>
@@ -406,6 +421,16 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
         </dl>
         <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} action={boutonMail} />
+        {/* 🔴🔴 (Arno, 25/11/2026) la liste des mails partis de cette ligne : quand, à qui, quel modèle, le lien (rien de ce que dit la ligne : ni le compte) */}
+        {(l.mails ?? []).length > 0 && (
+          <div className="vgp-coord" data-vgp-liste-mails>
+            <p className="vgp-coord-titre">Mails envoyés depuis cette page</p>
+            {l.mails!.map((m, i) => (
+              <p key={i} className="vgp-coord-ligne" data-vgp-mail-envoye={i}>
+                {dateFr(m.le.slice(0, 10))} à {m.le.slice(11, 16)} — {m.a.length > 0 ? m.a.join(', ') : '—'}{m.copies > 0 ? ` (+ ${m.copies} en copie)` : ''} — {libelleModeleVingt(m.modele)}
+                {' — '}{m.lien !== null ? <a href={m.lien} data-vgp-mail-lien>Voir dans l’historique</a> : <span className="loc-muet">dans l’historique dès la prochaine relève</span>}
+              </p>))}
+          </div>)}
         {mailOuvert && mail != null && <ModuleMailLigne l={l} mail={mail} fermeture={fermetureMail} onFermer={() => { setMailOuvert(false); setFermetureMail(0); }} />}
         {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>
@@ -662,6 +687,8 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-ligne-ago .vgp-incertaine{font-size:.78rem;max-width:100%}
 .vgp-ligne-manque{font-weight:700;color:var(--color-svv-urgence-orange-texte)}
 .vgp-ligne-boutons{display:flex;gap:6px}
+.vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+.vgp-mails-envoyes{font-size:.75rem;color:var(--color-svv-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
 .vgp-ligne-detail[hidden]{display:none}
@@ -704,7 +731,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
   .vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}
   .vgp-ligne-gauche > .vgp-ligne-limite .vgp-une-ligne,.vgp-ligne-gauche > .vgp-ligne-limite.vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
   .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
-  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
+  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-mails-envoyes{white-space:normal} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
   .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
   .vgp-coords-ligne{flex-direction:column;align-items:stretch} .vgp-envoyer-mail{width:100%;justify-content:center}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }

@@ -8,6 +8,7 @@ import { lireRestitutionsFaites, restitutionVingtDisponible, SQL_SANS_RESTITUTIO
 import { agosOfficielles, datesManquantes, suiviVingtPourcent, type ContactsSortie, type CoproConcernee, type LigneVingtPourcent, type PersonneContact, type SuiviVingtLu } from './vingtPourcent';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { formaterTelephone } from '../gestion/telephoneAffichage';
+import { mailsEnvoyesDesSorties } from './mailVingtPourcentRepo';
 export type { LigneVingtPourcent, SuiviVingtLu } from './vingtPourcent';
 
 /**
@@ -82,6 +83,9 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   // 🔴 (Arno, 24/11/2026, 23h53) les coordonnées des locataires et des propriétaires, au strict minimum (écran interne, rien n'est envoyé)
   const contacts = await contactsDesSorties(rows.map((r) => ({ sortieId: Number(r.id), lotId: Number(r.lot_id) }))).catch(() => new Map<number, ContactsSortie>());
   for (const l of lignes) { const c = contacts.get(l.sortieId); if (c !== undefined) l.contacts = c; }
+  // 🔴 (Arno, 25/11/2026) « x mail(s) envoyé(s) depuis cette page »
+  const mails = await mailsEnvoyesDesSorties(lignes.map((l) => l.sortieId)).catch(() => new Map<number, NonNullable<LigneVingtPourcent['mails']>>());
+  for (const l of lignes) { const m = mails.get(l.sortieId); if (m !== undefined && m.length > 0) l.mails = m; }
   const manquantes = datesManquantes(lignes.flatMap((l) => {
     const p = parLot.get(l.lotId)!;
     return [{ copro: p.copro, arrete: l.arrete, officielles: p.officielles, locataires: l.locataires }];

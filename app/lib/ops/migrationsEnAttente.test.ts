@@ -182,7 +182,9 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     // 🔴 (Arno, 23/11/2026) la 512 (arrêté des comptes) ; la 511 reste réservée à la 361 en attente
     '512_gestion_copropriete_arrete_comptes.sql',
     // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite » des 20 %) et la 514 (alerte du lundi) ; la 361 en attente prendra le premier numéro libre suivant (515)
-    '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql'];
+    '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql',
+    // 🔴 (Arno, 25/11/2026) la 515 (« x mails envoyés depuis cette page » du module 20 %) ; la 361 en attente prendra la 516
+    '515_location_mail_vingt_pourcent.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -195,7 +197,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 510, puis 512 à 514 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 510, puis 512 à 515 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -207,19 +209,20 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
 
   // 🔴 (Arno, 23/11/2026) « la 511 reste réservée à la 361 en attente » : la 512 l'a dépassée. Le plan refuse toute nouvelle migration numérotée SOUS la
   // dernière INSCRITE : la 511 passe si elle part avec la 512 (ou avant), et serait REFUSÉE une fois la 512 inscrite (elle prendrait alors la 513).
-  // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite ») et la 514 (alerte du lundi) sont prises : une fois inscrites, la 361 prend la 515.
-  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 514 dans la même mise à jour, REFUSÉE une fois inscrites (515 alors)', () => {
+  // 🔴 (Arno, 24/11/2026) la 513 (« Restitution faite ») et la 514 (alerte du lundi) sont prises ; 🔴 (25/11/2026) la 515 aussi (mails du module 20 %) :
+  // une fois inscrites, la 361 prend la 516.
+  it('la 361 : telle quelle REFUSÉE ; en 511, acceptée avec 512 à 515 dans la même mise à jour, REFUSÉE une fois inscrites (516 alors)', () => {
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
-    const jusqua510 = inscrire(A_VENIR.filter((f) => !['512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql'].includes(f)));
+    const jusqua510 = inscrire(A_VENIR.filter((f) => !['512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql'].includes(f)));
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
     expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(510\)/);
     const avec512 = planifier([...existants, { fichier: '511_permis_emprise_numero_reveil.sql', contenu: contenu361 }], jusqua510);
     expect(avec512.refus).toEqual([]);
-    expect(avec512.nouvelles.map((n) => n.fichier)).toEqual(['511_permis_emprise_numero_reveil.sql', '512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql']);
+    expect(avec512.nouvelles.map((n) => n.fichier)).toEqual(['511_permis_emprise_numero_reveil.sql', '512_gestion_copropriete_arrete_comptes.sql', '513_location_restitution_vingt_pourcent.sql', '514_location_alerte_vingt_pourcent.sql', '515_location_mail_vingt_pourcent.sql']);
     const apres512 = planifier([...existants, { fichier: '511_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
-    expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(514\)/);
-    const en515 = planifier([...existants, { fichier: '515_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
-    expect(en515.refus).toEqual([]);
+    expect(apres512.refus.join('\n')).toMatch(/511_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(515\)/);
+    const en516 = planifier([...existants, { fichier: '516_permis_emprise_numero_reveil.sql', contenu: contenu361 }], inscrire(A_VENIR));
+    expect(en516.refus).toEqual([]);
   });
 });
 
@@ -1148,4 +1151,18 @@ describe('513 et 514 (« 20 % à restituer ») : additives, enveloppées, emprei
       expect(a.sha256).toBe(sha);
     });
   }
+});
+
+describe('🔴 515 (Arno, 25/11/2026 — mails du module « Envoyer un mail » de « 20 % à restituer ») : additive, enveloppée, en ajout seul', () => {
+  const contenu = lire(MIGRATIONS, '515_location_mail_vingt_pourcent.sql');
+  const a = analyserMigration({ fichier: '515_location_mail_vingt_pourcent.sql', contenu });
+  it('passe le garde, enveloppée, une table créée ; ajout seul (ni UPDATE ni DELETE ni TRUNCATE) ; rien d’existant touché', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.tablesCreees).toEqual(['gestion_location_mail_vingt']);
+    expect(contenu).toContain('BEFORE UPDATE OR DELETE ON gestion_location_mail_vingt');
+    expect(contenu).toContain('BEFORE TRUNCATE ON gestion_location_mail_vingt');
+    expect(contenu).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_location_mail_vingt_cle ON gestion_location_mail_vingt (cle_idempotence);');
+    expect(contenu).not.toMatch(/^\s*(UPDATE|DELETE|ALTER TABLE (?!gestion_location_mail_vingt))/mi);
+  });
 });

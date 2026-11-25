@@ -202,7 +202,7 @@ export interface BrouillonEcran extends Brouillon {
    * 🔴 Arno (25/11/2026) — écrit depuis l'écran « 20 % à restituer » : la sortie d'où part le mail. Il part avec l'envoi, et le serveur y applique
    * « un mail par locataire » (adresses relues en base). Absent ⇒ rien ne change.
    */
-  vingtPourcent?: { sortieId: number } | null;
+  vingtPourcent?: { sortieId: number; modele?: string | null } | null;
   /** La formule d'appel écrite en tête du corps, et de quoi la recalculer quand « À » change. Absent ⇒ rien. */
   appel?: AppelAuto | null;
   /**
@@ -2162,7 +2162,7 @@ export function Redaction({
            */
           horsGestion: b.horsGestion === true ? true : undefined,
           /** 🔴 Arno (25/11/2026) — écrit depuis « 20 % à restituer » : le serveur y contrôle « un mail par locataire ». */
-          vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId } : undefined,
+          vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId, modele: b.vingtPourcent.modele ?? null } : undefined,
           /**
            * 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE RESTE DE LA FENÊTRE (portée du suivi, biens du suivi de fond
            * décochés). Il part TOUJOURS, même vide : c'est lui qui fait passer les biens par la fonction de « Modifier
