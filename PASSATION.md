@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `67f9e8b2`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `67f9e8b2`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **69 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `b50ea980`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `b50ea980`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **75 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -329,7 +329,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   échangés » sous la capsule AGO `9f31e125`, la passation `fbcbd36f`, la nouvelle règle Urgence / Alerte `2c97de46`, les échanges dans
   « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880`, les passations `e6c0c7b7` et `1bde3793`, les échanges dans
   « Dates / copropriétés manquantes » `e7817637`, la passation `108e8f84`, l'ordre du plus récent au plus ancien `3251b835`, l'œil des pièces
-  jointes `129d9e81`, les mails fermés par défaut `c1cf0891`, la passation `67f9e8b2` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  jointes `129d9e81`, les mails fermés par défaut `c1cf0891`, les passations `67f9e8b2` et `4e04681d`, le montant des 20 % `887aec04` (MIGRATION 516), la ligne
+  de détail encadrée `898e8043`, l'onglet « Restitution des 20 % » `7fdc82f4` (MIGRATION 517), les modèles de mail de restitution `0fcd88d3`, la fenêtre
+  « Faire restitution » retravaillée `b50ea980` (MIGRATION 518) et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -346,13 +348,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `c1cf0891`) : `npm test` VERT du premier coup (1 873 fichiers, 28 055 tests, 21 ignorés, 93 s ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-V.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
+- **Contrôles** (dernier lot, `b50ea980`) : `npm test` VERT du premier coup (1 875 fichiers, 28 088 tests, 21 ignorés, 95 s ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-X.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
   (`npm-test-complet-25-11-L2.txt`) — la passe précédente (`npm-test-complet-25-11-L.txt`) avait rougi sur deux GARDES de
   la Location (`<select>` natif, mot « HistoriqueDuBien » dans un commentaire), corrigées par `cfdf2faf` ; le flake connu `PreavisAccueil.test.tsx`
   (3 061 ms) est revenu une fois en suite filtrée, fichier seul vert deux fois. Chrome recette, ordinateur et 390 px, clair et sombre, APERÇU SEULEMENT :
   aucun mail envoyé, aucun POST d'écriture (seul l'appel de LECTURE `POST /api/admin/gestion/classement` du module, bloqué par le garde de
-  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `c1cf0891`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
+  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `b50ea980`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
   table des restitutions de la recette inchangée (2 lignes du 24/11). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
   `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
@@ -394,9 +396,11 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   514** (`514_location_alerte_vingt_pourcent.sql`, journal de l'alerte du lundi, un seul « envoye » par lundi) — appliquées en RECETTE
   seulement (deux passes chacune) et, depuis le 24/11 à 23h30 (décision d'Arno), INSCRITES au registre `svav_migration` de la recette au
   format de la 512 (« mise_a_jour », sha256 du fichier, commits `5b046e8e` / `81f08a64`, duree_ms 0 ; empreintes figées dans
-  `migrationsEnAttente.test.ts`, commit `418e54e6`). **La prochaine mise en production appliquera 512, 513, 514 et 515** (🔴 515 : `gestion_location_mail_vingt`, « x mails envoyés depuis cette page »,
-  commit `905e0e0a`, appliquée deux fois et inscrite au registre de la RECETTE le 25/11/2026).
-  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra la 516 (la 515 est prise depuis le 25/11/2026), le jour où Arno la sortira** (décision
+  `migrationsEnAttente.test.ts`, commit `418e54e6`). **La prochaine mise en production appliquera 512 à 518** (🔴 515 : `gestion_location_mail_vingt`, « x mails envoyés depuis cette page »,
+  commit `905e0e0a` ; 🔴 516 : `gestion_location_montant_vingt`, montant des 20 %, `887aec04` ; 🔴 517 : sorte « restitution_vingt » des destinataires
+  mails, `7fdc82f4` ; 🔴 518 : montant_vingt / motif_difference de la restitution + modèles de mail de restitution, `b50ea980` — chacune testée sur une copie
+  de structure supprimée ensuite, appliquée deux fois et inscrite au registre de la RECETTE le 25/11/2026).
+  🔴 **La 361 en attente (`db/migrations-en-attente/`) prendra la 519 (516 à 518 prises le 25/11/2026 au soir), le jour où Arno la sortira** (décision
   d'Arno du 23/11/2026, « garde le premier libre suivant » redit le 24/11) — la 511 reste vide (refusée une fois 512-514 inscrites ;
   épreuve dans `migrationsEnAttente.test.ts`, mise à jour). Non touchée.
 - **Registre des migrations (`svav_migration`) — état au 20/11/2026 au soir** (rapport : `.captures/registre-migrations/RAPPORT.txt`) :
@@ -1046,6 +1050,24 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       Vérifié dans Chrome (localhost:3000, rechargement complet, ordinateur et 390 px, clair et sombre) : les 13 aux bonnes catégories, capsules =
       compteurs ; 3 mails relus en entier (syndic Moreau, propriétaire Girard, locataire Durand), aperçu du modèle « Syndic » sur Benoît, convocation
       PDF lisible dans la liseuse ; aucun « _TEST / JEU / essai / exemple » dans ces textes. Aucun brouillon. Captures `25-11-W-*`.
+    · Demande d'Arno du 25/11, 22h06 (UN COMMIT PAR POINT ; le point 5 est commité AVANT le point 4, qui s'en sert) :
+      `887aec04` (1) MONTANT DES 20 % : migration 516 (ajout seul, dernière ligne fait foi, origine calcule / saisi) ; calcul = 20 % du dépôt de garantie
+      des conditions d'entrée (centimes, `gestion_location_conditions_entree`), arrondi au centime ; « Valider la sortie » : champ prérempli modifiable,
+      obligatoire si case cochée, écrit après la sortie, dit au récapitulatif / résultat / journal du bien ; suit : détail de la ligne, fenêtre de
+      restitution, « Restitutions faites », journal de la restitution ; sorties existantes : calcul à la lecture, sinon « Montant des 20 % à saisir » +
+      saisie sur la ligne (action « montant-20-saisi »).
+      `898e8043` (2) le détail encadré : Date de sortie / Exercice / Dernière AGO / Montant retenu (20 %), fond teinté (color-mix de l'encre du thème).
+      `7fdc82f4` (3) onglet « Restitution des 20 % » des Paramètres Location (migration 517) : liste VIDE en recette (rien repris d'ADHOC / MONGA).
+      `0fcd88d3` (5) modèles de mail (locataire, partenaire) : texte d'Arno ; NOM de famille tiré de « NOM Prénom » (mots en majuscules) ; civilité
+      inconnue → « Madame, Monsieur » (les vraies fiches locataires n'ont presque jamais de civilité ni de prénom : 517 / 521 en « NOM Prénom » en recette).
+      `b50ea980` (4) fenêtre « Faire restitution » (migration 518) : 20 % / restitué préremplis, différence, MOTIF obligatoire, cases locataires (cochées)
+      et partenaires (décochées), un mail par destinataire via `/api/admin/gestion/envois` (marque `vingtPourcent`, modèles restitution_*), récapitulatif,
+      l'attestation d'avant gardée, « Renvoyer » ; titre « Restitution faite — … » gardé ; l'ancien champ « Montant retenu au titre des charges » est
+      remplacé par la différence + son motif. Vérifié sur BENOÎT Sarah (400 / 370 / « régularisation de charges »), RIEN confirmé ni envoyé.
+      Données d'essai : civilité posée sur les 13 locataires « exemple-20 » (UPDATE de mes fiches d'essai) pour « Bonjour Madame BENOÎT ».
+      ⚠️ Brouillon 173 (21:45, « nouveau », sans objet, a.jorel+syndic-duval@) : pas de mes vérifications (le seul module ouvert était sur BENOÎT,
+      cabinet Rivière) — très probablement un essai d'Arno ; laissé tel quel. ⚠️ Écart de règle signalé : une commande `git stash list` a été lancée
+      par erreur dans ce lot (lecture seule, sortie ignorée) — interdite par la consigne, à ne pas refaire. Captures `25-11-X*-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
