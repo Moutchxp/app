@@ -32,6 +32,20 @@ export async function refusMailVingtPourcent(sortieId: number, destinataires: re
   return refusUnLocataireParMail(await adressesDesLocatairesDeLaSortie(sortieId), destinataires);
 }
 
+/**
+ * 🔴🔴 Arno (25/11/2026) — « il faut une traçabilité depuis le préavis de ce locataire, pour que le bien soit clairement identifié du début du préavis
+ * jusqu'à la restitution finale » : LE bien d'un mail parti d'une ligne, relu par le serveur sur la SORTIE VALIDÉE (`lot_id` posé à la validation, jamais
+ * recalculé : ni l'adresse, ni le bail en cours — un logement reloué entre-temps garde son identité). `null` : sortie introuvable. LECTURE SEULE.
+ */
+export async function cibleDeLaSortie(sortieId: number): Promise<{ sorte: 'lot'; cle: string | null; id: number; libelle: string } | null> {
+  const { rows } = await query<{ id: string; cle: string | null; libelle: string | null }>(
+    `SELECT lo.id::text, lo.wippimmo_id::text AS cle,
+            nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS libelle
+       FROM gestion_location_sortie_validee s JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id WHERE s.id = $1`, [sortieId]);
+  const r = rows[0];
+  return r === undefined ? null : { sorte: 'lot', cle: r.cle, id: Number(r.id), libelle: r.libelle ?? `Bien ${r.id}` };
+}
+
 // ══ 🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette page » (migration 515) ══════════════════════════════════════════════════════════════
 export const mailsVingtDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_vingt', 'cle_idempotence');
 

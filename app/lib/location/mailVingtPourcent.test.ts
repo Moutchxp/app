@@ -178,3 +178,44 @@ describe('🔴🔴 les mails envoyés depuis la ligne', () => {
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8')).toContain('modele: b.vingtPourcent.modele ?? null');
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « il faut une traçabilité depuis le préavis de ce locataire, pour que le bien soit clairement identifié du début du préavis
+ * jusqu'à la restitution finale des 20 %, plusieurs mois après » ; le bien reste identifié même si le logement est reloué entre-temps.
+ */
+describe('🔴🔴 le bien d’un mail parti d’une ligne : celui de la SORTIE VALIDÉE, jamais un autre', () => {
+  it('cibleDeLaSortie lit s.lot_id (posé à la validation) : ni occupation en cours, ni adresse, ni nom — un logement reloué garde son bien', async () => {
+    h.query.mockReset().mockResolvedValue({ rows: [{ id: '445', cle: 'W445', libelle: '1 rue du Préavis de Test, 00000 TEST' }] });
+    const { cibleDeLaSortie } = await import('./mailVingtPourcentRepo');
+    expect(await cibleDeLaSortie(7)).toEqual({ sorte: 'lot', cle: 'W445', id: 445, libelle: '1 rue du Préavis de Test, 00000 TEST' });
+    const [sql, p] = h.query.mock.calls.at(-1)! as [string, unknown[]];
+    const n = sql.replace(/\s+/g, ' ');
+    expect(n).toContain('FROM gestion_location_sortie_validee s JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id WHERE s.id = $1');
+    expect(p).toEqual([7]);
+    // relocation : un nouveau locataire = une NOUVELLE occupation sur le même lot ; la lecture n'en dépend pas
+    expect(n).not.toContain('gestion_annuaire_occupation');
+    expect(n).not.toMatch(/sortie IS NULL|adresse =|ILIKE/);
+    h.query.mockReset().mockResolvedValue({ rows: [] });
+    expect(await cibleDeLaSortie(999)).toBeNull();
+  });
+  it('la route REPOSE ce seul bien (ni interne, ni hors gestion) après le contrôle « un mail par locataire », avant la mise en file ; sortie introuvable : refus', () => {
+    const r = readFileSync('app/(admin)/api/admin/gestion/envois/route.ts', 'utf8');
+    const bien = r.indexOf('const bien = await cibleDeLaSortie(vingt.sortieId);');
+    expect(bien).toBeGreaterThan(r.indexOf('const motif = await refusMailVingtPourcent(vingt.sortieId'));
+    expect(bien).toBeGreaterThan(r.indexOf('demande.cibles = gardees;'));    // après le filet : rien ne peut l'écarter
+    expect(bien).toBeLessThan(r.indexOf('if (await fileEnvoiDisponible()) {'));
+    const suite = r.slice(bien, bien + 500);
+    expect(suite).toContain('demande.cibles = ciblesDemandees([bien]);');
+    expect(suite).toContain('demande.interne = false;');
+    expect(suite).toContain('demande.horsGestion = false;');
+    expect(suite).toContain("if (bien === null) return Response.json({ erreur: 'Sortie introuvable : le mail n’est pas envoyé.', code: 'invalide' }, { status: 422 });");
+  });
+  it('l’écran « 20 % à restituer » et « Restitutions faites » lisent aussi le bien par s.lot_id, les locataires par s.occupation_ids', () => {
+    const v = readFileSync('app/lib/location/vingtPourcentRepo.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(v).toContain('JOIN gestion_annuaire_lot lo ON lo.id = s.lot_id');
+    expect(v).toContain('ANY(s.occupation_ids)');
+    const f = readFileSync('app/lib/location/restitutionVingtRepo.ts', 'utf8').replace(/\s+/g, ' ');
+    expect(f).toContain('lo.id = s.lot_id');
+    expect(f).toContain('s.occupation_ids');
+  });
+});

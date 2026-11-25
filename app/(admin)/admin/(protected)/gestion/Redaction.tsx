@@ -597,8 +597,15 @@ export function FenetreConfirmation({ question, annuler, confirmer, echec = null
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
-  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null, onPleinEcran, voieDemandee = null,
+  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null, onPleinEcran, voieDemandee = null, classementVerrouille = null,
 }: {
+  /**
+   * 🔴🔴 Arno (25/11/2026) — écrit depuis une ligne de « 20 % à restituer » : « ce processus étant attaché à un locataire donc à un bien unique, il ne peut
+   * pas y avoir d'autre choix que celui qui concerne le bien auquel était rattaché le locataire avant sa sortie ». Présent ⇒ « Classer ce mail » est
+   * VERROUILLÉ sur ce seul bien (« Rattaché — [libellé] ») : aucune proposition, aucun bien ajouté d'après les destinataires, rien de modifiable.
+   * ABSENT (partout ailleurs) ⇒ exactement le comportement d'avant. Le serveur, lui, repose de toute façon le bien de la sortie (route `envois`).
+   */
+  classementVerrouille?: { libelle: string } | null;
   /**
    * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — UN BOUTON DU MAIL CLIQUÉ PENDANT QUE CE COMPOSEUR EST OUVERT SUR LUI.
    * Chaque nouveau `n` demande de passer au mode `voie` — exactement comme le sélecteur du composeur, donc sans rien
@@ -1004,6 +1011,7 @@ export function Redaction({
    * habituelle rejoue (bien unique d'office, plusieurs biens à choisir).
    */
   useEffect(() => {
+    if (classementVerrouille !== null) return; // 🔴 (25/11/2026) classement verrouillé : aucun bien ajouté ni retiré d'après les destinataires
     const presentes = [...new Set(adressesDesChamps)];
     for (const r of [...refusesAuto.current]) if (!presentes.includes(r.split('|')[0])) refusesAuto.current.delete(r);
     for (const cleBien of clientsPrecedents.current) {
@@ -2581,7 +2589,16 @@ export function Redaction({
           ⚠️ LE BLOC RESTE CONDITIONNÉ À `classementDisponible` : proposer un classement que la base ne saurait
           pas garder au rechargement serait pire qu'une fonction absente. */}
       {contexte.classementDisponible === true && (
-        <ChampClassement
+        classementVerrouille !== null ? (
+          /* 🔴🔴 (Arno, 25/11/2026) verrouillé sur le bien de la ligne « 20 % à restituer » : la case verte, inerte, et aucune proposition */
+          <div className="red-classement-verrouille" data-classement-verrouille>
+            <p className="red-classement-verrouille-titre">Classer ce mail</p>
+            <p className="red-classement-verrouille-case" role="status">
+              <span><strong>Rattaché</strong> — {classementVerrouille.libelle}</span>
+              <span className="red-classement-verrouille-note">Bien du locataire, de son préavis à la restitution des 20 % : non modifiable ici.</span>
+            </p>
+          </div>
+        ) : <ChampClassement
           cibles={brouillon.cibles ?? []}
           interne={interneVoulu}
           /* 🔴 LOT CLASSER-AVANT-ENVOI — « HORS GESTION », HÉRITÉ de la conversation. Il n'a pas de bouton :
@@ -3221,6 +3238,11 @@ ${cssPleinEcranComposeur('.red.red--plein')}
   font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .red-formule-main{margin:-2px 0 2px;font-size:.75rem;color:var(--color-svv-muted)}
 .red-formule-retablir{font-size:.75rem}
+/* 🔴 (Arno, 25/11/2026) « Classer ce mail » verrouillé (ligne « 20 % à restituer ») : la case verte, inerte */
+.red-classement-verrouille{display:flex;flex-direction:column;gap:4px;min-width:0}
+.red-classement-verrouille-titre{margin:0;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
+.red-classement-verrouille-case{margin:0;padding:8px 12px;border-radius:10px;border:1px solid var(--color-svv-green);background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.red-classement-verrouille-note{font-size:.78rem;font-weight:400;color:var(--color-svv-ink)}
 .red-avertit-manuel{margin:8px 0;padding:10px 12px;border:1.5px solid var(--color-svv-orange);border-radius:.6rem;
   background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.9rem}
 .red-avertit-manuel-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 6px}

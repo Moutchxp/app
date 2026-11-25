@@ -32,14 +32,22 @@ export const adressesDesLocataires = (l: Pick<LigneVingtPourcent, 'contacts'>): 
  * mécanisme, journal) » : le bien de la ligne part comme CIBLE EXPLICITE (sans `origine` — jamais écartée par le filet de l'envoi `ciblesCoherentes`,
  * même pour un mail au seul syndic) ; la route la pose (`gestion_envoi_cible`) puis en fait un rattachement CONFIRMÉ dès que le mail envoyé est
  * capturé (`appliquerCiblesEnAttente`) — l'historique du bien. Les personnes (locataire, propriétaire, contact du syndic) le retrouvent par leurs
- * adresses, et la copropriété par ses biens (décision 3A) ; la route écrit aussi sa ligne de `gestion_journal`. Les autres cibles sont gardées. PUR.
+ * adresses, et la copropriété par ses biens (décision 3A) ; la route écrit aussi sa ligne de `gestion_journal`. 🔴 (25/11/2026) SEUL ce bien : toute autre cible est écartée. PUR.
  */
 export function ciblesAvecLeBien<C extends { sorte?: string; id?: number | null; cle?: string | null; origine?: unknown }>(
   cibles: readonly C[] | undefined, l: Pick<LigneVingtPourcent, 'lotId' | 'lotCle' | 'logement'>,
-): Array<C | { sorte: 'lot'; cle: string | null; id: number; libelle: string }> {
-  const autres = (cibles ?? []).filter((c) => !(c.sorte === 'lot' && (c.id === l.lotId || (l.lotCle != null && c.cle === l.lotCle))));
+): Array<{ sorte: 'lot'; cle: string | null; id: number; libelle: string }> {
+  // 🔴🔴 (Arno, 25/11/2026) « il ne peut pas y avoir d'autre choix que celui qui concerne le bien auquel était rattaché le locataire avant sa sortie » :
+  //    LE SEUL bien de la ligne (toute autre cible, venue des destinataires ou d'ailleurs, est écartée)
   const existant = (cibles ?? []).find((c) => c.sorte === 'lot' && (c.id === l.lotId || (l.lotCle != null && c.cle === l.lotCle))) as (C & { libelle?: string }) | undefined;
-  return [{ sorte: 'lot', cle: l.lotCle ?? existant?.cle ?? null, id: l.lotId, libelle: existant?.libelle ?? l.logement ?? `Bien ${l.lotId}` }, ...autres];
+  return [{ sorte: 'lot', cle: l.lotCle ?? existant?.cle ?? null, id: l.lotId, libelle: existant?.libelle ?? l.logement ?? `Bien ${l.lotId}` }];
+}
+
+/** 🔴 (Arno, 25/11/2026) le libellé du classement verrouillé : « [adresse du bien], lot n° … » (les numéros s'ils sont sur la fiche). PUR. */
+export function libelleBienVerrouille(l: Pick<LigneVingtPourcent, 'lotId' | 'logement' | 'numLots'>): string {
+  const lots = [...new Set((l.numLots ?? []).map((x) => x.trim()).filter((x) => x !== ''))];
+  const adresse = l.logement ?? `Bien ${l.lotId}`;
+  return lots.length === 0 ? adresse : `${adresse}, ${lots.length > 1 ? 'lots' : 'lot'} n° ${lots.length > 1 ? `${lots.slice(0, -1).join(', ')} et ${lots[lots.length - 1]}` : lots[0]}`;
 }
 
 /** Le brouillon neuf du module : le « Nouveau message » de la colonne, le bien de la ligne pré-coché, ses adresses proposées. */
@@ -139,8 +147,8 @@ export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVing
           <div key={`${generation}:${i}`} className="vgp-mail-module" data-vgp-mail-module={i}>
             {/* 🔴 le contrôle à l'écran : le même motif que le refus du serveur */}
             {refus !== null && <p className="cp-refus" role="alert" data-vgp-mail-refus>{refus}</p>}
-            <Redaction brouillon={b} contexte={mail.contexte} lotFiche={l.lotId} fermetureDemandee={demande}
-              onChange={(nb) => setBrouillons((bs) => (bs ?? []).map((x, j) => (j === i ? { ...nb, vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId } } : x)))}
+            <Redaction brouillon={b} contexte={mail.contexte} lotFiche={l.lotId} fermetureDemandee={demande} classementVerrouille={{ libelle: libelleBienVerrouille(l) }}
+              onChange={(nb) => setBrouillons((bs) => (bs ?? []).map((x, j) => (j === i ? { ...nb, cibles: ciblesAvecLeBien(nb.cibles, l) as BrouillonEcran['cibles'], interne: false, vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId } } : x)))}
               onFerme={() => retirer(i)}
               onEnvoye={() => retirer(i)}
               onGeste={(m, o) => mail.onGeste?.(m, o)} />

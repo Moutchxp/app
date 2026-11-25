@@ -532,3 +532,38 @@ describe('🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — la modale montr
     expect(compteur()).toBe('0 bien(s) coché(s) sur 6 affiché(s).');
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — écrit depuis une ligne de « 20 % à restituer » : « il ne peut pas y avoir d'autre choix que celui qui concerne le bien auquel
+ * était rattaché le locataire avant sa sortie ». `classementVerrouille` ⇒ « Rattaché — [bien] », aucune proposition, quels que soient les destinataires.
+ */
+describe('🔴🔴 classement VERROUILLÉ (ligne « 20 % à restituer »)', () => {
+  const BIEN_SORTIE = { sorte: 'lot' as const, cle: 'W445', id: 445, libelle: '1 rue du Préavis de Test, 00000 TEST' };
+  const monterVerrouille = async (b: BrouillonEcran) => {
+    courant = b;
+    const rendre = () => root.render(createElement(Redaction, {
+      brouillon: courant, contexte: CONTEXTE, lotFiche: 445, classementVerrouille: { libelle: '1 rue du Préavis de Test, 00000 TEST, lot n° 12' },
+      onChange: (n: BrouillonEcran) => { courant = n; rendre(); },
+      onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {},
+    } as never));
+    await act(async () => { rendre(); });
+    await laisser();
+  };
+  it('« Rattaché — [adresse, lot n°] », non modifiable ; un destinataire lié à 3 biens n’amène AUCUNE proposition ni aucun bien', async () => {
+    await monterVerrouille({ ...NOUVEAU, cibles: [BIEN_SORTIE] } as unknown as BrouillonEcran);
+    const bloc = container.querySelector('[data-classement-verrouille]')!;
+    expect(bloc.textContent).toContain('Rattaché — 1 rue du Préavis de Test, 00000 TEST, lot n° 12');
+    expect(bloc.querySelector('button')).toBeNull();                         // rien à cliquer : non modifiable
+    await taper('trois.biens@x.fr');
+    await taper('seul@x.fr', 'À');                                           // un bien unique, d'ordinaire ajouté d'office
+    expect(container.textContent).not.toMatch(/propositions? en attente/);
+    expect(container.querySelector('.ccl-case')).toBeNull();                // ni « Rattacher » ni « Interne »
+    expect((courant.cibles ?? []).map((c) => [c.sorte, c.cle])).toEqual([['lot', 'W445']]);
+  });
+  it('sans la propriété (partout ailleurs), le même destinataire amène toujours « 3 propositions en attente »', async () => {
+    await monter(NOUVEAU);
+    await taper('trois.biens@x.fr');
+    expect(container.querySelector('[data-classement-verrouille]')).toBeNull();
+    expect(container.textContent).toContain('3 propositions en attente');
+  });
+});
