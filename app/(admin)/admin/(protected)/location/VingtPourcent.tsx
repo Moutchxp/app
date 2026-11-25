@@ -593,7 +593,8 @@ function LigneFaite({ f, onAnnule }: { f: RestitutionFaite; onAnnule: () => void
             {f.montantRetenuCharges !== null && <div><dt>Montant retenu</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
             {f.motifDifference != null && <div><dt>Motif</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
             <div><dt>Enregistrée par</dt><dd data-vgp-faite-par>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
-            {f.commentaire !== null && <div><dt>Commentaire</dt><dd data-vgp-faite-commentaire>{f.commentaire}</dd></div>}
+            {/* 🔴 (Arno, 25/11/2026, 23h42) « COMMENTAIRE » devient « NOTE INTERNE » (non envoyée aux tiers) */}
+            {f.commentaire !== null && <div><dt>Note interne</dt><dd data-vgp-faite-commentaire>{f.commentaire}</dd></div>}
           </dl>
         </div>
         {/* 🔴🔴 (Arno, 25/11/2026) les échanges de la SORTIE, en lecture (la restitution est faite : pas de « Répondre » ici) ; lus à l'ouverture de la ligne */}

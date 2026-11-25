@@ -23,6 +23,8 @@ import { montantEuros, montantFr, origineDite, texteConfirmationRestitution, TIT
  */
 
 const API_LOCATION = '/api/admin/location';
+/** 🔴 (Arno, 25/11/2026, 23h42) l'aide sous la note interne de la restitution. */
+export const AIDE_NOTE_INTERNE_RESTITUTION = 'Visible uniquement dans le détail de la restitution (catégorie « Restitutions faites ») et dans l’historique du bien.';
 const API_ENVOIS = '/api/admin/gestion/envois';
 const euros = (n: number): string => n.toFixed(2).replace('.', ',');
 const dateFr = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
@@ -87,7 +89,7 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
   const rN = montantEuros(restitueTexte);
   const montantsLus = typeof vN === 'number' && typeof rN === 'number';
   const diff = montantsLus ? differenceRestitution(vN as number, rN as number) : null;
-  const donnees = montantsLus ? donneesRestitutionDeLaLigne(l, { montantVingt: vN as number, montantRestitue: rN as number, motif: motif.trim() || null, dateValidation: aujourdhui }) : null;
+  const donnees = montantsLus ? donneesRestitutionDeLaLigne(l, { montantVingt: vN as number, montantRestitue: rN as number, motif: motif.trim() || null, dateValidation: date }) : null;
   const prevus: MailPrevu[] = donnees === null ? [] : [
     ...locataires.flatMap((p, i) => {
       if (!locCoches.has(i) || p.email === null) return [];
@@ -169,7 +171,8 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
         {etape !== 'resultats' && <>
           <fieldset className="vgp-bloc-fenetre" data-restitution-montants>
             <legend>Montants</legend>
-            <label className="vgp-champ"><span>Date de restitution *</span>
+            {/* 🔴 (Arno, 25/11/2026, 23h42) « Corriger l'intitulé en "Date de validation de la restitution" » */}
+            <label className="vgp-champ"><span>Date de validation de la restitution *</span>
               <input type="date" value={date} max={aujourdhui} min={l.dateSortie} onChange={(e) => setDate(e.target.value)} disabled={envoi} data-restitution-date /></label>
             <label className="vgp-champ"><span>20 % retenus (€) *</span>
               <ChampNombre value={vingt} placeholder="ex. 400,00" onChange={(e) => { setVingt(e.target.value); setRefus(null); }} disabled={envoi} data-restitution-vingt /></label>
@@ -181,8 +184,11 @@ export function FenetreRestitutionVingt({ l, aujourdhui, mail, onFermer }: {
               <label className="vgp-champ"><span>Motif de la différence *</span>
                 <textarea value={motif} rows={2} placeholder="ex. régularisation de charges défavorable de 30,00 €" onChange={(e) => { setMotif(e.target.value); setRefus(null); }}
                   disabled={envoi} data-restitution-motif /></label>)}
-            <label className="vgp-champ"><span>Commentaire (facultatif)</span>
-              <textarea value={commentaire} rows={2} onChange={(e) => setCommentaire(e.target.value)} disabled={envoi} data-restitution-commentaire /></label>
+            {/* 🔴 (Arno, 25/11/2026, 23h42) « Si c'est une note qui reste en interne, il faut préciser » : elle n'entre dans AUCUN mail (ni locataire, ni partenaire) ;
+                enregistrée avec la restitution, lue dans « Restitutions faites » et au journal du dossier du locataire et du bien */}
+            <label className="vgp-champ"><span>Note interne (facultatif) — non envoyée aux tiers</span>
+              <textarea value={commentaire} rows={2} onChange={(e) => setCommentaire(e.target.value)} disabled={envoi} aria-describedby={`${titreId}-note`} data-restitution-commentaire /></label>
+            <p id={`${titreId}-note`} className="loc-muet vgp-aide" data-restitution-note-aide>{AIDE_NOTE_INTERNE_RESTITUTION}</p>
           </fieldset>
           <fieldset className="vgp-bloc-fenetre" data-restitution-locataires>
             <legend>Locataire{locataires.length > 1 ? 's' : ''} — un mail chacun</legend>

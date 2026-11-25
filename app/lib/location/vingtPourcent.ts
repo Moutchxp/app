@@ -420,10 +420,10 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
   | { ok: false; motif: string; champ: 'date' | 'montantRestitue' | 'montantRetenuCharges' | 'commentaire' } {
   const date = typeof d.date === 'string' ? d.date.trim() : '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) {
-    return { ok: false, motif: 'Indiquez la date de restitution.', champ: 'date' };
+    return { ok: false, motif: 'Indiquez la date de validation de la restitution.', champ: 'date' };
   }
   if (date < o.dateSortie) return { ok: false, motif: `La restitution ne peut pas précéder la sortie (${o.dateSortie.slice(8, 10)}/${o.dateSortie.slice(5, 7)}/${o.dateSortie.slice(0, 4)}).`, champ: 'date' };
-  if (date > o.aujourdhui) return { ok: false, motif: 'La date de restitution ne peut pas être dans le futur.', champ: 'date' };
+  if (date > o.aujourdhui) return { ok: false, motif: 'La date de validation de la restitution ne peut pas être dans le futur.', champ: 'date' };
   const restitue = montantEuros(d.montantRestitue);
   if (restitue === undefined) return { ok: false, motif: 'Indiquez le montant restitué (0 s’il n’y a rien à rendre).', champ: 'montantRestitue' };
   if (restitue === null) return { ok: false, motif: 'Montant restitué illisible : un nombre en euros, deux décimales au plus (ex. 312,50).', champ: 'montantRestitue' };

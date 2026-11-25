@@ -1881,7 +1881,7 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » : doub
     // la date n'est dite qu'une fois
     expect(r.filter((x) => /restitu(é|ée|tion validée) le/i.test(x))).toEqual(['Restitution validée le']);
     // rien d'autre ne disparaît : commentaire, auteur, montant restitué, « Annuler »
-    expect(valeur('Commentaire')).toBe('Remis en main propre');
+    expect(valeur('Note interne')).toBe('Remis en main propre'); // 🔴 (23h42) « COMMENTAIRE » → « NOTE INTERNE »
     expect(r).toContain('Enregistrée par');
     expect(container.querySelector('[data-vgp-annuler="4"]')).not.toBeNull();
   });
@@ -1891,7 +1891,7 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » : doub
     expect(valeur('20 % retenus à la sortie')).toBe('non renseigné');
     expect(rubriques()).not.toContain('Montant retenu');
     expect(rubriques()).not.toContain('Motif');
-    expect(rubriques()).not.toContain('Commentaire');
+    expect(rubriques()).not.toContain('Note interne');
   });
 });
 
@@ -1989,7 +1989,7 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » au for
     donnees = { ...LU, restitutionDisponible: true, faites: [{ ...FAITE_F, commentaire: 'Remis en main propre' }] };
     const li = await ouvrirSection();
     const restitution = li.querySelector('[data-vgp-encadre-restitution]')!;
-    expect(rubriques(restitution).at(-1)).toBe('Commentaire');
+    expect(rubriques(restitution).at(-1)).toBe('Note interne');
     expect(restitution.querySelector('[data-vgp-faite-commentaire]')?.textContent).toBe('Remis en main propre');
     expect(rubriques(li.querySelector('[data-vgp-detail]'))).not.toContain('Logement');
   });
@@ -2018,5 +2018,71 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » au for
     const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
     expect(src).toContain('<li className="vgp-ligne vgp-ligne--faite" data-vgp-faite={f.id}');
     expect(src).toContain('.vgp-encadre{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent);min-width:0}');
+  });
+});
+
+/**
+ * 🔴 Arno (25/11/2026, 23h42) — « À quoi sert le commentaire facultatif ? […] Si c'est une note qui reste en interne, il faut préciser (note interne — non
+ * envoyée aux tiers). » ; « Corriger l'intitulé en "Date de validation de la restitution" ».
+ */
+describe('🔴 Arno (25/11/2026, 23h42) — note interne et date de validation de la restitution', () => {
+  const envois: Record<string, unknown>[] = []; const gestes: Record<string, unknown>[] = [];
+  const LIGNE_N = { ...LU.lignes[0], lotCle: 'W1', montantVingt: { montant: 400, origine: 'calcule' as const, depot: 2000 },
+    contacts: { locataires: [{ nom: 'DUMONT Claire', email: 'a.jorel+locataire-dumont@sansvisavis.com', telephone: null, civilite: 'Mme', nomFamille: 'DUMONT', adresse: null }], proprietaires: [] } };
+  beforeEach(() => {
+    envois.length = 0; gestes.length = 0;
+    donnees = { ...LU, restitutionDisponible: true, lignes: [LIGNE_N] };
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      const url = String(u);
+      if ((init?.method ?? 'GET') === 'POST') {
+        const b = JSON.parse(String(init!.body)) as Record<string, unknown>;
+        if (url.includes('/gestion/envois')) { envois.push(b); return { ok: true, status: 200, json: async () => ({ ok: true, enFile: true }) } as Response; }
+        gestes.push(b); return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { id: 1 } }) } as Response;
+      }
+      lectures.push(url);
+      if (url.includes('partenairesRestitution=1')) return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: { liste: [{ adresse: 'partenaire@exemple.test', libelle: 'ADHOC' }] } }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  });
+  const saisir = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const ouvrirFenetre = async (): Promise<Element> => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLButtonElement).click(); });
+    await calmer();
+    return container.querySelector('[data-fenetre-restitution="5"]')!;
+  };
+  it('les intitulés : « Date de validation de la restitution * » ; « Note interne (facultatif) — non envoyée aux tiers » et son aide', async () => {
+    const f = await ouvrirFenetre();
+    expect(f.querySelector('[data-restitution-date]')!.closest('label')!.querySelector('span')?.textContent).toBe('Date de validation de la restitution *');
+    expect(f.querySelector('[data-restitution-commentaire]')!.closest('label')!.querySelector('span')?.textContent).toBe('Note interne (facultatif) — non envoyée aux tiers');
+    expect(f.querySelector('[data-restitution-note-aide]')?.textContent)
+      .toBe('Visible uniquement dans le détail de la restitution (catégorie « Restitutions faites ») et dans l’historique du bien.');
+    expect(f.textContent).not.toContain('Date de restitution');
+    expect(f.textContent).not.toContain('Commentaire (facultatif)');
+  });
+  it('la note interne part avec la restitution (enregistrée) mais dans AUCUN mail — ni au locataire, ni au partenaire ; le mail au partenaire dit la date de validation SAISIE', async () => {
+    const f = await ouvrirFenetre();
+    await act(async () => { saisir(f.querySelector('[data-restitution-date]') as HTMLInputElement, '2026-11-20'); });
+    await act(async () => { saisir(f.querySelector('[data-restitution-commentaire]') as HTMLTextAreaElement, 'NOTE INTERNE _TEST xyz'); });
+    await act(async () => { (f.querySelector('[data-restitution-partenaire="partenaire@exemple.test"] input') as HTMLInputElement).click(); });
+    await act(async () => { (f.querySelector('[data-restitution-enregistrer]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('[data-confirmation-confirmer]') as HTMLButtonElement).click(); }); await calmer();
+    expect(gestes[0]).toMatchObject({ action: 'restitution-20-faite', date: '2026-11-20', commentaire: 'NOTE INTERNE _TEST xyz' });
+    expect(envois.map((e) => (e.vingtPourcent as { modele: string }).modele)).toEqual(['restitution_locataire', 'restitution_partenaire']);
+    for (const e of envois) {
+      expect(String(e.corps)).not.toContain('NOTE INTERNE _TEST xyz');
+      expect(String(e.corpsHtml ?? '')).not.toContain('NOTE INTERNE _TEST xyz');
+      expect(String(e.objet)).not.toContain('NOTE INTERNE _TEST xyz');
+    }
+    expect(String(envois[1].corps)).toContain('Date de validation : 20/11/2026');
+  });
+  it('les refus de la date disent « date de validation de la restitution »', async () => {
+    const { verifierRestitution } = await import('../../../../lib/location/vingtPourcent');
+    expect(verifierRestitution({ date: '', montantRestitue: '1' }, { dateSortie: '2026-01-01', aujourdhui: '2026-11-23' })).toMatchObject({ ok: false, motif: 'Indiquez la date de validation de la restitution.' });
+    expect(verifierRestitution({ date: '2026-12-01', montantRestitue: '1' }, { dateSortie: '2026-01-01', aujourdhui: '2026-11-23' }))
+      .toMatchObject({ ok: false, motif: 'La date de validation de la restitution ne peut pas être dans le futur.' });
   });
 });
