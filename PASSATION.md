@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `5c3a9d50`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `5c3a9d50`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **51 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `9f31e125`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `9f31e125`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **57 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -324,7 +324,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   les modèles revus `a20a86f6`, la passation `40facb47`, les modèles revus (adresse une fois) `4d255049`, la passation `abc1c736`,
   l'introduction syndic réécrite `98cef2c6`, la passation `c186d986`, le classement « À préparer » corrigé `4be4b89e`, « x mails envoyés depuis cette
   page » `905e0e0a` (MIGRATION 515), la passation `46e6c6e8`, les boutons du pied de la fiche Copropriété `a649427f`, « J-N » en rouge `daad8340`,
-  « Classer ce mail » verrouillé sur le bien de la sortie `5c3a9d50` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  « Classer ce mail » verrouillé sur le bien de la sortie `5c3a9d50`, la passation `3c038828`, la restitution au journal du bien `e3de40e7`, les
+  locataires proposés limités aux sortis `5ab06e63`, la conversation de la ligne `c0312cc7`, « Répondre » et module fermé `5a8c43c1`, « N mails
+  échangés » sous la capsule AGO `9f31e125` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -341,13 +343,13 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `5c3a9d50`) : `npm test` VERT du premier coup (1 872 fichiers, 28 031 tests, 21 ignorés ;
-  `.captures/vingt-pourcent/npm-test-complet-25-11-Q.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
+- **Contrôles** (dernier lot, `9f31e125`) : `npm test` VERT du premier coup (1 873 fichiers, 28 045 tests, 21 ignorés ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-R.txt`) ; Chrome recette, aperçu seulement. Lot d'avant (`cfdf2faf`) : 28 009 tests
   (`npm-test-complet-25-11-L2.txt`) — la passe précédente (`npm-test-complet-25-11-L.txt`) avait rougi sur deux GARDES de
   la Location (`<select>` natif, mot « HistoriqueDuBien » dans un commentaire), corrigées par `cfdf2faf` ; le flake connu `PreavisAccueil.test.tsx`
   (3 061 ms) est revenu une fois en suite filtrée, fichier seul vert deux fois. Chrome recette, ordinateur et 390 px, clair et sombre, APERÇU SEULEMENT :
   aucun mail envoyé, aucun POST d'écriture (seul l'appel de LECTURE `POST /api/admin/gestion/classement` du module, bloqué par le garde de
-  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `5c3a9d50`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
+  vérification). ⚠️ **Preuve curl À FAIRE par Arno sur `9f31e125`** (couvre tous les commits non poussés). Lot `fb8b6885` : confirmation ouverte puis « Revenir » SEULEMENT ; aucun POST ;
   table des restitutions de la recette inchangée (2 lignes du 24/11). Commit `59000b2a` : `npm test` complet VERT DEUX FOIS DE SUITE (27 937 tests ;
   `npm-test-complet-25-11-F-passe1.txt` et `-passe2.txt`). Lot d'avant (`0d1a809a`) : `npm test` VERT à la 2e passe
   (`npm-test-complet-25-11-E-relance.txt`). La 1re a échoué sur `dateSortieUnique.test.ts` (« aucune écriture hors
@@ -910,11 +912,25 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       sortie validée lot_id figé → ligne / mails / restitution / restitutions faites par s.lot_id et s.occupation_ids) : aucune étape ne passe par
       l'adresse, le nom ou le bail en cours ; relocation sans effet. Pas de migration.
       ⚠️ À SAVOIR (vérification Chrome) : bloquer `fetch` ne suffit pas pour Redaction — l'enregistrement automatique retombe sur `navigator.sendBeacon`.
-      Brouillon d'essai n° 170 (recette, sans objet, a.jorel@sansvisavis.com + syndic.essai@exemple.test) écrit ainsi ; laissé en place, à supprimer
-      par « Supprimer le brouillon » si Arno le souhaite. Prochaine vérification : doubler aussi `navigator.sendBeacon`.
-      Pistes NON faites (à proposer à Arno) : journal sur le BIEN à « Faire restitution » / annulation (aujourd'hui seulement sur les locataires) ;
-      après relocation, le nouveau locataire du lot reste proposé comme destinataire dans le module (suggestions du bien), et le contrôle « un mail
-      par locataire » ne le connaît pas. Captures `25-11-Q*-*`.
+      Brouillon d'essai n° 170 (recette) écrit ainsi ; MIS À LA CORBEILLE le 25/11 sur décision d'Arno (geste normal « Supprimer le brouillon »,
+      DELETE sans `definitif` : réintégrable). Désormais, à chaque vérification : `fetch` ET `navigator.sendBeacon` doublés. Captures `25-11-Q*-*`.
+    · `e3de40e7` (décision d'Arno du 25/11) « Faire restitution » et son annulation écrivent AUSSI au journal du BIEN (entité `annuaire_lot`,
+      bien lu sur `s.lot_id`, même transaction) ; visibles dans l'historique de la fiche du bien. Pas de migration.
+    · `5ab06e63` (décision d'Arno du 25/11) le module ne propose comme locataire que le(s) locataire(s) SORTI(S) de la ligne (`suggestionsDeLaSortie`,
+      Redaction `filtreSuggestions` facultatif, absent ailleurs = inchangé) : le locataire actuel du lot et les autres anciens disparaissent de tous
+      les groupes ; les sortis absents sont ajoutés (« Locataire sorti »). Le serveur, lui, ne refuse pas un nouveau locataire saisi à la main.
+    · `c0312cc7` (demande d'Arno du 25/11, point 1) CONVERSATION DE LA LIGNE : les fils ouverts par les mails partis du module (515 → mail capturé →
+      fil), réponses comprises, tous fils mêlés, du plus ancien au plus récent ; chaque mail rendu par `MessageConversation` (la carte de la boîte
+      Gestion, pas de copie), lu par la route du fil. Les réponses SUIVENT LE BIEN : la route pose la portée « Ce mail + futurs échanges »
+      (`demande.rattachement = { position: 'suite' }`, appliquée après capture par `poserClassement`) ; avant, seule la réponse rattachée par adresse
+      arrivait au bien. Une réponse appartient à la ligne parce qu'elle entre dans le fil par ses en-têtes (In-Reply-To/References), comme dans la
+      boîte. ⚠️ Une réponse écrite comme NOUVEAU mail (sans répondre) n'entre pas dans le fil : elle n'apparaît pas dans la ligne.
+    · `5a8c43c1` (point 2) ligne dépliée : « Échanges (N) » visible, module d'écriture fermé ; « Répondre / Répondre à tous / Transférer » sur
+      chaque mail ouvrent le module EN RÉPONSE (même fil, classement verrouillé, « un mail par locataire » maintenu, pas de modèle). Le lien
+      « Envoyer un mail » de la Location ouvre toujours le module (demande explicite).
+    · `9f31e125` (point 3) ligne repliée : « N mails échangés — dernier le … » SOUS la capsule AGO (envoyés + reçus) ; remplace « x mails envoyés
+      depuis cette page » (905e0e0a). Hauteur de la ligne inchangée (92 px). Captures `25-11-R*-*` (vrai fil « _TEST » 37134 + réponse simulée
+      dans le navigateur seulement).
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
