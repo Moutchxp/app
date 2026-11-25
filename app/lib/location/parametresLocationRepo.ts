@@ -4,7 +4,7 @@ import type { Auteur } from '../gestion/gestes';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
 import { verifierDestinataires, type Destinataire } from './mailNouvelleLocation';
-import { destinatairesParSorteDisponibles, lireDestinatairesDefaut, SORTES_DESTINATAIRES, type SorteDestinataires } from './mailNouvelleLocationRepo';
+import { destinatairesParSorteDisponibles, lireDestinatairesDefaut, listeRestitutionVingtDisponible, SORTES_DESTINATAIRES, type SorteDestinataires } from './mailNouvelleLocationRepo';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { baremesDisponibles } from './honorairesProprietaireRepo';
 import { refusVersionBareme, verifierBareme, type VersionBareme } from './honorairesProprietaire';
@@ -94,6 +94,7 @@ const MOT_LISTE: Record<SorteDestinataires, string> = {
   nouvelle_location: 'destinataires par défaut du mail « Nouvelle location »',
   preavis: 'destinataires du mail d’information « Préavis » (partenaires)',
   sortie: 'destinataires du mail d’information « Sortie » (partenaires)',
+  restitution_vingt: 'partenaires proposés pour l’information « Restitution des 20 % »',
 };
 
 /**
@@ -104,6 +105,8 @@ export async function enregistrerDestinataires(brut: unknown, auteur: Auteur, so
   if (!(await parametresDisponibles())) return { etat: 'sans_schema' };
   const parSorte = await destinatairesParSorteDisponibles();
   if (sorte !== 'nouvelle_location' && !parSorte) return { etat: 'sans_schema' };
+  // 🔴 (25/11/2026, 22h06) « Restitution des 20 % » : la sorte n'est admise qu'avec la migration 517
+  if (sorte === 'restitution_vingt' && !(await listeRestitutionVingtDisponible())) return { etat: 'sans_schema' };
   const v = verifierDestinataires(brut, { videAutorise: sorte !== 'nouvelle_location' });
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const { nom } = await emailDeLAuteur(auteur);

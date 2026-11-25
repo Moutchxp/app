@@ -15,7 +15,7 @@ export type OngletParametres = (typeof ONGLETS_PARAMETRES)[number];
  * « Nouvelles locations », ouvert par défaut. `?parametres=destinataires` garde donc exactement son sens d'avant.
  */
 export const PARAM_LISTE = 'liste';
-export const LISTES_DESTINATAIRES = ['preavis', 'sorties'] as const;
+export const LISTES_DESTINATAIRES = ['preavis', 'sorties', 'restitution'] as const; // 🔴 (25/11/2026, 22h06) + « Restitution des 20 % »
 export type ListeDestinataires = (typeof LISTES_DESTINATAIRES)[number];
 
 const un = (v: string | string[] | undefined): string | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);

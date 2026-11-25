@@ -45,7 +45,8 @@ export async function POST(request: Request): Promise<Response> {
     if (corps.action === 'archivage-delai') return Response.json(await enregistrerDelaiArchivage(corps.mois, auteur), { headers: ENTETES });
     // 🔴 Arno (05/11/2026, 460) — `sorte` : « nouvelle_location » (défaut, inchangé), « preavis » ou « sortie ».
     if (corps.action === 'destinataires') {
-      const sorte = corps.sorte === 'preavis' || corps.sorte === 'sortie' ? corps.sorte : 'nouvelle_location';
+      // 🔴 (Arno, 25/11/2026, 22h06, 517) + « restitution_vingt » (« Restitution des 20 % »)
+      const sorte = corps.sorte === 'preavis' || corps.sorte === 'sortie' || corps.sorte === 'restitution_vingt' ? corps.sorte : 'nouvelle_location';
       return Response.json(await enregistrerDestinataires(corps.liste, auteur, sorte), { headers: ENTETES });
     }
     if (corps.action === 'bareme') return Response.json(await ajouterVersionBareme(corps, auteur), { headers: ENTETES });

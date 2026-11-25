@@ -55,9 +55,20 @@ export function mailNouvelleLocationDisponible(): Promise<boolean> {
  * (Avant : une liste de secours écrite ici — gestion@, ADHOC, MONGA — était proposée quand rien n'était enregistré.)
  */
 
-/** 🔴 Arno (05/11/2026, migration 460) — les trois listes de « Paramètres Location » : « Nouvelles locations », « Préavis », « Sorties ». */
-export type SorteDestinataires = 'nouvelle_location' | 'preavis' | 'sortie';
-export const SORTES_DESTINATAIRES: readonly SorteDestinataires[] = ['nouvelle_location', 'preavis', 'sortie'];
+/** 🔴 Arno (05/11/2026, migration 460) — les listes de « Paramètres Location » : « Nouvelles locations », « Préavis », « Sorties » ;
+ *  🔴 (25/11/2026, 22h06, migration 517) « Restitution des 20 % » (partenaires proposés, décochés, dans « Faire restitution »). */
+export type SorteDestinataires = 'nouvelle_location' | 'preavis' | 'sortie' | 'restitution_vingt';
+export const SORTES_DESTINATAIRES: readonly SorteDestinataires[] = ['nouvelle_location', 'preavis', 'sortie', 'restitution_vingt'];
+/** La 517 est-elle là (la sorte « restitution_vingt » admise) ? Mémorisé seulement quand elle l'est : une migration posée serveur vivant est vue. */
+let avec517 = false;
+export async function listeRestitutionVingtDisponible(): Promise<boolean> {
+  if (avec517) return true;
+  const { rows } = await query<{ ok: boolean }>(
+    `SELECT coalesce(bool_or(pg_get_constraintdef(oid) LIKE '%restitution_vingt%'), false) AS ok FROM pg_constraint WHERE conname = 'gestion_location_mail_destinataires_sorte_check'`)
+    .catch(() => ({ rows: [] as { ok: boolean }[] }));
+  avec517 = rows[0]?.ok === true;
+  return avec517;
+}
 export const destinatairesParSorteDisponibles = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_destinataires', 'sorte');
 
 /**

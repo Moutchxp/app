@@ -79,7 +79,7 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
     // 🔴 Arno (05/11/2026) — UN onglet principal « Destinataires mails », ses trois listes en sous-onglets DANS le corps ; « Nouvelles locations » par défaut.
     expect([...container.querySelectorAll('.plo-onglets [role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires mails', 'Barèmes d’honoraires', 'Archivage des fins de gestion', 'Apporteurs', 'Commissions', 'Indices']); // 406 : deux onglets AJOUTÉS en fin
     expect(container.querySelector('.plo-onglets [aria-selected="true"]')?.textContent).toBe('Destinataires mails');
-    expect([...container.querySelectorAll('.plo-corps .plo-sous-onglets [role="tab"]')].map((t) => t.textContent)).toEqual(['Nouvelles locations', 'Préavis', 'Sorties']);
+    expect([...container.querySelectorAll('.plo-corps .plo-sous-onglets [role="tab"]')].map((t) => t.textContent)).toEqual(['Nouvelles locations', 'Préavis', 'Sorties', 'Restitution des 20 %']); // 🔴 (25/11, 22h06) + « Restitution des 20 % »
     expect(container.querySelector('.plo-sous-onglets [aria-selected="true"]')?.getAttribute('data-sous-onglet')).toBe('nouvelles');
     expect(container.querySelector('.plo-groupe-onglets')).toBeNull();
     expect([...container.querySelectorAll('.plo-boutons button')].map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer']);
@@ -150,6 +150,20 @@ describe('🔴 Arno (05/11/2026, 460) — sous-onglets « Préavis » et « Sort
     await clic(container.querySelector('[data-destinataire-defaut="1"] [data-monter]'));
     await clic(container.querySelector('[data-enregistrer-parametres]'));
     expect(posts).toEqual([{ action: 'destinataires', sorte: 'sortie', liste: [{ adresse: 'laura@monga.io', libelle: 'MONGA' }, ADHOC] }]);
+  });
+  it('🔴 (Arno, 25/11/2026, 22h06) « Restitution des 20 % » après « Sorties » : sa liste (vide en recette : aucune adresse posée), Enregistrer avec SA sorte', async () => {
+    avecListes();
+    await ouvrir();
+    const onglets = [...container.querySelectorAll('.plo-sous-onglets [role="tab"]')].map((t) => t.getAttribute('data-sous-onglet'));
+    expect(onglets).toEqual(['nouvelles', 'preavis', 'sorties', 'restitution']);
+    await clic(container.querySelector('[data-sous-onglet="restitution"]'));
+    expect(container.querySelector('.plo-sous-onglets [aria-selected="true"]')?.textContent).toBe('Restitution des 20 %');
+    expect(adresses()).toEqual([]);
+    expect(container.textContent).toContain('proposés, une case chacun (décochée), dans la fenêtre « Faire restitution »');
+    expect(container.querySelector('.plo-note')?.textContent).toContain('Les mails partent de gestion@criterimmo.fr et restent visibles dans les échanges de la ligne et l’historique du bien.');
+    expect(container.querySelector('.plo-note')?.textContent).not.toContain('La personne qui valide reçoit toujours une copie');
+    await clic(container.querySelector('[data-enregistrer-parametres]'));
+    expect(posts).toEqual([{ action: 'destinataires', sorte: 'restitution_vingt', liste: [] }]);
   });
   it('« Préavis » : liste VIDE autorisée (aucun mail partenaire) ; « Nouvelles locations » : refusée', async () => {
     avecListes();

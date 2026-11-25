@@ -40,7 +40,7 @@ interface Parametres {
   parSorte?: boolean;
 }
 export type Onglet = 'destinataires' | 'baremes' | 'archivage' | 'apporteurs' | 'commissions' | 'indices';
-type SorteListe = 'nouvelle_location' | 'preavis' | 'sortie';
+type SorteListe = 'nouvelle_location' | 'preavis' | 'sortie' | 'restitution_vingt';
 /**
  * 🔴 Arno (05/11/2026) — les trois SOUS-ONGLETS de « Destinataires mails » : leur liste, leur libellé court, leur aide, et leur valeur
  * dans l'adresse (`&liste=…` ; null = « Nouvelles locations », ouvert par défaut).
@@ -52,6 +52,9 @@ export const ONGLETS_DESTINATAIRES: readonly { liste: ListeDestinataires | null;
     aide: 'Les partenaires informés à la validation d’un préavis (mail d’information, avec la copie de l’accusé envoyé aux locataires), dans l’ordre d’envoi. Liste vide : aucun mail partenaire.' },
   { liste: 'sorties', sorte: 'sortie', mot: 'Sorties',
     aide: 'Les partenaires informés à la validation d’une sortie de locataire(s) (récapitulatif de la sortie), dans l’ordre d’envoi. Liste vide : aucun mail partenaire.' },
+  // 🔴🔴 Arno (25/11/2026, 22h06) — « après le bouton Sorties ajouter le bouton Restitution des 20 % » (migration 517)
+  { liste: 'restitution', sorte: 'restitution_vingt', mot: 'Restitution des 20 %',
+    aide: 'Les partenaires à qui l’on peut faire suivre l’information de la restitution des 20 % : ils sont proposés, une case chacun (décochée), dans la fenêtre « Faire restitution ». Liste vide : aucun partenaire proposé.' },
 ];
 const sousOnglet = (l: ListeDestinataires | null) => ONGLETS_DESTINATAIRES.find((x) => x.liste === l) ?? ONGLETS_DESTINATAIRES[0];
 /** Arno (22/10/2026, 406) — les onglets du suivi de l'activité enregistrent par leurs propres boutons (une ligne = un geste). */
@@ -150,7 +153,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
       setLu(d.data);
       if (d.data.archivage) setDelai(String(d.data.archivage.mois));
       const ld = ldDe(onglet, sous);
-      setListe((ld === null || d.data.listes === undefined ? d.data.destinataires : d.data.listes[ld.sorte].liste).map((x) => ({ ...x, cle: ++compteur })));
+      setListe((ld === null || d.data.listes === undefined ? d.data.destinataires : (d.data.listes[ld.sorte]?.liste ?? [])).map((x) => ({ ...x, cle: ++compteur })));
       // Pré-rempli avec les valeurs de la version EN VIGUEUR aujourd'hui (la plus récente qui a commencé), à la date du jour.
       const enVigueur = d.data.versions.find((v) => v.depuis <= d.data!.aujourdhui) ?? d.data.versions[0];
       setBareme(depuisVersion(enVigueur, d.data.aujourdhui));
@@ -172,7 +175,7 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
   const changerOnglet = (k: Onglet, l: ListeDestinataires | null = null): void => {
     setOnglet(k); setSous(l); setMotif(null); setInfo(null);
     const ld = ldDe(k, l);
-    if (ld !== null && lu !== null) setListe((lu.listes === undefined ? (ld.sorte === 'nouvelle_location' ? lu.destinataires : []) : lu.listes[ld.sorte].liste).map((x) => ({ ...x, cle: ++compteur })));
+    if (ld !== null && lu !== null) setListe((lu.listes === undefined ? (ld.sorte === 'nouvelle_location' ? lu.destinataires : []) : (lu.listes[ld.sorte]?.liste ?? [])).map((x) => ({ ...x, cle: ++compteur })));
   };
   const deplacer = (i: number, sens: -1 | 1): void => {
     setListe((l) => { const j = i + sens; if (j < 0 || j >= l.length) return l; const c = [...l]; [c[i], c[j]] = [c[j], c[i]]; return c; });
@@ -277,7 +280,10 @@ export function ModaleParametresLocation({ onFermer, ongletInitial = 'destinatai
                   <p className="plo-note">{ldCourant.aide}
                     {ldCourant.sorte === 'nouvelle_location'
                       ? <><strong> La personne qui envoie reçoit toujours une copie, automatiquement</strong> : inutile de l’ajouter ici.</>
-                      : <><strong> La personne qui valide reçoit toujours une copie, ainsi que gestion@criterimmo.fr</strong> : inutile de les ajouter ici.</>}</p>
+                      // 🔴 (25/11/2026, 22h06) « Restitution des 20 % » : pas de copie automatique ; les mails partent de gestion@ et restent dans les échanges
+                      : ldCourant.sorte === 'restitution_vingt'
+                        ? <><strong> Les mails partent de gestion@criterimmo.fr</strong> et restent visibles dans les échanges de la ligne et l’historique du bien.</>
+                        : <><strong> La personne qui valide reçoit toujours une copie, ainsi que gestion@criterimmo.fr</strong> : inutile de les ajouter ici.</>}</p>
                   {ldCourant.sorte !== 'nouvelle_location' && lu.parSorte !== true && <p className="plo-alerte" role="status" data-sans-460>Mise à jour de la base à appliquer
                     (migration 460) : cette liste ne s’enregistre pas encore, et aucun mail partenaire ne part.</p>}
                   {liste.length === 0 && <p className="plo-muet" data-liste-vide>Liste vide{ldCourant.sorte === 'nouvelle_location' ? ' : ajoutez au moins un destinataire.' : ' : aucun mail partenaire ne partira.'}</p>}
