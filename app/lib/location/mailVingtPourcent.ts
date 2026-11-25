@@ -36,7 +36,7 @@ export function marqueVingtPourcent(x: unknown): { sortieId: number } | null {
  * a. « Syndic — date de la prochaine AGO » ; b. « Propriétaire — date de la prochaine AGO » ; c. « Syndic, propriétaire(s) en copie — … » (le modèle a,
  * le ou les propriétaires du bien automatiquement en copie) ; d. « Locataire — restitution du solde effectuée » (un module PAR LOCATAIRE : un mail
  * par locataire). Choisir un modèle sélectionne d'office les destinataires correspondants (modifiables). La formule d'appel et la signature sont
- * celles de nos autres mails (posées par le module). Seule adaptation : la phrase d'estimation de l'AGO n'est dite que si l'AGO est PROJETÉE.
+ * celles de nos autres mails (posées par le module). 🔴 (Arno, 25/11/2026) plus aucune phrase d'estimation de l'AGO ; a et c présentent le cabinet et le lot.
  */
 export type CleModeleVingt = 'syndic' | 'proprietaire' | 'syndic_copie' | 'locataire';
 export const MODELES_VINGT: readonly { cle: CleModeleVingt; libelle: string }[] = [
@@ -49,44 +49,50 @@ export const A_COMPLETER = '[à compléter]';
 
 export interface DonneesModeleVingt {
   /** la copropriété (son nom ou son adresse) */ copro: string;
-  /** le logement */ logement: string;
+  /** le logement (son adresse) */ logement: string;
+  /** 🔴 (Arno, 25/11/2026) le numéro du lot principal (fiche du bien) ; `null` : non renseigné (« du lot n° … » n'est pas dit) */ numLot?: string | null;
   /** la clôture de l'exercice concerné (AAAA-MM-JJ) ou `null` */ exercice: string | null;
-  /** l'AGO qui compte, ou `null` */ ago: { date: string; statut: 'officielle' | 'projetee' } | null;
+  /** l'AGO qui compte, ou `null` (🔴 25/11/2026 : plus aucune phrase d'estimation, elle n'est plus lue par les textes) */ ago: { date: string; statut: 'officielle' | 'projetee' } | null;
   dateSortie: string;
-  /** « Prénom NOM » de chaque locataire de la sortie */ locataires: readonly string[];
-  /** « Prénom NOM » de chaque propriétaire du bien */ proprietaires: readonly string[];
+  /** « Prénom NOM » de chaque locataire de la sortie (jamais nommé au syndic) */ locataires: readonly string[];
+  /** « M. Prénom NOM » de chaque propriétaire du bien (civilité de la fiche) */ proprietaires: readonly string[];
   /** la restitution ENREGISTRÉE (sinon les champs sont « [à compléter] ») */ restitution?: { date: string; montantRestitue: number; montantRetenuCharges: number | null } | null;
 }
 
-const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const dateFr = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
-const moisAnnee = (d: string): string => `${MOIS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
 const euros = (n: number): string => n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[  ]/g, ' ');
 const liste = (x: readonly string[]): string => (x.length <= 1 ? x.join('') : `${x.slice(0, -1).join(', ')} et ${x[x.length - 1]}`);
 const exerciceDit = (e: string | null): string => (e === null ? 'concerné' : `clos le ${dateFr(e)}`);
 
-/** L'objet et le texte d'un modèle (sans formule d'appel ni signature : le module les pose). PUR. */
+/**
+ * L'objet et le texte d'un modèle (sans formule d'appel ni signature : le module les pose). PUR.
+ * 🔴🔴 Arno (25/11/2026) — 1. plus AUCUNE phrase d'estimation de l'AGO (a, b, c) ; 2. a et c : la présentation du cabinet, du lot (son numéro s'il est
+ * sur la fiche), de l'adresse et du ou des clients copropriétaires (civilité Prénom NOM), le locataire jamais nommé ; 3. c : la ligne « … est en copie de
+ * ce mail. » avant les remerciements (en plus de la copie automatique) ; 4. b : inchangé hors la phrase d'estimation.
+ */
 export function texteModeleVingt(cle: CleModeleVingt, d: DonneesModeleVingt): { objet: string; texte: string } {
-  const estimationSyndic = d.ago?.statut === 'projetee' ? ` À défaut d’information, nous l’estimons aux environs de ${moisAnnee(d.ago.date)}.` : '';
+  const p = d.proprietaires;
+  const plusieurs = p.length > 1;
+  const lot = d.numLot != null && d.numLot.trim() !== '' ? `du lot n° ${d.numLot.trim()}` : 'du lot';
+  const clients = p.length === 0 ? 'de notre client' : plusieurs ? `de nos clients ${liste(p)}` : `de notre client ${p[0]}`;
   const demandeSyndic = [
-    `Nous gérons un lot de la copropriété ${d.copro}. Pour régulariser les charges d’un locataire sorti et lui restituer le solde de son dépôt de garantie, nous avons besoin de la date de la prochaine assemblée générale ordinaire, qui approuvera les comptes de l’exercice ${exerciceDit(d.exercice)}.${estimationSyndic}`,
+    `Nous sommes le cabinet CRITERIMMO, gestionnaire ${lot} situé ${d.logement}, pour le compte ${clients}, ${plusieurs ? 'copropriétaires' : 'copropriétaire'} de la résidence ${d.copro} dont vous assurez le syndic de copropriété.`,
+    `Pour finaliser la restitution du solde du dépôt de garantie de ${plusieurs ? 'leur' : 'son'} ancien locataire, nous avons besoin de la date de la prochaine assemblée générale ordinaire, qui approuvera les comptes de l’exercice ${exerciceDit(d.exercice)}.`,
     'Pourriez-vous nous indiquer la date retenue, ou nous transmettre la convocation dès qu’elle sera disponible ?',
   ];
   const fin = 'Nous vous remercions par avance et restons à votre disposition.';
   if (cle === 'syndic') return { objet: `Date de la prochaine AGO — ${d.copro}`, texte: [...demandeSyndic, fin].join('\n\n') };
   if (cle === 'syndic_copie') {
-    const p = d.proprietaires;
-    const copie = p.length === 0 ? [] : [`Nous mettons ${liste(p)}, ${p.length > 1 ? 'propriétaires' : 'propriétaire'} du lot, en copie de ce message.`];
+    const copie = p.length === 0 ? [] : [plusieurs ? `${liste(p)}, propriétaires, sont en copie de ce mail.` : `${p[0]}, propriétaire, est en copie de ce mail.`];
     return { objet: `Date de la prochaine AGO — ${d.copro}`, texte: [...demandeSyndic, ...copie, fin].join('\n\n') };
   }
   if (cle === 'proprietaire') {
-    const plusieurs = d.locataires.length > 1;
-    const qui = d.locataires.length === 0 ? 'votre locataire' : `${plusieurs ? 'vos locataires' : 'votre locataire'} ${liste(d.locataires)}`;
-    const estimation = d.ago?.statut === 'projetee' ? ` Nous estimons cette assemblée aux environs de ${moisAnnee(d.ago.date)}.` : '';
+    const coloc = d.locataires.length > 1;
+    const qui = d.locataires.length === 0 ? 'votre locataire' : `${coloc ? 'vos locataires' : 'votre locataire'} ${liste(d.locataires)}`;
     return {
       objet: `Date de la prochaine AGO — ${d.logement}`,
       texte: [
-        `Suite au départ de ${qui} le ${dateFr(d.dateSortie)}, nous avons conservé 20 % de ${plusieurs ? 'leur' : 'son'} dépôt de garantie, dans l’attente de l’approbation des comptes de l’exercice ${exerciceDit(d.exercice)} par l’assemblée générale de la copropriété ${d.copro}.${estimation}`,
+        `Suite au départ de ${qui} le ${dateFr(d.dateSortie)}, nous avons conservé 20 % de ${coloc ? 'leur' : 'son'} dépôt de garantie, dans l’attente de l’approbation des comptes de l’exercice ${exerciceDit(d.exercice)} par l’assemblée générale de la copropriété ${d.copro}.`,
         'Si vous avez reçu la convocation, ou si vous en connaissez la date, pourriez-vous nous la communiquer ? Cela nous permettra de procéder à la régularisation et à la restitution du solde dans les délais.',
         'Merci par avance.',
       ].join('\n\n'),

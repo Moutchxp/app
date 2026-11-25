@@ -1335,7 +1335,7 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
   beforeEach(() => {
     redaction.mockClear();
     donnees = { ...LU, lignes: [{ ...LU.lignes[0], lotCle: 'L1', locataires: ['DUPONT Alice', 'DUPONT Léo'],
-      contacts: { locataires: LOCS, proprietaires: [{ nom: 'Jean DURAND', email: 'jean@exemple.test', emails: ['jean@exemple.test'], telephone: null }] } }] };
+      contacts: { locataires: LOCS, proprietaires: [{ nom: 'Jean DURAND', nomCivil: 'M. Jean DURAND', email: 'jean@exemple.test', emails: ['jean@exemple.test'], telephone: null }] } }] };
   });
   const ouvrir = async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
@@ -1360,7 +1360,7 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
     expect(modules()).toEqual(['syndic@exemple.test']);
     let b = derniers(1)[0].brouillon;
     expect(b.objet).toBe('Date de la prochaine AGO — Copro A');
-    expect(b.corps).toContain('Nous gérons un lot de la copropriété Copro A.');
+    expect(b.corps).toContain('Nous sommes le cabinet CRITERIMMO, gestionnaire du lot situé 1 rue A, 92800 Puteaux, pour le compte de notre client M. Jean DURAND, copropriétaire de la résidence Copro A');
     expect(b.corps.trim().endsWith('— Gestion')).toBe(true);
     expect(b.vingtPourcent).toEqual({ sortieId: 5 });
     await choisir('proprietaire');
@@ -1369,7 +1369,7 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
     await choisir('syndic_copie');
     b = derniers(1)[0].brouillon;
     expect([b.a, b.cc]).toEqual([['syndic@exemple.test'], ['jean@exemple.test']]);
-    expect(b.corps).toContain('Nous mettons Jean DURAND, propriétaire du lot, en copie de ce message.');
+    expect(b.corps).toContain('M. Jean DURAND, propriétaire, est en copie de ce mail.');
   });
   it('d. un module PAR LOCATAIRE (colocation) : chacun adressé à son seul locataire ; aucun refus « un mail par locataire »', async () => {
     await ouvrir();

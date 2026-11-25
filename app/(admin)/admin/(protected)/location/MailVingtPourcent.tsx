@@ -72,9 +72,11 @@ export function brouillonsDuModele(base: BrouillonEcran, l: LigneVingtPourcent, 
     : sansDoublon((l.contacts?.proprietaires ?? []).map((p) => p.email ?? '').filter((x) => x !== ''));
   const noms = (gens: readonly { nom: string }[] | undefined, repli: readonly string[]): string[] => ((gens ?? []).length > 0 ? gens!.map((p) => p.nom) : [...repli]);
   const { objet, texte } = texteModeleVingt(cle, {
-    copro: l.copropriete?.libelle ?? l.logement ?? `Bien ${l.lotId}`, logement: l.logement ?? `Bien ${l.lotId}`,
+    copro: l.copropriete?.libelle ?? l.logement ?? `Bien ${l.lotId}`, logement: l.logement ?? `Bien ${l.lotId}`, numLot: l.numLot ?? null,
     exercice: l.suivi.exercice, ago: l.suivi.etat === 'ok' ? l.suivi.ago : null, dateSortie: l.dateSortie,
-    locataires: noms(l.contacts?.locataires, l.locataires), proprietaires: noms(l.contacts?.proprietaires, []),
+    locataires: noms(l.contacts?.locataires, l.locataires),
+    // 🔴 (Arno, 25/11/2026) les propriétaires « civilité Prénom NOM » (fiche)
+    proprietaires: (l.contacts?.proprietaires ?? []).map((p) => p.nomCivil ?? p.nom),
   });
   const civilites = base.appel?.civilites ?? {};
   return destinatairesModeleVingt(cle, { syndics, proprietaires, locataires: adressesDesLocataires(l) }).map((d) => {

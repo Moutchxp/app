@@ -85,7 +85,7 @@ describe('🔴🔴 les coordonnées des locataires et des propriétaires', () =>
       const s = sql.replace(/\s+/g, ' '); appels.push(s);
       if (s.includes('AS j')) return { rows: [{ j: '2026-11-23' }] };
       if (s.includes('AS sortie, l.id::text')) return { rows: [{ sortie: '5', id: '101', nom: 'DUPONT', prenom: 'Alice' }, { sortie: '6', id: '102', nom: 'MARTIN', prenom: null }] };
-      if (s.includes('JOIN gestion_annuaire_proprietaire p ON p.id = x.pid')) return { rows: [{ lot: '1', id: '7', nom: 'DURAND', prenom: 'Jean', complet: 'DURAND Jean' }, { lot: '1', id: '8', nom: 'SCI', prenom: null, complet: 'SCI Les Tilleuls' }] };
+      if (s.includes('JOIN gestion_annuaire_proprietaire p ON p.id = x.pid')) return { rows: [{ lot: '1', id: '7', nom: 'DURAND', prenom: 'Jean', complet: 'DURAND Jean', civilite: 'M.' }, { lot: '1', id: '8', nom: 'SCI', prenom: null, complet: 'SCI Les Tilleuls', civilite: 'SCI' }] };
       if (s.includes('FROM gestion_annuaire_contact c')) return { rows: [
         { sujet: 'locataire', sujet_id: '101', sorte: 'email', valeur: 'alice@exemple.test', brute: 'alice@exemple.test' },
         { sujet: 'locataire', sujet_id: '101', sorte: 'email', valeur: 'autre@exemple.test', brute: 'autre@exemple.test' },
@@ -99,7 +99,8 @@ describe('🔴🔴 les coordonnées des locataires et des propriétaires', () =>
     expect(a.contacts).toEqual({
       // 🔴 (Arno, 25/11/2026) + `emails` : toutes les adresses valables (« Envoyer un mail »), la première restant `email`
       locataires: [{ nom: 'Alice DUPONT', emails: ['alice@exemple.test', 'autre@exemple.test'], email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
-      proprietaires: [{ nom: 'Jean DURAND', emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', emails: [], email: null, telephone: null }],
+      // 🔴 (Arno, 25/11/2026) + `nomCivil` : la civilité de PERSONNE devant le nom (« M. Jean DURAND ») ; une société garde son nom seul
+      proprietaires: [{ nom: 'Jean DURAND', nomCivil: 'M. Jean DURAND', emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', nomCivil: 'SCI Les Tilleuls', emails: [], email: null, telephone: null }],
     });
     expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', emails: [], email: null, telephone: null }], proprietaires: [] });
     expect(appels.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false);
