@@ -486,7 +486,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     expect(visibles()).toEqual(['Alerte du lundi', 'Urgence']);
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('1');
     await taper('martin');
-    expect(visibles()).toEqual(['Dates / copropriétés manquantes', 'Alerte du lundi']);
+    expect(visibles()).toEqual(['Dates / copropriétés manquantes']); // 🔴 (25/11) personne en urgence dans les résultats : pas d'alerte du lundi
     expect(container.querySelector('[data-vgp-categorie="manquantes"] [data-vgp-compteur]')?.textContent).toBe('1');
   });
   it('« Aucun résultat » ; la croix efface la recherche et tout revient ; les pastilles de l’accueil ne lisent pas la recherche', async () => {
@@ -593,8 +593,9 @@ describe('🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position
   it('sans « Dates / copropriétés manquantes » (recherche qui ne les trouve pas), l’alerte passe en tête', async () => {
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'dupont'); el.dispatchEvent(new Event('input', { bubbles: true })); });
-    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(['Alerte du lundi', 'AGO > 1 mois – En attente']);
+    // 🔴 (25/11) une recherche qui trouve un locataire en urgence (sinon l'alerte n'est pas présente)
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, 'durand'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(['Alerte du lundi', 'Urgence']);
   });
 });
 
@@ -846,5 +847,41 @@ describe('🔴 Arno (25/11/2026) — les titres « AGO > 1 mois – En attente �
   });
   it('le mail du lundi ne cite pas ces titres (rien à renommer)', () => {
     expect(readFileSync('app/lib/location/alerteVingt.ts', 'utf8')).not.toMatch(/À préparer|En attente/);
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — « n'afficher la ligne "Alerte du lundi" que si elle contient un locataire, sinon elle n'est pas présente ». */
+describe('🔴 Arno (25/11/2026) — « Alerte du lundi » seulement avec au moins un locataire en urgence', () => {
+  const taper = async (v: string) => {
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  it('personne en « Urgence » : bloc absent (et son espace) ; « Urgence » garde son titre et son compteur 0', async () => {
+    donnees = { ...LU, lignes: LU.lignes.filter((l) => l.sortieId !== 7), faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-alerte-lundi]')).toBeNull();
+    expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-compteur]')?.textContent).toBe('0');
+    expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label')).slice(0, 2)).toEqual(['Dates / copropriétés manquantes', 'Urgence']);
+  });
+  it('au moins un locataire en urgence : présent, en 2e position, sans compteur au titre ; le mode essai y reste', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const a = container.querySelector('[data-vgp-alerte-lundi]')!;
+    expect(a.querySelector('summary')?.textContent).toBe('Alerte du lundi');
+    expect(a.querySelector('[data-vgp-compteur]')).toBeNull();
+    expect(a.querySelector('[data-vgp-alerte-essai]')).not.toBeNull();
+  });
+  it('recherche : présent si les résultats contiennent un locataire en urgence, absent sinon ; l’effacer le rend', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await taper('léo');
+    expect(container.querySelector('[data-vgp-alerte-lundi]')).not.toBeNull();
+    await taper('dupont');
+    expect(container.querySelector('[data-vgp-alerte-lundi]')).toBeNull();
+    await taper('');
+    expect(container.querySelector('[data-vgp-alerte-lundi]')).not.toBeNull();
+  });
+  it('l’envoi du lundi ne change pas (aucun fichier de l’envoi touché par cette règle d’affichage)', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    expect(src).toContain('{cl.urgence.length > 0 && <AlerteDuLundi api={api} />}');
+    expect(readFileSync('app/lib/location/alerteVingtRepo.ts', 'utf8')).toContain("if (urgence.length === 0) return null;");
   });
 });

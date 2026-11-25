@@ -99,7 +99,9 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
               {/* 🔴 (Arno, 25/11/2026, 10h14) le bloc n'apparaît que s'il contient des locataires (et, en recherche, s'il y trouve quelque chose) */}
               {datesManquantesVisibles(vu) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
               {/* 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » : juste après « Dates / copropriétés manquantes » (contenu inchangé) */}
-              <AlerteDuLundi api={api} />
+              {/* 🔴 Arno (25/11/2026) — « n'afficher la ligne "Alerte du lundi" que si elle contient un locataire, sinon elle n'est pas présente » :
+                  au moins un locataire en « Urgence » (ceux que le mail du lundi listera), sur les résultats filtrés si une recherche est tapée */}
+              {cl.urgence.length > 0 && <AlerteDuLundi api={api} />}
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))
                 .map((k) => <Categorie key={`${k}:${replis}`} {...ouvert(k)} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
               {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
