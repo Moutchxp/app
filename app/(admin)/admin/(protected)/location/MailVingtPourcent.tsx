@@ -26,6 +26,21 @@ export interface MailVingt { contexte: ContexteRedactionEcran; onGeste?: GesteMa
 export const adressesDesLocataires = (l: Pick<LigneVingtPourcent, 'contacts'>): string[][] =>
   (l.contacts?.locataires ?? []).map((p) => p.emails ?? (p.email !== null ? [p.email] : []));
 
+/**
+ * 🔴🔴 (Arno, 25/11/2026, point 4) « chaque mail envoyé est inscrit dans l'historique […] du bien […], comme les autres mails de l'application (même
+ * mécanisme, journal) » : le bien de la ligne part comme CIBLE EXPLICITE (sans `origine` — jamais écartée par le filet de l'envoi `ciblesCoherentes`,
+ * même pour un mail au seul syndic) ; la route la pose (`gestion_envoi_cible`) puis en fait un rattachement CONFIRMÉ dès que le mail envoyé est
+ * capturé (`appliquerCiblesEnAttente`) — l'historique du bien. Les personnes (locataire, propriétaire, contact du syndic) le retrouvent par leurs
+ * adresses, et la copropriété par ses biens (décision 3A) ; la route écrit aussi sa ligne de `gestion_journal`. Les autres cibles sont gardées. PUR.
+ */
+export function ciblesAvecLeBien<C extends { sorte?: string; id?: number | null; cle?: string | null; origine?: unknown }>(
+  cibles: readonly C[] | undefined, l: Pick<LigneVingtPourcent, 'lotId' | 'lotCle' | 'logement'>,
+): Array<C | { sorte: 'lot'; cle: string | null; id: number; libelle: string }> {
+  const autres = (cibles ?? []).filter((c) => !(c.sorte === 'lot' && (c.id === l.lotId || (l.lotCle != null && c.cle === l.lotCle))));
+  const existant = (cibles ?? []).find((c) => c.sorte === 'lot' && (c.id === l.lotId || (l.lotCle != null && c.cle === l.lotCle))) as (C & { libelle?: string }) | undefined;
+  return [{ sorte: 'lot', cle: l.lotCle ?? existant?.cle ?? null, id: l.lotId, libelle: existant?.libelle ?? l.logement ?? `Bien ${l.lotId}` }, ...autres];
+}
+
 /** Le brouillon neuf du module : le « Nouveau message » de la colonne, le bien de la ligne pré-coché, ses adresses proposées. */
 export async function brouillonDeLaLigne(l: LigneVingtPourcent, contexte: ContexteRedactionEcran): Promise<BrouillonEcran> {
   const base: BrouillonEcran = {
@@ -34,7 +49,7 @@ export async function brouillonDeLaLigne(l: LigneVingtPourcent, contexte: Contex
   };
   const b = await brouillonNouveauDepuisLeBien(base, { lotId: l.lotId, cle: l.lotCle ?? '', libelle: l.logement ?? `Bien ${l.lotId}` },
     { texte: contexte.signature, html: contexte.signatureHtml });
-  return { ...(b as BrouillonEcran), vingtPourcent: { sortieId: l.sortieId } };
+  return { ...(b as BrouillonEcran), cibles: ciblesAvecLeBien(b.cibles, l) as BrouillonEcran['cibles'], vingtPourcent: { sortieId: l.sortieId } };
 }
 
 /**
