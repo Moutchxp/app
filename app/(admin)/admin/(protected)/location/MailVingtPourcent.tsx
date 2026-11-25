@@ -7,11 +7,12 @@ import { brouillonNouveauDepuisLeBien } from '../../../../lib/gestion/nouveauMes
 import { brouillonMailSyndic, formulePour } from '../../../../lib/gestion/mailSyndic';
 import { destinatairesModeleVingt, MODELES_VINGT, refusUnLocataireParMail, texteModeleVingt, type CleModeleVingt } from '../../../../lib/location/mailVingtPourcent';
 import type { LigneVingtPourcent } from '../../../../lib/location/vingtPourcent';
+import { ListeChoix } from './ListeChoix';
 
 /**
  * ══ 🔴🔴 « ENVOYER UN MAIL » DANS LA LIGNE DÉPLIÉE DE « 20 % À RESTITUER » (Arno, 25/11/2026) ═══════════════════════════════════════════════════════
  * « notre module d'envoi de mail EXISTANT (même composant que le reste de l'application, pas de copie) s'ouvre juste en dessous, à l'intérieur de la
- * ligne dépliée ». C'est `Redaction`, monté comme le « Nouveau message » de l'historique d'un bien (HistoriqueDuBien) : brouillon neuf
+ * ligne dépliée ». C'est `Redaction`, monté comme le « Nouveau message » de l'historique d'un bien sur sa fiche (Gestion) : brouillon neuf
  * (`preparerBrouillon`), le bien pré-coché et ses adresses proposées en couleurs (`brouillonNouveauDepuisLeBien` : clients du bien, contacts du syndic
  * de la copropriété, contacts de l'immeuble — mêmes pastilles qu'ailleurs), la saisie libre d'une adresse comme partout.
  * Décisions d'Arno du 25/11/2026 : seulement côté Gestion (1A : la Location n'envoie pas, garde-fou inchangé) ; un module par locataire, contrôle à
@@ -122,14 +123,13 @@ export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVing
       {erreur !== null && <p className="cp-refus" role="alert">{erreur}</p>}
       {brouillons === null && erreur === null && <p className="loc-muet" role="status">Ouverture du module…</p>}
       {base !== null && (
-        <label className="vgp-mail-modele">
+        <div className="vgp-mail-modele">
           <span>Modèle de texte</span>
-          <select value={modele} onChange={(e) => choisir(e.target.value as CleModeleVingt | '')} data-vgp-mail-modele>
-            <option value="">Message libre</option>
-            {MODELES_VINGT.map((m) => <option key={m.cle} value={m.cle}>{m.libelle}</option>)}
-          </select>
+          {/* la liste VERTE de la Location (jamais de <select> natif, règle d'Arno du 24/10/2026) */}
+          <ListeChoix options={MODELES_VINGT.map((m) => ({ id: m.cle, libelle: m.libelle }))} valeur={modele} vide="Message libre" libelle="Modèle de texte"
+            onChange={(id) => choisir(id as CleModeleVingt | '')} donnees={{ 'data-vgp-mail-modele': '' }} />
           <span className="loc-muet vgp-aide">Le modèle remplace le message en cours ; destinataires et texte restent modifiables.{modele === 'locataire' && (brouillons ?? []).length > 1 ? ' Un mail par locataire : un module chacun.' : ''}</span>
-        </label>)}
+        </div>)}
       {(brouillons ?? []).map((b, i) => {
         const refus = refusUnLocataireParMail(locataires, [...b.a, ...b.cc, ...b.cci]);
         return (

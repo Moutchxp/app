@@ -1341,15 +1341,17 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
     await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-envoyer-mail]') as HTMLButtonElement).click(); }); await calmer();
   };
+  // la liste verte de la Location (ListeChoix) : ouvrir, puis cliquer l'option
   const choisir = async (v: string) => {
-    const sel = container.querySelector('[data-vgp-mail-modele]') as HTMLSelectElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => { (container.querySelector('[data-vgp-mail-modele]') as HTMLButtonElement).click(); });
+    await act(async () => { (document.querySelector(`[role="option"][data-option="${v}"]`) as HTMLElement).click(); });
   };
   const modules = () => [...container.querySelectorAll('[data-stub-redaction]')].map((x) => x.getAttribute('data-stub-redaction'));
   const derniers = (n: number) => redaction.mock.calls.slice(-n).map((c) => c[0] as { brouillon: { a: string[]; cc: string[]; objet: string; corps: string; vingtPourcent: unknown } });
   it('le sélecteur : « Message libre » puis les quatre modèles, dans cet ordre', async () => {
     await ouvrir();
-    expect([...container.querySelectorAll('[data-vgp-mail-modele] option')].map((o) => o.textContent)).toEqual(['Message libre',
+    await act(async () => { (container.querySelector('[data-vgp-mail-modele]') as HTMLButtonElement).click(); });
+    expect([...document.querySelectorAll('[role="option"]')].map((o) => o.textContent?.replace('✓', ''))).toEqual(['Message libre',
       'Syndic — date de la prochaine AGO', 'Propriétaire — date de la prochaine AGO', 'Syndic, propriétaire(s) en copie — date de la prochaine AGO', 'Locataire — restitution du solde effectuée']);
   });
   it('a. le syndic en « À » ; b. le propriétaire ; c. le syndic, le propriétaire EN COPIE ; texte et objet du modèle, signature dessous', async () => {
