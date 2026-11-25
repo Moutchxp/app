@@ -81,7 +81,15 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
     return () => { vivant = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des fils suffit
   }, [cleFils]);
-  if (fils.length === 0 && enAttente.length === 0) return null;
+  // 🔴🔴 (Arno, 25/11/2026, niveau 2) « Échanges (N) » toujours là sur la ligne dépliée ; sans échange : « Aucun échange pour l'instant »
+  if (fils.length === 0 && enAttente.length === 0) {
+    return (
+      <section className="vgp-echanges" data-vgp-echanges={0} aria-label="Échanges">
+        <style>{CSS_ECHANGES}</style>
+        <p className="vgp-coord-titre vgp-echanges-titre">Échanges (0)</p>
+        <p className="loc-muet vgp-echanges-aucun" data-vgp-echanges-aucun>Aucun échange pour l’instant</p>
+      </section>);
+  }
   const envoiDe = (messageId: number): MailVingtEnvoye | undefined => (l.mails ?? []).find((x) => x.messageId === messageId);
   const nombre = l.echanges?.nombre ?? (lus?.length ?? 0) + enAttente.length;
   return (
@@ -116,6 +124,7 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
 const CSS_ECHANGES = `
 .vgp-echanges{display:flex;flex-direction:column;gap:8px;min-width:0;margin-top:4px}
 .vgp-echanges-titre{margin:0}
+.vgp-echanges-aucun{margin:0}
 .vgp-echange{display:flex;flex-direction:column;gap:2px;min-width:0}
 .vgp-echange-origine{margin:0;font-size:.75rem;font-weight:700;color:var(--color-svv-muted);overflow-wrap:anywhere}
 `;

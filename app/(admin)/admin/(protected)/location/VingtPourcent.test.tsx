@@ -1495,6 +1495,21 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     expect(container.querySelector('[data-stub-repondre]')).toBeNull();
   });
 
+  it('🔴 (niveau 2) sans aucun échange : « Échanges (0) » et « Aucun échange pour l’instant », rien n’est lu ; le module reste fermé', async () => {
+    donnees = { ...LU, lignes: [LU.lignes[0]] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    const e = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail] [data-vgp-echanges]')!;
+    expect(e.querySelector('.vgp-echanges-titre')?.textContent).toBe('Échanges (0)');
+    expect(e.querySelector('[data-vgp-echanges-aucun]')?.textContent).toBe('Aucun échange pour l’instant');
+    expect(lectures.some((u) => u.includes('/gestion/fils/'))).toBe(false);
+    expect(container.querySelector('[data-vgp-mail]')).toBeNull();
+    // l'ordre du niveau 2 : le détail (date de sortie, exercice, dernière AGO, coordonnées), PUIS les échanges
+    const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail]')!;
+    const enfants = [...d.children];
+    expect(enfants.indexOf(d.querySelector('.vgp-dl')!)).toBeLessThan(enfants.indexOf(e));
+  });
   it('le modèle choisi part avec la marque (et y reste quand on modifie le message)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/MailVingtPourcent.tsx', 'utf8');
     expect(src).toContain('vingtPourcent: { sortieId: l.sortieId, modele: cle } };');
