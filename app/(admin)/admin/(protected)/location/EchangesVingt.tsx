@@ -21,7 +21,7 @@ import type { LigneVingtPourcent, MailVingtEnvoye } from '../../../../lib/locati
  *   réponses comprises (une réponse rejoint le fil par ses en-têtes de réponse, comme dans la boîte), tous fils mêlés ; 🔴 (21h24) affichée du plus
  *   RÉCENT au plus ancien.
  * - LA PRÉSENTATION est celle de la boîte : chaque mail est rendu par `MessageConversation` (la carte de la conversation Gestion — pas de copie),
- *   dépliable, pièces jointes comprises ; son contenu est lu au dépliage (`chargerCorpsDuMessage`, la même lecture). Lecture par la route du fil
+ *   dépliable, pièces jointes comprises ; 🔴 (21h24) tous FERMÉS à l'ouverture, plusieurs peuvent être ouverts ensemble ; son contenu est lu au dépliage (`chargerCorpsDuMessage`, la même lecture). Lecture par la route du fil
  *   (`/api/admin/gestion/fils/[id]/messages`, droit Gestion) : rien n'est écrit.
  * - « Répondre » sur chaque mail (Gestion seulement) : `onRepondre` — le module d'écriture de la ligne s'ouvre en réponse, dans le même fil.
  * - Un mail parti mais pas encore capturé par la relève : une ligne simple (quand, à qui, le modèle), « dans la conversation dès la prochaine relève ».
@@ -82,11 +82,10 @@ export function EchangesLigne({ l, maintenant, onRepondre }: {
           return { filId, messages: d.messages ?? [] };
         }));
         if (!vivant) return;
-        const tous = fusionnerEchanges(reponses);
-        setLus(tous);
-        // comme dans la boîte : le dernier mail est ouvert
-        const dernier = tous.at(-1);
-        if (dernier !== undefined) void deplier(dernier.m, true);
+        setLus(fusionnerEchanges(reponses));
+        // 🔴 (Arno, 25/11/2026, 21h24) « tous les mails doivent être fermés par défaut et on peut les ouvrir ou les fermer d'un seul clic » : plus
+        //    d'ouverture automatique du dernier mail SUR CET ÉCRAN (la boîte Gestion garde la sienne). Un clic sur l'en-tête (la ligne repliée de la
+        //    carte, un bouton sur toute sa largeur) ouvre, un second referme ; « Répondre » et « ⋮ » sont à côté, ils n'ouvrent ni ne ferment rien.
       } catch (e) {
         if (vivant) setErreur((e as Error).message === 'droit' ? 'Les échanges se lisent avec le droit Gestion.' : 'Lecture des échanges impossible : réessayez.');
       }

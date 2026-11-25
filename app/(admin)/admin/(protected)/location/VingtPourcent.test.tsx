@@ -1477,14 +1477,31 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     expect(e.querySelector('[data-vgp-echange="901"] [data-vgp-echange-modele]')?.textContent).toBe('Envoyé depuis cette page — Syndic, propriétaire(s) en copie — date de la prochaine AGO — Voir dans l’historique');
     expect(e.querySelector('[data-vgp-echange="903"] [data-vgp-echange-modele]')).toBeNull();
     expect(e.querySelector('[data-vgp-echange-attente]')?.textContent).toBe('25/11/2026 à 10:12 — jean@exemple.test — Message libre — dans la conversation dès la prochaine relève');
-    // comme dans la boîte : le dernier mail est ouvert
-    expect(e.querySelector('[data-stub-carte="903"]')?.getAttribute('data-stub-ouvert')).toBe('1');
-    expect(e.querySelector('[data-stub-carte="901"]')?.getAttribute('data-stub-ouvert')).toBe('0');
+    // 🔴 (21h24) « tous les mails doivent être fermés par défaut » : aucun ouvert, aucun contenu lu
+    expect([...e.querySelectorAll('[data-stub-carte]')].map((c) => c.getAttribute('data-stub-ouvert'))).toEqual(['0', '0', '0']);
     // le module d'écriture reste fermé
     expect(container.querySelector('[data-vgp-mail]')).toBeNull();
     expect(redaction).not.toHaveBeenCalled();
   });
 
+  it('🔴 (21h24) fermés par défaut ; un clic sur l’en-tête ouvre, un second referme ; plusieurs ouverts ensemble ; « Répondre » n’ouvre ni ne ferme le mail', async () => {
+    donnees = { ...LU, lignes: [LIGNE()] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    const ouvert = (id: number) => container.querySelector(`[data-stub-carte="${id}"]`)?.getAttribute('data-stub-ouvert');
+    const clic = async (sel: string) => { await act(async () => { (container.querySelector(sel) as HTMLElement).click(); }); await calmer(); };
+    expect([ouvert(903), ouvert(904), ouvert(901)]).toEqual(['0', '0', '0']);
+    await clic('[data-stub-entete="904"]');
+    expect([ouvert(903), ouvert(904), ouvert(901)]).toEqual(['0', '1', '0']);
+    await clic('[data-stub-entete="901"]');
+    expect([ouvert(903), ouvert(904), ouvert(901)]).toEqual(['0', '1', '1']);        // plusieurs ouverts ensemble
+    await clic('[data-stub-entete="904"]');
+    expect([ouvert(903), ouvert(904), ouvert(901)]).toEqual(['0', '0', '1']);        // un second clic referme
+    await clic('[data-stub-repondre="903"]');
+    expect(ouvert(903)).toBe('0');                                                    // « Répondre » n'ouvre pas le mail
+    expect(container.querySelector('[data-vgp-mail]')).not.toBeNull();               // il ouvre le module
+  });
   it('🔴 (21h24) l’œil de la pièce jointe ouvre la LISEUSE habituelle sur cette pièce (sans « Ranger » ni téléchargement) ; « fermer » la referme', async () => {
     liseuse.mockClear();
     donnees = { ...LU, lignes: [LIGNE()] };
