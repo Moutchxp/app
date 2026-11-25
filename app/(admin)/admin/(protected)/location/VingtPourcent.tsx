@@ -275,6 +275,22 @@ function DatesManquantes({ lignes, groupes, toutes, aujourdhui, onCompleter, onR
 }
 
 /** Un bloc de « Dates / copropriétés manquantes » : même taille que les lignes des autres catégories. */
+/**
+ * 🔴🔴 (Arno, 25/11/2026) la conversation d'un locataire du bloc « Dates / copropriétés manquantes » : les échanges de sa SORTIE (lecture), et « Répondre »
+ * qui ouvre LE module de la ligne en réponse (même fil, classement verrouillé, un mail par locataire). Sans droit d'écrire : lecture seule.
+ */
+function ConversationDuConcerne({ l }: { l: LigneVingtPourcent }) {
+  const { mail } = useContext(GestesLigne);
+  const [reponse, setReponse] = useState<{ b: BrouillonEcran; n: number } | null>(null);
+  const [maintenant] = useState(() => new Date());
+  return (
+    <div className="vgp-concerne-echanges" data-vgp-concerne-echanges={l.sortieId}>
+      <EchangesLigne l={l} maintenant={maintenant}
+        onRepondre={mail != null ? (voie, m, filId, corps) => setReponse((r) => ({ b: brouillonReponseDeLaLigne(l, mail.contexte, voie, m, filId, corps), n: (r?.n ?? 0) + 1 })) : undefined} />
+      {reponse !== null && mail != null && <ModuleMailLigne key={reponse.n} l={l} mail={mail} fermeture={0} reponse={reponse.b} onFermer={() => setReponse(null)} />}
+    </div>);
+}
+
 function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestituer }: { m: LigneDatesManquantes; concernes: readonly LigneVingtPourcent[]; aujourdhui: string;
   onCompleter: (l: LigneDatesManquantes) => void; onRestituer: (l: LigneVingtPourcent) => void }) {
   const [ouvert, setOuvert] = useState(false);
@@ -282,6 +298,11 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
   const basculer = (): void => setOuvert((o) => !o);
   const noms = m.locataires.length > 0 ? m.locataires.join(', ') : concernes.flatMap((l) => l.locataires).join(', ');
   const sansCopro = m.coproprieteId === null;
+  // 🔴🔴 (Arno, 25/11/2026) « tout bloc locataire qui inclut des échanges mails doit apparaître dans le bloc original, en dessous du cartouche de statut
+  //    […] qui indique le nombre de mails échangés » : ici aussi, le total des locataires du bloc (envoyés + reçus) et le plus récent
+  const echanges = concernes.flatMap((l) => (l.echanges !== undefined ? [l.echanges] : []));
+  const total = echanges.length === 0 ? null : { fils: echanges.flatMap((e) => e.fils), nombre: echanges.reduce((n, e) => n + e.nombre, 0),
+    dernierLe: echanges.map((e) => e.dernierLe).filter((d): d is string => d !== null).sort().at(-1) ?? null };
   return (
     <li className="vgp-ligne vgp-ligne--manque" data-vgp-manque={m.cle} data-vgp-ouvert={ouvert ? '1' : '0'}>
       <div className="vgp-ligne-tete" onClick={basculer}>
@@ -296,6 +317,8 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
               : `Manque : ${m.manque.map((x) => MOT_MANQUE[x]).join(' et ')}`}</p>
         </div>
         <div className="vgp-ligne-droite" onClick={(e) => e.stopPropagation()}>
+          {mentionMailsEchanges(total) !== null && (
+            <span className="vgp-ligne-ago"><span className="vgp-mails-echanges vgp-une-ligne" data-vgp-mails-echanges={total!.nombre}>{mentionMailsEchanges(total)}</span></span>)}
           <span className="vgp-ligne-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onCompleter(m)} data-vgp-completer={m.cle}>
               {sansCopro ? 'Créer la copropriété' : 'Fiche copropriété'}</button>
@@ -321,6 +344,8 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
                 </span>
                 <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer-concerne={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
                 <Coordonnees c={l.contacts} unSeulLocataire={concernes.reduce((n, x) => n + Math.max(1, x.locataires.length), 0) === 1} />
+                {/* 🔴🔴 (Arno, 25/11/2026) sa conversation, avec « Répondre » (même module, même fil) ; rien de plus s'il n'a aucun mail */}
+                {ouvert && l.echanges !== undefined && <ConversationDuConcerne l={l} />}
               </li>
             );
           })}</ul>
@@ -692,6 +717,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-ligne-boutons{display:flex;gap:6px}
 .vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
 .vgp-mails-echanges{font-size:.75rem;font-weight:700;color:var(--color-svv-muted);max-width:100%}
+.vgp-concerne-echanges{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:8px}
 .vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
 .vgp-ligne-detail[hidden]{display:none}

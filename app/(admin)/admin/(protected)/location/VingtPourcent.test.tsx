@@ -1510,6 +1510,28 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     const enfants = [...d.children];
     expect(enfants.indexOf(d.querySelector('.vgp-dl')!)).toBeLessThan(enfants.indexOf(e));
   });
+  it('🔴 (rappel d’Arno, 25/11) « Dates / copropriétés manquantes » : le bloc dit « N mails échangés » ; le locataire déplié montre sa conversation, « Répondre » dans le même fil', async () => {
+    donnees = { ...LU, lignes: [LU.lignes[2] && { ...LU.lignes[2], mails: MAILS, echanges: { fils: [55, 56], nombre: 4, dernierLe: '2026-11-25T10:12' } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    const bloc = container.querySelector('[data-vgp-manque="copro-20"]')!;
+    expect(bloc.querySelector('.vgp-ligne-tete [data-vgp-mails-echanges]')?.textContent).toBe('4 mails échangés — dernier le 25/11/2026');
+    expect(lectures.some((u) => u.includes('/gestion/fils/'))).toBe(false);          // bloc replié : rien n'est lu
+    await act(async () => { (bloc.querySelector('[data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    const r = bloc.querySelector('[data-vgp-concerne="6"] [data-vgp-concerne-echanges]')!;
+    expect([...r.querySelectorAll('[data-stub-carte]')].map((c) => c.getAttribute('data-stub-carte'))).toEqual(['901', '904', '903']);
+    await act(async () => { (r.querySelector('[data-stub-repondre="903"]') as HTMLElement).click(); });
+    await calmer();
+    expect((redaction.mock.calls.at(-1)![0] as { brouillon: Record<string, unknown> }).brouillon).toMatchObject({ voie: 'repondre', a: ['syndic@exemple.test'], repondALeMessageId: 903, filId: 55, vingtPourcent: { sortieId: 6 } });
+  });
+  it('sans mail : le bloc « Dates / copropriétés manquantes » ne change pas (ni mention, ni conversation)', async () => {
+    donnees = { ...LU, lignes: [LU.lignes[2]] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    const bloc = container.querySelector('[data-vgp-manque="copro-20"]')!;
+    expect(bloc.querySelector('[data-vgp-mails-echanges]')).toBeNull();
+    await act(async () => { (bloc.querySelector('[data-vgp-deplier]') as HTMLElement).click(); });
+    expect(bloc.querySelector('[data-vgp-concerne-echanges]')).toBeNull();
+  });
   it('le modèle choisi part avec la marque (et y reste quand on modifie le message)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/MailVingtPourcent.tsx', 'utf8');
     expect(src).toContain('vingtPourcent: { sortieId: l.sortieId, modele: cle } };');
