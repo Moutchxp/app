@@ -23,7 +23,7 @@ export interface DepsMinuterie {
   programmer?: (f: () => void, ms: number) => { unref?: () => void };
   differer?: (f: () => void, ms: number) => { unref?: () => void };
   journal?: (l: string) => void;
-  /** 🔴 Arno (24/11/2026) — l'alerte hebdomadaire « 20 % à restituer » (le lundi matin) ; absente : la vraie (`passeAlerteVingt`). */
+  /** 🔴 Arno (25/11/2026) — l'alerte « 20 % à restituer en retard » (tous les 2 jours, le matin ; remplace celle du lundi) ; absente : la vraie (`passeAlerteVingt`). */
   alerteVingt?: () => Promise<{ etat: string; motif?: string | null; mail?: { nombre: number } | null }>;
 }
 
@@ -48,11 +48,11 @@ export function demarrerMinuteriePrevisite(d: DepsMinuterie): boolean {
         }
       })
       .catch((e: unknown) => journal(`[pré-visite] passe impossible : ${(e as Error)?.message ?? 'erreur'}`))
-      // 🔴 Arno (24/11/2026) — la même minuterie porte l'alerte du lundi « 20 % à restituer » (elle ne fait rien les autres jours)
+      // 🔴 Arno (25/11/2026) — la même minuterie porte l'alerte « 20 % à restituer en retard » (tous les 2 jours ; elle ne fait rien entre-temps)
       .then(() => alerteVingt())
       .then((a) => {
         if (a !== undefined && (a.etat === 'envoye' || a.etat === 'echec')) {
-          journal(`[20 % à restituer] alerte du lundi ${a.etat === 'envoye' ? `envoyée (${a.mail?.nombre ?? 0} locataire(s) en urgence)` : `en échec : ${a.motif ?? 'raison inconnue'} (réessayée à la passe suivante)`}`);
+          journal(`[20 % à restituer] alerte de retard ${a.etat === 'envoye' ? `envoyée (${a.mail?.nombre ?? 0} locataire(s) en retard)` : `en échec : ${a.motif ?? 'raison inconnue'} (réessayée à la passe suivante)`}`);
         }
       })
       .catch((e: unknown) => journal(`[20 % à restituer] alerte impossible : ${(e as Error)?.message ?? 'erreur'}`))

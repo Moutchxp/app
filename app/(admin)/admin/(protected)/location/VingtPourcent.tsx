@@ -466,14 +466,14 @@ function AlerteMail({ api }: { api: string }) {
   return (
     <div className="vgp-alerte-mail" data-vgp-alerte-mail>
         <p className="vgp-coord-titre">Alerte par mail</p>
-        <p className="loc-muet vgp-aide">Chaque lundi matin (heure de Paris), si au moins un locataire est en « Urgence », un mail récapitulatif part à l’adresse de la Gestion.
-          Aucun mail si personne n’est en urgence ; jamais deux fois le même lundi.</p>
+        <p className="loc-muet vgp-aide">Tous les 2 jours, le matin à partir de 8 h (heure de Paris), s’il y a au moins un locataire en « Alerte restitution en retard », un mail
+          récapitulatif part à l’adresse de la Gestion. Aucun mail si personne n’est en retard ; jamais deux fois le même jour.</p>
         <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => { void voir(); }} disabled={vu.etat === 'charge'} data-vgp-alerte-essai>
           Voir le mail tel qu’il partirait (essai : rien n’est envoyé)</button>
         {vu.etat === 'charge' && <p className="loc-muet" role="status">Lecture…</p>}
         {vu.etat === 'erreur' && <p className="cp-refus" role="alert">{vu.message}</p>}
         {vu.etat === 'ok' && (vu.mail === null
-          ? <p className="loc-muet" data-vgp-alerte-aucune>Aucun locataire en « Urgence » : aucun mail ne partirait.</p>
+          ? <p className="loc-muet" data-vgp-alerte-aucune>Aucun locataire en « Alerte restitution en retard » : aucun mail ne partirait.</p>
           : <div className="vgp-carte" data-vgp-alerte-apercu>
             <dl className="vgp-dl"><div><dt>À</dt><dd>{vu.mail.a.join(', ')}</dd></div><div><dt>Objet</dt><dd data-vgp-alerte-objet>{vu.mail.objet}</dd></div></dl>
             <pre className="vgp-texte" data-vgp-alerte-texte-mail>{vu.mail.texte}</pre>
