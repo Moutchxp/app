@@ -24,7 +24,10 @@ const nouveauDepuisLeBien = vi.fn();
 vi.mock('../../../../lib/gestion/nouveauMessageBien', () => ({
   brouillonNouveauDepuisLeBien: async (base: Record<string, unknown>, bien: unknown) => {
     nouveauDepuisLeBien(bien);
-    return { ...base, cibles: [{ sorte: 'lot', cle: 'L1', id: 1, libelle: '1 rue A' }], suggestionsBien: [], appel: { formule: 'Bonjour,', civilites: {} } };
+    return { ...base, cibles: [{ sorte: 'lot', cle: 'L1', id: 1, libelle: '1 rue A' }], appel: { formule: 'Bonjour Madame, Monsieur,', civilites: {} },
+      // 🔴 (25/11/2026) les propositions du bien : un contact du syndic, un propriétaire (adresse propre)
+      suggestionsBien: [{ cle: 'clients', titre: 'Clients', lignes: [{ adresse: 'jean@exemple.test', nom: 'Jean DURAND', role: 'Propriétaire', ton: 'proprietaire', propre: true, civilite: null, nomFamille: null }] },
+        { cle: 'immeuble', titre: 'Immeuble', lignes: [{ adresse: 'syndic@exemple.test', nom: 'Cabinet X', role: 'Syndic', ton: 'syndic', propre: true, civilite: null, nomFamille: null }] }] };
   },
 }));
 const { EcranVingtPourcent } = await import('./VingtPourcent');
@@ -1321,5 +1324,60 @@ describe('🔴🔴 Arno (25/11/2026) — « Envoyer un mail » dans la ligne dé
     const r = readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8');
     expect(r).toContain('vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId } : undefined,');
     expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcentPage.tsx', 'utf8')).not.toContain('mail=');
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — les quatre modèles au choix dans le module : destinataires d'office (modifiables), un module par locataire pour le modèle d. */
+describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un mail »', () => {
+  const CONTEXTE = { schemaPret: true, peutEnvoyer: true, jetonPresent: true, signature: '— Gestion', signatureHtml: '<p>— Gestion</p>', nomExpediteur: 'CRITERIMMO',
+    adresseGestion: 'gestion@exemple.test', delaiAnnulationS: 10 } as never;
+  const LOCS = [{ nom: 'Alice DUPONT', email: 'alice@exemple.test', emails: ['alice@exemple.test'], telephone: null }, { nom: 'Léo DUPONT', email: 'leo@exemple.test', emails: ['leo@exemple.test'], telephone: null }];
+  beforeEach(() => {
+    redaction.mockClear();
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], lotCle: 'L1', locataires: ['DUPONT Alice', 'DUPONT Léo'],
+      contacts: { locataires: LOCS, proprietaires: [{ nom: 'Jean DURAND', email: 'jean@exemple.test', emails: ['jean@exemple.test'], telephone: null }] } }] };
+  });
+  const ouvrir = async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-envoyer-mail]') as HTMLButtonElement).click(); }); await calmer();
+  };
+  const choisir = async (v: string) => {
+    const sel = container.querySelector('[data-vgp-mail-modele]') as HTMLSelectElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true })); });
+  };
+  const modules = () => [...container.querySelectorAll('[data-stub-redaction]')].map((x) => x.getAttribute('data-stub-redaction'));
+  const derniers = (n: number) => redaction.mock.calls.slice(-n).map((c) => c[0] as { brouillon: { a: string[]; cc: string[]; objet: string; corps: string; vingtPourcent: unknown } });
+  it('le sélecteur : « Message libre » puis les quatre modèles, dans cet ordre', async () => {
+    await ouvrir();
+    expect([...container.querySelectorAll('[data-vgp-mail-modele] option')].map((o) => o.textContent)).toEqual(['Message libre',
+      'Syndic — date de la prochaine AGO', 'Propriétaire — date de la prochaine AGO', 'Syndic, propriétaire(s) en copie — date de la prochaine AGO', 'Locataire — restitution du solde effectuée']);
+  });
+  it('a. le syndic en « À » ; b. le propriétaire ; c. le syndic, le propriétaire EN COPIE ; texte et objet du modèle, signature dessous', async () => {
+    await ouvrir();
+    await choisir('syndic');
+    expect(modules()).toEqual(['syndic@exemple.test']);
+    let b = derniers(1)[0].brouillon;
+    expect(b.objet).toBe('Date de la prochaine AGO — Copro A');
+    expect(b.corps).toContain('Nous gérons un lot de la copropriété Copro A.');
+    expect(b.corps.trim().endsWith('— Gestion')).toBe(true);
+    expect(b.vingtPourcent).toEqual({ sortieId: 5 });
+    await choisir('proprietaire');
+    expect(modules()).toEqual(['jean@exemple.test']);
+    expect(derniers(1)[0].brouillon.corps).toContain('Suite au départ de vos locataires Alice DUPONT et Léo DUPONT le 15/11/2026');
+    await choisir('syndic_copie');
+    b = derniers(1)[0].brouillon;
+    expect([b.a, b.cc]).toEqual([['syndic@exemple.test'], ['jean@exemple.test']]);
+    expect(b.corps).toContain('Nous mettons Jean DURAND, propriétaire du lot, en copie de ce message.');
+  });
+  it('d. un module PAR LOCATAIRE (colocation) : chacun adressé à son seul locataire ; aucun refus « un mail par locataire »', async () => {
+    await ouvrir();
+    await choisir('locataire');
+    expect(modules()).toEqual(['alice@exemple.test', 'leo@exemple.test']);
+    expect(container.querySelector('[data-vgp-mail-refus]')).toBeNull();
+    expect(derniers(2).map((p) => p.brouillon.objet)).toEqual(['Restitution du solde de votre dépôt de garantie — 1 rue A, 92800 Puteaux', 'Restitution du solde de votre dépôt de garantie — 1 rue A, 92800 Puteaux']);
+    expect(container.querySelector('[data-vgp-mail]')?.textContent).toContain('Un mail par locataire : un module chacun.');
+    // retour au message libre : un seul module, vide
+    await choisir('');
+    expect(modules()).toEqual(['']);
   });
 });

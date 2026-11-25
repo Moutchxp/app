@@ -674,6 +674,8 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-coords-ligne > .vgp-coords{flex:1 1 auto}
 .vgp-envoyer-mail{flex:0 0 auto;margin:0;width:auto;min-height:44px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center}
 .vgp-mail{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-surface);min-width:0}
+.vgp-mail-modele{display:flex;flex-direction:column;gap:3px;font-size:.88rem;font-weight:700;min-width:0}
+.vgp-mail-modele select{min-height:44px;box-sizing:border-box;width:100%;max-width:520px;padding:8px 10px;border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-weight:400}
 .vgp-mail-module{display:flex;flex-direction:column;gap:6px;min-width:0}
 .vgp-coords{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:4px 16px;min-width:0}
 .vgp-coord{display:flex;flex-direction:column;gap:1px;min-width:0}

@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from '../gestion/Redaction';
 import { preparerBrouillon } from '../../../../lib/gestion/redaction';
 import { brouillonNouveauDepuisLeBien } from '../../../../lib/gestion/nouveauMessageBien';
-import { refusUnLocataireParMail } from '../../../../lib/location/mailVingtPourcent';
+import { brouillonMailSyndic, formulePour } from '../../../../lib/gestion/mailSyndic';
+import { destinatairesModeleVingt, MODELES_VINGT, refusUnLocataireParMail, texteModeleVingt, type CleModeleVingt } from '../../../../lib/location/mailVingtPourcent';
 import type { LigneVingtPourcent } from '../../../../lib/location/vingtPourcent';
 
 /**
@@ -40,17 +41,55 @@ export async function brouillonDeLaLigne(l: LigneVingtPourcent, contexte: Contex
  * Le module déplié. « Fermer » (ou un nouveau clic sur « Envoyer un mail », compteur `fermeture` de la ligne) passe par LA porte de l'éditeur
  * (`fermetureDemandee`, comme la croix de la colonne) : c'est lui qui décide du brouillon commencé ; il rend la main par `onFerme`.
  */
+const sansDoublon = (x: readonly string[]): string[] => [...new Map(x.filter((a) => a.trim() !== '').map((a) => [a.trim().toLowerCase(), a.trim()])).values()];
+
+/**
+ * 🔴🔴 (Arno, 25/11/2026) LES BROUILLONS D'UN MODÈLE : un par envoi (le modèle d en ouvre un PAR LOCATAIRE). Les destinataires sont pris dans les
+ * propositions du bien (syndic : pastille rose ; propriétaires : leurs adresses propres), à défaut dans les coordonnées de la ligne ; la formule
+ * d'appel est celle de nos autres mails (`formulePour`, recalculée par le module si l'on change « À ») ; la signature, celle du compte. PUR.
+ */
+export function brouillonsDuModele(base: BrouillonEcran, l: LigneVingtPourcent, cle: CleModeleVingt, signature: { texte?: string | null; html?: string | null }): BrouillonEcran[] {
+  const lignes = (base.suggestionsBien ?? []).flatMap((g) => g.lignes);
+  const syndics = sansDoublon(lignes.filter((x) => x.ton === 'syndic').map((x) => x.adresse));
+  const proprietairesBien = sansDoublon(lignes.filter((x) => x.ton === 'proprietaire' && x.propre).map((x) => x.adresse));
+  const proprietaires = proprietairesBien.length > 0 ? proprietairesBien
+    : sansDoublon((l.contacts?.proprietaires ?? []).map((p) => p.email ?? '').filter((x) => x !== ''));
+  const noms = (gens: readonly { nom: string }[] | undefined, repli: readonly string[]): string[] => ((gens ?? []).length > 0 ? gens!.map((p) => p.nom) : [...repli]);
+  const { objet, texte } = texteModeleVingt(cle, {
+    copro: l.copropriete?.libelle ?? l.logement ?? `Bien ${l.lotId}`, logement: l.logement ?? `Bien ${l.lotId}`,
+    exercice: l.suivi.exercice, ago: l.suivi.etat === 'ok' ? l.suivi.ago : null, dateSortie: l.dateSortie,
+    locataires: noms(l.contacts?.locataires, l.locataires), proprietaires: noms(l.contacts?.proprietaires, []),
+  });
+  const civilites = base.appel?.civilites ?? {};
+  return destinatairesModeleVingt(cle, { syndics, proprietaires, locataires: adressesDesLocataires(l) }).map((d) => {
+    const formule = formulePour(d.a, civilites);
+    const c = brouillonMailSyndic({ objet, surlignage: null, corps: `${formule}\n\n${texte}\n\n\n` }, signature);
+    return { ...base, id: null, a: d.a, cc: d.cc, cci: [], objet: c.objet, corps: c.corps, corpsHtml: c.corpsHtml, surlignageObjet: null,
+      appel: { formule, civilites }, vingtPourcent: { sortieId: l.sortieId } };
+  });
+}
+
 export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVingtPourcent; mail: MailVingt; fermeture: number; onFermer: () => void }) {
   const [brouillons, setBrouillons] = useState<BrouillonEcran[] | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [fermer, setFermer] = useState(0);
+  // 🔴 (Arno, 25/11/2026) le modèle choisi : il remplace le(s) brouillon(s) par le sien (destinataires d'office, modifiables) ; `generation` remonte l'éditeur
+  const [base, setBase] = useState<BrouillonEcran | null>(null);
+  const [modele, setModele] = useState<CleModeleVingt | ''>('');
+  const [generation, setGeneration] = useState(0);
+  const choisir = (cle: CleModeleVingt | ''): void => {
+    if (base === null) return;
+    setModele(cle);
+    setBrouillons(cle === '' ? [base] : brouillonsDuModele(base, l, cle, { texte: mail.contexte.signature, html: mail.contexte.signatureHtml }));
+    setGeneration((g) => g + 1);
+  };
   const demande = fermeture + fermer;
   // rien d'ouvert dans l'éditeur (lecture en cours ou en échec) : fermer, c'est replier
   useEffect(() => { if (demande > 0 && (brouillons === null || brouillons.length === 0)) onFermer(); }, [demande]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let vivant = true;
     brouillonDeLaLigne(l, mail.contexte)
-      .then((b) => { if (vivant) setBrouillons([b]); })
+      .then((b) => { if (vivant) { setBase(b); setBrouillons([b]); } })
       .catch(() => { if (vivant) setErreur('Le module d’envoi n’a pas pu s’ouvrir : réessayez.'); });
     return () => { vivant = false; };
     // une ouverture = un brouillon ; la ligne relue ne le refait pas
@@ -67,10 +106,19 @@ export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVing
     <div className="vgp-mail" data-vgp-mail={l.sortieId}>
       {erreur !== null && <p className="cp-refus" role="alert">{erreur}</p>}
       {brouillons === null && erreur === null && <p className="loc-muet" role="status">Ouverture du module…</p>}
+      {base !== null && (
+        <label className="vgp-mail-modele">
+          <span>Modèle de texte</span>
+          <select value={modele} onChange={(e) => choisir(e.target.value as CleModeleVingt | '')} data-vgp-mail-modele>
+            <option value="">Message libre</option>
+            {MODELES_VINGT.map((m) => <option key={m.cle} value={m.cle}>{m.libelle}</option>)}
+          </select>
+          <span className="loc-muet vgp-aide">Le modèle remplace le message en cours ; destinataires et texte restent modifiables.{modele === 'locataire' && (brouillons ?? []).length > 1 ? ' Un mail par locataire : un module chacun.' : ''}</span>
+        </label>)}
       {(brouillons ?? []).map((b, i) => {
         const refus = refusUnLocataireParMail(locataires, [...b.a, ...b.cc, ...b.cci]);
         return (
-          <div key={i} className="vgp-mail-module" data-vgp-mail-module={i}>
+          <div key={`${generation}:${i}`} className="vgp-mail-module" data-vgp-mail-module={i}>
             {/* 🔴 le contrôle à l'écran : le même motif que le refus du serveur */}
             {refus !== null && <p className="cp-refus" role="alert" data-vgp-mail-refus>{refus}</p>}
             <Redaction brouillon={b} contexte={mail.contexte} lotFiche={l.lotId} fermetureDemandee={demande}
