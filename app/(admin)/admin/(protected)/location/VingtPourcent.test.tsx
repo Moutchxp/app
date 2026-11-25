@@ -827,7 +827,9 @@ describe('🔴🔴 Arno (25/11/2026) — une seule pastille rouge qui cumule les
   it('colonne de gauche de la Gestion : une seule pastille, même total, même détail au survol et pour les lecteurs d’écran', () => {
     const s = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
     const entree = s.slice(s.indexOf('{onVingtPourcent && ('), s.indexOf('{onSyndics && ('));
-    expect(entree.match(/cm-pastille-jour/g)).toHaveLength(1);
+    // une seule pastille ROUGE ; 🔴 (25/11) plus la pastille VERTE des restitutions à préparer ou à faire
+    expect(entree.match(/cm-pastille-jour cm-pastille-vif/g)).toHaveLength(1);
+    expect(entree.match(/cm-pastille-jour cm-pastille-vert/g)).toHaveLength(1);
     expect(entree).toContain("pastilleVingt({ retards: vingtRetards, urgences: vingtUrgences, copros: vingtCopros })");
     expect(entree).toContain('title={p.detail} aria-label={p.detail}>{p.total}</span>)}');
     expect(entree).not.toMatch(/data-pastille-vingt-(copros|urgence)/);
@@ -1168,5 +1170,42 @@ describe('🔴 Arno (25/11/2026) — pastilles vertes de « AGO passée » et «
     const lum = (h: string): number => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
     const ct = (a: string, b: string): number => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
     for (const i of [0, 1]) expect(ct(v('--color-svv-surface')[i], v('--color-svv-green-ink')[i]), `thème ${i}`).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — en plus de la pastille rouge, une pastille VERTE en haut à gauche des boutons : « AGO passée » + « AGO < 1 mois – À préparer ». */
+describe('🔴 Arno (25/11/2026) — la pastille verte des boutons « 20 % à restituer »', () => {
+  const L = (sortieId: number, ago: string, limite: string, locataires = [`V ${sortieId}`]) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires, cleCopro: 'copro-10',
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' as const }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
+  // 1 en « AGO passée » + 2 en « AGO < 1 mois – À préparer » (une colocation de deux) = 3
+  const AVEC = [...LU.lignes, L(12, '2026-11-10', '2026-12-10'), L(13, '2027-09-01', '2027-10-01', ['CO Un', 'CO Deux'])];
+  const bouton = () => container.querySelector('a[data-bouton-vingt-pourcent]')!;
+  it('accueil Location : pastille verte en haut à gauche (1 + 2 = 3), la rouge inchangée en haut à droite ; détail « 3 restitutions à préparer ou à faire »', async () => {
+    donnees = { ...LU, lignes: AVEC };
+    await rendre(createElement(BoutonVingtPourcent));
+    const v = bouton().querySelector('[data-pastille-vingt-preparer]')!;
+    expect([v.textContent, v.className, v.getAttribute('title')]).toEqual(['3', 'bvp-pastille bvp-pastille--vert', '3 restitutions à préparer ou à faire']);
+    const r = bouton().querySelector('[data-pastille-vingt-total]')!;
+    expect([r.textContent, r.className]).toEqual(['2', 'bvp-pastille']); // DURAND Léo (urgence) + 1 copropriété : inchangée
+    expect(bouton().getAttribute('aria-label')).toBe('20 % à restituer — 0 locataire en retard de restitution · 1 locataire en urgence · 1 copropriété à compléter · 3 restitutions à préparer ou à faire');
+    expect(bouton().getAttribute('data-vgp-niveau')).toBe('orange'); // couleur du bouton inchangée (urgence → orange)
+    const css = readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8');
+    expect(css).toContain('.bvp-pastille.bvp-pastille--vert{right:auto;left:-8px;background:var(--color-svv-green-ink)}');
+  });
+  it('masquée à 0 ; singulier « 1 restitution à préparer ou à faire »', async () => {
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(bouton().querySelector('[data-pastille-vingt-preparer]')).toBeNull();
+    act(() => root.unmount()); root = createRoot(container);
+    donnees = { ...LU, lignes: [...LU.lignes, L(12, '2026-11-10', '2026-12-10')] };
+    await rendre(createElement(BoutonVingtPourcent));
+    expect(bouton().querySelector('[data-pastille-vingt-preparer]')?.getAttribute('title')).toBe('1 restitution à préparer ou à faire');
+  });
+  it('colonne de gauche de la Gestion : la verte à gauche de la rouge, même nombre et même détail ; la rouge inchangée', () => {
+    const s = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
+    const entree = s.slice(s.indexOf('{onVingtPourcent && ('), s.indexOf('{onSyndics && ('));
+    expect(entree.indexOf('cm-pastille-vert')).toBeLessThan(entree.indexOf('cm-pastille-vif'));
+    expect(entree).toContain('data-pastille-vingt-preparer={vingtAPreparer} title={detailAPreparer(vingtAPreparer)} aria-label={detailAPreparer(vingtAPreparer)}');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).toContain('vingtAPreparer={pastillesVingt.aPreparer}');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/ColonneMode.tsx', 'utf8')).toContain('.cm-pastille-jour.cm-pastille-vert{background:var(--color-svv-green-ink)}');
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { nombreCoproprietesACompleter, nombreRetards, nombreUrgences, pastilleVingt, TITRE_VINGT_POURCENT, type SuiviVingtLu } from '../../../../lib/location/vingtPourcent';
+import { detailAPreparer, nombreAPreparer, nombreCoproprietesACompleter, nombreRetards, nombreUrgences, pastilleVingt, TITRE_VINGT_POURCENT, type SuiviVingtLu } from '../../../../lib/location/vingtPourcent';
 
 /**
  * 🔴 Arno (23/11/2026) — sur la ligne du titre « Location » de l'accueil, aligné à droite : le petit bouton qui ouvre « 20 % à restituer » en
@@ -13,27 +13,32 @@ import { nombreCoproprietesACompleter, nombreRetards, nombreUrgences, pastilleVi
  * 🔴🔴 Arno (25/11/2026) — le bouton ROUGE si au moins un locataire en « Alerte restitution en retard », sinon ORANGE si au moins un en « Urgence »,
  * sinon sa couleur d'origine ; la pastille ajoute les locataires en retard.
  */
-export function usePastillesVingt(api: string = '/api/admin/location'): { copros: number; urgences: number; retards: number } {
-  const [n, setN] = useState({ copros: 0, urgences: 0, retards: 0 });
+export function usePastillesVingt(api: string = '/api/admin/location'): { copros: number; urgences: number; retards: number; aPreparer: number } {
+  const [n, setN] = useState({ copros: 0, urgences: 0, retards: 0, aPreparer: 0 });
   useEffect(() => {
     let vivant = true;
     fetch(`${api}?vingtPourcent=1`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: SuiviVingtLu }>)
-      .then((d) => { if (vivant && d.etat === 'ok' && d.data) setN({ copros: nombreCoproprietesACompleter(d.data), urgences: nombreUrgences(d.data), retards: nombreRetards(d.data) }); })
+      .then((d) => { if (vivant && d.etat === 'ok' && d.data) setN({ copros: nombreCoproprietesACompleter(d.data), urgences: nombreUrgences(d.data), retards: nombreRetards(d.data), aPreparer: nombreAPreparer(d.data) }); })
       .catch(() => { /* sans pastille */ });
     return () => { vivant = false; };
   }, [api]);
   return n;
 }
 export function BoutonVingtPourcent() {
-  const p = pastilleVingt(usePastillesVingt());
+  const n = usePastillesVingt();
+  const p = pastilleVingt(n);
+  // 🔴 (Arno, 25/11/2026) la pastille VERTE, en haut à gauche : « AGO passée » + « AGO < 1 mois – À préparer » ; masquée à 0
+  const v = n.aPreparer;
+  const nomAccessible = [TITRE_VINGT_POURCENT, ...(p.total > 0 ? [p.detail] : []), ...(v > 0 ? [detailAPreparer(v)] : [])];
   return (
     <a className={`svv-btn svv-btn-outline gst-btn bvp${p.niveau !== null ? ` bvp--${p.niveau}` : ''}`} href="/admin/location/vingt-pourcent" data-bouton-vingt-pourcent
       data-vgp-niveau={p.niveau ?? 'origine'}
       title="Ouvrir « 20 % à restituer » en pleine page"
-      aria-label={p.total > 0 ? `${TITRE_VINGT_POURCENT} — ${p.detail}` : TITRE_VINGT_POURCENT}>
+      aria-label={nomAccessible.length > 1 ? `${nomAccessible[0]} — ${nomAccessible.slice(1).join(' · ')}` : TITRE_VINGT_POURCENT}>
       <span>{TITRE_VINGT_POURCENT}</span>
       <span className="bvp-plein" aria-hidden="true">⤢</span>
       {p.total > 0 && <span className="bvp-pastille" data-pastille-vingt-total={p.total} aria-hidden="true" title={p.detail}>{p.total}</span>}
+      {v > 0 && <span className="bvp-pastille bvp-pastille--vert" data-pastille-vingt-preparer={v} aria-hidden="true" title={detailAPreparer(v)}>{v}</span>}
       <style>{CSS_BOUTON_VINGT_POURCENT}</style>
     </a>
   );
@@ -43,6 +48,7 @@ export function BoutonVingtPourcent() {
 const CSS_BOUTON_VINGT_POURCENT = `
 .bvp{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:44px;width:auto;padding:6px 12px;font-size:.88rem;text-decoration:none;white-space:nowrap}
 .bvp-plein{font-size:1rem;line-height:1}
+.bvp-pastille.bvp-pastille--vert{right:auto;left:-8px;background:var(--color-svv-green-ink)}
 .bvp.bvp--rouge{background:var(--color-svv-red-soft);border-color:var(--color-svv-red);color:var(--color-svv-red-dark)}
 .bvp.bvp--orange{background:var(--color-svv-orange-soft);border-color:var(--color-svv-urgence-orange);color:var(--color-svv-orange)}
 .bvp-pastille{position:absolute;top:-8px;right:-8px;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--color-svv-rouge-vif);color:var(--color-svv-surface);font-size:.75rem;font-weight:800;border:2px solid var(--color-svv-surface);cursor:help}

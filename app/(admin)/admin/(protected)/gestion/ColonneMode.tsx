@@ -141,6 +141,8 @@ const CSS_COLONNE = `
   box-sizing:border-box;border-radius:999px;background:var(--color-svv-red);color:var(--color-svv-surface);font-size:12px;font-weight:700;line-height:1}
 /* 🔴 Arno (24/11/2026) — « 20 % à restituer » : la pastille « Urgence » en rouge vif (jeton --color-svv-rouge-vif), à côté de celle des copropriétés */
 .cm-pastille-jour.cm-pastille-vif{background:var(--color-svv-rouge-vif)}
+/* 🔴 Arno (25/11/2026) — « 20 % a restituer » : la pastille VERTE (restitutions a preparer ou a faire) ; chiffre en surface, lisible clair et sombre */
+.cm-pastille-jour.cm-pastille-vert{background:var(--color-svv-green-ink)}
 /* 🔴 Arno (25/11/2026) — l'entree « 20 % a restituer » : ROUGE (locataire en retard), ORANGE (urgence) ; paires de jetons lisibles en clair et en sombre */
 .cm-entree.cm-entree--vgp-rouge{background:var(--color-svv-red-soft);border-color:var(--color-svv-red);color:var(--color-svv-red-dark)}
 .cm-entree.cm-entree--vgp-orange{background:var(--color-svv-orange-soft);border-color:var(--color-svv-urgence-orange);color:var(--color-svv-orange)}

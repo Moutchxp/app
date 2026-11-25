@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, nombreRetards, niveauBoutonVingt, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, nombreRetards, niveauBoutonVingt, nombreAPreparer, detailAPreparer, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -319,5 +319,20 @@ describe('🔴🔴 Arno (25/11/2026) — niveauBoutonVingt et la pastille', () =
     expect(pastilleVingt({ retards: 1, urgences: 2, copros: 4 })).toEqual({ total: 7, niveau: 'rouge',
       detail: '1 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter' });
     expect(pastilleVingt({ retards: 0, urgences: 0, copros: 0 }).total).toBe(0);
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — la pastille verte des boutons : « AGO passée » + « AGO < 1 mois – À préparer », en locataires. */
+describe('🔴 Arno (25/11/2026) — nombreAPreparer', () => {
+  const L = (sortieId: number, ago: string, limite: string, locataires: string[]): LigneVingtPourcent => ({ sortieId, lotId: sortieId, locataires, logement: null, dateSortie: '2026-01-15',
+    valideLe: '2026-01-20', copropriete: { id: 1, libelle: 'C', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-1',
+    suivi: { etat: 'ok', exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' }, incertaine: false, limite, alerte: 'a_venir', joursRestants: 0 } });
+  it('AGO passée (1) + À préparer (colocation de 2) = 3 ; urgence, retard et en attente ne comptent pas ; détail au singulier / pluriel', () => {
+    const lu = { aujourdhui: '2026-11-24', manquantes: [], lignes: [L(1, '2026-11-10', '2026-12-10', ['A']), L(2, '2027-09-01', '2027-10-01', ['B', 'C']),
+      L(3, '2026-09-01', '2026-10-01', ['D']), L(4, '2026-10-25', '2026-11-25', ['E'])] };
+    expect(nombreAPreparer(lu)).toBe(3);
+    expect(nombreAPreparer(null)).toBe(0);
+    expect(detailAPreparer(3)).toBe('3 restitutions à préparer ou à faire');
+    expect(detailAPreparer(1)).toBe('1 restitution à préparer ou à faire');
   });
 });

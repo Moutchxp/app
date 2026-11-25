@@ -14,7 +14,7 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './R
 import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { preremplirDemande, type DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
-import { pastilleVingt } from '../../../../lib/location/vingtPourcent';
+import { detailAPreparer, pastilleVingt } from '../../../../lib/location/vingtPourcent';
 // La traduction « brouillon en base → brouillon d'éditeur », PURE et éprouvée sans écran.
 import { cleFenetreBrouillon, reprendreBrouillon, type BrouillonEnregistre as BrouillonLu }
   from '../../../../lib/gestion/brouillonReprise';
@@ -100,7 +100,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, vingtCopros = 0, vingtUrgences = 0, vingtRetards = 0, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, vingtCopros = 0, vingtUrgences = 0, vingtRetards = 0, vingtAPreparer = 0, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -200,6 +200,8 @@ export function PleinEcranBoite({
   vingtUrgences?: number;
   /** 🔴 Arno (25/11/2026) — les locataires en « Alerte restitution en retard » (entrée rouge ; sinon orange s'il y a une urgence). */
   vingtRetards?: number;
+  /** 🔴 Arno (25/11/2026) — « AGO passée » + « AGO < 1 mois – À préparer » : la pastille VERTE (masquée à 0). */
+  vingtAPreparer?: number;
   /** Le nombre de préavis EN ALERTE (pastille rouge ; aucune à 0). */
   preavisEnAlerte?: number;
   onAnnuaire?: () => void;
@@ -1071,8 +1073,13 @@ export function PleinEcranBoite({
                   <span className="cm-nom"><span className="cm-texte">20 % à restituer</span></span>
                   {/* 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes » : UNE pastille rouge vif, total =
                       locataires en urgence + copropriétés à compléter (masquée à 0), le détail au survol et pour les lecteurs d'écran */}
-                  {p.total > 0 && (
-                    <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-total={p.total} title={p.detail} aria-label={p.detail}>{p.total}</span>)}
+                  {(p.total > 0 || vingtAPreparer > 0) && <span className="cm-pastilles">
+                    {/* 🔴 (Arno, 25/11/2026) la pastille VERTE (« AGO passée » + « AGO < 1 mois – À préparer »), à gauche de la rouge */}
+                    {vingtAPreparer > 0 && (
+                      <span className="cm-pastille-jour cm-pastille-vert" data-pastille-vingt-preparer={vingtAPreparer} title={detailAPreparer(vingtAPreparer)} aria-label={detailAPreparer(vingtAPreparer)}>{vingtAPreparer}</span>)}
+                    {p.total > 0 && (
+                      <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-total={p.total} title={p.detail} aria-label={p.detail}>{p.total}</span>)}
+                  </span>}
                 </button>); })()}
               </li>
             )}

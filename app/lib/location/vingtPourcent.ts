@@ -363,6 +363,14 @@ export function texteConfirmationRestitution(o: { noms: readonly string[]; date:
  */
 export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number =>
   (lu === null ? 0 : capsulesAgo(classerVingtPourcent(lu).urgence).total);
+/** 🔴 Arno (25/11/2026) — la pastille VERTE des boutons : les locataires en « AGO passée » + « AGO < 1 mois – À préparer » (0 : aucune pastille). PUR. */
+export const nombreAPreparer = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => {
+  if (lu === null) return 0;
+  const c = classerVingtPourcent(lu);
+  return capsulesAgo([...c.ag_passee, ...c.a_preparer]).total;
+};
+/** « 3 restitutions à préparer ou à faire » (le détail de la pastille verte). PUR. */
+export const detailAPreparer = (n: number): string => `${n} restitution${n > 1 ? 's' : ''} à préparer ou à faire`;
 /** 🔴 Arno (25/11/2026) — les locataires en « Alerte restitution en retard » (colocataires un par un ; 0 : aucun). PUR. */
 export const nombreRetards = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number =>
   (lu === null ? 0 : capsulesAgo(classerVingtPourcent(lu).retard).total);

@@ -1726,6 +1726,7 @@ export function GestionVue({ intro, location = false }: {
           vingtCopros={pastillesVingt.copros}
           vingtUrgences={pastillesVingt.urgences}
           vingtRetards={pastillesVingt.retards}
+          vingtAPreparer={pastillesVingt.aPreparer}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
