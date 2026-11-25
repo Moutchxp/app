@@ -54,6 +54,13 @@ describe('le mail', () => {
     expect(ligneAlerteVingt(L(), '2026-11-30')).toBe('DUPONT Alice — 1 rue A, 92800 Puteaux — AGO officielle du 15/09/2026 — date limite 15/10/2026 — 46 jours de retard');
     expect(ligneAlerteVingt(L(), '2026-10-16')).toBe('DUPONT Alice — 1 rue A, 92800 Puteaux — AGO officielle du 15/09/2026 — date limite 15/10/2026 — 1 jour de retard');
   });
+  it('🔴 (25/11/2026, choix d’Arno) une AGO PROJETÉE (ou provisoire) en retard est dite « AGO projetée (à confirmer) », jamais « officielle » ; l’intro ne dit plus « officielle »', () => {
+    const proj = L({ suivi: { etat: 'ok', exercice: '2026-06-30', ago: { date: '2026-09-15', statut: 'projetee' }, incertaine: false, limite: '2026-10-15', alerte: 'depassee', joursRestants: -46 } });
+    expect(ligneAlerteVingt(proj, '2026-10-16')).toBe('DUPONT Alice — 1 rue A, 92800 Puteaux — AGO projetée (à confirmer) du 15/09/2026 — date limite 15/10/2026 — 1 jour de retard');
+    const prov = L({ suivi: { etat: 'ok', exercice: null, ago: { date: '2026-09-15', statut: 'officielle' }, incertaine: true, limite: '2026-10-15', alerte: 'depassee', joursRestants: -46 } });
+    expect(ligneAlerteVingt(prov, '2026-10-16')).toContain('AGO projetée (à confirmer) du 15/09/2026');
+    expect(mailAlerteVingt([proj], 'https://exemple.test/x', '2026-10-16').texte).toContain('l’AGO qui arrête les comptes est passée');
+  });
   it('le texte et le HTML : la liste, le lien vers l’écran (échappé), plus aucune mention du lundi', () => {
     const m = mailAlerteVingt([L(), L({ sortieId: 2, locataires: ['<B> & C'] })], 'https://exemple.test/admin/location/vingt-pourcent', '2026-11-30');
     expect(m.objet).toBe('[Alerte] 20 % à restituer en retard — 2 locataires');

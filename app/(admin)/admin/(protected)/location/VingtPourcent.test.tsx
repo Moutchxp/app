@@ -44,7 +44,8 @@ const LU: SuiviVingtLu = {
       suivi: { etat: 'ok', exercice: '2026-12-31', ago: { date: '2027-03-25', statut: 'projetee' }, incertaine: false, limite: '2027-04-25', alerte: 'a_venir', joursRestants: 153 } },
     { sortieId: 7, lotId: 3, locataires: ['DURAND Léo'], logement: null, dateSortie: '2026-01-10', valideLe: '2026-01-12',
       copropriete: { id: 30, libelle: 'Copro C', aRattacher: false }, arrete: null,
-      suivi: { etat: 'ok', exercice: null, ago: { date: '2026-09-22', statut: 'officielle' }, incertaine: true, limite: '2026-10-22', alerte: 'depassee', joursRestants: -32 } },
+      // 🔴 (25/11/2026, nouvelle règle d'Arno) en « Urgence » : AGO (provisoire) le 01/11, 23e jour le 23/11, date limite 01/12 non dépassée
+      suivi: { etat: 'ok', exercice: null, ago: { date: '2026-11-01', statut: 'officielle' }, incertaine: true, limite: '2026-12-01', alerte: 'proche', joursRestants: 8 } },
     { sortieId: 6, lotId: 2, locataires: ['MARTIN Paul', 'MARTIN Léa'], logement: '2 rue B', dateSortie: '2026-10-01', valideLe: '2026-10-02',
       copropriete: { id: 20, libelle: 'Copro B', aRattacher: false }, arrete: null, suivi: { etat: 'sans_ago', exercice: null, mention: 'Dernière AGO inconnue' } },
   ],
@@ -102,10 +103,10 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     expect(a.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 25/04/2027 AG dans 122 jours');
     expect(a.querySelector('[data-vgp-alerte-texte]')).toBeNull();
     const c = container.querySelector('[data-vgp-sortie="7"]')!;
-    expect(c.getAttribute('data-vgp-alerte')).toBe('depassee');
-    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO 22/09/2026 (officielle)');
+    expect(c.getAttribute('data-vgp-alerte')).toBe('proche');
+    expect(c.querySelector('[data-vgp-ago]')?.textContent).toBe('AGO 01/11/2026 (officielle)');
     expect(c.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
-    expect(c.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 22/10/2026 Dépassé de 32 jours');
+    expect(c.querySelector('[data-vgp-limite]')?.textContent).toBe('Restitution au plus tard le 01/12/2026 J-8');
     // sans date : la sortie 6 n'a de ligne que dans le détail du bloc de sa copropriété (« Dates / copropriétés manquantes »)
     expect(container.querySelector('[data-vgp-sortie="6"]')).toBeNull();
     expect(container.querySelector('[data-vgp-concerne="6"]')?.textContent).toContain('Sans date');
@@ -165,15 +166,17 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants } });
   it('chaque ligne dans UNE catégorie, compteurs, « Date limite dépassée de N jours » en rouge ; « Dates / copropriétés manquantes » garde la ligne complète sous sa copropriété', async () => {
     donnees = { ...LU, lignes: [...LU.lignes,
-      ligne(11, '2026-09-01', '2026-10-01', -53), // urgence
+      ligne(11, '2026-09-01', '2026-10-01', -53), // 🔴 (25/11, nouvelle règle) limite dépassée, AGO projetée : « Alerte »
       ligne(12, '2026-11-10', '2026-12-10', 16), // AGO passée
       ligne(13, '2026-12-10', '2027-01-10', 47, 'projetee'), // à préparer (AG dans 16 jours)
       ligne(14, '2026-12-12', '2027-01-12', 50, 'officielle'), // à préparer (officielle à 19 jours ; 🔴 25/11 : plus de « lointaine »)
     ] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const dans = (cat: string) => [...container.querySelectorAll(`[data-vgp-categorie="${cat}"] [data-vgp-sortie]`)].map((x) => Number(x.getAttribute('data-vgp-sortie')));
-    // 🔴 (Arno, 24/11/2026, 23h20) DURAND Léo (7) : arrêté manquant, date PROVISOIRE dépassée → « Urgence », avec la mention orange
-    expect(dans('urgence')).toEqual([11, 7]); // par date limite : 01/10 puis 22/10
+    // 🔴 (Arno, 25/11/2026) DURAND Léo (7) : arrêté manquant, date PROVISOIRE, 23e jour après l'AGO, limite non dépassée → « Urgence » ;
+    //    11 : date limite dépassée → « Alerte », même sur une AGO projetée (choix d'Arno)
+    expect(dans('retard')).toEqual([11]);
+    expect(dans('urgence')).toEqual([7]);
     expect(dans('ag_passee')).toEqual([12]);
     expect(dans('a_preparer')).toEqual([13, 14]);
     expect(dans('en_attente')).toEqual([5]);
@@ -182,14 +185,15 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
     // un locataire n'apparaît qu'une fois sur tout l'écran
     expect(container.querySelectorAll('[data-vgp-sortie="7"]')).toHaveLength(1);
     // « Dates / copropriétés manquantes » compte les COPROPRIÉTÉS à compléter (la pastille) : Copro B, et Copro C (celle de DURAND Léo) via sa carte
-    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['1', '2', '1', '2', '1']);
+    // 🔴 (25/11, nouvelle règle) « Alerte » apparaît (11) : manquantes, retard, urgence, AGO passée, à préparer, en attente
+    expect([...container.querySelectorAll('[data-vgp-categorie] > details > summary [data-vgp-compteur]')].map((x) => x.textContent)).toEqual(['1', '1', '1', '1', '2', '1']);
     // 🔴 (Arno, 25/11/2026) « par défaut toutes les lignes de chaque catégorie sont fermées » : les catégories aussi (épreuve dédiée plus bas)
     expect(container.querySelectorAll('[data-vgp-categorie] > details[open]')).toHaveLength(0);
     const u = container.querySelector('[data-vgp-sortie="11"] [data-vgp-rebours]')!;
     expect([u.textContent, u.className]).toEqual(['Dépassé de 53 jours', 'vgp-rebours vgp-rebours--rouge']);
     expect(container.querySelector('[data-vgp-sortie="12"] [data-vgp-rebours]')?.textContent).toBe('J-16');
     const d = container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-sortie="7"]')!;
-    expect(d.querySelector('[data-vgp-rebours]')?.textContent).toBe('Dépassé de 32 jours');
+    expect(d.querySelector('[data-vgp-rebours]')?.textContent).toBe('J-8');
     expect(d.querySelector('[data-vgp-incertaine]')?.textContent).toBe('date provisoire — arrêté manquant');
   });
 });
@@ -688,7 +692,7 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « 
     suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut }, incertaine, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
   const DONNEES = { ...LU, faites: [], lignes: [...LU.lignes,
     L(11, '2026-09-01', '2026-10-01', 'officielle', ['OFF Un', 'OFF Deux']), // 🔴 (25/11) retard : 2 locataires, officielle, limite dépassée
-    L(12, '2026-09-02', '2026-10-02', 'projetee', ['PROJ Trois']), // urgence : projetée, limite dépassée (AGO à confirmer)
+    L(12, '2026-09-02', '2026-10-02', 'projetee', ['PROJ Trois']), // 🔴 (25/11, nouvelle règle) retard : projetée, limite dépassée (AGO à confirmer)
     L(13, '2026-11-10', '2026-12-10', 'officielle', ['PROV Quatre'], true), // AGO passée : officielle MAIS provisoire → projetée
     L(14, '2026-12-12', '2027-01-12', 'officielle', ['LOIN Cinq']), // à préparer : officielle (dans les 30 jours)
   ] };
@@ -700,15 +704,15 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « 
   it('dans chaque catégorie, officielle + projetée = le compteur, qui compte des LOCATAIRES (colocataires comptés un par un) ; la date provisoire compte projetée', async () => {
     donnees = DONNEES;
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    // 🔴 (25/11) retard : 11 (2 officielle) ; urgence : 12 (1 projetée), DURAND Léo 7 (officielle mais provisoire → projetée)
-    expect(capsules('retard')).toEqual({ compteur: 2, officielle: 2, projetee: 0, nombre: 2 });
-    expect(capsules('urgence')).toEqual({ compteur: 2, officielle: 0, projetee: 2, nombre: 2 });
+    // 🔴 (25/11, nouvelle règle) retard : 11 (2 officielle) + 12 (projetée, limite dépassée) ; urgence : DURAND Léo 7 (officielle mais provisoire → projetée)
+    expect(capsules('retard')).toEqual({ compteur: 3, officielle: 2, projetee: 1, nombre: 3 });
+    expect(capsules('urgence')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
     expect(capsules('ag_passee')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
     expect(capsules('a_preparer')).toEqual({ compteur: 1, officielle: 1, projetee: 0, nombre: 1 });
     expect(capsules('en_attente')).toEqual({ compteur: 1, officielle: 0, projetee: 1, nombre: 1 });
     for (const cat of ['retard', 'urgence', 'ag_passee', 'a_preparer', 'en_attente']) { const c = capsules(cat); expect(c.officielle + c.projetee).toBe(c.compteur); }
-    // le compteur compte des locataires, pas des sorties : 1 ligne en retard, 2 locataires
-    expect(container.querySelectorAll('[data-vgp-categorie="retard"] [data-vgp-sortie]')).toHaveLength(1);
+    // le compteur compte des locataires, pas des sorties : 2 lignes en retard (11 et 12), 3 locataires
+    expect(container.querySelectorAll('[data-vgp-categorie="retard"] [data-vgp-sortie]')).toHaveLength(2);
   });
   it('deux capsules empilées dans l’en-tête (visibles repliée) : verte « AGO officielle · N », rouge « AGO projetée · N », grisée à 0', async () => {
     donnees = DONNEES;
@@ -921,12 +925,13 @@ describe('🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » : un
     await taper('');
     expect(container.querySelector('[data-vgp-categorie="retard"]')).not.toBeNull();
   });
-  it('une AGO PROJETÉE dont la date limite est passée reste en « Urgence », avec la mention orange « AGO à confirmer — saisir la date officielle »', async () => {
+  it('🔴 (25/11, choix d’Arno) une AGO PROJETÉE dont la date limite est passée va en « Alerte », en gardant la mention orange « AGO à confirmer — saisir la date officielle »', async () => {
     const proj = { ...RETARD, sortieId: 9, lotId: 9, locataires: ['PROJ Paul'], suivi: { ...RETARD.suivi, ago: { date: '2026-09-15', statut: 'projetee' as const } } };
     donnees = { ...LU, lignes: [...LU.lignes, proj] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect(container.querySelector('[data-vgp-categorie="retard"]')).toBeNull();
-    const l = container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-sortie="9"]')!;
+    expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-sortie="9"]')).toBeNull();
+    const l = container.querySelector('[data-vgp-categorie="retard"] [data-vgp-sortie="9"]')!;
+    expect(container.querySelector('[data-vgp-categorie="retard"] [data-vgp-capsule="projetee"]')?.getAttribute('data-vgp-capsule-nombre')).toBe('1');
     expect(l.querySelector('[data-vgp-ago-a-confirmer]')?.textContent).toBe('AGO à confirmer — saisir la date officielle');
     expect(l.querySelector('[data-vgp-ago-a-confirmer]')?.className).toBe('vgp-incertaine vgp-une-ligne'); // orange
     // une date provisoire (arrêté manquant) garde sa mention

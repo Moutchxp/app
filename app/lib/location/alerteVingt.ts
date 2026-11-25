@@ -47,7 +47,9 @@ export function ligneAlerteVingt(l: LigneVingtPourcent, aujourdhui: string): str
   const qui = l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`;
   if (s.etat !== 'ok') return `${qui} — ${l.logement ?? `Bien ${l.lotId}`}`;
   const r = joursEntre(s.limite, aujourdhui);
-  return `${qui} — ${l.logement ?? `Bien ${l.lotId}`} — AGO officielle du ${dateFr(s.ago.date)} — date limite ${dateFr(s.limite)} — ${r} jour${r > 1 ? 's' : ''} de retard`;
+  // 🔴 (Arno, 25/11/2026) une AGO projetée en retard est dite telle quelle (« à confirmer »), jamais « officielle »
+  const ago = s.ago.statut === 'officielle' && !s.incertaine ? 'AGO officielle' : 'AGO projetée (à confirmer)';
+  return `${qui} — ${l.logement ?? `Bien ${l.lotId}`} — ${ago} du ${dateFr(s.ago.date)} — date limite ${dateFr(s.limite)} — ${r} jour${r > 1 ? 's' : ''} de retard`;
 }
 
 /** Le nombre de LOCATAIRES de l'alerte (colocataires un par un) — le même que la pastille et le compteur « Urgence ». PUR. */
@@ -58,7 +60,7 @@ export function mailAlerteVingt(lignes: readonly LigneVingtPourcent[], lien: str
   // 🔴 (Arno, 25/11/2026) « compter en locataires partout » : l'objet et l'intro comptent des LOCATAIRES (colocataires un par un), plus des sorties
   const n = nombreLocatairesAlerte(lignes);
   const objet = objetAlerteVingt(n);
-  const intro = `${n === 1 ? 'Un locataire est' : `${n} locataires sont`} en « Alerte restitution en retard » sur l’écran « 20 % à restituer » au ${dateFr(aujourdhui)} : l’AGO officielle qui arrête les comptes est passée et la date limite de restitution des 20 % retenus (un mois après l’AGO) est dépassée.`;
+  const intro = `${n === 1 ? 'Un locataire est' : `${n} locataires sont`} en « Alerte restitution en retard » sur l’écran « 20 % à restituer » au ${dateFr(aujourdhui)} : l’AGO qui arrête les comptes est passée et la date limite de restitution des 20 % retenus (un mois après l’AGO) est dépassée.`;
   const items = lignes.map((l) => ligneAlerteVingt(l, aujourdhui));
   const fin = 'Une fois la restitution faite, cliquez sur « Faire restitution » sur sa ligne : il sort de la liste et de cette alerte.';
   const texte = ['Bonjour,', intro, items.map((x) => `- ${x}`).join('\n'), `Ouvrir l’écran : ${lien}`, fin, 'Alerte automatique (tous les 2 jours) — Sans Vis-à-Vis.'].join('\n\n');

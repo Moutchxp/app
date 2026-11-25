@@ -220,8 +220,9 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
  *      🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable y restent ; une date PROVISOIRE calculable
  *      (dernière AGO connue, arrêté manquant) classe le locataire dans sa catégorie réelle (b à e), avec la mention « date provisoire — arrêté des
  *      comptes manquant », et il entre dans l'alerte du lundi s'il est en Urgence ; sa copropriété reste dans « Dates / copropriétés manquantes » et la pastille ;
- *   b. « Urgence » — aujourd'hui > AG + 20 jours (date limite dépassée comprise) ;
- *   c. « AGO passée — restitution à faire » — AG ≤ aujourd'hui ≤ AG + 20 jours ;
+ *   r. « Alerte restitution en retard » — 🔴 (Arno, 25/11/2026) la date limite (AG + 1 mois) est dépassée, AGO officielle OU projetée ;
+ *   b. « Urgence » — 🔴 (Arno, 25/11/2026) du 20e jour (AG + 19 jours) à la date limite incluse (AGO le 01/09 : du 20/09 au 01/10) ;
+ *   c. « AGO passée — restitution à faire » — AG ≤ aujourd'hui < AG + 19 jours (AGO le 01/09 : du 01/09 au 19/09) ;
  *   d. « AGO < 1 mois – À préparer » — l'AG a lieu dans les 30 prochains jours (🔴 25/11/2026 : plus le critère « officielle, même lointaine ») ;
  *   e. « AGO > 1 mois – En attente » — tous les autres.
  * a : par copropriété (date de sortie la plus ancienne d'abord) ; b à e : par date limite croissante. Jours comptés à la date de Paris. PUR.
@@ -236,8 +237,13 @@ export const CATEGORIES_DATEES = ['retard', 'urgence', 'ag_passee', 'a_preparer'
 export const TITRES_CATEGORIES: Record<CategorieVingt, string> = {
   manquantes: 'Dates / copropriétés manquantes', retard: 'Alerte restitution en retard', urgence: 'Urgence', ag_passee: 'AGO passée — restitution à faire', a_preparer: 'AGO < 1 mois – À préparer', en_attente: 'AGO > 1 mois – En attente',
 };
-/** b / c : au-delà de AG + 20 jours, l'urgence. */
-export const JOURS_APRES_AG_URGENCE = 20;
+/**
+ * b / c : 🔴🔴 (Arno, 25/11/2026) « cette catégorie [Urgence] regroupe les locataires dont l'AGO a été dépassée de 20 jours jusqu'à 1 mois après la date de
+ * la tenue de l'AGO ; si l'AGO a eu lieu le 1 septembre, le locataire […] passe le 20 septembre dans la catégorie Urgence jusqu'au 1 octobre inclus,
+ * puis le 2 octobre il passera dans la catégorie Alerte restitution en retard » : l'Urgence commence le 20e jour, le jour de l'AGO comptant pour le
+ * 1er — soit AGO + 19 jours (avant : AGO + 21 jours).
+ */
+export const JOURS_APRES_AG_URGENCE = 19;
 /** d : une AG dans les 30 prochains jours est « à préparer ». */
 export const JOURS_AVANT_AG_A_PREPARER = 30;
 
@@ -246,14 +252,14 @@ export const datesIncompletes = (l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' 
   l.suivi.etat !== 'ok' || l.arrete === null || l.copropriete === null;
 
 /**
- * 🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » : l'AGO qui compte est OFFICIELLE et la date limite (AGO + 1 mois) est DÉPASSÉE
- * (le lendemain de la date limite ; la date limite elle-même reste en « Urgence »). Une date PROVISOIRE (arrêté manquant) n'est pas officielle
- * (même règle que les capsules). « Urgence » : AGO + 21 jours jusqu'à la date limite incluse — et une AGO PROJETÉE (ou provisoire) dont la date
- * limite est passée y reste : on ne peut pas être en retard sur une AGO non confirmée. PUR.
+ * 🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » : la date limite (AGO + 1 mois) est DÉPASSÉE (le lendemain de la date limite ; la date
+ * limite elle-même reste en « Urgence »). « Urgence » : du 20e jour (AGO + 19 jours) à la date limite incluse.
+ * 🔴 CHOIX D'ARNO (25/11/2026, second lot) : la règle vaut AUSSI pour une AGO PROJETÉE (ou provisoire) — dépassée, elle va en « Alerte » (avant : elle
+ * restait en « Urgence »), en gardant la mention « AGO à confirmer — saisir la date officielle ». Capsules et mail d'alerte suivent. PUR.
  */
 export const limiteDepassee = (l: Pick<LigneVingtPourcent, 'suivi'>, aujourdhui: string): boolean =>
   l.suivi.etat === 'ok' && joursEntre(aujourdhui, l.suivi.limite) < 0;
-/** 🔴 (Arno, 25/11/2026) la mention orange d'une AGO PROJETÉE dont la date limite est passée (catégorie « Urgence »). */
+/** 🔴 (Arno, 25/11/2026) la mention orange d'une AGO PROJETÉE dont la date limite est passée (catégorie « Alerte restitution en retard » depuis le second lot du 25/11). */
 export const MENTION_AGO_A_CONFIRMER = 'AGO à confirmer — saisir la date officielle';
 export const agoAConfirmer = (l: Pick<LigneVingtPourcent, 'suivi'>, aujourdhui: string): boolean =>
   l.suivi.etat === 'ok' && l.suivi.ago.statut === 'projetee' && limiteDepassee(l, aujourdhui);
@@ -262,9 +268,11 @@ export const agoAConfirmer = (l: Pick<LigneVingtPourcent, 'suivi'>, aujourdhui: 
 export function categorieVingt(l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>, aujourdhui: string): CategorieVingt {
   // 🔴 (Arno, 24/11/2026, 23h20) « Dates / copropriétés manquantes » : seulement sans AUCUNE date calculable
   if (l.suivi.etat !== 'ok') return 'manquantes';
-  if (limiteDepassee(l, aujourdhui)) return l.suivi.ago.statut === 'officielle' && !l.suivi.incertaine ? 'retard' : 'urgence';
+  // 🔴🔴 (Arno, 25/11/2026) date limite dépassée ⇒ « Alerte », AGO officielle OU projetée (choix d'Arno)
+  if (limiteDepassee(l, aujourdhui)) return 'retard';
   const apresAg = joursEntre(l.suivi.ago.date, aujourdhui);
-  if (apresAg > JOURS_APRES_AG_URGENCE) return 'urgence';
+  // AGO le 01/09 : « AGO passée » du 01/09 au 19/09, « Urgence » du 20/09 (AGO + 19 jours) au 01/10 inclus
+  if (apresAg >= JOURS_APRES_AG_URGENCE) return 'urgence';
   if (apresAg >= 0) return 'ag_passee';
   // 🔴🔴 (Arno, 25/11/2026) « un locataire dont la prochaine AG est planifiée dans plus de 200 jours se trouve dans la catégorie des AGO qui doivent se
   //    tenir dans moins d'un mois, c'est illogique » : la règle du 24/11 (« date officielle, même lointaine ») est ABANDONNÉE — « À préparer » = l'AGO qui
