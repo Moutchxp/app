@@ -241,7 +241,7 @@ describe('🔴 suggestionsDeLaSortie', () => {
   });
 });
 
-import { echangesDeLaLigne } from './vingtPourcent';
+import { echangesDeLaLigne, mentionMailsEchanges } from './vingtPourcent';
 /**
  * 🔴🔴 Arno (25/11/2026) — la conversation d'une ligne (les fils de ses mails partis, réponses comprises) et « combien de mails ont été échangés »
  * (envoyés + reçus), sous la capsule AGO de la ligne repliée.
@@ -255,6 +255,12 @@ describe('🔴🔴 les échanges d’une ligne', () => {
     expect(echangesDeLaLigne([E('2026-11-24T09:05', 55)], comptes)).toEqual({ fils: [55], nombre: 3, dernierLe: '2026-11-25T08:00' });
     expect(echangesDeLaLigne([], comptes)).toBeNull();
     expect(echangesDeLaLigne([E('2026-11-24T09:05', 99)], comptes)).toBeNull();   // fil sans mail lisible (déplacé) : rien
+  });
+  it('mentionMailsEchanges : pluriel, singulier, rien', () => {
+    expect(mentionMailsEchanges({ fils: [1], nombre: 3, dernierLe: '2026-11-25T10:12' })).toBe('3 mails échangés — dernier le 25/11/2026');
+    expect(mentionMailsEchanges({ fils: [1], nombre: 1, dernierLe: '2026-11-24T18:30' })).toBe('1 mail échangé — dernier le 24/11/2026');
+    expect(mentionMailsEchanges({ fils: [], nombre: 0, dernierLe: null })).toBeNull();
+    expect(mentionMailsEchanges(undefined)).toBeNull();
   });
   it('comptesDesFils : par fil, comptés comme la conversation les montre (sans les mails déplacés), le dernier à l’heure de Paris ; paramètres liés', async () => {
     h.query.mockReset().mockResolvedValue({ rows: [{ fil: '55', nombre: '3', dernier: '2026-11-25T08:00' }] });

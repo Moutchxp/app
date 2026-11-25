@@ -8,7 +8,7 @@ import { brouillonReponseDeLaLigne, ModuleMailLigne, type MailVingt } from './Ma
 import { EchangesLigne } from './EchangesVingt';
 import type { BrouillonEcran } from '../gestion/Redaction';
 import {
-  agoAConfirmer, agoOfficielleDuDossier, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -44,13 +44,6 @@ const geste: Geste = async (corps) => {
 
 export { nombreCoproprietesACompleter, TITRE_VINGT_POURCENT };
 
-/** 🔴 (Arno, 25/11/2026) « 2 mails envoyés depuis cette page — dernier le 25/11/2026 » ; `null` : aucun. PUR. */
-export function mentionMailsEnvoyes(mails: LigneVingtPourcent['mails']): string | null {
-  const n = (mails ?? []).length;
-  if (n === 0) return null;
-  const dernier = mails![n - 1].le;
-  return `${n} mail${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} depuis cette page — dernier le ${dateFr(dernier.slice(0, 10))}`;
-}
 /** Le modèle d'un mail parti : son libellé, ou « Message libre » (défini avec les échanges, qui l'affichent). PUR. */
 export { libelleModeleVingt } from './EchangesVingt';
 
@@ -399,6 +392,9 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
             {s.etat === 'ok' && (() => { const e = etiquetteAgo(s.ago); return <span className={`vgp-etiquette vgp-etiquette--${e.ton}`} data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>{e.texte}</span>; })()}
             <span className="vgp-incertaine vgp-une-ligne" {...(aConfirmer ? { 'data-vgp-ago-a-confirmer': '' } : s.etat === 'ok' && s.incertaine ? { 'data-vgp-incertaine': '' } : { 'aria-hidden': true })}>
               {aConfirmer ? MENTION_AGO_A_CONFIRMER : s.etat === 'ok' && s.incertaine ? MENTION_DATE_PROVISOIRE : '\u00a0'}</span>
+            {/* 🔴🔴 (Arno, 25/11/2026) « avant même d'ouvrir le bloc locataire, sous le cartouche de statut de l'AGO, on doit voir si ce bloc a fait usage
+                de la boîte mail et combien de mails ont été échangés » (envoyés + reçus) ; rien s'il n'y en a aucun */}
+            {mentionMailsEchanges(l.echanges) !== null && <span className="vgp-mails-echanges vgp-une-ligne" data-vgp-mails-echanges={l.echanges!.nombre}>{mentionMailsEchanges(l.echanges)}</span>}
           </span>
           <span className="vgp-ligne-actions">
           <span className="vgp-ligne-boutons">
@@ -407,8 +403,6 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
             {/* 🔴 Arno (24/11/2026) — « Restitution faite » : la fenêtre (inchangée) ; enregistrée, la ligne quitte la liste */}
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onRestituer(l)} data-vgp-restituer={l.sortieId}>{LIBELLE_FAIRE_RESTITUTION}</button>
           </span>
-          {/* 🔴🔴 (Arno, 25/11/2026) « x mail(s) envoyé(s) depuis cette page », discret, sur la ligne repliée ; absent s'il n'y en a aucun */}
-          {mentionMailsEnvoyes(l.mails) !== null && <span className="vgp-mails-envoyes" data-vgp-mails-envoyes={l.mails!.length}>{mentionMailsEnvoyes(l.mails)}</span>}
           </span>
         </div>
       </div>
@@ -692,7 +686,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-ligne-manque{font-weight:700;color:var(--color-svv-urgence-orange-texte)}
 .vgp-ligne-boutons{display:flex;gap:6px}
 .vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
-.vgp-mails-envoyes{font-size:.75rem;color:var(--color-svv-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.vgp-mails-echanges{font-size:.75rem;font-weight:700;color:var(--color-svv-muted);max-width:100%}
 .vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
 .vgp-ligne-detail[hidden]{display:none}
@@ -735,7 +729,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
   .vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}
   .vgp-ligne-gauche > .vgp-ligne-limite .vgp-une-ligne,.vgp-ligne-gauche > .vgp-ligne-limite.vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
   .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
-  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-mails-envoyes{white-space:normal} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
+  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
   .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
   .vgp-coords-ligne{flex-direction:column;align-items:stretch} .vgp-envoyer-mail{width:100%;justify-content:center}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }

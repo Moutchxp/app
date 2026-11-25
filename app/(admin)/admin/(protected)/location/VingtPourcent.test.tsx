@@ -1388,23 +1388,6 @@ describe('🔴🔴 Arno (25/11/2026) — les modèles du module « Envoyer un ma
  * 🔴🔴 Arno (25/11/2026) — « Lorsqu'un mail a été envoyé depuis le module 20 %, il faut que cela soit indiqué dans le bloc en format fermé (x mail(s)
  * envoyé(s) depuis cette page) » ; dans le détail, la liste (date, destinataire, modèle) avec le lien vers le mail ; aucune information en doublon.
  */
-describe('🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette page »', () => {
-  const MAILS = [{ le: '2026-11-24T09:05', a: ['syndic@exemple.test'], copies: 1, modele: 'syndic_copie', lien: '/admin/gestion?fil=55&message=901' },
-    { le: '2026-11-25T10:12', a: ['jean@exemple.test'], copies: 0, modele: null, lien: null }];
-  it('ligne repliée : « 2 mails envoyés depuis cette page — dernier le 25/11/2026 » (singulier : « 1 mail envoyé ») ; absente sans mail', async () => {
-    donnees = { ...LU, lignes: [{ ...LU.lignes[0], mails: MAILS }, { ...LU.lignes[1], mails: [MAILS[0]] }, LU.lignes[2]] };
-    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    const tete = (id: number) => container.querySelector(`[data-vgp-sortie="${id}"] .vgp-ligne-tete`)!;
-    expect(tete(5).querySelector('[data-vgp-mails-envoyes]')?.textContent).toBe('2 mails envoyés depuis cette page — dernier le 25/11/2026');
-    expect(tete(7).querySelector('[data-vgp-mails-envoyes]')?.textContent).toBe('1 mail envoyé depuis cette page — dernier le 24/11/2026');
-    act(() => root.unmount()); root = createRoot(container);
-    donnees = LU;
-    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    expect(container.querySelector('[data-vgp-mails-envoyes]')).toBeNull();
-    expect(container.querySelector('[data-vgp-liste-mails]')).toBeNull();
-  });
-});
-
 // 🔴🔴 (25/11/2026) la carte de la boîte Gestion (MessageConversation) et la lecture d'un corps, doublées : le test éprouve l'écran (ordre, origine,
 //    « Répondre » dans le même fil), la carte elle-même est éprouvée côté Gestion
 const carte = vi.fn();
@@ -1444,6 +1427,21 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
   };
   const LIGNE = () => ({ ...LU.lignes[0], mails: MAILS, echanges: { fils: [55, 56], nombre: 4, dernierLe: '2026-11-25T10:12' } });
   beforeEach(() => { carte.mockClear(); redaction.mockClear(); avecFils(); });
+
+  it('ligne repliée : « 4 mails échangés — dernier le 25/11/2026 » SOUS la capsule AGO (singulier « 1 mail échangé ») ; rien sans échange ; plus de « envoyés depuis cette page »', async () => {
+    donnees = { ...LU, lignes: [LIGNE(), { ...LU.lignes[1], echanges: { fils: [56], nombre: 1, dernierLe: '2026-11-24T18:30' } }, LU.lignes[2]] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const ago = (id: number) => container.querySelector(`[data-vgp-sortie="${id}"] .vgp-ligne-tete .vgp-ligne-ago`)!;
+    expect(ago(5).querySelector('[data-vgp-mails-echanges]')?.textContent).toBe('4 mails échangés — dernier le 25/11/2026');
+    expect(ago(7).querySelector('[data-vgp-mails-echanges]')?.textContent).toBe('1 mail échangé — dernier le 24/11/2026');
+    // sous le cartouche de l'AGO : après l'étiquette
+    const enfants = [...ago(5).children];
+    expect(enfants.indexOf(ago(5).querySelector('[data-vgp-mails-echanges]')!)).toBeGreaterThan(enfants.indexOf(ago(5).querySelector('[data-vgp-ago]')!));
+    expect(container.querySelector(`[data-vgp-sortie="${LU.lignes[2].sortieId}"] [data-vgp-mails-echanges]`)).toBeNull();
+    expect(container.querySelector('[data-vgp-mails-envoyes]')).toBeNull();
+    expect(container.textContent).not.toContain('envoyés depuis cette page');
+    expect(lectures.some((u) => u.includes('/gestion/fils/'))).toBe(false); // repliée : rien n'est lu
+  });
 
   it('ligne dépliée : « Échanges (4) » visible, tous fils mêlés du plus ancien au plus récent, le mail parti d’ici porte son modèle et son lien ; le mail pas encore capturé ; le module FERMÉ', async () => {
     donnees = { ...LU, lignes: [LIGNE()] };

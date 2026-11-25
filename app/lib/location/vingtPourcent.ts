@@ -524,3 +524,9 @@ export function echangesDeLaLigne(mails: readonly MailVingtEnvoye[], comptes: Re
   return { fils, nombre, dernierLe: dates.length === 0 ? null : dates.reduce((a, b) => (b > a ? b : a)) };
 }
 
+/** 🔴 (Arno, 25/11/2026) sous la capsule AGO de la ligne repliée : « 3 mails échangés — dernier le 25/11/2026 » (singulier) ; `null` : aucun. PUR. */
+export function mentionMailsEchanges(e: EchangesVingt | null | undefined): string | null {
+  if (e == null || e.nombre <= 0) return null;
+  const d = e.dernierLe;
+  return `${e.nombre} mail${e.nombre > 1 ? 's' : ''} échangé${e.nombre > 1 ? 's' : ''}${d !== null && d.length >= 10 ? ` — dernier le ${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : ''}`;
+}
