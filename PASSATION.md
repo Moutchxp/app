@@ -310,10 +310,11 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `13cf958f`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `13cf958f`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **5 commits d'avance, NON POUSSÉS** :
-  les quatre demandes d'Arno du 25/11 et cette passation (liste ci-dessous). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+**Dépôt (mesuré le 25/11/2026, après `4b7b8bba`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `4b7b8bba`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **10 commits d'avance, NON POUSSÉS** :
+  les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
+  (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`) et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -330,7 +331,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (dernier lot, `13cf958f`) : `npm test` VERT (1 869 fichiers, 27 915 tests, 21 ignorés ; `tsc` compris) à la 2e passe — la 1re a
+- **Contrôles** (dernier lot, `4b7b8bba`) : `npm test` VERT du premier coup (1 869 fichiers, 27 925 tests, 21 ignorés ; `tsc` compris ;
+  `.captures/vingt-pourcent/npm-test-complet-25-11-B.txt`) ; Chrome recette, ordinateur et 390 px, clair et sombre. ⚠️ **Preuve curl À FAIRE
+  par Arno sur `4b7b8bba`** (couvre aussi `13cf958f` et les précédents non prouvés). Lot d'avant (`13cf958f`) : `npm test` VERT à la 2e passe — la 1re a
   rencontré le flake connu `PreavisAccueil.test.tsx` « photo … REVIENT dans le formulaire et repart » (`docs/FLAKES_CONNUS.md`, 2e occurrence,
   3 080 ms ; fichier seul 3 fois vert ; sorties `.captures/vingt-pourcent/npm-test-complet-25-11-*.txt`) ; pages vérifiées dans Chrome sur la
   recette. ⚠️ **Preuve curl À REFAIRE par Arno** sur `13cf958f` (composant client touché ; l'agent n'a pas pu lancer `curl`). Précédente : Preuve curl faite par l'utilisateur le 25/11/2026 sur HEAD `8031f942` (+ passation `1775615f`) : `/admin/login` statut
@@ -757,6 +760,19 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
         NON alignés (question posée à Arno) : la pastille « Urgence » (accueil Location, Gestion) et l'objet du mail du lundi comptent
         encore des sorties. Recette : une seule personne par sortie d'essai, les chiffres ne bougent pas.
       Captures `.captures/vingt-pourcent/25-11-*.jpg` (ordinateur clair / sombre, recherche, 390 px clair + sombre).
+    · Réponses d'Arno du 25/11 (« Dates / copropriétés manquantes » garde son fond gris ; « Restitutions faites » ouverte par la recherche et
+      liseré rouge orangé d'Urgence : validés) et demandes de 10h14 (un commit par point, NON poussés) :
+      - `53d7852b` « compter en locataires partout » : pastille « Urgence » (accueil Location ET colonne de gauche de la Gestion, même hook
+        `usePastillesVingt` → `nombreUrgences` = locataires) et objet + intro du mail du lundi (`nombreLocatairesAlerte`) ; la colonne
+        `nombre` du journal 514 suit. La liste du mail reste une ligne par sortie.
+      - `6a9e14ca` écart DOUBLÉ (28 px contre 14) autour des deux blocs gris d'extrémité (Dates / copropriétés manquantes ↔ Alerte du lundi,
+        En attente ↔ Restitutions faites), mesuré dans Chrome à l'ordinateur et à 390 px.
+      - `85d244b2` le bloc « Dates / copropriétés manquantes » n'apparaît que s'il contient des locataires (`datesManquantesVisibles`), ni quand
+        la recherche n'y trouve rien ; son écart part avec lui. Disparaît avec lui la phrase « Toutes les copropriétés concernées ont… »
+        (seul cas où elle s'affichait). Pastille de l'accueil inchangée.
+      - `4b7b8bba` « Dates manquantes » → « Dates / copropriétés manquantes » partout (titre, nom accessible, infobulle de la Gestion,
+        commentaires, tests ; `TITRES_CATEGORIES.manquantes` seule source). À 390 px, le compteur passe sous le titre.
+      Captures `.captures/vingt-pourcent/25-11-B-*.jpg`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
