@@ -344,12 +344,11 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
  * 🔴 (Arno, 25/11/2026) « compter en locataires partout » : des LOCATAIRES (colocataires un par un), le même total que le compteur de la catégorie
  * (avant : des sorties). PUR.
  */
-export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => {
-  if (lu === null) return 0;
-  // 🔴 (25/11/2026) les locataires en retard étaient « en urgence » jusqu'ici : la pastille les compte encore (Urgence + Alerte en retard)
-  const c = classerVingtPourcent(lu);
-  return capsulesAgo([...c.retard, ...c.urgence]).total;
-};
+export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number =>
+  (lu === null ? 0 : capsulesAgo(classerVingtPourcent(lu).urgence).total);
+/** 🔴 Arno (25/11/2026) — les locataires en « Alerte restitution en retard » (colocataires un par un ; 0 : aucun). PUR. */
+export const nombreRetards = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number =>
+  (lu === null ? 0 : capsulesAgo(classerVingtPourcent(lu).retard).total);
 
 // ══ 🔴🔴 Arno (24/11/2026, 23h40) — LA LIGNE REPLIÉE SUR TROIS LIGNES : l'étiquette de l'AG et le compte à rebours ════════════════════════════════════
 /** L'étiquette colorée de l'AG qui compte : ROUGE « AGO vers mars 2027 (projetée) », VERTE « AGO 15/03/2027 (officielle) ». PUR. */
@@ -398,12 +397,22 @@ export function filtrerVingtPourcent(lu: SuiviVingtLu, q: string): SuiviVingtLu 
 /**
  * La pastille unique du bouton « 20 % à restituer » (accueil Location, colonne de gauche de la Gestion) : total = locataires en « Urgence » +
  * copropriétés à compléter (0 : pas de pastille) ; le détail, au survol et pour les lecteurs d'écran : « 2 locataires en urgence · 4 copropriétés à
- * compléter ». PUR.
+ * compléter ». 🔴 (Arno, 25/11/2026) + les locataires en « Alerte restitution en retard », et le détail dit les trois nombres. PUR.
  */
-export function pastilleVingt(n: { urgences: number; copros: number }): { total: number; detail: string } {
-  const u = n.urgences; const c = n.copros;
-  return { total: u + c, detail: `${u} locataire${u > 1 ? 's' : ''} en urgence · ${c} copropriété${c > 1 ? 's' : ''} à compléter` };
+export function pastilleVingt(n: { retards?: number; urgences: number; copros: number }): { total: number; detail: string; niveau: NiveauBoutonVingt } {
+  const r = n.retards ?? 0; const u = n.urgences; const c = n.copros;
+  return {
+    total: r + u + c,
+    detail: `${r} locataire${r > 1 ? 's' : ''} en retard de restitution · ${u} locataire${u > 1 ? 's' : ''} en urgence · ${c} copropriété${c > 1 ? 's' : ''} à compléter`,
+    niveau: niveauBoutonVingt({ retards: r, urgences: u }),
+  };
 }
+/**
+ * 🔴🔴 Arno (25/11/2026) — la couleur des boutons de raccourci « 20 % à restituer » (accueil Location, colonne de gauche de la Gestion) : ROUGE si au
+ * moins un locataire en « Alerte restitution en retard » ; sinon ORANGE si au moins un en « Urgence » ; sinon la couleur d'origine (`null`). PUR.
+ */
+export type NiveauBoutonVingt = 'rouge' | 'orange' | null;
+export const niveauBoutonVingt = (n: { retards: number; urgences: number }): NiveauBoutonVingt => (n.retards > 0 ? 'rouge' : n.urgences > 0 ? 'orange' : null);
 
 // ══ 🔴 Arno (25/11/2026, 10h14) — « LE BLOC DATES MANQUANTES NE DOIT APPARAÎTRE QUE S'IL CONTIENT DES LOCATAIRES » ═══════════════════════════════
 /**

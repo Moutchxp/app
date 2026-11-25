@@ -100,7 +100,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, vingtCopros = 0, vingtUrgences = 0, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onCoproprietes, onAdressesAVerifier, adressesAVerifier = 0, onTaches, tachesDuJour = 0, onPreavis, onVingtPourcent, vingtCopros = 0, vingtUrgences = 0, vingtRetards = 0, preavisEnAlerte = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -198,6 +198,8 @@ export function PleinEcranBoite({
   /** 🔴 Arno (24/11/2026) — « 20 % à restituer » : copropriétés à compléter (pastille rouge) et locataires en « Urgence » (pastille rouge vif) ; aucune à 0. */
   vingtCopros?: number;
   vingtUrgences?: number;
+  /** 🔴 Arno (25/11/2026) — les locataires en « Alerte restitution en retard » (entrée rouge ; sinon orange s'il y a une urgence). */
+  vingtRetards?: number;
   /** Le nombre de préavis EN ALERTE (pastille rouge ; aucune à 0). */
   preavisEnAlerte?: number;
   onAnnuaire?: () => void;
@@ -1061,15 +1063,17 @@ export function PleinEcranBoite({
                 Une entrée AJOUTÉE : les autres gardent leur ordre et leur place. */}
             {onVingtPourcent && (
               <li>
-                <button type="button" className="cm-entree" data-raccourci="vingt-pourcent"
+                {/* 🔴🔴 Arno (25/11/2026) — l'entrée ROUGE s'il y a un locataire en retard, ORANGE s'il y a une urgence, sinon d'origine */}
+                {(() => { const p = pastilleVingt({ retards: vingtRetards, urgences: vingtUrgences, copros: vingtCopros }); return (
+                <button type="button" className={`cm-entree${p.niveau !== null ? ` cm-entree--vgp-${p.niveau}` : ''}`} data-raccourci="vingt-pourcent" data-vgp-niveau={p.niveau ?? 'origine'}
                   onClick={() => { onVingtPourcent(); setPanneauMobile('contenu'); }}
                   title="Les locataires sortis avec 20 % retenus : AGO qui compte, date limite de restitution, dates / copropriétés manquantes">
                   <span className="cm-nom"><span className="cm-texte">20 % à restituer</span></span>
                   {/* 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes » : UNE pastille rouge vif, total =
                       locataires en urgence + copropriétés à compléter (masquée à 0), le détail au survol et pour les lecteurs d'écran */}
-                  {(() => { const p = pastilleVingt({ urgences: vingtUrgences, copros: vingtCopros }); return p.total > 0 && (
-                    <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-total={p.total} title={p.detail} aria-label={p.detail}>{p.total}</span>); })()}
-                </button>
+                  {p.total > 0 && (
+                    <span className="cm-pastille-jour cm-pastille-vif" data-pastille-vingt-total={p.total} title={p.detail} aria-label={p.detail}>{p.total}</span>)}
+                </button>); })()}
               </li>
             )}
             {/* 🔴 LOT ANNUAIRE-SYNDICS — « Syndics », SOUS « Événements », comme demandé. Une entrée AJOUTÉE : celles

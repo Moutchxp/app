@@ -141,6 +141,9 @@ const CSS_COLONNE = `
   box-sizing:border-box;border-radius:999px;background:var(--color-svv-red);color:var(--color-svv-surface);font-size:12px;font-weight:700;line-height:1}
 /* 🔴 Arno (24/11/2026) — « 20 % à restituer » : la pastille « Urgence » en rouge vif (jeton --color-svv-rouge-vif), à côté de celle des copropriétés */
 .cm-pastille-jour.cm-pastille-vif{background:var(--color-svv-rouge-vif)}
+/* 🔴 Arno (25/11/2026) — l'entree « 20 % a restituer » : ROUGE (locataire en retard), ORANGE (urgence) ; paires de jetons lisibles en clair et en sombre */
+.cm-entree.cm-entree--vgp-rouge{background:var(--color-svv-red-soft);border-color:var(--color-svv-red);color:var(--color-svv-red-dark)}
+.cm-entree.cm-entree--vgp-orange{background:var(--color-svv-orange-soft);border-color:var(--color-svv-urgence-orange);color:var(--color-svv-orange)}
 .cm-pastilles{display:inline-flex;align-items:center;gap:.25rem;flex:0 0 auto}
 /* L'enveloppe de « Réception » n'est pas focalisable : c'est l'un de ses trois boutons qui l'est. On montre donc le
    focus SUR L'ENVELOPPE quand il est quelque part dedans — sans quoi la ligne entière paraîtrait inerte au clavier. */

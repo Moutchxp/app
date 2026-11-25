@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, nombreRetards, niveauBoutonVingt, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -271,8 +271,8 @@ describe('🔴 Arno (25/11/2026, 10h14) — datesManquantesVisibles', () => {
 /** 🔴🔴 Arno (25/11/2026) — « faire une seule capsule rouge qui cumule le nombre d'alertes ». */
 describe('🔴🔴 Arno (25/11/2026) — pastilleVingt', () => {
   it('total = urgences + copropriétés ; détail au singulier / pluriel', () => {
-    expect(pastilleVingt({ urgences: 2, copros: 4 })).toEqual({ total: 6, detail: '2 locataires en urgence · 4 copropriétés à compléter' });
-    expect(pastilleVingt({ urgences: 1, copros: 1 })).toEqual({ total: 2, detail: '1 locataire en urgence · 1 copropriété à compléter' });
+    expect(pastilleVingt({ urgences: 2, copros: 4 })).toEqual({ total: 6, detail: '0 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter', niveau: 'orange' });
+    expect(pastilleVingt({ urgences: 1, copros: 1 })).toEqual({ total: 2, detail: '0 locataire en retard de restitution · 1 locataire en urgence · 1 copropriété à compléter', niveau: 'orange' });
     expect(pastilleVingt({ urgences: 0, copros: 0 }).total).toBe(0);
   });
 });
@@ -297,10 +297,27 @@ describe('🔴🔴 Arno (25/11/2026) — retard / urgence : les bornes', () => {
     expect(MENTION_AGO_A_CONFIRMER).toBe('AGO à confirmer — saisir la date officielle');
     expect(categorieVingt(L(AG, LIMITE, 'officielle', true), '2026-10-16')).toBe('urgence');
   });
-  it('catégories exclusives ; « Alerte » en tête des catégories datées ; la pastille compte encore retard + urgence (jusqu’au point 3)', () => {
+  it('catégories exclusives ; « Alerte » en tête des catégories datées ; 🔴 (point 3) urgences et retards comptés à part', () => {
     const lu = { aujourdhui: '2026-10-16', manquantes: [], lignes: [L(AG, LIMITE, 'officielle'), { ...L(AG, LIMITE, 'projetee'), sortieId: 2 }, { ...L('2026-09-20', '2026-10-20', 'officielle'), sortieId: 3 }] };
     const c = classerVingtPourcent(lu);
     expect([c.retard, c.urgence, c.ag_passee].map((x) => x.map((l) => l.sortieId))).toEqual([[1], [2, 3], []]);
-    expect(nombreUrgences(lu)).toBe(3);
+    expect(nombreUrgences(lu)).toBe(2);
+    expect(nombreRetards(lu)).toBe(1);
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — la couleur des boutons « 20 % à restituer » et la pastille à trois nombres. */
+describe('🔴🔴 Arno (25/11/2026) — niveauBoutonVingt et la pastille', () => {
+  it('rouge si au moins un en retard ; sinon orange si au moins une urgence ; sinon couleur d’origine (les copropriétés ne colorent pas)', () => {
+    expect(niveauBoutonVingt({ retards: 1, urgences: 0 })).toBe('rouge');
+    expect(niveauBoutonVingt({ retards: 1, urgences: 5 })).toBe('rouge');
+    expect(niveauBoutonVingt({ retards: 0, urgences: 1 })).toBe('orange');
+    expect(niveauBoutonVingt({ retards: 0, urgences: 0 })).toBeNull();
+    expect(pastilleVingt({ retards: 0, urgences: 0, copros: 3 }).niveau).toBeNull();
+  });
+  it('total = retard + urgence + copropriétés ; le détail dit les trois nombres', () => {
+    expect(pastilleVingt({ retards: 1, urgences: 2, copros: 4 })).toEqual({ total: 7, niveau: 'rouge',
+      detail: '1 locataire en retard de restitution · 2 locataires en urgence · 4 copropriétés à compléter' });
+    expect(pastilleVingt({ retards: 0, urgences: 0, copros: 0 }).total).toBe(0);
   });
 });
