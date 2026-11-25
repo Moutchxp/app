@@ -163,8 +163,8 @@ describe('🔴🔴 les mails envoyés depuis la ligne', () => {
     const { mailsEnvoyesDesSorties } = await import('./mailVingtPourcentRepo');
     const m = await mailsEnvoyesDesSorties([7]);
     expect(m.get(7)).toEqual([
-      { le: '2026-11-25T10:12', a: ['syndic@x.test'], copies: 1, modele: 'syndic', lien: '/admin/gestion?fil=55&message=901' },
-      { le: '2026-11-25T11:00', a: ['alice@x.test'], copies: 0, modele: null, lien: null }]);
+      { le: '2026-11-25T10:12', a: ['syndic@x.test'], copies: 1, modele: 'syndic', lien: '/admin/gestion?fil=55&message=901', messageId: 901, filId: 55 },
+      { le: '2026-11-25T11:00', a: ['alice@x.test'], copies: 0, modele: null, lien: null, messageId: null, filId: null }]);
     const sql = String(h.query.mock.calls.at(-1)![0]).replace(/\s+/g, ' ');
     expect(sql).toContain("e.etat = 'envoye' AND e.parti_le IS NOT NULL");
     expect(sql).toContain("coalesce(e.gmail_message_id, '') NOT LIKE 'recette-%'");
@@ -238,5 +238,44 @@ describe('🔴 suggestionsDeLaSortie', () => {
     expect(r[0].lignes.at(-1)).toMatchObject({ adresse: 'leo@x.fr', nom: 'Léo', role: 'Locataire sorti', ton: 'ancien_locataire' });
     expect(r[0].lignes.map((x: { adresse: string }) => x.adresse)).not.toContain('nouveau@x.fr');
     expect(suggestionsDeLaSortie([], [{ nom: 'Léo', emails: ['leo@x.fr'] }])[0].cle).toBe('clients');
+  });
+});
+
+import { echangesDeLaLigne } from './vingtPourcent';
+/**
+ * 🔴🔴 Arno (25/11/2026) — la conversation d'une ligne (les fils de ses mails partis, réponses comprises) et « combien de mails ont été échangés »
+ * (envoyés + reçus), sous la capsule AGO de la ligne repliée.
+ */
+describe('🔴🔴 les échanges d’une ligne', () => {
+  const E = (le: string, filId: number | null) => ({ le, a: ['x@x.test'], copies: 0, modele: null, lien: null, messageId: filId === null ? null : 1, filId });
+  it('echangesDeLaLigne : les fils (sans doublon), les mails de chaque fil (envoyés + reçus) + les partis pas encore capturés ; le plus récent', () => {
+    const comptes = new Map([[55, { nombre: 3, dernierLe: '2026-11-25T08:00' }], [56, { nombre: 1, dernierLe: '2026-11-24T18:30' }]]);
+    expect(echangesDeLaLigne([E('2026-11-24T09:05', 55), E('2026-11-24T10:00', 55), E('2026-11-24T11:00', 56), E('2026-11-25T10:12', null)], comptes))
+      .toEqual({ fils: [55, 56], nombre: 5, dernierLe: '2026-11-25T10:12' });
+    expect(echangesDeLaLigne([E('2026-11-24T09:05', 55)], comptes)).toEqual({ fils: [55], nombre: 3, dernierLe: '2026-11-25T08:00' });
+    expect(echangesDeLaLigne([], comptes)).toBeNull();
+    expect(echangesDeLaLigne([E('2026-11-24T09:05', 99)], comptes)).toBeNull();   // fil sans mail lisible (déplacé) : rien
+  });
+  it('comptesDesFils : par fil, comptés comme la conversation les montre (sans les mails déplacés), le dernier à l’heure de Paris ; paramètres liés', async () => {
+    h.query.mockReset().mockResolvedValue({ rows: [{ fil: '55', nombre: '3', dernier: '2026-11-25T08:00' }] });
+    const { comptesDesFils } = await import('./mailVingtPourcentRepo');
+    expect(await comptesDesFils([55, 56])).toEqual(new Map([[55, { nombre: 3, dernierLe: '2026-11-25T08:00' }]]));
+    const [sql, p] = h.query.mock.calls.at(-1)! as [string, unknown[]];
+    const n = sql.replace(/\s+/g, ' ');
+    expect(n).toContain('WHERE m.fil_id = ANY($1::bigint[])');
+    expect(n).toContain('NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.message_id = m.id AND am.actif)');
+    expect(n).toContain("max(m.recu_le) AT TIME ZONE 'Europe/Paris'");
+    expect(p).toEqual([[55, 56]]);
+    h.query.mockReset();
+    expect(await comptesDesFils([])).toEqual(new Map());
+    expect(h.query).not.toHaveBeenCalled();
+  });
+  it('« les réponses reçues sont rattachées au même bien » : la route pose la portée « Ce mail + futurs échanges » (le chemin de la fenêtre de rattachement)', () => {
+    const r = readFileSync('app/(admin)/api/admin/gestion/envois/route.ts', 'utf8');
+    const i = r.indexOf("demande.rattachement = { position: 'suite', retires: [] };");
+    expect(i).toBeGreaterThan(r.indexOf('demande.cibles = ciblesDemandees([bien]);'));
+    expect(i).toBeLessThan(r.indexOf('if (await fileEnvoiDisponible()) {'));
+    // et ce rattachement voyage jusqu'à l'intention appliquée après capture (enregistrerClassementEnvoi → poserClassement)
+    expect(r.match(/rattachement: demande\.rattachement,/g)?.length).toBe(2);
   });
 });

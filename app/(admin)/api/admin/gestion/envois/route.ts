@@ -232,6 +232,10 @@ export async function POST(request: Request): Promise<Response> {
     demande.cibles = ciblesDemandees([bien]);
     demande.interne = false;
     demande.horsGestion = false;
+    // 🔴🔴 (Arno, 25/11/2026) « les réponses reçues sont rattachées au même bien » : la portée « Ce mail + futurs échanges » — la position de la fenêtre
+    // « Bien(s) rattaché(s) à ce mail », appliquée après capture par `poserClassement` (LE chemin de « Modifier le rattachement ») : le fil suit ce
+    // bien, et chaque réponse qui y arrive en hérite à la relève (`heriterLesNouveauxMails`)
+    demande.rattachement = { position: 'suite', retires: [] };
     // 🔴 (Arno, 25/11/2026) le lien envoi ↔ ligne (515) ; le compte de l'écran ne retient que les envois réellement partis
     await noterMailVingt({ sortieId: vingt.sortieId, cleIdempotence: demande.cleIdempotence, modele: vingt.modele });
   }

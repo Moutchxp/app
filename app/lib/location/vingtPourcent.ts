@@ -139,9 +139,18 @@ export interface LigneVingtPourcent {
   contacts?: ContactsSortie;
   /** 🔴 (Arno, 25/11/2026) les mails RÉELLEMENT partis du module « Envoyer un mail » de cette ligne, du plus ancien au plus récent ; absents : aucun */
   mails?: MailVingtEnvoye[];
+  /**
+   * 🔴🔴 (Arno, 25/11/2026) la CONVERSATION de la ligne : les fils des mails partis de son module (réponses comprises), le nombre de mails échangés
+   * (envoyés + reçus) et la date du dernier ; absents : aucun échange.
+   */
+  echanges?: EchangesVingt;
 }
+/** Les échanges d'une ligne : ses fils (conversations de la boîte Gestion), le nombre de mails (envoyés + reçus), le dernier (AAAA-MM-JJTHH:MM, Paris). */
+export interface EchangesVingt { fils: number[]; nombre: number; dernierLe: string | null }
 /** Un mail parti du module d'une ligne : quand (AAAA-MM-JJTHH:MM, Paris), à qui (À), combien en copie, le modèle (`null` : libre), le lien (dès la relève). */
-export interface MailVingtEnvoye { le: string; a: string[]; copies: number; modele: string | null; lien: string | null }
+export interface MailVingtEnvoye { le: string; a: string[]; copies: number; modele: string | null; lien: string | null;
+  /** 🔴 (25/11/2026) le mail capturé et son fil (dès la relève) ; `null` : pas encore capturé */
+  messageId?: number | null; filId?: number | null }
 /** Une personne : « Prénom NOM », son premier e-mail, son premier téléphone (affiché « 06 12 34 56 78 », lien « tel: »). */
 export interface PersonneContact { nom: string; email: string | null; telephone: { affiche: string; lien: string } | null;
   /** 🔴 (Arno, 25/11/2026) toutes ses adresses encore valables (« Envoyer un mail ») ; absent : la seule `email` */
@@ -499,3 +508,19 @@ export function blocsOuvertsPourRecherche(lu: SuiviVingtLu, q: string): BlocRepl
     ...((vu.faites ?? []).length > 0 ? ['faites' as const] : []),
   ];
 }
+
+/**
+ * ══ 🔴🔴 Arno (25/11/2026) — « on doit voir si ce bloc a fait usage de la boîte mail et combien de mails ont été échangés » ════════════════════════════
+ * Les échanges d'une ligne : les fils de ses mails partis (dès la relève), le compte de leurs mails (`comptes` : par fil, envoyés + reçus, tels que la
+ * conversation les montre) + les mails partis pas encore capturés (ils ne sont encore dans aucun fil) ; le dernier : le plus récent des deux. `null` :
+ * aucun échange. PUR.
+ */
+export function echangesDeLaLigne(mails: readonly MailVingtEnvoye[], comptes: ReadonlyMap<number, { nombre: number; dernierLe: string | null }>): EchangesVingt | null {
+  const fils = [...new Set(mails.map((m) => m.filId).filter((f): f is number => typeof f === 'number' && f > 0))].sort((a, b) => a - b);
+  const enAttente = mails.filter((m) => m.filId == null);
+  const nombre = fils.reduce((n, f) => n + (comptes.get(f)?.nombre ?? 0), 0) + enAttente.length;
+  if (nombre === 0) return null;
+  const dates = [...fils.map((f) => comptes.get(f)?.dernierLe ?? null), ...enAttente.map((m) => m.le)].filter((d): d is string => d !== null && d !== '');
+  return { fils, nombre, dernierLe: dates.length === 0 ? null : dates.reduce((a, b) => (b > a ? b : a)) };
+}
+

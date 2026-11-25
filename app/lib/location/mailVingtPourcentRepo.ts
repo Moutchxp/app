@@ -46,6 +46,23 @@ export async function cibleDeLaSortie(sortieId: number): Promise<{ sorte: 'lot';
   return r === undefined ? null : { sorte: 'lot', cle: r.cle, id: Number(r.id), libelle: r.libelle ?? `Bien ${r.id}` };
 }
 
+/**
+ * 🔴🔴 Arno (25/11/2026) — « combien de mails ont été échangés » : par fil, le nombre de mails (envoyés + reçus) et le dernier (Paris), comptés comme la
+ * conversation de la boîte Gestion les montre (`lireMessagesDuFil` : un mail déplacé vers une autre carte n'y est plus). LECTURE SEULE.
+ */
+export async function comptesDesFils(filIds: readonly number[]): Promise<Map<number, { nombre: number; dernierLe: string | null }>> {
+  const out = new Map<number, { nombre: number; dernierLe: string | null }>();
+  if (filIds.length === 0) return out;
+  const { rows } = await query<{ fil: string; nombre: string; dernier: string | null }>(
+    `SELECT m.fil_id::text AS fil, count(*)::text AS nombre, to_char(max(m.recu_le) AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD"T"HH24:MI') AS dernier
+       FROM gestion_message m
+      WHERE m.fil_id = ANY($1::bigint[])
+        AND NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.message_id = m.id AND am.actif)
+      GROUP BY m.fil_id`, [[...filIds]]);
+  for (const r of rows) out.set(Number(r.fil), { nombre: Number(r.nombre), dernierLe: r.dernier });
+  return out;
+}
+
 // ══ 🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette page » (migration 515) ══════════════════════════════════════════════════════════════
 export const mailsVingtDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_mail_vingt', 'cle_idempotence');
 
@@ -80,7 +97,8 @@ export async function mailsEnvoyesDesSorties(sortieIds: readonly number[]): Prom
     const k = Number(r.sortie);
     const l = out.get(k) ?? [];
     l.push({ le: r.le, a: liste(r.a), copies: liste(r.cc).length + liste(r.cci).length, modele: r.modele,
-      lien: r.message !== null && r.fil !== null ? `/admin/gestion?fil=${r.fil}&message=${r.message}` : null });
+      lien: r.message !== null && r.fil !== null ? `/admin/gestion?fil=${r.fil}&message=${r.message}` : null,
+      messageId: r.message !== null ? Number(r.message) : null, filId: r.fil !== null ? Number(r.fil) : null });
     out.set(k, l);
   }
   return out;

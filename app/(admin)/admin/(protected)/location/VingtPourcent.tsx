@@ -5,7 +5,7 @@ import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
-import { MODELES_VINGT } from '../../../../lib/location/mailVingtPourcent';
+import { EchangesLigne } from './EchangesVingt';
 import {
   agoAConfirmer, agoOfficielleDuDossier, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
@@ -50,8 +50,8 @@ export function mentionMailsEnvoyes(mails: LigneVingtPourcent['mails']): string 
   const dernier = mails![n - 1].le;
   return `${n} mail${n > 1 ? 's' : ''} envoyé${n > 1 ? 's' : ''} depuis cette page — dernier le ${dateFr(dernier.slice(0, 10))}`;
 }
-/** Le modèle d'un mail parti : son libellé, ou « Message libre ». PUR. */
-export const libelleModeleVingt = (m: string | null): string => MODELES_VINGT.find((x) => x.cle === m)?.libelle ?? 'Message libre';
+/** Le modèle d'un mail parti : son libellé, ou « Message libre » (défini avec les échanges, qui l'affichent). PUR. */
+export { libelleModeleVingt } from './EchangesVingt';
 
 /** 🔴 (Arno, 25/11/2026) l'adresse de la ligne sur l'écran Gestion › « 20 % à restituer », module d'envoi déplié (le bouton de la Location y mène). */
 export const lienMailGestion = (sortieId: number): string => `/admin/gestion?ecran=vingt_pourcent&vingtMail=${sortieId}`;
@@ -360,6 +360,7 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
   // 🔴🔴 (Arno, 25/11/2026) « Envoyer un mail » : le module existant, déplié sous les coordonnées ; un nouveau clic (ou « Fermer ») le replie
   const [mailOuvert, setMailOuvert] = useState(mailInitial === l.sortieId && mail != null);
   const [fermetureMail, setFermetureMail] = useState(0);
+  const [maintenant] = useState(() => new Date());
   const boutonMail = mail === undefined
     ? <a className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" href={lienMailGestion(l.sortieId)} data-vgp-envoyer-mail={l.sortieId}
       title="Ouvre cette ligne sur l’écran Gestion › « 20 % à restituer », module d’envoi déplié">Envoyer un mail</a>
@@ -421,16 +422,9 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
         </dl>
         <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} action={boutonMail} />
-        {/* 🔴🔴 (Arno, 25/11/2026) la liste des mails partis de cette ligne : quand, à qui, quel modèle, le lien (rien de ce que dit la ligne : ni le compte) */}
-        {(l.mails ?? []).length > 0 && (
-          <div className="vgp-coord" data-vgp-liste-mails>
-            <p className="vgp-coord-titre">Mails envoyés depuis cette page</p>
-            {l.mails!.map((m, i) => (
-              <p key={i} className="vgp-coord-ligne" data-vgp-mail-envoye={i}>
-                {dateFr(m.le.slice(0, 10))} à {m.le.slice(11, 16)} — {m.a.length > 0 ? m.a.join(', ') : '—'}{m.copies > 0 ? ` (+ ${m.copies} en copie)` : ''} — {libelleModeleVingt(m.modele)}
-                {' — '}{m.lien !== null ? <a href={m.lien} data-vgp-mail-lien>Voir dans l’historique</a> : <span className="loc-muet">dans l’historique dès la prochaine relève</span>}
-              </p>))}
-          </div>)}
+        {/* 🔴🔴 (Arno, 25/11/2026) « Échanges (N) » : la conversation de la ligne, visible d'emblée, présentée comme dans la boîte Gestion ; la liste
+            « Mails envoyés depuis cette page » y est fondue (chaque mail parti d'ici porte son modèle et son lien) ; le module d'écriture reste fermé */}
+        {ouvert && <EchangesLigne l={l} maintenant={maintenant} />}
         {mailOuvert && mail != null && <ModuleMailLigne l={l} mail={mail} fermeture={fermetureMail} onFermer={() => { setMailOuvert(false); setFermetureMail(0); }} />}
         {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>

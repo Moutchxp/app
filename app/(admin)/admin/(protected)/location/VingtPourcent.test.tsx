@@ -1403,22 +1403,76 @@ describe('🔴🔴 Arno (25/11/2026) — « x mail(s) envoyé(s) depuis cette pa
     expect(container.querySelector('[data-vgp-mails-envoyes]')).toBeNull();
     expect(container.querySelector('[data-vgp-liste-mails]')).toBeNull();
   });
-  it('détail : la liste (date et heure, destinataire, copies, modèle) et le lien vers le mail, ou « dès la prochaine relève » ; sans répéter le compte', async () => {
-    donnees = { ...LU, lignes: [{ ...LU.lignes[0], mails: MAILS }] };
-    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
-    const d = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail] [data-vgp-liste-mails]')!;
-    expect([...d.querySelectorAll('[data-vgp-mail-envoye]')].map((p) => p.textContent)).toEqual([
-      '24/11/2026 à 09:05 — syndic@exemple.test (+ 1 en copie) — Syndic, propriétaire(s) en copie — date de la prochaine AGO — Voir dans l’historique',
-      '25/11/2026 à 10:12 — jean@exemple.test — Message libre — dans l’historique dès la prochaine relève']);
-    expect(d.querySelector('[data-vgp-mail-lien]')?.getAttribute('href')).toBe('/admin/gestion?fil=55&message=901');
-    expect(d.textContent).not.toContain('mails envoyés depuis cette page —');
+});
+
+// 🔴🔴 (25/11/2026) la carte de la boîte Gestion (MessageConversation) et la lecture d'un corps, doublées : le test éprouve l'écran (ordre, origine,
+//    « Répondre » dans le même fil), la carte elle-même est éprouvée côté Gestion
+const carte = vi.fn();
+vi.mock('../gestion/Conversation', () => ({
+  CSS_CONVERSATION: '',
+  MessageConversation: (p: { message: { messageId: number; sens: string; de: string }; filId: number; ouvert: boolean; onBasculer: () => void; onRepondre?: (v: string) => void }) => {
+    carte(p);
+    return createElement('div', { 'data-stub-carte': p.message.messageId, 'data-stub-fil': p.filId, 'data-stub-ouvert': p.ouvert ? '1' : '0' },
+      `${p.message.sens} ${p.message.de}`,
+      p.onRepondre ? createElement('button', { 'data-stub-repondre': p.message.messageId, onClick: () => p.onRepondre!('repondre') }, 'Répondre') : null);
+  },
+}));
+vi.mock('../gestion/chargerCorps', () => ({ chargerCorpsDuMessage: async () => ({ texte: 'Bonjour', html: null, cssMail: '' }) }));
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « la conversation doit aussi être préservée et construite ici dans la ligne dépliée du locataire » ; « par défaut une ligne
+ * que l'on déploie se présente […] sans que l'espace de création de mail soit déployé, et l'historique des mails doit être directement visible » ;
+ * « sous le cartouche de statut de l'AGO, on doit voir si ce bloc a fait usage de la boîte mail et combien de mails ont été échangés ».
+ */
+describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
+  const MAILS = [{ le: '2026-11-24T09:05', a: ['syndic@exemple.test'], copies: 1, modele: 'syndic_copie', lien: '/admin/gestion?fil=55&message=901', messageId: 901, filId: 55 },
+    { le: '2026-11-25T10:12', a: ['jean@exemple.test'], copies: 0, modele: null, lien: null, messageId: null, filId: null }];
+  const M = (messageId: number, sens: string, de: string, recuLe: string) => ({ messageId, sens, de, deNom: null, recuLe, objet: 'Date de la prochaine AGO',
+    corps: null, extrait: '…', pieces: [], destA: [{ adresse: 'gestion@exemple.test' }], destCc: [], destinatairesFondus: null, html: null });
+  const FILS: Record<string, unknown[]> = {
+    55: [M(903, 'recu', 'syndic@exemple.test', '2026-11-25T08:00:00+01:00'), M(901, 'envoye', 'gestion@exemple.test', '2026-11-24T09:05:00+01:00')],
+    56: [M(904, 'recu', 'jean@exemple.test', '2026-11-24T18:30:00+01:00')],
+  };
+  const avecFils = (): void => {
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET'); // LECTURE SEULE
+      lectures.push(String(u));
+      const f = /\/gestion\/fils\/(\d+)\/messages/.exec(String(u));
+      if (f) return { ok: true, status: 200, json: async () => ({ messages: FILS[f[1]] ?? [] }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  };
+  const LIGNE = () => ({ ...LU.lignes[0], mails: MAILS, echanges: { fils: [55, 56], nombre: 4, dernierLe: '2026-11-25T10:12' } });
+  beforeEach(() => { carte.mockClear(); redaction.mockClear(); avecFils(); });
+
+  it('ligne dépliée : « Échanges (4) » visible, tous fils mêlés du plus ancien au plus récent, le mail parti d’ici porte son modèle et son lien ; le mail pas encore capturé ; le module FERMÉ', async () => {
+    donnees = { ...LU, lignes: [LIGNE()] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    const e = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail] [data-vgp-echanges]')!;
+    expect(e.querySelector('.vgp-echanges-titre')?.textContent).toBe('Échanges (4)');
+    expect([...e.querySelectorAll('[data-stub-carte]')].map((c) => [c.getAttribute('data-stub-carte'), c.getAttribute('data-stub-fil')]))
+      .toEqual([['901', '55'], ['904', '56'], ['903', '55']]);
+    expect(e.querySelector('[data-vgp-echange="901"] [data-vgp-echange-modele]')?.textContent).toBe('Envoyé depuis cette page — Syndic, propriétaire(s) en copie — date de la prochaine AGO — Voir dans l’historique');
+    expect(e.querySelector('[data-vgp-echange="903"] [data-vgp-echange-modele]')).toBeNull();
+    expect(e.querySelector('[data-vgp-echange-attente]')?.textContent).toBe('25/11/2026 à 10:12 — jean@exemple.test — Message libre — dans la conversation dès la prochaine relève');
+    // comme dans la boîte : le dernier mail est ouvert
+    expect(e.querySelector('[data-stub-carte="903"]')?.getAttribute('data-stub-ouvert')).toBe('1');
+    expect(e.querySelector('[data-stub-carte="901"]')?.getAttribute('data-stub-ouvert')).toBe('0');
+    // le module d'écriture reste fermé
+    expect(container.querySelector('[data-vgp-mail]')).toBeNull();
+    expect(redaction).not.toHaveBeenCalled();
   });
+
   it('le modèle choisi part avec la marque (et y reste quand on modifie le message)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/MailVingtPourcent.tsx', 'utf8');
     expect(src).toContain('vingtPourcent: { sortieId: l.sortieId, modele: cle } };');
     expect(src).toContain('vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId }');
   });
 });
+const CONTEXTE_E = { schemaPret: true, peutEnvoyer: true, jetonPresent: true, signature: '— Gestion', signatureHtml: '<p>— Gestion</p>', nomExpediteur: 'CRITERIMMO',
+  adresseGestion: 'gestion@exemple.test', delaiAnnulationS: 10 } as never;
 
 /** 🔴 Arno (25/11/2026) — le compte à rebours « J-15 » passe en rouge ; « Dépassé de N jours » reste rouge ; « AG dans N jours » reste gris. */
 describe('🔴 Arno (25/11/2026) — « J-N » en rouge', () => {
