@@ -114,13 +114,23 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
   );
 }
 
+/**
+ * 🔴🔴 Arno (25/11/2026) — « une couleur de trame de fond par catégorie, du moins urgent en vert au plus urgent, l'Alerte du lundi en rouge, en passant
+ * par l'orange » : la teinte de chaque bloc (jetons --color-svv-vgp-<teinte>-fond / -accent de globals.css ; -accent = liseré ET fond du titre).
+ * « Dates manquantes » garde son allure actuelle (pas de teinte).
+ */
+export const TEINTES_BLOCS_VINGT = {
+  alerte: 'alerte', urgence: 'urgence', ag_passee: 'agpassee', a_preparer: 'preparer', en_attente: 'attente', faites: 'faites',
+} as const;
+const teinte = (b: keyof typeof TEINTES_BLOCS_VINGT): string => ` vgp-teinte vgp-teinte--${TEINTES_BLOCS_VINGT[b]}`;
+
 /** 🔴 Arno (25/11/2026) — l'état replié / ouvert d'un bloc, tenu par l'écran (fermé par défaut ; la recherche l'ouvre). */
 type Repli = { ouvert: boolean; onBasculer: (ouvert: boolean) => void };
 
 /** 🔴 Arno (24/11/2026) — une catégorie (b à e) : titre, compteur, repliable ; lignes par date limite croissante. */
 function Categorie({ cle, lignes, onRestituer, ouvert, onBasculer }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[]; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
   return (
-    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && lignes.length > 0 ? ' vgp-cat--a-faire' : ''}`} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={lignes.length}>
+    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && lignes.length > 0 ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={lignes.length}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
         <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={cle === 'urgence' && lignes.length > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{lignes.length}</span></summary>
         {lignes.length === 0 ? <p className="loc-muet" data-vgp-categorie-vide>Aucun locataire.</p>
@@ -388,7 +398,7 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
     setConfirmer(null); onAnnule();
   };
   return (
-    <section className="vgp-bloc vgp-faites" aria-label={TITRE_RESTITUTIONS_FAITES} data-vgp-faites={faites.length}>
+    <section className={`vgp-bloc vgp-faites${teinte('faites')}`} data-vgp-teinte={TEINTES_BLOCS_VINGT.faites} aria-label={TITRE_RESTITUTIONS_FAITES} data-vgp-faites={faites.length}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
         <summary className="vgp-titre">{TITRE_RESTITUTIONS_FAITES} ({faites.length})</summary>
         {faites.length === 0 ? <p className="loc-muet" data-vgp-faites-aucune>Aucune restitution enregistrée.</p> : (
@@ -434,7 +444,7 @@ function AlerteDuLundi({ api }: { api: string }) {
     } catch { setVu({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' }); }
   };
   return (
-    <section className="vgp-bloc" aria-label="Alerte du lundi" data-vgp-alerte-lundi>
+    <section className={`vgp-bloc${teinte('alerte')}`} aria-label="Alerte du lundi" data-vgp-alerte-lundi data-vgp-teinte={TEINTES_BLOCS_VINGT.alerte}>
       <details className="vgp-repli">
         <summary className="vgp-titre">Alerte du lundi</summary>
         <p className="loc-muet vgp-aide">Chaque lundi matin (heure de Paris), si au moins un locataire est en « Urgence », un mail récapitulatif part à l’adresse de la Gestion.
@@ -465,6 +475,19 @@ export const CSS_VINGT_POURCENT = `
 .vgp-repli > summary::before{content:'▸';display:inline-block;width:1em;color:var(--color-svv-muted)}
 .vgp-repli[open] > summary::before{content:'▾'}
 .vgp-repli[open] > summary{margin-bottom:10px}
+/* 🔴 (Arno, 25/11/2026) les trames par catégorie : fond = -fond ; liseré et fond du titre = -accent ; encre du thème (contraste vérifié en épreuve) */
+.vgp-bloc.vgp-teinte{background:var(--vgp-fond);border:2px solid var(--vgp-accent);padding:0 14px 14px;overflow:hidden}
+.vgp-bloc.vgp-teinte:has(> .vgp-repli:not([open])){padding-bottom:0}
+/* replié, Chrome garde l'écart du flex avant le contenu caché : aucune bande de trame sous le titre */
+.vgp-teinte > .vgp-repli:not([open]){gap:0}
+.vgp-teinte > .vgp-repli > summary{margin-inline:-14px;padding:8px 14px;background:var(--vgp-accent);color:var(--color-svv-ink)}
+.vgp-teinte > .vgp-repli > summary::before{color:var(--color-svv-ink)}
+.vgp-teinte--alerte{--vgp-fond:var(--color-svv-vgp-alerte-fond);--vgp-accent:var(--color-svv-vgp-alerte-accent)}
+.vgp-teinte--urgence{--vgp-fond:var(--color-svv-vgp-urgence-fond);--vgp-accent:var(--color-svv-vgp-urgence-accent)}
+.vgp-teinte--agpassee{--vgp-fond:var(--color-svv-vgp-agpassee-fond);--vgp-accent:var(--color-svv-vgp-agpassee-accent)}
+.vgp-teinte--preparer{--vgp-fond:var(--color-svv-vgp-preparer-fond);--vgp-accent:var(--color-svv-vgp-preparer-accent)}
+.vgp-teinte--attente{--vgp-fond:var(--color-svv-vgp-attente-fond);--vgp-accent:var(--color-svv-vgp-attente-accent)}
+.vgp-teinte--faites{--vgp-fond:var(--color-svv-vgp-faites-fond);--vgp-accent:var(--color-svv-vgp-faites-accent)}
 .vgp-sous-liste{margin-top:6px;padding-left:10px;border-left:3px solid var(--color-svv-line-strong)}
 .vgp-dl dd.vgp-depasse{color:var(--color-svv-red);font-weight:800}
 .vgp-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap}

@@ -98,6 +98,21 @@
   /* 🔴 Arno (24/11/2026) — « 20 % à restituer » : la pastille « Urgence » en ROUGE VIF, distincte du rouge de marque de la pastille des copropriétés
      à compléter. Chiffre = --color-svv-surface : blanc sur #d70000 ≈ 5,3:1 (clair) ; encre sombre sur #ff4d40 (sombre). */
   --color-svv-rouge-vif: #d70000;
+  /* 🔴 Arno (25/11/2026) — « 20 % à restituer » : « une couleur de trame de fond par catégorie, du moins urgent en vert au plus urgent, l'Alerte du
+     lundi en rouge, en passant par l'orange ». -fond = trame du bloc ; -accent = liseré ET fond du titre (mêmes couleurs). Texte = --color-svv-ink
+     (contraste ≥ 7:1 sur chaque teinte, vérifié par VingtPourcent.test.tsx) ; teintes claires ici, foncées en sombre. */
+  --color-svv-vgp-alerte-fond: #fde4e2;
+  --color-svv-vgp-alerte-accent: #f4a39c;
+  --color-svv-vgp-urgence-fond: #fde8dc;
+  --color-svv-vgp-urgence-accent: #f5b08c;
+  --color-svv-vgp-agpassee-fond: #feefdd;
+  --color-svv-vgp-agpassee-accent: #f8c38c;
+  --color-svv-vgp-preparer-fond: #fff6e0;
+  --color-svv-vgp-preparer-accent: #fadb9c;
+  --color-svv-vgp-attente-fond: #e6f5ea;
+  --color-svv-vgp-attente-accent: #a8dcb7;
+  --color-svv-vgp-faites-fond: #eef0f3;
+  --color-svv-vgp-faites-accent: #cfd4db;
   --color-svv-violet: #7d3ac1;               /* « à confirmer » : texte + bordure (le MOT porte l'info, le violet n'est qu'un appui) */
   --color-svv-violet-soft: #f3e8ff;          /* fond de la pastille « à confirmer » (texte = --color-svv-violet) */
   --color-svv-violet-faint: #faf5ff;         /* fond de la carte d'édition du sommet « à confirmer » (texte = ink/red) */
@@ -347,6 +362,19 @@
   --color-svv-urgence-orange: #ff8c1a;
   --color-svv-urgence-orange-texte: #ff9933;
   --color-svv-rouge-vif: #ff4d40;            /* 🔴 (24/11/2026) pastille « Urgence » des 20 % */
+  /* 🔴 Arno (25/11/2026) — trames des catégories « 20 % à restituer », foncées ; encre claire ≥ 6:1  */
+  --color-svv-vgp-alerte-fond: #3b1d1f;
+  --color-svv-vgp-alerte-accent: #6e2a2a;
+  --color-svv-vgp-urgence-fond: #3b2219;
+  --color-svv-vgp-urgence-accent: #6e3a22;
+  --color-svv-vgp-agpassee-fond: #3a2714;
+  --color-svv-vgp-agpassee-accent: #634016;
+  --color-svv-vgp-preparer-fond: #352c12;
+  --color-svv-vgp-preparer-accent: #54441a;
+  --color-svv-vgp-attente-fond: #16301f;
+  --color-svv-vgp-attente-accent: #1f4d33;
+  --color-svv-vgp-faites-fond: #252d38;
+  --color-svv-vgp-faites-accent: #3c4757;
   --color-svv-violet: #c9a9f0;
   --color-svv-violet-soft: #2b1d3d;
   --color-svv-violet-faint: #241a33;
@@ -406,6 +434,19 @@
     --color-svv-urgence-orange: #ff8c1a;     /* LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — identique au bloc [data-theme='dark'] */
     --color-svv-urgence-orange-texte: #ff9933;
     --color-svv-rouge-vif: #ff4d40;            /* identique au bloc [data-theme='dark'] */
+    /* 🔴 Arno (25/11/2026) — trames des catégories « 20 % à restituer », foncées ; encre claire ≥ 6:1 (identique au bloc [data-theme='dark']) */
+    --color-svv-vgp-alerte-fond: #3b1d1f;
+    --color-svv-vgp-alerte-accent: #6e2a2a;
+    --color-svv-vgp-urgence-fond: #3b2219;
+    --color-svv-vgp-urgence-accent: #6e3a22;
+    --color-svv-vgp-agpassee-fond: #3a2714;
+    --color-svv-vgp-agpassee-accent: #634016;
+    --color-svv-vgp-preparer-fond: #352c12;
+    --color-svv-vgp-preparer-accent: #54441a;
+    --color-svv-vgp-attente-fond: #16301f;
+    --color-svv-vgp-attente-accent: #1f4d33;
+    --color-svv-vgp-faites-fond: #252d38;
+    --color-svv-vgp-faites-accent: #3c4757;
     --color-svv-violet: #c9a9f0;
     --color-svv-violet-soft: #2b1d3d;
     --color-svv-violet-faint: #241a33;

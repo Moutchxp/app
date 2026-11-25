@@ -599,3 +599,52 @@ describe('🔴 Arno (25/11/2026) — « Alerte du lundi » en deuxième position
     expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(['Alerte du lundi', 'En attente']);
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « une couleur de trame de fond par catégorie, du moins urgent en vert au plus urgent, l'Alerte du lundi en rouge, en passant
+ * par l'orange » ; teintes claires en clair, foncées en sombre ; texte toujours lisible ; mêmes couleurs pour le liseré et le fond du titre.
+ */
+describe('🔴🔴 Arno (25/11/2026) — une trame de fond par catégorie', () => {
+  const css = readFileSync('app/globals.css', 'utf8');
+  const valeurs = (nom: string): string[] => [...css.matchAll(new RegExp(`${nom}:\\s*(#[0-9a-fA-F]{6})`, 'g'))].map((m) => m[1].toLowerCase());
+  const lum = (hex: string): number => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contraste = (a: string, b: string): number => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const TEINTES = ['alerte', 'urgence', 'agpassee', 'preparer', 'attente', 'faites'] as const;
+  it('chaque bloc porte sa teinte : Alerte du lundi rouge, Urgence rouge orangé, AG passée orange, À préparer orange clair, En attente vert, Restitutions faites gris ; Dates manquantes inchangée', async () => {
+    donnees = { ...LU, faites: [] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect([...container.querySelectorAll('section')].map((s) => [s.getAttribute('aria-label'), s.getAttribute('data-vgp-teinte')])).toEqual([
+      ['Dates manquantes', null], ['Alerte du lundi', 'alerte'], ['Urgence', 'urgence'], ['AG passée — restitution à faire', 'agpassee'],
+      ['À préparer', 'preparer'], ['En attente', 'attente'], ['Restitutions faites', 'faites']]);
+    expect(container.querySelector('[data-vgp-categorie="urgence"]')?.className).toContain('vgp-teinte vgp-teinte--urgence');
+    expect(container.querySelector('[data-vgp-categorie="manquantes"]')?.className).not.toContain('vgp-teinte');
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    for (const t of TEINTES) expect(src).toContain(`.vgp-teinte--${t}{--vgp-fond:var(--color-svv-vgp-${t}-fond);--vgp-accent:var(--color-svv-vgp-${t}-accent)}`);
+    // le liseré ET le fond du titre : la même couleur (-accent)
+    expect(src).toContain('.vgp-bloc.vgp-teinte{background:var(--vgp-fond);border:2px solid var(--vgp-accent);');
+    expect(src).toContain('.vgp-teinte > .vgp-repli > summary{margin-inline:-14px;padding:8px 14px;background:var(--vgp-accent);color:var(--color-svv-ink)}');
+  });
+  it('les jetons existent en clair, en sombre et en système (sombre = système) ; teintes claires en clair, foncées en sombre ; six teintes distinctes', () => {
+    for (const t of TEINTES) for (const r of ['fond', 'accent']) {
+      const v = valeurs(`--color-svv-vgp-${t}-${r}`);
+      expect(v, `${t}-${r}`).toHaveLength(3);
+      expect(v[2]).toBe(v[1]);
+      expect(lum(v[0])).toBeGreaterThan(0.4); // clair
+      expect(lum(v[1])).toBeLessThan(0.1); // sombre
+    }
+    for (const i of [0, 1]) for (const r of ['fond', 'accent']) expect(new Set(TEINTES.map((t) => valeurs(`--color-svv-vgp-${t}-${r}`)[i])).size).toBe(6);
+  });
+  it('texte toujours lisible : encre ≥ 7:1 sur le fond et sur le titre, texte gris ≥ 4,5:1 sur le fond, en clair comme en sombre', () => {
+    const [encreClair, encreSombre] = valeurs('--color-svv-ink');
+    const [grisClair, grisSombre] = valeurs('--color-svv-muted');
+    for (const t of TEINTES) {
+      const [fc, fs] = valeurs(`--color-svv-vgp-${t}-fond`); const [ac, as] = valeurs(`--color-svv-vgp-${t}-accent`);
+      for (const [encre, fond] of [[encreClair, fc], [encreClair, ac], [encreSombre, fs], [encreSombre, as]]) expect(contraste(encre, fond), `${t} ${fond}`).toBeGreaterThanOrEqual(7);
+      expect(contraste(grisClair, fc), `${t} gris clair`).toBeGreaterThanOrEqual(4.5);
+      expect(contraste(grisSombre, fs), `${t} gris sombre`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
