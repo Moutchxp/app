@@ -61,8 +61,9 @@ describe('🔴🔴 les quatre modèles', () => {
   const QUESTION = 'Pourriez-vous nous indiquer la date retenue, ou nous transmettre la convocation dès qu’elle sera disponible ?';
   const FIN = 'Nous vous remercions par avance et restons à votre disposition.';
   const RICHE = { ...D, numLots: ['12'], batiment: 'A', etage: '3', coproNom: 'Résidence Les Tilleuls', proprietaires: ['M. Jean DURAND'] };
-  const INTRO_RICHE = 'Nous sommes le cabinet CRITERIMMO, gestionnaire, pour le compte de notre client M. Jean DURAND, du lot n° 12 (bâtiment A, 3e étage), situé 3 rue A, 75011 Paris. Notre client est copropriétaire dans la résidence Les Tilleuls, dont vous assurez le syndic de copropriété.';
-  const BESOIN = 'Pour finaliser la restitution du solde du dépôt de garantie de son ancien locataire, nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire, qui approuvera les comptes de l’exercice clos le 30/06/2026.';
+  // 🔴 (Arno, 25/11/2026, dernière rédaction) l'introduction réécrite : claire, sans répétition, l'adresse une seule fois
+  const INTRO_RICHE = 'Nous sommes le cabinet CRITERIMMO, gestionnaire du lot n° 12 (bâtiment A, 3e étage) situé 3 rue A, 75011 Paris, pour le compte de notre client M. Jean DURAND, copropriétaire dans la résidence Les Tilleuls, dont vous êtes le syndic.';
+  const BESOIN = 'Afin de finaliser la restitution du solde du dépôt de garantie de son ancien locataire, nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire, au cours de laquelle seront approuvés les comptes de l’exercice clos le 30/06/2026.';
   const nb = (t: string, x: string): number => t.split(x).length - 1;
   it('a. lot avec bâtiment et étage, copropriété nommée : la présentation, l’adresse UNE fois, « Résidence » non doublé, le locataire non nommé', () => {
     const r = texteModeleVingt('syndic', RICHE);
@@ -71,21 +72,21 @@ describe('🔴🔴 les quatre modèles', () => {
     expect(r.texte).not.toMatch(/r[ée]sidence R[ée]sidence/i);
     expect(r.texte).not.toContain('Alice');
   });
-  it('a. sans lot, sans propriétaire, copropriété = l’adresse (la donnée d’essai) : « du lot situé … », « pour le compte de notre client, », « dans cette résidence »', () => {
+  it('a. sans lot, sans propriétaire, copropriété sans nom distinct : « gestionnaire du lot situé … », « pour le compte de notre client, », « dans cet immeuble »', () => {
     const t = texteModeleVingt('syndic', { ...D, proprietaires: [], logement: '1 rue du Préavis de Test (FICTIF), 00000 TEST', coproNom: '1 rue du Préavis de Test (FICTIF)' }).texte;
-    expect(t.split('\n\n')[0]).toBe('Nous sommes le cabinet CRITERIMMO, gestionnaire, pour le compte de notre client, du lot situé 1 rue du Préavis de Test (FICTIF), 00000 TEST. Notre client est copropriétaire dans cette résidence, dont vous assurez le syndic de copropriété.');
+    expect(t.split('\n\n')[0]).toBe('Nous sommes le cabinet CRITERIMMO, gestionnaire du lot situé 1 rue du Préavis de Test (FICTIF), 00000 TEST, pour le compte de notre client, copropriétaire dans cet immeuble, dont vous êtes le syndic.');
+    expect(texteModeleVingt('syndic', { ...D, coproNom: null }).texte).toContain('copropriétaire dans cet immeuble, dont vous êtes le syndic.');
     expect(nb(t, '1 rue du Préavis')).toBe(1);
     expect(t).not.toMatch(/ ,|,,/);
   });
   it('a. lots multiples (le bien et ses annexes), bâtiment seul, étage seul, plusieurs propriétaires', () => {
     expect(texteModeleVingt('syndic', { ...RICHE, numLots: ['12', '45', '78'], etage: null }).texte)
-      .toContain('des lots n° 12, 45 et 78 (bâtiment A), situés 3 rue A, 75011 Paris.');
-    expect(texteModeleVingt('syndic', { ...RICHE, batiment: null, etage: '0' }).texte).toContain('du lot n° 12 (rez-de-chaussée), situé 3 rue A');
-    expect(texteModeleVingt('syndic', { ...RICHE, batiment: ' ', etage: null }).texte).toContain('du lot n° 12, situé 3 rue A');
-    expect(texteModeleVingt('syndic', { ...RICHE, numLots: [], batiment: 'B', etage: null }).texte).toContain('du lot (bâtiment B) situé 3 rue A');
+      .toContain('gestionnaire des lots n° 12, 45 et 78 (bâtiment A) situés 3 rue A, 75011 Paris, pour le compte');
+    expect(texteModeleVingt('syndic', { ...RICHE, batiment: null, etage: '0' }).texte).toContain('gestionnaire du lot n° 12 (rez-de-chaussée) situé 3 rue A');
+    expect(texteModeleVingt('syndic', { ...RICHE, batiment: ' ', etage: null }).texte).toContain('gestionnaire du lot n° 12 situé 3 rue A, 75011 Paris, pour le compte');
+    expect(texteModeleVingt('syndic', { ...RICHE, numLots: [], batiment: 'B', etage: null }).texte).toContain('gestionnaire du lot (bâtiment B) situé 3 rue A');
     const t = texteModeleVingt('syndic', { ...RICHE, proprietaires: ['M. Jean DURAND', 'Mme Anne DURAND'] }).texte;
-    expect(t).toContain('pour le compte de nos clients M. Jean DURAND et Mme Anne DURAND, du lot n° 12');
-    expect(t).toContain('Nos clients sont copropriétaires dans la résidence Les Tilleuls');
+    expect(t).toContain('pour le compte de nos clients M. Jean DURAND et Mme Anne DURAND, copropriétaires dans la résidence Les Tilleuls, dont vous êtes le syndic.');
     expect(t).toContain('du dépôt de garantie de leur ancien locataire');
   });
   it('le nom de la copropriété : cité s’il diffère de l’adresse ; « Résidence » retiré en tête ; ni l’adresse ni une adresse qui la contient', () => {
@@ -106,7 +107,7 @@ describe('🔴🔴 les quatre modèles', () => {
   it('b. propriétaire : l’adresse dans l’objet seulement, la copropriété nommée si elle a un nom distinct ; pluriel des colocataires', () => {
     expect(texteModeleVingt('proprietaire', RICHE)).toEqual({ objet: 'Date de la prochaine AGO — 3 rue A, 75011 Paris', texte:
       'Suite au départ de votre locataire Alice DUPONT le 01/03/2026, nous avons conservé 20 % de son dépôt de garantie, dans l’attente de l’approbation des comptes de l’exercice clos le 30/06/2026 par l’assemblée générale de la copropriété Les Tilleuls.\n\n'
-      + 'Si vous avez reçu la convocation, ou si vous en connaissez la date, pourriez-vous nous la communiquer ? Cela nous permettra de procéder à la régularisation et à la restitution du solde dans les délais.\n\nMerci par avance.' });
+      + 'Si vous avez reçu la convocation, ou si vous connaissez la date de la prochaine assemblée générale ordinaire, pourriez-vous nous la communiquer ? Cela nous permettra de procéder à la régularisation et à la restitution du solde dans les délais.\n\nMerci par avance.' });
     expect(texteModeleVingt('proprietaire', { ...RICHE, coproNom: '3 rue A' }).texte).toContain('par l’assemblée générale de la copropriété.');
     expect(texteModeleVingt('proprietaire', RICHE).texte).not.toContain('3 rue A');
     expect(texteModeleVingt('proprietaire', { ...RICHE, locataires: ['Paul MARTIN', 'Léa MARTIN'] }).texte).toContain('Suite au départ de vos locataires Paul MARTIN et Léa MARTIN le 01/03/2026, nous avons conservé 20 % de leur dépôt');

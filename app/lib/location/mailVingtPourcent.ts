@@ -80,23 +80,24 @@ export function nomDeResidence(nom: string | null | undefined, adresse: string):
   return n;
 }
 
-/** « du lot n° 12 (bâtiment A, 3e étage), situé … » / « des lots n° 12 et 45, situés … » / « du lot situé … » : l'adresse UNE fois. PUR. */
+/** « du lot n° 12 (bâtiment A, 3e étage) situé … » / « des lots n° 12 et 45 situés … » / « du lot situé … » : l'adresse UNE fois. PUR. */
 function lotEtAdresse(d: DonneesModeleVingt): string {
   const lots = [...new Set((d.numLots ?? []).map((x) => x.trim()).filter((x) => x !== ''))];
   const precisions = [d.batiment != null && d.batiment.trim() !== '' ? `bâtiment ${d.batiment.trim()}` : null,
     d.etage != null && d.etage.trim() !== '' ? libelleEtage(d.etage.trim()) : null].filter((x): x is string => x !== null);
   const parenthese = precisions.length > 0 ? ` (${precisions.join(', ')})` : '';
   if (lots.length === 0) return `du lot${parenthese} situé ${d.logement}`;
-  return lots.length === 1 ? `du lot n° ${lots[0]}${parenthese}, situé ${d.logement}` : `des lots n° ${liste(lots)}${parenthese}, situés ${d.logement}`;
+  return lots.length === 1 ? `du lot n° ${lots[0]}${parenthese} situé ${d.logement}` : `des lots n° ${liste(lots)}${parenthese} situés ${d.logement}`;
 }
 
 /**
  * L'objet et le texte d'un modèle (sans formule d'appel ni signature : le module les pose). PUR.
- * 🔴🔴 Arno (25/11/2026) — plus aucune phrase d'estimation de l'AGO ; « nous avons besoin de CONNAÎTRE la date » ; a et c : « Nous sommes le cabinet
- * CRITERIMMO, gestionnaire, pour le compte de notre client …, du lot n° … (bâtiment, étage), situé [adresse]. Notre client est copropriétaire dans cette
- * résidence (dans la résidence [nom], s'il diffère de l'adresse), dont vous assurez le syndic de copropriété. » — L'ADRESSE UNE SEULE FOIS ; le locataire
- * jamais nommé au syndic ; c : « … est en copie de ce mail. » avant les remerciements ; b : inchangé hors l'estimation, sans doublon d'adresse.
- * L'objet des trois : « Date de la prochaine AGO — [adresse du bien] ».
+ * 🔴🔴 Arno (25/11/2026) — plus aucune phrase d'estimation de l'AGO. a et c : « Nous sommes le cabinet CRITERIMMO, gestionnaire du lot n° … (bâtiment,
+ * étage) situé [adresse], pour le compte de notre client …, copropriétaire dans la résidence [nom] (sinon « dans cet immeuble »), dont vous êtes le
+ * syndic. » puis « Afin de finaliser […] nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire, au cours de laquelle seront
+ * approuvés les comptes de l'exercice clos le … » — l'ADRESSE UNE SEULE FOIS ; le nom de la copropriété seulement si son champ « nom » est renseigné et
+ * diffère de l'adresse ; le locataire jamais nommé au syndic ; c : « … est en copie de ce mail. » avant les remerciements. b : 2e paragraphe réécrit,
+ * copropriété nommée selon la même règle. L'objet des trois : « Date de la prochaine AGO — [adresse du bien] ».
  */
 export function texteModeleVingt(cle: CleModeleVingt, d: DonneesModeleVingt): { objet: string; texte: string } {
   const p = d.proprietaires;
@@ -105,8 +106,8 @@ export function texteModeleVingt(cle: CleModeleVingt, d: DonneesModeleVingt): { 
   const residence = nomDeResidence(d.coproNom, d.logement);
   const objet = `Date de la prochaine AGO — ${d.logement}`;
   const demandeSyndic = [
-    `Nous sommes le cabinet CRITERIMMO, gestionnaire, pour le compte ${clients}, ${lotEtAdresse(d)}. ${plusieurs ? 'Nos clients sont copropriétaires' : 'Notre client est copropriétaire'} ${residence === null ? 'dans cette résidence' : `dans la résidence ${residence}`}, dont vous assurez le syndic de copropriété.`,
-    `Pour finaliser la restitution du solde du dépôt de garantie de ${plusieurs ? 'leur' : 'son'} ancien locataire, nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire, qui approuvera les comptes de l’exercice ${exerciceDit(d.exercice)}.`,
+    `Nous sommes le cabinet CRITERIMMO, gestionnaire ${lotEtAdresse(d)}, pour le compte ${clients}, ${plusieurs ? 'copropriétaires' : 'copropriétaire'} ${residence === null ? 'dans cet immeuble' : `dans la résidence ${residence}`}, dont vous êtes le syndic.`,
+    `Afin de finaliser la restitution du solde du dépôt de garantie de ${plusieurs ? 'leur' : 'son'} ancien locataire, nous avons besoin de connaître la date de la prochaine assemblée générale ordinaire, au cours de laquelle seront approuvés les comptes de l’exercice ${exerciceDit(d.exercice)}.`,
     'Pourriez-vous nous indiquer la date retenue, ou nous transmettre la convocation dès qu’elle sera disponible ?',
   ];
   const fin = 'Nous vous remercions par avance et restons à votre disposition.';
@@ -123,7 +124,8 @@ export function texteModeleVingt(cle: CleModeleVingt, d: DonneesModeleVingt): { 
       objet,
       texte: [
         `Suite au départ de ${qui} le ${dateFr(d.dateSortie)}, nous avons conservé 20 % de ${coloc ? 'leur' : 'son'} dépôt de garantie, dans l’attente de l’approbation des comptes de l’exercice ${exerciceDit(d.exercice)} par l’assemblée générale de la copropriété${residence === null ? '' : ` ${residence}`}.`,
-        'Si vous avez reçu la convocation, ou si vous en connaissez la date, pourriez-vous nous la communiquer ? Cela nous permettra de procéder à la régularisation et à la restitution du solde dans les délais.',
+        // 🔴 (Arno, 25/11/2026) le 2e paragraphe réécrit
+        'Si vous avez reçu la convocation, ou si vous connaissez la date de la prochaine assemblée générale ordinaire, pourriez-vous nous la communiquer ? Cela nous permettra de procéder à la régularisation et à la restitution du solde dans les délais.',
         'Merci par avance.',
       ].join('\n\n'),
     };
