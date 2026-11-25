@@ -1644,3 +1644,18 @@ describe('🔴🔴 Arno (25/11/2026, 22h06) — le montant des 20 % retenus', ()
     expect(document.querySelector('[data-fenetre-montant-vingt]')?.textContent).toBe('20 % retenus à la sortie : 400,00 € (calculé : 20 % de 2 000,00 €)');
   });
 });
+
+/** 🔴 Arno (25/11/2026, 22h06) — « l'ajouter dans le prolongement de la ligne Date de sortie / Exercice concerné / Dernière AGO, à droite […] et encapsuler toute la ligne ». */
+describe('🔴 Arno (25/11/2026, 22h06) — la ligne de détail encadrée', () => {
+  it('Date de sortie, Exercice concerné, Dernière AGO, puis Montant retenu (20 %) à droite, dans UN encadré teinté (thème) ; en pile au téléphone ; « Restitutions faites » inchangé', async () => {
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], copropriete: { id: 10, libelle: '1 rue A, 92800 Puteaux', aRattacher: false }, montantVingt: { montant: 400, origine: 'calcule', depot: 2000 } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const dl = container.querySelector('[data-vgp-sortie="5"] [data-vgp-detail] dl[data-vgp-encadre-sortie]')!;
+    expect(dl.className).toBe('vgp-dl vgp-dl-sortie');
+    expect([...dl.querySelectorAll('dt')].map((x) => x.textContent)).toEqual(['Date de sortie', 'Exercice concerné', 'Dernière AGO', 'Montant retenu (20 %)']);
+    const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
+    expect(src).toContain('.vgp-dl-sortie{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);');
+    expect(src).toContain('background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent)}');
+    expect(src).toContain('.vgp-dl-sortie{grid-template-columns:1fr;gap:8px}');
+  });
+});

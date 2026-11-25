@@ -463,7 +463,9 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
       </div>
       {/* le détail : RIEN de ce qui est déjà sur la ligne (ni la date limite, ni le compte à rebours, ni l'AG) */}
       <div id={detailId} className="vgp-ligne-detail" hidden={!ouvert} data-vgp-detail>
-        <dl className="vgp-dl">
+        {/* 🔴🔴 (Arno, 25/11/2026, 22h06) « encapsuler toute la ligne avec ces différents éléments pour bien la faire ressortir à l'intérieur de l'espace
+            locataire » : Date de sortie, Exercice concerné, Dernière AGO, Montant retenu (20 %) — dans un encadré teinté */}
+        <dl className="vgp-dl vgp-dl-sortie" data-vgp-encadre-sortie>
           {/* 🔴 (Arno, 24/11/2026, 23h53) jamais en doublon : la copropriété n'est dite que si elle n'est pas déjà l'adresse de la ligne */}
           {!(l.copropriete !== null && dejaDit(l.copropriete.libelle, adresse)) && (
             <div><dt>Copropriété</dt><dd data-vgp-copropriete>{l.copropriete === null ? 'Bien sans copropriété' : l.copropriete.libelle}{l.copropriete?.aRattacher ? ' (à rattacher à une copropriété)' : ''}</dd></div>)}
@@ -712,6 +714,10 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-completer{align-self:flex-start;min-height:44px;width:auto}
 .vgp-dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:6px 16px;margin:0}
 .vgp-dl > div{display:flex;flex-direction:column;gap:1px;min-width:0}
+/* 🔴 (Arno, 25/11/2026, 22h06) l'encadré de la ligne de détail : fond légèrement teinté (tiré de l'encre du thème : clair comme sombre), bord arrondi ;
+   les rubriques côte à côte à l'ordinateur, en pile au téléphone */
+.vgp-dl-sortie{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));padding:10px 14px;border-radius:12px;border:1px solid var(--color-svv-line);
+  background:color-mix(in srgb,var(--color-svv-ink) 4%,transparent)}
 .vgp-dl dt{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
 .vgp-dl dd{margin:0;color:var(--color-svv-ink)}
 .vgp-projetee{font-style:italic;text-decoration:underline dashed;text-underline-offset:3px}
@@ -802,7 +808,7 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
   .vgp-ligne-gauche > .vgp-ligne-limite{flex-wrap:wrap;white-space:normal;line-height:1.3;height:2.6em;overflow:hidden;row-gap:0}
   .vgp-ligne-gauche > .vgp-ligne-limite .vgp-une-ligne,.vgp-ligne-gauche > .vgp-ligne-limite.vgp-une-ligne{white-space:normal;overflow:visible;text-overflow:clip}
   .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
-  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
+  .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-actions{align-items:stretch} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0} .vgp-dl-sortie{grid-template-columns:1fr;gap:8px}
   .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
   .vgp-coords-ligne{flex-direction:column;align-items:stretch} .vgp-envoyer-mail{width:100%;justify-content:center}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }
