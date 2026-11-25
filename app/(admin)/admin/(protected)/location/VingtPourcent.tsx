@@ -34,6 +34,8 @@ const dateFr = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.sl
 export const API_GESTES_VINGT = '/api/admin/location';
 /** 🔴 (Arno, 24/11/2026, 23h53) « Le bouton « Restitution faite » devient « Faire restitution » partout ; la modale ne change pas. » */
 export const LIBELLE_FAIRE_RESTITUTION = 'Faire restitution';
+/** 🔴 (Arno, 25/11/2026, 22h51) « Restitution validée le » : la date de la restitution, dans « Restitutions faites » (avant : « Restituée le »). */
+export const LIBELLE_RESTITUTION_VALIDEE_LE = 'Restitution validée le';
 type Geste = (corps: Record<string, unknown>) => Promise<string | null>;
 const geste: Geste = async (corps) => {
   try {
@@ -523,12 +525,15 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
               <dl className="vgp-dl">
                 <div><dt>Logement</dt><dd>{f.logement ?? '—'}</dd></div>
                 <div><dt>Date de sortie</dt><dd>{dateFr(f.dateSortie)}</dd></div>
-                {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus, jusque dans « Restitutions faites » */}
-                {f.montantVingt != null && <div><dt>20 % retenus</dt><dd data-vgp-faite-montant-vingt>{montantFr(f.montantVingt.montant)}</dd></div>}
-                <div><dt>Restituée le</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
+                {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus, jusque dans « Restitutions faites » ; 🔴 (22h51, copie 5) « Restituée le » (en double)
+                    disparaît : à sa place « 20 % retenus à la sortie », le montant global initial */}
+                {f.montantVingt !== undefined && <div><dt>20 % retenus à la sortie</dt><dd data-vgp-faite-montant-vingt>{f.montantVingt === null ? 'non renseigné' : montantFr(f.montantVingt.montant)}</dd></div>}
+                {/* 🔴 (Arno, 25/11/2026, 22h51, copie 4) « renommer "Virement effectué le…" par "Restitution validée le…" » : la date de la restitution */}
+                <div><dt>{LIBELLE_RESTITUTION_VALIDEE_LE}</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
                 <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
-                {f.montantRetenuCharges !== null && <div><dt>Retenu au titre des charges</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
-                {f.motifDifference != null && <div><dt>Motif de la différence</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
+                {/* 🔴 (22h51) « Retenu au titre des charges » devient « Montant retenu », suivi de « Motif » */}
+                {f.montantRetenuCharges !== null && <div><dt>Montant retenu</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
+                {f.motifDifference != null && <div><dt>Motif</dt><dd data-vgp-faite-motif>{f.motifDifference}</dd></div>}
                 {f.commentaire !== null && <div><dt>Commentaire</dt><dd>{f.commentaire}</dd></div>}
                 <div><dt>Enregistrée par</dt><dd>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
               </dl>

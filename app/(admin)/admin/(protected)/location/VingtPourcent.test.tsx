@@ -1841,3 +1841,54 @@ describe('🔴🔴 Arno (25/11/2026, 22h51) — les mails de la restitution dans
       .toBe('25/11/2026 à 23:00 — a.jorel+locataire-lacroix@sansvisavis.com — Locataire — restitution du solde validée — dans la conversation dès la prochaine relève');
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026, 22h51, point 3) — doublons et libellés dans « Restitutions faites » : « Restituée le » (en double) disparaît, remplacée par
+ * « 20 % retenus à la sortie » (le montant global initial) ; la date sous « Restitution validée le » ; « Retenu au titre des charges » devient
+ * « Montant retenu », suivi de « Motif ».
+ */
+describe('🔴🔴 Arno (25/11/2026, 22h51) — « Restitutions faites » : doublons et libellés', () => {
+  const FAITE_L = { id: 4, sortieId: 40, locataires: ['LACROIX Manon'], logement: '11 rue de l’Abreuvoir, 92400 Courbevoie', dateSortie: '2026-03-31', date: '2026-11-21',
+    montantRestitue: 243.6, montantRetenuCharges: 36.4, motifDifference: 'régularisation de charges', commentaire: 'Remis en main propre', par: 'Arnaud JOREL', le: '2026-11-25 21:38',
+    montantVingt: { montant: 280, origine: 'calcule' as const, depot: 1400 } };
+  const rubriques = (): string[] => [...container.querySelectorAll('[data-vgp-faite="4"] dt')].map((x) => x.textContent ?? '');
+  const valeur = (dt: string): string | null => {
+    const d = [...container.querySelectorAll('[data-vgp-faite="4"] dt')].find((x) => x.textContent === dt);
+    return d?.nextElementSibling?.textContent ?? null;
+  };
+  const ouvrir = async (): Promise<void> => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const d = container.querySelector('[data-vgp-faites] > details') as HTMLDetailsElement;
+    await act(async () => { d.open = true; d.dispatchEvent(new Event('toggle')); });
+    const chevron = container.querySelector('[data-vgp-faite="4"] [data-vgp-deplier]') as HTMLButtonElement | null;
+    if (chevron !== null) await act(async () => { chevron.click(); });
+  };
+  it('« Restituée le » a disparu ; « 20 % retenus à la sortie » ; « Restitution validée le 21/11/2026 » ; « Montant retenu » puis « Motif » ; plus « Retenu au titre des charges »', async () => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [FAITE_L] };
+    await ouvrir();
+    const r = rubriques();
+    expect(r).not.toContain('Restituée le');
+    expect(r).not.toContain('Retenu au titre des charges');
+    expect(r).not.toContain('Motif de la différence');
+    expect(valeur('20 % retenus à la sortie')).toBe('280,00 €');
+    expect(valeur('Restitution validée le')).toBe('21/11/2026');
+    expect(valeur('Montant restitué')).toBe('243,60 €');
+    expect(valeur('Montant retenu')).toBe('36,40 €');
+    expect(valeur('Motif')).toBe('régularisation de charges');
+    expect(r.indexOf('Motif')).toBe(r.indexOf('Montant retenu') + 1);
+    // la date n'est dite qu'une fois
+    expect(r.filter((x) => /restitu(é|ée|tion validée) le/i.test(x))).toEqual(['Restitution validée le']);
+    // rien d'autre ne disparaît : commentaire, auteur, montant restitué, « Annuler »
+    expect(valeur('Commentaire')).toBe('Remis en main propre');
+    expect(r).toContain('Enregistrée par');
+    expect(container.querySelector('[data-vgp-annuler="4"]')).not.toBeNull();
+  });
+  it('sans montant connu des 20 % : la rubrique reste, « non renseigné » ; sans retenue ni motif : ni « Montant retenu » ni « Motif »', async () => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ ...FAITE_L, montantVingt: null, montantRetenuCharges: null, motifDifference: null, commentaire: null }] };
+    await ouvrir();
+    expect(valeur('20 % retenus à la sortie')).toBe('non renseigné');
+    expect(rubriques()).not.toContain('Montant retenu');
+    expect(rubriques()).not.toContain('Motif');
+    expect(rubriques()).not.toContain('Commentaire');
+  });
+});
