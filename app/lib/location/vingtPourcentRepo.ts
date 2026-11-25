@@ -84,6 +84,9 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   // 🔴 (Arno, 24/11/2026, 23h53) les coordonnées des locataires et des propriétaires, au strict minimum (écran interne, rien n'est envoyé)
   const contacts = await contactsDesSorties(rows.map((r) => ({ sortieId: Number(r.id), lotId: Number(r.lot_id) }))).catch(() => new Map<number, ContactsSortie>());
   for (const l of lignes) { const c = contacts.get(l.sortieId); if (c !== undefined) l.contacts = c; }
+  // 🔴 (Arno, 25/11/2026, 22h06) le syndic en cours de la copropriété (mail au partenaire de la restitution)
+  const syndics = await syndicsDesCoproprietes([...new Set(lignes.flatMap((l) => (l.copropriete?.id != null ? [l.copropriete.id] : [])))]).catch(() => null);
+  if (syndics !== null) for (const l of lignes) l.syndic = l.copropriete?.id != null ? syndics.get(l.copropriete.id) ?? null : null;
   // 🔴 (Arno, 25/11/2026) « x mail(s) envoyé(s) depuis cette page » — 🔴🔴 et les échanges suivent la SORTIE jusque dans « Restitutions faites »
   const faites = avec513 ? await lireRestitutionsFaites() : [];
   const mails = await mailsEnvoyesDesSorties([...lignes.map((l) => l.sortieId), ...faites.map((f) => f.sortieId)]).catch(() => new Map<number, NonNullable<LigneVingtPourcent['mails']>>());
@@ -114,18 +117,43 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
  * téléphone ». Par sortie : ses locataires (les occupations de la sortie) et les propriétaires du bien (le titulaire et l'indivision en cours) ; pour
  * chacun le PREMIER e-mail et le PREMIER téléphone encore valables (dans l'ordre de la fiche). LECTURE SEULE ; l'écran est interne.
  */
+/**
+ * 🔴 (Arno, 25/11/2026, 22h06) le NOM de famille d'une fiche : `nom` quand le prénom est à part ; sinon (fiche « NOM Prénom » d'un seul tenant, le cas
+ * courant) les mots ÉCRITS EN MAJUSCULES ; `null` si rien de sûr. PUR.
+ */
+export function nomDeFamille(prenom: string | null, nom: string | null): string | null {
+  const n = (nom ?? '').trim();
+  if (n === '') return null;
+  if (prenom !== null) return n;
+  const majuscules = n.split(/\s+/).filter((m) => /\p{L}/u.test(m) && m === m.toLocaleUpperCase('fr-FR') && m !== m.toLocaleLowerCase('fr-FR'));
+  return majuscules.length > 0 ? majuscules.join(' ') : null;
+}
+
+/** 🔴 (Arno, 25/11/2026, 22h06) le syndic EN COURS de chaque copropriété (nom du cabinet). LECTURE SEULE. */
+async function syndicsDesCoproprietes(ids: readonly number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (ids.length === 0) return out;
+  const { rows } = await query<{ copro: string; nom: string }>(
+    `SELECT DISTINCT ON (cs.copropriete_id) cs.copropriete_id::text AS copro, sy.nom FROM gestion_copropriete_syndic cs JOIN gestion_syndic sy ON sy.id = cs.syndic_id
+      WHERE cs.copropriete_id = ANY($1::bigint[]) AND cs.fin IS NULL AND sy.supprime_le IS NULL ORDER BY cs.copropriete_id, cs.debut DESC NULLS LAST, cs.id DESC`, [[...ids]]);
+  for (const r of rows) out.set(Number(r.copro), r.nom);
+  return out;
+}
+
 async function contactsDesSorties(sorties: readonly { sortieId: number; lotId: number }[]): Promise<Map<number, ContactsSortie>> {
   const out = new Map<number, ContactsSortie>();
   if (sorties.length === 0) return out;
   const ids = sorties.map((x) => x.sortieId);
   const lots = [...new Set(sorties.map((x) => x.lotId))];
-  const { rows: locs } = await query<{ sortie: string; id: string; nom: string | null; prenom: string | null }>(
-    `SELECT s.id::text AS sortie, l.id::text, l.nom, nullif(btrim(l.prenom), '') AS prenom
+  const { rows: locs } = await query<{ sortie: string; id: string; nom: string | null; prenom: string | null; civilite: string | null; adresse: string | null }>(
+    `SELECT s.id::text AS sortie, l.id::text, l.nom, nullif(btrim(l.prenom), '') AS prenom, nullif(btrim(l.civilite), '') AS civilite,
+            nullif(concat_ws(', ', nullif(btrim(l.adresse), ''), nullif(concat_ws(' ', nullif(btrim(l.code_postal), ''), nullif(btrim(l.commune), '')), '')), '') AS adresse
        FROM gestion_location_sortie_validee s JOIN gestion_annuaire_occupation o ON o.id = ANY(s.occupation_ids) JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
       WHERE s.id = ANY($1::bigint[]) ORDER BY l.nom_normalise, l.id`, [ids]);
   const avecIndivision = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'proprietaire_id');
-  const { rows: pros } = await query<{ lot: string; id: string; nom: string | null; prenom: string | null; complet: string | null; civilite: string | null }>(
-    `SELECT x.lot::text, p.id::text, p.nom, nullif(btrim(p.prenom), '') AS prenom, p.nom_complet AS complet, nullif(btrim(p.civilite), '') AS civilite
+  const { rows: pros } = await query<{ lot: string; id: string; nom: string | null; prenom: string | null; complet: string | null; civilite: string | null; adresse: string | null }>(
+    `SELECT x.lot::text, p.id::text, p.nom, nullif(btrim(p.prenom), '') AS prenom, p.nom_complet AS complet, nullif(btrim(p.civilite), '') AS civilite,
+            nullif(concat_ws(', ', nullif(btrim(p.adresse), ''), nullif(concat_ws(' ', nullif(btrim(p.code_postal), ''), nullif(btrim(p.commune), '')), '')), '') AS adresse
        FROM (SELECT id AS lot, proprietaire_id AS pid, 0 AS rang FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) AND proprietaire_id IS NOT NULL
              ${avecIndivision ? 'UNION SELECT lot_id, proprietaire_id, 1 FROM gestion_annuaire_lot_proprietaire WHERE lot_id = ANY($1::bigint[]) AND jusqu_a IS NULL' : ''}) x
        JOIN gestion_annuaire_proprietaire p ON p.id = x.pid
@@ -137,22 +165,22 @@ async function contactsDesSorties(sorties: readonly { sortieId: number; lotId: n
         AND c.sorte IN ('telephone', 'email') AND c.absent_le IS NULL${vivante} ORDER BY c.rang, c.id`,
     [[...new Set(locs.map((x) => Number(x.id)))], [...new Set(pros.map((x) => Number(x.id)))]]);
   const premier = (sujet: string, id: string, sorte: string) => co.find((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === sorte && ((c.brute ?? c.valeur ?? '').trim() !== ''));
-  const personne = (sujet: 'locataire' | 'proprietaire', id: string, nom: string, civilite: string | null = null): PersonneContact => {
+  const personne = (sujet: 'locataire' | 'proprietaire', id: string, nom: string, civilite: string | null = null, famille: string | null = null, adresse: string | null = null): PersonneContact => {
     const e = premier(sujet, id, 'email'); const t = premier(sujet, id, 'telephone');
     const affiche = t === undefined ? '' : formaterTelephone(t.valeur, t.brute);
     // 🔴 (Arno, 25/11/2026) « Envoyer un mail » : TOUTES les adresses encore valables (le contrôle « un mail par locataire » les reconnaît toutes)
     const emails = [...new Set(co.filter((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === 'email').map((c) => (c.brute ?? c.valeur ?? '').trim()).filter((x) => x !== ''))];
     // 🔴 (Arno, 25/11/2026) « civilité Prénom NOM » pour le mail au syndic : seulement une civilité de PERSONNE (M., Mme, Mlle, M. et Mme)
     const civ = civilite !== null && /^(M\.|Mme|Mlle|M\. et Mme|Mme et M\.)$/.test(civilite) ? civilite : null;
-    return { nom, ...(sujet === 'proprietaire' ? { nomCivil: civ !== null && nom !== '—' ? `${civ} ${nom}` : nom } : {}), emails, email: e === undefined ? null : (e.brute ?? e.valeur ?? '').trim(),
+    return { nom, ...(sujet === 'proprietaire' ? { nomCivil: civ !== null && nom !== '—' ? `${civ} ${nom}` : nom } : {}), civilite: civ, nomFamille: famille, adresse, emails, email: e === undefined ? null : (e.brute ?? e.valeur ?? '').trim(),
       telephone: t === undefined || affiche === '' ? null : { affiche, lien: `tel:${(t.valeur ?? t.brute ?? '').replace(/[^\d+]/g, '')}` } };
   };
   const nomDe = (prenom: string | null, nom: string | null, complet?: string | null): string =>
     (prenom !== null && (nom ?? '').trim() !== '' ? `${prenom} ${(nom ?? '').trim()}` : (complet ?? nom ?? '').trim()) || '—';
   for (const s of sorties) {
     out.set(s.sortieId, {
-      locataires: locs.filter((l) => Number(l.sortie) === s.sortieId).map((l) => personne('locataire', l.id, nomDe(l.prenom, l.nom))),
-      proprietaires: pros.filter((p) => Number(p.lot) === s.lotId).map((p) => personne('proprietaire', p.id, nomDe(p.prenom, p.nom, p.complet), p.civilite)),
+      locataires: locs.filter((l) => Number(l.sortie) === s.sortieId).map((l) => personne('locataire', l.id, nomDe(l.prenom, l.nom), l.civilite, nomDeFamille(l.prenom, l.nom), l.adresse)),
+      proprietaires: pros.filter((p) => Number(p.lot) === s.lotId).map((p) => personne('proprietaire', p.id, nomDe(p.prenom, p.nom, p.complet), p.civilite, nomDeFamille(p.prenom, p.nom), p.adresse)),
     });
   }
   return out;

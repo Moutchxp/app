@@ -146,6 +146,8 @@ export interface LigneVingtPourcent {
   echanges?: EchangesVingt;
   /** 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus (calculé ou saisi) ; `null` : « Montant des 20 % à saisir » ; absent : non lu */
   montantVingt?: MontantVingt | null;
+  /** 🔴 (Arno, 25/11/2026, 22h06, mail au partenaire) le syndic EN COURS de la copropriété (nom du cabinet) ; `null` : aucun ; absent : non lu */
+  syndic?: string | null;
 }
 /** Les échanges d'une ligne : ses fils (conversations de la boîte Gestion), le nombre de mails (envoyés + reçus), le dernier (AAAA-MM-JJTHH:MM, Paris). */
 export interface EchangesVingt { fils: number[]; nombre: number; dernierLe: string | null }
@@ -158,7 +160,10 @@ export interface PersonneContact { nom: string; email: string | null; telephone:
   /** 🔴 (Arno, 25/11/2026) toutes ses adresses encore valables (« Envoyer un mail ») ; absent : la seule `email` */
   emails?: string[];
   /** 🔴 (Arno, 25/11/2026) un propriétaire : « M. Prénom NOM » (civilité de personne seulement), pour le mail au syndic ; absent : `nom` */
-  nomCivil?: string }
+  nomCivil?: string;
+  /** 🔴 (Arno, 25/11/2026, 22h06, mails de restitution) la civilité de personne (« M. », « Mme »…), le NOM de famille, l'adresse postale de la fiche ;
+   *  `null` : non renseignés */
+  civilite?: string | null; nomFamille?: string | null; adresse?: string | null }
 export interface ContactsSortie { locataires: PersonneContact[]; proprietaires: PersonneContact[] }
 export interface SuiviVingtLu {
   aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[];

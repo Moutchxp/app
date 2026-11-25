@@ -103,13 +103,14 @@ describe('🔴🔴 les coordonnées des locataires et des propriétaires', () =>
     });
     const lu = await lireSuiviVingtPourcent();
     const a = lu.lignes.find((l) => l.sortieId === 5)!;
+    // 🔴 (25/11/2026, 22h06) + civilité, NOM de famille, adresse (mails de restitution)
     expect(a.contacts).toEqual({
       // 🔴 (Arno, 25/11/2026) + `emails` : toutes les adresses valables (« Envoyer un mail »), la première restant `email`
-      locataires: [{ nom: 'Alice DUPONT', emails: ['alice@exemple.test', 'autre@exemple.test'], email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
+      locataires: [{ nom: 'Alice DUPONT', civilite: null, nomFamille: 'DUPONT', adresse: null, emails: ['alice@exemple.test', 'autre@exemple.test'], email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
       // 🔴 (Arno, 25/11/2026) + `nomCivil` : la civilité de PERSONNE devant le nom (« M. Jean DURAND ») ; une société garde son nom seul
-      proprietaires: [{ nom: 'Jean DURAND', nomCivil: 'M. Jean DURAND', emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', nomCivil: 'SCI Les Tilleuls', emails: [], email: null, telephone: null }],
+      proprietaires: [{ nom: 'Jean DURAND', nomCivil: 'M. Jean DURAND', civilite: 'M.', nomFamille: 'DURAND', adresse: null, emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', nomCivil: 'SCI Les Tilleuls', civilite: null, nomFamille: 'SCI', adresse: null, emails: [], email: null, telephone: null }],
     });
-    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', emails: [], email: null, telephone: null }], proprietaires: [] });
+    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', civilite: null, nomFamille: 'MARTIN', adresse: null, emails: [], email: null, telephone: null }], proprietaires: [] });
     expect(appels.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false);
   });
 });
@@ -145,5 +146,17 @@ describe('les échanges suivent la sortie', () => {
     expect(lu).toContain('l.sortie_validee_id = ANY($1::bigint[])');
     expect(query.mock.calls.filter((c) => String(c[0]).includes('FROM gestion_location_mail_vingt')).at(-1)![1]).toEqual([[5, 6, 30]]);
     expect(appels.some((x) => /^(UPDATE|INSERT|DELETE)/.test(x))).toBe(false);
+  });
+});
+
+/** 🔴 (Arno, 25/11/2026, 22h06) le NOM de famille d'une fiche, pour « Bonjour Madame BENOÎT » (mail de restitution). */
+describe('nomDeFamille', () => {
+  it('prénom à part : le nom ; fiche « NOM Prénom » : les mots en MAJUSCULES ; rien de sûr : null', async () => {
+    const { nomDeFamille } = await import('./vingtPourcentRepo');
+    expect(nomDeFamille('Sarah', 'BENOÎT')).toBe('BENOÎT');
+    expect(nomDeFamille(null, 'BENOÎT Sarah')).toBe('BENOÎT');
+    expect(nomDeFamille(null, 'DE LA TOUR Anne-Marie')).toBe('DE LA TOUR');
+    expect(nomDeFamille(null, 'Sarah Benoît')).toBeNull();
+    expect(nomDeFamille(null, '  ')).toBeNull();
   });
 });
