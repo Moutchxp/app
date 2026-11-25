@@ -311,8 +311,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 ## 6. État courant & prochaine action
 
 **Dépôt (mesuré le 25/11/2026, après `b50ea980`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `ba382337`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **86 commits d'avance, NON POUSSÉS** :
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `d5de05b4`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **89 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -333,8 +333,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   de détail encadrée `898e8043`, l'onglet « Restitution des 20 % » `7fdc82f4` (MIGRATION 517), les modèles de mail de restitution `0fcd88d3`, la fenêtre
   « Faire restitution » retravaillée `b50ea980` (MIGRATION 518), la passation `4dde948b`, puis la demande de 22h51 : champ du montant pleine largeur `22ffbff6`, mails de
   restitution dans les échanges `c4fb2def`, « Restitutions faites » sans doublon `335c8e47`, « Restitutions faites » en blocs de trois lignes `adcdc858`, la passation `4086744f`, puis les demandes de 23h12-23h15 : PANNE du montant des 20 % `a3c73098`,
-  arrêté des comptes en toutes lettres `3ba3ad33`, date de sortie à valider `2a702d3b`, la passation `1073673f`, puis « Note interne » et « Date de validation de la restitution » `ba382337` (23h42), et cette
-  passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  arrêté des comptes en toutes lettres `3ba3ad33`, date de sortie à valider `2a702d3b`, la passation `1073673f`, puis « Note interne » et « Date de validation de la restitution » `ba382337` (23h42), la passation
+  `37999738`, puis 23h52 : panne de la recherche `aee3c35b`, garde « virement » + notes d'essai retirées `d5de05b4`, et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -351,7 +351,8 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   production avec ce push (la production reste sur `351f04de` tant qu'Arno ne lance pas la mise à jour).
 - **Working tree** propre hormis les non suivis, laissés tels quels : `RAPPORT_NUIT_GESTION.md`, `rapatriement-gestion.log`,
   `public/images/sceau-certifie copie.svg`, `scripts/diagTel.ts`, `test-results/`. Ne pas les committer ni les supprimer sans Arno.
-- **Contrôles** (lot de 23h42, `ba382337`) : `npm test` VERT (1 875 fichiers, 28 148 tests, 21 ignorés ; `.captures/restitution-note/npm-test-complet-25-11.txt`) ;
+- **Contrôles** (lot de 23h52, `d5de05b4`) : `npm test` VERT (1 876 fichiers, 28 157 tests, 21 ignorés ; `.captures/recherche-vingt/npm-test-complet-26-11.txt`) ;
+  `tsc` = 0 ; Chrome (rechargement complet, ordinateur et 390 px, clair et sombre). ⚠️ **Preuve curl À FAIRE par Arno sur `d5de05b4`**. Lot de 23h42 (`ba382337`) : `npm test` VERT (1 875 fichiers, 28 148 tests, 21 ignorés ; `.captures/restitution-note/npm-test-complet-25-11.txt`) ;
   `tsc` = 0 ; Chrome (fenêtre « Faire restitution » de DUMONT Claire, puis « Annuler » ; ordinateur et 390 px, clair et sombre ; écritures bloquées). ⚠️ **Preuve curl
   À FAIRE par Arno sur `ba382337`**. Lot de 23h12-23h15 (`2a702d3b`) : `npm test` VERT du premier coup (1 875 fichiers, 28 145 tests, 21 ignorés, 95 s ;
   `.captures/sortie-montant/npm-test-complet-25-11.txt`) ; `tsc --noEmit` = 0 ; Chrome recette (préavis de test « Locataire fictif TESTTEST »), ordinateur et 390 px,
@@ -1119,7 +1120,21 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
       aux tiers » + aide « Visible uniquement dans le détail de la restitution (catégorie « Restitutions faites ») et dans l'historique du bien. » ; « Date de restitution * »
       → « Date de validation de la restitution * » (et ses refus) ; « Restitutions faites » : « COMMENTAIRE » → « NOTE INTERNE ». CONSTAT : la note est enregistrée avec la
       restitution, lue dans « Restitutions faites » et au journal (locataires + bien, historique de la fiche du bien) ; AUCUN mail ne la reçoit. ÉCART CORRIGÉ : « Date de
-      validation : … » du mail au partenaire prenait la date du JOUR, elle prend la date SAISIE. Captures `.captures/restitution-note/`.
+      validation : … » du mail au partenaire prenait la date du JOUR, elle prend la date SAISIE (✅ accepté par Arno). Captures `.captures/restitution-note/`.
+    · Demandes d'Arno du 25/11, 23h52 (un commit par point) :
+      `aee3c35b` (1) PANNE DE LA RECHERCHE — reproduite (adresse …&vingtMail=35, FAURE Julien) : à « l », la ligne 35 réapparaissait, rouvrait son module d'écriture et
+      prenait le curseur. CAUSE : le n° vingtMail (posé par « Envoyer un mail » depuis la Location) restait en mémoire et dans l'adresse ; chaque réapparition de la
+      ligne le relisait. CORRECTIF : le n° sert UNE fois (`consommerMailInitial`), puis il est oublié et retiré de l'adresse (replaceState) ; ligne introuvable : oublié
+      aussi. Frappe, effacement, croix, rechargement n'ouvrent plus rien ; champ vide = catégories fermées. Un brouillon commencé dans le module est enregistré par
+      Redaction (Brouillons de la Gestion) mais n'est pas rouvert sur la ligne.
+      `d5de05b4` (2) GARDE `restitutionVirementTexte.test.ts` (aucun texte du code n'affirme un virement effectué ; seule « la demande de virement a été transmise à notre
+      service comptabilité ») + RECETTE : restitutions d'essai 4 (LACROIX, « Virement effectué le 21/11/2026 ») et 3 (_TEST JEU, « Virement _TEST (jeu d'essai) »)
+      ANNULÉES (5, 7) puis REFAITES par la fenêtre (6, 8) : date 21/11/2026, mêmes montants, motif « Retenue au titre de la régularisation des charges » (exigé par la
+      fenêtre), SANS note, toutes cases décochées ; montants 20 % enregistrés (280 / 320, « saisi ») ; AUCUN envoi (83 / file 33 / mails module 38 inchangés). Les
+      lignes de journal du 25/11 « Virement … » restent (journal en ajout seul). Scripts de jeu d'essai (.captures) corrigés.
+      SIGNALÉS, non modifiés : modèle « Locataire — restitution du solde effectuée » (« nous vous confirmons la restitution du solde le … ») ; mails d'essai déjà
+      envoyés avec ce modèle et réponse d'essai « j'ai bien reçu le virement » (historique inaltérable) ; « Enregistrée par » de « Restitutions faites » affiche
+      l'adresse e-mail du compte (pas « Prénom NOM »). Captures `.captures/recherche-vingt/`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
@@ -1202,7 +1217,7 @@ vérification, COMMIT seulement si tout est conforme), lancé par Arno ; jamais 
 - Anciens points non revérifiés : attribution OSM/Esri à l'écran, gros chantier « permis → mise à jour continue des maps ».
 
 ### ⏭️ PROCHAINE ACTION IMMÉDIATE
-Aucun lot en cours. Arno : preuve curl sur `ba382337`, retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes, bandeaux des mails de
+Aucun lot en cours. Arno : preuve curl sur `d5de05b4`, retour en recette sur 22h51 (« Restitutions faites » en blocs de trois lignes, bandeaux des mails de
 restitution, champ du montant pleine largeur) et sur 23h12-23h15 (montant des 20 % enfin transmis, arrêté « 1er MARS », date de sortie à valider) : refaire une
 vraie validation de sortie avec 20 % en recette, la panne étant corrigée. Retour d'Arno en recette sur « 20 % à restituer » (`1819b9f5` → `cf05a27a`) et décision sur le geste « Restitution
 faite ». Arno : lancer `bash .captures/maj/5-verifier.sh` (vérification d'après mise en production, jamais
