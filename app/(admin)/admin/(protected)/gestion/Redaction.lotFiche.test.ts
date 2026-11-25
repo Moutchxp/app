@@ -178,3 +178,30 @@ describe('le câblage : la fiche du bien transmet son identifiant à ses compose
     expect(lire('HistoriqueDuBien.tsx')).toContain('<Redaction brouillon={reponse.brouillon} contexte={redaction} lotFiche={lotId}');
   });
 });
+
+/** 🔴 Décision d'Arno (25/11/2026) — depuis une ligne « 20 % à restituer », le module ne propose comme locataire que le(s) locataire(s) sorti(s). */
+describe('🔴 filtreSuggestions (ligne « 20 % à restituer »)', () => {
+  const NOUVEAU = COMPOSEURS[3][1];
+  it('le locataire ACTUEL du lot (le nouveau) n’est plus proposé ; le locataire sorti l’est ; propriétaire et syndic restent', async () => {
+    const { suggestionsDeLaSortie } = await import('../../../../lib/location/mailVingtPourcent');
+    courant = NOUVEAU;
+    const rendre = () => root.render(createElement(Redaction, {
+      brouillon: courant, contexte: CONTEXTE, lotFiche: 176,
+      filtreSuggestions: (g: never) => suggestionsDeLaSortie(g, [{ nom: 'MARTIN Paul', emails: ['ancien@x.fr'] }]),
+      onChange: (n: BrouillonEcran) => { courant = n; rendre(); }, onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {},
+    } as never));
+    await act(async () => { rendre(); });
+    await calmer(); await act(async () => { vi.advanceTimersByTime(300); }); await calmer();
+    await cliquer(saisie('À'));
+    const vus = options('À').join(' ');
+    expect(vus).not.toContain('loc@x.fr');
+    expect(vus).toContain('ancien@x.fr');
+    expect(vus).toContain('proprio@x.fr');
+    expect(vus).toContain('syndic@x.fr');
+  });
+  it('sans filtre (partout ailleurs) : le locataire actuel est proposé, comme avant', async () => {
+    await monter(COMPOSEURS[3][1], 176);
+    await cliquer(saisie('À'));
+    expect(options('À').join(' ')).toContain('loc@x.fr');
+  });
+});

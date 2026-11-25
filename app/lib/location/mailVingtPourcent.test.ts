@@ -219,3 +219,24 @@ describe('🔴🔴 le bien d’un mail parti d’une ligne : celui de la SORTIE 
     expect(f).toContain('s.occupation_ids');
   });
 });
+
+import { suggestionsDeLaSortie } from './mailVingtPourcent';
+/** 🔴 Décision d'Arno (25/11/2026) — « ne propose comme locataire que le(s) locataire(s) sorti(s) de cette ligne, jamais le nouveau locataire du logement ». */
+describe('🔴 suggestionsDeLaSortie', () => {
+  const S = (adresse: string, ton: string, role = ton) => ({ adresse, nom: null, role, ton, propre: true, civilite: null, nomFamille: null }) as never;
+  const G = [
+    { cle: 'clients' as const, titre: 'Clients de l’agence', lignes: [S('proprio@x.fr', 'proprietaire'), S('nouveau@x.fr', 'locataire'), S('Alice@X.fr', 'ancien_locataire'), S('autre.ancien@x.fr', 'ancien_locataire')] },
+    { cle: 'immeuble' as const, titre: 'Immeuble', lignes: [S('syndic@x.fr', 'syndic')] },
+    { cle: 'autres' as const, titre: 'Autres', lignes: [S('nouveau@x.fr', 'neutre', 'vu dans 2 mails'), S('artisan@x.fr', 'neutre')] },
+  ];
+  it('écarte le locataire actuel et les autres anciens PARTOUT (« vu dans N mails » compris) ; garde le sorti (casse ignorée), propriétaire, syndic', () => {
+    const r = suggestionsDeLaSortie(G, [{ nom: 'Alice', emails: ['alice@x.fr'] }]);
+    expect(r.map((g) => g.lignes.map((x: { adresse: string }) => x.adresse))).toEqual([['proprio@x.fr', 'Alice@X.fr'], ['syndic@x.fr'], ['artisan@x.fr']]);
+  });
+  it('un locataire sorti absent de la liste (relocation : il n’y est plus) est AJOUTÉ aux clients, « Locataire sorti »', () => {
+    const r = suggestionsDeLaSortie(G, [{ nom: 'Léo', emails: ['leo@x.fr'] }]);
+    expect(r[0].lignes.at(-1)).toMatchObject({ adresse: 'leo@x.fr', nom: 'Léo', role: 'Locataire sorti', ton: 'ancien_locataire' });
+    expect(r[0].lignes.map((x: { adresse: string }) => x.adresse)).not.toContain('nouveau@x.fr');
+    expect(suggestionsDeLaSortie([], [{ nom: 'Léo', emails: ['leo@x.fr'] }])[0].cle).toBe('clients');
+  });
+});

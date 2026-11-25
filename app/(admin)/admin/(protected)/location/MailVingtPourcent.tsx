@@ -5,7 +5,7 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from '../
 import { preparerBrouillon } from '../../../../lib/gestion/redaction';
 import { brouillonNouveauDepuisLeBien } from '../../../../lib/gestion/nouveauMessageBien';
 import { brouillonMailSyndic, formulePour } from '../../../../lib/gestion/mailSyndic';
-import { destinatairesModeleVingt, MODELES_VINGT, refusUnLocataireParMail, texteModeleVingt, type CleModeleVingt } from '../../../../lib/location/mailVingtPourcent';
+import { destinatairesModeleVingt, MODELES_VINGT, refusUnLocataireParMail, suggestionsDeLaSortie, texteModeleVingt, type CleModeleVingt } from '../../../../lib/location/mailVingtPourcent';
 import type { LigneVingtPourcent } from '../../../../lib/location/vingtPourcent';
 import { ListeChoix } from './ListeChoix';
 
@@ -148,6 +148,7 @@ export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVing
             {/* 🔴 le contrôle à l'écran : le même motif que le refus du serveur */}
             {refus !== null && <p className="cp-refus" role="alert" data-vgp-mail-refus>{refus}</p>}
             <Redaction brouillon={b} contexte={mail.contexte} lotFiche={l.lotId} fermetureDemandee={demande} classementVerrouille={{ libelle: libelleBienVerrouille(l) }}
+              filtreSuggestions={(g) => suggestionsDeLaSortie(g, l.contacts?.locataires.map((x) => ({ nom: x.nom, emails: x.emails ?? (x.email !== null ? [x.email] : []) })) ?? [])}
               onChange={(nb) => setBrouillons((bs) => (bs ?? []).map((x, j) => (j === i ? { ...nb, cibles: ciblesAvecLeBien(nb.cibles, l) as BrouillonEcran['cibles'], interne: false, vingtPourcent: x.vingtPourcent ?? { sortieId: l.sortieId } } : x)))}
               onFerme={() => retirer(i)}
               onEnvoye={() => retirer(i)}

@@ -11,6 +11,7 @@
  */
 
 import { libelleEtage } from './locationBien';
+import type { GroupeSuggestions, SuggestionAdresse } from '../gestion/suggestionsBien';
 
 export const MOTIF_DEUX_LOCATAIRES = 'Un mail par locataire : ce message s’adresse à plusieurs locataires. Écrivez à chacun séparément.';
 export const MOTIF_LOCATAIRE_PAS_SEUL = 'Un mail adressé à un locataire part à lui seul : retirez les autres destinataires (aucun client ne voit l’adresse d’un autre).';
@@ -162,4 +163,27 @@ export function destinatairesModeleVingt(cle: CleModeleVingt, s: { syndics: read
   if (cle === 'syndic_copie') return [{ a: [...s.syndics], cc: [...s.proprietaires], locataire: null }];
   const locs = s.locataires.length === 0 ? [[]] : s.locataires;
   return locs.map((ad, i) => ({ a: ad.length > 0 ? [ad[0]] : [], cc: [], locataire: s.locataires.length === 0 ? null : i }));
+}
+
+/**
+ * ══ 🔴🔴 Décision d'Arno (25/11/2026) — « dans le module, ne propose comme locataire que le(s) locataire(s) sorti(s) de cette ligne, jamais le nouveau
+ * locataire du logement ». Les suggestions du bien (`/biens/[id]/ecrire`) proposent les occupants ACTUELS du lot (`locataire`) et tous ses anciens
+ * (`ancien_locataire`) : après une relocation, le nouveau locataire y serait. Ici : toute adresse d'un locataire (actuel ou ancien) qui n'est pas une
+ * adresse d'un locataire SORTI de la ligne disparaît de TOUS les groupes (« vu dans N mails » compris) ; les locataires sortis manquants sont ajoutés
+ * (« Locataire sorti »). Propriétaires, syndic, immeuble : inchangés. PUR.
+ */
+export function suggestionsDeLaSortie(groupes: readonly GroupeSuggestions[], sortis: ReadonlyArray<{ nom: string; emails: readonly string[] }>): GroupeSuggestions[] {
+  const cle = (a: string): string => a.trim().toLowerCase();
+  const permises = new Set(sortis.flatMap((x) => x.emails.map(cle)));
+  const ecartees = new Set(groupes.flatMap((g) => g.lignes)
+    .filter((x) => (x.ton === 'locataire' || x.ton === 'ancien_locataire') && !permises.has(cle(x.adresse))).map((x) => cle(x.adresse)));
+  const out = groupes.map((g) => ({ ...g, lignes: g.lignes.filter((x) => !ecartees.has(cle(x.adresse))) }));
+  const presentes = new Set(out.flatMap((g) => g.lignes.map((x) => cle(x.adresse))));
+  const ajout: SuggestionAdresse[] = sortis.flatMap((x) => x.emails.filter((a) => !presentes.has(cle(a))).map((adresse) => ({
+    adresse, nom: x.nom, role: 'Locataire sorti', ton: 'ancien_locataire' as const, propre: true, civilite: null, nomFamille: null })));
+  if (ajout.length === 0) return out;
+  const i = out.findIndex((g) => g.cle === 'clients');
+  if (i < 0) return [{ cle: 'clients', titre: 'Clients de l’agence', lignes: ajout }, ...out];
+  out[i] = { ...out[i], lignes: [...out[i].lignes, ...ajout] };
+  return out;
 }

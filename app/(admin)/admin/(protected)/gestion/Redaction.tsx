@@ -598,7 +598,13 @@ export function FenetreConfirmation({ question, annuler, confirmer, echec = null
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
   reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null, onPleinEcran, voieDemandee = null, classementVerrouille = null,
+  filtreSuggestions = null,
 }: {
+  /**
+   * 🔴 (décision d'Arno, 25/11/2026) — un filtre des suggestions du bien, appliqué à la liste proposée dans À / Cc / Cci. La ligne « 20 % à restituer »
+   * le passe pour ne proposer, côté locataires, que le(s) locataire(s) sorti(s). ABSENT (partout ailleurs) ⇒ la liste d'avant, telle quelle.
+   */
+  filtreSuggestions?: ((groupes: readonly GroupeSuggestions[]) => GroupeSuggestions[]) | null;
   /**
    * 🔴🔴 Arno (25/11/2026) — écrit depuis une ligne de « 20 % à restituer » : « ce processus étant attaché à un locataire donc à un bien unique, il ne peut
    * pas y avoir d'autre choix que celui qui concerne le bien auquel était rattaché le locataire avant sa sortie ». Présent ⇒ « Classer ce mail » est
@@ -896,8 +902,8 @@ export function Redaction({
       if (l === undefined || parBien.some((x) => x.cle !== '' && x.cle === l.cle)) continue;
       parBien.push(l);
     }
-    if (base !== null && parBien.length === 1) return base;
-    return fusionnerSuggestions(parBien);
+    const liste = base !== null && parBien.length === 1 ? base : fusionnerSuggestions(parBien);
+    return filtreSuggestions !== null && liste !== null ? filtreSuggestions(liste) : liste;
   })();
   const adressesDesChamps = [...brouillon.a, ...brouillon.cc, ...brouillon.cci].map(cleAdresse).filter((x) => x.includes('@'));
   const cleAdressesDesChamps = adressesDesChamps.join(',');
