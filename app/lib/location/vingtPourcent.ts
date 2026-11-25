@@ -209,7 +209,7 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
  *      comptes manquant », et il entre dans l'alerte du lundi s'il est en Urgence ; sa copropriété reste dans « Dates / copropriétés manquantes » et la pastille ;
  *   b. « Urgence » — aujourd'hui > AG + 20 jours (date limite dépassée comprise) ;
  *   c. « AGO passée — restitution à faire » — AG ≤ aujourd'hui ≤ AG + 20 jours ;
- *   d. « AGO < 1 mois – À préparer » — l'AG a lieu dans les 30 prochains jours, OU sa date est officielle (même lointaine) — choix d'Arno « 1 et 3 » ;
+ *   d. « AGO < 1 mois – À préparer » — l'AG a lieu dans les 30 prochains jours (🔴 25/11/2026 : plus le critère « officielle, même lointaine ») ;
  *   e. « AGO > 1 mois – En attente » — tous les autres.
  * a : par copropriété (date de sortie la plus ancienne d'abord) ; b à e : par date limite croissante. Jours comptés à la date de Paris. PUR.
  */
@@ -218,7 +218,7 @@ export const ORDRE_CATEGORIES: readonly CategorieVingt[] = ['manquantes', 'retar
 /** Les catégories datées (une ligne par sortie), dans l'ordre de l'écran. */
 export const CATEGORIES_DATEES = ['retard', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const;
 // 🔴 (Arno, 25/11/2026) « renommer « En attente » en « AGO > 1 mois – En attente » et « À préparer » en « AGO < 1 mois – À préparer » » — titres
-//    seulement : le classement ne change pas (une AGO officielle lointaine reste dans « AGO < 1 mois – À préparer », choix d'Arno « 1 et 3 »)
+//    seulement (🔴 25/11/2026 : depuis, une AGO officielle lointaine va dans « AGO > 1 mois – En attente », voir `categorieVingt`)
 // 🔴 (Arno, 25/11/2026) « AGO passée — restitution à faire » : l'ancien titre disait « AG » ; titre seulement, règles inchangées
 export const TITRES_CATEGORIES: Record<CategorieVingt, string> = {
   manquantes: 'Dates / copropriétés manquantes', retard: 'Alerte restitution en retard', urgence: 'Urgence', ag_passee: 'AGO passée — restitution à faire', a_preparer: 'AGO < 1 mois – À préparer', en_attente: 'AGO > 1 mois – En attente',
@@ -253,7 +253,10 @@ export function categorieVingt(l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 
   const apresAg = joursEntre(l.suivi.ago.date, aujourdhui);
   if (apresAg > JOURS_APRES_AG_URGENCE) return 'urgence';
   if (apresAg >= 0) return 'ag_passee';
-  if (-apresAg <= JOURS_AVANT_AG_A_PREPARER || l.suivi.ago.statut === 'officielle') return 'a_preparer';
+  // 🔴🔴 (Arno, 25/11/2026) « un locataire dont la prochaine AG est planifiée dans plus de 200 jours se trouve dans la catégorie des AGO qui doivent se
+  //    tenir dans moins d'un mois, c'est illogique » : la règle du 24/11 (« date officielle, même lointaine ») est ABANDONNÉE — « À préparer » = l'AGO qui
+  //    compte dans les 30 prochains jours, officielle ou projetée ; au-delà, « AGO > 1 mois – En attente », officielle comprise (capsule verte)
+  if (-apresAg <= JOURS_AVANT_AG_A_PREPARER) return 'a_preparer';
   return 'en_attente';
 }
 

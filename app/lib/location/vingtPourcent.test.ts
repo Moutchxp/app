@@ -126,11 +126,15 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
     expect(categorieVingt(ligne(plus(-90), 'officielle'), AUJ)).toBe('retard');
     expect(categorieVingt(ligne(plus(-90), 'projetee'), AUJ)).toBe('urgence');
   });
-  it('d / e : AG dans 30 jours → « AGO < 1 mois – À préparer » ; dans 31 jours → « AGO > 1 mois – En attente » ; OFFICIELLE lointaine → « AGO < 1 mois – À préparer »', () => {
+  it('d / e : AG dans 30 jours → « AGO < 1 mois – À préparer » ; dans 31 jours → « AGO > 1 mois – En attente » ; 🔴 (25/11/2026) OFFICIELLE : même règle', () => {
     expect(categorieVingt(ligne(plus(30)), AUJ)).toBe('a_preparer');
     expect(categorieVingt(ligne(plus(31)), AUJ)).toBe('en_attente');
     expect(categorieVingt(ligne(plus(1)), AUJ)).toBe('a_preparer');
-    expect(categorieVingt(ligne(plus(200), 'officielle'), AUJ)).toBe('a_preparer');
+    // Arno (25/11/2026) — « un locataire dont la prochaine AG est planifiée dans plus de 200 jours se trouve dans la catégorie des AGO qui doivent se
+    // tenir dans moins d'un mois, c'est illogique » : l'officielle lointaine part en « En attente » ; à 30 jours, elle est « À préparer »
+    expect(categorieVingt(ligne(plus(30), 'officielle'), AUJ)).toBe('a_preparer');
+    expect(categorieVingt(ligne(plus(31), 'officielle'), AUJ)).toBe('en_attente');
+    expect(categorieVingt(ligne(plus(200), 'officielle'), AUJ)).toBe('en_attente');
   });
   // 🔴🔴 DÉCISION D'ARNO (24/11/2026, 23h20) : seuls les locataires SANS AUCUNE date calculable restent dans « Dates / copropriétés manquantes » ; une date
   // PROVISOIRE (dernière AGO connue, arrêté manquant ; ou bien sans copropriété avec une AGO connue) classe dans la catégorie réelle
@@ -328,7 +332,7 @@ describe('🔴 Arno (25/11/2026) — nombreAPreparer', () => {
     valideLe: '2026-01-20', copropriete: { id: 1, libelle: 'C', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-1',
     suivi: { etat: 'ok', exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' }, incertaine: false, limite, alerte: 'a_venir', joursRestants: 0 } });
   it('AGO passée (1) + À préparer (colocation de 2) = 3 ; urgence, retard et en attente ne comptent pas ; détail au singulier / pluriel', () => {
-    const lu = { aujourdhui: '2026-11-24', manquantes: [], lignes: [L(1, '2026-11-10', '2026-12-10', ['A']), L(2, '2027-09-01', '2027-10-01', ['B', 'C']),
+    const lu = { aujourdhui: '2026-11-24', manquantes: [], lignes: [L(1, '2026-11-10', '2026-12-10', ['A']), L(2, '2026-12-12', '2027-01-12', ['B', 'C']), /* 🔴 25/11 : À préparer = dans les 30 jours */
       L(3, '2026-09-01', '2026-10-01', ['D']), L(4, '2026-10-25', '2026-11-25', ['E'])] };
     expect(nombreAPreparer(lu)).toBe(3);
     expect(nombreAPreparer(null)).toBe(0);

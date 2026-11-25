@@ -168,7 +168,7 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
       ligne(11, '2026-09-01', '2026-10-01', -53), // urgence
       ligne(12, '2026-11-10', '2026-12-10', 16), // AGO passée
       ligne(13, '2026-12-10', '2027-01-10', 47, 'projetee'), // à préparer (AG dans 16 jours)
-      ligne(14, '2027-09-01', '2027-10-01', 311, 'officielle'), // à préparer (officielle lointaine)
+      ligne(14, '2026-12-12', '2027-01-12', 50, 'officielle'), // à préparer (officielle à 19 jours ; 🔴 25/11 : plus de « lointaine »)
     ] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const dans = (cat: string) => [...container.querySelectorAll(`[data-vgp-categorie="${cat}"] [data-vgp-sortie]`)].map((x) => Number(x.getAttribute('data-vgp-sortie')));
@@ -690,7 +690,7 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « 
     L(11, '2026-09-01', '2026-10-01', 'officielle', ['OFF Un', 'OFF Deux']), // 🔴 (25/11) retard : 2 locataires, officielle, limite dépassée
     L(12, '2026-09-02', '2026-10-02', 'projetee', ['PROJ Trois']), // urgence : projetée, limite dépassée (AGO à confirmer)
     L(13, '2026-11-10', '2026-12-10', 'officielle', ['PROV Quatre'], true), // AGO passée : officielle MAIS provisoire → projetée
-    L(14, '2027-09-01', '2027-10-01', 'officielle', ['LOIN Cinq']), // à préparer : officielle
+    L(14, '2026-12-12', '2027-01-12', 'officielle', ['LOIN Cinq']), // à préparer : officielle (dans les 30 jours)
   ] };
   const capsules = (cat: string) => {
     const s = container.querySelector(`[data-vgp-categorie="${cat}"]`)!;
@@ -865,7 +865,7 @@ describe('🔴🔴 Arno (25/11/2026) — une seule pastille rouge qui cumule les
 describe('🔴 Arno (25/11/2026) — les titres « AGO > 1 mois – En attente » et « AGO < 1 mois – À préparer »', () => {
   const L = (sortieId: number, ago: string, limite: string, statut: 'officielle' | 'projetee') => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires: [`LOC ${sortieId}`], cleCopro: 'copro-10',
     suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
-  it('titres et noms accessibles ; une AGO officielle lointaine reste dans « AGO < 1 mois – À préparer » ; l’ancien intitulé seul n’apparaît plus', async () => {
+  it('titres et noms accessibles ; 🔴 (25/11) une AGO officielle lointaine va dans « AGO > 1 mois – En attente » ; l’ancien intitulé seul n’apparaît plus', async () => {
     donnees = { ...LU, faites: [], lignes: [...LU.lignes, L(13, '2026-12-10', '2027-01-10', 'projetee'), L(14, '2027-09-01', '2027-10-01', 'officielle')] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const titre = (cat: string) => container.querySelector(`[data-vgp-categorie="${cat}"] summary`)?.firstChild?.textContent;
@@ -873,8 +873,8 @@ describe('🔴 Arno (25/11/2026) — les titres « AGO > 1 mois – En attente �
     expect(titre('en_attente')).toBe('AGO > 1 mois – En attente');
     expect(container.querySelector('[data-vgp-categorie="a_preparer"]')?.getAttribute('aria-label')).toBe('AGO < 1 mois – À préparer');
     expect(container.querySelector('[data-vgp-categorie="en_attente"]')?.getAttribute('aria-label')).toBe('AGO > 1 mois – En attente');
-    expect([...container.querySelectorAll('[data-vgp-categorie="a_preparer"] [data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['13', '14']);
-    expect([...container.querySelectorAll('[data-vgp-categorie="en_attente"] [data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['5']);
+    expect([...container.querySelectorAll('[data-vgp-categorie="a_preparer"] [data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['13']);
+    expect([...container.querySelectorAll('[data-vgp-categorie="en_attente"] [data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['5', '14']); // par date limite : 25/04/2027 puis 01/10/2027
     const texte = (container.textContent ?? '').replace(/AGO [<>] 1 mois – (À préparer|En attente)/g, '');
     expect(texte).not.toMatch(/À préparer|En attente/);
   });
@@ -1008,7 +1008,7 @@ describe('🔴 Arno (25/11/2026) — « AGO passée — restitution à faire »'
 describe('🔴🔴 Arno (25/11/2026) — les capsules AGO filtrent la catégorie', () => {
   const L = (sortieId: number, statut: 'officielle' | 'projetee', nom: string, incertaine = false) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires: [nom], logement: `${sortieId} rue F`,
     cleCopro: 'copro-10', arrete: incertaine ? null : { jour: 31, mois: 12 },
-    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2027-09-01', statut }, incertaine, limite: '2027-10-01', alerte: 'a_venir' as const, joursRestants: 300 } });
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2026-12-12', statut }, incertaine, limite: '2027-01-12', alerte: 'a_venir' as const, joursRestants: 300 } });
   // « AGO < 1 mois – À préparer » : deux officielles (dont une provisoire → projetée) ; une projetée proche
   const PREP = [L(31, 'officielle', 'OFF Anne'), L(32, 'officielle', 'PROV Bruno', true), { ...L(33, 'projetee', 'PROJ Carla'),
     suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2026-12-10', statut: 'projetee' as const }, incertaine: false, limite: '2027-01-10', alerte: 'a_venir' as const, joursRestants: 48 } }];
@@ -1171,7 +1171,7 @@ describe('🔴 Arno (25/11/2026) — pastilles vertes de « AGO passée » et «
   const L = (sortieId: number, ago: string, limite: string) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires: [`V ${sortieId}`], cleCopro: 'copro-10',
     suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' as const }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
   it('vertes quand la catégorie a des locataires ; grises à 0 ; les autres catégories gardent leur pastille (rouge / grise)', async () => {
-    donnees = { ...LU, lignes: [...LU.lignes, L(12, '2026-11-10', '2026-12-10'), L(13, '2027-09-01', '2027-10-01')] };
+    donnees = { ...LU, lignes: [...LU.lignes, L(12, '2026-11-10', '2026-12-10'), L(13, '2026-12-12', '2027-01-12')] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const cls = (cat: string) => container.querySelector(`[data-vgp-categorie="${cat}"] summary [data-vgp-compteur]`)?.className;
     expect(cls('ag_passee')).toBe('vgp-pastille vgp-pastille--vert');
@@ -1198,7 +1198,7 @@ describe('🔴 Arno (25/11/2026) — la pastille verte des boutons « 20 % à re
   const L = (sortieId: number, ago: string, limite: string, locataires = [`V ${sortieId}`]) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires, cleCopro: 'copro-10',
     suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: ago, statut: 'officielle' as const }, incertaine: false, limite, alerte: 'a_venir' as const, joursRestants: 0 } });
   // 1 en « AGO passée » + 2 en « AGO < 1 mois – À préparer » (une colocation de deux) = 3
-  const AVEC = [...LU.lignes, L(12, '2026-11-10', '2026-12-10'), L(13, '2027-09-01', '2027-10-01', ['CO Un', 'CO Deux'])];
+  const AVEC = [...LU.lignes, L(12, '2026-11-10', '2026-12-10'), L(13, '2026-12-12', '2027-01-12', ['CO Un', 'CO Deux'])];
   const bouton = () => container.querySelector('a[data-bouton-vingt-pourcent]')!;
   it('accueil Location : pastille verte en haut à gauche (1 + 2 = 3), la rouge inchangée en haut à droite ; détail « 3 restitutions à préparer ou à faire »', async () => {
     donnees = { ...LU, lignes: AVEC };
