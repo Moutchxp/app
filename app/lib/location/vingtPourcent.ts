@@ -204,12 +204,14 @@ export function agoQuiCompte(o: { officielles: readonly string[]; derniere: stri
  *   e. « AGO > 1 mois – En attente » — tous les autres.
  * a : par copropriété (date de sortie la plus ancienne d'abord) ; b à e : par date limite croissante. Jours comptés à la date de Paris. PUR.
  */
-export type CategorieVingt = 'manquantes' | 'urgence' | 'ag_passee' | 'a_preparer' | 'en_attente';
-export const ORDRE_CATEGORIES: readonly CategorieVingt[] = ['manquantes', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'];
+export type CategorieVingt = 'manquantes' | 'retard' | 'urgence' | 'ag_passee' | 'a_preparer' | 'en_attente';
+export const ORDRE_CATEGORIES: readonly CategorieVingt[] = ['manquantes', 'retard', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'];
+/** Les catégories datées (une ligne par sortie), dans l'ordre de l'écran. */
+export const CATEGORIES_DATEES = ['retard', 'urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const;
 // 🔴 (Arno, 25/11/2026) « renommer « En attente » en « AGO > 1 mois – En attente » et « À préparer » en « AGO < 1 mois – À préparer » » — titres
 //    seulement : le classement ne change pas (une AGO officielle lointaine reste dans « AGO < 1 mois – À préparer », choix d'Arno « 1 et 3 »)
 export const TITRES_CATEGORIES: Record<CategorieVingt, string> = {
-  manquantes: 'Dates / copropriétés manquantes', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'AGO < 1 mois – À préparer', en_attente: 'AGO > 1 mois – En attente',
+  manquantes: 'Dates / copropriétés manquantes', retard: 'Alerte restitution en retard', urgence: 'Urgence', ag_passee: 'AG passée — restitution à faire', a_preparer: 'AGO < 1 mois – À préparer', en_attente: 'AGO > 1 mois – En attente',
 };
 /** b / c : au-delà de AG + 20 jours, l'urgence. */
 export const JOURS_APRES_AG_URGENCE = 20;
@@ -220,10 +222,24 @@ export const JOURS_AVANT_AG_A_PREPARER = 30;
 export const datesIncompletes = (l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>): boolean =>
   l.suivi.etat !== 'ok' || l.arrete === null || l.copropriete === null;
 
+/**
+ * 🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » : l'AGO qui compte est OFFICIELLE et la date limite (AGO + 1 mois) est DÉPASSÉE
+ * (le lendemain de la date limite ; la date limite elle-même reste en « Urgence »). Une date PROVISOIRE (arrêté manquant) n'est pas officielle
+ * (même règle que les capsules). « Urgence » : AGO + 21 jours jusqu'à la date limite incluse — et une AGO PROJETÉE (ou provisoire) dont la date
+ * limite est passée y reste : on ne peut pas être en retard sur une AGO non confirmée. PUR.
+ */
+export const limiteDepassee = (l: Pick<LigneVingtPourcent, 'suivi'>, aujourdhui: string): boolean =>
+  l.suivi.etat === 'ok' && joursEntre(aujourdhui, l.suivi.limite) < 0;
+/** 🔴 (Arno, 25/11/2026) la mention orange d'une AGO PROJETÉE dont la date limite est passée (catégorie « Urgence »). */
+export const MENTION_AGO_A_CONFIRMER = 'AGO à confirmer — saisir la date officielle';
+export const agoAConfirmer = (l: Pick<LigneVingtPourcent, 'suivi'>, aujourdhui: string): boolean =>
+  l.suivi.etat === 'ok' && l.suivi.ago.statut === 'projetee' && limiteDepassee(l, aujourdhui);
+
 /** La catégorie d'une ligne à la date `aujourdhui` (AAAA-MM-JJ, Paris). PUR. */
 export function categorieVingt(l: Pick<LigneVingtPourcent, 'suivi' | 'arrete' | 'copropriete'>, aujourdhui: string): CategorieVingt {
   // 🔴 (Arno, 24/11/2026, 23h20) « Dates / copropriétés manquantes » : seulement sans AUCUNE date calculable
   if (l.suivi.etat !== 'ok') return 'manquantes';
+  if (limiteDepassee(l, aujourdhui)) return l.suivi.ago.statut === 'officielle' && !l.suivi.incertaine ? 'retard' : 'urgence';
   const apresAg = joursEntre(l.suivi.ago.date, aujourdhui);
   if (apresAg > JOURS_APRES_AG_URGENCE) return 'urgence';
   if (apresAg >= 0) return 'ag_passee';
@@ -241,7 +257,7 @@ export function joursRestantsVingt(joursRestants: number): { texte: string; depa
 export interface GroupeManquant { copro: LigneDatesManquantes; lignes: LigneVingtPourcent[] }
 export interface ClassementVingt {
   manquantes: GroupeManquant[];
-  urgence: LigneVingtPourcent[]; ag_passee: LigneVingtPourcent[]; a_preparer: LigneVingtPourcent[]; en_attente: LigneVingtPourcent[];
+  retard: LigneVingtPourcent[]; urgence: LigneVingtPourcent[]; ag_passee: LigneVingtPourcent[]; a_preparer: LigneVingtPourcent[]; en_attente: LigneVingtPourcent[];
 }
 
 export const cleDeLaLigne = (l: LigneVingtPourcent, manquantes: readonly LigneDatesManquantes[]): string =>
@@ -255,7 +271,7 @@ const parSortie = (a: LigneVingtPourcent, b: LigneVingtPourcent): number => a.da
 
 /** Le classement de tout l'écran : chaque ligne dans UNE catégorie. PUR. */
 export function classerVingtPourcent(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'>): ClassementVingt {
-  const c: ClassementVingt = { manquantes: [], urgence: [], ag_passee: [], a_preparer: [], en_attente: [] };
+  const c: ClassementVingt = { manquantes: [], retard: [], urgence: [], ag_passee: [], a_preparer: [], en_attente: [] };
   const groupes = new Map<string, GroupeManquant>();
   for (const l of lu.lignes) {
     const cat = categorieVingt(l, lu.aujourdhui);
@@ -268,7 +284,7 @@ export function classerVingtPourcent(lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lign
   }
   for (const g of groupes.values()) g.lignes.sort(parSortie);
   c.manquantes = [...groupes.values()].sort((a, b) => parSortie(a.lignes[0], b.lignes[0]));
-  for (const k of ['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const) c[k].sort(parLimite);
+  for (const k of CATEGORIES_DATEES) c[k].sort(parLimite);
   return c;
 }
 
@@ -328,7 +344,12 @@ export function verifierRestitution(d: { date: unknown; montantRestitue: unknown
  * 🔴 (Arno, 25/11/2026) « compter en locataires partout » : des LOCATAIRES (colocataires un par un), le même total que le compteur de la catégorie
  * (avant : des sorties). PUR.
  */
-export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => (lu === null ? 0 : capsulesAgo(classerVingtPourcent(lu).urgence).total);
+export const nombreUrgences = (lu: Pick<SuiviVingtLu, 'aujourdhui' | 'lignes' | 'manquantes'> | null): number => {
+  if (lu === null) return 0;
+  // 🔴 (25/11/2026) les locataires en retard étaient « en urgence » jusqu'ici : la pastille les compte encore (Urgence + Alerte en retard)
+  const c = classerVingtPourcent(lu);
+  return capsulesAgo([...c.retard, ...c.urgence]).total;
+};
 
 // ══ 🔴🔴 Arno (24/11/2026, 23h40) — LA LIGNE REPLIÉE SUR TROIS LIGNES : l'étiquette de l'AG et le compte à rebours ════════════════════════════════════
 /** L'étiquette colorée de l'AG qui compte : ROUGE « AGO vers mars 2027 (projetée) », VERTE « AGO 15/03/2027 (officielle) ». PUR. */
@@ -424,7 +445,7 @@ export function blocsOuvertsPourRecherche(lu: SuiviVingtLu, q: string): BlocRepl
   const cl = classerVingtPourcent(vu);
   return [
     ...(datesManquantesVisibles(vu) ? ['manquantes' as const] : []),
-    ...(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => cl[k].length > 0),
+    ...CATEGORIES_DATEES.filter((k) => cl[k].length > 0),
     ...((vu.faites ?? []).length > 0 ? ['faites' as const] : []),
   ];
 }

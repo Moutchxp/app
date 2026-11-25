@@ -37,7 +37,9 @@ export interface DepsAlerteVingt { maintenant?: Date; essai?: boolean; transport
 /** Le mail du jour (ou `null` : personne en urgence). Lecture seule. */
 async function preparerMail(jour: string, env: Record<string, string | undefined>): Promise<MailAlerteVingtLu | null> {
   const lu = await lireSuiviVingtPourcent();
-  const urgence = classerVingtPourcent(lu).urgence;
+  // 🔴 (25/11/2026) « Alerte restitution en retard » est détachée d'« Urgence » : le mail du lundi les liste encore tous les deux
+  const cl = classerVingtPourcent(lu);
+  const urgence = [...cl.retard, ...cl.urgence];
   if (urgence.length === 0) return null;
   const config = await chargerConfigGestion();
   const lien = `${adresseApplication(env).base.replace(/\/+$/, '')}${CHEMIN_ECRAN_VINGT}`;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agoApres, agosOfficielles, alerteRestitution, clotureExercice, datesManquantes, libelleAlerte, libelleExercice, MENTION_INCERTAINE, MENTION_SANS_AGO,
-  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, type LigneVingtPourcent,
+  suiviVingtPourcent, transposer, categorieVingt, classerVingtPourcent, joursRestantsVingt, montantEuros, montantFr, verifierRestitution, etiquetteAgo, compteAReboursVingt, correspondRecherche, filtrerVingtPourcent, blocsOuvertsPourRecherche, capsulesAgo, datesManquantesVisibles, pastilleVingt, agoAConfirmer, MENTION_AGO_A_CONFIRMER, nombreUrgences, type LigneVingtPourcent,
 } from './vingtPourcent';
 import { ajouterMois } from './preavis';
 
@@ -122,8 +122,9 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
     expect(categorieVingt(ligne(plus(-20)), AUJ)).toBe('ag_passee');
     expect(categorieVingt(ligne(plus(-21)), AUJ)).toBe('urgence');
     expect(categorieVingt(ligne(AUJ), AUJ)).toBe('ag_passee');
-    // date limite dépassée (AG il y a 3 mois) : toujours « Urgence »
-    expect(categorieVingt(ligne(plus(-90), 'officielle'), AUJ)).toBe('urgence');
+    // 🔴 (25/11/2026) date limite dépassée (AG il y a 3 mois) : OFFICIELLE → « Alerte restitution en retard » ; PROJETÉE → reste en « Urgence »
+    expect(categorieVingt(ligne(plus(-90), 'officielle'), AUJ)).toBe('retard');
+    expect(categorieVingt(ligne(plus(-90), 'projetee'), AUJ)).toBe('urgence');
   });
   it('d / e : AG dans 30 jours → « AGO < 1 mois – À préparer » ; dans 31 jours → « AGO > 1 mois – En attente » ; OFFICIELLE lointaine → « AGO < 1 mois – À préparer »', () => {
     expect(categorieVingt(ligne(plus(30)), AUJ)).toBe('a_preparer');
@@ -135,7 +136,9 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
   // PROVISOIRE (dernière AGO connue, arrêté manquant ; ou bien sans copropriété avec une AGO connue) classe dans la catégorie réelle
   it('a : SEULEMENT sans aucune date calculable ; une date provisoire classe dans la catégorie réelle', () => {
     expect(categorieVingt(ligne(null), AUJ)).toBe('manquantes');
-    expect(categorieVingt(ligne(plus(-90), 'officielle', { arrete: null }), AUJ)).toBe('urgence');
+    // date provisoire (arrêté manquant : incertaine) d'une AGO officielle, limite dépassée : pas officielle au sens du retard → « Urgence »
+    const prov = ligne(plus(-90), 'officielle', { arrete: null });
+    expect(categorieVingt({ ...prov, suivi: { ...prov.suivi, incertaine: true } as typeof prov.suivi }, AUJ)).toBe('urgence');
     expect(categorieVingt(ligne(plus(10), 'projetee', { copropriete: null, arrete: null }), AUJ)).toBe('a_preparer');
   });
   it('le cas « _TEST ARRETE COMPTES 20 POURCENT Locataire 3 » : AGO projetée 22/09/2026, arrêté manquant, limite 22/10/2026 dépassée de 33 jours → « Urgence »', () => {
@@ -271,5 +274,33 @@ describe('🔴🔴 Arno (25/11/2026) — pastilleVingt', () => {
     expect(pastilleVingt({ urgences: 2, copros: 4 })).toEqual({ total: 6, detail: '2 locataires en urgence · 4 copropriétés à compléter' });
     expect(pastilleVingt({ urgences: 1, copros: 1 })).toEqual({ total: 2, detail: '1 locataire en urgence · 1 copropriété à compléter' });
     expect(pastilleVingt({ urgences: 0, copros: 0 }).total).toBe(0);
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » (AGO officielle, date limite dépassée) et la nouvelle « Urgence » (AGO + 21 j → date limite incluse). */
+describe('🔴🔴 Arno (25/11/2026) — retard / urgence : les bornes', () => {
+  const L = (ago: string, limite: string, statut: 'officielle' | 'projetee', incertaine = false): LigneVingtPourcent => ({ sortieId: 1, lotId: 1, locataires: ['X'], logement: null,
+    dateSortie: '2026-01-15', valideLe: '2026-01-20', copropriete: { id: 1, libelle: 'C', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-1',
+    suivi: { etat: 'ok', exercice: '2025-12-31', ago: { date: ago, statut }, incertaine, limite, alerte: 'a_venir', joursRestants: 0 } });
+  const AG = '2026-09-15'; const LIMITE = '2026-10-15';
+  it('AGO + 20 j → « AG passée » ; AGO + 21 j → « Urgence » ; la date limite elle-même → « Urgence » ; le lendemain → « Alerte » si OFFICIELLE', () => {
+    expect(categorieVingt(L(AG, LIMITE, 'officielle'), '2026-10-05')).toBe('ag_passee');
+    expect(categorieVingt(L(AG, LIMITE, 'officielle'), '2026-10-06')).toBe('urgence');
+    expect(categorieVingt(L(AG, LIMITE, 'officielle'), LIMITE)).toBe('urgence');
+    expect(categorieVingt(L(AG, LIMITE, 'officielle'), '2026-10-16')).toBe('retard');
+  });
+  it('PROJETÉE dont la limite est passée : « Urgence » + mention « AGO à confirmer — saisir la date officielle » ; provisoire (arrêté manquant) : « Urgence »', () => {
+    expect(categorieVingt(L(AG, LIMITE, 'projetee'), '2026-10-16')).toBe('urgence');
+    expect(agoAConfirmer(L(AG, LIMITE, 'projetee'), '2026-10-16')).toBe(true);
+    expect(agoAConfirmer(L(AG, LIMITE, 'projetee'), LIMITE)).toBe(false); // le jour même : pas encore passée
+    expect(agoAConfirmer(L(AG, LIMITE, 'officielle'), '2026-10-16')).toBe(false);
+    expect(MENTION_AGO_A_CONFIRMER).toBe('AGO à confirmer — saisir la date officielle');
+    expect(categorieVingt(L(AG, LIMITE, 'officielle', true), '2026-10-16')).toBe('urgence');
+  });
+  it('catégories exclusives ; « Alerte » en tête des catégories datées ; la pastille compte encore retard + urgence (jusqu’au point 3)', () => {
+    const lu = { aujourdhui: '2026-10-16', manquantes: [], lignes: [L(AG, LIMITE, 'officielle'), { ...L(AG, LIMITE, 'projetee'), sortieId: 2 }, { ...L('2026-09-20', '2026-10-20', 'officielle'), sortieId: 3 }] };
+    const c = classerVingtPourcent(lu);
+    expect([c.retard, c.urgence, c.ag_passee].map((x) => x.map((l) => l.sortieId))).toEqual([[1], [2, 3], []]);
+    expect(nombreUrgences(lu)).toBe(3);
   });
 });

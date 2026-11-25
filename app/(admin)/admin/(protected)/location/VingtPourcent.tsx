@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -98,12 +98,12 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
               {rien && <p className="loc-muet vgp-aucun-resultat" role="status" data-vgp-aucun-resultat>Aucun résultat</p>}
               {/* 🔴 (Arno, 25/11/2026, 10h14) le bloc n'apparaît que s'il contient des locataires (et, en recherche, s'il y trouve quelque chose) */}
               {datesManquantesVisibles(vu) && <DatesManquantes key={`manquantes:${replis}`} {...ouvert('manquantes')} lignes={vu.manquantes} groupes={cl.manquantes} toutes={vu.lignes} aujourdhui={vu.aujourdhui} onCompleter={setFiche} onRestituer={setRestituer} />}
-              {/* 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » : juste après « Dates / copropriétés manquantes » (contenu inchangé) */}
-              {/* 🔴 Arno (25/11/2026) — « n'afficher la ligne "Alerte du lundi" que si elle contient un locataire, sinon elle n'est pas présente » :
-                  au moins un locataire en « Urgence » (ceux que le mail du lundi listera), sur les résultats filtrés si une recherche est tapée */}
-              {cl.urgence.length > 0 && <AlerteDuLundi api={api} />}
+              {/* 🔴🔴 Arno (25/11/2026) — « Alerte restitution en retard » REMPLACE le bloc « Alerte du lundi », même place (2e), fond rouge : une catégorie
+                  comme les autres (AGO officielle, date limite dépassée), ABSENTE SI VIDE (recherche comprise) ; le mode essai du mail est dans son bloc */}
+              {cl.retard.length > 0 && <Categorie key={`retard:${replis}`} {...ouvert('retard')} cle="retard" lignes={cl.retard} aujourdhui={vu.aujourdhui} onRestituer={setRestituer}>
+                <AlerteMail api={api} /></Categorie>}
               {(['urgence', 'ag_passee', 'a_preparer', 'en_attente'] as const).filter((k) => !(active && cl[k].length === 0))
-                .map((k) => <Categorie key={`${k}:${replis}`} {...ouvert(k)} cle={k} lignes={cl[k]} onRestituer={setRestituer} />)}
+                .map((k) => <Categorie key={`${k}:${replis}`} {...ouvert(k)} cle={k} lignes={cl[k]} aujourdhui={vu.aujourdhui} onRestituer={setRestituer} />)}
               {lu.data.lignes.length === 0 && <p className="loc-muet" data-vgp-aucun>Aucun locataire sorti avec 20 % retenus.</p>}
               {!(active && (vu.faites ?? []).length === 0) && <RestitutionsFaites key={`faites:${replis}`} {...ouvert('faites')} faites={vu.faites ?? []} onAnnule={() => setVersion((v) => v + 1)} />}
             </>;
@@ -122,8 +122,9 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
  * par l'orange » : la teinte de chaque bloc (jetons --color-svv-vgp-<teinte>-fond / -accent de globals.css ; -accent = liseré ET fond du titre).
  * « Dates / copropriétés manquantes » garde son allure actuelle (pas de teinte).
  */
+// 🔴 (25/11/2026) le rouge de l'ancienne « Alerte du lundi » passe à « Alerte restitution en retard », à la même place
 export const TEINTES_BLOCS_VINGT = {
-  alerte: 'alerte', urgence: 'urgence', ag_passee: 'agpassee', a_preparer: 'preparer', en_attente: 'attente', faites: 'faites',
+  retard: 'alerte', urgence: 'urgence', ag_passee: 'agpassee', a_preparer: 'preparer', en_attente: 'attente', faites: 'faites',
 } as const;
 const teinte = (b: keyof typeof TEINTES_BLOCS_VINGT): string => ` vgp-teinte vgp-teinte--${TEINTES_BLOCS_VINGT[b]}`;
 
@@ -131,20 +132,23 @@ const teinte = (b: keyof typeof TEINTES_BLOCS_VINGT): string => ` vgp-teinte vgp
 type Repli = { ouvert: boolean; onBasculer: (ouvert: boolean) => void };
 
 /** 🔴 Arno (24/11/2026) — une catégorie (b à e) : titre, compteur, repliable ; lignes par date limite croissante. */
-function Categorie({ cle, lignes, onRestituer, ouvert, onBasculer }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[]; onRestituer: (l: LigneVingtPourcent) => void } & Repli) {
+function Categorie({ cle, lignes, aujourdhui, onRestituer, ouvert, onBasculer, children }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[];
+  aujourdhui: string; onRestituer: (l: LigneVingtPourcent) => void; children?: ReactNode } & Repli) {
+  const rouge = (cle === 'urgence' || cle === 'retard') && lignes.length > 0;
   // 🔴 (Arno, 25/11/2026) le compteur compte des LOCATAIRES (avant : des sorties) — le même total que les deux capsules
   const c = capsulesAgo(lignes);
   return (
-    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${cle === 'urgence' && c.total > 0 ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={c.total}>
+    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${rouge ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={c.total}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
-        <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={cle === 'urgence' && c.total > 0 ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
+        <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={rouge ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
           {/* 🔴🔴 Arno (25/11/2026) — deux capsules empilées, visibles même repliée : verte « AGO officielle · N », rouge « AGO projetée · N » ; à 0, grisée */}
           <span className="vgp-capsules" data-vgp-capsules>
             <span className={`vgp-capsule vgp-capsule--${c.officielle > 0 ? 'vert' : 'zero'}`} data-vgp-capsule="officielle" data-vgp-capsule-nombre={c.officielle}>AGO officielle · {c.officielle}</span>
             <span className={`vgp-capsule vgp-capsule--${c.projetee > 0 ? 'rouge' : 'zero'}`} data-vgp-capsule="projetee" data-vgp-capsule-nombre={c.projetee}>AGO projetée · {c.projetee}</span>
           </span></summary>
         {lignes.length === 0 ? <p className="loc-muet" data-vgp-categorie-vide>Aucun locataire.</p>
-          : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} onRestituer={onRestituer} />)}</ul>}
+          : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} aujourdhui={aujourdhui} onRestituer={onRestituer} />)}</ul>}
+        {children}
       </details>
     </section>
   );
@@ -288,7 +292,10 @@ export function manquesDeLaLigne(l: Pick<LigneVingtPourcent, 'copropriete' | 'su
  * (ou ce qui manque, en orange), « Fiche copropriété » (« Créer la copropriété » si aucune) et « Restitution faite ». Un clic sur la ligne (hors
  * boutons) déplie le détail : RIEN de ce qui est déjà sur la ligne.
  */
-function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer: (l: LigneVingtPourcent) => void }) {
+function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent; aujourdhui: string; onRestituer: (l: LigneVingtPourcent) => void }) {
+  // 🔴 (Arno, 25/11/2026) une AGO PROJETÉE dont la date limite est passée : « AGO à confirmer — saisir la date officielle » (orange), à la place
+  //    de la mention de date provisoire (une seule ligne réservée sous l'étiquette)
+  const aConfirmer = agoAConfirmer(l, aujourdhui);
   const { onFiche } = useContext(GestesLigne);
   const [ouvert, setOuvert] = useState(false);
   const detailId = useId();
@@ -318,8 +325,8 @@ function LigneLocataire({ l, onRestituer }: { l: LigneVingtPourcent; onRestituer
         <div className="vgp-ligne-droite" onClick={(e) => e.stopPropagation()}>
           <span className="vgp-ligne-ago">
             {s.etat === 'ok' && (() => { const e = etiquetteAgo(s.ago); return <span className={`vgp-etiquette vgp-etiquette--${e.ton}`} data-vgp-ago={`${s.ago.date}:${s.ago.statut}`}>{e.texte}</span>; })()}
-            <span className="vgp-incertaine vgp-une-ligne" {...(s.etat === 'ok' && s.incertaine ? { 'data-vgp-incertaine': '' } : { 'aria-hidden': true })}>
-              {s.etat === 'ok' && s.incertaine ? MENTION_DATE_PROVISOIRE : '\u00a0'}</span>
+            <span className="vgp-incertaine vgp-une-ligne" {...(aConfirmer ? { 'data-vgp-ago-a-confirmer': '' } : s.etat === 'ok' && s.incertaine ? { 'data-vgp-incertaine': '' } : { 'aria-hidden': true })}>
+              {aConfirmer ? MENTION_AGO_A_CONFIRMER : s.etat === 'ok' && s.incertaine ? MENTION_DATE_PROVISOIRE : '\u00a0'}</span>
           </span>
           <span className="vgp-ligne-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => onFiche({ immeuble: l.immeuble ?? null, lotId: l.lotId })}
@@ -441,8 +448,11 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
   );
 }
 
-/** 🔴 Arno (24/11/2026) — LE MODE ESSAI de l'alerte du lundi : le mail tel qu'il partirait, lu (GET) — rien n'est envoyé, rien n'est écrit. */
-function AlerteDuLundi({ api }: { api: string }) {
+/**
+ * 🔴 Arno (24/11/2026) — LE MODE ESSAI de l'alerte par mail : le mail tel qu'il partirait, lu (GET) — rien n'est envoyé, rien n'est écrit.
+ * 🔴 (25/11/2026) plus un bloc à part : une rubrique DANS « Alerte restitution en retard ».
+ */
+function AlerteMail({ api }: { api: string }) {
   const [vu, setVu] = useState<{ etat: 'rien' } | { etat: 'charge' } | { etat: 'erreur'; message: string }
     | { etat: 'ok'; mail: { a: string[]; objet: string; texte: string; nombre: number } | null }>({ etat: 'rien' });
   const voir = async (): Promise<void> => {
@@ -454,9 +464,8 @@ function AlerteDuLundi({ api }: { api: string }) {
     } catch { setVu({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' }); }
   };
   return (
-    <section className={`vgp-bloc${teinte('alerte')}`} aria-label="Alerte du lundi" data-vgp-alerte-lundi data-vgp-teinte={TEINTES_BLOCS_VINGT.alerte}>
-      <details className="vgp-repli">
-        <summary className="vgp-titre">Alerte du lundi</summary>
+    <div className="vgp-alerte-mail" data-vgp-alerte-mail>
+        <p className="vgp-coord-titre">Alerte par mail</p>
         <p className="loc-muet vgp-aide">Chaque lundi matin (heure de Paris), si au moins un locataire est en « Urgence », un mail récapitulatif part à l’adresse de la Gestion.
           Aucun mail si personne n’est en urgence ; jamais deux fois le même lundi.</p>
         <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-restituer" onClick={() => { void voir(); }} disabled={vu.etat === 'charge'} data-vgp-alerte-essai>
@@ -469,8 +478,7 @@ function AlerteDuLundi({ api }: { api: string }) {
             <dl className="vgp-dl"><div><dt>À</dt><dd>{vu.mail.a.join(', ')}</dd></div><div><dt>Objet</dt><dd data-vgp-alerte-objet>{vu.mail.objet}</dd></div></dl>
             <pre className="vgp-texte" data-vgp-alerte-texte-mail>{vu.mail.texte}</pre>
           </div>)}
-      </details>
-    </section>
+    </div>
   );
 }
 
@@ -502,6 +510,7 @@ export const CSS_VINGT_POURCENT = `
 .vgp-teinte--preparer{--vgp-fond:var(--color-svv-vgp-preparer-fond);--vgp-accent:var(--color-svv-vgp-preparer-accent)}
 .vgp-teinte--attente{--vgp-fond:var(--color-svv-vgp-attente-fond);--vgp-accent:var(--color-svv-vgp-attente-accent)}
 .vgp-teinte--faites{--vgp-fond:var(--color-svv-vgp-faites-fond);--vgp-accent:var(--color-svv-vgp-faites-accent)}
+.vgp-alerte-mail{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px dashed var(--vgp-accent);border-radius:12px;background:var(--color-svv-surface)}
 .vgp-capsules{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .vgp-capsule{display:inline-block;padding:1px 9px;border-radius:999px;font-size:.75rem;font-weight:800;line-height:1.35;white-space:nowrap;border:1px solid}
 .vgp-capsule--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green)}
