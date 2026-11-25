@@ -38,7 +38,8 @@ export function fusionnerEchanges(fils: ReadonlyArray<{ filId: number; messages:
 type Corps = { texte: string | null; html: string | null; cssMail?: string };
 
 export function EchangesLigne({ l, maintenant, onRepondre }: {
-  l: LigneVingtPourcent; maintenant: Date;
+  /** une ligne de l'écran, ou une restitution faite (🔴 25/11 : les échanges suivent la sortie) */
+  l: Pick<LigneVingtPourcent, 'mails' | 'echanges'>; maintenant: Date;
   /** « Répondre » sur un mail (absent : la Location, qui n'écrit pas) : la voie, le mail, son fil, son contenu déjà lu. */
   onRepondre?: (voie: VoieRedaction, m: MessageDeFil, filId: number, corps: { texte?: string | null; html?: string | null }) => void;
 }) {

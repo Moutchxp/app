@@ -337,6 +337,8 @@ export const MOTIF_SANS_513 = 'La restitution des 20 % s’enregistre après la 
 export interface RestitutionFaite {
   id: number; sortieId: number; locataires: string[]; logement: string | null; dateSortie: string;
   date: string; montantRestitue: number; montantRetenuCharges: number | null; commentaire: string | null; par: string; le: string;
+  /** 🔴🔴 (Arno, 25/11/2026) « l'historique des mails doit suivre le locataire quelle que soit la catégorie » : les échanges de la SORTIE, jusqu'ici */
+  mails?: MailVingtEnvoye[]; echanges?: EchangesVingt;
 }
 
 /** « 1 234,56 », « 1234.5 », 300 → un montant en euros (2 décimales au plus, ≥ 0) ; vide : `undefined` ; illisible : `null`. PUR. */

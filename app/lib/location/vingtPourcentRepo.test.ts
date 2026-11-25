@@ -6,13 +6,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const appels: string[] = [];
 let sorties: Record<string, unknown>[] = [];
-const query = vi.fn(async (sql: string, _p?: unknown[]) => {
+let faites: Record<string, unknown>[] = [];
+let mailsLus: Record<string, unknown>[] = [];
+const lecture = async (sql: string, _p?: unknown[]) => {
   const s = sql.replace(/\s+/g, ' ');
   appels.push(s);
   if (s.includes('AS j')) return { rows: [{ j: '2026-11-23' }] };
+  // 🔴 (25/11/2026) les échanges suivent la SORTIE jusque dans « Restitutions faites » : une restitution, ses mails, le compte de son fil
+  if (s.includes('FROM gestion_location_restitution_vingt f JOIN gestion_location_sortie_validee')) return { rows: faites };
+  if (s.includes('FROM gestion_location_mail_vingt l JOIN gestion_envoi e')) return { rows: mailsLus };
+  if (s.includes('FROM gestion_message m WHERE m.fil_id = ANY')) return { rows: [{ fil: '77', nombre: '3', dernier: '2026-11-20T09:00' }] };
   if (s.includes('FROM gestion_location_sortie_validee')) return { rows: sorties };
   return { rows: [] };
-});
+};
+const query = vi.fn(lecture);
 vi.mock('../db/client', () => ({ query: (sql: string, p?: unknown[]) => query(sql, p) }));
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('./agCoproprieteRepo', () => ({
@@ -29,7 +36,7 @@ vi.mock('./arreteComptesRepo', () => ({ arretesDe: vi.fn(async () => new Map([[1
 const { lireSuiviVingtPourcent } = await import('./vingtPourcentRepo');
 
 beforeEach(() => {
-  appels.length = 0;
+  appels.length = 0; faites = []; mailsLus = [];
   sorties = [
     { id: '5', lot_id: '1', date_sortie: '2026-11-15', valide_le: '2026-11-20', logement: '1 rue A', noms: ['DUPONT Alice'] },
     { id: '6', lot_id: '2', date_sortie: '2026-10-01', valide_le: '2026-10-02', logement: '2 rue B', noms: ['MARTIN Paul', 'MARTIN Léa'] },
@@ -123,5 +130,20 @@ describe('🔴 Arno (25/11/2026) — lots, bâtiment, étage, nom de la copropri
     const s = appels.find((x) => x.includes('FROM gestion_location_sortie_validee'))!;
     expect(s).toContain('FROM gestion_lot_annexe ax JOIN gestion_annuaire_lot af ON af.id = ax.annexe_id WHERE ax.parent_id = lo.id AND af.annexe_detachee_le IS NULL');
     expect(s).toContain("nullif(btrim(lo.batiment), '') AS batiment");
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026) — « l'historique des mails doit suivre le locataire quelle que soit la catégorie » : rattaché à la SORTIE, jusque dans « Restitutions faites ». */
+describe('les échanges suivent la sortie', () => {
+  it('une restitution faite garde les mails et les échanges de sa sortie (fil, nombre, dernier) ; lecture seule', async () => {
+    query.mockImplementation(lecture); // une épreuve plus haut remplace la lecture simulée
+    faites = [{ id: '1', sortie: '30', noms: ['FAIT Zoé'], logement: '8 rue Haute', date_sortie: '2026-09-01', date: '2026-11-21', restitue: '312.5', retenu: null, commentaire: null, par: 'Arno', le: '2026-11-21 10:00:00' }];
+    mailsLus = [{ sortie: '30', modele: 'syndic', le: '2026-11-10T09:00', a: ['syndic@x.test'], cc: [], cci: [], message: '700', fil: '77' }];
+    const r = await lireSuiviVingtPourcent();
+    expect(r.faites![0]).toMatchObject({ sortieId: 30, mails: [{ messageId: 700, filId: 77, modele: 'syndic' }], echanges: { fils: [77], nombre: 3, dernierLe: '2026-11-20T09:00' } });
+    const lu = appels.find((x) => x.includes('FROM gestion_location_mail_vingt l JOIN gestion_envoi e'))!;
+    expect(lu).toContain('l.sortie_validee_id = ANY($1::bigint[])');
+    expect(query.mock.calls.filter((c) => String(c[0]).includes('FROM gestion_location_mail_vingt')).at(-1)![1]).toEqual([[5, 6, 30]]);
+    expect(appels.some((x) => /^(UPDATE|INSERT|DELETE)/.test(x))).toBe(false);
   });
 });

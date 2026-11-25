@@ -516,6 +516,7 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
   const [confirmer, setConfirmer] = useState<number | null>(null);
   const [refus, setRefus] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  const [maintenantFaites] = useState(() => new Date());
   const annuler = async (id: number): Promise<void> => {
     setEnvoi(true); setRefus(null);
     const motif = await geste({ action: 'restitution-20-annuler', restitutionId: id });
@@ -531,6 +532,8 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
           <ul className="vgp-liste">{faites.map((f) => (
             <li key={f.id} className="vgp-carte" data-vgp-faite={f.id}>
               <p className="vgp-nom">{f.locataires.length > 0 ? f.locataires.join(', ') : `Sortie n° ${f.sortieId}`}</p>
+              {/* 🔴🔴 (Arno, 25/11/2026) « l'historique des mails doit suivre le locataire quelle que soit la catégorie » : les échanges de la SORTIE, ici aussi */}
+              {mentionMailsEchanges(f.echanges) !== null && <p className="vgp-mails-echanges" data-vgp-mails-echanges={f.echanges!.nombre}>{mentionMailsEchanges(f.echanges)}</p>}
               <dl className="vgp-dl">
                 <div><dt>Logement</dt><dd>{f.logement ?? '—'}</dd></div>
                 <div><dt>Date de sortie</dt><dd>{dateFr(f.dateSortie)}</dd></div>
@@ -540,6 +543,8 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
                 {f.commentaire !== null && <div><dt>Commentaire</dt><dd>{f.commentaire}</dd></div>}
                 <div><dt>Enregistrée par</dt><dd>{f.par}, le {dateFr(f.le.slice(0, 10))} à {f.le.slice(11, 16)}</dd></div>
               </dl>
+              {/* la conversation, en lecture (la restitution est faite : pas de « Répondre » ici) ; lue seulement le bloc ouvert */}
+              {ouvert && f.echanges !== undefined && <EchangesLigne l={f} maintenant={maintenantFaites} />}
               {confirmer === f.id ? (
                 <div className="vgp-confirmer" role="group" aria-label="Confirmer l’annulation" data-vgp-confirmer-annulation={f.id}>
                   <p className="vgp-aide">Annuler cette restitution ? Elle reste dans l’historique du dossier, et le locataire revient dans la liste « 20 % à restituer ».</p>
