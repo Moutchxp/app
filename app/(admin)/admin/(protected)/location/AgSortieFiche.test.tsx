@@ -398,4 +398,11 @@ describe('🔴🔴 le montant des 20 % dans la fenêtre de sortie', () => {
     expect(src).toContain('data-resume-montant-vingt');
     expect(src).toContain("`Retenue 20 % appliquée${r.montantVingt != null ? ` : ${montantVingtDit(r.montantVingt)}` : ''}`");
   });
+  it('🔴 (Arno, 25/11/2026, 22h51) « le champ de saisie du montant des 20 % doit s’afficher sur toute la largeur de la colonne » : le bloc s’étire, le champ perd la borne de 22rem', () => {
+    const css = src.slice(src.indexOf('export const CSS_VALIDATION_SORTIE'));
+    expect(css).toContain('.vse-retenue .vse-montant-vingt{align-self:stretch;box-sizing:border-box;width:100%;min-width:0;');
+    expect(css).toContain('.vse-montant-vingt .pvs-champ input{width:100%;max-width:none}');
+    // le champ reste dans son bloc, sous la case cochée (rien d'autre ne change)
+    expect(src).toContain('<div className="vse-montant-vingt" data-montant-vingt>');
+  });
 });

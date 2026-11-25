@@ -459,6 +459,10 @@ export const CSS_VALIDATION_SORTIE = `
 .vse-retenue{display:flex;flex-direction:column;gap:6px}
 .vse-retenue .vse-paragraphe-retenue{align-self:stretch;box-sizing:border-box;width:100%;min-width:0}
 .vse-retenue .vse-grise{opacity:.6}
+/* 🔴 (Arno, 25/11/2026, 22h51) « le champ de saisie du montant des 20 % doit s'afficher sur toute la largeur de la colonne » (390 px compris) :
+   le bloc s'etire, le champ perd la borne de 22rem du style commun des champs du preavis */
+.vse-retenue .vse-montant-vingt{align-self:stretch;box-sizing:border-box;width:100%;min-width:0;display:flex;flex-direction:column;gap:4px}
+.vse-montant-vingt .pvs-champ input{width:100%;max-width:none}
 .vse-pieces-mail{margin:0;font-weight:700;overflow-wrap:anywhere}
 .vse-frise{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:600px){.vse-frise{grid-template-columns:1fr 1fr}}
