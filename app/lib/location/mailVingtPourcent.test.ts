@@ -293,4 +293,34 @@ describe('🔴 la marque des mails de restitution', () => {
     expect(marqueVingtPourcent({ sortieId: 5, modele: 'restitution_partenaire' })).toEqual({ sortieId: 5, modele: 'restitution_partenaire' });
     expect(marqueVingtPourcent({ sortieId: 5, modele: 'autre' })).toEqual({ sortieId: 5, modele: null });
   });
+  it('🔴 (Arno, 25/11/2026, 22h51) le bandeau des échanges : « Locataire — restitution du solde validée » / « Partenaire — restitution du solde validée »', async () => {
+    const { libelleModeleVingt } = await import('../../(admin)/admin/(protected)/location/EchangesVingt');
+    expect(libelleModeleVingt('restitution_locataire')).toBe('Locataire — restitution du solde validée');
+    expect(libelleModeleVingt('restitution_partenaire')).toBe('Partenaire — restitution du solde validée');
+    // les quatre modèles du module « Envoyer un mail » gardent leur libellé
+    expect(libelleModeleVingt('locataire')).toBe('Locataire — restitution du solde effectuée');
+    expect(libelleModeleVingt(null)).toBe('Message libre');
+  });
+  it('🔴 (Arno, 25/11/2026, 22h51) un mail de la fenêtre « Faire restitution » (locataire OU partenaire) est noté comme parti du module de SA sortie, comme les autres', async () => {
+    h.query.mockReset().mockResolvedValue({ rows: [] });
+    const { noterMailVingt } = await import('./mailVingtPourcentRepo');
+    for (const modele of ['restitution_locataire', 'restitution_partenaire'] as const) {
+      const marque = marqueVingtPourcent({ sortieId: 40, modele })!;
+      await noterMailVingt({ sortieId: marque.sortieId, cleIdempotence: `vingt-restitution-40-${modele}`, modele: marque.modele });
+      expect(h.query.mock.calls.at(-1)![1]).toEqual([40, `vingt-restitution-40-${modele}`, modele]);
+    }
+    // la fenêtre envoie bien la marque de la sortie et le modèle, par LA porte d'envoi de la Gestion (le même chemin que le module)
+    const f = readFileSync('app/(admin)/admin/(protected)/location/FenetreRestitutionVingt.tsx', 'utf8');
+    expect(f).toContain("const API_ENVOIS = '/api/admin/gestion/envois';");
+    expect(f).toContain('vingtPourcent: { sortieId: l.sortieId, modele: m.modele }');
+    // la route : noté après le contrôle, classé sur le bien de la sortie, et « Ce mail + futurs échanges » — les réponses suivent le même bien et le même fil
+    const r = readFileSync('app/(admin)/api/admin/gestion/envois/route.ts', 'utf8');
+    const bloc = r.slice(r.indexOf('const vingt = marqueVingtPourcent(corps.vingtPourcent);'), r.indexOf('if (await fileEnvoiDisponible())'));
+    expect(bloc).toContain("demande.rattachement = { position: 'suite', retires: [] };");
+    expect(bloc).toContain('await noterMailVingt({ sortieId: vingt.sortieId, cleIdempotence: demande.cleIdempotence, modele: vingt.modele });');
+  });
+  it('🔴 la migration 518 admet les deux modèles de restitution dans la table des mails du module (sinon le lien ne serait jamais noté)', () => {
+    const m = readFileSync('db/migrations/518_location_restitution_vingt_montant_motif.sql', 'utf8');
+    expect(m).toContain("'restitution_locataire', 'restitution_partenaire'");
+  });
 });

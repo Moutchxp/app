@@ -56,9 +56,10 @@ export const MODELES_VINGT: readonly { cle: CleModeleVingt; libelle: string }[] 
 /** 🔴 (Arno, 25/11/2026, 22h06, 518) les mails partis de la fenêtre « Faire restitution » (pas des modèles au choix du module : la fenêtre les écrit) */
 export type CleRestitutionVingt = 'restitution_locataire' | 'restitution_partenaire';
 export type CleMarqueVingt = CleModeleVingt | CleRestitutionVingt;
+/** 🔴 (Arno, 25/11/2026, 22h51) le bandeau des échanges : « Envoyé depuis cette page — Locataire (ou Partenaire) — restitution du solde validée ». */
 export const MODELES_RESTITUTION: readonly { cle: CleRestitutionVingt; libelle: string }[] = [
-  { cle: 'restitution_locataire', libelle: 'Restitution des 20 % — mail au locataire' },
-  { cle: 'restitution_partenaire', libelle: 'Restitution des 20 % — mail au partenaire' },
+  { cle: 'restitution_locataire', libelle: 'Locataire — restitution du solde validée' },
+  { cle: 'restitution_partenaire', libelle: 'Partenaire — restitution du solde validée' },
 ];
 export const A_COMPLETER = '[à compléter]';
 

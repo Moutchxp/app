@@ -147,6 +147,29 @@ describe('les échanges suivent la sortie', () => {
     expect(query.mock.calls.filter((c) => String(c[0]).includes('FROM gestion_location_mail_vingt')).at(-1)![1]).toEqual([[5, 6, 30]]);
     expect(appels.some((x) => /^(UPDATE|INSERT|DELETE)/.test(x))).toBe(false);
   });
+  it('🔴 (Arno, 25/11/2026, 22h51) les mails de la fenêtre « Faire restitution » (locataire ET partenaire) sont dans les échanges de la restitution, réponses comprises, et comptent', async () => {
+    const fils: unknown[][] = [];
+    query.mockImplementation(async (sql: string, p?: unknown[]) => {
+      // le fil du locataire : le mail de restitution + SA réponse (rattachée au fil par la relève) ; le fil du partenaire : le mail seul
+      if (sql.replace(/\s+/g, ' ').includes('FROM gestion_message m WHERE m.fil_id = ANY')) {
+        fils.push(p![0] as unknown[]);
+        return { rows: [{ fil: '81', nombre: '2', dernier: '2026-11-26T08:30' }, { fil: '82', nombre: '1', dernier: '2026-11-25T23:01' }] };
+      }
+      return lecture(sql, p);
+    });
+    faites = [{ id: '5', sortie: '40', noms: ['LACROIX Manon'], logement: '11 rue de l’Abreuvoir', date_sortie: '2026-03-31', date: '2026-11-25', restitue: '263.9', retenu: '36.1',
+      commentaire: null, motif: 'régularisation de charges', par: 'Arnaud JOREL', le: '2026-11-25 23:00:00' }];
+    mailsLus = [
+      { sortie: '40', modele: 'restitution_locataire', le: '2026-11-25T23:00', a: ['a.jorel+locataire-lacroix@sansvisavis.com'], cc: [], cci: [], message: '910', fil: '81' },
+      { sortie: '40', modele: 'restitution_partenaire', le: '2026-11-25T23:01', a: ['partenaire@exemple.test'], cc: [], cci: [], message: '911', fil: '82' }];
+    const r = await lireSuiviVingtPourcent();
+    const f = r.faites![0];
+    expect(f.mails!.map((m) => [m.modele, m.filId, m.messageId])).toEqual([['restitution_locataire', 81, 910], ['restitution_partenaire', 82, 911]]);
+    // 2 (mail + réponse du locataire) + 1 (partenaire) = 3 ; le dernier = la réponse
+    expect(f.echanges).toEqual({ fils: [81, 82], nombre: 3, dernierLe: '2026-11-26T08:30' });
+    expect(fils.at(-1)).toEqual([81, 82]);
+    expect(appels.some((x) => /^(UPDATE|INSERT|DELETE)/.test(x))).toBe(false);
+  });
 });
 
 /** 🔴 (Arno, 25/11/2026, 22h06) le NOM de famille d'une fiche, pour « Bonjour Madame BENOÎT » (mail de restitution). */

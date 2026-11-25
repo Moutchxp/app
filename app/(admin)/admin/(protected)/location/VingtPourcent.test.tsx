@@ -1780,3 +1780,64 @@ describe('🔴🔴 Arno (25/11/2026, 22h06) — « Faire restitution » : montan
     expect(f.querySelector('[data-restitution-apercus]')).toBeNull();
   });
 });
+
+/**
+ * 🔴🔴 Arno (25/11/2026, 22h51, point 2) — « le dernier mail envoyé aux locataires depuis la modale de validation de la restitution doit lui aussi se
+ * trouver dans l'historique des mails échangés de ce module » : les mails de la fenêtre « Faire restitution » (locataire ET partenaire) apparaissent dans
+ * « Échanges » de la restitution, avec leur bandeau, comptent dans « N mails échangés », et la réponse du locataire (même fil) y est aussi.
+ */
+describe('🔴🔴 Arno (25/11/2026, 22h51) — les mails de la restitution dans les échanges', () => {
+  const M2 = (messageId: number, sens: string, de: string, recuLe: string) => ({ messageId, sens, de, deNom: null, recuLe, objet: 'Restitution du solde de votre dépôt de garantie',
+    corps: null, extrait: '…', pieces: [], destA: [{ adresse: 'gestion@exemple.test' }], destCc: [], destinatairesFondus: null, html: null });
+  const FILS_R: Record<string, unknown[]> = {
+    81: [M2(910, 'envoye', 'gestion@exemple.test', '2026-11-25T23:00:00+01:00'), M2(912, 'recu', 'a.jorel+locataire-lacroix@sansvisavis.com', '2026-11-26T08:30:00+01:00')],
+    82: [M2(911, 'envoye', 'gestion@exemple.test', '2026-11-25T23:01:00+01:00')],
+  };
+  const FAITE_R = { id: 4, sortieId: 40, locataires: ['LACROIX Manon'], logement: '11 rue de l’Abreuvoir, 92400 Courbevoie', dateSortie: '2026-03-31', date: '2026-11-25',
+    montantRestitue: 263.9, montantRetenuCharges: 36.1, motifDifference: 'régularisation de charges', commentaire: null, par: 'Arnaud JOREL', le: '2026-11-25 23:00',
+    mails: [
+      { le: '2026-11-25T23:00', a: ['a.jorel+locataire-lacroix@sansvisavis.com'], copies: 0, modele: 'restitution_locataire', lien: '/admin/gestion?fil=81&message=910', messageId: 910, filId: 81 },
+      { le: '2026-11-25T23:01', a: ['partenaire@exemple.test'], copies: 0, modele: 'restitution_partenaire', lien: '/admin/gestion?fil=82&message=911', messageId: 911, filId: 82 }],
+    echanges: { fils: [81, 82], nombre: 3, dernierLe: '2026-11-26T08:30' } };
+  beforeEach(() => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [FAITE_R] };
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET'); // LECTURE SEULE
+      lectures.push(String(u));
+      const f = /\/gestion\/fils\/(\d+)\/messages/.exec(String(u));
+      if (f) return { ok: true, status: 200, json: async () => ({ messages: FILS_R[f[1]] ?? [] }) } as Response;
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+  });
+  /** ouvre « Restitutions faites » et, s'il y en a un, déplie la restitution (le chevron de sa ligne) */
+  const ouvrirFaite = async (): Promise<Element> => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    const d = container.querySelector('[data-vgp-faites] > details') as HTMLDetailsElement;
+    await act(async () => { d.open = true; d.dispatchEvent(new Event('toggle')); });
+    const chevron = container.querySelector('[data-vgp-faite="4"] [data-vgp-deplier]') as HTMLButtonElement | null;
+    if (chevron !== null) await act(async () => { chevron.click(); });
+    await calmer();
+    return container.querySelector('[data-vgp-faite="4"]')!;
+  };
+  it('« 3 mails échangés » ; « Échanges (3) » : les deux mails de la fenêtre avec « Envoyé depuis cette page — Locataire / Partenaire — restitution du solde validée », et la RÉPONSE du locataire (même fil, sans bandeau)', async () => {
+    const f = await ouvrirFaite();
+    expect(f.querySelector('[data-vgp-mails-echanges]')?.textContent).toBe('3 mails échangés — dernier le 26/11/2026');
+    const e = f.querySelector('[data-vgp-echanges]')!;
+    expect(e.querySelector('.vgp-echanges-titre')?.textContent).toBe('Échanges (3)');
+    expect([...e.querySelectorAll('[data-stub-carte]')].map((c) => [c.getAttribute('data-stub-carte'), c.getAttribute('data-stub-fil')])).toEqual([['912', '81'], ['911', '82'], ['910', '81']]);
+    expect(e.querySelector('[data-vgp-echange="910"] [data-vgp-echange-modele]')?.textContent)
+      .toBe('Envoyé depuis cette page — Locataire — restitution du solde validée — Voir dans l’historique');
+    expect(e.querySelector('[data-vgp-echange="911"] [data-vgp-echange-modele]')?.textContent)
+      .toBe('Envoyé depuis cette page — Partenaire — restitution du solde validée — Voir dans l’historique');
+    expect(e.querySelector('[data-vgp-echange="912"] [data-vgp-echange-modele]')).toBeNull();
+    expect(lectures.filter((u) => u.includes('/gestion/fils/')).sort()).toEqual(['/api/admin/gestion/fils/81/messages', '/api/admin/gestion/fils/82/messages']);
+  });
+  it('pas encore capturé par la relève : le mail est déjà dans les échanges (« dans la conversation dès la prochaine relève »), avec son modèle', async () => {
+    donnees = { ...LU, restitutionDisponible: true, faites: [{ ...FAITE_R, mails: [{ le: '2026-11-25T23:00', a: ['a.jorel+locataire-lacroix@sansvisavis.com'], copies: 0,
+      modele: 'restitution_locataire', lien: null, messageId: null, filId: null }], echanges: { fils: [], nombre: 1, dernierLe: '2026-11-25T23:00' } }] };
+    const f = await ouvrirFaite();
+    expect(f.querySelector('[data-vgp-mails-echanges]')?.textContent).toBe('1 mail échangé — dernier le 25/11/2026');
+    expect(f.querySelector('[data-vgp-echange-attente]')?.textContent)
+      .toBe('25/11/2026 à 23:00 — a.jorel+locataire-lacroix@sansvisavis.com — Locataire — restitution du solde validée — dans la conversation dès la prochaine relève');
+  });
+});
