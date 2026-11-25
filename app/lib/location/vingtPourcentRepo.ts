@@ -27,8 +27,8 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   const aujourdhui = j[0].j;
   if (!(await vingtPourcentDisponible())) return { aujourdhui, lignes: [], manquantes: [] };
   const avec513 = await restitutionVingtDisponible();
-  const { rows } = await query<{ id: string; lot_id: string; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null }>(
-    `SELECT s.id::text, s.lot_id::text, s.date_sortie::text, (s.valide_le AT TIME ZONE 'Europe/Paris')::date::text AS valide_le,
+  const { rows } = await query<{ id: string; lot_id: string; lot_cle: string | null; date_sortie: string; valide_le: string; logement: string | null; noms: string[] | null }>(
+    `SELECT s.id::text, s.lot_id::text, lo.wippimmo_id::text AS lot_cle, s.date_sortie::text, (s.valide_le AT TIME ZONE 'Europe/Paris')::date::text AS valide_le,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS logement,
             (SELECT array_agg(l.nom ORDER BY l.nom_normalise) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.id = ANY(s.occupation_ids)) AS noms
@@ -55,7 +55,7 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
     const p = parLot.get(Number(r.lot_id))!;
     const arrete = p.copro?.coproprieteId != null ? arretes.get(p.copro.coproprieteId) ?? null : null;
     return {
-      sortieId: Number(r.id), lotId: Number(r.lot_id), locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, valideLe: r.valide_le,
+      sortieId: Number(r.id), lotId: Number(r.lot_id), lotCle: r.lot_cle, locataires: r.noms ?? [], logement: r.logement, dateSortie: r.date_sortie, valideLe: r.valide_le,
       copropriete: p.copro.coproprieteId === null ? null : { id: p.copro.coproprieteId, libelle: p.copro.libelle, aRattacher: false },
       arrete, suivi: suiviVingtPourcent({ dateSortie: r.date_sortie, valideLe: r.valide_le, arrete, officielles: p.officielles, aujourdhui }),
       cleCopro: p.copro.cle, immeuble: p.copro.immeuble,
@@ -103,7 +103,9 @@ async function contactsDesSorties(sorties: readonly { sortieId: number; lotId: n
   const personne = (sujet: 'locataire' | 'proprietaire', id: string, nom: string): PersonneContact => {
     const e = premier(sujet, id, 'email'); const t = premier(sujet, id, 'telephone');
     const affiche = t === undefined ? '' : formaterTelephone(t.valeur, t.brute);
-    return { nom, email: e === undefined ? null : (e.brute ?? e.valeur ?? '').trim(),
+    // 🔴 (Arno, 25/11/2026) « Envoyer un mail » : TOUTES les adresses encore valables (le contrôle « un mail par locataire » les reconnaît toutes)
+    const emails = [...new Set(co.filter((c) => c.sujet === sujet && c.sujet_id === id && c.sorte === 'email').map((c) => (c.brute ?? c.valeur ?? '').trim()).filter((x) => x !== ''))];
+    return { nom, emails, email: e === undefined ? null : (e.brute ?? e.valeur ?? '').trim(),
       telephone: t === undefined || affiche === '' ? null : { affiche, lien: `tel:${(t.valeur ?? t.brute ?? '').replace(/[^\d+]/g, '')}` } };
   };
   const nomDe = (prenom: string | null, nom: string | null, complet?: string | null): string =>

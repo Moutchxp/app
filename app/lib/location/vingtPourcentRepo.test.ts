@@ -97,10 +97,11 @@ describe('🔴🔴 les coordonnées des locataires et des propriétaires', () =>
     const lu = await lireSuiviVingtPourcent();
     const a = lu.lignes.find((l) => l.sortieId === 5)!;
     expect(a.contacts).toEqual({
-      locataires: [{ nom: 'Alice DUPONT', email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
-      proprietaires: [{ nom: 'Jean DURAND', email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', email: null, telephone: null }],
+      // 🔴 (Arno, 25/11/2026) + `emails` : toutes les adresses valables (« Envoyer un mail »), la première restant `email`
+      locataires: [{ nom: 'Alice DUPONT', emails: ['alice@exemple.test', 'autre@exemple.test'], email: 'alice@exemple.test', telephone: { affiche: '06 12 34 56 78', lien: 'tel:+33612345678' } }],
+      proprietaires: [{ nom: 'Jean DURAND', emails: [], email: null, telephone: { affiche: '01 45 67 89 01', lien: 'tel:+33145678901' } }, { nom: 'SCI Les Tilleuls', emails: [], email: null, telephone: null }],
     });
-    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', email: null, telephone: null }], proprietaires: [] });
+    expect(lu.lignes.find((l) => l.sortieId === 6)!.contacts).toEqual({ locataires: [{ nom: 'MARTIN', emails: [], email: null, telephone: null }], proprietaires: [] });
     expect(appels.some((x) => /^(INSERT|UPDATE|DELETE)/.test(x))).toBe(false);
   });
 });

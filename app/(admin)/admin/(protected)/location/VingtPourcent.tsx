@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Rea
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
+import { ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
 import {
   agoAConfirmer, agoOfficielleDuDossier, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
@@ -41,7 +42,21 @@ const geste: Geste = async (corps) => {
 
 export { nombreCoproprietesACompleter, TITRE_VINGT_POURCENT };
 
-export function EcranVingtPourcent({ api, retour }: { api: string; retour?: ReactNode }) {
+/** 🔴 (Arno, 25/11/2026) l'adresse de la ligne sur l'écran Gestion › « 20 % à restituer », module d'envoi déplié (le bouton de la Location y mène). */
+export const lienMailGestion = (sortieId: number): string => `/admin/gestion?ecran=vingt_pourcent&vingtMail=${sortieId}`;
+const lireMailInitial = (): number | null => {
+  if (typeof window === 'undefined') return null;
+  const n = Number(new URLSearchParams(window.location.search).get('vingtMail'));
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+/**
+ * `mail` (Arno, 25/11/2026, « Envoyer un mail ») : absent = l'écran de la Location (le bouton mène à la Gestion) ; `null` = la Gestion sans droit
+ * d'envoi (bouton inactif, dit pourquoi) ; sinon le contexte du module d'envoi de la Gestion.
+ */
+export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?: ReactNode; mail?: MailVingt | null }) {
+  // 🔴 (Arno, 25/11/2026) arrivé de la Location par « Envoyer un mail » : la ligne s'ouvre, sa catégorie aussi, module déplié (une fois)
+  const [mailInitial] = useState<number | null>(() => (mail !== undefined ? lireMailInitial() : null));
   const [lu, setLu] = useState<{ etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; data: SuiviVingtLu }>({ etat: 'charge' });
   const [version, setVersion] = useState(0);
   const [fiche, setFiche] = useState<{ immeuble: string | null; lotId: number } | null>(null);
@@ -73,6 +88,15 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
       .catch(() => { if (vivant) setLu({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' }); });
     return () => { vivant = false; };
   }, [api, version]);
+  useEffect(() => {
+    if (mailInitial === null || lu.etat !== 'ok') return;
+    const l = lu.data.lignes.find((x) => x.sortieId === mailInitial);
+    if (l === undefined) return;
+    const cat = categorieVingt(l, lu.data.aujourdhui);
+    setOuverts((s) => (s.has(cat) ? s : new Set([...s, cat])));
+    const t = setTimeout(() => document.querySelector(`[data-vgp-sortie="${mailInitial}"]`)?.scrollIntoView({ block: 'start' }), 50);
+    return () => clearTimeout(t);
+  }, [mailInitial, lu]);
   return (
     <div className="loc-page vgp" data-ecran-vingt-pourcent>
       <style>{CSS_LOCATION_ECRANS + CSS_VINGT_POURCENT}</style>
@@ -82,7 +106,7 @@ export function EcranVingtPourcent({ api, retour }: { api: string; retour?: Reac
         <p className="svv-page-sub">Les locataires sortis avec 20 % du dépôt de garantie retenus : l’AGO qui arrête leurs comptes et la date limite de restitution (un mois après l’AGO).</p>
       </header>
       {lu.etat === 'charge' ? <p className="loc-muet" role="status">Lecture…</p>
-        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche }}>
+        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche, mail, mailInitial }}>
           {/* 🔴🔴 Arno (24/11/2026, 23h53) — la recherche, sous le titre et au-dessus du listing : filtrage instantané, sur toutes les catégories */}
           <div className="vgp-recherche" role="search">
             <input type="search" value={recherche} onChange={(e) => chercher(e.target.value)} placeholder={PLACEHOLDER_RECHERCHE_VINGT}
@@ -186,8 +210,9 @@ export const dejaDit = (texte: string | null | undefined, sur: string | null | u
  * minimum : nom, prénom, e-mail, téléphone, ça doit rester compact ». Deux petites rubriques, une ligne par personne : « Prénom NOM · e-mail ·
  * téléphone » (« — » si absent ; e-mail et téléphone cliquables). Écran interne : rien n'est envoyé à qui que ce soit.
  */
-function Coordonnees({ c, unSeulLocataire = false }: { c: ContactsSortie | undefined; unSeulLocataire?: boolean }) {
-  if (c === undefined) return null;
+function Coordonnees({ c, unSeulLocataire = false, action }: { c: ContactsSortie | undefined; unSeulLocataire?: boolean; action?: ReactNode }) {
+  // 🔴 (Arno, 25/11/2026) « Envoyer un mail », aligné à droite sur la ligne « LOCATAIRE / PROPRIÉTAIRE »
+  if (c === undefined) return action === undefined ? null : <div className="vgp-coords-ligne"><div className="vgp-coords" />{action}</div>;
   // 🔴 (Arno, 25/11/2026) « pas de doublon » : un bloc qui ne concerne qu'UN locataire → sa ligne dit seulement « e-mail · téléphone » (son nom est
   //    déjà sur la ligne repliée) ; plusieurs locataires → « Prénom NOM · e-mail · téléphone » ; les propriétaires, toujours avec leur nom
   const rubrique = (titre: string, cle: string, gens: ContactsSortie['locataires'], sansNom = false) => (
@@ -201,8 +226,9 @@ function Coordonnees({ c, unSeulLocataire = false }: { c: ContactsSortie | undef
         </p>))}
     </div>
   );
-  return <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires, unSeulLocataire && c.locataires.length === 1)}
+  const coords = <div className="vgp-coords">{rubrique(c.locataires.length > 1 ? 'Locataires' : 'Locataire', 'locataires', c.locataires, unSeulLocataire && c.locataires.length === 1)}
     {rubrique(c.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire', 'proprietaires', c.proprietaires)}</div>;
+  return action === undefined ? coords : <div className="vgp-coords-ligne">{coords}{action}</div>;
 }
 
 /** 🔴 (Arno, 24/11/2026, 23h40) « Manque : dernière AGO et arrêté des comptes ». */
@@ -300,7 +326,7 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
 }
 
 /** 🔴 (Arno, 24/11/2026, 23h16) les gestes d'une ligne qui sortent de l'écran : ouvrir la fiche Copropriété (puis tout relire). */
-const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void }>({ onFiche: () => {} });
+const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void; mail?: MailVingt | null; mailInitial?: number | null }>({ onFiche: () => {} });
 
 /** Ce qui manque à une ligne SANS date calculable (« Dates / copropriétés manquantes »), à la place de la date. PUR. */
 export function manquesDeLaLigne(l: Pick<LigneVingtPourcent, 'copropriete' | 'suivi' | 'arrete'>): string[] {
@@ -318,8 +344,17 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
   // 🔴 (Arno, 25/11/2026) une AGO PROJETÉE dont la date limite est passée : « AGO à confirmer — saisir la date officielle » (orange), à la place
   //    de la mention de date provisoire (une seule ligne réservée sous l'étiquette)
   const aConfirmer = agoAConfirmer(l, aujourdhui);
-  const { onFiche } = useContext(GestesLigne);
-  const [ouvert, setOuvert] = useState(false);
+  const { onFiche, mail, mailInitial } = useContext(GestesLigne);
+  const [ouvert, setOuvert] = useState(mailInitial === l.sortieId);
+  // 🔴🔴 (Arno, 25/11/2026) « Envoyer un mail » : le module existant, déplié sous les coordonnées ; un nouveau clic (ou « Fermer ») le replie
+  const [mailOuvert, setMailOuvert] = useState(mailInitial === l.sortieId && mail != null);
+  const [fermetureMail, setFermetureMail] = useState(0);
+  const boutonMail = mail === undefined
+    ? <a className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" href={lienMailGestion(l.sortieId)} data-vgp-envoyer-mail={l.sortieId}
+      title="Ouvre cette ligne sur l’écran Gestion › « 20 % à restituer », module d’envoi déplié">Envoyer un mail</a>
+    : <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" data-vgp-envoyer-mail={l.sortieId} aria-expanded={mailOuvert}
+      disabled={mail === null} title={mail === null ? 'Envoi indisponible : droit d’envoi au nom de la Gestion ou mise à jour de la base manquant' : undefined}
+      onClick={() => { if (mailOuvert) setFermetureMail((n) => n + 1); else setMailOuvert(true); }}>Envoyer un mail</button>;
   const detailId = useId();
   const s = l.suivi;
   const alerte = s.etat === 'ok' ? s.alerte : 'sans';
@@ -370,7 +405,8 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
               d'arrêté des comptes manquante » quand elle l'est) */}
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
         </dl>
-        <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} />
+        <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} action={boutonMail} />
+        {mailOuvert && mail != null && <ModuleMailLigne l={l} mail={mail} fermeture={fermetureMail} onFermer={() => { setMailOuvert(false); setFermetureMail(0); }} />}
         {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>
     </li>
@@ -634,6 +670,11 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-concernes{gap:6px}
 .vgp-concerne{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;padding:6px 0;border-top:1px solid var(--color-svv-line);min-width:0}
 .vgp-concerne .vgp-coords{flex:1 1 100%}
+.vgp-coords-ligne{display:flex;align-items:flex-start;gap:10px 16px;min-width:0}
+.vgp-coords-ligne > .vgp-coords{flex:1 1 auto}
+.vgp-envoyer-mail{flex:0 0 auto;margin:0;width:auto;min-height:44px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center}
+.vgp-mail{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line-strong);border-radius:12px;background:var(--color-svv-surface);min-width:0}
+.vgp-mail-module{display:flex;flex-direction:column;gap:6px;min-width:0}
 .vgp-coords{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:4px 16px;min-width:0}
 .vgp-coord{display:flex;flex-direction:column;gap:1px;min-width:0}
 .vgp-coord-titre{margin:0;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
@@ -663,5 +704,6 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
   .vgp-ligne-limite .vgp-sans-copro{line-height:1.2;padding:0 8px}
   .vgp-ligne-ago{align-items:flex-start} .vgp-ligne-boutons{flex-direction:column} .vgp-ligne-boutons .gst-btn{width:100%} .vgp-ligne-detail{padding-left:0}
   .vgp-concerne{flex-direction:column;align-items:stretch} .vgp-concerne .gst-btn{width:100%}
+  .vgp-coords-ligne{flex-direction:column;align-items:stretch} .vgp-envoyer-mail{width:100%;justify-content:center}
   .vgp-completer,.vgp-restituer{align-self:stretch;width:100%} .vgp-actions{flex-direction:column-reverse} .vgp-actions .gst-btn{width:100%} }
 `;

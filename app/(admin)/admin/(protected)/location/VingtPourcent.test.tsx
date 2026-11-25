@@ -10,6 +10,23 @@ const fiche = vi.fn();
 vi.mock('../gestion/FicheCopropriete', () => ({
   FicheCopropriete: (p: { immeuble?: string | null; onFerme: () => void }) => { fiche(p); return createElement('button', { 'data-stub-fiche': p.immeuble ?? '', onClick: p.onFerme }, 'fermer'); },
 }));
+// 🔴 (25/11/2026) « Envoyer un mail » : le module d'envoi (Redaction) et la lecture des adresses du bien, doublés — rien ne part, rien n'est lu
+const redaction = vi.fn();
+vi.mock('../gestion/Redaction', () => ({
+  Redaction: (p: { brouillon: { a: string[] }; fermetureDemandee?: number; onFerme: () => void; onChange: (b: unknown) => void }) => {
+    redaction(p);
+    return createElement('div', { 'data-stub-redaction': (p.brouillon.a ?? []).join(','), 'data-fermeture': p.fermetureDemandee ?? 0 },
+      createElement('button', { 'data-stub-fermer': '', onClick: p.onFerme }, 'fermer'),
+      createElement('button', { 'data-stub-deux-locataires': '', onClick: () => p.onChange({ ...p.brouillon, a: ['alice@exemple.test', 'leo@exemple.test'] }) }, 'deux'));
+  },
+}));
+const nouveauDepuisLeBien = vi.fn();
+vi.mock('../../../../lib/gestion/nouveauMessageBien', () => ({
+  brouillonNouveauDepuisLeBien: async (base: Record<string, unknown>, bien: unknown) => {
+    nouveauDepuisLeBien(bien);
+    return { ...base, cibles: [{ sorte: 'lot', cle: 'L1', id: 1, libelle: '1 rue A' }], suggestionsBien: [], appel: { formule: 'Bonjour,', civilites: {} } };
+  },
+}));
 const { EcranVingtPourcent } = await import('./VingtPourcent');
 const { texteConfirmationRestitution } = await import('../../../../lib/location/vingtPourcent');
 const { BoutonVingtPourcent } = await import('./BoutonVingtPourcent');
@@ -1219,5 +1236,90 @@ describe('🔴 Arno (25/11/2026) — « Arrêté des comptes » retiré du déta
     expect(a.querySelector('[data-vgp-exercice]')?.textContent).toBe('Exercice clos le 31/12/2026');
     expect(container.querySelector('[data-vgp-sortie="7"] [data-vgp-exercice]')?.textContent).toBe('Exercice inconnu (date d’arrêté des comptes manquante)');
     expect(container.querySelectorAll('[data-vgp-arrete]')).toHaveLength(0);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « Bouton « Envoyer un mail », aligné à droite sur la ligne « LOCATAIRE / PROPRIÉTAIRE » du détail. Clic : notre module d'envoi de
+ * mail EXISTANT […] s'ouvre juste en dessous, à l'intérieur de la ligne dépliée ; nouveau clic ou « Fermer » le replie. » Décisions 1A et 2A.
+ */
+describe('🔴🔴 Arno (25/11/2026) — « Envoyer un mail » dans la ligne dépliée', () => {
+  const CONTACTS = { locataires: [{ nom: 'Alice DUPONT', email: 'alice@exemple.test', emails: ['alice@exemple.test'], telephone: null }],
+    proprietaires: [{ nom: 'Jean DURAND', email: 'jean@exemple.test', emails: ['jean@exemple.test'], telephone: null }] };
+  const CONTEXTE = { schemaPret: true, peutEnvoyer: true, jetonPresent: true, signature: '— Gestion', signatureHtml: '<p>— Gestion</p>', nomExpediteur: 'CRITERIMMO',
+    adresseGestion: 'gestion@exemple.test', delaiAnnulationS: 10 } as never;
+  beforeEach(() => {
+    redaction.mockClear(); nouveauDepuisLeBien.mockClear();
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], lotCle: 'L1', contacts: CONTACTS }, { ...LU.lignes[1], contacts: { locataires: [{ nom: 'Léo DURAND', email: 'leo@exemple.test', emails: ['leo@exemple.test'], telephone: null }], proprietaires: [] } }, LU.lignes[2]] };
+  });
+  const ligne = () => container.querySelector('[data-vgp-sortie="5"]')!;
+  it('le bouton est à droite de la ligne « Locataire / Propriétaire » du détail', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
+    const rangee = ligne().querySelector('[data-vgp-detail] .vgp-coords-ligne')!;
+    expect([...rangee.children].map((c) => c.className)).toEqual(['vgp-coords', 'svv-btn svv-btn-outline gst-btn vgp-envoyer-mail']);
+    expect(rangee.querySelector('[data-vgp-envoyer-mail]')?.textContent).toBe('Envoyer un mail');
+  });
+  it('Gestion : un clic ouvre LE module existant (Redaction) dans la ligne, le bien pré-coché, la sortie marquée ; un nouveau clic le referme par sa porte', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
+    await act(async () => { (ligne().querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement).click(); }); await calmer();
+    const m = ligne().querySelector('[data-vgp-mail="5"]')!;
+    expect(m.querySelector('[data-stub-redaction]')).not.toBeNull();
+    expect(nouveauDepuisLeBien).toHaveBeenCalledWith({ lotId: 1, cle: 'L1', libelle: '1 rue A, 92800 Puteaux' });
+    const p = redaction.mock.calls.at(-1)![0] as { brouillon: { vingtPourcent: unknown; cibles: unknown[] }; lotFiche: number; contexte: unknown };
+    expect(p.brouillon.vingtPourcent).toEqual({ sortieId: 5 });
+    expect(p.lotFiche).toBe(1);
+    expect(p.contexte).toBe(CONTEXTE);
+    expect(ligne().querySelector('[data-vgp-envoyer-mail]')?.getAttribute('aria-expanded')).toBe('true');
+    // nouveau clic : la demande de fermeture passe à l'éditeur (c'est lui qui décide du brouillon) ; il rend la main → replié
+    await act(async () => { (ligne().querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement).click(); });
+    expect(m.querySelector('[data-stub-redaction]')?.getAttribute('data-fermeture')).toBe('1');
+    await act(async () => { (m.querySelector('[data-stub-fermer]') as HTMLButtonElement).click(); });
+    expect(ligne().querySelector('[data-vgp-mail]')).toBeNull();
+  });
+  it('« Fermer » sous le module : même porte ; rien n’est envoyé (aucun POST)', async () => {
+    const methodes: string[] = [];
+    const f = global.fetch; global.fetch = vi.fn(async (u: string | URL | Request, i?: RequestInit) => { methodes.push(i?.method ?? 'GET'); return f(u, i); }) as unknown as typeof fetch;
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
+    await act(async () => { (ligne().querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement).click(); }); await calmer();
+    await act(async () => { (ligne().querySelector('[data-vgp-mail-fermer]') as HTMLButtonElement).click(); });
+    expect(ligne().querySelector('[data-stub-redaction]')?.getAttribute('data-fermeture')).toBe('1');
+    expect(methodes.every((m) => m === 'GET')).toBe(true);
+  });
+  it('un mail par locataire, contrôlé à l’écran : deux locataires dans le même mail → le motif s’affiche au-dessus du module', async () => {
+    donnees = { ...donnees, lignes: [{ ...donnees.lignes[0], contacts: { ...CONTACTS, locataires: [...CONTACTS.locataires, { nom: 'Léo DURAND', email: 'leo@exemple.test', emails: ['leo@exemple.test'], telephone: null }] } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
+    await act(async () => { (ligne().querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement).click(); }); await calmer();
+    expect(ligne().querySelector('[data-vgp-mail-refus]')).toBeNull();
+    await act(async () => { (ligne().querySelector('[data-stub-deux-locataires]') as HTMLButtonElement).click(); });
+    expect(ligne().querySelector('[data-vgp-mail-refus]')?.textContent).toBe('Un mail par locataire : ce message s’adresse à plusieurs locataires. Écrivez à chacun séparément.');
+  });
+  it('Location : le bouton reste à la même place et mène à la même ligne sur l’écran Gestion, module déplié ; aucun module ici', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const b = ligne().querySelector('[data-vgp-envoyer-mail]')!;
+    expect([b.tagName, b.getAttribute('href')]).toEqual(['A', '/admin/gestion?ecran=vingt_pourcent&vingtMail=5']);
+    expect(redaction).not.toHaveBeenCalled();
+  });
+  it('Gestion sans droit d’envoi : bouton inactif, qui dit pourquoi', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: null }));
+    const b = ligne().querySelector('[data-vgp-envoyer-mail]') as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    expect(b.title).toContain('Envoi indisponible');
+  });
+  it('arrivée depuis la Location (?vingtMail=5) : la catégorie et la ligne s’ouvrent, module déplié', async () => {
+    window.history.replaceState(null, '', '/admin/gestion?ecran=vingt_pourcent&vingtMail=5');
+    try {
+      await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE } }));
+      await calmer();
+      expect((container.querySelector('[data-vgp-categorie="en_attente"] > details') as HTMLDetailsElement).open).toBe(true);
+      expect(ligne().getAttribute('data-vgp-ouvert')).toBe('1');
+      expect(ligne().querySelector('[data-stub-redaction]')).not.toBeNull();
+    } finally { window.history.replaceState(null, '', '/'); }
+  });
+  it('la Gestion passe son module d’envoi à l’écran ; le module part avec la marque de la sortie', () => {
+    const g = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
+    expect(g).toContain('mail={redaction !== null && redaction.schemaPret && redaction.peutEnvoyer ? { contexte: redaction,');
+    const r = readFileSync('app/(admin)/admin/(protected)/gestion/Redaction.tsx', 'utf8');
+    expect(r).toContain('vingtPourcent: b.vingtPourcent != null ? { sortieId: b.vingtPourcent.sortieId } : undefined,');
+    expect(readFileSync('app/(admin)/admin/(protected)/location/VingtPourcentPage.tsx', 'utf8')).not.toContain('mail=');
   });
 });

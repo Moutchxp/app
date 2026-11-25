@@ -1534,7 +1534,9 @@ export function GestionVue({ intro, location = false }: {
         /* 🔴 Arno (23/11/2026) — « 20 % à restituer », ouvert par l'entrée de la colonne de gauche (sous « Préavis ») : le MÊME écran que la
            pleine page de la Location, lu côté Gestion (lecture seule). */
         <div className="pe pe-vingt-pourcent" data-ecran-gestion-vingt-pourcent>
+          {/* 🔴 (Arno, 25/11/2026) « Envoyer un mail » : le module d'envoi de la Gestion (absent tant que le contexte n'est pas lu ou sans droit d'envoi) */}
           <EcranVingtPourcent api={API_PREAVIS_GESTION}
+            mail={redaction !== null && redaction.schemaPret && redaction.peutEnvoyer ? { contexte: redaction, onGeste: (m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); } } : null}
             retour={<p style={{ margin: '0 0 8px' }}><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={retourEcranOuDefaut} data-retour-gestion>← Retour à la Gestion</button></p>} />
         </div>
       ) : ecran === 'syndics' ? (

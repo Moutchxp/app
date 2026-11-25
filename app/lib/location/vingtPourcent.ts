@@ -118,6 +118,8 @@ export function libelleAlerte(alerte: AlerteVingt, limite: string, jours: number
 export interface LigneVingtPourcent {
   sortieId: number;
   lotId: number;
+  /** 🔴 (Arno, 25/11/2026) la clé WIPPIMMO du bien (le bien pré-coché d'« Envoyer un mail ») ; absente : non lue */
+  lotCle?: string | null;
   locataires: string[];
   logement: string | null;
   dateSortie: string;
@@ -134,7 +136,9 @@ export interface LigneVingtPourcent {
   contacts?: ContactsSortie;
 }
 /** Une personne : « Prénom NOM », son premier e-mail, son premier téléphone (affiché « 06 12 34 56 78 », lien « tel: »). */
-export interface PersonneContact { nom: string; email: string | null; telephone: { affiche: string; lien: string } | null }
+export interface PersonneContact { nom: string; email: string | null; telephone: { affiche: string; lien: string } | null;
+  /** 🔴 (Arno, 25/11/2026) toutes ses adresses encore valables (« Envoyer un mail ») ; absent : la seule `email` */
+  emails?: string[] }
 export interface ContactsSortie { locataires: PersonneContact[]; proprietaires: PersonneContact[] }
 export interface SuiviVingtLu {
   aujourdhui: string; lignes: LigneVingtPourcent[]; manquantes: LigneDatesManquantes[];

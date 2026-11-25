@@ -35,6 +35,8 @@ import { refusEnvoiHabitants } from '../../../../../lib/gestion/confidentialiteH
 import { biensDesClients } from '../../../../../lib/gestion/biensDesClientsRepo';
 import { ciblesAPoserALEnvoi, type OrigineCible } from '../../../../../lib/gestion/contexteClients';
 import { rattachementRecu } from '../../../../../lib/gestion/rattachementBrouillon';
+import { marqueVingtPourcent } from '../../../../../lib/location/mailVingtPourcent';
+import { refusMailVingtPourcent } from '../../../../../lib/location/mailVingtPourcentRepo';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -217,6 +219,13 @@ export async function POST(request: Request): Promise<Response> {
   // direct (les deux chemins passent ici), même refus, même motif ; rien n'est écrit ni envoyé.
   const habitantVisible = await refusEnvoiHabitants(demande);
   if (habitantVisible !== null) return Response.json({ erreur: habitantVisible, code: 'invalide' }, { status: 422 });
+  // 🔴🔴 Arno (25/11/2026, décision 2A) — un mail parti de l'écran « 20 % à restituer » : UN MAIL PAR LOCATAIRE, contrôlé ici aussi (adresses des
+  // locataires de la sortie relues en base), avant la mise en file comme avant l'envoi direct ; rien n'est écrit ni envoyé en cas de refus.
+  const vingt = marqueVingtPourcent(corps.vingtPourcent);
+  if (vingt !== null) {
+    const motif = await refusMailVingtPourcent(vingt.sortieId, [...demande.a, ...demande.cc, ...demande.cci]);
+    if (motif !== null) return Response.json({ erreur: motif, code: 'invalide' }, { status: 422 });
+  }
   if (await fileEnvoiDisponible()) {
     const pret = pretAEnvoyer({
       a: demande.a, cc: demande.cc, cci: demande.cci, objet: demande.objet, corps: demande.corpsTexte,
