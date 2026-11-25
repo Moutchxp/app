@@ -310,9 +310,9 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
 
 ## 6. État courant & prochaine action
 
-**Dépôt (mesuré le 25/11/2026, après `c44bc880`) :**
-- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `c44bc880`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
-  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **61 commits d'avance, NON POUSSÉS** :
+**Dépôt (mesuré le 25/11/2026, après `e6c0c7b7`) :**
+- Branche **`main`**, **HEAD = le commit de cette passation** (précédent : `e6c0c7b7`). `origin/main` = **`38f9fc60`** (poussé par Arno le 25/11/2026 :
+  tous les commits jusqu'à la passation `38f9fc60` comprise ; avant, `b1d4d866` le 24/11 à 00:10). **62 commits d'avance, NON POUSSÉS** :
   les quatre demandes d'Arno du 25/11 (`91f06df3`, `6939633b`, `f8069b29`, `13cf958f`), la passation `e806eac9`, les quatre suivantes du 25/11
   (`53d7852b`, `6a9e14ca`, `85d244b2`, `4b7b8bba`), la passation `399463dd`, la pastille unique `bf206a3f`, la passation `74a6601a`, les titres « AGO » `4a92d1be`, la passation `15a99d35`, l'alerte du lundi seulement avec une urgence `0d1a809a`, la passation `45a8e982`, la correction du test instable `59000b2a`, la passation `c88b0caf`,
   puis « Alerte restitution en retard » : `a3376e28` (catégorie), `a0877bca` (mail tous les 2 jours), `f54002df` (couleur des boutons), la passation `2fc22378`,
@@ -327,7 +327,7 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
   « Classer ce mail » verrouillé sur le bien de la sortie `5c3a9d50`, la passation `3c038828`, la restitution au journal du bien `e3de40e7`, les
   locataires proposés limités aux sortis `5ab06e63`, la conversation de la ligne `c0312cc7`, « Répondre » et module fermé `5a8c43c1`, « N mails
   échangés » sous la capsule AGO `9f31e125`, la passation `fbcbd36f`, la nouvelle règle Urgence / Alerte `2c97de46`, les échanges dans
-  « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
+  « Restitutions faites » `46526614`, « Aucun échange pour l'instant » `c44bc880`, la passation `e6c0c7b7` et cette passation (détail plus bas). Déjà poussés le 25/11 : `4f3c1e3f` (fenêtre « Valider la sortie », bloc 20 % : le bien sans copropriété aligné sur le cas rattaché, doublons retirés
   avec l'accord d'Arno), `47925902` (passation), `761222a0` (récapitulatif : « Date d'arrêté des comptes » ajoutée, « Texte ajouté au mail
   du (des) propriétaire(s) » retirée — détail plus bas), `c4791cc8` (passation), `4bde8fc2` (champ de recherche d'adresse : un vrai champ,
   pleine largeur — détail plus bas), `c89c786e` (passation), `6f79c98a` (« Valider la sortie » : partenaires sélectionnables un par un, un
@@ -941,11 +941,28 @@ Migrations **448 → 492** (toutes en recette ; l'état de la prod se lit par `p
     · `c44bc880` (point 3) niveau 2 : « Échanges (0) — Aucun échange pour l'instant ». Les 3 niveaux : 1 ligne repliée, 2 détail + échanges
       (module fermé), 3 module (« Envoyer un mail » / « Répondre »). Objet d'une réponse : « Re: » comme la boîte Gestion (Arno a écrit « RE : »).
     · Point 4 (mention sous la capsule AGO) : déjà livré en `9f31e125`, rien de plus.
-    · 🔴 POINT 5 (locataire d'essai « _TEST CONVERSATION 20 POURCENT ») NON FAIT, EN ATTENTE DU CHOIX D'ARNO : les verrous en base (339-340
-      mails/pièces/rattachements/journal, 468 sortie validée, 515 mails du module, verrous de l'annuaire, AG en ajout seul) interdisent tout DELETE ;
-      la « commande pour supprimer proprement » demandée est donc impossible sans lever ces verrous (contraire à « aucune exception, même humaine »).
-      Options soumises : (a) créer, retrait par les gestes normaux (Sortir du suivi, Faire restitution) ; (b) créer + nettoyage qui lève les verrous
-      en recette seulement ; (c) ne pas créer (simulation navigateur, comme jusqu'ici). Rien n'a été écrit. Captures `25-11-S*-*`.
+    · POINT 5 — CHOIX D'ARNO (a) (25/11) : DEUX LOCATAIRES D'ESSAI CRÉÉS EN RECETTE (svav_recette seulement), sans commande de suppression, sans
+      lever aucun verrou, AUCUN mail envoyé. Script (non commité) `.captures/vingt-pourcent/creer-locataires-conversation-test.ts` (refuse une autre
+      base, refuse une 2e passe) ; compte rendu `.captures/vingt-pourcent/creation-locataires-conversation-25-11.txt`. Aucun code changé.
+      🔴 DONNÉES _TEST CRÉÉES (recette, le 25/11/2026, signées « essai _TEST (25/11/2026) ») :
+        - syndic n° 54 « _TEST Syndic Conversation » <a.jorel+syndic@sansvisavis.com>, rattaché aux deux copropriétés ;
+        - A : copropriété 341 « _TEST Résidence Conversation A » (41 rue _TEST CONVERSATION 20 POURCENT, arrêté 30/06, AGO officielle 15/11/2026),
+          propriétaire 329 « _TEST Propriétaire » <a.jorel+proprio@…>, lot 476 (`app-test-conv-20-lot-A`), locataire 556 « _TEST CONVERSATION
+          20 POURCENT A » <a.jorel+locataire@…>, occupation 583 (sortie 15/03/2026), sortie validée 13 (retenue 20 %) → « AGO passée » ;
+        - B : copropriété 342 « _TEST Résidence Conversation B » (42 rue …, AGO officielle 31/10/2026), propriétaire 330, lot 477
+          (`app-test-conv-20-lot-B`), locataire 557, occupation 584, sortie validée 14 → « Urgence » ;
+        - par locataire, 3 fils (A : 37195-37197 ; B : 37198-37200), 7 mails (4 envoyés, 3 reçus ; Message-ID `<essai-test-conv-20-…@criterimmo.fr>`,
+          In-Reply-To / References chaînés), chacun rattaché CONFIRMÉ au lot, période « Ce mail + futurs échanges » par fil ; 4 envois par locataire
+          (`gestion_envoi`, cle `essai-test-conv-20-…`, état envoye, jamais en file) notés au module (515, modèles syndic / proprietaire / locataire /
+          libre) ; une pièce PDF factice (709 octets, stockage LOCAL MinIO) sur la réponse du syndic (mails 58434 et 58441).
+      🔴 LES RETIRER, PAR LES GESTES NORMAUX (jamais une suppression) : ① sur chaque ligne « _TEST CONVERSATION 20 POURCENT A/B » de « 20 % à
+      restituer » : « Faire restitution » (elle passe dans « Restitutions faites ») ; ② dans la fiche de chaque bien (lots 476, 477) : « Sortir du
+      suivi » sur chacun des 7 mails (restaurable) ; ③ dans la boîte Gestion, les 6 conversations (objets « Date de la prochaine AGO — 41/42 rue
+      _TEST CONVERSATION… », « Restitution du solde de votre dépôt de garantie — … ») : mise à la corbeille. Les fiches (copropriétés, syndic,
+      propriétaires, lots, locataires) restent, marquées « _TEST ».
+      Vérifié dans Chrome (ordinateur et 390 px, clair et sombre) : niveau 1 « 7 mails échangés — dernier le 23/11/2026 » sous la capsule AGO (A en
+      AGO passée, B en Urgence, hauteur 92 px) ; niveau 2 « Échanges (7) », PDF visible, module fermé ; niveau 3 « Répondre » : même fil, destinataire
+      prérempli (syndic, locataire), « Re: … », classement verrouillé — « Envoyer » jamais cliqué ; aucun brouillon. Captures `25-11-T-*`.
     · `418e54e6` — 513 et 514 inscrites au registre de la recette (voir « Migrations »).
     · `ed1b0b45` — « depuis Gestion › Copropriétés, « _TEST ARRETE COMPTES 20 POURCENT 2 » ouvre une fiche vide » : CAUSE = données d'essai
       mal formées (le NOM écrit dans `libelle`, qui porte l'immeuble dont `cle_immeuble` est la forme normalisée ; la liste ouvre la fiche par
