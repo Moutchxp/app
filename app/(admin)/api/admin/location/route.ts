@@ -1,3 +1,4 @@
+import { depotsDesOccupations, saisirMontantVingt } from '../../../../lib/location/montantVingtRepo';
 import { dansLePerimetreDuTest } from '../../../../lib/location/perimetreRequete';
 import { propositionsRattachement, rattacherAdresse, refuserRattachement } from '../../../../lib/gestion/rattachementParcelleRepo';
 import { messageEcritureImpossible } from '../../../../lib/location/erreurEcriture';
@@ -284,7 +285,9 @@ export async function GET(request: Request): Promise<Response> {
     const idRetenue = identifiant(p('retenueSortie'));
     if (idRetenue !== null) {
       const x = await logementDe(idRetenue);
-      return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: { lotId: x.lotId, copropriete: x.copropriete } }, { headers: ENTETES });
+      // 🔴 (Arno, 25/11/2026, 22h06) + le dépôt de garantie (centimes) des conditions d'entrée, pour calculer les 20 % ; `null` : inconnu
+      const depot = x === null ? null : (await depotsDesOccupations([idRetenue])).get(idRetenue) ?? null;
+      return Response.json(x === null ? { etat: 'inconnu' } : { etat: 'ok', data: { lotId: x.lotId, copropriete: x.copropriete, depotCentimes: depot } }, { headers: ENTETES });
     }
     // 🔴 Arno (16/11/2026, 475) — les AG de la copropriété pour « Valider la sortie » (case 20 % cochée) — LECTURE SEULE.
     const idAgSortie = identifiant(p('agSortie'));
@@ -493,6 +496,8 @@ async function postLocation(request: Request): Promise<Response> {
     // 🔴🔴 (Arno, 24/11/2026) « 20 % à restituer » — « Restitution faite » et son « Annuler » : gestes en ajout seul (513), journalisés au dossier du locataire
     if (action === 'restitution-20-faite') return repondre(await enregistrerRestitution(corps, auteur));
     if (action === 'restitution-20-annuler') return repondre(await annulerRestitution(corps, auteur));
+    // 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % d'une sortie existante, saisi depuis sa ligne (ajout seul, 516)
+    if (action === 'montant-20-saisi') return repondre(await saisirMontantVingt(corps, auteur));
     if (action === 'pv-ag') {
       const r = await enregistrerPv(corps, auteur);
       return Response.json(r.ok ? { etat: 'ok', data: { entrees: r.entrees } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });

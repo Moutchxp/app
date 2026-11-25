@@ -1,4 +1,5 @@
-import { agosOfficielles, agoQuiCompte } from './vingtPourcent';
+import { agosOfficielles, agoQuiCompte, montantFr, MOTIF_MONTANT_VINGT_OBLIGATOIRE, origineMontantVingt, type MontantVingt } from './vingtPourcent';
+import { depotDeLaSortie, depotsDesOccupations, montantVingtDisponible, montantVingtSaisi, noterMontantVingt } from './montantVingtRepo';
 import { lireArrete } from './arreteComptesRepo';
 import type { ArreteComptes } from './arreteComptes';
 import { query, withTransaction } from '../db/client';
@@ -66,6 +67,8 @@ export interface DemandeValidation {
   mentionAg?: boolean;
   coproprieteChoix?: unknown;
   coproprieteOui?: boolean;
+  /** 🔴 Arno (25/11/2026, 22h06) — case 20 % cochée : le MONTANT des 20 % retenus (euros ; prérempli à 20 % du dépôt connu, modifiable ; obligatoire). */
+  montantVingt?: unknown;
 }
 
 /**
@@ -144,6 +147,8 @@ type Preparation = {
   date: string;
   sortants: number[];
   retenue: boolean;
+  /** 🔴 (25/11/2026, 22h06) le montant des 20 % retenus et le dépôt connu (centimes) qui sert à dire s'il est calculé ou saisi ; `null` : sans retenue */
+  montantVingt: { montant: number; depotCentimes: number | null } | null;
   copropriete: boolean | null;
   pieces: { id: number; nom: string; typeMime: string; taille: number }[];
   /** 🔴 (16/11/2026, 475) les AG saisies (case 20 % cochée, historique installé) */
@@ -181,6 +186,15 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   const paragrapheRetenue = typeof d.paragrapheRetenue === 'string' && d.paragrapheRetenue.trim() !== '' ? d.paragrapheRetenue.trim() : PARAGRAPHE_RETENUE_LOCATAIRE;
   if (retenue && etatRetenue(logement.copropriete) === 'impossible') return { etat: 'refus', motif: MOTIF_RETENUE_IMPOSSIBLE, champ: 'retenue' };
   if (paragrapheRetenue.length > COMPTE_RENDU_MAX) return { etat: 'refus', motif: `Le paragraphe de la retenue dépasse ${COMPTE_RENDU_MAX} caractères.`, champ: 'retenue' };
+  // 🔴🔴 Arno (25/11/2026, 22h06) — case cochée : le MONTANT des 20 % (prérempli à 20 % du dépôt connu, modifiable) est OBLIGATOIRE ; son origine
+  //    (calculé / saisi) est tranchée ICI, sur le dépôt relu, jamais sur ce que dit l'écran
+  let montantVingt: Preparation['montantVingt'] = null;
+  if (retenue) {
+    const m = montantVingtSaisi(d.montantVingt);
+    if (m === null) return { etat: 'refus', motif: MOTIF_MONTANT_VINGT_OBLIGATOIRE, champ: 'montantVingt' };
+    const occ = [d.occupationId, ...sortants];
+    montantVingt = { montant: m, depotCentimes: depotDeLaSortie(occ, await depotsDesOccupations(occ)) };
+  }
   // 🔴 Arno (23/11/2026) — « créer le même bloc de texte pour le texte qui sera envoyé au propriétaire, avec la même possibilité de le modifier » :
   // le texte de la fenêtre part TEL QUEL (même borne que celui des locataires)
   const phraseSaisie = typeof d.phraseProprietaire === 'string' && d.phraseProprietaire.trim() !== '' ? d.phraseProprietaire.trim() : null;
@@ -258,12 +272,16 @@ async function preparer(d: DemandeValidation, auteur: Auteur, deps: DepsAvis): P
   // 🔴 L'alerte de coordonnées porte aussi sur le paragraphe de la retenue (modifiable) quand il part.
   const texteControle = retenue ? [compteRendu, paragrapheRetenue, ...(phraseSaisie !== null ? [phraseSaisie] : [])].join('\n\n') : compteRendu;
   return { etat: 'ok', mails: prevus, alertes: alertesDuCompteRendu(texteControle, choisies, parties), sansEmail: m.sansEmail, vacant: prevue.vacant,
-    restants: prevue.restants, enGestion: logement.enGestion, lotId: logement.lotId, brute: sig.brute, date, sortants, retenue, copropriete: logement.copropriete, pieces, ag };
+    restants: prevue.restants, enGestion: logement.enGestion, lotId: logement.lotId, brute: sig.brute, date, sortants, retenue, montantVingt, copropriete: logement.copropriete, pieces, ag };
 }
+
+/** 🔴 (25/11/2026, 22h06) le montant tel qu'il est dit au récapitulatif et à la fenêtre de résultat (montant, calculé ou saisi, dépôt en euros). PUR. */
+const montantDit = (m: Preparation['montantVingt']): MontantVingt | null =>
+  m === null ? null : { montant: m.montant, origine: origineMontantVingt(m.montant, m.depotCentimes), depot: m.depotCentimes === null ? null : m.depotCentimes / 100 };
 
 export type IssueApercuValidation =
   | { etat: 'ok'; data: { mails: MailPrevuSortie[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string;
-      retenue: boolean; copropriete: boolean | null; ag?: ResumeAg } }
+      retenue: boolean; montantVingt?: MontantVingt | null; copropriete: boolean | null; ag?: ResumeAg } }
   | { etat: 'refus'; motif: string; champ?: string } | { etat: 'inconnu' };
 
 /** 🔴 (16/11/2026, 475) Les dates d'AG pour le récapitulatif et la fenêtre de résultat. */
@@ -278,12 +296,12 @@ export async function apercuValidationSortie(d: DemandeValidation, auteur: Auteu
   const p = await preparer(d, auteur, deps);
   if (p.etat !== 'ok') return p;
   return { etat: 'ok', data: { mails: p.mails.map((x) => x.prevu), alertes: p.alertes.map(({ cle, libelle, phrase }) => ({ cle, libelle, phrase })), sansEmail: p.sansEmail,
-    vacant: p.vacant, enGestion: p.enGestion, date: p.date, retenue: p.retenue, copropriete: p.copropriete, ...(p.ag !== null ? { ag: resumeAg(p.ag) } : {}) } };
+    vacant: p.vacant, enGestion: p.enGestion, date: p.date, retenue: p.retenue, montantVingt: montantDit(p.montantVingt), copropriete: p.copropriete, ...(p.ag !== null ? { ag: resumeAg(p.ag) } : {}) } };
 }
 
 export type IssueValidation =
   | { etat: 'ok'; data: { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (EnvoiAvis & { famille: MailPrevuSortie['famille']; pieces: string[] })[];
-      retenue: boolean; ag?: ResumeAg } }
+      retenue: boolean; montantVingt?: MontantVingt | null; ag?: ResumeAg } }
   | { etat: 'refus'; motif: string; champ?: string } | { etat: 'inconnu' };
 
 /**
@@ -349,6 +367,11 @@ export async function validerSortieEdls(d: DemandeValidation, auteur: Auteur, de
       [p.lotId, r.data.occupationIds, p.date, p.retenue, lues.pieces.map((x) => x.id), auteur.id, auteur.libelle],
     ).then((x) => Number(x.rows[0].id)).catch((e: unknown) => { console.error('[location] sortie validée non inscrite', (e as Error)?.message); return null; });
   }
+  // 🔴🔴 Arno (25/11/2026, 22h06) — le MONTANT des 20 % suit la sortie dès sa validation (ajout seul, 516) ; sans la 516 : calculé à la lecture si le dépôt est connu
+  if (p.montantVingt !== null && sortieId !== null && await montantVingtDisponible()) {
+    await noterMontantVingt({ sortieId, montant: p.montantVingt.montant, depotCentimes: p.montantVingt.depotCentimes }, auteur)
+      .catch((e: unknown) => console.error('[location] montant des 20 % non inscrit', (e as Error)?.message));
+  }
   const ag = p.ag === null ? null : await enregistrerAgDeLaSortie(p.ag, sortieId, auteur);
   const envois: (EnvoiAvis & { famille: MailPrevuSortie['famille']; pieces: string[] })[] = [];
   for (const x of p.mails) {
@@ -360,8 +383,9 @@ export async function validerSortieEdls(d: DemandeValidation, auteur: Auteur, de
   const cr = typeof d.compteRendu === 'string' ? d.compteRendu.trim() : '';
   await query(
     `INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, 'location_edls_realise', $2, $3, $4, $5)`,
-    [p.lotId, p.date, `état des lieux de sortie réalisé le ${p.date} — ${cr === '' ? 'aucun compte rendu saisi' : `compte rendu : ${cr}`}`, auteur.id, auteur.libelle],
+    [p.lotId, p.date, `état des lieux de sortie réalisé le ${p.date} — ${cr === '' ? 'aucun compte rendu saisi' : `compte rendu : ${cr}`}`
+      + (p.montantVingt !== null ? ` — retenue de 20 % du dépôt de garantie : ${montantFr(p.montantVingt.montant)}` : ''), auteur.id, auteur.libelle],
   ).catch((e: unknown) => console.error('[location] journal de l’état des lieux réalisé impossible', (e as Error)?.message));
   return { etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
-    ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}), envois, retenue: p.retenue, ...(ag !== null ? { ag } : {}) } };
+    ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}), envois, retenue: p.retenue, montantVingt: montantDit(p.montantVingt), ...(ag !== null ? { ag } : {}) } };
 }

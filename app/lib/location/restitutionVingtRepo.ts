@@ -2,6 +2,7 @@ import { query, withTransaction } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
+import { montantsDesSorties } from './montantVingtRepo';
 import { montantFr, MOTIF_SANS_513, verifierRestitution, type RestitutionFaite } from './vingtPourcent';
 
 /**
@@ -73,7 +74,10 @@ export async function enregistrerRestitution(d: Record<string, unknown>, auteur:
        VALUES ($1, 'faite', $2, $3, $4, $5, $6, $7) RETURNING id::text`,
       [sortieId, x.date, x.montantRestitue, x.montantRetenuCharges, x.commentaire, auteur.id, auteur.libelle]);
     const id = Number(ins[0].id);
+    // 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus à la sortie suit jusqu'à l'historique (dossier du locataire, bien)
+    const vingt = (await montantsDesSorties([sortieId]).catch(() => new Map())).get(sortieId) ?? null;
     const texte = `restitution des 20 % faite le ${x.date.slice(8, 10)}/${x.date.slice(5, 7)}/${x.date.slice(0, 4)} : ${montantFr(x.montantRestitue)} restitués`
+      + (vingt !== null ? ` sur ${montantFr(vingt.montant)} retenus à la sortie` : '')
       + (x.montantRetenuCharges !== null ? `, ${montantFr(x.montantRetenuCharges)} retenus au titre des charges` : '');
     const commentaire = `${x.commentaire ?? 'Restitution des 20 % du dépôt de garantie'} — sortie validée ${sortieId}, restitution ${id}`;
     await journaliser(q, await locatairesDeLaSortie(q, sortieId), 'location_restitution_20_faite', texte, commentaire, auteur);

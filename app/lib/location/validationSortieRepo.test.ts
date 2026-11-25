@@ -13,6 +13,12 @@ vi.mock('./piecesSortieRepo', () => ({
   metaPieces: async () => h.metas, piecesPourEnvoi: async () => h.piecesLues,
 }));
 vi.mock('../db/client', () => ({ query: h.query, withTransaction: async (fn: (q: unknown) => Promise<unknown>) => fn(h.query) }));
+// 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % : le dépôt connu (centimes) est doublé, l'écriture épiée ; vérification et choix du dépôt : les VRAIS
+const montant = vi.hoisted(() => ({ depot: null as number | null, notes: [] as unknown[] }));
+vi.mock('./montantVingtRepo', async (orig) => ({ ...(await orig<typeof import('./montantVingtRepo')>()),
+  depotsDesOccupations: async (ids: readonly number[]) => new Map(ids.map((i) => [i, montant.depot])),
+  montantVingtDisponible: async () => true,
+  noterMontantVingt: async (m: unknown) => { montant.notes.push(m); return m; } }));
 // 🔴 (16/11/2026, 475) l'historique des AG de la copropriété : absent par défaut (les épreuves d'avant inchangées)
 const ag = vi.hoisted(() => ({ dispo: false, copro: null as { id: number; libelle: string; cle: string } | null, entrees: [] as unknown[], ajouts: [] as unknown[][], creees: [] as string[],
   arrete: null as { jour: number; mois: number } | null }));
@@ -110,7 +116,7 @@ describe('🔴🔴 Arno (11/11/2026, 468) — pièces jointes et retenue de 20 %
   it('les MÊMES pièces, avec leurs octets, dans CHAQUE mail (locataire, propriétaire, copie interne) ; la sortie validée et la retenue inscrites', async () => {
     h.copro = true; h.metas = PIECES;
     h.piecesLues = { ok: true, pieces: PIECES.map((p) => ({ ...p, octets: new Uint8Array([1, 2, 3]) })) };
-    const r = await validerSortieEdls({ ...DEMANDE, pieceIds: [1, 2], retenue: true, paragrapheRetenue: 'Provision de 20 % conservée.' }, AUTEUR);
+    const r = await validerSortieEdls({ ...DEMANDE, pieceIds: [1, 2], retenue: true, montantVingt: '400,00', paragrapheRetenue: 'Provision de 20 % conservée.' }, AUTEUR);
     expect(r).toMatchObject({ etat: 'ok', data: { retenue: true } });
     const mails = h.envoyerSerie.mock.calls.map(([m]) => m[0] as { sorte: string; texte: string; pieces?: { nom: string; octets?: Uint8Array }[] });
     expect(mails.map((m) => [m.sorte, (m.pieces ?? []).map((p) => [p.nom, p.octets?.length])])).toEqual([
@@ -131,10 +137,10 @@ describe('🔴🔴 Arno (11/11/2026, 468) — pièces jointes et retenue de 20 %
   });
   it('copropriété Non : la retenue est REFUSÉE, rien n’est écrit ; Non renseigné : permise', async () => {
     h.copro = false;
-    expect(await validerSortieEdls({ ...DEMANDE, retenue: true }, AUTEUR)).toMatchObject({ etat: 'refus', motif: 'Retenue impossible : le bien n’est pas en copropriété (article 22).' });
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00' }, AUTEUR)).toMatchObject({ etat: 'refus', motif: 'Retenue impossible : le bien n’est pas en copropriété (article 22).' });
     expect(h.enregistrerSortie).not.toHaveBeenCalled();
     h.copro = null;
-    expect((await validerSortieEdls({ ...DEMANDE, retenue: true }, AUTEUR)).etat).toBe('ok');
+    expect((await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00' }, AUTEUR)).etat).toBe('ok');
   });
   it('une pièce illisible ou d’un autre bail : refus AVANT la sortie, rien n’est écrit ni envoyé', async () => {
     h.copro = true; h.metas = PIECES;
@@ -154,34 +160,34 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     h.query.mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : sql.includes('RETURNING id') ? { rows: [{ id: '41' }] } : { rows: [] }));
   });
   it('dernière AG vide, ou prochaine sans statut : REFUS avant toute écriture (champ « ag ») ; sans la 475 : rien n’est demandé', async () => {
-    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '' } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag', motif: 'Renseignez la date de la dernière AGO connue (assemblée générale ordinaire).' });
-    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, statut: null } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag' });
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: { ...AG, derniere: '' } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag', motif: 'Renseignez la date de la dernière AGO connue (assemblée générale ordinaire).' });
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: { ...AG, statut: null } }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'ag' });
     expect(h.enregistrerSortie).not.toHaveBeenCalled();
     ag.dispo = false;
-    expect((await validerSortieEdls({ ...DEMANDE, retenue: true }, AUTEUR)).etat).toBe('ok');
+    expect((await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00' }, AUTEUR)).etat).toBe('ok');
     // case 20 % décochée : aucune date demandée
     ag.dispo = true;
     expect((await apercuValidationSortie({ ...DEMANDE, retenue: false }, AUTEUR)).etat).toBe('ok');
   });
   it('🔴 (Arno, 17/11/2026) une date PROJETÉE déjà passée : REFUS au serveur avant toute écriture ; une date OFFICIELLE passée reste admise', async () => {
-    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'projetee' } }, AUTEUR))
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'projetee' } }, AUTEUR))
       .toMatchObject({ etat: 'refus', champ: 'ag', motif: expect.stringContaining('Une date projetée doit être à venir') });
     expect(h.enregistrerSortie).not.toHaveBeenCalled();
-    expect((await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'officielle' } }, AUTEUR)).etat).toBe('ok');
+    expect((await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: { ...AG, derniere: '2015-03-12', prochaine: '2016-03-12', statut: 'officielle' } }, AUTEUR)).etat).toBe('ok');
   });
   // 🔴 Arno (23/11/2026) — le texte des propriétaires, modifiable dans la fenêtre : c'est LUI qui part (ses paragraphes), borné comme celui des locataires
   it('le texte des propriétaires modifié part TEL QUEL dans leur mail (et seulement le leur) ; trop long : refus avant tout', async () => {
-    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true, phraseProprietaire: '  Premier paragraphe _TEST.\n\nSecond paragraphe _TEST.  ' }, AUTEUR);
+    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true, phraseProprietaire: '  Premier paragraphe _TEST.\n\nSecond paragraphe _TEST.  ' }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(r.etat);
     const pro = r.data.mails.find((m) => m.famille === 'proprietaire')!.texte;
     expect(pro).toContain('Premier paragraphe _TEST.\n\nSecond paragraphe _TEST.');
     expect(pro).not.toContain('Le logement étant situé dans un immeuble en copropriété');
     expect(r.data.mails.find((m) => m.famille === 'locataire')!.texte).not.toContain('_TEST.');
-    expect(await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, phraseProprietaire: 'x'.repeat(20_001) }, AUTEUR))
+    expect(await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG, phraseProprietaire: 'x'.repeat(20_001) }, AUTEUR))
       .toMatchObject({ etat: 'refus', champ: 'retenue', motif: expect.stringContaining('Le texte des propriétaires dépasse') });
   });
   it('l’aperçu dit les deux dates avec leur statut et la copropriété ; la phrase des propriétaires porte la mention si elle est choisie', async () => {
-    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
+    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true }, AUTEUR);
     if (r.etat !== 'ok') throw new Error(r.etat);
     expect(r.data.ag).toEqual({ lignes: [['Dernière AGO (assemblée générale ordinaire)', '12/03/2026'], ['Prochaine AGO', '12/03/2027 (date projetée)']], copropriete: 'Résidence Fictive', aRattacher: false });
     // 🔴 Arno (23/11/2026) — le propriétaire : la MÊME date que le locataire (l'AGO qui compte ; ici arrêté inconnu → la première après la validation)
@@ -191,7 +197,7 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
   });
   // 🔴🔴 Arno (23/11/2026) — « une date officielle va sur la copropriété (même table, même journal), une date projetée n'est jamais enregistrée »
   it('la confirmation : APRÈS la sortie, la dernière AG (officielle) rangée sur la copropriété ; la PROJETÉE n’est JAMAIS enregistrée', async () => {
-    const r = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG }, AUTEUR);
+    const r = await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG }, AUTEUR);
     expect(r).toMatchObject({ etat: 'ok', data: { ag: { copropriete: 'Résidence Fictive', aRattacher: false, motif: null } } });
     expect(ag.ajouts).toHaveLength(1);
     const [, cible, entrees, origine] = ag.ajouts[0];
@@ -200,19 +206,19 @@ describe('🔴🔴 Arno (16/11/2026, 475) — case 20 % cochée : les dates d’
     expect(origine).toBe('sortie');
     ag.ajouts = [];
     // une prochaine OFFICIELLE saisie, elle, va sur la copropriété
-    await validerSortieEdls({ ...DEMANDE, retenue: true, ag: { ...AG, statut: 'officielle' } }, AUTEUR);
+    await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: { ...AG, statut: 'officielle' } }, AUTEUR);
     expect(ag.ajouts[0][2]).toEqual([{ type: 'derniere', statut: 'officielle', date: '2026-03-12', confirmation: false }, { type: 'prochaine', statut: 'officielle', date: '2027-03-12', confirmation: false }]);
     expect(h.enregistrerSortie.mock.invocationCallOrder[0]).toBeLessThan(h.envoyerSerie.mock.invocationCallOrder[0]);
   });
   // 🔴🔴 Arno (23/11/2026) — la sortie ne crée plus de copropriété par un nom tapé : c'est la fiche Copropriété (parcours de la Gestion) qui la crée
   it('un bien sans copropriété : un `{ creer }` (écran plus ancien) est IGNORÉ — rien n’est créé ; « immeuble en copropriété » coché', async () => {
     ag.copro = null; h.copro = null;
-    const r = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG, coproprieteChoix: { creer: 'Résidence Neuve' }, coproprieteOui: true }, AUTEUR);
+    const r = await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG, coproprieteChoix: { creer: 'Résidence Neuve' }, coproprieteOui: true }, AUTEUR);
     expect(r).toMatchObject({ etat: 'ok', data: { ag: { copropriete: null, aRattacher: true } } });
     expect(ag.creees).toEqual([]);
     expect(h.query.mock.calls.some(([sql]) => String(sql).includes('SET copropriete = true WHERE id = $1 AND copropriete IS NULL'))).toBe(true);
     ag.ajouts = [];
-    const r2 = await validerSortieEdls({ ...DEMANDE, retenue: true, ag: AG }, AUTEUR);
+    const r2 = await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG }, AUTEUR);
     expect(r2).toMatchObject({ etat: 'ok', data: { ag: { copropriete: null, aRattacher: true } } });
     // 🔴 Arno (23/11/2026) — « Ne pas rattacher maintenant » : AUCUNE date enregistrée (elles n'ont servi qu'à la phrase du mail)
     expect(ag.ajouts).toEqual([]);
@@ -290,32 +296,32 @@ describe('🔴🔴 Arno (24/11/2026) — le bloc « Retenue de 20 % » du mail a
   });
   it('🔴🔴 OUI projetée, arrêté 31/12, case cochée : le bloc entier, et la MÊME AGO que le locataire (mars 2027)', async () => {
     ag.arrete = { jour: 31, mois: 12 };
-    const t = await texteAdhoc({ retenue: true, ag: AG, mentionAg: true });
+    const t = await texteAdhoc({ retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true });
     expect(t).toContain(['Le logement est désormais vacant.', '',
       'Retenue de 20 % du dépôt de garantie (article 22 de la loi n° 89-462 du 6 juillet 1989) : OUI',
       '– Date d’arrêté des comptes de la copropriété : 31/12',
       '– Dernière AGO connue : 12/03/2026',
       '– AGO qui permettra la restitution : vers mars 2027 (date projetée, approximative)',
       '– Restitution au locataire attendue : vers avril 2027', '', 'Ce message est purement informatif'].join('\n'));
-    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, ag: AG, mentionAg: true }, AUTEUR);
+    const r = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true }, AUTEUR);
     expect(r.etat === 'ok' && r.data.mails.find((m) => m.famille === 'proprietaire')!.texte).toContain('vers avril 2027');
   });
   it('🔴 OUI officielle : « le 12/03/2027 (date officielle) » et « au plus tard le 12/04/2027 »', async () => {
     ag.arrete = { jour: 31, mois: 12 };
-    const t = await texteAdhoc({ retenue: true, ag: { ...AG, statut: 'officielle' }, mentionAg: true });
+    const t = await texteAdhoc({ retenue: true, montantVingt: '400,00', ag: { ...AG, statut: 'officielle' }, mentionAg: true });
     expect(t).toContain('– AGO qui permettra la restitution : le 12/03/2027 (date officielle)\n– Restitution au locataire attendue : au plus tard le 12/04/2027');
   });
   it('🔴 OUI sans date : case « Indiquer l’AGO » non cochée — la restitution « dans le mois qui suit l’approbation des comptes de l’immeuble »', async () => {
-    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: false })).toContain('– Restitution au locataire attendue : dans le mois qui suit l’approbation des comptes de l’immeuble');
+    expect(await texteAdhoc({ retenue: true, montantVingt: '400,00', ag: AG, mentionAg: false })).toContain('– Restitution au locataire attendue : dans le mois qui suit l’approbation des comptes de l’immeuble');
   });
   it('🔴 arrêté MANQUANT : « non renseignée » ; bien SANS copropriété : « aucune copropriété rattachée »', async () => {
-    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: true })).toContain('– Date d’arrêté des comptes de la copropriété : non renseignée\n');
+    expect(await texteAdhoc({ retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true })).toContain('– Date d’arrêté des comptes de la copropriété : non renseignée\n');
     ag.copro = null; h.copro = null;
-    expect(await texteAdhoc({ retenue: true, ag: AG, mentionAg: true })).toContain('– Date d’arrêté des comptes de la copropriété : aucune copropriété rattachée\n');
+    expect(await texteAdhoc({ retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true })).toContain('– Date d’arrêté des comptes de la copropriété : aucune copropriété rattachée\n');
   });
   it('🔴 le MÊME bloc pour chaque partenaire, et le MÊME texte à l’envoi qu’au récapitulatif ; deux locataires sortis : UN bloc', async () => {
     ag.arrete = { jour: 31, mois: 12 };
-    const d = { retenue: true, ag: AG, mentionAg: true };
+    const d = { retenue: true, montantVingt: '400,00', ag: AG, mentionAg: true };
     const apercus = await textesAdhoc(d);
     expect(apercus).toHaveLength(2);
     expect(apercus[0]).toBe(apercus[1]);
@@ -323,5 +329,34 @@ describe('🔴🔴 Arno (24/11/2026) — le bloc « Retenue de 20 % » du mail a
     await validerSortieEdls({ ...DEMANDE, ...d }, AUTEUR);
     const envoyes = h.envoyerSerie.mock.calls.map(([m]) => m[0]).filter((m) => m.sorte === 'sortie_adhoc').map((m) => (m as { texte: string }).texte);
     expect(envoyes).toEqual(apercus);
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026, 22h06) — « ajouter le montant des 20 % retenus en le calculant directement depuis les informations saisies en amont […], sinon
+ *  laisser la capacité de le rentrer à la main, et faire suivre cette information tout le long du processus. » */
+describe('🔴🔴 le montant des 20 % retenus à la validation de la sortie', () => {
+  beforeEach(() => {
+    ag.dispo = false; h.copro = null;                                               // copropriété « non renseignée » : retenue permise, pas d'AG exigée
+    h.query.mockImplementation(async (sql: string) => (sql.includes('AS j') ? { rows: [{ j: '2026-11-11' }] } : sql.includes('RETURNING id') ? { rows: [{ id: '41' }] } : { rows: [] }));
+  });
+  it('case cochée SANS montant : refus avant toute écriture (champ « montantVingt ») ; case décochée : rien n’est demandé', async () => {
+    montant.notes = [];
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '' }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'montantVingt' });
+    expect(await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: 'abc' }, AUTEUR)).toMatchObject({ etat: 'refus', champ: 'montantVingt' });
+    expect(montant.notes).toEqual([]);
+    expect((await validerSortieEdls({ ...DEMANDE, retenue: false }, AUTEUR)).etat).toBe('ok');
+    expect(montant.notes).toEqual([]);
+  });
+  it('dépôt connu (2 000,00 €) et 400,00 € : « calculé » ; 380,00 € : « saisi » ; dépôt inconnu : « saisi » — au récapitulatif, au résultat, ÉCRIT après la sortie', async () => {
+    montant.depot = 200000; montant.notes = [];
+    const ap = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '400,00' }, AUTEUR);
+    expect(ap).toMatchObject({ etat: 'ok', data: { montantVingt: { montant: 400, origine: 'calcule', depot: 2000 } } });
+    expect(montant.notes).toEqual([]);                                              // l'aperçu n'écrit rien
+    const r = await validerSortieEdls({ ...DEMANDE, retenue: true, montantVingt: '380' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok', data: { montantVingt: { montant: 380, origine: 'saisi', depot: 2000 } } });
+    expect(montant.notes.at(-1)).toMatchObject({ montant: 380, depotCentimes: 200000 });
+    montant.depot = null;
+    const r2 = await apercuValidationSortie({ ...DEMANDE, retenue: true, montantVingt: '412,50' }, AUTEUR);
+    expect(r2).toMatchObject({ etat: 'ok', data: { montantVingt: { montant: 412.5, origine: 'saisi', depot: null } } });
   });
 });

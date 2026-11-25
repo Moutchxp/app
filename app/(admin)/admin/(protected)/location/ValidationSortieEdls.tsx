@@ -1,5 +1,7 @@
 'use client';
 
+import { ChampNombre } from './ChampNombre';
+import { calculVingtPourcent, montantFr, origineDite, vingtPourcentDuDepot, type MontantVingt } from '../../../../lib/location/vingtPourcent';
 import { useVerrouDefilement } from '../_composants/verrouDefilement';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -44,8 +46,10 @@ interface PartieVue { cle: string; famille: FamilleVue; nom: string; email: bool
 interface MailPrevu { sorte: string; objet: string; a: string[]; cc: string[]; texte: string; cle: string | null; famille: FamilleVue | 'interne' | 'partenaires'; pieces?: string[]; libelle?: string }
 /** 🔴 (16/11/2026, 475) les dates d'AG dites par le serveur (récapitulatif, résultat) */
 interface ResumeAg { lignes: [string, string][]; copropriete: string | null; aRattacher: boolean; motif?: string | null }
-interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean; ag?: ResumeAg }
-interface Resultat { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (MailParti & { famille: MailPrevu['famille']; pieces?: string[] })[]; retenue?: boolean; ag?: ResumeAg }
+interface Apercu { mails: MailPrevu[]; alertes: { cle: string; libelle: string; phrase: string }[]; sansEmail: string[]; vacant: boolean; enGestion: boolean; date: string; retenue?: boolean; montantVingt?: MontantVingt | null; ag?: ResumeAg }
+interface Resultat { date: string; vacant: boolean; restants: string[]; reintegrations?: string[]; envois: (MailParti & { famille: MailPrevu['famille']; pieces?: string[] })[]; retenue?: boolean; montantVingt?: MontantVingt | null; ag?: ResumeAg }
+/** 🔴 (Arno, 25/11/2026, 22h06) « 400,00 € (calculé : 20 % de 2 000,00 €) » / « 380,00 € (saisi à la main) ». PUR. */
+const montantVingtDit = (m: MontantVingt): string => `${montantFr(m.montant)} (${origineDite(m)})`;
 
 /** 🔴🔴 Arno (24/11/2026) — « ajouter la date de clôture des comptes en plus de la dernière AGO connue et de l'AGO projetée » : la valeur de la
  *  rubrique « Date d'arrêté des comptes » du récapitulatif, lue sur la copropriété (« 31/12 », « non renseignée », « aucune copropriété rattachée »). PUR. */
@@ -114,8 +118,13 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const [refus, setRefus] = useState<string | null>(null);
   // 🔴 Arno (11/11/2026, 468) — les pièces jointes (Drive du bien, ordinateur) et la retenue de 20 % (selon la copropriété de la fiche du bien).
   const [pieces, setPieces] = useState<PieceListee[]>([]);
-  const copro = useLecture<{ lotId: number; copropriete: boolean | null }>(`retenueSortie=${l.occupationId}`, base);
+  const copro = useLecture<{ lotId: number; copropriete: boolean | null; depotCentimes?: number | null }>(`retenueSortie=${l.occupationId}`, base);
   const copropriete = copro.etat.etat === 'ok' ? copro.etat.data.copropriete : undefined;
+  // 🔴🔴 Arno (25/11/2026, 22h06) — le MONTANT des 20 % : calculé sur le dépôt de garantie des conditions d'entrée s'il est connu (prérempli, modifiable),
+  //    sinon saisi à la main (obligatoire) ; `null` = la valeur calculée, telle quelle
+  const depotCentimes = copro.etat.etat === 'ok' ? copro.etat.data.depotCentimes ?? null : null;
+  const [montantVingtSaisi, setMontantVingtSaisi] = useState<string | null>(null);
+  const montantVingtTexte = montantVingtSaisi ?? (depotCentimes !== null ? vingtPourcentDuDepot(depotCentimes).toFixed(2).replace('.', ',') : '');
   const etatCase = copropriete === undefined ? null : etatRetenue(copropriete);
   const [retenue, setRetenue] = useState<boolean | null>(null);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -184,6 +193,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
   const corps = { occupationId: l.occupationId, realise, date, sortants, compteRendu, destinataires, informerPartenaires: enGestion && informer,
     ...(enGestion && informer ? { partenaires: partenairesCoches } : {}),
     pieceIds: pieces.map((p) => p.id), retenue: retenueAppliquee, paragrapheRetenue, ...(retenueAppliquee && phraseProprioSaisie !== null ? { phraseProprietaire: phraseProprioSaisie } : {}),
+    ...(retenueAppliquee ? { montantVingt: montantVingtTexte } : {}),
     ...(retenueAppliquee && saisieAg !== null ? corpsAg(saisieAg, ag) : {}) };
   const basculer = (cle: string): void => setDestinataires((d) => (d.includes(cle) ? d.filter((x) => x !== cle) : [...d, cle]));
 
@@ -244,6 +254,16 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
           <p className="vse-orange" role="status" data-retenue-a-verifier>{ALERTE_COPROPRIETE_NON_RENSEIGNEE}{' '}
             {copro.etat.etat === 'ok' && <a href={`/admin/location/bien/${copro.etat.data.lotId}`} target="_blank" rel="noopener" data-lien-copropriete>Renseigner la copropriété sur la fiche du bien</a>}</p>
         )}
+        {/* 🔴🔴 Arno (25/11/2026, 22h06) — sous la case cochée : le MONTANT des 20 % retenus, calculé sur le dépôt connu (modifiable) ou saisi à la main */}
+        {retenueAppliquee && (
+          <div className="vse-montant-vingt" data-montant-vingt>
+            <label className="pvs-champ"><span className="pvs-libelle">Montant des 20 % retenus (€) *</span>
+              <ChampNombre value={montantVingtTexte} placeholder="ex. 400,00" onChange={(e) => { setMontantVingtSaisi(e.target.value); setRefus(null); }}
+                aria-describedby={`${titreId}-calcul-vingt`} data-montant-vingt-champ /></label>
+            <p id={`${titreId}-calcul-vingt`} className="loc-muet" data-montant-vingt-calcul>
+              {depotCentimes !== null ? `${calculVingtPourcent(depotCentimes)}${montantVingtSaisi !== null && montantVingtSaisi !== vingtPourcentDuDepot(depotCentimes).toFixed(2).replace('.', ',') ? ' — montant modifié à la main' : ''}`
+                : 'Dépôt de garantie non renseigné dans les conditions d’entrée : saisissez le montant des 20 % retenus.'}</p>
+          </div>)}
         {/* 🔴 Arno (16/11/2026, 475) — sous la case cochée : les dates d'AG de la copropriété */}
         {retenueAppliquee && (luAg.etat.etat !== 'ok' ? <EtatLecture etat={luAg.etat} />
           : ag !== null && saisieAg !== null && <AgSortie key={`copro-${ag.copropriete?.id ?? 'aucune'}`} lu={ag} s={saisieAg} onChange={changerAg} desactive={envoi} dateSortie={date} onRelire={() => { luAg.rafraichir(); copro.rafraichir(); }} />)}
@@ -316,6 +336,8 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       <dl className="mis-resume" data-resume-validation>
         <div><dt>Action</dt><dd>Sortie effective le {dateFrPreavis(a.date)} — {a.vacant ? 'le logement devient libre' : 'le logement reste loué'}</dd></div>
         <div><dt>Locataires concernés</dt><dd>{l.locataires.filter((x) => sortants.includes(x.occupationId)).map((x) => x.nom).join(', ')}</dd></div>
+        {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus suit au récapitulatif */}
+        {a.montantVingt != null && <div data-resume-montant-vingt><dt>Retenue de 20 %</dt><dd>{montantVingtDit(a.montantVingt)}</dd></div>}
         {a.ag !== undefined && <LignesAg ag={a.ag} arrete={ag !== null ? valeurArreteRecap(ag) : undefined} />}
         {/* 🔴🔴 Arno (23/11/2026) — RETIRÉ, accord d'Arno (« supprimer de la page le bloc d'information (AGO indiquée au(x) locataire(s), Texte ajouté au mail,
             Date indiquée au(x) propriétaire(s)) : il y a trop d'informations, il faut aller à l'essentiel ») : ces trois rubriques sont remplacées par UNE
@@ -367,7 +389,7 @@ export function ValidationSortieEdls({ l, onFermer }: { l: LignePreavisAccueil; 
       <dl className="mis-resume" data-resume>
         <div><dt>Sortie effective</dt><dd>le {dateFrPreavis(r.date)}</dd></div>
         <div><dt>Le logement</dt><dd>{r.vacant ? 'libre' : `reste loué à ${r.restants.join(', ')}`}</dd></div>
-        <div><dt>Retenue de 20 %</dt><dd data-resultat-retenue>{r.retenue ? 'Retenue 20 % appliquée' : 'non appliquée'}</dd></div>
+        <div><dt>Retenue de 20 %</dt><dd data-resultat-retenue>{r.retenue ? `Retenue 20 % appliquée${r.montantVingt != null ? ` : ${montantVingtDit(r.montantVingt)}` : ''}` : 'non appliquée'}</dd></div>
         {r.ag !== undefined && <LignesAg ag={r.ag} />}
         {(r.reintegrations ?? []).map((x) => <div key={x}><dt>Regroupement</dt><dd>{x}</dd></div>)}
       </dl>

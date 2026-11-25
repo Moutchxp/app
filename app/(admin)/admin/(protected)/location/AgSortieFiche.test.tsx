@@ -384,3 +384,18 @@ describe('🔴🔴 bien sans copropriété : le MÊME agencement que le bien rat
     expect(suit(liste, container.querySelector('[data-ag-copro-oui]')!)).toBe(true);
   });
 });
+
+/** 🔴🔴 Arno (25/11/2026, 22h06) — « Valider la sortie » : le montant des 20 % calculé sur le dépôt connu (modifiable), sinon saisi ; il part avec la validation. */
+describe('🔴🔴 le montant des 20 % dans la fenêtre de sortie', () => {
+  const src = readFileSync('app/(admin)/admin/(protected)/location/ValidationSortieEdls.tsx', 'utf8');
+  it('calcul « 20 % de … = … » sur le dépôt des conditions d’entrée, champ prérempli et modifiable (ChampNombre), sinon saisie ; envoyé avec la case ; dit au récapitulatif et au résultat', () => {
+    expect(src).toContain('`retenueSortie=${l.occupationId}`');
+    expect(src).toContain('copro.etat.data.depotCentimes ?? null');
+    expect(src).toContain('calculVingtPourcent(depotCentimes)');
+    expect(src).toContain('<ChampNombre value={montantVingtTexte} placeholder="ex. 400,00"');
+    expect(src).toContain("...(retenueAppliquee ? { montantVingt: montantVingtTexte } : {}),");
+    expect(src).toContain('Dépôt de garantie non renseigné dans les conditions d’entrée : saisissez le montant des 20 % retenus.');
+    expect(src).toContain('data-resume-montant-vingt');
+    expect(src).toContain("`Retenue 20 % appliquée${r.montantVingt != null ? ` : ${montantVingtDit(r.montantVingt)}` : ''}`");
+  });
+});

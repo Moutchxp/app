@@ -144,6 +144,8 @@ export interface LigneVingtPourcent {
    * (envoyés + reçus) et la date du dernier ; absents : aucun échange.
    */
   echanges?: EchangesVingt;
+  /** 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus (calculé ou saisi) ; `null` : « Montant des 20 % à saisir » ; absent : non lu */
+  montantVingt?: MontantVingt | null;
 }
 /** Les échanges d'une ligne : ses fils (conversations de la boîte Gestion), le nombre de mails (envoyés + reçus), le dernier (AAAA-MM-JJTHH:MM, Paris). */
 export interface EchangesVingt { fils: number[]; nombre: number; dernierLe: string | null }
@@ -333,12 +335,38 @@ export const COMMENTAIRE_RESTITUTION_MAX = 2000;
 export const MONTANT_MAX = 10_000_000;
 export const MOTIF_SANS_513 = 'La restitution des 20 % s’enregistre après la mise à jour de la base (migration 513) : rien n’est enregistré.';
 
+/**
+ * ══ 🔴🔴 Arno (25/11/2026, 22h06) — LE MONTANT DES 20 % RETENUS, DÈS LA SORTIE ═══════════════════════════════════════════════════════════════════════
+ * « ajouter le montant des 20 % retenus en le calculant directement depuis les informations saisies en amont si celles-ci ont bien été instruites, sinon
+ * laisser la capacité de le rentrer à la main, et faire suivre cette information tout le long du processus. »
+ * - CALCULÉ : 20 % du dépôt de garantie des conditions d'entrée du bail (en centimes), arrondi au centime ;
+ * - SAISI : entré à la main (dépôt inconnu, ou montant corrigé) ;
+ * - ENREGISTRÉ (migration 516) à la validation de la sortie ou depuis la ligne, la dernière saisie fait foi ; à défaut, calculé à la lecture si le
+ *   dépôt est connu ; sinon « Montant des 20 % à saisir ».
+ */
+export interface MontantVingt { montant: number; origine: 'calcule' | 'saisi'; depot: number | null }
+export const MONTANT_VINGT_A_SAISIR = 'Montant des 20 % à saisir';
+export const MOTIF_MONTANT_VINGT_OBLIGATOIRE = 'Saisissez le montant des 20 % retenus (en euros) : le dépôt de garantie n’est pas connu, ou le montant est vide.';
+export const MOTIF_SANS_516 = 'Le montant des 20 % s’enregistre après la mise à jour de la base (migration 516) : rien n’est enregistré.';
+/** 20 % d'un dépôt donné en CENTIMES, en euros, arrondi au centime. PUR. */
+export const vingtPourcentDuDepot = (depotCentimes: number): number => Math.round(depotCentimes * 0.2) / 100;
+/** « 20 % de 2 000,00 € = 400,00 € » (dépôt en centimes). PUR. */
+export const calculVingtPourcent = (depotCentimes: number): string => `20 % de ${montantFr(depotCentimes / 100)} = ${montantFr(vingtPourcentDuDepot(depotCentimes))}`;
+/** L'origine d'un montant validé : « calcule » s'il est exactement 20 % du dépôt connu, sinon « saisi ». PUR. */
+export const origineMontantVingt = (montant: number, depotCentimes: number | null): MontantVingt['origine'] =>
+  depotCentimes !== null && Math.round(montant * 100) === Math.round(vingtPourcentDuDepot(depotCentimes) * 100) ? 'calcule' : 'saisi';
+/** La mention qui accompagne un montant : « calculé : 20 % de 2 000,00 € » ou « saisi à la main ». PUR. */
+export const origineDite = (m: MontantVingt): string =>
+  m.origine === 'calcule' && m.depot !== null ? `calculé : 20 % de ${montantFr(m.depot)}` : 'saisi à la main';
+
 /** Une restitution enregistrée (section « Restitutions faites »). */
 export interface RestitutionFaite {
   id: number; sortieId: number; locataires: string[]; logement: string | null; dateSortie: string;
   date: string; montantRestitue: number; montantRetenuCharges: number | null; commentaire: string | null; par: string; le: string;
   /** 🔴🔴 (Arno, 25/11/2026) « l'historique des mails doit suivre le locataire quelle que soit la catégorie » : les échanges de la SORTIE, jusqu'ici */
   mails?: MailVingtEnvoye[]; echanges?: EchangesVingt;
+  /** 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus ; `null` : à saisir ; absent : non lu */
+  montantVingt?: MontantVingt | null;
 }
 
 /** « 1 234,56 », « 1234.5 », 300 → un montant en euros (2 décimales au plus, ≥ 0) ; vide : `undefined` ; illisible : `null`. PUR. */

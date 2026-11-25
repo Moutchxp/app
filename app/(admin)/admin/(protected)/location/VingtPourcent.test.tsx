@@ -328,7 +328,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h16) — deux lignes qui se déploient', 
     const detail = a.querySelector('[data-vgp-detail]')!.textContent ?? '';
     for (const deja of ['1 rue A, 92800 Puteaux', 'DUPONT Alice', 'AGO vers mars 2027']) expect(detail).not.toContain(deja);
     // 🔴 (Arno, 24/11/2026, 23h40) ni la date limite ni les jours restants : ils sont sur la ligne
-    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Dernière AGO']);
+    expect([...a.querySelectorAll('[data-vgp-detail] dt')].map((x) => x.textContent)).toEqual(['Copropriété', 'Date de sortie', 'Exercice concerné', 'Dernière AGO', 'Montant retenu (20 %)']); // 🔴 (22h06) + le montant des 20 %
     expect(detail).not.toContain('25/04/2027');
     await act(async () => { (a.querySelector('[data-vgp-adresse]') as HTMLElement).click(); });
     expect((a.querySelector('[data-vgp-detail]') as HTMLElement).hidden).toBe(true);
@@ -1603,5 +1603,44 @@ describe('🔴 Arno (25/11/2026) — « J-N » en rouge', () => {
     const css = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
     expect(css).toContain('.vgp-rebours--normal{color:var(--color-svv-red)}');
     expect(css).toContain('.vgp-rebours--gris{color:var(--color-svv-muted);font-weight:700}');
+  });
+});
+
+/** 🔴🔴 Arno (25/11/2026, 22h06) — le montant des 20 % retenus suit la sortie : détail de la ligne (ou « à saisir », avec la saisie), fenêtre de restitution. */
+describe('🔴🔴 Arno (25/11/2026, 22h06) — le montant des 20 % retenus', () => {
+  it('détail : « 400,00 € (calculé : 20 % de 2 000,00 €) » ; saisi : « (saisi à la main) » ; inconnu : « Montant des 20 % à saisir » + saisie qui enregistre puis relit', async () => {
+    const posts: Record<string, unknown>[] = [];
+    global.fetch = vi.fn(async (u: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') { posts.push(JSON.parse(String(init!.body))); return { status: 200, json: async () => ({ etat: 'ok', data: {} }) } as Response; }
+      lectures.push(String(u));
+      return { ok: true, status: 200, json: async () => ({ etat: 'ok', data: donnees }) } as Response;
+    }) as unknown as typeof fetch;
+    donnees = { ...LU, lignes: [{ ...LU.lignes[0], montantVingt: { montant: 400, origine: 'calcule', depot: 2000 } },
+      { ...LU.lignes[1], montantVingt: { montant: 380, origine: 'saisi', depot: null } }, { ...LU.lignes[0], sortieId: 15, lotId: 15, montantVingt: null }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const dd = (id: number) => container.querySelector(`[data-vgp-sortie="${id}"] [data-vgp-montant-vingt]`)!;
+    expect(dd(5).textContent).toBe('400,00 € (calculé : 20 % de 2 000,00 €)');
+    expect(dd(7).textContent).toBe('380,00 € (saisi à la main)');
+    expect(dd(15).querySelector('[data-vgp-montant-a-saisir]')?.textContent).toContain('Montant des 20 % à saisir');
+    const champ = dd(15).querySelector('input[data-vgp-montant-champ]') as HTMLInputElement;
+    expect(champ.getAttribute('placeholder')).toBe('ex. 400,00');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ, '412,50');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const avant = lectures.length;
+    await act(async () => { (dd(15).querySelector('[data-vgp-montant-enregistrer]') as HTMLElement).click(); });
+    await calmer();
+    expect(posts).toEqual([{ action: 'montant-20-saisi', sortieId: 15, montant: '412,50' }]);
+    expect(lectures.length).toBeGreaterThan(avant);                                 // l'écran est relu
+  });
+  it('la fenêtre « Faire restitution » rappelle les 20 % retenus à la sortie ; « Restitutions faites » les garde', async () => {
+    donnees = { ...LU, restitutionDisponible: true, lignes: [{ ...LU.lignes[0], montantVingt: { montant: 400, origine: 'calcule', depot: 2000 } }],
+      faites: [{ id: 9, sortieId: 3, locataires: ['FAIT Jean'], logement: '3 rue F', dateSortie: '2026-01-01', date: '2026-11-02', montantRestitue: 370, montantRetenuCharges: 30,
+        commentaire: null, par: 'Arno', le: '2026-11-02 10:00', montantVingt: { montant: 400, origine: 'saisi', depot: null } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(container.querySelector('[data-vgp-faite="9"] [data-vgp-faite-montant-vingt]')?.textContent).toBe('400,00 €');
+    await act(async () => { (container.querySelector('[data-vgp-restituer="5"]') as HTMLElement).click(); });
+    expect(document.querySelector('[data-fenetre-montant-vingt]')?.textContent).toBe('20 % retenus à la sortie : 400,00 € (calculé : 20 % de 2 000,00 €)');
   });
 });

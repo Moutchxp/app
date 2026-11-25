@@ -373,3 +373,22 @@ describe('🔴 Arno (25/11/2026) — nombreAPreparer', () => {
     expect(detailAPreparer(1)).toBe('1 restitution à préparer ou à faire');
   });
 });
+
+import { calculVingtPourcent, origineDite, origineMontantVingt, vingtPourcentDuDepot } from './vingtPourcent';
+/** 🔴🔴 Arno (25/11/2026, 22h06) — le montant des 20 % retenus : calculé sur le dépôt connu (centimes), arrondi au centime, sinon saisi. */
+describe('🔴🔴 le calcul des 20 %', () => {
+  it('20 % du dépôt (centimes) en euros, arrondi au centime ; « 20 % de 2 000,00 € = 400,00 € »', () => {
+    expect(vingtPourcentDuDepot(200000)).toBe(400);
+    expect(vingtPourcentDuDepot(123457)).toBe(246.91);                             // 246,914 → 246,91
+    expect(vingtPourcentDuDepot(123458)).toBe(246.92);                             // 246,916 → 246,92
+    expect(vingtPourcentDuDepot(0)).toBe(0);
+    expect(calculVingtPourcent(200000)).toBe('20 % de 2 000,00 € = 400,00 €');
+  });
+  it('origine : exactement 20 % du dépôt connu → « calcule » ; autre montant, ou dépôt inconnu → « saisi » ; la mention qui va avec', () => {
+    expect(origineMontantVingt(400, 200000)).toBe('calcule');
+    expect(origineMontantVingt(399.99, 200000)).toBe('saisi');
+    expect(origineMontantVingt(400, null)).toBe('saisi');
+    expect(origineDite({ montant: 400, origine: 'calcule', depot: 2000 })).toBe('calculé : 20 % de 2 000,00 €');
+    expect(origineDite({ montant: 380, origine: 'saisi', depot: 2000 })).toBe('saisi à la main');
+  });
+});

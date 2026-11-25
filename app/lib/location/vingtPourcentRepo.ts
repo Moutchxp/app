@@ -9,6 +9,7 @@ import { agosOfficielles, datesManquantes, echangesDeLaLigne, suiviVingtPourcent
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { formaterTelephone } from '../gestion/telephoneAffichage';
 import { comptesDesFils, mailsEnvoyesDesSorties } from './mailVingtPourcentRepo';
+import { montantsDesSorties } from './montantVingtRepo';
 export type { LigneVingtPourcent, SuiviVingtLu } from './vingtPourcent';
 
 /**
@@ -91,6 +92,10 @@ export async function lireSuiviVingtPourcent(): Promise<SuiviVingtLu> {
   const fils = [...new Set([...mails.values()].flat().map((m) => m.filId).filter((f): f is number => typeof f === 'number' && f > 0))];
   const comptes = await comptesDesFils(fils).catch(() => new Map<number, { nombre: number; dernierLe: string | null }>());
   for (const l of lignes) { const e = echangesDeLaLigne(l.mails ?? [], comptes); if (e !== null) l.echanges = e; }
+  // 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus suit la sortie : lignes et « Restitutions faites »
+  const montants = await montantsDesSorties([...lignes.map((l) => l.sortieId), ...faites.map((f) => f.sortieId)]).catch(() => new Map<number, LigneVingtPourcent['montantVingt']>());
+  for (const l of lignes) if (montants.has(l.sortieId)) l.montantVingt = montants.get(l.sortieId) ?? null;
+  for (const f of faites) if (montants.has(f.sortieId)) f.montantVingt = montants.get(f.sortieId) ?? null;
   for (const f of faites) {
     const m = mails.get(f.sortieId);
     if (m !== undefined && m.length > 0) f.mails = m;

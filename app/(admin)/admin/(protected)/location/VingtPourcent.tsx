@@ -8,7 +8,7 @@ import { brouillonReponseDeLaLigne, ModuleMailLigne, type MailVingt } from './Ma
 import { EchangesLigne } from './EchangesVingt';
 import type { BrouillonEcran } from '../gestion/Redaction';
 import {
-  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, agoOfficielleDuDossier, mentionMailsEchanges, MONTANT_VINGT_A_SAISIR, origineDite, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -111,7 +111,7 @@ export function EcranVingtPourcent({ api, retour, mail }: { api: string; retour?
         <p className="svv-page-sub">Les locataires sortis avec 20 % du dépôt de garantie retenus : l’AGO qui arrête leurs comptes et la date limite de restitution (un mois après l’AGO).</p>
       </header>
       {lu.etat === 'charge' ? <p className="loc-muet" role="status">Lecture…</p>
-        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche, mail, mailInitial }}>
+        : lu.etat === 'erreur' ? <p className="cp-refus" role="alert">{lu.message}</p> : <GestesLigne.Provider value={{ onFiche: setFiche, mail, mailInitial, onRelire: () => setVersion((v) => v + 1) }}>
           {/* 🔴🔴 Arno (24/11/2026, 23h53) — la recherche, sous le titre et au-dessus du listing : filtrage instantané, sur toutes les catégories */}
           <div className="vgp-recherche" role="search">
             <input type="search" value={recherche} onChange={(e) => chercher(e.target.value)} placeholder={PLACEHOLDER_RECHERCHE_VINGT}
@@ -356,7 +356,37 @@ function BlocCoproACompleter({ m, concernes, aujourdhui, onCompleter, onRestitue
 }
 
 /** 🔴 (Arno, 24/11/2026, 23h16) les gestes d'une ligne qui sortent de l'écran : ouvrir la fiche Copropriété (puis tout relire). */
-const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void; mail?: MailVingt | null; mailInitial?: number | null }>({ onFiche: () => {} });
+const GestesLigne = createContext<{ onFiche: (c: { immeuble: string | null; lotId: number }) => void; mail?: MailVingt | null; mailInitial?: number | null; onRelire?: () => void }>({ onFiche: () => {} });
+
+/**
+ * 🔴🔴 (Arno, 25/11/2026, 22h06) — LE MONTANT DES 20 % RETENUS dans le détail de la ligne : « 400,00 € » et son origine (calculé sur le dépôt / saisi à la main) ;
+ * sans montant : « Montant des 20 % à saisir », avec la saisie sur place (ajout seul, 516 ; la ligne est relue).
+ */
+function MontantVingtLigne({ l }: { l: LigneVingtPourcent }) {
+  const { onRelire } = useContext(GestesLigne);
+  const [saisie, setSaisie] = useState('');
+  const [refus, setRefus] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  if (l.montantVingt === undefined) return <>—</>;
+  if (l.montantVingt !== null) return <>{montantFr(l.montantVingt.montant)} <span className="loc-muet vgp-montant-origine" data-vgp-montant-origine={l.montantVingt.origine}>({origineDite(l.montantVingt)})</span></>;
+  const enregistrer = async (): Promise<void> => {
+    setEnvoi(true); setRefus(null);
+    const motif = await geste({ action: 'montant-20-saisi', sortieId: l.sortieId, montant: saisie });
+    setEnvoi(false);
+    if (motif !== null) { setRefus(motif); return; }
+    onRelire?.();
+  };
+  return (
+    <span className="vgp-montant-a-saisir" data-vgp-montant-a-saisir>
+      <span className="vgp-orange">{MONTANT_VINGT_A_SAISIR}</span>
+      <span className="vgp-montant-saisie">
+        <ChampNombre value={saisie} onChange={(e) => { setSaisie(e.target.value); setRefus(null); }} placeholder="ex. 400,00" aria-label="Montant des 20 % retenus (€)"
+          disabled={envoi} data-vgp-montant-champ />
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { void enregistrer(); }} disabled={envoi || saisie.trim() === ''} data-vgp-montant-enregistrer>Enregistrer</button>
+      </span>
+      {refus !== null && <span className="cp-refus" role="alert">{refus}</span>}
+    </span>);
+}
 
 /** Ce qui manque à une ligne SANS date calculable (« Dates / copropriétés manquantes »), à la place de la date. PUR. */
 export function manquesDeLaLigne(l: Pick<LigneVingtPourcent, 'copropriete' | 'suivi' | 'arrete'>): string[] {
@@ -442,6 +472,8 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
           {/* 🔴 (Arno, 25/11/2026, retrait accordé) plus de rubrique « Arrêté des comptes » : doublon de « Exercice clos le … » (qui dit aussi « date
               d'arrêté des comptes manquante » quand elle l'est) */}
           <div><dt>Dernière AGO</dt><dd data-vgp-derniere-ago>{l.derniereAgo ? dateFr(l.derniereAgo) : 'non renseignée'}</dd></div>
+          {/* 🔴🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus suit la sortie jusqu'ici */}
+          <div><dt>Montant retenu (20 %)</dt><dd data-vgp-montant-vingt><MontantVingtLigne l={l} /></dd></div>
         </dl>
         <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} action={boutonMail} />
         {/* 🔴🔴 (Arno, 25/11/2026) « Échanges (N) » : la conversation de la ligne, visible d'emblée, présentée comme dans la boîte Gestion ; la liste
@@ -503,6 +535,8 @@ function FenetreRestitution({ l, aujourdhui, onFermer }: { l: LigneVingtPourcent
     <div className="vgp-voile" data-fenetre-restitution={l.sortieId}>
       <div className="vgp-boite" role="dialog" aria-modal="true" aria-labelledby={titreId}>
         <h2 id={titreId} className="vgp-titre">Restitution faite — {l.locataires.length > 0 ? l.locataires.join(', ') : `Sortie n° ${l.sortieId}`}</h2>
+        {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus suit jusqu'à la restitution */}
+        <p className="vgp-montant-rappel" data-fenetre-montant-vingt>20 % retenus à la sortie : {l.montantVingt != null ? `${montantFr(l.montantVingt.montant)} (${origineDite(l.montantVingt)})` : MONTANT_VINGT_A_SAISIR.toLowerCase()}</p>
         <p className="loc-muet vgp-aide">{l.logement ?? `Bien ${l.lotId}`} — sortie le {dateFr(l.dateSortie)}. Enregistrée, la restitution est journalisée dans le dossier du locataire
           et la ligne quitte la liste (elle reste dans « {TITRE_RESTITUTIONS_FAITES} », où elle peut être annulée).</p>
         <label className="vgp-champ"><span>Date de restitution *</span>
@@ -562,6 +596,8 @@ function RestitutionsFaites({ faites, onAnnule, ouvert, onBasculer }: { faites: 
               <dl className="vgp-dl">
                 <div><dt>Logement</dt><dd>{f.logement ?? '—'}</dd></div>
                 <div><dt>Date de sortie</dt><dd>{dateFr(f.dateSortie)}</dd></div>
+                {/* 🔴 (Arno, 25/11/2026, 22h06) le montant des 20 % retenus, jusque dans « Restitutions faites » */}
+                {f.montantVingt != null && <div><dt>20 % retenus</dt><dd data-vgp-faite-montant-vingt>{montantFr(f.montantVingt.montant)}</dd></div>}
                 <div><dt>Restituée le</dt><dd data-vgp-faite-date>{dateFr(f.date)}</dd></div>
                 <div><dt>Montant restitué</dt><dd data-vgp-faite-montant>{montantFr(f.montantRestitue)}</dd></div>
                 {f.montantRetenuCharges !== null && <div><dt>Retenu au titre des charges</dt><dd data-vgp-faite-retenu>{montantFr(f.montantRetenuCharges)}</dd></div>}
@@ -717,6 +753,12 @@ button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
 .vgp-ligne-boutons{display:flex;gap:6px}
 .vgp-ligne-actions{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
 .vgp-mails-echanges{font-size:.75rem;font-weight:700;color:var(--color-svv-muted);max-width:100%}
+.vgp-montant-origine{font-size:.8rem}
+.vgp-montant-rappel{margin:0;font-weight:700;color:var(--color-svv-ink)}
+.vgp-montant-a-saisir{display:flex;flex-direction:column;gap:4px;min-width:0}
+.vgp-montant-saisie{display:flex;gap:6px;flex-wrap:wrap}
+.vgp-montant-saisie input{min-height:40px;width:8em;max-width:100%;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:8px;padding:4px 8px;background:var(--color-svv-field);color:var(--color-svv-ink)}
+.vgp-orange{color:var(--color-svv-orange);font-weight:700}
 .vgp-concerne-echanges{flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:8px}
 .vgp-ligne-boutons .gst-btn{margin:0;width:auto;min-height:44px;white-space:nowrap}
 .vgp-ligne-detail{padding:8px 0 2px 42px;display:flex;flex-direction:column;gap:6px}
