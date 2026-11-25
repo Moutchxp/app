@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from '../gestion/Redaction';
-import { preparerBrouillon } from '../../../../lib/gestion/redaction';
+import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import type { MessageDeFil } from '../../../../lib/gestion/carteRepo';
+import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import { brouillonNouveauDepuisLeBien } from '../../../../lib/gestion/nouveauMessageBien';
 import { brouillonMailSyndic, formulePour } from '../../../../lib/gestion/mailSyndic';
 import { destinatairesModeleVingt, MODELES_VINGT, refusUnLocataireParMail, suggestionsDeLaSortie, texteModeleVingt, type CleModeleVingt } from '../../../../lib/location/mailVingtPourcent';
@@ -62,6 +64,24 @@ export async function brouillonDeLaLigne(l: LigneVingtPourcent, contexte: Contex
 }
 
 /**
+ * ══ 🔴🔴 Arno (25/11/2026) — « Répondre » sur un mail de la conversation de la ligne : « réponse dans le même fil, destinataire prérempli, classement
+ * verrouillé sur le bien […], règle “un mail par locataire” maintenue ». Le brouillon est celui de « Répondre » dans la boîte Gestion (`preparerBrouillon`,
+ * mêmes champs que `ouvrirRedaction` : destinataire, « Re: », citation, `repondALeMessageId`, `filId` — le serveur enchaîne les en-têtes de réponse, le
+ * mail reste dans le fil), le bien de la ligne pour seule cible, la marque de la sortie. PUR.
+ */
+export function brouillonReponseDeLaLigne(l: LigneVingtPourcent, contexte: ContexteRedactionEcran, voie: VoieRedaction, m: MessageDeFil, filId: number,
+  corps: { texte?: string | null; html?: string | null } = {}): BrouillonEcran {
+  const message = { messageId: m.messageId, de: m.de, deNom: m.deNom, objet: m.objet, recuLe: m.recuLe, corps: corps.texte ?? m.corps ?? m.extrait,
+    destA: m.destA, destCc: m.destCc, destinatairesFondus: m.destinatairesFondus };
+  const dateLisible = dateHeureComplete(m.recuLe);
+  const b = preparerBrouillon(voie, message, { adresseGestion: contexte.adresseGestion, signature: contexte.signature },
+    { filId, dateLisible, origineHtml: corps.html ?? m.html ?? null });
+  return { ...b, id: null, cibles: ciblesAvecLeBien([], l) as BrouillonEcran['cibles'], interne: false, horsGestion: false,
+    origineVoies: { message, dateLisible, origineHtml: corps.html ?? m.html ?? null },
+    vingtPourcent: { sortieId: l.sortieId } } as BrouillonEcran;
+}
+
+/**
  * Le module déplié. « Fermer » (ou un nouveau clic sur « Envoyer un mail », compteur `fermeture` de la ligne) passe par LA porte de l'éditeur
  * (`fermetureDemandee`, comme la croix de la colonne) : c'est lui qui décide du brouillon commencé ; il rend la main par `onFerme`.
  */
@@ -96,8 +116,12 @@ export function brouillonsDuModele(base: BrouillonEcran, l: LigneVingtPourcent, 
   });
 }
 
-export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVingtPourcent; mail: MailVingt; fermeture: number; onFermer: () => void }) {
-  const [brouillons, setBrouillons] = useState<BrouillonEcran[] | null>(null);
+export function ModuleMailLigne({ l, mail, fermeture, onFermer, reponse = null }: {
+  l: LigneVingtPourcent; mail: MailVingt; fermeture: number; onFermer: () => void;
+  /** 🔴 (Arno, 25/11/2026) « Répondre » : le brouillon de réponse (pas de modèle : il remplacerait le message cité) ; absent : un nouveau message */
+  reponse?: BrouillonEcran | null;
+}) {
+  const [brouillons, setBrouillons] = useState<BrouillonEcran[] | null>(reponse !== null ? [reponse] : null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [fermer, setFermer] = useState(0);
   // 🔴 (Arno, 25/11/2026) le modèle choisi : il remplace le(s) brouillon(s) par le sien (destinataires d'office, modifiables) ; `generation` remonte l'éditeur
@@ -114,6 +138,7 @@ export function ModuleMailLigne({ l, mail, fermeture, onFermer }: { l: LigneVing
   // rien d'ouvert dans l'éditeur (lecture en cours ou en échec) : fermer, c'est replier
   useEffect(() => { if (demande > 0 && (brouillons === null || brouillons.length === 0)) onFermer(); }, [demande]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    if (reponse !== null) return;
     let vivant = true;
     brouillonDeLaLigne(l, mail.contexte)
       .then((b) => { if (vivant) { setBase(b); setBrouillons([b]); } })

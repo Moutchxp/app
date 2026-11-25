@@ -1465,6 +1465,33 @@ describe('🔴🔴 Arno (25/11/2026) — les échanges de la ligne', () => {
     expect(redaction).not.toHaveBeenCalled();
   });
 
+  it('« Répondre » sur un mail : le module s’ouvre EN RÉPONSE dans le même fil (destinataire, « Re: », mail visé, fil), bien verrouillé, sortie marquée ; la règle « un mail par locataire » tient', async () => {
+    donnees = { ...LU, lignes: [{ ...LIGNE(), contacts: { locataires: [{ nom: 'Alice', email: 'alice@exemple.test', telephone: null }, { nom: 'Léo', email: 'leo@exemple.test', telephone: null }], proprietaires: [] } }] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/gestion/preavis', mail: { contexte: CONTEXTE_E } }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    await act(async () => { (container.querySelector('[data-stub-repondre="903"]') as HTMLElement).click(); });
+    await calmer();
+    const b = (redaction.mock.calls.at(-1)![0] as { brouillon: Record<string, unknown> }).brouillon;
+    expect(b).toMatchObject({ voie: 'repondre', a: ['syndic@exemple.test'], repondALeMessageId: 903, filId: 55, interne: false,
+      vingtPourcent: { sortieId: 5 }, cibles: [{ sorte: 'lot', id: 1, libelle: '1 rue A, 92800 Puteaux' }] });
+    expect(String(b.objet)).toMatch(/^Re: /);
+    expect(container.querySelector('[data-vgp-mail-modele]')).toBeNull();          // pas de modèle sur une réponse
+    expect(container.querySelector('[data-vgp-mail-refus]')).toBeNull();
+    // deux locataires ajoutés à la réponse : le refus d'écran (le même motif que celui du serveur)
+    await act(async () => { (container.querySelector('[data-stub-deux-locataires]') as HTMLElement).click(); });
+    expect(container.querySelector('[data-vgp-mail-refus]')?.textContent).toBeTruthy();
+  });
+
+  it('sans droit d’écrire (Location) : la conversation se lit, sans « Répondre »', async () => {
+    donnees = { ...LU, lignes: [LIGNE()] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await act(async () => { (container.querySelector('[data-vgp-sortie="5"] [data-vgp-deplier]') as HTMLElement).click(); });
+    await calmer();
+    expect(container.querySelectorAll('[data-stub-carte]')).toHaveLength(3);
+    expect(container.querySelector('[data-stub-repondre]')).toBeNull();
+  });
+
   it('le modèle choisi part avec la marque (et y reste quand on modifie le message)', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/location/MailVingtPourcent.tsx', 'utf8');
     expect(src).toContain('vingtPourcent: { sortieId: l.sortieId, modele: cle } };');

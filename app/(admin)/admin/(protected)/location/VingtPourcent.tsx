@@ -4,8 +4,9 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Rea
 import { CSS_LOCATION_ECRANS } from './commun';
 import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
-import { ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
+import { brouillonReponseDeLaLigne, ModuleMailLigne, type MailVingt } from './MailVingtPourcent';
 import { EchangesLigne } from './EchangesVingt';
+import type { BrouillonEcran } from '../gestion/Redaction';
 import {
   agoAConfirmer, agoOfficielleDuDossier, texteConfirmationRestitution, TITRE_CONFIRMER_RESTITUTION, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
@@ -360,13 +361,15 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
   // 🔴🔴 (Arno, 25/11/2026) « Envoyer un mail » : le module existant, déplié sous les coordonnées ; un nouveau clic (ou « Fermer ») le replie
   const [mailOuvert, setMailOuvert] = useState(mailInitial === l.sortieId && mail != null);
   const [fermetureMail, setFermetureMail] = useState(0);
+  // 🔴🔴 (Arno, 25/11/2026) « Répondre » sur un mail des échanges : le module s'ouvre en réponse (même fil) ; `n` remonte l'éditeur à chaque réponse
+  const [reponse, setReponse] = useState<{ b: BrouillonEcran; n: number } | null>(null);
   const [maintenant] = useState(() => new Date());
   const boutonMail = mail === undefined
     ? <a className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" href={lienMailGestion(l.sortieId)} data-vgp-envoyer-mail={l.sortieId}
       title="Ouvre cette ligne sur l’écran Gestion › « 20 % à restituer », module d’envoi déplié">Envoyer un mail</a>
     : <button type="button" className="svv-btn svv-btn-outline gst-btn vgp-envoyer-mail" data-vgp-envoyer-mail={l.sortieId} aria-expanded={mailOuvert}
       disabled={mail === null} title={mail === null ? 'Envoi indisponible : droit d’envoi au nom de la Gestion ou mise à jour de la base manquant' : undefined}
-      onClick={() => { if (mailOuvert) setFermetureMail((n) => n + 1); else setMailOuvert(true); }}>Envoyer un mail</button>;
+      onClick={() => { if (mailOuvert) setFermetureMail((n) => n + 1); else { setReponse(null); setMailOuvert(true); } }}>Envoyer un mail</button>;
   const detailId = useId();
   const s = l.suivi;
   const alerte = s.etat === 'ok' ? s.alerte : 'sans';
@@ -424,8 +427,13 @@ function LigneLocataire({ l, aujourdhui, onRestituer }: { l: LigneVingtPourcent;
         <Coordonnees c={l.contacts} unSeulLocataire={l.locataires.length <= 1} action={boutonMail} />
         {/* 🔴🔴 (Arno, 25/11/2026) « Échanges (N) » : la conversation de la ligne, visible d'emblée, présentée comme dans la boîte Gestion ; la liste
             « Mails envoyés depuis cette page » y est fondue (chaque mail parti d'ici porte son modèle et son lien) ; le module d'écriture reste fermé */}
-        {ouvert && <EchangesLigne l={l} maintenant={maintenant} />}
-        {mailOuvert && mail != null && <ModuleMailLigne l={l} mail={mail} fermeture={fermetureMail} onFermer={() => { setMailOuvert(false); setFermetureMail(0); }} />}
+        {ouvert && <EchangesLigne l={l} maintenant={maintenant}
+          onRepondre={mail != null ? (voie, m, filId, corps) => {
+            setReponse((r) => ({ b: brouillonReponseDeLaLigne(l, mail.contexte, voie, m, filId, corps), n: (r?.n ?? 0) + 1 }));
+            setMailOuvert(true);
+          } : undefined} />}
+        {mailOuvert && mail != null && <ModuleMailLigne key={reponse?.n ?? 0} l={l} mail={mail} fermeture={fermetureMail} reponse={reponse?.b ?? null}
+          onFermer={() => { setMailOuvert(false); setFermetureMail(0); setReponse(null); }} />}
         {s.etat !== 'ok' && <p className="vgp-alerte vgp-alerte--sans" data-vgp-alerte-texte>Pas de date limite — {s.mention} : à compléter dans la fiche Copropriété.</p>}
       </div>
     </li>
