@@ -756,8 +756,12 @@ export const CSS_FICHE_COPROPRIETE = `
 .fcp-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .fcp-gauche{justify-content:flex-start}
 .fcp-pied{padding:12px 16px;border-top:1px solid var(--color-svv-line)}
+/* 🔴 (Arno, 25/11/2026) « agrandir les deux boutons du bas de la modale pour qu'ils occupent toute la largeur de la colonne » : Fermer et Valider côte à
+   côte, 50 % chacun, même hauteur ; à 390 px, empilés pleine largeur, Valider au-dessus */
+.fcp-pied{flex-wrap:nowrap}
+.fcp-pied > .svv-btn{flex:1 1 0;width:auto;min-width:0;margin:0;min-height:44px;justify-content:center}
 .fcp-pied-msg{margin:6px 16px 0}
 .fcp-confirmation{padding:10px 12px;border-radius:10px;border-left:4px solid var(--color-svv-green);background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:800;overflow-wrap:anywhere}
 .fcp-sans-marge{margin:0}
-@media (max-width:600px){.fcp-pied .svv-btn{flex:1 1 100%}}
+@media (max-width:600px){.fcp-pied{flex-direction:column-reverse} .fcp-pied > .svv-btn{flex:0 0 auto;width:100%}}
 `;

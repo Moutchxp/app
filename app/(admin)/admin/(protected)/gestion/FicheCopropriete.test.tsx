@@ -712,3 +712,16 @@ describe('🔴🔴 Arno (24/11/2026) — l’ordre des blocs : Adresses, puis Id
     expect(nouvelle.compareDocumentPosition($('[data-fcp-adresses]')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+/** 🔴 Arno (25/11/2026) — « agrandir les deux boutons du bas de la modale pour qu'ils occupent toute la largeur de la colonne comme les autres boutons ». */
+describe('🔴 Arno (25/11/2026) — les deux boutons du bas de la fiche Copropriété', () => {
+  it('Fermer puis Valider dans le pied ; côte à côte 50 % chacun, même hauteur ; à 390 px empilés pleine largeur, Valider au-dessus', async () => {
+    const { readFileSync: lire } = await import('node:fs');
+    const src = lire('app/(admin)/admin/(protected)/gestion/FicheCopropriete.tsx', 'utf8');
+    const pied = src.slice(src.indexOf('<div className="fcp-actions fcp-pied">'), src.indexOf('</div>', src.indexOf('<div className="fcp-actions fcp-pied">')));
+    expect(pied.indexOf('data-fcp-annuler>Fermer')).toBeLessThan(pied.indexOf('data-fcp-valider'));
+    expect(src).toContain('.fcp-pied{flex-wrap:nowrap}');
+    expect(src).toContain('.fcp-pied > .svv-btn{flex:1 1 0;width:auto;min-width:0;margin:0;min-height:44px;justify-content:center}');
+    expect(src).toContain('@media (max-width:600px){.fcp-pied{flex-direction:column-reverse} .fcp-pied > .svv-btn{flex:0 0 auto;width:100%}}');
+  });
+});
