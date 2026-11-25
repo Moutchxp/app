@@ -6,7 +6,7 @@ import { ChampNombre } from './ChampNombre';
 import { FicheCopropriete } from '../gestion/FicheCopropriete';
 import { arreteFr } from '../../../../lib/location/arreteComptes';
 import {
-  agoAConfirmer, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
+  agoAConfirmer, agoOfficielleDuDossier, blocsOuvertsPourRecherche, type BlocRepliableVingt, capsulesAgo, datesManquantesVisibles, MENTION_AGO_A_CONFIRMER, categorieVingt, classerVingtPourcent, filtrerVingtPourcent, PLACEHOLDER_RECHERCHE_VINGT, rechercheActive, cleDeLaLigne, compteAReboursVingt, etiquetteAgo, MENTION_DATE_PROVISOIRE, montantFr, TITRE_RESTITUTIONS_FAITES, verifierRestitution, type RestitutionFaite, libelleExercice, nombreCoproprietesACompleter, TITRES_CATEGORIES, TITRE_VINGT_POURCENT,
   type CategorieVingt, type ContactsSortie, type GroupeManquant, type LigneDatesManquantes, type LigneVingtPourcent, type SuiviVingtLu,
 } from '../../../../lib/location/vingtPourcent';
 
@@ -135,19 +135,40 @@ type Repli = { ouvert: boolean; onBasculer: (ouvert: boolean) => void };
 function Categorie({ cle, lignes, aujourdhui, onRestituer, ouvert, onBasculer, children }: { cle: Exclude<CategorieVingt, 'manquantes'>; lignes: readonly LigneVingtPourcent[];
   aujourdhui: string; onRestituer: (l: LigneVingtPourcent) => void; children?: ReactNode } & Repli) {
   const rouge = (cle === 'urgence' || cle === 'retard') && lignes.length > 0;
+  // 🔴🔴 Arno (25/11/2026) — « lorsque l'on clique sur l'un des deux cartouches AGO à droite de la ligne de catégorie, il ne doit s'afficher que les
+  //    locataires concernés par ce statut, et pas l'autre ; lorsque l'on clique ailleurs sur la ligne, ne pas changer le comportement actuel ».
+  //    Filtre PROPRE à la catégorie (état local : retiré au rechargement, et quand la recherche est effacée — la catégorie est alors remontée) ;
+  //    il porte sur les lignes déjà filtrées par la recherche ; une date provisoire compte comme projetée ; le compteur et les capsules ne changent pas.
+  const [filtre, setFiltre] = useState<'officielle' | 'projetee' | null>(null);
   // 🔴 (Arno, 25/11/2026) le compteur compte des LOCATAIRES (avant : des sorties) — le même total que les deux capsules
   const c = capsulesAgo(lignes);
+  const actif = filtre !== null && c[filtre] > 0 ? filtre : null;
+  const vues = actif === null ? lignes : lignes.filter((l) => (agoOfficielleDuDossier(l) ? 'officielle' : 'projetee') === actif);
+  const capsule = (k: 'officielle' | 'projetee', ton: 'vert' | 'rouge', libelle: string) => {
+    const n = c[k];
+    // à 0 : grisée, NON cliquable (le clic ne fait rien, pas même ouvrir ou fermer la catégorie)
+    if (n === 0) return <span className="vgp-capsule vgp-capsule--zero" data-vgp-capsule={k} data-vgp-capsule-nombre={0} onClick={(e) => e.preventDefault()}>{libelle} · 0</span>;
+    const presse = actif === k;
+    return (
+      <button type="button" className={`vgp-capsule vgp-capsule--${ton}`} data-vgp-capsule={k} data-vgp-capsule-nombre={n} aria-pressed={presse}
+        aria-label={`${libelle} · ${n} — ${presse ? 'filtre actif, cliquer pour tout afficher' : 'afficher seulement ces locataires'}`}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFiltre(presse ? null : k); if (!presse) onBasculer(true); }}>{libelle} · {n}</button>
+    );
+  };
   return (
-    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${rouge ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={c.total}>
+    <section className={`vgp-bloc vgp-cat vgp-cat--${cle}${rouge ? ' vgp-cat--a-faire' : ''}${teinte(cle)}`} data-vgp-filtre={actif ?? ''} data-vgp-teinte={TEINTES_BLOCS_VINGT[cle]} aria-label={TITRES_CATEGORIES[cle]} data-vgp-categorie={cle} data-vgp-nombre={c.total}>
       <details open={ouvert} onToggle={(e) => onBasculer(e.currentTarget.open)} className="vgp-repli">
-        <summary className="vgp-titre">{TITRES_CATEGORIES[cle]} <span className={rouge ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
+        {/* un clic ailleurs sur l'en-tête : le comportement d'avant (ouvrir / fermer, tout le contenu) — le filtre est retiré */}
+        <summary className="vgp-titre" onClick={() => setFiltre(null)}>{TITRES_CATEGORIES[cle]} <span className={rouge ? 'vgp-pastille' : 'loc-pastille'} data-vgp-compteur>{c.total}</span>
           {/* 🔴🔴 Arno (25/11/2026) — deux capsules empilées, visibles même repliée : verte « AGO officielle · N », rouge « AGO projetée · N » ; à 0, grisée */}
           <span className="vgp-capsules" data-vgp-capsules>
-            <span className={`vgp-capsule vgp-capsule--${c.officielle > 0 ? 'vert' : 'zero'}`} data-vgp-capsule="officielle" data-vgp-capsule-nombre={c.officielle}>AGO officielle · {c.officielle}</span>
-            <span className={`vgp-capsule vgp-capsule--${c.projetee > 0 ? 'rouge' : 'zero'}`} data-vgp-capsule="projetee" data-vgp-capsule-nombre={c.projetee}>AGO projetée · {c.projetee}</span>
+            {capsule('officielle', 'vert', 'AGO officielle')}
+            {capsule('projetee', 'rouge', 'AGO projetée')}
           </span></summary>
+        {actif !== null && <p className="vgp-filtre-actif" role="status" data-vgp-filtre-actif={actif}>
+          Filtre actif : {actif === 'officielle' ? 'AGO officielle' : 'AGO projetée'} ({c[actif]} locataire{c[actif] > 1 ? 's' : ''}) — cliquez sur le titre pour tout afficher.</p>}
         {lignes.length === 0 ? <p className="loc-muet" data-vgp-categorie-vide>Aucun locataire.</p>
-          : <ul className="vgp-liste">{lignes.map((l) => <LigneLocataire key={l.sortieId} l={l} aujourdhui={aujourdhui} onRestituer={onRestituer} />)}</ul>}
+          : <ul className="vgp-liste">{vues.map((l) => <LigneLocataire key={l.sortieId} l={l} aujourdhui={aujourdhui} onRestituer={onRestituer} />)}</ul>}
         {children}
       </details>
     </section>
@@ -515,7 +536,12 @@ export const CSS_VINGT_POURCENT = `
 .vgp-capsule{display:inline-block;padding:1px 9px;border-radius:999px;font-size:.75rem;font-weight:800;line-height:1.35;white-space:nowrap;border:1px solid}
 .vgp-capsule--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green)}
 .vgp-capsule--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red)}
-.vgp-capsule--zero{background:var(--color-svv-field);color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
+.vgp-capsule--zero{background:var(--color-svv-field);color:var(--color-svv-muted);border-color:var(--color-svv-line-strong);cursor:default}
+/* 🔴 (Arno, 25/11/2026) les capsules filtrent : boutons ; la capsule active a un contour plus marque (sans decaler la mise en page) */
+button.vgp-capsule{font:inherit;font-size:.75rem;font-weight:800;line-height:1.35;cursor:pointer;margin:0}
+button.vgp-capsule:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
+button.vgp-capsule[aria-pressed="true"]{box-shadow:0 0 0 2px currentColor}
+.vgp-filtre-actif{margin:0;font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
 .vgp-sous-liste{margin-top:6px;padding-left:10px;border-left:3px solid var(--color-svv-line-strong)}
 .vgp-dl dd.vgp-depasse{color:var(--color-svv-red);font-weight:800}
 .vgp-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap}

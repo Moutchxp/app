@@ -691,7 +691,7 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « 
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     const s = container.querySelector('[data-vgp-categorie="a_preparer"]')!;
     expect((s.querySelector('details') as HTMLDetailsElement).open).toBe(false);
-    expect([...s.querySelectorAll('summary [data-vgp-capsules] > span')].map((x) => [x.textContent, x.className])).toEqual([
+    expect([...s.querySelectorAll('summary [data-vgp-capsules] > *')].map((x) => [x.textContent, x.className])).toEqual([
       ['AGO officielle · 1', 'vgp-capsule vgp-capsule--vert'], ['AGO projetée · 0', 'vgp-capsule vgp-capsule--zero']]);
     expect(container.querySelector('[data-vgp-categorie="urgence"] [data-vgp-capsule="projetee"]')?.className).toBe('vgp-capsule vgp-capsule--rouge');
     const src = readFileSync('app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'utf8');
@@ -972,5 +972,86 @@ describe('🔴 Arno (25/11/2026) — « AGO passée — restitution à faire »'
     expect(container.textContent).not.toMatch(/(^|[^O])AG passée/);
     for (const f of ['app/lib/location/vingtPourcent.ts', 'app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'app/lib/location/alerteVingt.ts'])
       expect(readFileSync(f, 'utf8'), f).not.toMatch(/\bAG passée/);
+  });
+});
+
+/**
+ * 🔴🔴 Arno (25/11/2026) — « lorsque l'on clique sur l'un des deux cartouches AGO à droite de la ligne de catégorie, il ne doit s'afficher que les
+ * locataires concernés par ce statut, et pas l'autre ; lorsque l'on clique ailleurs sur la ligne, ne pas changer le comportement actuel ».
+ */
+describe('🔴🔴 Arno (25/11/2026) — les capsules AGO filtrent la catégorie', () => {
+  const L = (sortieId: number, statut: 'officielle' | 'projetee', nom: string, incertaine = false) => ({ ...LU.lignes[0], sortieId, lotId: sortieId, locataires: [nom], logement: `${sortieId} rue F`,
+    cleCopro: 'copro-10', arrete: incertaine ? null : { jour: 31, mois: 12 },
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2027-09-01', statut }, incertaine, limite: '2027-10-01', alerte: 'a_venir' as const, joursRestants: 300 } });
+  // « AGO < 1 mois – À préparer » : deux officielles (dont une provisoire → projetée) ; une projetée proche
+  const PREP = [L(31, 'officielle', 'OFF Anne'), L(32, 'officielle', 'PROV Bruno', true), { ...L(33, 'projetee', 'PROJ Carla'),
+    suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2026-12-10', statut: 'projetee' as const }, incertaine: false, limite: '2027-01-10', alerte: 'a_venir' as const, joursRestants: 48 } }];
+  const sec = () => container.querySelector('[data-vgp-categorie="a_preparer"]')!;
+  const det = () => sec().querySelector('details') as HTMLDetailsElement;
+  const caps = (k: string) => sec().querySelector(`summary [data-vgp-capsule="${k}"]`) as HTMLElement;
+  const vues = () => [...sec().querySelectorAll('[data-vgp-sortie]')].map((x) => Number(x.getAttribute('data-vgp-sortie')));
+  const cliquer = async (el: Element) => { await act(async () => { (el as HTMLElement).click(); }); };
+  const taper = async (v: string) => {
+    const el = container.querySelector('[data-vgp-recherche]') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  beforeEach(() => { donnees = { ...LU, lignes: [...LU.lignes, ...PREP], faites: [] }; });
+  it('« AGO officielle · N » : la catégorie s’ouvre et n’affiche que ses officielles ; capsule pressée ; compteur et capsules inchangés', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    expect(det().open).toBe(false);
+    await cliquer(caps('officielle'));
+    expect(det().open).toBe(true);
+    expect(vues()).toEqual([31]);
+    expect(caps('officielle').getAttribute('aria-pressed')).toBe('true');
+    expect(caps('officielle').getAttribute('aria-label')).toBe('AGO officielle · 1 — filtre actif, cliquer pour tout afficher');
+    expect(sec().querySelector('[data-vgp-filtre-actif]')?.textContent).toContain('Filtre actif : AGO officielle (1 locataire)');
+    expect(sec().querySelector('summary [data-vgp-compteur]')?.textContent).toBe('3');
+    expect([caps('officielle').textContent, caps('projetee').textContent]).toEqual(['AGO officielle · 1', 'AGO projetée · 2']);
+  });
+  it('« AGO projetée · N » : les projetées, date provisoire comprise ; l’autre capsule bascule le filtre ; la même le retire', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await cliquer(caps('projetee'));
+    expect(vues().sort((a, b) => a - b)).toEqual([32, 33]);
+    await cliquer(caps('officielle'));
+    expect(vues()).toEqual([31]);
+    expect(caps('projetee').getAttribute('aria-pressed')).toBe('false');
+    await cliquer(caps('officielle')); // même capsule : filtre retiré, tout le contenu ; la catégorie reste ouverte
+    expect(vues().sort((a, b) => a - b)).toEqual([31, 32, 33]);
+    expect(det().open).toBe(true);
+    expect(sec().querySelector('[data-vgp-filtre-actif]')).toBeNull();
+  });
+  it('un clic ailleurs sur l’en-tête : comportement d’avant (ouvrir / fermer) et filtre retiré', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await cliquer(caps('officielle'));
+    expect(vues()).toEqual([31]);
+    await cliquer(sec().querySelector('summary [data-vgp-compteur]')!); // ailleurs sur l'en-tête : la catégorie se ferme
+    expect(det().open).toBe(false);
+    await cliquer(sec().querySelector('summary')!); // et se rouvre avec TOUT le contenu
+    expect(det().open).toBe(true);
+    expect(vues().sort((a, b) => a - b)).toEqual([31, 32, 33]);
+    expect(sec().getAttribute('data-vgp-filtre')).toBe('');
+  });
+  it('capsule à 0 : grisée, pas un bouton, le clic ne fait rien (ni filtre, ni ouverture)', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const zero = container.querySelector('[data-vgp-categorie="en_attente"] [data-vgp-capsule="officielle"]')!;
+    expect([zero.tagName, zero.className, zero.textContent]).toEqual(['SPAN', 'vgp-capsule vgp-capsule--zero', 'AGO officielle · 0']);
+    await cliquer(zero);
+    expect((container.querySelector('[data-vgp-categorie="en_attente"] > details') as HTMLDetailsElement).open).toBe(false);
+    // les capsules non nulles sont des boutons, utilisables au clavier
+    expect(caps('officielle').tagName).toBe('BUTTON');
+    expect(caps('officielle').getAttribute('type')).toBe('button');
+  });
+  it('se combine avec la recherche ; propre à chaque catégorie ; retiré quand la recherche est effacée', async () => {
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    await cliquer(caps('projetee'));
+    await taper('carla'); // la recherche ne garde que PROJ Carla : le filtre « projetée » tient
+    expect(vues()).toEqual([33]);
+    expect(caps('projetee').getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('[data-vgp-categorie="en_attente"]')?.getAttribute('data-vgp-filtre') ?? '').toBe(''); // les autres catégories : sans filtre
+    await taper('');
+    expect(sec().getAttribute('data-vgp-filtre')).toBe('');
+    expect(det().open).toBe(false); // tout se replie (décision du 25/11), filtre compris
+    await act(async () => { det().open = true; det().dispatchEvent(new Event('toggle')); });
+    expect(vues().sort((a, b) => a - b)).toEqual([31, 32, 33]);
   });
 });
