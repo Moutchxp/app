@@ -118,7 +118,7 @@ describe('🔴🔴 Arno (24/11/2026) — categorieVingt / classerVingtPourcent',
       : { etat: 'ok', exercice: '2026-12-31', ago: { date: ago, statut }, incertaine: false, limite: ajouterMois(ago, 1), alerte: 'a_venir', joursRestants: 0 },
     ...o,
   });
-  it('b / c : AG + 20 jours EXACT → « AG passée » ; AG + 21 jours → « Urgence » ; le jour de l’AG → « AG passée »', () => {
+  it('b / c : AG + 20 jours EXACT → « AGO passée » ; AG + 21 jours → « Urgence » ; le jour de l’AG → « AGO passée »', () => {
     expect(categorieVingt(ligne(plus(-20)), AUJ)).toBe('ag_passee');
     expect(categorieVingt(ligne(plus(-21)), AUJ)).toBe('urgence');
     expect(categorieVingt(ligne(AUJ), AUJ)).toBe('ag_passee');
@@ -283,7 +283,7 @@ describe('🔴🔴 Arno (25/11/2026) — retard / urgence : les bornes', () => {
     dateSortie: '2026-01-15', valideLe: '2026-01-20', copropriete: { id: 1, libelle: 'C', aRattacher: false }, arrete: { jour: 31, mois: 12 }, cleCopro: 'copro-1',
     suivi: { etat: 'ok', exercice: '2025-12-31', ago: { date: ago, statut }, incertaine, limite, alerte: 'a_venir', joursRestants: 0 } });
   const AG = '2026-09-15'; const LIMITE = '2026-10-15';
-  it('AGO + 20 j → « AG passée » ; AGO + 21 j → « Urgence » ; la date limite elle-même → « Urgence » ; le lendemain → « Alerte » si OFFICIELLE', () => {
+  it('AGO + 20 j → « AGO passée » ; AGO + 21 j → « Urgence » ; la date limite elle-même → « Urgence » ; le lendemain → « Alerte » si OFFICIELLE', () => {
     expect(categorieVingt(L(AG, LIMITE, 'officielle'), '2026-10-05')).toBe('ag_passee');
     expect(categorieVingt(L(AG, LIMITE, 'officielle'), '2026-10-06')).toBe('urgence');
     expect(categorieVingt(L(AG, LIMITE, 'officielle'), LIMITE)).toBe('urgence');

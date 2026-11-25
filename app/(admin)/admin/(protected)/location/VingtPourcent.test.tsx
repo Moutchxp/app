@@ -51,7 +51,7 @@ describe('point 3 — l’écran « 20 % à restituer »', () => {
     const blocs = [...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'));
     // 🔴 Arno (24/11/2026) — cinq catégories exclusives, dans cet ordre (« Dates / copropriétés manquantes » toujours en tête)
     // 🔴 Arno (25/11/2026) — l'ancienne « Alerte du lundi » est remplacée par « Alerte restitution en retard », absente ici (personne en retard)
-    expect(blocs).toEqual(['Dates / copropriétés manquantes', 'Urgence', 'AG passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente', 'Restitutions faites']);
+    expect(blocs).toEqual(['Dates / copropriétés manquantes', 'Urgence', 'AGO passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente', 'Restitutions faites']);
     const m = container.querySelector('[data-vgp-manque="copro-20"]')!;
     expect(m.textContent).toContain('Copro B');
     // 🔴 (Arno, 24/11/2026, 23h40) un bloc de trois lignes : l'immeuble, les locataires concernés, ce qui manque (orange)
@@ -145,7 +145,7 @@ describe('🔴🔴 Arno (24/11/2026) — les cinq catégories de l’écran', ()
   it('chaque ligne dans UNE catégorie, compteurs, « Date limite dépassée de N jours » en rouge ; « Dates / copropriétés manquantes » garde la ligne complète sous sa copropriété', async () => {
     donnees = { ...LU, lignes: [...LU.lignes,
       ligne(11, '2026-09-01', '2026-10-01', -53), // urgence
-      ligne(12, '2026-11-10', '2026-12-10', 16), // AG passée
+      ligne(12, '2026-11-10', '2026-12-10', 16), // AGO passée
       ligne(13, '2026-12-10', '2027-01-10', 47, 'projetee'), // à préparer (AG dans 16 jours)
       ligne(14, '2027-09-01', '2027-10-01', 311, 'officielle'), // à préparer (officielle lointaine)
     ] };
@@ -501,7 +501,7 @@ describe('🔴🔴 Arno (24/11/2026, 23h53) — la recherche sur l’écran', ()
     await act(async () => { (container.querySelector('[data-vgp-recherche-effacer]') as HTMLButtonElement).click(); });
     expect((container.querySelector('[data-vgp-recherche]') as HTMLInputElement).value).toBe('');
     expect(container.querySelector('[data-vgp-aucun-resultat]')).toBeNull();
-    expect(visibles().slice(0, 5)).toEqual(['Dates / copropriétés manquantes', 'Urgence', 'AG passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente']);
+    expect(visibles().slice(0, 5)).toEqual(['Dates / copropriétés manquantes', 'Urgence', 'AGO passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente']);
     expect(readFileSync('app/(admin)/admin/(protected)/location/BoutonVingtPourcent.tsx', 'utf8')).not.toContain('recherche');
   });
 });
@@ -584,11 +584,11 @@ describe('🔴🔴 Arno (25/11/2026) — tout replié à l’ouverture', () => {
 
 /** 🔴 Arno (25/11/2026) — « passer le bloc "Alerte du lundi" en deuxième position » ; 🔴 (25/11) « Alerte restitution en retard » l'a remplacé, même place. */
 describe('🔴 Arno (25/11/2026) — la 2e position : « Alerte restitution en retard » (à la place de « Alerte du lundi »)', () => {
-  it('ordre : Dates / copropriétés manquantes, Alerte restitution en retard, Urgence, AG passée, À préparer, En attente, Restitutions faites ; l’essai du mail est dans son bloc', async () => {
+  it('ordre : Dates / copropriétés manquantes, Alerte restitution en retard, Urgence, AGO passée, À préparer, En attente, Restitutions faites ; l’essai du mail est dans son bloc', async () => {
     donnees = { ...LU, lignes: [...LU.lignes, RETARD], faites: [] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     expect([...container.querySelectorAll('section')].map((s) => s.getAttribute('aria-label'))).toEqual(
-      ['Dates / copropriétés manquantes', 'Alerte restitution en retard', 'Urgence', 'AG passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente', 'Restitutions faites']);
+      ['Dates / copropriétés manquantes', 'Alerte restitution en retard', 'Urgence', 'AGO passée — restitution à faire', 'AGO < 1 mois – À préparer', 'AGO > 1 mois – En attente', 'Restitutions faites']);
     const a = container.querySelector('[data-vgp-categorie="retard"]')!;
     expect(a.querySelector('[data-vgp-alerte-essai]')?.textContent).toBe('Voir le mail tel qu’il partirait (essai : rien n’est envoyé)');
     expect((a.querySelector('details') as HTMLDetailsElement).open).toBe(false);
@@ -616,12 +616,12 @@ describe('🔴🔴 Arno (25/11/2026) — une trame de fond par catégorie', () =
   };
   const contraste = (a: string, b: string): number => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
   const TEINTES = ['alerte', 'urgence', 'agpassee', 'preparer', 'attente', 'faites'] as const;
-  it('chaque bloc porte sa teinte : Alerte restitution en retard rouge (🔴 25/11, à la place de l’Alerte du lundi), Urgence rouge orangé, AG passée orange, À préparer orange clair, En attente vert, Restitutions faites gris ; Dates / copropriétés manquantes inchangée', async () => {
+  it('chaque bloc porte sa teinte : Alerte restitution en retard rouge (🔴 25/11, à la place de l’Alerte du lundi), Urgence rouge orangé, AGO passée orange, À préparer orange clair, En attente vert, Restitutions faites gris ; Dates / copropriétés manquantes inchangée', async () => {
     donnees = { ...LU, lignes: [...LU.lignes, RETARD], faites: [] };
     await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
     // 🔴 (25/11) le rouge de l'ancienne « Alerte du lundi » est à « Alerte restitution en retard », même place
     expect([...container.querySelectorAll('section')].map((s) => [s.getAttribute('aria-label'), s.getAttribute('data-vgp-teinte')])).toEqual([
-      ['Dates / copropriétés manquantes', null], ['Alerte restitution en retard', 'alerte'], ['Urgence', 'urgence'], ['AG passée — restitution à faire', 'agpassee'],
+      ['Dates / copropriétés manquantes', null], ['Alerte restitution en retard', 'alerte'], ['Urgence', 'urgence'], ['AGO passée — restitution à faire', 'agpassee'],
       ['AGO < 1 mois – À préparer', 'preparer'], ['AGO > 1 mois – En attente', 'attente'], ['Restitutions faites', 'faites']]);
     expect(container.querySelector('[data-vgp-categorie="urgence"]')?.className).toContain('vgp-teinte vgp-teinte--urgence');
     expect(container.querySelector('[data-vgp-categorie="manquantes"]')?.className).not.toContain('vgp-teinte');
@@ -665,7 +665,7 @@ describe('🔴🔴 Arno (25/11/2026) — les capsules « AGO officielle » / « 
   const DONNEES = { ...LU, faites: [], lignes: [...LU.lignes,
     L(11, '2026-09-01', '2026-10-01', 'officielle', ['OFF Un', 'OFF Deux']), // 🔴 (25/11) retard : 2 locataires, officielle, limite dépassée
     L(12, '2026-09-02', '2026-10-02', 'projetee', ['PROJ Trois']), // urgence : projetée, limite dépassée (AGO à confirmer)
-    L(13, '2026-11-10', '2026-12-10', 'officielle', ['PROV Quatre'], true), // AG passée : officielle MAIS provisoire → projetée
+    L(13, '2026-11-10', '2026-12-10', 'officielle', ['PROV Quatre'], true), // AGO passée : officielle MAIS provisoire → projetée
     L(14, '2027-09-01', '2027-10-01', 'officielle', ['LOIN Cinq']), // à préparer : officielle
   ] };
   const capsules = (cat: string) => {
@@ -955,5 +955,22 @@ describe('🔴🔴 Arno (25/11/2026) — la couleur des boutons « 20 % à resti
     expect(entree).toContain("className={`cm-entree${p.niveau !== null ? ` cm-entree--vgp-${p.niveau}` : ''}`}");
     expect(entree).toContain("data-vgp-niveau={p.niveau ?? 'origine'}");
     expect(readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).toContain('vingtRetards={pastillesVingt.retards}');
+  });
+});
+
+/** 🔴 Arno (25/11/2026) — renommer « AG passée — restitution à faire » en « AGO passée — restitution à faire » partout ; règles inchangées. */
+describe('🔴 Arno (25/11/2026) — « AGO passée — restitution à faire »', () => {
+  it('titre et nom accessible ; la ligne d’AGO du 10/11 y reste (règle inchangée) ; l’ancien intitulé n’apparaît plus, ni à l’écran ni dans le mail', async () => {
+    const L12 = { ...LU.lignes[0], sortieId: 12, lotId: 12, locataires: ['PASSEE Paul'], cleCopro: 'copro-10',
+      suivi: { etat: 'ok' as const, exercice: '2025-12-31', ago: { date: '2026-11-10', statut: 'officielle' as const }, incertaine: false, limite: '2026-12-10', alerte: 'a_venir' as const, joursRestants: 17 } };
+    donnees = { ...LU, lignes: [...LU.lignes, L12] };
+    await rendre(createElement(EcranVingtPourcent, { api: '/api/admin/location' }));
+    const c = container.querySelector('[data-vgp-categorie="ag_passee"]')!;
+    expect(c.getAttribute('aria-label')).toBe('AGO passée — restitution à faire');
+    expect(c.querySelector('summary')?.firstChild?.textContent).toBe('AGO passée — restitution à faire');
+    expect([...c.querySelectorAll('[data-vgp-sortie]')].map((x) => x.getAttribute('data-vgp-sortie'))).toEqual(['12']);
+    expect(container.textContent).not.toMatch(/(^|[^O])AG passée/);
+    for (const f of ['app/lib/location/vingtPourcent.ts', 'app/(admin)/admin/(protected)/location/VingtPourcent.tsx', 'app/lib/location/alerteVingt.ts'])
+      expect(readFileSync(f, 'utf8'), f).not.toMatch(/\bAG passée/);
   });
 });
